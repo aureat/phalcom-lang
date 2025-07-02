@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/phalcom-common/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/phalcom-compiler/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/phalcom-concurrency/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/phalcom-objects/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/phalcom-syntax/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/phalcom-vm/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/phalcom/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

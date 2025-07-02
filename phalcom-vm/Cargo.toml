@@ -1,0 +1,8 @@
+[package]
+name = "phalcom-vm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+phalcom-common = { path = "../phalcom-common" }
+indexmap = { workspace = true }
