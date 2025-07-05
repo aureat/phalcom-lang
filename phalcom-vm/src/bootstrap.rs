@@ -1,10 +1,10 @@
+use crate::class::ClassObject;
 use crate::method::MethodObject;
-use crate::object::ClassObject;
-use crate::primitive::native_number_add;
+use crate::primitive::number::native_number_add;
+use crate::primitive::string::native_string_add;
 use crate::universe::Universe;
-use crate::value::Value::{Class, Method};
-use phalcom_common::MaybeWeak::{Strong, Weak};
-use phalcom_common::{MaybeWeak, PhRef, phref_new, phref_weak};
+use phalcom_common::MaybeWeak::Strong;
+use phalcom_common::{phref_new, MaybeWeak, PhRef};
 use std::cell::RefCell;
 
 pub fn bootstrap() -> Universe {
@@ -52,10 +52,21 @@ pub fn bootstrap() -> Universe {
     ));
 
     // Attach native methods to primitive classes.
-    let add_method = MethodObject::new_native(1, native_number_add);
-    number_class_ptr
-        .borrow_mut()
-        .add_method("__add__:", PhRef::new(RefCell::new(add_method)));
+    let mut number_class = number_class_ptr.borrow_mut();
+    number_class.add_method(
+        "+:",
+        phref_new(MethodObject::new_native(1, native_number_add)),
+    );
+
+    drop(number_class);
+
+    let mut string_class = string_class_ptr.borrow_mut();
+    string_class.add_method(
+        "+:",
+        phref_new(MethodObject::new_native(1, native_string_add)),
+    );
+
+    drop(string_class);
 
     // Return the fully populated Universe.
     Universe {

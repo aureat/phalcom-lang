@@ -1,8 +1,7 @@
+use crate::class::{lookup_method_in_hierarchy, ClassObject};
 use crate::instance::InstanceObject;
 use crate::method::MethodObject;
-use crate::object::{ClassObject, lookup_method_in_hierarchy};
 use crate::universe::Universe;
-use crate::value::Value::Class;
 use phalcom_common::PhRef;
 use std::fmt;
 use std::fmt::Debug;
@@ -35,10 +34,37 @@ impl PartialEq for Value {
 }
 
 impl Value {
+    pub fn new_string(s: &str) -> Self {
+        Value::String(Rc::new(s.to_string()))
+    }
+
+    pub fn is_number(&self) -> bool {
+        matches!(self, Value::Number(_))
+    }
+
+    pub fn is_boolean(&self) -> bool {
+        matches!(self, Value::Boolean(_))
+    }
+
+    pub fn is_nil(&self) -> bool {
+        matches!(self, Value::Nil)
+    }
+
+    pub fn is_string(&self) -> bool {
+        matches!(self, Value::String(_))
+    }
+
     pub fn as_number(&self) -> Result<f64, String> {
         match self {
             Value::Number(n) => Ok(*n),
             _ => Err("Type Error: Expected a Number.".to_string()),
+        }
+    }
+
+    pub fn as_string(&self) -> Result<Rc<String>, String> {
+        match self {
+            Value::String(s) => Ok(s.clone()),
+            _ => Err("Type Error: Expected a String.".to_string()),
         }
     }
 
@@ -71,9 +97,9 @@ impl Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Nil => write!(f, "Nil"),
-            Self::Boolean(b) => write!(f, "{}", b),
-            Self::Number(n) => write!(f, "{}", n),
-            Self::String(s) => write!(f, "\"{}\"", s),
+            Self::Boolean(b) => write!(f, "{b}"),
+            Self::Number(n) => write!(f, "{n}"),
+            Self::String(s) => write!(f, "\"{s}\""),
             Self::Instance(_) => write!(f, "<instance>"),
             Self::Class(c) => write!(f, "<class {}>", c.borrow().name), // Assuming Class has a name
             Self::Method(_) => write!(f, "<method>"),

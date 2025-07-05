@@ -1,0 +1,263 @@
+use crate::ast::*;
+use crate::token::{Token, LexicalError};
+
+grammar;
+
+pub Program: Program = {
+    <statements:Statement*>  => Program { statements },
+};
+
+Statement = {
+    ClassStatement,
+    LetStatement,
+    ReturnStatement,
+    ExprStatement,
+};
+
+ClassStatement: Statement = {
+    "class" <name:identifier> "{" <members:ClassMember*> "}" => Statement::Class(ClassDef { name, members }),
+};
+
+LetStatement: Statement = {
+    "let" <name:identifier> <value:("=" <Expr>)?> ";" => Statement::Let(LetBinding { name, value }),
+};
+
+ExprStatement: Statement = {
+    <expr:Expr> ";" => Statement::Expr(expr),
+};
+
+ReturnStatement: Statement = {
+    "return" <value:Expr?> ";" => Statement::Return(ReturnStatement { value }),
+};
+
+ClassMember: ClassMember = {
+    <name:MethodName> <equal:("=")?> <params:("(" <ParamList> ")")?> "{" <body:Statement*> "}" => {
+        if let Some(equal) = equal {
+            ClassMember::Setter(SetterDef { name, param: "value".to_string(), body })
+        } else if let Some(params) = params {
+            ClassMember::Method(MethodDef { name, params, body })
+        } else {
+            ClassMember::Getter(GetterDef { name, body })
+        }
+    },
+};
+
+//GetterDef: GetterDef = {
+//    <name:identifier> "{" <body:Statement*> "}" => ClassMember::Getter(GetterDef { name, body }),
+//};
+//
+//SetterDef: SetterDef = {
+//    <name:identifier> "=" "(" <param:identifier> ")" "{" <body:Statement*> "}" => SetterDef { name, param, body },
+//};
+//
+//MethodDef: MethodDef = {
+//    <name:MethodName> "(" <params:ParamList> ")" "{" <body:Statement*> "}" =>
+//        MethodDef { name, params, body }
+//};
+
+MethodName: String = {
+    <name:identifier> => name,
+    "+"  => "+".to_owned(),
+    "-"  => "-".to_owned(),
+    "*"  => "*".to_owned(),
+    "/"  => "/".to_owned(),
+    "%"  => "%".to_owned(),
+    "==" => "==".to_owned(),
+    "!=" => "!=".to_owned(),
+    "<"  => "<".to_owned(),
+    "<=" => "<=".to_owned(),
+    ">"  => ">".to_owned(),
+    ">=" => ">=".to_owned(),
+    "and" => "and".to_owned(),
+    "or" => "or".to_owned(),
+    "is" => "is".to_owned(),
+};
+
+ParamList: Vec<String> = {
+    <first:identifier> <mut params:("," <identifier>)*> => {
+        params.insert(0, first);
+        params
+    },
+    () => Vec::new(),
+};
+
+// ---------- expressions ----------
+// Simple precedence climbing: plus is the only binary operator so far
+
+Expr = ExprAssignment;
+
+ExprAssignment: Expr = {
+    <name:identifier> "=" <value:Expr> =>
+        Expr::Assignment(Box::new(AssignmentExpr { name, value })),
+    <object:ExprCall> "." <property:identifier> "=" <value:Expr> =>
+        Expr::SetProperty(Box::new(SetPropertyExpr { object, property, value })),
+    ExprOr,
+};
+
+ExprOr: Expr = {
+    <left:ExprOr> "or" <right:ExprAnd> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Or, left, right })),
+    ExprAnd,
+};
+
+ExprAnd: Expr = {
+    <left:ExprAnd> "and" <right:ExprEquality> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::And, left, right })),
+    ExprEquality,
+};
+
+ExprEquality: Expr = {
+    <left:ExprEquality> "==" <right:ExprComparison> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Equal, left, right })),
+    <left:ExprEquality> "!=" <right:ExprComparison> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::NotEqual, left, right })),
+    ExprComparison,
+};
+
+ExprComparison: Expr = {
+    <left:ExprComparison> "<" <right:ExprTerm> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::LessThan, left, right })),
+    <left:ExprComparison> "<=" <right:ExprTerm> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::LessThanOrEqual, left, right })),
+    <left:ExprComparison> ">" <right:ExprTerm> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::GreaterThan, left, right })),
+    <left:ExprComparison> ">=" <right:ExprTerm> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::GreaterThanOrEqual, left, right })),
+    ExprTerm,
+};
+
+ExprTerm: Expr = {
+    <left:ExprTerm> "+" <right:ExprFactor> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left, right })),
+    <left:ExprTerm> "-" <right:ExprFactor> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Subtract, left, right })),
+    ExprFactor,
+};
+
+ExprFactor: Expr = {
+    <left:ExprFactor> "*" <right:ExprUnary> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Multiply, left, right })),
+    <left:ExprFactor> "/" <right:ExprUnary> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Divide, left, right })),
+    <left:ExprFactor> "%" <right:ExprUnary> =>
+        Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Modulo, left, right })),
+    ExprUnary,
+};
+
+ExprUnary: Expr = {
+    "-" <expr:ExprUnary> => Expr::Unary(Box::new(UnaryExpr { op: UnaryOp::Negate, expr })),
+    "!" <expr:ExprUnary> => Expr::Unary(Box::new(UnaryExpr { op: UnaryOp::Not, expr })),
+    ExprCall,
+};
+
+ExprCall: Expr = {
+    <callee:ExprCall> "(" <args:ArgList> ")" => {
+        Expr::Call(Box::new(CallExpr { callee, args, }))
+    },
+    <object:ExprCall> "." <property:identifier> => {
+        Expr::GetProperty(Box::new(GetPropertyExpr { object, property }))
+    },
+    ExprPrimary,
+}
+
+//ExprCall: Expr = {
+//    <callee:ExprCall> <property:("." <identifier>)?> <args:("(" <ArgList> ")")?> => {
+//        match (property, args) {
+//            (Some(method), Some(args)) =>
+//                Expr::MethodCall(Box::new(MethodCallExpr { callee, method, args })),
+//            (None, Some(args)) =>
+//                Expr::MethodCall(Box::new(MethodCallExpr { callee, method: "call".into(), args })),
+//            (Some(property), None) =>
+//                Expr::GetProperty(Box::new(GetPropertyExpr { object: callee, property })),
+//            (None, None) => callee,
+//        }
+//    },
+//    ExprPrimary,
+//};
+
+ExprPrimary: Expr = {
+    "nil" => Expr::Nil,
+    "true" => Expr::Boolean(true),
+    "false" => Expr::Boolean(false),
+    <num:number> => Expr::Number(num),
+    <str:string> => Expr::String(str),
+    <ident:identifier> => Expr::Var(ident),
+    "self" => Expr::SelfVar,
+    "super" => Expr::SuperVar,
+    "(" <expr:Expr> ")" => expr,
+};
+
+ArgList: Vec<Expr> = {
+    <first:Expr> <mut args:("," <Expr>)*> => {
+        args.insert(0, first);
+        args
+    },
+    () => Vec::new(),
+};
+
+extern {
+  type Location = usize;
+  type Error = LexicalError;
+
+  enum Token {
+    "let" => Token::Let,
+    "fn" => Token::Fn,
+    "class" => Token::Class,
+    "return" => Token::Return,
+    "true" => Token::True,
+    "false" => Token::False,
+    "nil" => Token::Nil,
+    "if" => Token::If,
+    "else" => Token::Else,
+    "while" => Token::While,
+    "for" => Token::For,
+    "break" => Token::Break,
+    "continue" => Token::Continue,
+    "import" => Token::Import,
+    "self" => Token::SelfKw,
+    "super" => Token::Super,
+    "and" => Token::And,
+    "or" => Token::Or,
+    "not" => Token::Not,
+    "in" => Token::In,
+    "is" => Token::Is,
+    "as" => Token::As,
+    "static" => Token::Static,
+    "init" => Token::Init,
+
+    identifier => Token::Identifier(<String>),
+    string => Token::String(<String>),
+    number => Token::Number(<f64>),
+
+    "(" => Token::LParen,
+    ")" => Token::RParen,
+    "{" => Token::LBrace,
+    "}" => Token::RBrace,
+    "[" => Token::LBracket,
+    "]" => Token::RBracket,
+    ";" => Token::Semicolon,
+    ":" => Token::Colon,
+    "::" => Token::ColonColon,
+    "->" => Token::Arrow,
+    "=>" => Token::FatArrow,
+    "?" => Token::Question,
+    "@" => Token::At,
+    "." => Token::Dot,
+    ".." => Token::DotDot,
+    "..." => Token::DotDotDot,
+    "," => Token::Comma,
+    "!" => Token::Bang,
+    "!=" => Token::BangEqual,
+    "<" => Token::Less,
+    "<=" => Token::LessEqual,
+    ">" => Token::Greater,
+    ">=" => Token::GreaterEqual,
+    "=" => Token::Equal,
+    "==" => Token::EqualEqual,
+    "+" => Token::Plus,
+    "-" => Token::Minus,
+    "*" => Token::Asterisk,
+    "/" => Token::Slash,
+    "%" => Token::Percent,
+  }
+}

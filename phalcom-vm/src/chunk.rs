@@ -1,10 +1,10 @@
-use crate::bytecode::OpCode;
+use crate::bytecode::Bytecode;
 use crate::value::Value;
 
 /// A chunk of compiled bytecode and its associated constant values.
 #[derive(Debug, Default, Clone)]
 pub struct Chunk {
-    pub code: Vec<(OpCode, u8)>,
+    pub code: Vec<Bytecode>,
     pub constants: Vec<Value>,
 }
 
@@ -16,16 +16,16 @@ impl Chunk {
         }
     }
 
-    pub fn with_code(code: Vec<(OpCode, u8)>, constants: Vec<Value>) -> Self {
+    pub fn with_code(code: Vec<Bytecode>, constants: Vec<Value>) -> Self {
         Self { code, constants }
     }
 
-    pub fn add_instruction(&mut self, opcode: OpCode, operand: u8) {
-        self.code.push((opcode, operand));
+    pub fn add_instruction(&mut self, opcode: Bytecode) {
+        self.code.push(opcode);
     }
 
-    pub fn add_constant(&mut self, value: Value) -> u8 {
+    pub fn add_constant(&mut self, value: Value) -> u16 {
         self.constants.push(value);
-        (self.constants.len() - 1) as u8
+        (self.constants.len() - 1) as u16
     }
 }

@@ -1,4 +1,4 @@
-use crate::object::ClassObject;
+use crate::class::ClassObject;
 use phalcom_common::PhRef;
 
 #[derive(Debug, Clone)]

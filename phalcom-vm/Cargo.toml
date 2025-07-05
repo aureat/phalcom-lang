@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 phalcom-common = { path = "../phalcom-common" }
 indexmap = { workspace = true }
+
+[build-dependencies]
+lalrpop = "0.22.2"

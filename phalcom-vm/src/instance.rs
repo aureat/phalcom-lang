@@ -1,4 +1,4 @@
-use crate::object::ClassObject;
+use crate::class::ClassObject;
 use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::PhRef;

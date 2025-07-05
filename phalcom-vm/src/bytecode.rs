@@ -1,32 +1,54 @@
 // The set of instructions for our VM. This is the language the compiler "speaks".
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OpCode {
-    /// Pushes a constant from the chunk's pool onto the stack.
-    /// Operand: index of the constant.
-    OpConstant,
-    /// Pops a value off the stack.
-    OpPop,
+pub enum Bytecode {
+    /// Pushes a number constant onto the stack.
+    /// 0: index in the constant pool.
+    Number(u16),
 
-    // --- Variable Opcodes ---
+    /// Pushes a string constant onto the stack.
+    /// 0: index in the constant pool.
+    String(u16),
+
+    /// Pushes the `nil` value onto the stack.
+    Nil,
+
+    /// Pushes the boolean value `true` onto the stack.
+    True,
+
+    /// Pushes the boolean value `false` onto the stack.
+    False,
+
+    /// Pops the top value from the stack.
+    Pop,
+
     /// Defines a new global variable.
-    /// Operand: index of the variable name (a string constant).
-    OpDefineGlobal,
+    /// 0: identifier index in the symbol table.
+    DefineGlobal(u32),
+
     /// Pushes the value of a global variable onto the stack.
-    /// Operand: index of the variable name.
-    OpGetGlobal,
+    /// 0: identifier index in the symbol table.
+    GetGlobal(u32),
 
-    // --- Object Model Opcodes ---
+    /// Sets the value of a global variable.
+    /// 0: identifier index in the symbol table.
+    SetGlobal(u32),
+
     /// Creates a new class.
-    /// Operand: index of the class name (a string constant).
-    OpClass,
-    /// Attaches a method to the class on top of the stack.
-    /// Operand: index of the method selector (a string constant).
-    OpMethod,
+    /// 0:
+    Class(u16),
 
-    // --- Function/Method Opcodes ---
+    /// Attaches a method to the class on top of the stack.
+    /// 0:
+    Method(u32),
+
+    /// Performs addition operation.
+    Add,
+
     /// Calls a method.
-    /// Operands: index of selector constant, number of arguments.
-    OpCall,
+    /// 0: number of arguments
+    /// 1: index of selector constant
+    Send(u8, u16),
+
     /// Returns a value from the current method.
-    OpReturn,
+    Return,
 }
