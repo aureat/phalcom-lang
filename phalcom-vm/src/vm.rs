@@ -4,30 +4,38 @@ use crate::bytecode::Bytecode;
 use crate::chunk::Chunk;
 use crate::class::ClassObject;
 use crate::frame::CallFrame;
+use crate::interner::{Interner, Symbol};
 use crate::method::{MethodKind, MethodObject};
 use crate::nil::NIL;
-use crate::universe::Universe;
+use crate::universe::Classes;
 use crate::value::Value;
 use phalcom_common::MaybeWeak::Strong;
 use phalcom_common::{phref_new, PhRef};
 use std::collections::HashMap;
+use std::time::Instant;
 
 pub struct VM {
     frames: Vec<CallFrame>,
     stack: Vec<Value>,
-    globals: HashMap<String, Value>,
-    universe: Universe,
+    globals: HashMap<Symbol, Value>,
+    pub classes: Classes,
+    pub(crate) interner: Interner,
+    pub start_time: Instant,
 }
 
 impl VM {
     /// Creates a new VM, ready to execute the top-level script method.
     pub fn new(top_level_method: PhRef<MethodObject>) -> Self {
-        let universe = bootstrap(); // Bootstrap the object model
+        let classes = bootstrap(); // Bootstrap the object model
+        let mut interner = Interner::with_capacity(100);
+
         let mut vm = Self {
             frames: Vec::with_capacity(256),
             stack: Vec::with_capacity(1024),
             globals: HashMap::new(),
-            universe,
+            classes,
+            interner,
+            start_time: Instant::now(),
         };
 
         // The top-level script runs in its own call frame.
@@ -55,7 +63,7 @@ impl VM {
         name: &str,
         superclass: Option<PhRef<ClassObject>>,
     ) -> PhRef<ClassObject> {
-        let metaclass_class_ptr = self.universe.metaclass_class.clone();
+        let metaclass_class_ptr = self.classes.metaclass_class.clone();
         let class = ClassObject::new(name, Strong(metaclass_class_ptr), superclass);
 
         phref_new(class)
@@ -76,7 +84,7 @@ impl VM {
             let method_borrowed = method.borrow();
             let chunk = match &method_borrowed.kind {
                 MethodKind::Bytecode(chunk) => chunk,
-                MethodKind::Native(_) => {
+                MethodKind::Primitive(_) => {
                     return Err(
                         "VM Error: Attempted to execute bytecode from a native method.".to_string(),
                     );
@@ -245,9 +253,9 @@ impl VM {
         args: &[Value],
     ) -> Result<Value, String> {
         // Perform dynamic dispatch: lookup the method on the receiver's class.
-        if let Some(method) = receiver.lookup_method(&self.universe, selector) {
+        if let Some(method) = receiver.lookup_method(&self, selector) {
             match &method.borrow().kind {
-                MethodKind::Native(native_fn) => {
+                MethodKind::Primitive(native_fn) => {
                     // For native methods, call the Rust function directly.
                     let result = native_fn(self, receiver, args);
                     match result {

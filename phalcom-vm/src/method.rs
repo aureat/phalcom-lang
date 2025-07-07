@@ -1,13 +1,35 @@
 use crate::chunk::Chunk;
+use crate::error::PhResult;
+use crate::interner::Symbol;
 use crate::value::Value;
 use crate::vm::VM;
 
-pub type NativeFn = fn(&mut VM, receiver: &Value, args: &[Value]) -> Result<Value, String>;
+pub type PrimitiveFn = fn(&mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>;
 
-#[derive(Debug, Clone)]
-pub struct Parameter {
-    pub name: String,
-    pub type_hint: Option<String>,
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SigKind {
+    /// `foo()`
+    Method(u8),
+
+    /// `foo`
+    Getter,
+
+    /// `foo=(_)`
+    Setter,
+
+    /// `[_]`
+    SubscriptGet(u8),
+
+    /// `[_]=(_)`
+    SubscriptSet(u8),
+}
+
+#[derive(Clone, Debug)]
+pub struct Signature {
+    pub selector: Symbol,
+    pub kind: SigKind,
+    pub arity: u8,
 }
 
 #[derive(Debug)]
@@ -16,47 +38,37 @@ pub enum MethodKind {
     Bytecode(Chunk),
 
     /// A native Rust function for core library methods.
-    Native(NativeFn),
+    Primitive(PrimitiveFn),
 }
 
 #[derive(Debug)]
 pub struct MethodObject {
     pub kind: MethodKind,
-    pub arity: usize,               // The number of parameters.
-    pub parameters: Vec<Parameter>, // The full description of each parameter.
+    pub arity: u8,
+    pub signature: Signature,
 }
 
 impl MethodObject {
-    pub fn new(kind: MethodKind, arity: usize, parameters: Vec<Parameter>) -> Self {
-        Self {
+    pub fn new(kind: MethodKind, arity: u8, selector: Symbol, sig_kind: SigKind) -> Self {
+        let signature = Signature {
+            selector,
+            kind: sig_kind,
+            arity,
+        };
+
+        MethodObject {
             kind,
             arity,
-            parameters,
-        }
-    }
-
-    pub fn new_native(arity: usize, func: NativeFn) -> Self {
-        Self {
-            kind: MethodKind::Native(func),
-            arity,
-            parameters: Vec::new(),
+            signature,
         }
     }
 
     pub fn is_native(&self) -> bool {
-        matches!(self.kind, MethodKind::Native(_))
+        matches!(self.kind, MethodKind::Primitive(_))
     }
 
     pub fn is_bytecode(&self) -> bool {
         matches!(self.kind, MethodKind::Bytecode(_))
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.arity == 0 && self.parameters.is_empty()
-    }
-
-    pub fn is_variadic(&self) -> bool {
-        self.arity == 0 && !self.parameters.is_empty()
     }
 }
 

@@ -1,14 +1,30 @@
+use crate::error::{PhResult, RuntimeError};
 use crate::value::Value;
 use crate::vm::VM;
+use crate::{ensure_arity, expect_value};
 
 pub const NUM_0: Value = Value::Number(0.0);
 pub const NUM_1: Value = Value::Number(1.0);
 
-/// The native implementation for Number.+(other).
-pub fn native_number_add(vm: &mut VM, _receiver: &Value, args: &[Value]) -> Result<Value, String> {
-    // In a real VM, you'd get the receiver from the stack too.
-    // For now, we assume it was a number.
-    let receiver_val = _receiver.as_number()?;
-    let other_val = args[0].as_number()?;
-    Ok(Value::Number(receiver_val + other_val))
+pub fn number_add(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    const SIGNATURE: &str = "Number.+(_)";
+    ensure_arity!(SIGNATURE, args, 1);
+
+    let this = expect_value!(_receiver, Number);
+    let other = expect_value!(&args[0], Number);
+    Ok(Value::Number(this + other))
+}
+
+pub fn number_div(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    const SIGNATURE: &str = "Number./(_)";
+    ensure_arity!(SIGNATURE, args, 1);
+
+    let this = expect_value!(_receiver, Number);
+    let other = expect_value!(&args[0], Number);
+
+    if other == 0.0 {
+        return Err(RuntimeError::ZeroDivision.into());
+    }
+
+    Ok(Value::Number(this / other))
 }

@@ -151,29 +151,18 @@ ExprUnary: Expr = {
 };
 
 ExprCall: Expr = {
-    <callee:ExprCall> "(" <args:ArgList> ")" => {
-        Expr::Call(Box::new(CallExpr { callee, args, }))
-    },
-    <object:ExprCall> "." <property:identifier> => {
-        Expr::GetProperty(Box::new(GetPropertyExpr { object, property }))
+//    <callee:ExprCall> "(" <args:ArgList> ")" => {
+//        Expr::Call(Box::new(CallExpr { callee, args, }))
+//    },
+    <object:ExprCall> "." <property:identifier> <args:("(" <ArgList> ")")?> => {
+        if let Some(args) = args {
+            Expr::MethodCall(Box::new(MethodCallExpr { object, method: property, args }))
+        } else {
+            Expr::GetProperty(Box::new(GetPropertyExpr { object, property }))
+        }
     },
     ExprPrimary,
 }
-
-//ExprCall: Expr = {
-//    <callee:ExprCall> <property:("." <identifier>)?> <args:("(" <ArgList> ")")?> => {
-//        match (property, args) {
-//            (Some(method), Some(args)) =>
-//                Expr::MethodCall(Box::new(MethodCallExpr { callee, method, args })),
-//            (None, Some(args)) =>
-//                Expr::MethodCall(Box::new(MethodCallExpr { callee, method: "call".into(), args })),
-//            (Some(property), None) =>
-//                Expr::GetProperty(Box::new(GetPropertyExpr { object: callee, property })),
-//            (None, None) => callee,
-//        }
-//    },
-//    ExprPrimary,
-//};
 
 ExprPrimary: Expr = {
     "nil" => Expr::Nil,

@@ -68,6 +68,7 @@ pub enum Expr {
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
     Call(Box<CallExpr>),
+    MethodCall(Box<MethodCallExpr>),
     GetProperty(Box<GetPropertyExpr>),
     SetProperty(Box<SetPropertyExpr>),
 }
@@ -81,6 +82,13 @@ pub struct AssignmentExpr {
 #[derive(Debug)]
 pub struct CallExpr {
     pub callee: Expr,
+    pub args: Vec<Expr>,
+}
+
+#[derive(Debug)]
+pub struct MethodCallExpr {
+    pub object: Expr,
+    pub method: String,
     pub args: Vec<Expr>,
 }
 

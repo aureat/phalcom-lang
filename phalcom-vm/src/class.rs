@@ -1,13 +1,14 @@
 use crate::method::MethodObject;
-use crate::value::Value;
+use crate::string::StringObject;
 use indexmap::IndexMap;
-use phalcom_common::{MaybeWeak, PhRef, phref_new, phref_weak};
+use phalcom_common::{phref_weak, MaybeWeak, PhRef};
+use std::rc::Rc;
 
 type MethodsMap = IndexMap<String, PhRef<MethodObject>>; // Selector -> MethodObject
 
 #[derive(Debug, Clone)]
 pub struct ClassObject {
-    pub name: String,
+    pub name: PhRef<StringObject>,
     pub class: MaybeWeak<ClassObject>,
     pub superclass: Option<PhRef<ClassObject>>,
     pub methods: MethodsMap,
@@ -53,16 +54,21 @@ impl ClassObject {
         class: MaybeWeak<ClassObject>,
         superclass: Option<PhRef<ClassObject>>,
     ) -> Self {
+        let name = Rc::new(name.to_string());
         Self {
-            name: name.to_string(),
+            name,
             class,
             superclass,
             methods: MethodsMap::new(),
         }
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn name(&self) -> Rc<String> {
+        self.name.clone()
+    }
+
+    pub fn name_str(&self) -> &str {
+        self.name.as_str()
     }
 
     pub fn class(&self) -> PhRef<ClassObject> {

@@ -1,41 +1,30 @@
 // A basic calculator class demonstrating methods, getters, and magic methods
 
 class Calculator {
-  // method: adds two numbers
   add(a, b) {
     return a + b;
   }
 
-  // method: subtracts b from a
-  subtract(a, b) {
-    return a - b;
-  }
+  pi { return 3.1415; }
 
-  // a getter that returns a constant value
-  pi {
-    return 3.1415;
-  }
-
-  // override + operator: adds 10 to whatever is passed
   +(other) {
     return 10 + other;
   }
 
-  // static constructor style method
+  and(other) {
+    return "and " + other;
+  }
+
   new() {
     return self;
   }
 }
 
-// create a calculator instance
 let calc = Calculator.new();
 
-// basic method calls
 print(calc.add(5, 3));         // 8
 print(calc.subtract(10, 4));   // 6
 
-// access getter
 print(calc.pi);                // 3.1415
 
-// use overloaded + operator
 print(calc + 20);              // 30
