@@ -1,8 +1,8 @@
 use crate::class::ClassObject;
+use crate::string::StringObject;
 use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::PhRef;
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct InstanceObject {
@@ -16,7 +16,7 @@ impl InstanceObject {
         Self { class, fields }
     }
 
-    pub fn name(&self) -> Rc<String> {
+    pub fn name(&self) -> PhRef<StringObject> {
         self.class.borrow().name()
     }
 

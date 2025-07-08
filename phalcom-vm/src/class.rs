@@ -1,10 +1,11 @@
+use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::string::StringObject;
+use crate::value::Value;
 use indexmap::IndexMap;
-use phalcom_common::{phref_weak, MaybeWeak, PhRef};
-use std::rc::Rc;
+use phalcom_common::{phref_new, phref_weak, MaybeWeak, PhRef};
 
-type MethodsMap = IndexMap<String, PhRef<MethodObject>>; // Selector -> MethodObject
+type MethodsMap = IndexMap<Symbol, PhRef<MethodObject>>; // Selector -> MethodObject
 
 #[derive(Debug, Clone)]
 pub struct ClassObject {
@@ -54,7 +55,7 @@ impl ClassObject {
         class: MaybeWeak<ClassObject>,
         superclass: Option<PhRef<ClassObject>>,
     ) -> Self {
-        let name = Rc::new(name.to_string());
+        let name = phref_new(StringObject::from_str(name));
         Self {
             name,
             class,
@@ -63,18 +64,21 @@ impl ClassObject {
         }
     }
 
-    pub fn name(&self) -> Rc<String> {
+    pub fn name(&self) -> PhRef<StringObject> {
         self.name.clone()
     }
 
-    pub fn name_str(&self) -> &str {
-        self.name.as_str()
+    pub fn name_copy(&self) -> String {
+        self.name.borrow().value()
     }
 
     pub fn class(&self) -> PhRef<ClassObject> {
         match self.class {
             MaybeWeak::Weak(ref weak) => weak.upgrade().unwrap_or_else(|| {
-                panic!("superclass dropped, cannot upgrade ref ({})", self.name())
+                panic!(
+                    "{}.class dropped, cannot upgrade ref",
+                    self.name.borrow().as_str()
+                );
             }),
             MaybeWeak::Strong(ref owned) => owned.clone(),
         }
@@ -82,6 +86,13 @@ impl ClassObject {
 
     pub fn superclass(&self) -> Option<PhRef<ClassObject>> {
         self.superclass.clone()
+    }
+
+    pub fn superclass_val(&self) -> Value {
+        match &self.superclass {
+            Some(superclass) => Value::Class(superclass.clone()),
+            None => Value::Nil,
+        }
     }
 
     /// Set the superclass of this class (as a weak reference).

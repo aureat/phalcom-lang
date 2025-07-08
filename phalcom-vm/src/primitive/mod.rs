@@ -1,3 +1,4 @@
+mod class;
 pub mod number;
 pub mod object;
 pub mod string;

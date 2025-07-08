@@ -2,6 +2,7 @@ use crate::class::{lookup_method_in_hierarchy, ClassObject};
 use crate::instance::InstanceObject;
 use crate::interner::Symbol;
 use crate::method::MethodObject;
+use crate::module::ModuleObject;
 use crate::primitive::{
     BOOL_NAME, CLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, STRING_NAME, SYMBOL_NAME,
 };
@@ -23,6 +24,7 @@ pub enum Value {
     Instance(PhRef<InstanceObject>),
     Class(PhRef<ClassObject>),
     Method(PhRef<MethodObject>),
+    Module(PhRef<ModuleObject>),
 }
 
 impl Value {
@@ -61,9 +63,9 @@ impl Value {
         }
     }
 
-    pub fn as_string(&self) -> Result<Rc<String>, String> {
+    pub fn as_string(&self) -> Result<String, String> {
         match self {
-            Value::String(s) => Ok(s.clone()),
+            Value::String(s) => Ok(s.borrow().value()),
             _ => Err("Type Error: Expected a String.".to_string()),
         }
     }
@@ -92,32 +94,35 @@ impl Value {
             Value::Class(_) => "Class",
             Value::Instance(_) => "Instance",
             Value::Method(_) => "Method",
+            Value::Module(_) => "Module",
         }
     }
 
-    pub fn name(&self, vm: &VM) -> Value {
+    pub fn name(&self, vm: &VM) -> PhRef<StringObject> {
         match self {
-            Value::Nil => NIL_NAME.to_string(),
-            Value::Bool(_) => BOOL_NAME.to_string(),
-            Value::Number(_) => NUMBER_NAME.to_string(),
-            Value::String(_) => STRING_NAME.to_string(),
-            Value::Symbol(symbol) => SYMBOL_NAME.to_string(),
-            Value::Instance(instance) => instance.borrow().name().to_string(),
-            Value::Class(class) => class.borrow().name().to_string(),
-            Value::Method(method) => method.borrow().name().to_string(),
+            Value::Nil => vm.universe.primitive_names.nil.clone(),
+            Value::Bool(_) => vm.universe.primitive_names.bool_.clone(),
+            Value::Number(_) => vm.universe.primitive_names.number.clone(),
+            Value::String(_) => vm.universe.primitive_names.string.clone(),
+            Value::Symbol(_) => vm.universe.primitive_names.symbol.clone(),
+            Value::Instance(instance) => instance.borrow().name(),
+            Value::Class(class) => class.borrow().name(),
+            Value::Method(method) => method.borrow().name(),
+            Value::Module(module) => module.borrow().name(),
         }
     }
 
     pub fn class(&self, vm: &VM) -> PhRef<ClassObject> {
         match self {
-            Value::Nil => vm.classes.nil_class.clone(),
-            Value::Bool(_) => vm.classes.bool_class.clone(),
-            Value::Number(_) => vm.classes.number_class.clone(),
-            Value::String(_) => vm.classes.string_class.clone(),
-            Value::Symbol(_) => vm.classes.symbol_class.clone(),
-            Value::Method(method) => vm.classes.method_class.clone(),
+            Value::Nil => vm.universe.classes.nil_class.clone(),
+            Value::Bool(_) => vm.universe.classes.bool_class.clone(),
+            Value::Number(_) => vm.universe.classes.number_class.clone(),
+            Value::String(_) => vm.universe.classes.string_class.clone(),
+            Value::Symbol(_) => vm.universe.classes.symbol_class.clone(),
+            Value::Method(_) => vm.universe.classes.method_class.clone(),
             Value::Instance(instance) => instance.borrow().class(),
             Value::Class(class) => class.borrow().class(),
+            Value::Module(module) => vm.universe.classes.module_class.clone(),
         }
     }
 
@@ -128,9 +133,10 @@ impl Value {
             Value::Number(_) => NUMBER_NAME,
             Value::String(_) => STRING_NAME,
             Value::Symbol(_) => SYMBOL_NAME,
-            Value::Instance(instance) => "",
-            Value::Class(class) => CLASS_NAME,
-            Value::Method(method) => METHOD_NAME,
+            Value::Instance(_) => "Instance",
+            Value::Class(_) => CLASS_NAME,
+            Value::Method(_) => METHOD_NAME,
+            Value::Module(_) => "Module",
         }
     }
 
@@ -166,11 +172,12 @@ impl Hash for Value {
             Value::Nil => 0.hash(state),
             Value::Number(f64_ref) => hash_f64(*f64_ref, state),
             Value::Bool(v) => v.hash(state),
-            Value::String(v) => v.hash(state),
+            Value::String(v) => v.borrow().value().hash(state),
             Value::Class(v) => v.as_ptr().hash(state),
             Value::Method(v) => v.as_ptr().hash(state),
             Value::Symbol(v) => v.0.hash(state),
             Value::Instance(v) => v.as_ptr().hash(state),
+            Value::Module(v) => v.as_ptr().hash(state),
         }
     }
 }
@@ -181,11 +188,12 @@ impl Debug for Value {
             Self::Nil => write!(f, "nil"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Number(n) => write!(f, "{n}"),
-            Self::String(s) => write!(f, "\"{s}\""),
+            Self::String(s) => write!(f, "\"{}\"", s.borrow().value()),
             Self::Symbol(s) => write!(f, "Symbol({})", s.0),
             Self::Instance(_) => write!(f, "<instance>"),
-            Self::Class(c) => write!(f, "<class {}>", c.borrow().name()),
+            Self::Class(c) => write!(f, "<class {}>", c.borrow().name().borrow().value()),
             Self::Method(_) => write!(f, "<method>"),
+            Self::Module(_) => write!(f, "<module>"),
         }
     }
 }

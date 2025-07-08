@@ -1,13 +1,14 @@
 use crate::boolean::{FALSE, TRUE};
-use crate::bootstrap::bootstrap;
 use crate::bytecode::Bytecode;
 use crate::chunk::Chunk;
 use crate::class::ClassObject;
+use crate::error::PhResult;
 use crate::frame::CallFrame;
 use crate::interner::{Interner, Symbol};
 use crate::method::{MethodKind, MethodObject};
+use crate::module::{ModuleObject, CORE_MODULE_NAME};
 use crate::nil::NIL;
-use crate::universe::Classes;
+use crate::universe::Universe;
 use crate::value::Value;
 use phalcom_common::MaybeWeak::Strong;
 use phalcom_common::{phref_new, PhRef};
@@ -18,24 +19,27 @@ pub struct VM {
     frames: Vec<CallFrame>,
     stack: Vec<Value>,
     globals: HashMap<Symbol, Value>,
-    pub classes: Classes,
+    pub modules: HashMap<Symbol, PhRef<ModuleObject>>,
     pub(crate) interner: Interner,
     pub start_time: Instant,
+    pub universe: Universe,
 }
 
 impl VM {
     /// Creates a new VM, ready to execute the top-level script method.
     pub fn new(top_level_method: PhRef<MethodObject>) -> Self {
-        let classes = bootstrap(); // Bootstrap the object model
         let mut interner = Interner::with_capacity(100);
+
+        let universe = Universe::new();
 
         let mut vm = Self {
             frames: Vec::with_capacity(256),
             stack: Vec::with_capacity(1024),
             globals: HashMap::new(),
-            classes,
             interner,
             start_time: Instant::now(),
+            modules: HashMap::new(),
+            universe,
         };
 
         // The top-level script runs in its own call frame.
@@ -69,6 +73,74 @@ impl VM {
         phref_new(class)
     }
 
+    fn module_from_str(&mut self, name: &str) -> PhRef<ModuleObject> {
+        let sym = self.interner.intern(name);
+        self.module(sym)
+    }
+
+    fn module(&mut self, module_sym: Symbol) -> PhRef<ModuleObject> {
+        if let Some(m) = self.modules.get(&module_sym) {
+            return m.clone();
+        }
+
+        let m = phref_new(ModuleObject::new(module_sym));
+        self.modules.insert(module_sym, m.clone());
+        m
+    }
+
+    fn get_global(&self, module_sym: Symbol, name_sym: Symbol) -> Option<Value> {
+        self.modules
+            .get(&module_sym)
+            .and_then(|m| m.borrow().get(name_sym))
+    }
+
+    fn define_global(
+        &mut self,
+        module_sym: Symbol,
+        name_sym: Symbol,
+        val: Value,
+    ) -> PhResult<usize> {
+        let module = self.module(module_sym);
+        module.borrow().define(name_sym, val)
+    }
+
+    pub fn install_core(&mut self) {
+        let core_sym = self.interner.intern(CORE_MODULE_NAME);
+        let core_mod = self.module_from_str(CORE_MODULE_NAME);
+
+        let mut add = |name: &str, val: Value| {
+            let name_sym = self.interner.intern(name);
+            // ignore re‑definition errors during hot reload
+            let _ = core_mod.borrow().define(name_sym, val);
+        };
+
+        macro_rules! add_class {
+            ($field:ident) => {
+                add(
+                    self.classes.$field.borrow().name_str(),
+                    Value::Class(self.classes.$field.clone()),
+                );
+            };
+        }
+
+        add(
+            self.classes.object_class.borrow().name_str(),
+            Value::Class(self.classes.object_class.clone()),
+        );
+
+        add_class!(object_class);
+        add_class!(class_class);
+        add_class!(metaclass_class);
+        add_class!(number_class);
+        add_class!(string_class);
+        add_class!(bool_class);
+        add_class!(nil_class);
+        add_class!(method_class);
+
+        self.define_global(core_sym, core_sym, Value::Module(core_mod))
+            .ok();
+    }
+
     pub fn run(&mut self) -> Result<Value, String> {
         loop {
             // If there are no frames left, execution is complete.
@@ -83,7 +155,7 @@ impl VM {
 
             let method_borrowed = method.borrow();
             let chunk = match &method_borrowed.kind {
-                MethodKind::Bytecode(chunk) => chunk,
+                MethodKind::Closure(chunk) => chunk,
                 MethodKind::Primitive(_) => {
                     return Err(
                         "VM Error: Attempted to execute bytecode from a native method.".to_string(),
@@ -266,7 +338,7 @@ impl VM {
                         Err(err) => Err(format!("Native method error: {err}")),
                     }
                 }
-                MethodKind::Bytecode(_) => {
+                MethodKind::Closure(_) => {
                     // For Phalcom methods, push a new CallFrame.
                     let frame = CallFrame {
                         method: method.clone(),
@@ -302,11 +374,11 @@ mod tests {
 
         // The constants needed for this operation:
         // Index 0: The receiver, 10.0
-        let string1_idx = chunk.add_constant(Value::new_string("hello, "));
+        let string1_idx = chunk.add_constant(Value::string_from_str("hello, "));
         // Index 1: The argument, 20.0
-        let string2_idx = chunk.add_constant(Value::new_string("world!"));
+        let string2_idx = chunk.add_constant(Value::string_from_str("world!"));
         // Index 2: The selector for the method call, "__add__:"
-        let const_selector_idx = chunk.add_constant(Value::new_string("+:"));
+        let const_selector_idx = chunk.add_constant(Value::string_from_str("+:"));
 
         // The sequence of bytecode instructions:
         chunk.code.extend_from_slice(&[
@@ -320,7 +392,7 @@ mod tests {
         // The VM starts by executing a top-level script, which is itself a method.
         // We wrap our handcrafted chunk in this method.
         let top_level_method = phref_new(MethodObject {
-            kind: MethodKind::Bytecode(chunk),
+            kind: MethodKind::Closure(chunk),
             arity: 0,
             parameters: Vec::new(),
         });
@@ -337,7 +409,7 @@ mod tests {
 
         // --- 6. Assertion ---
         // The final value left on the stack should be the result of the addition.
-        let expected = Value::new_string("hello, world!");
+        let expected = Value::string_from_str("hello, world!");
 
         assert_eq!(
             result, expected,

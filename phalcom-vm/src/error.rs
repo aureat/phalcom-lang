@@ -24,18 +24,24 @@ fn format_num_arguments<'a>(args: usize) -> String {
 
 #[derive(Error, Debug)]
 pub enum RuntimeError {
-    #[error("method {signature} expected {}, got {found}", format_num_arguments(*expected))]
+    #[error("Method {signature} expected {}, got {found}", format_num_arguments(*expected))]
     Arity {
         signature: &'static str,
         expected: usize,
         found: usize,
     },
 
-    #[error("Type error: expected {expected}, got {found}")]
+    #[error("Expected {expected}, got {found}")]
     Type {
         expected: &'static str,
         found: &'static str,
     },
+
+    #[error("Can't set superclass of a class")]
+    InvalidSetSuper,
+
+    #[error("Can't set class of an object")]
+    InvalidSetClass,
 
     #[error("Undefined variable `{0}`")]
     UndefinedVar(String),
@@ -119,6 +125,42 @@ macro_rules! expect_value {
             other => {
                 return Err(RuntimeError::Type {
                     expected: "Nil",
+                    found: other.type_name(),
+                }
+                .into());
+            }
+        }
+    }};
+    ($value:expr, Instance) => {{
+        match $value {
+            Value::Instance(inst) => inst,
+            other => {
+                return Err(RuntimeError::Type {
+                    expected: "Instance",
+                    found: other.type_name(),
+                }
+                .into());
+            }
+        }
+    }};
+    ($value:expr, Class) => {{
+        match $value {
+            Value::Class(class) => class,
+            other => {
+                return Err(RuntimeError::Type {
+                    expected: "Class",
+                    found: other.type_name(),
+                }
+                .into());
+            }
+        }
+    }};
+    ($value:expr, Method) => {{
+        match $value {
+            Value::Method(method) => method,
+            other => {
+                return Err(RuntimeError::Type {
+                    expected: "Method",
                     found: other.type_name(),
                 }
                 .into());
