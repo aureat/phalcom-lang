@@ -3,6 +3,7 @@ use crate::expect_value;
 use crate::value::Value;
 use crate::vm::VM;
 
+/// `Symbol::toString`
 pub fn symbol_tostring(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let symbol = expect_value!(receiver, Symbol);
     let string = vm.interner.lookup(*symbol);
@@ -10,6 +11,7 @@ pub fn symbol_tostring(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     Ok(Value::string_from_str(string))
 }
 
+/// `Symbol.class::from(_)`
 pub fn symbol_class_from(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let string = expect_value!(&args[0], String);
     let symbol = vm.interner.intern(string.borrow().as_str());

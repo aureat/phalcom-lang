@@ -1,15 +1,15 @@
 use crate::interner::Symbol;
 use crate::method::MethodObject;
-use crate::string::StringObject;
+use crate::string::{phstring_new, PhString, StringObject};
 use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::{phref_new, phref_weak, MaybeWeak, PhRef};
 
-type MethodsMap = IndexMap<Symbol, PhRef<MethodObject>>; // Selector -> MethodObject
+type MethodsMap = IndexMap<Symbol, PhRef<MethodObject>>;
 
 #[derive(Debug, Clone)]
 pub struct ClassObject {
-    pub name: PhRef<StringObject>,
+    pub name: PhString,
     pub class: MaybeWeak<ClassObject>,
     pub superclass: Option<PhRef<ClassObject>>,
     pub methods: MethodsMap,
@@ -18,10 +18,7 @@ pub struct ClassObject {
 /// The core method lookup logic with superclass traversal.
 /// This version is more efficient as it iterates using Gc pointers,
 /// avoiding expensive struct clones.
-pub fn lookup_method_in_hierarchy(
-    mut class: PhRef<ClassObject>,
-    selector: &str,
-) -> Option<PhRef<MethodObject>> {
+pub fn lookup_method_in_hierarchy(mut class: PhRef<ClassObject>, selector: Symbol) -> Option<PhRef<MethodObject>> {
     loop {
         let next_class_maybe;
         {
@@ -29,7 +26,7 @@ pub fn lookup_method_in_hierarchy(
             let class_borrow = class.borrow();
 
             // First, check for the method on the current class.
-            if let Some(method) = class_borrow.methods.get(selector) {
+            if let Some(method) = class_borrow.methods.get(&selector) {
                 return Some(method.clone());
             }
 
@@ -50,11 +47,7 @@ pub fn lookup_method_in_hierarchy(
 }
 
 impl ClassObject {
-    pub fn new(
-        name: &str,
-        class: MaybeWeak<ClassObject>,
-        superclass: Option<PhRef<ClassObject>>,
-    ) -> Self {
+    pub fn new(name: &str, class: MaybeWeak<ClassObject>, superclass: Option<PhRef<ClassObject>>) -> Self {
         let name = phref_new(StringObject::from_str(name));
         Self {
             name,
@@ -75,10 +68,7 @@ impl ClassObject {
     pub fn class(&self) -> PhRef<ClassObject> {
         match self.class {
             MaybeWeak::Weak(ref weak) => weak.upgrade().unwrap_or_else(|| {
-                panic!(
-                    "{}.class dropped, cannot upgrade ref",
-                    self.name.borrow().as_str()
-                );
+                panic!("{}.class dropped, cannot upgrade ref", self.name.borrow().as_str());
             }),
             MaybeWeak::Strong(ref owned) => owned.clone(),
         }
@@ -95,7 +85,14 @@ impl ClassObject {
         }
     }
 
-    /// Set the superclass of this class (as a weak reference).
+    pub fn to_string(&self) -> PhRef<StringObject> {
+        let name_borrowed = self.name.borrow();
+        let string = phstring_new(format!("<class {}>", name_borrowed.as_str()));
+        drop(name_borrowed);
+        string
+    }
+
+    /// Set the superclass of this class
     pub fn set_superclass(&mut self, class: Option<PhRef<ClassObject>>) {
         self.superclass = class
     }
@@ -110,12 +107,12 @@ impl ClassObject {
         self.class = MaybeWeak::Strong(class.clone());
     }
 
-    pub fn add_method(&mut self, selector: &str, method: PhRef<MethodObject>) {
-        self.methods.insert(selector.to_string(), method);
+    pub fn add_method(&mut self, selector: Symbol, method: PhRef<MethodObject>) {
+        self.methods.insert(selector, method);
     }
 
-    pub fn get_method(&self, selector: &str) -> Option<PhRef<MethodObject>> {
-        let method = self.methods.get(selector);
+    pub fn get_method(&self, selector: Symbol) -> Option<PhRef<MethodObject>> {
+        let method = self.methods.get(&selector);
         method.cloned()
     }
 }

@@ -58,7 +58,7 @@ pub fn parse(source: &str, offset: usize) -> ParserResult<Program> {
             }),
             start..end,
         ),
-        ParseError::User { error } => (PhalcomError::SyntaxError(SyntaxError::Other), 0..0),
+        ParseError::User { error: _error } => (PhalcomError::SyntaxError(SyntaxError::Other), 0..0),
     }));
 
     if errors.is_empty() {

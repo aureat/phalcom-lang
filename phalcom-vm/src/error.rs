@@ -10,6 +10,24 @@ pub enum PhError {
 
     #[error(transparent)]
     Io(#[from] IoError),
+
+    #[error("VM Error: {message}\nStack Trace:\n{stack_trace}")]
+    VMError {
+        message: String,
+        stack_trace: String,
+    },
+
+    #[error(transparent)]
+    StringError(#[from] String),
+
+    #[error("{0}")]
+    StrError(&'static str),
+}
+
+impl From<&'static str> for PhError {
+    fn from(err: &'static str) -> Self {
+        PhError::StrError(err)
+    }
 }
 
 const ONE_ARGUMENT: &str = "1 argument";

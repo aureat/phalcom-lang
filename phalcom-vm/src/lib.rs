@@ -1,5 +1,4 @@
 mod boolean;
-pub mod bootstrap;
 pub mod bytecode;
 mod callable;
 pub mod chunk;
@@ -22,13 +21,3 @@ pub mod vm;
 
 #[cfg(test)]
 mod tests {}
-
-macro_rules! primitive_method {
-    ($class:expr, $sig:expr, $arity:expr, $func:expr) => {
-        $class
-            .borrow_mut()
-            .add_method($sig, phref_new(MethodObject::new_primitive($arity, $func)));
-    };
-}
-
-pub(crate) use primitive_method;

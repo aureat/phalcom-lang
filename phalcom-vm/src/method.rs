@@ -2,17 +2,19 @@ use crate::class::ClassObject;
 use crate::closure::ClosureObject;
 use crate::error::PhResult;
 use crate::interner::Symbol;
+use crate::string::{phstring_new, PhString, StringObject};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_common::{PhRef, PhWeakRef};
+use phalcom_common::{phref_new, PhRef, PhWeakRef};
+use std::ops::Add;
 
-pub type PrimitiveFn = fn(&mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>;
+pub type PrimitiveFn = fn(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value>;
 
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SignatureKind {
     /// `init new(_,_)`
-    Initializer(u8),
+    Initializer,
 
     /// `foo(_,_,_)`
     Method(u8),
@@ -32,16 +34,13 @@ pub enum SignatureKind {
 
 #[derive(Clone, Debug)]
 pub struct Signature {
-    pub selector: String,
+    pub selector: Symbol,
     pub kind: SignatureKind,
 }
 
 impl Signature {
-    pub fn new(selector: &str, kind: SignatureKind) -> Self {
-        Signature {
-            selector: selector.to_string(),
-            kind,
-        }
+    pub fn new(selector: Symbol, kind: SignatureKind) -> Self {
+        Signature { selector, kind }
     }
 }
 
@@ -62,49 +61,55 @@ pub struct MethodObject {
 }
 
 impl MethodObject {
-    pub fn new(kind: MethodKind, selector: Symbol, sig_kind: SignatureKind) -> Self {
-        let signature = Signature {
-            selector,
-            kind: sig_kind,
-            arity,
-        };
+    pub fn new(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind) -> Self {
+        let signature = Signature::new(selector, sig_kind);
 
         MethodObject {
             kind,
-            arity,
-            signature,
-        }
-    }
-
-    pub fn primitive(selector: Symbol, arity: u8, primitive: PrimitiveFn) -> Self {
-        let signature = Signature::new(selector, SignatureKind::Method(arity));
-        MethodObject {
-            kind: MethodKind::Primitive(primitive),
             signature,
             holder: PhWeakRef::default(),
         }
     }
 
-    pub fn is_native(&self) -> bool {
+    pub fn primitive(selector: Symbol, sig_kind: SignatureKind, primitive: PrimitiveFn) -> Self {
+        MethodObject::new(selector, sig_kind, MethodKind::Primitive(primitive))
+    }
+
+    pub fn make_name(holder: PhRef<ClassObject>, selector: &str) -> PhRef<StringObject> {
+        let name = holder.borrow().name_copy().add("::").add(selector);
+        phref_new(StringObject::from_string(name))
+    }
+
+    pub fn make_weak_name(holder: PhWeakRef<ClassObject>, selector: &str) -> PhRef<StringObject> {
+        let name = holder
+            .upgrade()
+            .map_or_else(|| String::from("Unknown"), |c| c.borrow().name_copy())
+            .add("::")
+            .add(selector);
+        phref_new(StringObject::from_string(name))
+    }
+
+    pub fn selector(&self) -> Symbol {
+        self.signature.selector
+    }
+
+    pub fn is_primitive(&self) -> bool {
         matches!(self.kind, MethodKind::Primitive(_))
     }
 
-    pub fn is_bytecode(&self) -> bool {
+    pub fn is_closure(&self) -> bool {
         matches!(self.kind, MethodKind::Closure(_))
     }
-}
 
-pub fn generate_method_selector(name: &str, labels: &[Option<&str>]) -> String {
-    if labels.is_empty() {
-        return name.to_string();
+    pub fn name(&self, vm: &VM) -> PhString {
+        let name = vm.resolve_symbol(self.signature.selector);
+        phstring_new(name.to_string())
     }
 
-    let mut selector = format!("{}:", name);
-    for label in labels {
-        if let Some(label_str) = label {
-            selector.push_str(label_str);
-        }
-        selector.push(':');
+    pub fn to_phalcom_string(&self, vm: &VM) -> PhRef<StringObject> {
+        let name = vm.resolve_symbol(self.signature.selector);
+        let holder_name = self.holder.upgrade().map_or_else(|| String::from("Unknown"), |c| c.borrow().name_copy());
+        let full_name = format!("{}::{}", holder_name, name);
+        phstring_new(full_name)
     }
-    selector
 }

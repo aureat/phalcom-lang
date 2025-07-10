@@ -87,8 +87,8 @@ ParamList: Vec<String> = {
 Expr = ExprAssignment;
 
 ExprAssignment: Expr = {
-    <name:identifier> "=" <value:Expr> =>
-        Expr::Assignment(Box::new(AssignmentExpr { name, value })),
+    <name:ExprPrimary> "=" <value:Expr> =>
+        Expr::Assignment(Box::new(AssignmentExpr { name: Box::new(name), value })),
     <object:ExprCall> "." <property:identifier> "=" <value:Expr> =>
         Expr::SetProperty(Box::new(SetPropertyExpr { object, property, value })),
     ExprOr,

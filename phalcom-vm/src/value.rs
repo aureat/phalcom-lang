@@ -3,10 +3,8 @@ use crate::instance::InstanceObject;
 use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::module::ModuleObject;
-use crate::primitive::{
-    BOOL_NAME, CLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, STRING_NAME, SYMBOL_NAME,
-};
-use crate::string::StringObject;
+use crate::primitive::{BOOL_NAME, CLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, STRING_NAME, SYMBOL_NAME};
+use crate::string::{phstring_new, StringObject};
 use crate::vm::VM;
 use phalcom_common::{phref_new, PhRef};
 use std::fmt;
@@ -107,7 +105,7 @@ impl Value {
             Value::Symbol(_) => vm.universe.primitive_names.symbol.clone(),
             Value::Instance(instance) => instance.borrow().name(),
             Value::Class(class) => class.borrow().name(),
-            Value::Method(method) => method.borrow().name(),
+            Value::Method(method) => method.borrow().name(vm),
             Value::Module(module) => module.borrow().name(),
         }
     }
@@ -140,7 +138,21 @@ impl Value {
         }
     }
 
-    pub fn lookup_method(&self, vm: &VM, selector: &str) -> Option<PhRef<MethodObject>> {
+    pub fn to_string(&self, vm: &VM) -> PhRef<StringObject> {
+        match self {
+            Value::Nil => vm.universe.primitive_names.nil.clone(),
+            Value::Bool(b) => vm.universe.primitive_names.bool_name(*b),
+            Value::Number(n) => phstring_new(n.to_string()),
+            Value::String(s) => s.clone(),
+            Value::Symbol(s) => phstring_new(format!("Symbol({})", s.0)),
+            Value::Instance(instance) => instance.borrow().to_string(),
+            Value::Class(class) => class.borrow().to_string(),
+            Value::Method(method) => method.borrow().to_phalcom_string(vm),
+            Value::Module(module) => module.borrow().to_phalcom_string(),
+        }
+    }
+
+    pub fn lookup_method(&self, vm: &VM, selector: Symbol) -> Option<PhRef<MethodObject>> {
         let value_class = self.class(vm);
         lookup_method_in_hierarchy(value_class, selector)
     }

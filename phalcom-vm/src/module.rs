@@ -1,7 +1,8 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::interner::Symbol;
-use crate::string::StringObject;
+use crate::string::{phstring_new, PhString, StringObject};
 use crate::value::Value;
+use crate::vm::VM;
 use phalcom_common::PhRef;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -11,18 +12,22 @@ pub const MAX_GLOBALS: usize = 1 << 16; // 65,536
 
 pub const CORE_MODULE_NAME: &str = "core";
 
+#[derive(Debug)]
 pub struct ModuleObject {
     pub name: PhRef<StringObject>,
+    pub name_sym: Symbol,
     pub globals: RefCell<Vec<Value>>,
-    pub name_to_slot: RefCell<HashMap<Symbol, Value>>,
+    pub name_to_slot: RefCell<HashMap<Symbol, usize>>,
 }
 
 impl ModuleObject {
     /// Creates an *empty* module.  The caller must register it in
     /// `vm.modules` to keep it alive.
-    pub fn new(name: Symbol) -> Self {
+    pub fn new(vm: &mut VM, name: Symbol) -> Self {
+        let name_str = vm.resolve_symbol(name).to_string();
         Self {
-            name,
+            name: phstring_new(name_str),
+            name_sym: name,
             globals: RefCell::new(Vec::new()),
             name_to_slot: RefCell::new(HashMap::new()),
         }
@@ -35,7 +40,11 @@ impl ModuleObject {
     /// Returns the *symbol* of the module's name.
     #[inline]
     pub fn symbol(&self) -> Symbol {
-        self.name
+        self.name_sym
+    }
+
+    pub fn to_phalcom_string(&self) -> PhString {
+        phstring_new(format!("<module {}>", self.name.borrow().as_str()))
     }
 
     // ---------------------------------------------------------------------
@@ -79,8 +88,7 @@ impl ModuleObject {
     #[inline]
     pub fn get(&self, name: Symbol) -> Option<Value> {
         let map = self.name_to_slot.borrow();
-        map.get(&name)
-            .and_then(|&slot| self.globals.borrow().get(slot).cloned())
+        map.get(&name).and_then(|&slot| self.globals.borrow().get(slot).cloned())
     }
 
     #[inline]

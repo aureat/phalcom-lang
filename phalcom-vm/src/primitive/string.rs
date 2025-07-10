@@ -1,15 +1,12 @@
 use crate::error::PhResult;
 use crate::error::RuntimeError;
+use crate::expect_value;
 use crate::value::Value;
 use crate::vm::VM;
-use crate::{ensure_arity, expect_value};
 use std::hash::Hash;
-use std::rc::Rc;
 
+/// Signature: `String::+(_)`
 pub fn string_add(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    const SIGNATURE: &str = "String.+(_)";
-    ensure_arity!(SIGNATURE, args, 1);
-
     let first = expect_value!(receiver, String);
     let second = expect_value!(&args[0], String);
 
@@ -18,18 +15,28 @@ pub fn string_add(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     Ok(Value::string_from(result))
 }
 
-pub fn str_repeat(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    const SIGNATURE: &str = "String.repeat(_)";
-
-    ensure_arity!(SIGNATURE, args, 1);
-
+/// Signature: `String::repeat(_)`
+pub fn string_repeat(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let s = expect_value!(receiver, String);
     let n = expect_value!(&args[0], Number) as usize;
 
-    let mut out = String::with_capacity(s.len() * n);
+    let string_borrowed = s.borrow();
+    let string = string_borrowed.as_str();
+
+    let mut out = String::with_capacity(string.len() * n);
     for _ in 0..n {
-        out.push_str(s.as_str());
+        out.push_str(string);
     }
 
-    Ok(Value::String(Rc::new(out)))
+    drop(string_borrowed);
+
+    Ok(Value::string_from(out))
+}
+
+/// Signature: `String::hash`
+pub fn string_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let s = expect_value!(receiver, String);
+    let hash = s.borrow().hash();
+
+    Ok(Value::Number(hash as f64))
 }

@@ -75,7 +75,7 @@ pub enum Expr {
 
 #[derive(Debug)]
 pub struct AssignmentExpr {
-    pub name: String,
+    pub name: Box<Expr>,
     pub value: Expr,
 }
 

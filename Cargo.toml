@@ -2,7 +2,7 @@
 members = [
     "phalcom",
     "phalcom-ast",
-    "phalcom-common",
+    "phalcom-common", "phalcom-compiler",
     "phalcom-vm", "phalcomc",
 ]
 resolver = "2"

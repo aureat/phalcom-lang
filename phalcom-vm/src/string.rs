@@ -1,4 +1,4 @@
-use phalcom_common::PhRef;
+use phalcom_common::{phref_new, PhRef};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StringObject {
@@ -17,9 +17,9 @@ impl StringObject {
     }
 
     pub fn calculate_hash(value: &str) -> u32 {
-        let mut hash = 5381;
+        let mut hash = 5381u32;
         for byte in value.bytes() {
-            hash = ((hash << 5) + hash) + byte as u32; // hash * 33 + byte
+            hash = hash.wrapping_mul(33).wrapping_add(byte as u32);
         }
         hash
     }
@@ -38,3 +38,7 @@ impl StringObject {
 }
 
 pub type PhString = PhRef<StringObject>;
+
+pub fn phstring_new(value: String) -> PhString {
+    phref_new(StringObject::from_string(value))
+}

@@ -1,8 +1,8 @@
-mod class;
+pub mod class;
 pub mod number;
 pub mod object;
 pub mod string;
-mod symbol;
+pub mod symbol;
 
 pub const SIG_ADD: &str = "+(_)";
 pub const SIG_SUB: &str = "-(_)";
@@ -35,3 +35,17 @@ pub const OBJECT_NAME: &str = "Object";
 pub const METHOD_NAME: &str = "Method";
 pub const CLASS_NAME: &str = "Class";
 pub const METACLASS_NAME: &str = "Metaclass";
+
+pub const TRUE_NAME: &str = "true";
+pub const FALSE_NAME: &str = "false";
+
+macro_rules! primitive_method {
+    ($vm:expr, $class:expr, $sig:expr, $sig_kind: expr, $func:expr) => {
+        let symbol = $vm.get_or_intern($sig);
+        $class
+            .borrow_mut()
+            .add_method(symbol, phref_new(MethodObject::primitive(symbol, $sig_kind, $func)));
+    };
+}
+
+pub(crate) use primitive_method;

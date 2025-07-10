@@ -1,24 +1,23 @@
 use crate::boolean::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
-use crate::chunk::Chunk;
 use crate::class::ClassObject;
-use crate::error::PhResult;
+use crate::closure::ClosureObject;
+use crate::error::{PhResult, PhError};
 use crate::frame::CallFrame;
 use crate::interner::{Interner, Symbol};
-use crate::method::{MethodKind, MethodObject};
+use crate::method::MethodKind;
 use crate::module::{ModuleObject, CORE_MODULE_NAME};
 use crate::nil::NIL;
 use crate::universe::Universe;
 use crate::value::Value;
-use phalcom_common::MaybeWeak::Strong;
-use phalcom_common::{phref_new, PhRef};
+use phalcom_common::MaybeWeak::Weak;
+use phalcom_common::{phref_new, PhRef, PhWeakRef};
 use std::collections::HashMap;
 use std::time::Instant;
 
 pub struct VM {
-    frames: Vec<CallFrame>,
+    frames: Vec<PhRef<CallFrame>>,
     stack: Vec<Value>,
-    globals: HashMap<Symbol, Value>,
     pub modules: HashMap<Symbol, PhRef<ModuleObject>>,
     pub(crate) interner: Interner,
     pub start_time: Instant,
@@ -26,56 +25,82 @@ pub struct VM {
 }
 
 impl VM {
-    /// Creates a new VM, ready to execute the top-level script method.
-    pub fn new(top_level_method: PhRef<MethodObject>) -> Self {
-        let mut interner = Interner::with_capacity(100);
-
+    /// Creates a new VM.
+    pub fn new() -> Self {
+        let interner = Interner::with_capacity(100);
         let universe = Universe::new();
 
         let mut vm = Self {
             frames: Vec::with_capacity(256),
             stack: Vec::with_capacity(1024),
-            globals: HashMap::new(),
             interner,
             start_time: Instant::now(),
             modules: HashMap::new(),
             universe,
         };
 
-        // The top-level script runs in its own call frame.
-        let frame = CallFrame {
-            method: top_level_method,
-            ip: 0,
-            stack_offset: 0,
-        };
-        vm.frames.push(frame);
+        // Bootstrap core module and primitive methods
+        vm.install_core();
+        Universe::install_primitives(&mut vm);
 
         vm
     }
 
+    /// Returns (or creates) the module for a given name.
+    pub fn module_from_str(&mut self, name: &str) -> PhRef<ModuleObject> {
+        let sym = self.interner.intern(name);
+        self.module(sym)
+    }
+
+    /// Runs a module with given closure as entry point.
+    pub fn run_module(&mut self, module: PhRef<ModuleObject>, entry: PhRef<ClosureObject>) -> PhResult<Value> {
+        let module_sym = module.borrow().symbol();
+        self.modules.insert(module_sym, module.clone());
+        entry.borrow_mut().module = module;
+        self.frames.clear();
+        self.stack.clear();
+        let frame = phref_new(CallFrame {
+            method: entry,
+            ip: 0,
+            stack_offset: 0,
+        });
+        self.frames.push(frame);
+        self.run()
+    }
+
+    pub(crate) fn get_or_intern(&mut self, name: &str) -> Symbol {
+        self.interner.intern(name)
+    }
+
+    pub(crate) fn resolve_symbol(&self, symbol: Symbol) -> &str {
+        self.interner.lookup(symbol)
+    }
+
     // Helper methods to get the current context
-    fn current_frame(&self) -> &CallFrame {
+    fn current_frame(&self) -> &PhRef<CallFrame> {
         self.frames.last().unwrap()
     }
 
-    fn current_frame_mut(&mut self) -> &mut CallFrame {
-        self.frames.last_mut().unwrap()
+    fn current_frame_mut(&mut self) -> &PhRef<CallFrame> {
+        self.frames.last().unwrap()
     }
 
-    pub fn create_class(
-        &mut self,
-        name: &str,
-        superclass: Option<PhRef<ClassObject>>,
-    ) -> PhRef<ClassObject> {
-        let metaclass_class_ptr = self.classes.metaclass_class.clone();
-        let class = ClassObject::new(name, Strong(metaclass_class_ptr), superclass);
-
+    pub fn create_single_class(&mut self, name: &str, superclass: Option<PhRef<ClassObject>>) -> PhRef<ClassObject> {
+        let class = ClassObject::new(name, Weak(PhWeakRef::default()), superclass);
         phref_new(class)
     }
 
-    fn module_from_str(&mut self, name: &str) -> PhRef<ModuleObject> {
-        let sym = self.interner.intern(name);
-        self.module(sym)
+    pub fn create_class(&mut self, name: &str, superclass: Option<PhRef<ClassObject>>) -> PhRef<ClassObject> {
+        let class_class = self.universe.classes.class_class.clone();
+
+        let metaclass_name = name.to_owned() + ".class";
+        let metaclass = self.create_single_class(metaclass_name.as_str(), Some(class_class.clone()));
+        metaclass.borrow_mut().set_class_owned(&class_class);
+        metaclass.borrow_mut().set_superclass(Some(class_class.clone()));
+
+        let class = self.create_single_class(name, superclass);
+        class.borrow_mut().set_class_owned(&metaclass);
+        class
     }
 
     fn module(&mut self, module_sym: Symbol) -> PhRef<ModuleObject> {
@@ -83,23 +108,16 @@ impl VM {
             return m.clone();
         }
 
-        let m = phref_new(ModuleObject::new(module_sym));
+        let m = phref_new(ModuleObject::new(self, module_sym));
         self.modules.insert(module_sym, m.clone());
         m
     }
 
     fn get_global(&self, module_sym: Symbol, name_sym: Symbol) -> Option<Value> {
-        self.modules
-            .get(&module_sym)
-            .and_then(|m| m.borrow().get(name_sym))
+        self.modules.get(&module_sym).and_then(|m| m.borrow().get(name_sym))
     }
 
-    fn define_global(
-        &mut self,
-        module_sym: Symbol,
-        name_sym: Symbol,
-        val: Value,
-    ) -> PhResult<usize> {
+    fn define_global(&mut self, module_sym: Symbol, name_sym: Symbol, val: Value) -> PhResult<usize> {
         let module = self.module(module_sym);
         module.borrow().define(name_sym, val)
     }
@@ -117,16 +135,11 @@ impl VM {
         macro_rules! add_class {
             ($field:ident) => {
                 add(
-                    self.classes.$field.borrow().name_str(),
-                    Value::Class(self.classes.$field.clone()),
+                    self.universe.classes.$field.borrow().name().borrow().as_str(),
+                    Value::Class(self.universe.classes.$field.clone()),
                 );
             };
         }
-
-        add(
-            self.classes.object_class.borrow().name_str(),
-            Value::Class(self.classes.object_class.clone()),
-        );
 
         add_class!(object_class);
         add_class!(class_class);
@@ -137,11 +150,41 @@ impl VM {
         add_class!(nil_class);
         add_class!(method_class);
 
-        self.define_global(core_sym, core_sym, Value::Module(core_mod))
-            .ok();
+        self.define_global(core_sym, core_sym, Value::Module(core_mod)).ok();
     }
 
-    pub fn run(&mut self) -> Result<Value, String> {
+    pub fn run(&mut self) -> PhResult<Value> {
+        macro_rules! binary_op {
+            ($op:tt) => {
+                {
+                    let b = self.stack.pop().ok_or("Stack underflow")?;
+                    let a = self.stack.pop().ok_or("Stack underflow")?;
+                    if let (Value::Number(a_num), Value::Number(b_num)) = (a, b) {
+                        self.stack.push(Value::Number(a_num $op b_num));
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Unsupported operand types for binary operation: {:?} and {:?}", a, b),
+                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for binary operation: {:?} and {:?}", a, b)),
+                        });
+                    }
+                }
+            };
+            ($op:tt, $type:ty) => {
+                {
+                    let b = self.stack.pop().ok_or("Stack underflow")?;
+                    let a = self.stack.pop().ok_or("Stack underflow")?;
+                    if let (Value::Number(a_num), Value::Number(b_num)) = (a, b) {
+                        self.stack.push(Value::Bool((a_num $op b_num) as $type));
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Unsupported operand types for binary operation: {:?} and {:?}", a, b),
+                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for binary operation: {:?} and {:?}", a, b)),
+                        });
+                    }
+                }
+            }
+        }
+
         loop {
             // If there are no frames left, execution is complete.
             if self.frames.is_empty() {
@@ -149,23 +192,16 @@ impl VM {
                 return Ok(self.stack.pop().unwrap_or(Value::Nil));
             }
 
-            // Get a reference to the current frame's chunk.
-            // We clone the Gc<Method> to satisfy the borrow checker, which is cheap.
-            let method = self.current_frame().method.clone();
-
-            let method_borrowed = method.borrow();
-            let chunk = match &method_borrowed.kind {
-                MethodKind::Closure(chunk) => chunk,
-                MethodKind::Primitive(_) => {
-                    return Err(
-                        "VM Error: Attempted to execute bytecode from a native method.".to_string(),
-                    );
-                }
-            };
-
-            // Fetch the next instruction.
-            let opcode = chunk.code[self.current_frame().ip];
-            self.current_frame_mut().ip += 1;
+            // Prepare current frame for execution
+            let frame_ref = self.current_frame().clone();
+            let mut frame = frame_ref.borrow_mut();
+            // Extract closure and its chunk
+            let closure = frame.method.clone();
+            let chunk = &closure.borrow().callable.chunk;
+            // Fetch and advance instruction pointer
+            let opcode = chunk.code[frame.ip];
+            frame.ip += 1;
+            drop(frame);
 
             // --- Main Dispatch Loop ---
             match opcode {
@@ -192,35 +228,41 @@ impl VM {
 
                 Bytecode::DefineGlobal(idx) => {
                     let name_val = &chunk.constants[idx as usize];
-                    if let Value::String(name) = name_val {
-                        // The value to be assigned is on top of the stack.
-                        // We clone it because `globals` takes ownership.
-                        self.globals
-                            .insert(name.to_string(), self.stack.last().unwrap().clone());
-                        // Important: Defining a global should not leave the value on the stack.
+                    if let Value::Symbol(name_sym) = name_val {
+                        let module = closure.borrow().module.clone();
+                        module.borrow().define(*name_sym, self.stack.last().unwrap().clone()).unwrap();
                         self.stack.pop();
                     }
                 }
 
                 Bytecode::GetGlobal(idx) => {
                     let name_val = &chunk.constants[idx as usize];
-                    if let Value::String(name) = name_val {
-                        if let Some(value) = self.globals.get(&**name) {
+                    if let Value::Symbol(name_sym) = name_val {
+                        let module = closure.borrow().module.clone();
+                        if let Some(value) = module.borrow().get(*name_sym) {
                             self.stack.push(value.clone());
                         } else {
-                            return Err(format!("Undefined variable '{}'.", name));
+                            let name = self.resolve_symbol(*name_sym);
+                            return Err(PhError::VMError {
+                                message: format!("Undefined variable '{}'.", name),
+                                stack_trace: self.format_stack_trace(format!("Undefined variable '{}'.", name)),
+                            });
                         }
                     }
                 }
 
                 Bytecode::SetGlobal(idx) => {
                     let name_val = &chunk.constants[idx as usize];
-                    if let Value::String(name) = name_val {
-                        // The value to be assigned is on top of the stack.
-                        if let Some(value) = self.stack.last() {
-                            self.globals.insert(name.to_string(), value.clone());
+                    if let Value::Symbol(name_sym) = name_val {
+                        let module = closure.borrow().module.clone();
+                        if let Some(slot) = module.borrow().name_to_slot.borrow().get(name_sym) {
+                             module.borrow().set_global(*slot, self.stack.last().unwrap().clone()).unwrap();
                         } else {
-                            return Err(format!("No value to assign to '{}'.", name));
+                            let name = self.resolve_symbol(*name_sym);
+                            return Err(PhError::VMError {
+                                message: format!("Undefined variable '{}'.", name),
+                                stack_trace: self.format_stack_trace(format!("Undefined variable '{}'.", name)),
+                            });
                         }
                     }
                 }
@@ -230,58 +272,54 @@ impl VM {
                     if let Value::String(name) = name_val {
                         let superclass = self.stack.pop().unwrap();
                         if let Value::Class(superclass_obj) = superclass {
-                            let new_class = self.create_class(name.as_str(), Some(superclass_obj));
+                            let new_class = self.create_class(name.borrow().as_str(), Some(superclass_obj));
                             self.stack.push(Value::Class(new_class));
                         } else {
-                            return Err("Superclass must be a class.".to_string());
+                            return Err(PhError::VMError {
+                            message: "Superclass must be a class.".to_string(),
+                            stack_trace: self.format_stack_trace("Superclass must be a class.".to_string()),
+                        });
                         }
                     }
                 }
 
                 Bytecode::Method(idx) => {
                     let selector_val = &chunk.constants[idx as usize];
-                    if let Value::String(selector) = selector_val {
+                    if let Value::Symbol(selector) = selector_val {
                         let method_val = self.stack.pop().unwrap();
                         let class_val = self.stack.last().unwrap(); // Class is still on the stack
-                        if let (Value::Method(method_obj), Value::Class(class_obj)) =
-                            (method_val, class_val)
-                        {
-                            class_obj.borrow_mut().add_method(&selector, method_obj);
+                        if let (Value::Method(method_obj), Value::Class(class_obj)) = (method_val, class_val) {
+                            class_obj.borrow_mut().add_method(*selector, method_obj);
                         } else {
-                            return Err(
-                                "VM Error: Invalid types for method definition.".to_string()
-                            );
+                            return Err(PhError::VMError {
+                            message: "VM Error: Invalid types for method definition.".to_string(),
+                            stack_trace: self.format_stack_trace("VM Error: Invalid types for method definition.".to_string()),
+                        });
                         }
                     }
                 }
 
-                Bytecode::Send(arity, selector_idx) => {
+                Bytecode::Call(arity, selector_idx) => {
                     let selector_val = &chunk.constants[selector_idx as usize];
                     let arity = arity as usize;
 
-                    if let Value::String(selector) = selector_val {
-                        // The receiver is under the arguments on the stack.
-                        let receiver_idx = self.stack.len() - 1 - arity;
-                        let receiver = self.stack[receiver_idx].clone();
+                    // The receiver is under the arguments on the stack.
+                    let receiver_idx = self.stack.len() - 1 - arity;
+                    let receiver = self.stack[receiver_idx].clone();
 
-                        let args = &self.stack[receiver_idx + 1..];
-                        let args_copied: Vec<Value> = args.to_vec();
+                    let args = &self.stack[receiver_idx + 1..];
+                    let args_copied: Vec<Value> = args.to_vec();
 
-                        // Perform dynamic dispatch: lookup the method on the receiver's class.
-                        let send_result = self.do_send(&receiver, selector, &args_copied);
-                    } else {
-                        return Err(format!(
-                            "VM Error: Expected a string selector, got {selector_val:?}.",
-                        ));
-                    }
+                    // Perform dynamic dispatch: lookup the method on the receiver's class.
+                    let _ = self.do_send(&receiver, *selector_val.as_symbol()?, &args_copied)?;
                 }
 
                 Bytecode::Return => {
                     // The return value is on top of the stack.
                     let return_value = self.stack.pop().unwrap_or(Value::Nil);
 
-                    // Pop the current frame.
-                    let frame = self.frames.pop().unwrap();
+                    // Pop the current frame and restore caller context.
+                    let popped = self.frames.pop().unwrap();
 
                     // If we just popped the very last frame, we're done.
                     if self.frames.is_empty() {
@@ -289,7 +327,8 @@ impl VM {
                     }
 
                     // Discard the stack window used by the completed function.
-                    self.stack.truncate(frame.stack_offset);
+                    let popped_ref = popped.borrow();
+                    self.stack.truncate(popped_ref.stack_offset);
 
                     // Push the return value onto the caller's stack.
                     self.stack.push(return_value);
@@ -303,56 +342,129 @@ impl VM {
                         let result = a.as_number()? + b.as_number()?;
                         self.stack.push(Value::Number(result));
                     } else {
-                        let selector = "+:".to_string();
+                        let selector = self.interner.intern("+:");
                         let receiver = a;
                         let args = vec![b];
 
-                        let send_result = self.do_send(&receiver, &selector, &args);
+                        let send_result = self.do_send(&receiver, selector, &args);
                         match send_result {
                             Ok(value) => self.stack.push(value),
-                            Err(err) => return Err(err),
+                            Err(err) => return Err(PhError::VMError {
+                                message: format!("Native method error: {}", err),
+                                stack_trace: self.format_stack_trace(format!("Native method error: {}", err)),
+                            }),
                         }
+                    }
+                }
+                Bytecode::Subtract => binary_op!(-),
+                Bytecode::Multiply => binary_op!(*),
+                Bytecode::Divide => binary_op!(/),
+                Bytecode::Modulo => binary_op!(%),
+                Bytecode::Equal => {
+                    let b = self.stack.pop().ok_or("Stack underflow")?;
+                    let a = self.stack.pop().ok_or("Stack underflow")?;
+                    self.stack.push(Value::Bool(a == b));
+                }
+                Bytecode::NotEqual => {
+                    let b = self.stack.pop().ok_or("Stack underflow")?;
+                    let a = self.stack.pop().ok_or("Stack underflow")?;
+                    self.stack.push(Value::Bool(a != b));
+                }
+                Bytecode::Greater => binary_op!(>, bool),
+                Bytecode::GreaterEqual => binary_op!(>=, bool),
+                Bytecode::Less => binary_op!(<, bool),
+                Bytecode::LessEqual => binary_op!(<=, bool),
+
+                Bytecode::And => {
+                    let b = self.stack.pop().ok_or("Stack underflow")?;
+                    let a = self.stack.pop().ok_or("Stack underflow")?;
+                    if let (Value::Bool(a_bool), Value::Bool(b_bool)) = (a, b) {
+                        self.stack.push(Value::Bool(a_bool && b_bool));
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Unsupported operand types for logical AND: {:?} and {:?}", a, b),
+                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for logical AND: {:?} and {:?}", a, b)),
+                        });
+                    }
+                }
+                Bytecode::Or => {
+                    let b = self.stack.pop().ok_or("Stack underflow")?;
+                    let a = self.stack.pop().ok_or("Stack underflow")?;
+                    if let (Value::Bool(a_bool), Value::Bool(b_bool)) = (a, b) {
+                        self.stack.push(Value::Bool(a_bool || b_bool));
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Unsupported operand types for logical OR: {:?} and {:?}", a, b),
+                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for logical OR: {:?} and {:?}", a, b)),
+                        });
+                    }
+                }
+
+                Bytecode::Negate => {
+                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    if let Value::Number(num) = val {
+                        self.stack.push(Value::Number(-num));
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Unsupported operand type for negation: {:?}", val),
+                            stack_trace: self.format_stack_trace(format!("Unsupported operand type for negation: {:?}", val)),
+                        });
+                    }
+                }
+                Bytecode::Not => {
+                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    if let Value::Bool(b) = val {
+                        self.stack.push(Value::Bool(!b));
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Unsupported operand type for logical NOT: {:?}", val),
+                            stack_trace: self.format_stack_trace(format!("Unsupported operand type for logical NOT: {:?}", val)),
+                        });
                     }
                 }
             }
         }
     }
 
-    pub fn do_send(
-        &mut self,
-        receiver: &Value,
-        selector: &str,
-        args: &[Value],
-    ) -> Result<Value, String> {
+    fn format_stack_trace(&self, error_message: String) -> String {
+        let mut trace = String::new();
+        trace.push_str(&format!("Error: {}\n", error_message));
+        for frame_ref in self.frames.iter().rev() {
+            let frame = frame_ref.borrow();
+            let closure = frame.method.borrow();
+            let module_name = closure.module.borrow().name.borrow().value();
+            let method_name = self.resolve_symbol(closure.callable.name_sym);
+            trace.push_str(&format!("  at {}.{}\n", module_name, method_name));
+        }
+        trace
+    }
+
+    pub fn do_send(&mut self, receiver: &Value, selector: Symbol, args: &[Value]) -> PhResult<Value> {
         // Perform dynamic dispatch: lookup the method on the receiver's class.
-        if let Some(method) = receiver.lookup_method(&self, selector) {
+        if let Some(method) = receiver.lookup_method(self, selector) {
             match &method.borrow().kind {
                 MethodKind::Primitive(native_fn) => {
                     // For native methods, call the Rust function directly.
                     let result = native_fn(self, receiver, args);
-                    match result {
-                        Ok(value) => {
-                            self.stack.push(value);
-                            Ok(Value::Nil)
-                        }
-                        Err(err) => Err(format!("Native method error: {err}")),
-                    }
+                    result.map(|v| { self.stack.push(v); Value::Nil })
                 }
-                MethodKind::Closure(_) => {
-                    // For Phalcom methods, push a new CallFrame.
-                    let frame = CallFrame {
-                        method: method.clone(),
+                MethodKind::Closure(closure) => {
+                    // For Phalcom methods, push a new CallFrame with the closure entry.
+                    let new_frame = phref_new(CallFrame {
+                        method: closure.clone(),
                         ip: 0,
                         stack_offset: self.stack.len() - args.len() - 1,
-                    };
-                    self.frames.push(frame);
-                    Ok(Value::Nil) // Placeholder until the method returns
+                    });
+                    self.frames.push(new_frame);
+                    Ok(Value::Nil)
                 }
             }
         } else {
-            Err(format!(
-                "Method '{selector}' not found for value {receiver:?}."
-            ))
+            let selector_name = self.resolve_symbol(selector);
+            Err(PhError::VMError {
+                message: format!("Method '{selector_name}' not found for value {receiver:?}."),
+                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver:?}.")),
+            })
         }
     }
 }
@@ -362,13 +474,15 @@ mod tests {
     use super::*;
     use crate::bytecode::Bytecode;
     use crate::chunk::Chunk;
-    use crate::method::MethodObject;
 
     #[test]
     fn test_vm_addition() {
         // --- 2. Manual Chunk Assembly Phase ---
         // We will manually create the bytecode for `10 + 20`, which is treated
         // as the message send `10.__add__(20)`.
+
+        let mut vm = VM::new();
+        let module = vm.module_from_str("test");
 
         let mut chunk = Chunk::default();
 
@@ -378,42 +492,82 @@ mod tests {
         // Index 1: The argument, 20.0
         let string2_idx = chunk.add_constant(Value::string_from_str("world!"));
         // Index 2: The selector for the method call, "__add__:"
-        let const_selector_idx = chunk.add_constant(Value::string_from_str("+:"));
+        let selector_sym = vm.interner.intern("+(_)");
+        let const_selector_idx = chunk.add_constant(Value::Symbol(selector_sym));
 
         // The sequence of bytecode instructions:
         chunk.code.extend_from_slice(&[
             Bytecode::String(string1_idx),
-            Bytecode::Number(string2_idx),
-            Bytecode::Send(1, const_selector_idx),
+            Bytecode::String(string2_idx),
+            Bytecode::Call(1, const_selector_idx),
             Bytecode::Return,
         ]);
 
-        // --- 3. Top-Level Method Creation ---
-        // The VM starts by executing a top-level script, which is itself a method.
-        // We wrap our handcrafted chunk in this method.
-        let top_level_method = phref_new(MethodObject {
-            kind: MethodKind::Closure(chunk),
-            arity: 0,
-            parameters: Vec::new(),
+        // --- 3. Top-Level Closure Creation ---
+        // Wrap our handcrafted chunk in a ClosureObject.
+        use crate::callable::Callable;
+        let entry = phref_new(ClosureObject {
+            callable: Callable {
+                chunk,
+                max_slots: 0,
+                num_upvalues: 0,
+                arity: 0,
+            },
+            module: module.clone(),
+            upvalues: Vec::new(),
         });
 
-        // --- 4. VM Initialization ---
-        // Create a new VM, which will set up the initial call frame for our
-        // top-level method. We pass our bootstrapped universe to it.
-        let mut vm = VM::new(top_level_method);
-
-        // --- 5. Execution ---
-        // Run the VM until it finishes (i.e., the last OpReturn is executed).
-        // We expect it to succeed.
-        let result = vm.run().expect("VM execution failed with an error");
+        // --- 4. VM Initialization and Execution ---
+        let result = vm.run_module(module, entry).expect("VM execution failed with an error");
 
         // --- 6. Assertion ---
         // The final value left on the stack should be the result of the addition.
         let expected = Value::string_from_str("hello, world!");
 
-        assert_eq!(
-            result, expected,
-            "String addition did not produce the expected result"
-        );
+        assert_eq!(result, expected, "String addition did not produce the expected result");
+    }
+
+    #[test]
+    fn test_global_variable_definition_and_assignment() {
+        let mut vm = VM::new();
+        let module = vm.module_from_str("test_globals");
+
+        let mut chunk = Chunk::default();
+
+        // Define a global variable 'x' with initial value 10
+        let x_sym = vm.interner.intern("x");
+        let x_idx = chunk.add_constant(Value::Symbol(x_sym));
+        let ten_idx = chunk.add_constant(Value::Number(10.0));
+        chunk.add_bytecode(Bytecode::Number(ten_idx));
+        chunk.add_bytecode(Bytecode::DefineGlobal(x_idx));
+
+        // Get the value of 'x' and push it to stack
+        chunk.add_bytecode(Bytecode::GetGlobal(x_idx));
+
+        // Assign a new value 20 to 'x'
+        let twenty_idx = chunk.add_constant(Value::Number(20.0));
+        chunk.add_bytecode(Bytecode::Number(twenty_idx));
+        chunk.add_bytecode(Bytecode::SetGlobal(x_idx));
+
+        // Get the new value of 'x' and push it to stack
+        chunk.add_bytecode(Bytecode::GetGlobal(x_idx));
+
+        chunk.add_bytecode(Bytecode::Return);
+
+        use crate::callable::Callable;
+        let entry = phref_new(ClosureObject {
+            callable: Callable {
+                chunk,
+                max_slots: 0,
+                num_upvalues: 0,
+                arity: 0,
+            },
+            module: module.clone(),
+            upvalues: Vec::new(),
+        });
+
+        let result = vm.run_module(module, entry).expect("VM execution failed with an error");
+
+        assert_eq!(result, Value::Number(20.0), "Global variable assignment did not produce the expected result");
     }
 }

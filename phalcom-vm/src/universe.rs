@@ -1,11 +1,15 @@
 use crate::class::ClassObject;
-use crate::primitive::CLASS_NAME;
-use crate::primitive::{
-    BOOL_NAME, METACLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, OBJECT_NAME, STRING_NAME,
-    SYMBOL_NAME,
-};
-use crate::primitive_method;
-use crate::string::StringObject;
+use crate::method::MethodObject;
+use crate::method::SignatureKind;
+use crate::primitive::class::{class_set_superclass, class_superclass};
+use crate::primitive::number::{number_add, number_div};
+use crate::primitive::object::{object_class_, object_name_, object_set_class};
+use crate::primitive::string::string_add;
+use crate::primitive::symbol::symbol_tostring;
+use crate::primitive::{primitive_method, CLASS_NAME, FALSE_NAME, TRUE_NAME};
+use crate::primitive::{BOOL_NAME, METACLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, OBJECT_NAME, STRING_NAME, SYMBOL_NAME};
+use crate::string::{phstring_new, StringObject};
+use crate::vm::VM;
 use phalcom_common::{phref_new, MaybeWeak, PhRef};
 use std::cell::RefCell;
 
@@ -26,75 +30,59 @@ impl Universe {
     }
 
     pub fn bootstrap_core_classes() -> CoreClasses {
-        let metaclass_class_ptr: PhRef<ClassObject> =
-            ClassObject::new_instance_of_self("Metaclass");
+        let metaclass_class_ptr: PhRef<ClassObject> = ClassObject::new_instance_of_self("Metaclass");
 
         let class_class_ptr = ClassObject::new_instance_of_self("Class");
-        class_class_ptr
-            .borrow_mut()
-            .set_class_owned(&metaclass_class_ptr);
+        class_class_ptr.borrow_mut().set_class_owned(&metaclass_class_ptr);
 
         let object_class_ptr = ClassObject::new_instance_of_self("Object");
 
-        object_class_ptr
-            .borrow_mut()
-            .set_class_owned(&class_class_ptr);
-        primitive_method!(object_class_ptr, SIG_NAME, 0, object_name);
+        object_class_ptr.borrow_mut().set_class_owned(&class_class_ptr);
 
-        class_class_ptr
-            .borrow_mut()
-            .set_superclass(Some(object_class_ptr.clone()));
+        class_class_ptr.borrow_mut().set_superclass(Some(object_class_ptr.clone()));
 
-        metaclass_class_ptr
-            .borrow_mut()
-            .set_superclass(Some(class_class_ptr.clone()));
-        metaclass_class_ptr
-            .borrow_mut()
-            .set_class_owned(&metaclass_class_ptr);
+        metaclass_class_ptr.borrow_mut().set_superclass(Some(class_class_ptr.clone()));
+        metaclass_class_ptr.borrow_mut().set_class_owned(&metaclass_class_ptr);
 
         let number_class_ptr = phref_new(ClassObject::new(
             "Number",
-            Strong(object_class_ptr.clone()),
+            MaybeWeak::Strong(object_class_ptr.clone()),
             Some(class_class_ptr.clone()),
         ));
-
-        primitive_method!(number_class_ptr, SIG_ADD, 1, number_add);
-        primitive_method!(number_class_ptr, SIG_DIV, 1, number_div);
 
         let string_class_ptr = phref_new(ClassObject::new(
             "String",
-            Strong(object_class_ptr.clone()),
+            MaybeWeak::Strong(object_class_ptr.clone()),
             Some(class_class_ptr.clone()),
         ));
-        primitive_method!(string_class_ptr, SIG_ADD, 1, string_add);
 
         let nil_class_ptr = phref_new(ClassObject::new(
             "Nil",
-            Strong(object_class_ptr.clone()),
+            MaybeWeak::Strong(object_class_ptr.clone()),
             Some(class_class_ptr.clone()),
         ));
 
         let bool_class_ptr = phref_new(ClassObject::new(
             "Bool",
-            Strong(object_class_ptr.clone()),
+            MaybeWeak::Strong(object_class_ptr.clone()),
             Some(class_class_ptr.clone()),
         ));
 
         let method_class_ptr = phref_new(ClassObject::new(
             "Method",
-            Strong(object_class_ptr.clone()),
+            MaybeWeak::Strong(object_class_ptr.clone()),
             Some(class_class_ptr.clone()),
         ));
 
         let symbol_class_ptr = phref_new(ClassObject::new(
             "Symbol",
-            Strong(object_class_ptr.clone()),
+            MaybeWeak::Strong(object_class_ptr.clone()),
             Some(class_class_ptr.clone()),
         ));
 
         let module_class_ptr = phref_new(ClassObject::new(
             "Module",
-            Strong(object_class_ptr.clone()),
+            MaybeWeak::Strong(object_class_ptr.clone()),
             Some(class_class_ptr.clone()),
         ));
 
@@ -113,10 +101,34 @@ impl Universe {
         }
     }
 
+    pub fn install_primitives(vm: &mut VM) {
+        let object_cls = vm.universe.classes.object_class.clone();
+        primitive_method!(vm, object_cls, "name", SignatureKind::Getter, object_name_);
+        primitive_method!(vm, object_cls, "class", SignatureKind::Getter, object_class_);
+        primitive_method!(vm, object_cls, "class=(_)", SignatureKind::Setter, object_set_class);
+        primitive_method!(vm, object_cls, "toString", SignatureKind::Getter, object_name_);
+
+        let class_cls = vm.universe.classes.class_class.clone();
+        primitive_method!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
+        primitive_method!(vm, class_cls, "superclass=(_)", SignatureKind::Setter, class_set_superclass);
+
+        let number_cls = vm.universe.classes.number_class.clone();
+        primitive_method!(vm, number_cls, "+(_)", SignatureKind::Method(1), number_add);
+        primitive_method!(vm, number_cls, "/(_)", SignatureKind::Method(1), number_div);
+
+        let string_cls = vm.universe.classes.string_class.clone();
+        primitive_method!(vm, string_cls, "+(_)", SignatureKind::Method(1), string_add);
+
+        let symbol_cls = vm.universe.classes.symbol_class.clone();
+        primitive_method!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
+    }
+
     pub fn create_primitive_names() -> PrimitiveNames {
         PrimitiveNames {
             nil: phref_new(StringObject::from_str(NIL_NAME)),
             bool_: phref_new(StringObject::from_str(BOOL_NAME)),
+            true_: phref_new(StringObject::from_str(TRUE_NAME)),
+            false_: phref_new(StringObject::from_str(FALSE_NAME)),
             number: phref_new(StringObject::from_str(NUMBER_NAME)),
             string: phref_new(StringObject::from_str(STRING_NAME)),
             symbol: phref_new(StringObject::from_str(SYMBOL_NAME)),
@@ -135,7 +147,7 @@ impl ClassObject {
                 // The key: the class of this object is a weak pointer to itself,
                 // which will be upgraded to the final Rc.
                 class: MaybeWeak::Weak(weak_self.clone()),
-                name: name.to_string(),
+                name: phstring_new(name.to_string()),
                 superclass: None,
                 methods: Default::default(),
             })
@@ -161,6 +173,8 @@ pub struct CoreClasses {
 pub struct PrimitiveNames {
     pub nil: PhRef<StringObject>,
     pub bool_: PhRef<StringObject>,
+    pub true_: PhRef<StringObject>,
+    pub false_: PhRef<StringObject>,
     pub number: PhRef<StringObject>,
     pub string: PhRef<StringObject>,
     pub symbol: PhRef<StringObject>,
@@ -168,6 +182,12 @@ pub struct PrimitiveNames {
     pub method: PhRef<StringObject>,
     pub class: PhRef<StringObject>,
     pub metaclass: PhRef<StringObject>,
+}
+
+impl PrimitiveNames {
+    pub fn bool_name(&self, b: bool) -> PhRef<StringObject> {
+        if b { self.true_.clone() } else { self.false_.clone() }
+    }
 }
 
 impl std::fmt::Debug for PrimitiveNames {

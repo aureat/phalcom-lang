@@ -1,11 +1,11 @@
-use crate::method::MethodObject;
+use crate::closure::ClosureObject;
 use phalcom_common::PhRef;
 
 /// Represents a single function call's execution context.
 #[derive(Debug, Clone)]
 pub struct CallFrame {
     /// The method or function being executed.
-    pub method: PhRef<MethodObject>,
+    pub method: PhRef<ClosureObject>,
 
     /// The instruction pointer for this frame. It's an index into the
     /// method's bytecode chunk.
