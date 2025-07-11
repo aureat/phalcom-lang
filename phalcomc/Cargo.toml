@@ -8,4 +8,5 @@ anyhow = "1.0.98"
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-compiler = { path = "../phalcom-compiler" }
 phalcom-vm = { path = "../phalcom-vm" }
+phalcom-common = { path = "../phalcom-common" }
 thiserror = "1.0"

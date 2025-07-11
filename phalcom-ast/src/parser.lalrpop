@@ -87,9 +87,54 @@ ParamList: Vec<String> = {
 Expr = ExprAssignment;
 
 ExprAssignment: Expr = {
+    <name:ExprPrimary> "+=" <value:Expr> =>
+        Expr::Assignment(Box::new(AssignmentExpr {
+            name: Box::new(name.clone()),
+            value: Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Add,
+                left: name,
+                right: value,
+            })),
+        })),
+    <name:ExprPrimary> "-=" <value:Expr> =>
+        Expr::Assignment(Box::new(AssignmentExpr {
+            name: Box::new(name.clone()),
+            value: Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Subtract,
+                left: name,
+                right: value,
+            })),
+        })),
+    <name:ExprPrimary> "*=" <value:Expr> =>
+        Expr::Assignment(Box::new(AssignmentExpr {
+            name: Box::new(name.clone()),
+            value: Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Multiply,
+                left: name,
+                right: value,
+            })),
+        })),
+    <name:ExprPrimary> "/=" <value:Expr> =>
+        Expr::Assignment(Box::new(AssignmentExpr {
+            name: Box::new(name.clone()),
+            value: Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Divide,
+                left: name,
+                right: value,
+            })),
+        })),
+    <name:ExprPrimary> "%=" <value:Expr> =>
+        Expr::Assignment(Box::new(AssignmentExpr {
+            name: Box::new(name.clone()),
+            value: Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Modulo,
+                left: name,
+                right: value,
+            })),
+        })),
     <name:ExprPrimary> "=" <value:Expr> =>
         Expr::Assignment(Box::new(AssignmentExpr { name: Box::new(name), value })),
-    <object:ExprCall> "." <property:identifier> "=" <value:Expr> =>
+    <object:ExprCall> "." <property:PropertyName> "=" <value:Expr> =>
         Expr::SetProperty(Box::new(SetPropertyExpr { object, property, value })),
     ExprOr,
 };
@@ -154,7 +199,7 @@ ExprCall: Expr = {
 //    <callee:ExprCall> "(" <args:ArgList> ")" => {
 //        Expr::Call(Box::new(CallExpr { callee, args, }))
 //    },
-    <object:ExprCall> "." <property:identifier> <args:("(" <ArgList> ")")?> => {
+    <object:ExprCall> "." <property:PropertyName> <args:("(" <ArgList> ")")?> => {
         if let Some(args) = args {
             Expr::MethodCall(Box::new(MethodCallExpr { object, method: property, args }))
         } else {
@@ -182,6 +227,11 @@ ArgList: Vec<Expr> = {
         args
     },
     () => Vec::new(),
+};
+
+PropertyName: String = {
+    identifier => <>,
+    "class" => "class".to_owned(),
 };
 
 extern {
@@ -248,5 +298,10 @@ extern {
     "*" => Token::Asterisk,
     "/" => Token::Slash,
     "%" => Token::Percent,
+    "+=" => Token::PlusEqual,
+    "-=" => Token::MinusEqual,
+    "*=" => Token::AsteriskEqual,
+    "/=" => Token::SlashEqual,
+    "%=" => Token::PercentEqual,
   }
 }

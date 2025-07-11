@@ -55,7 +55,7 @@ pub struct ReturnStatement {
     pub value: Option<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Number(f64),
     String(String),
@@ -73,59 +73,52 @@ pub enum Expr {
     SetProperty(Box<SetPropertyExpr>),
 }
 
-#[derive(Debug)]
-pub struct AssignmentExpr {
-    pub name: Box<Expr>,
-    pub value: Expr,
-}
-
-#[derive(Debug)]
-pub struct CallExpr {
-    pub callee: Expr,
-    pub args: Vec<Expr>,
-}
-
-#[derive(Debug)]
-pub struct MethodCallExpr {
-    pub object: Expr,
-    pub method: String,
-    pub args: Vec<Expr>,
-}
-
-#[derive(Debug)]
-pub struct GetPropertyExpr {
-    pub object: Expr,
-    pub property: String,
-}
-
-#[allow(dead_code)]
-enum Suffix {
-    Method(String, Vec<Expr>), // .foo(args)
-    Property(String),          // .foo
-    Call(Vec<Expr>),           // (args)
-}
-
-#[derive(Debug)]
-pub struct SetPropertyExpr {
-    pub object: Expr,
-    pub property: String,
-    pub value: Expr,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryExpr {
     pub op: BinaryOp,
     pub left: Expr,
     pub right: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+pub struct SetPropertyExpr {
+    pub object: Expr,
+    pub property: String,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssignmentExpr {
+    pub name: Box<Expr>,
+    pub value: Expr,
+}
+
+#[derive(Debug, Clone)]
+pub struct CallExpr {
+    pub callee: Expr,
+    pub args: Vec<Expr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MethodCallExpr {
+    pub object: Expr,
+    pub method: String,
+    pub args: Vec<Expr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GetPropertyExpr {
+    pub object: Expr,
+    pub property: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct UnaryExpr {
     pub op: UnaryOp,
     pub expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinaryOp {
     Add,
     Subtract,
@@ -142,7 +135,7 @@ pub enum BinaryOp {
     Or,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UnaryOp {
     Negate,
     Not,

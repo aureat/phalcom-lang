@@ -33,6 +33,10 @@ pub enum Bytecode {
     /// 0: The index of the variable's name in the constant pool.
     SetGlobal(u16),
 
+    /// Gets a property from an object/value.
+    /// 0: index of property name in constant pool.
+    GetProperty(u16),
+
     /// Creates a new class.
     /// 0: index of class name in constant pool.
     Class(u16),

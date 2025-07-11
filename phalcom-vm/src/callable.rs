@@ -1,4 +1,4 @@
-use crate::chunk::Chunk;
+use crate::{chunk::Chunk, interner::Symbol};
 
 #[derive(Debug, Clone)]
 pub struct Callable {

@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::collections::HashMap;
 use std::mem;
 
@@ -6,6 +7,13 @@ use std::mem;
 /// This is fast to move, clone and compare.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Symbol(pub(crate) u32);
+
+impl Deref for Symbol {
+    type Target = u32;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// A string interner.
 ///
@@ -36,7 +44,7 @@ impl Interner {
             return Symbol(id);
         }
 
-        let name = unsafe { self.alloc(name) };
+        let name = self.alloc(name);
         let id = self.map.len() as u32;
         self.map.insert(name, id);
         self.vec.push(name);
@@ -54,7 +62,7 @@ impl Interner {
         self.vec[id.0 as usize]
     }
 
-    unsafe fn alloc(&mut self, name: &str) -> &'static str {
+    fn alloc(&mut self, name: &str) -> &'static str {
         let cap = self.buf.capacity();
         if cap < self.buf.len() + name.len() {
             let new_cap = (cap.max(name.len()) + 1).next_power_of_two();
@@ -69,6 +77,6 @@ impl Interner {
             &self.buf[start..]
         };
 
-        &*(interned as *const str)
+        unsafe { &*(interned as *const str) }
     }
 }

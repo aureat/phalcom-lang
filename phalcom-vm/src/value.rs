@@ -7,7 +7,7 @@ use crate::primitive::{BOOL_NAME, CLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME
 use crate::string::{phstring_new, StringObject};
 use crate::vm::VM;
 use phalcom_common::{phref_new, PhRef};
-use std::fmt;
+use std::fmt::{self, Display};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -100,7 +100,7 @@ impl Value {
         match self {
             Value::Nil => vm.universe.primitive_names.nil.clone(),
             Value::Bool(_) => vm.universe.primitive_names.bool_.clone(),
-            Value::Number(_) => vm.universe.primitive_names.number.clone(),
+            Value::Number(n) => phstring_new(n.to_string()),
             Value::String(_) => vm.universe.primitive_names.string.clone(),
             Value::Symbol(_) => vm.universe.primitive_names.symbol.clone(),
             Value::Instance(instance) => instance.borrow().name(),
@@ -120,7 +120,7 @@ impl Value {
             Value::Method(_) => vm.universe.classes.method_class.clone(),
             Value::Instance(instance) => instance.borrow().class(),
             Value::Class(class) => class.borrow().class(),
-            Value::Module(module) => vm.universe.classes.module_class.clone(),
+            Value::Module(_module) => vm.universe.classes.module_class.clone(),
         }
     }
 
@@ -195,6 +195,22 @@ impl Hash for Value {
 }
 
 impl Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nil => write!(f, "nil"),
+            Self::Bool(b) => write!(f, "{b}"),
+            Self::Number(n) => write!(f, "{n}"),
+            Self::String(s) => write!(f, "\"{}\"", s.borrow().value()),
+            Self::Symbol(s) => write!(f, "Symbol({})", s.0),
+            Self::Instance(_) => write!(f, "<instance>"),
+            Self::Class(c) => write!(f, "<class {}>", c.borrow().name().borrow().value()),
+            Self::Method(_) => write!(f, "<method>"),
+            Self::Module(_) => write!(f, "<module>"),
+        }
+    }
+}
+
+impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Nil => write!(f, "nil"),

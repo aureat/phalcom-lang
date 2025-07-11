@@ -50,6 +50,16 @@ pub enum Token {
     Return,
     #[token("true")]
     True,
+        #[token("+=")]
+        PlusEqual,
+        #[token("-=")]
+        MinusEqual,
+        #[token("*=")]
+        AsteriskEqual,
+        #[token("/=")]
+        SlashEqual,
+        #[token("%=")]
+        PercentEqual,
     #[token("false")]
     False,
     #[token("nil")]

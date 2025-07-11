@@ -10,7 +10,10 @@ pub fn object_name_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 
 /// Signature: `Object::class`
 pub fn object_class_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    Ok(Value::Class(receiver.class(vm)))
+    println!("[object_class_] receiver = {:?}", receiver);
+    let class = receiver.class(vm);
+    // println!("[object_class_] returning class = {:?}", class);
+    Ok(Value::Class(class))
 }
 
 /// Signature: `Object::class=(_)`

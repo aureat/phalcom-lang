@@ -46,44 +46,44 @@ impl Universe {
 
         let number_class_ptr = phref_new(ClassObject::new(
             "Number",
-            MaybeWeak::Strong(object_class_ptr.clone()),
-            Some(class_class_ptr.clone()),
+            MaybeWeak::Strong(class_class_ptr.clone()),
+            Some(object_class_ptr.clone()),
         ));
 
         let string_class_ptr = phref_new(ClassObject::new(
             "String",
-            MaybeWeak::Strong(object_class_ptr.clone()),
-            Some(class_class_ptr.clone()),
+            MaybeWeak::Strong(class_class_ptr.clone()),
+            Some(object_class_ptr.clone()),
         ));
 
         let nil_class_ptr = phref_new(ClassObject::new(
             "Nil",
-            MaybeWeak::Strong(object_class_ptr.clone()),
-            Some(class_class_ptr.clone()),
+            MaybeWeak::Strong(class_class_ptr.clone()),
+            Some(object_class_ptr.clone()),
         ));
 
         let bool_class_ptr = phref_new(ClassObject::new(
             "Bool",
-            MaybeWeak::Strong(object_class_ptr.clone()),
-            Some(class_class_ptr.clone()),
+            MaybeWeak::Strong(class_class_ptr.clone()),
+            Some(object_class_ptr.clone()),
         ));
 
         let method_class_ptr = phref_new(ClassObject::new(
             "Method",
-            MaybeWeak::Strong(object_class_ptr.clone()),
-            Some(class_class_ptr.clone()),
+            MaybeWeak::Strong(class_class_ptr.clone()),
+            Some(object_class_ptr.clone()),
         ));
 
         let symbol_class_ptr = phref_new(ClassObject::new(
             "Symbol",
-            MaybeWeak::Strong(object_class_ptr.clone()),
-            Some(class_class_ptr.clone()),
+            MaybeWeak::Strong(class_class_ptr.clone()),
+            Some(object_class_ptr.clone()),
         ));
 
         let module_class_ptr = phref_new(ClassObject::new(
             "Module",
-            MaybeWeak::Strong(object_class_ptr.clone()),
-            Some(class_class_ptr.clone()),
+            MaybeWeak::Strong(class_class_ptr.clone()),
+            Some(object_class_ptr.clone()),
         ));
 
         // Return the fully populated Universe.

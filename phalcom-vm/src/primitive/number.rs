@@ -6,15 +6,21 @@ use crate::expect_value;
 pub const NUM_0: Value = Value::Number(0.0);
 pub const NUM_1: Value = Value::Number(1.0);
 
+/// Signature: `Number::name`
+pub fn number_name_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let n = expect_value!(receiver, Number);
+    Ok(Value::string_from(n.to_string()))
+}
+
 /// Signature: `Number::+(_)`
-pub fn number_add(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+pub fn number_add(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let this = expect_value!(_receiver, Number);
     let other = expect_value!(&args[0], Number);
     Ok(Value::Number(this + other))
 }
 
 /// Signature: `Number::-(_)`
-pub fn number_div(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+pub fn number_div(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let this = expect_value!(_receiver, Number);
     let other = expect_value!(&args[0], Number);
 

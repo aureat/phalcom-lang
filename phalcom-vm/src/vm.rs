@@ -19,7 +19,7 @@ pub struct VM {
     frames: Vec<PhRef<CallFrame>>,
     stack: Vec<Value>,
     pub modules: HashMap<Symbol, PhRef<ModuleObject>>,
-    pub(crate) interner: Interner,
+    pub interner: Interner,
     pub start_time: Instant,
     pub universe: Universe,
 }
@@ -68,11 +68,11 @@ impl VM {
         self.run()
     }
 
-    pub(crate) fn get_or_intern(&mut self, name: &str) -> Symbol {
+    pub fn get_or_intern(&mut self, name: &str) -> Symbol {
         self.interner.intern(name)
     }
 
-    pub(crate) fn resolve_symbol(&self, symbol: Symbol) -> &str {
+    pub fn resolve_symbol(&self, symbol: Symbol) -> &str {
         self.interner.lookup(symbol)
     }
 
@@ -155,31 +155,46 @@ impl VM {
 
     pub fn run(&mut self) -> PhResult<Value> {
         macro_rules! binary_op {
-            ($op:tt) => {
+            ($op:tt, $selector:expr) => {
                 {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
-                    if let (Value::Number(a_num), Value::Number(b_num)) = (a, b) {
-                        self.stack.push(Value::Number(a_num $op b_num));
+                    if a.is_number() && b.is_number() {
+                        let result = a.as_number().map_err(PhError::StringError)? $op b.as_number().map_err(PhError::StringError)?;
+                        self.stack.push(Value::Number(result));
                     } else {
-                        return Err(PhError::VMError {
-                            message: format!("Unsupported operand types for binary operation: {:?} and {:?}", a, b),
-                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for binary operation: {:?} and {:?}", a, b)),
-                        });
+                        let selector = self.interner.intern($selector);
+                        let receiver = a;
+                        let args = vec![b];
+                        let send_result = self.do_send(&receiver, selector, &args);
+                        match send_result {
+                            Ok(value) => self.stack.push(value),
+                            Err(err) => return Err(PhError::VMError {
+                                message: format!("Native method error: {}", err),
+                                stack_trace: self.format_stack_trace(format!("Native method error: {}", err)),
+                            }),
+                        }
                     }
                 }
             };
-            ($op:tt, $type:ty) => {
+            ($op:tt, $type:ty, $selector:expr) => {
                 {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
-                    if let (Value::Number(a_num), Value::Number(b_num)) = (a, b) {
-                        self.stack.push(Value::Bool((a_num $op b_num) as $type));
+                    if a.is_number() && b.is_number() {
+                        self.stack.push(Value::Bool((a.as_number().map_err(PhError::StringError)? $op b.as_number().map_err(PhError::StringError)?) as $type));
                     } else {
-                        return Err(PhError::VMError {
-                            message: format!("Unsupported operand types for binary operation: {:?} and {:?}", a, b),
-                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for binary operation: {:?} and {:?}", a, b)),
-                        });
+                        let selector = self.interner.intern($selector);
+                        let receiver = a;
+                        let args = vec![b];
+                        let send_result = self.do_send(&receiver, selector, &args);
+                        match send_result {
+                            Ok(value) => self.stack.push(value),
+                            Err(err) => return Err(PhError::VMError {
+                                message: format!("Native method error: {}", err),
+                                stack_trace: self.format_stack_trace(format!("Native method error: {}", err)),
+                            }),
+                        }
                     }
                 }
             }
@@ -205,6 +220,25 @@ impl VM {
 
             // --- Main Dispatch Loop ---
             match opcode {
+
+                Bytecode::GetProperty(idx) => {
+                    let property_val = &chunk.constants[idx as usize];
+                    if let Value::Symbol(property_sym) = property_val {
+                        let receiver = self.stack.pop().ok_or("Stack underflow on property access")?;
+                        println!("[VM] GetProperty: receiver = {:?}, property_sym = {:?}", receiver, property_sym);
+                        let value = match self.do_send(&receiver, *property_sym, &[]) {
+                            Ok(val) => {
+                                println!("[VM] GetProperty: returned value = {:?}", val);
+                                val
+                            },
+                            Err(err) => return Err(PhError::VMError {
+                                message: format!("Property access error: {}", err),
+                                stack_trace: self.format_stack_trace(format!("Property access error: {}", err)),
+                            }),
+                        };
+                        // self.stack.push(value);
+                    }
+                }
                 Bytecode::Number(idx) | Bytecode::String(idx) => {
                     let constant = chunk.constants[idx as usize].clone();
                     self.stack.push(constant);
@@ -311,7 +345,7 @@ impl VM {
                     let args_copied: Vec<Value> = args.to_vec();
 
                     // Perform dynamic dispatch: lookup the method on the receiver's class.
-                    let _ = self.do_send(&receiver, *selector_val.as_symbol()?, &args_copied)?;
+                    let _ = self.do_send(&receiver, selector_val.as_symbol().map_err(PhError::StringError)?, &args_copied)?;
                 }
 
                 Bytecode::Return => {
@@ -339,7 +373,7 @@ impl VM {
                     let a = self.stack.pop().ok_or("Stack underflow during addition")?;
 
                     if a.is_number() && b.is_number() {
-                        let result = a.as_number()? + b.as_number()?;
+                        let result = a.as_number().map_err(PhError::StringError)? + b.as_number().map_err(PhError::StringError)?;
                         self.stack.push(Value::Number(result));
                     } else {
                         let selector = self.interner.intern("+:");
@@ -356,10 +390,10 @@ impl VM {
                         }
                     }
                 }
-                Bytecode::Subtract => binary_op!(-),
-                Bytecode::Multiply => binary_op!(*),
-                Bytecode::Divide => binary_op!(/),
-                Bytecode::Modulo => binary_op!(%),
+                Bytecode::Subtract => binary_op!(-, "-(_)"),
+                Bytecode::Multiply => binary_op!(*, "*(_)"),
+                Bytecode::Divide => binary_op!(/, "/(_)"),
+                Bytecode::Modulo => binary_op!(%, "%(_)"),
                 Bytecode::Equal => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
@@ -370,32 +404,36 @@ impl VM {
                     let a = self.stack.pop().ok_or("Stack underflow")?;
                     self.stack.push(Value::Bool(a != b));
                 }
-                Bytecode::Greater => binary_op!(>, bool),
-                Bytecode::GreaterEqual => binary_op!(>=, bool),
-                Bytecode::Less => binary_op!(<, bool),
-                Bytecode::LessEqual => binary_op!(<=, bool),
+                Bytecode::Greater => binary_op!(>, bool, ">(_)"),
+                Bytecode::GreaterEqual => binary_op!(>=, bool, ">=(_)"),
+                Bytecode::Less => binary_op!(<, bool, "<(_)"),
+                Bytecode::LessEqual => binary_op!(<=, bool, "<=(_)"),
 
                 Bytecode::And => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
-                    if let (Value::Bool(a_bool), Value::Bool(b_bool)) = (a, b) {
-                        self.stack.push(Value::Bool(a_bool && b_bool));
+                    let a_clone = a.clone();
+                    let b_clone = b.clone();
+                    if let (Value::Bool(a_bool), Value::Bool(b_bool)) = (&a, &b) {
+                        self.stack.push(Value::Bool(*a_bool && *b_bool));
                     } else {
                         return Err(PhError::VMError {
-                            message: format!("Unsupported operand types for logical AND: {:?} and {:?}", a, b),
-                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for logical AND: {:?} and {:?}", a, b)),
+                            message: format!("Unsupported operand types for logical AND: {:?} and {:?}", a_clone, b_clone),
+                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for logical AND: {:?} and {:?}", a_clone, b_clone)),
                         });
                     }
                 }
                 Bytecode::Or => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
-                    if let (Value::Bool(a_bool), Value::Bool(b_bool)) = (a, b) {
-                        self.stack.push(Value::Bool(a_bool || b_bool));
+                    let a_clone = a.clone();
+                    let b_clone = b.clone();
+                    if let (Value::Bool(a_bool), Value::Bool(b_bool)) = (&a, &b) {
+                        self.stack.push(Value::Bool(*a_bool || *b_bool));
                     } else {
                         return Err(PhError::VMError {
-                            message: format!("Unsupported operand types for logical OR: {:?} and {:?}", a, b),
-                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for logical OR: {:?} and {:?}", a, b)),
+                            message: format!("Unsupported operand types for logical OR: {:?} and {:?}", a_clone, b_clone),
+                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for logical OR: {:?} and {:?}", a_clone, b_clone)),
                         });
                     }
                 }
@@ -445,7 +483,9 @@ impl VM {
             match &method.borrow().kind {
                 MethodKind::Primitive(native_fn) => {
                     // For native methods, call the Rust function directly.
+                    println!("Calling native method: {}", self.resolve_symbol(selector));
                     let result = native_fn(self, receiver, args);
+                    println!("Native method returned: {:?}", result);
                     result.map(|v| { self.stack.push(v); Value::Nil })
                 }
                 MethodKind::Closure(closure) => {
@@ -512,6 +552,7 @@ mod tests {
                 max_slots: 0,
                 num_upvalues: 0,
                 arity: 0,
+                name_sym: vm.interner.intern("test_vm_addition"),
             },
             module: module.clone(),
             upvalues: Vec::new(),
@@ -538,21 +579,21 @@ mod tests {
         let x_sym = vm.interner.intern("x");
         let x_idx = chunk.add_constant(Value::Symbol(x_sym));
         let ten_idx = chunk.add_constant(Value::Number(10.0));
-        chunk.add_bytecode(Bytecode::Number(ten_idx));
-        chunk.add_bytecode(Bytecode::DefineGlobal(x_idx));
+        chunk.add_instruction(Bytecode::Number(ten_idx));
+        chunk.add_instruction(Bytecode::DefineGlobal(x_idx));
 
         // Get the value of 'x' and push it to stack
-        chunk.add_bytecode(Bytecode::GetGlobal(x_idx));
+        chunk.add_instruction(Bytecode::GetGlobal(x_idx));
 
         // Assign a new value 20 to 'x'
         let twenty_idx = chunk.add_constant(Value::Number(20.0));
-        chunk.add_bytecode(Bytecode::Number(twenty_idx));
-        chunk.add_bytecode(Bytecode::SetGlobal(x_idx));
+        chunk.add_instruction(Bytecode::Number(twenty_idx));
+        chunk.add_instruction(Bytecode::SetGlobal(x_idx));
 
         // Get the new value of 'x' and push it to stack
-        chunk.add_bytecode(Bytecode::GetGlobal(x_idx));
+        chunk.add_instruction(Bytecode::GetGlobal(x_idx));
 
-        chunk.add_bytecode(Bytecode::Return);
+        chunk.add_instruction(Bytecode::Return);
 
         use crate::callable::Callable;
         let entry = phref_new(ClosureObject {
@@ -561,6 +602,7 @@ mod tests {
                 max_slots: 0,
                 num_upvalues: 0,
                 arity: 0,
+                name_sym: vm.interner.intern("test_global_variable_definition_and_assignment"),
             },
             module: module.clone(),
             upvalues: Vec::new(),

@@ -17,8 +17,8 @@ pub enum PhError {
         stack_trace: String,
     },
 
-    #[error(transparent)]
-    StringError(#[from] String),
+    #[error("{0}")]
+    StringError(String),
 
     #[error("{0}")]
     StrError(&'static str),
