@@ -2,7 +2,7 @@ use crate::boolean::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
 use crate::class::ClassObject;
 use crate::closure::ClosureObject;
-use crate::error::{PhResult, PhError};
+use crate::error::{PhError, PhResult};
 use crate::frame::CallFrame;
 use crate::interner::{Interner, Symbol};
 use crate::method::MethodKind;
@@ -22,6 +22,12 @@ pub struct VM {
     pub interner: Interner,
     pub start_time: Instant,
     pub universe: Universe,
+}
+
+impl Default for VM {
+    fn default() -> Self {
+        todo!()
+    }
 }
 
 impl VM {
@@ -166,9 +172,8 @@ impl VM {
                         let selector = self.interner.intern($selector);
                         let receiver = a;
                         let args = vec![b];
-                        let send_result = self.do_send(&receiver, selector, &args);
-                        match send_result {
-                            Ok(value) => self.stack.push(value),
+                        match self.do_send(&receiver, selector, &args) {
+                            Ok(_) => (),
                             Err(err) => return Err(PhError::VMError {
                                 message: format!("Native method error: {}", err),
                                 stack_trace: self.format_stack_trace(format!("Native method error: {}", err)),
@@ -187,9 +192,8 @@ impl VM {
                         let selector = self.interner.intern($selector);
                         let receiver = a;
                         let args = vec![b];
-                        let send_result = self.do_send(&receiver, selector, &args);
-                        match send_result {
-                            Ok(value) => self.stack.push(value),
+                        match self.do_send(&receiver, selector, &args) {
+                            Ok(_) => (),
                             Err(err) => return Err(PhError::VMError {
                                 message: format!("Native method error: {}", err),
                                 stack_trace: self.format_stack_trace(format!("Native method error: {}", err)),
@@ -220,7 +224,6 @@ impl VM {
 
             // --- Main Dispatch Loop ---
             match opcode {
-
                 Bytecode::GetProperty(idx) => {
                     let property_val = &chunk.constants[idx as usize];
                     if let Value::Symbol(property_sym) = property_val {
@@ -230,11 +233,13 @@ impl VM {
                             Ok(val) => {
                                 println!("[VM] GetProperty: returned value = {:?}", val);
                                 val
-                            },
-                            Err(err) => return Err(PhError::VMError {
-                                message: format!("Property access error: {}", err),
-                                stack_trace: self.format_stack_trace(format!("Property access error: {}", err)),
-                            }),
+                            }
+                            Err(err) => {
+                                return Err(PhError::VMError {
+                                    message: format!("Property access error: {}", err),
+                                    stack_trace: self.format_stack_trace(format!("Property access error: {}", err)),
+                                });
+                            }
                         };
                         // self.stack.push(value);
                     }
@@ -290,7 +295,7 @@ impl VM {
                     if let Value::Symbol(name_sym) = name_val {
                         let module = closure.borrow().module.clone();
                         if let Some(slot) = module.borrow().name_to_slot.borrow().get(name_sym) {
-                             module.borrow().set_global(*slot, self.stack.last().unwrap().clone()).unwrap();
+                            module.borrow().set_global(*slot, self.stack.last().unwrap().clone()).unwrap();
                         } else {
                             let name = self.resolve_symbol(*name_sym);
                             return Err(PhError::VMError {
@@ -310,9 +315,9 @@ impl VM {
                             self.stack.push(Value::Class(new_class));
                         } else {
                             return Err(PhError::VMError {
-                            message: "Superclass must be a class.".to_string(),
-                            stack_trace: self.format_stack_trace("Superclass must be a class.".to_string()),
-                        });
+                                message: "Superclass must be a class.".to_string(),
+                                stack_trace: self.format_stack_trace("Superclass must be a class.".to_string()),
+                            });
                         }
                     }
                 }
@@ -326,9 +331,9 @@ impl VM {
                             class_obj.borrow_mut().add_method(*selector, method_obj);
                         } else {
                             return Err(PhError::VMError {
-                            message: "VM Error: Invalid types for method definition.".to_string(),
-                            stack_trace: self.format_stack_trace("VM Error: Invalid types for method definition.".to_string()),
-                        });
+                                message: "VM Error: Invalid types for method definition.".to_string(),
+                                stack_trace: self.format_stack_trace("VM Error: Invalid types for method definition.".to_string()),
+                            });
                         }
                     }
                 }
@@ -368,28 +373,31 @@ impl VM {
                     self.stack.push(return_value);
                 }
 
-                Bytecode::Add => {
-                    let b = self.stack.pop().ok_or("Stack underflow during addition")?;
-                    let a = self.stack.pop().ok_or("Stack underflow during addition")?;
-
-                    if a.is_number() && b.is_number() {
-                        let result = a.as_number().map_err(PhError::StringError)? + b.as_number().map_err(PhError::StringError)?;
-                        self.stack.push(Value::Number(result));
-                    } else {
-                        let selector = self.interner.intern("+:");
-                        let receiver = a;
-                        let args = vec![b];
-
-                        let send_result = self.do_send(&receiver, selector, &args);
-                        match send_result {
-                            Ok(value) => self.stack.push(value),
-                            Err(err) => return Err(PhError::VMError {
-                                message: format!("Native method error: {}", err),
-                                stack_trace: self.format_stack_trace(format!("Native method error: {}", err)),
-                            }),
-                        }
-                    }
-                }
+                // Bytecode::Add => {
+                //     let b = self.stack.pop().ok_or("Stack underflow during addition")?;
+                //     let a = self.stack.pop().ok_or("Stack underflow during addition")?;
+                //
+                //     if a.is_number() && b.is_number() {
+                //         let result = a.as_number().map_err(PhError::StringError)? + b.as_number().map_err(PhError::StringError)?;
+                //         self.stack.push(Value::Number(result));
+                //     } else {
+                //         let selector = self.interner.intern("+(_)");
+                //         let receiver = a;
+                //         let args = vec![b];
+                //
+                //         let send_result = self.do_send(&receiver, selector, &args);
+                //         match send_result {
+                //             Ok(value) => self.stack.push(value),
+                //             Err(err) => {
+                //                 return Err(PhError::VMError {
+                //                     message: format!("Native method error: {}", err),
+                //                     stack_trace: self.format_stack_trace(format!("Native method error: {}", err)),
+                //                 });
+                //             }
+                //         }
+                //     }
+                // }
+                Bytecode::Add => binary_op!(+, "+(_)"),
                 Bytecode::Subtract => binary_op!(-, "-(_)"),
                 Bytecode::Multiply => binary_op!(*, "*(_)"),
                 Bytecode::Divide => binary_op!(/, "/(_)"),
@@ -477,7 +485,7 @@ impl VM {
         trace
     }
 
-    pub fn do_send(&mut self, receiver: &Value, selector: Symbol, args: &[Value]) -> PhResult<Value> {
+    pub fn do_send(&mut self, receiver: &Value, selector: Symbol, args: &[Value]) -> PhResult<()> {
         // Perform dynamic dispatch: lookup the method on the receiver's class.
         if let Some(method) = receiver.lookup_method(self, selector) {
             match &method.borrow().kind {
@@ -486,7 +494,9 @@ impl VM {
                     println!("Calling native method: {}", self.resolve_symbol(selector));
                     let result = native_fn(self, receiver, args);
                     println!("Native method returned: {:?}", result);
-                    result.map(|v| { self.stack.push(v); Value::Nil })
+                    result.map(|v| {
+                        self.stack.push(v);
+                    })
                 }
                 MethodKind::Closure(closure) => {
                     // For Phalcom methods, push a new CallFrame with the closure entry.
@@ -496,7 +506,7 @@ impl VM {
                         stack_offset: self.stack.len() - args.len() - 1,
                     });
                     self.frames.push(new_frame);
-                    Ok(Value::Nil)
+                    Ok(())
                 }
             }
         } else {

@@ -1,18 +1,14 @@
-
-
-use phalcom_ast::ast::{Program, Statement, Expr, BinaryOp, UnaryOp};
+use phalcom_ast::ast::{BinaryOp, Expr, Program, Statement, UnaryOp};
+use phalcom_common::{phref_new, PhRef};
 use phalcom_vm::bytecode::Bytecode;
 use phalcom_vm::chunk::Chunk;
 use phalcom_vm::closure::ClosureObject;
-use phalcom_vm::module::ModuleObject;
-use phalcom_vm::vm::VM;
-use phalcom_vm::value::Value;
-use phalcom_common::{phref_new, PhRef};
-use thiserror::Error;
 // use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
 use phalcom_vm::error::PhError;
-
-use phalcom_ast::parser;
+use phalcom_vm::module::ModuleObject;
+use phalcom_vm::value::Value;
+use phalcom_vm::vm::VM;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum CompilerError {
@@ -25,7 +21,6 @@ pub enum CompilerError {
     #[error("Parse error: {0:?}")]
     ParseError(lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>),
 }
-
 
 impl From<lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>> for CompilerError {
     fn from(err: lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>) -> Self {
@@ -133,7 +128,7 @@ impl<'vm> Compiler<'vm> {
     }
 
     fn compile_expr(&mut self, expr: Expr) -> Result<(), CompilerError> {
-    match expr {
+        match expr {
             Expr::GetProperty(get_prop) => {
                 self.compile_expr(get_prop.object)?;
                 let name_sym = self.vm.interner.intern(&get_prop.property);
@@ -341,6 +336,12 @@ mod tests {
         let result = run_test("return 1 + 2;").unwrap();
         assert_eq!(result, Value::Number(3.0));
     }
+    
+    #[test]
+    fn test_compile_binary_mult() {
+        let result = run_test("return 4 * 3;").unwrap();
+        assert_eq!(result, Value::Number(12.0));
+    }
 
     #[test]
     fn test_compile_unary_expr() {
@@ -390,6 +391,12 @@ mod tests {
     #[test]
     fn test_compile_method_expr() {
         let result = run_test("return 123.class.name.class;").unwrap();
-        println!("{:?}", result);
+        println!("{result:?}");
+    }
+
+    #[test]
+    fn test_compile_class_add_call() {
+        let result = run_test("return 123.class + true.class;").unwrap();
+        println!("{result:?}");
     }
 }

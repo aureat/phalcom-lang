@@ -17,8 +17,9 @@ fn main() -> Result<()> {
             eprintln!("usage: phalcomc disasm <source string>");
             std::process::exit(1);
         });
+
         match disasm::disassemble_source(&source) {
-            Ok(()) => {},
+            Ok(()) => {}
             Err(e) => eprintln!("Error: {}", e),
         }
         return Ok(());

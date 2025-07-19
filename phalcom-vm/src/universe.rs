@@ -1,7 +1,7 @@
 use crate::class::ClassObject;
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
-use crate::primitive::class::{class_set_superclass, class_superclass};
+use crate::primitive::class::{class_add, class_set_superclass, class_superclass};
 use crate::primitive::number::{number_add, number_div};
 use crate::primitive::object::{object_class_, object_name_, object_set_class};
 use crate::primitive::string::string_add;
@@ -111,6 +111,7 @@ impl Universe {
         let class_cls = vm.universe.classes.class_class.clone();
         primitive_method!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
         primitive_method!(vm, class_cls, "superclass=(_)", SignatureKind::Setter, class_set_superclass);
+        primitive_method!(vm, class_cls, "+(_)", SignatureKind::Method(1), class_add);
 
         let number_cls = vm.universe.classes.number_class.clone();
         primitive_method!(vm, number_cls, "+(_)", SignatureKind::Method(1), number_add);

@@ -1,3 +1,4 @@
+use std::ops::Add;
 use crate::error::PhResult;
 use crate::error::RuntimeError;
 use crate::expect_value;
@@ -18,4 +19,10 @@ pub fn class_superclass(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
 /// Signature: `Class::superclass=(_)`
 pub fn class_set_superclass(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::InvalidSetSuper.into())
+}
+
+pub fn class_add(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(_receiver, Class);
+    let other = expect_value!(&_args[0], Class);
+    Ok(Value::string_from(this.borrow().name_copy().add(other.borrow().name_copy().as_str())))
 }
