@@ -6,6 +6,6 @@ edition = "2021"
 [dependencies]
 lalrpop-util = "0.22.2"
 phalcom-ast = { path = "../phalcom-ast" }
-phalcom-vm = { path = "../phalcom-vm" }
 phalcom-common = { path = "../phalcom-common" }
+phalcom-vm = { path = "../phalcom-vm" }
 thiserror = "1.0"

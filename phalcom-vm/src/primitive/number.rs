@@ -7,9 +7,9 @@ pub const NUM_0: Value = Value::Number(0.0);
 pub const NUM_1: Value = Value::Number(1.0);
 
 /// Signature: `Number::name`
-pub fn number_name_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let n = expect_value!(receiver, Number);
-    Ok(Value::string_from(n.to_string()))
+pub fn number_name(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let _n = expect_value!(receiver, Number);
+    Ok(Value::string_from_str("Number"))
 }
 
 /// Signature: `Number::+(_)`

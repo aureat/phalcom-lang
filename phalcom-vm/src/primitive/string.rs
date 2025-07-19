@@ -3,7 +3,7 @@ use crate::error::RuntimeError;
 use crate::expect_value;
 use crate::value::Value;
 use crate::vm::VM;
-use std::hash::Hash;
+
 
 /// Signature: `String::+(_)`
 pub fn string_add(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {

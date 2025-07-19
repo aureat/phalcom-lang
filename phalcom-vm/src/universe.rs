@@ -3,11 +3,12 @@ use crate::method::MethodObject;
 use crate::method::SignatureKind;
 use crate::primitive::class::{class_add, class_set_superclass, class_superclass};
 use crate::primitive::number::{number_add, number_div};
-use crate::primitive::object::{object_class_, object_name_, object_set_class};
+use crate::primitive::object::{object_class, object_name, object_set_class};
 use crate::primitive::string::string_add;
 use crate::primitive::symbol::symbol_tostring;
+use crate::primitive::system::system_print;
 use crate::primitive::{primitive_method, CLASS_NAME, FALSE_NAME, TRUE_NAME};
-use crate::primitive::{BOOL_NAME, METACLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, OBJECT_NAME, STRING_NAME, SYMBOL_NAME};
+use crate::primitive::{BOOL_NAME, METACLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, OBJECT_NAME, STRING_NAME, SYMBOL_NAME, SYSTEM_NAME};
 use crate::string::{phstring_new, StringObject};
 use crate::vm::VM;
 use phalcom_common::{phref_new, MaybeWeak, PhRef};
@@ -17,6 +18,12 @@ use std::cell::RefCell;
 pub struct Universe {
     pub classes: CoreClasses,
     pub primitive_names: PrimitiveNames,
+}
+
+impl Default for Universe {
+    fn default() -> Self {
+        todo!()
+    }
 }
 
 impl Universe {
@@ -86,6 +93,12 @@ impl Universe {
             Some(object_class_ptr.clone()),
         ));
 
+        let system_class_ptr = phref_new(ClassObject::new(
+            "System",
+            MaybeWeak::Strong(class_class_ptr.clone()),
+            Some(object_class_ptr.clone()),
+        ));
+
         // Return the fully populated Universe.
         CoreClasses {
             object_class: object_class_ptr,
@@ -98,15 +111,16 @@ impl Universe {
             method_class: method_class_ptr,
             symbol_class: symbol_class_ptr,
             module_class: module_class_ptr,
+            system_class: system_class_ptr,
         }
     }
 
     pub fn install_primitives(vm: &mut VM) {
         let object_cls = vm.universe.classes.object_class.clone();
-        primitive_method!(vm, object_cls, "name", SignatureKind::Getter, object_name_);
-        primitive_method!(vm, object_cls, "class", SignatureKind::Getter, object_class_);
+        primitive_method!(vm, object_cls, "name", SignatureKind::Getter, object_name);
+        primitive_method!(vm, object_cls, "class", SignatureKind::Getter, object_class);
         primitive_method!(vm, object_cls, "class=(_)", SignatureKind::Setter, object_set_class);
-        primitive_method!(vm, object_cls, "toString", SignatureKind::Getter, object_name_);
+        primitive_method!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
 
         let class_cls = vm.universe.classes.class_class.clone();
         primitive_method!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
@@ -122,6 +136,9 @@ impl Universe {
 
         let symbol_cls = vm.universe.classes.symbol_class.clone();
         primitive_method!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
+
+        let system_cls = vm.universe.classes.system_class.clone();
+        primitive_method!(vm, system_cls, "print(_)", SignatureKind::Method(1), system_print);
     }
 
     pub fn create_primitive_names() -> PrimitiveNames {
@@ -137,6 +154,7 @@ impl Universe {
             method: phref_new(StringObject::from_str(METHOD_NAME)),
             class: phref_new(StringObject::from_str(CLASS_NAME)),
             metaclass: phref_new(StringObject::from_str(METACLASS_NAME)),
+            system: phref_new(StringObject::from_str(SYSTEM_NAME)),
         }
     }
 }
@@ -168,6 +186,7 @@ pub struct CoreClasses {
     pub method_class: PhRef<ClassObject>,
     pub symbol_class: PhRef<ClassObject>,
     pub module_class: PhRef<ClassObject>,
+    pub system_class: PhRef<ClassObject>,
 }
 
 #[derive(Clone)]
@@ -183,6 +202,7 @@ pub struct PrimitiveNames {
     pub method: PhRef<StringObject>,
     pub class: PhRef<StringObject>,
     pub metaclass: PhRef<StringObject>,
+    pub system: PhRef<StringObject>,
 }
 
 impl PrimitiveNames {

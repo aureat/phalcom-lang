@@ -5,7 +5,7 @@ pub mod callable;
 pub mod chunk;
 pub mod class;
 pub mod closure;
-pub mod compiler;
+
 pub mod error;
 pub mod frame;
 pub mod instance;

@@ -30,7 +30,7 @@ impl From<&'static str> for PhError {
     }
 }
 
-const ONE_ARGUMENT: &str = "1 argument";
+
 
 fn format_num_arguments<'a>(args: usize) -> String {
     if args == 1 {
@@ -85,7 +85,7 @@ macro_rules! ensure_arity {
     };
 }
 
-pub(crate) use ensure_arity;
+
 
 #[macro_export]
 macro_rules! expect_value {
@@ -208,4 +208,4 @@ macro_rules! expect_value {
 //     }};
 // }
 
-pub(crate) use expect_value;
+

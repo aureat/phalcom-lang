@@ -4,4 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+phalcom-ast = { path = "../phalcom-ast" }
+phalcom-common = { path = "../phalcom-common" }
 phalcom-compiler = { path = "../phalcom-compiler" }
+phalcom-vm = { path = "../phalcom-vm" }
+

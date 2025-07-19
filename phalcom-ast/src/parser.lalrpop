@@ -31,13 +31,14 @@ ReturnStatement: Statement = {
 };
 
 ClassMember: ClassMember = {
-    <name:MethodName> <equal:("=")?> <params:("(" <ParamList> ")")?> "{" <body:Statement*> "}" => {
-        if let Some(equal) = equal {
-            ClassMember::Setter(SetterDef { name, param: "value".to_string(), body })
+    <is_static:"static"?> <name:MethodName> <_equal:("=")?> <params:("(" <ParamList> ")")?> "{" <body:Statement*> "}" => {
+        let is_static = is_static.is_some();
+        if let Some(_equal) = _equal {
+            ClassMember::Setter(SetterDef { name, param: "value".to_string(), body, is_static })
         } else if let Some(params) = params {
-            ClassMember::Method(MethodDef { name, params, body })
+            ClassMember::Method(MethodDef { name, params, body, is_static })
         } else {
-            ClassMember::Getter(GetterDef { name, body })
+            ClassMember::Getter(GetterDef { name, body, is_static })
         }
     },
 };
@@ -262,7 +263,7 @@ extern {
     "is" => Token::Is,
     "as" => Token::As,
     "static" => Token::Static,
-    "init" => Token::Init,
+//    "init" => Token::Init,
 
     identifier => Token::Identifier(<String>),
     string => Token::String(<String>),

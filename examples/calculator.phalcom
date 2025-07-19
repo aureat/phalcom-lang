@@ -28,3 +28,7 @@ print(calc.subtract(10, 4));   // 6
 print(calc.pi);                // 3.1415
 
 print(calc + 20);              // 30
+
+class Person {
+
+}

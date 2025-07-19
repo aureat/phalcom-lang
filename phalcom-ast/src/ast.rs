@@ -29,12 +29,14 @@ pub struct MethodDef {
     pub name: String,
     pub params: Vec<String>,
     pub body: Vec<Statement>,
+    pub is_static: bool,
 }
 
 #[derive(Debug)]
 pub struct GetterDef {
     pub name: String,
     pub body: Vec<Statement>,
+    pub is_static: bool,
 }
 
 #[derive(Debug)]
@@ -42,6 +44,7 @@ pub struct SetterDef {
     pub name: String,
     pub param: String,
     pub body: Vec<Statement>,
+    pub is_static: bool,
 }
 
 #[derive(Debug)]

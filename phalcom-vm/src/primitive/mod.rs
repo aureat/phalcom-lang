@@ -3,6 +3,7 @@ pub mod number;
 pub mod object;
 pub mod string;
 pub mod symbol;
+pub mod system;
 
 pub const SIG_ADD: &str = "+(_)";
 pub const SIG_SUB: &str = "-(_)";
@@ -35,6 +36,7 @@ pub const OBJECT_NAME: &str = "Object";
 pub const METHOD_NAME: &str = "Method";
 pub const CLASS_NAME: &str = "Class";
 pub const METACLASS_NAME: &str = "Metaclass";
+pub const SYSTEM_NAME: &str = "System";
 
 pub const TRUE_NAME: &str = "true";
 pub const FALSE_NAME: &str = "false";

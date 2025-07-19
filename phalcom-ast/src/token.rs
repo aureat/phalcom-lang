@@ -50,16 +50,16 @@ pub enum Token {
     Return,
     #[token("true")]
     True,
-        #[token("+=")]
-        PlusEqual,
-        #[token("-=")]
-        MinusEqual,
-        #[token("*=")]
-        AsteriskEqual,
-        #[token("/=")]
-        SlashEqual,
-        #[token("%=")]
-        PercentEqual,
+    #[token("+=")]
+    PlusEqual,
+    #[token("-=")]
+    MinusEqual,
+    #[token("*=")]
+    AsteriskEqual,
+    #[token("/=")]
+    SlashEqual,
+    #[token("%=")]
+    PercentEqual,
     #[token("false")]
     False,
     #[token("nil")]
@@ -96,8 +96,8 @@ pub enum Token {
     Not,
     #[token("static")]
     Static,
-    #[token("init")]
-    Init,
+    // #[token("init")]
+    // Init,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", lex_identifier)]
     Identifier(String),

@@ -1,3 +1,4 @@
+use phalcom_vm::interner::Symbol;
 use phalcom_ast::ast::{BinaryOp, Expr, Program, Statement, UnaryOp};
 use phalcom_common::{phref_new, PhRef};
 use phalcom_vm::bytecode::Bytecode;
@@ -20,6 +21,8 @@ pub enum CompilerError {
     InvalidAssignmentTarget,
     #[error("Parse error: {0:?}")]
     ParseError(lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>),
+    #[error("{0}")]
+    Message(String),
 }
 
 impl From<lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>> for CompilerError {
@@ -59,6 +62,48 @@ impl<'vm> Compiler<'vm> {
         }
     }
 
+    fn compile_block(
+        &mut self,
+        statements: Vec<Statement>,
+        name_sym: Symbol,
+        arity: usize,
+        _is_static_method: bool,
+    ) -> Result<PhRef<ClosureObject>, CompilerError> {
+        let mut block_compiler = Compiler {
+            vm: self.vm,
+            module: self.module.clone(),
+            chunk: Chunk::default(),
+        };
+        let len = statements.len();
+        let mut last_is_return = false;
+        for (i, statement) in statements.into_iter().enumerate() {
+            let is_last = i == len - 1;
+            if is_last {
+                if let Statement::Return(_) = statement {
+                    last_is_return = true;
+                }
+            }
+            block_compiler.compile_statement_with_pop_control(statement, !is_last)?;
+        }
+        if !last_is_return {
+            block_compiler.chunk.add_instruction(Bytecode::Return);
+        }
+
+        let callable = phalcom_vm::callable::Callable {
+            chunk: block_compiler.chunk,
+            max_slots: 0, // TODO: Calculate max_slots
+            num_upvalues: 0, // TODO: Calculate num_upvalues
+            arity,
+            name_sym,
+        };
+        let closure = phref_new(ClosureObject {
+            callable,
+            module: self.module.clone(),
+            upvalues: Vec::new(),
+        });
+        Ok(closure)
+    }
+
     fn compile(mut self, program: Program) -> Result<PhRef<ClosureObject>, CompilerError> {
         let len = program.statements.len();
         let mut last_is_return = false;
@@ -92,10 +137,6 @@ impl<'vm> Compiler<'vm> {
         Ok(closure)
     }
 
-    fn compile_statement(&mut self, statement: Statement) -> Result<(), CompilerError> {
-        self.compile_statement_with_pop_control(statement, true)
-    }
-
     fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {
         match statement {
             Statement::Expr(expr) => {
@@ -117,29 +158,111 @@ impl<'vm> Compiler<'vm> {
             Statement::Return(return_stmt) => {
                 if let Some(expr) = return_stmt.value {
                     self.compile_expr(expr)?;
-                } else {
+                }
+                else {
                     self.chunk.add_instruction(Bytecode::Nil);
                 }
                 self.chunk.add_instruction(Bytecode::Return);
             }
-            _ => unimplemented!(),
+            Statement::Class(class_def) => {
+                // Push superclass onto the stack (for now, default to Object)
+                let object_class = self.vm.universe.classes.object_class.clone();
+                let superclass_idx = self.chunk.add_constant(Value::Class(object_class));
+                self.chunk.add_instruction(Bytecode::Constant(superclass_idx));
+                // TODO: Handle explicit superclass syntax later
+
+                let name_sym = self.vm.interner.intern(&class_def.name);
+                let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
+                self.chunk.add_instruction(Bytecode::Class(name_idx));
+
+                // The class object is now on top of the stack. Iterate through members.
+                for member in class_def.members {
+                    match member {
+                        phalcom_ast::ast::ClassMember::Method(method_def) => {
+                            println!("[Compiler] Compiling method: {} (static: {})", method_def.name, method_def.is_static);
+                            let method_name_sym = self.vm.interner.intern(&method_def.name);
+                            let arity = method_def.params.len();
+                            let closure = self.compile_block(method_def.body, method_name_sym, arity, method_def.is_static)?;
+
+                            let method_obj = phref_new(phalcom_vm::method::MethodObject::new(
+                                method_name_sym,
+                                phalcom_vm::method::SignatureKind::Method(arity as u8),
+                                phalcom_vm::method::MethodKind::Closure(closure),
+                            ));
+
+                            let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
+                            println!("[Compiler] Emitting Constant for method_obj_idx: {}", method_obj_idx);
+                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
+                            let selector_idx = self.chunk.add_constant(Value::Symbol(method_name_sym));
+                            println!("[Compiler] Emitting Method for selector_idx: {}, is_static: {}", selector_idx, method_def.is_static);
+                            self.chunk.add_instruction(Bytecode::Method(selector_idx, method_def.is_static));
+                        }
+                        phalcom_ast::ast::ClassMember::Getter(getter_def) => {
+                            println!("[Compiler] Compiling getter: {} (static: {})", getter_def.name, getter_def.is_static);
+                            if getter_def.is_static {
+                                return Err(CompilerError::Message("Static getters are not allowed.".to_string()));
+                            }
+                            let getter_name_sym = self.vm.interner.intern(&getter_def.name);
+                            let closure = self.compile_block(getter_def.body, getter_name_sym, 0, getter_def.is_static)?;
+
+                            let method_obj = phref_new(phalcom_vm::method::MethodObject::new(
+                                getter_name_sym,
+                                phalcom_vm::method::SignatureKind::Getter,
+                                phalcom_vm::method::MethodKind::Closure(closure),
+                            ));
+
+                            let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
+                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
+                            let selector_idx = self.chunk.add_constant(Value::Symbol(getter_name_sym));
+                            self.chunk.add_instruction(Bytecode::Method(selector_idx, getter_def.is_static));
+                        }
+                        phalcom_ast::ast::ClassMember::Setter(setter_def) => {
+                            println!("[Compiler] Compiling setter: {} (static: {})", setter_def.name, setter_def.is_static);
+                            if setter_def.is_static {
+                                return Err(CompilerError::Message("Static setters are not allowed.".to_string()));
+                            }
+                            let setter_name_sym = self.vm.interner.intern(&setter_def.name);
+                            let closure = self.compile_block(setter_def.body, setter_name_sym, 1, setter_def.is_static)?;
+
+                            let method_obj = phref_new(phalcom_vm::method::MethodObject::new(
+                                setter_name_sym,
+                                phalcom_vm::method::SignatureKind::Setter,
+                                phalcom_vm::method::MethodKind::Closure(closure),
+                            ));
+
+                            let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
+                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
+                            let selector_idx = self.chunk.add_constant(Value::Symbol(setter_name_sym));
+                            self.chunk.add_instruction(Bytecode::Method(selector_idx, setter_def.is_static));
+                        }
+                    }
+                }
+
+                // After defining all methods, the class is still on the stack.
+                // Define it as a global variable.
+                self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx));
+            }
         }
         Ok(())
     }
 
     fn compile_expr(&mut self, expr: Expr) -> Result<(), CompilerError> {
         match expr {
-            Expr::GetProperty(get_prop) => {
-                self.compile_expr(get_prop.object)?;
-                let name_sym = self.vm.interner.intern(&get_prop.property);
+            Expr::SetProperty(set_prop) => {
+                self.compile_expr(set_prop.object)?;
+                self.compile_expr(set_prop.value)?;
+                let name_sym = self.vm.interner.intern(&set_prop.property);
                 let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::GetProperty(name_idx));
+                self.chunk.add_instruction(Bytecode::SetProperty(name_idx));
             }
-            Expr::GetProperty(get_prop) => {
-                self.compile_expr(get_prop.object)?;
-                let name_sym = self.vm.interner.intern(&get_prop.property);
-                let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::GetProperty(name_idx));
+                        Expr::MethodCall(method_call) => {
+                self.compile_expr(method_call.object)?;
+                for arg in &method_call.args {
+                    self.compile_expr(arg.clone())?;
+                }
+                let selector_sym = self.vm.interner.intern(&method_call.method);
+                let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
+                self.chunk.add_instruction(Bytecode::Invoke(method_call.args.len() as u8, selector_idx));
             }
             Expr::GetProperty(get_prop) => {
                 self.compile_expr(get_prop.object)?;
@@ -149,12 +272,12 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::Number(n) => {
                 let idx = self.chunk.add_constant(Value::Number(n));
-                self.chunk.add_instruction(Bytecode::Number(idx));
+                self.chunk.add_instruction(Bytecode::Constant(idx));
             }
             Expr::String(s) => {
                 let string_obj = Value::string_from(s);
                 let idx = self.chunk.add_constant(string_obj);
-                self.chunk.add_instruction(Bytecode::String(idx));
+                self.chunk.add_instruction(Bytecode::Constant(idx));
             }
             Expr::Boolean(b) => {
                 if b {
@@ -207,7 +330,23 @@ impl<'vm> Compiler<'vm> {
                     UnaryOp::Not => self.chunk.add_instruction(Bytecode::Not),
                 }
             }
-            _ => unimplemented!(),
+            Expr::SelfVar => {
+                // TODO: Handle `self` keyword. For now, push Nil.
+                self.chunk.add_instruction(Bytecode::Nil);
+            }
+            Expr::SuperVar => {
+                // TODO: Handle `super` keyword. For now, push Nil.
+                self.chunk.add_instruction(Bytecode::Nil);
+            }
+            Expr::Call(call_expr) => {
+                // TODO: Implement function call compilation
+                self.compile_expr(call_expr.callee)?;
+                for arg in call_expr.args {
+                    self.compile_expr(arg)?;
+                }
+                // For now, push Nil as a placeholder for the return value
+                self.chunk.add_instruction(Bytecode::Nil);
+            }
         }
         Ok(())
     }
@@ -247,16 +386,16 @@ mod tests {
     #[test]
     fn test_primitive_superclass() {
         // Number superclass
-        let result = run_test("return 123.superclass;").unwrap();
+        let result = run_test("return 123.class.superclass;").unwrap();
         match result {
             Value::Class(c) => assert_eq!(&*c.borrow().name().borrow().as_str(), "Object"),
-            _ => panic!("Expected Value::Class for 123.superclass"),
+            _ => panic!("Expected Value::Class for 123.class.superclass"),
         }
         // String superclass
-        let result = run_test("return \"abc\".superclass;").unwrap();
+        let result = run_test("return \"abc\".class.superclass;").unwrap();
         match result {
             Value::Class(c) => assert_eq!(&*c.borrow().name().borrow().as_str(), "Object"),
-            _ => panic!("Expected Value::Class for \"abc\".superclass"),
+            _ => panic!("Expected Value::Class for \"abc\".class.superclass"),
         }
     }
 
@@ -281,18 +420,18 @@ mod tests {
     #[test]
     fn test_class_identity() {
         // .class.class should be Class
-        let result = run_test("return 123.class;").unwrap();
+        let result = run_test("return 123.class.class;").unwrap();
         println!("{:?}", result);
 
         match result {
-            Value::String(ref s) => assert_eq!(&*s.borrow().as_str(), "Class"),
-            _ => panic!("Expected Value::String for 123.class.class"),
+            Value::Class(c) => assert_eq!(&*c.borrow().name().borrow().as_str(), "Class"),
+            _ => panic!("Expected Value::Class for 123.class.class"),
         }
         // .class.superclass should be Object
-        let result = run_test("123.class.superclass;").unwrap();
+        let result = run_test("return 123.class.superclass;").unwrap();
         match result {
-            Value::String(ref s) => assert_eq!(&*s.borrow().as_str(), "Object"),
-            _ => panic!("Expected Value::String for 123.class.superclass"),
+            Value::Class(c) => assert_eq!(&*c.borrow().name().borrow().as_str(), "Object"),
+            _ => panic!("Expected Value::Class for 123.class.superclass"),
         }
     }
     use super::*;
@@ -391,12 +530,12 @@ mod tests {
     #[test]
     fn test_compile_method_expr() {
         let result = run_test("return 123.class.name.class;").unwrap();
-        println!("{result:?}");
+        println!("{:?}", result);
     }
 
     #[test]
     fn test_compile_class_add_call() {
         let result = run_test("return 123.class + true.class;").unwrap();
-        println!("{result:?}");
+        println!("{:?}", result);
     }
 }

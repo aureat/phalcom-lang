@@ -1,13 +1,11 @@
 // The set of instructions for our VM. This is the language the compiler "speaks".
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Bytecode {
-    /// Pushes a number constant onto the stack.
+    /// Pushes a constant from the constant pool onto the stack.
     /// 0: index in the constant pool.
-    Number(u16),
+    Constant(u16),
 
-    /// Pushes a string constant onto the stack.
-    /// 0: index in the constant pool.
-    String(u16),
+    
 
     /// Pushes the `nil` value onto the stack.
     Nil,
@@ -37,18 +35,23 @@ pub enum Bytecode {
     /// 0: index of property name in constant pool.
     GetProperty(u16),
 
+    /// Sets a property on an object/value.
+    /// 0: index of property name in constant pool.
+    SetProperty(u16),
+
+    /// Calls a method directly on a receiver, bypassing property lookup.
+    /// 0: number of arguments
+    /// 1: index of selector constant
+    Invoke(u8, u16),
+
     /// Creates a new class.
     /// 0: index of class name in constant pool.
     Class(u16),
 
     /// Attaches a method to the class on top of the stack.
     /// 0: index of method selector in constant pool.
-    Method(u16),
-
-    /// Calls a method.
-    /// 0: number of arguments
-    /// 1: index of selector constant
-    Call(u8, u16),
+    /// 1: is_static flag
+    Method(u16, bool),
 
     /// Returns a value from the current method.
     Return,

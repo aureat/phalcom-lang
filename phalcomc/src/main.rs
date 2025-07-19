@@ -1,4 +1,3 @@
-#![allow(unused_variables)]
 use anyhow::Result;
 use phalcom_compiler::compile;
 use phalcom_vm::vm::VM;
