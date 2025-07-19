@@ -1,7 +1,7 @@
 use crate::class::ClassObject;
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
-use crate::primitive::class::{class_add, class_set_superclass, class_superclass};
+use crate::primitive::class::{class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::number::{number_add, number_div};
 use crate::primitive::object::{object_class, object_name, object_set_class};
 use crate::primitive::string::string_add;
@@ -126,6 +126,7 @@ impl Universe {
         primitive_method!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
         primitive_method!(vm, class_cls, "superclass=(_)", SignatureKind::Setter, class_set_superclass);
         primitive_method!(vm, class_cls, "+(_)", SignatureKind::Method(1), class_add);
+        primitive_method!(vm, class_cls, "new", SignatureKind::Method(0), class_new);
 
         let number_cls = vm.universe.classes.number_class.clone();
         primitive_method!(vm, number_cls, "+(_)", SignatureKind::Method(1), number_add);
@@ -207,7 +208,11 @@ pub struct PrimitiveNames {
 
 impl PrimitiveNames {
     pub fn bool_name(&self, b: bool) -> PhRef<StringObject> {
-        if b { self.true_.clone() } else { self.false_.clone() }
+        if b {
+            self.true_.clone()
+        } else {
+            self.false_.clone()
+        }
     }
 }
 

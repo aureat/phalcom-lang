@@ -259,8 +259,7 @@ impl VM {
                             let selector_name = self.resolve_symbol(*property_sym);
                             return Err(PhError::VMError {
                                 message: format!("Property or method '{selector_name}' not found for value {receiver:?}."),
-                                stack_trace: self.format_stack_trace(format!("Property or method '{selector_name}' not found for value {receiver:?}."
-                                )),
+                                stack_trace: self.format_stack_trace(format!("Property or method '{selector_name}' not found for value {receiver:?}.")),
                             });
                         }
                     }
@@ -272,7 +271,10 @@ impl VM {
                         let receiver = self.stack.pop().ok_or("Stack underflow on property assignment")?;
 
                         if let Value::Instance(instance_obj) = &receiver {
-                            instance_obj.borrow_mut().fields.insert(self.resolve_symbol(*property_sym).to_string(), value_to_assign.clone());
+                            instance_obj
+                                .borrow_mut()
+                                .fields
+                                .insert(self.resolve_symbol(*property_sym).to_string(), value_to_assign.clone());
                             self.stack.push(value_to_assign);
                             continue;
                         }
@@ -290,6 +292,12 @@ impl VM {
                             });
                         }
                     }
+                }
+                Bytecode::GetSelf => {
+                    let frame_borrow = frame_ref.borrow();
+                    let receiver = self.stack[frame_borrow.stack_offset].clone();
+                    drop(frame_borrow);
+                    self.stack.push(receiver);
                 }
                 Bytecode::Constant(idx) => {
                     let constant = chunk.constants[idx as usize].clone();
@@ -338,8 +346,7 @@ impl VM {
                         let module = closure.borrow().module.clone();
                         if let Some(slot) = module.borrow().name_to_slot.borrow().get(name_sym) {
                             module.borrow().set_global(*slot, self.stack.last().unwrap().clone()).unwrap();
-                        }
-                        else {
+                        } else {
                             let name = self.resolve_symbol(*name_sym);
                             return Err(PhError::VMError {
                                 message: format!("Undefined variable '{}'.", name),
@@ -372,12 +379,10 @@ impl VM {
                         if let (Value::Method(method_obj), Value::Class(class_obj)) = (method_val, class_val) {
                             if is_static {
                                 class_obj.borrow().class().borrow_mut().add_method(*selector, method_obj);
-                            }
-                            else {
+                            } else {
                                 class_obj.borrow_mut().add_method(*selector, method_obj);
                             }
-                        }
-                        else {
+                        } else {
                             return Err(PhError::VMError {
                                 message: "VM Error: Invalid types for method definition.".to_string(),
                                 stack_trace: self.format_stack_trace("VM Error: Invalid types for method definition.".to_string()),
@@ -474,8 +479,7 @@ impl VM {
                     let val = self.stack.pop().ok_or("Stack underflow")?;
                     if let Value::Number(num) = val {
                         self.stack.push(Value::Number(-num));
-                    }
-                    else {
+                    } else {
                         return Err(PhError::VMError {
                             message: format!("Unsupported operand type for negation: {val:?}"),
                             stack_trace: self.format_stack_trace(format!("Unsupported operand type for negation: {val:?}")),
@@ -486,8 +490,7 @@ impl VM {
                     let val = self.stack.pop().ok_or("Stack underflow")?;
                     if let Value::Bool(b) = val {
                         self.stack.push(Value::Bool(!b));
-                    }
-                    else {
+                    } else {
                         return Err(PhError::VMError {
                             message: format!("Unsupported operand type for logical NOT: {val:?}"),
                             stack_trace: self.format_stack_trace(format!("Unsupported operand type for logical NOT: {val:?}")),
