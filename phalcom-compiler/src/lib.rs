@@ -1,9 +1,9 @@
-use phalcom_vm::interner::Symbol;
 use phalcom_ast::ast::{BinaryOp, Expr, Program, Statement, UnaryOp};
 use phalcom_common::{phref_new, PhRef};
 use phalcom_vm::bytecode::Bytecode;
 use phalcom_vm::chunk::Chunk;
 use phalcom_vm::closure::ClosureObject;
+use phalcom_vm::interner::Symbol;
 // use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
 use phalcom_vm::error::PhError;
 use phalcom_vm::module::ModuleObject;
@@ -91,7 +91,7 @@ impl<'vm> Compiler<'vm> {
 
         let callable = phalcom_vm::callable::Callable {
             chunk: block_compiler.chunk,
-            max_slots: 0, // TODO: Calculate max_slots
+            max_slots: 0,    // TODO: Calculate max_slots
             num_upvalues: 0, // TODO: Calculate num_upvalues
             arity,
             name_sym,
@@ -158,8 +158,7 @@ impl<'vm> Compiler<'vm> {
             Statement::Return(return_stmt) => {
                 if let Some(expr) = return_stmt.value {
                     self.compile_expr(expr)?;
-                }
-                else {
+                } else {
                     self.chunk.add_instruction(Bytecode::Nil);
                 }
                 self.chunk.add_instruction(Bytecode::Return);
@@ -194,7 +193,10 @@ impl<'vm> Compiler<'vm> {
                             println!("[Compiler] Emitting Constant for method_obj_idx: {}", method_obj_idx);
                             self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
                             let selector_idx = self.chunk.add_constant(Value::Symbol(method_name_sym));
-                            println!("[Compiler] Emitting Method for selector_idx: {}, is_static: {}", selector_idx, method_def.is_static);
+                            println!(
+                                "[Compiler] Emitting Method for selector_idx: {}, is_static: {}",
+                                selector_idx, method_def.is_static
+                            );
                             self.chunk.add_instruction(Bytecode::Method(selector_idx, method_def.is_static));
                         }
                         phalcom_ast::ast::ClassMember::Getter(getter_def) => {
@@ -255,7 +257,7 @@ impl<'vm> Compiler<'vm> {
                 let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
                 self.chunk.add_instruction(Bytecode::SetProperty(name_idx));
             }
-                        Expr::MethodCall(method_call) => {
+            Expr::MethodCall(method_call) => {
                 self.compile_expr(method_call.object)?;
                 for arg in &method_call.args {
                     self.compile_expr(arg.clone())?;
@@ -331,8 +333,8 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::SelfVar => {
-                // TODO: Handle `self` keyword. For now, push Nil.
-                self.chunk.add_instruction(Bytecode::Nil);
+                // Load the receiver of the current method.
+                self.chunk.add_instruction(Bytecode::GetSelf);
             }
             Expr::SuperVar => {
                 // TODO: Handle `super` keyword. For now, push Nil.
@@ -475,7 +477,7 @@ mod tests {
         let result = run_test("return 1 + 2;").unwrap();
         assert_eq!(result, Value::Number(3.0));
     }
-    
+
     #[test]
     fn test_compile_binary_mult() {
         let result = run_test("return 4 * 3;").unwrap();

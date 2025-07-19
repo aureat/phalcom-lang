@@ -5,8 +5,6 @@ pub enum Bytecode {
     /// 0: index in the constant pool.
     Constant(u16),
 
-    
-
     /// Pushes the `nil` value onto the stack.
     Nil,
 
@@ -38,6 +36,9 @@ pub enum Bytecode {
     /// Sets a property on an object/value.
     /// 0: index of property name in constant pool.
     SetProperty(u16),
+
+    /// Pushes the receiver (`self`) of the current frame onto the stack.
+    GetSelf,
 
     /// Calls a method directly on a receiver, bypassing property lookup.
     /// 0: number of arguments
@@ -90,4 +91,3 @@ pub enum Bytecode {
     /// Performs logical NOT.
     Not,
 }
-
