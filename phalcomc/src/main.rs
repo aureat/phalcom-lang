@@ -24,6 +24,21 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if subcmd == "tokenize" {
+        let path = args.next().unwrap_or_else(|| {
+            eprintln!("usage: phalcomc tokenize <path>");
+            std::process::exit(1);
+        });
+        let source = fs::read_to_string(Path::new(&path))?;
+
+        let parser = phalcom_ast::parser::ProgramParser::new();
+        let lexer = phalcom_ast::lexer::Lexer::new(&source);
+        for token in lexer.into_iter() {
+            println!("{:?}", token.unwrap());
+        }
+        return Ok(());
+    }
+
     // Default: compile and run file
     let path = subcmd;
     let source = fs::read_to_string(Path::new(&path))?;

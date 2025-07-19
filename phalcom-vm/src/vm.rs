@@ -13,6 +13,7 @@ use crate::value::Value;
 use phalcom_common::MaybeWeak::Weak;
 use phalcom_common::{phref_new, PhRef, PhWeakRef};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::time::Instant;
 
 pub struct VM {
@@ -194,8 +195,8 @@ impl VM {
                             let selector_name = self.resolve_symbol(selector);
                             let receiver = &self.stack[self.stack.len() - 2];
                             return Err(PhError::VMError {
-                                message: format!("Method '{selector_name}' not found for value {receiver:?}."),
-                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver:?}.")),
+                                message: format!("Method '{selector_name}' not found for value {receiver}."),
+                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver}.")),
                             });
                         }
                     }
@@ -398,8 +399,8 @@ impl VM {
                         } else {
                             let selector_name = self.resolve_symbol(selector_val.as_symbol().unwrap());
                             return Err(PhError::VMError {
-                                message: format!("Method '{selector_name}' not found for class {class_obj:?}."),
-                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for class {class_obj:?}.")),
+                                message: format!("Method '{selector_name}' not found for class {receiver}."),
+                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for class {receiver}.")),
                             });
                         }
                     } else if let Some(method) = receiver.lookup_method(self, selector_val.as_symbol().map_err(PhError::StringError)?) {
@@ -407,8 +408,8 @@ impl VM {
                     } else {
                         let selector_name = self.resolve_symbol(selector_val.as_symbol().unwrap());
                         return Err(PhError::VMError {
-                            message: format!("Method '{selector_name}' not found for value {receiver:?}."),
-                            stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver:?}.")),
+                            message: format!("Method '{selector_name}' not found for value {receiver}."),
+                            stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver}.")),
                         });
                     }
                 }

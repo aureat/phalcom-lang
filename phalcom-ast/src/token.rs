@@ -96,8 +96,6 @@ pub enum Token {
     Not,
     #[token("static")]
     Static,
-    // #[token("init")]
-    // Init,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*", lex_identifier)]
     Identifier(String),

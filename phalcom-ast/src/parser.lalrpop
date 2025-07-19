@@ -263,7 +263,6 @@ extern {
     "is" => Token::Is,
     "as" => Token::As,
     "static" => Token::Static,
-//    "init" => Token::Init,
 
     identifier => Token::Identifier(<String>),
     string => Token::String(<String>),
