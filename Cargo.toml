@@ -5,14 +5,12 @@ members = [
     "phalcom-common",
     "phalcom-compiler",
     "phalcom-vm",
-    "phalcomc",
 ]
 resolver = "2"
 
 [workspace.dependencies]
 thiserror = "2.0.12"
 miette = { version = "7.6.0", features = ["fancy"] }
-clap = { version = "4.5.40", features = ["derive"] }
 rustyline = "16.0.0"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }

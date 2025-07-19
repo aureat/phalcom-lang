@@ -1,28 +1,18 @@
-use std::env;
-use std::fs;
-use std::process;
+pub mod cli;
+pub mod disasm;
 
-use phalcom_vm::vm::VM;
+use crate::cli::{cmd_disasm, cmd_parse, cmd_run, cmd_tokenize, cmd_version, Cli, Commands};
+use anyhow::{Context, Result};
+use clap::Parser;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: {} <file>", args[0]);
-        process::exit(1);
-    }
+fn main() -> Result<()> {
+    let cli = Cli::parse();
 
-    let file_path = &args[1];
-    let source = match fs::read_to_string(file_path) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error reading file '{}': {}", file_path, e);
-            process::exit(1);
-        }
-    };
-
-    let mut vm = VM::new();
-    if let Err(e) = vm.interpret(&source) {
-        eprintln!("Error: {}", e);
-        process::exit(1);
+    match cli.command {
+        None => cmd_run(cli),
+        Some(Commands::Tokenize(args)) => cmd_tokenize(args),
+        Some(Commands::Parse(args)) => cmd_parse(args),
+        Some(Commands::Disasm(args)) => cmd_disasm(args),
+        Some(Commands::Version) => cmd_version(),
     }
 }

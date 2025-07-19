@@ -12,9 +12,13 @@ class Calculator {
   and(other) {
     return "and " + other;
   }
+
+  new(ignored) {
+    return self.new();
+  }
 }
 
-let calc = Calculator.new();
+let calc = Calculator.new(0);
 
 System.print(calc.add(5, 3));         // 8
 System.print(calc.subtract(10, 4));   // 6
