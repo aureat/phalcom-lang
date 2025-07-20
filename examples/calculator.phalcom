@@ -3,7 +3,7 @@ class Calculator {
     return a + b;
   }
 
-  pi { return 3.1415; }
+  static pi { return 3.1415; }
 
   +(other) {
     return 10 + other;
@@ -13,10 +13,12 @@ class Calculator {
     return "and " + other;
   }
 
-  new(ignored) {
+  static new(ignored) {
     return self.new();
   }
 }
+
+System.print(Calculator.pi);
 
 let calc = Calculator.new(0);
 

@@ -1,6 +1,6 @@
 use crate::boolean::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
-use crate::class::ClassObject;
+use crate::class::{lookup_method_in_hierarchy, ClassObject};
 use crate::closure::ClosureObject;
 use crate::error::{PhError, PhResult};
 use crate::frame::CallFrame;
@@ -396,18 +396,35 @@ impl VM {
                     let receiver_idx = self.stack.len() - 1 - arity;
                     let receiver = self.stack[receiver_idx].clone();
 
+                    let selector_sym = selector_val.as_symbol().unwrap();
+
                     if let Value::Class(class_obj) = &receiver {
-                        if let Some(method) = class_obj.borrow().get_method(selector_val.as_symbol().unwrap()) {
-                            self.call_method(method, arity)?;
-                        } else if let Some(method) = class_obj.borrow().class().borrow().get_method(selector_val.as_symbol().unwrap()) {
+                        // if let Some(method) = class_obj.borrow().get_method(selector_val.as_symbol().unwrap()) {
+                        //     self.call_method(method, arity)?;
+                        // } else if let Some(method) = class_obj.borrow().class().borrow().get_method(selector_val.as_symbol().unwrap()) {
+                        //     self.call_method(method, arity)?;
+                        // } else {
+                        //     let selector_name = self.resolve_symbol(selector_val.as_symbol().unwrap());
+                        //     return Err(PhError::VMError {
+                        //         message: format!("Method '{selector_name}' not found for class {receiver}."),
+                        //         stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for class {receiver}.")),
+                        //     });
+                        // }
+
+                        // if let Some(method) = class_obj.borrow().get_method(selector_sym) {
+                        //     self.call_method(method, arity)?;
+                        // } else {
+                        let metaclass = class_obj.borrow().class();
+                        if let Some(method) = lookup_method_in_hierarchy(metaclass, selector_sym) {
                             self.call_method(method, arity)?;
                         } else {
-                            let selector_name = self.resolve_symbol(selector_val.as_symbol().unwrap());
+                            let selector_name = self.resolve_symbol(selector_sym);
                             return Err(PhError::VMError {
                                 message: format!("Method '{selector_name}' not found for class {receiver}."),
                                 stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for class {receiver}.")),
                             });
                         }
+                        // }
                     } else if let Some(method) = receiver.lookup_method(self, selector_val.as_symbol().map_err(PhError::StringError)?) {
                         self.call_method(method, arity)?;
                     } else {

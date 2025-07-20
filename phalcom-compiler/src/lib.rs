@@ -3,13 +3,16 @@ use phalcom_common::{phref_new, PhRef};
 use phalcom_vm::bytecode::Bytecode;
 use phalcom_vm::chunk::Chunk;
 use phalcom_vm::closure::ClosureObject;
-use phalcom_vm::interner::Symbol;
 // use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
 use phalcom_vm::error::PhError;
+use phalcom_vm::interner::Symbol;
 use phalcom_vm::module::ModuleObject;
 use phalcom_vm::value::Value;
 use phalcom_vm::vm::VM;
 use thiserror::Error;
+use phalcom_vm::method::{make_signature, SignatureKind};
+
+pub mod error;
 
 #[derive(Error, Debug)]
 pub enum CompilerError {
@@ -201,9 +204,9 @@ impl<'vm> Compiler<'vm> {
                         }
                         phalcom_ast::ast::ClassMember::Getter(getter_def) => {
                             println!("[Compiler] Compiling getter: {} (static: {})", getter_def.name, getter_def.is_static);
-                            if getter_def.is_static {
-                                return Err(CompilerError::Message("Static getters are not allowed.".to_string()));
-                            }
+                            // if getter_def.is_static {
+                            //     return Err(CompilerError::Message("Static getters are not allowed.".to_string()));
+                            // }
                             let getter_name_sym = self.vm.interner.intern(&getter_def.name);
                             let closure = self.compile_block(getter_def.body, getter_name_sym, 0, getter_def.is_static)?;
 
@@ -253,7 +256,8 @@ impl<'vm> Compiler<'vm> {
             Expr::SetProperty(set_prop) => {
                 self.compile_expr(set_prop.object)?;
                 self.compile_expr(set_prop.value)?;
-                let name_sym = self.vm.interner.intern(&set_prop.property);
+                let selector = make_signature(&set_prop.property, SignatureKind::Setter);
+                let name_sym = self.vm.interner.intern(&selector);
                 let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
                 self.chunk.add_instruction(Bytecode::SetProperty(name_idx));
             }
@@ -262,7 +266,9 @@ impl<'vm> Compiler<'vm> {
                 for arg in &method_call.args {
                     self.compile_expr(arg.clone())?;
                 }
-                let selector_sym = self.vm.interner.intern(&method_call.method);
+                let arity = method_call.args.len();
+                let selector = make_signature(&method_call.method, SignatureKind::Method(arity as u8));
+                let selector_sym = self.vm.interner.intern(&selector);
                 let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
                 self.chunk.add_instruction(Bytecode::Invoke(method_call.args.len() as u8, selector_idx));
             }

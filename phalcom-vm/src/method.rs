@@ -14,7 +14,7 @@ pub type PrimitiveFn = fn(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> P
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SignatureKind {
     /// `init new(_,_)`
-    Initializer,
+    Initializer(u8),
 
     /// `foo(_,_,_)`
     Method(u8),
@@ -41,6 +41,67 @@ pub struct Signature {
 impl Signature {
     pub fn new(selector: Symbol, kind: SignatureKind) -> Self {
         Signature { selector, kind }
+    }
+}
+
+/// Turn a base name like `"foo"` plus a `SignatureKind` into the textual
+/// signature used by the compiler/VM.
+///
+/// # Examples
+/// ```
+/// use phalcom_vm::method::{make_signature, SignatureKind};
+/// assert_eq!(
+///     make_signature("foo", SignatureKind::Method(3)),
+///     "foo(_,_,_)"
+/// );
+///
+/// assert_eq!(
+///     make_signature("bar", SignatureKind::Getter),
+///     "bar"
+/// );
+///
+/// assert_eq!(
+///     make_signature("baz", SignatureKind::Setter),
+///     "baz=(_)"
+/// );
+///
+/// assert_eq!(
+///     make_signature("new", SignatureKind::Initializer(0)),
+///     "init new()"
+/// );
+///
+/// assert_eq!(
+///     make_signature("ignored", SignatureKind::SubscriptGet(2)),
+///     "[_,_]"
+/// );
+/// ```
+pub fn make_signature(base: &str, kind: SignatureKind) -> String {
+    /// Join `n` underscores with commas: 3 → `"_,_,_"`
+    fn underscores(n: u8) -> String {
+        (0..n).map(|_| "_").collect::<Vec<_>>().join(",")
+    }
+
+    match kind {
+        // `init <name>`  (Wren/Phalcom style).  If you want initialisers
+        // with params, change this to `format!("init {}({})", base, underscores(n))`.
+        SignatureKind::Initializer(0) => format!("init {base}()"),
+        SignatureKind::Initializer(n) => format!("init {base}({})", underscores(n)),
+
+        // `foo`, `foo(_)`, `foo(_,_)`, …
+        SignatureKind::Method(0) => format!("{base}()"),
+        SignatureKind::Method(n) => format!("{base}({})", underscores(n)),
+
+        // `foo`
+        SignatureKind::Getter => base.to_string(),
+
+        // `foo=(_)`
+        SignatureKind::Setter => format!("{base}=(_)",),
+
+        // `[_]`, `[_ , _]`, …
+        SignatureKind::SubscriptGet(n) => format!("[{}]", underscores(n)),
+
+        // `[_]=(_)`
+        SignatureKind::SubscriptSet(n) => format!("[{}]=(_)", underscores(n)),
     }
 }
 

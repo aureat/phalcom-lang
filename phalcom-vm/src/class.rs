@@ -2,6 +2,7 @@ use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::string::{phstring_new, PhString, StringObject};
 use crate::value::Value;
+use crate::vm::VM;
 use indexmap::IndexMap;
 use phalcom_common::{phref_new, phref_weak, MaybeWeak, PhRef};
 
@@ -19,6 +20,7 @@ pub struct ClassObject {
 /// This version is more efficient as it iterates using Gc pointers,
 /// avoiding expensive struct clones.
 pub fn lookup_method_in_hierarchy(mut class: PhRef<ClassObject>, selector: Symbol) -> Option<PhRef<MethodObject>> {
+    println!("{}", class.borrow().name_copy());
     loop {
         let next_class_maybe;
         {
@@ -114,5 +116,12 @@ impl ClassObject {
     pub fn get_method(&self, selector: Symbol) -> Option<PhRef<MethodObject>> {
         let method = self.methods.get(&selector);
         method.cloned()
+    }
+
+    pub fn list_methods(&self, vm: &VM) {
+        for item in &self.methods {
+            let (sym, method) = item;
+            println!("{}", method.borrow().name(vm).borrow().as_str());
+        }
     }
 }

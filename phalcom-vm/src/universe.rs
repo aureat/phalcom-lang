@@ -6,8 +6,8 @@ use crate::primitive::number::{number_add, number_div};
 use crate::primitive::object::{object_class, object_name, object_set_class};
 use crate::primitive::string::string_add;
 use crate::primitive::symbol::symbol_tostring;
-use crate::primitive::system::system_print;
-use crate::primitive::{primitive_method, CLASS_NAME, FALSE_NAME, TRUE_NAME};
+use crate::primitive::system::system_class_print;
+use crate::primitive::{primitive, primitive_static, CLASS_NAME, FALSE_NAME, TRUE_NAME};
 use crate::primitive::{BOOL_NAME, METACLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, OBJECT_NAME, STRING_NAME, SYMBOL_NAME, SYSTEM_NAME};
 use crate::string::{phstring_new, StringObject};
 use crate::vm::VM;
@@ -93,9 +93,14 @@ impl Universe {
             Some(object_class_ptr.clone()),
         ));
 
+        let system_class_class_ptr = phref_new(ClassObject::new(
+            "System.class",
+            MaybeWeak::Strong(metaclass_class_ptr.clone()),
+            Some(class_class_ptr.clone()),
+        ));
         let system_class_ptr = phref_new(ClassObject::new(
             "System",
-            MaybeWeak::Strong(class_class_ptr.clone()),
+            MaybeWeak::Strong(system_class_class_ptr.clone()),
             Some(object_class_ptr.clone()),
         ));
 
@@ -117,29 +122,32 @@ impl Universe {
 
     pub fn install_primitives(vm: &mut VM) {
         let object_cls = vm.universe.classes.object_class.clone();
-        primitive_method!(vm, object_cls, "name", SignatureKind::Getter, object_name);
-        primitive_method!(vm, object_cls, "class", SignatureKind::Getter, object_class);
-        primitive_method!(vm, object_cls, "class=(_)", SignatureKind::Setter, object_set_class);
-        primitive_method!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
+        primitive!(vm, object_cls, "name", SignatureKind::Getter, object_name);
+        primitive!(vm, object_cls, "class", SignatureKind::Getter, object_class);
+        primitive!(vm, object_cls, "class=(_)", SignatureKind::Setter, object_set_class);
+        primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
 
         let class_cls = vm.universe.classes.class_class.clone();
-        primitive_method!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
-        primitive_method!(vm, class_cls, "superclass=(_)", SignatureKind::Setter, class_set_superclass);
-        primitive_method!(vm, class_cls, "+(_)", SignatureKind::Method(1), class_add);
-        primitive_method!(vm, class_cls, "new", SignatureKind::Method(0), class_new);
+        primitive!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
+        primitive!(vm, class_cls, "superclass=(_)", SignatureKind::Setter, class_set_superclass);
+        primitive!(vm, class_cls, "+(_)", SignatureKind::Method(1), class_add);
+        primitive!(vm, class_cls, "new", SignatureKind::Method(0), class_new);
 
         let number_cls = vm.universe.classes.number_class.clone();
-        primitive_method!(vm, number_cls, "+(_)", SignatureKind::Method(1), number_add);
-        primitive_method!(vm, number_cls, "/(_)", SignatureKind::Method(1), number_div);
+        primitive!(vm, number_cls, "+(_)", SignatureKind::Method(1), number_add);
+        primitive!(vm, number_cls, "/(_)", SignatureKind::Method(1), number_div);
 
         let string_cls = vm.universe.classes.string_class.clone();
-        primitive_method!(vm, string_cls, "+(_)", SignatureKind::Method(1), string_add);
+        primitive!(vm, string_cls, "+(_)", SignatureKind::Method(1), string_add);
 
         let symbol_cls = vm.universe.classes.symbol_class.clone();
-        primitive_method!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
+        primitive!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
 
         let system_cls = vm.universe.classes.system_class.clone();
-        primitive_method!(vm, system_cls, "print(_)", SignatureKind::Method(1), system_print);
+        primitive_static!(vm, system_cls, "print(_)", SignatureKind::Method(1), system_class_print);
+        
+        system_cls.borrow().class().borrow().list_methods(vm);
+        // println!("{:?}", system_methods);
     }
 
     pub fn create_primitive_names() -> PrimitiveNames {
@@ -208,11 +216,7 @@ pub struct PrimitiveNames {
 
 impl PrimitiveNames {
     pub fn bool_name(&self, b: bool) -> PhRef<StringObject> {
-        if b {
-            self.true_.clone()
-        } else {
-            self.false_.clone()
-        }
+        if b { self.true_.clone() } else { self.false_.clone() }
     }
 }
 
