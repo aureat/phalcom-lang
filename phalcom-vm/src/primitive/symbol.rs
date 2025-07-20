@@ -18,3 +18,28 @@ pub fn symbol_class_from(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRe
 
     Ok(Value::Symbol(symbol))
 }
+
+/// `Symbol.class::new(_)`
+pub fn symbol_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    if let Some(arg) = args.first() {
+        match arg {
+            Value::String(s) => {
+                let sym = vm.get_or_intern(&s.borrow().value());
+                Ok(Value::Symbol(sym))
+            }
+            Value::Symbol(sym) => Ok(Value::Symbol(*sym)),
+            _ => {
+                let string_repr = arg.to_string(vm);
+                let sym = vm.get_or_intern(&string_repr.borrow().value());
+                Ok(Value::Symbol(sym))
+            }
+        }
+    } else {
+        Err(RuntimeError::Arity {
+            signature: "Symbol.new(_)",
+            found: args.len(),
+            expected: 1,
+        }
+        .into())
+    }
+}

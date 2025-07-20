@@ -1,1 +1,1 @@
-object.method(10.0 + 20.0, "string").property;
+System.print(Object.new());

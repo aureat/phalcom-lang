@@ -1,12 +1,16 @@
 use crate::class::ClassObject;
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
+use crate::primitive::boolean::bool_class_new;
 use crate::primitive::class::{class_add, class_new, class_set_superclass, class_superclass};
-use crate::primitive::number::{number_add, number_div};
-use crate::primitive::object::{object_class, object_name, object_set_class};
-use crate::primitive::string::string_add;
-use crate::primitive::symbol::symbol_tostring;
-use crate::primitive::system::system_class_print;
+use crate::primitive::method::method_class_new;
+use crate::primitive::module::module_class_new;
+use crate::primitive::nil::nil_class_new;
+use crate::primitive::number::{number_add, number_class_new, number_div};
+use crate::primitive::object::{object_class, object_class_new, object_name, object_set_class};
+use crate::primitive::string::{string_add, string_class_new};
+use crate::primitive::symbol::{symbol_class_new, symbol_tostring};
+use crate::primitive::system::{system_class_new, system_class_print};
 use crate::primitive::{primitive, primitive_static, CLASS_NAME, FALSE_NAME, TRUE_NAME};
 use crate::primitive::{BOOL_NAME, METACLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, OBJECT_NAME, STRING_NAME, SYMBOL_NAME, SYSTEM_NAME};
 use crate::string::{phstring_new, StringObject};
@@ -42,67 +46,41 @@ impl Universe {
         let class_class_ptr = ClassObject::new_instance_of_self("Class");
         class_class_ptr.borrow_mut().set_class_owned(&metaclass_class_ptr);
 
+        let object_class_class_ptr = phref_new(ClassObject::new(
+            "Object.class",
+            MaybeWeak::Strong(metaclass_class_ptr.clone()),
+            Some(class_class_ptr.clone()),
+        ));
         let object_class_ptr = ClassObject::new_instance_of_self("Object");
-
-        object_class_ptr.borrow_mut().set_class_owned(&class_class_ptr);
+        object_class_ptr.borrow_mut().set_class_owned(&object_class_class_ptr);
 
         class_class_ptr.borrow_mut().set_superclass(Some(object_class_ptr.clone()));
 
         metaclass_class_ptr.borrow_mut().set_superclass(Some(class_class_ptr.clone()));
         metaclass_class_ptr.borrow_mut().set_class_owned(&metaclass_class_ptr);
 
-        let number_class_ptr = phref_new(ClassObject::new(
-            "Number",
-            MaybeWeak::Strong(class_class_ptr.clone()),
-            Some(object_class_ptr.clone()),
-        ));
+        // Helper function to create a class with its metaclass
+        let create_core_class = |name: &str, superclass: Option<PhRef<ClassObject>>| -> PhRef<ClassObject> {
+            let metaclass_name = format!("{name}.class");
+            let metaclass = phref_new(ClassObject::new(
+                &metaclass_name,
+                MaybeWeak::Strong(metaclass_class_ptr.clone()),
+                Some(class_class_ptr.clone()),
+            ));
 
-        let string_class_ptr = phref_new(ClassObject::new(
-            "String",
-            MaybeWeak::Strong(class_class_ptr.clone()),
-            Some(object_class_ptr.clone()),
-        ));
+            let class = phref_new(ClassObject::new(name, MaybeWeak::Strong(metaclass.clone()), superclass));
 
-        let nil_class_ptr = phref_new(ClassObject::new(
-            "Nil",
-            MaybeWeak::Strong(class_class_ptr.clone()),
-            Some(object_class_ptr.clone()),
-        ));
+            class
+        };
 
-        let bool_class_ptr = phref_new(ClassObject::new(
-            "Bool",
-            MaybeWeak::Strong(class_class_ptr.clone()),
-            Some(object_class_ptr.clone()),
-        ));
-
-        let method_class_ptr = phref_new(ClassObject::new(
-            "Method",
-            MaybeWeak::Strong(class_class_ptr.clone()),
-            Some(object_class_ptr.clone()),
-        ));
-
-        let symbol_class_ptr = phref_new(ClassObject::new(
-            "Symbol",
-            MaybeWeak::Strong(class_class_ptr.clone()),
-            Some(object_class_ptr.clone()),
-        ));
-
-        let module_class_ptr = phref_new(ClassObject::new(
-            "Module",
-            MaybeWeak::Strong(class_class_ptr.clone()),
-            Some(object_class_ptr.clone()),
-        ));
-
-        let system_class_class_ptr = phref_new(ClassObject::new(
-            "System.class",
-            MaybeWeak::Strong(metaclass_class_ptr.clone()),
-            Some(class_class_ptr.clone()),
-        ));
-        let system_class_ptr = phref_new(ClassObject::new(
-            "System",
-            MaybeWeak::Strong(system_class_class_ptr.clone()),
-            Some(object_class_ptr.clone()),
-        ));
+        let number_class_ptr = create_core_class("Number", Some(object_class_ptr.clone()));
+        let string_class_ptr = create_core_class("String", Some(object_class_ptr.clone()));
+        let nil_class_ptr = create_core_class("Nil", Some(object_class_ptr.clone()));
+        let bool_class_ptr = create_core_class("Bool", Some(object_class_ptr.clone()));
+        let method_class_ptr = create_core_class("Method", Some(object_class_ptr.clone()));
+        let symbol_class_ptr = create_core_class("Symbol", Some(object_class_ptr.clone()));
+        let module_class_ptr = create_core_class("Module", Some(object_class_ptr.clone()));
+        let system_class_ptr = create_core_class("System", Some(object_class_ptr.clone()));
 
         // Return the fully populated Universe.
         CoreClasses {
@@ -126,28 +104,48 @@ impl Universe {
         primitive!(vm, object_cls, "class", SignatureKind::Getter, object_class);
         primitive!(vm, object_cls, "class=(_)", SignatureKind::Setter, object_set_class);
         primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
+        primitive_static!(vm, object_cls, "new()", SignatureKind::Method(1), object_class_new);
 
         let class_cls = vm.universe.classes.class_class.clone();
         primitive!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
         primitive!(vm, class_cls, "superclass=(_)", SignatureKind::Setter, class_set_superclass);
         primitive!(vm, class_cls, "+(_)", SignatureKind::Method(1), class_add);
-        primitive!(vm, class_cls, "new", SignatureKind::Method(0), class_new);
+        primitive!(vm, class_cls, "new()", SignatureKind::Method(0), class_new);
 
         let number_cls = vm.universe.classes.number_class.clone();
         primitive!(vm, number_cls, "+(_)", SignatureKind::Method(1), number_add);
         primitive!(vm, number_cls, "/(_)", SignatureKind::Method(1), number_div);
+        primitive_static!(vm, number_cls, "new()", SignatureKind::Method(0), number_class_new);
+        primitive_static!(vm, number_cls, "new(_)", SignatureKind::Method(1), number_class_new);
 
         let string_cls = vm.universe.classes.string_class.clone();
         primitive!(vm, string_cls, "+(_)", SignatureKind::Method(1), string_add);
+        primitive_static!(vm, string_cls, "new()", SignatureKind::Method(0), string_class_new);
+        primitive_static!(vm, string_cls, "new(_)", SignatureKind::Method(1), string_class_new);
+
+        let bool_cls = vm.universe.classes.bool_class.clone();
+        primitive_static!(vm, bool_cls, "new()", SignatureKind::Method(0), bool_class_new);
+        primitive_static!(vm, bool_cls, "new(_)", SignatureKind::Method(1), bool_class_new);
 
         let symbol_cls = vm.universe.classes.symbol_class.clone();
         primitive!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
+        primitive_static!(vm, symbol_cls, "new(_)", SignatureKind::Method(1), symbol_class_new);
+
+        let nil_cls = vm.universe.classes.nil_class.clone();
+        primitive_static!(vm, nil_cls, "new()", SignatureKind::Method(0), nil_class_new);
+
+        let bool_cls = vm.universe.classes.bool_class.clone();
+        primitive_static!(vm, bool_cls, "new(_)", SignatureKind::Method(1), nil_class_new);
+
+        let method_cls = vm.universe.classes.method_class.clone();
+        primitive_static!(vm, method_cls, "new(_)", SignatureKind::Method(1), method_class_new);
 
         let system_cls = vm.universe.classes.system_class.clone();
         primitive_static!(vm, system_cls, "print(_)", SignatureKind::Method(1), system_class_print);
-        
-        system_cls.borrow().class().borrow().list_methods(vm);
-        // println!("{:?}", system_methods);
+        primitive_static!(vm, system_cls, "new()", SignatureKind::Method(0), system_class_new);
+
+        let module_cls = vm.universe.classes.module_class.clone();
+        primitive_static!(vm, module_cls, "new()", SignatureKind::Method(0), module_class_new);
     }
 
     pub fn create_primitive_names() -> PrimitiveNames {

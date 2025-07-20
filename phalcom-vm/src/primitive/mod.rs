@@ -1,4 +1,8 @@
+pub mod boolean;
 pub mod class;
+pub mod method;
+pub mod module;
+pub mod nil;
 pub mod number;
 pub mod object;
 pub mod string;
@@ -14,18 +18,21 @@ pub const SIG_LT: &str = "<(_)";
 pub const SIG_LE: &str = "<=(_)";
 pub const SIG_GT: &str = ">(_)";
 pub const SIG_GE: &str = ">=(_)";
-pub const SIG_AND: &str = "and";
-pub const SIG_OR: &str = "or";
+pub const SIG_AND: &str = "and(_)";
+pub const SIG_OR: &str = "or(_)";
 pub const SIG_NEG: &str = "-";
 pub const SIG_NOT: &str = "not";
 pub const SIG_TO_NUMBER: &str = "toNumber";
 pub const SIG_TO_STRING: &str = "toString";
+pub const SIG_TO_DEBUG: &str = "toDebug";
 pub const SIG_TO_BOOL: &str = "toBool";
 
 pub const SIG_NAME: &str = "name";
 pub const SIG_CLASS: &str = "class";
 pub const SIG_SUPERCLASS: &str = "superclass";
 pub const SIG_TOSTRING: &str = "toString";
+pub const SIG_NEW: &str = "new()";
+pub const SIG_NEW_1: &str = "new(_)";
 
 pub const NIL_NAME: &str = "Nil";
 pub const BOOL_NAME: &str = "Bool";

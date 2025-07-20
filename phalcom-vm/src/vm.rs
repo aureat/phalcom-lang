@@ -97,11 +97,11 @@ impl VM {
 
     pub fn create_class(&mut self, name: &str, superclass: Option<PhRef<ClassObject>>) -> PhRef<ClassObject> {
         let class_class = self.universe.classes.class_class.clone();
+        let object_class_class = self.universe.classes.object_class.borrow().class().clone();
 
         let metaclass_name = name.to_owned() + ".class";
-        let metaclass = self.create_single_class(metaclass_name.as_str(), Some(class_class.clone()));
+        let metaclass = self.create_single_class(metaclass_name.as_str(), Some(object_class_class));
         metaclass.borrow_mut().set_class_owned(&class_class);
-        metaclass.borrow_mut().set_superclass(Some(class_class.clone()));
 
         let class = self.create_single_class(name, superclass);
         class.borrow_mut().set_class_owned(&metaclass);
@@ -148,6 +148,7 @@ impl VM {
         add_class!(bool_class);
         add_class!(nil_class);
         add_class!(method_class);
+        add_class!(symbol_class);
         add_class!(system_class);
 
         self.define_global(core_sym, core_sym, Value::Module(core_mod)).ok();
@@ -159,10 +160,20 @@ impl VM {
                 let receiver_idx = self.stack.len() - 1 - arity;
                 let receiver = self.stack[receiver_idx].clone();
                 let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
-                let result = native_fn(self, &receiver, &args)?;
-                self.stack.truncate(receiver_idx);
-                self.stack.push(result);
-                Ok(())
+                let result = native_fn(self, &receiver, &args);
+                match result {
+                    Ok(result) => {
+                        self.stack.truncate(receiver_idx);
+                        self.stack.push(result);
+                        Ok(())
+                    },
+                    Err(err) => {
+                        Err(PhError::VMError {
+                            message: format!("{}", err),
+                            stack_trace: self.format_stack_trace(format!("Error calling primitive function: {}", err)),
+                        })
+                    }
+                }
             }
             MethodKind::Closure(closure) => {
                 let new_frame = phref_new(CallFrame {
@@ -218,8 +229,8 @@ impl VM {
                             let selector_name = self.resolve_symbol(selector);
                             let receiver = &self.stack[self.stack.len() - 2];
                             return Err(PhError::VMError {
-                                message: format!("Method '{selector_name}' not found for value {receiver:?}."),
-                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver:?}.")),
+                                message: format!("Method '{selector_name}' not found for value {receiver}."),
+                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver}.")),
                             });
                         }
                     }

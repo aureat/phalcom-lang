@@ -12,10 +12,7 @@ pub enum PhError {
     Io(#[from] IoError),
 
     #[error("VM Error: {message}\nStack Trace:\n{stack_trace}")]
-    VMError {
-        message: String,
-        stack_trace: String,
-    },
+    VMError { message: String, stack_trace: String },
 
     #[error("{0}")]
     StringError(String),
@@ -30,8 +27,6 @@ impl From<&'static str> for PhError {
     }
 }
 
-
-
 fn format_num_arguments<'a>(args: usize) -> String {
     if args == 1 {
         String::from("1 argument")
@@ -43,17 +38,10 @@ fn format_num_arguments<'a>(args: usize) -> String {
 #[derive(Error, Debug)]
 pub enum RuntimeError {
     #[error("Method {signature} expected {}, got {found}", format_num_arguments(*expected))]
-    Arity {
-        signature: &'static str,
-        expected: usize,
-        found: usize,
-    },
+    Arity { signature: &'static str, expected: usize, found: usize },
 
     #[error("Expected {expected}, got {found}")]
-    Type {
-        expected: &'static str,
-        found: &'static str,
-    },
+    Type { expected: &'static str, found: &'static str },
 
     #[error("Can't set superclass of a class")]
     InvalidSetSuper,
@@ -66,6 +54,15 @@ pub enum RuntimeError {
 
     #[error("Division by zero")]
     ZeroDivision,
+
+    #[error("Can't convert {found} to {expected}")]
+    TypeConversion { expected: &'static str, found: &'static str },
+
+    #[error("{0}")]
+    NotAllowed(String),
+
+    #[error("Invalid argument: {0}")]
+    ArgumentError(String),
 
     #[error("{0}")]
     Message(String),
@@ -84,8 +81,6 @@ macro_rules! ensure_arity {
         }
     };
 }
-
-
 
 #[macro_export]
 macro_rules! expect_value {
@@ -207,5 +202,3 @@ macro_rules! expect_value {
 //         inst
 //     }};
 // }
-
-

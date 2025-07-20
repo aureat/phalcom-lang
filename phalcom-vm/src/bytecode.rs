@@ -17,6 +17,12 @@ pub enum Bytecode {
     /// Pops the top value from the stack.
     Pop,
 
+    /// Get local variable by slot index
+    GetLocal(u16),
+
+    /// Set local variable by slot index
+    SetLocal(u16),
+
     /// Defines a new global variable.
     /// 0: The index of the variable's name in the constant pool.
     DefineGlobal(u16),

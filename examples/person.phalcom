@@ -55,6 +55,9 @@ class Person {
   }
 }
 
+let person0 = Person.new();
+System.print(person0);
+
 // Using default constructor
 let person1 = Person.anonymous();
 System.print(person1.name); // nil

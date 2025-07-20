@@ -1,5 +1,8 @@
+use phalcom_common::phref_new;
 use crate::error::PhResult;
 use crate::error::RuntimeError;
+use crate::expect_value;
+use crate::instance::InstanceObject;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -26,4 +29,11 @@ pub fn object_tostring(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     let string = format!("<{} {}>", class_borrow.name.borrow().as_str(), name.borrow().as_str());
     drop(class_borrow);
     Ok(Value::string_from(string))
+}
+
+/// Signature: `Object.class::new`
+pub fn object_class_new(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let class = expect_value!(receiver, Class);
+    let instance = InstanceObject::new(class.clone());
+    Ok(Value::Instance(phref_new(instance)))
 }

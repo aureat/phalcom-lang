@@ -20,7 +20,7 @@ pub struct ClassObject {
 /// This version is more efficient as it iterates using Gc pointers,
 /// avoiding expensive struct clones.
 pub fn lookup_method_in_hierarchy(mut class: PhRef<ClassObject>, selector: Symbol) -> Option<PhRef<MethodObject>> {
-    println!("{}", class.borrow().name_copy());
+    // println!("{}", class.borrow().name_copy());
     loop {
         let next_class_maybe;
         {
@@ -121,7 +121,7 @@ impl ClassObject {
     pub fn list_methods(&self, vm: &VM) {
         for item in &self.methods {
             let (sym, method) = item;
-            println!("{}", method.borrow().name(vm).borrow().as_str());
+            // println!("{}", method.borrow().name(vm).borrow().as_str());
         }
     }
 }
