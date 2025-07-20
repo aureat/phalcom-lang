@@ -1,0 +1,79 @@
+class Person {
+  // Named Constructor 1: Anonymous
+  static anonymous() {
+    let instance = self.new();
+    instance.init("Anonymous", -1);
+    return instance;
+  }
+
+  // Named Constructor 2: With name
+  static new(name) {
+    let instance = self.new();
+    instance.init(name);
+    return instance;
+  }
+
+  // Named Constructor 3: With name and age
+  static new(name, age) {
+    let instance = self.new();
+    instance.init(name, age);
+    return instance;
+  }
+
+  init(name, age) {
+    self._name = name;
+    self._age = age;
+  }
+
+  init(name) {
+    self._name = name;
+  }
+
+  // Getter for name
+  name {
+    return self._name;
+  }
+
+  // Setter for name
+  name=(value) {
+    self._name = value;
+  }
+
+  // Getter for age
+  age {
+    return self._age;
+  }
+
+  // Setter for age
+  age=(value) {
+    self._age = value;
+  }
+
+  // Example of operator overloading: equality check
+  ==(other) {
+    return self.name == other.name and self.age == other.age;
+  }
+}
+
+let person0 = Person.new();
+System.print(person0);
+
+// Using default constructor
+let person1 = Person.anonymous();
+System.print(person1.name); // nil
+System.print(person1.age); // nil
+
+// Using constructor with name
+let person2 = Person.new("Alice");
+System.print(person2.name); // Alice
+System.print(person2.age); // nil
+
+// Using constructor with name and age
+let person3 = Person.new("Bob", 30);
+System.print(person3.name); // Bob
+System.print(person3.age); // 30
+
+// Using getters and setters
+person3.age = 31;
+System.print(person3.age); // 31
+
