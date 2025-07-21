@@ -1,4 +1,4 @@
-use phalcom_ast::ast::{BinaryOp, Expr, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
 use phalcom_common::{phref_new, PhRef};
 use phalcom_vm::bytecode::Bytecode;
 use phalcom_vm::chunk::Chunk;
@@ -6,11 +6,11 @@ use phalcom_vm::closure::ClosureObject;
 // use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
 use phalcom_vm::error::PhError;
 use phalcom_vm::interner::Symbol;
+use phalcom_vm::method::{make_signature, MethodKind, SignatureKind};
 use phalcom_vm::module::ModuleObject;
 use phalcom_vm::value::Value;
 use phalcom_vm::vm::VM;
 use thiserror::Error;
-use phalcom_vm::method::{make_signature, SignatureKind};
 
 pub mod error;
 
@@ -77,6 +77,7 @@ impl<'vm> Compiler<'vm> {
             module: self.module.clone(),
             chunk: Chunk::default(),
         };
+
         let len = statements.len();
         let mut last_is_return = false;
         for (i, statement) in statements.into_iter().enumerate() {
@@ -88,6 +89,7 @@ impl<'vm> Compiler<'vm> {
             }
             block_compiler.compile_statement_with_pop_control(statement, !is_last)?;
         }
+
         if !last_is_return {
             block_compiler.chunk.add_instruction(Bytecode::Return);
         }
@@ -180,64 +182,70 @@ impl<'vm> Compiler<'vm> {
                 // The class object is now on top of the stack. Iterate through members.
                 for member in class_def.members {
                     match member {
-                        phalcom_ast::ast::ClassMember::Method(method_def) => {
-                            println!("[Compiler] Compiling method: {} (static: {})", method_def.name, method_def.is_static);
-                            let method_name_sym = self.vm.interner.intern(&method_def.name);
+                        ClassMember::Method(method_def) => {
                             let arity = method_def.params.len();
-                            let closure = self.compile_block(method_def.body, method_name_sym, arity, method_def.is_static)?;
+                            let selector = make_signature(&method_def.name, SignatureKind::Method(arity as u8));
+                            let selector_sym = self.vm.interner.intern(&selector);
+
+                            let closure = self.compile_block(method_def.body, selector_sym, arity, method_def.is_static)?;
+
+                            println!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
                             let method_obj = phref_new(phalcom_vm::method::MethodObject::new(
-                                method_name_sym,
-                                phalcom_vm::method::SignatureKind::Method(arity as u8),
-                                phalcom_vm::method::MethodKind::Closure(closure),
+                                selector_sym,
+                                SignatureKind::Method(arity as u8),
+                                MethodKind::Closure(closure),
                             ));
 
                             let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
-                            println!("[Compiler] Emitting Constant for method_obj_idx: {}", method_obj_idx);
+                            // println!("[Compiler] Emitting Constant for method_obj_idx: {}", method_obj_idx);
                             self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
-                            let selector_idx = self.chunk.add_constant(Value::Symbol(method_name_sym));
-                            println!(
-                                "[Compiler] Emitting Method for selector_idx: {}, is_static: {}",
-                                selector_idx, method_def.is_static
-                            );
+                            
+                            let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
+                            // println!(
+                            //     "[Compiler] Emitting Method for selector_idx: {}, is_static: {}",
+                            //     selector_idx, method_def.is_static
+                            // );
                             self.chunk.add_instruction(Bytecode::Method(selector_idx, method_def.is_static));
                         }
-                        phalcom_ast::ast::ClassMember::Getter(getter_def) => {
-                            println!("[Compiler] Compiling getter: {} (static: {})", getter_def.name, getter_def.is_static);
-                            // if getter_def.is_static {
-                            //     return Err(CompilerError::Message("Static getters are not allowed.".to_string()));
-                            // }
-                            let getter_name_sym = self.vm.interner.intern(&getter_def.name);
-                            let closure = self.compile_block(getter_def.body, getter_name_sym, 0, getter_def.is_static)?;
+                        ClassMember::Getter(getter_def) => {
+                            let selector = make_signature(&getter_def.name, SignatureKind::Getter);
+                            let selector_sym = self.vm.interner.intern(&selector);
+                            
+                            let closure = self.compile_block(getter_def.body, selector_sym, 0, getter_def.is_static)?;
+                            
+                            println!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
                             let method_obj = phref_new(phalcom_vm::method::MethodObject::new(
-                                getter_name_sym,
-                                phalcom_vm::method::SignatureKind::Getter,
-                                phalcom_vm::method::MethodKind::Closure(closure),
+                                selector_sym,
+                                SignatureKind::Getter,
+                                MethodKind::Closure(closure),
                             ));
 
                             let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
                             self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
-                            let selector_idx = self.chunk.add_constant(Value::Symbol(getter_name_sym));
+                            
+                            let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
                             self.chunk.add_instruction(Bytecode::Method(selector_idx, getter_def.is_static));
                         }
-                        phalcom_ast::ast::ClassMember::Setter(setter_def) => {
-                            println!("[Compiler] Compiling setter: {} (static: {})", setter_def.name, setter_def.is_static);
-                            if setter_def.is_static {
-                                return Err(CompilerError::Message("Static setters are not allowed.".to_string()));
-                            }
-                            let setter_name_sym = self.vm.interner.intern(&setter_def.name);
-                            let closure = self.compile_block(setter_def.body, setter_name_sym, 1, setter_def.is_static)?;
+                        ClassMember::Setter(setter_def) => {
+                            let selector = make_signature(&setter_def.name, SignatureKind::Setter);
+                            let selector_sym = self.vm.interner.intern(&selector);
+                            
+                            let closure = self.compile_block(setter_def.body, selector_sym, 1, setter_def.is_static)?;
+                            
+                            println!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
                             let method_obj = phref_new(phalcom_vm::method::MethodObject::new(
-                                setter_name_sym,
-                                phalcom_vm::method::SignatureKind::Setter,
-                                phalcom_vm::method::MethodKind::Closure(closure),
+                                selector_sym,
+                                SignatureKind::Setter,
+                                MethodKind::Closure(closure),
                             ));
 
                             let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
                             self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
-                            let selector_idx = self.chunk.add_constant(Value::Symbol(setter_name_sym));
+                            
+                            let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
                             self.chunk.add_instruction(Bytecode::Method(selector_idx, setter_def.is_static));
                         }
                     }

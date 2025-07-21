@@ -32,7 +32,7 @@ impl Default for Universe {
 
 impl Universe {
     pub fn new() -> Self {
-        let core_classes = Self::bootstrap_core_classes();
+        let core_classes = Self::create_core_classes();
         let primitive_names = Self::create_primitive_names();
         Universe {
             classes: core_classes,
@@ -40,7 +40,7 @@ impl Universe {
         }
     }
 
-    pub fn bootstrap_core_classes() -> CoreClasses {
+    pub fn create_core_classes() -> CoreClasses {
         let metaclass_class_ptr: PhRef<ClassObject> = ClassObject::new_instance_of_self("Metaclass");
 
         let class_class_ptr = ClassObject::new_instance_of_self("Class");

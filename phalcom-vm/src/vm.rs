@@ -166,13 +166,11 @@ impl VM {
                         self.stack.truncate(receiver_idx);
                         self.stack.push(result);
                         Ok(())
-                    },
-                    Err(err) => {
-                        Err(PhError::VMError {
-                            message: format!("{}", err),
-                            stack_trace: self.format_stack_trace(format!("Error calling primitive function: {}", err)),
-                        })
                     }
+                    Err(err) => Err(PhError::VMError {
+                        message: format!("{}", err),
+                        stack_trace: self.format_stack_trace(format!("Error calling primitive function: {}", err)),
+                    }),
                 }
             }
             MethodKind::Closure(closure) => {
@@ -321,6 +319,38 @@ impl VM {
                 Bytecode::Pop => {
                     self.stack.pop();
                 }
+                Bytecode::GetLocal(slot) => {
+                    let frame_borrow = frame_ref.borrow();
+                    let local_idx = frame_borrow.stack_offset + slot as usize;
+                    drop(frame_borrow);
+
+                    if local_idx < self.stack.len() {
+                        let value = self.stack[local_idx].clone();
+                        self.stack.push(value);
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Local variable slot {} out of bounds", slot),
+                            stack_trace: self.format_stack_trace(format!("Local variable slot {} out of bounds", slot)),
+                        });
+                    }
+                }
+
+                Bytecode::SetLocal(slot) => {
+                    let frame_borrow = frame_ref.borrow();
+                    let local_idx = frame_borrow.stack_offset + slot as usize;
+                    drop(frame_borrow);
+
+                    if local_idx < self.stack.len() {
+                        let value = self.stack.last().unwrap().clone();
+                        self.stack[local_idx] = value;
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Local variable slot {} out of bounds", slot),
+                            stack_trace: self.format_stack_trace(format!("Local variable slot {} out of bounds", slot)),
+                        });
+                    }
+                }
+
                 Bytecode::DefineGlobal(idx) => {
                     let name_val = &chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
@@ -387,7 +417,9 @@ impl VM {
                     if let Value::Symbol(selector) = selector_val {
                         let method_val = self.stack.pop().unwrap();
                         let class_val = self.stack.last().unwrap();
+                        let selector_name = self.resolve_symbol(*selector);
                         if let (Value::Method(method_obj), Value::Class(class_obj)) = (method_val, class_val) {
+                            println!("[VM] Adding method {} to class {}", selector_name, class_obj.borrow().name_copy());
                             if is_static {
                                 class_obj.borrow().class().borrow_mut().add_method(*selector, method_obj);
                             } else {

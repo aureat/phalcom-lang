@@ -63,37 +63,48 @@ pub enum Bytecode {
     /// Returns a value from the current method.
     Return,
 
-    // --- Binary Operators ---
     /// Performs addition.
     Add,
+
     /// Performs subtraction.
     Subtract,
+
     /// Performs multiplication.
     Multiply,
+
     /// Performs division.
     Divide,
+
     /// Performs modulo.
     Modulo,
+
     /// Performs equality comparison.
     Equal,
+
     /// Performs inequality comparison.
     NotEqual,
+
     /// Performs less than comparison.
     Less,
+
     /// Performs less than or equal comparison.
     LessEqual,
+
     /// Performs greater than comparison.
     Greater,
+
     /// Performs greater than or equal comparison.
     GreaterEqual,
+
     /// Performs logical AND.
     And,
+
     /// Performs logical OR.
     Or,
 
-    // --- Unary Operators ---
     /// Negates a number.
     Negate,
+
     /// Performs logical NOT.
     Not,
 }

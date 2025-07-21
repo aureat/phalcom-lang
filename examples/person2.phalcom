@@ -21,32 +21,32 @@ class Person {
   }
 
   init(name, age) {
-    self._name = name;
-    self._age = age;
+    _name = name;
+    _age = age;
   }
 
   init(name) {
-    self._name = name;
+    _name = name;
   }
 
   // Getter for name
   name {
-    return self._name;
+    return _name;
   }
 
   // Setter for name
   name=(value) {
-    self._name = value;
+    _name = value;
   }
 
   // Getter for age
   age {
-    return self._age;
+    return _age;
   }
 
   // Setter for age
   age=(value) {
-    self._age = value;
+    _age = value;
   }
 
   // Example of operator overloading: equality check
@@ -57,13 +57,3 @@ class Person {
 
 let person0 = Person.new();
 System.print(person0.name);
-
-// Using constructor with name and age
-let person3 = Person.new("Bob", 30);
-System.print(person3.name); // Bob
-System.print(person3.age); // 30
-
-// Using getters and setters
-person3.age = 31;
-System.print(person3.age); // 31
-
