@@ -3,7 +3,7 @@ use crate::bytecode::Bytecode;
 use crate::class::{lookup_method_in_hierarchy, ClassObject};
 use crate::closure::ClosureObject;
 use crate::error::{PhError, PhResult};
-use crate::frame::CallFrame;
+use crate::frame::{CallContext, CallFrame};
 use crate::interner::{Interner, Symbol};
 use crate::method::{MethodKind, MethodObject};
 use crate::module::{ModuleObject, CORE_MODULE_NAME};
@@ -65,14 +65,10 @@ impl VM {
     pub fn run_module(&mut self, module: PhRef<ModuleObject>, entry: PhRef<ClosureObject>) -> PhResult<Value> {
         let module_sym = module.borrow().symbol();
         self.modules.insert(module_sym, module.clone());
-        entry.borrow_mut().module = module;
+        entry.borrow_mut().module = module.clone();
         self.frames.clear();
         self.stack.clear();
-        let frame = phref_new(CallFrame {
-            method: entry,
-            ip: 0,
-            stack_offset: 0,
-        });
+        let frame = phref_new(CallFrame::new(entry, CallContext::Module { module }, 0, 0));
         self.frames.push(frame);
         self.run()
     }
@@ -154,7 +150,7 @@ impl VM {
         self.define_global(core_sym, core_sym, Value::Module(core_mod)).ok();
     }
 
-    fn call_method(&mut self, method: PhRef<MethodObject>, arity: usize) -> PhResult<()> {
+    fn call_method(&mut self, callee: &Value, method: PhRef<MethodObject>, arity: usize) -> PhResult<()> {
         match &method.borrow().kind {
             MethodKind::Primitive(native_fn) => {
                 let receiver_idx = self.stack.len() - 1 - arity;
@@ -174,11 +170,7 @@ impl VM {
                 }
             }
             MethodKind::Closure(closure) => {
-                let new_frame = phref_new(CallFrame {
-                    method: closure.clone(),
-                    ip: 0,
-                    stack_offset: self.stack.len() - arity - 1,
-                });
+                let new_frame = phref_new(CallFrame::new(closure.clone(), callee.to_context(), 0, self.stack.len() - arity - 1));
                 self.frames.push(new_frame);
                 Ok(())
             }
@@ -198,8 +190,9 @@ impl VM {
                         let selector = self.interner.intern($selector);
                         self.stack.push(a);
                         self.stack.push(b);
-                        if let Some(method) = self.stack[self.stack.len() - 2].lookup_method(self, selector) {
-                            self.call_method(method, 1)?;
+                        let callee = self.stack[self.stack.len() - 2].clone();
+                        if let Some(method) = callee.lookup_method(self, selector) {
+                            self.call_method(&callee, method, 1)?;
                         } else {
                             let selector_name = self.resolve_symbol(selector);
                             let receiver = &self.stack[self.stack.len() - 2];
@@ -221,8 +214,9 @@ impl VM {
                         let selector = self.interner.intern($selector);
                         self.stack.push(a);
                         self.stack.push(b);
-                        if let Some(method) = self.stack[self.stack.len() - 2].lookup_method(self, selector) {
-                            self.call_method(method, 1)?;
+                        let callee = self.stack[self.stack.len() - 2].clone();
+                        if let Some(method) = callee.lookup_method(self, selector) {
+                            self.call_method(&callee, method, 1)?;
                         } else {
                             let selector_name = self.resolve_symbol(selector);
                             let receiver = &self.stack[self.stack.len() - 2];
@@ -243,7 +237,7 @@ impl VM {
 
             let frame_ref = self.current_frame().clone();
             let mut frame = frame_ref.borrow_mut();
-            let closure = frame.method.clone();
+            let closure = frame.closure.clone();
             let chunk = &closure.borrow().callable.chunk;
             let opcode = chunk.code[frame.ip];
             println!("[VM] Executing opcode: {:?}", opcode);
@@ -263,7 +257,7 @@ impl VM {
                             }
                         }
                         if let Some(method) = receiver.lookup_method(self, *property_sym) {
-                            self.call_method(method, 0)?;
+                            self.call_method(&receiver, method, 0)?;
                         } else {
                             let selector_name = self.resolve_symbol(*property_sym);
                             return Err(PhError::VMError {
@@ -292,8 +286,9 @@ impl VM {
                         let setter_selector = self.interner.intern(&setter_name);
                         self.stack.push(receiver);
                         self.stack.push(value_to_assign);
-                        if let Some(method) = self.stack[self.stack.len() - 2].lookup_method(self, setter_selector) {
-                            self.call_method(method, 1)?;
+                        let callee = self.stack[self.stack.len() - 2].clone();
+                        if let Some(method) = callee.lookup_method(self, setter_selector) {
+                            self.call_method(&callee, method, 1)?;
                         } else {
                             return Err(PhError::VMError {
                                 message: format!("Setter method '{setter_name}' not found."),
@@ -420,6 +415,7 @@ impl VM {
                         let selector_name = self.resolve_symbol(*selector);
                         if let (Value::Method(method_obj), Value::Class(class_obj)) = (method_val, class_val) {
                             println!("[VM] Adding method {} to class {}", selector_name, class_obj.borrow().name_copy());
+                            method_obj.borrow_mut().set_holder(PhRef::downgrade(class_obj));
                             if is_static {
                                 class_obj.borrow().class().borrow_mut().add_method(*selector, method_obj);
                             } else {
@@ -459,7 +455,7 @@ impl VM {
                         // } else {
                         let metaclass = class_obj.borrow().class();
                         if let Some(method) = lookup_method_in_hierarchy(metaclass, selector_sym) {
-                            self.call_method(method, arity)?;
+                            self.call_method(&receiver, method, arity)?;
                         } else {
                             let selector_name = self.resolve_symbol(selector_sym);
                             return Err(PhError::VMError {
@@ -469,7 +465,7 @@ impl VM {
                         }
                         // }
                     } else if let Some(method) = receiver.lookup_method(self, selector_val.as_symbol().map_err(PhError::StringError)?) {
-                        self.call_method(method, arity)?;
+                        self.call_method(&receiver, method, arity)?;
                     } else {
                         let selector_name = self.resolve_symbol(selector_val.as_symbol().unwrap());
                         return Err(PhError::VMError {
@@ -566,10 +562,24 @@ impl VM {
         trace.push_str(&format!("Error: {}\n", error_message));
         for frame_ref in self.frames.iter().rev() {
             let frame = frame_ref.borrow();
-            let closure = frame.method.borrow();
+            let closure = frame.closure.borrow();
             let module_name = closure.module.borrow().name.borrow().value();
             let method_name = self.resolve_symbol(closure.callable.name_sym);
-            trace.push_str(&format!("  at <{}>.{}\n", module_name, method_name));
+            let trace_name = match frame.context() {
+                CallContext::Class { class } => {
+                    let class_name = class.borrow().class().borrow().name_copy();
+                    format!("{}::{} in {}", class_name, method_name, module_name)
+                }
+                CallContext::Instance { instance } => {
+                    let class_name = instance.borrow().class().borrow().name_copy();
+                    format!("{}::{} in {}", class_name, method_name, module_name)
+                }
+                CallContext::Module { module } => {
+                    // let module_name = module.borrow().name().borrow();
+                    format!("{module_name}")
+                }
+            };
+            trace.push_str(&format!("  at {}\n", trace_name));
         }
         trace
     }

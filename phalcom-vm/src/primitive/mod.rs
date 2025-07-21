@@ -51,20 +51,16 @@ pub const FALSE_NAME: &str = "false";
 macro_rules! primitive {
     ($vm:expr, $class:expr, $sig:expr, $sig_kind: expr, $func:expr) => {
         let symbol = $vm.get_or_intern($sig);
-        $class
-            .borrow_mut()
-            .add_method(symbol, phref_new(MethodObject::primitive(symbol, $sig_kind, $func)));
+        let method = MethodObject::new_primitive(symbol, $sig_kind, $func, PhRef::downgrade(&$class));
+        $class.borrow_mut().add_method(symbol, phref_new(method));
     };
 }
 
 macro_rules! primitive_static {
     ($vm:expr, $class:expr, $sig:expr, $sig_kind: expr, $func:expr) => {
         let symbol = $vm.get_or_intern($sig);
-        $class
-            .borrow()
-            .class()
-            .borrow_mut()
-            .add_method(symbol, phref_new(MethodObject::primitive(symbol, $sig_kind, $func)));
+        let method = MethodObject::new_primitive(symbol, $sig_kind, $func, PhRef::downgrade(&$class));
+        $class.borrow().class().borrow_mut().add_method(symbol, phref_new(method));
     };
 }
 

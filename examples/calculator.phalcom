@@ -14,6 +14,7 @@ class Calculator {
   }
 
   static new(ignored) {
+    // a;
     return self.new();
   }
 }

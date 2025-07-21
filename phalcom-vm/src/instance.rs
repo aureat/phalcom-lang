@@ -31,4 +31,12 @@ impl InstanceObject {
         drop(name_borrowed);
         phstring_new(string)
     }
+    
+    pub fn to_debug_string(&self) -> PhString {
+        let name = self.name();
+        let name_borrowed = name.borrow();
+        let string = format!("<instance {}>", name_borrowed.as_str());
+        drop(name_borrowed);
+        phstring_new(string)
+    }
 }

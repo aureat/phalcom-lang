@@ -1,4 +1,5 @@
 use crate::class::{lookup_method_in_hierarchy, ClassObject};
+use crate::frame::CallContext;
 use crate::instance::InstanceObject;
 use crate::interner::Symbol;
 use crate::method::MethodObject;
@@ -7,8 +8,8 @@ use crate::primitive::{BOOL_NAME, CLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME
 use crate::string::{phstring_new, StringObject};
 use crate::vm::VM;
 use phalcom_common::{phref_new, PhRef};
-use std::fmt::{self, Display};
 use std::fmt::Debug;
+use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -155,6 +156,15 @@ impl Value {
     pub fn lookup_method(&self, vm: &VM, selector: Symbol) -> Option<PhRef<MethodObject>> {
         let value_class = self.class(vm);
         lookup_method_in_hierarchy(value_class, selector)
+    }
+
+    pub fn to_context(&self) -> CallContext {
+        match self {
+            Value::Instance(instance) => CallContext::Instance { instance: instance.clone() },
+            Value::Class(class) => CallContext::Class { class: class.clone() },
+            Value::Module(module) => CallContext::Module { module: module.clone() },
+            _ => panic!("Not a class or instance"),
+        }
     }
 }
 

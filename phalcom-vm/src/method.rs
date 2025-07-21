@@ -122,18 +122,22 @@ pub struct MethodObject {
 }
 
 impl MethodObject {
-    pub fn new(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind) -> Self {
+    pub fn new(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind, holder: PhWeakRef<ClassObject>) -> Self {
         let signature = Signature::new(selector, sig_kind);
 
-        MethodObject {
-            kind,
-            signature,
-            holder: PhWeakRef::default(),
-        }
+        MethodObject { kind, signature, holder }
     }
 
-    pub fn primitive(selector: Symbol, sig_kind: SignatureKind, primitive: PrimitiveFn) -> Self {
-        MethodObject::new(selector, sig_kind, MethodKind::Primitive(primitive))
+    pub fn new_single(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind) -> Self {
+        Self::new(selector, sig_kind, kind, PhWeakRef::default())
+    }
+
+    pub fn new_closure(selector: Symbol, sig_kind: SignatureKind, closure: PhRef<ClosureObject>, holder: PhWeakRef<ClassObject>) -> Self {
+        Self::new(selector, sig_kind, MethodKind::Closure(closure), holder)
+    }
+
+    pub fn new_primitive(selector: Symbol, sig_kind: SignatureKind, primitive: PrimitiveFn, holder: PhWeakRef<ClassObject>) -> Self {
+        Self::new(selector, sig_kind, MethodKind::Primitive(primitive), holder)
     }
 
     pub fn make_name(holder: PhRef<ClassObject>, selector: &str) -> PhRef<StringObject> {
@@ -160,6 +164,10 @@ impl MethodObject {
 
     pub fn is_closure(&self) -> bool {
         matches!(self.kind, MethodKind::Closure(_))
+    }
+
+    pub fn set_holder(&mut self, holder: PhWeakRef<ClassObject>) {
+        self.holder = holder;
     }
 
     pub fn name(&self, vm: &VM) -> PhString {
