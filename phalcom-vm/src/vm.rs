@@ -1,6 +1,6 @@
 use crate::boolean::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
-use crate::class::{lookup_method_in_hierarchy, ClassObject};
+use crate::class::ClassObject;
 use crate::closure::ClosureObject;
 use crate::error::{PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
@@ -240,69 +240,13 @@ impl VM {
             let closure = frame.closure.clone();
             let chunk = &closure.borrow().callable.chunk;
             let opcode = chunk.code[frame.ip];
+            let stack_offset = frame.stack_offset; // Get stack_offset before dropping frame
+            println!("\n[VM] Stack before opcode {:?}: {:?}", opcode, self.stack);
             println!("[VM] Executing opcode: {:?}", opcode);
             frame.ip += 1;
-            drop(frame);
+            drop(frame); // Drop frame here after extracting necessary info
 
             match opcode {
-                Bytecode::GetProperty(idx) => {
-                    let property_val = &chunk.constants[idx as usize];
-                    if let Value::Symbol(property_sym) = property_val {
-                        let receiver = self.stack.last().unwrap().clone();
-                        if let Value::Instance(instance_obj) = &receiver {
-                            if let Some(field_value) = instance_obj.borrow().fields.get(self.resolve_symbol(*property_sym)) {
-                                self.stack.pop(); // Pop receiver
-                                self.stack.push(field_value.clone());
-                                continue;
-                            }
-                        }
-                        if let Some(method) = receiver.lookup_method(self, *property_sym) {
-                            self.call_method(&receiver, method, 0)?;
-                        } else {
-                            let selector_name = self.resolve_symbol(*property_sym);
-                            return Err(PhError::VMError {
-                                message: format!("Property or method '{selector_name}' not found for value {receiver:?}."),
-                                stack_trace: self.format_stack_trace(format!("Property or method '{selector_name}' not found for value {receiver:?}.")),
-                            });
-                        }
-                    }
-                }
-                Bytecode::SetProperty(idx) => {
-                    let property_val = &chunk.constants[idx as usize];
-                    if let Value::Symbol(property_sym) = property_val {
-                        let value_to_assign = self.stack.pop().ok_or("Stack underflow on property assignment")?;
-                        let receiver = self.stack.pop().ok_or("Stack underflow on property assignment")?;
-
-                        if let Value::Instance(instance_obj) = &receiver {
-                            instance_obj
-                                .borrow_mut()
-                                .fields
-                                .insert(self.resolve_symbol(*property_sym).to_string(), value_to_assign.clone());
-                            self.stack.push(value_to_assign);
-                            continue;
-                        }
-
-                        let setter_name = format!("{}=", self.resolve_symbol(*property_sym));
-                        let setter_selector = self.interner.intern(&setter_name);
-                        self.stack.push(receiver);
-                        self.stack.push(value_to_assign);
-                        let callee = self.stack[self.stack.len() - 2].clone();
-                        if let Some(method) = callee.lookup_method(self, setter_selector) {
-                            self.call_method(&callee, method, 1)?;
-                        } else {
-                            return Err(PhError::VMError {
-                                message: format!("Setter method '{setter_name}' not found."),
-                                stack_trace: self.format_stack_trace(format!("Setter method '{setter_name}' not found.")),
-                            });
-                        }
-                    }
-                }
-                Bytecode::GetSelf => {
-                    let frame_borrow = frame_ref.borrow();
-                    let receiver = self.stack[frame_borrow.stack_offset].clone();
-                    drop(frame_borrow);
-                    self.stack.push(receiver);
-                }
                 Bytecode::Constant(idx) => {
                     let constant = chunk.constants[idx as usize].clone();
                     println!("[VM] Pushing constant: {:?}", constant);
@@ -314,38 +258,6 @@ impl VM {
                 Bytecode::Pop => {
                     self.stack.pop();
                 }
-                Bytecode::GetLocal(slot) => {
-                    let frame_borrow = frame_ref.borrow();
-                    let local_idx = frame_borrow.stack_offset + slot as usize;
-                    drop(frame_borrow);
-
-                    if local_idx < self.stack.len() {
-                        let value = self.stack[local_idx].clone();
-                        self.stack.push(value);
-                    } else {
-                        return Err(PhError::VMError {
-                            message: format!("Local variable slot {} out of bounds", slot),
-                            stack_trace: self.format_stack_trace(format!("Local variable slot {} out of bounds", slot)),
-                        });
-                    }
-                }
-
-                Bytecode::SetLocal(slot) => {
-                    let frame_borrow = frame_ref.borrow();
-                    let local_idx = frame_borrow.stack_offset + slot as usize;
-                    drop(frame_borrow);
-
-                    if local_idx < self.stack.len() {
-                        let value = self.stack.last().unwrap().clone();
-                        self.stack[local_idx] = value;
-                    } else {
-                        return Err(PhError::VMError {
-                            message: format!("Local variable slot {} out of bounds", slot),
-                            stack_trace: self.format_stack_trace(format!("Local variable slot {} out of bounds", slot)),
-                        });
-                    }
-                }
-
                 Bytecode::DefineGlobal(idx) => {
                     let name_val = &chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
@@ -391,6 +303,36 @@ impl VM {
                         }
                     }
                 }
+                Bytecode::GetLocal(slot) => {
+                    let frame_borrow = frame_ref.borrow();
+                    let local_idx = frame_borrow.stack_offset + slot as usize;
+                    drop(frame_borrow);
+
+                    if local_idx < self.stack.len() {
+                        let value = self.stack[local_idx].clone();
+                        self.stack.push(value);
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Local variable slot {} out of bounds", slot),
+                            stack_trace: self.format_stack_trace(format!("Local variable slot {} out of bounds", slot)),
+                        });
+                    }
+                }
+                Bytecode::SetLocal(slot) => {
+                    let frame_borrow = frame_ref.borrow();
+                    let local_idx = frame_borrow.stack_offset + slot as usize;
+                    drop(frame_borrow);
+
+                    if local_idx < self.stack.len() {
+                        let value = self.stack.last().unwrap().clone();
+                        self.stack[local_idx] = value;
+                    } else {
+                        return Err(PhError::VMError {
+                            message: format!("Local variable slot {} out of bounds", slot),
+                            stack_trace: self.format_stack_trace(format!("Local variable slot {} out of bounds", slot)),
+                        });
+                    }
+                }
                 Bytecode::Class(idx) => {
                     let name_val = &chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
@@ -429,6 +371,49 @@ impl VM {
                         }
                     }
                 }
+                Bytecode::GetSelf => {
+                    let frame_borrow = frame_ref.borrow();
+                    let receiver = self.stack[frame_borrow.stack_offset].clone();
+                    drop(frame_borrow);
+                    self.stack.push(receiver);
+                }
+                Bytecode::GetField(idx) => {
+                    let field_val = &chunk.constants[idx as usize];
+                    if let Value::Symbol(field_sym) = field_val {
+                        let receiver = self.stack.pop().ok_or("Stack underflow for GetField receiver")?; // Pop the receiver pushed by GetSelf
+                        let field_str = self.resolve_symbol(*field_sym);
+                        println!("[VM] Getting field {} from value {}", field_str, receiver);
+                        if let Value::Instance(instance_obj) = &receiver {
+                            if let Some(field_value) = instance_obj.borrow().fields.get(field_sym) {
+                                self.stack.push(field_value.clone()); // Push the field value
+                            } else {
+                                self.stack.push(Value::Nil); // Push nil if field not found
+                            }
+                        } else {
+                            return Err(PhError::VMError {
+                                message: format!("Only instances can have fields."),
+                                stack_trace: self.format_stack_trace(format!("Only instances can have fields.")),
+                            });
+                        }
+                    }
+                }
+                Bytecode::SetField(idx) => {
+                    let field_val = &chunk.constants[idx as usize];
+                    if let Value::Symbol(field_sym) = field_val {
+                        let value_to_assign = self.stack.pop().ok_or("Stack underflow on field assignment")?;
+                        let receiver = self.stack.pop().ok_or("Stack underflow for SetField receiver")?;
+
+                        if let Value::Instance(instance_obj) = &receiver {
+                            instance_obj.borrow_mut().fields.insert(*field_sym, value_to_assign.clone());
+                            self.stack.push(value_to_assign); // Push the assigned value back
+                        } else {
+                            return Err(PhError::VMError {
+                                message: format!("Only instances can have fields."),
+                                stack_trace: self.format_stack_trace(format!("Only instances can have fields.")),
+                            });
+                        }
+                    }
+                }
                 Bytecode::Invoke(arity, selector_idx) => {
                     let selector_val = &chunk.constants[selector_idx as usize];
                     let arity = arity as usize;
@@ -437,37 +422,10 @@ impl VM {
 
                     let selector_sym = selector_val.as_symbol().unwrap();
 
-                    if let Value::Class(class_obj) = &receiver {
-                        // if let Some(method) = class_obj.borrow().get_method(selector_val.as_symbol().unwrap()) {
-                        //     self.call_method(method, arity)?;
-                        // } else if let Some(method) = class_obj.borrow().class().borrow().get_method(selector_val.as_symbol().unwrap()) {
-                        //     self.call_method(method, arity)?;
-                        // } else {
-                        //     let selector_name = self.resolve_symbol(selector_val.as_symbol().unwrap());
-                        //     return Err(PhError::VMError {
-                        //         message: format!("Method '{selector_name}' not found for class {receiver}."),
-                        //         stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for class {receiver}.")),
-                        //     });
-                        // }
-
-                        // if let Some(method) = class_obj.borrow().get_method(selector_sym) {
-                        //     self.call_method(method, arity)?;
-                        // } else {
-                        let metaclass = class_obj.borrow().class();
-                        if let Some(method) = lookup_method_in_hierarchy(metaclass, selector_sym) {
-                            self.call_method(&receiver, method, arity)?;
-                        } else {
-                            let selector_name = self.resolve_symbol(selector_sym);
-                            return Err(PhError::VMError {
-                                message: format!("Method '{selector_name}' not found for class {receiver}."),
-                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for class {receiver}.")),
-                            });
-                        }
-                        // }
-                    } else if let Some(method) = receiver.lookup_method(self, selector_val.as_symbol().map_err(PhError::StringError)?) {
+                    if let Some(method) = receiver.lookup_method(self, selector_sym) {
                         self.call_method(&receiver, method, arity)?;
                     } else {
-                        let selector_name = self.resolve_symbol(selector_val.as_symbol().unwrap());
+                        let selector_name = self.resolve_symbol(selector_sym);
                         return Err(PhError::VMError {
                             message: format!("Method '{selector_name}' not found for value {receiver}."),
                             stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver}.")),
@@ -554,6 +512,7 @@ impl VM {
                     }
                 }
             }
+            println!("[VM] Stack after opcode {:?}: {:?}", opcode, self.stack);
         }
     }
 

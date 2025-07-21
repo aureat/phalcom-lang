@@ -50,10 +50,18 @@ pub fn compile(vm: &mut VM, source: &str) -> Result<PhRef<ClosureObject>, PhErro
     Ok(closure)
 }
 
+struct Local {
+    name: Symbol,
+    depth: usize,
+}
+
 struct Compiler<'vm> {
     vm: &'vm mut VM,
     module: PhRef<ModuleObject>,
     chunk: Chunk,
+    locals: Vec<Local>,
+    scope_depth: usize,
+    num_locals: usize,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -62,21 +70,74 @@ impl<'vm> Compiler<'vm> {
             vm,
             module,
             chunk: Chunk::default(),
+            locals: Vec::new(),
+            scope_depth: 0,
+            num_locals: 0,
         }
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.scope_depth -= 1;
+        while self.num_locals > 0 && self.locals[self.num_locals - 1].depth > self.scope_depth {
+            self.chunk.add_instruction(Bytecode::Pop);
+            self.num_locals -= 1;
+        }
+    }
+
+    fn add_local(&mut self, name: Symbol) {
+        println!("[Compiler] Adding local: {} at depth {}", self.vm.interner.lookup(name), self.scope_depth);
+        self.locals.push(Local { name, depth: self.scope_depth });
+        self.num_locals += 1;
+    }
+
+    fn resolve_local(&self, name: Symbol) -> Option<usize> {
+        for i in (0..self.num_locals).rev() {
+            if self.locals[i].name == name {
+                println!("[Compiler] Resolved local: {} at slot {}", self.vm.interner.lookup(name), i);
+                return Some(i);
+            }
+        }
+        println!("[Compiler] Could not resolve local: {}", self.vm.interner.lookup(name));
+        None
     }
 
     fn compile_block(
         &mut self,
         statements: Vec<Statement>,
         name_sym: Symbol,
-        arity: usize,
+        params: Vec<String>,
         _is_static_method: bool,
     ) -> Result<PhRef<ClosureObject>, CompilerError> {
+        // Intern parameter names before creating block_compiler
+        let mut param_symbols = Vec::with_capacity(params.len());
+        for param_name in &params {
+            param_symbols.push(self.vm.interner.intern(param_name));
+        }
+
+        let self_sym = self.vm.interner.intern("self");
+
         let mut block_compiler = Compiler {
             vm: self.vm,
             module: self.module.clone(),
             chunk: Chunk::default(),
+            locals: Vec::new(), // Each block gets its own locals stack
+            scope_depth: 0,
+            num_locals: 0,
         };
+
+        block_compiler.begin_scope(); // Start a new scope for the block
+
+        // Add the implicit "self" local at slot 0
+        block_compiler.add_local(self_sym);
+
+        // Add parameters as locals
+        for param_sym in param_symbols {
+            block_compiler.add_local(param_sym);
+        }
 
         let len = statements.len();
         let mut last_is_return = false;
@@ -90,15 +151,17 @@ impl<'vm> Compiler<'vm> {
             block_compiler.compile_statement_with_pop_control(statement, !is_last)?;
         }
 
+        block_compiler.end_scope(); // End the scope for the block
+
         if !last_is_return {
             block_compiler.chunk.add_instruction(Bytecode::Return);
         }
 
         let callable = phalcom_vm::callable::Callable {
             chunk: block_compiler.chunk,
-            max_slots: 0,    // TODO: Calculate max_slots
-            num_upvalues: 0, // TODO: Calculate num_upvalues
-            arity,
+            max_slots: block_compiler.num_locals, // Use num_locals as max_slots
+            num_upvalues: 0,                      // TODO: Calculate num_upvalues
+            arity: params.len(),
             name_sym,
         };
         let closure = phref_new(ClosureObject {
@@ -157,8 +220,16 @@ impl<'vm> Compiler<'vm> {
                     self.chunk.add_instruction(Bytecode::Nil);
                 }
                 let name_sym = self.vm.interner.intern(&binding.name);
-                let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx));
+                if self.scope_depth > 0 {
+                    // Local variable
+                    self.add_local(name_sym);
+                    let slot = self.num_locals - 1;
+                    self.chunk.add_instruction(Bytecode::SetLocal(slot as u16));
+                } else {
+                    // Global variable
+                    let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
+                    self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx));
+                }
             }
             Statement::Return(return_stmt) => {
                 if let Some(expr) = return_stmt.value {
@@ -187,7 +258,7 @@ impl<'vm> Compiler<'vm> {
                             let selector = make_signature(&method_def.name, SignatureKind::Method(arity as u8));
                             let selector_sym = self.vm.interner.intern(&selector);
 
-                            let closure = self.compile_block(method_def.body, selector_sym, arity, method_def.is_static)?;
+                            let closure = self.compile_block(method_def.body, selector_sym, method_def.params, method_def.is_static)?;
 
                             println!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
@@ -212,7 +283,7 @@ impl<'vm> Compiler<'vm> {
                             let selector = make_signature(&getter_def.name, SignatureKind::Getter);
                             let selector_sym = self.vm.interner.intern(&selector);
 
-                            let closure = self.compile_block(getter_def.body, selector_sym, 0, getter_def.is_static)?;
+                            let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), getter_def.is_static)?;
 
                             println!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
@@ -228,7 +299,7 @@ impl<'vm> Compiler<'vm> {
                             let selector = make_signature(&setter_def.name, SignatureKind::Setter);
                             let selector_sym = self.vm.interner.intern(&selector);
 
-                            let closure = self.compile_block(setter_def.body, selector_sym, 1, setter_def.is_static)?;
+                            let closure = self.compile_block(setter_def.body, selector_sym, vec!["value".to_string()], setter_def.is_static)?;
 
                             println!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
@@ -253,14 +324,6 @@ impl<'vm> Compiler<'vm> {
 
     fn compile_expr(&mut self, expr: Expr) -> Result<(), CompilerError> {
         match expr {
-            Expr::SetProperty(set_prop) => {
-                self.compile_expr(set_prop.object)?;
-                self.compile_expr(set_prop.value)?;
-                let selector = make_signature(&set_prop.property, SignatureKind::Setter);
-                let name_sym = self.vm.interner.intern(&selector);
-                let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::SetProperty(name_idx));
-            }
             Expr::MethodCall(method_call) => {
                 self.compile_expr(method_call.object)?;
                 for arg in &method_call.args {
@@ -274,9 +337,17 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::GetProperty(get_prop) => {
                 self.compile_expr(get_prop.object)?;
-                let name_sym = self.vm.interner.intern(&get_prop.property);
-                let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::GetProperty(name_idx));
+                let selector_sym = self.vm.interner.intern(&get_prop.property);
+                let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
+                self.chunk.add_instruction(Bytecode::Invoke(0, selector_idx));
+            }
+            Expr::SetProperty(set_prop) => {
+                self.compile_expr(set_prop.object)?;
+                self.compile_expr(set_prop.value)?;
+                let selector = make_signature(&set_prop.property, SignatureKind::Setter);
+                let selector_sym = self.vm.interner.intern(&selector);
+                let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
+                self.chunk.add_instruction(Bytecode::Invoke(1, selector_idx));
             }
             Expr::Number(n) => {
                 let idx = self.chunk.add_constant(Value::Number(n));
@@ -299,17 +370,39 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::Var(name) => {
                 let name_sym = self.vm.interner.intern(&name);
+                if let Some(slot) = self.resolve_local(name_sym) {
+                    self.chunk.add_instruction(Bytecode::GetLocal(slot as u16));
+                } else {
+                    let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
+                    self.chunk.add_instruction(Bytecode::GetGlobal(name_idx));
+                }
+            }
+            Expr::Field(name) => {
+                self.chunk.add_instruction(Bytecode::GetSelf);
+                let name_sym = self.vm.interner.intern(&name);
                 let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::GetGlobal(name_idx));
+                self.chunk.add_instruction(Bytecode::GetField(name_idx));
             }
             Expr::Assignment(assign_expr) => {
-                self.compile_expr(assign_expr.value)?;
-                if let Expr::Var(name) = *assign_expr.name {
-                    let name_sym = self.vm.interner.intern(&name);
-                    let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                    self.chunk.add_instruction(Bytecode::SetGlobal(name_idx));
-                } else {
-                    return Err(CompilerError::InvalidAssignmentTarget);
+                match *assign_expr.name {
+                    Expr::Var(name) => {
+                        self.compile_expr(assign_expr.value)?;
+                        let name_sym = self.vm.interner.intern(&name);
+                        if let Some(slot) = self.resolve_local(name_sym) {
+                            self.chunk.add_instruction(Bytecode::SetLocal(slot as u16));
+                        } else {
+                            let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
+                            self.chunk.add_instruction(Bytecode::SetGlobal(name_idx));
+                        }
+                    }
+                    Expr::Field(name) => {
+                        self.chunk.add_instruction(Bytecode::GetSelf); // Push receiver first
+                        self.compile_expr(assign_expr.value)?; // Then push value
+                        let name_sym = self.vm.interner.intern(&name);
+                        let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
+                        self.chunk.add_instruction(Bytecode::SetField(name_idx));
+                    }
+                    _ => return Err(CompilerError::InvalidAssignmentTarget),
                 }
             }
             Expr::Binary(binary_expr) => {

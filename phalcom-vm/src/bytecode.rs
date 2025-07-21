@@ -31,17 +31,11 @@ pub enum Bytecode {
     /// 0: The index of the variable's name in the constant pool.
     GetGlobal(u16),
 
-    /// Sets the value of an existing global variable.
-    /// 0: The index of the variable's name in the constant pool.
     SetGlobal(u16),
 
-    /// Gets a property from an object/value.
-    /// 0: index of property name in constant pool.
-    GetProperty(u16),
+    GetField(u16),
 
-    /// Sets a property on an object/value.
-    /// 0: index of property name in constant pool.
-    SetProperty(u16),
+    SetField(u16),
 
     /// Pushes the receiver (`self`) of the current frame onto the stack.
     GetSelf,

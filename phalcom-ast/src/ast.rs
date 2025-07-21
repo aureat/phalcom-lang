@@ -65,6 +65,7 @@ pub enum Expr {
     Boolean(bool),
     Nil,
     Var(String),
+    Field(String),
     SelfVar,
     SuperVar,
     Assignment(Box<AssignmentExpr>),

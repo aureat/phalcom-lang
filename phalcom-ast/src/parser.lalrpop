@@ -82,9 +82,6 @@ ParamList: Vec<String> = {
     () => Vec::new(),
 };
 
-// ---------- expressions ----------
-// Simple precedence climbing: plus is the only binary operator so far
-
 Expr = ExprAssignment;
 
 ExprAssignment: Expr = {
@@ -216,7 +213,13 @@ ExprPrimary: Expr = {
     "false" => Expr::Boolean(false),
     <num:number> => Expr::Number(num),
     <str:string> => Expr::String(str),
-    <ident:identifier> => Expr::Var(ident),
+    <ident:identifier> => {
+        if ident.starts_with('_') {
+            Expr::Field(ident)
+        } else {
+            Expr::Var(ident)
+        }
+    },
     "self" => Expr::SelfVar,
     "super" => Expr::SuperVar,
     "(" <expr:Expr> ")" => expr,

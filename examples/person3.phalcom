@@ -1,6 +1,5 @@
 class Person {
-
-  accessor new(name, age) {
+  static new(name, age) {
     let instance = self.new();
     instance.init(name, age);
     return instance;
@@ -30,7 +29,6 @@ class Person {
   ==(other) {
     return self.name == other.name and self.age == other.age;
   }
-
 }
 
 let person3 = Person.new("Bob", 30);
@@ -39,4 +37,3 @@ System.print(person3.age); // 30
 
 person3.age = 31;
 System.print(person3.age); // 31
-

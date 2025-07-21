@@ -1,4 +1,5 @@
 use crate::class::ClassObject;
+use crate::interner::Symbol;
 use crate::string::{phstring_new, PhString, StringObject};
 use crate::value::Value;
 use indexmap::IndexMap;
@@ -7,7 +8,7 @@ use phalcom_common::PhRef;
 #[derive(Debug, Clone)]
 pub struct InstanceObject {
     pub class: PhRef<ClassObject>,
-    pub fields: IndexMap<String, Value>,
+    pub fields: IndexMap<Symbol, Value>,
 }
 
 impl InstanceObject {
