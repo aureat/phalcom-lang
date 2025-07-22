@@ -1,9 +1,10 @@
 use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
 use phalcom_common::{phref_new, PhRef};
 use phalcom_vm::bytecode::Bytecode;
+// use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
+use phalcom_vm::callable::Callable;
 use phalcom_vm::chunk::Chunk;
 use phalcom_vm::closure::ClosureObject;
-// use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
 use phalcom_vm::error::PhError;
 use phalcom_vm::interner::Symbol;
 use phalcom_vm::method::{make_signature, MethodKind, MethodObject, SignatureKind};
@@ -11,6 +12,7 @@ use phalcom_vm::module::ModuleObject;
 use phalcom_vm::value::Value;
 use phalcom_vm::vm::VM;
 use thiserror::Error;
+use tracing::debug;
 
 pub mod error;
 
@@ -89,7 +91,7 @@ impl<'vm> Compiler<'vm> {
     }
 
     fn add_local(&mut self, name: Symbol) {
-        println!("[Compiler] Adding local: {} at depth {}", self.vm.interner.lookup(name), self.scope_depth);
+        debug!("[Compiler] Adding local: {} at depth {}", self.vm.interner.lookup(name), self.scope_depth);
         self.locals.push(Local { name, depth: self.scope_depth });
         self.num_locals += 1;
     }
@@ -97,11 +99,11 @@ impl<'vm> Compiler<'vm> {
     fn resolve_local(&self, name: Symbol) -> Option<usize> {
         for i in (0..self.num_locals).rev() {
             if self.locals[i].name == name {
-                println!("[Compiler] Resolved local: {} at slot {}", self.vm.interner.lookup(name), i);
+                debug!("[Compiler] Resolved local: {} at slot {}", self.vm.interner.lookup(name), i);
                 return Some(i);
             }
         }
-        println!("[Compiler] Could not resolve local: {}", self.vm.interner.lookup(name));
+        debug!("[Compiler] Could not resolve local: {}", self.vm.interner.lookup(name));
         None
     }
 
@@ -157,13 +159,14 @@ impl<'vm> Compiler<'vm> {
             block_compiler.chunk.add_instruction(Bytecode::Return);
         }
 
-        let callable = phalcom_vm::callable::Callable {
+        let callable = Callable {
             chunk: block_compiler.chunk,
             max_slots: block_compiler.num_locals, // Use num_locals as max_slots
             num_upvalues: 0,                      // TODO: Calculate num_upvalues
             arity: params.len(),
             name_sym,
         };
+
         let closure = phref_new(ClosureObject {
             callable,
             module: self.module.clone(),
@@ -185,12 +188,13 @@ impl<'vm> Compiler<'vm> {
             }
             self.compile_statement_with_pop_control(statement, !is_last)?;
         }
+
         if !last_is_return {
             self.chunk.add_instruction(Bytecode::Return);
         }
 
         let main_sym = self.vm.interner.intern("<main>");
-        let callable = phalcom_vm::callable::Callable {
+        let callable = Callable {
             chunk: self.chunk,
             max_slots: 0,
             num_upvalues: 0,
@@ -260,7 +264,7 @@ impl<'vm> Compiler<'vm> {
 
                             let closure = self.compile_block(method_def.body, selector_sym, method_def.params, method_def.is_static)?;
 
-                            println!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
+                            debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
                             let method_obj = phref_new(MethodObject::new_single(
                                 selector_sym,
@@ -285,7 +289,7 @@ impl<'vm> Compiler<'vm> {
 
                             let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), getter_def.is_static)?;
 
-                            println!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
+                            debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
                             let method_obj = phref_new(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure)));
 
@@ -301,7 +305,7 @@ impl<'vm> Compiler<'vm> {
 
                             let closure = self.compile_block(setter_def.body, selector_sym, vec!["value".to_string()], setter_def.is_static)?;
 
-                            println!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
+                            debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
                             let method_obj = phref_new(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure)));
 
@@ -432,22 +436,20 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::SelfVar => {
-                // Load the receiver of the current method.
                 self.chunk.add_instruction(Bytecode::GetSelf);
             }
             Expr::SuperVar => {
                 // TODO: Handle `super` keyword. For now, push Nil.
                 self.chunk.add_instruction(Bytecode::Nil);
-            }
-            Expr::Call(call_expr) => {
-                // TODO: Implement function call compilation
-                self.compile_expr(call_expr.callee)?;
-                for arg in call_expr.args {
-                    self.compile_expr(arg)?;
-                }
-                // For now, push Nil as a placeholder for the return value
-                self.chunk.add_instruction(Bytecode::Nil);
-            }
+            } // Expr::Call(call_expr) => {
+              //     // TODO: Implement function call compilation
+              //     self.compile_expr(call_expr.callee)?;
+              //     for arg in call_expr.args {
+              //         self.compile_expr(arg)?;
+              //     }
+              //     // For now, push Nil as a placeholder for the return value
+              //     self.chunk.add_instruction(Bytecode::Nil);
+              // }
         }
         Ok(())
     }

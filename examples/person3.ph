@@ -19,7 +19,7 @@ class Person {
   }
 
   age {
-    return _age;
+    _age;
   }
 
   age = (value) {

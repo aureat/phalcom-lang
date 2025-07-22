@@ -1,6 +1,8 @@
 use crate::error::{PhResult, RuntimeError};
+use crate::nil::NIL;
 use crate::value::Value;
 use crate::vm::VM;
+use tracing::{debug, debug_span};
 
 /// `System.class::print(_)`
 pub fn system_class_print(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -8,7 +10,7 @@ pub fn system_class_print(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> Ph
         print!("{}", arg.to_string(_vm).borrow().as_str());
     }
     println!();
-    Ok(Value::Nil)
+    Ok(NIL)
 }
 
 /// `System.class::new()`

@@ -9,3 +9,5 @@ phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
 phalcom-vm = { path = "../phalcom-vm" }
 thiserror = "1.0"
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

@@ -71,7 +71,7 @@ pub enum Expr {
     Assignment(Box<AssignmentExpr>),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
-    Call(Box<CallExpr>),
+    // Call(Box<CallExpr>),
     MethodCall(Box<MethodCallExpr>),
     GetProperty(Box<GetPropertyExpr>),
     SetProperty(Box<SetPropertyExpr>),

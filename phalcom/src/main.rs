@@ -2,10 +2,22 @@ pub mod cli;
 pub mod disasm;
 
 use crate::cli::{cmd_disasm, cmd_parse, cmd_run, cmd_tokenize, cmd_version, Cli, Commands};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
+use tracing_subscriber::{filter, fmt, Layer};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 fn main() -> Result<()> {
+    let stdout_log = fmt::layer().pretty();
+
+    tracing_subscriber::registry()
+        .with(
+            stdout_log
+                .with_filter(filter::LevelFilter::DEBUG)
+        )
+        .init();
+
     let cli = Cli::parse();
 
     match cli.command {

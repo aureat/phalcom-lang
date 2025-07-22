@@ -13,8 +13,9 @@ use crate::value::Value;
 use phalcom_common::MaybeWeak::Weak;
 use phalcom_common::{phref_new, PhRef, PhWeakRef};
 use std::collections::HashMap;
-use std::fmt::Debug;
+// use std::fmt::Debug;
 use std::time::Instant;
+use tracing::{debug, span, Level};
 
 pub struct VM {
     frames: Vec<PhRef<CallFrame>>,
@@ -241,15 +242,18 @@ impl VM {
             let chunk = &closure.borrow().callable.chunk;
             let opcode = chunk.code[frame.ip];
             let stack_offset = frame.stack_offset; // Get stack_offset before dropping frame
-            println!("\n[VM] Stack before opcode {:?}: {:?}", opcode, self.stack);
-            println!("[VM] Executing opcode: {:?}", opcode);
+
+            let span = span!(Level::DEBUG, "vm_opcode", opcode = ?opcode);
+            let _enter = span.enter();
+            debug!("Stack before: {:?}", self.stack);
+
             frame.ip += 1;
             drop(frame); // Drop frame here after extracting necessary info
 
             match opcode {
                 Bytecode::Constant(idx) => {
                     let constant = chunk.constants[idx as usize].clone();
-                    println!("[VM] Pushing constant: {:?}", constant);
+                    debug!("Pushing constant: {:?}", constant);
                     self.stack.push(constant);
                 }
                 Bytecode::Nil => self.stack.push(NIL),
@@ -356,7 +360,7 @@ impl VM {
                         let class_val = self.stack.last().unwrap();
                         let selector_name = self.resolve_symbol(*selector);
                         if let (Value::Method(method_obj), Value::Class(class_obj)) = (method_val, class_val) {
-                            println!("[VM] Adding method {} to class {}", selector_name, class_obj.borrow().name_copy());
+                            debug!("Adding method {} to class {}", selector_name, class_obj.borrow().name_copy());
                             method_obj.borrow_mut().set_holder(PhRef::downgrade(class_obj));
                             if is_static {
                                 class_obj.borrow().class().borrow_mut().add_method(*selector, method_obj);
@@ -382,7 +386,7 @@ impl VM {
                     if let Value::Symbol(field_sym) = field_val {
                         let receiver = self.stack.pop().ok_or("Stack underflow for GetField receiver")?; // Pop the receiver pushed by GetSelf
                         let field_str = self.resolve_symbol(*field_sym);
-                        println!("[VM] Getting field {} from value {}", field_str, receiver);
+                        debug!("Getting field {} from value {}", field_str, receiver);
                         if let Value::Instance(instance_obj) = &receiver {
                             if let Some(field_value) = instance_obj.borrow().fields.get(field_sym) {
                                 self.stack.push(field_value.clone()); // Push the field value
@@ -512,7 +516,7 @@ impl VM {
                     }
                 }
             }
-            println!("[VM] Stack after opcode {:?}: {:?}", opcode, self.stack);
+            debug!("Stack after opcode {:?}: {:?}", opcode, self.stack);
         }
     }
 

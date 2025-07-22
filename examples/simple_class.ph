@@ -4,4 +4,7 @@ class Foo {
   }
 }
 
+let foo = Foo.new();
+System.print(foo);
+System.print(foo.new());
 System.print(Foo.bar());

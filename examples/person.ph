@@ -50,10 +50,11 @@ class Person {
   }
 }
 
+// Using default constructor
 let person0 = Person.new();
 System.print(person0);
 
-// Using default constructor
+// Using constructor with no arguments
 let person1 = Person.anonymous();
 System.print(person1.name); // nil
 System.print(person1.age); // nil
