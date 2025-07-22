@@ -143,6 +143,8 @@ impl<'vm> Compiler<'vm> {
 
         let len = statements.len();
         let mut last_is_return = false;
+        let mut last_statement = &statements[len - 1];
+        
         for (i, statement) in statements.into_iter().enumerate() {
             let is_last = i == len - 1;
             if is_last {
@@ -156,6 +158,7 @@ impl<'vm> Compiler<'vm> {
         block_compiler.end_scope(); // End the scope for the block
 
         if !last_is_return {
+            block_compiler.chunk.add_instruction(Bytecode::Nil);
             block_compiler.chunk.add_instruction(Bytecode::Return);
         }
 

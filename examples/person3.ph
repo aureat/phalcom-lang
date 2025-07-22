@@ -14,7 +14,7 @@ class Person {
     return _name;
   }
 
-  name = (value) {
+  name=(value) {
     _name = value;
   }
 
@@ -22,7 +22,7 @@ class Person {
     _age;
   }
 
-  age = (value) {
+  age=(value) {
     _age = value;
   }
 
@@ -32,8 +32,9 @@ class Person {
 }
 
 let person3 = Person.new("Bob", 30);
-System.print(person3.name); // Bob
+// person3.age = 31;
+// System.print(person3.name); // Bob
 System.print(person3.age); // 30
-
-person3.age = 31;
-System.print(person3.age); // 31
+//
+// person3.age = 31;
+// System.print(person3.age); // 31

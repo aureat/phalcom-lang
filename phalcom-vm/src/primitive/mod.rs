@@ -9,44 +9,75 @@ pub mod string;
 pub mod symbol;
 pub mod system;
 
-pub const SIG_ADD: &str = "+(_)";
-pub const SIG_SUB: &str = "-(_)";
-pub const SIG_MUL: &str = "*(_)";
-pub const SIG_DIV: &str = "/(_)";
-pub const SIG_EQ: &str = "==(_)";
-pub const SIG_LT: &str = "<(_)";
-pub const SIG_LE: &str = "<=(_)";
-pub const SIG_GT: &str = ">(_)";
-pub const SIG_GE: &str = ">=(_)";
-pub const SIG_AND: &str = "and(_)";
-pub const SIG_OR: &str = "or(_)";
-pub const SIG_NEG: &str = "-";
-pub const SIG_NOT: &str = "not";
-pub const SIG_TO_NUMBER: &str = "toNumber";
-pub const SIG_TO_STRING: &str = "toString";
-pub const SIG_TO_DEBUG: &str = "toDebug";
-pub const SIG_TO_BOOL: &str = "toBool";
+#[non_exhaustive]
+pub struct Sig;
 
-pub const SIG_NAME: &str = "name";
-pub const SIG_CLASS: &str = "class";
-pub const SIG_SUPERCLASS: &str = "superclass";
-pub const SIG_TOSTRING: &str = "toString";
-pub const SIG_NEW: &str = "new()";
-pub const SIG_NEW_1: &str = "new(_)";
+#[allow(non_upper_case_globals)]
+impl Sig {
+    pub const ADD: &'static str = "+(_)";
+    pub const SUB: &'static str = "-(_)";
+    pub const MUL: &'static str = "*(_)";
+    pub const DIV: &'static str = "/(_)";
+    pub const EQ: &'static str = "==(_)";
+    pub const LT: &'static str = "<(_)";
+    pub const LE: &'static str = "<=(_)";
+    pub const GT: &'static str = ">(_)";
+    pub const GE: &'static str = ">=(_)";
+    pub const AND: &'static str = "and(_)";
+    pub const OR: &'static str = "or(_)";
 
-pub const NIL_NAME: &str = "Nil";
-pub const BOOL_NAME: &str = "Bool";
-pub const NUMBER_NAME: &str = "Number";
-pub const STRING_NAME: &str = "String";
-pub const SYMBOL_NAME: &str = "Symbol";
-pub const OBJECT_NAME: &str = "Object";
-pub const METHOD_NAME: &str = "Method";
-pub const CLASS_NAME: &str = "Class";
-pub const METACLASS_NAME: &str = "Metaclass";
-pub const SYSTEM_NAME: &str = "System";
+    pub const NEG: &'static str = "-";
+    pub const NOT: &'static str = "not";
 
-pub const TRUE_NAME: &str = "true";
-pub const FALSE_NAME: &str = "false";
+    pub const name: &'static str = "name";
+    pub const name_set: &'static str = "name=(_)";
+    pub const class: &'static str = "class";
+    pub const class_set: &'static str = "class=(_)";
+    pub const superclass: &'static str = "superclass";
+    pub const superclass_set: &'static str = "superclass=(_)";
+
+    pub const toString: &'static str = "toString";
+    pub const toNumber: &'static str = "toNumber";
+    pub const toBool: &'static str = "toBool";
+    pub const toDebug: &'static str = "toDebug";
+
+    pub const new: &'static str = "new()";
+    pub const new_1: &'static str = "new(_)";
+    pub const new_2: &'static str = "new(_,_)";
+}
+
+#[non_exhaustive]
+pub struct ClassName;
+
+#[allow(non_upper_case_globals)]
+impl ClassName {
+    pub const Nil: &'static str = "Nil";
+    pub const Bool: &'static str = "Bool";
+    pub const Number: &'static str = "Number";
+    pub const String: &'static str = "String";
+    pub const Symbol: &'static str = "Symbol";
+    pub const System: &'static str = "System";
+    pub const Module: &'static str = "Module";
+    pub const Object: &'static str = "Object";
+    pub const Class: &'static str = "Class";
+    pub const Metaclass: &'static str = "Metaclass";
+    pub const Method: &'static str = "Method";
+    pub const List: &'static str = "List";
+    pub const Range: &'static str = "Range";
+    pub const Map: &'static str = "Map";
+    pub const Fiber: &'static str = "Fiber";
+    pub const Future: &'static str = "Future";
+}
+
+#[non_exhaustive]
+pub struct ObjectName;
+
+#[allow(non_upper_case_globals)]
+impl ObjectName {
+    pub const Nil: &'static str = "nil";
+    pub const True: &'static str = "true";
+    pub const False: &'static str = "false";
+}
 
 macro_rules! primitive {
     ($vm:expr, $class:expr, $sig:expr, $sig_kind: expr, $func:expr) => {
