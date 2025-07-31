@@ -1,7 +1,5 @@
 class Foo {
-  static bar() {
-    return "bar"
-  }
+  static bar() {return "bar"}
 }
 
 //
