@@ -58,23 +58,23 @@ Statements: Vec<Statement> = {
     },
 };
 
-Block: Vec<Statement> = {
-    "{" Newline* <small:SmallStatement> Newline* "}" => vec![small],
+MethodBlock: Vec<Statement> = {
+    "=>" <s:ExprStatement> Newline => vec![s],
     "{" <s:BlockStatements> "}" => s,
 };
 
 BlockStatements: Vec<Statement> = {
     => vec![],
-    <mut statements:Block> <next:CompoundStatement> => {
+    <mut statements:BlockStatements> <next:CompoundStatement> => {
         statements.push(next);
         statements
     },
-    <mut statements:Block> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? Newline => {
+    <mut statements:BlockStatements> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? Newline => {
         statements.extend(small);
         statements.push(last);
         statements
     },
-    <s:Block> Newline => s,
+    <s:BlockStatements> Newline => s,
 };
 
 Statement = {
@@ -121,7 +121,7 @@ ClassBody: Vec<ClassMember> = {
 };
 
 ClassMember: ClassMember = {
-    <is_static:"static"?> <name:MethodName> <_equal:("=")?> <params:("(" <ParamList> ")")?> <body:Block> => {
+    <is_static:"static"?> <name:MethodName> <_equal:("=")?> <params:("(" <ParamList> ")")?> <body:MethodBlock> => {
         let is_static = is_static.is_some();
         if let Some(_equal) = _equal {
             ClassMember::Setter(SetterDef { name, param: "value".to_string(), body, is_static })

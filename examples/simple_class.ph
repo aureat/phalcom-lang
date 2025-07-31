@@ -1,8 +1,12 @@
 class Foo {
-  static bar() {return "bar"}
+  static foo() => "foo"
+
+  bar() {
+    "bar"
+  }
 }
 
-//
-// let foo = Foo.new()
-// System.print(foo)
-// System.print(Foo.bar())
+System.print(Foo.foo())
+
+let foo = Foo.new()
+System.print(foo.bar())

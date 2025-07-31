@@ -13,7 +13,7 @@ class Calculator {
     return a - b;
   }
 
-  static pi { return 3.1415; }
+  static pi => 3.1415
 
   +(other) {
     return 10 + other;
@@ -25,8 +25,6 @@ class Calculator {
 
 }
 
-System.print(Calculator.pi);
-
 let calc = Calculator.new(0);
 
 System.print(calc.add(5, 3));         // 8
@@ -35,3 +33,5 @@ System.print(calc.subtract(10, 4));   // 6
 // System.print(calc.pi);                // 3.1415
 
 System.print(calc + 20);              // 30
+
+System.print(Calculator.pi)

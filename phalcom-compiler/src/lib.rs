@@ -85,7 +85,7 @@ impl<'vm> Compiler<'vm> {
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
         while self.num_locals > 0 && self.locals[self.num_locals - 1].depth > self.scope_depth {
-            self.chunk.add_instruction(Bytecode::Pop);
+            // self.chunk.add_instruction(Bytecode::Pop);
             self.num_locals -= 1;
         }
     }
@@ -144,7 +144,7 @@ impl<'vm> Compiler<'vm> {
         let len = statements.len();
         let mut last_is_return = false;
         let mut last_statement = &statements[len - 1];
-        
+
         for (i, statement) in statements.into_iter().enumerate() {
             let is_last = i == len - 1;
             if is_last {
@@ -158,7 +158,7 @@ impl<'vm> Compiler<'vm> {
         block_compiler.end_scope(); // End the scope for the block
 
         if !last_is_return {
-            block_compiler.chunk.add_instruction(Bytecode::Nil);
+            // block_compiler.chunk.add_instruction(Bytecode::Nil);
             block_compiler.chunk.add_instruction(Bytecode::Return);
         }
 
@@ -217,6 +217,7 @@ impl<'vm> Compiler<'vm> {
             Statement::Expr(expr) => {
                 self.compile_expr(expr)?;
                 if emit_pop {
+                    println!("[Compiler] Emitting Pop");
                     self.chunk.add_instruction(Bytecode::Pop);
                 }
             }
