@@ -8,11 +8,13 @@ use crate::primitive::module::module_class_new;
 use crate::primitive::nil::nil_class_new;
 use crate::primitive::number::{number_add, number_class_new, number_div};
 use crate::primitive::object::{object_class, object_class_new, object_name, object_set_class};
+use crate::primitive::primitive;
+use crate::primitive::primitive_static;
 use crate::primitive::string::{string_add, string_class_new};
 use crate::primitive::symbol::{symbol_class_new, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print};
-use crate::primitive::{primitive, primitive_static, CLASS_NAME, FALSE_NAME, TRUE_NAME};
-use crate::primitive::{BOOL_NAME, METACLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, OBJECT_NAME, STRING_NAME, SYMBOL_NAME, SYSTEM_NAME};
+use crate::primitive::ClassName;
+use crate::primitive::ObjectName;
 use crate::string::{phstring_new, StringObject};
 use crate::vm::VM;
 use phalcom_common::{phref_new, MaybeWeak, PhRef};
@@ -150,18 +152,18 @@ impl Universe {
 
     pub fn create_primitive_names() -> PrimitiveNames {
         PrimitiveNames {
-            nil: phref_new(StringObject::from_str(NIL_NAME)),
-            bool_: phref_new(StringObject::from_str(BOOL_NAME)),
-            true_: phref_new(StringObject::from_str(TRUE_NAME)),
-            false_: phref_new(StringObject::from_str(FALSE_NAME)),
-            number: phref_new(StringObject::from_str(NUMBER_NAME)),
-            string: phref_new(StringObject::from_str(STRING_NAME)),
-            symbol: phref_new(StringObject::from_str(SYMBOL_NAME)),
-            object: phref_new(StringObject::from_str(OBJECT_NAME)),
-            method: phref_new(StringObject::from_str(METHOD_NAME)),
-            class: phref_new(StringObject::from_str(CLASS_NAME)),
-            metaclass: phref_new(StringObject::from_str(METACLASS_NAME)),
-            system: phref_new(StringObject::from_str(SYSTEM_NAME)),
+            nil: phref_new(StringObject::from_str(ObjectName::Nil)),
+            bool_: phref_new(StringObject::from_str(ClassName::Bool)),
+            true_: phref_new(StringObject::from_str(ObjectName::True)),
+            false_: phref_new(StringObject::from_str(ObjectName::False)),
+            number: phref_new(StringObject::from_str(ClassName::Number)),
+            string: phref_new(StringObject::from_str(ClassName::String)),
+            symbol: phref_new(StringObject::from_str(ClassName::Symbol)),
+            object: phref_new(StringObject::from_str(ClassName::Object)),
+            method: phref_new(StringObject::from_str(ClassName::Method)),
+            class: phref_new(StringObject::from_str(ClassName::Class)),
+            metaclass: phref_new(StringObject::from_str(ClassName::Metaclass)),
+            system: phref_new(StringObject::from_str(ClassName::System)),
         }
     }
 }

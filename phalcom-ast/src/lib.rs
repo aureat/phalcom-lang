@@ -32,22 +32,14 @@ pub fn parse(source: &str, offset: usize) -> ParserResult<Program> {
     };
 
     errors.extend(parser_errors.into_iter().map(|err| match err {
-        ParseError::ExtraToken {
-            token: (start, _, end),
-        } => (
+        ParseError::ExtraToken { token: (start, _, end) } => (
             PhalcomError::SyntaxError(SyntaxError::ExtraToken {
                 token: source[start - offset..end - offset].to_string(),
             }),
             start..end,
         ),
-        ParseError::InvalidToken { location } => (
-            PhalcomError::SyntaxError(SyntaxError::InvalidToken),
-            location..location,
-        ),
-        ParseError::UnrecognizedEof { location, expected } => (
-            PhalcomError::SyntaxError(SyntaxError::UnrecognizedEof { expected }),
-            location..location,
-        ),
+        ParseError::InvalidToken { location } => (PhalcomError::SyntaxError(SyntaxError::InvalidToken), location..location),
+        ParseError::UnrecognizedEof { location, expected } => (PhalcomError::SyntaxError(SyntaxError::UnrecognizedEof { expected }), location..location),
         ParseError::UnrecognizedToken {
             token: (start, _, end),
             expected,
@@ -61,9 +53,5 @@ pub fn parse(source: &str, offset: usize) -> ParserResult<Program> {
         ParseError::User { error: _error } => (PhalcomError::SyntaxError(SyntaxError::Other), 0..0),
     }));
 
-    if errors.is_empty() {
-        Ok(program)
-    } else {
-        Err(errors)
-    }
+    if errors.is_empty() { Ok(program) } else { Err(errors) }
 }

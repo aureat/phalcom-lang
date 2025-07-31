@@ -38,7 +38,7 @@ fn lex_identifier(lexer: &mut logos::Lexer<Token>) -> String {
 }
 
 #[derive(Logos, Clone, Debug, PartialEq)]
-#[logos(skip r"[ \t\n\f]+", skip r"#.*\n?", error = LexicalError)]
+#[logos(skip r"[ \t\f]+", error = LexicalError)]
 pub enum Token {
     #[token("let")]
     Let,
@@ -136,6 +136,9 @@ pub enum Token {
 
     #[token(";")]
     Semicolon,
+    #[regex(r"\r?\n")]
+    Newline,
+
     #[token(":")]
     Colon,
     #[token("::")]
@@ -170,7 +173,8 @@ pub enum Token {
     #[token("%")]
     Percent,
 
-    #[regex(r"//.*", logos::skip)]
+    // #[regex(r"//.*", logos::skip)]
     // #[regex(r"[ \r\n\t\f]+", logos::skip)]
+    #[regex(r"//[^\n]*", logos::skip)]
     Error,
 }

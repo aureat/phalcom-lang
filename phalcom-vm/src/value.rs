@@ -1,13 +1,13 @@
-use crate::class::{lookup_method_in_hierarchy, ClassObject};
+use crate::class::{ClassObject, lookup_method_in_hierarchy};
 use crate::frame::CallContext;
 use crate::instance::InstanceObject;
 use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::module::ModuleObject;
-use crate::primitive::{BOOL_NAME, CLASS_NAME, METHOD_NAME, NIL_NAME, NUMBER_NAME, STRING_NAME, SYMBOL_NAME};
-use crate::string::{phstring_new, StringObject};
+use crate::primitive::ClassName;
+use crate::string::{StringObject, phstring_new};
 use crate::vm::VM;
-use phalcom_common::{phref_new, PhRef};
+use phalcom_common::{PhRef, phref_new};
 use std::fmt::Debug;
 use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
@@ -86,7 +86,7 @@ impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Nil => "Nil",
-            Value::Bool(_) => "Bool",
+            Value::Bool(_) => ClassName::Bool,
             Value::Number(_) => "Number",
             Value::String(_) => "String",
             Value::Symbol(_) => "Symbol",
@@ -127,14 +127,14 @@ impl Value {
 
     pub fn name_str(&self, _vm: &VM) -> &str {
         match self {
-            Value::Nil => NIL_NAME,
-            Value::Bool(_) => BOOL_NAME,
-            Value::Number(_) => NUMBER_NAME,
-            Value::String(_) => STRING_NAME,
-            Value::Symbol(_) => SYMBOL_NAME,
+            Value::Nil => "Nil",
+            Value::Bool(_) => "Bool",
+            Value::Number(_) => "Number",
+            Value::String(_) => "String",
+            Value::Symbol(_) => "Symbol",
             Value::Instance(_) => "Instance",
-            Value::Class(_) => CLASS_NAME,
-            Value::Method(_) => METHOD_NAME,
+            Value::Class(_) => "Class",
+            Value::Method(_) => "Method",
             Value::Module(_) => "Module",
         }
     }
