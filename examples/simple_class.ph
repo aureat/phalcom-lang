@@ -1,8 +1,11 @@
 class Foo {
   static foo() => "foo"
 
+  foo() { "hello"
+  }
+
   bar() {
-    "bar"
+    "bar"; "hello";
   }
 }
 

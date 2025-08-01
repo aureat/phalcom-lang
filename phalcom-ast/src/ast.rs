@@ -1,3 +1,13 @@
+use std::ops::Range;
+
+pub type SourceRange = Range<usize>;
+
+#[derive(Debug, Default)]
+pub struct Module {
+    pub program: Program,
+    pub range: SourceRange,
+}
+
 #[derive(Debug, Default)]
 pub struct Program {
     pub statements: Vec<Statement>,
@@ -8,13 +18,14 @@ pub enum Statement {
     Class(ClassDef),
     Let(LetBinding),
     Return(ReturnStatement),
-    Expr(Expr),
+    Expr { expr: Expr, range: SourceRange },
 }
 
 #[derive(Debug)]
 pub struct ClassDef {
     pub name: String,
     pub members: Vec<ClassMember>,
+    pub range: SourceRange,
 }
 
 #[derive(Debug)]
@@ -30,6 +41,7 @@ pub struct MethodDef {
     pub params: Vec<String>,
     pub body: Vec<Statement>,
     pub is_static: bool,
+    pub range: SourceRange,
 }
 
 #[derive(Debug)]
@@ -37,6 +49,7 @@ pub struct GetterDef {
     pub name: String,
     pub body: Vec<Statement>,
     pub is_static: bool,
+    pub range: SourceRange,
 }
 
 #[derive(Debug)]
@@ -45,17 +58,20 @@ pub struct SetterDef {
     pub param: String,
     pub body: Vec<Statement>,
     pub is_static: bool,
+    pub range: SourceRange,
 }
 
 #[derive(Debug)]
 pub struct LetBinding {
     pub name: String,
     pub value: Option<Expr>,
+    pub range: SourceRange,
 }
 
 #[derive(Debug)]
 pub struct ReturnStatement {
     pub value: Option<Expr>,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]

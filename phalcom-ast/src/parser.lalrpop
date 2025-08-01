@@ -3,13 +3,17 @@ use crate::token::{Token, LexicalError};
 
 grammar;
 
+pub Module: Module = {
+    <l:@L> <program:Program> <r:@R> => Module { program, range: l..r }
+};
+
 pub Program: Program = {
     <statements:ProgramBody> => Program { statements }
 };
 
 pub ProgramBody: Vec<Statement> = {
     => vec![],
-    <mut statements:ProgramBody> <next:CompoundStatement> => {
+    <mut statements:ProgramBody> <next:CompoundStatement> Newline => {
         statements.push(next);
         statements
     },
@@ -85,30 +89,19 @@ Statement = {
 };
 
 LetStatement: Statement = {
-    "let" <name:identifier> <value:("=" <Expr>)?> => Statement::Let(LetBinding { name, value }),
+    <l:@L> "let" <name:identifier> <value:("=" <Expr>)?> <r:@R> => Statement::Let(LetBinding { name, value, range: l..r }),
 };
 
 ExprStatement: Statement = {
-    <expr:Expr> => Statement::Expr(expr),
+    <l:@L> <expr:Expr> <r:@R> => Statement::Expr { expr, range: l..r }
 };
 
 ReturnStatement: Statement = {
-    "return" <value:Expr?> => Statement::Return(ReturnStatement { value }),
-};
-
-Newlines: () = {
-    Newline Newlines => (),
-    Newline           => (),
-};
-
-Terminator: () = {
-    ";"  => (),
-    Newlines => (),
-    ";" Newlines => (),
+    <l:@L> "return" <value:Expr?> <r:@R> => Statement::Return(ReturnStatement { value, range: l..r }),
 };
 
 ClassStatement: Statement = {
-    "class" <name:identifier> "{" <members:ClassBody> "}" => Statement::Class(ClassDef { name, members }),
+    <l:@L> "class" <name:identifier> "{" <members:ClassBody> "}" <r:@R> => Statement::Class(ClassDef { name, members, range: l..r }),
 };
 
 ClassBody: Vec<ClassMember> = {
@@ -121,30 +114,17 @@ ClassBody: Vec<ClassMember> = {
 };
 
 ClassMember: ClassMember = {
-    <is_static:"static"?> <name:MethodName> <_equal:("=")?> <params:("(" <ParamList> ")")?> <body:MethodBlock> => {
+    <l:@L> <is_static:"static"?> <name:MethodName> <_equal:("=")?> <params:("(" <ParamList> ")")?> <body:MethodBlock> <r:@R> => {
         let is_static = is_static.is_some();
         if let Some(_equal) = _equal {
-            ClassMember::Setter(SetterDef { name, param: "value".to_string(), body, is_static })
+            ClassMember::Setter(SetterDef { name, param: "value".to_string(), body, is_static, range: l..r })
         } else if let Some(params) = params {
-            ClassMember::Method(MethodDef { name, params, body, is_static })
+            ClassMember::Method(MethodDef { name, params, body, is_static, range: l..r })
         } else {
-            ClassMember::Getter(GetterDef { name, body, is_static })
+            ClassMember::Getter(GetterDef { name, body, is_static, range: l..r })
         }
     },
 };
-
-//GetterDef: GetterDef = {
-//    <name:identifier> "{" <body:Statement*> "}" => ClassMember::Getter(GetterDef { name, body }),
-//};
-//
-//SetterDef: SetterDef = {
-//    <name:identifier> "=" "(" <param:identifier> ")" "{" <body:Statement*> "}" => SetterDef { name, param, body },
-//};
-//
-//MethodDef: MethodDef = {
-//    <name:MethodName> "(" <params:ParamList> ")" "{" <body:Statement*> "}" =>
-//        MethodDef { name, params, body }
-//};
 
 MethodName: String = {
     <name:identifier> => name,
@@ -397,6 +377,7 @@ extern {
     "/=" => Token::SlashEqual,
     "%=" => Token::PercentEqual,
 
-    Newline => Token::Newline
+    Newline => Token::Newline,
+    EOF => Token::Eof
   }
 }

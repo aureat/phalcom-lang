@@ -2,7 +2,7 @@ class Person {
   // Named Constructor 1: Anonymous
   static anonymous() {
     let instance = self.new();
-    instance.init("Anonymous", -1);
+    instance.init("Anonymous");
     return instance;
   }
 
@@ -56,7 +56,7 @@ System.print(person0);
 
 // Using constructor with no arguments
 let person1 = Person.anonymous();
-System.print(person1.name); // nil
+System.print(person1.name); // Anonymous
 System.print(person1.age); // nil
 
 // Using constructor with name

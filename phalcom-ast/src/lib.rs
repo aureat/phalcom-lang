@@ -8,6 +8,7 @@ pub mod ast;
 pub mod error;
 pub mod lexer;
 pub mod token;
+mod util;
 
 lalrpop_mod!(pub parser);
 

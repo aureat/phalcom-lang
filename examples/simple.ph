@@ -1,1 +1,2 @@
-System.print(Object.new());
+// System.print(Object.new())
+class Test {}

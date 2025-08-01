@@ -214,10 +214,10 @@ impl<'vm> Compiler<'vm> {
 
     fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {
         match statement {
-            Statement::Expr(expr) => {
+            Statement::Expr { expr, range } => {
                 self.compile_expr(expr)?;
                 if emit_pop {
-                    println!("[Compiler] Emitting Pop");
+                    // println!("[Compiler] Emitting Pop");
                     self.chunk.add_instruction(Bytecode::Pop);
                 }
             }
@@ -252,6 +252,7 @@ impl<'vm> Compiler<'vm> {
                 let object_class = self.vm.universe.classes.object_class.clone();
                 let superclass_idx = self.chunk.add_constant(Value::Class(object_class));
                 self.chunk.add_instruction(Bytecode::Constant(superclass_idx));
+
                 // TODO: Handle explicit superclass syntax later
 
                 let name_sym = self.vm.interner.intern(&class_def.name);

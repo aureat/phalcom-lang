@@ -173,6 +173,9 @@ pub enum Token {
     #[token("%")]
     Percent,
 
+    #[end]
+    Eof,
+
     // #[regex(r"//.*", logos::skip)]
     // #[regex(r"[ \r\n\t\f]+", logos::skip)]
     #[regex(r"//[^\n]*", logos::skip)]
