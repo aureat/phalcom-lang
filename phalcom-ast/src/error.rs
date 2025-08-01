@@ -58,7 +58,7 @@ pub enum SyntaxErrorKind {
     #[error("Unexpected end of file. {}", format_expected(expected))]
     UnrecognizedEof { expected: Vec<String> },
 
-    #[error("Unexpected {token:?}. {}", format_expected(expected))]
+    #[error("{}", format_expected(expected))]
     UnrecognizedToken { token: String, expected: Vec<String> },
 
     #[error("Invalid integer")]

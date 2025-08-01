@@ -1,1 +1,1 @@
-System.print(System.new());
+System.print(System.new));

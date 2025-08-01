@@ -26,10 +26,13 @@ pub struct Cli {
 pub enum Commands {
     /// Tokenize phalcom source and print tokens
     Tokenize(TokenizeArgs),
+
     /// Parse phalcom source and print the AST
     Parse(ParseArgs),
+
     /// Print disassembled phalcom bytecode
     Disasm(DisasmArgs),
+
     /// Print version
     Version,
 }
@@ -37,7 +40,7 @@ pub enum Commands {
 /// Tokenize phalcom code
 #[derive(Args)]
 pub struct TokenizeArgs {
-    /// Path to a `.phalcom` file
+    /// Path to a `.ph` file
     #[arg(value_name = "path", value_hint = clap::ValueHint::FilePath, conflicts_with = "source")]
     path: Option<PathBuf>,
 
@@ -49,7 +52,7 @@ pub struct TokenizeArgs {
 /// Parse phalcom code
 #[derive(Args)]
 pub struct ParseArgs {
-    /// Path to a `.phalcom` file
+    /// Path to a `.ph` file
     #[arg(value_name = "path", value_hint = clap::ValueHint::FilePath, conflicts_with = "source")]
     path: Option<PathBuf>,
 
@@ -61,7 +64,7 @@ pub struct ParseArgs {
 /// Disassemble phalcom code
 #[derive(Args)]
 pub struct DisasmArgs {
-    /// Path to a `.phalcom` file
+    /// Path to a `.ph` file
     #[arg(value_name = "path", value_hint = ValueHint::FilePath, conflicts_with = "source")]
     path: Option<PathBuf>,
 

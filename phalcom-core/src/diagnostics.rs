@@ -1,5 +1,6 @@
 use crate::interner::Symbol;
 use crate::module::ModuleId;
+use color_print::ceprintln;
 use lazy_static::lazy_static;
 use phalcom_common::range::SourceRange;
 use std::collections::HashMap;
@@ -24,8 +25,8 @@ pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
         return;
     }
 
-    let line_start = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
-    let line_end = source[range.end..].find('\n').map_or(source.len(), |i| range.end + i);
+    // let line_start = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
+    // let line_end = source[range.end..].find('\n').map_or(source.len(), |i| range.end + i);
 
     let line_start = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
     let line_end = source[range.start..].find('\n').map_or(source.len(), |i| range.start + i);
@@ -40,14 +41,15 @@ pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
     let col_end = range.end - line_start;
 
     // 4. Print
-    eprintln!("Error at {line_number}:{col_start}");
-    eprintln!("    |");
-    eprintln!("{:>3} | {}", line_number, line_str.trim_end());
+    ceprintln!("   <s,r!>--></> Error at {line_number}:{col_start}");
+    ceprintln!("    <s,r!>|</>");
+    ceprintln!("<s,r!>{:>3} |</> {}", line_number, line_str.trim_end());
 
     let indent = " ".repeat(col_start);
     let carets = "^".repeat((col_end - col_start).max(1));
-    eprintln!("    | {}{}", indent, carets);
-    eprintln!("\n{msg}");
+    ceprintln!("    <s,r!>|</> {}<s,y>{}</>", indent, carets);
+    ceprintln!("    <s,r!>|</>");
+    ceprintln!("    <s><r!>=</r!> {msg}");
 }
 
 //

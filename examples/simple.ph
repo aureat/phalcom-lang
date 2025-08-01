@@ -1,2 +1,4 @@
-// System.print(Object.new())
-class Test {}
+class Test {
+  method { "hello";
+  }
+}

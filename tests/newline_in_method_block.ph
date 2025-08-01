@@ -13,7 +13,10 @@ class Foo {
     return "foo"
   }
 
-  method4() {
+  method4() { "foo";
+  }
+
+  method5() {
     one; two;
     three; four
     "foo";
