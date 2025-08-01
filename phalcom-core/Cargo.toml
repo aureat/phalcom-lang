@@ -5,7 +5,7 @@ edition = "2024"
 
 [[bin]]
 name = "phalcom"
-path = "src/bin/phalcom/main.rs"
+path = "bin/phalcom/main.rs"
 
 [dependencies]
 lalrpop-util = "0.22.2"
