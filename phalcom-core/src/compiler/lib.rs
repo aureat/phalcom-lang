@@ -3,6 +3,7 @@ use crate::bytecode::Bytecode;
 use crate::callable::Callable;
 use crate::chunk::Chunk;
 use crate::closure::ClosureObject;
+use crate::diagnostics::print_parse;
 use crate::error::PhError;
 use crate::interner::Symbol;
 use crate::method::{make_signature, MethodKind, MethodObject, SignatureKind};
@@ -10,9 +11,11 @@ use crate::module::ModuleObject;
 use crate::value::Value;
 use crate::vm::VM;
 use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
+use phalcom_ast::error::SyntaxError;
+use phalcom_ast::parse_source;
 use phalcom_common::range::EmptySourceRange;
 use phalcom_common::{phref_new, PhRef};
-use rand::random;
+use std::process::exit;
 use thiserror::Error;
 use tracing::debug;
 
@@ -26,6 +29,9 @@ pub enum CompilerError {
 
     #[error("Invalid assignment target.")]
     InvalidAssignmentTarget,
+
+    #[error(transparent)]
+    Parse(#[from] SyntaxError),
 
     #[error("Parse error: {0:?}")]
     ParseError(lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>),
@@ -42,20 +48,32 @@ impl From<lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast
 
 impl From<CompilerError> for PhError {
     fn from(err: CompilerError) -> Self {
-        PhError::StringError(err.to_string())
+        PhError::Compile(err)
+    }
+}
+
+impl From<SyntaxError> for PhError {
+    fn from(err: SyntaxError) -> Self {
+        PhError::Compile(err.into())
     }
 }
 
 pub fn compile(vm: &mut VM, source: &str) -> Result<PhRef<ClosureObject>, PhError> {
-    let parser = phalcom_ast::parser::ProgramParser::new();
-    let lexer = phalcom_ast::lexer::Lexer::new(source);
-    let program = parser.parse(lexer).map_err(CompilerError::from)?;
-
+    let program = parse_source(source, 0);
     let module = vm.create_module_from_str("<main>", source);
 
-    let compiler = Compiler::new(vm, module);
-    let closure = compiler.compile(program)?;
-    Ok(closure)
+    match program {
+        Ok(program) => {
+            let compiler = Compiler::new(vm, module);
+            let closure = compiler.compile(program)?;
+            Ok(closure)
+        }
+        Err(err) => {
+            let msg = err.kind.to_string();
+            print_parse(source, &msg, err.range);
+            exit(0);
+        }
+    }
 }
 
 struct Local {

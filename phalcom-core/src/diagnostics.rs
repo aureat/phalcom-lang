@@ -3,25 +3,12 @@ use crate::module::ModuleId;
 use lazy_static::lazy_static;
 use phalcom_common::range::SourceRange;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
 lazy_static! {
     pub static ref SOURCE_MAP: RwLock<HashMap<Symbol, Arc<String>>> = RwLock::new(HashMap::new());
 }
-
-/// One-based line/column.
-// #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-// pub struct Position {
-//     pub line: u32,
-//     pub column: u32,
-// }
-
-/// Inclusive start, exclusive end (like Rust ranges).
-// #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-// pub struct Span {
-//     pub start: Position,
-//     pub end: Position,
-// }
 
 /// A pointer into a specific module’s source.
 #[derive(Clone, Debug)]
@@ -30,30 +17,39 @@ pub struct SourceLoc {
     pub span: SourceRange,
 }
 
-//
-// /// Pretty-print a *parse / compile* time error (single location, no stack).
-// pub fn print_parse(msg: &str, loc: &SourceLoc) {
-//     if let Some(entry) = SOURCE_MAP.read().unwrap().get(&loc.module_id) {
-//         if let Some(line) = line(&entry.code, loc.span.start.line) {
-//             // Header (similar to Rust compiler style)
-//             eprintln!("--> {}:{}:{}", entry.name, loc.span.start.line, loc.span.start.column);
-//             // Gutter + source line
-//             eprintln!(" |");
-//             eprintln!("{:>4} | {}", loc.span.start.line, line.trim_end());
-//
-//             // Caret underline ^^^^
-//             let indent = " ".repeat((loc.span.start.column - 1) as usize);
-//             let carets = "^".repeat(((loc.span.end.column - loc.span.start.column).max(1)) as usize);
-//             eprintln!(" |   {}{}", indent, carets);
-//
-//             // Final summary
-//             eprintln!("\nSyntaxError: {msg}");
-//             return;
-//         }
-//     }
-//     // Fallback if we have no source
-//     eprintln!("SyntaxError: {msg} (at unknown location)");
-// }
+/// Pretty-prints a parse error given only a byte range into the source string.
+pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
+    if range.start > source.len() || range.end > source.len() || range.start >= range.end {
+        eprintln!("SyntaxError: {msg}");
+        return;
+    }
+
+    let line_start = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = source[range.end..].find('\n').map_or(source.len(), |i| range.end + i);
+
+    let line_start = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = source[range.start..].find('\n').map_or(source.len(), |i| range.start + i);
+
+    let line_str = &source[line_start..line_end];
+
+    // 2. Compute line number (1-based) by counting newlines before the line
+    let line_number = source[..line_start].chars().filter(|&c| c == '\n').count() + 1;
+
+    // 3. Byte offset of range relative to line start
+    let col_start = range.start - line_start;
+    let col_end = range.end - line_start;
+
+    // 4. Print
+    eprintln!("Error at {line_number}:{col_start}");
+    eprintln!("    |");
+    eprintln!("{:>3} | {}", line_number, line_str.trim_end());
+
+    let indent = " ".repeat(col_start);
+    let carets = "^".repeat((col_end - col_start).max(1));
+    eprintln!("    | {}{}", indent, carets);
+    eprintln!("\n{msg}");
+}
+
 //
 // /// Pretty-print a *runtime* error with Python-style stack trace.
 // /// `stack` must be ordered **caller → callee** (older frames first).

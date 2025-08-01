@@ -1,3 +1,5 @@
+use crate::compiler::lib::CompilerError;
+use phalcom_ast::error::SyntaxError;
 use std::io::Error as IoError;
 use thiserror::Error;
 
@@ -13,6 +15,12 @@ pub enum PhError {
 
     #[error("VM Error: {message}\nStack Trace:\n{stack_trace}")]
     VMError { message: String, stack_trace: String },
+
+    #[error(transparent)]
+    Parse(SyntaxError),
+
+    #[error(transparent)]
+    Compile(CompilerError),
 
     #[error("{0}")]
     StringError(String),

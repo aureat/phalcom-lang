@@ -1,5 +1,7 @@
 class Foo {
-  static foo() => "foo
+  static foo() => "foo"
+
+  hello
 
   foo() => hello
 }
