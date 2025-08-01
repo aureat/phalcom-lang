@@ -6,11 +6,21 @@ use crate::vm::VM;
 use phalcom_common::PhRef;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 /// Hard limit on globals per module
-pub const MAX_GLOBALS: usize = 1 << 16; // 65,536
+pub const MAX_GLOBALS: usize = 1 << 16; // = 65,536
 
 pub const CORE_MODULE_NAME: &str = "core";
+
+pub type ModuleId = u32;
+
+static MODULE_ID_COUNTER: AtomicU32 = AtomicU32::new(1);
+
+pub fn next_module_id() -> ModuleId {
+    MODULE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
 
 #[derive(Debug)]
 pub struct ModuleObject {
@@ -18,18 +28,20 @@ pub struct ModuleObject {
     pub name_sym: Symbol,
     pub globals: RefCell<Vec<Value>>,
     pub name_to_slot: RefCell<HashMap<Symbol, usize>>,
+    pub source: Option<Arc<String>>,
 }
 
 impl ModuleObject {
     /// Creates an *empty* module.  The caller must register it in
     /// `vm.modules` to keep it alive.
-    pub fn new(vm: &mut VM, name: Symbol) -> Self {
+    pub fn new(vm: &mut VM, name: Symbol, source: Option<Arc<String>>) -> Self {
         let name_str = vm.resolve_symbol(name).to_string();
         Self {
             name: phstring_new(name_str),
             name_sym: name,
             globals: RefCell::new(Vec::new()),
             name_to_slot: RefCell::new(HashMap::new()),
+            source,
         }
     }
 

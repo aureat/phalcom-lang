@@ -9,6 +9,7 @@ anyhow = "1.0.98"
 logos = "0.15.0"
 pretty_assertions = "1.4.1"
 thiserror = "2.0.12"
+phalcom-common = { path = "../phalcom-common" }
 
 [build-dependencies]
 lalrpop = "0.22.2"

@@ -1,7 +1,3 @@
-pub mod error;
-pub mod range;
-pub mod refs;
-
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
 
@@ -22,5 +18,3 @@ pub fn phref_weak<T>(value: &PhRef<T>) -> PhWeakRef<T> {
     Rc::downgrade(value)
 }
 
-#[cfg(test)]
-mod tests {}

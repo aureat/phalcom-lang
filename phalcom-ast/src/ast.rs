@@ -1,6 +1,4 @@
-use std::ops::Range;
-
-pub type SourceRange = Range<usize>;
+use phalcom_common::range::SourceRange;
 
 #[derive(Debug, Default)]
 pub struct Module {
@@ -76,18 +74,17 @@ pub struct ReturnStatement {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Number(f64),
-    String(String),
-    Boolean(bool),
-    Nil,
-    Var(String),
-    Field(String),
-    SelfVar,
-    SuperVar,
+    Number { value: f64, range: SourceRange },
+    String { value: String, range: SourceRange },
+    Boolean { value: bool, range: SourceRange },
+    Nil { range: SourceRange },
+    Var { value: String, range: SourceRange },
+    Field { value: String, range: SourceRange },
+    SelfVar { range: SourceRange },
+    SuperVar { range: SourceRange },
     Assignment(Box<AssignmentExpr>),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
-    // Call(Box<CallExpr>),
     MethodCall(Box<MethodCallExpr>),
     GetProperty(Box<GetPropertyExpr>),
     SetProperty(Box<SetPropertyExpr>),
@@ -98,6 +95,7 @@ pub struct BinaryExpr {
     pub op: BinaryOp,
     pub left: Expr,
     pub right: Expr,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
@@ -105,18 +103,21 @@ pub struct SetPropertyExpr {
     pub object: Expr,
     pub property: String,
     pub value: Expr,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
 pub struct AssignmentExpr {
     pub name: Box<Expr>,
     pub value: Expr,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
 pub struct CallExpr {
     pub callee: Expr,
     pub args: Vec<Expr>,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
@@ -124,18 +125,21 @@ pub struct MethodCallExpr {
     pub object: Expr,
     pub method: String,
     pub args: Vec<Expr>,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
 pub struct GetPropertyExpr {
     pub object: Expr,
     pub property: String,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
 pub struct UnaryExpr {
     pub op: UnaryOp,
     pub expr: Expr,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]

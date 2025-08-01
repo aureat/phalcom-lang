@@ -1,11 +1,13 @@
 use crate::bytecode::Bytecode;
 use crate::value::Value;
+use phalcom_common::range::SourceRange;
 
 /// A chunk of compiled bytecode and its associated constant values.
 #[derive(Debug, Default, Clone)]
 pub struct Chunk {
     pub code: Vec<Bytecode>,
     pub constants: Vec<Value>,
+    pub spans: Vec<SourceRange>,
 }
 
 impl Chunk {
@@ -13,15 +15,13 @@ impl Chunk {
         Self {
             code: Vec::new(),
             constants: Vec::new(),
+            spans: Vec::new(),
         }
     }
 
-    pub fn with_code(code: Vec<Bytecode>, constants: Vec<Value>) -> Self {
-        Self { code, constants }
-    }
-
-    pub fn add_instruction(&mut self, opcode: Bytecode) {
+    pub fn add_instruction(&mut self, opcode: Bytecode, range: SourceRange) {
         self.code.push(opcode);
+        self.spans.push(range);
     }
 
     pub fn add_constant(&mut self, value: Value) -> u16 {

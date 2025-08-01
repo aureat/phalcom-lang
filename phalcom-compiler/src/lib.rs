@@ -1,7 +1,8 @@
 use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
+// use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
+use phalcom_common::range::EmptySourceRange;
 use phalcom_common::{phref_new, PhRef};
 use phalcom_vm::bytecode::Bytecode;
-// use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
 use phalcom_vm::callable::Callable;
 use phalcom_vm::chunk::Chunk;
 use phalcom_vm::closure::ClosureObject;
@@ -11,6 +12,7 @@ use phalcom_vm::method::{make_signature, MethodKind, MethodObject, SignatureKind
 use phalcom_vm::module::ModuleObject;
 use phalcom_vm::value::Value;
 use phalcom_vm::vm::VM;
+use rand::random;
 use thiserror::Error;
 use tracing::debug;
 
@@ -20,12 +22,16 @@ pub mod error;
 pub enum CompilerError {
     #[error("Unknown error during compilation.")]
     Unknown,
+
     #[error("Undefined variable '{0}'.")]
     UndefinedVariable(String),
+
     #[error("Invalid assignment target.")]
     InvalidAssignmentTarget,
+
     #[error("Parse error: {0:?}")]
     ParseError(lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>),
+
     #[error("{0}")]
     Message(String),
 }
@@ -46,7 +52,9 @@ pub fn compile(vm: &mut VM, source: &str) -> Result<PhRef<ClosureObject>, PhErro
     let parser = phalcom_ast::parser::ProgramParser::new();
     let lexer = phalcom_ast::lexer::Lexer::new(source);
     let program = parser.parse(lexer).map_err(CompilerError::from)?;
-    let module = vm.module_from_str("<main>");
+
+    let module = vm.create_module_from_str("<main>", source);
+
     let compiler = Compiler::new(vm, module);
     let closure = compiler.compile(program)?;
     Ok(closure)
@@ -159,7 +167,7 @@ impl<'vm> Compiler<'vm> {
 
         if !last_is_return {
             // block_compiler.chunk.add_instruction(Bytecode::Nil);
-            block_compiler.chunk.add_instruction(Bytecode::Return);
+            block_compiler.chunk.add_instruction(Bytecode::Return, EmptySourceRange);
         }
 
         let callable = Callable {
@@ -193,7 +201,7 @@ impl<'vm> Compiler<'vm> {
         }
 
         if !last_is_return {
-            self.chunk.add_instruction(Bytecode::Return);
+            self.chunk.add_instruction(Bytecode::Return, EmptySourceRange);
         }
 
         let main_sym = self.vm.interner.intern("<main>");
@@ -218,51 +226,59 @@ impl<'vm> Compiler<'vm> {
                 self.compile_expr(expr)?;
                 if emit_pop {
                     // println!("[Compiler] Emitting Pop");
-                    self.chunk.add_instruction(Bytecode::Pop);
+                    self.chunk.add_instruction(Bytecode::Pop, range);
                 }
             }
             Statement::Let(binding) => {
+                let range = binding.range;
+
                 if let Some(expr) = binding.value {
                     self.compile_expr(expr)?;
                 } else {
-                    self.chunk.add_instruction(Bytecode::Nil);
+                    self.chunk.add_instruction(Bytecode::Nil, range);
                 }
+
                 let name_sym = self.vm.interner.intern(&binding.name);
                 if self.scope_depth > 0 {
                     // Local variable
                     self.add_local(name_sym);
                     let slot = self.num_locals - 1;
-                    self.chunk.add_instruction(Bytecode::SetLocal(slot as u16));
+                    self.chunk.add_instruction(Bytecode::SetLocal(slot as u16), range);
                 } else {
                     // Global variable
                     let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                    self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx));
+                    self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx), range);
                 }
             }
             Statement::Return(return_stmt) => {
+                let range = return_stmt.range;
                 if let Some(expr) = return_stmt.value {
                     self.compile_expr(expr)?;
                 } else {
-                    self.chunk.add_instruction(Bytecode::Nil);
+                    self.chunk.add_instruction(Bytecode::Nil, range);
                 }
-                self.chunk.add_instruction(Bytecode::Return);
+                self.chunk.add_instruction(Bytecode::Return, range);
             }
             Statement::Class(class_def) => {
+                let range = class_def.range;
+
                 // Push superclass onto the stack (for now, default to Object)
                 let object_class = self.vm.universe.classes.object_class.clone();
                 let superclass_idx = self.chunk.add_constant(Value::Class(object_class));
-                self.chunk.add_instruction(Bytecode::Constant(superclass_idx));
+                self.chunk.add_instruction(Bytecode::Constant(superclass_idx), range);
 
                 // TODO: Handle explicit superclass syntax later
 
                 let name_sym = self.vm.interner.intern(&class_def.name);
                 let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::Class(name_idx));
+                self.chunk.add_instruction(Bytecode::Class(name_idx), range);
 
                 // The class object is now on top of the stack. Iterate through members.
                 for member in class_def.members {
                     match member {
                         ClassMember::Method(method_def) => {
+                            let range = method_def.range;
+
                             let arity = method_def.params.len();
                             let selector = make_signature(&method_def.name, SignatureKind::Method(arity as u8));
                             let selector_sym = self.vm.interner.intern(&selector);
@@ -279,16 +295,18 @@ impl<'vm> Compiler<'vm> {
 
                             let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
                             // println!("[Compiler] Emitting Constant for method_obj_idx: {}", method_obj_idx);
-                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
+                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
 
                             let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
                             // println!(
                             //     "[Compiler] Emitting Method for selector_idx: {}, is_static: {}",
                             //     selector_idx, method_def.is_static
                             // );
-                            self.chunk.add_instruction(Bytecode::Method(selector_idx, method_def.is_static));
+                            self.chunk.add_instruction(Bytecode::Method(selector_idx, method_def.is_static), range);
                         }
                         ClassMember::Getter(getter_def) => {
+                            let range = getter_def.range;
+
                             let selector = make_signature(&getter_def.name, SignatureKind::Getter);
                             let selector_sym = self.vm.interner.intern(&selector);
 
@@ -299,12 +317,14 @@ impl<'vm> Compiler<'vm> {
                             let method_obj = phref_new(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure)));
 
                             let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
-                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
+                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
 
                             let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                            self.chunk.add_instruction(Bytecode::Method(selector_idx, getter_def.is_static));
+                            self.chunk.add_instruction(Bytecode::Method(selector_idx, getter_def.is_static), range);
                         }
                         ClassMember::Setter(setter_def) => {
+                            let range = setter_def.range;
+
                             let selector = make_signature(&setter_def.name, SignatureKind::Setter);
                             let selector_sym = self.vm.interner.intern(&selector);
 
@@ -315,17 +335,17 @@ impl<'vm> Compiler<'vm> {
                             let method_obj = phref_new(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure)));
 
                             let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
-                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx));
+                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
 
                             let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                            self.chunk.add_instruction(Bytecode::Method(selector_idx, setter_def.is_static));
+                            self.chunk.add_instruction(Bytecode::Method(selector_idx, setter_def.is_static), range);
                         }
                     }
                 }
 
                 // After defining all methods, the class is still on the stack.
                 // Define it as a global variable.
-                self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx));
+                self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx), range);
             }
         }
         Ok(())
@@ -342,13 +362,14 @@ impl<'vm> Compiler<'vm> {
                 let selector = make_signature(&method_call.method, SignatureKind::Method(arity as u8));
                 let selector_sym = self.vm.interner.intern(&selector);
                 let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                self.chunk.add_instruction(Bytecode::Invoke(method_call.args.len() as u8, selector_idx));
+                self.chunk
+                    .add_instruction(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
             }
             Expr::GetProperty(get_prop) => {
                 self.compile_expr(get_prop.object)?;
                 let selector_sym = self.vm.interner.intern(&get_prop.property);
                 let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                self.chunk.add_instruction(Bytecode::Invoke(0, selector_idx));
+                self.chunk.add_instruction(Bytecode::Invoke(0, selector_idx), get_prop.range);
             }
             Expr::SetProperty(set_prop) => {
                 self.compile_expr(set_prop.object)?;
@@ -356,60 +377,60 @@ impl<'vm> Compiler<'vm> {
                 let selector = make_signature(&set_prop.property, SignatureKind::Setter);
                 let selector_sym = self.vm.interner.intern(&selector);
                 let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                self.chunk.add_instruction(Bytecode::Invoke(1, selector_idx));
+                self.chunk.add_instruction(Bytecode::Invoke(1, selector_idx), set_prop.range);
             }
-            Expr::Number(n) => {
-                let idx = self.chunk.add_constant(Value::Number(n));
-                self.chunk.add_instruction(Bytecode::Constant(idx));
+            Expr::Number { value, range } => {
+                let idx = self.chunk.add_constant(Value::Number(value));
+                self.chunk.add_instruction(Bytecode::Constant(idx), range);
             }
-            Expr::String(s) => {
-                let string_obj = Value::string_from(s);
+            Expr::String { value, range } => {
+                let string_obj = Value::string_from(value);
                 let idx = self.chunk.add_constant(string_obj);
-                self.chunk.add_instruction(Bytecode::Constant(idx));
+                self.chunk.add_instruction(Bytecode::Constant(idx), range);
             }
-            Expr::Boolean(b) => {
-                if b {
-                    self.chunk.add_instruction(Bytecode::True);
+            Expr::Boolean { value, range } => {
+                if value {
+                    self.chunk.add_instruction(Bytecode::True, range);
                 } else {
-                    self.chunk.add_instruction(Bytecode::False);
+                    self.chunk.add_instruction(Bytecode::False, range);
                 }
             }
-            Expr::Nil => {
-                self.chunk.add_instruction(Bytecode::Nil);
+            Expr::Nil { range } => {
+                self.chunk.add_instruction(Bytecode::Nil, range);
             }
-            Expr::Var(name) => {
-                let name_sym = self.vm.interner.intern(&name);
+            Expr::Var { value, range } => {
+                let name_sym = self.vm.interner.intern(&value);
                 if let Some(slot) = self.resolve_local(name_sym) {
-                    self.chunk.add_instruction(Bytecode::GetLocal(slot as u16));
+                    self.chunk.add_instruction(Bytecode::GetLocal(slot as u16), range);
                 } else {
                     let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                    self.chunk.add_instruction(Bytecode::GetGlobal(name_idx));
+                    self.chunk.add_instruction(Bytecode::GetGlobal(name_idx), range);
                 }
             }
-            Expr::Field(name) => {
-                self.chunk.add_instruction(Bytecode::GetSelf);
-                let name_sym = self.vm.interner.intern(&name);
+            Expr::Field { value, range } => {
+                self.chunk.add_instruction(Bytecode::GetSelf, range);
+                let name_sym = self.vm.interner.intern(&value);
                 let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::GetField(name_idx));
+                self.chunk.add_instruction(Bytecode::GetField(name_idx), range);
             }
             Expr::Assignment(assign_expr) => {
                 match *assign_expr.name {
-                    Expr::Var(name) => {
+                    Expr::Var { value, range } => {
                         self.compile_expr(assign_expr.value)?;
-                        let name_sym = self.vm.interner.intern(&name);
+                        let name_sym = self.vm.interner.intern(&value);
                         if let Some(slot) = self.resolve_local(name_sym) {
-                            self.chunk.add_instruction(Bytecode::SetLocal(slot as u16));
+                            self.chunk.add_instruction(Bytecode::SetLocal(slot as u16), range);
                         } else {
                             let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                            self.chunk.add_instruction(Bytecode::SetGlobal(name_idx));
+                            self.chunk.add_instruction(Bytecode::SetGlobal(name_idx), range);
                         }
                     }
-                    Expr::Field(name) => {
-                        self.chunk.add_instruction(Bytecode::GetSelf); // Push receiver first
+                    Expr::Field { value, range } => {
+                        self.chunk.add_instruction(Bytecode::GetSelf, range); // Push receiver first
                         self.compile_expr(assign_expr.value)?; // Then push value
-                        let name_sym = self.vm.interner.intern(&name);
+                        let name_sym = self.vm.interner.intern(&value);
                         let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                        self.chunk.add_instruction(Bytecode::SetField(name_idx));
+                        self.chunk.add_instruction(Bytecode::SetField(name_idx), range);
                     }
                     _ => return Err(CompilerError::InvalidAssignmentTarget),
                 }
@@ -417,35 +438,37 @@ impl<'vm> Compiler<'vm> {
             Expr::Binary(binary_expr) => {
                 self.compile_expr(binary_expr.left)?;
                 self.compile_expr(binary_expr.right)?;
+                let range = binary_expr.range;
                 match binary_expr.op {
-                    BinaryOp::Add => self.chunk.add_instruction(Bytecode::Add),
-                    BinaryOp::Subtract => self.chunk.add_instruction(Bytecode::Subtract),
-                    BinaryOp::Multiply => self.chunk.add_instruction(Bytecode::Multiply),
-                    BinaryOp::Divide => self.chunk.add_instruction(Bytecode::Divide),
-                    BinaryOp::Modulo => self.chunk.add_instruction(Bytecode::Modulo),
-                    BinaryOp::Equal => self.chunk.add_instruction(Bytecode::Equal),
-                    BinaryOp::NotEqual => self.chunk.add_instruction(Bytecode::NotEqual),
-                    BinaryOp::LessThan => self.chunk.add_instruction(Bytecode::Less),
-                    BinaryOp::LessThanOrEqual => self.chunk.add_instruction(Bytecode::LessEqual),
-                    BinaryOp::GreaterThan => self.chunk.add_instruction(Bytecode::Greater),
-                    BinaryOp::GreaterThanOrEqual => self.chunk.add_instruction(Bytecode::GreaterEqual),
-                    BinaryOp::And => self.chunk.add_instruction(Bytecode::And),
-                    BinaryOp::Or => self.chunk.add_instruction(Bytecode::Or),
+                    BinaryOp::Add => self.chunk.add_instruction(Bytecode::Add, range),
+                    BinaryOp::Subtract => self.chunk.add_instruction(Bytecode::Subtract, range),
+                    BinaryOp::Multiply => self.chunk.add_instruction(Bytecode::Multiply, range),
+                    BinaryOp::Divide => self.chunk.add_instruction(Bytecode::Divide, range),
+                    BinaryOp::Modulo => self.chunk.add_instruction(Bytecode::Modulo, range),
+                    BinaryOp::Equal => self.chunk.add_instruction(Bytecode::Equal, range),
+                    BinaryOp::NotEqual => self.chunk.add_instruction(Bytecode::NotEqual, range),
+                    BinaryOp::LessThan => self.chunk.add_instruction(Bytecode::Less, range),
+                    BinaryOp::LessThanOrEqual => self.chunk.add_instruction(Bytecode::LessEqual, range),
+                    BinaryOp::GreaterThan => self.chunk.add_instruction(Bytecode::Greater, range),
+                    BinaryOp::GreaterThanOrEqual => self.chunk.add_instruction(Bytecode::GreaterEqual, range),
+                    BinaryOp::And => self.chunk.add_instruction(Bytecode::And, range),
+                    BinaryOp::Or => self.chunk.add_instruction(Bytecode::Or, range),
                 }
             }
             Expr::Unary(unary_expr) => {
                 self.compile_expr(unary_expr.expr)?;
+                let range = unary_expr.range;
                 match unary_expr.op {
-                    UnaryOp::Negate => self.chunk.add_instruction(Bytecode::Negate),
-                    UnaryOp::Not => self.chunk.add_instruction(Bytecode::Not),
+                    UnaryOp::Negate => self.chunk.add_instruction(Bytecode::Negate, range),
+                    UnaryOp::Not => self.chunk.add_instruction(Bytecode::Not, range),
                 }
             }
-            Expr::SelfVar => {
-                self.chunk.add_instruction(Bytecode::GetSelf);
+            Expr::SelfVar { range } => {
+                self.chunk.add_instruction(Bytecode::GetSelf, range);
             }
-            Expr::SuperVar => {
+            Expr::SuperVar { range } => {
                 // TODO: Handle `super` keyword. For now, push Nil.
-                self.chunk.add_instruction(Bytecode::Nil);
+                self.chunk.add_instruction(Bytecode::Nil, range);
             } // Expr::Call(call_expr) => {
               //     // TODO: Implement function call compilation
               //     self.compile_expr(call_expr.callee)?;
@@ -548,7 +571,7 @@ mod tests {
     fn run_test(source: &str) -> Result<Value, PhError> {
         let mut vm = VM::new();
         let closure = compile(&mut vm, source)?;
-        let module = vm.module_from_str("<main>");
+        let module = vm.create_module_from_stdin();
         vm.run_module(module, closure)
     }
 

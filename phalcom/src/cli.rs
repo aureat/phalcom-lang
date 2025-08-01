@@ -75,7 +75,7 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     let source = read_source(cli.path, cli.source)?;
     let mut vm = VM::new();
     let closure = compile(&mut vm, &source)?;
-    let module = vm.module_from_str("<main>");
+    let module = vm.create_module_from_str("<main>", &source);
     match vm.run_module(module, closure) {
         Ok(value) => println!("{value}"),
         Err(e) => eprintln!("{e}"),

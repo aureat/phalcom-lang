@@ -1,15 +1,10 @@
 class Foo {
-  static foo() => "foo"
+  static foo() => "foo
 
-  foo() { "hello"
-  }
-
-  bar() {
-    "bar"; "hello";
-  }
+  foo() => hello
 }
 
-System.print(Foo.foo())
+// System.print(Foo.foo())
 
 let foo = Foo.new()
-System.print(foo.bar())
+System.print(foo.foo())
