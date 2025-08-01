@@ -1,8 +1,8 @@
 use crate::interner::Symbol;
 use crate::module::ModuleId;
 use lazy_static::lazy_static;
+use phalcom_common::range::SourceRange;
 use std::collections::HashMap;
-use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
 lazy_static! {
@@ -23,14 +23,13 @@ lazy_static! {
 //     pub end: Position,
 // }
 
-pub type Span = Range<usize>;
-
 /// A pointer into a specific module’s source.
 #[derive(Clone, Debug)]
 pub struct SourceLoc {
     pub module_id: ModuleId,
-    pub span: Span,
+    pub span: SourceRange,
 }
+
 //
 // /// Pretty-print a *parse / compile* time error (single location, no stack).
 // pub fn print_parse(msg: &str, loc: &SourceLoc) {

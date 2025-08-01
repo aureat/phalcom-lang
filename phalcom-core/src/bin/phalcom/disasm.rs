@@ -1,14 +1,11 @@
 #![allow(unused_variables)]
 #![allow(unused_imports)]
 #![allow(dead_code)]
-use phalcom_vm::vm::VM;
-use phalcom_vm::value::Value;
-use phalcom_vm::chunk::Chunk;
-use phalcom_vm::closure::ClosureObject;
-use phalcom_vm::bytecode::Bytecode;
 use phalcom_common::PhRef;
-use phalcom_compiler::compile;
-use phalcom_vm::error::PhError;
+use phalcom_core::closure::ClosureObject;
+use phalcom_core::compiler::lib::compile;
+use phalcom_core::error::PhError;
+use phalcom_core::vm::VM;
 
 pub fn disassemble_source(source: &str) -> Result<(), PhError> {
     let mut vm = VM::new();

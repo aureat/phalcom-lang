@@ -1,10 +1,8 @@
 [workspace]
 members = [
-    "phalcom",
     "phalcom-ast",
     "phalcom-common",
-    "phalcom-compiler",
-    "phalcom-vm",
+    "phalcom-core",
 ]
 resolver = "2"
 

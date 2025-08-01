@@ -1,16 +1,15 @@
+use crate::disasm;
 use anyhow::{bail, Context, Result};
 use clap::{arg, command, Args, Parser, Subcommand, ValueHint};
+use phalcom_core::compiler::lib::{compile, CompilerError};
+use phalcom_core::vm::VM;
 use std::{fs, path::PathBuf};
-
-use crate::disasm;
-use phalcom_compiler::{compile, CompilerError};
-use phalcom_vm::vm::VM;
 
 /// Run, tokenize, parse, or disassemble phalcom source.
 #[derive(Parser)]
 #[command(author, about, long_about = None)]
 pub struct Cli {
-    /// Path to a `.phalcom` file
+    /// Path to a `.ph` file
     #[arg(value_name = "path", value_hint = ValueHint::FilePath, conflicts_with = "source")]
     pub(crate) path: Option<PathBuf>,
 

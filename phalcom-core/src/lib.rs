@@ -6,7 +6,8 @@ pub mod chunk;
 pub mod class;
 pub mod closure;
 
-mod diagnostics;
+pub mod compiler;
+pub mod diagnostics;
 pub mod error;
 pub mod frame;
 pub mod instance;

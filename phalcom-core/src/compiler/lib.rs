@@ -1,22 +1,20 @@
-use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
 // use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
+use crate::bytecode::Bytecode;
+use crate::callable::Callable;
+use crate::chunk::Chunk;
+use crate::closure::ClosureObject;
+use crate::error::PhError;
+use crate::interner::Symbol;
+use crate::method::{make_signature, MethodKind, MethodObject, SignatureKind};
+use crate::module::ModuleObject;
+use crate::value::Value;
+use crate::vm::VM;
+use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
 use phalcom_common::range::EmptySourceRange;
 use phalcom_common::{phref_new, PhRef};
-use phalcom_vm::bytecode::Bytecode;
-use phalcom_vm::callable::Callable;
-use phalcom_vm::chunk::Chunk;
-use phalcom_vm::closure::ClosureObject;
-use phalcom_vm::error::PhError;
-use phalcom_vm::interner::Symbol;
-use phalcom_vm::method::{make_signature, MethodKind, MethodObject, SignatureKind};
-use phalcom_vm::module::ModuleObject;
-use phalcom_vm::value::Value;
-use phalcom_vm::vm::VM;
 use rand::random;
 use thiserror::Error;
 use tracing::debug;
-
-pub mod error;
 
 #[derive(Error, Debug)]
 pub enum CompilerError {
@@ -566,7 +564,6 @@ mod tests {
         }
     }
     use super::*;
-    use phalcom_vm::value::Value;
 
     fn run_test(source: &str) -> Result<Value, PhError> {
         let mut vm = VM::new();
