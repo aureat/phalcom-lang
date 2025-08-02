@@ -2,6 +2,7 @@ use crate::class::ClassObject;
 use crate::closure::ClosureObject;
 use crate::instance::InstanceObject;
 use crate::module::ModuleObject;
+use phalcom_common::range::SourceRange;
 use phalcom_common::PhRef;
 
 /// Represents the callee
@@ -28,15 +29,18 @@ pub struct CallFrame {
     /// The index into the VM's main value stack where this frame's
     /// stack window begins. The receiver and arguments are located here.
     pub stack_offset: usize,
+
+    pub caller_source: Option<SourceRange>,
 }
 
 impl CallFrame {
-    pub fn new(closure: PhRef<ClosureObject>, context: CallContext, ip: usize, stack_offset: usize) -> Self {
+    pub fn new(closure: PhRef<ClosureObject>, context: CallContext, ip: usize, stack_offset: usize, caller_source: Option<SourceRange>) -> Self {
         Self {
             context,
             closure,
             ip,
             stack_offset,
+            caller_source,
         }
     }
 

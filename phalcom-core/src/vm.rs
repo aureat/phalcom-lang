@@ -3,8 +3,8 @@ use crate::bytecode::Bytecode;
 use crate::class::ClassObject;
 use crate::closure::ClosureObject;
 // use std::fmt::Debug;
-use crate::diagnostics::SOURCE_MAP;
-use crate::error::{PhError, PhResult};
+use crate::diagnostics::{print_rt, SourceLoc, SOURCE_MAP};
+use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, CallFrame};
 use crate::interner::{Interner, Symbol};
 use crate::method::{MethodKind, MethodObject};
@@ -12,6 +12,8 @@ use crate::module::{ModuleObject, CORE_MODULE_NAME};
 use crate::nil::NIL;
 use crate::universe::Universe;
 use crate::value::Value;
+use clap::builder::Str;
+use phalcom_common::range::SourceRange;
 use phalcom_common::MaybeWeak::Weak;
 use phalcom_common::{phref_new, PhRef, PhWeakRef};
 use std::collections::HashMap;
@@ -65,7 +67,7 @@ impl VM {
         entry.borrow_mut().module = module.clone();
         self.frames.clear();
         self.stack.clear();
-        let frame = phref_new(CallFrame::new(entry, CallContext::Module { module }, 0, 0));
+        let frame = phref_new(CallFrame::new(entry, CallContext::Module { module }, 0, 0, None));
         self.frames.push(frame);
         self.run()
     }
@@ -176,7 +178,7 @@ impl VM {
         self.define_global(core_sym, core_sym, Value::Module(core_mod)).ok();
     }
 
-    fn call_method(&mut self, callee: &Value, method: PhRef<MethodObject>, arity: usize) -> PhResult<()> {
+    fn call_method(&mut self, callee: &Value, method: PhRef<MethodObject>, arity: usize, source_range: SourceRange) {
         match &method.borrow().kind {
             MethodKind::Primitive(native_fn) => {
                 let receiver_idx = self.stack.len() - 1 - arity;
@@ -187,25 +189,68 @@ impl VM {
                     Ok(result) => {
                         self.stack.truncate(receiver_idx);
                         self.stack.push(result);
-                        Ok(())
                     }
-                    Err(err) => Err(PhError::VMError {
-                        message: format!("{}", err),
-                        stack_trace: self.format_stack_trace(format!("Error calling primitive function: {}", err)),
-                    }),
+                    Err(err) => {
+                        self.runtime_error(err, source_range);
+                    }
                 }
             }
             MethodKind::Closure(closure) => {
-                let new_frame = phref_new(CallFrame::new(closure.clone(), callee.to_context(), 0, self.stack.len() - arity - 1));
+                let new_frame = phref_new(CallFrame::new(
+                    closure.clone(),
+                    callee.to_context(),
+                    0,
+                    self.stack.len() - arity - 1,
+                    Some(source_range),
+                ));
                 self.frames.push(new_frame);
-                Ok(())
             }
+        }
+    }
+
+    pub fn runtime_error(&mut self, err: PhError, source_range: SourceRange) {
+        let mut frames = Vec::new();
+        for frame_ref in self.frames.iter().rev() {
+            let frame = frame_ref.borrow();
+            let closure = frame.closure.borrow();
+            let module_name = closure.module.borrow().name.borrow().value();
+            let module_source = closure.module.borrow().source.clone();
+            let method_name = self.resolve_symbol(closure.callable.name_sym);
+            let trace_name = match frame.context() {
+                CallContext::Class { class } => {
+                    let class_name = class.borrow().class().borrow().name_copy();
+                    format!("{}::{} in {}", class_name, method_name, module_name)
+                }
+                CallContext::Instance { instance } => {
+                    let class_name = instance.borrow().class().borrow().name_copy();
+                    format!("{}::{} in {}", class_name, method_name, module_name)
+                }
+                CallContext::Module { module } => {
+                    // let module_name = module.borrow().name().borrow();
+                    format!("{module_name}")
+                }
+            };
+
+            let span = closure.callable.chunk.spans[frame.ip - 1];
+
+            frames.push(SourceLoc {
+                source: module_source.unwrap(),
+                module_name,
+                method_name: String::from(method_name),
+                span,
+            });
+        }
+
+        if let PhError::Runtime(err) = err {
+            print_rt(&err.to_string(), &frames);
+        } else {
+            panic!("Unexpected error: {:?}", err);
         }
     }
 
     pub fn run(&mut self) -> PhResult<Value> {
         macro_rules! binary_op {
-            ($op:tt, $selector:expr) => {
+            ($op:tt, $selector:expr, $span:expr) => {
                 {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
@@ -218,7 +263,7 @@ impl VM {
                         self.stack.push(b);
                         let callee = self.stack[self.stack.len() - 2].clone();
                         if let Some(method) = callee.lookup_method(self, selector) {
-                            self.call_method(&callee, method, 1)?;
+                            self.call_method(&callee, method, 1, $span);
                         } else {
                             let selector_name = self.resolve_symbol(selector);
                             let receiver = &self.stack[self.stack.len() - 2];
@@ -230,7 +275,7 @@ impl VM {
                     }
                 }
             };
-            ($op:tt, $type:ty, $selector:expr) => {
+            ($op:tt, $type:ty, $selector:expr, $span:expr) => {
                 {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
@@ -242,7 +287,7 @@ impl VM {
                         self.stack.push(b);
                         let callee = self.stack[self.stack.len() - 2].clone();
                         if let Some(method) = callee.lookup_method(self, selector) {
-                            self.call_method(&callee, method, 1)?;
+                            self.call_method(&callee, method, 1, $span);
                         } else {
                             let selector_name = self.resolve_symbol(selector);
                             let receiver = &self.stack[self.stack.len() - 2];
@@ -266,6 +311,7 @@ impl VM {
             let closure = frame.closure.clone();
             let chunk = &closure.borrow().callable.chunk;
             let opcode = chunk.code[frame.ip];
+            let source_range = chunk.spans[frame.ip];
             let stack_offset = frame.stack_offset; // Get stack_offset before dropping frame
 
             let span = span!(Level::DEBUG, "vm_opcode", opcode = ?opcode);
@@ -452,7 +498,7 @@ impl VM {
                     let selector_sym = selector_val.as_symbol().unwrap();
 
                     if let Some(method) = receiver.lookup_method(self, selector_sym) {
-                        self.call_method(&receiver, method, arity)?;
+                        self.call_method(&receiver, method, arity, source_range);
                     } else {
                         let selector_name = self.resolve_symbol(selector_sym);
                         return Err(PhError::VMError {
@@ -471,11 +517,11 @@ impl VM {
                     self.stack.truncate(popped_ref.stack_offset);
                     self.stack.push(return_value);
                 }
-                Bytecode::Add => binary_op!(+, "+(_)"),
-                Bytecode::Subtract => binary_op!(-, "-(_)"),
-                Bytecode::Multiply => binary_op!(*, "*(_)"),
-                Bytecode::Divide => binary_op!(/, "/(_)"),
-                Bytecode::Modulo => binary_op!(%, "%(_)"),
+                Bytecode::Add => binary_op!(+, "+(_)", source_range),
+                Bytecode::Subtract => binary_op!(-, "-(_)", source_range),
+                Bytecode::Multiply => binary_op!(*, "*(_)", source_range),
+                Bytecode::Divide => binary_op!(/, "/(_)", source_range),
+                Bytecode::Modulo => binary_op!(%, "%(_)", source_range),
                 Bytecode::Equal => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;
@@ -486,10 +532,10 @@ impl VM {
                     let a = self.stack.pop().ok_or("Stack underflow")?;
                     self.stack.push(Value::Bool(a != b));
                 }
-                Bytecode::Greater => binary_op!(>, bool, ">( _)"),
-                Bytecode::GreaterEqual => binary_op!(>=, bool, ">=(_)"),
-                Bytecode::Less => binary_op!(<, bool, "<(_)"),
-                Bytecode::LessEqual => binary_op!(<=, bool, "<=(_)"),
+                Bytecode::Greater => binary_op!(>, bool, ">( _)", source_range),
+                Bytecode::GreaterEqual => binary_op!(>=, bool, ">=(_)", source_range),
+                Bytecode::Less => binary_op!(<, bool, "<(_)", source_range),
+                Bytecode::LessEqual => binary_op!(<=, bool, "<=(_)", source_range),
                 Bytecode::And => {
                     let b = self.stack.pop().ok_or("Stack underflow")?;
                     let a = self.stack.pop().ok_or("Stack underflow")?;

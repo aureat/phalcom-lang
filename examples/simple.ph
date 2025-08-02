@@ -1,6 +1,10 @@
-class Test hh {
+class Test {
   static method {
-    "hello"
+    self.method2
+  }
+
+  static method2 {
+    System.new()
   }
 }
 
