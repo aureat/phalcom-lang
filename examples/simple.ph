@@ -1,4 +1,7 @@
 class Test {
-  method { "hello";
+  ~ static method {
+    "hello"
   }
 }
+
+Test.method

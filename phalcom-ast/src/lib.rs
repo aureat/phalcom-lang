@@ -57,7 +57,11 @@ pub fn parse_source(source: &str, offset: usize) -> ParserResult<Program> {
                 kind: SyntaxErrorKind::InvalidFloat,
                 range: 0..0,
             },
-            LexicalError::InvalidToken => SyntaxError {
+            LexicalError::InvalidToken(span) => SyntaxError {
+                kind: SyntaxErrorKind::InvalidToken,
+                range: span,
+            },
+            LexicalError::Invalid => SyntaxError {
                 kind: SyntaxErrorKind::InvalidToken,
                 range: 0..0,
             },

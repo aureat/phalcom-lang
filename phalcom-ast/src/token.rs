@@ -1,13 +1,14 @@
-use logos::Logos;
-// to implement the Display trait later
+use logos::{Logos, Span};
 use std::num::{ParseFloatError, ParseIntError};
 
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum LexicalError {
     InvalidInteger(ParseIntError),
     InvalidFloat(ParseFloatError),
+    InvalidToken(Span),
+
     #[default]
-    InvalidToken,
+    Invalid,
 }
 
 impl From<ParseIntError> for LexicalError {
@@ -19,6 +20,12 @@ impl From<ParseIntError> for LexicalError {
 impl From<ParseFloatError> for LexicalError {
     fn from(err: ParseFloatError) -> Self {
         LexicalError::InvalidFloat(err)
+    }
+}
+
+impl LexicalError {
+    fn from_lexer(lex: &mut logos::Lexer<Token>) -> Self {
+        LexicalError::InvalidToken(lex.span())
     }
 }
 
@@ -38,7 +45,9 @@ fn lex_identifier(lexer: &mut logos::Lexer<Token>) -> String {
 }
 
 #[derive(Logos, Clone, Debug, PartialEq)]
-#[logos(skip r"[ \t\f]+", error = LexicalError)]
+#[logos(error = LexicalError)]
+#[logos(skip r"[ \t\f]+")]
+#[logos(skip r"//[^\n]*")]
 pub enum Token {
     #[token("let")]
     Let,
@@ -175,9 +184,7 @@ pub enum Token {
 
     #[end]
     Eof,
-
-    // #[regex(r"//.*", logos::skip)]
-    // #[regex(r"[ \r\n\t\f]+", logos::skip)]
-    #[regex(r"//[^\n]*", logos::skip)]
-    Error,
+    // #[logos(skip r"[ \t\f]+")]
+    // #[logos(skip r"//[^\n]*")]
+    // #[error(LexicalError)]
 }

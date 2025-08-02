@@ -13,16 +13,16 @@ pub Program: Program = {
 
 pub ProgramBody: Vec<Statement> = {
     => vec![],
-    <mut statements:ProgramBody> <next:CompoundStatement> Newline => {
+    <mut statements:ProgramBody> <next:CompoundStatement> newline => {
         statements.push(next);
         statements
     },
-    <mut statements:ProgramBody> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? Newline => {
+    <mut statements:ProgramBody> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? newline => {
         statements.extend(small);
         statements.push(last);
         statements
     },
-    <s:ProgramBody> Newline => s,
+    <s:ProgramBody> newline => s,
 };
 
 // Statements that can fit in a single line, separable by semicolon
@@ -40,7 +40,7 @@ CompoundStatement = {
 // One or more statements
 Statements: Vec<Statement> = {
     // First simple statement
-    <mut head:(<SmallStatement> ";")*> <last:SmallStatement> ";"? Newline => {
+    <mut head:(<SmallStatement> ";")*> <last:SmallStatement> ";"? newline => {
         head.push(last);
         head
     },
@@ -55,7 +55,7 @@ Statements: Vec<Statement> = {
     },
 
     // Any subsequent small statements
-    <mut statements:Statements> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? Newline => {
+    <mut statements:Statements> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? newline => {
         statements.extend(small);
         statements.push(last);
         statements
@@ -63,7 +63,7 @@ Statements: Vec<Statement> = {
 };
 
 MethodBlock: Vec<Statement> = {
-    "=>" <s:ExprStatement> Newline => vec![s],
+    "=>" <s:ExprStatement> newline => vec![s],
     "{" <s:BlockStatements> "}" => s,
 };
 
@@ -73,12 +73,12 @@ BlockStatements: Vec<Statement> = {
         statements.push(next);
         statements
     },
-    <mut statements:BlockStatements> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? Newline => {
+    <mut statements:BlockStatements> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? newline => {
         statements.extend(small);
         statements.push(last);
         statements
     },
-    <s:BlockStatements> Newline => s,
+    <s:BlockStatements> newline => s,
 };
 
 Statement = {
@@ -110,7 +110,7 @@ ClassBody: Vec<ClassMember> = {
         members.push(next);
         members
     },
-    <s:ClassBody> Newline => s,
+    <s:ClassBody> newline => s,
 };
 
 ClassMember: ClassMember = {
@@ -384,7 +384,7 @@ extern {
     "/=" => Token::SlashEqual,
     "%=" => Token::PercentEqual,
 
-    Newline => Token::Newline,
+    newline => Token::Newline,
     EOF => Token::Eof
   }
 }

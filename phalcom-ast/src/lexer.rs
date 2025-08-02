@@ -27,6 +27,10 @@ impl<'input> Iterator for Lexer<'input> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((tok_res, span)) = self.token_stream.next() {
             let item = tok_res.map(|tok| (span.start, tok, span.end));
+            
+            if let Err(err) = item {
+                return Some(Err(LexicalError::InvalidToken(span)))
+            }
 
             self.last_span_end = span.end;
             self.last_was_newline = matches!(item, Ok((_, Token::Newline, _)));
