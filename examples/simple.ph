@@ -1,5 +1,5 @@
-class Test {
-  ~ static method {
+class Test hh {
+  static method {
     "hello"
   }
 }

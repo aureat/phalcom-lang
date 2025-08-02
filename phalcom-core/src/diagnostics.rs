@@ -20,10 +20,10 @@ pub struct SourceLoc {
 
 /// Pretty-prints a parse error given only a byte range into the source string.
 pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
-    // if range.start > source.len() || range.end > source.len() || range.start >= range.end {
-    //     eprintln!("SyntaxError: {msg}");
-    //     return;
-    // }
+    if range.start >= source.len() || range.end > source.len() || range.start >= range.end {
+        eprintln!("SyntaxError: {msg}");
+        return;
+    }
 
     // let line_start = source[..range.start].rfind('\n').map_or(0, |i| i + 1);
     // let line_end = source[range.end..].find('\n').map_or(source.len(), |i| range.end + i);

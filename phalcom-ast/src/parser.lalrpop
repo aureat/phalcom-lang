@@ -17,13 +17,15 @@ pub ProgramBody: Vec<Statement> = {
         statements.push(next);
         statements
     },
-    <mut statements:ProgramBody> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? newline => {
+    <mut statements:ProgramBody> <small:(<SmallStatement> ";")*> <last:SmallStatement> ";"? Terminator => {
         statements.extend(small);
         statements.push(last);
         statements
     },
     <s:ProgramBody> newline => s,
 };
+
+pub Terminator: () = { newline => (), EOF => () };
 
 // Statements that can fit in a single line, separable by semicolon
 SmallStatement = {
