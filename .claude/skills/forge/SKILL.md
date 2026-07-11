@@ -35,6 +35,14 @@ You — the top-level agent running `/forge` — are the senior developer and ar
 **delegate; you do not do the heavy reading or writing yourself.** Your value is judgment,
 sequencing, and coordination, not tokens spent slurping source into your own context.
 
+**Run this session on Opus, high effort.** The orchestrator makes the widest-blast-radius
+decisions (wave partitioning, sequencing, conflict re-partition, adjudicating
+BLOCKED-ON-DECISION items) — never economize on capability here. High effort is cheap in
+absolute tokens *because* the context stays lean (subgraphs + compact returns, never files),
+so you get deep coordination judgment without paying for it. xhigh is unnecessary: the single
+deepest task, plan synthesis, is already delegated to `phalcom-architect` at xhigh — only
+bump to xhigh on a turn where you do that synthesis inline yourself.
+
 Cost & context discipline (non-negotiable):
 - **Never read raw source into your own context to "understand" it.** Use `graphify
   query/explain/affected` for structure and delegate all file reading to subagents. What
