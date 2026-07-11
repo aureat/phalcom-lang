@@ -65,3 +65,7 @@ Downstream implementation units (U-CORE-1 kernel reflection, U-CORE-2
 absence+Boolean, U-CORE-3 callables, U-CORE-4 value classes, U-CORE-5
 collection contract, U-CORE-6 errors) are planned in the requirements analysis
 and tracked in [`../../forge/PHASE2-INDEX.md`](../../forge/PHASE2-INDEX.md).
+
+**Continuation:** [`HANDOFF.md`](./HANDOFF.md) is the paste-ready prompt for a
+fresh session to carry this work from here (finish #5–#7, close the gating
+decisions, author the per-unit implementation specs).
