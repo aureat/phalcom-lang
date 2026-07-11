@@ -12,11 +12,24 @@ is a failure and names the broken identity in the adjacent comment.
 
 ## Running
 
-The workspace tree must build first. Then:
+The workspace tree must build first. Run one file directly:
 
 ```sh
 cargo run -p phalcom-core --bin phalcom -- benchmarks/math/<file>.ph
 ```
+
+Or run the whole corpus with the bundled harness, which builds the CLI once and
+asserts that every output line is `true`:
+
+```sh
+benchmarks/math/run.sh            # all files; Tier-2 files report PENDING, not FAIL
+benchmarks/math/run.sh --strict   # also require Tier-2 files to pass
+benchmarks/math/run.sh vectors.ph # only the named file(s)
+```
+
+A file PASSES iff it exits 0 and prints nothing but `true`. Tier-2 files (needing
+`var`/collections) are expected to fail today, so they surface as `PENDING` and
+don't fail the run until `--strict`.
 
 > As of this writing the working tree is mid-U6 and does not compile; the last
 > green commit exercising the Tier-1 feature set is `83c908a` (U5). These files
