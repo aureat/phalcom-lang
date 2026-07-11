@@ -119,6 +119,15 @@ fn class_declaration_with_trailing_newline_parses() {
     insta::assert_snapshot!(parse("class Point {}\n"));
 }
 
+#[test]
+fn multiline_method_block_parses() {
+    // Exercises class bodies with mixed method bodies, getter syntax, blank
+    // lines, semicolon-separated statements, and a trailing expression in a
+    // block body.
+    let src = format!("{}\n", include_str!("../../tests/newline_in_method_block.ph"));
+    insta::assert_snapshot!(parse(&src));
+}
+
 // --- F9: parse errors render via `Display` instead of panicking ---
 
 #[test]
