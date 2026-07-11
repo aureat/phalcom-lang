@@ -337,6 +337,13 @@ impl VM {
         add_class!(number_class);
         add_class!(string_class);
         add_class!(bool_class);
+        // The boolean tower (ADR-0004): `True`/`False` are ordinary class
+        // globals — unlike `None`, their global names bind to the class objects
+        // (not to a singleton value), so a `class True {}` / `class False {}`
+        // reopen in core.ph re-emits the identical `DefineGlobal` binding (a
+        // harmless no-op) and resolves the bootstrapped `self.classes` rows.
+        add_class!(true_class);
+        add_class!(false_class);
         add_class!(method_class);
         add_class!(symbol_class);
         add_class!(system_class);

@@ -133,6 +133,17 @@ impl Universe {
         let string_class = make_core_class(heap, "String", object_class, metaclass_class);
         let nil_class = make_core_class(heap, "Nil", object_class, metaclass_class);
         let bool_class = make_core_class(heap, "Bool", object_class, metaclass_class);
+        // The boolean tower (ADR-0004): `Bool` is abstract — no value is ever
+        // *directly* an instance of it. Its two concrete singleton subclasses,
+        // `True` and `False`, are the surface classes of the `true`/`false`
+        // immediates (`Value::class`, value.rs), so `true.class == True` and
+        // `false.class == False`. The six sacred control-flow selectors
+        // (`not`/`and`/`or`/`ifTrue`/`ifFalse`/`ifTrue:ifFalse:`) stay as native
+        // primitives on `Bool` and are reached by inheritance (see
+        // `floor-census.md` §2.6/§5; ADR-0004 dispatches by class, and walking
+        // `True`/`False` to their shared parent *is* dispatch by class).
+        let true_class = make_core_class(heap, "True", bool_class, metaclass_class);
+        let false_class = make_core_class(heap, "False", bool_class, metaclass_class);
         let method_class = make_core_class(heap, "Method", object_class, metaclass_class);
         let function_class = make_core_class(heap, "Function", object_class, metaclass_class);
         let block_class = make_core_class(heap, "Block", function_class, metaclass_class);
@@ -181,6 +192,8 @@ impl Universe {
             string_class,
             nil_class,
             bool_class,
+            true_class,
+            false_class,
             method_class,
             function_class,
             block_class,
@@ -525,8 +538,21 @@ pub struct CoreClasses {
     pub string_class: ClassId,
     /// `Nil`.
     pub nil_class: ClassId,
-    /// `Bool`.
+    /// `Bool`, the abstract boolean superclass
+    /// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)). No value is ever a
+    /// direct instance of it; it holds the six sacred control-flow primitives
+    /// that [`Self::true_class`]/[`Self::false_class`] inherit.
     pub bool_class: ClassId,
+    /// `True`, the concrete singleton subclass of [`Self::bool_class`] whose sole
+    /// inhabitant is the `true` immediate
+    /// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)). Selected by
+    /// [`Value::class`](crate::value::Value::class), so `true.class == True`.
+    pub true_class: ClassId,
+    /// `False`, the concrete singleton subclass of [`Self::bool_class`] whose sole
+    /// inhabitant is the `false` immediate
+    /// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)). Selected by
+    /// [`Value::class`](crate::value::Value::class), so `false.class == False`.
+    pub false_class: ClassId,
     /// `Method`.
     pub method_class: ClassId,
     /// `Function`.

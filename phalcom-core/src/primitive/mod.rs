@@ -55,6 +55,18 @@ pub struct ClassName;
 impl ClassName {
     pub const Nil: &'static str = "Nil";
     pub const Bool: &'static str = "Bool";
+    /// The `True` class — concrete singleton subclass of `Bool` and surface
+    /// class of the `true` immediate ([ADR-0004]). Distinct from
+    /// [`ObjectName::True`], which is the lowercase value spelling `"true"`.
+    ///
+    /// [ADR-0004]: ../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md
+    pub const True: &'static str = "True";
+    /// The `False` class — concrete singleton subclass of `Bool` and surface
+    /// class of the `false` immediate ([ADR-0004]). Distinct from
+    /// [`ObjectName::False`], which is the lowercase value spelling `"false"`.
+    ///
+    /// [ADR-0004]: ../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md
+    pub const False: &'static str = "False";
     pub const Number: &'static str = "Number";
     pub const String: &'static str = "String";
     pub const Symbol: &'static str = "Symbol";

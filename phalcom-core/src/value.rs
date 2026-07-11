@@ -80,6 +80,13 @@ impl Value {
     /// `String`, and so on). Realizes the "every value maps onto a class" rule
     /// (`object-model.md` §3).
     ///
+    /// A [`Value::Bool`] resolves by its payload to one of the two concrete
+    /// singleton subclasses of the abstract `Bool` class — `true` to `True`,
+    /// `false` to `False` — so `true.class == True` and `false.class == False`
+    /// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)).
+    /// The selection is a plain [`ClassId`] field read with no allocation, on
+    /// the hot dispatch path.
+    ///
     /// # Panics
     ///
     /// Panics if the value is a [`Value::Obj`] whose handle is stale, or a bare
@@ -87,7 +94,13 @@ impl Value {
     pub fn class(&self, vm: &VM) -> ClassId {
         match self {
             Value::Nil => vm.universe.classes.nil_class,
-            Value::Bool(_) => vm.universe.classes.bool_class,
+            Value::Bool(b) => {
+                if *b {
+                    vm.universe.classes.true_class
+                } else {
+                    vm.universe.classes.false_class
+                }
+            }
             Value::Number(_) => vm.universe.classes.number_class,
             Value::Symbol(_) => vm.universe.classes.symbol_class,
             Value::Obj(id) => match vm.heap.get(*id) {
