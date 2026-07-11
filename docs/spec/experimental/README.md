@@ -27,3 +27,5 @@ flags. Promote to `docs/adr/` + `docs/spec/` on ratification.
 | [typing-subtyping.md](typing-subtyping.md) | typing.md #2/#3 — conformance termination + override/Liskov | Proposed |
 | [typing-inference.md](typing-inference.md) | typing.md #4/#7 — local type-arg inference + default return | Proposed |
 | [typing-stdlib-surface.md](typing-stdlib-surface.md) | typing.md #5/#6/#8 — root protocol, `==`, variadics, catch, literals | Proposed |
+| [bootstrapping-and-self-hosting.md](bootstrapping-and-self-hosting.md) | untracked — stdlib-in-itself + compiler-in-Phalcom ladder; reopens overlay §Compiler; DEC-A pivot | Experimental |
+| [doc-comments-phaldoc.md](doc-comments-phaldoc.md) | untracked — Phaldoc `///`/`//!` doc standard; inert-today convention; disjoint from code `@` registry | Proposed |
