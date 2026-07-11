@@ -1,11 +1,20 @@
+# Build artifacts
 /target
-.idea/
-Cargo.lock
+
+# OS / editor cruft
 .DS_Store
+.idea/
 *.iml
 *.swp
 
+# Local dev env (non-standard root config; prefer .cargo/config.toml if needed)
+/config.toml
+
+# Generated files
+*.log
+.graphify_version
 # graphify code knowledge graph (generated; rebuilt locally via post-commit hook)
 /graphify-out
+
 # git worktrees used by agents
 .claude/worktrees/
