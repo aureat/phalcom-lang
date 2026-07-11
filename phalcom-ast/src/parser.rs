@@ -558,6 +558,20 @@ impl<'source> Parser<'source> {
     /// malformed.
     fn parse_class_member(&mut self) -> ParserResult<ClassMember> {
         let start = self.cur_start();
+        if self.eat(&Token::Construct) {
+            let name = self.parse_method_name()?;
+            self.expect(&Token::LParen, &["\"(\""])?;
+            let params = self.parse_param_list()?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            let body = self.parse_method_block()?;
+            let range = (start..self.prev_end).into();
+            return Ok(ClassMember::Construct(ConstructDef {
+                name,
+                params,
+                body,
+                range,
+            }));
+        }
         let is_static = self.eat(&Token::Static);
         let name = self.parse_method_name()?;
         let has_equal = self.eat(&Token::Equal);

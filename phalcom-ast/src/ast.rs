@@ -40,6 +40,15 @@ pub enum ClassMember {
     Method(MethodDef),
     Getter(GetterDef),
     Setter(SetterDef),
+    Construct(ConstructDef),
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstructDef {
+    pub name: String,
+    pub params: Vec<ParameterDef>,
+    pub body: Vec<Statement>,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]

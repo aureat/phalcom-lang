@@ -36,8 +36,9 @@ dNU forwarding, and (later) U9/spread — without corrupting U3's IC-ready dispa
 - **U5/U6 landed** — U8 doesn't depend on control-flow/absence semantically, but it **shares `vm.rs`,
   `compiler/lib.rs`, `core.ph`, `error.rs`** with the spine. Start U8's worktree from **post-U7 HEAD**;
   re-locate the miss site (§0) and the `core.ph` insertion point after their edits.
-- **U-LIST merged + green** (DEC-A resolved: a minimal kernel `List` lands before U8 — see §3). `List` is
-  a hard dep of `Message.args`/`labels` and `perform(_:List)`. **If U-LIST is not merged, STOP.**
+- **U-LIST merged + green** (DEC-A resolved: a minimal kernel `List` lands before U8 — full work order
+  [U-LIST-plan.md](U-LIST-plan.md)). `List` is a hard dep of `Message.args`/`labels` and
+  `perform(_:List)`. **If U-LIST is not merged, STOP.**
 - Baseline `./scripts/verify.sh` green on the worktree base. Runs in its **own worktree** off the Wave-F
   base (`git worktree add ../phalcom.worktrees/u8 feat/u8`) — do **not** share a tree with U9/U-STD.
 - Re-run `graphify affected "lookup_method"`, `graphify affected "call_method"`,
@@ -102,27 +103,25 @@ name string in `primitive/mod.rs:66`). U5/U6 do **not** provide it. **The user c
 (rest-params `*xs` collect into a `List`), so it is on the critical path regardless; doing it once, first,
 serves both.
 
-**New unit — U-LIST (prerequisite, schedule before U8; blocks U8 and U9):**
-- **STOP — storage design now gated on ADR ratification.** [ADR-0020](../adr/0020-kernel-list-native-array-protocol.md)
-  (kernel `List` is a native-array-backed protocol) pins the storage design below and
+**New unit — U-LIST (prerequisite, schedule before U8; blocks U8 and U9). Full work order:
+[U-LIST-plan.md](U-LIST-plan.md).** Summary:
+- **STOP — gated on ADR ratification.** [ADR-0020](../adr/0020-kernel-list-native-array-protocol.md)
+  (kernel `List` is a native-array-backed protocol) pins the storage design and
   [ADR-0019](../adr/0019-freeze-vm-blessed-primitive-floor.md) (freeze the VM-blessed primitive floor) is
   its dependency — both landed **2026-07-11** but are **Status: Proposed**, not Accepted. Mirrors U7's
   DEC-D→ADR-0017 gate: do not dispatch U-LIST implementation until the user ratifies both to Accepted.
-- **Scope (deliberately minimal, per ADR-0020 — no longer "implementer's call"):** a kernel `class List` in
-  `core.ph`, storage **pinned to a native growable array**: a Rust `Vec<Value>` behind the handle/arena
-  `Heap` (ADR-0009) — no `Rc`/`RefCell`, GC-ready like any other heap object. Six floor primitives:
-  allocate, length, indexed get, indexed set, push, raw-capacity grow. Everything else — `at(_:)`, `size`,
-  `add(_:)`, `each(_:)` (via block send — U4 blocks are landed), `toString` — is **ordinary `.ph` dispatched
-  over those six primitives**, per ADR-0020's "hybrid: native primitives, self-defined control"
-  (`OrderedCollection`-shape) design, load-ordered immediately above the VM-blessed floor, before
-  `Message.args`/rest-params. **No** map/reduce/filter/slicing/literals yet — those belong to the full
-  collections unit (U-STD). Just enough for `Message` + `perform` + U9 rest-params.
-- **Why not fold into U8:** keeps U8 a pure dispatch unit and gives U9 the same `List` without a second
-  build. If scheduling forbids a separate unit, the fallback is U8 option (b) — a minimal internal list it
-  ships and a later unit supersedes — but **(a) is the ratified path.**
-- **Collision note:** U-LIST edits `core.ph` + `primitive/mod.rs` (+ maybe a `list.rs` heap variant). It
-  must **not** co-schedule with another `core.ph` editor. Sequence it into the spine tail or a dedicated
-  slot immediately before Wave F.
+- **`List` is NOT technically gated on U7.** It is a native heap variant (`Object::List(ListObject)`,
+  reached via `Value::Obj(ObjRef)`) exactly like `String`/`Closure`/`Block` — not an `InstanceObject` built
+  on U7's slot layout, and needs no `construct`. It is created VM-blessed in `create_core_classes`, the
+  same way `Option`/`Bool` are (see U-LIST-plan §2/§3). **Only `core.ph`'s single-editor collision rule**
+  sequences it after U7 in the spine — not a genuine technical dependency. (`Message`, below, is the one
+  piece of U8 that *does* need U7's slots.)
+- **Scope (deliberately minimal, per ADR-0020):** six floor primitives (allocate, length, indexed get,
+  indexed set, push, grow) + a thin `.ph` protocol (`at(_:)`, `size`, `add(_:)`, `each(_:)`, `toString`).
+  **No** map/reduce/filter/slicing/literals — those belong to U-STD. Just enough for `Message` + `perform`
+  + U9 rest-params. Full design, write-set, build order, and test strategy: **[U-LIST-plan.md](U-LIST-plan.md)**.
+- **Collision note:** U-LIST edits `core.ph` + `primitive/mod.rs` (+ new `list.rs` heap variant). It must
+  **not** co-schedule with another `core.ph` editor — land after U7's `core.ph` commits, before U8/U9/U-STD.
 
 **U8 precondition (added):** confirm **U-LIST merged + green** before writing the `Message`/`perform`
 surface. If it is not, **STOP** — U8 is dependency-blocked, not a place to inline a list.

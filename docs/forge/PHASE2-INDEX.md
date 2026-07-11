@@ -18,7 +18,8 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 | U4 | [U4-plan.md](U4-plan.md) · **✅ LANDED** (see STATE.md) | first-class blocks/closures, Lua open/closed upvalues, frame-token infra | 0013/0006 · blocks.md | **✅ ran, caught stubbed runtime, fixed** |
 | U5 | [U5-plan.md](U5-plan.md) · **✅ LANDED** (see STATE.md) | control-flow-as-message + sacred-selector inliner w/ deopt guard | control-flow.md · **0018** | — (reviewer OFF per policy) |
 | U6 | [U6-plan.md](U6-plan.md) · **✅ LANDED** (see STATE.md) | absence → `Option`, `let`/`var`, no surface `nil`, `if(opt)` rejected | 0007/0014 · **0021** · values-and-absence.md | **✅ ran, BLOCKed on inlined≠non-inlined, fixed, PASSED** |
-| U7 | [U7-plan.md](U7-plan.md) | fixed instance slot layout + `construct` initializer | 0011 · classes.md | — |
+| U7 | [U7-plan.md](U7-plan.md) · **⏳ dispatched for implementation** | fixed instance slot layout + `construct` initializer | 0011 · classes.md | — |
+| U-LIST | [U-LIST-plan.md](U-LIST-plan.md) | minimal kernel `List` — native array floor + thin `.ph` protocol | 0019/0020 (**Proposed**) · messages/method-lookup | — |
 | U8 | [U8-plan.md](U8-plan.md) | `doesNotUnderstand(_:)` / `perform` + `SendDynamic` | 0012 · method-lookup.md | — |
 | U9 | [U9-plan.md](U9-plan.md) | variadics (rest params `*xs`, variadic dispatch table) | 0012amd · functions.md | — |
 | U10 | [U10-plan.md](U10-plan.md) | non-local return (`^` unwinds to home method via frame token) | 0013 · blocks.md §5 | — |

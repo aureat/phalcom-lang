@@ -78,6 +78,8 @@ pub enum Token {
     Not,
     /// The `static` keyword marking a class-side member.
     Static,
+    /// The `construct` keyword introducing an initializer definition (ADR-0011).
+    Construct,
 
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),

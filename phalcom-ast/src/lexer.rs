@@ -191,6 +191,7 @@ impl<'input> Lexer<'input> {
             "or" => Token::Or,
             "not" => Token::Not,
             "static" => Token::Static,
+            "construct" => Token::Construct,
             _ => Token::Identifier(slice.to_string()),
         }
     }
