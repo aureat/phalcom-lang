@@ -45,7 +45,8 @@ rather than silent: each data-bearing doc pins the commit it reflects.
   `core.ph`'s `Option` reopen gained `ifNone`/`orElse`/`isSome`/`isNone`. The
   transform/extract combinators (`ifSome`/`map`/`unwrapOr`/…) are re-scoped to
   U-STD (catalog-delta §2.2); the U-CORE-2 implementation spec covers only the
-  residue (absence invariants, `None`/`Some` surface `toString`).
+  residue (absence invariants). `None`/`Some` surface `toString` is **U-CORE-4's**,
+  per decisions.md §4.4 — not U-CORE-2's.
 - When a forge unit lands new floor primitives, kernel classes, or `.ph`
   protocol, re-baseline [`floor-census.md`](./floor-census.md) and
   [`catalog-delta.md`](./catalog-delta.md) and bump the pin. Recommended cadence:
@@ -76,15 +77,59 @@ analysis) all hang off it. Status of the planned set:
 prelude, Q5 collections, §4.1 `Method` superclass, §4.4 per-type `toString`) are
 ruled in [`decisions.md`](./decisions.md).
 
-Downstream implementation units (U-CORE-1 kernel reflection, U-CORE-2
-absence+Boolean, U-CORE-3 callables, U-CORE-4 value classes, U-CORE-5
-collection contract, U-CORE-6 errors) each get a dispatch-ready implementation
-spec (`U-CORE-N-implementation-spec.md`). These refine — and in places
-subsume — the older, coarser forge planning for `U-STD` (base-surface growth)
-and `U11` (Bool tower) tracked in
-[`../../forge/PHASE2-INDEX.md`](../../forge/PHASE2-INDEX.md); see each spec's
-"relationship to the forge spine" note.
+## Implementation specs (U-CORE-1…6)
 
-**Continuation:** [`HANDOFF.md`](./HANDOFF.md) is the paste-ready prompt for a
-fresh session to carry this work from here (finish #5–#7, close the gating
-decisions, author the per-unit implementation specs).
+Each downstream unit has a **dispatch-ready implementation spec** a
+`phalcom-implementer` can execute — grounded in the U-CORE-0 docs above, citing
+spec §/ADR, the native-vs-`.ph` split, the `_pending` tests it flips
+([`pending-retirement.md`](./pending-retirement.md) §4), the invariants it adds
+([`invariant-requirements.md`](./invariant-requirements.md)), and a
+[`forward-compat.md`](./forward-compat.md) "must not preclude" check. All six are
+authored:
+
+| Unit | Spec | Native floor Δ (from 73) | Flips directly |
+|---|---|---|---|
+| U-CORE-1 kernel reflection | [`U-CORE-1-implementation-spec.md`](./U-CORE-1-implementation-spec.md) | **+7** (`hash`×5 + `Behavior#name`/`methods`); `isA` is `.ph` | `metaclass_is_a` |
+| U-CORE-2 absence + Boolean | [`U-CORE-2-implementation-spec.md`](./U-CORE-2-implementation-spec.md) | **0** (bulk landed `0da64d6`; verify/harden) | — |
+| U-CORE-3 callables/Block | [`U-CORE-3-implementation-spec.md`](./U-CORE-3-implementation-spec.md) | **+5** (`methodFor`/`invokeOn`/`bind`/`signature`/`holder`) | — (all U-LEX-gated) |
+| U-CORE-4 value classes | [`U-CORE-4-implementation-spec.md`](./U-CORE-4-implementation-spec.md) | **+1** (`Number#toString`) | `absence_option_none`, `absence_var_defaults_to_none`, `binding_var_uninitialized` |
+| U-CORE-5 collection contract | [`U-CORE-5-implementation-spec.md`](./U-CORE-5-implementation-spec.md) | **0** (contract + `.ph` `List#==`/`!=`) | — (enables reduce/Map/Set) |
+| U-CORE-6 errors | [`U-CORE-6-implementation-spec.md`](./U-CORE-6-implementation-spec.md) | **+2** (`Error#message`/`raise`) | — (needs error-syntax) |
+
+These refine — and in places subsume — the older, coarser forge planning for
+`U-STD` (base-surface growth) and `U11` (Bool tower) tracked in
+[`../../forge/PHASE2-INDEX.md`](../../forge/PHASE2-INDEX.md).
+
+### Cross-spec integration notes (read before dispatching any unit)
+
+The six specs were authored in parallel; each states its delta from the **same
+base of 73**. An implementer must reconcile the following across units:
+
+1. **Floor deltas are cumulative.** If all land, the floor is `73 + 7 + 5 + 1 + 2
+   = 88`. Each spec's "73 → N" is a *delta from base*, not a running total. The
+   floor-census audit (R-INV-0.1) must bump in lockstep with each unit's installs.
+2. **Four ADR-0019 amendments are proposed** (U-CORE-1 `hash`/`Behavior`, U-CORE-3
+   Method reflection, U-CORE-4 `Number#toString`, U-CORE-6 `Error#message`/`raise`).
+   **Reconcile them into one omnibus ADR-0022** (or a sequential 0022–0025 block)
+   before the first unit lands — do not open four competing amendments to ADR-0019.
+3. **U-CORE-1 lands first** — it stands up the invariant substrate (R-INV-0.1…0.4)
+   the other units extend, and owns the `isA`+`hash` that **U-CORE-5 hard-depends
+   on** (its structural `List#==` type-guard needs `isA`).
+4. **U-CORE-1 and U-CORE-3 both edit `create_core_classes` and both do the §4.1
+   `Method < Function` re-parent** ("whichever lands first; the other asserts") —
+   they **must not share a parallel wave**.
+5. **U-CORE-4 and U-STD both touch `Value::to_string` / `core.ph`** — coordinate
+   the `core.ph` edit order (never co-schedule two `core.ph` editors). U-CORE-4
+   also re-pins **9 currently-green fixtures'** `.expected` (substrate → pretty
+   output) in the same change.
+6. **Reflection/error fixtures are U-LEX-gated:** U-CORE-3 and U-CORE-6's pending
+   flips need U-LEX surface syntax (`#…`, `::`, error sugar), so each sets its
+   acceptance on a **new** unit-local fixture in already-supported syntax
+   (pending-retirement §4).
+
+**Status:** The U-CORE-0 → implementation-spec work in [`HANDOFF.md`](./HANDOFF.md)
+is **done** — U-CORE-0 is 7/7, the gating decisions are ruled ([`decisions.md`](./decisions.md)),
+and all six U-CORE-1…6 implementation specs are authored (table above). The next
+session's job is **implementation**: reconcile the ADR-0019 amendment (note 2
+above), then dispatch the units to `phalcom-implementer` in dependency order
+(U-CORE-1 first), honoring the wave constraints in the cross-spec notes.
