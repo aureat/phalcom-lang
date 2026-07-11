@@ -1,3 +1,12 @@
+//! Abstract syntax tree produced by [`crate::parser`].
+//!
+//! These node types are the parser's output and the compiler's input. Every
+//! node carries a [`SourceRange`] so later phases can attach precise
+//! diagnostics. Surface absence is modelled as the `Option` type rather than a
+//! `nil` literal (ADR-0007): there is deliberately no `Expr::Nil` variant, and
+//! `??`/`?.` are desugared to ordinary `Option` message sends by the parser
+//! (see [`crate::parser`]).
+
 use phalcom_common::range::SourceRange;
 
 #[derive(Debug, Default)]
@@ -66,10 +75,36 @@ pub struct SetterDef {
     pub range: SourceRange,
 }
 
+/// Whether a binding is immutable (`let`) or mutable (`var`).
+///
+/// Per ADR-0014: a `let` binding cannot be reassigned (reassignment is a
+/// compile error) and requires an initializer, whereas a `var` binding is
+/// mutable and may be declared without one — an uninitialized `var` reads the
+/// surface `None` value (ADR-0007). Enforcement of these rules lives in the
+/// compiler; the AST only records which form was written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingKind {
+    /// An immutable `let` binding.
+    Let,
+    /// A mutable `var` binding.
+    Var,
+}
+
+/// A `let`/`var` name binding, optionally with an initializer.
+///
+/// The [`kind`](LetBinding::kind) distinguishes the immutable `let` form from
+/// the mutable `var` form (ADR-0014). A missing [`value`](LetBinding::value)
+/// means no initializer was written; the compiler rejects that for `let` and
+/// surfaces `None` for `var`.
 #[derive(Debug, Clone)]
 pub struct LetBinding {
+    /// Whether this is an immutable `let` or a mutable `var` binding.
+    pub kind: BindingKind,
+    /// The bound name.
     pub name: String,
+    /// The initializer expression, or `None` if the binding has no `= expr`.
     pub value: Option<Expr>,
+    /// The source span covering the whole binding statement.
     pub range: SourceRange,
 }
 
@@ -84,7 +119,6 @@ pub enum Expr {
     Number { value: f64, range: SourceRange },
     String { value: String, range: SourceRange },
     Boolean { value: bool, range: SourceRange },
-    Nil { range: SourceRange },
     Var { value: String, range: SourceRange },
     Field { value: String, range: SourceRange },
     SelfVar { range: SourceRange },
@@ -110,7 +144,6 @@ impl Expr {
             Expr::Number { range, .. }
             | Expr::String { range, .. }
             | Expr::Boolean { range, .. }
-            | Expr::Nil { range }
             | Expr::Var { range, .. }
             | Expr::Field { range, .. }
             | Expr::SelfVar { range }

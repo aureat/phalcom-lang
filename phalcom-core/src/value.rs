@@ -224,6 +224,34 @@ impl Value {
     }
 }
 
+/// Surfaces the private [`Value::Nil`] sentinel as the `None` singleton.
+///
+/// This is the **read-boundary surfacer** of U6's absence model: the private
+/// `Value::Nil` sentinel ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md))
+/// backs uninitialized slots internally but must never reach user code
+/// (Invariant 4, `values-and-absence.md`). Every read boundary that can observe
+/// an unwritten slot — an uninitialized `var` read, an unassigned field read, a
+/// bare-`return` default, a method falling off its end — routes the value
+/// through here so the sentinel is replaced by the shared `None` object
+/// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)); any non-sentinel
+/// value passes through unchanged.
+///
+/// `none_singleton` is the handle to the process-wide `None` instance
+/// ([`crate::universe::CoreClasses::none_singleton`]); passing the same handle
+/// everywhere keeps `None` identity-comparable and zero-allocation
+/// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)
+/// mirror). There is intentionally **no** public constructor that yields
+/// [`Value::Nil`]: surfacing is one-directional (sentinel → `None`), never the
+/// reverse, so `None` can never end up inside a `Some`.
+#[inline]
+#[must_use]
+pub fn sentinel_to_option(value: Value, none_singleton: ObjRef) -> Value {
+    match value {
+        Value::Nil => Value::Obj(none_singleton),
+        other => other,
+    }
+}
+
 /// Returns the surface literal (`"true"` / `"false"`) for a boolean.
 fn bool_literal(b: bool) -> &'static str {
     if b { "true" } else { "false" }

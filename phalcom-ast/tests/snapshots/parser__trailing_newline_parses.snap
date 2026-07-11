@@ -6,6 +6,7 @@ Program {
     statements: [
         Let(
             LetBinding {
+                kind: Let,
                 name: "x",
                 value: Some(
                     Number {

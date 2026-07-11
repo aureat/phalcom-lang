@@ -16,7 +16,7 @@
 //! closes at an 8-row apex instead of collapsing `Metaclass`/`Class` into
 //! their own metaclasses (F6).
 
-use crate::heap::{ClassId, Heap};
+use crate::heap::{ClassId, Heap, ObjRef};
 use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
@@ -25,7 +25,7 @@ use crate::primitive::block::{block_arity, block_call, block_call_with, block_na
 use crate::primitive::class::{class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::method::method_class_new;
 use crate::primitive::module::module_class_new;
-use crate::primitive::nil::nil_class_new;
+use crate::primitive::nil::{option_match, some_new};
 use crate::primitive::number::{
     number_add, number_class_new, number_div, number_ge, number_gt, number_le, number_lt, number_mod, number_mul, number_negated, number_sub,
 };
@@ -136,6 +136,22 @@ impl Universe {
         let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
         let system_class = make_core_class(heap, "System", object_class, metaclass_class);
 
+        // The absence type (ADR-0007): `Option` is abstract, with concrete
+        // subclasses `Some` (one field, `_value`) and `None`. This mirrors the
+        // abstract-`Bool` / `True`-`False` shape (ADR-0004): dispatch, not a
+        // variant tag, distinguishes present from absent. There is no surface
+        // `nil` class — the private `Value::Nil` sentinel (ADR-0010) is surfaced
+        // to `None` at read boundaries and can never be produced by user code.
+        let option_class = make_core_class(heap, "Option", object_class, metaclass_class);
+        let some_class = make_core_class(heap, "Some", option_class, metaclass_class);
+        let none_class = make_core_class(heap, "None", option_class, metaclass_class);
+
+        // The single shared `None`: one heap instance, reused everywhere so
+        // `None` is identity-comparable and zero-allocation. The `None` global
+        // (bound in `VM::install_core`) points at *this* object, not the `None`
+        // class.
+        let none_singleton = heap.alloc(crate::heap::Object::Instance(crate::instance::InstanceObject::new(none_class)));
+
         CoreClasses {
             object_class,
             behavior_class,
@@ -151,6 +167,10 @@ impl Universe {
             symbol_class,
             module_class,
             system_class,
+            option_class,
+            some_class,
+            none_class,
+            none_singleton,
         }
     }
 
@@ -250,11 +270,28 @@ impl Universe {
         primitive!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
         primitive_static!(vm, symbol_cls, "new", SignatureKind::Method(1), symbol_class_new);
 
-        let nil_cls = vm.universe.classes.nil_class;
-        primitive_static!(vm, nil_cls, "new", SignatureKind::Method(0), nil_class_new);
+        // Absence substrate (ADR-0007): `Some(_)` construction and the
+        // `match(some:none:)` eliminator. Bootstrapped as Rust primitives so U6
+        // does not depend on U7's user-facing `construct`. The rich combinator
+        // suite (`map`/`flatMap`/`orElse`/…) is U-STD's job, defined over
+        // `match` in `core.ph`. There is intentionally no surface `Nil` class or
+        // `nil` constructor — the private `Value::Nil` sentinel (ADR-0010) is
+        // surfaced to `None` at read boundaries only.
+        let some_cls = vm.universe.classes.some_class;
+        primitive_static!(vm, some_cls, "new", SignatureKind::Method(1), some_new);
 
-        let bool_cls = vm.universe.classes.bool_class;
-        primitive_static!(vm, bool_cls, "new", SignatureKind::Method(1), nil_class_new);
+        // `match(some:none:)` is installed on the abstract `Option` class so
+        // both `Some` and `None` inherit it (values-and-absence.md §3.2). Both
+        // arguments are labeled, so `make_signature` (label-free) can't build
+        // the selector; encode it explicitly like `ifTrue(_:ifFalse:)`.
+        let option_cls = vm.universe.classes.option_class;
+        {
+            let sig_str = crate::method::encode_selector("match", &[Some("some".to_string()), Some("none".to_string())], SignatureKind::Method(2));
+            let symbol = vm.get_or_intern(&sig_str);
+            let method = MethodObject::new_primitive(symbol, SignatureKind::Method(2), option_match, option_cls);
+            let method_id = vm.heap.alloc(crate::heap::Object::Method(method));
+            vm.heap.class_mut(option_cls).add_method(symbol, method_id);
+        }
 
         let method_cls = vm.universe.classes.method_class;
         primitive_static!(vm, method_cls, "new", SignatureKind::Method(1), method_class_new);
@@ -445,4 +482,21 @@ pub struct CoreClasses {
     pub module_class: ClassId,
     /// `System`.
     pub system_class: ClassId,
+    /// `Option`, the abstract absence type
+    /// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)); superclass of
+    /// `Some` and `None`, and holder of the `match(some:none:)` eliminator.
+    pub option_class: ClassId,
+    /// `Some`, the present-value `Option` subclass (one field, `_value`).
+    pub some_class: ClassId,
+    /// `None`, the absent-value `Option` subclass. Its sole instance is
+    /// [`Self::none_singleton`].
+    pub none_class: ClassId,
+    /// The single shared `None` object (an instance of [`Self::none_class`]).
+    ///
+    /// Reused for every surfaced absence so `None` is identity-comparable and
+    /// zero-allocation ([ADR-0007](../../../docs/adr/0007-option-some-none.md));
+    /// [`sentinel_to_option`](crate::value::sentinel_to_option) hands back a
+    /// [`Value::Obj`](crate::value::Value::Obj) over this handle, and the `None`
+    /// global (`VM::install_core`) is bound to it.
+    pub none_singleton: ObjRef,
 }

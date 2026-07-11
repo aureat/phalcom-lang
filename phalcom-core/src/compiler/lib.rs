@@ -19,9 +19,10 @@ use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_ast::ast::{BinaryOp, BlockExpr, ClassMember, Expr, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, Program, Statement, UnaryOp};
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::{EmptySourceRange, SourceRange};
+use std::collections::HashSet;
 use thiserror::Error;
 use tracing::debug;
 
@@ -39,6 +40,37 @@ pub enum CompilerError {
     /// An assignment whose left-hand side is not an assignable target.
     #[error("Invalid assignment target.")]
     InvalidAssignmentTarget,
+
+    /// A reassignment of a `let`-bound name (local, upvalue or global).
+    ///
+    /// `let` bindings are immutable per
+    /// [ADR-0014](../../../docs/adr/0014-let-var-bindings.md); only `var`
+    /// bindings may be reassigned. The offending name is carried for the
+    /// diagnostic.
+    #[error("Cannot reassign immutable `let` binding '{0}'; declare it with `var` to allow mutation.")]
+    AssignToImmutable(String),
+
+    /// A `let` binding written without an initializer.
+    ///
+    /// `let x` with no `= expr` is rejected at compile time
+    /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)); an
+    /// uninitialized binding must use `var x`, which reads the surface `None`
+    /// value ([ADR-0007](../../../docs/adr/0007-option-type.md)). The offending
+    /// name is carried for the diagnostic.
+    #[error("`let` binding '{0}' requires an initializer; use `var {0}` for an uninitialized binding.")]
+    LetWithoutInitializer(String),
+
+    /// A branch condition that is a syntactically detectable `Option` literal.
+    ///
+    /// `Option` has no truth value: `if (None)`, `if (Some.new(x))` and the
+    /// like are compile errors, and any non-`Bool` condition is a hard runtime
+    /// type error (no coercion). Reach through `.isSome`/`.isNone` or use
+    /// `ifSome`/`ifNone` instead
+    /// ([ADR-0007](../../../docs/adr/0007-option-type.md),
+    /// values-and-absence §3.5; BD-U6-1 enforcement = typed branch +
+    /// literal-only compile check).
+    #[error("An `Option` value has no truth value; use `.isSome`/`.isNone` or `ifSome`/`ifNone` instead of a boolean condition.")]
+    OptionTruthiness,
 
     /// A syntax error surfaced from the front-end parser.
     #[error(transparent)]
@@ -71,6 +103,13 @@ struct Local {
     /// the enclosing frame to close (heap-promote) it on scope exit
     /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
     is_captured: bool,
+    /// Whether the binding may be reassigned.
+    ///
+    /// `let` locals are immutable (`false`); `var` locals, method parameters
+    /// and the receiver slot are mutable (`true`). The assignment path rejects
+    /// a store to an immutable local
+    /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)).
+    is_mutable: bool,
 }
 
 /// The mutable per-function compilation state for one closure body.
@@ -117,6 +156,14 @@ pub(crate) struct Compiler<'vm> {
     /// literal pushes a new state, compiles into it, and pops it; upvalue
     /// resolution indexes into this stack rather than following raw pointers.
     pub(crate) functions: Vec<FunctionState>,
+    /// Names bound by an immutable module-level `let`.
+    ///
+    /// Module-level bindings become globals rather than stack locals
+    /// ([`Bytecode::DefineGlobal`]), so [`Self::functions`] never sees them and
+    /// cannot record their mutability. This set lets the assignment path reject
+    /// a store to a `let` global at compile time
+    /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)).
+    immutable_globals: HashSet<Symbol>,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -125,6 +172,7 @@ impl<'vm> Compiler<'vm> {
             vm,
             module,
             functions: vec![FunctionState::new()],
+            immutable_globals: HashSet::new(),
         }
     }
 
@@ -187,10 +235,16 @@ impl<'vm> Compiler<'vm> {
         }
     }
 
-    fn add_local(&mut self, name: Symbol) {
+    /// Declares a new local named `name` in the current function.
+    ///
+    /// `is_mutable` records whether the binding may later be reassigned: `var`
+    /// locals (and the synthetic receiver/parameter slots) pass `true`, while
+    /// `let` locals pass `false` so the assignment path can reject stores to
+    /// them ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)).
+    fn add_local(&mut self, name: Symbol, is_mutable: bool) {
         let func = self.functions.last_mut().unwrap();
         debug!("[Compiler] Adding local at depth {}", func.scope_depth);
-        func.locals.push(Local { name, depth: func.scope_depth, is_captured: false });
+        func.locals.push(Local { name, depth: func.scope_depth, is_captured: false, is_mutable });
         func.num_locals += 1;
         if func.num_locals > func.max_slots {
             func.max_slots = func.num_locals;
@@ -208,6 +262,7 @@ impl<'vm> Compiler<'vm> {
         let func = &self.functions[func_idx];
         (0..func.num_locals).rev().find(|&i| func.locals[i].name == name)
     }
+
 
     /// Resolves `name` as an upvalue captured by the current function.
     ///
@@ -289,15 +344,15 @@ impl<'vm> Compiler<'vm> {
 
         if is_method {
             // Slot 0 holds the receiver `self`.
-            self.add_local(self_sym);
+            self.add_local(self_sym, true);
         } else {
             // Slot 0 holds the block object itself (blocks reach `self` via an
             // upvalue, functions.md §2), so we reserve it with a dummy local.
-            self.add_local(dummy_sym);
+            self.add_local(dummy_sym, true);
         }
 
         for param_sym in param_symbols {
-            self.add_local(param_sym);
+            self.add_local(param_sym, true);
         }
 
         let len = statements.len();
@@ -386,21 +441,38 @@ impl<'vm> Compiler<'vm> {
             }
             Statement::Let(binding) => {
                 let range = binding.range;
+                // `var` is mutable and may be left uninitialized; `let` is
+                // immutable and *requires* an initializer (ADR-0014).
+                let mutable = matches!(binding.kind, BindingKind::Var);
 
-                if let Some(expr) = binding.value {
-                    self.compile_expr(expr)?;
-                } else {
-                    self.emit(Bytecode::Nil, range);
+                match binding.value {
+                    Some(expr) => self.compile_expr(expr)?,
+                    None => {
+                        if !mutable {
+                            // `let x` with no initializer is a compile error.
+                            return Err(CompilerError::LetWithoutInitializer(binding.name));
+                        }
+                        // `var x` with no initializer is backed by the private
+                        // `nil` sentinel; the VM surfaces every read of that
+                        // slot as the surface `None` value (ADR-0007/ADR-0010).
+                        self.emit(Bytecode::Nil, range);
+                    }
                 }
 
                 let name_sym = self.vm.interner.intern(&binding.name);
                 if self.functions.last().unwrap().scope_depth > 0 {
-                    // Local variable
-                    self.add_local(name_sym);
+                    // Local variable — record its mutability for the
+                    // assignment path (ADR-0014).
+                    self.add_local(name_sym, mutable);
                     let slot = self.functions.last().unwrap().num_locals - 1;
                     self.emit(Bytecode::SetLocal(slot as u16), range);
                 } else {
-                    // Global variable
+                    // Module-level (global) variable. Globals never appear in
+                    // `functions`, so an immutable `let` is tracked in a
+                    // side set the assignment path consults (ADR-0014).
+                    if !mutable {
+                        self.immutable_globals.insert(name_sym);
+                    }
                     let name_idx = self.add_constant(Value::Symbol(name_sym));
                     self.emit(Bytecode::DefineGlobal(name_idx), range);
                 }
@@ -535,7 +607,21 @@ impl<'vm> Compiler<'vm> {
                 // *non*-literal block argument — falls through unchanged.
                 let range = method_call.range;
                 match inliner::recognize(*method_call) {
-                    Ok(sacred) => return self.compile_sacred_call(sacred, range),
+                    Ok(sacred) => {
+                        // BD-U6-1 (ADR-0007, values-and-absence §3.5): a
+                        // conditional's condition that is a syntactically
+                        // detectable `Option` literal (`if (None) { … }`,
+                        // `if (Some.new(x)) { … }`, `None and …`) is a compile
+                        // error — `Option` has no truth value. General
+                        // non-`Bool` conditions are a hard runtime type error
+                        // via the branch opcode's `Bool` requirement.
+                        if let Some(condition) = branch_condition_of(&sacred)
+                            && is_option_literal(condition)
+                        {
+                            return Err(CompilerError::OptionTruthiness);
+                        }
+                        return self.compile_sacred_call(sacred, range);
+                    }
                     Err(method_call) => {
                         self.compile_expr(method_call.object)?;
                         for arg in &method_call.args {
@@ -580,9 +666,6 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::False, range);
                 }
             }
-            Expr::Nil { range } => {
-                self.emit(Bytecode::Nil, range);
-            }
             Expr::Var { value, range } => {
                 let name_sym = self.vm.interner.intern(&value);
                 if let Some(slot) = self.resolve_local(name_sym) {
@@ -603,13 +686,30 @@ impl<'vm> Compiler<'vm> {
             Expr::Assignment(assign_expr) => {
                 match *assign_expr.name {
                     Expr::Var { value, range } => {
-                        self.compile_expr(assign_expr.value)?;
                         let name_sym = self.vm.interner.intern(&value);
+                        // Enforce `let` immutability (ADR-0014) before
+                        // evaluating the RHS. Resolution order mirrors the
+                        // emit order below: current-function local, then an
+                        // enclosing captured local (upvalue), then a global.
                         if let Some(slot) = self.resolve_local(name_sym) {
+                            if !self.functions.last().unwrap().locals[slot].is_mutable {
+                                return Err(CompilerError::AssignToImmutable(value));
+                            }
+                            self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetLocal(slot as u16), range);
                         } else if let Some(upvalue) = self.resolve_upvalue(name_sym) {
+                            // NOTE: reassignment of a *captured* `let` (an outer
+                            // binding reached through an upvalue) is not yet
+                            // rejected here — U6's stated scope is the
+                            // current-function local and the module global.
+                            // Tracked in DEFERRED.md.
+                            self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetUpvalue(upvalue as u16), range);
                         } else {
+                            if self.immutable_globals.contains(&name_sym) {
+                                return Err(CompilerError::AssignToImmutable(value));
+                            }
+                            self.compile_expr(assign_expr.value)?;
                             let name_idx = self.add_constant(Value::Symbol(name_sym));
                             self.emit(Bytecode::SetGlobal(name_idx), range);
                         }
@@ -641,10 +741,18 @@ impl<'vm> Compiler<'vm> {
                 let range = binary_expr.range;
                 match binary_expr.op {
                     BinaryOp::And => {
+                        // The left operand is a branch condition (control-flow
+                        // .md §2); reject a literal `Option` there (BD-U6-1).
+                        if is_option_literal(&binary_expr.left) {
+                            return Err(CompilerError::OptionTruthiness);
+                        }
                         let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
                         return self.compile_sacred_call(inliner::SacredCall::And { receiver: binary_expr.left, rhs_block }, range);
                     }
                     BinaryOp::Or => {
+                        if is_option_literal(&binary_expr.left) {
+                            return Err(CompilerError::OptionTruthiness);
+                        }
                         let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
                         return self.compile_sacred_call(inliner::SacredCall::Or { receiver: binary_expr.left, rhs_block }, range);
                     }
@@ -693,6 +801,48 @@ impl<'vm> Compiler<'vm> {
               // }
         }
         Ok(())
+    }
+}
+
+/// Returns the branch-condition sub-expression of a recognized [`SacredCall`],
+/// or `None` for the forms whose condition is a block rather than a plain
+/// expression (`whileTrue`).
+///
+/// The condition is the receiver of the inlined conditional/short-circuit
+/// selectors (`ifTrue:`/`ifFalse:`/`ifTrue:ifFalse:`/`and:`/`or:`); it is the
+/// value the branch opcode tests, so it is exactly where the "no `Option`
+/// truthiness" rule applies (BD-U6-1, values-and-absence §3.5).
+fn branch_condition_of(sacred: &inliner::SacredCall) -> Option<&Expr> {
+    match sacred {
+        inliner::SacredCall::IfTrue { receiver, .. }
+        | inliner::SacredCall::IfFalse { receiver, .. }
+        | inliner::SacredCall::IfTrueIfFalse { receiver, .. }
+        | inliner::SacredCall::And { receiver, .. }
+        | inliner::SacredCall::Or { receiver, .. } => Some(receiver),
+        inliner::SacredCall::WhileTrue { .. } => None,
+    }
+}
+
+/// Reports whether `expr` is a syntactically detectable `Option` literal.
+///
+/// Matches the surface forms of the two `Option` cases that carry no truth
+/// value ([ADR-0007](../../../docs/adr/0007-option-type.md)):
+///
+/// - the `None` singleton, which lexes to `Var { value: "None" }`; and
+/// - a `Some.new(…)` construction — an [`Expr::MethodCall`] of `new` on the
+///   `Some` class (Phalcom has no bare `Some(x)` call syntax, so construction
+///   is always the explicit static `Some.new(x)` send).
+///
+/// This is the literal-only half of BD-U6-1's `if (opt)` compile check; every
+/// non-literal, non-`Bool` condition is caught at runtime by the branch
+/// opcode's `Bool` requirement.
+fn is_option_literal(expr: &Expr) -> bool {
+    match expr {
+        Expr::Var { value, .. } => value == "None",
+        Expr::MethodCall(call) => {
+            call.method == "new" && matches!(&call.object, Expr::Var { value, .. } if value == "Some")
+        }
+        _ => false,
     }
 }
 

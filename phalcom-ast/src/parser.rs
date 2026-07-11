@@ -21,7 +21,7 @@
 //!
 //! ## Source spans
 //!
-//! Every AST node carries a [`SourceRange`](phalcom_common::range::SourceRange).
+//! Every AST node carries a [`SourceRange`].
 //! A production spans from the start byte of its first token to the end byte of
 //! its last consumed token, reproducing LALRPOP's `@L`/`@R` location semantics
 //! so existing AST snapshots stay stable.
@@ -42,6 +42,7 @@ use crate::ast::*;
 use crate::error::{SyntaxError, SyntaxErrorKind};
 use crate::lexer::Lexer;
 use crate::token::{LexicalError, Token};
+use phalcom_common::range::SourceRange;
 
 /// Result of parsing a Phalcom source string with error recovery.
 ///
@@ -385,7 +386,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Let | Token::Return => return,
+                Token::Class | Token::Let | Token::Var | Token::Return => return,
                 _ => {
                     self.advance();
                 }
@@ -401,21 +402,27 @@ impl<'source> Parser<'source> {
     /// Propagates any error from the underlying statement parser.
     fn parse_small_statement(&mut self) -> ParserResult<Statement> {
         match self.peek() {
-            Token::Let => self.parse_let(),
+            Token::Let => self.parse_binding(BindingKind::Let),
+            Token::Var => self.parse_binding(BindingKind::Var),
             Token::Return => self.parse_return(),
             _ => self.parse_expr_statement(),
         }
     }
 
-    /// Parses a `let name (= expr)?` binding.
+    /// Parses a `let`/`var` binding: `<kw> name (= expr)?`.
+    ///
+    /// `kind` records whether the `let` or `var` keyword was consumed
+    /// (ADR-0014); the caller has already confirmed the current token matches.
+    /// Mutability and missing-initializer rules are enforced later by the
+    /// compiler, not here.
     ///
     /// # Errors
     ///
     /// Returns an error if the binding name is missing or the initialiser
     /// expression is malformed.
-    fn parse_let(&mut self) -> ParserResult<Statement> {
+    fn parse_binding(&mut self, kind: BindingKind) -> ParserResult<Statement> {
         let start = self.cur_start();
-        self.advance(); // 'let'
+        self.advance(); // 'let' or 'var'
         let name = self.expect_identifier(&["identifier"])?;
         let value = if self.eat(&Token::Equal) {
             Some(self.parse_expr()?)
@@ -423,7 +430,12 @@ impl<'source> Parser<'source> {
             None
         };
         let range = (start..self.prev_end).into();
-        Ok(Statement::Let(LetBinding { name, value, range }))
+        Ok(Statement::Let(LetBinding {
+            kind,
+            name,
+            value,
+            range,
+        }))
     }
 
     /// Parses a `return expr?` statement.
@@ -463,7 +475,6 @@ impl<'source> Parser<'source> {
                 | Token::String(_)
                 | Token::True
                 | Token::False
-                | Token::Nil
                 | Token::Identifier(_)
                 | Token::SelfKw
                 | Token::Super
@@ -731,7 +742,7 @@ impl<'source> Parser<'source> {
     /// Propagates any error from the operand expressions.
     fn parse_assignment(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
-        let left = self.parse_binary(1)?;
+        let left = self.parse_coalesce()?;
 
         if let Some(op) = compound_op(self.peek()) {
             self.advance();
@@ -770,6 +781,73 @@ impl<'source> Parser<'source> {
         }
 
         Ok(left)
+    }
+
+    /// Parses a `??` null-coalescing chain (right-associative), desugaring to
+    /// `Option` sends.
+    ///
+    /// `??` binds looser than every arithmetic/comparison operator but tighter
+    /// than assignment ([lexical-structure §9](../../docs/spec/lexical-structure.md)).
+    /// It is **right-associative**, so `a ?? b ?? c` groups as `a ?? (b ?? c)`,
+    /// and its right operand is short-circuiting. Per ADR-0007 / values-and-absence
+    /// §3.4, `a ?? b` desugars directly to the message send `a.orElse { b }`
+    /// (an [`Expr::MethodCall`] whose sole argument is a zero-parameter
+    /// [`Expr::Block`] wrapping `b`), so no dedicated AST node is needed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from the operand expressions.
+    fn parse_coalesce(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        let left = self.parse_binary(1)?;
+        if matches!(self.peek(), Token::CoalesceQuestion) {
+            self.advance(); // '??'
+            // Right-associative: recurse so `a ?? b ?? c` is `a ?? (b ?? c)`.
+            let right = self.parse_coalesce()?;
+            let range = (start..self.prev_end).into();
+            let block = self.wrap_block_thunk(right, range);
+            return Ok(Expr::MethodCall(Box::new(MethodCallExpr {
+                object: left,
+                method: "orElse".to_string(),
+                args: vec![Argument {
+                    label: None,
+                    expr: block,
+                    range,
+                }],
+                range,
+            })));
+        }
+        Ok(left)
+    }
+
+    /// Wraps `expr` in a zero-parameter block literal `{ expr }`, used to build
+    /// the thunk operand of a `??` desugar (`a.orElse { b }`).
+    ///
+    /// The block has [`BlockExpr::expr_body`] set so `expr` becomes its result
+    /// value; `range` spans the desugared construct.
+    fn wrap_block_thunk(&self, expr: Expr, range: SourceRange) -> Expr {
+        Expr::Block(Box::new(BlockExpr {
+            params: Vec::new(),
+            body: vec![Statement::Expr { expr, range }],
+            expr_body: true,
+            range,
+        }))
+    }
+
+    /// Wraps `body` in a single-parameter block literal `{ <param> => body }`,
+    /// used to build the mapper operand of a `?.` desugar
+    /// (`opt.map { x => x.m(..) }`).
+    ///
+    /// `param` is the synthetic receiver name that `body` references; it is not
+    /// user-writable so it can never capture or shadow a source variable.
+    /// `range` spans the desugared construct.
+    fn wrap_block_mapper(&self, param: String, body: Expr, range: SourceRange) -> Expr {
+        Expr::Block(Box::new(BlockExpr {
+            params: vec![param],
+            body: vec![Statement::Expr { expr: body, range }],
+            expr_body: true,
+            range,
+        }))
     }
 
     /// Parses a binary-operator expression at or above precedence `min_prec`,
@@ -834,8 +912,13 @@ impl<'source> Parser<'source> {
     fn parse_call(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         let mut expr = self.parse_primary()?;
-        while matches!(self.peek(), Token::Dot | Token::LParen | Token::LBrace) {
-            if self.eat(&Token::Dot) {
+        while matches!(
+            self.peek(),
+            Token::Dot | Token::QuestionDot | Token::LParen | Token::LBrace
+        ) {
+            if self.eat(&Token::QuestionDot) {
+                expr = self.parse_optional_send(expr, start)?;
+            } else if self.eat(&Token::Dot) {
                 let property = self.parse_property_name()?;
                 if self.eat(&Token::LParen) {
                     let args = self.parse_arg_list()?;
@@ -899,6 +982,62 @@ impl<'source> Parser<'source> {
             }
         }
         Ok(expr)
+    }
+
+    /// Desugars a `?.` optional send over `object`, given the enclosing
+    /// expression's `start` offset.
+    ///
+    /// Per ADR-0007 / values-and-absence §3.4, `opt?.foo` desugars to
+    /// `opt.map { x => x.foo }` and `opt?.bar(a)` to `opt.map { x => x.bar(a) }`.
+    /// The mapper block's parameter is a synthetic, non-user-writable receiver
+    /// name, so the inner send can never capture a source variable. Chained
+    /// `?.` left-associates through [`Parser::parse_call`], so the first `None`
+    /// short-circuits the rest.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from the property name or argument list.
+    fn parse_optional_send(&mut self, object: Expr, start: usize) -> ParserResult<Expr> {
+        // A synthetic receiver name. The leading space is not lexable as an
+        // identifier, so it cannot collide with any user-written variable.
+        let recv_name = " recv".to_string();
+        let property = self.parse_property_name()?;
+        let inner = if self.eat(&Token::LParen) {
+            let args = self.parse_arg_list()?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            let range = (start..self.prev_end).into();
+            Expr::MethodCall(Box::new(MethodCallExpr {
+                object: Expr::Var {
+                    value: recv_name.clone(),
+                    range,
+                },
+                method: property,
+                args,
+                range,
+            }))
+        } else {
+            let range = (start..self.prev_end).into();
+            Expr::GetProperty(Box::new(GetPropertyExpr {
+                object: Expr::Var {
+                    value: recv_name.clone(),
+                    range,
+                },
+                property,
+                range,
+            }))
+        };
+        let range = (start..self.prev_end).into();
+        let mapper = self.wrap_block_mapper(recv_name, inner, range);
+        Ok(Expr::MethodCall(Box::new(MethodCallExpr {
+            object,
+            method: "map".to_string(),
+            args: vec![Argument {
+                label: None,
+                expr: mapper,
+                range,
+            }],
+            range,
+        })))
     }
 
     /// Parses a property name after `.`: an identifier or the `class` keyword.
@@ -1064,10 +1203,6 @@ impl<'source> Parser<'source> {
         match self.peek().clone() {
             Token::If => self.parse_if(),
             Token::While => self.parse_while(),
-            Token::Nil => {
-                self.advance();
-                Ok(Expr::Nil { range })
-            }
             Token::True => {
                 self.advance();
                 Ok(Expr::Boolean { value: true, range })
@@ -1297,5 +1432,157 @@ mod tests {
     fn parse_error_exits_with_first_error() {
         let err = parse_source("let = )", 0).unwrap_err();
         assert_eq!(err.range, 4..5);
+    }
+
+    /// Returns the single statement of a program that must parse cleanly.
+    fn only_statement(src: &str) -> Statement {
+        let result = parse(src, 0);
+        assert!(result.errors.is_empty(), "unexpected errors: {:?}", result.errors);
+        assert_eq!(result.program.statements.len(), 1);
+        result.program.statements.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn let_binding_records_immutable_kind() {
+        let Statement::Let(binding) = only_statement("let x = 1") else {
+            panic!("expected a let binding");
+        };
+        assert_eq!(binding.kind, BindingKind::Let);
+        assert_eq!(binding.name, "x");
+        assert!(binding.value.is_some());
+    }
+
+    #[test]
+    fn var_binding_records_mutable_kind() {
+        let Statement::Let(binding) = only_statement("var x") else {
+            panic!("expected a var binding");
+        };
+        assert_eq!(binding.kind, BindingKind::Var);
+        assert_eq!(binding.name, "x");
+        // `var x` has no initializer; the compiler surfaces this as `None`.
+        assert!(binding.value.is_none());
+    }
+
+    #[test]
+    fn surface_nil_parses_as_a_plain_variable() {
+        // ADR-0007: `nil` is no longer a keyword/literal — it lexes as an
+        // ordinary identifier, which the compiler later rejects as undefined.
+        let Statement::Expr { expr, .. } = only_statement("nil") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::Var { value, .. } = expr else {
+            panic!("expected `nil` to parse as a variable reference, got {expr:?}");
+        };
+        assert_eq!(value, "nil");
+    }
+
+    #[test]
+    fn coalesce_desugars_to_or_else_over_a_block() {
+        // `a ?? b` ≡ `a.orElse { b }` (ADR-0007, values-and-absence §3.4).
+        let Statement::Expr { expr, .. } = only_statement("a ?? b") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::MethodCall(call) = expr else {
+            panic!("expected a method call, got {expr:?}");
+        };
+        assert_eq!(call.method, "orElse");
+        assert!(matches!(call.object, Expr::Var { .. }));
+        assert_eq!(call.args.len(), 1);
+        let Expr::Block(block) = &call.args[0].expr else {
+            panic!("expected a block thunk argument");
+        };
+        assert!(block.params.is_empty());
+        assert!(block.expr_body);
+    }
+
+    #[test]
+    fn coalesce_is_right_associative() {
+        // `a ?? b ?? c` ≡ `a ?? (b ?? c)`: the block thunk holds another
+        // `orElse` send.
+        let Statement::Expr { expr, .. } = only_statement("a ?? b ?? c") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::MethodCall(outer) = expr else {
+            panic!("expected an outer method call");
+        };
+        assert_eq!(outer.method, "orElse");
+        let Expr::Block(thunk) = &outer.args[0].expr else {
+            panic!("expected a block thunk");
+        };
+        let Statement::Expr { expr: inner, .. } = &thunk.body[0] else {
+            panic!("expected an expression in the thunk body");
+        };
+        let Expr::MethodCall(inner_call) = inner else {
+            panic!("expected the thunk to hold a nested orElse send, got {inner:?}");
+        };
+        assert_eq!(inner_call.method, "orElse");
+    }
+
+    #[test]
+    fn optional_property_desugars_to_map_over_a_getter() {
+        // `opt?.foo` ≡ `opt.map { <recv> => <recv>.foo }` (values-and-absence §3.4).
+        let Statement::Expr { expr, .. } = only_statement("opt?.foo") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::MethodCall(call) = expr else {
+            panic!("expected a map send, got {expr:?}");
+        };
+        assert_eq!(call.method, "map");
+        let Expr::Block(block) = &call.args[0].expr else {
+            panic!("expected a mapper block");
+        };
+        assert_eq!(block.params.len(), 1);
+        let Statement::Expr { expr: body, .. } = &block.body[0] else {
+            panic!("expected an expression body");
+        };
+        let Expr::GetProperty(get) = body else {
+            panic!("expected a property access in the mapper, got {body:?}");
+        };
+        assert_eq!(get.property, "foo");
+        // The mapper's receiver is the synthetic block parameter, not a source
+        // variable, so it cannot collide with user code.
+        let Expr::Var { value, .. } = &get.object else {
+            panic!("expected the synthetic receiver variable");
+        };
+        assert_eq!(value, &block.params[0]);
+    }
+
+    #[test]
+    fn optional_call_desugars_to_map_over_a_send() {
+        // `opt?.bar(baz)` ≡ `opt.map { <recv> => <recv>.bar(baz) }`.
+        let Statement::Expr { expr, .. } = only_statement("opt?.bar(baz)") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::MethodCall(call) = expr else {
+            panic!("expected a map send");
+        };
+        assert_eq!(call.method, "map");
+        let Expr::Block(block) = &call.args[0].expr else {
+            panic!("expected a mapper block");
+        };
+        let Statement::Expr { expr: body, .. } = &block.body[0] else {
+            panic!("expected an expression body");
+        };
+        let Expr::MethodCall(inner) = body else {
+            panic!("expected an inner send, got {body:?}");
+        };
+        assert_eq!(inner.method, "bar");
+        assert_eq!(inner.args.len(), 1);
+    }
+
+    #[test]
+    fn optional_chain_left_associates() {
+        // `a?.b?.c` ≡ `(a?.b)?.c`: the outer map's receiver is itself a map send.
+        let Statement::Expr { expr, .. } = only_statement("a?.b?.c") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::MethodCall(outer) = expr else {
+            panic!("expected an outer map send");
+        };
+        assert_eq!(outer.method, "map");
+        let Expr::MethodCall(receiver) = &outer.object else {
+            panic!("expected the receiver to be a nested map send, got {:?}", outer.object);
+        };
+        assert_eq!(receiver.method, "map");
     }
 }

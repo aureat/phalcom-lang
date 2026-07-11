@@ -169,12 +169,12 @@ impl<'input> Lexer<'input> {
         let slice = &self.input[start..self.pos];
         match slice {
             "let" => Token::Let,
+            "var" => Token::Var,
             "fn" => Token::Fn,
             "class" => Token::Class,
             "return" => Token::Return,
             "true" => Token::True,
             "false" => Token::False,
-            "nil" => Token::Nil,
             "if" => Token::If,
             "else" => Token::Else,
             "while" => Token::While,
@@ -266,6 +266,10 @@ impl<'input> Lexer<'input> {
             b']' => (1, Token::RBracket),
             b';' => (1, Token::Semicolon),
             b',' => (1, Token::Comma),
+            // `Option` operators (ADR-0007). Multi-char `??` and `?.` take
+            // priority over a lone `?`; see `docs/spec/lexical-structure.md` §9.
+            b'?' if next == Some(b'?') => (2, Token::CoalesceQuestion),
+            b'?' if next == Some(b'.') => (2, Token::QuestionDot),
             b'?' => (1, Token::Question),
             b'@' => (1, Token::At),
             _ => {

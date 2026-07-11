@@ -27,8 +27,15 @@ use std::ops::Range;
 /// snapshots.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
-    /// The `let` keyword introducing a binding.
+    /// The `let` keyword introducing an immutable binding (ADR-0014).
     Let,
+    /// The `var` keyword introducing a mutable binding (ADR-0014).
+    ///
+    /// Distinct from [`Token::Let`] only in mutability: `var x` with no
+    /// initializer reads the surface `None` value, whereas `let x` with no
+    /// initializer is rejected at compile time. See
+    /// `docs/spec/values-and-absence.md` §3.1.
+    Var,
     /// The `fn` keyword.
     Fn,
     /// The `class` keyword introducing a class declaration.
@@ -39,8 +46,6 @@ pub enum Token {
     True,
     /// The `false` boolean literal keyword.
     False,
-    /// The `nil` literal keyword.
-    Nil,
     /// The `if` keyword.
     If,
     /// The `else` keyword.
@@ -142,7 +147,23 @@ pub enum Token {
     /// The `=>` fat-arrow used by single-expression method bodies.
     FatArrow,
     /// The `?` punctuation mark.
+    ///
+    /// A lone `?` is reserved for a future ternary/try operator and is not part
+    /// of any current production; the parser rejects it. See
+    /// `docs/spec/lexical-structure.md` §9.
     Question,
+    /// The `??` null-coalescing operator (ADR-0007).
+    ///
+    /// A low-precedence, right-associative binary operator; `a ?? b` desugars
+    /// to `a.orElse { b }`. See `docs/spec/values-and-absence.md` §3.4 and
+    /// `docs/spec/lexical-structure.md` §9.
+    CoalesceQuestion,
+    /// The `?.` optional-send operator (ADR-0007).
+    ///
+    /// A postfix member-access operator binding like `.`; `opt?.m(a)` desugars
+    /// to `opt.map { x => x.m(a) }`. See `docs/spec/values-and-absence.md` §3.4
+    /// and `docs/spec/lexical-structure.md` §9.
+    QuestionDot,
     /// The `!` logical-not / prefix operator.
     Bang,
     /// The `@` punctuation mark.

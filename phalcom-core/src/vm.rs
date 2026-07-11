@@ -245,12 +245,37 @@ impl VM {
         add_class!(number_class);
         add_class!(string_class);
         add_class!(bool_class);
-        add_class!(nil_class);
         add_class!(method_class);
         add_class!(symbol_class);
         add_class!(system_class);
         add_class!(function_class);
         add_class!(block_class);
+        // Absence type (ADR-0007). `Option` and `Some` are ordinary class
+        // globals. `None`, however, is a *value* global bound to the shared
+        // singleton — not the `None` class — so `None` in source resolves to the
+        // singleton object (values-and-absence.md §3.1).
+        add_class!(option_class);
+        add_class!(some_class);
+
+        // The `None` class row is *not* exposed under a class global (that name
+        // is the singleton), but it must live in `self.classes` so a
+        // `class None { ... }` skeleton in `core.ph` reopens this bootstrapped
+        // row (compiler `Statement::Class` handling) instead of forging a fresh
+        // one that would clobber the `None` global.
+        let none_class = self.universe.classes.none_class;
+        let none_class_name = self.heap.class(none_class).name.clone();
+        let none_class_sym = self.interner.intern(&none_class_name);
+        self.classes.insert(none_class_sym, none_class);
+
+        // Bind the `None` global to the shared singleton object.
+        let none_global_sym = self.interner.intern("None");
+        let none_value = Value::Obj(self.universe.classes.none_singleton);
+        self.define_global(core_sym, none_global_sym, none_value).ok();
+
+        // The private `nil` sentinel has no surface class global: there is no
+        // `Nil` name reachable from user code (Invariant 4). The `Nil` class row
+        // still exists in the tower to back `Value::Nil::class`, but it is
+        // internal only.
     }
 
     /// Dispatches a call to `method` on `callee` with `arity` arguments.
@@ -405,6 +430,20 @@ impl VM {
         frame.ip = (frame.ip as i64 + offset as i64) as usize;
     }
 
+    /// Surfaces the private `nil` sentinel as `None` at a read boundary.
+    ///
+    /// A thin wrapper over [`sentinel_to_option`](crate::value::sentinel_to_option)
+    /// that supplies the shared `None` singleton. Called wherever the VM can
+    /// read an unwritten slot (uninitialized `var`/local, unassigned field,
+    /// bare-`return` default, a method falling off its end) so the private
+    /// `Value::Nil` sentinel ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md))
+    /// is replaced by `None` and never reaches user code (Invariant 4,
+    /// [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+    #[inline]
+    fn surface_absence(&self, value: Value) -> Value {
+        crate::value::sentinel_to_option(value, self.universe.classes.none_singleton)
+    }
+
     /// Runs the dispatch loop until the call stack empties, returning the result.
     ///
     /// # Errors
@@ -431,7 +470,11 @@ impl VM {
     pub(crate) fn run_until(&mut self, base_frames: usize) -> PhResult<Value> {
         loop {
             if self.frames.len() <= base_frames {
-                return Ok(self.stack.pop().unwrap_or(Value::Nil));
+                // A drained frame stack with nothing left to yield means the
+                // top-level program (or a block activation) fell off its end:
+                // surface that absence as `None`, never the private sentinel.
+                let result = self.stack.pop().unwrap_or(Value::Nil);
+                return Ok(self.surface_absence(result));
             }
 
             let frame = *self.frames.last().unwrap();
@@ -485,6 +528,11 @@ impl VM {
                     let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
                     self.stack.push(Value::Obj(block));
                 }
+                // `Bytecode::Nil` is internal-only: it pushes the private
+                // sentinel to *back* an uninitialized slot (e.g. a `var x` with
+                // no initializer). It has no surface syntax and the value it
+                // pushes is surfaced to `None` when later read (see the `Get*`
+                // handlers). See [`Bytecode::Nil`]'s rustdoc.
                 Bytecode::Nil => self.stack.push(NIL),
                 Bytecode::True => self.stack.push(TRUE),
                 Bytecode::False => self.stack.push(FALSE),
@@ -505,12 +553,17 @@ impl VM {
                     if let Value::Symbol(name_sym) = name_val {
                         let module_id = self.heap.closure(closure_id).module;
                         if let Some(value) = self.heap.module(module_id).get(name_sym) {
+                            // A declared-but-unassigned global holds the private
+                            // sentinel (module slots initialize to `Value::Nil`);
+                            // surface it as `None` on read.
+                            let value = self.surface_absence(value);
                             self.stack.push(value);
                         } else {
                             // If not in the current module, try the core module.
                             let core_module_sym = self.interner.intern(CORE_MODULE_NAME);
                             let core_module = self.get_module(core_module_sym).expect("core module");
                             if let Some(value) = self.heap.module(core_module).get(name_sym) {
+                                let value = self.surface_absence(value);
                                 self.stack.push(value);
                             } else {
                                 let name = self.resolve_symbol(name_sym).to_string();
@@ -536,7 +589,9 @@ impl VM {
                 Bytecode::GetLocal(slot) => {
                     let local_idx = stack_offset + slot as usize;
                     if local_idx < self.stack.len() {
-                        let value = self.stack[local_idx];
+                        // An uninitialized `var` slot is backed by the private
+                        // sentinel; surface it as `None` on read (Invariant 4).
+                        let value = self.surface_absence(self.stack[local_idx]);
                         self.stack.push(value);
                     } else {
                         return Err(RuntimeError::Internal(format!("Local variable slot {slot} out of bounds")).into());
@@ -597,8 +652,11 @@ impl VM {
                         let receiver = self.stack.pop().ok_or("Stack underflow for GetField receiver")?;
                         match receiver {
                             Value::Obj(id) if self.heap.as_instance(id).is_some() => {
-                                let field_value = self.heap.instance(id).fields.get(&field_sym).copied();
-                                self.stack.push(field_value.unwrap_or(Value::Nil));
+                                // An unassigned field reads as `None`, never the
+                                // private sentinel (shared with U7 field reads).
+                                let field_value = self.heap.instance(id).fields.get(&field_sym).copied().unwrap_or(Value::Nil);
+                                let field_value = self.surface_absence(field_value);
+                                self.stack.push(field_value);
                             }
                             _ => return Err(RuntimeError::Internal("Only instances can have fields.".to_string()).into()),
                         }
@@ -644,6 +702,8 @@ impl VM {
                         Upvalue::Open(slot) => self.stack[slot],
                         Upvalue::Closed(value) => value,
                     };
+                    // A captured-but-uninitialized `var` cell surfaces as `None`.
+                    let value = self.surface_absence(value);
                     self.stack.push(value);
                 }
                 Bytecode::SetUpvalue(idx) => {
@@ -661,7 +721,11 @@ impl VM {
                     self.close_upvalues_from(stack_offset + slot as usize);
                 }
                 Bytecode::Return => {
+                    // A bare `return;` (no operand) or a method that produced no
+                    // value yields `None`, not the private sentinel
+                    // (values-and-absence.md; bare-`return`→`None` pre-authorized).
                     let return_value = self.stack.pop().unwrap_or(Value::Nil);
+                    let return_value = self.surface_absence(return_value);
                     let popped = self.frames.pop().unwrap();
                     // Close any upvalues that still alias this frame's window so
                     // escaping closures survive the frame's disappearance

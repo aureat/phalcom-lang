@@ -5,7 +5,18 @@ pub enum Bytecode {
     /// 0: index in the constant pool.
     Constant(u16),
 
-    /// Pushes the `nil` value onto the stack.
+    /// Pushes the **private** `nil` sentinel
+    /// ([`crate::value::Value::Nil`], [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md))
+    /// onto the stack.
+    ///
+    /// Retained for **internal sentinel use only** — it backs an uninitialized
+    /// slot (e.g. a `var x` with no initializer) until that slot is written.
+    /// There is **no surface syntax** for it: U6 removed the `nil` literal, and
+    /// any value it pushes is surfaced to `None`
+    /// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)) at the read
+    /// boundaries in `vm.rs` (`GetLocal`/`GetGlobal`/`GetField`/`GetUpvalue`,
+    /// the `Return` default), so the sentinel can never reach user code
+    /// (Invariant 4).
     Nil,
 
     /// Pushes the boolean value `true` onto the stack.

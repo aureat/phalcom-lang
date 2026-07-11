@@ -74,18 +74,22 @@ fn example_core_new() {
 #[test]
 fn example_person2() {
     // `Person.new()` (zero-arg static ctor) -> `.init(name)` never called ->
-    // `_name` field is unset -> `name` getter reads back `nil`.
-    assert_golden("../examples/person2.ph", "nil\n");
+    // `_name` field is unset -> `name` getter reads back the surface `None`
+    // value (U6: surface `nil` is gone; an unset field surfaces as `None` via
+    // the private-sentinel boundary — ADR-0007/ADR-0010). `None` prints as
+    // `<None instance>` until U-STD gives it a display override.
+    assert_golden("../examples/person2.ph", "<None instance>\n");
 }
 
 #[test]
 fn example_person() {
     // Unblocked by the U0 trailing-newline fix (the file ends in `\n`).
     // Exercises instance creation, field getters/setters, and `+=`; unset
-    // fields read back as `nil`, matching `example_person2`'s behavior.
+    // fields read back as the surface `None` value (U6 removed surface `nil`;
+    // ADR-0007), matching `example_person2`'s behavior.
     assert_golden(
         "../examples/person.ph",
-        "<Person instance>\nAnonymous\nnil\nAlice\nnil\nBob\n30\n31\n",
+        "<Person instance>\nAnonymous\n<None instance>\nAlice\n<None instance>\nBob\n30\n31\n",
     );
 }
 
