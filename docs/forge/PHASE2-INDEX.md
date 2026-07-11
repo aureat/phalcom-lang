@@ -5,7 +5,9 @@ plan roster, dependency graph, write-set collision matrix, open-decision registe
 new-ADR / spec-edit backlog. Landed: U-FE (ADR-0016), U0, U3 (ADR-0012), U1 (ADR-0009/0010),
 **U2 (ADR-0002/0003, 2026-07-11 — reviewer gate skipped this pass, see U2-progress.md)**,
 **U4 (ADR-0013/0006, 2026-07-11 — reviewer gate ON, caught a stubbed runtime on the first cut,
-closed in a follow-up pass, see STATE.md)**.
+closed in a follow-up pass, see STATE.md)**, **U5 (ADR-0018, 2026-07-11 — reviewer OFF per policy)**,
+**U6 (ADR-0007/0014/0021, 2026-07-11 — reviewer gate ON, BLOCKed once on inlined≠non-inlined body
+result, fixed in `51f56e4`, PASSED, see STATE.md)**.
 Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 
 ## 1. Unit plan roster (each is a self-contained work order)
@@ -15,7 +17,7 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 | U2 | [U2-plan.md](U2-plan.md) · **✅ LANDED** [U2-progress.md](U2-progress.md) | metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` | 0002/0003 · object-model §5–6 | **skipped this pass** |
 | U4 | [U4-plan.md](U4-plan.md) · **✅ LANDED** (see STATE.md) | first-class blocks/closures, Lua open/closed upvalues, frame-token infra | 0013/0006 · blocks.md | **✅ ran, caught stubbed runtime, fixed** |
 | U5 | [U5-plan.md](U5-plan.md) · **✅ LANDED** (see STATE.md) | control-flow-as-message + sacred-selector inliner w/ deopt guard | control-flow.md · **0018** | — (reviewer OFF per policy) |
-| U6 | [U6-plan.md](U6-plan.md) | absence → `Option`, `let`/`var`, no surface `nil`, `if(opt)` rejected | 0007/0014 · values-and-absence.md | ✅ |
+| U6 | [U6-plan.md](U6-plan.md) · **✅ LANDED** (see STATE.md) | absence → `Option`, `let`/`var`, no surface `nil`, `if(opt)` rejected | 0007/0014 · **0021** · values-and-absence.md | **✅ ran, BLOCKed on inlined≠non-inlined, fixed, PASSED** |
 | U7 | [U7-plan.md](U7-plan.md) | fixed instance slot layout + `construct` initializer | 0011 · classes.md | — |
 | U8 | [U8-plan.md](U8-plan.md) | `doesNotUnderstand(_:)` / `perform` + `SendDynamic` | 0012 · method-lookup.md | — |
 | U9 | [U9-plan.md](U9-plan.md) | variadics (rest params `*xs`, variadic dispatch table) | 0012amd · functions.md | — |
@@ -74,7 +76,7 @@ _Each unit's bulk proceeds regardless; only the named sub-feature waits._
 |---|---|---|---|
 | **DEC-A** ✅ **RESOLVED (user, 2026-07-11)** | U8, U9, U-STD | **Kernel `List` unscheduled but a hard dep** of dNU (`Message.args`) and rest-params. | **→ Land a minimal `List` unit (U-LIST) first**, at the spine tail before Wave F. On the critical path for U8 + U9. See §2 + U8-plan §3. |
 | **DEC-B** | U9 | **Variadic dispatch table key** — messages §4 (`key by (name, min_arity)`) isn't implementable as written (a call of arity K needs `min ≤ K`, an exact-tuple hash can't answer). | Key by **bare name**, reject a 2nd same-name variadic at definition time. Ratify via **ADR-0012 amendment**. |
-| **DEC-C** | U6 | **How is `if(opt)` a compile error?** No static/flow analysis exists; general static detection impossible. | **(A)** runtime no-coercion floor (branch opcode requires `Bool`; Option never implements branch protocol) **+** compile-time rejection of *syntactically-literal* Option conditions. New ADR / ADR-0007 amendment. |
+| **DEC-C** ✅ **RESOLVED (user, 2026-07-11 → Option A, landed with U6)** | U6 | **How is `if(opt)` a compile error?** No static/flow analysis exists; general static detection impossible. | **(A)** runtime no-coercion floor (branch opcode requires `Bool`; Option never implements branch protocol) **+** compile-time rejection of *syntactically-literal* Option conditions. **→ shipped as [ADR-0021](../adr/0021-no-truthiness-enforcement.md).** |
 | **DEC-D** ✅ **RESOLVED (user, 2026-07-11)** | U7 | **Class-side _stored_ static fields** were unspecified (ADR-0011 "static" = instance layout, not class-side state — naming collision). | **→ INCLUDE in U7 (option A): apply ADR-0011 up the tower** — class object gets its own `static_slots` indexed by a per-*metaclass* field table. **Requires a NEW ADR authored first** ("class-side field storage on the metaclass instance"); the static-stored-field slice lands behind that ADR. Instance fields + `construct` proceed regardless. See U7-plan §3. |
 | **DEC-E** | U5 / U-LEX | **Who owns `if`/`while`/`for` surface parsing?** No control-flow AST node exists today. Sets the U5↔U-LEX write-set boundary in `phalcom-ast`. | **U5 owns** tightly-scoped parse-time desugaring to block sends (adds `phalcom-ast` to U5's write-set). |
 | **DEC-F** | U-LEX | **String-interpolation sigil** (open-Q5): `{expr}` / `${expr}` / `\(expr)`. | **(a) `{expr}`** (spec §5 default). Ratify Q5 → short ADR, then implement. |
@@ -90,7 +92,7 @@ Soft flags (architect can proceed on the recommendation; confirm if you disagree
 |---|---|---|---|
 | **ADR-0018** — sacred-selector inliner + override-epoch deopt guard | ✅ landed | U5 | landed with U5 (0017 was taken by class-side static fields) |
 | **ADR-0012 amendment** — variadic dispatch-table key + `_...` selector spelling | amendment | U9 | before U9 (DEC-B) |
-| No-truthiness enforcement mechanism | new ADR / 0007 amendment | U6 | with U6 (DEC-C) |
+| **ADR-0021** — no-truthiness enforcement (typed branch floor + literal-only compile check) | ✅ landed | U6 | landed with U6 (DEC-C = Option A) |
 | **Class-side field storage on the metaclass instance** (ADR-0011 up the tower) | new ADR (**REQUIRED**, DEC-D=A) | U7 | **before** U7's static-stored-field slice |
 | String-interpolation syntax (open-Q5) | new ADR | U-LEX | before U-LEX D4 (DEC-F) |
 | Collection-literal lowering `(a,b)`/`[…]`/`{a:1}` | new ADR | (deferred; needs List) | with collections unit |

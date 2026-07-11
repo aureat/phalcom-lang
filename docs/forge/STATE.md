@@ -18,7 +18,44 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **NEXT = U6 (absence → Option, let/var); reviewer ON.** |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **NEXT = U7 (fixed instance slot layout + `construct`); reviewer OFF.** |
+
+## U6 — LANDED ✅ (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4` on `main`, no worktree)
+- **Absence → Option.** No surface `nil`; user code expresses absence exclusively through
+  `Option` (ADR-0007). `Some`/`None` under abstract `Option`; `None` is a single shared
+  singleton (identity-comparable, zero-allocation), `Some` carries one `_value` field.
+  Construction is the explicit static send `Some.new(x)` (deliberate deviation — **no bare
+  `Some(x)` call-construction syntax** in Phalcom). Sole eliminator is `match(some:none:)`
+  (deviation — the keyword-labelled selector spelling, not a comma-form).
+- **`Bytecode::Nil` → `None` surfacing (Invariant 4).** The VM keeps a private raw `nil`
+  sentinel for **allocator/storage only** (uninitialized slots); it never reaches user code.
+  Value-less positions surface as `None`: an empty/value-less block or method body yields
+  `None`, a bare `return` returns `None` (deviation — `return` with no expr ≡ `return None`),
+  a false `ifTrue` branch is `None`, `print`'s result is `None`, the root superclass reads
+  `None`. `318e752` closed the Invariant-4 sentinel-leak; `51f56e4` restored inlined ≡
+  non-inlined body results (value-less bodies yield `None` on both paths) — the reviewer's
+  one BLOCK, independently confirmed fixed (all four repros print `<None instance>`).
+- **`let`/`var` bindings (ADR-0014, BD-4).** `let` immutable, `var` mutable; `var x` with no
+  initializer reads as `None`. `let` reassignment and `let` with no initializer are compile
+  errors; surface `nil` is a compile error.
+- **`??` / `?.` parser desugar (values-and-absence §3.4–3.5).** `a ?? b` and `opt?.foo`
+  desugar in `phalcom-ast` (short-circuiting), threaded into the precedence table.
+- **BD-U6-1 no-truthiness → Option A + new ADR-0021.** `Option`/`Some`/`None` never implement
+  the boolean-branch protocol, so a non-`Bool` condition is a **hard runtime type error** (no
+  coercion) via U5's `GuardBool` (ADR-0018). **Plus** the compiler rejects syntactically-literal
+  Option conditions (`if (None)`, `if (Some.new(…))`) at compile time via `is_option_literal` /
+  `branch_condition_of` (`compiler/lib.rs`). Refines spec §3.5's "compile error" to "compile
+  error where statically detectable + hard runtime type error otherwise." **ADR-0021** records
+  it (composes with U5's branch-opcode typing).
+- **Deliberate deviations (pre-authorized defaults):** (1) `Some.new(x)`, not `Some(x)` — no
+  call-construction syntax; (2) `match(some:none:)` selector spelling; (3) bare `return` → `None`.
+- **Green gate:** `cargo build` / `cargo test --workspace` / `cargo doc --workspace --no-deps`
+  all clean; `verify.sh` exit 0. Reviewer gate **ON** (load-bearing — can corrupt object model):
+  BLOCKed on inlined≠non-inlined, fixed in `51f56e4`, re-verified, PASSED.
+- **DEFERRED:** #13 (captured-`let` reassignment not rejected — the compile check is syntactic,
+  indirection defeats it) and #14 (`if(opt)` literal-only detection + `OptionTruthiness`
+  diagnostic carries no source span).
+- **Working model:** in-tree on `main`, no worktree (handoff-authorized precedent from U2/U4/U5).
 
 ## U5 — LANDED ✅ (2026-07-11, `83c908a` on `main`, no worktree)
 - **Layer 0 — operators are sends.** Removed the hardwired arithmetic/boolean/comparison/equality

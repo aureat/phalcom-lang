@@ -19,10 +19,13 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, compile-errors,
   concurrency, control-flow, dispatch, errors, functions, lexical, messages, metaclass,
   runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 57 · NEGATIVE 13 · PENDING 52 · **total 122**.
+- **Case counts:** PASS 64 · NEGATIVE 13 · PENDING 52 · **total 129**.
 - Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
   under `-- --ignored` and are expected to fail until their feature is implemented.
-- Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`.
+- Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`; the
+  `absence` lane was reconciled at the U6 landing (`51f56e4`) — +7 PASS cases graduated
+  (empty/value-less block & method bodies, false `ifTrue` branch, `print` result, root
+  superclass, empty `match` none-branch, empty block call → all `<None instance>`).
 
 ## Label matrix
 
@@ -39,8 +42,8 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
 | runtime-errors | – | 4 | – | `check_negative` | messages-and-selectors.md; method-lookup.md |
-| compile-errors | – | 4 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007 |
-| absence | 3 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; selectors.md |
+| compile-errors | – | 4 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021 |
+| absence | 10 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | – | – | 2 | `check_pending` | control-flow.md |
 | concurrency | – | – | 2 | `check_pending` | concurrency.md |

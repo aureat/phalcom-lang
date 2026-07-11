@@ -41,6 +41,14 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0016](0016-hand-written-lexer-and-recursive-descent-parser.md) | Hand-written lexer and recursive-descent parser (replacing LALRPOP) | Accepted |
 | [0017](0017-class-side-stored-static-fields.md) | Class-side stored static fields live on the metaclass instance | Accepted |
 | [0018](0018-sacred-selector-inliner-and-override-guard.md) | Sacred-selector inliner with override-epoch deopt guard | Accepted |
+| [0019](0019-freeze-vm-blessed-primitive-floor.md) | Freeze the VM-blessed primitive floor | Proposed |
+| [0020](0020-kernel-list-native-array-protocol.md) | Kernel `List` is a native-array-backed protocol on the critical path | Proposed |
+| [0021](0021-no-truthiness-enforcement.md) | No-truthiness enforcement: typed branch floor + literal-only compile check | Accepted |
+
+> ADRs 0019–0020 are **Proposed**, not yet ratified: they derive from the
+> experimental draft `docs/spec/experimental/bootstrapping-and-self-hosting.md`
+> (D1, D2/DEC-A) and await a ratification decision. 0019 consolidates an existing
+> boundary; 0020 resolves DEC-A. Flip to **Accepted** on ratification.
 
 > ADRs 0003–0008 were ratified in the object-model / language-design sessions, and
 > ADRs 0009–0015 in the Phase-2 VM-architecture session (2026-07-11); all are now
