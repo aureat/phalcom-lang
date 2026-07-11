@@ -164,3 +164,10 @@ fn system_pending() {
 fn concurrency_pending() {
     support::check_pending("concurrency");
 }
+
+#[test]
+fn list() {
+    // U-LIST: kernel `List` — native array storage, `.ph`-defined
+    // at(_:)/size/add(_:)/each(_:) protocol over the floor primitives.
+    support::check_pass("list");
+}

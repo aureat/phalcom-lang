@@ -17,9 +17,9 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 ## Summary
 
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, compile-errors,
-  concurrency, control-flow, dispatch, errors, functions, lexical, messages, metaclass,
+  concurrency, control-flow, dispatch, errors, functions, lexical, list, messages, metaclass,
   runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 64 · NEGATIVE 13 · PENDING 52 · **total 129**.
+- **Case counts:** PASS 68 · NEGATIVE 14 · PENDING 52 · **total 134**.
 - Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
   under `-- --ignored` and are expected to fail until their feature is implemented.
 - Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`; the
@@ -40,8 +40,9 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | control-flow | 3 | – | 5 | `check_pass` + `check_pending` | control-flow.md; blocks.md |
 | dispatch | 3 | – | 5 | `check_pass` + `check_pending` | messages-and-selectors.md; method-lookup.md; object-model.md |
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
+| list | 4 | – | – | `check_pass` | U-LIST-plan.md; ADR-0019; ADR-0020 |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
-| runtime-errors | – | 4 | – | `check_negative` | messages-and-selectors.md; method-lookup.md |
+| runtime-errors | – | 5 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3 |
 | compile-errors | – | 4 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021 |
 | absence | 10 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
@@ -69,6 +70,7 @@ Every document in `docs/spec/` maps to at least one label:
 | error-handling.md | errors |
 | concurrency.md | concurrency |
 | system.md | system |
+| U-LIST-plan.md | list, runtime-errors |
 
 ## Running
 
