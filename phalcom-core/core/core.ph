@@ -57,6 +57,42 @@ class Option {
   isSome => self.match(some: { v => true }, none: { false })
 
   isNone => self.match(some: { v => false }, none: { true })
+
+  // U-STD (values-and-absence.md §3.3's "Transform" group; catalog-delta §2.2):
+  // `Some(v)` becomes `Some(f(v))`; `None` passes through untouched. `f` is a
+  // 1-arity block over the wrapped value; the result is re-wrapped so the
+  // chain stays an `Option`.
+  map(f) {
+    return self.match(some: { v => Some.new(f.call(v)) }, none: { self })
+  }
+
+  // U-STD (values-and-absence.md §3.3's "Transform" group): like `map`, but `f`
+  // already returns an `Option`, so its result is used directly rather than
+  // re-wrapped — the monadic bind (`>>=`). `None` short-circuits to `self`.
+  flatMap(f) {
+    return self.match(some: { v => f.call(v) }, none: { self })
+  }
+
+  // U-STD (values-and-absence.md §3.3's "Filter" group): `Some(v)` stays `Some(v)`
+  // when `pred(v)` is `true`, otherwise collapses to the shared `None` singleton;
+  // `None` passes through. `pred` must return a real `Bool` (ADR-0021).
+  filter(pred) {
+    return self.match(some: { v => if (pred.call(v)) { self } else { None } }, none: { self })
+  }
+
+  // U-STD (values-and-absence.md §3.3's "Effect" group; mirror of `ifNone`): runs
+  // the 1-arity block `f` for its side effect on the wrapped value when `Some`,
+  // then returns `self` so calls chain; a `None` is passed through untouched.
+  ifSome(f) {
+    return self.match(some: { v => f.call(v); self }, none: { self })
+  }
+
+  // U-STD (values-and-absence.md §3.3's "Extract" group): unwraps a `Some` to its
+  // value, or yields `default` for a `None`. The eager sibling of `orElse`
+  // (which takes a block); here `default` is an already-evaluated fallback value.
+  unwrapOr(default) {
+    return self.match(some: { v => v }, none: { default })
+  }
 }
 
 class Some {}

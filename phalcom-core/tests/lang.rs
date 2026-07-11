@@ -166,6 +166,14 @@ fn concurrency_pending() {
 }
 
 #[test]
+fn option() {
+    // U-STD: `Option` transform/extract combinators — `map(_)`, `flatMap(_)`,
+    // `filter(_)`, `ifSome(_)`, `unwrapOr(_)`, all pure `.ph` over the native
+    // `match` eliminator (values-and-absence.md §3.3; catalog-delta.md §2.2).
+    support::check_pass("option");
+}
+
+#[test]
 fn list() {
     // U-LIST: kernel `List` — native array storage, `.ph`-defined
     // at(_:)/size/add(_:)/each(_:) protocol over the floor primitives.
