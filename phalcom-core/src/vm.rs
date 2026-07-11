@@ -147,11 +147,39 @@ impl VM {
             vm.heap.class_mut(some_class).field_count = 1;
         }
         Universe::install_primitives(&mut vm);
+
+        // Compile and run the registered core module now that every native
+        // primitive is installed: this is what actually attaches each
+        // `core.ph` class-reopen (`List`, `Option`, `Some`, `None`, `System`,
+        // …) to its bootstrapped kernel row. Must run after
+        // `install_primitives` so a reopen can call the primitives it wraps
+        // (e.g. `List.at(_:)` calling `rawAt(_:)`). Previously `install_core`
+        // only registered the source text (for diagnostics) without ever
+        // compiling or executing it, so every `.ph` skeleton was inert; U-LIST
+        // is the first unit whose surface protocol actually depends on a
+        // reopen taking effect, which surfaced the gap.
+        vm.run_core_module().expect("core module (core.ph) must compile and run cleanly");
+
         vm.universe
             .verify_invariants(&vm.heap)
             .expect("kernel invariants (object-model.md §5-6)");
 
         vm
+    }
+
+    /// Compiles and runs the registered core module (`core.ph`).
+    ///
+    /// See the call site in [`Self::new`] for why this must run after
+    /// [`Universe::install_primitives`].
+    ///
+    /// # Errors
+    ///
+    /// Returns any [`PhError`] raised while compiling or executing `core.ph`.
+    fn run_core_module(&mut self) -> PhResult<()> {
+        let module = self.get_module_from_str(CORE_MODULE_NAME).expect("core module registered by install_core");
+        let source = include_str!("../core/core.ph");
+        let closure = self.compile_closure(module, source)?;
+        self.run_in_module(module, closure)
     }
 
     /// Interns `name`, returning its [`Symbol`].
