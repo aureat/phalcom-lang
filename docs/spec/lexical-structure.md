@@ -87,4 +87,25 @@ Prefix `*` (spread/rest) is legal **only** in a call argument list, a collection
 literal element, and a parameter list. Everywhere else `*` is binary
 multiplication. Since binary `*` requires a left operand, the two never compete
 for the same position and the grammar stays LR(1).
+
+## 9. `Option` operators: `?.` and `??`
+
+Two tokens desugar to `Option` sends ([Values & Absence §3.4](values-and-absence.md)):
+
+| Token | Position | Desugars to |
+|-------|----------|-------------|
+| `?.` | postfix, binds like `.` | `opt?.m(a) ≡ opt.map { x => x.m(a) }` |
+| `??` | binary, right-associative | `a ?? b ≡ a.orElse { b }` |
+
+- **`?.`** is a member-access operator, so it sits at the same precedence as `.`
+  and is **left-associative**; a chain `a?.b?.c` groups as `(a?.b)?.c`, each hop
+  staying inside `Option` and the first `None` short-circuiting the rest.
+- **`??`** is a low-precedence binary operator, **right-associative** so
+  `a ?? b ?? c` groups as `a ?? (b ?? c)`. It binds looser than comparison and
+  arithmetic but tighter than assignment. The right operand is only evaluated when
+  the left is `None` (short-circuit).
+
+**Lexing.** `?.` and `??` are single tokens; a lone `?` is not (yet) a token —
+reserve it for a future ternary or try-operator. Both must be resolved into the
+precedence table during the grammar pass ([Open Questions §8](open-questions.md)).
 </content>
