@@ -94,5 +94,13 @@ blk(1, 2)                          // sugar for blk.call(1, 2)
 blk.arity
 ```
 
+A block is also the unit of protected execution ([Error Handling](error-handling.md)):
+
+```phalcom
+blk.on(TypeError) { e => ... }     // install a typed handler
+blk.ensure { ... }                 // run on every exit path (finally)
+blk.attempt()                      // run, capturing a throw into a Result
+```
+
 Methods and blocks share one closure representation in the VM.
 </content>

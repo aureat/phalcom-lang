@@ -30,7 +30,16 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0005](0005-number-as-flat-f64.md) | Keep a single flat `Number` type backed by `f64` | Accepted |
 | [0006](0006-function-as-abstract-callable-root.md) | `Function` as the abstract root of the callable tower | Accepted |
 | [0007](0007-option-as-abstract-with-some-none.md) | Represent absence as abstract `Option` + `Some`/`None` | Accepted |
+| [0008](0008-layered-exceptions-and-result.md) | Layered exceptions + `Result`, with terminating semantics | Accepted |
+| [0009](0009-handle-arena-heap.md) | Object graph lives in a handle/arena heap | Accepted |
+| [0010](0010-tagged-value-enum.md) | `Value` is a tagged `enum` with a private `Nil` sentinel | Accepted |
+| [0011](0011-static-instance-slot-layout.md) | Instances use a static per-class slot layout | Accepted |
+| [0012](0012-selector-signature-encoding-and-dispatch.md) | Label-encoded selectors and inline-cache-ready dispatch | Accepted |
+| [0013](0013-closure-upvalues-and-frame-token-return.md) | Open/closed upvalues and frame-token non-local return | Accepted |
+| [0014](0014-let-and-var-bindings.md) | Variable bindings are `let` (immutable) and `var` (mutable) | Accepted |
+| [0015](0015-object-default-tostring.md) | `Object` default `toString` is `"<{ClassName}>"` | Accepted |
 
-> ADRs 0003–0007 were ratified in the object-model design session and are now
+> ADRs 0003–0008 were ratified in the object-model / language-design sessions, and
+> ADRs 0009–0015 in the Phase-2 VM-architecture session (2026-07-11); all are now
 > **Accepted** — the design baseline for implementation. Per the immutability
 > convention, changing any of them requires a new superseding ADR.

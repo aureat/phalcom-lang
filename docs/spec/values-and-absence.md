@@ -16,6 +16,7 @@ Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 | `Set` | `Set(1, 2)` |
 | `Range` | `1..5` |
 | `Option` | `Some(v)` / `None` — the only way to express absence |
+| `Result` | `Ok(v)` / `Err(e)` — an expected failure as a value ([Error Handling](error-handling.md)) |
 | `Class` | Classes are objects; classes have metaclasses ([Object Model](object-model.md)) |
 | `Message` | Reified send ([Method Lookup](method-lookup.md)) |
 
@@ -150,10 +151,65 @@ of `nil` already makes truthiness meaningless here.
   and `for x in opt` work ([Collections](open-questions.md) — protocol finalized
   with the iteration work).
 
-### 3.7 The `Result` bridge (reserved)
+### 3.7 The `Result` bridge
 
-`Result` is not yet designed ([Open Questions §9](open-questions.md)). This section
-only reserves shared vocabulary so it slots in without churn: `map` / `flatMap` /
-`unwrapOr` carry identical meaning on both, and the bridges are
+`Result` (§4) is `Option`'s sibling for *failure that carries a reason*. `map` /
+`flatMap` / `unwrapOr` carry identical meaning on both, and the two convert freely:
 `opt.okOr(err) -> Result` and `result.ok() -> Option`.
+
+## 4. `Result` — expected failure as a value
+
+`Result` is the value channel of [error handling](error-handling.md): use it for
+*expected, local* failures (parse, validate, lookup), and reserve `throw` for the
+exceptional. It mirrors `Option` exactly.
+
+### 4.1 Class shape
+
+Like `Option` ([§3.1](#31-class-shape), [ADR-0007](../adr/0007-option-as-abstract-with-some-none.md)),
+`Result` is abstract with two concrete subclasses:
+
+| Class | Kind | State |
+|-------|------|-------|
+| `Result` | abstract | — |
+| `Ok` | subclass | one field, `_value` |
+| `Err` | subclass | one field, `_error` (an [`Error`](object-model.md)) |
+
+Combinators are two method definitions each — `Ok>>map`, `Err>>map` — so dispatch
+replaces branching, and `Ok`/`Err` are meaningful classes to user code.
+
+### 4.2 Protocol
+
+Parallel to `Option`, grouped by what they return.
+
+**Transform** — stay inside `Result`:
+
+| Selector | Returns | Meaning |
+|----------|---------|---------|
+| `map(_:)` | `Result<U, E>` | `Ok(f(v))` / `Err` passes through |
+| `flatMap(_:)` | `Result<U, E>` | monadic bind; `f` returns a `Result` |
+| `mapErr(_:)` | `Result<T, F>` | transform the error; `Ok` passes through |
+| `orElse(_:)` | `Result<T, F>` | `Ok` passes through; `Err` becomes the block's `Result` |
+
+**Extract** — leave `Result`:
+
+| Selector | Returns | Meaning |
+|----------|---------|---------|
+| `unwrapOr(_:)` | `T` | the value, or the given default |
+| `unwrap()` | `T` | the value; **`throw`s** the contained `Err` on failure |
+| `match(ok:, err:)` | `T` | the eliminator |
+
+**Query:** `isOk`, `isErr` → `Bool`.
+
+### 4.3 Bridges
+
+| From → to | Form |
+|-----------|------|
+| `Result` → `Option` | `result.ok()` — `Some(v)` / `None` (discards the error) |
+| `Option` → `Result` | `opt.okOr(err)` — `Ok(v)` / `Err(err)` |
+| `throw` → `Result` | `{ risky() }.attempt()` ([Error Handling §5](error-handling.md)) |
+| `Result` → `throw` | `result.unwrap()` |
+
+`match(ok:, err:)` and the effecting/query forms follow `Option`'s conventions
+([§3.3](#33-core-protocol)); `Result` has no truthiness and no implicit coercion
+for the same reasons ([§3.5](#35-no-truthiness)).
 </content>

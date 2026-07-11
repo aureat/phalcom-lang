@@ -108,4 +108,16 @@ Two tokens desugar to `Option` sends ([Values & Absence §3.4](values-and-absenc
 **Lexing.** `?.` and `??` are single tokens; a lone `?` is not (yet) a token —
 reserve it for a future ternary or try-operator. Both must be resolved into the
 precedence table during the grammar pass ([Open Questions §8](open-questions.md)).
+
+## 10. Error-handling keywords
+
+`throw`, `try`, `catch`, and `finally` are reserved keywords
+([Error Handling](error-handling.md)).
+
+- `throw expr` is a prefix statement/expression; `expr` must evaluate to an
+  [`Error`](values-and-absence.md). Sugar for `expr.raise()`.
+- `try` / `catch` / `finally` form the block-handler statement. They are pure
+  sugar over the `Block` sends `on(_:)(_:)`, `ensure(_:)`, and `attempt()` — no
+  token carries semantics the desugaring lacks. `catch (e: T)` binds `e` and
+  filters on class `T`; the `: T` is optional and defaults to `Error`.
 </content>

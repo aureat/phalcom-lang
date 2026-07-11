@@ -15,10 +15,14 @@ split into parts. Where a decision is not yet taken it lives in
 | [Values & Absence](values-and-absence.md) | The value types, private `nil`, `Option` |
 | [Object Model](object-model.md) | Kernel classes, the class/metaclass tower, core catalog |
 | [Blocks](blocks.md) | Blocks/lambdas, non-local return, `Block` as a class |
+| [Functions, Blocks & Methods](functions.md) | The callable tower: abstract `Function`, `Block`, `Method`, one closure representation |
 | [Messages & Selectors](messages-and-selectors.md) | Selector identity, labels, spread & rest |
 | [Classes](classes.md) | `construct`, fields, methods, accessors, operators |
 | [Method Lookup](method-lookup.md) | Resolution order, `doesNotUnderstand`, `Message` |
 | [Control Flow](control-flow.md) | `if`/`while`/`for` sugar, `and`/`or`, the inliner |
+| [Error Handling](error-handling.md) | `throw`, `try`/`catch`/`finally`, `Result`, unwinding as one primitive |
+| [Fibers & Futures](concurrency.md) | Cooperative concurrency: the `Fiber` primitive, `Future`, the scheduler |
+| [System](system.md) | The runtime service surface: console, clock, process, scheduler |
 | [Implementation Status](implementation-status.md) | Divergence between this spec and the current tree |
 | [Open Questions](open-questions.md) | Undecided design points |
 

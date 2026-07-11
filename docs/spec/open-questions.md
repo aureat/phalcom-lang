@@ -23,8 +23,12 @@ implementation begins.
 7. **Destructuring.** Tuples exist, so `let (a, b) = point` and
    `let [first, *rest] = list` are natural. Not yet specified.
 8. **Modules / imports.** The `import` token exists; semantics are unspecified.
-9. **Error handling.** `throw` / `try` / `catch`, or `Result` as a sibling of
-   `Option`? Interacts with non-local return.
+9. ~~**Error handling.** `throw` / `try` / `catch`, or `Result` as a sibling of
+   `Option`?~~ **Resolved** ([Error Handling](error-handling.md),
+   [ADR-0008](../adr/0008-layered-exceptions-and-result.md)): both, layered —
+   unwinding `throw`/`Error` for the exceptional, `Result` for expected failure,
+   with bridges. Terminating (non-resumable) semantics; `throw`/`return`/`abort`
+   unify as one unwind primitive.
 10. **Traits / mixins / multiple inheritance.** Unspecified. Single inheritance is
     the current invariant ([Object Model](object-model.md)).
 11. **`Behavior` in the kernel.** The [Object Model](object-model.md) introduces
