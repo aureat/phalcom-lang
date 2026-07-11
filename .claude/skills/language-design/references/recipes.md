@@ -10,6 +10,8 @@
 - [non-local-return](#non-local-return) — frame-token home-context return
 - [option-niche](#option-niche) — niche-encoded Option/None, no alloc
 - [coroutine-switch](#coroutine-switch) — stackful fiber context switch
+- [pratt-parse](#pratt-parse) — Pratt / precedence-climbing expression parsing
+- [match-compile](#match-compile) — pattern match → decision tree + exhaustiveness
 
 ## lua-upvalues
 Lua-style open→closed upvalue closing. *Phalcom uses this → overlay.*
@@ -72,3 +74,23 @@ Context switch for stackful coroutines/fibers.
 3. Transfer is a small asm/`ucontext` trampoline; the first `resume` of a fresh fiber sets SP to the top of its stack and IP to the entry fn.
 4. Suspended state = the saved SP + the untouched stack region; a fiber is "paused mid-call" for free.
 5. **GC interaction:** every fiber stack is a root set the collector must scan; a **moving** GC must also rewrite pointers found inside each suspended stack, and know the guard-page bounds. Cross-ref concurrency.md execution-unit hazard. → overlay
+
+## pratt-parse
+Pratt / precedence-climbing parsing — the clean way to parse expressions with precedence in a hand-written recursive-descent parser.
+**Seen in:** Pratt 1973, Crafting Interpreters, rustc, Crockford's JS parser
+1. Give each operator a **binding power** (bp, an integer). Infix ops get a left and right bp: left-assoc ⇒ `right_bp = left_bp + 1`; right-assoc ⇒ `right_bp = left_bp`.
+2. `parse_expr(min_bp)`: first parse a prefix/atom (the **nud** — literal, `(expr)`, prefix `-x`).
+3. Loop: peek the next infix operator; if its `left_bp < min_bp`, **stop** and return the current node. Otherwise consume it, recurse `rhs = parse_expr(right_bp)`, fold into a binary node, repeat.
+4. Prefix ops: nud parses its operand with the prefix's own bp. Postfix / call `f(…)` / index `a[i]`: an infix-position **led** with no rhs recursion.
+5. `(` is a nud that calls `parse_expr(0)` then expects `)`. User-defined fixity = a runtime bp table (see parsing.md hazard: makes parsing context-dependent).
+6. One function, no grammar-rule-per-precedence-level explosion; O(n).
+
+## match-compile
+Compile a pattern match to a **decision tree** (Maranget) — evaluate each scrutinee subterm at most once, plus get exhaustiveness/usefulness for free.
+**Seen in:** OCaml, rustc (match lowering), SML/NJ, GHC
+1. Represent the match as a **matrix**: each row = one arm's pattern vector + its action; columns = the subterms currently being scrutinized.
+2. If the first row is all wildcards ⇒ its action fires (base case). Else pick a **column** to test (heuristic: leftmost non-wildcard, or a necessity/branching-factor heuristic to shrink the tree).
+3. **Specialize** on that column's head constructors: for each constructor `c`, keep rows whose pattern there is `c` (expand `c`'s args into new columns) or a wildcard (expand to wildcards); emit a `switch` on the scrutinee's tag.
+4. Add a **default** branch from the wildcard rows for constructors not otherwise listed.
+5. **Guards:** a guarded arm is *not* total — if the guard fails at runtime, control must fall through to the rest of the matrix, so keep that row in the residual matrices below it.
+6. **Exhaustiveness / usefulness:** run the same algorithm symbolically — a pattern is *useful* if it matches some value no earlier row does; if the wildcard pattern is still useful after all arms, the match is **non-exhaustive** (report the witness). A row that is never useful is a **redundant** arm.
