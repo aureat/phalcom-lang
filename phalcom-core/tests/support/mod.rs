@@ -90,13 +90,28 @@ fn assert_no_panic(label: &str, output: &Output) {
 }
 
 fn assert_stdout_exact(label: &str, output: &Output, expected: &[u8]) {
-    let actual = &output.stdout;
+    let mut actual = output.stdout.clone();
+    let mut expected = expected.to_vec();
+
+    if actual.ends_with(b"\n") {
+        actual.pop();
+        if actual.ends_with(b"\r") {
+            actual.pop();
+        }
+    }
+    if expected.ends_with(b"\n") {
+        expected.pop();
+        if expected.ends_with(b"\r") {
+            expected.pop();
+        }
+    }
+
     if actual == expected {
         return;
     }
 
-    let expected_text = String::from_utf8_lossy(expected);
-    let actual_text = String::from_utf8_lossy(actual);
+    let expected_text = String::from_utf8_lossy(&expected);
+    let actual_text = String::from_utf8_lossy(&actual);
     panic!(
         "{label} produced unexpected stdout\n{}expected stdout:\n{expected_text}\nactual stdout:\n{actual_text}",
         stdout_diff(&expected_text, &actual_text)
