@@ -4,16 +4,11 @@
 
 class Person {
   name => _name
-  static new(n) {
-    let p = self.new();
-    p.init(n);
-    return p;
-  }
-  init(n) {
-    _name = n;
+  construct new(n) {
+    _name = n
   }
   name=(value) {
-    _name = value;
+    _name = value
   }
 }
 let p = Person.new("Ada")

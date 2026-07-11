@@ -49,9 +49,9 @@ pub fn some_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Valu
         "Invariant 4: the private nil sentinel must never be wrapped in a Some"
     );
     let some_cls = vm.universe.classes.some_class;
-    let field_sym = vm.get_or_intern("_value");
-    let mut instance = InstanceObject::new(some_cls);
-    instance.fields.insert(field_sym, value);
+    let field_count = vm.heap.class(some_cls).field_count;
+    let mut instance = InstanceObject::new(some_cls, field_count);
+    instance.slots[0] = value;
     let id = vm.heap.alloc(Object::Instance(instance));
     Ok(Value::Obj(id))
 }
@@ -88,14 +88,10 @@ pub fn option_match(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 
     if class == some_cls {
         let Value::Obj(id) = receiver else { unreachable!("checked above") };
-        let field_sym = vm.get_or_intern("_value");
         let wrapped = vm
             .heap
             .instance(*id)
-            .fields
-            .get(&field_sym)
-            .copied()
-            .expect("a Some always carries its _value field");
+            .slots[0];
         block_call(vm, &args[0], &[wrapped])
     } else if class == none_cls {
         block_call(vm, &args[1], &[])

@@ -1,6 +1,6 @@
 // area: classes
 // spec: classes.md; object-model.md
-// status: PENDING
+// status: PASS
 class Person {
   construct new(name:, age:) {
     _name = name

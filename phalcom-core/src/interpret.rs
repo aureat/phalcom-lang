@@ -182,6 +182,9 @@ impl VM {
     /// compiler diagnostic) or [`PhError::Runtime`] on an uncaught runtime
     /// error (after printing a runtime diagnostic).
     pub fn interpret_source(&mut self, module: ObjRef, source: &str) -> PhResult<()> {
+        let source_arc = std::sync::Arc::new(source.to_string());
+        self.heap.module_mut(module).source = Some(source_arc);
+
         let closure = self.compile_closure(module, source).inspect_err(|err| {
             self.compiler_error(err.clone());
         })?;

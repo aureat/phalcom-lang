@@ -27,6 +27,17 @@ use phalcom_common::range::SourceRange;
 use std::time::Instant;
 use std::{collections::BTreeMap, collections::HashMap, sync::Arc};
 use tracing::{debug, span, Level};
+use indexmap::IndexMap;
+
+/// Layout description for a compiled class (ADR-0011/ADR-0017).
+#[derive(Debug, Clone)]
+pub struct ClassLayout {
+    pub name: Symbol,
+    pub field_slots: IndexMap<Symbol, u16>,
+    pub field_count: u16,
+    pub static_field_slots: IndexMap<Symbol, u16>,
+    pub static_field_count: u16,
+}
 
 /// The bytecode virtual machine: owns the [`Heap`], the operand stack, and the
 /// call stack, and drives dispatch.
@@ -67,6 +78,22 @@ pub struct VM {
     /// is shared while the slot is on the stack. On frame/scope exit the cell is
     /// promoted to [`Upvalue::Closed`] and removed from this map.
     pub(crate) open_upvalues: BTreeMap<usize, ObjRef>,
+    /// Registered class layouts for slot mapping.
+    pub field_layouts: HashMap<Symbol, ClassLayout>,
+    /// Maps a `construct`'s ordinary call-site selector (as an
+    /// `Expr::MethodCall` on the class name would encode it, `SignatureKind::Method`)
+    /// to the `SignatureKind::Initializer` selector it was actually installed
+    /// under, keyed by `(class name, call-site selector)`.
+    ///
+    /// User source always calls a constructor as an ordinary send
+    /// (`Counter.new()`), but `construct` installs under a distinct
+    /// `init `-prefixed selector (ADR-0011/`method.rs`) so overloaded
+    /// constructors can coexist with an inherited `new` primitive. The
+    /// compiler consults this table at the call site (only for a literal
+    /// `ClassName.method(...)` receiver) to redirect the emitted selector to
+    /// the constructor instead of silently falling through to
+    /// `Object::new`'s bare-allocation primitive.
+    pub constructor_aliases: HashMap<(Symbol, Symbol), Symbol>,
 }
 
 impl Default for VM {
@@ -96,10 +123,20 @@ impl VM {
             universe,
             next_frame_generation: 0,
             open_upvalues: BTreeMap::new(),
+            field_layouts: HashMap::new(),
+            constructor_aliases: HashMap::new(),
         };
 
         // Bootstrap core module and primitive methods
         vm.install_core();
+
+        // Initialize Some class field layout (ADR-0011)
+        {
+            let some_class = vm.universe.classes.some_class;
+            let value_sym = vm.interner.intern("_value");
+            vm.heap.class_mut(some_class).field_slots.insert(value_sym, 0);
+            vm.heap.class_mut(some_class).field_count = 1;
+        }
         Universe::install_primitives(&mut vm);
         vm.universe
             .verify_invariants(&vm.heap)
@@ -163,6 +200,15 @@ impl VM {
 
         let name_sym = self.interner.intern(name);
         let meta_sym = self.interner.intern(&metaclass_name);
+
+        if let Some(layout) = self.field_layouts.get(&name_sym).cloned() {
+            self.heap.class_mut(class).field_slots = layout.field_slots;
+            self.heap.class_mut(class).field_count = layout.field_count;
+            self.heap.class_mut(metaclass).field_slots = layout.static_field_slots;
+            self.heap.class_mut(metaclass).field_count = layout.static_field_count;
+            self.heap.class_mut(class).static_slots = vec![Value::Nil; layout.static_field_count as usize].into_boxed_slice();
+        }
+
         self.classes.insert(name_sym, class);
         self.classes.insert(meta_sym, metaclass);
 
@@ -664,35 +710,70 @@ impl VM {
                     let receiver = self.stack[stack_offset];
                     self.stack.push(receiver);
                 }
-                Bytecode::GetField(idx) => {
-                    let field_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
-                    if let Value::Symbol(field_sym) = field_val {
-                        let receiver = self.stack.pop().ok_or("Stack underflow for GetField receiver")?;
-                        match receiver {
-                            Value::Obj(id) if self.heap.as_instance(id).is_some() => {
-                                // An unassigned field reads as `None`, never the
-                                // private sentinel (shared with U7 field reads).
-                                let field_value = self.heap.instance(id).fields.get(&field_sym).copied().unwrap_or(Value::Nil);
-                                let field_value = self.surface_absence(field_value);
-                                self.stack.push(field_value);
+                Bytecode::GetField(slot) => {
+                    let receiver = self.stack.pop().ok_or("Stack underflow for GetField receiver")?;
+                    match receiver {
+                        Value::Obj(id) => {
+                            if let Some(instance) = self.heap.as_instance(id) {
+                                let val = instance.slots.get(slot as usize).copied().unwrap_or(Value::Nil);
+                                self.stack.push(self.surface_absence(val));
+                            } else if let Some(class) = self.heap.as_class(id) {
+                                let val = class.static_slots.get(slot as usize).copied().unwrap_or(Value::Nil);
+                                self.stack.push(self.surface_absence(val));
+                            } else {
+                                return Err(RuntimeError::Internal(format!("Only instances and classes can have fields: {:?}", receiver)).into());
                             }
-                            _ => return Err(RuntimeError::Internal("Only instances can have fields.".to_string()).into()),
                         }
+                        _ => return Err(RuntimeError::Internal(format!("Only instances and classes can have fields: {:?}", receiver)).into()),
                     }
                 }
-                Bytecode::SetField(idx) => {
-                    let field_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
-                    if let Value::Symbol(field_sym) = field_val {
-                        let value_to_assign = self.stack.pop().ok_or("Stack underflow on field assignment")?;
-                        let receiver = self.stack.pop().ok_or("Stack underflow for SetField receiver")?;
-                        match receiver {
-                            Value::Obj(id) if self.heap.as_instance(id).is_some() => {
-                                self.heap.instance_mut(id).fields.insert(field_sym, value_to_assign);
+                Bytecode::SetField(slot) => {
+                    let value_to_assign = self.stack.pop().ok_or("Stack underflow on field assignment")?;
+                    let receiver = self.stack.pop().ok_or("Stack underflow for SetField receiver")?;
+                    match receiver {
+                        Value::Obj(id) => {
+                            if self.heap.as_instance(id).is_some() {
+                                let instance = self.heap.instance_mut(id);
+                                if (slot as usize) < instance.slots.len() {
+                                    instance.slots[slot as usize] = value_to_assign;
+                                } else {
+                                    return Err(RuntimeError::Internal(format!("Field slot {slot} out of bounds")).into());
+                                }
                                 self.stack.push(value_to_assign);
+                            } else if self.heap.as_class(id).is_some() {
+                                let class = self.heap.class_mut(id);
+                                if (slot as usize) < class.static_slots.len() {
+                                    class.static_slots[slot as usize] = value_to_assign;
+                                } else {
+                                    return Err(RuntimeError::Internal(format!("Static field slot {slot} out of bounds")).into());
+                                }
+                                self.stack.push(value_to_assign);
+                            } else {
+                                return Err(RuntimeError::Internal(format!("Only instances and classes can have fields: {:?}", receiver)).into());
                             }
-                            _ => return Err(RuntimeError::Internal("Only instances can have fields.".to_string()).into()),
                         }
+                        _ => return Err(RuntimeError::Internal(format!("Only instances and classes can have fields: {:?}", receiver)).into()),
                     }
+                }
+                Bytecode::NewInstance => {
+                    let class_val = self.stack.pop().ok_or("Stack underflow for NewInstance class")?;
+                    if let Value::Obj(class_id) = class_val {
+                        if self.heap.as_class(class_id).is_some() {
+                            let field_count = self.heap.class(class_id).field_count;
+                            let instance_ref = self.heap.alloc(Object::Instance(
+                                crate::instance::InstanceObject::new(class_id, field_count)
+                            ));
+                            self.stack.push(Value::Obj(instance_ref));
+                        } else {
+                            return Err(RuntimeError::Internal(format!("NewInstance operand is not a class: {:?}", class_val)).into());
+                        }
+                    } else {
+                        return Err(RuntimeError::Internal(format!("NewInstance operand is not a class object: {:?}", class_val)).into());
+                    }
+                }
+                Bytecode::Dup => {
+                    let val = *self.stack.last().ok_or("Stack underflow on Dup")?;
+                    self.stack.push(val);
                 }
                 Bytecode::Invoke(arity, selector_idx) => {
                     let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];

@@ -341,3 +341,125 @@ fn walking_metaclass_superclass_chain_terminates() {
         }
     }
 }
+
+#[test]
+fn subclass_field_offset_stability() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "subclass_field_offset_stability");
+    
+    // 1. Compile and define Base
+    let base_code = "
+        class Base {
+            construct new() {
+                _name = \"Base\"
+                _other = 42
+            }
+        }
+    ";
+    vm.interpret_source(module, base_code).expect("Base definition should succeed");
+    
+    // 2. Retrieve base_cls and define Subclass inheriting from Base
+    let base_sym = vm.get_or_intern("Base");
+    let base_cls = *vm.classes.get(&base_sym).unwrap();
+    let _sub_cls = vm.create_class("Subclass", Some(base_cls));
+    
+    // 3. Compile Subclass closure without running it yet
+    let sub_code = "
+        class Subclass {
+            construct new() {
+                _name = \"Subclass\"
+            }
+        }
+    ";
+    let closure = vm.compile_closure(module, sub_code).expect("Subclass compilation should succeed");
+    
+    // 4. Update Subclass class object in the heap with the compiled layout
+    let sub_sym = vm.get_or_intern("Subclass");
+    let layout = vm.field_layouts.get(&sub_sym).unwrap().clone();
+    let sub_cls = *vm.classes.get(&sub_sym).unwrap();
+    let sub_meta = vm.heap.class(sub_cls).class;
+    
+    vm.heap.class_mut(sub_cls).field_slots = layout.field_slots;
+    vm.heap.class_mut(sub_cls).field_count = layout.field_count;
+    vm.heap.class_mut(sub_meta).field_slots = layout.static_field_slots;
+    vm.heap.class_mut(sub_meta).field_count = layout.static_field_count;
+    vm.heap.class_mut(sub_cls).static_slots = vec![Value::Nil; layout.static_field_count as usize].into_boxed_slice();
+    
+    // 5. Run Subclass definition closure
+    vm.run_in_module(module, closure).expect("Subclass execution should succeed");
+    
+    let name_sym = vm.get_or_intern("_name");
+    let other_sym = vm.get_or_intern("_other");
+    
+    let base_cls = *vm.classes.get(&base_sym).unwrap();
+    let sub_cls = *vm.classes.get(&sub_sym).unwrap();
+    
+    let base_layout = vm.heap.class(base_cls);
+    let sub_layout = vm.heap.class(sub_cls);
+    
+    assert_eq!(base_layout.field_slots.get(&name_sym).copied(), Some(0));
+    assert_eq!(base_layout.field_slots.get(&other_sym).copied(), Some(1));
+    assert_eq!(base_layout.field_count, 2);
+    
+    assert_eq!(sub_layout.field_slots.get(&name_sym).copied(), Some(2));
+    assert_eq!(sub_layout.field_count, 3);
+}
+
+#[test]
+fn subclass_static_field_offset_stability() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "subclass_static_field_offset_stability");
+    
+    // 1. Compile and define Base
+    let base_code = "
+        class Base {
+            static _count = 10
+        }
+    ";
+    vm.interpret_source(module, base_code).expect("Base definition should succeed");
+    
+    // 2. Retrieve base_cls and define Subclass inheriting from Base
+    let base_sym = vm.get_or_intern("Base");
+    let base_cls = *vm.classes.get(&base_sym).unwrap();
+    let _sub_cls = vm.create_class("Subclass", Some(base_cls));
+    
+    // 3. Compile Subclass closure without running it yet
+    let sub_code = "
+        class Subclass {
+            static _count = 20
+        }
+    ";
+    let closure = vm.compile_closure(module, sub_code).expect("Subclass compilation should succeed");
+    
+    // 4. Update Subclass class object in the heap with the compiled layout
+    let sub_sym = vm.get_or_intern("Subclass");
+    let layout = vm.field_layouts.get(&sub_sym).unwrap().clone();
+    let sub_cls = *vm.classes.get(&sub_sym).unwrap();
+    let sub_meta = vm.heap.class(sub_cls).class;
+    
+    vm.heap.class_mut(sub_cls).field_slots = layout.field_slots;
+    vm.heap.class_mut(sub_cls).field_count = layout.field_count;
+    vm.heap.class_mut(sub_meta).field_slots = layout.static_field_slots;
+    vm.heap.class_mut(sub_meta).field_count = layout.static_field_count;
+    vm.heap.class_mut(sub_cls).static_slots = vec![Value::Nil; layout.static_field_count as usize].into_boxed_slice();
+    
+    // 5. Run Subclass definition closure (which runs static field initializers)
+    vm.run_in_module(module, closure).expect("Subclass execution should succeed");
+    
+    let count_sym = vm.get_or_intern("_count");
+    
+    let base_cls = *vm.classes.get(&base_sym).unwrap();
+    let sub_cls = *vm.classes.get(&sub_sym).unwrap();
+    
+    let base_meta = vm.heap.class(base_cls).class;
+    let sub_meta = vm.heap.class(sub_cls).class;
+    
+    let base_meta_layout = vm.heap.class(base_meta);
+    let sub_meta_layout = vm.heap.class(sub_meta);
+    
+    assert_eq!(base_meta_layout.field_slots.get(&count_sym).copied(), Some(0));
+    assert_eq!(base_meta_layout.field_count, 1);
+    
+    assert_eq!(sub_meta_layout.field_slots.get(&count_sym).copied(), Some(1));
+    assert_eq!(sub_meta_layout.field_count, 2);
+}

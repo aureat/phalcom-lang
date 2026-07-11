@@ -6,25 +6,23 @@
 //! `Copy` [`Value`]s.
 
 use crate::heap::{ClassId, Heap};
-use crate::interner::Symbol;
 use crate::value::Value;
-use indexmap::IndexMap;
 
 /// An instance of a user-defined class: its class handle and its fields.
 #[derive(Debug, Clone)]
 pub struct InstanceObject {
     /// Handle to the class this object is an instance of.
     pub class: ClassId,
-    /// Instance fields, keyed by name [`Symbol`].
-    pub fields: IndexMap<Symbol, Value>,
+    /// Instance fields, stored as a fixed-size slot vector (ADR-0011).
+    pub slots: Box<[Value]>,
 }
 
 impl InstanceObject {
-    /// Creates an instance of `class` with no fields set.
-    pub fn new(class: ClassId) -> Self {
+    /// Creates an instance of `class` with `field_count` slots, initialized to `Value::Nil` (ADR-0011).
+    pub fn new(class: ClassId, field_count: u16) -> Self {
         Self {
             class,
-            fields: IndexMap::new(),
+            slots: vec![Value::Nil; field_count as usize].into_boxed_slice(),
         }
     }
 

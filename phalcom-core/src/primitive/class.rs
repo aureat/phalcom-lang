@@ -54,6 +54,7 @@ pub fn class_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 /// Returns [`RuntimeError::Type`] if the receiver is not a class.
 pub fn class_new(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let class_id = expect_class(vm, receiver)?;
-    let instance = InstanceObject::new(class_id);
+    let field_count = vm.heap.class(class_id).field_count;
+    let instance = InstanceObject::new(class_id, field_count);
     Ok(Value::Obj(vm.heap.alloc(Object::Instance(instance))))
 }

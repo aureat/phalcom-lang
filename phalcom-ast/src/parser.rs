@@ -575,6 +575,17 @@ impl<'source> Parser<'source> {
         let is_static = self.eat(&Token::Static);
         let name = self.parse_method_name()?;
         let has_equal = self.eat(&Token::Equal);
+        if has_equal && name.starts_with('_') {
+            let expr = self.parse_expr()?;
+            self.expect(&Token::Newline, &["newline"])?;
+            let range = (start..self.prev_end).into();
+            return Ok(ClassMember::Getter(GetterDef {
+                name,
+                body: vec![Statement::Expr { expr, range }],
+                is_static,
+                range,
+            }));
+        }
         let params = if self.eat(&Token::LParen) {
             let list = self.parse_param_list()?;
             self.expect(&Token::RParen, &["\")\""])?;
@@ -585,9 +596,18 @@ impl<'source> Parser<'source> {
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
         if has_equal {
+            let param = if let Some(ref list) = params {
+                if !list.is_empty() {
+                    list[0].name.clone()
+                } else {
+                    "value".to_string()
+                }
+            } else {
+                "value".to_string()
+            };
             Ok(ClassMember::Setter(SetterDef {
                 name,
-                param: "value".to_string(),
+                param,
                 body,
                 is_static,
                 range,

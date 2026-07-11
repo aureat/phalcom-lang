@@ -4,16 +4,11 @@
 
 class Pt {
   x => _x
-  static new(x) {
-    let p = self.new();
-    p.init(x);
-    return p;
-  }
-  init(x) {
-    _x = x;
+  construct new(x) {
+    _x = x
   }
   ==(other) {
-    return _x == other.x;
+    return _x == other.x
   }
 }
 let a = Pt.new(1)

@@ -27,7 +27,7 @@ pub enum PhError {
     StrError(&'static str),
 }
 
-fn format_num_arguments<'a>(args: usize) -> String {
+fn format_num_arguments(args: usize) -> String {
     if args == 1 {
         String::from("1 argument")
     } else {

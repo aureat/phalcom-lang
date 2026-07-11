@@ -1,6 +1,6 @@
 // area: classes
 // spec: classes.md; selectors.md; object-model.md
-// status: PENDING
+// status: PASS
 
 // Two `new` constructors are distinguished by SELECTOR, not arity hacks:
 // `new(name:city:)` and `new(name:)` are two distinct Initializer selectors.

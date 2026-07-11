@@ -50,6 +50,11 @@ impl Interner {
         }
     }
 
+    /// Check if a string is already interned and return its Symbol.
+    pub fn find(&self, name: &str) -> Option<Symbol> {
+        self.map.get(name).map(|&id| Symbol(id))
+    }
+
     /// Intern a given string.
     pub fn intern(&mut self, name: &str) -> Symbol {
         if let Some(&id) = self.map.get(name) {

@@ -3,13 +3,8 @@
 // status: PASS
 
 class Circle {
-  static new(r) {
-    let c = self.new();
-    c.init(r);
-    return c;
-  }
-  init(r) {
-    _r = r;
+  construct new(r) {
+    _r = r
   }
   radius => _r
 }

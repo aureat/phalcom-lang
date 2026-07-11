@@ -3,19 +3,14 @@
 // status: PASS
 
 class Vec {
-  static new(x, y) {
-    let v = self.new();
-    v.init(x, y);
-    return v;
-  }
-  init(x, y) {
-    _x = x;
-    _y = y;
+  construct new(x, y) {
+    _x = x
+    _y = y
   }
   x => _x
   y => _y
   +(other) {
-    return Vec.new(_x + other.x, _y + other.y);
+    return Vec.new(_x + other.x, _y + other.y)
   }
 }
 let a = Vec.new(1, 2)

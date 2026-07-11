@@ -45,10 +45,16 @@ pub enum Bytecode {
     /// 0: The index of the variable's name in the constant pool.
     GetGlobal(u16),
 
+    /// Sets the value of a global variable.
+    /// 0: The index of the variable's name in the constant pool.
     SetGlobal(u16),
 
+    /// Pushes the value of an instance field onto the stack.
+    /// 0: The slot offset of the field in the receiver's slots array (ADR-0011).
     GetField(u16),
 
+    /// Sets the value of an instance field of the receiver.
+    /// 0: The slot offset of the field in the receiver's slots array (ADR-0011).
     SetField(u16),
 
     /// Pushes the receiver (`self`) of the current frame onto the stack.
@@ -140,4 +146,13 @@ pub enum Bytecode {
     /// and, if dirty, adds `offset` to `ip`
     /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     GuardBlock(i32),
+
+    /// Allocates a new instance of a class popped from the stack.
+    ///
+    /// Used by constructor initializers to allocate the instance on which
+    /// the initializer body executes (ADR-0011).
+    NewInstance,
+
+    /// Duplicates the top value on the stack.
+    Dup,
 }

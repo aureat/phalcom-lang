@@ -9,6 +9,7 @@
 
 use crate::heap::{ClassId, Heap, ObjRef};
 use crate::interner::Symbol;
+use crate::value::Value;
 use indexmap::IndexMap;
 
 /// Selector → [`MethodObject`](crate::method::MethodObject) handle table.
@@ -31,13 +32,19 @@ pub struct ClassObject {
     pub superclass: Option<ClassId>,
     /// Methods defined directly on this class, keyed by selector [`Symbol`].
     pub methods: MethodsMap,
+    /// Instance fields, keyed by name [`Symbol`] to their slot offset (ADR-0011).
+    pub field_slots: IndexMap<Symbol, u16>,
+    /// Number of instance slots (ADR-0011).
+    pub field_count: u16,
+    /// Class-side stored fields (static fields), stored as a fixed-size slot vector (ADR-0017).
+    pub static_slots: Box<[Value]>,
 }
 
 /// Walks `class` and its superclasses for a method bound to `selector`.
 ///
 /// Returns the first matching [`MethodObject`](crate::method::MethodObject)
 /// handle, or `None` if no class in the chain defines it. Traversal follows
-/// [`ClassId`] handles through `heap`, so it neither clones nor borrows any
+/// [`ClassId`] handles through `heap`, so it neither borrows nor clones any
 /// object across steps.
 pub fn lookup_method_in_hierarchy(heap: &Heap, mut class: ClassId, selector: Symbol) -> Option<ObjRef> {
     loop {
@@ -64,7 +71,15 @@ impl ClassObject {
             class: ClassId::default(),
             superclass: None,
             methods: MethodsMap::new(),
+            field_slots: IndexMap::new(),
+            field_count: 0,
+            static_slots: Box::default(),
         }
+    }
+
+    /// Resolves a field name to its slot index (own table only, non-inherited).
+    pub fn resolve_field(&self, name: Symbol) -> Option<u16> {
+        self.field_slots.get(&name).copied()
     }
 
     /// Returns a copy of this class's display name.

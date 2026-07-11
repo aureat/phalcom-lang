@@ -25,6 +25,7 @@ use phalcom_common::range::{EmptySourceRange, SourceRange};
 use std::collections::HashSet;
 use thiserror::Error;
 use tracing::debug;
+use indexmap::IndexMap;
 
 /// An error raised while lowering the AST to bytecode.
 #[derive(Error, Debug, Clone)]
@@ -79,6 +80,14 @@ pub enum CompilerError {
     /// A free-form compiler diagnostic.
     #[error("{0}")]
     Message(String),
+
+    /// A field read whose name is in no assignment set in the class (ADR-0011).
+    #[error("Read-before-write: field '{0}' is used before being assigned anywhere in this class.")]
+    ReadBeforeWrite(String),
+
+    /// An explicit value returned from a construct initializer.
+    #[error("Cannot return a value from an initializer.")]
+    ReturnValueFromInitializer,
 }
 
 // impl From<CompilerError> for PhError {
@@ -133,11 +142,13 @@ pub(crate) struct FunctionState {
     max_slots: usize,
     /// The upvalue capture descriptors resolved for this body.
     upvalues: Vec<UpvalueDescriptor>,
+    /// Whether this body compiles a constructor initializer (ADR-0011).
+    is_constructor: bool,
 }
 
 impl FunctionState {
     /// Creates an empty function-compilation state.
-    fn new() -> Self {
+    fn new(is_constructor: bool) -> Self {
         FunctionState {
             chunk: Chunk::default(),
             locals: Vec::new(),
@@ -145,6 +156,7 @@ impl FunctionState {
             num_locals: 0,
             max_slots: 0,
             upvalues: Vec::new(),
+            is_constructor,
         }
     }
 }
@@ -164,6 +176,10 @@ pub(crate) struct Compiler<'vm> {
     /// a store to a `let` global at compile time
     /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)).
     immutable_globals: HashSet<Symbol>,
+    /// The class name Symbol currently being compiled, if any (ADR-0011).
+    current_class: Option<Symbol>,
+    /// Whether the current method/scope context is static (metaclass-side) (ADR-0017).
+    is_static_context: bool,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -171,8 +187,10 @@ impl<'vm> Compiler<'vm> {
         Compiler {
             vm,
             module,
-            functions: vec![FunctionState::new()],
+            functions: vec![FunctionState::new(false)],
             immutable_globals: HashSet::new(),
+            current_class: None,
+            is_static_context: false,
         }
     }
 
@@ -347,6 +365,7 @@ impl<'vm> Compiler<'vm> {
         name_sym: Symbol,
         params: Vec<String>,
         is_method: bool,
+        is_constructor: bool,
     ) -> Result<ObjRef, CompilerError> {
         // Intern parameter and receiver names before pushing the function state.
         let mut param_symbols = Vec::with_capacity(params.len());
@@ -357,7 +376,7 @@ impl<'vm> Compiler<'vm> {
         let dummy_sym = self.vm.interner.intern("<block-receiver>");
 
         // Push a fresh function-compilation state for this body.
-        self.functions.push(FunctionState::new());
+        self.functions.push(FunctionState::new(is_constructor));
         self.begin_scope();
 
         if is_method {
@@ -367,6 +386,13 @@ impl<'vm> Compiler<'vm> {
             // Slot 0 holds the block object itself (blocks reach `self` via an
             // upvalue, functions.md §2), so we reserve it with a dummy local.
             self.add_local(dummy_sym, true);
+        }
+
+        if is_constructor {
+            self.emit(Bytecode::GetSelf, EmptySourceRange);
+            self.emit(Bytecode::NewInstance, EmptySourceRange);
+            self.emit(Bytecode::SetLocal(0), EmptySourceRange);
+            self.emit(Bytecode::Pop, EmptySourceRange);
         }
 
         for param_sym in param_symbols {
@@ -396,11 +422,9 @@ impl<'vm> Compiler<'vm> {
         self.end_scope(EmptySourceRange);
 
         if !last_is_return {
-            // A value-less body (empty, or ending in a `Class`/other non-value
-            // statement) must surface `None` when it falls off the end, not the
-            // receiver left in slot 0. Push the absence placeholder before the
-            // fallback `Return`, mirroring `compile_inline_block_body`.
-            if !leaves_value {
+            if self.functions.last().unwrap().is_constructor {
+                self.emit(Bytecode::GetLocal(0), EmptySourceRange);
+            } else if !leaves_value {
                 self.emit(Bytecode::Nil, EmptySourceRange);
             }
             self.emit(Bytecode::Return, EmptySourceRange);
@@ -511,10 +535,17 @@ impl<'vm> Compiler<'vm> {
             }
             Statement::Return(return_stmt) => {
                 let range = return_stmt.range;
-                if let Some(expr) = return_stmt.value {
-                    self.compile_expr(expr)?;
+                if self.functions.last().unwrap().is_constructor {
+                    if return_stmt.value.is_some() {
+                        return Err(CompilerError::ReturnValueFromInitializer);
+                    }
+                    self.emit(Bytecode::GetLocal(0), range);
                 } else {
-                    self.emit(Bytecode::Nil, range);
+                    if let Some(expr) = return_stmt.value {
+                        self.compile_expr(expr)?;
+                    } else {
+                        self.emit(Bytecode::Nil, range);
+                    }
                 }
                 self.emit(Bytecode::Return, range);
             }
@@ -523,18 +554,157 @@ impl<'vm> Compiler<'vm> {
                 let name_sym = self.vm.interner.intern(&class_def.name);
                 let name_idx = self.add_constant(Value::Symbol(name_sym));
 
+                // 1. Whole-class field collection pass
+                let mut own_instance_fields = Vec::new();
+                let mut own_static_fields = Vec::new();
+
+                // Pass 1: Collect static fields
+                for member in &class_def.members {
+                    match member {
+                        ClassMember::Method(m) if m.is_static => {
+                            let mut fields = Vec::new();
+                            for stmt in &m.body {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
+                            for f in fields {
+                                if !own_static_fields.contains(&f) {
+                                    own_static_fields.push(f);
+                                }
+                            }
+                        }
+                        ClassMember::Getter(g) if g.is_static => {
+                            if g.name.starts_with('_') {
+                                let f = self.vm.interner.intern(&g.name);
+                                if !own_static_fields.contains(&f) {
+                                    own_static_fields.push(f);
+                                }
+                            }
+                            let mut fields = Vec::new();
+                            for stmt in &g.body {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
+                            for f in fields {
+                                if !own_static_fields.contains(&f) {
+                                    own_static_fields.push(f);
+                                }
+                            }
+                        }
+                        ClassMember::Setter(s) if s.is_static => {
+                            let mut fields = Vec::new();
+                            for stmt in &s.body {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
+                            for f in fields {
+                                if !own_static_fields.contains(&f) {
+                                    own_static_fields.push(f);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Pass 2: Collect instance fields (only if not static)
+                for member in &class_def.members {
+                    match member {
+                        ClassMember::Method(m) if !m.is_static => {
+                            let mut fields = Vec::new();
+                            for stmt in &m.body {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
+                            for f in fields {
+                                if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                    own_instance_fields.push(f);
+                                }
+                            }
+                        }
+                        ClassMember::Getter(g) if !g.is_static => {
+                            if g.name.starts_with('_') {
+                                let f = self.vm.interner.intern(&g.name);
+                                if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                    own_instance_fields.push(f);
+                                }
+                            }
+                            let mut fields = Vec::new();
+                            for stmt in &g.body {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
+                            for f in fields {
+                                if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                    own_instance_fields.push(f);
+                                }
+                            }
+                        }
+                        ClassMember::Setter(s) if !s.is_static => {
+                            let mut fields = Vec::new();
+                            for stmt in &s.body {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
+                            for f in fields {
+                                if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                    own_instance_fields.push(f);
+                                }
+                            }
+                        }
+                        ClassMember::Construct(c) => {
+                            let mut fields = Vec::new();
+                            for stmt in &c.body {
+                                collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                            }
+                            for f in fields {
+                                if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                    own_instance_fields.push(f);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // 2. Build the ClassLayout and store it in VM
+                let superclass_id = if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
+                    self.vm.heap.class(existing_class).superclass
+                } else {
+                    Some(self.vm.universe.classes.object_class)
+                };
+
+                let sc_field_count = if let Some(sc_id) = superclass_id {
+                    self.vm.heap.class(sc_id).field_count
+                } else {
+                    0
+                };
+
+                let sc_meta_field_count = if let Some(sc_id) = superclass_id {
+                    let sc_meta = self.vm.heap.class(sc_id).class;
+                    self.vm.heap.class(sc_meta).field_count
+                } else {
+                    0
+                };
+
+                let mut field_slots = IndexMap::new();
+                for (i, f) in own_instance_fields.iter().enumerate() {
+                    field_slots.insert(*f, (sc_field_count as usize + i) as u16);
+                }
+                let field_count = sc_field_count + own_instance_fields.len() as u16;
+
+                let mut static_field_slots = IndexMap::new();
+                for (i, f) in own_static_fields.iter().enumerate() {
+                    static_field_slots.insert(*f, (sc_meta_field_count as usize + i) as u16);
+                }
+                let static_field_count = sc_meta_field_count + own_static_fields.len() as u16;
+
+                let layout = crate::vm::ClassLayout {
+                    name: name_sym,
+                    field_slots,
+                    field_count,
+                    static_field_slots,
+                    static_field_count,
+                };
+                self.vm.field_layouts.insert(name_sym, layout);
+
+                self.current_class = Some(name_sym);
+
                 if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
-                    // Reopening: a `class Name { ... }` whose name already
-                    // resolves to a global class attaches its members to
-                    // *that* class row instead of shadowing it with a fresh
-                    // one under the same name. This is a deliberate, narrowly
-                    // scoped U5 addition (not a general object-model
-                    // redesign — `class-hierarchy mutability` stays open,
-                    // open-Q4) needed to make sacred-selector overriding
-                    // exercisable from surface Phalcom at all, so the
-                    // inliner's override-epoch deopt guard has a real,
-                    // testable trigger (ADR-0018; see
-                    // `Universe::note_method_installed`).
                     let class_idx = self.add_constant(Value::Obj(existing_class));
                     self.emit(Bytecode::Constant(class_idx), range);
                 } else {
@@ -559,7 +729,8 @@ impl<'vm> Compiler<'vm> {
                             let selector_sym = self.vm.interner.intern(&selector);
 
                             let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
-                            let closure = self.compile_block(method_def.body, selector_sym, param_names, true)?;
+                            self.is_static_context = method_def.is_static;
+                            let closure = self.compile_block(method_def.body, selector_sym, param_names, true, false)?;
 
                             debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
@@ -570,34 +741,53 @@ impl<'vm> Compiler<'vm> {
                             )));
 
                             let method_obj_idx = self.add_constant(Value::Obj(method_obj));
-                            // println!("[Compiler] Emitting Constant for method_obj_idx: {}", method_obj_idx);
                             self.emit(Bytecode::Constant(method_obj_idx), range);
 
                             let selector_idx = self.add_constant(Value::Symbol(selector_sym));
-                            // println!(
-                            //     "[Compiler] Emitting Method for selector_idx: {}, is_static: {}",
-                            //     selector_idx, method_def.is_static
-                            // );
                             self.emit(Bytecode::Method(selector_idx, method_def.is_static), range);
                         }
                         ClassMember::Getter(getter_def) => {
                             let range = getter_def.range;
 
-                            let selector = make_signature(&getter_def.name, SignatureKind::Getter);
-                            let selector_sym = self.vm.interner.intern(&selector);
+                            if getter_def.name.starts_with('_') {
+                                let layout = self.vm.field_layouts.get(&name_sym).unwrap().clone();
+                                let field_name_sym = self.vm.interner.intern(&getter_def.name);
+                                let slot = if getter_def.is_static {
+                                    *layout.static_field_slots.get(&field_name_sym).ok_or_else(|| {
+                                        CompilerError::Message(format!("Static field slot not found: {}", getter_def.name))
+                                    })?
+                                } else {
+                                    *layout.field_slots.get(&field_name_sym).ok_or_else(|| {
+                                        CompilerError::Message(format!("Instance field slot not found: {}", getter_def.name))
+                                    })?
+                                };
 
-                            let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), true)?;
+                                self.emit(Bytecode::Dup, range);
+                                if let Statement::Expr { expr, .. } = &getter_def.body[0] {
+                                    self.compile_expr(expr.clone())?;
+                                } else {
+                                    return Err(CompilerError::Message("Invalid field initializer body".to_string()));
+                                }
+                                self.emit(Bytecode::SetField(slot), range);
+                                self.emit(Bytecode::Pop, range);
+                            } else {
+                                let selector = make_signature(&getter_def.name, SignatureKind::Getter);
+                                let selector_sym = self.vm.interner.intern(&selector);
 
-                            debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
+                                self.is_static_context = getter_def.is_static;
+                                let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), true, false)?;
 
-                            let method_obj =
-                                self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure))));
+                                debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
-                            let method_obj_idx = self.add_constant(Value::Obj(method_obj));
-                            self.emit(Bytecode::Constant(method_obj_idx), range);
+                                let method_obj =
+                                    self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure))));
 
-                            let selector_idx = self.add_constant(Value::Symbol(selector_sym));
-                            self.emit(Bytecode::Method(selector_idx, getter_def.is_static), range);
+                                let method_obj_idx = self.add_constant(Value::Obj(method_obj));
+                                self.emit(Bytecode::Constant(method_obj_idx), range);
+
+                                let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                                self.emit(Bytecode::Method(selector_idx, getter_def.is_static), range);
+                            }
                         }
                         ClassMember::Setter(setter_def) => {
                             let range = setter_def.range;
@@ -605,7 +795,8 @@ impl<'vm> Compiler<'vm> {
                             let selector = make_signature(&setter_def.name, SignatureKind::Setter);
                             let selector_sym = self.vm.interner.intern(&selector);
 
-                            let closure = self.compile_block(setter_def.body, selector_sym, vec!["value".to_string()], true)?;
+                            self.is_static_context = setter_def.is_static;
+                            let closure = self.compile_block(setter_def.body, selector_sym, vec![setter_def.param.clone()], true, false)?;
 
                             debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
@@ -618,8 +809,50 @@ impl<'vm> Compiler<'vm> {
                             let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                             self.emit(Bytecode::Method(selector_idx, setter_def.is_static), range);
                         }
+                        ClassMember::Construct(construct_def) => {
+                            let range = construct_def.range;
+
+                            let arity = construct_def.params.len();
+                            let labels: Vec<Option<String>> = construct_def.params.iter().map(|p| p.label.clone()).collect();
+                            let selector = encode_selector(&construct_def.name, &labels, SignatureKind::Initializer(arity as u8));
+                            let selector_sym = self.vm.interner.intern(&selector);
+
+                            // Register the call-site alias (ADR-0011): user
+                            // source calls a constructor as an ordinary send
+                            // (`Counter.new()`), which encodes to the
+                            // `SignatureKind::Method` selector below, not the
+                            // `Initializer` selector installed above. Without
+                            // this alias the call would silently resolve to
+                            // the inherited `Object::new` bare-allocation
+                            // primitive instead of this constructor.
+                            let call_site_selector = encode_selector(&construct_def.name, &labels, SignatureKind::Method(arity as u8));
+                            let call_site_sym = self.vm.interner.intern(&call_site_selector);
+                            let class_name_sym = self.current_class.expect("construct is only compiled within a class body");
+                            self.vm.constructor_aliases.insert((class_name_sym, call_site_sym), selector_sym);
+
+                            let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();
+                            
+                            self.is_static_context = false;
+                            let closure = self.compile_block(construct_def.body, selector_sym, param_names, true, true)?;
+
+                            debug!("[Compiler] Compiling constructor: {}", selector);
+
+                            let method_obj = self.vm.heap.alloc(Object::Method(MethodObject::new_single(
+                                selector_sym,
+                                SignatureKind::Initializer(arity as u8),
+                                MethodKind::Closure(closure),
+                            )));
+
+                            let method_obj_idx = self.add_constant(Value::Obj(method_obj));
+                            self.emit(Bytecode::Constant(method_obj_idx), range);
+
+                            let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                            self.emit(Bytecode::Method(selector_idx, true), range);
+                        }
                     }
                 }
+
+                self.current_class = None;
 
                 // After defining all methods, the class is still on the stack.
                 // Define it as a global variable.
@@ -655,6 +888,17 @@ impl<'vm> Compiler<'vm> {
                         return self.compile_sacred_call(sacred, range);
                     }
                     Err(method_call) => {
+                        // A literal `ClassName.method(...)` receiver may name
+                        // a `construct` (ADR-0011): redirect the call-site
+                        // selector to the `Initializer` selector it was
+                        // actually installed under, so `Counter.new()` reaches
+                        // the constructor instead of the inherited
+                        // `Object::new` bare-allocation primitive.
+                        let receiver_class_sym = match &method_call.object {
+                            Expr::Var { value, .. } => Some(self.vm.interner.intern(value)),
+                            _ => None,
+                        };
+
                         self.compile_expr(method_call.object)?;
                         for arg in &method_call.args {
                             self.compile_expr(arg.expr.clone())?;
@@ -663,6 +907,9 @@ impl<'vm> Compiler<'vm> {
                         let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
                         let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
                         let selector_sym = self.vm.interner.intern(&selector);
+                        let selector_sym = receiver_class_sym
+                            .and_then(|class_sym| self.vm.constructor_aliases.get(&(class_sym, selector_sym)).copied())
+                            .unwrap_or(selector_sym);
                         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                         self.emit(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
                     }
@@ -710,10 +957,30 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::Field { value, range } => {
-                self.emit_self(range);
                 let name_sym = self.vm.interner.intern(&value);
-                let name_idx = self.add_constant(Value::Symbol(name_sym));
-                self.emit(Bytecode::GetField(name_idx), range);
+                let class_sym = self.current_class.ok_or_else(|| {
+                    CompilerError::Message(format!("Fields can only be accessed within a class: {}", value))
+                })?;
+                let layout = self.vm.field_layouts.get(&class_sym).cloned().ok_or_else(|| {
+                    CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_sym)))
+                })?;
+
+                if let Some(&slot) = layout.static_field_slots.get(&name_sym) {
+                    if self.is_static_context {
+                        self.emit_self(range);
+                    } else {
+                        self.emit_self(range);
+                        let class_sym = self.vm.interner.intern("class");
+                        let class_idx = self.add_constant(Value::Symbol(class_sym));
+                        self.emit(Bytecode::Invoke(0, class_idx), range);
+                    }
+                    self.emit(Bytecode::GetField(slot), range);
+                } else if let Some(&slot) = layout.field_slots.get(&name_sym) {
+                    self.emit_self(range);
+                    self.emit(Bytecode::GetField(slot), range);
+                } else {
+                    return Err(CompilerError::ReadBeforeWrite(value.clone()));
+                }
             }
             Expr::Assignment(assign_expr) => {
                 match *assign_expr.name {
@@ -747,11 +1014,32 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
                     Expr::Field { value, range } => {
-                        self.emit_self(range); // Push receiver first
-                        self.compile_expr(assign_expr.value)?; // Then push value
                         let name_sym = self.vm.interner.intern(&value);
-                        let name_idx = self.add_constant(Value::Symbol(name_sym));
-                        self.emit(Bytecode::SetField(name_idx), range);
+                        let class_sym = self.current_class.ok_or_else(|| {
+                            CompilerError::Message(format!("Fields can only be accessed within a class: {}", value))
+                        })?;
+                        let layout = self.vm.field_layouts.get(&class_sym).cloned().ok_or_else(|| {
+                            CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_sym)))
+                        })?;
+
+                        if let Some(&slot) = layout.static_field_slots.get(&name_sym) {
+                            if self.is_static_context {
+                                self.emit_self(range);
+                            } else {
+                                self.emit_self(range);
+                                let class_sym = self.vm.interner.intern("class");
+                                let class_idx = self.add_constant(Value::Symbol(class_sym));
+                                self.emit(Bytecode::Invoke(0, class_idx), range);
+                            }
+                            self.compile_expr(assign_expr.value)?;
+                            self.emit(Bytecode::SetField(slot), range);
+                        } else if let Some(&slot) = layout.field_slots.get(&name_sym) {
+                            self.emit_self(range);
+                            self.compile_expr(assign_expr.value)?;
+                            self.emit(Bytecode::SetField(slot), range);
+                        } else {
+                            return Err(CompilerError::Message(format!("Field not collected in layout: {}", value)));
+                        }
                     }
                     _ => return Err(CompilerError::InvalidAssignmentTarget),
                 }
@@ -818,7 +1106,7 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::Block(block_expr) => {
                 let name_sym = self.vm.interner.intern("<block>");
-                let closure = self.compile_block(block_expr.body, name_sym, block_expr.params, false)?;
+                let closure = self.compile_block(block_expr.body, name_sym, block_expr.params, false, false)?;
                 let idx = self.add_constant(Value::Obj(closure));
                 self.emit(Bytecode::Closure(idx), block_expr.range);
             }
@@ -833,6 +1121,65 @@ impl<'vm> Compiler<'vm> {
               // }
         }
         Ok(())
+    }
+}
+
+fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut crate::interner::Interner) {
+    match expr {
+        Expr::Assignment(assign) => {
+            if let Expr::Field { value, .. } = &*assign.name {
+                let sym = interner.intern(value);
+                if !fields.contains(&sym) {
+                    fields.push(sym);
+                }
+            }
+            collect_assigned_fields(&assign.value, fields, interner);
+        }
+        Expr::Unary(unary) => {
+            collect_assigned_fields(&unary.expr, fields, interner);
+        }
+        Expr::Binary(binary) => {
+            collect_assigned_fields(&binary.left, fields, interner);
+            collect_assigned_fields(&binary.right, fields, interner);
+        }
+        Expr::MethodCall(call) => {
+            collect_assigned_fields(&call.object, fields, interner);
+            for arg in &call.args {
+                collect_assigned_fields(&arg.expr, fields, interner);
+            }
+        }
+        Expr::GetProperty(get_prop) => {
+            collect_assigned_fields(&get_prop.object, fields, interner);
+        }
+        Expr::SetProperty(set_prop) => {
+            collect_assigned_fields(&set_prop.object, fields, interner);
+            collect_assigned_fields(&set_prop.value, fields, interner);
+        }
+        Expr::Block(block) => {
+            for stmt in &block.body {
+                collect_assigned_fields_stmt(stmt, fields, interner);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_assigned_fields_stmt(stmt: &Statement, fields: &mut Vec<Symbol>, interner: &mut crate::interner::Interner) {
+    match stmt {
+        Statement::Expr { expr, .. } => {
+            collect_assigned_fields(expr, fields, interner);
+        }
+        Statement::Let(binding) => {
+            if let Some(ref val) = binding.value {
+                collect_assigned_fields(val, fields, interner);
+            }
+        }
+        Statement::Return(ret) => {
+            if let Some(ref val) = ret.value {
+                collect_assigned_fields(val, fields, interner);
+            }
+        }
+        _ => {}
     }
 }
 

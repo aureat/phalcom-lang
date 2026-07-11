@@ -1,6 +1,6 @@
 // area: classes
 // spec: classes.md; object-model.md
-// status: PENDING
+// status: PASS
 
 // `construct` implicitly returns the freshly-allocated instance (`self`),
 // so the constructor result can be messaged directly.

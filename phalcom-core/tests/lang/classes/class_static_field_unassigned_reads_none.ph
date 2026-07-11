@@ -1,6 +1,6 @@
 // area: classes
 // spec: classes.md; values-and-absence.md; ADR-0017
-// status: PENDING
+// status: PASS
 
 // DEC-D (ADR-0017): an in-layout but unwritten static slot reads `None` via the
 // same absence helper as instance fields — the private Nil sentinel never leaks.

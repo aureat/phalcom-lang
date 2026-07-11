@@ -1,6 +1,6 @@
 // area: classes
 // spec: classes.md; object-model.md; ADR-0017
-// status: PENDING
+// status: PASS
 
 // DEC-D (ADR-0017): `static _count` is class-side STORED state living on the
 // class object's own slot vector, shared across all instances. Each

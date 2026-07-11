@@ -109,7 +109,21 @@ impl Value {
     /// or `None` if no class in the chain defines it.
     pub fn lookup_method(&self, vm: &VM, selector: Symbol) -> Option<ObjRef> {
         let class = self.class(vm);
-        lookup_method_in_hierarchy(&vm.heap, class, selector)
+        if let Some(method) = lookup_method_in_hierarchy(&vm.heap, class, selector) {
+            return Some(method);
+        }
+        if let Value::Obj(obj_ref) = *self {
+            if vm.heap.as_class(obj_ref).is_some() {
+                let selector_str = vm.resolve_symbol(selector);
+                let mapped_selector_str = format!("init {}", selector_str);
+                if let Some(mapped_sym) = vm.interner.find(&mapped_selector_str) {
+                    if let Some(method) = lookup_method_in_hierarchy(&vm.heap, class, mapped_sym) {
+                        return Some(method);
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Renders this value the way `System.print` and `toString` present it.

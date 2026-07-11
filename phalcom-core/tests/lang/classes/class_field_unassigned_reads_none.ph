@@ -1,6 +1,6 @@
 // area: classes
 // spec: classes.md; values-and-absence.md; ADR-0011
-// status: PENDING
+// status: PASS
 
 class Person {
   construct new(name:) { _name = name }

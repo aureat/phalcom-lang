@@ -150,7 +150,7 @@ impl Universe {
         // `None` is identity-comparable and zero-allocation. The `None` global
         // (bound in `VM::install_core`) points at *this* object, not the `None`
         // class.
-        let none_singleton = heap.alloc(crate::heap::Object::Instance(crate::instance::InstanceObject::new(none_class)));
+        let none_singleton = heap.alloc(crate::heap::Object::Instance(crate::instance::InstanceObject::new(none_class, 0)));
 
         CoreClasses {
             object_class,

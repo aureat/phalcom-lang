@@ -3,22 +3,12 @@
 // status: PASS
 
 class Person {
-  static new(name) {
-    let p = self.new();
-    p.init(name);
-    return p;
+  construct new(name) {
+    _name = name
   }
-  static new(name, age) {
-    let p = self.new();
-    p.init(name, age);
-    return p;
-  }
-  init(name) {
-    _name = name;
-  }
-  init(name, age) {
-    _name = name;
-    _age = age;
+  construct new(name, age) {
+    _name = name
+    _age = age
   }
   name => _name
   age => _age
