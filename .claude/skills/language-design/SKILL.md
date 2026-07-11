@@ -1,20 +1,20 @@
 ---
 name: language-design
 description: >-
-  Programming-language design mastery — the design SPACE (axes, cross-language
-  precedents in both syntax and implementation, and the non-obvious ways features
-  fight each other), not concept tutorials. Use when designing, critiquing, or
-  implementing a language feature: object model / metaclasses / prototypes,
-  dispatch / selectors / multimethods / keyword/default/variadic args, closures /
-  blocks / non-local return / control-flow-as-message / tail calls, value repr
-  (tagged/NaN-box/niche) / absence (Option/nil) / truthiness / numeric tower,
-  error handling (exceptions/Result/conditions/panics), concurrency
-  (fibers/coroutines/async/actors), VM/bytecode (inline caches, speculative
-  inlining, deopt), performance & GC, security & sandboxing/robustness, or design
-  best-practices. Use before adding a feature to check what it PRECLUDES or breaks.
-  Built for Phalcom (Smalltalk-style bytecode VM in Rust): generic layer in
-  references/, committed positions in phalcom/overlay.md. Applies to any PLT
-  decision, Phalcom or not.
+  Programming-language design mastery — the design SPACE (axes, precedents in
+  syntax + implementation, and how features fight), not concept tutorials. Use
+  when designing, critiquing, or implementing a language or its compiler: object
+  model / metaclasses / prototypes, dispatch / selectors / multimethods /
+  keyword/default/variadic args, closures / non-local return / control-flow / tail
+  calls, value repr (tagged/NaN-box/niche) / absence (Option/nil) / truthiness /
+  numeric tower, typing (static/dynamic/gradual, inference, variance), error
+  handling (exceptions/Result/conditions/panics), concurrency
+  (fibers/coroutines/async/actors), compiler / IR / bootstrapping / self-hosting,
+  core & standard library, VM/bytecode (inline caches, speculative inlining,
+  deopt), performance & GC, security & robustness, or design best-practices. Use
+  before adding a feature to check what it PRECLUDES. Built for Phalcom
+  (Smalltalk-style bytecode VM in Rust): generic layer in references/, committed
+  positions in phalcom/overlay.md.
 ---
 
 # Language Design
@@ -49,6 +49,8 @@ Generalized cross-feature traps. Each is a *pattern*; the reference files carry 
 - **Keyword-message selectors ⊗ evaluation order & currying.** Keyword-part selectors (`at:put:`) bind arity into the name and fix argument grouping; they interact with default args, partial application, and external-vs-internal labels. Reserve the signature field for labels *before* identity is load-bearing even if you don't use it yet. (`dispatch.md`)
 - **Speculative optimization ⊗ observable semantics.** Any type-feedback inlining, fast path, or unboxing must deopt to *exactly* the slow-path result — an optimized path that differs on overflow, a side effect, a redefinition, or a subclass override is a correctness bug wearing a performance hat. Every fast path needs a guard that provably implies the slow path. (`performance.md`, `vm.md`)
 - **Dynamic power ⊗ untrusted input.** `eval`, deserialization, reflection/`doesNotUnderstand`, and *unverified* loaded bytecode each turn metaprogramming reach into an injection or type-confusion primitive the instant input is attacker-controlled. A VM must validate external bytecode, cap recursion/allocation, randomize hashing, and convert every malformed input into a *defined* error — never UB, never a raw `panic!`. (`security.md`)
+- **Primitive/library boundary ⊗ bootstrap order.** A class the runtime secretly depends on — the kernel `List` behind `Message.args`/rest-params, `Bool` behind control flow, `Option` behind absence — must be built *before* the features that use it, or the image fails to load. Decide native-vs-library and the kernel dependency DAG up front; a "just a library class" that `doesNotUnderstand`/variadics need is on the critical path, not deferrable. (`bootstrapping.md`, `stdlib.md`)
+- **Gradual typing ⊗ soundness & performance.** Retrofitting optional/gradual types onto a dynamic language is either *unsound* (TypeScript erases and lies at the typed↔untyped boundary) or *sound but slow* (contracts/casts at every crossing — the "gradual guarantee" tax). Pick which; never assume a bolted-on annotation actually constrains a runtime that still dispatches on tags. (`typing.md`)
 
 ## Design-review rubric
 
@@ -73,9 +75,13 @@ Load the one reference the axis lives in; don't pull them all.
 | [references/dispatch.md](references/dispatch.md) | message-send vs vtable, selector/signature identity, single vs multiple dispatch, keyword/default/variadic args & labels, MRO/super, doesNotUnderstand/proxies |
 | [references/closures-control.md](references/closures-control.md) | closure/upvalue representation, capture semantics, non-local return, control-flow-as-message, TCO, iteration/generators, continuations |
 | [references/values.md](references/values.md) | value representation (tagged/NaN-box/niche), absence, truthiness, numeric model, immutability, symbols, equality ladder |
+| [references/typing.md](references/typing.md) | static/dynamic/gradual, strong/weak, nominal/structural, inference (HM/bidirectional), generics & erasure, variance, soundness/escape hatches, RTTI/reflection |
 | [references/errors.md](references/errors.md) | exceptions vs Result vs conditions/restarts vs panics, resumable vs terminating, bridging, cleanup/RAII, error data, failure in constructors |
 | [references/concurrency.md](references/concurrency.md) | threads/green/fibers/coroutines, sym vs asym, async/await & coloring, scheduling, actors/isolation/STM, structured concurrency, memory model |
 | [references/vm.md](references/vm.md) | stack vs register bytecode, frames, inline caches, speculative inlining + deopt, upvalue closing, value repr for the VM, GC interaction |
+| [references/compiler.md](references/compiler.md) | pipeline shape (single/multi/query), CST/AST, IR choice, name resolution, desugaring/lowering, pass ordering, error recovery, compile-time/macros |
+| [references/bootstrapping.md](references/bootstrapping.md) | bootstrap strategy, self-hosting stages, kernel-in-the-language, metaclass/absence bootstrap cycle, image vs source, trusting-trust, kernel load order |
+| [references/stdlib.md](references/stdlib.md) | primitive-vs-library boundary, core/std split, batteries vs minimal, prelude/auto-import, collection library, modules/namespaces, API stability |
 | [references/performance.md](references/performance.md) | dispatch cost, boxing/representation, GC strategy, interpreter loop & JIT, speculative opt/deopt, collections/strings, warmup, allocation/escape analysis |
 | [references/security.md](references/security.md) | memory-safety model, panic-vs-UB, sandboxing/capabilities, eval/deserialization, integer safety, resource-exhaustion/DoS, FFI/unsafe boundary, bytecode verification |
 | [references/best-practices.md](references/best-practices.md) | least surprise, orthogonality, small core, make-illegal-states-unrepresentable, errors-as-UX, evolution/compat, explicit-over-implicit, spec-first, Rust-VM impl hygiene |

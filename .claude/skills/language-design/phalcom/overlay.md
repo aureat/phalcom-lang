@@ -90,3 +90,17 @@ Source of truth: `docs/adr/0001…0016`, `docs/spec/*.md`, open register in `doc
 | Untrusted input | Hand-written lexer + recursive-descent parser, panic-mode recovery (no crash) | ADR-0016 | Parser hardened + multi-error; bytecode is compiler-produced, not yet externally loaded |
 
 **Open perf/security questions:** IC population + NaN-boxing (deferred optimizations, ADR-0010/0012); no external-bytecode loader yet (so no verifier needed *yet* — required before any `import` of compiled units, open-Q8); resource limits (stack depth / allocation caps) unspecified.
+
+## Compiler, bootstrap, library & typing (→ compiler.md, bootstrapping.md, stdlib.md, typing.md)
+| Axis | Phalcom's stance | Where | Note |
+|---|---|---|---|
+| Compiler pipeline | Hand-written byte lexer → recursive-descent/Pratt parser → AST → bytecode; panic-mode recovery, multi-error diagnostics | ADR-0016 | Newlines are tokens; no separate typecheck pass (dynamic) |
+| Intermediate representation | Stack-based bytecode on a stack VM; no SSA/register IR | bytecode.rs, chunk.rs | Compile-to-bytecode, not tree-walk |
+| Desugaring / lowering | `if`/`while`/`for` → block sends; `try`/`catch` → `Block` protocol; `"{x}"` → `toString`+concat | control-flow, error-handling §2, lexical §5 | Small core; sugar lowers at parse/compile time |
+| Bootstrap strategy | Native Rust VM + `core.ph` kernel loaded at startup; **compiler stays in Rust — NOT self-hosted** | CLAUDE.md, `core/core.ph` | Object model dogfooded in `core.ph`; no metacircular compiler |
+| Object-model / absence bootstrap | Allocate-then-patch cyclic apex + `verify_invariants()`; `nil`/`Option`/`Bool` VM-blessed, not library-constructed | ADR-0002/0003/0010 | → recipes.md#option-niche |
+| Kernel load order | `Object`→`Behavior`→`Class`; `Bool` before control flow; kernel `List` needed before dNU/variadics but **unscheduled** | object-model §4, DEC-A | DEC-A: elevate `List` onto the critical path |
+| Core vs std split | Bootstrap `core.ph` base classes; U-STD grows `Object`/`Number`/`String`/`Symbol`/`System`; collections deferred | class specs, U-STD-plan | One shared `core.ph`, edited additively — never co-schedule editors |
+| Primitive vs library boundary | VM-native: arithmetic, `Object`, `Bool`, block `call`, absence, dispatch; the rest self-defined in `core.ph` | ADR-0006, primitive/*.rs | Smaller native surface = more auditable, slower hot ops |
+| Typing discipline | **Dynamically typed**, message-based; runtime tag checks; failed send = `doesNotUnderstand` (the "type error"); no static/gradual type system specified | object-model, method-lookup §2 | Types ≠ classes; introspection via `Family`/selectors/reflection |
+| Numeric surface typing | Single `Number` (f64); Int/Float *surface* split unresolved | ADR-0005, open-Q2 | Write against the abstract numeric protocol so the split isn't foreclosed |
