@@ -1,0 +1,76 @@
+# Phalcom Language Specification
+
+**Status:** Draft 0.1 — design baseline for implementation.
+
+Phalcom is a class-based, object-first language with JavaScript's surface
+ergonomics and Smalltalk's semantics. This directory is the living specification,
+split into parts. Where a decision is not yet taken it lives in
+[Open Questions](open-questions.md) rather than being silently invented.
+
+## Reading order
+
+| Part | Covers |
+|------|--------|
+| [Lexical Structure](lexical-structure.md) | Tokens, newline handling, literals, string interpolation, brace disambiguation |
+| [Values & Absence](values-and-absence.md) | The value types, private `nil`, `Option` |
+| [Object Model](object-model.md) | Kernel classes, the class/metaclass tower, core catalog |
+| [Blocks](blocks.md) | Blocks/lambdas, non-local return, `Block` as a class |
+| [Messages & Selectors](messages-and-selectors.md) | Selector identity, labels, spread & rest |
+| [Classes](classes.md) | `construct`, fields, methods, accessors, operators |
+| [Method Lookup](method-lookup.md) | Resolution order, `doesNotUnderstand`, `Message` |
+| [Control Flow](control-flow.md) | `if`/`while`/`for` sugar, `and`/`or`, the inliner |
+| [Implementation Status](implementation-status.md) | Divergence between this spec and the current tree |
+| [Open Questions](open-questions.md) | Undecided design points |
+
+## Invariants
+
+These are the load-bearing rules. Any feature that violates one is rejected or
+forces an explicit amendment.
+
+1. **Everything is a message.** Operators, control flow, field access, and
+   iteration are message sends underneath. Sugar is encouraged, but must desugar
+   to sends.
+2. **Named argument labels are part of selector identity.** `move(to:duration:)`
+   and `move(_:_:)` are different selectors — a compiler fact, not sugar.
+3. **Method lookup is one hashmap hit** on an interned selector symbol, warm.
+4. **`nil` is a private VM primitive.** Never user-visible. Absence is `Option`
+   (`Some(v)` / `None`).
+5. **Blocks are first-class and cheap.** The inliner
+   ([control flow](control-flow.md)) is load-bearing, not an optimization.
+6. **Nothing surprises a JavaScript programmer** unless the surprise is
+   signposted by unfamiliar syntax.
+
+## Example
+
+```phalcom
+class Person {
+  construct new(name:, age:) {
+    _name = name
+    _age = age
+  }
+
+  construct anonymous() { _name = "Anonymous" }
+
+  name  => _name
+  age   => _age
+  isAdult => _age.map { a => a >= 18 }.unwrapOr(false)
+
+  ==(other) => self.name == other.name and self.age == other.age
+
+  describe() {
+    _age.ifSome { a => return "{_name}, {a}" }
+    "{_name}, age unknown"
+  }
+}
+
+let people = [
+  Person.new(name: "Bob", age: 30),
+  Person.new(name: "Alice"),
+  Person.anonymous()
+]
+
+people.filter(p => p.isAdult)
+      .map(p => p.name)
+      .each { n => System.print(n) }
+```
+</content>
