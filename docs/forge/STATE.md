@@ -18,7 +18,52 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **ADR-0019/0020 ratified by the user (2026-07-11)**, clearing U-LIST-plan §0's gate. **U-LIST ✅ landed (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec`, in-tree, no worktree)** — native `List` heap variant + floor primitives + `.ph` protocol; also fixed a pre-existing bug that made `core.ph` inert (see "U-LIST — LANDED" below). **NEXT = U8 (hard-stop boundary per `U-LIST-U8-implement-handoff.md`) — not yet dispatched.** |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **ADR-0019/0020 ratified by the user (2026-07-11)**, clearing U-LIST-plan §0's gate. **U-LIST ✅ landed (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec`, in-tree, no worktree)** — native `List` heap variant + floor primitives + `.ph` protocol; also fixed a pre-existing bug that made `core.ph` inert (see "U-LIST — LANDED" below). **U8 ✅ landed (2026-07-12, `b99ad22`/`806c9ea`, in-tree, no worktree)** — `doesNotUnderstand(_:)` miss forward + `Message` reification + `send_dynamic`/`perform`/`respondsTo` (ADR-0012); reviewer OFF per policy, self-verified on the green gate. See "U8 — LANDED" below. **NEXT = U9 / U-LEX / U-STD (Wave F+1) — not yet dispatched.** |
+
+## U8 — LANDED ✅ (2026-07-12, `b99ad22`/`806c9ea` on `main`, no worktree)
+- **Lookup-miss → `doesNotUnderstand(_:)` forward (method-lookup.md §2, ADR-0012).** The
+  `Bytecode::Invoke` miss arm no longer raises a hard error; it reifies the missed send as a
+  `Message` and re-sends it as `doesNotUnderstand(_:)` up the receiver's chain, so a subclass
+  (proxy) can intercept. A recursion guard: a receiver whose chain somehow lacks
+  `doesNotUnderstand(_:)` is `RuntimeError::Internal`, never re-sent as another dNU.
+- **`VM::send_dynamic(receiver, selector, args)` — the shared runtime-send workhorse.** Saves
+  the frame count, pushes receiver+args at a fresh stack window, dispatches via
+  `lookup_method` + `call_method` (falling through to the same dNU forward on a miss), then
+  re-enters `run_until` to drain that one activation and return a synchronous `Value` — the
+  same re-entrancy pattern as `block_call`, so it is callable from inside a primitive. Three
+  consumers: `Object.perform(_:)` / `perform(_:_:)`, the dNU forward, and (deferred) a U9
+  `SendDynamic` spread opcode.
+- **`Message` = Rust-built four-slot `InstanceObject`, no `.ph`.** `VM::new_message` constructs
+  it directly (slots `selector`/`name`/`labels`/`args`); field count stamped in `VM::new`
+  mirroring `Some` (a `class X {}` reopen never applies a compiler field layout to a
+  bootstrapped row, so a `.ph` `construct` would not work). Accessors are native getters on
+  `message_class`; `labels` uses `""` for a positional argument so `labels.size == args.size`.
+- **`method::decode_selector`** — the exact inverse of `encode_selector`, total (never panics;
+  garbage → `Getter`), used for `Message` name/labels decomposition. 5 unit tests (round-trip
+  across all six `SignatureKind`s, labeled selectors, setter-vs-operator disambiguation,
+  garbage totality, subscripts).
+- **`Object.respondsTo(_:)`** — pure exact-selector probe, never triggers dNU.
+- **`RuntimeError::MethodNotFound` retired → `MessageNotUnderstood { selector, receiver }`**, the
+  default-dNU raise (rendered `"{receiver} does not understand '{selector}'"`). **Four**
+  behavior-change goldens updated (not one): `runtime_unknown_method`,
+  `runtime_and_non_boolean_operand`, `runtime_comparison_unsupported`,
+  `runtime_inline_guard_wrong_type`.
+- **Deliberate scope calls (implementer, within handoff latitude):** (1) **no `Bytecode::SendDynamic`
+  opcode this unit** — per BD-U8-2 nothing emits/decodes a spread call site yet, so a dead opcode
+  with a guessed operand layout would be untestable and pre-empt U9's design; delivered the
+  `send_dynamic` *helper* instead, opcode deferred to U9 (DEFERRED #21). (2) **No `core.ph` edit** —
+  `doesNotUnderstand`/accessors are primitives and `add_class!` already registers the `Message`
+  global, so the shared file stayed untouched (a subset of the plan's write-set). (3) dNU render
+  format `"{receiver} does not understand '{selector}'"`.
+- **Tests:** 5 new `dispatch` PASS goldens (Proxy/dNU forwarding, `Message` shape, `perform`
+  parity, `respondsTo` true/false, dNU-preserves-dispatch / IC non-corruption) + 1 negative
+  `runtime-errors` case (`perform` of an unknown selector re-enters dNU once, no loop) + the 4
+  behavior-change goldens + 5 `method` unit tests.
+- **Green gate:** `./scripts/verify.sh` exit 0; `cargo doc --workspace --no-deps` clean (no new
+  warnings — `new_message` promoted to `pub` to keep intra-doc links valid); clippy clean.
+  Reviewer OFF per policy — self-verified.
+- **Working model:** in-tree on `main`, no worktree.
+- **Stopped at the U8 hard boundary** — did not begin U9/U10/U11/U-LEX/U-STD.
 
 ## U-LIST — LANDED ✅ (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec` on `main`, no worktree)
 - **Native `List` heap variant (ADR-0020).** `ListObject { elements: Vec<Value> }` in new

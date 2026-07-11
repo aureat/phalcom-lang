@@ -10,8 +10,10 @@ closed in a follow-up pass, see STATE.md)**, **U5 (ADR-0018, 2026-07-11 — revi
 result, fixed in `51f56e4`, PASSED, see STATE.md)**,
 **U7 (ADR-0011/0017, 2026-07-11 — reviewer OFF per policy, see STATE.md)**,
 **U-LIST (ADR-0019/0020, 2026-07-11 — ratified then landed same session, reviewer OFF per policy,
-see STATE.md; also fixed a pre-existing bug that made `core.ph` inert)**.
-**Stopped at the U8 hard boundary per `U-LIST-U8-implement-handoff.md` — not dispatched yet.**
+see STATE.md; also fixed a pre-existing bug that made `core.ph` inert)**,
+**U8 (ADR-0012, 2026-07-12 — `b99ad22`/`806c9ea`, reviewer OFF per policy, see STATE.md;
+`doesNotUnderstand(_:)`/`perform`/`respondsTo` + `Message` reification + `send_dynamic`)**.
+**Stopped at the U8 hard boundary — U9/U-LEX/U-STD (Wave F+1) not dispatched yet.**
 Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 
 ## 1. Unit plan roster (each is a self-contained work order)
@@ -24,7 +26,7 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 | U6 | [U6-plan.md](U6-plan.md) · **✅ LANDED** (see STATE.md) | absence → `Option`, `let`/`var`, no surface `nil`, `if(opt)` rejected | 0007/0014 · **0021** · values-and-absence.md | **✅ ran, BLOCKed on inlined≠non-inlined, fixed, PASSED** |
 | U7 | [U7-plan.md](U7-plan.md) · **✅ LANDED** (see STATE.md) | fixed instance slot layout + `construct` initializer + class-side stored static fields | 0011/**0017** · classes.md | — (reviewer OFF per policy) |
 | U-LIST | [U-LIST-plan.md](U-LIST-plan.md) · **✅ LANDED** (see STATE.md) | minimal kernel `List` — native array floor + thin `.ph` protocol | 0019/0020 (**Accepted**) · messages/method-lookup | — (reviewer OFF per policy) |
-| U8 | [U8-plan.md](U8-plan.md) | `doesNotUnderstand(_:)` / `perform` + `SendDynamic` | 0012 · method-lookup.md | — |
+| U8 | [U8-plan.md](U8-plan.md) · **✅ LANDED** (see STATE.md) | `doesNotUnderstand(_:)` / `perform` + `send_dynamic` (opcode deferred to U9) | 0012 · method-lookup.md | — (reviewer OFF per policy) |
 | U9 | [U9-plan.md](U9-plan.md) | variadics (rest params `*xs`, variadic dispatch table) | 0012amd · functions.md | — |
 | U10 | [U10-plan.md](U10-plan.md) | non-local return (`^` unwinds to home method via frame token) | 0013 · blocks.md §5 | — |
 | U11 | [U11-plan.md](U11-plan.md) | Bool tower: abstract `Bool` + singleton `True`/`False` | 0004 | — |
@@ -94,7 +96,7 @@ _Each unit's bulk proceeds regardless; only the named sub-feature waits._
 | **DEC-F** | U-LEX | **String-interpolation sigil** (open-Q5): `{expr}` / `${expr}` / `\(expr)`. | **(a) `{expr}`** (spec §5 default). Ratify Q5 → short ADR, then implement. |
 
 Soft flags (architect can proceed on the recommendation; confirm if you disagree):
-- **U8:** `perform` primitive-only vs also spread call sites `f(*args)` → deliver primitive-only, defer spread.
+- **U8:** ✅ **RESOLVED (landed 2026-07-12).** `perform` primitive-only; spread call sites `f(*args)` deferred to U9. The `Bytecode::SendDynamic` opcode was **also** deferred to U9 (nothing emits/decodes it this unit) — U8 shipped the `VM::send_dynamic` helper only (DEFERRED #21).
 - **U9:** block variadics `{ *xs => }` in scope? → include if parser extends trivially, else defer.
 - **U5 (BD-U5-2):** `repeat(_:)` semantics + unary-operator selector names unpinned → implement unambiguous sacred selectors first, defer `repeat`.
 - **U-STD:** open-Q2 Int/Float split unresolved → write `Number` against the abstract numeric protocol so the split isn't foreclosed.
