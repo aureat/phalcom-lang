@@ -25,25 +25,26 @@ use crate::primitive::block::block_call;
 use crate::value::Value;
 use crate::vm::VM;
 
-/// Constructs a `Some` wrapping `args[0]` — the `Some(_)` primitive.
+/// Wraps `value` in a fresh `Some` instance — the shared core of `Some(_)`
+/// construction ([ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+/// Allocates a fresh [`InstanceObject`] of `Some` and stores `value` in its
+/// `_value` field.
 ///
-/// Registered as the static `new(_)` on the kernel `Some` class
-/// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)); the surface
-/// `Some(x)` desugar (compiler's job) lowers to this send. Allocates a fresh
-/// [`InstanceObject`] of `Some` and stores the argument in its `_value` field.
+/// Used both by [`some_new`] (the surface `Some(_)` primitive) and by the
+/// sacred-selector inliner's [`crate::bytecode::Bytecode::WrapSome`] opcode,
+/// which Some-lifts the taken arm of an inlined one-armed `ifTrue`/`ifFalse`
+/// fast path to keep it observationally identical to the
+/// `bool_if_true`/`bool_if_false` primitive fallback
+/// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)
+/// amendment, U-CORE-2).
 ///
 /// # Panics
 ///
-/// Panics if the wrapped argument is the private [`Value::Nil`] sentinel:
-/// `None` is never inside a `Some` (`values-and-absence.md` Invariant 4).
-/// User code cannot produce the sentinel, so this only ever fires on an
-/// internal surfacing bug.
-///
-/// # Errors
-///
-/// Infallible in practice; returns [`PhResult`] to match the primitive ABI.
-pub fn some_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let value = args[0];
+/// Panics if `value` is the private [`Value::Nil`] sentinel: `None` is never
+/// inside a `Some` (`values-and-absence.md` Invariant 4). User code cannot
+/// produce the sentinel, so this only ever fires on an internal surfacing
+/// bug.
+pub(crate) fn wrap_some(vm: &mut VM, value: Value) -> Value {
     assert!(
         !matches!(value, Value::Nil),
         "Invariant 4: the private nil sentinel must never be wrapped in a Some"
@@ -53,7 +54,21 @@ pub fn some_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Valu
     let mut instance = InstanceObject::new(some_cls, field_count);
     instance.slots[0] = value;
     let id = vm.heap.alloc(Object::Instance(instance));
-    Ok(Value::Obj(id))
+    Value::Obj(id)
+}
+
+/// Constructs a `Some` wrapping `args[0]` — the `Some(_)` primitive.
+///
+/// Registered as the static `new(_)` on the kernel `Some` class
+/// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)); the surface
+/// `Some(x)` desugar (compiler's job) lowers to this send. See [`wrap_some`]
+/// for the allocation and the Invariant-4 panic condition.
+///
+/// # Errors
+///
+/// Infallible in practice; returns [`PhResult`] to match the primitive ABI.
+pub fn some_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(wrap_some(vm, args[0]))
 }
 
 /// Eliminates an `Option`: `receiver.match(some: onSome, none: onNone)`.

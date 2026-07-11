@@ -951,6 +951,11 @@ impl VM {
                     let val = *self.stack.last().ok_or("Stack underflow on Dup")?;
                     self.stack.push(val);
                 }
+                Bytecode::WrapSome => {
+                    let value = self.stack.pop().ok_or("Stack underflow for WrapSome")?;
+                    let wrapped = crate::primitive::nil::wrap_some(self, value);
+                    self.stack.push(wrapped);
+                }
                 Bytecode::Invoke(arity, selector_idx) => {
                     let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
                     let arity = arity as usize;

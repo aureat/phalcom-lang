@@ -489,7 +489,11 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {
         match statement {
             Statement::Expr { expr, range } => {
-                self.compile_expr(expr)?;
+                // A bare-statement expression whose value is about to be
+                // popped is an "unused" position (U-CORE-2): pass that
+                // through so a one-armed sacred conditional can skip its
+                // `Some`-wrap allocation — see `compile_expr_want`.
+                self.compile_expr_want(expr, !emit_pop)?;
                 if emit_pop {
                     // println!("[Compiler] Emitting Pop");
                     self.emit(Bytecode::Pop, range);
@@ -893,7 +897,23 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    /// Compiles `expr`, always leaving exactly one value on the stack.
+    /// Equivalent to `compile_expr_want(expr, true)` — see that method for
+    /// `want_value`.
     pub(crate) fn compile_expr(&mut self, expr: Expr) -> Result<(), CompilerError> {
+        self.compile_expr_want(expr, true)
+    }
+
+    /// Compiles `expr`, always leaving exactly one value on the stack.
+    /// `want_value` is `false` only when the immediate caller is about to
+    /// discard that value with a `Pop` right after
+    /// (`compile_statement_with_pop_control`'s bare-statement case) — it lets
+    /// a recognized one-armed sacred conditional (`ifTrue`/`ifFalse`) skip
+    /// its `Some`-wrap allocation, since the wrap is unobservable when the
+    /// value is popped unread (U-CORE-2; see
+    /// [`Self::compile_sacred_call_want`]). Every other expression shape
+    /// ignores `want_value` — it still pushes its one value as normal.
+    pub(crate) fn compile_expr_want(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
         match expr {
             Expr::MethodCall(method_call) => {
                 // U5 Layer 1 (control-flow.md §3, ADR-0018): a sacred
@@ -916,7 +936,7 @@ impl<'vm> Compiler<'vm> {
                         {
                             return Err(CompilerError::OptionTruthiness);
                         }
-                        return self.compile_sacred_call(sacred, range);
+                        return self.compile_sacred_call_want(sacred, range, want_value);
                     }
                     Err(method_call) => {
                         // A literal `ClassName.method(...)` receiver may name

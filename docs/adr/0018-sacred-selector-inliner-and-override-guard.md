@@ -105,6 +105,41 @@ match (or an open question resolved) rather than the code changed back.
    context, which is exactly the path a user override of a sacred `Bool` method takes
    after deopt.
 
+## Amendment (U-CORE-2): one-armed sacred conditionals are `Some`-lifting
+
+`docs/spec/core/catalog-delta.md` §4.2 flagged a confirmed divergence: `ifTrue(_)`/
+`ifFalse(_)` returned a **half-`Option`** (the taken arm's raw block result, the
+untaken arm `None`) rather than a well-formed `Option` (`Some(A) ∪ None`), even
+though `object-model.md` §4 and `control-flow.md` §1's `if/else ===
+c.ifTrue { A }.ifNone { B }` desugaring both require the latter — `ifNone` is an
+`Option` method, so it can't be sent to a raw block result. This was latent only
+because the `Option` combinators (`ifNone`/`orElse`/`isSome`/`isNone`, now added to
+`core.ph`) didn't exist yet to expose it.
+
+U-CORE-2 `Some`-lifts the *taken* arm of `bool_if_true`/`bool_if_false`
+(`primitive/boolean.rs`) via a new shared `wrap_some` helper (`primitive/nil.rs`,
+factored out of the `Some.new(_)` primitive); the untaken arm's `None` was already
+correct and is unchanged. The paired `ifTrue(_)ifFalse(_)` and `and`/`or` are
+unaffected — they were never specified to return `Option` and still don't.
+
+Per this ADR's own parity requirement, the inliner's fast path must match in
+lockstep: a new `Bytecode::WrapSome` opcode (pop, allocate a `Some` wrapping the
+popped value, push) is emitted after the inlined taken-arm body in
+`compile_if_true`/`compile_if_false` (`compiler/inliner.rs`), so the guarded fast
+path and the primitive deopt path are observationally identical, as ADR-0018
+requires.
+
+**Allocation elision.** `Some`-lifting a value that is immediately discarded (a
+bare-statement `cond.ifTrue { ... }` with no chained receiver) would waste an
+allocation for no observable benefit — nothing can tell `Some(A)` from `A` once
+both are popped unread. `compile_statement_with_pop_control` already knows
+statically whether a statement's expression result will be popped; that bit is
+threaded down through `compile_expr_want`/`compile_sacred_call_want` into
+`compile_if_true`/`compile_if_false`, which skip emitting `WrapSome` when the value
+is unwanted. The primitive fallback does not get this optimization — a deopt'd
+call always allocates — which is fine for the same reason: a discarded result is
+unobservable regardless of which path produced it.
+
 ## Alternatives considered
 
 - **No guard (trust the kernel).** Inline unconditionally and forbid overriding sacred

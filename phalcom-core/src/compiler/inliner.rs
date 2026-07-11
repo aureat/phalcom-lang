@@ -130,11 +130,25 @@ pub(crate) fn recognize(call: MethodCallExpr) -> Result<SacredCall, MethodCallEx
 
 impl<'vm> Compiler<'vm> {
     /// Compiles a recognized [`SacredCall`], dispatching to the per-selector
-    /// emitter.
+    /// emitter. Equivalent to `compile_sacred_call_want(call, range, true)` —
+    /// see that method for `want_value`.
     pub(crate) fn compile_sacred_call(&mut self, call: SacredCall, range: SourceRange) -> Result<(), CompilerError> {
+        self.compile_sacred_call_want(call, range, true)
+    }
+
+    /// Compiles a recognized [`SacredCall`], dispatching to the per-selector
+    /// emitter. `want_value` is `false` only when the caller is about to
+    /// discard the result immediately (a bare-statement `Pop`,
+    /// `compile_statement_with_pop_control`'s `emit_pop` case) — the only
+    /// place a `false` value is meaningful today is [`Self::compile_if_true`]/
+    /// [`Self::compile_if_false`], whose taken arm can then skip the
+    /// `Some`-wrap allocation entirely, since nothing observes `Some(A)` vs.
+    /// `A` when both are popped unread on the next instruction (U-CORE-2, the
+    /// ADR-0018 amendment). Every other sacred selector ignores it.
+    pub(crate) fn compile_sacred_call_want(&mut self, call: SacredCall, range: SourceRange, want_value: bool) -> Result<(), CompilerError> {
         match call {
-            SacredCall::IfTrue { receiver, then_block } => self.compile_if_true(receiver, then_block, range),
-            SacredCall::IfFalse { receiver, else_block } => self.compile_if_false(receiver, else_block, range),
+            SacredCall::IfTrue { receiver, then_block } => self.compile_if_true(receiver, then_block, range, want_value),
+            SacredCall::IfFalse { receiver, else_block } => self.compile_if_false(receiver, else_block, range, want_value),
             SacredCall::IfTrueIfFalse { receiver, then_block, else_block } => {
                 self.compile_if_true_if_false(receiver, then_block, else_block, range)
             }
@@ -261,16 +275,26 @@ impl<'vm> Compiler<'vm> {
     /// `cond.ifTrue { A }` — control-flow.md §3.
     ///
     /// Fast path: `⟨cond⟩; GuardBool→fallback; JumpIfFalse→else; ⟨inline A⟩;
-    /// Jump→end; else: Nil; Jump→end; fallback: ⟨block A⟩; Invoke
-    /// ifTrue(_:); end:`. The `else` arm's `Nil` is the "no branch taken"
-    /// placeholder (U5 guardrail: `Value::Nil` stays as-is, U6's job) that
-    /// keeps the stack depth identical to the taken-branch arm.
-    fn compile_if_true(&mut self, receiver: Expr, then_block: Expr, range: SourceRange) -> Result<(), CompilerError> {
+    /// [WrapSome]; Jump→end; else: Nil; Jump→end; fallback: ⟨block A⟩; Invoke
+    /// ifTrue(_:); end:`. The `else` arm's `Nil` (surfaced to `None`) is the
+    /// "no branch taken" placeholder that keeps the stack depth identical to
+    /// the taken-branch arm.
+    ///
+    /// `ifTrue` returns `Option` (U-CORE-2, ADR-0007): the taken arm's value
+    /// is `Some`-lifted via [`Bytecode::WrapSome`] so the fast path matches
+    /// the `bool_if_true` primitive fallback exactly (both arms are then
+    /// `Some(A) ∪ None`, a well-formed `Option`). When `want_value` is
+    /// `false` — the caller is about to `Pop` the result unread — the
+    /// `WrapSome` is elided; see [`Self::compile_sacred_call_want`].
+    fn compile_if_true(&mut self, receiver: Expr, then_block: Expr, range: SourceRange, want_value: bool) -> Result<(), CompilerError> {
         let then_block_fallback = then_block.clone();
         self.compile_expr(receiver)?;
         let guard = self.emit_jump(Bytecode::GuardBool, range);
         let to_else = self.emit_jump(Bytecode::JumpIfFalse, range);
         self.compile_inline_block_body(Self::expect_block(then_block))?;
+        if want_value {
+            self.emit(Bytecode::WrapSome, range);
+        }
         let to_end_1 = self.emit_jump(Bytecode::Jump, range);
         self.patch_jump(to_else);
         self.emit(Bytecode::Nil, range);
@@ -284,8 +308,9 @@ impl<'vm> Compiler<'vm> {
     }
 
     /// `cond.ifFalse { A }` — control-flow.md §3, the mirror of
-    /// [`Self::compile_if_true`] for the `false` branch.
-    fn compile_if_false(&mut self, receiver: Expr, else_block: Expr, range: SourceRange) -> Result<(), CompilerError> {
+    /// [`Self::compile_if_true`] for the `false` branch. See that method's
+    /// doc for the `Some`-lift and `want_value` elision.
+    fn compile_if_false(&mut self, receiver: Expr, else_block: Expr, range: SourceRange, want_value: bool) -> Result<(), CompilerError> {
         let else_block_fallback = else_block.clone();
         self.compile_expr(receiver)?;
         let guard = self.emit_jump(Bytecode::GuardBool, range);
@@ -295,6 +320,9 @@ impl<'vm> Compiler<'vm> {
         let to_end_1 = self.emit_jump(Bytecode::Jump, range);
         self.patch_jump(to_body);
         self.compile_inline_block_body(Self::expect_block(else_block))?;
+        if want_value {
+            self.emit(Bytecode::WrapSome, range);
+        }
         let to_end_2 = self.emit_jump(Bytecode::Jump, range);
         self.patch_jump(guard);
         self.compile_expr(else_block_fallback)?;

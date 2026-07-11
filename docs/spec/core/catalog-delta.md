@@ -49,14 +49,16 @@ in particular is still a hard miss, not a hook (see §4.5).
 
 | Class | Row | Global | Floor | `.ph` | Pending (catalog − have) | Unit |
 |---|:--:|:--:|---|---|---|---|
-| `Bool` | ✅ | ✅ | `and` `or` `not` `ifTrue` `ifFalse` `ifTrue(_, ifFalse)` `new` | empty reopen | ⚠️ `ifTrue`/`ifFalse` return a **half-Option**, not `Option` (§4.2) | U-CORE-2 |
+| `Bool` | ✅ | ✅ | `and` `or` `not` `ifTrue` `ifFalse` `ifTrue(_, ifFalse)` `new` | empty reopen | — (§4.2 half-Option divergence resolved) | U-CORE-2 |
 | `Number` | ✅ | ✅ | `+ - * / %` `< <= > >=` `negated` `new` | empty reopen | ⚠️ numeric `toString` (today inherits `Object#toString` → class name, not value); `toNumber`, richer math | U-CORE-4 |
 | `String` | ✅ | ✅ | `+(_)` `new` | empty reopen | length, indexing→`Option`, comparison, interpolation, `toSymbol`/`toNumber`, value `toString` | U-CORE-4 |
 | `Symbol` | ✅ | ✅ | `toString` `new(_)` | empty reopen | `asString`/interning-identity protocol, `==` semantics | U-CORE-4 |
-| `Option` | ✅ | ✅ | `match(some, none)` (on `Option`); `Some.new(_)` | empty reopens of `Option`,`Some` | `ifSome(_)`, `ifNone(_)`, `map(_)`, `orElse(_)`, `unwrapOr(_)`, `isSome`, `isNone` — all derivable over `match` | U-CORE-2 |
+| `Option` | ✅ | ✅ | `match(some, none)` (on `Option`); `Some.new(_)` | `ifNone(_)` `orElse(_)` `isSome` `isNone` on `Option`; empty reopen of `Some` | `ifSome(_)`, `map(_)`, `unwrapOr(_)` — still derivable over `match`, deferred to U-STD | U-CORE-2 |
 
-`Some` and `None` are **◐ partial**: construction + the `match` eliminator +
-the shared `None` singleton exist; every combinator is deferred. `None` is a
+`Some` and `None` are **◐ partial**: construction, the `match` eliminator, the
+shared `None` singleton, and the effect/query combinators (`ifNone`, `orElse`,
+`isSome`, `isNone`) exist; the transform/extract combinators (`ifSome`, `map`,
+`flatMap`, `filter`, `unwrapOr`, …) are still deferred to U-STD. `None` is a
 value global, not a class global (values-and-absence.md §3.1). There is **no
 `Nil`/`nil`** surface — forbidden by Invariant 4 (§4.3).
 
@@ -155,7 +157,7 @@ unverified. Each needs a ruling before the owning unit proceeds.
 - **Code:** `make_core_class(heap, "Method", object_class, …)` → `Method < Object` (`universe.rs` L133).
 - **Decision:** re-parent `Method` under `Function` (aligns the catalog; `Method` gains the `call` protocol as a sibling of `Block`), **or** amend the catalog to `Method < Object`. Touches U-CORE-1/3 and the ADR-0006 callable-root story.
 
-### 4.2 ⚠️ `Bool#ifTrue`/`ifFalse` return a half-Option — **confirmed divergence** (resolve in U-CORE-2)
+### 4.2 ✅ `Bool#ifTrue`/`ifFalse` return a half-Option — **resolved in U-CORE-2**
 - **Catalog / spec:** `ifTrue`/`ifFalse` return `Option`. Ratified twice — `object-model.md` §4 and `control-flow.md` §1, whose `if/else === c.ifTrue { A }.ifNone { B }` desugaring only composes if `ifTrue` yields an `Option` that `.ifNone` (an `Option` method) can be sent to.
 - **Code** (`boolean.rs` L109–130): the *absent* arm is `None` ✅, but the *present* arm returns the block result **raw**, never `Some(_)`:
 
@@ -164,8 +166,8 @@ unverified. Each needs a ruling before the owning unit proceeds.
   | `true`  | `A` (unwrapped) | `Some(A)` |
   | `false` | `None` ✅ | `None` ✅ |
 
-  So the result is `A ∪ None`, **not** a well-formed `Option`. This is a deliberate U5 deferral (`U5-plan.md` §4.1, "independent of U6's `Option`"), latent only because the `Option` combinators (`ifNone`/`orElse`/…) don't exist yet (§2.2). It breaks the moment they land: `c.ifTrue { 42 }.ifNone { 0 }` would send `ifNone` to a raw `Number`.
-- **Resolution (U-CORE-2):** `Some`-lift the *one-armed* `ifTrue`/`ifFalse` taken arm; keep `None` for the untaken arm. Leave the paired `ifTrue(_, ifFalse)` (what `if/else` desugars to) and `and`/`or` returning raw values — those are correct as-is. The sacred inliner ([ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)) must `Some`-lift in lockstep so the fast path ≡ the deopt path; elide the wrap in statement (pop) context to avoid the allocation. Worth a one-paragraph ADR-0018 amendment. **Do not** amend the spec to match the impl — that breaks `control-flow.md` §1.
+  So the result was `A ∪ None`, **not** a well-formed `Option`. This was a deliberate U5 deferral (`U5-plan.md` §4.1, "independent of U6's `Option`"), latent only because the `Option` combinators (`ifNone`/`orElse`/…) didn't exist yet (§2.2). It would have broken the moment they landed: `c.ifTrue { 42 }.ifNone { 0 }` would have sent `ifNone` to a raw `Number`.
+- **Resolution (U-CORE-2, landed):** `Some`-lifted the *one-armed* `ifTrue`/`ifFalse` taken arm (`primitive/boolean.rs`, `primitive/nil.rs`'s new `wrap_some` helper); the untaken arm's `None` was already correct. The paired `ifTrue(_, ifFalse)` (what `if/else` desugars to) and `and`/`or` still return raw values — those are correct as-is and untouched. The sacred inliner ([ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)) `Some`-lifts in lockstep via a new `Bytecode::WrapSome` opcode so the fast path ≡ the deopt path; the wrap is elided in statement (pop) context to avoid the allocation when the result is discarded unread. `core.ph`'s `Option` reopen gained the four combinators the catalog assigned to this unit — `ifNone(_)`, `orElse(_)`, `isSome`, `isNone`, all derived over `match` — so `control-flow.md` §1's `if/else === c.ifTrue { A }.ifNone { B }` desugaring is now executable end to end (see the ADR-0018 amendment and the `control-flow`/`absence` golden corpus).
 
 ### 4.3 `Nil` row present in impl, absent in catalog — **intentional, keep**
 - Not a defect: the catalog deliberately omits `Nil` (Invariant 4). The internal row is required to answer `Value::Nil.class`. Documented here so a future reader does not "fix" the catalog by adding it.

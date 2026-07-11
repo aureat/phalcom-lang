@@ -18,9 +18,13 @@ class Symbol {}
 // primitive, and the `match(some:, none:)` eliminator. The skeletons below only
 // *reopen* those bootstrapped rows so the class names are surface-visible.
 //
-// The rich combinator suite (`map`, `flatMap`, `filter`, `orElse`, `ifSome`,
-// `unwrapOr`, …) is deliberately NOT defined here — it is U-STD's job, layered
-// over `match` in Phalcom. Do not add combinator bodies to these skeletons.
+// U-CORE-2 (catalog-delta.md §2.2) adds the four combinators that make
+// `ifTrue`/`ifFalse`'s newly-well-formed `Option` result actually chainable —
+// `ifNone(_)`, `orElse(_)`, `isSome`, `isNone`, every one defined over `match`
+// (values-and-absence.md §3.3), so `Some>>_` / `None>>_` branching stays
+// dispatch, not a variant check. The richer suite (`map`, `flatMap`,
+// `filter`, `ifSome`, `unwrapOr`, …) is still deliberately NOT defined here —
+// that remains U-STD's job. Do not add those bodies to this skeleton.
 //
 // `None` (the name) resolves to the shared singleton *value*, not the `None`
 // class; that global is bound in Rust (VM::install_core).
@@ -35,7 +39,25 @@ class Symbol {}
 // future unit that needs to add real members to `None` must fix that
 // compiler special case first, not just re-add this skeleton.
 
-class Option {}
+class Option {
+  // Runs `f` (0-arity) for its side effect when `self` is `None`; passes
+  // `Some` through untouched. Never extracts — returns `self` so calls chain
+  // (values-and-absence.md §3.3's "Effect" group).
+  ifNone(f) {
+    return self.match(some: { v => self }, none: { f.call(); self })
+  }
+
+  // `Some` passes through unchanged; `None` becomes `f`'s (0-arity) `Option`
+  // result (values-and-absence.md §3.3's "Transform" group). This is the
+  // `??` operator's target (§3.4: `a ?? b` === `a.orElse { b }`).
+  orElse(f) {
+    return self.match(some: { v => self }, none: { f.call() })
+  }
+
+  isSome => self.match(some: { v => true }, none: { false })
+
+  isNone => self.match(some: { v => false }, none: { true })
+}
 
 class Some {}
 

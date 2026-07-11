@@ -155,4 +155,17 @@ pub enum Bytecode {
 
     /// Duplicates the top value on the stack.
     Dup,
+
+    /// Pops the top value and pushes it back wrapped in a fresh `Some`
+    /// instance ([ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+    ///
+    /// Emitted by the sacred-selector inliner's one-armed `ifTrue`/`ifFalse`
+    /// fast path ([`crate::compiler::inliner`]) to `Some`-lift the taken
+    /// arm's value, keeping the inlined fast path observationally identical
+    /// to the `bool_if_true`/`bool_if_false` primitive fallback, which
+    /// `Some`-wraps the same way
+    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)
+    /// amendment, U-CORE-2). The untaken arm still pushes [`Bytecode::Nil`]
+    /// (surfaced to `None`) directly — only the taken arm needs the wrap.
+    WrapSome,
 }

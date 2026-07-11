@@ -13,6 +13,7 @@ use crate::boolean::{FALSE, TRUE};
 use crate::error::{PhResult, RuntimeError};
 use crate::primitive::block::block_call;
 use crate::primitive::expect_class;
+use crate::primitive::nil::wrap_some;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -96,19 +97,25 @@ pub fn bool_not(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Val
 
 /// Signature: `Bool::ifTrue(_)` — sacred one-armed conditional.
 ///
-/// Calls and returns `args[0]`'s block result when the receiver is `true`;
-/// otherwise returns the `None` singleton (the "no branch taken" surface
-/// absence value). This is the non-inlined fallback for `ifTrue`, and it is
-/// observationally equal to the sacred inliner, whose `Bytecode::Nil` result
-/// site also yields `None` (Invariant 4,
-/// [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+/// Calls `args[0]`'s block when the receiver is `true` and returns its result
+/// `Some`-wrapped; otherwise returns the `None` singleton (the "no branch
+/// taken" surface absence value). Together the two arms form a well-formed
+/// `Option` (`Some(A) ∪ None`), not the raw-value/`None` half-`Option` this
+/// primitive returned before U-CORE-2 — required for
+/// `c.ifTrue { A }.ifNone { B }` (control-flow.md §1's `if`/`else`
+/// desugaring) to compose. This is the non-inlined fallback for `ifTrue`, and
+/// it is observationally equal to the sacred inliner's fast path, whose taken
+/// arm is likewise `Bytecode::WrapSome`-lifted in lockstep
+/// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)
+/// amendment).
 ///
 /// # Errors
 ///
 /// See [`bool_and`].
 pub fn bool_if_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if expect_bool(receiver)? {
-        block_call(vm, &args[0], &[])
+        let result = block_call(vm, &args[0], &[])?;
+        Ok(wrap_some(vm, result))
     } else {
         Ok(vm.none_value())
     }
@@ -116,7 +123,9 @@ pub fn bool_if_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 
 /// Signature: `Bool::ifFalse(_)` — sacred one-armed conditional, mirror of
 /// [`bool_if_true`] for the `false` branch. Returns the `None` singleton when
-/// the receiver is `true` (no branch taken).
+/// the receiver is `true` (no branch taken), and `Some`-wraps the block
+/// result when it is `false`. See [`bool_if_true`] for why the `Some`-lift is
+/// required.
 ///
 /// # Errors
 ///
@@ -125,7 +134,8 @@ pub fn bool_if_false(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
     if expect_bool(receiver)? {
         Ok(vm.none_value())
     } else {
-        block_call(vm, &args[0], &[])
+        let result = block_call(vm, &args[0], &[])?;
+        Ok(wrap_some(vm, result))
     }
 }
 
