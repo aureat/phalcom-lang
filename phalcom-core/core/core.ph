@@ -103,10 +103,13 @@ class Some {}
 // skeleton reopens that bootstrapped row to define the public protocol over
 // those primitives (ADR-0019's "hybrid: native primitives, self-defined
 // control"). `toString` is ALSO a native primitive this unit, not defined
-// here — see the U-LIST return contract for why. `rawSet` has no `.ph`
-// wrapper yet (no `at(_:put:)` selector) — deliberately deferred to U-STD,
-// along with `map`/`reduce`/`filter`/literal syntax. Do not add those bodies
-// to this skeleton.
+// here — see the U-LIST return contract for why (element-value stringification
+// is blocked on U-CORE-4; DEFERRED.md #19). U-STD (catalog-delta §2.4;
+// DEFERRED.md #18/#20/#25) discharges the deferral for the combinator layer:
+// `map`/`reduce`/`filter`/`includes`/`isEmpty` and the `at(_:put:)` wrapper
+// over `rawSet` now live below, all pure `.ph` over the floor. Only
+// **list-literal syntax** `[a, b, c]` remains deferred (it needs a new ADR +
+// parser work; DEFERRED.md #6) — do not add that here.
 
 class List {
   size => self.rawLength
@@ -126,6 +129,57 @@ class List {
       f.call(self.at(i))
       i = i + 1
     }
+  }
+
+  // U-STD (catalog-delta §2.4): a new `List` holding `f(x)` for each element,
+  // in order. Built over `each`/`add`/`List.new` — never stringifies an
+  // element (the `toString`-message trap, DEFERRED.md #19), so it is safe.
+  map(f) {
+    var result = List.new()
+    self.each { x => result.add(f.call(x)) }
+    return result
+  }
+
+  // U-STD (catalog-delta §2.4): a new `List` of the elements for which
+  // `pred(x)` holds, in order. `pred` must yield a real `Bool` (ADR-0021);
+  // the `ifTrue` result is discarded (used only for its side effect).
+  filter(pred) {
+    var result = List.new()
+    self.each { x => pred.call(x).ifTrue { result.add(x) } }
+    return result
+  }
+
+  // U-STD (catalog-delta §2.4; DEFERRED.md #25): fold `f(acc, x)` across the
+  // elements left-to-right, seeded with `init`. `f` is a 2-arity block; the
+  // final accumulator is returned. This is the shape `blocks_argument_to_method`
+  // waited on. Selector `reduce(_:_:)` — the trailing block desugars to the
+  // second positional argument (`reduce(init) { acc, x => ... }`).
+  reduce(init, f) {
+    var acc = init
+    self.each { x => acc = f.call(acc, x) }
+    return acc
+  }
+
+  // U-STD (catalog-delta §2.4): `true` when any element is `== x`, else
+  // `false`. `==` is an ordinary send (value/identity via `object_eq`); no
+  // element stringification.
+  includes(x) {
+    var found = false
+    self.each { e => (e == x).ifTrue { found = true } }
+    return found
+  }
+
+  // U-STD (catalog-delta §2.4): `true` when the list has no elements. `size`
+  // is a real `Number`, so the `== 0` condition is a well-formed `Bool`.
+  isEmpty => self.size == 0
+
+  // U-STD (DEFERRED.md #18): the public `.ph` wrapper over the `rawSet(_,_)`
+  // floor primitive — writes `put` at index `i` and returns `self` so writes
+  // chain (mirrors `add`). Selector `at(_:put:)` matches `rawSet`'s 2 args;
+  // the labeled parameter is named `put` (label == name, parser convention).
+  at(i, put:) {
+    self.rawSet(i, put)
+    return self
   }
 }
 
