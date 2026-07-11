@@ -4,8 +4,12 @@
 # OS / editor cruft
 .DS_Store
 .idea/
+.vscode/
 *.iml
 *.swp
+
+# Per-machine skill lockfile (not shared across dev environments)
+skills-lock.json
 
 # Local dev env (non-standard root config; prefer .cargo/config.toml if needed)
 /config.toml
