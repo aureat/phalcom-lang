@@ -85,6 +85,22 @@ fn multiple_statements() {
     insta::assert_snapshot!(parse("let x = 1\nlet y = 2"));
 }
 
+#[test]
+fn multiple_statements_semicolon_separated() {
+    // Companion to `multiple_statements`: the corpus also exercises
+    // semicolon-separated statements on one line
+    // (`tests/lang/lexical/lexical_multi_statement_semicolon.ph`).
+    insta::assert_snapshot!(parse("System.print(1); System.print(2)"));
+}
+
+#[test]
+fn comparison_operators_parse() {
+    // Current-behavior snapshot for `< > <= >=` as parsed binary expressions
+    // (the lexer-level tokenization is already pinned by
+    // `comparison_operators` in `tests/lexer.rs`).
+    insta::assert_snapshot!(parse("a < b\na > b\na <= b\na >= b"));
+}
+
 // --- Trailing newline / EOF handling (U0 / F10) ---
 
 #[test]

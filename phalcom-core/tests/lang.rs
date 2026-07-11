@@ -11,6 +11,12 @@ fn lexical() {
 }
 
 #[test]
+#[ignore = "spec target: lexical"]
+fn lexical_pending() {
+    support::check_pending("lexical");
+}
+
+#[test]
 fn arithmetic() {
     support::check_pass("arithmetic");
 }
@@ -27,8 +33,20 @@ fn bindings() {
 }
 
 #[test]
+#[ignore = "spec target: bindings"]
+fn bindings_pending() {
+    support::check_pending("bindings");
+}
+
+#[test]
 fn messages() {
     support::check_pass("messages");
+}
+
+#[test]
+#[ignore = "spec target: messages"]
+fn messages_pending() {
+    support::check_pending("messages");
 }
 
 #[test]
@@ -37,13 +55,31 @@ fn dispatch() {
 }
 
 #[test]
+#[ignore = "spec target: dispatch"]
+fn dispatch_pending() {
+    support::check_pending("dispatch");
+}
+
+#[test]
 fn classes() {
     support::check_pass("classes");
 }
 
 #[test]
+#[ignore = "spec target: classes"]
+fn classes_pending() {
+    support::check_pending("classes");
+}
+
+#[test]
 fn control_flow() {
     support::check_pass("control-flow");
+}
+
+#[test]
+#[ignore = "spec target: control-flow"]
+fn control_flow_pending() {
+    support::check_pending("control-flow");
 }
 
 #[test]
@@ -63,8 +99,13 @@ fn absence() {
 }
 
 #[test]
-#[ignore = "PENDING: metaclass tower — U2"]
 fn metaclass() {
+    support::check_pass("metaclass");
+}
+
+#[test]
+#[ignore = "PENDING: metaclass tower — U2"]
+fn metaclass_pending() {
     support::check_pending("metaclass");
 }
 
@@ -87,7 +128,18 @@ fn errors() {
 }
 
 #[test]
-#[ignore = "PENDING: System/IO — later"]
 fn system() {
+    support::check_pass("system");
+}
+
+#[test]
+#[ignore = "PENDING: System/IO — later"]
+fn system_pending() {
     support::check_pending("system");
+}
+
+#[test]
+#[ignore = "spec target: concurrency"]
+fn concurrency_pending() {
+    support::check_pending("concurrency");
 }

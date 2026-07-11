@@ -184,6 +184,35 @@ fn core_classes_have_correct_metaclass_and_superclass() {
 }
 
 #[test]
+fn user_class_metaclass_superclass_parallels_instance_superclass() {
+    // object-model.md §5 rule 4 / ADR-0002, exercised on a user-defined class
+    // rather than a core class: (SomeUserClass.class).superclass ==
+    // (SomeUserClass.superclass).class. Runs real source through the
+    // compiler/VM (rather than constructing the class via the Rust API) so
+    // this proves the parallel rule holds for classes built by `class { }`
+    // syntax, not just `make_core_class`.
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "user_class_metaclass_superclass_parallels_instance_superclass");
+    vm.interpret_source(module, "class SomeUserClass {\n}\n").expect("class declaration should run without error");
+
+    let name = vm.get_or_intern("SomeUserClass");
+    let user_class = *vm.classes.get(&name).expect("SomeUserClass should be registered as a named class");
+    let object_class = vm.universe.classes.object_class;
+
+    let user_meta = vm.heap.class(user_class).class;
+    let user_super = vm.heap.class(user_class).superclass.expect("SomeUserClass.superclass should be set");
+    assert_eq!(user_super, object_class, "SomeUserClass.superclass should default to Object");
+
+    let user_super_meta = vm.heap.class(user_super).class;
+    let user_meta_super = vm.heap.class(user_meta).superclass.expect("SomeUserClass.class.superclass should be set");
+
+    assert_eq!(
+        user_meta_super, user_super_meta,
+        "SomeUserClass.class.superclass should equal SomeUserClass.superclass.class (parallel rule)"
+    );
+}
+
+#[test]
 fn walking_metaclass_superclass_chain_terminates() {
     // object-model.md §5 sanity check: walking any metaclass's superclass
     // chain terminates (does not loop forever / dangle). Bounded walk guards

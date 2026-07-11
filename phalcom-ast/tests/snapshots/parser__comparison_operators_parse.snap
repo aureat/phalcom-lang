@@ -1,0 +1,124 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"a < b\\na > b\\na <= b\\na >= b\")"
+---
+Program {
+    statements: [
+        Expr {
+            expr: Binary(
+                BinaryExpr {
+                    op: LessThan,
+                    left: Var {
+                        value: "a",
+                        range: CopyRange {
+                            start: 0,
+                            end: 1,
+                        },
+                    },
+                    right: Var {
+                        value: "b",
+                        range: CopyRange {
+                            start: 4,
+                            end: 5,
+                        },
+                    },
+                    range: CopyRange {
+                        start: 0,
+                        end: 5,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 0,
+                end: 5,
+            },
+        },
+        Expr {
+            expr: Binary(
+                BinaryExpr {
+                    op: GreaterThan,
+                    left: Var {
+                        value: "a",
+                        range: CopyRange {
+                            start: 6,
+                            end: 7,
+                        },
+                    },
+                    right: Var {
+                        value: "b",
+                        range: CopyRange {
+                            start: 10,
+                            end: 11,
+                        },
+                    },
+                    range: CopyRange {
+                        start: 6,
+                        end: 11,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 6,
+                end: 11,
+            },
+        },
+        Expr {
+            expr: Binary(
+                BinaryExpr {
+                    op: LessThanOrEqual,
+                    left: Var {
+                        value: "a",
+                        range: CopyRange {
+                            start: 12,
+                            end: 13,
+                        },
+                    },
+                    right: Var {
+                        value: "b",
+                        range: CopyRange {
+                            start: 17,
+                            end: 18,
+                        },
+                    },
+                    range: CopyRange {
+                        start: 12,
+                        end: 18,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 12,
+                end: 18,
+            },
+        },
+        Expr {
+            expr: Binary(
+                BinaryExpr {
+                    op: GreaterThanOrEqual,
+                    left: Var {
+                        value: "a",
+                        range: CopyRange {
+                            start: 19,
+                            end: 20,
+                        },
+                    },
+                    right: Var {
+                        value: "b",
+                        range: CopyRange {
+                            start: 24,
+                            end: 25,
+                        },
+                    },
+                    range: CopyRange {
+                        start: 19,
+                        end: 25,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 19,
+                end: 25,
+            },
+        },
+    ],
+}

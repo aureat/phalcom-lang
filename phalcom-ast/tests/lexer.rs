@@ -65,3 +65,11 @@ fn line_comment_is_skipped() {
 fn punctuation_and_ranges() {
     insta::assert_debug_snapshot!(tokens("a.b :: c .. d ... e -> f => g"));
 }
+
+#[test]
+fn modulo_operator() {
+    // `%` / `%=` (Token::Percent / Token::PercentEqual): current-behavior
+    // snapshot for the modulo operator the arithmetic corpus exercises
+    // (`tests/lang/arithmetic/arithmetic_modulo.ph`: `10 % 3`).
+    insta::assert_debug_snapshot!(tokens("10 % 3 total %= 2"));
+}
