@@ -23,6 +23,7 @@ use crate::method::SignatureKind;
 use crate::primitive::boolean::{bool_and, bool_class_new, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_name, block_while_true};
 use crate::primitive::class::{class_add, class_new, class_set_superclass, class_superclass};
+use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::method::method_class_new;
 use crate::primitive::module::module_class_new;
 use crate::primitive::nil::{option_match, some_new};
@@ -152,6 +153,14 @@ impl Universe {
         // class.
         let none_singleton = heap.alloc(crate::heap::Object::Instance(crate::instance::InstanceObject::new(none_class, 0)));
 
+        // Kernel `List` (ADR-0020): a native heap variant, not an
+        // `InstanceObject`, so it has no field layout and needs no `construct`
+        // lowering — created here the same way `Option`/`Bool`/`String` are,
+        // positioned after the absence type per ADR-0020's load order
+        // (`Bool, Option, Number, Symbol, String → List → …`) and before
+        // anything that will depend on it (`Message.args`/rest-params, U8/U9).
+        let list_class = make_core_class(heap, "List", object_class, metaclass_class);
+
         CoreClasses {
             object_class,
             behavior_class,
@@ -171,6 +180,7 @@ impl Universe {
             some_class,
             none_class,
             none_singleton,
+            list_class,
         }
     }
 
@@ -329,6 +339,22 @@ impl Universe {
 
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
+
+        // Kernel `List` (ADR-0019/0020): five native floor primitives.
+        // `rawLength`/`rawAt`/`rawSet`/`rawPush` are internal — `.ph`'s
+        // `size`/`at(_:)`/`add(_:)` wrap the first three (`rawSet` is
+        // implemented but not yet surfaced, see DEFERRED.md); amortized growth
+        // folds into `rawPush` (`Vec::push`'s own doubling), so there is no
+        // separate "grow" primitive. `new()` and `toString` are public
+        // primitives directly, mirroring `String`'s `+(_)` (see the U-LIST
+        // return contract for why `toString` is native this unit).
+        let list_cls = vm.universe.classes.list_class;
+        primitive_static!(vm, list_cls, "new", SignatureKind::Method(0), list_class_new);
+        primitive!(vm, list_cls, "rawLength", SignatureKind::Getter, list_raw_length);
+        primitive!(vm, list_cls, "rawAt", SignatureKind::Method(1), list_raw_at);
+        primitive!(vm, list_cls, "rawSet", SignatureKind::Method(2), list_raw_set);
+        primitive!(vm, list_cls, "rawPush", SignatureKind::Method(1), list_raw_push);
+        primitive!(vm, list_cls, "toString", SignatureKind::Getter, list_to_string);
     }
 
     /// Asserts the kernel tower's shape (`object-model.md` §5–6 step 7).
@@ -499,4 +525,9 @@ pub struct CoreClasses {
     /// [`Value::Obj`](crate::value::Value::Obj) over this handle, and the `None`
     /// global (`VM::install_core`) is bound to it.
     pub none_singleton: ObjRef,
+    /// `List`, the native array-backed kernel list
+    /// ([ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
+    /// A dedicated [`crate::heap::Object::List`] heap variant, not an
+    /// `InstanceObject` — see [`crate::list::ListObject`].
+    pub list_class: ClassId,
 }

@@ -310,6 +310,7 @@ impl VM {
         // singleton object (values-and-absence.md §3.1).
         add_class!(option_class);
         add_class!(some_class);
+        add_class!(list_class);
 
         // The `None` class row is *not* exposed under a class global (that name
         // is the singleton), but it must live in `self.classes` so a

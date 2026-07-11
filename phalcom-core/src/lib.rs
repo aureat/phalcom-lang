@@ -17,6 +17,7 @@ pub mod heap;
 pub mod instance;
 pub mod interner;
 pub mod interpret;
+pub mod list;
 pub mod method;
 pub mod module;
 pub mod nil;

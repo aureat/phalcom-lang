@@ -34,6 +34,7 @@ use crate::block::BlockObject;
 use crate::class::ClassObject;
 use crate::closure::ClosureObject;
 use crate::instance::InstanceObject;
+use crate::list::ListObject;
 use crate::method::MethodObject;
 use crate::module::ModuleObject;
 use crate::string::StringObject;
@@ -80,6 +81,9 @@ pub enum Object {
     Block(BlockObject),
     /// A heap-allocated upvalue cell ([`Upvalue`]).
     Upvalue(Upvalue),
+    /// A native array-backed list ([`ListObject`],
+    /// [ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
+    List(ListObject),
 }
 
 /// The central arena owning every heap [`Object`], keyed by [`ObjRef`].
@@ -113,6 +117,11 @@ impl Heap {
     /// Allocates a [`StringObject`] from `value` and returns its [`ObjRef`].
     pub fn alloc_string(&mut self, value: String) -> ObjRef {
         self.objects.insert(Object::Str(StringObject::from_string(value)))
+    }
+
+    /// Allocates a [`ListObject`] from `elements` and returns its [`ObjRef`].
+    pub fn alloc_list(&mut self, elements: Vec<crate::value::Value>) -> ObjRef {
+        self.objects.insert(Object::List(ListObject::new(elements)))
     }
 
     /// Borrows the [`Object`] behind `id`.
@@ -273,6 +282,38 @@ impl Heap {
     pub fn as_string(&self, id: ObjRef) -> Option<&StringObject> {
         match self.objects.get(id) {
             Some(Object::Str(string)) => Some(string),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`ListObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::List`].
+    pub fn list(&self, id: ObjRef) -> &ListObject {
+        match self.get(id) {
+            Object::List(list) => list,
+            _ => panic!("ObjRef {id:?} is not a ListObject"),
+        }
+    }
+
+    /// Mutably borrows the [`ListObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::List`].
+    pub fn list_mut(&mut self, id: ObjRef) -> &mut ListObject {
+        match self.get_mut(id) {
+            Object::List(list) => list,
+            _ => panic!("ObjRef {id:?} is not a ListObject"),
+        }
+    }
+
+    /// Returns the [`ListObject`] behind `id`, or `None` if it is not one.
+    pub fn as_list(&self, id: ObjRef) -> Option<&ListObject> {
+        match self.objects.get(id) {
+            Some(Object::List(list)) => Some(list),
             _ => None,
         }
     }

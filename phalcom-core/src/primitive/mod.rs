@@ -1,6 +1,7 @@
 pub mod boolean;
 pub mod block;
 pub mod class;
+pub mod list;
 pub mod method;
 pub mod module;
 pub mod nil;
@@ -113,7 +114,7 @@ pub(crate) use primitive;
 pub(crate) use primitive_static;
 
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::ClassId;
+use crate::heap::{ClassId, ObjRef};
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -158,6 +159,26 @@ pub(crate) fn expect_string(vm: &VM, value: &Value) -> PhResult<String> {
         },
         other => Err(RuntimeError::Type {
             expected: "String",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Extracts a list's [`ObjRef`] handle from a receiver value.
+///
+/// Mirrors [`expect_string`]: a list is a [`Value::Obj`] whose heap object is
+/// a [`crate::list::ListObject`]
+/// ([ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a list.
+pub(crate) fn expect_list(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    match value {
+        Value::Obj(id) if vm.heap.as_list(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type {
+            expected: "List",
             found: other.type_name(),
         }
         .into()),

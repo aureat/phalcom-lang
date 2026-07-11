@@ -98,6 +98,7 @@ impl Value {
                 Object::Str(_) => vm.universe.classes.string_class,
                 Object::Closure(_) => vm.universe.classes.block_class,
                 Object::Block(_) => vm.universe.classes.block_class,
+                Object::List(_) => vm.universe.classes.list_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
             },
         }
@@ -163,6 +164,7 @@ impl Value {
                 Object::Module(module) => module.to_debug(),
                 Object::Closure(_) => "<block>".to_string(),
                 Object::Block(_) => "<block>".to_string(),
+                Object::List(_) => "<list>".to_string(),
                 Object::Upvalue(_) => "<upvalue>".to_string(),
             },
         }
@@ -180,7 +182,7 @@ impl Value {
     pub fn to_context(&self, heap: &crate::heap::Heap) -> CallContext {
         match self {
             Value::Obj(id) => match heap.get(*id) {
-                Object::Instance(_) | Object::Block(_) | Object::Closure(_) | Object::Str(_) | Object::Method(_) => CallContext::Instance { instance: *id },
+                Object::Instance(_) | Object::Block(_) | Object::Closure(_) | Object::Str(_) | Object::Method(_) | Object::List(_) => CallContext::Instance { instance: *id },
                 Object::Class(_) => CallContext::Class { class: *id },
                 Object::Module(_) => CallContext::Module { module: *id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),
