@@ -1,0 +1,62 @@
+# 10. `Value` is a tagged `enum` with a private `Nil` sentinel
+
+- Status: Accepted
+- Date: 2026-07-11
+- Related: `docs/spec/object-model.md` §3; `docs/spec/values-and-absence.md` §2; [ADR-0005](0005-number-as-flat-f64.md); [ADR-0009](0009-handle-arena-heap.md)
+
+## Context
+
+Every surface value maps onto a class ([Object Model §3](../spec/object-model.md)),
+but the VM needs one in-register representation for all of them. [ADR-0005](0005-number-as-flat-f64.md)
+settled the numeric arm (`Number` = flat `f64`) but not the whole value type. Two
+constraints frame the rest:
+
+- **`nil` is private (Invariant 4).** The VM keeps a `nil` for uninitialized slots
+  and internal sentinels, but it has no surface class, no literal, and cannot be
+  produced by user code ([Values & Absence §2](../spec/values-and-absence.md)).
+  Absence is `Option`.
+- Heap objects are now handles, not pointers ([ADR-0009](0009-handle-arena-heap.md)),
+  so the value type must carry an `ObjRef`, not an `Rc`.
+
+## Decision
+
+`Value` is a **tagged Rust `enum`** with these arms:
+
+- `Number(f64)` — the flat numeric type ([ADR-0005](0005-number-as-flat-f64.md)).
+- `Bool(bool)` — one `Bool` class; `True`/`False` are a later dispatch refinement,
+  not a `Value` arm ([ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md)).
+- `Obj(ObjRef)` — every heap object (instances, strings, blocks, classes, …) by
+  handle into the `Heap` ([ADR-0009](0009-handle-arena-heap.md)).
+- `Symbol(...)` — interned identifiers/selectors.
+- `Nil` — a **private** sentinel for uninitialized slots. It is not surface-visible:
+  it has no class row ([Object Model §3](../spec/object-model.md)), the compiler
+  never emits a literal for it, and it must never leak into a `Some` or reach user
+  code (Invariant 4).
+
+Clarity and safety come first: the enum is the API every other subsystem programs
+against.
+
+## Consequences
+
+- One uniform value carried in registers and on the stack; `x.class` is total for
+  every arm except the private `Nil`, which is never observed by user code.
+- Playing well with the handle heap: `Obj(ObjRef)` is `Copy`, so `Value` stays
+  cheap to move and never owns heap memory directly.
+- The private `Nil` gives the VM a zero-cost "not yet assigned" marker while the
+  surface language keeps its no-`nil` invariant; enforcing that it never escapes is
+  a standing obligation of the Option work (values-and-absence).
+- **NaN-boxing is deferred.** Packing `Value` into a single NaN-tagged `f64` word is
+  a later optimization *behind this same enum API* — it is a deferred consequence,
+  not part of the accepted decision. Correctness and legibility of the tagged enum
+  win now; the boxed representation can replace the layout without changing callers.
+
+## Alternatives considered
+
+- **A surface `nil` value** (JavaScript/Wren style). Rejected: it reintroduces the
+  null coercion the object model exists to remove ([Values & Absence §2](../spec/values-and-absence.md),
+  Invariant 4); absence is `Option` ([ADR-0007](0007-option-as-abstract-with-some-none.md)).
+- **NaN-boxing from the start.** Fewer bytes per value and better cache behavior,
+  but it obscures the representation, complicates debugging, and buys speed before
+  the VM is correct. Reserved as a deferred optimization behind the enum API.
+- **`Rc`-carrying object arm.** Superseded by the handle heap ([ADR-0009](0009-handle-arena-heap.md));
+  `Value` carries an `ObjRef`, not an owning pointer.
