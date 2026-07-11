@@ -2,20 +2,19 @@
 name: language-design
 description: >-
   Programming-language design mastery — the design SPACE (axes, cross-language
-  precedents, and the non-obvious ways features fight each other), not concept
-  tutorials. Use when designing, critiquing, planning, or implementing a language
-  feature: object model / classes / metaclasses / prototypes, method dispatch /
-  selectors / multimethods / keyword & default & variadic args, closures / blocks
-  / non-local return / control-flow-as-message / tail calls, value representation
-  (tagged / NaN-box / niche) / absence (Option/nil/undefined) / truthiness /
-  numeric tower, error handling (exceptions / Result / conditions-restarts /
-  panics), concurrency (fibers / coroutines / async / actors / structured
-  concurrency), or VM/bytecode (inline caches, speculative inlining, deopt,
-  upvalue closing). Especially use before adding a feature to an existing
-  language to check what it PRECLUDES or breaks. Built for the Phalcom language
-  (Smalltalk-style, bytecode VM, in Rust): the generic layer is in references/,
-  Phalcom's committed positions are in phalcom/overlay.md. Two-layer by design —
-  reach for it on any PLT design decision, Phalcom or not.
+  precedents in both syntax and implementation, and the non-obvious ways features
+  fight each other), not concept tutorials. Use when designing, critiquing, or
+  implementing a language feature: object model / metaclasses / prototypes,
+  dispatch / selectors / multimethods / keyword/default/variadic args, closures /
+  blocks / non-local return / control-flow-as-message / tail calls, value repr
+  (tagged/NaN-box/niche) / absence (Option/nil) / truthiness / numeric tower,
+  error handling (exceptions/Result/conditions/panics), concurrency
+  (fibers/coroutines/async/actors), VM/bytecode (inline caches, speculative
+  inlining, deopt), performance & GC, security & sandboxing/robustness, or design
+  best-practices. Use before adding a feature to check what it PRECLUDES or breaks.
+  Built for Phalcom (Smalltalk-style bytecode VM in Rust): generic layer in
+  references/, committed positions in phalcom/overlay.md. Applies to any PLT
+  decision, Phalcom or not.
 ---
 
 # Language Design
@@ -48,6 +47,8 @@ Generalized cross-feature traps. Each is a *pattern*; the reference files carry 
 - **Stackful fibers ⊗ moving GC / native pointers.** Stackful coroutines keep live pointers on a separate native stack the GC must find; a moving/compacting collector or a handle/arena heap constrains how fiber stacks and captured upvalues may hold references. (`concurrency.md`, `vm.md`)
 - **Cleanup ordering ⊗ unwinding.** `ensure`/`finally`/`defer`/`Drop` must run in a defined order relative to a non-local return, exception, or cross-fiber unwind — and resumable (condition/restart) vs terminating unwind decides the *entire* stack discipline. Pick resumable-vs-terminating first; it is not retrofittable. (`errors.md`)
 - **Keyword-message selectors ⊗ evaluation order & currying.** Keyword-part selectors (`at:put:`) bind arity into the name and fix argument grouping; they interact with default args, partial application, and external-vs-internal labels. Reserve the signature field for labels *before* identity is load-bearing even if you don't use it yet. (`dispatch.md`)
+- **Speculative optimization ⊗ observable semantics.** Any type-feedback inlining, fast path, or unboxing must deopt to *exactly* the slow-path result — an optimized path that differs on overflow, a side effect, a redefinition, or a subclass override is a correctness bug wearing a performance hat. Every fast path needs a guard that provably implies the slow path. (`performance.md`, `vm.md`)
+- **Dynamic power ⊗ untrusted input.** `eval`, deserialization, reflection/`doesNotUnderstand`, and *unverified* loaded bytecode each turn metaprogramming reach into an injection or type-confusion primitive the instant input is attacker-controlled. A VM must validate external bytecode, cap recursion/allocation, randomize hashing, and convert every malformed input into a *defined* error — never UB, never a raw `panic!`. (`security.md`)
 
 ## Design-review rubric
 
@@ -75,6 +76,9 @@ Load the one reference the axis lives in; don't pull them all.
 | [references/errors.md](references/errors.md) | exceptions vs Result vs conditions/restarts vs panics, resumable vs terminating, bridging, cleanup/RAII, error data, failure in constructors |
 | [references/concurrency.md](references/concurrency.md) | threads/green/fibers/coroutines, sym vs asym, async/await & coloring, scheduling, actors/isolation/STM, structured concurrency, memory model |
 | [references/vm.md](references/vm.md) | stack vs register bytecode, frames, inline caches, speculative inlining + deopt, upvalue closing, value repr for the VM, GC interaction |
+| [references/performance.md](references/performance.md) | dispatch cost, boxing/representation, GC strategy, interpreter loop & JIT, speculative opt/deopt, collections/strings, warmup, allocation/escape analysis |
+| [references/security.md](references/security.md) | memory-safety model, panic-vs-UB, sandboxing/capabilities, eval/deserialization, integer safety, resource-exhaustion/DoS, FFI/unsafe boundary, bytecode verification |
+| [references/best-practices.md](references/best-practices.md) | least surprise, orthogonality, small core, make-illegal-states-unrepresentable, errors-as-UX, evolution/compat, explicit-over-implicit, spec-first, Rust-VM impl hygiene |
 | [references/recipes.md](references/recipes.md) | how-to-build-it algorithms: lua-upvalues, nan-boxing, inline-cache, sacred-inline, non-local-return, option-niche, coroutine-switch |
 | [references/reading.md](references/reading.md) | canonical primary sources per domain (Blue Book, Self, AMOP, CLtL conditions, Appel, TAPL, Lua/Wren, Crafting Interpreters …) |
 | [phalcom/overlay.md](phalcom/overlay.md) | **Phalcom's committed positions + open questions + hazards-already-hit**, keyed to the axes above, with ADR/spec citations |

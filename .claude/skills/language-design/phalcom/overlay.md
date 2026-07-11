@@ -76,3 +76,17 @@ Source of truth: `docs/adr/0001…0016`, `docs/spec/*.md`, open register in `doc
 - **non-local `return` across a fiber boundary** — a block's home frame lives on one fiber's stack; returning across fibers would unwind the wrong stack. *Handled by construction*: generation mismatch raises `DeadFrameError`. Ref: ADR-0013, concurrency §3.
 - **`Rc<RefCell>` cycle-leak + double-borrow panic (F5/F1-class)** — the old cycle-breaker was inert (kernel never freed) and `RefCell` re-borrow-during-send double-panicked. *Removed by construction* via the handle heap. Ref: ADR-0009 (F5).
 - **audit findings folded into ADRs, not patched piecemeal** — F1 (`Invoke` swallowed a primitive `Result` → silent exit-0), F7 (0-arg `new` registered as `Method(1)`), F8 (malformed `">( _)"` operator selector) all fixed inside ADR-0012; F4 (class `toString`→metaclass name) fixed in ADR-0015; F9/F10 (parse-error panic, trailing-newline fail) in ADR-0016.
+
+## Performance & security posture (→ performance.md, security.md)
+| Axis | Phalcom's stance | Where | Note |
+|---|---|---|---|
+| Dispatch cost | Inline-cache-*ready* (per-site slot keyed by `ClassId`); IC population deferred | ADR-0012 | Adding IC is not a redesign; today every send walks the dict |
+| Value repr / boxing | Tagged Rust `enum`; NaN-boxing deferred behind the same `Value` API | ADR-0010 | Only `Some`/heap objects allocate; `Number`/`Bool`/`Symbol`/`nil` inline |
+| GC / ownership | Handle/arena `Heap`, `Copy` `ObjRef`/`ClassId`; GC-ready, no `Rc`/`RefCell` | ADR-0009 | No borrow-panic surface; a moving/tracing GC can drop in behind handles |
+| Speculative opt | Sacred-selector inliner + deopt type-guard | control-flow §3, ADR-0017 (drafting) | Fast path must equal the slow send exactly; deopt materializes the block |
+| Concurrency safety | Cooperative single-threaded; `Fiber` only | concurrency §1–2 | No preemption ⇒ no data races by construction; ADR pending |
+| Memory safety | Rust ownership + handle heap; **no `unsafe` for the object graph** | ADR-0009 | Cyclic apex done via handle patches, not raw pointers/`unsafe` |
+| Robustness substrate | Golden `.ph` corpus + snapshot + fuzz + miri lanes; `verify_invariants()` | forge STATE.md / stabilizer | Every `panic!` on user input is a robustness bug → turn into a diagnostic |
+| Untrusted input | Hand-written lexer + recursive-descent parser, panic-mode recovery (no crash) | ADR-0016 | Parser hardened + multi-error; bytecode is compiler-produced, not yet externally loaded |
+
+**Open perf/security questions:** IC population + NaN-boxing (deferred optimizations, ADR-0010/0012); no external-bytecode loader yet (so no verifier needed *yet* — required before any `import` of compiled units, open-Q8); resource limits (stack depth / allocation caps) unspecified.
