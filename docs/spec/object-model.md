@@ -11,7 +11,8 @@ Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 This part defines the **kernel**: the class/metaclass tower and the catalog of
 core classes. Surface semantics live in the sibling parts. It is reconciled with
 the [Values & Absence](values-and-absence.md) decisions (private `nil` + `Option`,
-single `Bool`, `Block` as the closure class) and the instance-display decision in
+abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)),
+`Block` as the closure class) and the instance-display decision in
 [ADR-0015](../adr/0015-object-default-tostring.md).
 
 ---
@@ -60,7 +61,7 @@ Object references are `ObjRef` handles into the arena heap: [ADR-0009](../adr/00
 
 | Surface value | Class | Notes |
 |---------------|-------|-------|
-| `true` / `false` | `Bool` | one class; `ifTrue`/`ifFalse` are methods |
+| `true` / `false` | `True` / `False` | abstract `Bool` with concrete singleton subclasses `True`/`False` ([ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)); `true.class == True`. `ifTrue`/`ifFalse`/`and`/`or`/`not` live on `Bool`, inherited. |
 | `42`, `3.14` | `Number` | one flat numeric type (§4 note) |
 | `"hi"` | `String` | immutable, interpolating |
 | `#name` / selectors | `Symbol` | interned — see [Selectors, Symbols & References §2](selectors.md#2-symbol-literals-) for the name-symbol (`#name`) vs. selector-symbol (`#name(_,to,duration)`) distinction |
@@ -106,16 +107,20 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Bool` | `Object` | I | Boolean. `not`, `and(_)`, `or(_)`, `ifTrue(_)`, `ifTrue(_)ifFalse(_)`. `ifTrue`/`ifFalse` return `Option`. |
+| `Bool` | `Object` | A | Abstract boolean ([ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)). Holds the control-flow protocol — `not`, `and(_)`, `or(_)`, `ifTrue(_)`, `ifTrue(_)ifFalse(_)` — inherited by `True`/`False`. `ifTrue`/`ifFalse` return `Option`. No value is directly of class `Bool`. |
+| `True` / `False` | `Bool` | I | The two concrete singleton boolean classes; surface classes of `true`/`false` ([ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)). Empty bodies — all behaviour is inherited from `Bool`. |
 | `Number` | `Object` | I | IEEE-754 `f64`. Arithmetic, comparison, `toString`. |
 | `String` | `Object` | U/I | UTF-8 text. Immutable, interpolating. |
 | `Symbol` | `Object` | I | Interned identifier / selector. |
 | `Option` | `Object` | U | `Some(_)` / `None`. `ifSome(_)`, `ifNone(_)`, `map(_)`, `orElse(_)`, `unwrapOr(_)`, `isSome`, `isNone`. |
 
-> **`Bool` implementation note.** Dispatch for `ifTrue`/`and`/`not` may be realized
-> internally via hidden `True`/`False` subclasses or via the inliner
-> ([control flow](control-flow.md)). This is not surface-visible: users see one
-> class, `Bool`.
+> **`Bool` tower note ([ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)).**
+> `Bool` is abstract; `true`/`false` are instances of the concrete singleton
+> subclasses `True`/`False`, so `true.class == True` is **surface-visible**. The
+> six control selectors (`not`/`and`/`or`/`ifTrue`/`ifFalse`/`ifTrue:ifFalse:`)
+> are native primitives on `Bool` and reached by inheritance; on the hot path the
+> sacred-selector inliner ([control flow](control-flow.md); ADR-0018) elides the
+> send entirely. `True`/`False` have empty bodies.
 >
 > **Numeric note.** One flat `Number` (`f64`), matching the VM. An integer/float
 > split (abstract `Number` → immediate `Integer`/`Float`) is an
