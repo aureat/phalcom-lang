@@ -29,6 +29,44 @@ the last.
 - **Adversarial verification.** Every audit finding and every load-bearing design claim is
   refuted-tested before it drives work.
 
+## Orchestrator = senior architect (you)
+
+You — the top-level agent running `/forge` — are the senior developer and architect. You
+**delegate; you do not do the heavy reading or writing yourself.** Your value is judgment,
+sequencing, and coordination, not tokens spent slurping source into your own context.
+
+Cost & context discipline (non-negotiable):
+- **Never read raw source into your own context to "understand" it.** Use `graphify
+  query/explain/affected` for structure and delegate all file reading to subagents. What
+  enters your context is a subagent's compact structured return — never a file dump.
+- **Persist, then forget.** Durable outputs live on disk, not in your context: confirmed
+  findings + plan → `docs/forge/PLAN.md`; running status → `docs/forge/STATE.md`; deferred
+  ideas → `docs/forge/DEFERRED.md`; cross-session "why" → memory (a one-line pointer in
+  `MEMORY.md`, full rationale via claude-mem). Once written, drop the detail and reload the
+  pointer on demand.
+- **Hold only the working set:** the current wave's unit table (compact), open
+  BLOCKED-ON-DECISION items, and pointers. Everything else is a `graphify`/doc lookup away.
+- **One structured hop per delegation.** Give each subagent a tight brief + the exact spec §
+  and graph scope it needs; require a schema-shaped return. Don't relay raw tool output.
+- Prefer many cheap scoped subagents over one expensive wide one; batch parallel spawns in a
+  single message.
+
+## Independent parallelism (wave scheduling)
+
+Parallelism must be *interference-free*, not merely concurrent. The architect annotates every
+plan unit with a **write-set** (the exact files/modules it may modify) and its **dependency
+edges**. From that you schedule **waves**:
+- A wave = units whose dependencies have already landed AND whose write-sets are **pairwise
+  disjoint**. Only disjoint-write units run together.
+- Each parallel implementer runs in its **own git worktree** (`isolation: worktree`) so
+  concurrent edits never collide on disk.
+- **Integrate sequentially between waves:** merge each finished unit, re-run the green gate
+  (`build && test && clippy`), update `docs/forge/STATE.md`, then launch the next wave.
+- If an implementer finds it must touch a file outside its write-set, it STOPS and reports a
+  conflict — you re-partition rather than let two agents fight over a file.
+- **Foundational units are serialized on the critical path** (selector redesign, then
+  blocks): everything depends on them, so they land alone before the wide waves fan out.
+
 ## Phases → agents
 
 | Phase | What | Agent(s) | Model | Effort |
@@ -52,10 +90,16 @@ the last.
 4. **Phase 2: one architect** synthesizes confirmed findings + the spec's own *Recommended
    implementation order* (already in `implementation-status.md`) into the plan. Surface every
    BLOCKED-ON-DECISION item to the user before implementing — do not pick their design.
-5. **Phase 3: pipeline per unit** — implement → review. Each unit gates on green verify AND a
-   reviewer `approve`. Use `git` worktree isolation when running units concurrently so they
-   don't clobber each other.
-6. **Phase 4 is passive:** implementers file deferred ideas as they go; surface the register
+5. **Phase 3: wave-scheduled pipeline.** Group confirmed plan units into waves of
+   dependency-satisfied, pairwise-disjoint-write-set units (see *Independent parallelism*).
+   For each wave: spawn one **worktree-isolated** implementer per unit in parallel, each
+   followed by an independent reviewer; gate every unit on green verify AND a reviewer
+   `approve`; integrate the wave sequentially, re-run the gate, and update
+   `docs/forge/STATE.md`; then the next wave. Foundational units run alone first.
+6. **Keep your own context lean.** After each phase/wave, write results to disk
+   (`PLAN.md`/`STATE.md`/`DEFERRED.md`) + a `MEMORY.md` pointer, then drop the detail — you
+   reconstruct state from those files + `graphify`, not from a bloated transcript.
+7. **Phase 4 is passive:** implementers file deferred ideas as they go; surface the register
    to the user at the end as a ranked backlog — the "detailed suggestions" deliverable.
 
 ## When to use which slice

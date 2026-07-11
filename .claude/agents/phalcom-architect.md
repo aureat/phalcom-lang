@@ -33,6 +33,9 @@ verify_invariants → construct/fields/doesNotUnderstand/variadics/inliner.** Re
 For EACH unit record:
 - **Goal** + the spec § / ADR it satisfies.
 - **Depends on** (which earlier units must land first, and why).
+- **Write-set**: the exact files/modules this unit may modify. This is load-bearing — the
+  orchestrator schedules parallel waves from disjoint write-sets, so keep them tight and
+  disjoint where possible. If two units genuinely must share a file, sequence them instead.
 - **Design decision**: the concrete data-structure / opcode / dispatch choice, citing the
   ADR or open-Q that governs it. If governed by an *unresolved* open question, mark
   **BLOCKED-ON-DECISION** and state the options + your recommendation — do not pick for them.
@@ -40,6 +43,13 @@ For EACH unit record:
 - **Test strategy**: what the invariant harness / golden corpus / snapshot / fuzz must assert.
 - **Forward-looking note**: what future feature this unit must NOT preclude, checked
   against `open-questions.md`. This is the "don't box us in" gate — take it seriously.
+
+## Parallelization schedule (end the plan with this)
+After the units, emit an ordered **wave schedule**: each wave lists the units whose
+dependencies are satisfied AND whose write-sets are pairwise disjoint, so the orchestrator
+can fan out one worktree-isolated implementer per unit without interference. Foundational
+units (selector redesign, then blocks) are serialized alone on the critical path before the
+wide waves. This schedule is what turns the plan into safe parallel work — do not omit it.
 
 ## Guardrails
 - Every unit cites spec or ADR. A unit with no spec coverage needs a NEW ADR proposed

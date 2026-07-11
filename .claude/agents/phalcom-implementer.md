@@ -31,6 +31,10 @@ effort: **medium** (the design is already decided; your job is a correct, clean 
 - Preserve invariants: run `verify_invariants()` and the golden corpus after your change.
 - Keep the borrow model disciplined — the tree has a history of `Rc<RefCell>` lifetime
   fragility. Don't reintroduce `'static`-temporary hazards.
+- **Stay inside your write-set.** The plan declares the exact files this unit may modify.
+  Touch only those — a sibling unit may be editing others in parallel. If correctness forces
+  you to modify a file outside the write-set, STOP and report a conflict to the orchestrator;
+  do not edit it. Re-partitioning is the orchestrator's call, not yours.
 - If reality contradicts the plan (the design doesn't fit the code), STOP and report
   back rather than forcing it.
 
