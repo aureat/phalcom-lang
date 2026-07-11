@@ -38,7 +38,10 @@ reasoning effort: **high**.
 ## Orientation
 graphify-first (mandatory) before raw reads; `graphify affected` to confirm the diff
 didn't silently break a caller. Re-run the unit's verify command yourself — do not trust
-the implementer's report of green.
+the implementer's report of green. For design-level soundness, apply the `language-design`
+skill's **design-review rubric** (`.claude/skills/language-design/SKILL.md`) — score the diff
+on soundness / dispatch impact / representation impact / preclusion — and confirm it introduces
+no known cross-feature hazard from that skill's catalog.
 
 ## Verdict (final message IS the result)
 - **verdict**: `approve` | `request-changes`

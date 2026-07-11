@@ -1,43 +1,88 @@
 # Phalcom Language Corpus Manifest
 
-Acceptance corpus for end-to-end CLI validation, organized by label directory.
+Spec-conformance corpus for end-to-end CLI validation, organized by label
+directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
+
+## Model
+
+- **PASS** — feature works today; `.expected` is the exact verified stdout. Runs by
+  default (`check_pass`).
+- **NEGATIVE** — malformed input; must exit non-zero with the `.expected` diagnostic
+  as a substring, never panic. Runs by default (`check_negative`).
+- **PENDING** — a spec target the language does not implement yet. Lives in
+  `<label>/pending/`; `.expected` pins the *intended* spec output, not today's
+  behavior. Wired as `#[ignore]` `check_pending`, so it stays out of the green run and
+  graduates to PASS when the feature lands.
 
 ## Summary
 
-- Labels: arithmetic, bindings, blocks, booleans, classes, lexical, messages, syntax-errors.
-- Status counts: PASS 15, PENDING 6, NEGATIVE 2.
-- Baseline recorded on 2026-07-11 against `./target/debug/phalcom`.
+- **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, concurrency,
+  control-flow, dispatch, errors, functions, lexical, messages, metaclass,
+  runtime-errors, syntax-errors, system.
+- **Case counts:** PASS 56 · NEGATIVE 9 · PENDING 47 · **total 112**.
+- Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
+  under `-- --ignored` and are expected to fail until their feature is implemented.
+- Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`.
 
-## Test Matrix
+## Label matrix
 
-| File | Label | Spec anchor | Status | Current behavior |
-|---|---|---|---|---|
-| arithmetic/arithmetic_add.ph | arithmetic | values-and-absence.md; messages-and-selectors.md; control-flow.md | PASS | stdout `3`; exit 0 |
-| arithmetic/arithmetic_precedence.ph | arithmetic | values-and-absence.md; messages-and-selectors.md; control-flow.md | PASS | stdout `7`; exit 0 |
-| arithmetic/arithmetic_unary_minus.ph | arithmetic | values-and-absence.md; messages-and-selectors.md; control-flow.md | PASS | stdout `-1`; exit 0 |
-| arithmetic/arithmetic_nested.ph | arithmetic | values-and-absence.md; messages-and-selectors.md; control-flow.md | PASS | stdout `9`; exit 0 |
-| arithmetic/arithmetic_div_zero.ph | arithmetic | object-model.md; values-and-absence.md | PASS | stdout `inf`; exit 0 |
-| arithmetic/arithmetic_equality.ph | arithmetic | messages-and-selectors.md; object-model.md | PASS | stdout `true`; exit 0 |
-| lexical/literals_zero.ph | lexical | lexical-structure.md; object-model.md | PASS | stdout `0`; exit 0 |
-| lexical/literals_empty_string.ph | lexical | lexical-structure.md; object-model.md | PASS | stdout blank line; exit 0 |
-| lexical/literals_string.ph | lexical | lexical-structure.md; object-model.md | PASS | stdout `hello, world`; exit 0 |
-| lexical/literals_true.ph | lexical | values-and-absence.md; object-model.md | PASS | stdout `true`; exit 0 |
-| lexical/literals_false.ph | lexical | values-and-absence.md; object-model.md | PASS | stdout `false`; exit 0 |
-| lexical/comments_inline.ph | lexical | lexical-structure.md | PASS | stdout `1`; exit 0 |
-| bindings/binding_let.ph | bindings | values-and-absence.md; open-questions.md; ADR-0014 | PASS | stdout `1`; exit 0 |
-| messages/send_system_new.ph | messages | messages-and-selectors.md; object-model.md | PASS | stdout `<class System>`; exit 0 |
-| classes/class_static_pi.ph | classes | classes.md; object-model.md | PASS | stdout `3.1415`; exit 0 |
-| lexical/pending/literals_escape.ph | lexical | lexical-structure.md; object-model.md | PENDING | current stdout is literal `a\n b`; exit 0 |
-| bindings/pending/binding_var_uninitialized.ph | bindings | values-and-absence.md; open-questions.md; ADR-0014 | PENDING | current parser rejects `var`; exit 1 with syntax error |
-| booleans/pending/bool_short_circuit_and.ph | booleans | control-flow.md | PENDING | current stdout is `Binary operation '&&' not supported for false and inf`; exit 0 |
-| booleans/pending/bool_short_circuit_or.ph | booleans | control-flow.md | PENDING | current stdout is `Binary operation '||' not supported for true and inf`; exit 0 |
-| classes/pending/class_construct_name.ph | classes | classes.md; object-model.md | PENDING | current parser errors at `construct`; exit 1 |
-| blocks/pending/blocks_literal_call.ph | blocks | blocks.md; functions.md | PENDING | current parser errors at `=>`; exit 1 |
-| syntax-errors/syntax_unclosed_string.ph | syntax-errors | lexical-structure.md; implementation-status.md | NEGATIVE | clean diagnostic `Unterminated string`; exit 1 |
-| syntax-errors/syntax_missing_paren.ph | syntax-errors | lexical-structure.md; implementation-status.md | NEGATIVE | clean diagnostic `Expected ")"`; exit 1 |
+| Label | PASS | NEG | PEND | Harness | Spec anchor |
+|---|---:|---:|---:|---|---|
+| arithmetic | 12 | – | – | `check_pass` | values-and-absence.md; messages-and-selectors.md; control-flow.md |
+| lexical | 11 | – | 7 | `check_pass` + `check_pending` | lexical-structure.md; values-and-absence.md; selectors.md |
+| classes | 10 | – | 5 | `check_pass` + `check_pending` | classes.md; object-model.md |
+| messages | 7 | – | 2 | `check_pass` + `check_pending` | messages-and-selectors.md; selectors.md; object-model.md |
+| system | 5 | – | 2 | `check_pass` + `check_pending` | system.md |
+| bindings | 3 | – | 2 | `check_pass` + `check_pending` | values-and-absence.md; open-questions.md; ADR-0014 |
+| control-flow | 3 | – | 5 | `check_pass` + `check_pending` | control-flow.md; blocks.md |
+| dispatch | 3 | – | 5 | `check_pass` + `check_pending` | messages-and-selectors.md; method-lookup.md; object-model.md |
+| metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
+| syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
+| runtime-errors | – | 4 | – | `check_negative` | messages-and-selectors.md; method-lookup.md |
+| absence | – | – | 5 | `check_pending` | values-and-absence.md; selectors.md |
+| blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
+| booleans | – | – | 2 | `check_pending` | control-flow.md |
+| concurrency | – | – | 2 | `check_pending` | concurrency.md |
+| errors | – | – | 2 | `check_pending` | error-handling.md |
+| functions | – | – | 2 | `check_pending` | functions.md; selectors.md |
+
+## Spec coverage
+
+Every document in `docs/spec/` maps to at least one label:
+
+| Spec doc | Labels |
+|---|---|
+| lexical-structure.md | lexical, syntax-errors |
+| values-and-absence.md | arithmetic, bindings, absence |
+| object-model.md | metaclass, dispatch, classes |
+| blocks.md | blocks, control-flow |
+| functions.md | functions |
+| messages-and-selectors.md | messages, dispatch, runtime-errors |
+| selectors.md | messages/pending, lexical/pending, absence/pending, functions/pending |
+| classes.md | classes |
+| method-lookup.md | dispatch, runtime-errors |
+| control-flow.md | control-flow, booleans |
+| error-handling.md | errors |
+| concurrency.md | concurrency |
+| system.md | system |
+
+## Running
+
+```sh
+cargo test -p phalcom-core --test lang               # active PASS/NEGATIVE (green)
+cargo test -p phalcom-core --test lang classes       # one label
+cargo test -p phalcom-core --test lang -- --ignored  # PENDING spec targets (expected to fail)
+```
 
 ## Notes
 
-- The corpus intentionally mixes already-working regression guards with spec-target cases that are still pending.
-- Pending tests are valid spec targets even when the current tree rejects them.
-- Negative tests are malformed inputs that should always fail cleanly, not panic.
+- The corpus deliberately mixes working regression guards with pending spec targets;
+  the pending set is the executable to-do list for the remaining spec surface.
+- Numbers are `f64`: `7/2` → `3.5`, whole results print without a decimal, `1/0` → `inf`,
+  `0/0` → `NaN`.
+- Three known bugs are pinned as pending spec targets: setter parameter name hardcoded
+  to `value`; keyword-argument calls build selectors no method definition can match;
+  user-defined `==(other)` never dispatched for instances (identity fallback).
+- Adding a case: drop `<name>.ph` + `<name>.expected` in the label dir (or `pending/`);
+  create the label dir first if new (a missing dir panics `collect_cases`), and wire the
+  label in `../lang.rs` if it has no `check_*` test yet.

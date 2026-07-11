@@ -25,6 +25,11 @@ effort: **medium**.
    deviations — your job is to go deeper (method/line level) within your lens.
 3. For "why is it like this" questions, use the `mem-search` skill before assuming a
    bug — a deviation may be a recorded decision.
+4. For object-model, dispatch, performance/representation, or security lenses, load the
+   matching reference in the `language-design` skill (`.claude/skills/language-design/`) and
+   its **interaction-hazard catalog**. A finding that the implementation violates a known
+   cross-feature hazard (default-args ⊗ selector-identity, inline-cache ⊗ mutable-hierarchy,
+   speculative-inline ⊗ late-binding, …) is load-bearing — anchor it like any other defect.
 
 ## What a finding is
 Report only defects you can anchor. Each finding MUST have:

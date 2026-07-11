@@ -85,6 +85,22 @@ fn multiple_statements() {
     insta::assert_snapshot!(parse("let x = 1\nlet y = 2"));
 }
 
+#[test]
+fn multiple_statements_semicolon_separated() {
+    // Companion to `multiple_statements`: the corpus also exercises
+    // semicolon-separated statements on one line
+    // (`tests/lang/lexical/lexical_multi_statement_semicolon.ph`).
+    insta::assert_snapshot!(parse("System.print(1); System.print(2)"));
+}
+
+#[test]
+fn comparison_operators_parse() {
+    // Current-behavior snapshot for `< > <= >=` as parsed binary expressions
+    // (the lexer-level tokenization is already pinned by
+    // `comparison_operators` in `tests/lexer.rs`).
+    insta::assert_snapshot!(parse("a < b\na > b\na <= b\na >= b"));
+}
+
 // --- Trailing newline / EOF handling (U0 / F10) ---
 
 #[test]
@@ -117,15 +133,6 @@ fn class_declaration_with_trailing_newline_parses() {
     // newline the compound `class` statement parses (the bare, newline-less
     // form remains a separate grammar gap).
     insta::assert_snapshot!(parse("class Point {}\n"));
-}
-
-#[test]
-fn multiline_method_block_parses() {
-    // Exercises class bodies with mixed method bodies, getter syntax, blank
-    // lines, semicolon-separated statements, and a trailing expression in a
-    // block body.
-    let src = format!("{}\n", include_str!("../../tests/newline_in_method_block.ph"));
-    insta::assert_snapshot!(parse(&src));
 }
 
 // --- F9: parse errors render via `Display` instead of panicking ---

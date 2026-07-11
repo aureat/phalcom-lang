@@ -1,0 +1,21 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"10 % 3 total %= 2\")"
+---
+[
+    Number(
+        10.0,
+    ),
+    Percent,
+    Number(
+        3.0,
+    ),
+    Identifier(
+        "total",
+    ),
+    PercentEqual,
+    Number(
+        2.0,
+    ),
+    Eof,
+]

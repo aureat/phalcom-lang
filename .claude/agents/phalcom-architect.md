@@ -25,6 +25,12 @@ re-deriving intent. You decide; you do not implement. Recommended reasoning effo
    steps are blocked by an unresolved open question — flag those; do not silently pick.
 4. Orient structurally via graphify (`query`/`path`/`explain`) before reading source; use
    `mem-search` for prior rationale.
+5. **The `language-design` skill** (`.claude/skills/language-design/`) — the design-space
+   layer: per-axis matrices of how other languages solved a problem (syntax + implementation),
+   and the **interaction-hazard catalog** (e.g. default-args ⊗ selector-identity, inline-cache
+   ⊗ mutable-hierarchy). Use it to power the **Forward-looking note** below — run each proposed
+   unit through the hazard catalog before sequencing it, and read `phalcom/overlay.md` for the
+   already-committed positions so you neither reopen a settled axis nor design atop an open one.
 
 ## The plan (write to `docs/forge/PLAN.md`, or the path given)
 Dependency-ordered units. The spec's spine is:

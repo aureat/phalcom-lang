@@ -1,0 +1,84 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"System.print(1); System.print(2)\")"
+---
+Program {
+    statements: [
+        Expr {
+            expr: MethodCall(
+                MethodCallExpr {
+                    object: Var {
+                        value: "System",
+                        range: CopyRange {
+                            start: 0,
+                            end: 6,
+                        },
+                    },
+                    method: "print",
+                    args: [
+                        Argument {
+                            label: None,
+                            expr: Number {
+                                value: 1.0,
+                                range: CopyRange {
+                                    start: 13,
+                                    end: 14,
+                                },
+                            },
+                            range: CopyRange {
+                                start: 13,
+                                end: 14,
+                            },
+                        },
+                    ],
+                    range: CopyRange {
+                        start: 0,
+                        end: 15,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 0,
+                end: 15,
+            },
+        },
+        Expr {
+            expr: MethodCall(
+                MethodCallExpr {
+                    object: Var {
+                        value: "System",
+                        range: CopyRange {
+                            start: 17,
+                            end: 23,
+                        },
+                    },
+                    method: "print",
+                    args: [
+                        Argument {
+                            label: None,
+                            expr: Number {
+                                value: 2.0,
+                                range: CopyRange {
+                                    start: 30,
+                                    end: 31,
+                                },
+                            },
+                            range: CopyRange {
+                                start: 30,
+                                end: 31,
+                            },
+                        },
+                    ],
+                    range: CopyRange {
+                        start: 17,
+                        end: 32,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 17,
+                end: 32,
+            },
+        },
+    ],
+}
