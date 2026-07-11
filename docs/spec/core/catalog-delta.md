@@ -49,7 +49,7 @@ in particular is still a hard miss, not a hook (see §4.5).
 
 | Class | Row | Global | Floor | `.ph` | Pending (catalog − have) | Unit |
 |---|:--:|:--:|---|---|---|---|
-| `Bool` | ✅ | ✅ | `and` `or` `not` `ifTrue` `ifFalse` `ifTrue(_, ifFalse)` `new` | empty reopen | ⚠️ confirm `ifTrue`/`ifFalse` **return `Option`** per catalog | U-CORE-2 |
+| `Bool` | ✅ | ✅ | `and` `or` `not` `ifTrue` `ifFalse` `ifTrue(_, ifFalse)` `new` | empty reopen | ⚠️ `ifTrue`/`ifFalse` return a **half-Option**, not `Option` (§4.2) | U-CORE-2 |
 | `Number` | ✅ | ✅ | `+ - * / %` `< <= > >=` `negated` `new` | empty reopen | ⚠️ numeric `toString` (today inherits `Object#toString` → class name, not value); `toNumber`, richer math | U-CORE-4 |
 | `String` | ✅ | ✅ | `+(_)` `new` | empty reopen | length, indexing→`Option`, comparison, interpolation, `toSymbol`/`toNumber`, value `toString` | U-CORE-4 |
 | `Symbol` | ✅ | ✅ | `toString` `new(_)` | empty reopen | `asString`/interning-identity protocol, `==` semantics | U-CORE-4 |
@@ -155,19 +155,28 @@ unverified. Each needs a ruling before the owning unit proceeds.
 - **Code:** `make_core_class(heap, "Method", object_class, …)` → `Method < Object` (`universe.rs` L133).
 - **Decision:** re-parent `Method` under `Function` (aligns the catalog; `Method` gains the `call` protocol as a sibling of `Block`), **or** amend the catalog to `Method < Object`. Touches U-CORE-1/3 and the ADR-0006 callable-root story.
 
-### 4.2 ⚠️ `Bool#ifTrue`/`ifFalse` return type
-- **Catalog:** "`ifTrue`/`ifFalse` return `Option`."
-- **Code:** native `bool_if_true`/`bool_if_false` — return type unverified against the `Option` claim in this pass.
-- **Decision:** confirm the primitives return `Some(_)`/`None` (not raw values / sentinel), or reconcile the catalog. Load-bearing for no-truthiness composition (U-CORE-2).
+### 4.2 ⚠️ `Bool#ifTrue`/`ifFalse` return a half-Option — **confirmed divergence** (resolve in U-CORE-2)
+- **Catalog / spec:** `ifTrue`/`ifFalse` return `Option`. Ratified twice — `object-model.md` §4 and `control-flow.md` §1, whose `if/else === c.ifTrue { A }.ifNone { B }` desugaring only composes if `ifTrue` yields an `Option` that `.ifNone` (an `Option` method) can be sent to.
+- **Code** (`boolean.rs` L109–130): the *absent* arm is `None` ✅, but the *present* arm returns the block result **raw**, never `Some(_)`:
+
+  | receiver | `ifTrue { A }` — current | required |
+  |---|---|---|
+  | `true`  | `A` (unwrapped) | `Some(A)` |
+  | `false` | `None` ✅ | `None` ✅ |
+
+  So the result is `A ∪ None`, **not** a well-formed `Option`. This is a deliberate U5 deferral (`U5-plan.md` §4.1, "independent of U6's `Option`"), latent only because the `Option` combinators (`ifNone`/`orElse`/…) don't exist yet (§2.2). It breaks the moment they land: `c.ifTrue { 42 }.ifNone { 0 }` would send `ifNone` to a raw `Number`.
+- **Resolution (U-CORE-2):** `Some`-lift the *one-armed* `ifTrue`/`ifFalse` taken arm; keep `None` for the untaken arm. Leave the paired `ifTrue(_, ifFalse)` (what `if/else` desugars to) and `and`/`or` returning raw values — those are correct as-is. The sacred inliner ([ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)) must `Some`-lift in lockstep so the fast path ≡ the deopt path; elide the wrap in statement (pop) context to avoid the allocation. Worth a one-paragraph ADR-0018 amendment. **Do not** amend the spec to match the impl — that breaks `control-flow.md` §1.
 
 ### 4.3 `Nil` row present in impl, absent in catalog — **intentional, keep**
 - Not a defect: the catalog deliberately omits `Nil` (Invariant 4). The internal row is required to answer `Value::Nil.class`. Documented here so a future reader does not "fix" the catalog by adding it.
 
-### 4.4 ⚠️ `Number#toString` inherits the class-name default
-- `Object#toString` aliases `object_name` (class name). A `Number` therefore
-  stringifies as `"Number"`, not its value — almost certainly wrong for the
-  catalog's "Arithmetic, comparison, `toString`." U-CORE-4 must override
-  `toString` on `Number` (and `String`, `Symbol`, `Bool`, `Option`).
+### 4.4 ⚠️ `Number#toString` inherits the class-name default — **confirmed**
+- `Object#toString` aliases `object_name` (class name), and `Number` registers no
+  override, so `42.toString` (the *message*) yields `"Number"`, not `"42"`. The
+  value-rendering path is a **separate** Rust method, `Value::to_string(vm)` (used
+  by `System.print`, seen at `boolean.rs` L32/34), so `System.print(42)` still
+  shows `42` — the gap is specifically the `toString` **message**. U-CORE-4 must
+  override `toString` on `Number` (and `String`, `Symbol`, `Bool`, `Option`).
 
 ### 4.5 dNU / `hash` are absent — gate several rows
 - `doesNotUnderstand(_)` is not installed; a missed send is a hard error, and
