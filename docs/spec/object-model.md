@@ -115,8 +115,9 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Block` | `Object` | U | First-class closure / block literal. `call`, `call(_:)`, `arity`. A method is a `Block` bound to a class under a selector. |
-| `Method` | `Object` | U | A reified compiled method. `signature`, `arity`, `holder`. |
+| `Function` | `Object` | A | The call protocol: `call`, `call(_:)`, `arity`, `name`. Abstract root of everything callable ([Functions](functions.md)). |
+| `Block` | `Function` | U | First-class closure / block literal. Adds non-local return + home frame. |
+| `Method` | `Function` | U | A reified compiled method. `signature`, `holder`, `bind(_:)`. Sibling of `Block`, not a subtype of it. |
 
 ### Collections
 
@@ -133,14 +134,14 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
 | `Module` | `Object` | U | A compilation unit / namespace. |
-| `System` | `Object` | U | VM services: `print(_:)`, `clock`, `gc`. |
+| `System` | `Object` | U | The runtime service surface (class-side): `print(_:)`, `clock`, `gc`, scheduler ([System](system.md)). |
 
 ### Concurrency
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Fiber` | `Object` | U | Cooperative coroutine. `call`, `yield(_:)`, `try`, `isDone`. |
-| `Future` | `Object` | U | Pending async result. `await`, `then(_:)`, `isReady`. |
+| `Fiber` | `Object` | U | Cooperative coroutine; the sole concurrency primitive. `call`, `yield(_:)`, `try`, `isDone` ([Fibers & Futures](concurrency.md)). |
+| `Future` | `Object` | U | Pending async result over `Fiber`. `await`, `then(_:)`, `isReady` ([Fibers & Futures](concurrency.md)). |
 
 ### Errors
 
