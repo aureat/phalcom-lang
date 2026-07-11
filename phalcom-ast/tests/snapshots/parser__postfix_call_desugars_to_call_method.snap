@@ -1,0 +1,60 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"f(1, 2)\")"
+---
+Program {
+    statements: [
+        Expr {
+            expr: MethodCall(
+                MethodCallExpr {
+                    object: Var {
+                        value: "f",
+                        range: CopyRange {
+                            start: 0,
+                            end: 1,
+                        },
+                    },
+                    method: "call",
+                    args: [
+                        Argument {
+                            label: None,
+                            expr: Number {
+                                value: 1.0,
+                                range: CopyRange {
+                                    start: 2,
+                                    end: 3,
+                                },
+                            },
+                            range: CopyRange {
+                                start: 2,
+                                end: 3,
+                            },
+                        },
+                        Argument {
+                            label: None,
+                            expr: Number {
+                                value: 2.0,
+                                range: CopyRange {
+                                    start: 5,
+                                    end: 6,
+                                },
+                            },
+                            range: CopyRange {
+                                start: 5,
+                                end: 6,
+                            },
+                        },
+                    ],
+                    range: CopyRange {
+                        start: 0,
+                        end: 7,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 0,
+                end: 7,
+            },
+        },
+    ],
+}

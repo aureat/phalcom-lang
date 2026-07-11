@@ -105,3 +105,19 @@ fn fixture_hello_world() {
 fn fixture_arithmetic() {
     assert_golden("tests/fixtures/golden/arithmetic.ph", "7\n30\nab\n");
 }
+
+#[test]
+fn fixture_blocks_map_reduce() {
+    // A map-style unary block and a reduce-style binary block, both invoked
+    // via `call` (functions.md §1-2).
+    assert_golden("tests/fixtures/golden/blocks_map_reduce.ph", "25\n7\n");
+}
+
+#[test]
+fn fixture_blocks_escaping_counter() {
+    // The classic escaping-closure case: `count` is captured as an open
+    // upvalue, then promoted to a heap-owned closed cell when `makeCounter`'s
+    // frame returns, so the counter keeps incrementing correctly afterward
+    // (ADR-0013).
+    assert_golden("tests/fixtures/golden/blocks_escaping_counter.ph", "1\n2\n3\n");
+}

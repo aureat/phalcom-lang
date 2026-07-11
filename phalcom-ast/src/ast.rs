@@ -11,7 +11,7 @@ pub struct Program {
     pub statements: Vec<Statement>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Statement {
     Class(ClassDef),
     Let(LetBinding),
@@ -19,28 +19,28 @@ pub enum Statement {
     Expr { expr: Expr, range: SourceRange },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ClassDef {
     pub name: String,
     pub members: Vec<ClassMember>,
     pub range: SourceRange,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ClassMember {
     Method(MethodDef),
     Getter(GetterDef),
     Setter(SetterDef),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParameterDef {
     pub name: String,
     pub label: Option<String>,
     pub range: SourceRange,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MethodDef {
     pub name: String,
     pub params: Vec<ParameterDef>,
@@ -49,7 +49,7 @@ pub struct MethodDef {
     pub range: SourceRange,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GetterDef {
     pub name: String,
     pub body: Vec<Statement>,
@@ -57,7 +57,7 @@ pub struct GetterDef {
     pub range: SourceRange,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SetterDef {
     pub name: String,
     pub param: String,
@@ -66,14 +66,14 @@ pub struct SetterDef {
     pub range: SourceRange,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LetBinding {
     pub name: String,
     pub value: Option<Expr>,
     pub range: SourceRange,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ReturnStatement {
     pub value: Option<Expr>,
     pub range: SourceRange,
@@ -95,6 +95,7 @@ pub enum Expr {
     MethodCall(Box<MethodCallExpr>),
     GetProperty(Box<GetPropertyExpr>),
     SetProperty(Box<SetPropertyExpr>),
+    Block(Box<BlockExpr>),
 }
 
 #[derive(Debug, Clone)]
@@ -177,4 +178,12 @@ pub enum BinaryOp {
 pub enum UnaryOp {
     Negate,
     Not,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockExpr {
+    pub params: Vec<String>,
+    pub body: Vec<Statement>,
+    pub expr_body: bool,
+    pub range: SourceRange,
 }

@@ -1,10 +1,9 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 43
 expression: rendered
 ---
 [
     "Expected identifier (at bytes 4..5)",
-    "Expected one of \"true\", \"false\", \"nil\", \"self\", \"super\", identifier, string, number, \"(\", \"!\", \"-\" (at bytes 9..10)",
+    "Expected one of \"true\", \"false\", \"nil\", \"self\", \"super\", identifier, string, number, \"(\", \"!\", \"-\", \"{\" (at bytes 9..10)",
     "Expected one of \";\", newline (at bytes 17..18)",
 ]

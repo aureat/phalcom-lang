@@ -9,7 +9,7 @@
 //! [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)).
 
 use crate::bytecode::Bytecode;
-use crate::callable::Callable;
+use crate::callable::{Callable, UpvalueDescriptor};
 use crate::chunk::Chunk;
 use crate::closure::ClosureObject;
 use crate::error::PhResult;
@@ -20,7 +20,7 @@ use crate::value::Value;
 use crate::vm::VM;
 use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
 use phalcom_ast::error::SyntaxError;
-use phalcom_common::range::EmptySourceRange;
+use phalcom_common::range::{EmptySourceRange, SourceRange};
 use thiserror::Error;
 use tracing::debug;
 
@@ -60,18 +60,62 @@ pub enum CompilerError {
 //     }
 // }
 
+/// A lexically-scoped local variable inside a single function/block body.
 struct Local {
+    /// The interned name the local was declared with.
     name: Symbol,
+    /// The nesting depth of the scope that declared it.
     depth: usize,
+    /// Whether a nested block captured this local as an upvalue, which forces
+    /// the enclosing frame to close (heap-promote) it on scope exit
+    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    is_captured: bool,
+}
+
+/// The mutable per-function compilation state for one closure body.
+///
+/// Every method, getter, setter, block literal and the top-level module gets
+/// its own `FunctionState`. The [`Compiler`] keeps them on a **stack**
+/// ([`Compiler::functions`]) so upvalue resolution can walk from the innermost
+/// block outward through its enclosing functions using plain indices — with no
+/// aliasing `&mut` references and no raw parent pointers
+/// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+struct FunctionState {
+    /// The bytecode chunk being emitted for this body.
+    chunk: Chunk,
+    /// The live local variables, innermost last.
+    locals: Vec<Local>,
+    /// The current lexical scope nesting depth.
+    scope_depth: usize,
+    /// The number of live locals (mirrors `locals.len()`).
+    num_locals: usize,
+    /// The peak number of locals seen, used as the callable's slot count.
+    max_slots: usize,
+    /// The upvalue capture descriptors resolved for this body.
+    upvalues: Vec<UpvalueDescriptor>,
+}
+
+impl FunctionState {
+    /// Creates an empty function-compilation state.
+    fn new() -> Self {
+        FunctionState {
+            chunk: Chunk::default(),
+            locals: Vec::new(),
+            scope_depth: 0,
+            num_locals: 0,
+            max_slots: 0,
+            upvalues: Vec::new(),
+        }
+    }
 }
 
 pub(crate) struct Compiler<'vm> {
     vm: &'vm mut VM,
     module: ObjRef,
-    chunk: Chunk,
-    locals: Vec<Local>,
-    scope_depth: usize,
-    num_locals: usize,
+    /// The stack of function-compilation states, innermost body last. A block
+    /// literal pushes a new state, compiles into it, and pops it; upvalue
+    /// resolution indexes into this stack rather than following raw pointers.
+    functions: Vec<FunctionState>,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -79,40 +123,135 @@ impl<'vm> Compiler<'vm> {
         Compiler {
             vm,
             module,
-            chunk: Chunk::default(),
-            locals: Vec::new(),
-            scope_depth: 0,
-            num_locals: 0,
+            functions: vec![FunctionState::new()],
         }
     }
 
-    fn begin_scope(&mut self) {
-        self.scope_depth += 1;
+    /// Emits `opcode` into the current function's chunk.
+    fn emit(&mut self, opcode: Bytecode, range: SourceRange) {
+        self.functions.last_mut().unwrap().chunk.add_instruction(opcode, range);
     }
 
-    fn end_scope(&mut self) {
-        self.scope_depth -= 1;
-        while self.num_locals > 0 && self.locals[self.num_locals - 1].depth > self.scope_depth {
-            // self.chunk.add_instruction(Bytecode::Pop);
-            self.num_locals -= 1;
+    /// Adds `value` to the current function's constant pool, returning its index.
+    fn add_constant(&mut self, value: Value) -> u16 {
+        self.functions.last_mut().unwrap().chunk.add_constant(value)
+    }
+
+    /// Emits a read of the receiver `self` for the current body.
+    ///
+    /// In a method/module body `self` is the frame receiver, emitted as
+    /// [`Bytecode::GetSelf`]. Inside a block, `self` is not the block object —
+    /// it is the enclosing method's receiver, captured as an ordinary upvalue
+    /// (functions.md §2), so it resolves through [`Self::resolve_upvalue`] and is
+    /// emitted as [`Bytecode::GetUpvalue`].
+    fn emit_self(&mut self, range: SourceRange) {
+        if self.functions.len() > 1 {
+            let self_sym = self.vm.interner.intern("self");
+            if let Some(upvalue) = self.resolve_upvalue(self_sym) {
+                self.emit(Bytecode::GetUpvalue(upvalue as u16), range);
+                return;
+            }
+        }
+        self.emit(Bytecode::GetSelf, range);
+    }
+
+    fn begin_scope(&mut self) {
+        self.functions.last_mut().unwrap().scope_depth += 1;
+    }
+
+    /// Closes the innermost scope, promoting captured locals to heap cells.
+    ///
+    /// The function-body scope is cleaned up by [`Bytecode::Return`], which
+    /// truncates the whole frame window (see the VM's `Return`/`run_until`
+    /// handling). We therefore never `Pop` locals here — doing so would discard
+    /// the return value sitting on top of them (the calculator-getter bug). We
+    /// only emit [`Bytecode::CloseUpvalue`] for captured locals so their heap
+    /// cells are promoted (`Open` -> `Closed`) before the slot is reclaimed
+    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)); the VM's
+    /// `Return` closes them again idempotently for the explicit-return path.
+    fn end_scope(&mut self, range: SourceRange) {
+        let func = self.functions.last_mut().unwrap();
+        func.scope_depth -= 1;
+        let scope_depth = func.scope_depth;
+        let mut to_close = Vec::new();
+        while func.num_locals > 0 && func.locals[func.num_locals - 1].depth > scope_depth {
+            func.num_locals -= 1;
+            let local = func.locals.pop().unwrap();
+            if local.is_captured {
+                to_close.push(func.num_locals as u16);
+            }
+        }
+        for slot in to_close {
+            self.emit(Bytecode::CloseUpvalue(slot), range);
         }
     }
 
     fn add_local(&mut self, name: Symbol) {
-        debug!("[Compiler] Adding local: {} at depth {}", self.vm.interner.lookup(name), self.scope_depth);
-        self.locals.push(Local { name, depth: self.scope_depth });
-        self.num_locals += 1;
+        let func = self.functions.last_mut().unwrap();
+        debug!("[Compiler] Adding local at depth {}", func.scope_depth);
+        func.locals.push(Local { name, depth: func.scope_depth, is_captured: false });
+        func.num_locals += 1;
+        if func.num_locals > func.max_slots {
+            func.max_slots = func.num_locals;
+        }
     }
 
+    /// Resolves `name` as a local in the current function, returning its slot.
     fn resolve_local(&self, name: Symbol) -> Option<usize> {
-        for i in (0..self.num_locals).rev() {
-            if self.locals[i].name == name {
-                debug!("[Compiler] Resolved local: {} at slot {}", self.vm.interner.lookup(name), i);
-                return Some(i);
+        self.resolve_local_in(self.functions.len() - 1, name)
+    }
+
+    /// Resolves `name` as a local in the function at `func_idx`, returning its
+    /// slot index (which doubles as the runtime stack slot within the frame).
+    fn resolve_local_in(&self, func_idx: usize, name: Symbol) -> Option<usize> {
+        let func = &self.functions[func_idx];
+        (0..func.num_locals).rev().find(|&i| func.locals[i].name == name)
+    }
+
+    /// Resolves `name` as an upvalue captured by the current function.
+    ///
+    /// Walks the enclosing function-compilation states (via [`Self::functions`]
+    /// indices — no aliasing borrows) marking the captured local so the
+    /// enclosing frame closes it on scope exit
+    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    fn resolve_upvalue(&mut self, name: Symbol) -> Option<usize> {
+        self.resolve_upvalue_in(self.functions.len() - 1, name)
+    }
+
+    /// Resolves `name` as an upvalue of the function at `func_idx`, recursing
+    /// into the enclosing function when the variable is itself an upvalue there.
+    fn resolve_upvalue_in(&mut self, func_idx: usize, name: Symbol) -> Option<usize> {
+        if func_idx == 0 {
+            return None;
+        }
+        let enclosing = func_idx - 1;
+
+        // 1. Resolve as a local in the enclosing function -> capture it directly.
+        if let Some(slot) = self.resolve_local_in(enclosing, name) {
+            self.functions[enclosing].locals[slot].is_captured = true;
+            return Some(self.add_upvalue(func_idx, slot, true));
+        }
+
+        // 2. Otherwise resolve recursively as an upvalue of the enclosing
+        //    function and chain through it.
+        if let Some(upvalue_idx) = self.resolve_upvalue_in(enclosing, name) {
+            return Some(self.add_upvalue(func_idx, upvalue_idx, false));
+        }
+
+        None
+    }
+
+    /// Records (deduplicating) an upvalue descriptor on the function at
+    /// `func_idx`, returning its index in that function's upvalue list.
+    fn add_upvalue(&mut self, func_idx: usize, index: usize, is_local: bool) -> usize {
+        let upvalues = &mut self.functions[func_idx].upvalues;
+        for (i, upval) in upvalues.iter().enumerate() {
+            if upval.index == index && upval.is_local == is_local {
+                return i;
             }
         }
-        debug!("[Compiler] Could not resolve local: {}", self.vm.interner.lookup(name));
-        None
+        upvalues.push(UpvalueDescriptor { is_local, index });
+        upvalues.len() - 1
     }
 
     fn compile_block(
@@ -120,38 +259,35 @@ impl<'vm> Compiler<'vm> {
         statements: Vec<Statement>,
         name_sym: Symbol,
         params: Vec<String>,
-        _is_static_method: bool,
+        is_method: bool,
     ) -> Result<ObjRef, CompilerError> {
-        // Intern parameter names before creating block_compiler
+        // Intern parameter and receiver names before pushing the function state.
         let mut param_symbols = Vec::with_capacity(params.len());
         for param_name in &params {
             param_symbols.push(self.vm.interner.intern(param_name));
         }
-
         let self_sym = self.vm.interner.intern("self");
+        let dummy_sym = self.vm.interner.intern("<block-receiver>");
 
-        let mut block_compiler = Compiler {
-            vm: self.vm,
-            module: self.module,
-            chunk: Chunk::default(),
-            locals: Vec::new(), // Each block gets its own locals stack
-            scope_depth: 0,
-            num_locals: 0,
-        };
+        // Push a fresh function-compilation state for this body.
+        self.functions.push(FunctionState::new());
+        self.begin_scope();
 
-        block_compiler.begin_scope(); // Start a new scope for the block
+        if is_method {
+            // Slot 0 holds the receiver `self`.
+            self.add_local(self_sym);
+        } else {
+            // Slot 0 holds the block object itself (blocks reach `self` via an
+            // upvalue, functions.md §2), so we reserve it with a dummy local.
+            self.add_local(dummy_sym);
+        }
 
-        // Add the implicit "self" local at slot 0
-        block_compiler.add_local(self_sym);
-
-        // Add parameters as locals
         for param_sym in param_symbols {
-            block_compiler.add_local(param_sym);
+            self.add_local(param_sym);
         }
 
         let len = statements.len();
         let mut last_is_return = false;
-
         for (i, statement) in statements.into_iter().enumerate() {
             let is_last = i == len - 1;
             if is_last {
@@ -159,26 +295,26 @@ impl<'vm> Compiler<'vm> {
                     last_is_return = true;
                 }
             }
-            block_compiler.compile_statement_with_pop_control(statement, !is_last)?;
+            self.compile_statement_with_pop_control(statement, !is_last)?;
         }
 
-        block_compiler.end_scope(); // End the scope for the block
+        let max_slots = self.functions.last().unwrap().max_slots;
+        self.end_scope(EmptySourceRange);
 
         if !last_is_return {
-            // block_compiler.chunk.add_instruction(Bytecode::Nil);
-            block_compiler.chunk.add_instruction(Bytecode::Return, EmptySourceRange);
+            self.emit(Bytecode::Return, EmptySourceRange);
         }
 
+        let func = self.functions.pop().unwrap();
         let callable = Callable {
-            chunk: block_compiler.chunk,
-            max_slots: block_compiler.num_locals, // Use num_locals as max_slots
-            num_upvalues: 0,                      // TODO: Calculate num_upvalues
+            chunk: func.chunk,
+            max_slots,
+            num_upvalues: func.upvalues.len(),
+            upvalues: func.upvalues,
             arity: params.len(),
             name_sym,
         };
 
-        // Materialize the compiled block as a heap closure and return its handle
-        // (ADR-0009). The compiler holds `&mut VM`, hence the heap.
         let closure = self.vm.heap.alloc(Object::Closure(ClosureObject {
             callable,
             module: self.module,
@@ -202,14 +338,16 @@ impl<'vm> Compiler<'vm> {
         }
 
         if !last_is_return {
-            self.chunk.add_instruction(Bytecode::Return, EmptySourceRange);
+            self.emit(Bytecode::Return, EmptySourceRange);
         }
 
         let name_sym = self.vm.heap.module(self.module).name_sym;
+        let func = self.functions.pop().unwrap();
         let callable = Callable {
-            chunk: self.chunk,
-            max_slots: 0,
+            chunk: func.chunk,
+            max_slots: func.max_slots,
             num_upvalues: 0,
+            upvalues: Vec::new(),
             arity: 0,
             name_sym,
         };
@@ -229,7 +367,7 @@ impl<'vm> Compiler<'vm> {
                 self.compile_expr(expr)?;
                 if emit_pop {
                     // println!("[Compiler] Emitting Pop");
-                    self.chunk.add_instruction(Bytecode::Pop, range);
+                    self.emit(Bytecode::Pop, range);
                 }
             }
             Statement::Let(binding) => {
@@ -238,19 +376,19 @@ impl<'vm> Compiler<'vm> {
                 if let Some(expr) = binding.value {
                     self.compile_expr(expr)?;
                 } else {
-                    self.chunk.add_instruction(Bytecode::Nil, range);
+                    self.emit(Bytecode::Nil, range);
                 }
 
                 let name_sym = self.vm.interner.intern(&binding.name);
-                if self.scope_depth > 0 {
+                if self.functions.last().unwrap().scope_depth > 0 {
                     // Local variable
                     self.add_local(name_sym);
-                    let slot = self.num_locals - 1;
-                    self.chunk.add_instruction(Bytecode::SetLocal(slot as u16), range);
+                    let slot = self.functions.last().unwrap().num_locals - 1;
+                    self.emit(Bytecode::SetLocal(slot as u16), range);
                 } else {
                     // Global variable
-                    let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                    self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx), range);
+                    let name_idx = self.add_constant(Value::Symbol(name_sym));
+                    self.emit(Bytecode::DefineGlobal(name_idx), range);
                 }
             }
             Statement::Return(return_stmt) => {
@@ -258,23 +396,23 @@ impl<'vm> Compiler<'vm> {
                 if let Some(expr) = return_stmt.value {
                     self.compile_expr(expr)?;
                 } else {
-                    self.chunk.add_instruction(Bytecode::Nil, range);
+                    self.emit(Bytecode::Nil, range);
                 }
-                self.chunk.add_instruction(Bytecode::Return, range);
+                self.emit(Bytecode::Return, range);
             }
             Statement::Class(class_def) => {
                 let range = class_def.range;
 
                 // Push superclass onto the stack (for now, default to Object)
                 let object_class = self.vm.universe.classes.object_class;
-                let superclass_idx = self.chunk.add_constant(Value::Obj(object_class));
-                self.chunk.add_instruction(Bytecode::Constant(superclass_idx), range);
+                let superclass_idx = self.add_constant(Value::Obj(object_class));
+                self.emit(Bytecode::Constant(superclass_idx), range);
 
                 // TODO: Handle explicit superclass syntax later
 
                 let name_sym = self.vm.interner.intern(&class_def.name);
-                let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::Class(name_idx), range);
+                let name_idx = self.add_constant(Value::Symbol(name_sym));
+                self.emit(Bytecode::Class(name_idx), range);
 
                 // The class object is now on top of the stack. Iterate through members.
                 for member in class_def.members {
@@ -288,7 +426,7 @@ impl<'vm> Compiler<'vm> {
                             let selector_sym = self.vm.interner.intern(&selector);
 
                             let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
-                            let closure = self.compile_block(method_def.body, selector_sym, param_names, method_def.is_static)?;
+                            let closure = self.compile_block(method_def.body, selector_sym, param_names, true)?;
 
                             debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
@@ -298,16 +436,16 @@ impl<'vm> Compiler<'vm> {
                                 MethodKind::Closure(closure),
                             )));
 
-                            let method_obj_idx = self.chunk.add_constant(Value::Obj(method_obj));
+                            let method_obj_idx = self.add_constant(Value::Obj(method_obj));
                             // println!("[Compiler] Emitting Constant for method_obj_idx: {}", method_obj_idx);
-                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
+                            self.emit(Bytecode::Constant(method_obj_idx), range);
 
-                            let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
+                            let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                             // println!(
                             //     "[Compiler] Emitting Method for selector_idx: {}, is_static: {}",
                             //     selector_idx, method_def.is_static
                             // );
-                            self.chunk.add_instruction(Bytecode::Method(selector_idx, method_def.is_static), range);
+                            self.emit(Bytecode::Method(selector_idx, method_def.is_static), range);
                         }
                         ClassMember::Getter(getter_def) => {
                             let range = getter_def.range;
@@ -315,18 +453,18 @@ impl<'vm> Compiler<'vm> {
                             let selector = make_signature(&getter_def.name, SignatureKind::Getter);
                             let selector_sym = self.vm.interner.intern(&selector);
 
-                            let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), getter_def.is_static)?;
+                            let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), true)?;
 
                             debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
                             let method_obj =
                                 self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure))));
 
-                            let method_obj_idx = self.chunk.add_constant(Value::Obj(method_obj));
-                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
+                            let method_obj_idx = self.add_constant(Value::Obj(method_obj));
+                            self.emit(Bytecode::Constant(method_obj_idx), range);
 
-                            let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                            self.chunk.add_instruction(Bytecode::Method(selector_idx, getter_def.is_static), range);
+                            let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                            self.emit(Bytecode::Method(selector_idx, getter_def.is_static), range);
                         }
                         ClassMember::Setter(setter_def) => {
                             let range = setter_def.range;
@@ -334,25 +472,25 @@ impl<'vm> Compiler<'vm> {
                             let selector = make_signature(&setter_def.name, SignatureKind::Setter);
                             let selector_sym = self.vm.interner.intern(&selector);
 
-                            let closure = self.compile_block(setter_def.body, selector_sym, vec!["value".to_string()], setter_def.is_static)?;
+                            let closure = self.compile_block(setter_def.body, selector_sym, vec!["value".to_string()], true)?;
 
                             debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
                             let method_obj =
                                 self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure))));
 
-                            let method_obj_idx = self.chunk.add_constant(Value::Obj(method_obj));
-                            self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
+                            let method_obj_idx = self.add_constant(Value::Obj(method_obj));
+                            self.emit(Bytecode::Constant(method_obj_idx), range);
 
-                            let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                            self.chunk.add_instruction(Bytecode::Method(selector_idx, setter_def.is_static), range);
+                            let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                            self.emit(Bytecode::Method(selector_idx, setter_def.is_static), range);
                         }
                     }
                 }
 
                 // After defining all methods, the class is still on the stack.
                 // Define it as a global variable.
-                self.chunk.add_instruction(Bytecode::DefineGlobal(name_idx), range);
+                self.emit(Bytecode::DefineGlobal(name_idx), range);
             }
         }
         Ok(())
@@ -369,57 +507,58 @@ impl<'vm> Compiler<'vm> {
                 let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
                 let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
                 let selector_sym = self.vm.interner.intern(&selector);
-                let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                self.chunk
-                    .add_instruction(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
+                let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                self.emit(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
             }
             Expr::GetProperty(get_prop) => {
                 self.compile_expr(get_prop.object)?;
                 let selector_sym = self.vm.interner.intern(&get_prop.property);
-                let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                self.chunk.add_instruction(Bytecode::Invoke(0, selector_idx), get_prop.range);
+                let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                self.emit(Bytecode::Invoke(0, selector_idx), get_prop.range);
             }
             Expr::SetProperty(set_prop) => {
                 self.compile_expr(set_prop.object)?;
                 self.compile_expr(set_prop.value)?;
                 let selector = make_signature(&set_prop.property, SignatureKind::Setter);
                 let selector_sym = self.vm.interner.intern(&selector);
-                let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
-                self.chunk.add_instruction(Bytecode::Invoke(1, selector_idx), set_prop.range);
+                let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                self.emit(Bytecode::Invoke(1, selector_idx), set_prop.range);
             }
             Expr::Number { value, range } => {
-                let idx = self.chunk.add_constant(Value::Number(value));
-                self.chunk.add_instruction(Bytecode::Constant(idx), range);
+                let idx = self.add_constant(Value::Number(value));
+                self.emit(Bytecode::Constant(idx), range);
             }
             Expr::String { value, range } => {
                 let string_obj = self.vm.alloc_string_value(value);
-                let idx = self.chunk.add_constant(string_obj);
-                self.chunk.add_instruction(Bytecode::Constant(idx), range);
+                let idx = self.add_constant(string_obj);
+                self.emit(Bytecode::Constant(idx), range);
             }
             Expr::Boolean { value, range } => {
                 if value {
-                    self.chunk.add_instruction(Bytecode::True, range);
+                    self.emit(Bytecode::True, range);
                 } else {
-                    self.chunk.add_instruction(Bytecode::False, range);
+                    self.emit(Bytecode::False, range);
                 }
             }
             Expr::Nil { range } => {
-                self.chunk.add_instruction(Bytecode::Nil, range);
+                self.emit(Bytecode::Nil, range);
             }
             Expr::Var { value, range } => {
                 let name_sym = self.vm.interner.intern(&value);
                 if let Some(slot) = self.resolve_local(name_sym) {
-                    self.chunk.add_instruction(Bytecode::GetLocal(slot as u16), range);
+                    self.emit(Bytecode::GetLocal(slot as u16), range);
+                } else if let Some(upvalue) = self.resolve_upvalue(name_sym) {
+                    self.emit(Bytecode::GetUpvalue(upvalue as u16), range);
                 } else {
-                    let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                    self.chunk.add_instruction(Bytecode::GetGlobal(name_idx), range);
+                    let name_idx = self.add_constant(Value::Symbol(name_sym));
+                    self.emit(Bytecode::GetGlobal(name_idx), range);
                 }
             }
             Expr::Field { value, range } => {
-                self.chunk.add_instruction(Bytecode::GetSelf, range);
+                self.emit_self(range);
                 let name_sym = self.vm.interner.intern(&value);
-                let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                self.chunk.add_instruction(Bytecode::GetField(name_idx), range);
+                let name_idx = self.add_constant(Value::Symbol(name_sym));
+                self.emit(Bytecode::GetField(name_idx), range);
             }
             Expr::Assignment(assign_expr) => {
                 match *assign_expr.name {
@@ -427,18 +566,20 @@ impl<'vm> Compiler<'vm> {
                         self.compile_expr(assign_expr.value)?;
                         let name_sym = self.vm.interner.intern(&value);
                         if let Some(slot) = self.resolve_local(name_sym) {
-                            self.chunk.add_instruction(Bytecode::SetLocal(slot as u16), range);
+                            self.emit(Bytecode::SetLocal(slot as u16), range);
+                        } else if let Some(upvalue) = self.resolve_upvalue(name_sym) {
+                            self.emit(Bytecode::SetUpvalue(upvalue as u16), range);
                         } else {
-                            let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                            self.chunk.add_instruction(Bytecode::SetGlobal(name_idx), range);
+                            let name_idx = self.add_constant(Value::Symbol(name_sym));
+                            self.emit(Bytecode::SetGlobal(name_idx), range);
                         }
                     }
                     Expr::Field { value, range } => {
-                        self.chunk.add_instruction(Bytecode::GetSelf, range); // Push receiver first
+                        self.emit_self(range); // Push receiver first
                         self.compile_expr(assign_expr.value)?; // Then push value
                         let name_sym = self.vm.interner.intern(&value);
-                        let name_idx = self.chunk.add_constant(Value::Symbol(name_sym));
-                        self.chunk.add_instruction(Bytecode::SetField(name_idx), range);
+                        let name_idx = self.add_constant(Value::Symbol(name_sym));
+                        self.emit(Bytecode::SetField(name_idx), range);
                     }
                     _ => return Err(CompilerError::InvalidAssignmentTarget),
                 }
@@ -448,43 +589,50 @@ impl<'vm> Compiler<'vm> {
                 self.compile_expr(binary_expr.right)?;
                 let range = binary_expr.range;
                 match binary_expr.op {
-                    BinaryOp::Add => self.chunk.add_instruction(Bytecode::Add, range),
-                    BinaryOp::Subtract => self.chunk.add_instruction(Bytecode::Subtract, range),
-                    BinaryOp::Multiply => self.chunk.add_instruction(Bytecode::Multiply, range),
-                    BinaryOp::Divide => self.chunk.add_instruction(Bytecode::Divide, range),
-                    BinaryOp::Modulo => self.chunk.add_instruction(Bytecode::Modulo, range),
-                    BinaryOp::Equal => self.chunk.add_instruction(Bytecode::Equal, range),
-                    BinaryOp::NotEqual => self.chunk.add_instruction(Bytecode::NotEqual, range),
-                    BinaryOp::LessThan => self.chunk.add_instruction(Bytecode::Less, range),
-                    BinaryOp::LessThanOrEqual => self.chunk.add_instruction(Bytecode::LessEqual, range),
-                    BinaryOp::GreaterThan => self.chunk.add_instruction(Bytecode::Greater, range),
-                    BinaryOp::GreaterThanOrEqual => self.chunk.add_instruction(Bytecode::GreaterEqual, range),
-                    BinaryOp::And => self.chunk.add_instruction(Bytecode::And, range),
-                    BinaryOp::Or => self.chunk.add_instruction(Bytecode::Or, range),
+                    BinaryOp::Add => self.emit(Bytecode::Add, range),
+                    BinaryOp::Subtract => self.emit(Bytecode::Subtract, range),
+                    BinaryOp::Multiply => self.emit(Bytecode::Multiply, range),
+                    BinaryOp::Divide => self.emit(Bytecode::Divide, range),
+                    BinaryOp::Modulo => self.emit(Bytecode::Modulo, range),
+                    BinaryOp::Equal => self.emit(Bytecode::Equal, range),
+                    BinaryOp::NotEqual => self.emit(Bytecode::NotEqual, range),
+                    BinaryOp::LessThan => self.emit(Bytecode::Less, range),
+                    BinaryOp::LessThanOrEqual => self.emit(Bytecode::LessEqual, range),
+                    BinaryOp::GreaterThan => self.emit(Bytecode::Greater, range),
+                    BinaryOp::GreaterThanOrEqual => self.emit(Bytecode::GreaterEqual, range),
+                    BinaryOp::And => self.emit(Bytecode::And, range),
+                    BinaryOp::Or => self.emit(Bytecode::Or, range),
                 }
             }
             Expr::Unary(unary_expr) => {
                 self.compile_expr(unary_expr.expr)?;
                 let range = unary_expr.range;
                 match unary_expr.op {
-                    UnaryOp::Negate => self.chunk.add_instruction(Bytecode::Negate, range),
-                    UnaryOp::Not => self.chunk.add_instruction(Bytecode::Not, range),
+                    UnaryOp::Negate => self.emit(Bytecode::Negate, range),
+                    UnaryOp::Not => self.emit(Bytecode::Not, range),
                 }
             }
             Expr::SelfVar { range } => {
-                self.chunk.add_instruction(Bytecode::GetSelf, range);
+                self.emit_self(range);
             }
             Expr::SuperVar { range } => {
                 // TODO: Handle `super` keyword. For now, push Nil.
-                self.chunk.add_instruction(Bytecode::Nil, range);
-            } // Expr::Call(call_expr) => {
+                self.emit(Bytecode::Nil, range);
+            }
+            Expr::Block(block_expr) => {
+                let name_sym = self.vm.interner.intern("<block>");
+                let closure = self.compile_block(block_expr.body, name_sym, block_expr.params, false)?;
+                let idx = self.add_constant(Value::Obj(closure));
+                self.emit(Bytecode::Closure(idx), block_expr.range);
+            }
+            // Expr::Call(call_expr) => {
               //     // TODO: Implement function call compilation
               //     self.compile_expr(call_expr.callee)?;
               //     for arg in call_expr.args {
               //         self.compile_expr(arg)?;
               //     }
               //     // For now, push Nil as a placeholder for the return value
-              //     self.chunk.add_instruction(Bytecode::Nil);
+              //     self.emit(Bytecode::Nil);
               // }
         }
         Ok(())

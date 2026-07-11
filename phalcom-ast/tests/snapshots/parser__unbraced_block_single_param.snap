@@ -1,0 +1,57 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"n => n * 2\")"
+---
+Program {
+    statements: [
+        Expr {
+            expr: Block(
+                BlockExpr {
+                    params: [
+                        "n",
+                    ],
+                    body: [
+                        Expr {
+                            expr: Binary(
+                                BinaryExpr {
+                                    op: Multiply,
+                                    left: Var {
+                                        value: "n",
+                                        range: CopyRange {
+                                            start: 5,
+                                            end: 6,
+                                        },
+                                    },
+                                    right: Number {
+                                        value: 2.0,
+                                        range: CopyRange {
+                                            start: 9,
+                                            end: 10,
+                                        },
+                                    },
+                                    range: CopyRange {
+                                        start: 5,
+                                        end: 10,
+                                    },
+                                },
+                            ),
+                            range: CopyRange {
+                                start: 0,
+                                end: 10,
+                            },
+                        },
+                    ],
+                    expr_body: true,
+                    range: CopyRange {
+                        start: 0,
+                        end: 10,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 0,
+                end: 10,
+            },
+        },
+    ],
+}

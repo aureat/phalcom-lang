@@ -165,7 +165,9 @@ impl VM {
         self.frames.clear();
         self.stack.clear();
 
-        let frame = CallFrame::new(closure, CallContext::Module { module }, 0, 0, None);
+        let mut frame = CallFrame::new(closure, CallContext::Module { module }, 0, 0, None);
+        frame.generation = self.next_frame_generation;
+        self.next_frame_generation = self.next_frame_generation.wrapping_add(1);
         self.frames.push(frame);
         self.run()?;
         Ok(())

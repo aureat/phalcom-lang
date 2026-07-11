@@ -30,12 +30,14 @@
 
 use slotmap::{new_key_type, SlotMap};
 
+use crate::block::BlockObject;
 use crate::class::ClassObject;
 use crate::closure::ClosureObject;
 use crate::instance::InstanceObject;
 use crate::method::MethodObject;
 use crate::module::ModuleObject;
 use crate::string::StringObject;
+use crate::upvalue::Upvalue;
 
 new_key_type! {
     /// A `Copy` generational handle to an [`Object`] stored in the [`Heap`].
@@ -74,6 +76,10 @@ pub enum Object {
     Closure(ClosureObject),
     /// An immutable interned-by-content string ([`StringObject`]).
     Str(StringObject),
+    /// A first-class block closure ([`BlockObject`]).
+    Block(BlockObject),
+    /// A heap-allocated upvalue cell ([`Upvalue`]).
+    Upvalue(Upvalue),
 }
 
 /// The central arena owning every heap [`Object`], keyed by [`ObjRef`].
@@ -268,6 +274,54 @@ impl Heap {
         match self.objects.get(id) {
             Some(Object::Str(string)) => Some(string),
             _ => None,
+        }
+    }
+
+    /// Borrows the [`BlockObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Block`].
+    pub fn block(&self, id: ObjRef) -> &BlockObject {
+        match self.get(id) {
+            Object::Block(block) => block,
+            _ => panic!("ObjRef {id:?} is not a BlockObject"),
+        }
+    }
+
+    /// Mutably borrows the [`BlockObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Block`].
+    pub fn block_mut(&mut self, id: ObjRef) -> &mut BlockObject {
+        match self.get_mut(id) {
+            Object::Block(block) => block,
+            _ => panic!("ObjRef {id:?} is not a BlockObject"),
+        }
+    }
+
+    /// Borrows the [`Upvalue`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Upvalue`].
+    pub fn upvalue(&self, id: ObjRef) -> &Upvalue {
+        match self.get(id) {
+            Object::Upvalue(upvalue) => upvalue,
+            _ => panic!("ObjRef {id:?} is not an Upvalue"),
+        }
+    }
+
+    /// Mutably borrows the [`Upvalue`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Upvalue`].
+    pub fn upvalue_mut(&mut self, id: ObjRef) -> &mut Upvalue {
+        match self.get_mut(id) {
+            Object::Upvalue(upvalue) => upvalue,
+            _ => panic!("ObjRef {id:?} is not an Upvalue"),
         }
     }
 }

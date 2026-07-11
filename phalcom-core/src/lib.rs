@@ -3,6 +3,7 @@ extern crate core;
 
 pub mod boolean;
 pub mod bytecode;
+pub mod block;
 pub mod callable;
 pub mod chunk;
 pub mod class;
@@ -23,6 +24,7 @@ pub mod primitive;
 pub mod signature;
 pub mod string;
 pub mod universe;
+pub mod upvalue;
 pub mod value;
 pub mod vm;
 

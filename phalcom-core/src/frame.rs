@@ -8,6 +8,27 @@
 use crate::heap::ObjRef;
 use phalcom_common::range::SourceRange;
 
+/// A token identifying a particular call-frame activation.
+///
+/// Realizes the frame-token infrastructure from [ADR-0013](../../docs/adr/0013-block-closure-upvalues.md).
+/// A token pairs a frame index with a monotonically-assigned generation so a
+/// block can later tell whether the activation it was created in is still the
+/// same live frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FrameToken {
+    /// The VM frame index the token refers to.
+    pub frame_index: usize,
+    /// The generation associated with that frame activation.
+    pub generation: u64,
+}
+
+impl FrameToken {
+    /// Creates a new frame token from `frame_index` and `generation`.
+    pub fn new(frame_index: usize, generation: u64) -> Self {
+        Self { frame_index, generation }
+    }
+}
+
 /// The receiver a frame is executing against.
 #[derive(Debug, Clone, Copy)]
 pub enum CallContext {
@@ -42,6 +63,8 @@ pub struct CallFrame {
     pub stack_offset: usize,
     /// Source span of the call site, for stack traces.
     pub caller_source: Option<SourceRange>,
+    /// Monotonically-assigned generation for this activation.
+    pub generation: u64,
 }
 
 impl CallFrame {
@@ -54,11 +77,17 @@ impl CallFrame {
             ip,
             stack_offset,
             caller_source,
+            generation: 0,
         }
     }
 
     /// Returns this frame's receiver context.
     pub fn context(&self) -> &CallContext {
         &self.context
+    }
+
+    /// Returns the frame token for this activation at `frame_index`.
+    pub fn token(&self, frame_index: usize) -> FrameToken {
+        FrameToken::new(frame_index, self.generation)
     }
 }

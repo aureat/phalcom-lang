@@ -69,9 +69,8 @@ fn metaclass() {
 }
 
 #[test]
-#[ignore = "PENDING: blocks/closures — U4"]
 fn blocks() {
-    support::check_pending("blocks");
+    support::check_pass("blocks");
 }
 
 #[test]

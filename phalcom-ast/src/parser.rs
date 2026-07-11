@@ -104,7 +104,7 @@ pub fn parse(source: &str, offset: usize) -> Parse {
 fn primary_expected() -> Vec<String> {
     [
         "\"true\"", "\"false\"", "\"nil\"", "\"self\"", "\"super\"", "identifier", "string",
-        "number", "\"(\"", "\"!\"", "\"-\"",
+        "number", "\"(\"", "\"!\"", "\"-\"", "\"{\"",
     ]
     .iter()
     .map(|s| (*s).to_string())
@@ -470,6 +470,7 @@ impl<'source> Parser<'source> {
                 | Token::LParen
                 | Token::Bang
                 | Token::Minus
+                | Token::LBrace
         )
     }
 
@@ -692,7 +693,13 @@ impl<'source> Parser<'source> {
                             break;
                         }
                     }
-                    self.expect(&Token::Newline, &["\";\"", "newline"])?;
+                    match self.peek() {
+                        Token::Newline => {
+                            self.advance();
+                        }
+                        Token::RBrace | Token::Eof => {}
+                        _ => return Err(self.error_here(strs(&["\";\"", "newline"]))),
+                    }
                 }
             }
         }
@@ -825,26 +832,68 @@ impl<'source> Parser<'source> {
     fn parse_call(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         let mut expr = self.parse_primary()?;
-        while matches!(self.peek(), Token::Dot) {
-            self.advance(); // '.'
-            let property = self.parse_property_name()?;
-            if self.eat(&Token::LParen) {
+        while matches!(self.peek(), Token::Dot | Token::LParen | Token::LBrace) {
+            if self.eat(&Token::Dot) {
+                let property = self.parse_property_name()?;
+                if self.eat(&Token::LParen) {
+                    let args = self.parse_arg_list()?;
+                    self.expect(&Token::RParen, &["\")\""])?;
+                    let range = (start..self.prev_end).into();
+                    expr = Expr::MethodCall(Box::new(MethodCallExpr {
+                        object: expr,
+                        method: property,
+                        args,
+                        range,
+                    }));
+                } else {
+                    let range = (start..self.prev_end).into();
+                    expr = Expr::GetProperty(Box::new(GetPropertyExpr {
+                        object: expr,
+                        property,
+                        range,
+                    }));
+                }
+            } else if self.eat(&Token::LParen) {
                 let args = self.parse_arg_list()?;
                 self.expect(&Token::RParen, &["\")\""])?;
                 let range = (start..self.prev_end).into();
                 expr = Expr::MethodCall(Box::new(MethodCallExpr {
                     object: expr,
-                    method: property,
+                    method: "call".to_string(),
                     args,
                     range,
                 }));
-            } else {
+            } else if matches!(self.peek(), Token::LBrace) {
+                let block = self.parse_primary()?;
                 let range = (start..self.prev_end).into();
-                expr = Expr::GetProperty(Box::new(GetPropertyExpr {
-                    object: expr,
-                    property,
-                    range,
-                }));
+                let arg = Argument {
+                    label: None,
+                    expr: block,
+                    range: (self.prev_end..self.prev_end).into(),
+                };
+                match expr {
+                    Expr::MethodCall(mut mc) => {
+                        mc.args.push(arg);
+                        mc.range = range;
+                        expr = Expr::MethodCall(mc);
+                    }
+                    Expr::GetProperty(gp) => {
+                        expr = Expr::MethodCall(Box::new(MethodCallExpr {
+                            object: gp.object,
+                            method: gp.property,
+                            args: vec![arg],
+                            range,
+                        }));
+                    }
+                    _ => {
+                        expr = Expr::MethodCall(Box::new(MethodCallExpr {
+                            object: expr,
+                            method: "call".to_string(),
+                            args: vec![arg],
+                            range,
+                        }));
+                    }
+                }
             }
         }
         Ok(expr)
@@ -908,6 +957,23 @@ impl<'source> Parser<'source> {
                 Ok(Expr::String { value, range })
             }
             Token::Identifier(value) => {
+                if matches!(self.peek_next(), Token::FatArrow) {
+                    let start = self.cur_start();
+                    self.advance(); // identifier
+                    self.advance(); // =>
+                    let body_expr = self.parse_expr()?;
+                    let range = (start..self.prev_end).into();
+                    let stmt = Statement::Expr {
+                        expr: body_expr,
+                        range,
+                    };
+                    return Ok(Expr::Block(Box::new(BlockExpr {
+                        params: vec![value],
+                        body: vec![stmt],
+                        expr_body: true,
+                        range,
+                    })));
+                }
                 self.advance();
                 if value.starts_with('_') {
                     Ok(Expr::Field { value, range })
@@ -928,6 +994,67 @@ impl<'source> Parser<'source> {
                 let expr = self.parse_expr()?;
                 self.expect(&Token::RParen, &["\")\""])?;
                 Ok(expr)
+            }
+            Token::LBrace => {
+                let start = self.cur_start();
+                self.advance(); // '{'
+                
+                let mut params = Vec::new();
+                let mut has_arrow = false;
+                
+                let mut scan_idx = self.pos;
+                loop {
+                    if scan_idx >= self.tokens.len() {
+                        break;
+                    }
+                    match &self.tokens[scan_idx].token {
+                        Token::Identifier(_) => {
+                            scan_idx += 1;
+                            if scan_idx < self.tokens.len() {
+                                if matches!(self.tokens[scan_idx].token, Token::Comma) {
+                                    scan_idx += 1;
+                                } else if matches!(self.tokens[scan_idx].token, Token::FatArrow) {
+                                    has_arrow = true;
+                                    break;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                        Token::Comma => {
+                            break;
+                        }
+                        Token::FatArrow => {
+                            has_arrow = true;
+                            break;
+                        }
+                        _ => {
+                            break;
+                        }
+                    }
+                }
+                
+                if has_arrow {
+                    while !matches!(self.peek(), Token::FatArrow) {
+                        let param = self.expect_identifier(&["parameter name"])?;
+                        params.push(param);
+                        if !self.eat(&Token::Comma) && !matches!(self.peek(), Token::FatArrow) {
+                            return Err(self.error_here(strs(&["\",\"", "\"=>\""])));
+                        }
+                    }
+                    self.expect(&Token::FatArrow, &["\"=>\""])?;
+                }
+                
+                let body = self.parse_block_statements()?;
+                self.expect(&Token::RBrace, &["\"}\""])?;
+                let range = (start..self.prev_end).into();
+                
+                Ok(Expr::Block(Box::new(BlockExpr {
+                    params,
+                    body,
+                    expr_body: false,
+                    range,
+                })))
             }
             _ => Err(self.error_here(primary_expected())),
         }

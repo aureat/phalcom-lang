@@ -8,22 +8,25 @@
 //! ([`CallFrame`]) are `Copy` too, so the interpreter carries no borrow-panic
 //! surface. Method lookup keys on signature symbols (`object-model.md` §3).
 
+use crate::block::BlockObject;
 use crate::boolean::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
 use crate::class::ClassObject;
+use crate::closure::ClosureObject;
 use crate::diagnostics::{print_rt, SourceLoc, SOURCE_MAP};
 use crate::error::{PhError, PhResult, RuntimeError};
-use crate::frame::CallFrame;
+use crate::frame::{CallContext, CallFrame};
 use crate::heap::{ClassId, Heap, ObjRef, Object};
 use crate::interner::{Interner, Symbol};
 use crate::method::MethodKind;
 use crate::module::{ModuleObject, CORE_MODULE_NAME};
 use crate::nil::NIL;
 use crate::universe::Universe;
+use crate::upvalue::Upvalue;
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 use std::time::Instant;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::BTreeMap, collections::HashMap, sync::Arc};
 use tracing::{debug, span, Level};
 
 /// The bytecode virtual machine: owns the [`Heap`], the operand stack, and the
@@ -55,6 +58,16 @@ pub struct VM {
     pub start_time: Instant,
     /// The kernel: handles to the bootstrapped core classes.
     pub universe: Universe,
+    /// Monotonically-assigned generation counter for frame tokens.
+    pub(crate) next_frame_generation: u64,
+    /// Live **open** upvalue cells keyed by absolute value-stack index.
+    ///
+    /// Realizes the Lua-style shared-cell rule
+    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)): every
+    /// closure capturing the same live local shares one cell here, so mutation
+    /// is shared while the slot is on the stack. On frame/scope exit the cell is
+    /// promoted to [`Upvalue::Closed`] and removed from this map.
+    pub(crate) open_upvalues: BTreeMap<usize, ObjRef>,
 }
 
 impl Default for VM {
@@ -82,6 +95,8 @@ impl VM {
             last_imported_module: None,
             classes: HashMap::new(),
             universe,
+            next_frame_generation: 0,
+            open_upvalues: BTreeMap::new(),
         };
 
         // Bootstrap core module and primitive methods
@@ -259,10 +274,77 @@ impl VM {
             }
             MethodKind::Closure(closure_id) => {
                 let context = callee.to_context(&self.heap);
-                let new_frame = CallFrame::new(closure_id, context, 0, self.stack.len() - arity - 1, Some(source_range));
+                let stack_offset = self.stack.len() - arity - 1;
+                let new_frame = self.new_call_frame(closure_id, context, 0, stack_offset, Some(source_range));
                 self.frames.push(new_frame);
                 Ok(())
             }
+        }
+    }
+
+    /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
+    /// generation for the frame-token infrastructure
+    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    ///
+    /// Every pushed activation gets its own generation so a [`BlockObject`]
+    /// created inside it can later (in U10) tell whether its home activation is
+    /// still live. U4 only mints and stores the token; it performs no unwinding.
+    pub(crate) fn new_call_frame(
+        &mut self,
+        closure: ObjRef,
+        context: CallContext,
+        ip: usize,
+        stack_offset: usize,
+        caller_source: Option<SourceRange>,
+    ) -> CallFrame {
+        let generation = self.next_frame_generation;
+        self.next_frame_generation = self.next_frame_generation.wrapping_add(1);
+        let mut frame = CallFrame::new(closure, context, ip, stack_offset, caller_source);
+        frame.generation = generation;
+        frame
+    }
+
+    /// Returns the [`crate::frame::FrameToken`] of the current (innermost)
+    /// activation, or `None` if no frame is active.
+    ///
+    /// Used by the [`Bytecode::Closure`] handler to stamp a new
+    /// [`BlockObject`] with the token of the frame that created it
+    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    fn current_frame_token(&self) -> Option<crate::frame::FrameToken> {
+        self.frames.last().map(|frame| frame.token(self.frames.len() - 1))
+    }
+
+    /// Returns the shared **open** [`Upvalue`] cell for absolute stack slot
+    /// `stack_index`, allocating one if this is the first capture of that slot.
+    ///
+    /// Two closures capturing the same live local therefore receive the *same*
+    /// heap cell, so writes through either are observed by both and by the
+    /// enclosing frame while the slot is open (blocks.md §5,
+    /// [ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    fn capture_upvalue(&mut self, stack_index: usize) -> ObjRef {
+        if let Some(&existing) = self.open_upvalues.get(&stack_index) {
+            return existing;
+        }
+        let cell = self.heap.alloc(Object::Upvalue(Upvalue::Open(stack_index)));
+        self.open_upvalues.insert(stack_index, cell);
+        cell
+    }
+
+    /// Closes (heap-promotes) every open upvalue at absolute stack index
+    /// `>= from`, copying the live slot value into the cell before the slot is
+    /// reclaimed.
+    ///
+    /// Called on scope exit ([`Bytecode::CloseUpvalue`]) and on every frame
+    /// return so escaping closures keep working after their defining frame is
+    /// gone ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)). The
+    /// caller must invoke this **before** truncating the stack, while the slot
+    /// values are still present.
+    fn close_upvalues_from(&mut self, from: usize) {
+        let to_close: Vec<usize> = self.open_upvalues.range(from..).map(|(&idx, _)| idx).collect();
+        for idx in to_close {
+            let cell = self.open_upvalues.remove(&idx).expect("open upvalue present");
+            let value = self.stack[idx];
+            *self.heap.upvalue_mut(cell) = Upvalue::Closed(value);
         }
     }
 
@@ -374,6 +456,23 @@ impl VM {
     /// Returns any [`RuntimeError`] raised during execution (undefined variable,
     /// method-not-found, unsupported operator, and so on).
     pub fn run(&mut self) -> PhResult<Value> {
+        self.run_until(0)
+    }
+
+    /// Runs the dispatch loop until the frame stack shrinks back to
+    /// `base_frames`, returning the value produced by the frame that dropped it
+    /// there.
+    ///
+    /// With `base_frames == 0` this is the top-level driver ([`Self::run`]).
+    /// Block application ([`crate::primitive::block::block_call`]) uses a
+    /// non-zero base to run a single block activation re-entrantly and recover
+    /// its result without draining the caller's frames.
+    ///
+    /// # Errors
+    ///
+    /// Returns any [`RuntimeError`] raised during execution (undefined variable,
+    /// method-not-found, unsupported operator, and so on).
+    pub(crate) fn run_until(&mut self, base_frames: usize) -> PhResult<Value> {
         macro_rules! binary_op {
             ($op:tt, $selector:expr, $span:expr) => {{
                 let b = self.pop()?;
@@ -405,7 +504,7 @@ impl VM {
         }
 
         loop {
-            if self.frames.is_empty() {
+            if self.frames.len() <= base_frames {
                 return Ok(self.stack.pop().unwrap_or(Value::Nil));
             }
 
@@ -430,6 +529,35 @@ impl VM {
                     let constant = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
                     debug!("Pushing constant: {:?}", constant);
                     self.stack.push(constant);
+                }
+                Bytecode::Closure(idx) => {
+                    // The constant is the *template* closure the compiler emitted
+                    // (empty upvalue list). Materialize a fresh instance whose
+                    // upvalue cells are captured from the current activation per
+                    // the callable's descriptors, then wrap it in a BlockObject
+                    // stamped with the home frame token (ADR-0013, functions.md §2).
+                    let template = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let Value::Obj(template_id) = template else {
+                        return Err(RuntimeError::Internal("Closure constant is not a closure".to_string()).into());
+                    };
+                    let descriptors = self.heap.closure(template_id).callable.upvalues.clone();
+                    let callable = self.heap.closure(template_id).callable.clone();
+                    let module = self.heap.closure(template_id).module;
+
+                    let mut upvalues = Vec::with_capacity(descriptors.len());
+                    for desc in &descriptors {
+                        let cell = if desc.is_local {
+                            self.capture_upvalue(stack_offset + desc.index)
+                        } else {
+                            self.heap.closure(closure_id).upvalues[desc.index]
+                        };
+                        upvalues.push(cell);
+                    }
+
+                    let new_closure = self.heap.alloc(Object::Closure(ClosureObject { callable, module, upvalues }));
+                    let token = self.current_frame_token().expect("closure created inside a frame");
+                    let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
+                    self.stack.push(Value::Obj(block));
                 }
                 Bytecode::Nil => self.stack.push(NIL),
                 Bytecode::True => self.stack.push(TRUE),
@@ -579,13 +707,39 @@ impl VM {
                         .into());
                     }
                 }
+                Bytecode::GetUpvalue(idx) => {
+                    let cell = self.heap.closure(closure_id).upvalues[idx as usize];
+                    let value = match *self.heap.upvalue(cell) {
+                        Upvalue::Open(slot) => self.stack[slot],
+                        Upvalue::Closed(value) => value,
+                    };
+                    self.stack.push(value);
+                }
+                Bytecode::SetUpvalue(idx) => {
+                    // Assignment is an expression: leave the value on the stack.
+                    let value = *self.stack.last().unwrap();
+                    let cell = self.heap.closure(closure_id).upvalues[idx as usize];
+                    match *self.heap.upvalue(cell) {
+                        Upvalue::Open(slot) => self.stack[slot] = value,
+                        Upvalue::Closed(_) => *self.heap.upvalue_mut(cell) = Upvalue::Closed(value),
+                    }
+                }
+                Bytecode::CloseUpvalue(slot) => {
+                    // Promote any open upvalue at this frame slot (or above) to a
+                    // heap-owned `Closed` copy before the slot is reclaimed.
+                    self.close_upvalues_from(stack_offset + slot as usize);
+                }
                 Bytecode::Return => {
                     let return_value = self.stack.pop().unwrap_or(Value::Nil);
                     let popped = self.frames.pop().unwrap();
-                    if self.frames.is_empty() {
+                    // Close any upvalues that still alias this frame's window so
+                    // escaping closures survive the frame's disappearance
+                    // (ADR-0013). Must run before the stack is truncated.
+                    self.close_upvalues_from(popped.stack_offset);
+                    self.stack.truncate(popped.stack_offset);
+                    if self.frames.len() <= base_frames {
                         return Ok(return_value);
                     }
-                    self.stack.truncate(popped.stack_offset);
                     self.stack.push(return_value);
                 }
                 Bytecode::Add => binary_op!(+, "+(_:)", source_range),

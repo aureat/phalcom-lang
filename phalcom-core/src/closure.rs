@@ -7,9 +7,17 @@
 
 use crate::callable::Callable;
 use crate::heap::ObjRef;
-use crate::value::Value;
 
 /// A compiled closure: its code, its defining module handle, and its upvalues.
+///
+/// A method/getter/setter body and a block literal both compile to a
+/// `ClosureObject`. Its `upvalues` are handles to heap-allocated
+/// [`Upvalue`](crate::upvalue::Upvalue) cells
+/// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md),
+/// [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)): the template
+/// closure the compiler emits carries an empty list, and the VM materializes a
+/// fresh, upvalue-filled instance each time it executes
+/// [`Bytecode::Closure`](crate::bytecode::Bytecode::Closure).
 #[derive(Debug, Clone)]
 pub struct ClosureObject {
     /// The compiled bytecode and metadata this closure runs.
@@ -17,6 +25,8 @@ pub struct ClosureObject {
     /// Handle to the [`ModuleObject`](crate::module::ModuleObject) this closure
     /// was compiled in.
     pub module: ObjRef,
-    /// Captured upvalues, as `Copy` [`Value`]s.
-    pub upvalues: Vec<Value>,
+    /// Captured upvalue cells, as heap [`ObjRef`] handles into the
+    /// [`Heap`](crate::heap::Heap). Indexed by the callable's upvalue
+    /// descriptors ([`UpvalueDescriptor`](crate::callable::UpvalueDescriptor)).
+    pub upvalues: Vec<ObjRef>,
 }

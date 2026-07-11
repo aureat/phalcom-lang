@@ -1,4 +1,5 @@
 pub mod boolean;
+pub mod block;
 pub mod class;
 pub mod method;
 pub mod module;

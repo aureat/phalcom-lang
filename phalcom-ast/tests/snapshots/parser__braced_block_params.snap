@@ -1,0 +1,58 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"{ acc, n => acc + n }\")"
+---
+Program {
+    statements: [
+        Expr {
+            expr: Block(
+                BlockExpr {
+                    params: [
+                        "acc",
+                        "n",
+                    ],
+                    body: [
+                        Expr {
+                            expr: Binary(
+                                BinaryExpr {
+                                    op: Add,
+                                    left: Var {
+                                        value: "acc",
+                                        range: CopyRange {
+                                            start: 12,
+                                            end: 15,
+                                        },
+                                    },
+                                    right: Var {
+                                        value: "n",
+                                        range: CopyRange {
+                                            start: 18,
+                                            end: 19,
+                                        },
+                                    },
+                                    range: CopyRange {
+                                        start: 12,
+                                        end: 19,
+                                    },
+                                },
+                            ),
+                            range: CopyRange {
+                                start: 12,
+                                end: 19,
+                            },
+                        },
+                    ],
+                    expr_body: false,
+                    range: CopyRange {
+                        start: 0,
+                        end: 21,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 0,
+                end: 21,
+            },
+        },
+    ],
+}

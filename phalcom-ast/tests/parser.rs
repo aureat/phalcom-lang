@@ -164,3 +164,36 @@ fn error_missing_expression() {
 fn error_unexpected_token() {
     insta::assert_snapshot!(parse("let = )"));
 }
+
+// --- Block Parsing Tests (U4) ---
+
+#[test]
+fn braced_block_zero_params() {
+    insta::assert_snapshot!(parse("{ System.print(\"hi\") }"));
+}
+
+#[test]
+fn braced_block_params() {
+    insta::assert_snapshot!(parse("{ acc, n => acc + n }"));
+}
+
+#[test]
+fn unbraced_block_single_param() {
+    insta::assert_snapshot!(parse("n => n * 2"));
+}
+
+#[test]
+fn trailing_block_sugar_method_call() {
+    insta::assert_snapshot!(parse("numbers.map { n => n * 2 }"));
+}
+
+#[test]
+fn trailing_block_sugar_chained() {
+    insta::assert_snapshot!(parse("numbers.reduce(0) { acc, n => acc + n }"));
+}
+
+#[test]
+fn postfix_call_desugars_to_call_method() {
+    insta::assert_snapshot!(parse("f(1, 2)"));
+}
+

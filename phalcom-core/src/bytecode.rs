@@ -101,4 +101,20 @@ pub enum Bytecode {
 
     /// Performs logical NOT.
     Not,
+
+    /// Creates a closure from a template.
+    /// 0: constant index of the template Callable/ClosureObject.
+    Closure(u16),
+
+    /// Pushes the value of a captured upvalue onto the stack.
+    /// 0: index in the closure's upvalue list.
+    GetUpvalue(u16),
+
+    /// Sets the value of a captured upvalue to the top value on the stack.
+    /// 0: index in the closure's upvalue list.
+    SetUpvalue(u16),
+
+    /// Closes any open upvalues pointing to slot index or above.
+    /// 0: stack slot index.
+    CloseUpvalue(u16),
 }

@@ -96,7 +96,9 @@ impl Value {
                 Object::Method(_) => vm.universe.classes.method_class,
                 Object::Module(_) => vm.universe.classes.module_class,
                 Object::Str(_) => vm.universe.classes.string_class,
-                Object::Closure(_) => panic!("closures are not surface values"),
+                Object::Closure(_) => vm.universe.classes.block_class,
+                Object::Block(_) => vm.universe.classes.block_class,
+                Object::Upvalue(_) => panic!("upvalues are not surface values"),
             },
         }
     }
@@ -145,26 +147,22 @@ impl Value {
                 Object::Class(class) => class.to_debug(),
                 Object::Method(method) => method.to_debug(vm),
                 Object::Module(module) => module.to_debug(),
-                Object::Closure(_) => "<closure>".to_string(),
+                Object::Closure(_) => "<block>".to_string(),
+                Object::Block(_) => "<block>".to_string(),
+                Object::Upvalue(_) => "<upvalue>".to_string(),
             },
         }
     }
 
-    /// Builds the [`CallContext`] for dispatching a call whose receiver is `self`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the receiver is not an instance, class or module (the only
-    /// method-bearing receivers).
     pub fn to_context(&self, heap: &crate::heap::Heap) -> CallContext {
         match self {
             Value::Obj(id) => match heap.get(*id) {
-                Object::Instance(_) => CallContext::Instance { instance: *id },
+                Object::Instance(_) | Object::Block(_) | Object::Closure(_) => CallContext::Instance { instance: *id },
                 Object::Class(_) => CallContext::Class { class: *id },
                 Object::Module(_) => CallContext::Module { module: *id },
-                _ => panic!("receiver is not a class, instance or module"),
+                _ => panic!("receiver is not a class, instance, module or block"),
             },
-            _ => panic!("receiver is not a class, instance or module"),
+            _ => panic!("receiver is not a class, instance, module or block"),
         }
     }
 

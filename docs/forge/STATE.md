@@ -4,8 +4,11 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 
 ## Green gate (last checked: 2026-07-11)
 - Single command: **`./scripts/verify.sh`** (build + test + clippy; `--fuzz`/`--miri` opt-in). Exit 0.
-- Substrate: `phalcom-core/tests/golden.rs` (+fixtures), `phalcom-core/tests/invariants.rs` (10/10 passing — U2 landed the parallel-rule + Behavior-class targets, no `#[ignore]`d spec targets remain).
-- Golden corpus: `examples/core_new.ph`, `examples/person2.ph`, `tests/fixtures/golden/{hello,arithmetic}.ph`. (Other examples excluded — they trip the parser `todo!()` panic, see F9/F10.)
+  U4 pass verified the equivalent manually (`cargo build --workspace`, `cargo test -p phalcom-core`,
+  `cargo doc --workspace --no-deps`, `cargo clippy --workspace`) — all clean; the strict `verify.sh`
+  ceremony itself was not required this pass (handoff-authorized, mirrors U2).
+- Substrate: `phalcom-core/tests/golden.rs` (+fixtures), `phalcom-core/tests/invariants.rs` (10/10 passing — U2 landed the parallel-rule + Behavior-class targets, no `#[ignore]`d spec targets remain). `phalcom-core/tests/lang.rs`'s `blocks()` group is no longer `#[ignore]`d (U4).
+- Golden corpus: `examples/core_new.ph`, `examples/person2.ph`, `tests/fixtures/golden/{hello,arithmetic,blocks_map_reduce,blocks_escaping_counter}.ph`. (Other examples excluded — they trip the parser `todo!()` panic, see F9/F10.)
 
 ## Phase log
 | Phase | Status | Notes |
@@ -15,7 +18,35 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). **U2 ✅ landed (2026-07-11, in-tree on `main`, no commit yet this turn)** — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); **reviewer gate explicitly SKIPPED this pass** per user instruction, see [U2-progress.md](U2-progress.md). **NEXT = U4 (blocks/closures).** |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **NEXT = U5 (control-flow-as-message).** |
+
+## U4 — LANDED ✅ (2026-07-11, in-tree on `main`, no commit yet this turn)
+- First-class blocks: `Expr::Block` in the AST/parser (braced multi-param, unbraced single-param
+  expression-only, trailing-block sugar), postfix `(…)` desugars to `call(_:…)` (functions.md §1-2).
+  `Value`/heap gain `BlockObject` (`block.rs`, new) wrapping a `ClosureObject` handle + a
+  `FrameToken`, and a heap-owned `Upvalue` cell (`upvalue.rs`, new) that is `Open(stack_index)`
+  while the enclosing scope is live and gets promoted to `Closed(Value)` on scope/frame exit
+  (Lua-style, ADR-0013). Four new opcodes (`Closure`/`GetUpvalue`/`SetUpvalue`/`CloseUpvalue`)
+  execute in the VM; `Function`(abstract)/`Block` installed under `Object` as siblings of `Method`;
+  `verify_invariants()` stayed green throughout.
+- **Frame-token infrastructure only** — `CallFrame` carries a monotonic generation, `BlockObject`
+  stores the token of its creating activation, but **zero non-local-return behavior shipped**: no
+  `ReturnNonLocal` opcode, no unwind logic, no such test. That is U10's job.
+- **Two-pass landing, independently reviewed mid-flight.** The first cut had the front end +
+  type scaffolding right but the runtime was stubbed (`block.call` returned "not wired yet",
+  `GetUpvalue`/`SetUpvalue` were `RuntimeError::Internal`, `Closure` never allocated a
+  `BlockObject`) and it silently regressed the `example_calculator` golden. A `phalcom-reviewer`
+  pass caught this and returned `request-changes`. The gaps were then closed in the same session:
+  `block_call`/`block_call_with` now push a real `CallFrame` and re-enter `VM::run_until`;
+  `call`/`call(_:)`/`call(_:_:)`… registered per-arity (Phalcom dispatch keys on the arity-encoded
+  selector, not a variadic entry point); the golden regression and a compiler raw-pointer soundness
+  concern the reviewer flagged had already been fixed in-flight; `blocks()` in `tests/lang.rs`
+  un-pended with 6 real cases (capture/escape/shared-mutation/`call`/`arity`); 2 new block goldens
+  added (`blocks_map_reduce.ph`, `blocks_escaping_counter.ph`); 5 `cargo doc` warnings and 1 clippy
+  warning in new code fixed. Final state: `cargo build --workspace` / `cargo test -p phalcom-core`
+  / `cargo doc --workspace --no-deps` / `cargo clippy --workspace` all clean (one pre-existing,
+  out-of-write-set clippy warning in `error.rs` left untouched).
+- **Working model:** in-tree on `main`, no worktree (handoff-authorized precedent from U2).
 
 ## U1 — LANDED ✅ (2026-07-11, `6515ea3`)
 - Migrated off `Rc<RefCell>`/`PhRef` → `slotmap`-backed `Heap` (Copy `ObjRef`/`ClassId`) + tagged `Value` (ADR-0009/0010). VM owns `Heap`; allocate-then-patch bootstrap; RefCell double-borrow panic surface removed. F2 preserved observationally (U2's job). DEFERRED #1 closed (LALRPOP gone from workspace). `verify.sh` green, goldens byte-identical, `cargo doc` clean.

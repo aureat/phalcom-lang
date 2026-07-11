@@ -20,6 +20,7 @@ use crate::heap::{ClassId, Heap};
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
 use crate::primitive::boolean::bool_class_new;
+use crate::primitive::block::{block_arity, block_call, block_call_with, block_name};
 use crate::primitive::class::{class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::method::method_class_new;
 use crate::primitive::module::module_class_new;
@@ -101,6 +102,8 @@ impl Universe {
         let nil_class = make_core_class(heap, "Nil", object_class, metaclass_class);
         let bool_class = make_core_class(heap, "Bool", object_class, metaclass_class);
         let method_class = make_core_class(heap, "Method", object_class, metaclass_class);
+        let function_class = make_core_class(heap, "Function", object_class, metaclass_class);
+        let block_class = make_core_class(heap, "Block", function_class, metaclass_class);
         let symbol_class = make_core_class(heap, "Symbol", object_class, metaclass_class);
         let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
         let system_class = make_core_class(heap, "System", object_class, metaclass_class);
@@ -115,6 +118,8 @@ impl Universe {
             nil_class,
             bool_class,
             method_class,
+            function_class,
+            block_class,
             symbol_class,
             module_class,
             system_class,
@@ -165,6 +170,29 @@ impl Universe {
 
         let method_cls = vm.universe.classes.method_class;
         primitive_static!(vm, method_cls, "new", SignatureKind::Method(1), method_class_new);
+
+        // `call` is registered per arity (functions.md §1: `call`, `call(_:)`,
+        // `call(_:_:)`, …) since Phalcom dispatch keys on the arity-encoded
+        // selector, not a single variadic entry point. `callWith(_:)` takes one
+        // packed argument (deferred to a plain forward until `List` lands, see
+        // `docs/forge/DEFERRED.md`).
+        const MAX_CALL_ARITY: u8 = 4;
+
+        let function_cls = vm.universe.classes.function_class;
+        primitive!(vm, function_cls, "arity", SignatureKind::Getter, block_arity);
+        primitive!(vm, function_cls, "name", SignatureKind::Getter, block_name);
+        primitive!(vm, function_cls, "callWith", SignatureKind::Method(1), block_call_with);
+        for n in 0..=MAX_CALL_ARITY {
+            primitive!(vm, function_cls, "call", SignatureKind::Method(n), block_call);
+        }
+
+        let block_cls = vm.universe.classes.block_class;
+        primitive!(vm, block_cls, "arity", SignatureKind::Getter, block_arity);
+        primitive!(vm, block_cls, "name", SignatureKind::Getter, block_name);
+        primitive!(vm, block_cls, "callWith", SignatureKind::Method(1), block_call_with);
+        for n in 0..=MAX_CALL_ARITY {
+            primitive!(vm, block_cls, "call", SignatureKind::Method(n), block_call);
+        }
 
         let system_cls = vm.universe.classes.system_class;
         primitive_static!(vm, system_cls, "print", SignatureKind::Method(1), system_class_print);
@@ -315,6 +343,10 @@ pub struct CoreClasses {
     pub bool_class: ClassId,
     /// `Method`.
     pub method_class: ClassId,
+    /// `Function`.
+    pub function_class: ClassId,
+    /// `Block`.
+    pub block_class: ClassId,
     /// `Symbol`.
     pub symbol_class: ClassId,
     /// `Module`.
