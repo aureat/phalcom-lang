@@ -80,6 +80,7 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     let closure = vm.compile_closure(module.clone(), &source)?;
     if let Err(e) = vm.run_in_module(module, closure) {
         eprintln!("{e}");
+        std::process::exit(1);
     }
     Ok(())
 }
