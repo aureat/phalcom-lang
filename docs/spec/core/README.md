@@ -28,6 +28,23 @@ Every table here is derived from ground-truth source, not aspiration:
 | Selector encoding | [`phalcom-core/src/primitive/mod.rs`](../../../phalcom-core/src/primitive/mod.rs) (`make_signature`, `Sig`) + [ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md) |
 | Freeze policy | [ADR-0019](../../adr/0019-freeze-vm-blessed-primitive-floor.md) |
 
+## Baseline & drift policy
+
+These docs reconcile against a **live tree**, so staleness is kept explicit
+rather than silent: each data-bearing doc pins the commit it reflects.
+
+- **Current baseline:** HEAD through **U9** (rest parameters), code commit
+  `c9805d0`. Folds in **U8** (`Object` reflective surface + the `Message` class)
+  and **U9** (variadics).
+- When a forge unit lands new floor primitives, kernel classes, or `.ph`
+  protocol, re-baseline [`floor-census.md`](./floor-census.md) and
+  [`catalog-delta.md`](./catalog-delta.md) and bump the pin. Recommended cadence:
+  a U-CORE-0 "refresh" pass before each U-CORE-N unit starts, so that unit plans
+  against ground truth.
+- The 65→73 binding jump between the initial commit (`a2dd17b`, the U-LIST spine)
+  and this baseline — U8/U9 landed concurrently mid-session — is the first such
+  re-baseline, and the reason for this policy.
+
 ## Deliverables
 
 This is **U-CORE-0** — the reconcile-and-census unit that must land before any
