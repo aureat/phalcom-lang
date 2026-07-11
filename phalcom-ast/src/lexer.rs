@@ -71,13 +71,21 @@ impl<'input> Lexer<'input> {
         self.bytes.get(self.pos + n).copied()
     }
 
-    /// Skips spaces, tabs, form feeds, lone carriage returns, and `//` line
-    /// comments.
+    /// Skips spaces, tabs, form feeds, lone carriage returns, `//` line
+    /// comments, and `/* … */` block comments.
     ///
     /// Newlines are intentionally *not* skipped: they are meaningful
     /// [`Token::Newline`] tokens. A `\r` is only skipped when it is not part of
-    /// a `\r\n` newline.
-    fn skip_trivia(&mut self) {
+    /// a `\r\n` newline. Block comments are flat (non-nesting); a newline
+    /// *inside* a block comment is consumed with the comment and never leaks a
+    /// [`Token::Newline`]. See `docs/spec/lexical-structure.md` and ADR-0016.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LexicalError::UnterminatedBlockComment`] if a `/*` is opened
+    /// but end-of-input is reached before the closing `*/`; the carried span
+    /// runs from the opening `/*` to the cursor.
+    fn skip_trivia(&mut self) -> Result<(), LexicalError> {
         while let Some(b) = self.peek_at(0) {
             match b {
                 b' ' | b'\t' | b'\x0c' => self.pos += 1,
@@ -94,9 +102,32 @@ impl<'input> Lexer<'input> {
                         self.pos += 1;
                     }
                 }
-                _ => return,
+                // Block comment: consume `/*` and everything up to and
+                // including the closing `*/`. Non-nesting (DEFERRED #12 tracks
+                // nested block comments). Reaching end-of-input first is an
+                // unterminated-comment error carrying the real span.
+                b'/' if self.peek_at(1) == Some(b'*') => {
+                    let open = self.pos;
+                    self.pos += 2;
+                    loop {
+                        match self.peek_at(0) {
+                            Some(b'*') if self.peek_at(1) == Some(b'/') => {
+                                self.pos += 2;
+                                break;
+                            }
+                            Some(_) => self.pos += 1,
+                            None => {
+                                return Err(LexicalError::UnterminatedBlockComment(
+                                    open..self.pos,
+                                ));
+                            }
+                        }
+                    }
+                }
+                _ => return Ok(()),
             }
         }
+        Ok(())
     }
 
     /// Scans one token starting at the cursor, advancing past it.
@@ -296,7 +327,9 @@ impl Iterator for Lexer<'_> {
     /// Yields the next token, or the single injected [`Token::Eof`] once the
     /// source is exhausted, then `None`.
     fn next(&mut self) -> Option<Self::Item> {
-        self.skip_trivia();
+        if let Err(err) = self.skip_trivia() {
+            return Some(Err(err));
+        }
 
         if self.pos >= self.bytes.len() {
             if self.eof_emitted {

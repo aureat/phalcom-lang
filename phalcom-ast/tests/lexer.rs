@@ -62,6 +62,15 @@ fn line_comment_is_skipped() {
 }
 
 #[test]
+fn block_comment_is_skipped() {
+    // `/* … */` block comments are trivia (D1). A newline *inside* the block
+    // comment is consumed with it and never leaks a `Token::Newline`.
+    insta::assert_debug_snapshot!(tokens(
+        "let x = 1 /* block\n comment */ let y = 2"
+    ));
+}
+
+#[test]
 fn punctuation_and_ranges() {
     insta::assert_debug_snapshot!(tokens("a.b :: c .. d ... e -> f => g"));
 }

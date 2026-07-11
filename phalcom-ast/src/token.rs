@@ -208,6 +208,14 @@ pub enum LexicalError {
     InvalidToken(Range<usize>),
     /// A string literal was opened but never closed before end-of-input.
     UnterminatedString(Range<usize>),
+    /// A block comment `/* … */` was opened but never closed before
+    /// end-of-input.
+    ///
+    /// The range spans from the opening `/*` to the current cursor (end of
+    /// input). Lowered to [`crate::error::SyntaxErrorKind::UnterminatedComment`]
+    /// by [`crate::parse_source`]. See `docs/spec/lexical-structure.md` and
+    /// ADR-0016 (the hand-written scanner treats block comments as trivia).
+    UnterminatedBlockComment(Range<usize>),
 
     /// Placeholder default; never produced by the scanner.
     #[default]

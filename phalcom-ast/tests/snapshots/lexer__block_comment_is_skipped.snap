@@ -1,0 +1,23 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"let x = 1 /* block\\n comment */ let y = 2\")"
+---
+[
+    Let,
+    Identifier(
+        "x",
+    ),
+    Equal,
+    Number(
+        1.0,
+    ),
+    Let,
+    Identifier(
+        "y",
+    ),
+    Equal,
+    Number(
+        2.0,
+    ),
+    Eof,
+]

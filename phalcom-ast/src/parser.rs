@@ -137,6 +137,10 @@ fn lex_error_to_syntax(err: LexicalError, offset: usize) -> SyntaxError {
             kind: SyntaxErrorKind::UnterminatedString,
             range: (span.start + offset)..(span.end + offset),
         },
+        LexicalError::UnterminatedBlockComment(span) => SyntaxError {
+            kind: SyntaxErrorKind::UnterminatedComment,
+            range: (span.start + offset)..(span.end + offset),
+        },
         LexicalError::Invalid => SyntaxError {
             kind: SyntaxErrorKind::InvalidToken,
             range: 0..0,
