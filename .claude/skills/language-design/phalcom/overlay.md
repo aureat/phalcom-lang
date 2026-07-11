@@ -91,7 +91,7 @@ Source of truth: `docs/adr/0001…0016`, `docs/spec/*.md`, open register in `doc
 
 **Open perf/security questions:** IC population + NaN-boxing (deferred optimizations, ADR-0010/0012); no external-bytecode loader yet (so no verifier needed *yet* — required before any `import` of compiled units, open-Q8); resource limits (stack depth / allocation caps) unspecified.
 
-## Compiler, bootstrap, library & typing (→ compiler.md, bootstrapping.md, stdlib.md, typing.md)
+## Compiler, front-end, library, typing & semantics (→ compiler.md, parsing.md, syntax.md, bootstrapping.md, stdlib.md, typing.md, pattern-matching.md, metaprogramming.md, eval-effects.md)
 | Axis | Phalcom's stance | Where | Note |
 |---|---|---|---|
 | Compiler pipeline | Hand-written byte lexer → recursive-descent/Pratt parser → AST → bytecode; panic-mode recovery, multi-error diagnostics | ADR-0016 | Newlines are tokens; no separate typecheck pass (dynamic) |
@@ -104,3 +104,7 @@ Source of truth: `docs/adr/0001…0016`, `docs/spec/*.md`, open register in `doc
 | Primitive vs library boundary | VM-native: arithmetic, `Object`, `Bool`, block `call`, absence, dispatch; the rest self-defined in `core.ph` | ADR-0006, primitive/*.rs | Smaller native surface = more auditable, slower hot ops |
 | Typing discipline | **Dynamically typed**, message-based; runtime tag checks; failed send = `doesNotUnderstand` (the "type error"); no static/gradual type system specified | object-model, method-lookup §2 | Types ≠ classes; introspection via `Family`/selectors/reflection |
 | Numeric surface typing | Single `Number` (f64); Int/Float *surface* split unresolved | ADR-0005, open-Q2 | Write against the abstract numeric protocol so the split isn't foreclosed |
+| Surface syntax (→ syntax, parsing) | Message syntax (unary/binary/keyword sends); comma-canonical selectors; `let`/`var`; block literals; `@` attrs; `#sym`/`::`; newlines significant | lexical-structure, selectors §1, ADR-0016 | Expression-oriented sends; string interp sigil open (open-Q5/DEC-F) |
+| Pattern matching / destructuring | **None yet** — tuples exist; `let (a,b)=…`, `[first,*rest]` natural but unspecified; no `match` | open-Q7 | Adding real `match` must respect selector identity + open classes → sealedness tension |
+| Metaprogramming / reflection | Metaclass tower **is a MOP**; `doesNotUnderstand(_)`/`perform` (interned selector symbols only); failed send reified as `Message`; `Family`/`::`, `#sym`, `@` attributes; **no surface `eval`** | method-lookup §2–3, messages §5, ADR-0012 | Reflection "for free" via message interception; taxes the optimizer (IC deferred) |
+| Evaluation & effects | Strict **call-by-sharing**; control flow = blocks (thunks) sent as messages ⇒ *explicit* call-by-need; `and(_)`/`or(_)`/`ifTrue(_)` lazy; **no effect system** (ambient/untracked) | control-flow §1–2, functions §1 | Sacred-selector inliner removes the block-alloc cost of that laziness |

@@ -2,16 +2,17 @@
 name: language-design
 description: >-
   Programming-language design mastery — the design SPACE (axes, precedents in
-  syntax + implementation, and how features fight), not concept tutorials. Use
-  when designing, critiquing, or implementing a language or its compiler: object
-  model / metaclasses / prototypes, dispatch / selectors / multimethods /
-  keyword/default/variadic args, closures / non-local return / control-flow / tail
-  calls, value repr (tagged/NaN-box/niche) / absence (Option/nil) / truthiness /
-  numeric tower, typing (static/dynamic/gradual, inference, variance), error
-  handling (exceptions/Result/conditions/panics), concurrency
-  (fibers/coroutines/async/actors), compiler / IR / bootstrapping / self-hosting,
-  core & standard library, VM/bytecode (inline caches, speculative inlining,
-  deopt), performance & GC, security & robustness, or design best-practices. Use
+  syntax + implementation, how features fight), not tutorials. Use when
+  designing, critiquing, or implementing a language or runtime: object model /
+  metaclasses / prototypes, dispatch / selectors / multimethods /
+  keyword/default/variadic args, pattern matching & destructuring, closures /
+  non-local return / control-flow / tail calls, evaluation (lazy/strict) &
+  effects, values / absence / truthiness / numbers, typing
+  (static/dynamic/gradual, inference), errors (exceptions/Result/panics),
+  concurrency (fibers/async/actors), syntax & grammar, lexing & parsing,
+  compiler / IR / bootstrapping / self-hosting,
+  metaprogramming / macros / reflection, core & standard library, VM/bytecode /
+  inline caches / deopt, performance & GC, security, or design best-practices. Use
   before adding a feature to check what it PRECLUDES. Built for Phalcom
   (Smalltalk-style bytecode VM in Rust): generic layer in references/, committed
   positions in phalcom/overlay.md.
@@ -51,6 +52,9 @@ Generalized cross-feature traps. Each is a *pattern*; the reference files carry 
 - **Dynamic power ⊗ untrusted input.** `eval`, deserialization, reflection/`doesNotUnderstand`, and *unverified* loaded bytecode each turn metaprogramming reach into an injection or type-confusion primitive the instant input is attacker-controlled. A VM must validate external bytecode, cap recursion/allocation, randomize hashing, and convert every malformed input into a *defined* error — never UB, never a raw `panic!`. (`security.md`)
 - **Primitive/library boundary ⊗ bootstrap order.** A class the runtime secretly depends on — the kernel `List` behind `Message.args`/rest-params, `Bool` behind control flow, `Option` behind absence — must be built *before* the features that use it, or the image fails to load. Decide native-vs-library and the kernel dependency DAG up front; a "just a library class" that `doesNotUnderstand`/variadics need is on the critical path, not deferrable. (`bootstrapping.md`, `stdlib.md`)
 - **Gradual typing ⊗ soundness & performance.** Retrofitting optional/gradual types onto a dynamic language is either *unsound* (TypeScript erases and lies at the typed↔untyped boundary) or *sound but slow* (contracts/casts at every crossing — the "gradual guarantee" tax). Pick which; never assume a bolted-on annotation actually constrains a runtime that still dispatches on tags. (`typing.md`)
+- **Guards / open sums ⊗ exhaustiveness.** A `match` checker can only *prove* totality over a **sealed** set of variants with **unguarded** arms: a guard makes an arm's coverage undecidable (assume non-total), and an open/extensible sum means adding a variant silently makes every existing match non-exhaustive. Seal what you exhaustively match; an irrefutable destructuring `let` of a refutable pattern must be a compile error. (`pattern-matching.md`)
+- **Laziness ⊗ effect timing & space; strictness ⊗ arg-order.** Non-strict evaluation makes *when* (or whether) a side effect runs unpredictable and lets unforced thunks pile into space leaks — why Haskell needs `IO`/`seq`. The strict dual is *unspecified argument-evaluation order* with side-effecting args (C). And algebraic-effect handlers that resume a continuation **multi-shot** re-run code past an `ensure`/`finally`. (`eval-effects.md`, `errors.md`)
+- **Metaprogramming reach ⊗ optimization & hygiene.** Pervasive reflection / open-classes / `eval` keeps every call site megamorphic and defeats sealing and AOT (ties inline-cache ⊗ mutable-hierarchy), and *unhygienic* macros capture user identifiers. Hygiene plus a sealed, optimizable core are what stop metaprogramming from taxing the whole runtime — and `eval` of runtime strings is also an injection surface. (`metaprogramming.md`, `performance.md`, `security.md`)
 
 ## Design-review rubric
 
