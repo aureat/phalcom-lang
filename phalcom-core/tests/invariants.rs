@@ -73,6 +73,7 @@ fn expression_result_absence_surfaces_to_none() {
     // cannot observe the value; the four programs' printed forms are pinned by
     // the `absence` golden corpus). The inliner's `Bytecode::Nil` result site
     // shares its target with these primitives — see those goldens.
+    use phalcom_core::primitive::block::block_call;
     use phalcom_core::primitive::boolean::{bool_if_false, bool_if_true};
     use phalcom_core::primitive::class::class_superclass;
     use phalcom_core::primitive::system::system_class_print;
@@ -98,6 +99,19 @@ fn expression_result_absence_surfaces_to_none() {
     // `Object.superclass` — the root class has no superclass.
     let object = Value::Obj(vm.universe.classes.object_class);
     is_none(class_superclass(&mut vm, &object, &[]).expect("superclass"), "Object.superclass");
+
+    // A **taken** (invoked) empty block via `block_call`: unlike the untaken
+    // branches above, this actually runs a value-less block body compiled by
+    // `compile_block`, which now pushes a `Bytecode::Nil` before its fallback
+    // `Return` so falling off the end surfaces to the `None` singleton — the
+    // block object left in slot 0 must never leak out (U6-plan.md §4). To reach
+    // a real empty-block `Value` we bind one as a module global (module-level
+    // `let` emits `DefineGlobal`) and read it straight back.
+    let module = vm.create_module("blk", "expression_result_absence_surfaces_to_none");
+    vm.interpret_source(module, "let blk = { }\n").expect("define an empty block global");
+    let blk_sym = vm.interner.intern("blk");
+    let empty_block = vm.heap.module(module).get(blk_sym).expect("the `blk` global must exist");
+    is_none(block_call(&mut vm, &empty_block, &[]).expect("empty block call"), "{ }.call()");
 }
 
 #[test]

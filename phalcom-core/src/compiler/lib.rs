@@ -323,6 +323,24 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Invoke(arity, selector_idx), range);
     }
 
+    /// Compiles a block or method body into a heap-allocated closure.
+    ///
+    /// Slot 0 holds the receiver (`self` for a method, the block object
+    /// otherwise). A body whose last statement leaves a value on the operand
+    /// stack ([`Statement::Expr`], [`Statement::Let`], or [`Statement::Return`])
+    /// returns that value. A **value-less** body — an empty body, or one ending
+    /// in a [`Statement::Class`] or any other statement that leaves nothing
+    /// behind — yields `None`: a [`Bytecode::Nil`] placeholder is pushed before
+    /// the fallback [`Bytecode::Return`] so that falling off the end surfaces
+    /// absence (U6-plan.md §4) rather than the receiver sitting in slot 0. This
+    /// mirrors [`compile_inline_block_body`] so the inlined fast path and the
+    /// non-inlined fallback agree.
+    ///
+    /// [`compile_inline_block_body`]: Self::compile_inline_block_body
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error compiling the body's statements.
     fn compile_block(
         &mut self,
         statements: Vec<Statement>,
@@ -357,12 +375,19 @@ impl<'vm> Compiler<'vm> {
 
         let len = statements.len();
         let mut last_is_return = false;
+        // Track whether the last statement leaves a value on the operand stack.
+        // `Expr`, `Let`, and `Return` do; an empty body or a trailing `Class`
+        // (or any other value-less statement) does not. This mirrors
+        // `compile_inline_block_body` so the fast (inlined) and fallback paths
+        // agree on the fall-off-end result.
+        let mut leaves_value = false;
         for (i, statement) in statements.into_iter().enumerate() {
             let is_last = i == len - 1;
             if is_last {
                 if let Statement::Return(_) = statement {
                     last_is_return = true;
                 }
+                leaves_value = matches!(statement, Statement::Expr { .. } | Statement::Let(_) | Statement::Return(_));
             }
             self.compile_statement_with_pop_control(statement, !is_last)?;
         }
@@ -371,6 +396,13 @@ impl<'vm> Compiler<'vm> {
         self.end_scope(EmptySourceRange);
 
         if !last_is_return {
+            // A value-less body (empty, or ending in a `Class`/other non-value
+            // statement) must surface `None` when it falls off the end, not the
+            // receiver left in slot 0. Push the absence placeholder before the
+            // fallback `Return`, mirroring `compile_inline_block_body`.
+            if !leaves_value {
+                self.emit(Bytecode::Nil, EmptySourceRange);
+            }
             self.emit(Bytecode::Return, EmptySourceRange);
         }
 
