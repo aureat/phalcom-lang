@@ -4,9 +4,9 @@ _Optimization / DX / speed / security ideas surfaced during forge but intentiona
 
 | # | Idea | Source | Spec/ADR | Rank |
 |---|------|--------|----------|------|
-| 1 | Remove the dead `CompilerError::ParseError` variant + `From<lalrpop_util::ParseError>` impl and drop the `lalrpop-util`/`lalrpop` deps so LALRPOP leaves the workspace dependency graph entirely (out of U-FE write-set: `phalcom-core/src`). | `phalcom-core/src/compiler/lib.rs:37`, `phalcom-core/src/compiler/lib.rs:43`, `phalcom-core/Cargo.toml:11`, `phalcom-core/Cargo.toml:25` | ADR-0016 | high |
-| 2 | `SyntaxErrorKind::InvalidInteger`/`InvalidFloat` lower to a zero-width `0..0` range, losing the offending literal's span in diagnostics. Carry the real span through `LexicalError` instead. | `phalcom-ast/src/parser.rs` (`lex_error_to_syntax`) | ADR-0016 | low |
-| 3 | The hand-written parser accepts a few malformed assignment targets (e.g. `a+b = c`, `(a+b) = c`) that LALRPOP rejected at parse time; they are still caught by the compiler as invalid assignment targets, but could be rejected earlier with a precise diagnostic. | `phalcom-ast/src/parser.rs` (`parse_assignment`) | ADR-0016 | low |
+| 1 | `SyntaxErrorKind::InvalidInteger`/`InvalidFloat` lower to a zero-width `0..0` range, losing the offending literal's span in diagnostics. Carry the real span through `LexicalError` instead. | `phalcom-ast/src/parser.rs` (`lex_error_to_syntax`) | ADR-0016 | low |
+| 2 | The hand-written parser accepts a few malformed assignment targets (e.g. `a+b = c`, `(a+b) = c`) that LALRPOP rejected at parse time; they are still caught by the compiler as invalid assignment targets, but could be rejected earlier with a precise diagnostic. | `phalcom-ast/src/parser.rs` (`parse_assignment`) | ADR-0016 | low |
+| 3 | Pre-existing `clippy::extra_unused_lifetimes` warning: `format_num_arguments<'a>` declares an unused lifetime. Present on `main`, in a file byte-identical to `main` and outside U1's write-set, so left untouched by the U1 heap migration. Drop the `<'a>`. | `phalcom-core/src/error.rs:30` | — | low |
 
 ## Surfaced during Phase-2 planning (2026-07-11)
 | # | Idea | Source | Spec/ADR | Rank |
@@ -19,4 +19,6 @@ _Optimization / DX / speed / security ideas surfaced during forge but intentiona
 | 9 | Block variadics `{ *xs => }`; `callWith(_:List)` interaction (stub → `ArgumentError` until List lands). | U4/U9 | functions.md §2 | low |
 | 10 | `for (x in xs)` runtime (needs `each`/iterables → collections); per-call-site polymorphic IC (U5 seeds only coarse epoch invalidation); derived control selectors expressed in `core.ph` once U11 lands. | U5 | control-flow.md | med |
 | 11 | Concurrency runtime: `Fiber`/`Future`/`Error` classes. | U-STD | concurrency.md | low |
-| 12 | Lexer polish: nested block comments; lone-`?` ternary; carry real span through `LexicalError` (dup of #2). | U-LEX | ADR-0016 | low |
+| 12 | Lexer polish: nested block comments; lone-`?` ternary; carry real span through `LexicalError` (dup of #1). | U-LEX | ADR-0016 | low |
+
+_Closed:_ #(ex-LALRPOP) — done in U1: dead `CompilerError::ParseError` variant + `From<lalrpop_util::ParseError>` impl deleted (slice 3) and `lalrpop-util` dropped from `phalcom-core/Cargo.toml` + `Cargo.lock`.

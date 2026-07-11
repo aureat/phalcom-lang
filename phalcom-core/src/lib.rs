@@ -12,6 +12,7 @@ pub mod compiler;
 pub mod diagnostics;
 pub mod error;
 pub mod frame;
+pub mod heap;
 pub mod instance;
 pub mod interner;
 pub mod interpret;

@@ -1,56 +1,64 @@
-use crate::class::ClassObject;
-use crate::closure::ClosureObject;
-use crate::instance::InstanceObject;
-use crate::module::ModuleObject;
-use phalcom_common::range::SourceRange;
-use phalcom_common::PhRef;
+//! Call frames and their receiver context.
+//!
+//! A [`CallFrame`] is a single method/closure activation. Because every link it
+//! holds is now a `Copy` handle ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md))
+//! the whole frame is `Copy`, so the VM keeps frames in a plain `Vec` with no
+//! `Rc<RefCell<T>>` and no borrow-panic surface.
 
-/// Represents the callee
-#[derive(Debug, Clone)]
+use crate::heap::ObjRef;
+use phalcom_common::range::SourceRange;
+
+/// The receiver a frame is executing against.
+#[derive(Debug, Clone, Copy)]
 pub enum CallContext {
-    Instance { instance: PhRef<InstanceObject> },
-    Class { class: PhRef<ClassObject> },
-    Module { module: PhRef<ModuleObject> },
+    /// Executing a method on a user-defined instance.
+    Instance {
+        /// Handle to the receiver instance.
+        instance: ObjRef,
+    },
+    /// Executing a (static) method on a class.
+    Class {
+        /// Handle to the receiver class.
+        class: ObjRef,
+    },
+    /// Executing top-level module code.
+    Module {
+        /// Handle to the running module.
+        module: ObjRef,
+    },
 }
 
-/// Represents a single function call's execution context.
-#[derive(Debug, Clone)]
+/// A single closure activation: its code handle, receiver, and stack window.
+#[derive(Debug, Clone, Copy)]
 pub struct CallFrame {
-    /// Closure being executed
-    pub closure: PhRef<ClosureObject>,
-
-    /// Context
+    /// Handle to the [`ClosureObject`](crate::closure::ClosureObject) executing.
+    pub closure: ObjRef,
+    /// The receiver context (`self`) for this activation.
     pub context: CallContext,
-
-    /// The instruction pointer for this frame. It's an index into the
-    /// method's bytecode chunk.
+    /// Instruction pointer: an index into the closure's bytecode chunk.
     pub ip: usize,
-
-    /// The index into the VM's main value stack where this frame's
-    /// stack window begins. The receiver and arguments are located here.
+    /// Index into the VM value stack where this frame's window begins (receiver
+    /// then arguments).
     pub stack_offset: usize,
-
+    /// Source span of the call site, for stack traces.
     pub caller_source: Option<SourceRange>,
 }
 
 impl CallFrame {
-    pub fn new(closure: PhRef<ClosureObject>, context: CallContext, ip: usize, stack_offset: usize, caller_source: Option<SourceRange>) -> Self {
+    /// Creates a frame for `closure` with receiver `context`, starting at `ip`
+    /// over the stack window at `stack_offset`.
+    pub fn new(closure: ObjRef, context: CallContext, ip: usize, stack_offset: usize, caller_source: Option<SourceRange>) -> Self {
         Self {
-            context,
             closure,
+            context,
             ip,
             stack_offset,
             caller_source,
         }
     }
 
+    /// Returns this frame's receiver context.
     pub fn context(&self) -> &CallContext {
         &self.context
     }
-
-    pub fn closure(&self) -> PhRef<ClosureObject> {
-        self.closure.clone()
-    }
-
-    // pub fn
 }

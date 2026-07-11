@@ -1,80 +1,55 @@
-use crate::class::{lookup_method_in_hierarchy, ClassObject};
-use crate::frame::CallContext;
-use crate::instance::InstanceObject;
-use crate::interner::Symbol;
-use crate::method::MethodObject;
-use crate::module::ModuleObject;
-use crate::string::{phstring_new, PhString, StringObject};
-use crate::vm::VM;
-use phalcom_common::{phref_new, PhRef};
-use std::fmt::Debug;
-use std::fmt::{self, Display};
-use std::hash::{Hash, Hasher};
-use std::rc::Rc;
+//! The tagged [`Value`] — Phalcom's uniform in-register value representation.
+//!
+//! Realizes [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md). `Value` is a
+//! small `Copy` tagged `enum`: immediate arms ([`Value::Number`], [`Value::Bool`],
+//! [`Value::Symbol`]) carry their payload inline, and every heap object is carried
+//! by an [`ObjRef`] handle in [`Value::Obj`] ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
+//! [`Value::Nil`] is a **private** uninitialized-slot sentinel with no surface
+//! class; user code can never produce or observe it (`values-and-absence.md`
+//! Invariant 4). Because every arm is `Copy`, values move freely on the VM stack
+//! and in constant pools without cloning or reference counting.
+//!
+//! NaN-boxing all of this into a single tagged `f64` word is a deferred
+//! optimization *behind this same enum API*
+//! ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)); see
+//! `docs/forge/DEFERRED.md`.
 
-#[derive(Clone)]
+use crate::class::lookup_method_in_hierarchy;
+use crate::frame::CallContext;
+use crate::heap::{ClassId, Object, ObjRef};
+use crate::interner::Symbol;
+use crate::vm::VM;
+use std::fmt::{self, Debug, Display};
+use std::hash::{Hash, Hasher};
+
+/// A uniform Phalcom value: an immediate or a handle to a heap [`Object`].
+///
+/// Realizes [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md). `Value` is
+/// `Copy`; comparing two [`Value::Obj`]s tests object identity, while string
+/// content-equality is provided separately by [`Value::value_eq`].
+#[derive(Clone, Copy, PartialEq)]
 pub enum Value {
+    /// Private uninitialized-slot sentinel. Not surface-visible: it has no class
+    /// row and user code can never produce or observe it (Invariant 4).
     Nil,
+    /// A boolean. One `Bool` class; `True`/`False` are a later dispatch
+    /// refinement, not a `Value` arm ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)).
     Bool(bool),
+    /// A flat 64-bit float ([ADR-0005](../../../docs/adr/0005-number-as-flat-f64.md)).
     Number(f64),
-    String(PhString),
+    /// An interned identifier or selector ([`Symbol`]).
     Symbol(Symbol),
-    Instance(PhRef<InstanceObject>),
-    Class(PhRef<ClassObject>),
-    Method(PhRef<MethodObject>),
-    Module(PhRef<ModuleObject>),
+    /// Any heap object — instance, string, class, method or module — by
+    /// [`ObjRef`] handle into the [`crate::heap::Heap`].
+    Obj(ObjRef),
 }
 
 impl Value {
-    pub fn string_from_str(s: &str) -> Self {
-        Value::String(phref_new(StringObject::from_str(s)))
-    }
-
-    pub fn string_from(s: String) -> Self {
-        Value::String(phref_new(StringObject::from_string(s)))
-    }
-
-    pub fn is_number(&self) -> bool {
-        matches!(self, Value::Number(_))
-    }
-
-    pub fn is_boolean(&self) -> bool {
-        matches!(self, Value::Bool(_))
-    }
-
-    pub fn is_nil(&self) -> bool {
-        matches!(self, Value::Nil)
-    }
-
-    pub fn is_string(&self) -> bool {
-        matches!(self, Value::String(_))
-    }
-
-    pub fn is_symbol(&self) -> bool {
-        matches!(self, Value::Symbol(_))
-    }
-
-    pub fn as_number(&self) -> Result<f64, String> {
-        match self {
-            Value::Number(n) => Ok(*n),
-            _ => Err("Type Error: Expected a Number.".to_string()),
-        }
-    }
-
-    pub fn as_string(&self) -> Result<String, String> {
-        match self {
-            Value::String(s) => Ok(s.borrow().value()),
-            _ => Err("Type Error: Expected a String.".to_string()),
-        }
-    }
-
-    pub fn as_bool(&self) -> Result<bool, String> {
-        match self {
-            Value::Bool(b) => Ok(*b),
-            _ => Err("Type Error: Expected a Bool.".to_string()),
-        }
-    }
-
+    /// Returns the interned [`Symbol`] this value carries.
+    ///
+    /// # Errors
+    ///
+    /// Returns a type-error message string if the value is not a [`Value::Symbol`].
     pub fn as_symbol(&self) -> Result<Symbol, String> {
         match self {
             Value::Symbol(s) => Ok(*s),
@@ -82,123 +57,184 @@ impl Value {
         }
     }
 
+    /// Returns a coarse, heap-free type tag for diagnostics.
+    ///
+    /// Immediate arms report their exact kind; every [`Value::Obj`] reports
+    /// `"object"` because discriminating its heap kind would require heap access
+    /// (see [`Value::class`] for the precise class). Used by the `expect_value!`
+    /// diagnostics macro.
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Nil => "nil",
             Value::Bool(_) => "bool",
             Value::Number(_) => "number",
-            Value::String(_) => "string",
             Value::Symbol(_) => "symbol",
-            Value::Class(_) => "class",
-            Value::Instance(_) => "object",
-            Value::Method(_) => "method",
-            Value::Module(_) => "module",
+            Value::Obj(_) => "object",
         }
     }
 
-    pub fn name(&self, vm: &VM) -> PhString {
+    /// Returns the [`ClassId`] of this value's class.
+    ///
+    /// Immediates map to their core class; a [`Value::Obj`] resolves through the
+    /// heap (an instance to its class, a class to its metaclass, a string to
+    /// `String`, and so on). Realizes the "every value maps onto a class" rule
+    /// (`object-model.md` §3).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the value is a [`Value::Obj`] whose handle is stale, or a bare
+    /// closure handle (closures are never surface values).
+    pub fn class(&self, vm: &VM) -> ClassId {
         match self {
-            Value::Nil => vm.universe.primitive_names.nil.clone(),
-            Value::Bool(_) => vm.universe.primitive_names.bool_.clone(),
-            Value::Number(n) => phstring_new(n.to_string()),
-            Value::String(_) => vm.universe.primitive_names.string.clone(),
-            Value::Symbol(_) => vm.universe.primitive_names.symbol.clone(),
-            Value::Instance(instance) => instance.borrow().name(),
-            Value::Class(class) => class.borrow().name(),
-            Value::Method(method) => method.borrow().name(vm),
-            Value::Module(module) => module.borrow().name(),
+            Value::Nil => vm.universe.classes.nil_class,
+            Value::Bool(_) => vm.universe.classes.bool_class,
+            Value::Number(_) => vm.universe.classes.number_class,
+            Value::Symbol(_) => vm.universe.classes.symbol_class,
+            Value::Obj(id) => match vm.heap.get(*id) {
+                Object::Instance(instance) => instance.class,
+                Object::Class(class) => class.class,
+                Object::Method(_) => vm.universe.classes.method_class,
+                Object::Module(_) => vm.universe.classes.module_class,
+                Object::Str(_) => vm.universe.classes.string_class,
+                Object::Closure(_) => panic!("closures are not surface values"),
+            },
         }
     }
 
-    pub fn class(&self, vm: &VM) -> PhRef<ClassObject> {
+    /// Looks up `selector` on this value's class hierarchy.
+    ///
+    /// Returns the resolved [`MethodObject`](crate::method::MethodObject) handle,
+    /// or `None` if no class in the chain defines it.
+    pub fn lookup_method(&self, vm: &VM, selector: Symbol) -> Option<ObjRef> {
+        let class = self.class(vm);
+        lookup_method_in_hierarchy(&vm.heap, class, selector)
+    }
+
+    /// Renders this value the way `System.print` and `toString` present it.
+    ///
+    /// Strings render as their raw content (no quotes); numbers, booleans and the
+    /// `nil` sentinel render as their literals; a symbol renders as `Symbol("…")`;
+    /// heap objects render via their debug form. Returns an owned [`String`]
+    /// rather than allocating a heap object.
+    pub fn to_string(&self, vm: &VM) -> String {
         match self {
-            Value::Nil => vm.universe.classes.nil_class.clone(),
-            Value::Bool(_) => vm.universe.classes.bool_class.clone(),
-            Value::Number(_) => vm.universe.classes.number_class.clone(),
-            Value::String(_) => vm.universe.classes.string_class.clone(),
-            Value::Symbol(_) => vm.universe.classes.symbol_class.clone(),
-            Value::Method(_) => vm.universe.classes.method_class.clone(),
-            Value::Instance(instance) => instance.borrow().class(),
-            Value::Class(class) => class.borrow().class(),
-            Value::Module(_module) => vm.universe.classes.module_class.clone(),
+            Value::Nil => "nil".to_string(),
+            Value::Bool(b) => bool_literal(*b).to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Symbol(s) => s.to_string(vm),
+            Value::Obj(id) => match vm.heap.get(*id) {
+                Object::Str(string) => string.value(),
+                _ => self.to_debug(vm),
+            },
         }
     }
 
-    pub fn to_debug(&self, vm: &VM) -> PhString {
+    /// Renders this value's debug form (used by error messages and diagnostics).
+    ///
+    /// Identical to [`Value::to_string`] except that a symbol renders as
+    /// `<symbol N>`.
+    pub fn to_debug(&self, vm: &VM) -> String {
         match self {
-            Value::Nil => vm.universe.primitive_names.nil.clone(),
-            Value::Bool(b) => vm.universe.primitive_names.bool_name(*b),
-            Value::Number(n) => phstring_new(n.to_string()),
-            Value::String(s) => s.clone(),
-            Value::Symbol(s) => phstring_new(s.to_debug()),
-            Value::Instance(instance) => phstring_new(instance.borrow().to_debug()),
-            Value::Class(class) => phstring_new(class.borrow().to_debug()),
-            Value::Method(method) => phstring_new(method.borrow().to_debug(vm)),
-            Value::Module(module) => phstring_new(module.borrow().to_debug()),
+            Value::Nil => "nil".to_string(),
+            Value::Bool(b) => bool_literal(*b).to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Symbol(s) => s.to_debug(),
+            Value::Obj(id) => match vm.heap.get(*id) {
+                Object::Str(string) => string.value(),
+                Object::Instance(instance) => instance.to_debug(&vm.heap),
+                Object::Class(class) => class.to_debug(),
+                Object::Method(method) => method.to_debug(vm),
+                Object::Module(module) => module.to_debug(),
+                Object::Closure(_) => "<closure>".to_string(),
+            },
         }
     }
 
-    pub fn to_string(&self, vm: &VM) -> PhString {
+    /// Builds the [`CallContext`] for dispatching a call whose receiver is `self`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the receiver is not an instance, class or module (the only
+    /// method-bearing receivers).
+    pub fn to_context(&self, heap: &crate::heap::Heap) -> CallContext {
         match self {
-            Value::Nil => vm.universe.primitive_names.nil.clone(),
-            Value::Bool(b) => vm.universe.primitive_names.bool_name(*b),
-            Value::Number(n) => phstring_new(n.to_string()),
-            Value::String(s) => s.clone(),
-            Value::Symbol(s) => phstring_new(s.to_string(vm)),
-            Value::Instance(instance) => phstring_new(instance.borrow().to_debug()),
-            Value::Class(class) => phstring_new(class.borrow().to_debug()),
-            Value::Method(method) => phstring_new(method.borrow().to_debug(vm)),
-            Value::Module(module) => phstring_new(module.borrow().to_debug()),
+            Value::Obj(id) => match heap.get(*id) {
+                Object::Instance(_) => CallContext::Instance { instance: *id },
+                Object::Class(_) => CallContext::Class { class: *id },
+                Object::Module(_) => CallContext::Module { module: *id },
+                _ => panic!("receiver is not a class, instance or module"),
+            },
+            _ => panic!("receiver is not a class, instance or module"),
         }
     }
 
-    pub fn lookup_method(&self, vm: &VM, selector: Symbol) -> Option<PhRef<MethodObject>> {
-        let value_class = self.class(vm);
-        lookup_method_in_hierarchy(value_class, selector)
-    }
-
-    pub fn to_context(&self) -> CallContext {
-        match self {
-            Value::Instance(instance) => CallContext::Instance { instance: instance.clone() },
-            Value::Class(class) => CallContext::Class { class: class.clone() },
-            Value::Module(module) => CallContext::Module { module: module.clone() },
-            _ => panic!("Not a class or instance"),
-        }
-    }
-}
-
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
+    /// Tests Phalcom value equality (the `==` operator).
+    ///
+    /// This reproduces, exactly, the observable semantics of the pre-heap
+    /// hand-written `impl PartialEq for Value`, so `==`/`!=` behaviour is
+    /// preserved across the handle-arena migration
+    /// ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)):
+    ///
+    /// - `Nil`, `Bool`, `Number` compare by value.
+    /// - Two [`Value::Obj`] strings compare by content; instances, classes and
+    ///   methods compare by identity ([`ObjRef`] handle equality).
+    /// - [`Value::Symbol`] pairs and [`Object::Module`] pairs are **never**
+    ///   equal — they routed to the `_ => false` arm before the migration and
+    ///   must keep doing so.
+    /// - Every mismatched or otherwise unhandled pair is unequal.
+    ///
+    /// Equality is matched explicitly here rather than delegating to the
+    /// [`PartialEq`] derive: the derive compares [`Value::Symbol`]s
+    /// structurally (equal interned symbols would be equal) and same-handle
+    /// modules as equal, both of which would silently change `==` semantics.
+    pub fn value_eq(&self, other: &Value, heap: &crate::heap::Heap) -> bool {
+        use crate::heap::Object;
         match (self, other) {
             (Value::Nil, Value::Nil) => true,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Number(a), Value::Number(b)) => a == b,
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::Instance(a), Value::Instance(b)) => Rc::ptr_eq(a, b),
-            (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
-            (Value::Method(a), Value::Method(b)) => Rc::ptr_eq(a, b),
+            (Value::Obj(a), Value::Obj(b)) => {
+                // Strings compare by content, regardless of handle.
+                match (heap.as_string(*a), heap.as_string(*b)) {
+                    (Some(x), Some(y)) => return x == y,
+                    (Some(_), None) | (None, Some(_)) => return false,
+                    (None, None) => {}
+                }
+                // Modules were never equal under the pre-heap `PartialEq`
+                // (they fell through to `_ => false`); preserve that.
+                if matches!(heap.get(*a), Object::Module(_))
+                    || matches!(heap.get(*b), Object::Module(_))
+                {
+                    return false;
+                }
+                // Instances, classes and methods compare by identity.
+                a == b
+            }
+            // Symbol pairs and every mismatched pair are unequal, matching the
+            // pre-heap `_ => false` arm.
             _ => false,
         }
     }
 }
 
+/// Returns the surface literal (`"true"` / `"false"`) for a boolean.
+fn bool_literal(b: bool) -> &'static str {
+    if b { "true" } else { "false" }
+}
+
+/// Hashes an [`f64`] by its raw bits so `NaN`/`-0.0` hash deterministically.
 fn hash_f64<H: Hasher>(num: f64, state: &mut H) {
-    let bits: u64 = num.to_bits();
-    bits.hash(state);
+    num.to_bits().hash(state);
 }
 
 impl Hash for Value {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
-            Value::Nil => 0.hash(state),
-            Value::Number(f64_ref) => hash_f64(*f64_ref, state),
-            Value::Bool(v) => v.hash(state),
-            Value::String(v) => v.borrow().value().hash(state),
-            Value::Class(v) => v.as_ptr().hash(state),
-            Value::Method(v) => v.as_ptr().hash(state),
-            Value::Symbol(v) => v.0.hash(state),
-            Value::Instance(v) => v.as_ptr().hash(state),
-            Value::Module(v) => v.as_ptr().hash(state),
+            Value::Nil => 0u8.hash(state),
+            Value::Bool(b) => b.hash(state),
+            Value::Number(n) => hash_f64(*n, state),
+            Value::Symbol(s) => s.0.hash(state),
+            Value::Obj(id) => id.hash(state),
         }
     }
 }
@@ -209,12 +245,8 @@ impl Debug for Value {
             Self::Nil => write!(f, "nil"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Number(n) => write!(f, "{n}"),
-            Self::String(s) => write!(f, "\"{}\"", s.borrow().value()),
             Self::Symbol(s) => write!(f, "Symbol({})", s.0),
-            Self::Instance(_) => write!(f, "<instance>"),
-            Self::Class(c) => write!(f, "<class {}>", c.borrow().name().borrow().value()),
-            Self::Method(_) => write!(f, "<method>"),
-            Self::Module(_) => write!(f, "<module>"),
+            Self::Obj(id) => write!(f, "<obj {id:?}>"),
         }
     }
 }
@@ -225,12 +257,8 @@ impl Display for Value {
             Self::Nil => write!(f, "nil"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Number(n) => write!(f, "{n}"),
-            Self::String(s) => write!(f, "\"{}\"", s.borrow().value()),
             Self::Symbol(s) => write!(f, "Symbol({})", s.0),
-            Self::Instance(_) => write!(f, "<object>"),
-            Self::Class(c) => write!(f, "<class {}>", c.borrow().name().borrow().value()),
-            Self::Method(_) => write!(f, "<method>"),
-            Self::Module(_) => write!(f, "<module>"),
+            Self::Obj(id) => write!(f, "<obj {id:?}>"),
         }
     }
 }

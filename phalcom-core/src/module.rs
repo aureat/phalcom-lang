@@ -1,123 +1,145 @@
-use crate::closure::ClosureObject;
+//! Modules — top-level namespaces of global slots.
+//!
+//! A [`ModuleObject`] is a heap [`Object`](crate::heap::Object). Interior
+//! mutability now lives in the [`Heap`](crate::heap::Heap): the globals table and
+//! name index are plain fields, mutated through `heap.module_mut(id)` rather than
+//! per-object `RefCell`s ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
+
 use crate::error::{PhResult, RuntimeError};
+use crate::heap::ObjRef;
 use crate::interner::Symbol;
-use crate::string::{phstring_new, PhString};
 use crate::value::Value;
-use phalcom_common::PhRef;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
-/// Hard limit on globals per module
+/// Hard limit on the number of globals a single module may declare.
 pub const MAX_GLOBALS: usize = 1 << 16; // = 65,536
 
+/// Logical name of the bootstrap core module.
 pub const CORE_MODULE_NAME: &str = "core";
+/// Logical name of the program entry module.
 pub const MAIN_MODULE_NAME: &str = "main";
 
+/// A process-unique module identifier.
 pub type ModuleId = u32;
 
+/// Monotonic source of [`ModuleId`]s.
 static MODULE_ID_COUNTER: AtomicU32 = AtomicU32::new(1);
 
+/// Returns a fresh, process-unique [`ModuleId`].
 pub fn next_module_id() -> ModuleId {
     MODULE_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
+/// A loaded module: its identity, source, top-level closure, and global slots.
 #[derive(Debug)]
 pub struct ModuleObject {
+    /// Interned symbol of the module's logical name.
     pub name_sym: Symbol,
-    pub name: PhString,
+    /// The module's display name.
+    pub name: String,
+    /// Absolute filesystem path (or an internal placeholder for the core module).
     pub path: String,
+    /// The module's source text, shared for diagnostics.
     pub source: Option<Arc<String>>,
-    pub closure: Option<PhRef<ClosureObject>>,
-    pub globals: RefCell<Vec<Value>>,
-    pub name_to_slot: RefCell<HashMap<Symbol, usize>>,
+    /// Handle to the module's top-level [`ClosureObject`](crate::closure::ClosureObject), once compiled.
+    pub closure: Option<ObjRef>,
+    /// Global variable slots, indexed by slot number.
+    pub globals: Vec<Value>,
+    /// Maps a global name [`Symbol`] to its slot index in [`Self::globals`].
+    pub name_to_slot: HashMap<Symbol, usize>,
 }
 
 impl ModuleObject {
-    /// Creates an *empty* module.  The caller must register it in
-    /// `vm.modules` to keep it alive.
-    pub fn new(name: PhString, name_sym: Symbol, path: String, source: Option<Arc<String>>) -> Self {
+    /// Creates an empty module. The caller must register it in the VM to keep it
+    /// reachable.
+    pub fn new(name: String, name_sym: Symbol, path: String, source: Option<Arc<String>>) -> Self {
         Self {
             name,
             name_sym,
             path,
             closure: None,
-            globals: RefCell::new(Vec::new()),
-            name_to_slot: RefCell::new(HashMap::new()),
+            globals: Vec::new(),
+            name_to_slot: HashMap::new(),
             source,
         }
     }
 
-    pub fn name(&self) -> PhString {
-        self.name.clone()
-    }
-
-    /// Returns the *symbol* of the module's name.
+    /// Returns the module's name symbol.
     #[inline]
     pub fn symbol(&self) -> Symbol {
         self.name_sym
     }
 
-    pub fn add_closure(&mut self, closure: PhRef<ClosureObject>) {
+    /// Attaches the module's top-level closure handle.
+    pub fn add_closure(&mut self, closure: ObjRef) {
         self.closure = Some(closure);
     }
 
-    pub fn to_debug_ph(&self) -> PhString {
-        phstring_new(self.to_debug())
-    }
-
+    /// Renders the module's debug form, `"<module Name>"`.
     pub fn to_debug(&self) -> String {
-        format!("<module {}>", self.name.borrow().as_str())
+        format!("<module {}>", self.name)
     }
 
-    /// Reserves a slot for a top‑level variable (may already exist).
+    /// Reserves a slot for a top-level variable, returning its index.
     ///
-    /// Forward references call this with `Value::Nil`, the real definition
-    /// later calls [`set_global`].
-    pub fn declare(&self, name: Symbol) -> PhResult<usize> {
-        // Fast path: already declared.
-        if let Some(&slot) = self.name_to_slot.borrow().get(&name) {
+    /// Idempotent: an already-declared name returns its existing slot. Forward
+    /// references declare with [`Value::Nil`]; the real definition later calls
+    /// [`Self::set_global`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::Message`] if the module already holds
+    /// [`MAX_GLOBALS`] globals.
+    pub fn declare(&mut self, name: Symbol) -> PhResult<usize> {
+        if let Some(&slot) = self.name_to_slot.get(&name) {
             return Ok(slot);
         }
 
-        // Bounds check.
-        let cur = self.name_to_slot.borrow().len();
+        let cur = self.name_to_slot.len();
         if cur >= MAX_GLOBALS {
             return Err(RuntimeError::Message("Too many globals in module".into()).into());
         }
 
-        // Insert.
-        self.name_to_slot.borrow_mut().insert(name, cur);
-        self.globals.borrow_mut().push(Value::Nil);
+        self.name_to_slot.insert(name, cur);
+        self.globals.push(Value::Nil);
         Ok(cur)
     }
 
-    /// Same as [`declare`] but also initialises the slot immediately.
-    pub fn define(&self, name: Symbol, value: Value) -> PhResult<usize> {
+    /// Declares `name` (if needed) and initializes its slot to `value`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors from [`Self::declare`] and [`Self::set_global`].
+    pub fn define(&mut self, name: Symbol, value: Value) -> PhResult<usize> {
         let slot = self.declare(name)?;
         self.set_global(slot, value)?;
         Ok(slot)
     }
 
-    /// `None` if the name does not exist *yet*.
+    /// Returns the value bound to `name`, or `None` if it is not declared yet.
     #[inline]
     pub fn get(&self, name: Symbol) -> Option<Value> {
-        let map = self.name_to_slot.borrow();
-        map.get(&name).and_then(|&slot| self.globals.borrow().get(slot).cloned())
+        self.name_to_slot.get(&name).and_then(|&slot| self.globals.get(slot).copied())
     }
 
+    /// Returns the value in `slot`, or `None` if the slot is out of range.
     #[inline]
     pub fn get_by_slot(&self, slot: usize) -> Option<Value> {
-        self.globals.borrow().get(slot).cloned()
+        self.globals.get(slot).copied()
     }
 
-    pub fn set_global(&self, slot: usize, value: Value) -> PhResult<()> {
-        let mut globals = self.globals.borrow_mut();
-        if slot >= globals.len() {
+    /// Writes `value` into an existing global `slot`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::Message`] if `slot` is out of bounds.
+    pub fn set_global(&mut self, slot: usize, value: Value) -> PhResult<()> {
+        if slot >= self.globals.len() {
             return Err(RuntimeError::Message("Global slot out of bounds".into()).into());
         }
-        globals[slot] = value;
+        self.globals[slot] = value;
         Ok(())
     }
 }

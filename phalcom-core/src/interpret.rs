@@ -1,12 +1,18 @@
-use crate::closure::ClosureObject;
+//! Source-to-execution driver: parse, compile and run a module on the [`VM`].
+//!
+//! This is the top-level entry the CLI and REPL call. It resolves module
+//! paths, compiles source into a heap [`ObjRef`] closure via the compiler, and
+//! runs it on the [`VM`]. Since [ADR-0009](../../docs/adr/0009-handle-arena-heap.md)
+//! compiled closures, modules and frames are all [`ObjRef`] handles into the
+//! VM's [`Heap`](crate::heap::Heap) rather than `Rc<RefCell<T>>` graphs.
+
 use crate::compiler::lib::{Compiler, CompilerError};
 use crate::diagnostics::print_parse;
 use crate::error::{IoError, PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
-use crate::module::ModuleObject;
+use crate::heap::ObjRef;
 use crate::vm::VM;
 use phalcom_ast::parse_source;
-use phalcom_common::{phref_new, PhRef};
 use std::path::{Component, Path, PathBuf};
 use std::{fs, io};
 
@@ -61,7 +67,7 @@ pub fn resolve_import_path(importer_abs_path: &str, import_logical: &str) -> io:
     let importer_path_guess = PathBuf::from(importer_abs_path);
     let importer_dir = importer_path_guess.parent().unwrap_or(Path::new("."));
 
-    let fs_path = append_ph_extension_if_missing(&importer_dir.join(&import_logical));
+    let fs_path = append_ph_extension_if_missing(&importer_dir.join(import_logical));
     let canonical = fs_path.canonicalize()?;
 
     Ok(canonical.display().to_string())
@@ -75,7 +81,7 @@ pub struct ModuleInfo {
 
 pub fn resolve_module_path(path: &str) -> PhResult<String> {
     let relative_path = PathBuf::from(path);
-    let absolute_path = relative_path.canonicalize().map_err(|err| PhError::from(err))?;
+    let absolute_path = relative_path.canonicalize().map_err(PhError::from)?;
 
     if absolute_path.is_dir() {
         return Err(IoError::Message(format!("Should be a file. \"{}\" is a directory.", absolute_path.display())).into());
@@ -94,7 +100,14 @@ pub struct Interpreter {
     pub vm: VM,
 }
 
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Interpreter {
+    /// Creates an interpreter over a freshly bootstrapped [`VM`].
     pub fn new() -> Self {
         Self { vm: VM::new() }
     }
@@ -117,40 +130,62 @@ impl Interpreter {
 }
 
 impl VM {
-    pub fn compile_closure(&mut self, module: PhRef<ModuleObject>, source: &str) -> PhResult<PhRef<ClosureObject>> {
-        let program = parse_source(&source, 0).map_err(|e| {
+    /// Parses and compiles `source` for `module`, returning the top-level
+    /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PhError::Compile`] if `source` fails to parse or compile; the
+    /// parse diagnostic is printed before the error is returned.
+    pub fn compile_closure(&mut self, module: ObjRef, source: &str) -> PhResult<ObjRef> {
+        let program = parse_source(source, 0).map_err(|e| {
             let msg = e.kind.to_string();
-            print_parse(&source, &msg, e.range.clone());
+            print_parse(source, &msg, e.range.clone());
             PhError::Compile(CompilerError::Parse(e))
         })?;
 
-        let compiler = Compiler::new(self, module.clone());
+        let compiler = Compiler::new(self, module);
         let closure = compiler.compile(program)?;
         Ok(closure)
     }
 
-    pub fn run_in_module(&mut self, module: PhRef<ModuleObject>, closure: PhRef<ClosureObject>) -> PhResult<()> {
-        let module_sym = module.borrow().symbol();
-        self.modules.insert(module_sym, module.clone());
+    /// Installs `module` and runs its top-level `closure` on a fresh frame.
+    ///
+    /// Both `module` and `closure` are [`ObjRef`] handles into the
+    /// [`Heap`](crate::heap::Heap). The frame and value stacks are cleared
+    /// before the run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PhError::Runtime`] if execution raises an uncaught error.
+    pub fn run_in_module(&mut self, module: ObjRef, closure: ObjRef) -> PhResult<()> {
+        let module_sym = self.heap.module(module).symbol();
+        self.modules.insert(module_sym, module);
 
         self.frames.clear();
         self.stack.clear();
 
-        let frame = phref_new(CallFrame::new(closure, CallContext::Module { module }, 0, 0, None));
+        let frame = CallFrame::new(closure, CallContext::Module { module }, 0, 0, None);
         self.frames.push(frame);
         self.run()?;
         Ok(())
     }
 
-    pub fn interpret_source(&mut self, module: PhRef<ModuleObject>, source: &str) -> PhResult<()> {
-        let closure = self.compile_closure(module.clone(), source).map_err(|err| {
+    /// Compiles and runs `source` for `module`, reporting diagnostics on
+    /// failure.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PhError::Compile`] on a compile failure (after printing a
+    /// compiler diagnostic) or [`PhError::Runtime`] on an uncaught runtime
+    /// error (after printing a runtime diagnostic).
+    pub fn interpret_source(&mut self, module: ObjRef, source: &str) -> PhResult<()> {
+        let closure = self.compile_closure(module, source).inspect_err(|err| {
             self.compiler_error(err.clone());
-            err
         })?;
 
-        let _ = self.run_in_module(module, closure).map_err(|err| {
+        self.run_in_module(module, closure).inspect_err(|err| {
             let _ = self.runtime_error(err.clone());
-            err
         })?;
 
         Ok(())

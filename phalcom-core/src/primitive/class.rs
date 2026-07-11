@@ -1,37 +1,54 @@
+//! Native primitives on `Class`.
+
 use crate::error::PhResult;
 use crate::error::RuntimeError;
-use crate::expect_value;
+use crate::heap::Object;
 use crate::instance::InstanceObject;
+use crate::primitive::expect_class;
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_common::phref_new;
-use std::ops::Add;
 
-/// Signature: `Class::superclass`
-pub fn class_superclass(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let class = expect_value!(_receiver, Class);
-    let superclass = class.borrow().superclass.clone();
-    match superclass {
-        Some(cls) => Ok(Value::Class(cls)),
+/// Signature: `Class::superclass` — returns the receiver's superclass, or `nil`.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if the receiver is not a class.
+pub fn class_superclass(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let class_id = expect_class(vm, receiver)?;
+    match vm.heap.class(class_id).superclass {
+        Some(superclass) => Ok(Value::Obj(superclass)),
         None => Ok(Value::Nil),
     }
 }
 
-/// Signature: `Class::superclass=(_)`
+/// Signature: `Class::superclass=(_)` — always an error; the tower is fixed here.
+///
+/// # Errors
+///
+/// Always returns [`RuntimeError::InvalidSetSuper`].
 pub fn class_set_superclass(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::InvalidSetSuper.into())
 }
 
-/// `Class.class::+(_)`
-pub fn class_add(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(_receiver, Class);
-    let other = expect_value!(&_args[0], Class);
-    Ok(Value::string_from(this.borrow().name_copy().add(other.borrow().name_copy().as_str())))
+/// Signature: `Class::+(_)` — concatenates the two classes' names into a string.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if either operand is not a class.
+pub fn class_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let this = expect_class(vm, receiver)?;
+    let other = expect_class(vm, &args[0])?;
+    let name = format!("{}{}", vm.heap.class(this).name, vm.heap.class(other).name);
+    Ok(vm.alloc_string_value(name))
 }
 
-/// `Class::new(_)`
-pub fn class_new(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let class = expect_value!(receiver, Class);
-    let instance = InstanceObject::new(class.clone());
-    Ok(Value::Instance(phref_new(instance)))
+/// Signature: `Class::new` — allocates a bare instance of the receiver class.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if the receiver is not a class.
+pub fn class_new(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let class_id = expect_class(vm, receiver)?;
+    let instance = InstanceObject::new(class_id);
+    Ok(Value::Obj(vm.heap.alloc(Object::Instance(instance))))
 }

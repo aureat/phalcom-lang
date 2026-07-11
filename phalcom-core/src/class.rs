@@ -1,130 +1,101 @@
+//! Classes and metaclasses — the rows of the object-model tower.
+//!
+//! A [`ClassObject`] is a heap [`Object`](crate::heap::Object) referenced by a
+//! [`ClassId`]. Its links to its metaclass and superclass are plain [`ClassId`]
+//! handles ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)), so the
+//! kernel's cyclic wiring (e.g. `Metaclass.class == Metaclass`) is just a handle
+//! that points at itself — no `Rc`, no `Weak`, no `RefCell` (`object-model.md`
+//! §5–6). Method lookup walks the superclass chain through the heap.
+
+use crate::heap::{ClassId, Heap, ObjRef};
 use crate::interner::Symbol;
-use crate::method::MethodObject;
-use crate::string::{phstring_new, PhString, StringObject};
-use crate::value::Value;
-use crate::vm::VM;
 use indexmap::IndexMap;
-use phalcom_common::{phref_new, phref_weak, MaybeWeak, PhRef};
 
-type MethodsMap = IndexMap<Symbol, PhRef<MethodObject>>;
+/// Selector → [`MethodObject`](crate::method::MethodObject) handle table.
+type MethodsMap = IndexMap<Symbol, ObjRef>;
 
+/// A class or metaclass row in the object-model tower.
+///
+/// Both `class` (the metaclass) and `superclass` are [`ClassId`] handles into the
+/// [`Heap`], patched during bootstrap ([`crate::universe`]). See
+/// [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md).
 #[derive(Debug, Clone)]
 pub struct ClassObject {
-    pub name: PhString,
-    pub class: MaybeWeak<ClassObject>,
-    pub superclass: Option<PhRef<ClassObject>>,
+    /// The class's display name (e.g. `"Number"`, `"Number.class"`).
+    pub name: String,
+    /// Handle to this class's metaclass (its `class`). For `Metaclass` this is a
+    /// self-cycle.
+    pub class: ClassId,
+    /// Handle to this class's superclass, or `None` at the tower's apex
+    /// (`Object`).
+    pub superclass: Option<ClassId>,
+    /// Methods defined directly on this class, keyed by selector [`Symbol`].
     pub methods: MethodsMap,
 }
 
-/// The core method lookup logic with superclass traversal.
-/// This version is more efficient as it iterates using Gc pointers,
-/// avoiding expensive struct clones.
-pub fn lookup_method_in_hierarchy(mut class: PhRef<ClassObject>, selector: Symbol) -> Option<PhRef<MethodObject>> {
-    // println!("{}", class.borrow().name_copy());
+/// Walks `class` and its superclasses for a method bound to `selector`.
+///
+/// Returns the first matching [`MethodObject`](crate::method::MethodObject)
+/// handle, or `None` if no class in the chain defines it. Traversal follows
+/// [`ClassId`] handles through `heap`, so it neither clones nor borrows any
+/// object across steps.
+pub fn lookup_method_in_hierarchy(heap: &Heap, mut class: ClassId, selector: Symbol) -> Option<ObjRef> {
     loop {
-        let next_class_maybe;
-        {
-            // This inner scope limits the lifetime of `class_borrow`.
-            let class_borrow = class.borrow();
-
-            // First, check for the method on the current class.
-            if let Some(method) = class_borrow.methods.get(&selector) {
-                return Some(method.clone());
-            }
-
-            // If not found, clone the superclass Gc (if it exists)
-            // so we can use it after the borrow ends.
-            next_class_maybe = class_borrow.superclass.clone();
-        } // `class_borrow` is dropped here, releasing the borrow on `class`.
-
-        // Now that the borrow is released, we can safely check if we have
-        // a superclass and assign it to `class` for the next iteration.
-        if let Some(next_class) = next_class_maybe {
-            class = next_class;
-        } else {
-            // No superclass, so the search ends here.
-            return None;
+        let current = heap.class(class);
+        if let Some(&method) = current.methods.get(&selector) {
+            return Some(method);
+        }
+        match current.superclass {
+            Some(superclass) => class = superclass,
+            None => return None,
         }
     }
 }
 
 impl ClassObject {
-    pub fn new(name: &str, class: MaybeWeak<ClassObject>, superclass: Option<PhRef<ClassObject>>) -> Self {
-        let name = phref_new(StringObject::from_str(name));
+    /// Creates an unwired class row: `name` set, links defaulted.
+    ///
+    /// The `class` handle is the null [`ObjRef`] and `superclass` is `None`; the
+    /// bootstrap (allocate-then-patch, [`crate::universe`]) fills them in before
+    /// the class is used. See [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md).
+    pub fn bare(name: &str) -> Self {
         Self {
-            name,
-            class,
-            superclass,
+            name: name.to_string(),
+            class: ClassId::default(),
+            superclass: None,
             methods: MethodsMap::new(),
         }
     }
 
-    pub fn name(&self) -> PhString {
+    /// Returns a copy of this class's display name.
+    pub fn name_copy(&self) -> String {
         self.name.clone()
     }
 
-    pub fn name_copy(&self) -> String {
-        self.name.borrow().value()
-    }
-
-    pub fn class(&self) -> PhRef<ClassObject> {
-        match self.class {
-            MaybeWeak::Weak(ref weak) => weak.upgrade().unwrap_or_else(|| {
-                panic!("{}.class dropped, cannot upgrade ref", self.name.borrow().as_str());
-            }),
-            MaybeWeak::Strong(ref owned) => owned.clone(),
-        }
-    }
-
-    pub fn superclass(&self) -> Option<PhRef<ClassObject>> {
-        self.superclass.clone()
-    }
-
-    pub fn superclass_val(&self) -> Value {
-        match &self.superclass {
-            Some(superclass) => Value::Class(superclass.clone()),
-            None => Value::Nil,
-        }
-    }
-
-    #[inline]
-    pub fn to_debug_ph(&self) -> PhString {
-        phstring_new(self.to_debug())
-    }
-
+    /// Renders this class's debug form, `"<class Name>"`.
     #[inline]
     pub fn to_debug(&self) -> String {
-        format!("<class {}>", self.name.borrow().as_str())
+        format!("<class {}>", self.name)
     }
 
-    /// Set the superclass of this class
-    pub fn set_superclass(&mut self, class: Option<PhRef<ClassObject>>) {
-        self.superclass = class
+    /// Sets this class's superclass handle.
+    pub fn set_superclass(&mut self, class: Option<ClassId>) {
+        self.superclass = class;
     }
 
-    /// Set the class of this class (as a weak reference).
-    pub fn set_class(&mut self, class: &PhRef<Self>) {
-        self.class = MaybeWeak::Weak(phref_weak(class));
+    /// Sets this class's metaclass (`class`) handle.
+    pub fn set_class(&mut self, class: ClassId) {
+        self.class = class;
     }
 
-    /// Set the class of this class (as a strong reference).
-    pub fn set_class_owned(&mut self, class: &PhRef<Self>) {
-        self.class = MaybeWeak::Strong(class.clone());
-    }
-
-    pub fn add_method(&mut self, selector: Symbol, method: PhRef<MethodObject>) {
+    /// Binds `method` under `selector`, replacing any prior binding.
+    pub fn add_method(&mut self, selector: Symbol, method: ObjRef) {
         self.methods.insert(selector, method);
     }
 
-    pub fn get_method(&self, selector: Symbol) -> Option<PhRef<MethodObject>> {
-        let method = self.methods.get(&selector);
-        method.cloned()
-    }
-
-    pub fn list_methods(&self, vm: &VM) {
-        for item in &self.methods {
-            let (sym, method) = item;
-            // println!("{}", method.borrow().name(vm).borrow().as_str());
-        }
+    /// Returns the method handle bound directly to `selector` on this class, if
+    /// any (no superclass walk).
+    pub fn get_method(&self, selector: Symbol) -> Option<ObjRef> {
+        self.methods.get(&selector).copied()
     }
 }

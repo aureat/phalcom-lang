@@ -1,49 +1,51 @@
-// use phalcom_ast::parser::Parser; // Not present, use lalrpop_util parser directly
+//! The AST-to-bytecode compiler.
+//!
+//! Lowers a parsed [`Program`] into a [`ClosureObject`] whose [`Chunk`] the VM
+//! executes. String, method and superclass constants are materialized onto the
+//! [`Heap`](crate::heap::Heap) as the compiler emits them — the compiler already
+//! holds `&mut VM` and therefore the heap — and are referenced from the constant
+//! pool by `Copy` [`Value::Obj`] handles
+//! ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md),
+//! [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)).
+
 use crate::bytecode::Bytecode;
 use crate::callable::Callable;
 use crate::chunk::Chunk;
 use crate::closure::ClosureObject;
-use crate::diagnostics::print_parse;
-use crate::error::{PhError, PhResult};
+use crate::error::PhResult;
+use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
-use crate::module::ModuleObject;
 use crate::value::Value;
 use crate::vm::VM;
 use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
 use phalcom_ast::error::SyntaxError;
-use phalcom_ast::parse_source;
 use phalcom_common::range::EmptySourceRange;
-use phalcom_common::{phref_new, PhRef};
-use std::process::exit;
 use thiserror::Error;
 use tracing::debug;
 
+/// An error raised while lowering the AST to bytecode.
 #[derive(Error, Debug, Clone)]
 pub enum CompilerError {
+    /// A catch-all for otherwise-unclassified compilation failures.
     #[error("Unknown error during compilation.")]
     Unknown,
 
+    /// A reference to a variable the compiler cannot resolve.
     #[error("Undefined variable '{0}'.")]
     UndefinedVariable(String),
 
+    /// An assignment whose left-hand side is not an assignable target.
     #[error("Invalid assignment target.")]
     InvalidAssignmentTarget,
 
+    /// A syntax error surfaced from the front-end parser.
     #[error(transparent)]
     Parse(#[from] SyntaxError),
 
-    #[error("Parse error: {0:?}")]
-    ParseError(lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>),
-
+    /// A free-form compiler diagnostic.
     #[error("{0}")]
     Message(String),
-}
-
-impl From<lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>> for CompilerError {
-    fn from(err: lalrpop_util::ParseError<usize, phalcom_ast::token::Token, phalcom_ast::token::LexicalError>) -> Self {
-        CompilerError::ParseError(err)
-    }
 }
 
 // impl From<CompilerError> for PhError {
@@ -65,7 +67,7 @@ struct Local {
 
 pub(crate) struct Compiler<'vm> {
     vm: &'vm mut VM,
-    module: PhRef<ModuleObject>,
+    module: ObjRef,
     chunk: Chunk,
     locals: Vec<Local>,
     scope_depth: usize,
@@ -73,7 +75,7 @@ pub(crate) struct Compiler<'vm> {
 }
 
 impl<'vm> Compiler<'vm> {
-    pub(crate) fn new(vm: &'vm mut VM, module: PhRef<ModuleObject>) -> Self {
+    pub(crate) fn new(vm: &'vm mut VM, module: ObjRef) -> Self {
         Compiler {
             vm,
             module,
@@ -119,7 +121,7 @@ impl<'vm> Compiler<'vm> {
         name_sym: Symbol,
         params: Vec<String>,
         _is_static_method: bool,
-    ) -> Result<PhRef<ClosureObject>, CompilerError> {
+    ) -> Result<ObjRef, CompilerError> {
         // Intern parameter names before creating block_compiler
         let mut param_symbols = Vec::with_capacity(params.len());
         for param_name in &params {
@@ -130,7 +132,7 @@ impl<'vm> Compiler<'vm> {
 
         let mut block_compiler = Compiler {
             vm: self.vm,
-            module: self.module.clone(),
+            module: self.module,
             chunk: Chunk::default(),
             locals: Vec::new(), // Each block gets its own locals stack
             scope_depth: 0,
@@ -149,7 +151,6 @@ impl<'vm> Compiler<'vm> {
 
         let len = statements.len();
         let mut last_is_return = false;
-        let mut last_statement = &statements[len - 1];
 
         for (i, statement) in statements.into_iter().enumerate() {
             let is_last = i == len - 1;
@@ -176,15 +177,17 @@ impl<'vm> Compiler<'vm> {
             name_sym,
         };
 
-        let closure = phref_new(ClosureObject {
+        // Materialize the compiled block as a heap closure and return its handle
+        // (ADR-0009). The compiler holds `&mut VM`, hence the heap.
+        let closure = self.vm.heap.alloc(Object::Closure(ClosureObject {
             callable,
-            module: self.module.clone(),
+            module: self.module,
             upvalues: Vec::new(),
-        });
+        }));
         Ok(closure)
     }
 
-    pub(crate) fn compile(mut self, program: Program) -> PhResult<PhRef<ClosureObject>> {
+    pub(crate) fn compile(mut self, program: Program) -> PhResult<ObjRef> {
         let len = program.statements.len();
         let mut last_is_return = false;
         for (i, statement) in program.statements.into_iter().enumerate() {
@@ -202,19 +205,20 @@ impl<'vm> Compiler<'vm> {
             self.chunk.add_instruction(Bytecode::Return, EmptySourceRange);
         }
 
+        let name_sym = self.vm.heap.module(self.module).name_sym;
         let callable = Callable {
             chunk: self.chunk,
             max_slots: 0,
             num_upvalues: 0,
             arity: 0,
-            name_sym: self.module.borrow().name_sym,
+            name_sym,
         };
 
-        let closure = phref_new(ClosureObject {
+        let closure = self.vm.heap.alloc(Object::Closure(ClosureObject {
             callable,
-            module: self.module.clone(),
+            module: self.module,
             upvalues: Vec::new(),
-        });
+        }));
 
         Ok(closure)
     }
@@ -262,8 +266,8 @@ impl<'vm> Compiler<'vm> {
                 let range = class_def.range;
 
                 // Push superclass onto the stack (for now, default to Object)
-                let object_class = self.vm.universe.classes.object_class.clone();
-                let superclass_idx = self.chunk.add_constant(Value::Class(object_class));
+                let object_class = self.vm.universe.classes.object_class;
+                let superclass_idx = self.chunk.add_constant(Value::Obj(object_class));
                 self.chunk.add_instruction(Bytecode::Constant(superclass_idx), range);
 
                 // TODO: Handle explicit superclass syntax later
@@ -288,13 +292,13 @@ impl<'vm> Compiler<'vm> {
 
                             debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
-                            let method_obj = phref_new(MethodObject::new_single(
+                            let method_obj = self.vm.heap.alloc(Object::Method(MethodObject::new_single(
                                 selector_sym,
                                 SignatureKind::Method(arity as u8),
                                 MethodKind::Closure(closure),
-                            ));
+                            )));
 
-                            let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
+                            let method_obj_idx = self.chunk.add_constant(Value::Obj(method_obj));
                             // println!("[Compiler] Emitting Constant for method_obj_idx: {}", method_obj_idx);
                             self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
 
@@ -315,9 +319,10 @@ impl<'vm> Compiler<'vm> {
 
                             debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
-                            let method_obj = phref_new(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure)));
+                            let method_obj =
+                                self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure))));
 
-                            let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
+                            let method_obj_idx = self.chunk.add_constant(Value::Obj(method_obj));
                             self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
 
                             let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
@@ -333,9 +338,10 @@ impl<'vm> Compiler<'vm> {
 
                             debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
-                            let method_obj = phref_new(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure)));
+                            let method_obj =
+                                self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure))));
 
-                            let method_obj_idx = self.chunk.add_constant(Value::Method(method_obj));
+                            let method_obj_idx = self.chunk.add_constant(Value::Obj(method_obj));
                             self.chunk.add_instruction(Bytecode::Constant(method_obj_idx), range);
 
                             let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
@@ -386,7 +392,7 @@ impl<'vm> Compiler<'vm> {
                 self.chunk.add_instruction(Bytecode::Constant(idx), range);
             }
             Expr::String { value, range } => {
-                let string_obj = Value::string_from(value);
+                let string_obj = self.vm.alloc_string_value(value);
                 let idx = self.chunk.add_constant(string_obj);
                 self.chunk.add_instruction(Bytecode::Constant(idx), range);
             }

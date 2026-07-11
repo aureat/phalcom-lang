@@ -79,23 +79,86 @@ impl ObjectName {
     pub const False: &'static str = "false";
 }
 
+/// Installs a native instance method `$func` on class `$class`.
+///
+/// Allocates a [`MethodObject`](crate::method::MethodObject) in the heap and
+/// binds it under the encoded selector directly on `$class`.
 macro_rules! primitive {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
-        let method = MethodObject::new_primitive(symbol, $sig_kind, $func, PhRef::downgrade(&$class));
-        $class.borrow_mut().add_method(symbol, phref_new(method));
+        let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        let method_id = $vm.heap.alloc(crate::heap::Object::Method(method));
+        $vm.heap.class_mut($class).add_method(symbol, method_id);
     };
 }
 
+/// Installs a native *static* method `$func` on class `$class`.
+///
+/// Like [`primitive!`], but binds the method on `$class`'s metaclass (`$class`'s
+/// `class`), where static methods live.
 macro_rules! primitive_static {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
-        let method = MethodObject::new_primitive(symbol, $sig_kind, $func, PhRef::downgrade(&$class));
-        $class.borrow().class().borrow_mut().add_method(symbol, phref_new(method));
+        let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        let method_id = $vm.heap.alloc(crate::heap::Object::Method(method));
+        let meta = $vm.heap.class($class).class;
+        $vm.heap.class_mut(meta).add_method(symbol, method_id);
     };
 }
 
 pub(crate) use primitive;
 pub(crate) use primitive_static;
+
+use crate::error::{PhResult, RuntimeError};
+use crate::heap::ClassId;
+use crate::value::Value;
+use crate::vm::VM;
+
+/// Extracts a class handle from a receiver value.
+///
+/// Replaces the heap-agnostic `expect_value!(_, Class)` arm: a class is now a
+/// [`Value::Obj`] whose heap object is a [`ClassObject`](crate::class::ClassObject).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a class.
+pub(crate) fn expect_class(vm: &VM, value: &Value) -> PhResult<ClassId> {
+    match value {
+        Value::Obj(id) if vm.heap.as_class(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type {
+            expected: "Class",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Extracts a string's contents from a receiver value.
+///
+/// Replaces the heap-agnostic `expect_value!(_, String)` arm: a string is now a
+/// [`Value::Obj`] whose heap object is a [`StringObject`](crate::string::StringObject).
+/// Returns an owned copy so callers can subsequently allocate without holding a
+/// heap borrow.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a string.
+pub(crate) fn expect_string(vm: &VM, value: &Value) -> PhResult<String> {
+    match value {
+        Value::Obj(id) => match vm.heap.as_string(*id) {
+            Some(string) => Ok(string.value()),
+            None => Err(RuntimeError::Type {
+                expected: "String",
+                found: value.type_name(),
+            }
+            .into()),
+        },
+        other => Err(RuntimeError::Type {
+            expected: "String",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}

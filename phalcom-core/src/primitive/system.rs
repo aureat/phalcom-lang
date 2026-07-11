@@ -1,19 +1,24 @@
+//! Native primitives on `System`.
+
 use crate::error::{PhResult, RuntimeError};
 use crate::nil::NIL;
 use crate::value::Value;
 use crate::vm::VM;
-use tracing::{debug, debug_span};
 
-/// `System.class::print(_)`
-pub fn system_class_print(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+/// Signature: `System.class::print(_)` — prints its arguments, then a newline.
+pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     for arg in args {
-        print!("{}", arg.to_string(_vm).borrow().as_str());
+        print!("{}", arg.to_string(vm));
     }
     println!();
     Ok(NIL)
 }
 
-/// `System.class::new()`
+/// Signature: `System.class::new()` — always an error; `System` is not instantiable.
+///
+/// # Errors
+///
+/// Always returns [`RuntimeError::NotAllowed`].
 pub fn system_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::NotAllowed("System instances cannot be created".to_string()).into())
 }

@@ -1,35 +1,36 @@
-use crate::class::ClassObject;
+//! User-defined object instances.
+//!
+//! An [`InstanceObject`] is a heap [`Object`](crate::heap::Object): a [`ClassId`]
+//! plus a per-instance field table. Its class link is a handle
+//! ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)); its fields hold
+//! `Copy` [`Value`]s.
+
+use crate::heap::{ClassId, Heap};
 use crate::interner::Symbol;
-use crate::string::{phstring_new, PhString};
 use crate::value::Value;
 use indexmap::IndexMap;
-use phalcom_common::PhRef;
 
+/// An instance of a user-defined class: its class handle and its fields.
 #[derive(Debug, Clone)]
 pub struct InstanceObject {
-    pub class: PhRef<ClassObject>,
+    /// Handle to the class this object is an instance of.
+    pub class: ClassId,
+    /// Instance fields, keyed by name [`Symbol`].
     pub fields: IndexMap<Symbol, Value>,
 }
 
 impl InstanceObject {
-    pub fn new(class: PhRef<ClassObject>) -> Self {
-        let fields = IndexMap::new();
-        Self { class, fields }
+    /// Creates an instance of `class` with no fields set.
+    pub fn new(class: ClassId) -> Self {
+        Self {
+            class,
+            fields: IndexMap::new(),
+        }
     }
 
-    pub fn name(&self) -> PhString {
-        self.class.borrow().name()
-    }
-
-    pub fn class(&self) -> PhRef<ClassObject> {
-        self.class.clone()
-    }
-
-    pub fn to_debug_ph(&self) -> PhString {
-        phstring_new(self.to_debug())
-    }
-
-    pub fn to_debug(&self) -> String {
-        format!("<{} instance>", self.name().borrow().as_str())
+    /// Renders this instance's debug form, `"<ClassName instance>"`, resolving
+    /// the class name through `heap`.
+    pub fn to_debug(&self, heap: &Heap) -> String {
+        format!("<{} instance>", heap.class(self.class).name)
     }
 }

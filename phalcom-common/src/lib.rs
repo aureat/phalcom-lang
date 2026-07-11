@@ -11,33 +11,12 @@
 //!
 //! ## What is NOT here
 //!
-//! `PhRef` / `PhWeakRef` / `MaybeWeak` / `phref_new` / `phref_weak` are
-//! defined inline below but are being **replaced** by the handle/arena heap
-//! redesign (ADR-0009).  They are retained temporarily for compilation
-//! compatibility but must not be documented or depended upon — the VM heap
-//! unit (U1) will remove them.
+//! The old `Rc<RefCell<T>>` aliases (`PhRef` / `PhWeakRef` / `MaybeWeak` /
+//! `phref_new` / `phref_weak`) have been **retired** by the handle/arena heap
+//! redesign ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)). Every
+//! heap reference is now a `Copy` generational handle,
+//! `phalcom_core::heap::ObjRef`, resolved through the VM-owned
+//! `phalcom_core::heap::Heap` — see `phalcom-core/src/heap.rs`. No shared-owner
+//! reference type lives in this crate anymore.
 
 pub mod range;
-
-use std::cell::RefCell;
-use std::rc::{Rc, Weak};
-
-pub type PhRef<T> = Rc<RefCell<T>>;
-pub type PhWeakRef<T> = Weak<RefCell<T>>;
-
-#[derive(Debug, Clone)]
-pub enum MaybeWeak<A> {
-    Strong(PhRef<A>),
-    Weak(PhWeakRef<A>),
-}
-
-pub fn phref_new<T>(value: T) -> PhRef<T> {
-    Rc::new(RefCell::new(value))
-}
-
-pub fn phref_weak<T>(value: &PhRef<T>) -> PhWeakRef<T> {
-    Rc::downgrade(value)
-}
-
-#[cfg(test)]
-mod tests {}
