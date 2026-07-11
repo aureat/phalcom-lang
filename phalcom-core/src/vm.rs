@@ -94,6 +94,14 @@ pub struct VM {
     /// the constructor instead of silently falling through to
     /// `Object::new`'s bare-allocation primitive.
     pub constructor_aliases: HashMap<(Symbol, Symbol), Symbol>,
+    /// Class names (by [`Symbol`]) that declare at least one `construct new(...)`.
+    ///
+    /// Once a class opts into a `new`-named constructor, it has no
+    /// user-visible bare allocator (U7-plan §3/§6): a call-site `new(...)`
+    /// whose arity/labels match none of the class's declared constructors is
+    /// a compile error rather than a silent fall-through to the inherited
+    /// `Object::new` primitive.
+    pub has_new_construct: std::collections::HashSet<Symbol>,
 }
 
 impl Default for VM {
@@ -125,6 +133,7 @@ impl VM {
             open_upvalues: BTreeMap::new(),
             field_layouts: HashMap::new(),
             constructor_aliases: HashMap::new(),
+            has_new_construct: std::collections::HashSet::new(),
         };
 
         // Bootstrap core module and primitive methods

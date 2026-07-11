@@ -829,6 +829,9 @@ impl<'vm> Compiler<'vm> {
                             let call_site_sym = self.vm.interner.intern(&call_site_selector);
                             let class_name_sym = self.current_class.expect("construct is only compiled within a class body");
                             self.vm.constructor_aliases.insert((class_name_sym, call_site_sym), selector_sym);
+                            if construct_def.name == "new" {
+                                self.vm.has_new_construct.insert(class_name_sym);
+                            }
 
                             let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();
                             
@@ -899,17 +902,33 @@ impl<'vm> Compiler<'vm> {
                             _ => None,
                         };
 
-                        self.compile_expr(method_call.object)?;
-                        for arg in &method_call.args {
-                            self.compile_expr(arg.expr.clone())?;
-                        }
                         let arity = method_call.args.len();
                         let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
                         let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
                         let selector_sym = self.vm.interner.intern(&selector);
-                        let selector_sym = receiver_class_sym
-                            .and_then(|class_sym| self.vm.constructor_aliases.get(&(class_sym, selector_sym)).copied())
-                            .unwrap_or(selector_sym);
+                        let alias = receiver_class_sym.and_then(|class_sym| self.vm.constructor_aliases.get(&(class_sym, selector_sym)).copied());
+
+                        // U7-plan §6 negative: a class with a `new`
+                        // constructor has no user-visible bare allocator —
+                        // a `new(...)` call whose arity/labels match no
+                        // declared `construct` must not silently fall
+                        // through to the inherited `Object::new` primitive.
+                        if alias.is_none()
+                            && method_call.method == "new"
+                            && let Some(class_sym) = receiver_class_sym
+                            && self.vm.has_new_construct.contains(&class_sym)
+                        {
+                            return Err(CompilerError::Message(format!(
+                                "No constructor `{}.new(...)` matches this call: arity/labels don't match any declared `construct`",
+                                self.vm.resolve_symbol(class_sym)
+                            )));
+                        }
+
+                        self.compile_expr(method_call.object)?;
+                        for arg in &method_call.args {
+                            self.compile_expr(arg.expr.clone())?;
+                        }
+                        let selector_sym = alias.unwrap_or(selector_sym);
                         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                         self.emit(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
                     }

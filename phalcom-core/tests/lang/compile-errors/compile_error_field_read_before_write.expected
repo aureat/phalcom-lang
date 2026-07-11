@@ -1,0 +1,1 @@
+Read-before-write: field '_name' is used before being assigned anywhere in this class.
