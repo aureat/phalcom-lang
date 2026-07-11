@@ -17,6 +17,7 @@ split into parts. Where a decision is not yet taken it lives in
 | [Blocks](blocks.md) | Blocks/lambdas, non-local return, `Block` as a class |
 | [Functions, Blocks & Methods](functions.md) | The callable tower: abstract `Function`, `Block`, `Method`, one closure representation |
 | [Messages & Selectors](messages-and-selectors.md) | Selector identity, labels, spread & rest |
+| [Selectors, Symbols & References](selectors.md) | Selector identity, # symbols, :: method references, @ attributes, field visibility |
 | [Classes](classes.md) | `construct`, fields, methods, accessors, operators |
 | [Method Lookup](method-lookup.md) | Resolution order, `doesNotUnderstand`, `Message` |
 | [Control Flow](control-flow.md) | `if`/`while`/`for` sugar, `and`/`or`, the inliner |
@@ -34,8 +35,8 @@ forces an explicit amendment.
 1. **Everything is a message.** Operators, control flow, field access, and
    iteration are message sends underneath. Sugar is encouraged, but must desugar
    to sends.
-2. **Named argument labels are part of selector identity.** `move(to:duration:)`
-   and `move(_:_:)` are different selectors — a compiler fact, not sugar.
+2. **Named argument labels are part of selector identity.** `move(to,duration)`
+   and `move(_,_)` are different selectors — a compiler fact, not sugar.
 3. **Method lookup is one hashmap hit** on an interned selector symbol, warm.
 4. **`nil` is a private VM primitive.** Never user-visible. Absence is `Option`
    (`Some(v)` / `None`).

@@ -71,7 +71,7 @@ singleton.
 
 ### 3.2 The eliminator
 
-`match(some:, none:)` is the one primitive that leaves Option-world with a value.
+`match(some,none)` is the one primitive that leaves Option-world with a value.
 Every other extractor is defined in terms of it.
 
 ```phalcom
@@ -89,27 +89,27 @@ Grouped by what they return.
 
 | Selector | Returns | Meaning |
 |----------|---------|---------|
-| `map(_:)` | `Option<U>` | `Some(f(v))` / `None` |
-| `flatMap(_:)` | `Option<U>` | monadic bind; `f` already returns an `Option`, so no nesting |
-| `filter(_:)` | `Option<T>` | `Some(v)` if the predicate holds, else `None` |
-| `orElse(_:)` | `Option<T>` | `Some` passes through; `None` becomes the block's `Option` |
-| `zip(_:)` | `Option<(T, U)>` | `Some((a, b))` iff both are `Some` |
+| `map(_)` | `Option<U>` | `Some(f(v))` / `None` |
+| `flatMap(_)` | `Option<U>` | monadic bind; `f` already returns an `Option`, so no nesting |
+| `filter(_)` | `Option<T>` | `Some(v)` if the predicate holds, else `None` |
+| `orElse(_)` | `Option<T>` | `Some` passes through; `None` becomes the block's `Option` |
+| `zip(_)` | `Option<(T, U)>` | `Some((a, b))` iff both are `Some` |
 
 **Extract** — leave `Option`:
 
 | Selector | Returns | Meaning |
 |----------|---------|---------|
-| `unwrapOr(_:)` | `T` | the value, or the given default |
-| `unwrapOrElse(_:)` | `T` | the value, or the block's result |
+| `unwrapOr(_)` | `T` | the value, or the given default |
+| `unwrapOrElse(_)` | `T` | the value, or the block's result |
 | `unwrap()` | `T` | the value; sends `doesNotUnderstand`-style error on `None` |
-| `match(some:, none:)` | `T` | the eliminator (§3.2) |
+| `match(some,none)` | `T` | the eliminator (§3.2) |
 
 **Effect** — run a block for its side effect, return `self` so calls chain:
 
 | Selector | Returns | Meaning |
 |----------|---------|---------|
-| `ifSome(_:)` | `Option<T>` (self) | runs the block with the value when `Some` |
-| `ifNone(_:)` | `Option<T>` (self) | runs the block when `None` |
+| `ifSome(_)` | `Option<T>` (self) | runs the block with the value when `Some` |
+| `ifNone(_)` | `Option<T>` (self) | runs the block when `None` |
 
 `ifSome` / `ifNone` **never extract** — extraction is only `unwrapOr` / `unwrapOrElse`
 / `unwrap` / `match`. This keeps their return type unambiguous and makes them
@@ -125,7 +125,7 @@ opt.ifSome { v => log(v) }.ifNone { warn("missing") }   // -> opt, unchanged
 |----------|---------|
 | `isSome` | `Bool` |
 | `isNone` | `Bool` |
-| `contains(_:)` | `Bool` — `Some(x)` where `x == arg` |
+| `contains(_)` | `Bool` — `Some(x)` where `x == arg` |
 
 ### 3.4 `??` and `?.`
 
@@ -190,18 +190,18 @@ Parallel to `Option`, grouped by what they return.
 
 | Selector | Returns | Meaning |
 |----------|---------|---------|
-| `map(_:)` | `Result<U, E>` | `Ok(f(v))` / `Err` passes through |
-| `flatMap(_:)` | `Result<U, E>` | monadic bind; `f` returns a `Result` |
-| `mapErr(_:)` | `Result<T, F>` | transform the error; `Ok` passes through |
-| `orElse(_:)` | `Result<T, F>` | `Ok` passes through; `Err` becomes the block's `Result` |
+| `map(_)` | `Result<U, E>` | `Ok(f(v))` / `Err` passes through |
+| `flatMap(_)` | `Result<U, E>` | monadic bind; `f` returns a `Result` |
+| `mapErr(_)` | `Result<T, F>` | transform the error; `Ok` passes through |
+| `orElse(_)` | `Result<T, F>` | `Ok` passes through; `Err` becomes the block's `Result` |
 
 **Extract** — leave `Result`:
 
 | Selector | Returns | Meaning |
 |----------|---------|---------|
-| `unwrapOr(_:)` | `T` | the value, or the given default |
+| `unwrapOr(_)` | `T` | the value, or the given default |
 | `unwrap()` | `T` | the value; **`throw`s** the contained `Err` on failure |
-| `match(ok:, err:)` | `T` | the eliminator |
+| `match(ok,err)` | `T` | the eliminator |
 
 **Query:** `isOk`, `isErr` → `Bool`.
 
@@ -214,7 +214,7 @@ Parallel to `Option`, grouped by what they return.
 | `throw` → `Result` | `{ risky() }.attempt()` ([Error Handling §5](error-handling.md)) |
 | `Result` → `throw` | `result.unwrap()` |
 
-`match(ok:, err:)` and the effecting/query forms follow `Option`'s conventions
+`match(ok,err)` and the effecting/query forms follow `Option`'s conventions
 ([§3.3](#33-core-protocol)); `Result` has no truthiness and no implicit coercion
 for the same reasons ([§3.5](#35-no-truthiness)).
 </content>

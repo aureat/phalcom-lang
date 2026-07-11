@@ -32,8 +32,15 @@ allocator, no implicit zero-arg `new`, and no arity-shadowing magic. A `construc
 declares a method on the **metaclass** ([Object Model §5](object-model.md)).
 
 `new` is not special — `construct anonymous()` is equally legitimate. Multiple
-constructors are distinguished by selector, not arity hacks: `new(name:age:)` and
-`new(name:)` are simply two different selectors.
+constructors are distinguished by selector, not arity hacks: `new(name,age)` and
+`new(name)` are simply two different selectors.
+
+**Relationship to `@construct`.** [Selectors, Symbols & References §4](selectors.md#4-attributes-)
+proposes a `@construct` attribute that derives an initializer from declared
+fields. Planned — relationship to the `construct` keyword above TBD: whether
+`@construct` is sugar that expands to a `construct new(...)` like the ones
+above, a distinct mechanism, or eventually subsumes hand-written constructors
+for the common case.
 
 ## 2. Fields
 
@@ -50,6 +57,10 @@ layout at class-definition time.
   subclass that writes `_name` gets its own new slot; it does not touch the
   superclass's. Cross-hierarchy access goes through accessors. This keeps slot
   offsets static and eliminates the fragile-base-class problem.
+
+  This is the same privacy rule as [Selectors, Symbols & References §5](selectors.md#5-field-visibility):
+  fields are always private, with no visibility syntax; every external access
+  is a message send through a derived or hand-written accessor.
 
 ## 3. Methods, accessors, operators
 
@@ -79,6 +90,13 @@ class Person {
   selectors.
 - Operators are ordinary methods.
 - `static` declares on the metaclass.
+
+**Relationship to `@get`/`@set`.** The getter/setter pair above (`name =>
+_name` / `name=(value) { ... }`) is hand-written. [Selectors, Symbols &
+References §4](selectors.md#4-attributes-) proposes `@get`/`@set` field
+attributes that derive the same accessor methods automatically. Planned — not
+yet specified whether hand-written accessors and derived ones can coexist on
+the same field or are mutually exclusive.
 
 ## 4. Implicit return
 

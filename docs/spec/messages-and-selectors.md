@@ -11,27 +11,28 @@ Dot notation is the primary send syntax.
 
 ```phalcom
 receiver.name                      // unary send   -> selector `name`
-receiver.add(1, 2)                 // positional    -> selector `add(_:_:)`
-receiver.move(to: p, duration: 2)  //               -> selector `move(to:duration:)`
-a + b                              // binary        -> selector `+(_:)`
-a.name = v                         // assignment    -> selector `name=(_:)`
+receiver.add(1, 2)                 // positional    -> selector `add(_,_)`
+receiver.move(to: p, duration: 2)  //               -> selector `move(to,duration)`
+a + b                              // binary        -> selector `+(_)`
+a.name = v                         // assignment    -> selector `name=(_)`
 ```
 
 ## 2. Selector identity
 
 A selector is an interned symbol encoding **name + argument labels**, Smalltalk
-style (Invariant 2):
+style (Invariant 2). See [Selectors, Symbols & References §1](selectors.md#1-selector-identity)
+for the full canonical-form grammar and rules R1–R5.
 
 | Call | Selector symbol |
 |------|-----------------|
 | `p.name` | `name` |
-| `p.add(1, 2)` | `add(_:_:)` |
-| `p.move(to: a, duration: b)` | `move(to:duration:)` |
-| `p.move(a, b)` | `move(_:_:)` |
-| `p.name = v` | `name=(_:)` |
-| `a + b` | `+(_:)` |
+| `p.add(1, 2)` | `add(_,_)` |
+| `p.move(to: a, duration: b)` | `move(to,duration)` |
+| `p.move(a, b)` | `move(_,_)` |
+| `p.name = v` | `name=(_)` |
+| `a + b` | `+(_)` |
 
-`move(to:duration:)` and `move(_:_:)` are **distinct methods**. Argument order is
+`move(to,duration)` and `move(_,_)` are **distinct methods**. Argument order is
 significant; labels are not reorderable. Because labels are baked into the interned
 symbol, lookup stays a single hashmap probe.
 
@@ -40,8 +41,8 @@ symbol, lookup stays a single hashmap probe.
 Labels are declared with a trailing colon on the parameter:
 
 ```phalcom
-move(to:, duration:) { ... }       // selector: move(to:duration:)
-move(x, y) { ... }                 // selector: move(_:_:)
+move(to:, duration:) { ... }       // selector: move(to,duration)
+move(x, y) { ... }                 // selector: move(_,_)
 ```
 
 A parameter declared `to:` is passed as `to: value` and bound in the body as `to`.
@@ -70,8 +71,8 @@ configure(options: { host: "localhost", port: 8080 })
 
 ### Selector encoding for variadics
 
-A variadic method interns as `sum(_...)`. A call `sum(1, 2, 3)` produces selector
-`sum(_:_:_:)`, which will not match. Lookup therefore:
+A variadic method interns as `sum(*)`. A call `sum(1, 2, 3)` produces selector
+`sum(_,_,_)`, which will not match. Lookup therefore:
 
 1. Exact selector probe (fast path, inline-cached).
 2. On miss, probe the **variadic table** — keyed by `(name, min_positional_arity)`
@@ -98,4 +99,19 @@ spread is rare and the cost is visible at the call site.
 `SEND_DYNAMIC` is the same primitive needed for `Object.perform(selector, args)`,
 for reflective dispatch, and for forwarding out of `doesNotUnderstand`. Build it
 once, use it three ways.
+
+**`perform` accepts only selector symbols.** `Object.perform(selector, args)`
+requires `selector` to be a *selector symbol* (`#move(_,to,duration)`) — a
+complete method identity. Passing a *name symbol* (`#move`, bare) is a type
+error: a name symbol identifies a family, not a single method, and `perform`
+has no call-site label information to disambiguate with. See
+[Selectors, Symbols & References §2](selectors.md#2-symbol-literals-) for the
+name-symbol vs. selector-symbol distinction.
+
+---
+
+See [Selectors, Symbols & References](selectors.md) for the full treatment of
+selector identity (§1), `#` symbol literals (§2), `::` method references (§3),
+`@` attributes (§4), and field visibility (§5) — this part covers send syntax
+and declaration; selectors.md covers symbol/reference machinery built on top.
 </content>

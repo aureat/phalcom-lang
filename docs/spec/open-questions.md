@@ -17,6 +17,26 @@ implementation begins.
    `let x` with no initializer is rejected at the declaration site.
    The lexer now needs both `let` and `var` keywords.
 
+   > **Re-opening concern (deferred).** [Selectors, Symbols & References §7
+   > item 1](selectors.md#7-open-questions-not-decided) re-raises this: if
+   > uninitialized `var x` is `None`, every variable is effectively `T | None`
+   > and `nil` returns under a new name; the alternative floated there is a
+   > VM-only `Uninit` sentinel that traps on read, keeping `None` a *chosen*
+   > absence. This is **not** adopted — the resolution above stands — but is
+   > recorded here as a live concern for a future revisit.
+
+   > **Related re-opening concern (deferred), `ifTrue`/`ifFalse` → `Option`.**
+   > [Values & Absence §3](values-and-absence.md#3-absence-is-option) resolves
+   > `ifTrue`/`ifFalse` to return `Option`. [Selectors §7 item
+   > 2](selectors.md#7-open-questions-not-decided) flags that this makes
+   > chaining unsound (`cond.ifTrue { a }.ifFalse { b }` sends `ifFalse` to an
+   > `Option`, not a `Bool`; `ifTrue { None }` is indistinguishable from the
+   > branch not being taken), and floats a paired `ifTrue(_)ifFalse(_)`-style
+   > selector as primary with single-branch forms as `Option`-returning sugar.
+   > Not adopted here — the `Option`-returning resolution stands — but flagged
+   > for a future revisit alongside the inliner's sacred-selector list
+   > ([Control Flow §3](control-flow.md)).
+
 2. **`Number`.** One numeric type, or `Int` / `Float` split? Affects the VM value
    representation and every arithmetic opcode. Decide before the inliner.
    ([ADR-0005](../adr/0005-number-as-flat-f64.md) settled the single-type side
@@ -58,6 +78,32 @@ implementation begins.
 
 11. ~~**`Behavior` in the kernel.**~~ **RESOLVED** → [ADR-0003](../adr/0003-introduce-behavior-kernel-class.md):
    `Behavior` is the shared superclass of `Class`/`Metaclass`.
+
+12. **Default arguments.** Raised in [Selectors §7 item
+    3](selectors.md#7-open-questions-not-decided). Largely incompatible with
+    selector-identity dispatch: a call that omits a defaulted argument
+    produces a *different* selector, so lookup misses on the full-arity
+    method. Candidate resolutions are arity-family expansion (combinatorial —
+    one method per omitted-argument combination) or static callee knowledge
+    (unavailable under dynamic dispatch). Flagged there as **decide before
+    shipping** — retrofitting after selector identity is load-bearing
+    elsewhere would be expensive.
+
+13. **`Option` bootstrap.** Raised in [Selectors §7 item
+    4](selectors.md#7-open-questions-not-decided). If `Option` is a plain
+    stdlib class and fields default to `None` ([Values & Absence
+    §3](values-and-absence.md#3-absence-is-option)), constructing `None`
+    requires a class whose own fields default to `None` — a bootstrap cycle.
+    `Option` likely needs to be VM-blessed / niche-encoded directly in
+    `Value` ([ADR-0010](../adr/0010-tagged-value-enum.md)), which also removes
+    an allocation from every optional. Not yet decided how `Option`'s
+    construction is special-cased relative to ordinary classes.
+
+14. **`Family` introspection.** Raised in [Selectors §7 item
+    5](selectors.md#7-open-questions-not-decided). Whether `Family` (the
+    value produced by `::`, [Selectors §3](selectors.md#3-method-references-))
+    exposes arity, candidate lists, etc. as a first-class reflective object,
+    beyond its current role of enriching `doesNotUnderstand` error messages.
 
 ---
 

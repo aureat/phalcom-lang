@@ -38,16 +38,16 @@ fiber runs.
 
 | Signature | Side | Meaning |
 |-----------|------|---------|
-| `construct new(_:)` | class | wrap a `Function` as a not-yet-started fiber |
-| `call` / `call(_:)` | instance | resume; the argument becomes the value of the suspended `yield` (or the entry's parameter on first resume). Returns the next yielded/returned value |
-| `try` / `try(_:)` | instance | like `call`, but a failure yields `None`/an `Error` value instead of propagating |
+| `construct new(_)` | class | wrap a `Function` as a not-yet-started fiber |
+| `call` / `call(_)` | instance | resume; the argument becomes the value of the suspended `yield` (or the entry's parameter on first resume). Returns the next yielded/returned value |
+| `try` / `try(_)` | instance | like `call`, but a failure yields `None`/an `Error` value instead of propagating |
 | `isDone` | instance | `true` once `done` or `failed` |
 | `error` | instance | the captured `Error` as `Option`, if `failed` |
-| `yield(_:)` | **class** | suspend the *current* fiber, handing the value to its resumer. Returns the value passed to the next `call` |
+| `yield(_)` | **class** | suspend the *current* fiber, handing the value to its resumer. Returns the value passed to the next `call` |
 | `current` | **class** | the fiber now running |
-| `abort(_:)` | **class** | raise an `Error` out of the current fiber to its resumer |
+| `abort(_)` | **class** | raise an `Error` out of the current fiber to its resumer |
 
-`Fiber.yield(_:)` is class-side because it always acts on the running fiber, never
+`Fiber.yield(_)` is class-side because it always acts on the running fiber, never
 a named one — you cannot yield another fiber. This mirrors the receiver-less
 nature of "suspend me."
 
@@ -110,13 +110,13 @@ A `Future` settles **exactly once**; further completions are ignored.
 
 | Signature | Side | Meaning |
 |-----------|------|---------|
-| `construct value(_:)` | class | an already-`fulfilled` future |
-| `construct error(_:)` | class | an already-`rejected` future |
-| `async(_:)` | class | run a `Function` on a fresh fiber, returning a future for its result |
+| `construct value(_)` | class | an already-`fulfilled` future |
+| `construct error(_)` | class | an already-`rejected` future |
+| `async(_)` | class | run a `Function` on a fresh fiber, returning a future for its result |
 | `await` | instance | suspend the current fiber until settled; return the value or re-raise the error |
-| `then(_:)` | instance | register a continuation; returns a future for the continuation's result |
-| `map(_:)` | instance | `then` for the non-error path only |
-| `catch(_:)` | instance | register an error handler; returns a recovered future |
+| `then(_)` | instance | register a continuation; returns a future for the continuation's result |
+| `map(_)` | instance | `then` for the non-error path only |
+| `catch(_)` | instance | register an error handler; returns a recovered future |
 | `isReady` | instance | `true` once `fulfilled` or `rejected` |
 | `value` | instance | the settled value as `Option` (never blocks) |
 

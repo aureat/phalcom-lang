@@ -63,7 +63,7 @@ Object references are `ObjRef` handles into the arena heap: [ADR-0009](../adr/00
 | `true` / `false` | `Bool` | one class; `ifTrue`/`ifFalse` are methods |
 | `42`, `3.14` | `Number` | one flat numeric type (§4 note) |
 | `"hi"` | `String` | immutable, interpolating |
-| `:name` / selectors | `Symbol` | interned |
+| `#name` / selectors | `Symbol` | interned — see [Selectors, Symbols & References §2](selectors.md#2-symbol-literals-) for the name-symbol (`#name`) vs. selector-symbol (`#name(_,to,duration)`) distinction |
 | `{ x => … }` | `Block` | closures / block literals |
 | a compiled method | `Method` | reified send target |
 | `(3, 4)` | `Tuple` | fixed-arity product |
@@ -92,7 +92,7 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Object` | *(none)* | U | Root. Universal protocol: `==`, `!=`, `class`, `isA(_:)`, `hash`, `toString`, `perform(_:_:)`, `respondsTo(_:)`, `doesNotUnderstand(_:)`. |
+| `Object` | *(none)* | U | Root. Universal protocol: `==`, `!=`, `class`, `isA(_)`, `hash`, `toString`, `perform(_,_)`, `respondsTo(_)`, `doesNotUnderstand(_)`. |
 | `Behavior` | `Object` | A | Shared protocol/state of anything that *has instances*: method dictionary, `superclass`, `name`, allocation, reflection. Superclass of `Class` and `Metaclass`. |
 | `Class` | `Behavior` | U | The class of every *named* class. |
 | `Metaclass` | `Behavior` | U | The class of every *metaclass*; each metaclass has exactly one instance (its class). |
@@ -106,11 +106,11 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Bool` | `Object` | I | Boolean. `not`, `and(_:)`, `or(_:)`, `ifTrue(_:)`, `ifTrue(_:)ifFalse(_:)`. `ifTrue`/`ifFalse` return `Option`. |
+| `Bool` | `Object` | I | Boolean. `not`, `and(_)`, `or(_)`, `ifTrue(_)`, `ifTrue(_)ifFalse(_)`. `ifTrue`/`ifFalse` return `Option`. |
 | `Number` | `Object` | I | IEEE-754 `f64`. Arithmetic, comparison, `toString`. |
 | `String` | `Object` | U/I | UTF-8 text. Immutable, interpolating. |
 | `Symbol` | `Object` | I | Interned identifier / selector. |
-| `Option` | `Object` | U | `Some(_:)` / `None`. `ifSome(_:)`, `ifNone(_:)`, `map(_:)`, `orElse(_:)`, `unwrapOr(_:)`, `isSome`, `isNone`. |
+| `Option` | `Object` | U | `Some(_)` / `None`. `ifSome(_)`, `ifNone(_)`, `map(_)`, `orElse(_)`, `unwrapOr(_)`, `isSome`, `isNone`. |
 
 > **`Bool` implementation note.** Dispatch for `ifTrue`/`and`/`not` may be realized
 > internally via hidden `True`/`False` subclasses or via the inliner
@@ -125,9 +125,9 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Function` | `Object` | A | The call protocol: `call`, `call(_:)`, `arity`, `name`. Abstract root of everything callable ([Functions](functions.md)). |
+| `Function` | `Object` | A | The call protocol: `call`, `call(_)`, `arity`, `name`. Abstract root of everything callable ([Functions](functions.md)). |
 | `Block` | `Function` | U | First-class closure / block literal. Adds non-local return + home frame. |
-| `Method` | `Function` | U | A reified compiled method. `signature`, `holder`, `bind(_:)`. Sibling of `Block`, not a subtype of it. |
+| `Method` | `Function` | U | A reified compiled method. `signature`, `holder`, `bind(_)`. Sibling of `Block`, not a subtype of it. |
 
 ### Collections
 
@@ -144,21 +144,21 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
 | `Module` | `Object` | U | A compilation unit / namespace. |
-| `System` | `Object` | U | The runtime service surface (class-side): `print(_:)`, `clock`, `gc`, scheduler ([System](system.md)). |
+| `System` | `Object` | U | The runtime service surface (class-side): `print(_)`, `clock`, `gc`, scheduler ([System](system.md)). |
 
 ### Concurrency
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Fiber` | `Object` | U | Cooperative coroutine; the sole concurrency primitive. `call`, `yield(_:)`, `try`, `isDone` ([Fibers & Futures](concurrency.md)). |
-| `Future` | `Object` | U | Pending async result over `Fiber`. `await`, `then(_:)`, `isReady` ([Fibers & Futures](concurrency.md)). |
+| `Fiber` | `Object` | U | Cooperative coroutine; the sole concurrency primitive. `call`, `yield(_)`, `try`, `isDone` ([Fibers & Futures](concurrency.md)). |
+| `Future` | `Object` | U | Pending async result over `Fiber`. `await`, `then(_)`, `isReady` ([Fibers & Futures](concurrency.md)). |
 
 ### Errors
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
 | `Error` | `Object` | U | Root of raisable errors. `message`, `raise`. |
-| `MessageNotUnderstood` | `Error` | U | Raised by the default `doesNotUnderstand(_:)`. |
+| `MessageNotUnderstood` | `Error` | U | Raised by the default `doesNotUnderstand(_)`. |
 | `DeadFrameError` | `Error` | U | Non-local `return` to a frame that no longer exists ([blocks](blocks.md)). |
 | `TypeError` | `Error` | U | Wrong receiver/argument type. |
 | `ArgumentError` | `Error` | U | Bad argument value/arity. |
@@ -275,12 +275,12 @@ The circularity is resolved by allocating first and wiring second.
 Full algorithm in [Method Lookup](method-lookup.md). In brief:
 
 - Methods are keyed by a **label-encoded selector symbol** (arity *and* labels),
-  so `foo`, `foo()`, `foo(_:)`, and `move(to:duration:)` are distinct.
+  so `foo`, `foo()`, `foo(_)`, and `move(to,duration)` are distinct.
 - **Instance send** starts at `recv.class`; **class-side send** starts at
   `Foo.class` (the metaclass). Both walk `superclass` identically.
 - **`super`** starts at the superclass of the method's *defining* class.
 - On exhaustion the send is reified as a `Message` and re-dispatched via
-  `doesNotUnderstand(_:)`.
+  `doesNotUnderstand(_)`.
 
 ---
 
@@ -291,13 +291,13 @@ Defined on `Object`, overridable everywhere:
 | Signature | Meaning |
 |-----------|---------|
 | `class` | the receiver's class |
-| `isA(_:)` | is-kind-of test across the superclass chain |
-| `==(_:)`, `!=(_:)` | identity by default; value types override |
+| `isA(_)` | is-kind-of test across the superclass chain |
+| `==(_)`, `!=(_)` | identity by default; value types override |
 | `hash` | consistent with `==` |
 | `toString` | display representation |
-| `respondsTo(_:)` | does lookup succeed for a selector |
-| `perform(_:_:)` | reflective send (selector, args) |
-| `doesNotUnderstand(_:)` | hook on failed lookup, given a `Message` |
+| `respondsTo(_)` | does lookup succeed for a selector |
+| `perform(_,_)` | reflective send (selector, args) |
+| `doesNotUnderstand(_)` | hook on failed lookup, given a `Message` |
 
 `Behavior` adds (inherited by `Class` and `Metaclass`): `name`, `superclass`,
 `methods`, allocation, and the machinery behind `construct` ([classes](classes.md)).

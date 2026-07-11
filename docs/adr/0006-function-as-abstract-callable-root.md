@@ -22,12 +22,12 @@ meaningless home frame, and blocks to carry a meaningless selector.
 
 Introduce `Function` as an **abstract** kernel class ([Object Model](../spec/object-model.md)):
 
-- `Function` owns the universal call protocol: `call`, `call(_:…)`, `callWith(_:)`,
-  `arity`, `name`. Function-application sugar `f(...)` desugars to `call(_:…)`.
+- `Function` owns the universal call protocol: `call`, `call(_,…)`, `callWith(_)`,
+  `arity`, `name`. Function-application sugar `f(...)` desugars to `call(_,…)`.
 - `Block` and `Method` both inherit from `Function` as **siblings**.
 - `Function` inherits from `Object`. No value has `Function` as its direct class.
 
-`Method.bind(_:)` closes a method over a receiver and returns a `Function` (reusing
+`Method.bind(_)` closes a method over a receiver and returns a `Function` (reusing
 the `Block` machinery) — this is the precise, non-hand-wavy meaning of the old
 "a method bound to a class."
 

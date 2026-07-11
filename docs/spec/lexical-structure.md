@@ -109,7 +109,59 @@ Two tokens desugar to `Option` sends ([Values & Absence §3.4](values-and-absenc
 reserve it for a future ternary or try-operator. Both must be resolved into the
 precedence table during the grammar pass ([Open Questions §8](open-questions.md)).
 
-## 10. Error-handling keywords
+## 10. Symbol literals: `#`
+
+Full semantics in [Selectors, Symbols & References §2](selectors.md#2-symbol-literals-);
+this section covers only the token-level rules.
+
+`#` introduces a **name symbol** (`#move`) or a **selector symbol**
+(`#move(_,to,duration)`), lexed as a **single atomic token**:
+
+```rust
+#[regex(r"#[a-zA-Z_][a-zA-Z0-9_]*(\([^)]*\))?", callback = canon_selector)]
+```
+
+with a separate branch for operator selectors (`#+`, `#==`, `#[]`).
+
+**Whitespace-adjacency / ASI rule.** Outside the parens, `#`, the name, and `(`
+must be contiguous — no whitespace. `#move (a, b)` lexes as the name symbol
+`#move` followed by a parenthesized expression, *not* a selector symbol; this is
+what prevents `#move` on one line from greedily eating a parenthesized
+expression that starts the next line (the same ASI hazard §1 avoids for
+newlines). Inside the parens, whitespace is free and stripped at intern time —
+canonicalization happens at intern time, so `#move(_, to, duration)` and
+`#move(_,to,duration)` intern to the same `Symbol`. A malformed body (interior
+positionals, e.g. `#move(to,_)`) is a **lex-time error** with a precise span.
+
+**Shebang special case.** `#!/usr/bin/env phalcom` is special-cased: `#!` is
+skipped **only at byte offset 0** of the source file. Everywhere else `#!`
+would otherwise ambiguously start a symbol token; the offset-0 restriction
+removes the ambiguity without a lookahead.
+
+`#` is reserved exclusively for symbols — JS-style private-field `#x` syntax is
+**not adopted** (see [Selectors §5](selectors.md#5-field-visibility)); `@` (§12
+below) owns attributes/decorators, so `#` and `@` never compete.
+
+## 11. Method references: `::`
+
+Full semantics in [Selectors, Symbols & References §3](selectors.md#3-method-references-).
+
+`::` is a **postfix token**, `receiver::name` (Open family) or
+`receiver::#name(_,...)` (Pinned family). The grammar is LR(1)-clean: after
+lexing `::`, the parser peeks one token — `#` selects the Pinned form, anything
+else is the Open form. No backtracking, no cover grammar.
+
+## 12. Attribute token: `@`
+
+Full semantics in [Selectors, Symbols & References §4](selectors.md#4-attributes-).
+
+`@` prefixes a field or class declaration to mark a derived-accessor attribute
+(`@construct`, `@get`, `@set`; planned, not yet grammar-specified beyond the
+token). Attributes desugar to ordinary method-table entries at compile time —
+no new dispatch machinery. `@` is reserved for this role only and does not
+overlap with `#` (symbols) or `::` (method references).
+
+## 13. Error-handling keywords
 
 `throw`, `try`, `catch`, and `finally` are reserved keywords
 ([Error Handling](error-handling.md)).
@@ -117,7 +169,7 @@ precedence table during the grammar pass ([Open Questions §8](open-questions.md
 - `throw expr` is a prefix statement/expression; `expr` must evaluate to an
   [`Error`](values-and-absence.md). Sugar for `expr.raise()`.
 - `try` / `catch` / `finally` form the block-handler statement. They are pure
-  sugar over the `Block` sends `on(_:)(_:)`, `ensure(_:)`, and `attempt()` — no
+  sugar over the `Block` sends `on(_)(_)`, `ensure(_)`, and `attempt()` — no
   token carries semantics the desugaring lacks. `catch (e: T)` binds `e` and
   filters on class `T`; the `: T` is optional and defaults to `Error`.
 </content>

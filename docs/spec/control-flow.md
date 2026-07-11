@@ -21,8 +21,8 @@ evaluate before the send. Smalltalk's answer, which Phalcom adopts: the right-ha
 side is a **block**.
 
 ```phalcom
-a and b     // a.and { b }      -> selector and(_:)
-a or  b     // a.or  { b }      -> selector or(_:)
+a and b     // a.and { b }      -> selector and(_)
+a or  b     // a.or  { b }      -> selector or(_)
 a ?? b      // a.orElse { b }   -> Option
 ```
 
@@ -34,8 +34,11 @@ methods on `Bool` and can be overridden.
 When the compiler sees a send of a **sacred selector** whose block arguments are
 **literal blocks at the call site**, it emits jump opcodes instead of a send.
 
-Sacred selectors: `ifTrue(_:)`, `ifFalse(_:)`, `ifTrue(_:)ifFalse(_:)`, `and(_:)`,
-`or(_:)`, `whileTrue(_:)`, `repeat(_:)`.
+Sacred selectors: `ifTrue(_)`, `ifFalse(_)`, `ifTrue(_)ifFalse(_)`, `and(_)`,
+`or(_)`, `whileTrue(_)`, `repeat(_)`. (Comma form throughout, consistent with
+[Selectors, Symbols & References §1](selectors.md#1-selector-identity); the
+paired form `ifTrue(_)ifFalse(_)` is two block-typed positional slots, not
+labels — see [Open Questions](open-questions.md) item on §7 #2 of that doc.)
 
 The inlined code is guarded by a receiver type check that **deoptimizes to a real
 send** if the receiver is not the expected `Bool` / `Block`. Result: zero closure

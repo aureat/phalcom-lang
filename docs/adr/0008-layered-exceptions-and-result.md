@@ -69,5 +69,5 @@ payloads of a single stack-unwinding mechanism (`Return` token vs `Raise(error)`
 - **Resumable conditions (Smalltalk).** More expressive, but costly to implement
   and at odds with the terminating unwind the VM already performs. Deferred; a
   future `retry` on the protected block covers the common case cheaply.
-- **Throw-anything (JavaScript).** Rejected: typed `on(_:)` handlers and the
+- **Throw-anything (JavaScript).** Rejected: typed `on(_)` handlers and the
   `Error>>message` protocol require every thrown value to be an `Error`.

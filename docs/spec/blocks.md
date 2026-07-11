@@ -54,7 +54,7 @@ file.open("data.txt") { f => f.readAll() }
 ```
 
 Selector identity is unaffected: `cond.ifTrue { ... }` and `cond.ifTrue({ ... })`
-are both sends of `ifTrue(_:)`.
+are both sends of `ifTrue(_)`.
 
 ## 5. Non-local return
 

@@ -44,14 +44,14 @@ place to hang function-application sugar.
 | Signature | Meaning |
 |-----------|---------|
 | `call` | apply with no arguments |
-| `call(_:)`, `call(_:_:)`, … | apply with N positional arguments |
-| `callWith(_:)` | apply with a `List` of arguments (reflective, variable arity) |
+| `call(_)`, `call(_,_)`, … | apply with N positional arguments |
+| `callWith(_)` | apply with a `List` of arguments (reflective, variable arity) |
 | `arity` | declared parameter count (`Number`) |
 | `name` | a display `Symbol`/`String` for diagnostics |
 
 **Application sugar.** `f(a, b)` desugars to `f.call(a, b)` ([Blocks §7](blocks.md)).
 This is the *only* place a value other than through a selector is "called": the
-parser lowers postfix `(...)` on any expression to a `call(_:…)` send.
+parser lowers postfix `(...)` on any expression to a `call(_,…)` send.
 
 **Arity mismatch** raises `ArgumentError` ([Object Model §4](object-model.md)).
 
@@ -153,12 +153,23 @@ Everything on `Function`, plus reflection and receiver-binding:
 | `selector` | the interned selector `Symbol` |
 | `holder` | the defining `Class` (or its metaclass, for class-side methods) |
 | `isPrimitive` | native vs. Phalcom-compiled |
-| `bind(_:)` | close over a receiver → a zero-`self` `Function` (a `Block`) |
-| `invokeOn(_:_:)` | apply to an explicit receiver + argument `List` |
+| `bind(_)` | close over a receiver → a zero-`self` `Function` (a `Block`) |
+| `invokeOn(_,_)` | apply to an explicit receiver + argument `List` |
 
-`recv.methodFor(_:)` ([Object Model §8](object-model.md), via `perform`) reifies
+`recv.methodFor(_)` ([Object Model §8](object-model.md), via `perform`) reifies
 the method a selector resolves to, so methods can be extracted and passed as
-values: `let g = 3.methodFor(#"+(_)")`; `g.invokeOn(3, [4])` → `7`.
+values: `let g = 3.methodFor(#+(_))`; `g.invokeOn(3, [4])` → `7`. (`#+(_)` is a
+bare selector-symbol literal, comma form — see
+[Selectors, Symbols & References §2](selectors.md#2-symbol-literals-).)
+
+**Relationship to `::` families.** `Method.bind`/`methodFor`/`invokeOn` above and
+[Selectors, Symbols & References §3](selectors.md#3-method-references-) (`::`
+`Family`) are two routes to a bound-callable value that currently coexist rather
+than unify: `bind`/`invokeOn` operate on an already-reified `Method`, while `::`
+builds an `Open`/`Pinned` `Family` directly from a receiver + name/selector. Open
+question: should `Family` and `Method.bind` collapse into one representation, or
+is the split (reified-method reflection vs. lightweight callable reference)
+intentional? Not yet decided.
 
 `m.bind(receiver)` is how "a method becomes a callable value": it yields a
 `Function` that supplies `receiver` as `self`, reusing the `Block` machinery. This
@@ -170,8 +181,8 @@ Already present as `MethodObject` / `MethodKind`
 ([`method.rs`](../../phalcom-core/src/method.rs)) and surfaced as
 `Value::Method(PhRef<MethodObject>)`. What the spec adds beyond today's tree:
 
-- `bind(_:)` (needs first-class `Block`, §2);
-- `invokeOn(_:_:)` and `methodFor(_:)` reflective entry points;
+- `bind(_)` (needs first-class `Block`, §2);
+- `invokeOn(_,_)` and `methodFor(_)` reflective entry points;
 - class-side methods (`static`, `construct`) already register on the metaclass
   ([Classes §1](classes.md)); no change to storage, only reflection surface.
 

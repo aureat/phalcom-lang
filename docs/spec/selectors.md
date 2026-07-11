@@ -1,8 +1,13 @@
 # Phalcom — Selectors, Symbols, and Method References
 
-**Status:** Decided (design-locked). Implementation pending.
-**Scope:** Selector identity, `#` symbol literals, `::` method references, `@` attributes, field visibility.
-**Supersedes:** `SignatureKind::Method(u8)` (arity-only) in `phalcom-vm`.
+Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+
+**Governing ADRs:**
+[ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors and inline-cache-ready dispatch)
+
+Scope: selector identity, `#` symbol literals, `::` method references, `@`
+attributes, field visibility. Supersedes `SignatureKind::Method(u8)`
+(arity-only) in `phalcom-vm`.
 
 ---
 
@@ -245,7 +250,7 @@ Explicitly **rejected**: JS-style `#field` privates (would give `#` two meanings
 | Call opcodes carry arity | Call opcodes carry the interned selector. |
 | Interner | Must canonicalize (whitespace-strip, R2-validate) at intern time. |
 | Lexer (Logos) | Add atomic `#`-symbol token + operator branch; add shebang special-case at offset 0. |
-| Parser (LALRPOP) | Add postfix `::` with `#`-lookahead. |
+| Parser (hand-written, `phalcom-ast`) | Add postfix `::` with `#`-lookahead. (LALRPOP is being removed per [ADR-0016](../adr/0016-hand-written-lexer-and-recursive-descent-parser.md); the parser is hand-written — see [Implementation Status](implementation-status.md).) |
 | Class finalization | Build the `base_names` index. |
 | AST | Add `Expr::MethodRef { receiver: Option<Box<Expr>>, target: NameOrSelector }`. |
 
@@ -256,7 +261,7 @@ Explicitly **rejected**: JS-style `#field` privates (would give `#` two meanings
 These were raised and deliberately deferred. They are **not** part of this spec.
 
 1. **`var x` defaulting to `None`.** If uninitialized variables are `None`, every variable is effectively `T | None` and `nil` returns under a new name. Alternative: a VM-only `Uninit` sentinel that traps on read, keeping `None` meaningful as a *chosen* absence.
-2. **`ifTrue` / `ifFalse` returning `Option`.** Chaining is unsound: `cond.ifTrue { a }.ifFalse { b }` sends `ifFalse` to an `Option`, not a `Bool`; and `ifTrue { None }` is indistinguishable from the branch not being taken. A paired `ifTrue:ifFalse:`-style selector as primary, with single-branch forms as `Option`-returning sugar, resolves both.
+2. **`ifTrue` / `ifFalse` returning `Option`.** Chaining is unsound: `cond.ifTrue { a }.ifFalse { b }` sends `ifFalse` to an `Option`, not a `Bool`; and `ifTrue { None }` is indistinguishable from the branch not being taken. A paired `ifTrue(_)ifFalse(_)`-style selector as primary, with single-branch forms as `Option`-returning sugar, resolves both.
 3. **Default arguments.** Largely incompatible with selector-identity dispatch: a call omitting a defaulted argument produces a *different* selector, so lookup misses. Options are arity-family expansion (combinatorial) or static callee knowledge (unavailable). **Decide before shipping** — retrofitting is expensive.
 4. **`Option` bootstrap.** If `Option` is a plain stdlib class and fields default to `None`, constructing `None` requires a class whose fields default to `None`. `Option` likely needs to be VM-blessed / niche-encoded in `Value`, which also removes an allocation from every optional.
 5. **Family introspection.** Whether `Family` exposes arity, candidate lists, etc. as a first-class reflective object, beyond its role in error messages.

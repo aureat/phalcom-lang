@@ -8,7 +8,7 @@ collector, process environment, and the concurrency scheduler
 ([Fibers & Futures](concurrency.md)).
 
 Design rule: **effects are named, not ambient.** There is no free-floating
-`print`; you send `print(_:)` to `System`. Confining side effects to one receiver
+`print`; you send `print(_)` to `System`. Confining side effects to one receiver
 keeps the object model pure (everything else is value-in, value-out) and gives one
 obvious place to stub or sandbox the environment.
 
@@ -38,9 +38,9 @@ All class-side. Grouped by service.
 
 | Signature | Meaning |
 |-----------|---------|
-| `print(_:)` | write `x.toString` followed by a newline to standard output; returns `x` |
-| `write(_:)` | write `x.toString` with no trailing newline |
-| `printErr(_:)` | write to standard error |
+| `print(_)` | write `x.toString` followed by a newline to standard output; returns `x` |
+| `write(_)` | write `x.toString` with no trailing newline |
+| `printErr(_)` | write to standard error |
 | `readLine` | read one line from standard input as `Option<String>` (`None` at EOF) |
 
 ### Time
@@ -55,8 +55,8 @@ All class-side. Grouped by service.
 | Signature | Meaning |
 |-----------|---------|
 | `args` | the program's argument vector as a `List<String>` |
-| `env(_:)` | an environment variable as `Option<String>` |
-| `exit(_:)` | terminate the process with an integer status |
+| `env(_)` | an environment variable as `Option<String>` |
+| `exit(_)` | terminate the process with an integer status |
 
 ### Runtime
 
@@ -69,10 +69,10 @@ All class-side. Grouped by service.
 
 | Signature | Meaning |
 |-----------|---------|
-| `schedule(_:)` | enqueue a `Function` to run on a fresh fiber at the next scheduler turn |
-| `sleep(_:)` | return a `Future` that settles after N seconds (a timer completion source) |
+| `schedule(_)` | enqueue a `Function` to run on a fresh fiber at the next scheduler turn |
+| `sleep(_)` | return a `Future` that settles after N seconds (a timer completion source) |
 
-`print(_:)` returning its argument makes `System.print(x)` usable as a
+`print(_)` returning its argument makes `System.print(x)` usable as a
 pass-through in an expression position, consistent with everything being an
 expression ([Classes §4](classes.md)).
 

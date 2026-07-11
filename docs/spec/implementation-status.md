@@ -34,7 +34,7 @@ spec.
 |---|------|----------|---------------|-----|
 | 1 | [Messages & Selectors](messages-and-selectors.md) | Selector = **name + labels**, interned; lookup one hashmap hit | Arity-only: `SignatureKind::Method(u8)` (`method.rs`), `Invoke(u8, u16)` carries argc (`bytecode.rs`), `MethodDef.params: Vec<String>` — no label channel (`ast.rs`). **In progress (planned per ADR-0012).** | [ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md) |
 | 2 | [Blocks](blocks.md) | Blocks are the keystone; method = block bound to a selector | **No block/lambda anywhere** — no AST node, no `Closure`/`Call`/`MakeClosure`/jump opcodes. `=>` lexes but has no AST. **Planned.** | [ADR-0013](../adr/0013-closure-upvalues-and-frame-token-return.md) |
-| 3 | [Control Flow](control-flow.md), Inv. 1 | Operators & control flow **desugar to sends** (compiler may inline) | Hardwired opcodes `Add/And/Or/Negate/…` (`bytecode.rs`); `BinaryOp::And/Or` eager (`ast.rs`). `a+b` never sends `+(_:)`; `number_add` primitive is dead on that path; `and`/`or` are not lazy. **Planned.** | [ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md) |
+| 3 | [Control Flow](control-flow.md), Inv. 1 | Operators & control flow **desugar to sends** (compiler may inline) | Hardwired opcodes `Add/And/Or/Negate/…` (`bytecode.rs`); `BinaryOp::And/Or` eager (`ast.rs`). `a+b` never sends `+(_)`; `number_add` primitive is dead on that path; `and`/`or` are not lazy. **Planned.** | [ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md) |
 | 4 | [Values & Absence](values-and-absence.md), Inv. 4 | No surface `nil`; absence is `Option` | `nil` is first-class: keyword, `Expr::Nil`, `Bytecode::Nil`, `Value::Nil`. No `Option`/`Some`/`None`. **Planned per ADR-0007/ADR-0010.** | [ADR-0007](../adr/0007-option-as-abstract-with-some-none.md), [ADR-0010](../adr/0010-tagged-value-enum.md) |
 
 ## Tier A — major subsystems absent
@@ -43,10 +43,11 @@ spec.
 |---|------|----------|---------------|-----|
 | 5 | [Classes §1](classes.md) | `construct` → alloc + body + implicit `self`, on the metaclass | No `construct` token/node. `SignatureKind::Initializer(u8)` exists but is unreachable from surface. `ClassMember` = Method/Getter/Setter only. **Planned.** | [ADR-0011](../adr/0011-static-instance-slot-layout.md) |
 | 6 | [Classes §2](classes.md) | Static slot layout; implicit field decl; read-before-write compile error; private/non-inherited | `InstanceObject.fields: IndexMap<Symbol, Value>` — a dynamic per-instance map. No field-set collection, no read-before-write check. `GetField/SetField(u16)` exist but the store isn't slotted. **Planned per ADR-0011.** | [ADR-0011](../adr/0011-static-instance-slot-layout.md) |
-| 7 | [Method Lookup §2](method-lookup.md) | Failed send → `Message` → `doesNotUnderstand(_:)` | Lookup returns `Option<Method>`; miss is a hard error. No `Message` value, no dNU hook. **Planned.** | — |
+| 7 | [Method Lookup §2](method-lookup.md) | Failed send → `Message` → `doesNotUnderstand(_)` | Lookup returns `Option<Method>`; miss is a hard error. No `Message` value, no dNU hook. **Planned.** | — |
 | 8 | [Messages & Selectors §4–5](messages-and-selectors.md) | Rest `*p`, spread, variadic table, `SEND_DYNAMIC`, `perform` | None. `*` is only multiply. **Planned per ADR-0012.** | [ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md) |
 | 9 | [Control Flow §3](control-flow.md) | Sacred-selector inliner with deopt guard | No jump opcodes at all; no inline caches. **Planned (IC shape reserved per ADR-0012).** | [ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md) |
 | 10 | [Blocks §5](blocks.md) | Non-local `return` via frame token + `DeadFrameError` | None (no blocks). **Planned per ADR-0013.** | [ADR-0013](../adr/0013-closure-upvalues-and-frame-token-return.md) |
+| 11 | [Selectors §3, §3.1](selectors.md) | `::` produces a `Family` (Open/Pinned); per-class `base_names` index backs empty-family checks, DNU candidate lists, and reflection | None — no `Family` value/type, no `base_names` index built at class-finalization time. **Planned.** | [ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md) |
 
 ## Tier B — surface / lexer gaps
 
@@ -59,6 +60,7 @@ spec.
 | [Open Q1 → ADR-0014](open-questions.md) | `var` keyword: only `let` exists. Planned per [ADR-0014](../adr/0014-let-and-var-bindings.md). |
 | [Lexical §3](lexical-structure.md) | Field token not lexically distinguished (identifier regex swallows `_name`). Minor — `Expr::Field` exists. |
 | [Blocks §1–4](blocks.md), [Classes §3](classes.md) | `=>` expression bodies, trailing-block sugar, unbraced arrow: none. |
+| [Selectors §2](selectors.md), [Selectors §3](selectors.md), [Selectors §4](selectors.md) | `#` symbol-literal token (name/selector, operator branch, shebang-at-offset-0 special case), postfix `::` token with `#`-lookahead, and `@` attribute token: none of the three exist in the lexer. |
 
 ## What already aligns (keep)
 

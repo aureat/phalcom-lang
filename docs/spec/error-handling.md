@@ -46,10 +46,10 @@ protected block — the same shape as control flow:
   .ensure { cleanup() }                // finally — always runs (§4)
 ```
 
-- `on(_:)(_:)` installs a handler for one `Error` class (and its subclasses).
+- `on(_)(_)` installs a handler for one `Error` class (and its subclasses).
   Handlers chain; the **first** matching class wins; an unmatched error keeps
   unwinding.
-- `ensure(_:)` runs its block on every exit path (§4).
+- `ensure(_)` runs its block on every exit path (§4).
 
 ### JavaScript sugar
 
@@ -89,7 +89,7 @@ still live — but is deliberately left out of Draft 0.1.
 Non-local `return`, `throw`, and a fiber's `abort` are **three sources of the same
 mechanism: stack unwinding.** The VM's unwind carries either a `Return`
 (frame-token) or a `Raise(error)` payload ([Functions §3](functions.md)); a
-`Raise` unwinds frame by frame until it meets a matching `on(_:)` handler or the
+`Raise` unwinds frame by frame until it meets a matching `on(_)` handler or the
 fiber boundary.
 
 Three consequences fall out, rather than being separate rules:
