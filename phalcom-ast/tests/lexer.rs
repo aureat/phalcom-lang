@@ -71,6 +71,13 @@ fn block_comment_is_skipped() {
 }
 
 #[test]
+fn numeric_digit_separators() {
+    // `_` separators (D2) are stripped before decoding: `1_000_000` reads as
+    // `1000000.0`, and `_` works on both sides of the decimal point.
+    insta::assert_debug_snapshot!(tokens("1_000_000 1_000.500_5"));
+}
+
+#[test]
 fn punctuation_and_ranges() {
     insta::assert_debug_snapshot!(tokens("a.b :: c .. d ... e -> f => g"));
 }

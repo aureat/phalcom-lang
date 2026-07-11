@@ -165,24 +165,57 @@ impl<'input> Lexer<'input> {
     /// A `.` is only consumed as a decimal point when it is followed by a digit,
     /// so `1..2` and `3.method` tokenise correctly.
     ///
+    /// Underscore digit separators (D2) are accepted **between** digits and
+    /// stripped before parsing, so `1_000_000` reads as `1000000` and
+    /// `1_000.500_5` reads as `1000.5005`. A separator that is not flanked by
+    /// digits on both sides — a trailing `_`, an `_` adjacent to the `.`, or a
+    /// doubled `__` — is rejected as a [`LexicalError::InvalidToken`] rather
+    /// than silently stripped. See `docs/spec/lexical-structure.md`.
+    ///
     /// # Errors
     ///
-    /// Returns [`LexicalError::InvalidFloat`] if the matched slice fails to
-    /// parse as an [`f64`] (not reachable for the matched grammar, but surfaced
-    /// rather than panicking).
+    /// Returns [`LexicalError::InvalidToken`] spanning the offending `_` for a
+    /// misplaced digit separator, or [`LexicalError::InvalidFloat`] if the
+    /// stripped slice fails to parse as an [`f64`] (not reachable for the
+    /// matched grammar, but surfaced rather than panicking).
     fn scan_number(&mut self) -> Result<Token, LexicalError> {
         let start = self.pos;
-        while matches!(self.peek_at(0), Some(b'0'..=b'9')) {
-            self.pos += 1;
-        }
+        self.scan_digits()?;
         if self.peek_at(0) == Some(b'.') && matches!(self.peek_at(1), Some(b'0'..=b'9')) {
             self.pos += 1;
-            while matches!(self.peek_at(0), Some(b'0'..=b'9')) {
-                self.pos += 1;
-            }
+            self.scan_digits()?;
         }
         let slice = &self.input[start..self.pos];
-        Ok(Token::Number(slice.parse::<f64>()?))
+        let cleaned = slice.replace('_', "");
+        Ok(Token::Number(cleaned.parse::<f64>()?))
+    }
+
+    /// Scans a run of digits with interior `_` separators, leaving the cursor
+    /// just past the last digit.
+    ///
+    /// A `_` is only valid when the previous character is a digit and the next
+    /// is also a digit; the cursor is assumed to be on the first digit of the
+    /// run on entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LexicalError::InvalidToken`] spanning a `_` that is not flanked
+    /// by digits on both sides (trailing, doubled, or adjacent to a `.`).
+    fn scan_digits(&mut self) -> Result<(), LexicalError> {
+        while matches!(self.peek_at(0), Some(b'0'..=b'9')) {
+            self.pos += 1;
+            // A separator is valid only immediately between two digits.
+            if self.peek_at(0) == Some(b'_') {
+                if matches!(self.peek_at(1), Some(b'0'..=b'9')) {
+                    self.pos += 1;
+                } else {
+                    let span = self.pos..self.pos + 1;
+                    self.pos += 1;
+                    return Err(LexicalError::InvalidToken(span));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Scans an identifier (`[A-Za-z_][A-Za-z0-9_]*`), resolving keywords.
