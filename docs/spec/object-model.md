@@ -2,10 +2,17 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
+**Governing ADRs:**
+[ADR-0002](../adr/0002-metaclass-tower-parallel-rule.md) (metaclass tower parallel rule) ·
+[ADR-0003](../adr/0003-introduce-behavior-kernel-class.md) (Behavior kernel class) ·
+[ADR-0009](../adr/0009-handle-arena-heap.md) (handle/arena heap) ·
+[ADR-0010](../adr/0010-tagged-value-enum.md) (tagged Value enum)
+
 This part defines the **kernel**: the class/metaclass tower and the catalog of
 core classes. Surface semantics live in the sibling parts. It is reconciled with
 the [Values & Absence](values-and-absence.md) decisions (private `nil` + `Option`,
-single `Bool`, `Block` as the closure class).
+single `Bool`, `Block` as the closure class) and the instance-display decision in
+[ADR-0015](../adr/0015-object-default-tostring.md).
 
 ---
 
@@ -21,7 +28,7 @@ single `Bool`, `Block` as the closure class).
 5. **Single inheritance.** One `superclass` per class; `Object` is the root.
 6. **Uniform tower.** Class-side (`static`, `construct`) methods obey the same
    inheritance rules as instance-side methods, via the parallel metaclass
-   hierarchy (§5). No class is special-cased to lack a metaclass.
+   hierarchy (§5, [ADR-0002](../adr/0002-metaclass-tower-parallel-rule.md)). No class is special-cased to lack a metaclass.
 
 ---
 
@@ -48,6 +55,8 @@ single `Bool`, `Block` as the closure class).
 
 The VM's tagged value maps onto classes as follows. `x.class` is total for every
 surface value; primitives bypass the generic instance representation.
+**Ratified representation: [ADR-0010](../adr/0010-tagged-value-enum.md).
+Object references are `ObjRef` handles into the arena heap: [ADR-0009](../adr/0009-handle-arena-heap.md).**
 
 | Surface value | Class | Notes |
 |---------------|-------|-------|
@@ -88,9 +97,10 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 | `Class` | `Behavior` | U | The class of every *named* class. |
 | `Metaclass` | `Behavior` | U | The class of every *metaclass*; each metaclass has exactly one instance (its class). |
 
-> `Behavior` is an object-model refinement; the top-level spec is silent on it and
-> neither requires nor forbids it. It exists to give `Class` and `Metaclass` a
-> shared home for `new`/`construct`/reflection and to keep the tower uniform.
+> `Behavior` is an object-model refinement ratified by [ADR-0003](../adr/0003-introduce-behavior-kernel-class.md);
+> the top-level spec is silent on it and neither requires nor forbids it. It exists
+> to give `Class` and `Metaclass` a shared home for `new`/`construct`/reflection
+> and to keep the tower uniform.
 
 ### Primitives & singletons
 

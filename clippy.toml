@@ -1,0 +1,3 @@
+# Minimum supported Rust version. Edition 2024 requires >= 1.85.
+# Clippy uses this to avoid suggesting APIs newer than the MSRV.
+msrv = "1.85.0"

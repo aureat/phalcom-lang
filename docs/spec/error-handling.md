@@ -2,6 +2,9 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
+**Governing ADRs:**
+[ADR-0008](../adr/0008-layered-exceptions-and-result.md) (layered exceptions + `Result`, terminating semantics)
+
 Phalcom has **two** failure channels, layered rather than competing:
 
 - **Exceptions** — `throw` an [`Error`](object-model.md) and unwind the stack. For

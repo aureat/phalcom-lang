@@ -38,6 +38,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0013](0013-closure-upvalues-and-frame-token-return.md) | Open/closed upvalues and frame-token non-local return | Accepted |
 | [0014](0014-let-and-var-bindings.md) | Variable bindings are `let` (immutable) and `var` (mutable) | Accepted |
 | [0015](0015-object-default-tostring.md) | `Object` default `toString` is `"<{ClassName}>"` | Accepted |
+| [0016](0016-hand-written-lexer-and-recursive-descent-parser.md) | Hand-written lexer and recursive-descent parser (replacing LALRPOP) | Accepted |
 
 > ADRs 0003–0008 were ratified in the object-model / language-design sessions, and
 > ADRs 0009–0015 in the Phase-2 VM-architecture session (2026-07-11); all are now

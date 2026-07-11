@@ -1,0 +1,30 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"fn add(a, b) { return a + b }\")"
+---
+[
+    Fn,
+    Identifier(
+        "add",
+    ),
+    LParen,
+    Identifier(
+        "a",
+    ),
+    Comma,
+    Identifier(
+        "b",
+    ),
+    RParen,
+    LBrace,
+    Return,
+    Identifier(
+        "a",
+    ),
+    Plus,
+    Identifier(
+        "b",
+    ),
+    RBrace,
+    Eof,
+]

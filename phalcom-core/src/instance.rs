@@ -1,6 +1,6 @@
 use crate::class::ClassObject;
 use crate::interner::Symbol;
-use crate::string::{phstring_new, PhString, StringObject};
+use crate::string::{phstring_new, PhString};
 use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::PhRef;
@@ -17,7 +17,7 @@ impl InstanceObject {
         Self { class, fields }
     }
 
-    pub fn name(&self) -> PhRef<StringObject> {
+    pub fn name(&self) -> PhString {
         self.class.borrow().name()
     }
 
@@ -25,19 +25,11 @@ impl InstanceObject {
         self.class.clone()
     }
 
-    pub fn to_string(&self) -> PhString {
-        let name = self.name();
-        let name_borrowed = name.borrow();
-        let string = format!("Instance of {}", name_borrowed.as_str());
-        drop(name_borrowed);
-        phstring_new(string)
+    pub fn to_debug_ph(&self) -> PhString {
+        phstring_new(self.to_debug())
     }
-    
-    pub fn to_debug_string(&self) -> PhString {
-        let name = self.name();
-        let name_borrowed = name.borrow();
-        let string = format!("<instance {}>", name_borrowed.as_str());
-        drop(name_borrowed);
-        phstring_new(string)
+
+    pub fn to_debug(&self) -> String {
+        format!("<{} instance>", self.name().borrow().as_str())
     }
 }

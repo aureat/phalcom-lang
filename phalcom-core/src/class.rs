@@ -59,7 +59,7 @@ impl ClassObject {
         }
     }
 
-    pub fn name(&self) -> PhRef<StringObject> {
+    pub fn name(&self) -> PhString {
         self.name.clone()
     }
 
@@ -87,11 +87,14 @@ impl ClassObject {
         }
     }
 
-    pub fn to_string(&self) -> PhRef<StringObject> {
-        let name_borrowed = self.name.borrow();
-        let string = phstring_new(format!("<class {}>", name_borrowed.as_str()));
-        drop(name_borrowed);
-        string
+    #[inline]
+    pub fn to_debug_ph(&self) -> PhString {
+        phstring_new(self.to_debug())
+    }
+
+    #[inline]
+    pub fn to_debug(&self) -> String {
+        format!("<class {}>", self.name.borrow().as_str())
     }
 
     /// Set the superclass of this class

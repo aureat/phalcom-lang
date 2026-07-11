@@ -7,24 +7,28 @@ use crate::diagnostics::{print_rt, SourceLoc, SOURCE_MAP};
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, CallFrame};
 use crate::interner::{Interner, Symbol};
+use crate::interpret::ModuleInfo;
 use crate::method::{MethodKind, MethodObject};
-use crate::module::{ModuleObject, CORE_MODULE_NAME};
+use crate::module::{ModuleObject, CORE_MODULE_NAME, MAIN_MODULE_NAME};
 use crate::nil::NIL;
+use crate::string::phstring_new;
 use crate::universe::Universe;
 use crate::value::Value;
-use clap::builder::Str;
 use phalcom_common::range::SourceRange;
 use phalcom_common::MaybeWeak::Weak;
 use phalcom_common::{phref_new, PhRef, PhWeakRef};
-use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Instant;
+use std::{collections::HashMap, sync::Arc};
 use tracing::{debug, span, Level};
 
 pub struct VM {
-    frames: Vec<PhRef<CallFrame>>,
-    stack: Vec<Value>,
+    pub(crate) frames: Vec<PhRef<CallFrame>>,
+    pub(crate) stack: Vec<Value>,
+
     pub modules: HashMap<Symbol, PhRef<ModuleObject>>,
+    pub main_module: Option<PhRef<ModuleObject>>,
+    pub last_imported_module: Option<PhRef<ModuleObject>>,
+
     pub classes: HashMap<Symbol, PhRef<ClassObject>>,
     pub interner: Interner,
     pub start_time: Instant,
@@ -49,6 +53,8 @@ impl VM {
             interner,
             start_time: Instant::now(),
             modules: HashMap::new(),
+            main_module: None,
+            last_imported_module: None,
             classes: HashMap::new(),
             universe,
         };
@@ -58,18 +64,6 @@ impl VM {
         Universe::install_primitives(&mut vm);
 
         vm
-    }
-
-    /// Runs a module with given closure as entry point.
-    pub fn run_module(&mut self, module: PhRef<ModuleObject>, entry: PhRef<ClosureObject>) -> PhResult<Value> {
-        let module_sym = module.borrow().symbol();
-        self.modules.insert(module_sym, module.clone());
-        entry.borrow_mut().module = module.clone();
-        self.frames.clear();
-        self.stack.clear();
-        let frame = phref_new(CallFrame::new(entry, CallContext::Module { module }, 0, 0, None));
-        self.frames.push(frame);
-        self.run()
     }
 
     pub fn get_or_intern(&mut self, name: &str) -> Symbol {
@@ -107,32 +101,30 @@ impl VM {
         class
     }
 
-    pub fn create_module(&mut self, module_sym: Symbol, source: &str) -> PhRef<ModuleObject> {
-        let source_ref = Arc::new(String::from(source));
-        SOURCE_MAP.write().unwrap().insert(module_sym, source_ref.clone());
-
-        let m = phref_new(ModuleObject::new(self, module_sym, Some(source_ref)));
+    pub fn create_module(&mut self, logical_name: &str, abs_path: &str) -> PhRef<ModuleObject> {
+        let module_sym = self.interner.intern(logical_name);
+        let module_name = phstring_new(logical_name.to_string());
+        let m = phref_new(ModuleObject::new(module_name, module_sym, abs_path.to_string(), None));
         self.modules.insert(module_sym, m.clone());
         m
     }
 
-    pub fn create_module_from_str(&mut self, name: &str, source: &str) -> PhRef<ModuleObject> {
-        let module_sym = self.interner.intern(name);
-
-        let source_ref = Arc::new(String::from(source));
-        SOURCE_MAP.write().unwrap().insert(module_sym, source_ref.clone());
-
-        let m = phref_new(ModuleObject::new(self, module_sym, Some(source_ref)));
-        self.modules.insert(module_sym, m.clone());
-        m
+    pub fn register_path(&mut self, module_sym: Symbol, abs_path: &str) {
+        if let Some(module) = self.modules.get(&module_sym) {
+            module.borrow_mut().path = abs_path.to_string();
+        } else {
+            debug!("Module with symbol {:?} not found for path registration", module_sym);
+        }
     }
 
-    pub fn create_module_from_stdin(&mut self) -> PhRef<ModuleObject> {
-        let module_sym = self.interner.intern("<main>");
+    pub fn register_source(&mut self, logical_name: &str, source: &str) {
+        let source_ref = Arc::new(String::from(source));
+        let module_sym = self.interner.intern(logical_name);
+        SOURCE_MAP.write().unwrap().insert(module_sym, source_ref.clone());
 
-        let m = phref_new(ModuleObject::new(self, module_sym, None));
-        self.modules.insert(module_sym, m.clone());
-        m
+        let module_sym = self.interner.intern(logical_name);
+        let src_ref = Arc::new(String::from(source));
+        SOURCE_MAP.write().unwrap().insert(module_sym, src_ref.clone());
     }
 
     /// Returns the module for a given symbol
@@ -152,8 +144,10 @@ impl VM {
     }
 
     pub fn install_core(&mut self) {
-        let core_sym = self.interner.intern(CORE_MODULE_NAME);
-        let core_mod = self.create_module(core_sym, "");
+        let m = self.create_module(CORE_MODULE_NAME, "<internal core module>");
+        self.register_source(CORE_MODULE_NAME, include_str!("../core/core.ph"));
+        let core_sym = m.borrow().symbol();
+        self.modules.insert(core_sym, m.clone());
 
         macro_rules! add_class {
             ($field:ident) => {
@@ -174,26 +168,28 @@ impl VM {
         add_class!(method_class);
         add_class!(symbol_class);
         add_class!(system_class);
-
-        self.define_global(core_sym, core_sym, Value::Module(core_mod)).ok();
     }
 
-    fn call_method(&mut self, callee: &Value, method: PhRef<MethodObject>, arity: usize, source_range: SourceRange) {
+    fn call_method(&mut self, callee: &Value, method: PhRef<MethodObject>, arity: usize, source_range: SourceRange) -> PhResult<()> {
         match &method.borrow().kind {
             MethodKind::Primitive(native_fn) => {
                 let receiver_idx = self.stack.len() - 1 - arity;
                 let receiver = self.stack[receiver_idx].clone();
                 let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
                 let result = native_fn(self, &receiver, &args);
-                match result {
-                    Ok(result) => {
-                        self.stack.truncate(receiver_idx);
-                        self.stack.push(result);
-                    }
-                    Err(err) => {
-                        self.runtime_error(err, source_range);
-                    }
-                }
+                result.map(|result| {
+                    self.stack.truncate(receiver_idx);
+                    self.stack.push(result);
+                })
+
+                // match result {
+                //     Ok(result) => {
+                //         self.stack.truncate(receiver_idx);
+                //         self.stack.push(result);
+                //         Ok(())
+                //     }
+                //     Err(err) => Err(err),
+                // }
             }
             MethodKind::Closure(closure) => {
                 let new_frame = phref_new(CallFrame::new(
@@ -204,11 +200,12 @@ impl VM {
                     Some(source_range),
                 ));
                 self.frames.push(new_frame);
+                Ok(())
             }
         }
     }
 
-    pub fn runtime_error(&mut self, err: PhError, source_range: SourceRange) {
+    pub fn runtime_error(&mut self, err: PhError) -> PhResult<()> {
         let mut frames = Vec::new();
         for frame_ref in self.frames.iter().rev() {
             let frame = frame_ref.borrow();
@@ -226,7 +223,6 @@ impl VM {
                     format!("{}::{} in {}", class_name, method_name, module_name)
                 }
                 CallContext::Module { module } => {
-                    // let module_name = module.borrow().name().borrow();
                     format!("{module_name}")
                 }
             };
@@ -241,64 +237,98 @@ impl VM {
             });
         }
 
-        if let PhError::Runtime(err) = err {
-            print_rt(&err.to_string(), &frames);
-        } else {
-            panic!("Unexpected error: {:?}", err);
+        print_rt(&err.to_string(), &frames);
+        Err(err)
+    }
+
+    pub fn compiler_error(&mut self, err: PhError) {}
+
+    pub fn pop(&mut self) -> Result<Value, PhError> {
+        self.stack.pop().ok_or_else(|| RuntimeError::Internal("Stack underflow".to_string()).into())
+    }
+
+    // pub fn run_loop(&mut self) -> PhResult<()> {
+    //     loop {
+    //
+    //     }
+    // }
+
+    pub fn handle_primitive_op(&self, a: &Value, b: &Value, op: &str) -> PhResult<Option<Value>> {
+        match (a, b) {
+            (Value::Number(a_num), Value::Number(b_num)) => {
+                let result = match op {
+                    "+" => Value::Number(a_num + b_num),
+                    "-" => Value::Number(a_num - b_num),
+                    "*" => Value::Number(a_num * b_num),
+                    "/" => Value::Number(a_num / b_num),
+                    "%" => Value::Number(a_num % b_num),
+                    _ => return Ok(None),
+                };
+                Ok(Some(result))
+            }
+            (Value::String(a_str), Value::String(b_str)) if op == "+" => {
+                let mut result = a_str.borrow().value();
+                result.push_str(b_str.borrow().as_str());
+                Ok(Some(Value::String(phstring_new(result))))
+            }
+            (Value::String(a_str), Value::Number(n)) if op == "*" => {
+                let a_str = a_str.borrow();
+                let s = a_str.as_str();
+                let result = s.repeat(*n as usize);
+                Ok(Some(Value::String(phstring_new(result))))
+            }
+            (Value::Number(n), Value::String(b_str)) if op == "*" => {
+                let b_str = b_str.borrow();
+                let s = b_str.as_str();
+                let result = s.repeat(*n as usize);
+                Ok(Some(Value::String(phstring_new(result))))
+            }
+            (Value::Bool(a_bool), Value::Bool(b_bool)) => {
+                let result = match op {
+                    "&&" => Value::Bool(*a_bool && *b_bool),
+                    "||" => Value::Bool(*a_bool || *b_bool),
+                    _ => return Ok(None),
+                };
+                Ok(Some(result))
+            }
+            _ => Ok(None),
         }
     }
 
     pub fn run(&mut self) -> PhResult<Value> {
         macro_rules! binary_op {
-            ($op:tt, $selector:expr, $span:expr) => {
-                {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
-                    if a.is_number() && b.is_number() {
-                        let result = a.as_number().map_err(PhError::StringError)? $op b.as_number().map_err(PhError::StringError)?;
-                        self.stack.push(Value::Number(result));
-                    } else {
-                        let selector = self.interner.intern($selector);
-                        self.stack.push(a);
-                        self.stack.push(b);
-                        let callee = self.stack[self.stack.len() - 2].clone();
-                        if let Some(method) = callee.lookup_method(self, selector) {
-                            self.call_method(&callee, method, 1, $span);
-                        } else {
-                            let selector_name = self.resolve_symbol(selector);
-                            let receiver = &self.stack[self.stack.len() - 2];
-                            return Err(PhError::VMError {
-                                message: format!("Method '{selector_name}' not found for value {receiver}."),
-                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver}.")),
-                            });
-                        }
-                    }
+            ($op:tt, $selector:expr, $span:expr) => {{
+                let b = self.pop()?;
+                let a = self.pop()?;
+
+                let op = stringify!($op);
+
+                if let Some(result) = self.handle_primitive_op(&a, &b, op)? {
+                    self.stack.push(result);
+                    continue;
                 }
-            };
-            ($op:tt, $type:ty, $selector:expr, $span:expr) => {
-                {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
-                    if a.is_number() && b.is_number() {
-                        self.stack.push(Value::Bool((a.as_number().map_err(PhError::StringError)? $op b.as_number().map_err(PhError::StringError)?)));
-                    } else {
-                        let selector = self.interner.intern($selector);
-                        self.stack.push(a);
-                        self.stack.push(b);
-                        let callee = self.stack[self.stack.len() - 2].clone();
-                        if let Some(method) = callee.lookup_method(self, selector) {
-                            self.call_method(&callee, method, 1, $span);
-                        } else {
-                            let selector_name = self.resolve_symbol(selector);
-                            let receiver = &self.stack[self.stack.len() - 2];
-                            return Err(PhError::VMError {
-                                message: format!("Method '{selector_name}' not found for value {receiver}."),
-                                stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver}.")),
-                            });
-                        }
+
+                let selector = self.interner.intern($selector);
+
+                if let Some(method) = a.lookup_method(self, selector) {
+                    self.stack.push(a.clone());
+                    self.stack.push(b.clone());
+                    self.call_method(&a, method, 1, $span)?;
+                } else if let Some(method) = b.lookup_method(self, selector) {
+                    self.stack.push(a.clone());
+                    self.stack.push(b.clone());
+                    self.call_method(&b, method, 1, $span)?;
+                } else {
+                    let a = a.to_debug(self);
+                    let b = b.to_debug(self);
+                    return Err(RuntimeError::BinaryNotSupported {
+                        op,
+                        left: a.borrow().as_str().to_owned(),
+                        right: b.borrow().as_str().to_owned(),
                     }
+                    .into());
                 }
-            }
+            }};
         }
 
         loop {
@@ -355,10 +385,7 @@ impl VM {
                                 self.stack.push(value.clone());
                             } else {
                                 let name = self.resolve_symbol(*name_sym);
-                                return Err(PhError::VMError {
-                                    message: format!("Undefined variable '{}'.", name),
-                                    stack_trace: self.format_stack_trace(format!("Undefined variable '{}'.", name)),
-                                });
+                                return Err(RuntimeError::Message(format!("Undefined variable '{}'.", name)).into());
                             }
                         }
                     }
@@ -371,10 +398,7 @@ impl VM {
                             module.borrow().set_global(*slot, self.stack.last().unwrap().clone()).unwrap();
                         } else {
                             let name = self.resolve_symbol(*name_sym);
-                            return Err(PhError::VMError {
-                                message: format!("Undefined variable '{}'.", name),
-                                stack_trace: self.format_stack_trace(format!("Undefined variable '{}'.", name)),
-                            });
+                            return Err(RuntimeError::Message(format!("Undefined variable '{}'.", name)).into());
                         }
                     }
                 }
@@ -387,10 +411,7 @@ impl VM {
                         let value = self.stack[local_idx].clone();
                         self.stack.push(value);
                     } else {
-                        return Err(PhError::VMError {
-                            message: format!("Local variable slot {} out of bounds", slot),
-                            stack_trace: self.format_stack_trace(format!("Local variable slot {} out of bounds", slot)),
-                        });
+                        return Err(RuntimeError::Internal(format!("Local variable slot {slot} out of bounds")).into());
                     }
                 }
                 Bytecode::SetLocal(slot) => {
@@ -402,10 +423,7 @@ impl VM {
                         let value = self.stack.last().unwrap().clone();
                         self.stack[local_idx] = value;
                     } else {
-                        return Err(PhError::VMError {
-                            message: format!("Local variable slot {} out of bounds", slot),
-                            stack_trace: self.format_stack_trace(format!("Local variable slot {} out of bounds", slot)),
-                        });
+                        return Err(RuntimeError::Internal(format!("Local variable slot {slot} out of bounds")).into());
                     }
                 }
                 Bytecode::Class(idx) => {
@@ -417,33 +435,26 @@ impl VM {
                             let new_class = self.create_class(&name, Some(superclass_obj));
                             self.stack.push(Value::Class(new_class));
                         } else {
-                            return Err(PhError::VMError {
-                                message: "Superclass must be a class.".to_string(),
-                                stack_trace: self.format_stack_trace("Superclass must be a class.".to_string()),
-                            });
+                            return Err(RuntimeError::InvalidSuperClass(format!("{superclass}")).into());
                         }
                     }
                 }
                 Bytecode::Method(selector_idx, is_static) => {
                     let selector_val = &chunk.constants[selector_idx as usize];
-                    if let Value::Symbol(selector) = selector_val {
-                        let method_val = self.stack.pop().unwrap();
-                        let class_val = self.stack.last().unwrap();
-                        let selector_name = self.resolve_symbol(*selector);
-                        if let (Value::Method(method_obj), Value::Class(class_obj)) = (method_val, class_val) {
-                            debug!("Adding method {} to class {}", selector_name, class_obj.borrow().name_copy());
-                            method_obj.borrow_mut().set_holder(PhRef::downgrade(class_obj));
-                            if is_static {
-                                class_obj.borrow().class().borrow_mut().add_method(*selector, method_obj);
-                            } else {
-                                class_obj.borrow_mut().add_method(*selector, method_obj);
-                            }
+                    let selector = selector_val.as_symbol().unwrap();
+                    let method_val = self.stack.pop().unwrap();
+                    let class_val = self.stack.last().unwrap();
+                    let selector_name = self.resolve_symbol(selector);
+                    if let (Value::Method(method_obj), Value::Class(class_obj)) = (method_val, class_val) {
+                        debug!("Adding method {} to class {}", selector_name, class_obj.borrow().name_copy());
+                        method_obj.borrow_mut().set_holder(PhRef::downgrade(class_obj));
+                        if is_static {
+                            class_obj.borrow().class().borrow_mut().add_method(selector, method_obj);
                         } else {
-                            return Err(PhError::VMError {
-                                message: "VM Error: Invalid types for method definition.".to_string(),
-                                stack_trace: self.format_stack_trace("VM Error: Invalid types for method definition.".to_string()),
-                            });
+                            class_obj.borrow_mut().add_method(selector, method_obj);
                         }
+                    } else {
+                        return Err(RuntimeError::Internal("Invalid types for method definition.".to_string()).into());
                     }
                 }
                 Bytecode::GetSelf => {
@@ -465,10 +476,7 @@ impl VM {
                                 self.stack.push(Value::Nil); // Push nil if field not found
                             }
                         } else {
-                            return Err(PhError::VMError {
-                                message: format!("Only instances can have fields."),
-                                stack_trace: self.format_stack_trace(format!("Only instances can have fields.")),
-                            });
+                            return Err(RuntimeError::Internal("Only instances can have fields.".to_string()).into());
                         }
                     }
                 }
@@ -482,10 +490,7 @@ impl VM {
                             instance_obj.borrow_mut().fields.insert(*field_sym, value_to_assign.clone());
                             self.stack.push(value_to_assign); // Push the assigned value back
                         } else {
-                            return Err(PhError::VMError {
-                                message: format!("Only instances can have fields."),
-                                stack_trace: self.format_stack_trace(format!("Only instances can have fields.")),
-                            });
+                            return Err(RuntimeError::Internal("Only instances can have fields.".to_string()).into());
                         }
                     }
                 }
@@ -501,10 +506,12 @@ impl VM {
                         self.call_method(&receiver, method, arity, source_range);
                     } else {
                         let selector_name = self.resolve_symbol(selector_sym);
-                        return Err(PhError::VMError {
-                            message: format!("Method '{selector_name}' not found for value {receiver}."),
-                            stack_trace: self.format_stack_trace(format!("Method '{selector_name}' not found for value {receiver}.")),
-                        });
+                        let receiver_name = receiver.to_string(self);
+                        return Err(RuntimeError::MethodNotFound {
+                            selector: selector_name.to_owned(),
+                            value: receiver_name.borrow().as_str().to_owned(),
+                        }
+                        .into());
                     }
                 }
                 Bytecode::Return => {
@@ -523,68 +530,61 @@ impl VM {
                 Bytecode::Divide => binary_op!(/, "/(_)", source_range),
                 Bytecode::Modulo => binary_op!(%, "%(_)", source_range),
                 Bytecode::Equal => {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
+                    let b = self.pop()?;
+                    let a = self.pop()?;
                     self.stack.push(Value::Bool(a == b));
                 }
                 Bytecode::NotEqual => {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
+                    let b = self.pop()?;
+                    let a = self.pop()?;
                     self.stack.push(Value::Bool(a != b));
                 }
-                Bytecode::Greater => binary_op!(>, bool, ">( _)", source_range),
-                Bytecode::GreaterEqual => binary_op!(>=, bool, ">=(_)", source_range),
-                Bytecode::Less => binary_op!(<, bool, "<(_)", source_range),
-                Bytecode::LessEqual => binary_op!(<=, bool, "<=(_)", source_range),
-                Bytecode::And => {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
-                    let a_clone = a.clone();
-                    let b_clone = b.clone();
-                    if let (Value::Bool(a_bool), Value::Bool(b_bool)) = (a, b) {
-                        self.stack.push(Value::Bool(a_bool && b_bool));
-                    } else {
-                        return Err(PhError::VMError {
-                            message: format!("Unsupported operand types for logical AND: {a_clone:?} and {b_clone:?}"),
-                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for logical AND: {a_clone:?} and {b_clone:?}")),
-                        });
-                    }
-                }
-                Bytecode::Or => {
-                    let b = self.stack.pop().ok_or("Stack underflow")?;
-                    let a = self.stack.pop().ok_or("Stack underflow")?;
-                    let a_clone = a.clone();
-                    let b_clone = b.clone();
-                    if let (Value::Bool(a_bool), Value::Bool(b_bool)) = (a, b) {
-                        self.stack.push(Value::Bool(a_bool || b_bool));
-                    } else {
-                        return Err(PhError::VMError {
-                            message: format!("Unsupported operand types for logical OR: {a_clone:?} and {b_clone:?}"),
-                            stack_trace: self.format_stack_trace(format!("Unsupported operand types for logical OR: {a_clone:?} and {b_clone:?}")),
-                        });
-                    }
-                }
+                Bytecode::Greater => binary_op!(>, ">( _)", source_range),
+                Bytecode::GreaterEqual => binary_op!(>=, ">=(_)", source_range),
+                Bytecode::Less => binary_op!(<, "<(_)", source_range),
+                Bytecode::LessEqual => binary_op!(<=, "<=(_)", source_range),
+                Bytecode::And => binary_op!(&&, "and(_)", source_range),
+                Bytecode::Or => binary_op!(||, "or(_)", source_range),
                 Bytecode::Negate => {
-                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    let val = self.pop()?;
                     if let Value::Number(num) = val {
                         self.stack.push(Value::Number(-num));
-                    } else {
-                        return Err(PhError::VMError {
-                            message: format!("Unsupported operand type for negation: {val:?}"),
-                            stack_trace: self.format_stack_trace(format!("Unsupported operand type for negation: {val:?}")),
-                        });
+                        continue;
                     }
+
+                    let selector = self.interner.intern("-");
+                    if let Some(method) = val.lookup_method(self, selector) {
+                        self.stack.push(val.clone());
+                        self.call_method(&val, method, 0, source_range)?;
+                    }
+
+                    let val = val.to_debug(self);
+                    return Err(RuntimeError::UnaryNotSupported {
+                        op: "-",
+                        value: val.borrow().as_str().to_owned(),
+                    }
+                    .into());
                 }
                 Bytecode::Not => {
-                    let val = self.stack.pop().ok_or("Stack underflow")?;
+                    let val = self.pop()?;
                     if let Value::Bool(b) = val {
                         self.stack.push(Value::Bool(!b));
-                    } else {
-                        return Err(PhError::VMError {
-                            message: format!("Unsupported operand type for logical NOT: {val:?}"),
-                            stack_trace: self.format_stack_trace(format!("Unsupported operand type for logical NOT: {val:?}")),
-                        });
+                        continue;
                     }
+
+                    let selector = self.interner.intern("not");
+                    if let Some(method) = val.lookup_method(self, selector) {
+                        self.stack.push(val.clone());
+                        self.call_method(&val, method, 0, source_range)?;
+                        continue;
+                    }
+
+                    let val = val.to_debug(self);
+                    return Err(RuntimeError::UnaryNotSupported {
+                        op: "not",
+                        value: val.borrow().as_str().to_owned(),
+                    }
+                    .into());
                 }
             }
             debug!("Stack after opcode {:?}: {:?}", opcode, self.stack);

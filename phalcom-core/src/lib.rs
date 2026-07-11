@@ -14,6 +14,7 @@ pub mod error;
 pub mod frame;
 pub mod instance;
 pub mod interner;
+pub mod interpret;
 pub mod method;
 pub mod module;
 pub mod nil;

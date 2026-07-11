@@ -2,7 +2,7 @@
 members = [
     "phalcom-ast",
     "phalcom-common",
-    "phalcom-core",
+    "phalcom-core", "phalcom-repl",
 ]
 resolver = "2"
 

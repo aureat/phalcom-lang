@@ -2,6 +2,9 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
+**Governing ADRs:**
+[ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors and inline-cache-ready dispatch)
+
 ## 1. Send syntax
 
 Dot notation is the primary send syntax.

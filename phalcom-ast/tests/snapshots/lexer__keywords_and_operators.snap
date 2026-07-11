@@ -1,0 +1,27 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"if a and b or not c { self } else { super }\")"
+---
+[
+    If,
+    Identifier(
+        "a",
+    ),
+    And,
+    Identifier(
+        "b",
+    ),
+    Or,
+    Not,
+    Identifier(
+        "c",
+    ),
+    LBrace,
+    SelfKw,
+    RBrace,
+    Else,
+    LBrace,
+    Super,
+    RBrace,
+    Eof,
+]

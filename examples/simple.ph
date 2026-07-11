@@ -1,6 +1,12 @@
 class Test {
+  @construct
+  init(name, age) {
+    _name = name
+    _age = age
+  }
+
   static method {
-    self.method2
+    self.method2 and "hello"
   }
 
   static method2 {
@@ -8,4 +14,5 @@ class Test {
   }
 }
 
-Test.method
+// Test.method
+Test.superclass = Test

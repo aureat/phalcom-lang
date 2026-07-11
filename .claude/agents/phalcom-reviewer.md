@@ -27,6 +27,12 @@ reasoning effort: **high**.
    spans; no dead code left from the old path. Consult `rust-best-practices`.
 5. **Tests**: are the added tests real (would they fail if the code were wrong)? Is the
    invariant harness + golden corpus still green? Is the fuzz surface seeded?
+6. **Documentation (blocking)**: every new public item carries a proper `///` doc, every
+   new crate/module a `//!` doc, per `docs/rust-documentation-guidelines.md` — verb-first
+   summary, `# Errors`/`# Panics`/`# Safety` where they apply, intra-doc links, spec/ADR
+   citation where the item realizes one. Run `cargo doc --workspace --no-deps` yourself:
+   any warning, or an undocumented/ stale-doc public item, is a **blocking** issue, treated
+   exactly like a failing test.
 
 ## Orientation
 graphify-first (mandatory) before raw reads; `graphify affected` to confirm the diff

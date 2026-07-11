@@ -4,3 +4,8 @@ Cargo.lock
 .DS_Store
 *.iml
 *.swp
+
+# graphify code knowledge graph (generated; rebuilt locally via post-commit hook)
+/graphify-out
+# git worktrees used by agents
+.claude/worktrees/

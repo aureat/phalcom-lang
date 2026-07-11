@@ -1,0 +1,22 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"class Point {\\n  static origin { self }\\n}\")"
+---
+[
+    Class,
+    Identifier(
+        "Point",
+    ),
+    LBrace,
+    Newline,
+    Static,
+    Identifier(
+        "origin",
+    ),
+    LBrace,
+    SelfKw,
+    RBrace,
+    Newline,
+    RBrace,
+    Eof,
+]

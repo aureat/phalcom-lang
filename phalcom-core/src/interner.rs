@@ -1,6 +1,7 @@
-use std::ops::Deref;
+use crate::vm::VM;
 use std::collections::HashMap;
 use std::mem;
+use std::ops::Deref;
 
 /// An interned string.
 ///
@@ -12,6 +13,17 @@ impl Deref for Symbol {
     type Target = u32;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Symbol {
+    pub fn to_string(&self, vm: &VM) -> String {
+        let val = vm.resolve_symbol(*self);
+        format!("Symbol(\"{val}\")")
+    }
+
+    pub fn to_debug(&self) -> String {
+        format!("<symbol {}>", self.0)
     }
 }
 

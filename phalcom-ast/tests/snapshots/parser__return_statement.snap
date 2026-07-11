@@ -1,0 +1,25 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"return 1\")"
+---
+Program {
+    statements: [
+        Return(
+            ReturnStatement {
+                value: Some(
+                    Number {
+                        value: 1.0,
+                        range: CopyRange {
+                            start: 7,
+                            end: 8,
+                        },
+                    },
+                ),
+                range: CopyRange {
+                    start: 0,
+                    end: 8,
+                },
+            },
+        ),
+    ],
+}

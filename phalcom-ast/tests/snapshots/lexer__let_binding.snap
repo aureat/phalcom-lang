@@ -1,0 +1,15 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"let x = 42\")"
+---
+[
+    Let,
+    Identifier(
+        "x",
+    ),
+    Equal,
+    Number(
+        42.0,
+    ),
+    Eof,
+]

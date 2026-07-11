@@ -1,0 +1,36 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"x = 1\")"
+---
+Program {
+    statements: [
+        Expr {
+            expr: Assignment(
+                AssignmentExpr {
+                    name: Var {
+                        value: "x",
+                        range: CopyRange {
+                            start: 0,
+                            end: 1,
+                        },
+                    },
+                    value: Number {
+                        value: 1.0,
+                        range: CopyRange {
+                            start: 4,
+                            end: 5,
+                        },
+                    },
+                    range: CopyRange {
+                        start: 0,
+                        end: 5,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 0,
+                end: 5,
+            },
+        },
+    ],
+}

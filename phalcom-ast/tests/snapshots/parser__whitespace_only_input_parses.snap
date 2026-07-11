@@ -1,0 +1,7 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"\\n  \\n\")"
+---
+Program {
+    statements: [],
+}

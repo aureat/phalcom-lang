@@ -1,0 +1,34 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"a.b :: c .. d ... e -> f => g\")"
+---
+[
+    Identifier(
+        "a",
+    ),
+    Dot,
+    Identifier(
+        "b",
+    ),
+    ColonColon,
+    Identifier(
+        "c",
+    ),
+    DotDot,
+    Identifier(
+        "d",
+    ),
+    DotDotDot,
+    Identifier(
+        "e",
+    ),
+    Arrow,
+    Identifier(
+        "f",
+    ),
+    FatArrow,
+    Identifier(
+        "g",
+    ),
+    Eof,
+]

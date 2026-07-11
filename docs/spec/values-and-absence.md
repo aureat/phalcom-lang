@@ -2,6 +2,11 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
+**Governing ADRs:**
+[ADR-0007](../adr/0007-option-as-abstract-with-some-none.md) (Option as abstract with Some/None) ·
+[ADR-0010](../adr/0010-tagged-value-enum.md) (tagged Value enum) ·
+[ADR-0014](../adr/0014-let-and-var-bindings.md) (let and var bindings)
+
 ## 1. Value types
 
 | Type | Notes |

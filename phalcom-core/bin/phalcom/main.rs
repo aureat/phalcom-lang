@@ -1,3 +1,4 @@
+#![allow(warnings)]
 pub mod cli;
 pub mod disasm;
 

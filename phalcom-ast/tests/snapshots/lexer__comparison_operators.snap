@@ -1,0 +1,34 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"a == b != c <= d >= e < f > g\")"
+---
+[
+    Identifier(
+        "a",
+    ),
+    EqualEqual,
+    Identifier(
+        "b",
+    ),
+    BangEqual,
+    Identifier(
+        "c",
+    ),
+    LessEqual,
+    Identifier(
+        "d",
+    ),
+    GreaterEqual,
+    Identifier(
+        "e",
+    ),
+    Less,
+    Identifier(
+        "f",
+    ),
+    Greater,
+    Identifier(
+        "g",
+    ),
+    Eof,
+]

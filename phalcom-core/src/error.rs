@@ -1,11 +1,12 @@
 use crate::compiler::lib::CompilerError;
 use phalcom_ast::error::SyntaxError;
-use std::io::Error as IoError;
+use std::io;
+// use std::io::Error as IoError;
 use thiserror::Error;
 
 pub type PhResult<T> = Result<T, PhError>;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum PhError {
     #[error(transparent)]
     Runtime(#[from] RuntimeError),
@@ -13,26 +14,17 @@ pub enum PhError {
     #[error(transparent)]
     Io(#[from] IoError),
 
-    #[error("VM Error: {message}\nStack Trace:\n{stack_trace}")]
-    VMError { message: String, stack_trace: String },
+    #[error(transparent)]
+    Parse(#[from] SyntaxError),
 
     #[error(transparent)]
-    Parse(SyntaxError),
-
-    #[error(transparent)]
-    Compile(CompilerError),
+    Compile(#[from] CompilerError),
 
     #[error("{0}")]
     StringError(String),
 
     #[error("{0}")]
     StrError(&'static str),
-}
-
-impl From<&'static str> for PhError {
-    fn from(err: &'static str) -> Self {
-        PhError::StrError(err)
-    }
 }
 
 fn format_num_arguments<'a>(args: usize) -> String {
@@ -43,13 +35,53 @@ fn format_num_arguments<'a>(args: usize) -> String {
     }
 }
 
-#[derive(Error, Debug)]
+impl From<&'static str> for PhError {
+    fn from(err: &'static str) -> Self {
+        PhError::StrError(err)
+    }
+}
+
+impl<T> From<IoError> for PhResult<T> {
+    fn from(err: IoError) -> Self {
+        Err(PhError::Io(err))
+    }
+}
+
+impl From<io::Error> for PhError {
+    fn from(err: io::Error) -> Self {
+        PhError::Io(IoError::Message(err.to_string()))
+    }
+}
+
+#[derive(Error, Debug, Clone)]
+pub enum IoError {
+    #[error("{0}")]
+    Message(String),
+}
+
+#[derive(Error, Debug, Clone)]
 pub enum RuntimeError {
     #[error("Method {signature} expected {}, got {found}", format_num_arguments(*expected))]
     Arity { signature: &'static str, expected: usize, found: usize },
 
     #[error("Expected {expected}, got {found}")]
     Type { expected: &'static str, found: &'static str },
+
+    #[error("Method '{selector}' not found for value '{value}'")]
+    MethodNotFound { selector: String, value: String },
+
+    #[error("Unsupported operation '{op}' for {value}")]
+    UnsupportedOperation { op: &'static str, value: String },
+
+    #[error("Binary operation '{op}' not supported for {left} and {right}")]
+    BinaryNotSupported {
+        op: &'static str,
+        left: String,
+        right: String,
+    },
+
+    #[error("Unary operation '{op}' not supported for {value}")]
+    UnaryNotSupported { op: &'static str, value: String },
 
     #[error("Can't set superclass of a class")]
     InvalidSetSuper,
@@ -66,11 +98,17 @@ pub enum RuntimeError {
     #[error("Can't convert {found} to {expected}")]
     TypeConversion { expected: &'static str, found: &'static str },
 
+    #[error("Superclass `{0}` is not a class")]
+    InvalidSuperClass(String),
+
     #[error("{0}")]
     NotAllowed(String),
 
     #[error("Invalid argument: {0}")]
     ArgumentError(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 
     #[error("{0}")]
     Message(String),

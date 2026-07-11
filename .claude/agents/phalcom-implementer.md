@@ -24,6 +24,12 @@ effort: **medium** (the design is already decided; your job is a correct, clean 
    `rust-best-practices` and `rust-testing` skills.
 
 ## Implementing
+- **Document as you write — mandatory, not a follow-up.** Every crate/module gets a `//!`
+  doc; every public item (fns, methods, structs, enums, traits, **fields**, **variants**,
+  consts, macros) gets a `///` doc with a verb-first summary line, plus `# Errors`/`# Panics`/
+  `# Safety` sections where they apply, and intra-doc links + spec/ADR citations. Follow
+  `docs/rust-documentation-guidelines.md` exactly. Undocumented public API = an incomplete
+  unit. New crate roots declare `#![warn(missing_docs)]`.
 - Write the code AND its tests together: unit tests, an `insta` snapshot where a tree/
   bytecode shape is asserted, a golden `.ph` example if it's user-visible, and a fuzz
   seed if it touches lexer/parser/VM input. Consult `parser-development` for grammar
@@ -46,6 +52,8 @@ category, and a one-line rationale. This keeps v1 clean and the suggestions capt
 ## Exit gate (hard)
 `cargo build && cargo test && cargo clippy --workspace` clean, plus the unit's own tests
 and the golden corpus green. If any is red, the unit is NOT done. Never mark done on red.
+Also: `cargo doc --workspace --no-deps` builds with **no warnings** and every new public
+item is documented per `docs/rust-documentation-guidelines.md`. Missing docs = not done.
 
 ## Return
 Summarize: what you built, files touched, the spec § satisfied, test coverage added, the

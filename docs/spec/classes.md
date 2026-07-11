@@ -2,6 +2,10 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
+**Governing ADRs:**
+[ADR-0011](../adr/0011-static-instance-slot-layout.md) (static per-class slot layout) ·
+[ADR-0014](../adr/0014-let-and-var-bindings.md) (let and var bindings)
+
 ## 1. Constructors
 
 ```phalcom

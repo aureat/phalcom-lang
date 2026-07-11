@@ -48,7 +48,7 @@ pub fn print_line_information(source: &str, range: Range<usize>) {
         ceprintln!("<s,r!>{:>3} |</> {}", current, lines[current - 1].trim_end());
     }
 
-    ceprintln!("<s,r!>{:>3} |</> {}", line_number, lines[current].trim_end());
+    ceprintln!("<s,r!>{:>3} |</> <s>{}", line_number, lines[current].trim_end());
 
     let indent = " ".repeat(col_start);
     let carets = "^".repeat((col_end - col_start).max(1));
@@ -77,7 +77,9 @@ pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
 /// `stack` must be ordered **caller → callee** (older frames first).
 pub fn print_rt(msg: &str, stack: &[SourceLoc]) {
     ceprintln!("<s,r!>Traceback (most recent call last):");
+    ceprintln!("    <s,r!>|</>");
     ceprintln!("    <s><r!>=</r!> {msg}");
+    ceprintln!("    <s,r!>|</>");
 
     for frame in stack {
         print_frame(frame);

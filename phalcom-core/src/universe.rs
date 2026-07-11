@@ -15,7 +15,7 @@ use crate::primitive::symbol::{symbol_class_new, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print};
 use crate::primitive::ClassName;
 use crate::primitive::ObjectName;
-use crate::string::{phstring_new, StringObject};
+use crate::string::{phstring_new, PhString, StringObject};
 use crate::vm::VM;
 use phalcom_common::{phref_new, MaybeWeak, PhRef};
 use std::cell::RefCell;
@@ -198,40 +198,24 @@ pub struct CoreClasses {
     pub system_class: PhRef<ClassObject>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PrimitiveNames {
-    pub nil: PhRef<StringObject>,
-    pub bool_: PhRef<StringObject>,
-    pub true_: PhRef<StringObject>,
-    pub false_: PhRef<StringObject>,
-    pub number: PhRef<StringObject>,
-    pub string: PhRef<StringObject>,
-    pub symbol: PhRef<StringObject>,
-    pub object: PhRef<StringObject>,
-    pub method: PhRef<StringObject>,
-    pub class: PhRef<StringObject>,
-    pub metaclass: PhRef<StringObject>,
-    pub system: PhRef<StringObject>,
+    pub nil: PhString,
+    pub bool_: PhString,
+    pub true_: PhString,
+    pub false_: PhString,
+    pub number: PhString,
+    pub string: PhString,
+    pub symbol: PhString,
+    pub object: PhString,
+    pub method: PhString,
+    pub class: PhString,
+    pub metaclass: PhString,
+    pub system: PhString,
 }
 
 impl PrimitiveNames {
-    pub fn bool_name(&self, b: bool) -> PhRef<StringObject> {
+    pub fn bool_name(&self, b: bool) -> PhString {
         if b { self.true_.clone() } else { self.false_.clone() }
-    }
-}
-
-impl std::fmt::Debug for PrimitiveNames {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PrimitiveNames")
-            .field("nil", &"PhRef<StringObject>")
-            .field("bool_", &"PhRef<StringObject>")
-            .field("number", &"PhRef<StringObject>")
-            .field("string", &"PhRef<StringObject>")
-            .field("symbol", &"PhRef<StringObject>")
-            .field("object", &"PhRef<StringObject>")
-            .field("method", &"PhRef<StringObject>")
-            .field("class", &"PhRef<StringObject>")
-            .field("metaclass", &"PhRef<StringObject>")
-            .finish()
     }
 }

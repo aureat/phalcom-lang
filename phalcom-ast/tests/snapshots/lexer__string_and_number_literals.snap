@@ -1,0 +1,23 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(r#\"let s = \"hello\" let n = 3.14\"#)"
+---
+[
+    Let,
+    Identifier(
+        "s",
+    ),
+    Equal,
+    String(
+        "hello",
+    ),
+    Let,
+    Identifier(
+        "n",
+    ),
+    Equal,
+    Number(
+        3.14,
+    ),
+    Eof,
+]

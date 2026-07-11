@@ -49,7 +49,7 @@ impl Signature {
 ///
 /// # Examples
 /// ```
-/// use phalcom_vm::method::{make_signature, SignatureKind};
+/// use phalcom_core::method::{make_signature, SignatureKind};
 /// assert_eq!(
 ///     make_signature("foo", SignatureKind::Method(3)),
 ///     "foo(_,_,_)"
@@ -140,12 +140,12 @@ impl MethodObject {
         Self::new(selector, sig_kind, MethodKind::Primitive(primitive), holder)
     }
 
-    pub fn make_name(holder: PhRef<ClassObject>, selector: &str) -> PhRef<StringObject> {
+    pub fn make_name(holder: PhRef<ClassObject>, selector: &str) -> PhString {
         let name = holder.borrow().name_copy().add("::").add(selector);
         phref_new(StringObject::from_string(name))
     }
 
-    pub fn make_weak_name(holder: PhWeakRef<ClassObject>, selector: &str) -> PhRef<StringObject> {
+    pub fn make_weak_name(holder: PhWeakRef<ClassObject>, selector: &str) -> PhString {
         let name = holder
             .upgrade()
             .map_or_else(|| String::from("Unknown"), |c| c.borrow().name_copy())
@@ -175,10 +175,13 @@ impl MethodObject {
         phstring_new(name.to_string())
     }
 
-    pub fn to_phalcom_string(&self, vm: &VM) -> PhRef<StringObject> {
+    pub fn to_debug(&self, vm: &VM) -> String {
         let name = vm.resolve_symbol(self.signature.selector);
-        let holder_name = self.holder.upgrade().map_or_else(|| String::from("Unknown"), |c| c.borrow().name_copy());
-        let full_name = format!("{}::{}", holder_name, name);
-        phstring_new(full_name)
+        let holder_name = self
+            .holder
+            .upgrade()
+            .map_or_else(|| panic!("this shouldn't happen"), |c| c.borrow().name_copy());
+        let full_name = format!("<method {}::{}>", holder_name, name);
+        full_name
     }
 }

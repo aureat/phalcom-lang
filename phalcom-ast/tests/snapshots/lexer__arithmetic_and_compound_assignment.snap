@@ -1,0 +1,26 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"total += a * b - c / 2\")"
+---
+[
+    Identifier(
+        "total",
+    ),
+    PlusEqual,
+    Identifier(
+        "a",
+    ),
+    Asterisk,
+    Identifier(
+        "b",
+    ),
+    Minus,
+    Identifier(
+        "c",
+    ),
+    Slash,
+    Number(
+        2.0,
+    ),
+    Eof,
+]

@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "./target/debug/phalcom": true,
+        "printf": true,
+        "graphify": true,
+        "cargo run": true
+    }
+}

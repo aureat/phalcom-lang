@@ -1,7 +1,7 @@
 use crate::disasm;
 use anyhow::{bail, Context, Result};
 use clap::{arg, command, Args, Parser, Subcommand, ValueHint};
-use phalcom_core::compiler::lib::{compile, CompilerError};
+use phalcom_core::compiler::lib::CompilerError;
 use phalcom_core::vm::VM;
 use std::{fs, path::PathBuf};
 
@@ -76,11 +76,10 @@ pub struct DisasmArgs {
 pub fn cmd_run(cli: Cli) -> Result<()> {
     let source = read_source(cli.path, cli.source)?;
     let mut vm = VM::new();
-    let closure = compile(&mut vm, &source)?;
-    let module = vm.create_module_from_str("<main>", &source);
-    match vm.run_module(module, closure) {
-        Ok(value) => println!("{value}"),
-        Err(e) => eprintln!("{e}"),
+    let module = vm.create_module("main", "<main>");
+    let closure = vm.compile_closure(module.clone(), &source)?;
+    if let Err(e) = vm.run_in_module(module, closure) {
+        eprintln!("{e}");
     }
     Ok(())
 }
@@ -97,9 +96,7 @@ pub fn cmd_tokenize(args: TokenizeArgs) -> Result<()> {
 
 pub fn cmd_parse(args: ParseArgs) -> Result<()> {
     let source = read_source(args.path, args.source)?;
-    let parser = phalcom_ast::parser::ProgramParser::new();
-    let lexer = phalcom_ast::lexer::Lexer::new(&source);
-    let program = parser.parse(lexer).map_err(CompilerError::from)?;
+    let program = phalcom_ast::parse_source(&source, 0).map_err(CompilerError::from)?;
     println!("{program:#?}");
     Ok(())
 }

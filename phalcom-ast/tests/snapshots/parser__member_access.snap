@@ -1,0 +1,30 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"x.y\")"
+---
+Program {
+    statements: [
+        Expr {
+            expr: GetProperty(
+                GetPropertyExpr {
+                    object: Var {
+                        value: "x",
+                        range: CopyRange {
+                            start: 0,
+                            end: 1,
+                        },
+                    },
+                    property: "y",
+                    range: CopyRange {
+                        start: 0,
+                        end: 3,
+                    },
+                },
+            ),
+            range: CopyRange {
+                start: 0,
+                end: 3,
+            },
+        },
+    ],
+}

@@ -1,0 +1,26 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"\\n\\nlet x = 1\\n  \\n\")"
+---
+Program {
+    statements: [
+        Let(
+            LetBinding {
+                name: "x",
+                value: Some(
+                    Number {
+                        value: 1.0,
+                        range: CopyRange {
+                            start: 10,
+                            end: 11,
+                        },
+                    },
+                ),
+                range: CopyRange {
+                    start: 2,
+                    end: 11,
+                },
+            },
+        ),
+    ],
+}

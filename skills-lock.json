@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "skills": {
+    "documentation-and-adrs": {
+      "source": "addyosmani/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/documentation-and-adrs/SKILL.md",
+      "computedHash": "1c1b33b3c8ff1d5f9fdcf9d8a7a67f82384b3224e88af567fd4688f3f2d9e85b"
+    },
+    "fuzzing-dictionary": {
+      "source": "trailofbits/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/testing-handbook-skills/skills/fuzzing-dictionary/SKILL.md",
+      "computedHash": "bc271ce9708ea69c70fd2372bf8df359b00d41996b289106f058f74e9ab245aa"
+    },
+    "fuzzing-obstacles": {
+      "source": "trailofbits/skills",
+      "sourceType": "github",
+      "skillPath": "plugins/testing-handbook-skills/skills/fuzzing-obstacles/SKILL.md",
+      "computedHash": "c9d9339e6c7404c62ab4ee0cec3f634efdcaad082ec2d7bddd158d026911e158"
+    },
+    "parser-development": {
+      "source": "biomejs/biome",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/parser-development/SKILL.md",
+      "computedHash": "5a781a6022ad5674e756920a95311d29422821081348e01e8676f15b5c5617a9"
+    },
+    "rust-best-practices": {
+      "source": "apollographql/skills",
+      "sourceType": "github",
+      "skillPath": "skills/rust-best-practices/SKILL.md",
+      "computedHash": "fd336f2f772eb46ddf8658de5f9dd8faa1f35615b316665307fc82eeb4b2e658"
+    },
+    "rust-sanitizers-miri": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/rust/rust-sanitizers-miri/SKILL.md",
+      "computedHash": "40dd6e8743eb7cab2c02f70c9019967856975efd273700f31f0ace6fc2740ccb"
+    },
+    "rust-testing": {
+      "source": "affaan-m/everything-claude-code",
+      "sourceType": "github",
+      "skillPath": "skills/rust-testing/SKILL.md",
+      "computedHash": "9a8f2bb0e7aa498b56af699e4673fd3ec1f50c5cfe9019c86dc80a93ccd08e66"
+    },
+    "technical-specification": {
+      "source": "secondsky/claude-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/technical-specification/skills/technical-specification/SKILL.md",
+      "computedHash": "65caf4c219b720549a924929c448e949ef0cd2cac1b05c2b86c55916fc22c594"
+    }
+  }
+}

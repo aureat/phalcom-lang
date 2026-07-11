@@ -1,0 +1,24 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"let x = 1 // trailing comment\\nlet y = 2\")"
+---
+[
+    Let,
+    Identifier(
+        "x",
+    ),
+    Equal,
+    Number(
+        1.0,
+    ),
+    Newline,
+    Let,
+    Identifier(
+        "y",
+    ),
+    Equal,
+    Number(
+        2.0,
+    ),
+    Eof,
+]

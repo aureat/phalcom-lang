@@ -51,4 +51,6 @@ impl CallFrame {
     pub fn closure(&self) -> PhRef<ClosureObject> {
         self.closure.clone()
     }
+
+    // pub fn
 }

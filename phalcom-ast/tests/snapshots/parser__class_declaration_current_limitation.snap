@@ -1,0 +1,5 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"class Point {}\")"
+---
+Err: SyntaxError { kind: UnrecognizedToken { token: "", expected: ["newline"] }, range: 14..14 }

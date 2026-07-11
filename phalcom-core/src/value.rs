@@ -1,13 +1,12 @@
-use crate::class::{ClassObject, lookup_method_in_hierarchy};
+use crate::class::{lookup_method_in_hierarchy, ClassObject};
 use crate::frame::CallContext;
 use crate::instance::InstanceObject;
 use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::module::ModuleObject;
-use crate::primitive::ClassName;
-use crate::string::{StringObject, phstring_new};
+use crate::string::{phstring_new, PhString, StringObject};
 use crate::vm::VM;
-use phalcom_common::{PhRef, phref_new};
+use phalcom_common::{phref_new, PhRef};
 use std::fmt::Debug;
 use std::fmt::{self, Display};
 use std::hash::{Hash, Hasher};
@@ -18,7 +17,7 @@ pub enum Value {
     Nil,
     Bool(bool),
     Number(f64),
-    String(PhRef<StringObject>),
+    String(PhString),
     Symbol(Symbol),
     Instance(PhRef<InstanceObject>),
     Class(PhRef<ClassObject>),
@@ -85,19 +84,19 @@ impl Value {
 
     pub fn type_name(&self) -> &'static str {
         match self {
-            Value::Nil => "Nil",
-            Value::Bool(_) => ClassName::Bool,
-            Value::Number(_) => "Number",
-            Value::String(_) => "String",
-            Value::Symbol(_) => "Symbol",
-            Value::Class(_) => "Class",
-            Value::Instance(_) => "Instance",
-            Value::Method(_) => "Method",
-            Value::Module(_) => "Module",
+            Value::Nil => "nil",
+            Value::Bool(_) => "bool",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Symbol(_) => "symbol",
+            Value::Class(_) => "class",
+            Value::Instance(_) => "object",
+            Value::Method(_) => "method",
+            Value::Module(_) => "module",
         }
     }
 
-    pub fn name(&self, vm: &VM) -> PhRef<StringObject> {
+    pub fn name(&self, vm: &VM) -> PhString {
         match self {
             Value::Nil => vm.universe.primitive_names.nil.clone(),
             Value::Bool(_) => vm.universe.primitive_names.bool_.clone(),
@@ -125,31 +124,31 @@ impl Value {
         }
     }
 
-    pub fn name_str(&self, _vm: &VM) -> &str {
-        match self {
-            Value::Nil => "Nil",
-            Value::Bool(_) => "Bool",
-            Value::Number(_) => "Number",
-            Value::String(_) => "String",
-            Value::Symbol(_) => "Symbol",
-            Value::Instance(_) => "Instance",
-            Value::Class(_) => "Class",
-            Value::Method(_) => "Method",
-            Value::Module(_) => "Module",
-        }
-    }
-
-    pub fn to_string(&self, vm: &VM) -> PhRef<StringObject> {
+    pub fn to_debug(&self, vm: &VM) -> PhString {
         match self {
             Value::Nil => vm.universe.primitive_names.nil.clone(),
             Value::Bool(b) => vm.universe.primitive_names.bool_name(*b),
             Value::Number(n) => phstring_new(n.to_string()),
             Value::String(s) => s.clone(),
-            Value::Symbol(s) => phstring_new(format!("Symbol({})", s.0)),
-            Value::Instance(instance) => instance.borrow().to_string(),
-            Value::Class(class) => class.borrow().to_string(),
-            Value::Method(method) => method.borrow().to_phalcom_string(vm),
-            Value::Module(module) => module.borrow().to_phalcom_string(),
+            Value::Symbol(s) => phstring_new(s.to_debug()),
+            Value::Instance(instance) => phstring_new(instance.borrow().to_debug()),
+            Value::Class(class) => phstring_new(class.borrow().to_debug()),
+            Value::Method(method) => phstring_new(method.borrow().to_debug(vm)),
+            Value::Module(module) => phstring_new(module.borrow().to_debug()),
+        }
+    }
+
+    pub fn to_string(&self, vm: &VM) -> PhString {
+        match self {
+            Value::Nil => vm.universe.primitive_names.nil.clone(),
+            Value::Bool(b) => vm.universe.primitive_names.bool_name(*b),
+            Value::Number(n) => phstring_new(n.to_string()),
+            Value::String(s) => s.clone(),
+            Value::Symbol(s) => phstring_new(s.to_string(vm)),
+            Value::Instance(instance) => phstring_new(instance.borrow().to_debug()),
+            Value::Class(class) => phstring_new(class.borrow().to_debug()),
+            Value::Method(method) => phstring_new(method.borrow().to_debug(vm)),
+            Value::Module(module) => phstring_new(module.borrow().to_debug()),
         }
     }
 
@@ -228,7 +227,7 @@ impl Display for Value {
             Self::Number(n) => write!(f, "{n}"),
             Self::String(s) => write!(f, "\"{}\"", s.borrow().value()),
             Self::Symbol(s) => write!(f, "Symbol({})", s.0),
-            Self::Instance(_) => write!(f, "<instance>"),
+            Self::Instance(_) => write!(f, "<object>"),
             Self::Class(c) => write!(f, "<class {}>", c.borrow().name().borrow().value()),
             Self::Method(_) => write!(f, "<method>"),
             Self::Module(_) => write!(f, "<module>"),

@@ -1,13 +1,13 @@
 class Person {
   static new(name, age) {
-    let instance = self.new();
+    let instance = self.new(); // super.new()
     instance.init(name, age);
     return instance;
   }
 
-  init(name, age) {
-    _name = name;
-    _age = age;
+  construct new(name:, age:) {
+    _name = name
+    _age = age
   }
 
   name {

@@ -1,0 +1,5 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse_display(\"let = \")"
+---
+Expected identifier (at bytes 4..5)

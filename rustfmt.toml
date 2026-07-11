@@ -1,1 +1,7 @@
+# Formatting is enforced in CI via `cargo fmt --all --check`.
+# Only stable rustfmt options are used here so the check passes on the stable
+# toolchain (nightly-only options like `imports_granularity` / `group_imports`
+# are intentionally omitted).
+edition = "2024"
 max_width = 160
+newline_style = "Unix"

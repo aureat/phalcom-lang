@@ -1,8 +1,8 @@
+use crate::closure::ClosureObject;
 use crate::error::{PhResult, RuntimeError};
 use crate::interner::Symbol;
-use crate::string::{phstring_new, PhString, StringObject};
+use crate::string::{phstring_new, PhString};
 use crate::value::Value;
-use crate::vm::VM;
 use phalcom_common::PhRef;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ use std::sync::Arc;
 pub const MAX_GLOBALS: usize = 1 << 16; // = 65,536
 
 pub const CORE_MODULE_NAME: &str = "core";
+pub const MAIN_MODULE_NAME: &str = "main";
 
 pub type ModuleId = u32;
 
@@ -24,28 +25,31 @@ pub fn next_module_id() -> ModuleId {
 
 #[derive(Debug)]
 pub struct ModuleObject {
-    pub name: PhRef<StringObject>,
     pub name_sym: Symbol,
+    pub name: PhString,
+    pub path: String,
+    pub source: Option<Arc<String>>,
+    pub closure: Option<PhRef<ClosureObject>>,
     pub globals: RefCell<Vec<Value>>,
     pub name_to_slot: RefCell<HashMap<Symbol, usize>>,
-    pub source: Option<Arc<String>>,
 }
 
 impl ModuleObject {
     /// Creates an *empty* module.  The caller must register it in
     /// `vm.modules` to keep it alive.
-    pub fn new(vm: &mut VM, name: Symbol, source: Option<Arc<String>>) -> Self {
-        let name_str = vm.resolve_symbol(name).to_string();
+    pub fn new(name: PhString, name_sym: Symbol, path: String, source: Option<Arc<String>>) -> Self {
         Self {
-            name: phstring_new(name_str),
-            name_sym: name,
+            name,
+            name_sym,
+            path,
+            closure: None,
             globals: RefCell::new(Vec::new()),
             name_to_slot: RefCell::new(HashMap::new()),
             source,
         }
     }
 
-    pub fn name(&self) -> PhRef<StringObject> {
+    pub fn name(&self) -> PhString {
         self.name.clone()
     }
 
@@ -55,13 +59,17 @@ impl ModuleObject {
         self.name_sym
     }
 
-    pub fn to_phalcom_string(&self) -> PhString {
-        phstring_new(format!("<module {}>", self.name.borrow().as_str()))
+    pub fn add_closure(&mut self, closure: PhRef<ClosureObject>) {
+        self.closure = Some(closure);
     }
 
-    // ---------------------------------------------------------------------
-    //  Declaration / definition
-    // ---------------------------------------------------------------------
+    pub fn to_debug_ph(&self) -> PhString {
+        phstring_new(self.to_debug())
+    }
+
+    pub fn to_debug(&self) -> String {
+        format!("<module {}>", self.name.borrow().as_str())
+    }
 
     /// Reserves a slot for a top‑level variable (may already exist).
     ///
@@ -91,10 +99,6 @@ impl ModuleObject {
         self.set_global(slot, value)?;
         Ok(slot)
     }
-
-    // ---------------------------------------------------------------------
-    //  Access
-    // ---------------------------------------------------------------------
 
     /// `None` if the name does not exist *yet*.
     #[inline]
