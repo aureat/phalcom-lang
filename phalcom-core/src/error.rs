@@ -67,8 +67,19 @@ pub enum RuntimeError {
     #[error("Expected {expected}, got {found}")]
     Type { expected: &'static str, found: &'static str },
 
-    #[error("Method '{selector}' not found for value '{value}'")]
-    MethodNotFound { selector: String, value: String },
+    /// A message send found no matching method anywhere on the receiver's
+    /// class chain and was forwarded to `doesNotUnderstand(_:)`, whose default
+    /// implementation ([`object_does_not_understand`](crate::primitive::object::object_does_not_understand))
+    /// raises this.
+    ///
+    /// This is the *observable* miss behavior (method-lookup.md §2, ADR-0012),
+    /// replacing the retired `MethodNotFound`: the miss is now a real,
+    /// overridable send a subclass can intercept, and this variant is only what
+    /// the *default* handler raises. `selector` is the encoded selector string
+    /// (`method.rs::encode_selector`); `receiver` is the receiver's surface
+    /// rendering ([`Value::to_string`](crate::value::Value::to_string)).
+    #[error("{receiver} does not understand '{selector}'")]
+    MessageNotUnderstood { selector: String, receiver: String },
 
     #[error("Unsupported operation '{op}' for {value}")]
     UnsupportedOperation { op: &'static str, value: String },

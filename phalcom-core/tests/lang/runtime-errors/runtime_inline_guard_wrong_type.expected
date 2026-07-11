@@ -1,1 +1,1 @@
-Method 'ifTrue(_:ifFalse:)' not found for value '5'
+5 does not understand 'ifTrue(_:ifFalse:)'

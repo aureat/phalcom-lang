@@ -30,7 +30,10 @@ use crate::primitive::nil::{option_match, some_new};
 use crate::primitive::number::{
     number_add, number_class_new, number_div, number_ge, number_gt, number_le, number_lt, number_mod, number_mul, number_negated, number_sub,
 };
-use crate::primitive::object::{object_class, object_class_new, object_eq, object_name, object_neq, object_set_class};
+use crate::primitive::object::{
+    message_args, message_labels, message_name, message_selector, object_class, object_class_new, object_does_not_understand, object_eq, object_name,
+    object_neq, object_perform, object_perform_with, object_responds_to, object_set_class,
+};
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
 use crate::primitive::string::{string_add, string_class_new};
@@ -161,6 +164,14 @@ impl Universe {
         // anything that will depend on it (`Message.args`/rest-params, U8/U9).
         let list_class = make_core_class(heap, "List", object_class, metaclass_class);
 
+        // Kernel `Message` (method-lookup.md §2, ADR-0012): the reified miss
+        // send handed to `doesNotUnderstand(_:)`. An ordinary fixed-slot
+        // `InstanceObject` (four slots: selector/name/labels/args) built
+        // directly in Rust by `VM::new_message` — no `.ph` `construct`, its
+        // field count is stamped in `VM::new` mirroring `Some`. Its accessors
+        // are native primitives (`primitive/object.rs`).
+        let message_class = make_core_class(heap, "Message", object_class, metaclass_class);
+
         CoreClasses {
             object_class,
             behavior_class,
@@ -181,6 +192,7 @@ impl Universe {
             none_class,
             none_singleton,
             list_class,
+            message_class,
         }
     }
 
@@ -220,6 +232,25 @@ impl Universe {
         // U5 (control-flow.md §1): `==`/`!=` are ordinary sends, not opcodes.
         primitive!(vm, object_cls, "==", SignatureKind::Method(1), object_eq);
         primitive!(vm, object_cls, "!=", SignatureKind::Method(1), object_neq);
+        // Reflective-send + miss-handler surface (U8, messages-and-selectors.md
+        // §5, method-lookup.md §2, ADR-0012). `doesNotUnderstand(_:)` is the
+        // terminal miss fallback the `Bytecode::Invoke` handler forwards to;
+        // it is an ordinary overridable method so a proxy subclass can
+        // intercept. `respondsTo(_:)` is a pure probe that never triggers dNU.
+        primitive!(vm, object_cls, "perform", SignatureKind::Method(1), object_perform);
+        primitive!(vm, object_cls, "perform", SignatureKind::Method(2), object_perform_with);
+        primitive!(vm, object_cls, "respondsTo", SignatureKind::Method(1), object_responds_to);
+        primitive!(vm, object_cls, "doesNotUnderstand", SignatureKind::Method(1), object_does_not_understand);
+
+        // `Message` accessors (U8): native getters reading the reified-send
+        // slots directly (`VM::new_message`); `Message` has no `.ph` surface.
+        // `name` deliberately shadows `Object::name` on a `Message` receiver —
+        // it returns the sent *method* name, not the class name.
+        let message_cls = vm.universe.classes.message_class;
+        primitive!(vm, message_cls, "selector", SignatureKind::Getter, message_selector);
+        primitive!(vm, message_cls, "name", SignatureKind::Getter, message_name);
+        primitive!(vm, message_cls, "labels", SignatureKind::Getter, message_labels);
+        primitive!(vm, message_cls, "args", SignatureKind::Getter, message_args);
 
         let behavior_cls = vm.universe.classes.behavior_class;
         primitive!(vm, behavior_cls, "superclass", SignatureKind::Getter, class_superclass);
@@ -530,4 +561,10 @@ pub struct CoreClasses {
     /// A dedicated [`crate::heap::Object::List`] heap variant, not an
     /// `InstanceObject` — see [`crate::list::ListObject`].
     pub list_class: ClassId,
+    /// `Message`, the reified message-send handed to `doesNotUnderstand(_:)`
+    /// on a lookup miss (method-lookup.md §2, ADR-0012). An ordinary
+    /// fixed-slot [`InstanceObject`](crate::instance::InstanceObject) built by
+    /// [`VM::new_message`](crate::vm::VM::new_message); its four slots hold
+    /// `selector`/`name`/`labels`/`args`.
+    pub message_class: ClassId,
 }
