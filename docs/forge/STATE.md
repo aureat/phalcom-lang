@@ -15,12 +15,12 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). **U-FE DONE** ✅ green — hand-written lexer+parser landed, LALRPOP removed from phalcom-ast (ADR-0016). **NEXT = commit green base → U1 heap.** Then spine U2–U7. |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), **U1 ✅ landed `6515ea3`** — handle/arena heap + tagged Value (ADR-0009/0010), sliced impl (4 fresh subagents) + independent `phalcom-reviewer` gate (caught+fixed a Symbol/Module `==` regression); LALRPOP fully gone. **NEXT = U2 (metaclass tower + `verify_invariants()`), plan ready ([U2-plan.md](U2-plan.md)).** Then U4→U5→U6→U7. |
 
-## U1 dispatch (2026-07-11) — plan ready, user dispatching to another agent
-- Graph refreshed (`graphify update . --no-cluster` → no code-graph changes; prior session's refresh current).
-- `./scripts/verify.sh` re-confirmed **green** ("all lanes green"; 24 pre-existing clippy warns in phalcom-core, non-fatal — U1 fixes the ones in files it rewrites).
-- **[`U1-plan.md`](U1-plan.md) written** = dispatch-ready work order for one `phalcom-implementer`. Confirmed write-set via `graphify affected` on HEAD; adds 3 files the staging brief missed: `chunk.rs`, `interpret.rs`, `tests/invariants.rs` (the last `imports_from PhRef`). DEFERRED #1 folded in. Runs IN-TREE (not a worktree — U1 runs alone). Load-bearing → `phalcom-reviewer` gate after.
+## U1 — LANDED ✅ (2026-07-11, `6515ea3`)
+- Migrated off `Rc<RefCell>`/`PhRef` → `slotmap`-backed `Heap` (Copy `ObjRef`/`ClassId`) + tagged `Value` (ADR-0009/0010). VM owns `Heap`; allocate-then-patch bootstrap; RefCell double-borrow panic surface removed. F2 preserved observationally (U2's job). DEFERRED #1 closed (LALRPOP gone from workspace). `verify.sh` green, goldens byte-identical, `cargo doc` clean.
+- **Working model that worked:** implemented in an isolated worktree `feat/u1-heap` off `main`, sliced across **4 fresh subagents** (never let one grind to huge context — see memory `subagent-context-handoff`), each committing a checkpoint + `U1-progress.md` handoff. Independent `phalcom-reviewer` BLOCKED on a `Symbol`/`Module` `==`/`!=` semantics regression (`value_eq` fell through to derived `PartialEq`); a scoped fresh fixer restored `main`'s semantics; re-verified + merged (squash) + worktree deleted.
+- **Reviewer-blessed deviation:** compiler allocates constants directly via `&mut VM` into the one VM-owned `Heap` (not the plan's heap-free descriptor approach) — sound for U1 (single heap, VM-lifetime handles); "true heap-free compiler" deferred.
 
 ## U-FE follow-ups (note for next session)
 - U-FE edited `phalcom-core/bin/phalcom/cli.rs` (1 line — the sole build blocker, migrating off the deleted `ProgramParser` to `parse_source`). Out of its declared write-set but reported; spot-check it.
