@@ -1489,8 +1489,12 @@ mod tests {
     #[test]
     fn recovers_and_reports_multiple_errors() {
         // Two broken top-level statements must both be reported, not just the
-        // first — error recovery synchronises between them.
-        let result = parse("let =\n1 +\n", 0);
+        // first — error recovery synchronises between them. Each line must end
+        // in a token that *can* end a statement (a number here) so the
+        // separating newline is not suppressed by D3's continuation rule
+        // (`lexer::suppresses_following_newline`); a line ending in an operator
+        // would legitimately continue onto the next.
+        let result = parse("let 9\nlet 9\n", 0);
         assert!(
             result.errors.len() >= 2,
             "expected at least two recovered errors, got {:?}",

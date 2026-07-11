@@ -52,6 +52,17 @@ pub struct Lexer<'input> {
     last_end: usize,
     /// Whether the single injected [`Token::Eof`] has already been yielded.
     eof_emitted: bool,
+    /// The last non-[`Token::Newline`] token emitted, driving newline
+    /// suppression (D3).
+    ///
+    /// A newline that immediately follows a token which *cannot end a
+    /// statement* (an operator, an opener, a separator — see
+    /// [`suppresses_following_newline`]) is swallowed as trivia instead of
+    /// being emitted, so a trailing-operator continuation like `1 +\n2` lexes
+    /// as one expression. This is a lexer-level state machine, **not** parser
+    /// ASI: the parser sees fewer newlines and its terminator logic is left
+    /// untouched. See `docs/spec/lexical-structure.md` §1.
+    last_significant: Option<Token>,
 }
 
 impl<'input> Lexer<'input> {
@@ -63,6 +74,7 @@ impl<'input> Lexer<'input> {
             pos: 0,
             last_end: 0,
             eof_emitted: false,
+            last_significant: None,
         }
     }
 
@@ -354,32 +366,111 @@ impl<'input> Lexer<'input> {
     }
 }
 
+/// Returns whether a newline immediately following `prev` should be suppressed.
+///
+/// The rule (D3, `docs/spec/lexical-structure.md` §1) is one-sided: it keys on
+/// the **previous** significant token only. Suppression fires exactly when
+/// `prev` *cannot end a statement* — an arithmetic/comparison/logical/assignment
+/// operator, an [`Option`](Token::CoalesceQuestion) operator, an opener or
+/// separator (`(`, `{`, `[`, `,`, `.`, `::`, `:`), or an arrow (`->`, `=>`).
+/// After any token that *can* end a statement — an identifier, a literal, a
+/// closer (`)`, `}`, `]`), `self`/`super`/`true`/`false`, or a
+/// `return`/`break`/`continue` keyword — the newline is preserved so it still
+/// terminates the statement.
+///
+/// This is deliberately scoped to operators and punctuation: statement
+/// keywords such as `let`/`if`/`class` are **not** suppressors. Leading-operator
+/// continuation (`foo\n.bar`) is intentionally unsupported — the rule never
+/// inspects the *next* token.
+fn suppresses_following_newline(prev: &Token) -> bool {
+    matches!(
+        prev,
+        // Arithmetic.
+        Token::Plus
+            | Token::Minus
+            | Token::Asterisk
+            | Token::Slash
+            | Token::Percent
+            // Comparison.
+            | Token::EqualEqual
+            | Token::BangEqual
+            | Token::Less
+            | Token::LessEqual
+            | Token::Greater
+            | Token::GreaterEqual
+            // Logical keywords.
+            | Token::And
+            | Token::Or
+            | Token::Not
+            // Assignment.
+            | Token::Equal
+            | Token::PlusEqual
+            | Token::MinusEqual
+            | Token::AsteriskEqual
+            | Token::SlashEqual
+            | Token::PercentEqual
+            // `Option` operators (ADR-0007).
+            | Token::CoalesceQuestion
+            | Token::QuestionDot
+            // Openers and separators.
+            | Token::Comma
+            | Token::LParen
+            | Token::LBrace
+            | Token::LBracket
+            | Token::Dot
+            | Token::ColonColon
+            | Token::Colon
+            // Arrows.
+            | Token::Arrow
+            | Token::FatArrow
+    )
+}
+
 impl Iterator for Lexer<'_> {
     type Item = Spanned<Token, usize, LexicalError>;
 
     /// Yields the next token, or the single injected [`Token::Eof`] once the
     /// source is exhausted, then `None`.
+    ///
+    /// Newlines that follow a token which cannot end a statement are suppressed
+    /// here (D3) via [`suppresses_following_newline`], so a trailing-operator
+    /// continuation spans multiple physical lines as one logical construct.
     fn next(&mut self) -> Option<Self::Item> {
-        if let Err(err) = self.skip_trivia() {
-            return Some(Err(err));
-        }
-
-        if self.pos >= self.bytes.len() {
-            if self.eof_emitted {
-                return None;
+        loop {
+            if let Err(err) = self.skip_trivia() {
+                return Some(Err(err));
             }
-            self.eof_emitted = true;
-            return Some(Ok((self.last_end, Token::Eof, self.last_end)));
-        }
 
-        let start = self.pos;
-        match self.scan_token() {
-            Ok(token) => {
-                let end = self.pos;
-                self.last_end = end;
-                Some(Ok((start, token, end)))
+            if self.pos >= self.bytes.len() {
+                if self.eof_emitted {
+                    return None;
+                }
+                self.eof_emitted = true;
+                return Some(Ok((self.last_end, Token::Eof, self.last_end)));
             }
-            Err(err) => Some(Err(err)),
+
+            let start = self.pos;
+            match self.scan_token() {
+                Ok(Token::Newline)
+                    if self
+                        .last_significant
+                        .as_ref()
+                        .is_some_and(suppresses_following_newline) =>
+                {
+                    // Swallow the newline as trivia and scan the next token; the
+                    // previous significant token cannot end a statement.
+                    continue;
+                }
+                Ok(token) => {
+                    let end = self.pos;
+                    self.last_end = end;
+                    if token != Token::Newline {
+                        self.last_significant = Some(token.clone());
+                    }
+                    return Some(Ok((start, token, end)));
+                }
+                Err(err) => return Some(Err(err)),
+            }
         }
     }
 }

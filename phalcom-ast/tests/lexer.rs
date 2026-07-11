@@ -71,6 +71,20 @@ fn block_comment_is_skipped() {
 }
 
 #[test]
+fn newline_after_operator_is_suppressed() {
+    // D3: a `\n` after `+` (which cannot end a statement) is swallowed, so
+    // `a +\nb` lexes as one expression with no interior `Token::Newline`.
+    insta::assert_debug_snapshot!(tokens("a +\nb"));
+}
+
+#[test]
+fn newline_after_value_is_preserved() {
+    // D3 guard: `a\nb` keeps its `Token::Newline` — an identifier can end a
+    // statement, so the newline still terminates it.
+    insta::assert_debug_snapshot!(tokens("a\nb"));
+}
+
+#[test]
 fn numeric_digit_separators() {
     // `_` separators (D2) are stripped before decoding: `1_000_000` reads as
     // `1000000.0`, and `_` works on both sides of the decimal point.

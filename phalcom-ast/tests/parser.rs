@@ -34,7 +34,12 @@ fn recovers_across_multiple_broken_statements() {
     // The hand-written parser synchronises at statement boundaries, so a file
     // with several syntax errors reports each one instead of stopping at the
     // first. Snapshot the recovered messages to pin the recovery behaviour.
-    let result = phalcom_ast::parse("let =\n1 +\nreturn )\n", 0);
+    //
+    // Each line ends in a token that *can* end a statement (a number or a `)`)
+    // so the separating newline survives D3's continuation rule
+    // (`lexer::suppresses_following_newline`) and the statements stay distinct;
+    // lines ending in an operator would legitimately be joined.
+    let result = phalcom_ast::parse("let 9\nreturn )\nlet 9\n", 0);
     let rendered: Vec<String> = result.errors.iter().map(ToString::to_string).collect();
     assert!(
         result.errors.len() >= 3,

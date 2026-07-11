@@ -1,0 +1,14 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"a\\nb\")"
+---
+[
+    Identifier(
+        "a",
+    ),
+    Newline,
+    Identifier(
+        "b",
+    ),
+    Eof,
+]

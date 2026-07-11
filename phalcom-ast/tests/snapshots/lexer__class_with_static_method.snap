@@ -8,7 +8,6 @@ expression: "tokens(\"class Point {\\n  static origin { self }\\n}\")"
         "Point",
     ),
     LBrace,
-    Newline,
     Static,
     Identifier(
         "origin",
