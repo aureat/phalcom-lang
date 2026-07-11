@@ -10,6 +10,18 @@ class String {}
 
 class Bool {}
 
+// The boolean tower (ADR-0004): `Bool` is abstract; `True` and `False` are its
+// two concrete singleton subclasses — the surface classes of `true`/`false`
+// (so `true.class == True`). Their control-flow behaviour (`not`/`and`/`or`/
+// `ifTrue`/`ifFalse`/`ifTrue:ifFalse:`) lives on `Bool` as sacred native
+// primitives and is reached by inheritance (KEEP; see floor-census.md §2.6/§5),
+// so these bodies are intentionally empty. The globals are already bound in Rust
+// (VM::install_core, add_class!) — unlike `None`, they name the class objects,
+// so these reopens re-emit the identical DefineGlobal binding (a harmless no-op).
+class True {}
+
+class False {}
+
 class Symbol {}
 
 // Absence is an Option (ADR-0007), not a surface `nil`. `Option` is abstract;
