@@ -503,7 +503,7 @@ impl VM {
                     let selector_sym = selector_val.as_symbol().unwrap();
 
                     if let Some(method) = receiver.lookup_method(self, selector_sym) {
-                        self.call_method(&receiver, method, arity, source_range);
+                        self.call_method(&receiver, method, arity, source_range)?;
                     } else {
                         let selector_name = self.resolve_symbol(selector_sym);
                         let receiver_name = receiver.to_string(self);
@@ -524,11 +524,11 @@ impl VM {
                     self.stack.truncate(popped_ref.stack_offset);
                     self.stack.push(return_value);
                 }
-                Bytecode::Add => binary_op!(+, "+(_)", source_range),
-                Bytecode::Subtract => binary_op!(-, "-(_)", source_range),
-                Bytecode::Multiply => binary_op!(*, "*(_)", source_range),
-                Bytecode::Divide => binary_op!(/, "/(_)", source_range),
-                Bytecode::Modulo => binary_op!(%, "%(_)", source_range),
+                Bytecode::Add => binary_op!(+, "+(_:)", source_range),
+                Bytecode::Subtract => binary_op!(-, "-(_:)", source_range),
+                Bytecode::Multiply => binary_op!(*, "*(_:)", source_range),
+                Bytecode::Divide => binary_op!(/, "/(_:)", source_range),
+                Bytecode::Modulo => binary_op!(%, "%(_:)", source_range),
                 Bytecode::Equal => {
                     let b = self.pop()?;
                     let a = self.pop()?;
@@ -539,12 +539,12 @@ impl VM {
                     let a = self.pop()?;
                     self.stack.push(Value::Bool(a != b));
                 }
-                Bytecode::Greater => binary_op!(>, ">( _)", source_range),
-                Bytecode::GreaterEqual => binary_op!(>=, ">=(_)", source_range),
-                Bytecode::Less => binary_op!(<, "<(_)", source_range),
-                Bytecode::LessEqual => binary_op!(<=, "<=(_)", source_range),
-                Bytecode::And => binary_op!(&&, "and(_)", source_range),
-                Bytecode::Or => binary_op!(||, "or(_)", source_range),
+                Bytecode::Greater => binary_op!(>, ">(_:)", source_range),
+                Bytecode::GreaterEqual => binary_op!(>=, ">=(_:)", source_range),
+                Bytecode::Less => binary_op!(<, "<(_:)", source_range),
+                Bytecode::LessEqual => binary_op!(<=, "<=(_:)", source_range),
+                Bytecode::And => binary_op!(&&, "and(_:)", source_range),
+                Bytecode::Or => binary_op!(||, "or(_:)", source_range),
                 Bytecode::Negate => {
                     let val = self.pop()?;
                     if let Value::Number(num) = val {
