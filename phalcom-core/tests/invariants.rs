@@ -63,6 +63,44 @@ fn sentinel_surfaces_to_none_and_never_survives_as_nil() {
 }
 
 #[test]
+fn expression_result_absence_surfaces_to_none() {
+    // U6 Invariant 4 (values-and-absence.md §3; ADR-0007/ADR-0010): an absent
+    // *expression result* — one produced by a surface-reachable primitive whose
+    // value flows into an arg or `print` without crossing a `Get*` read boundary
+    // — must be the `None` singleton, never the raw `Value::Nil` sentinel. This
+    // exercises the reviewer's leak set at the Value level by calling each fixed
+    // primitive directly (`run_in_module` discards the top-level result, so it
+    // cannot observe the value; the four programs' printed forms are pinned by
+    // the `absence` golden corpus). The inliner's `Bytecode::Nil` result site
+    // shares its target with these primitives — see those goldens.
+    use phalcom_core::primitive::boolean::{bool_if_false, bool_if_true};
+    use phalcom_core::primitive::class::class_superclass;
+    use phalcom_core::primitive::system::system_class_print;
+
+    let mut vm = VM::new();
+    let none = vm.universe.classes.none_singleton;
+    let is_none = |value: Value, label: &str| {
+        assert!(!matches!(value, Value::Nil), "{label} leaked the raw sentinel");
+        assert!(matches!(value, Value::Obj(id) if id == none), "{label} should yield the None singleton");
+    };
+
+    // A dummy block arg that is never invoked: the untaken branch returns
+    // without calling `args[0]`, so any placeholder value is safe here.
+    let unused_block = Value::Number(0.0);
+
+    // `false.ifTrue { .. }` / `true.ifFalse { .. }` — branch not taken.
+    is_none(bool_if_true(&mut vm, &Value::Bool(false), &[unused_block]).expect("ifTrue"), "false.ifTrue");
+    is_none(bool_if_false(&mut vm, &Value::Bool(true), &[unused_block]).expect("ifFalse"), "true.ifFalse");
+
+    // `System.print(_)` — surface-reachable send result.
+    is_none(system_class_print(&mut vm, &Value::Number(1.0), &[Value::Number(1.0)]).expect("print"), "System.print");
+
+    // `Object.superclass` — the root class has no superclass.
+    let object = Value::Obj(vm.universe.classes.object_class);
+    is_none(class_superclass(&mut vm, &object, &[]).expect("superclass"), "Object.superclass");
+}
+
+#[test]
 #[should_panic(expected = "Invariant 4")]
 fn some_construction_never_wraps_the_sentinel() {
     // `some_new` asserts its argument is never the private sentinel — `None`
@@ -70,6 +108,18 @@ fn some_construction_never_wraps_the_sentinel() {
     // a hypothetical internal surfacing bug; feeding it in must trip the guard.
     let mut vm = VM::new();
     let _ = some_new(&mut vm, &Value::Number(0.0), &[Value::Nil]);
+}
+
+#[test]
+fn some_can_wrap_the_none_singleton() {
+    // The guard forbids only the raw `Value::Nil` sentinel — the `None`
+    // singleton is an ordinary object value, so `Some.new(None)` is legal
+    // (a present `Option` whose payload happens to be absence). This confirms
+    // the guard keys on the sentinel, not on "absence" in the abstract.
+    let mut vm = VM::new();
+    let none = Value::Obj(vm.universe.classes.none_singleton);
+    let result = some_new(&mut vm, &Value::Number(0.0), &[none]);
+    assert!(result.is_ok(), "Some.new(None) must succeed — None is a legal Some payload");
 }
 
 #[test]

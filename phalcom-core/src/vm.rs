@@ -20,7 +20,6 @@ use crate::heap::{ClassId, Heap, ObjRef, Object};
 use crate::interner::{Interner, Symbol};
 use crate::method::MethodKind;
 use crate::module::{ModuleObject, CORE_MODULE_NAME};
-use crate::nil::NIL;
 use crate::universe::Universe;
 use crate::upvalue::Upvalue;
 use crate::value::Value;
@@ -444,6 +443,19 @@ impl VM {
         crate::value::sentinel_to_option(value, self.universe.classes.none_singleton)
     }
 
+    /// Returns the shared `None` singleton as a [`Value`] (the surface absence
+    /// value).
+    ///
+    /// This is the value every opcode and surface-reachable primitive yields to
+    /// signal "no value" — the private [`Value::Nil`] sentinel is never handed
+    /// to user code (Invariant 4, [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+    /// It is `None`-identity-stable and zero-allocation because it reuses the
+    /// process-wide [`CoreClasses::none_singleton`](crate::universe::CoreClasses::none_singleton).
+    #[inline]
+    pub(crate) fn none_value(&self) -> Value {
+        Value::Obj(self.universe.classes.none_singleton)
+    }
+
     /// Runs the dispatch loop until the call stack empties, returning the result.
     ///
     /// # Errors
@@ -528,12 +540,18 @@ impl VM {
                     let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
                     self.stack.push(Value::Obj(block));
                 }
-                // `Bytecode::Nil` is internal-only: it pushes the private
-                // sentinel to *back* an uninitialized slot (e.g. a `var x` with
-                // no initializer). It has no surface syntax and the value it
-                // pushes is surfaced to `None` when later read (see the `Get*`
-                // handlers). See [`Bytecode::Nil`]'s rustdoc.
-                Bytecode::Nil => self.stack.push(NIL),
+                // `Bytecode::Nil` pushes the `None` singleton (the surface
+                // absence value), never the raw private sentinel. It is emitted
+                // both to seed uninitialized slots (e.g. a `var x` with no
+                // initializer) and as the result of sacred-inlined one-armed
+                // control flow (`ifTrue`, `ifFalse`, `whileTrue`), whose value
+                // can flow straight into an arg or `print` without crossing a
+                // read boundary — so it must already be `None` here (Invariant 4,
+                // [ADR-0007]). The raw `Value::Nil` sentinel is never pushed by
+                // any opcode; it only backs unread allocator storage and is
+                // surfaced to `None` at reads (see the `Get*` handlers and
+                // `surface_absence`). See [`Bytecode::Nil`]'s rustdoc.
+                Bytecode::Nil => self.stack.push(self.none_value()),
                 Bytecode::True => self.stack.push(TRUE),
                 Bytecode::False => self.stack.push(FALSE),
                 Bytecode::Pop => {

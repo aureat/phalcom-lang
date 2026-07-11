@@ -5,18 +5,21 @@ pub enum Bytecode {
     /// 0: index in the constant pool.
     Constant(u16),
 
-    /// Pushes the **private** `nil` sentinel
-    /// ([`crate::value::Value::Nil`], [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md))
-    /// onto the stack.
+    /// Pushes the `None` singleton — the surface absence value
+    /// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)) — onto the
+    /// stack. It **never** pushes the private [`crate::value::Value::Nil`]
+    /// sentinel ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)).
     ///
-    /// Retained for **internal sentinel use only** — it backs an uninitialized
-    /// slot (e.g. a `var x` with no initializer) until that slot is written.
-    /// There is **no surface syntax** for it: U6 removed the `nil` literal, and
-    /// any value it pushes is surfaced to `None`
-    /// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)) at the read
-    /// boundaries in `vm.rs` (`GetLocal`/`GetGlobal`/`GetField`/`GetUpvalue`,
-    /// the `Return` default), so the sentinel can never reach user code
-    /// (Invariant 4).
+    /// Emitted both to seed an uninitialized slot (e.g. a `var x` with no
+    /// initializer) and as the result of sacred-inlined one-armed control flow
+    /// (`ifTrue`/`ifFalse`/`whileTrue`). Because such a result can flow straight
+    /// into an argument or `print` without crossing a read boundary, this opcode
+    /// yields `None` directly rather than a raw sentinel that a later read would
+    /// surface. There is **no surface syntax** for it: U6 removed the `nil`
+    /// literal. The raw `Value::Nil` sentinel is never pushed by any opcode — it
+    /// only backs unread allocator storage and is surfaced to `None` at reads
+    /// (the `Get*` handlers and the `Return` default in `vm.rs`), so it can
+    /// never reach user code (Invariant 4).
     Nil,
 
     /// Pushes the boolean value `true` onto the stack.

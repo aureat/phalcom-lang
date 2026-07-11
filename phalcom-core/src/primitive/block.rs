@@ -12,7 +12,6 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::frame::CallContext;
 use crate::heap::Object;
-use crate::nil::NIL;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -119,8 +118,10 @@ pub fn block_call_with(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
 /// `Bool`, raises a type error (this is Phalcom's "no truthiness" floor —
 /// there is no generic coercion, only `Bool` may drive a branch). Loops
 /// while the condition is `true`, calling `args[0]` (the body) each pass and
-/// discarding its result; returns the private `nil` sentinel on normal exit
-/// (U5 guardrail — U6 reroutes this to `None`). This is what the inliner's
+/// discarding its result; returns the `None` singleton (surface absence value)
+/// on normal exit, matching the sacred inliner's `Bytecode::Nil` result site
+/// (Invariant 4, [ADR-0007](../../../docs/adr/0007-option-some-none.md)). This
+/// is what the inliner's
 /// `GuardBlock` deopt path sends to
 /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
 ///
@@ -135,7 +136,7 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             return Err(RuntimeError::Type { expected: "Bool", found: cond.type_name() }.into());
         };
         if !cond {
-            return Ok(NIL);
+            return Ok(vm.none_value());
         }
         block_call(vm, &args[0], &[])?;
     }

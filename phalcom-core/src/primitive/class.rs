@@ -8,7 +8,12 @@ use crate::primitive::expect_class;
 use crate::value::Value;
 use crate::vm::VM;
 
-/// Signature: `Class::superclass` — returns the receiver's superclass, or `nil`.
+/// Signature: `Class::superclass` — returns the receiver's superclass, or
+/// `None` for the root class (which has no superclass).
+///
+/// The absent-superclass case yields the `None` singleton, not the raw `nil`
+/// sentinel: the result flows directly to user code (Invariant 4,
+/// [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
 ///
 /// # Errors
 ///
@@ -17,7 +22,7 @@ pub fn class_superclass(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     let class_id = expect_class(vm, receiver)?;
     match vm.heap.class(class_id).superclass {
         Some(superclass) => Ok(Value::Obj(superclass)),
-        None => Ok(Value::Nil),
+        None => Ok(vm.none_value()),
     }
 }
 

@@ -11,7 +11,6 @@
 
 use crate::boolean::{FALSE, TRUE};
 use crate::error::{PhResult, RuntimeError};
-use crate::nil::NIL;
 use crate::primitive::block::block_call;
 use crate::primitive::expect_class;
 use crate::value::Value;
@@ -98,9 +97,11 @@ pub fn bool_not(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Val
 /// Signature: `Bool::ifTrue(_)` — sacred one-armed conditional.
 ///
 /// Calls and returns `args[0]`'s block result when the receiver is `true`;
-/// otherwise returns the private `nil` sentinel (the "no branch taken"
-/// placeholder — U6 reroutes every such surface `nil` to `None`, U5 leaves
-/// it as-is per its guardrails).
+/// otherwise returns the `None` singleton (the "no branch taken" surface
+/// absence value). This is the non-inlined fallback for `ifTrue`, and it is
+/// observationally equal to the sacred inliner, whose `Bytecode::Nil` result
+/// site also yields `None` (Invariant 4,
+/// [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
 ///
 /// # Errors
 ///
@@ -109,19 +110,20 @@ pub fn bool_if_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     if expect_bool(receiver)? {
         block_call(vm, &args[0], &[])
     } else {
-        Ok(NIL)
+        Ok(vm.none_value())
     }
 }
 
 /// Signature: `Bool::ifFalse(_)` — sacred one-armed conditional, mirror of
-/// [`bool_if_true`] for the `false` branch.
+/// [`bool_if_true`] for the `false` branch. Returns the `None` singleton when
+/// the receiver is `true` (no branch taken).
 ///
 /// # Errors
 ///
 /// See [`bool_and`].
 pub fn bool_if_false(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if expect_bool(receiver)? {
-        Ok(NIL)
+        Ok(vm.none_value())
     } else {
         block_call(vm, &args[0], &[])
     }

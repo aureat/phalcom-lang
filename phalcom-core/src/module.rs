@@ -103,6 +103,9 @@ impl ModuleObject {
         }
 
         self.name_to_slot.insert(name, cur);
+        // Storage default only: a freshly-declared global slot backs its value
+        // with the private sentinel until written. Never read raw — the
+        // `GetGlobal` handler surfaces it to `None` (Invariant 4).
         self.globals.push(Value::Nil);
         Ok(cur)
     }
