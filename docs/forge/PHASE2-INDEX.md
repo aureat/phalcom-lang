@@ -33,8 +33,8 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 | U9 | [U9-plan.md](U9-plan.md) / [U9-implementation-spec.md](U9-implementation-spec.md) · **✅ LANDED** (see STATE.md) | variadics — rest params `*xs`, `SignatureKind::Variadic`/`(*)` selector, call-prologue rest-arg collapse, derived-selector miss probe (reused `ClassObject.methods`, no new table) | 0012amd · messages-and-selectors.md §4 | — (reviewer OFF per policy) |
 | U10 | [U10-plan.md](U10-plan.md) / [U10-implementation-spec.md](U10-implementation-spec.md) · **✅ LANDED** (see STATE.md) | non-local return — `return` inside a block unwinds to the home method via frame token (`Bytecode::ReturnNonLocal` + eager unwind + `DeadFrameError`) | 0013 · blocks.md §5 | — (reviewer OFF per policy) |
 | U11 | [U11-plan.md](U11-plan.md) | Bool tower: abstract `Bool` + singleton `True`/`False` | 0004 | — |
-| U-LEX | [U-LEX-plan.md](U-LEX-plan.md) | surface-syntax delta vs lexical-structure.md (comments, interp, `?.`/`??`) | 0016 · lexical-structure.md | — |
-| U-STD | [U-STD-plan.md](U-STD-plan.md) | grow `core.ph` base-class method surface (Object/Number/String/Symbol/System) | class specs | — |
+| U-LEX | [U-LEX-plan.md](U-LEX-plan.md) / [U-LEX-implementation-spec.md](U-LEX-implementation-spec.md) · **✅ LANDED (2026-07-12)** (see STATE.md) | surface-syntax delta: block comments `/* … */`, digit separators `1_000_000`, lexer-level newline suppression, `?.`/`??` coverage (U6-landed, fixture only), `\(expr)` string interpolation | 0016 · **0022** · lexical-structure.md | — (reviewer OFF per policy) |
+| U-STD | ✅ **LANDED (2026-07-12)** [U-STD-implementation-spec.md](U-STD-implementation-spec.md) | **Built Option (B) per user ratification** — the `Option`+`List` combinator layer (map/flatMap/filter/ifSome/unwrapOr; map/reduce/filter/includes/isEmpty/at(_:put:)), pure `.ph`, zero new primitives. The plan's Object/Number/String/Symbol/System scope was ~90% already-landed or re-carved to future `U-CORE-N` (see DEFERRED #29). | catalog-delta §2.2/§2.4 | — |
 
 Reviewer ON = load-bearing → independent `phalcom-reviewer` gate (STATE.md policy): **U1, U2, U4, U6**.
 
@@ -96,7 +96,7 @@ _Each unit's bulk proceeds regardless; only the named sub-feature waits._
 | **DEC-C** ✅ **RESOLVED (user, 2026-07-11 → Option A, landed with U6)** | U6 | **How is `if(opt)` a compile error?** No static/flow analysis exists; general static detection impossible. | **(A)** runtime no-coercion floor (branch opcode requires `Bool`; Option never implements branch protocol) **+** compile-time rejection of *syntactically-literal* Option conditions. **→ shipped as [ADR-0021](../adr/0021-no-truthiness-enforcement.md).** |
 | **DEC-D** ✅ **RESOLVED + IMPLEMENTED (user, 2026-07-11; landed with U7, `f38e591`)** | U7 | **Class-side _stored_ static fields** were unspecified (ADR-0011 "static" = instance layout, not class-side state — naming collision). | **→ INCLUDE in U7 (option A): apply ADR-0011 up the tower** — class object gets its own `static_slots` indexed by a per-*metaclass* field table. [ADR-0017](../adr/0017-class-side-stored-static-fields.md) **Accepted** and landed: `static_slots` + metaclass field table wired, offset-stability-up-the-tower proven (`subclass_static_field_offset_stability`). See U7-plan §3, STATE.md "U7 — LANDED". |
 | **DEC-E** | U5 / U-LEX | **Who owns `if`/`while`/`for` surface parsing?** No control-flow AST node exists today. Sets the U5↔U-LEX write-set boundary in `phalcom-ast`. | **U5 owns** tightly-scoped parse-time desugaring to block sends (adds `phalcom-ast` to U5's write-set). |
-| **DEC-F** | U-LEX | **String-interpolation sigil** (open-Q5): `{expr}` / `${expr}` / `\(expr)`. | **(a) `{expr}`** (spec §5 default). Ratify Q5 → short ADR, then implement. |
+| **DEC-F** ✅ **RESOLVED (user, 2026-07-12 → `\(expr)`, overriding the architect's `{expr}` recommendation)** | U-LEX | **String-interpolation sigil** (open-Q5): `{expr}` / `${expr}` / `\(expr)`. | User ratified **`\(expr)`** (Swift-style). Requires a new ADR + rewriting `pending/lexical_string_interpolation.ph` and spec §5's `{expr}` examples off the old sigil before U-LEX's D4 slice builds. |
 
 Soft flags (architect can proceed on the recommendation; confirm if you disagree):
 - **U8:** ✅ **RESOLVED (landed 2026-07-12).** `perform` primitive-only; spread call sites `f(*args)` deferred to U9. The `Bytecode::SendDynamic` opcode was **also** deferred to U9 (nothing emits/decodes it this unit) — U8 shipped the `VM::send_dynamic` helper only (DEFERRED #21).
@@ -111,7 +111,7 @@ Soft flags (architect can proceed on the recommendation; confirm if you disagree
 | **ADR-0012 amendment** — variadic dispatch-table key + `_...` selector spelling | amendment | U9 | before U9 (DEC-B) |
 | **ADR-0021** — no-truthiness enforcement (typed branch floor + literal-only compile check) | ✅ landed | U6 | landed with U6 (DEC-C = Option A) |
 | **Class-side field storage on the metaclass instance** (ADR-0011 up the tower) | new ADR (**REQUIRED**, DEC-D=A) | U7 | **before** U7's static-stored-field slice |
-| String-interpolation syntax (open-Q5) | new ADR | U-LEX | before U-LEX D4 (DEC-F) |
+| **ADR-0022** — string-interpolation `\(expr)` sigil (open-Q5, ratified `\(expr)` 2026-07-12) | ✅ landed | U-LEX | landed with U-LEX D4 (DEC-F resolved) |
 | Collection-literal lowering `(a,b)`/`[…]`/`{a:1}` | new ADR | (deferred; needs List) | with collections unit |
 | **ADR-0008 amendment note** — `MessageNotUnderstood` = default-dNU raise | note | U8 | with U8 |
 | **ADR-0002 pointer note** — `Rc::new_cyclic` superseded by 0009 handle-patching | fold-in edit | U2 | with U2 |
