@@ -47,6 +47,15 @@ Wave F+1 (parallel):           U9 ‖ U11
 U8** (`Message.args`/`labels`, `perform(_:List)`) **and U9** (rest-params collect into a `List`). Schedule
 it at the **spine tail, before Wave F**. It edits `core.ph` + `primitive/mod.rs` (+ maybe `list.rs`) →
 **never co-schedule with another `core.ph` editor.**
+
+**U-LIST storage design gate (NEW, 2026-07-11):** DEC-A's *scheduling* call ("land List first") is
+resolved, but its *storage design* is pinned by [ADR-0020](../adr/0020-kernel-list-native-array-protocol.md)
+(native `Vec<Value>` behind the handle/arena `Heap`, six floor primitives, protocol authored in `.ph`),
+which — along with the floor it depends on, [ADR-0019](../adr/0019-freeze-vm-blessed-primitive-floor.md)
+(freeze the VM-blessed primitive floor) — is still **Status: Proposed**, not Accepted. Mirrors the U7
+DEC-D→ADR-0017 pattern: **do not start U-LIST implementation until ADR-0019 + ADR-0020 are ratified
+(Accepted)** by the user. U7 steps 1–7 (instance fields + `construct`) do not depend on this and can
+proceed regardless.
 `core.ph` is a single shared file edited additively along U6 → U-STD → U11 — the wave order
 already serializes those touches; **never co-schedule two `core.ph` editors**.
 
@@ -74,7 +83,7 @@ Other latent hazards:
 _Each unit's bulk proceeds regardless; only the named sub-feature waits._
 | ID | Unit | Decision | Architect recommendation |
 |---|---|---|---|
-| **DEC-A** ✅ **RESOLVED (user, 2026-07-11)** | U8, U9, U-STD | **Kernel `List` unscheduled but a hard dep** of dNU (`Message.args`) and rest-params. | **→ Land a minimal `List` unit (U-LIST) first**, at the spine tail before Wave F. On the critical path for U8 + U9. See §2 + U8-plan §3. |
+| **DEC-A** ✅ **RESOLVED (user, 2026-07-11)** — storage design sub-gate ⏳ **AWAITING ADR-0019/0020 ratification** | U8, U9, U-STD | **Kernel `List` unscheduled but a hard dep** of dNU (`Message.args`) and rest-params. | **→ Land a minimal `List` unit (U-LIST) first**, at the spine tail before Wave F. On the critical path for U8 + U9. See §2 + U8-plan §3. Storage design now pinned by [ADR-0020](../adr/0020-kernel-list-native-array-protocol.md) (Proposed) — ratify before implementing. |
 | **DEC-B** | U9 | **Variadic dispatch table key** — messages §4 (`key by (name, min_arity)`) isn't implementable as written (a call of arity K needs `min ≤ K`, an exact-tuple hash can't answer). | Key by **bare name**, reject a 2nd same-name variadic at definition time. Ratify via **ADR-0012 amendment**. |
 | **DEC-C** ✅ **RESOLVED (user, 2026-07-11 → Option A, landed with U6)** | U6 | **How is `if(opt)` a compile error?** No static/flow analysis exists; general static detection impossible. | **(A)** runtime no-coercion floor (branch opcode requires `Bool`; Option never implements branch protocol) **+** compile-time rejection of *syntactically-literal* Option conditions. **→ shipped as [ADR-0021](../adr/0021-no-truthiness-enforcement.md).** |
 | **DEC-D** ✅ **RESOLVED (user, 2026-07-11)** | U7 | **Class-side _stored_ static fields** were unspecified (ADR-0011 "static" = instance layout, not class-side state — naming collision). | **→ INCLUDE in U7 (option A): apply ADR-0011 up the tower** — class object gets its own `static_slots` indexed by a per-*metaclass* field table. **Requires a NEW ADR authored first** ("class-side field storage on the metaclass instance"); the static-stored-field slice lands behind that ADR. Instance fields + `construct` proceed regardless. See U7-plan §3. |

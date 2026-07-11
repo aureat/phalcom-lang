@@ -103,12 +103,20 @@ name string in `primitive/mod.rs:66`). U5/U6 do **not** provide it. **The user c
 serves both.
 
 **New unit — U-LIST (prerequisite, schedule before U8; blocks U8 and U9):**
-- **Scope (deliberately minimal):** a kernel `class List` in `core.ph` backed by a primitive storage type
-  (a Rust `Vec<Value>` behind an `ObjRef`, or a dedicated `ListObject` heap variant — implementer's call,
-  ADR-0009 handles). Surface: construction (from a Rust `Vec<Value>` at the primitive boundary), `at(_:)`
-  index, `size`/`length`, `add(_:)`/append, iteration (`each(_:)` via block send — U4 blocks are landed),
-  and `toString`. **No** map/reduce/filter/slicing/literals yet — those belong to the full collections
-  unit (U-STD). Just enough for `Message` + `perform` + U9 rest-params.
+- **STOP — storage design now gated on ADR ratification.** [ADR-0020](../adr/0020-kernel-list-native-array-protocol.md)
+  (kernel `List` is a native-array-backed protocol) pins the storage design below and
+  [ADR-0019](../adr/0019-freeze-vm-blessed-primitive-floor.md) (freeze the VM-blessed primitive floor) is
+  its dependency — both landed **2026-07-11** but are **Status: Proposed**, not Accepted. Mirrors U7's
+  DEC-D→ADR-0017 gate: do not dispatch U-LIST implementation until the user ratifies both to Accepted.
+- **Scope (deliberately minimal, per ADR-0020 — no longer "implementer's call"):** a kernel `class List` in
+  `core.ph`, storage **pinned to a native growable array**: a Rust `Vec<Value>` behind the handle/arena
+  `Heap` (ADR-0009) — no `Rc`/`RefCell`, GC-ready like any other heap object. Six floor primitives:
+  allocate, length, indexed get, indexed set, push, raw-capacity grow. Everything else — `at(_:)`, `size`,
+  `add(_:)`, `each(_:)` (via block send — U4 blocks are landed), `toString` — is **ordinary `.ph` dispatched
+  over those six primitives**, per ADR-0020's "hybrid: native primitives, self-defined control"
+  (`OrderedCollection`-shape) design, load-ordered immediately above the VM-blessed floor, before
+  `Message.args`/rest-params. **No** map/reduce/filter/slicing/literals yet — those belong to the full
+  collections unit (U-STD). Just enough for `Message` + `perform` + U9 rest-params.
 - **Why not fold into U8:** keeps U8 a pure dispatch unit and gives U9 the same `List` without a second
   build. If scheduling forbids a separate unit, the fallback is U8 option (b) — a minimal internal list it
   ships and a later unit supersedes — but **(a) is the ratified path.**
