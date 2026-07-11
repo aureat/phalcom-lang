@@ -24,7 +24,53 @@
 //! [`Heap`]: phalcom_core::heap::Heap
 //! [`Heap::class`]: phalcom_core::heap::Heap::class
 
+use phalcom_core::primitive::nil::some_new;
+use phalcom_core::value::{sentinel_to_option, Value};
 use phalcom_core::vm::VM;
+
+#[test]
+fn surface_nil_is_unreachable_from_user_code() {
+    // U6 Invariant 4 (values-and-absence.md §3;
+    // [ADR-0007](../../docs/adr/0007-option-some-none.md) /
+    // [ADR-0010](../../docs/adr/0010-tagged-value-enum.md)): the private
+    // `Value::Nil` sentinel has no surface syntax. U6 removes the `nil`
+    // keyword, so `nil` is merely an undefined identifier — no user program can
+    // name, print, or compare the sentinel; it fails to compile instead.
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "surface_nil_is_unreachable_from_user_code");
+    // Compile + run directly (rather than `interpret_source`, whose diagnostic
+    // path renders source spans) so the assertion is on the result, not on
+    // reporting. `nil` is an undefined identifier, so the program errors.
+    let result = vm.compile_closure(module, "System.print(nil)\n").and_then(|closure| vm.run_in_module(module, closure));
+    assert!(result.is_err(), "surface `nil` must not resolve to any value — it is an undefined identifier");
+}
+
+#[test]
+fn sentinel_surfaces_to_none_and_never_survives_as_nil() {
+    // The read-boundary surfacer (`sentinel_to_option`) converts the private
+    // sentinel to the shared `None` singleton, one-directionally. An
+    // uninitialized slot therefore reads as `None`, never the raw `Value::Nil`,
+    // and a non-sentinel value passes through untouched.
+    let vm = VM::new();
+    let none = vm.universe.classes.none_singleton;
+
+    let surfaced = sentinel_to_option(Value::Nil, none);
+    assert!(!matches!(surfaced, Value::Nil), "the sentinel must not survive surfacing");
+    assert!(matches!(surfaced, Value::Obj(id) if id == none), "the sentinel must surface to the None singleton");
+
+    let passthrough = sentinel_to_option(Value::Number(1.0), none);
+    assert!(matches!(passthrough, Value::Number(n) if n == 1.0), "non-sentinel values must pass through unchanged");
+}
+
+#[test]
+#[should_panic(expected = "Invariant 4")]
+fn some_construction_never_wraps_the_sentinel() {
+    // `some_new` asserts its argument is never the private sentinel — `None`
+    // can never end up inside a `Some`. The raw sentinel is only reachable from
+    // a hypothetical internal surfacing bug; feeding it in must trip the guard.
+    let mut vm = VM::new();
+    let _ = some_new(&mut vm, &Value::Number(0.0), &[Value::Nil]);
+}
 
 #[test]
 fn verify_invariants_holds_after_bootstrap() {

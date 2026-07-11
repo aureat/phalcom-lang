@@ -5,7 +5,7 @@
 // upvalue to a closed (heap-owned) one when `makeCounter`'s frame returns, so
 // the escaped block keeps working and keeps incrementing shared state.
 let makeCounter = {
-  let count = 0
+  var count = 0
   { count = count + 1 }
 }
 

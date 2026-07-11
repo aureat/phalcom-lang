@@ -16,10 +16,10 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 
 ## Summary
 
-- **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, concurrency,
-  control-flow, dispatch, errors, functions, lexical, messages, metaclass,
+- **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, compile-errors,
+  concurrency, control-flow, dispatch, errors, functions, lexical, messages, metaclass,
   runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 56 · NEGATIVE 9 · PENDING 52 · **total 117**.
+- **Case counts:** PASS 57 · NEGATIVE 13 · PENDING 52 · **total 122**.
 - Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
   under `-- --ignored` and are expected to fail until their feature is implemented.
 - Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`.
@@ -29,17 +29,18 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | Label | PASS | NEG | PEND | Harness | Spec anchor |
 |---|---:|---:|---:|---|---|
 | arithmetic | 12 | – | – | `check_pass` | values-and-absence.md; messages-and-selectors.md; control-flow.md |
-| lexical | 11 | – | 7 | `check_pass` + `check_pending` | lexical-structure.md; values-and-absence.md; selectors.md |
+| lexical | 10 | – | 7 | `check_pass` + `check_pending` | lexical-structure.md; values-and-absence.md; selectors.md |
 | classes | 10 | – | 10 | `check_pass` + `check_pending` | classes.md; object-model.md; ADR-0011; ADR-0017 |
 | messages | 7 | – | 2 | `check_pass` + `check_pending` | messages-and-selectors.md; selectors.md; object-model.md |
-| system | 5 | – | 2 | `check_pass` + `check_pending` | system.md |
+| system | 4 | – | 2 | `check_pass` + `check_pending` | system.md |
 | bindings | 3 | – | 2 | `check_pass` + `check_pending` | values-and-absence.md; open-questions.md; ADR-0014 |
 | control-flow | 3 | – | 5 | `check_pass` + `check_pending` | control-flow.md; blocks.md |
 | dispatch | 3 | – | 5 | `check_pass` + `check_pending` | messages-and-selectors.md; method-lookup.md; object-model.md |
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
 | runtime-errors | – | 4 | – | `check_negative` | messages-and-selectors.md; method-lookup.md |
-| absence | – | – | 5 | `check_pending` | values-and-absence.md; selectors.md |
+| compile-errors | – | 4 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007 |
+| absence | 3 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | – | – | 2 | `check_pending` | control-flow.md |
 | concurrency | – | – | 2 | `check_pending` | concurrency.md |
@@ -53,7 +54,7 @@ Every document in `docs/spec/` maps to at least one label:
 | Spec doc | Labels |
 |---|---|
 | lexical-structure.md | lexical, syntax-errors |
-| values-and-absence.md | arithmetic, bindings, absence |
+| values-and-absence.md | arithmetic, bindings, absence, compile-errors |
 | object-model.md | metaclass, dispatch, classes |
 | blocks.md | blocks, control-flow |
 | functions.md | functions |
@@ -86,3 +87,12 @@ cargo test -p phalcom-core --test lang -- --ignored  # PENDING spec targets (exp
 - Adding a case: drop `<name>.ph` + `<name>.expected` in the label dir (or `pending/`);
   create the label dir first if new (a missing dir panics `collect_cases`), and wire the
   label in `../lang.rs` if it has no `check_*` test yet.
+- U6 (absence → `Option` + `let`/`var`): surface `nil` was removed, so the old
+  `lexical_nil_prints` / `system_print_nil` PASS cases became the single
+  `compile-errors/compile_error_surface_nil` NEGATIVE (they were byte-identical), and the
+  former `binding_let_reassignment` PASS became `compile_error_let_reassignment` (reassigning
+  a `let` is now a compile error). The `compile-errors` lane holds compile-time semantic
+  diagnostics (surface `nil`, `let` no-initializer, `let` reassignment, `Option` truthiness).
+  The `absence`/`bindings` `pending/` cases stay pending: they pin the final surface (a pretty
+  `None` printString and `Some(x)` sugar) that U-STD/later units deliver, not U6's substrate
+  output (`<None instance>`, `Some.new(_)`).

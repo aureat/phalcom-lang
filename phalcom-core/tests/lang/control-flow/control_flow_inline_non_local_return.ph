@@ -8,7 +8,7 @@
 
 class Runner {
   static firstMatch {
-    let i = 0
+    var i = 0
     while (i < 10) {
       if (i == 3) { return i }
       i = i + 1

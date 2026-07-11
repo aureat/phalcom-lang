@@ -8,13 +8,13 @@
 System.print(if (3 > 2) { "yes" } else { "no" })
 System.print((3 > 2).ifTrue({ "yes" }, ifFalse: { "no" }))
 
-let i = 0
+var i = 0
 while (i < 2) {
   System.print(i)
   i = i + 1
 }
 
-let j = 0
+var j = 0
 { j < 2 }.whileTrue {
   System.print(j)
   j = j + 1

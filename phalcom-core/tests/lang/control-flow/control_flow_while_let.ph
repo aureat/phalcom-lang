@@ -2,9 +2,11 @@
 // spec: control-flow.md
 // status: PASS
 // U5: `while (cond) { body }` desugars to `{ cond }.whileTrue { body }`
-// (control-flow.md §1/§3). Uses `let` (not `var`) since `var` lands in U6.
+// (control-flow.md §1/§3). U6: the loop counter is reassigned, so it is a
+// mutable `var` binding (ADR-0014); a `let` here would be an AssignToImmutable
+// compile error.
 
-let i = 0
+var i = 0
 while (i < 3) {
   System.print(i)
   i = i + 1

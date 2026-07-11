@@ -94,9 +94,24 @@ fn runtime_errors() {
 }
 
 #[test]
-#[ignore = "PENDING: absence/Option — U6"]
 fn absence() {
+    // U6: absence is `Option` (`Some`/`None`) — the shared `None` singleton,
+    // `Some.new(_)` construction, and the `match(some:none:)` eliminator.
+    support::check_pass("absence");
+}
+
+#[test]
+#[ignore = "spec target: absence — prettier printString + Some(x) sugar are U-STD"]
+fn absence_pending() {
     support::check_pending("absence");
+}
+
+#[test]
+fn compile_errors() {
+    // U6: compile-time diagnostics — surface `nil` is undefined, `let` requires
+    // an initializer and rejects reassignment (ADR-0014), and a literal
+    // `Option` condition has no truth value (BD-U6-1 Option A).
+    support::check_negative("compile-errors");
 }
 
 #[test]
