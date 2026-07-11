@@ -22,7 +22,7 @@
 //! See `docs/spec/lexical-structure.md` for the target lexical grammar; this
 //! scanner implements the subset the parser currently accepts.
 
-use crate::token::{LexicalError, Token};
+use crate::token::{LexicalError, StringSegment, Token};
 
 /// A lexer result item: `Ok((start, token, end))` on success or `Err` on a
 /// scan failure.
@@ -274,26 +274,104 @@ impl<'input> Lexer<'input> {
 
     /// Scans a double-quoted string literal, stripping the surrounding quotes.
     ///
-    /// Any byte except `"` is accepted in the body (including newlines), at
-    /// parity with the previous `"[^"]*"` lexeme.
+    /// A string with no `\(…)` interpolation lexes to [`Token::String`], at
+    /// parity with the previous `"[^"]*"` lexeme (any byte except `"` accepted
+    /// in the body, including newlines). A string containing at least one
+    /// `\(expr)` interpolation lexes to [`Token::StringInterp`] carrying ordered
+    /// [`StringSegment`]s (ADR-0022, `docs/spec/lexical-structure.md` §5):
+    ///
+    /// * `\(` … `)` delimits an interpolated expression (balanced parentheses).
+    /// * `\\` is a literal backslash, so `\\(` is a literal `\(` (no
+    ///   interpolation).
+    /// * Any other `\x` is left verbatim as a literal `\` then `x`, preserving
+    ///   the pre-interpolation behaviour where `"\n"` was two literal
+    ///   characters.
     ///
     /// # Errors
     ///
     /// Returns [`LexicalError::UnterminatedString`] if end-of-input is reached
-    /// before the closing quote.
+    /// before the closing quote — including inside an unterminated `\(…`
+    /// interpolation.
     fn scan_string(&mut self) -> Result<Token, LexicalError> {
         let open = self.pos;
         self.pos += 1;
-        let content_start = self.pos;
-        while let Some(b) = self.peek_at(0) {
-            if b == b'"' {
-                let value = self.input[content_start..self.pos].to_string();
-                self.pos += 1;
-                return Ok(Token::String(value));
+        let mut segments: Vec<StringSegment> = Vec::new();
+        let mut literal = String::new();
+        let mut interpolated = false;
+        loop {
+            match self.peek_at(0) {
+                None => return Err(LexicalError::UnterminatedString(open..self.pos)),
+                Some(b'"') => {
+                    self.pos += 1;
+                    if !interpolated {
+                        return Ok(Token::String(literal));
+                    }
+                    if !literal.is_empty() {
+                        segments.push(StringSegment::Literal(std::mem::take(&mut literal)));
+                    }
+                    return Ok(Token::StringInterp(segments));
+                }
+                Some(b'\\') if self.peek_at(1) == Some(b'(') => {
+                    interpolated = true;
+                    if !literal.is_empty() {
+                        segments.push(StringSegment::Literal(std::mem::take(&mut literal)));
+                    }
+                    self.pos += 2; // past `\(`
+                    let expr_start = self.pos;
+                    // Scan the expression body to its matching `)`, tracking
+                    // parenthesis depth so `\(f(x))` reads as one expression.
+                    let mut depth = 1usize;
+                    loop {
+                        match self.peek_at(0) {
+                            None => {
+                                return Err(LexicalError::UnterminatedString(open..self.pos));
+                            }
+                            Some(b'(') => {
+                                depth += 1;
+                                self.pos += 1;
+                            }
+                            Some(b')') => {
+                                depth -= 1;
+                                if depth == 0 {
+                                    let source = self.input[expr_start..self.pos].to_string();
+                                    segments.push(StringSegment::Expr {
+                                        source,
+                                        start: expr_start,
+                                    });
+                                    self.pos += 1; // past `)`
+                                    break;
+                                }
+                                self.pos += 1;
+                            }
+                            Some(_) => self.pos += self.char_len_at(self.pos),
+                        }
+                    }
+                }
+                Some(b'\\') if self.peek_at(1) == Some(b'\\') => {
+                    literal.push('\\');
+                    self.pos += 2;
+                }
+                Some(b'\\') => {
+                    // A backslash before any other character is a literal
+                    // backslash; the next character is scanned normally.
+                    literal.push('\\');
+                    self.pos += 1;
+                }
+                Some(_) => {
+                    let len = self.char_len_at(self.pos);
+                    literal.push_str(&self.input[self.pos..self.pos + len]);
+                    self.pos += len;
+                }
             }
-            self.pos += 1;
         }
-        Err(LexicalError::UnterminatedString(open..self.pos))
+    }
+
+    /// Returns the UTF-8 byte length of the character starting at byte `at`.
+    ///
+    /// Used to advance the cursor by whole characters inside a string body so
+    /// multi-byte scalars are never split.
+    fn char_len_at(&self, at: usize) -> usize {
+        self.input[at..].chars().next().map_or(1, char::len_utf8)
     }
 
     /// Scans an operator or punctuation token using maximal munch.
@@ -433,7 +511,7 @@ impl Iterator for Lexer<'_> {
     /// source is exhausted, then `None`.
     ///
     /// Newlines that follow a token which cannot end a statement are suppressed
-    /// here (D3) via [`suppresses_following_newline`], so a trailing-operator
+    /// here (D3) via `suppresses_following_newline`, so a trailing-operator
     /// continuation spans multiple physical lines as one logical construct.
     fn next(&mut self) -> Option<Self::Item> {
         loop {

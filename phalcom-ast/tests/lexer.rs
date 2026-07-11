@@ -71,6 +71,20 @@ fn block_comment_is_skipped() {
 }
 
 #[test]
+fn string_interpolation_splits_into_segments() {
+    // D4: `\(expr)` interpolation lexes to a single `Token::StringInterp` with
+    // ordered literal/expression segments (ADR-0022).
+    insta::assert_debug_snapshot!(tokens("\"hi \\(name), you are \\(age)\""));
+}
+
+#[test]
+fn string_without_interpolation_stays_plain() {
+    // D4 guard: a string with no `\(` still lexes to `Token::String`, and a
+    // `\\(` escape is a literal `\(` (not an interpolation).
+    insta::assert_debug_snapshot!(tokens("\"plain \\\\(not interp)\""));
+}
+
+#[test]
 fn newline_after_operator_is_suppressed() {
     // D3: a `\n` after `+` (which cannot end a statement) is swallowed, so
     // `a +\nb` lexes as one expression with no interior `Token::Newline`.

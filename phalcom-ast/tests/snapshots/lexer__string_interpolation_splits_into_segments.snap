@@ -1,0 +1,25 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"\\\"hi \\\\(name), you are \\\\(age)\\\"\")"
+---
+[
+    StringInterp(
+        [
+            Literal(
+                "hi ",
+            ),
+            Expr {
+                source: "name",
+                start: 6,
+            },
+            Literal(
+                ", you are ",
+            ),
+            Expr {
+                source: "age",
+                start: 23,
+            },
+        ],
+    ),
+    Eof,
+]

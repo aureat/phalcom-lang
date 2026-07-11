@@ -84,7 +84,18 @@ pub enum Token {
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),
     /// A double-quoted string literal, with the surrounding quotes stripped.
+    ///
+    /// A string with no `\(…)` interpolation lexes to this variant; one with at
+    /// least one interpolation lexes to [`Token::StringInterp`] instead.
     String(String),
+    /// An interpolated double-quoted string literal (ADR-0022).
+    ///
+    /// Produced when a string body contains at least one `\(expr)`
+    /// interpolation. The [`StringSegment`]s are in source order — alternating
+    /// literal runs and expression runs — and the parser desugars them in place
+    /// to a `+`-chain (`"a " + String.new(x) + …`). See
+    /// `docs/spec/lexical-structure.md` §5.
+    StringInterp(Vec<StringSegment>),
     /// A numeric literal decoded to an [`f64`].
     Number(f64),
 
@@ -189,6 +200,27 @@ pub enum Token {
     /// a [`crate::error::SyntaxErrorKind::UnrecognizedToken`] whose text is the
     /// empty string, matching the historical LALRPOP behaviour.
     Eof,
+}
+
+/// One ordered piece of an interpolated string literal (ADR-0022).
+///
+/// A [`Token::StringInterp`] carries a `Vec<StringSegment>` in source order.
+/// Literal runs are already-decoded text (escapes applied); expression runs
+/// carry the raw source of the `\(…)` body so the parser can re-parse it with
+/// absolute spans.
+#[derive(Clone, Debug, PartialEq)]
+pub enum StringSegment {
+    /// A literal run of the string, with `\\` / `\\(` escapes already applied.
+    Literal(String),
+    /// An interpolated expression run — the source text between `\(` and its
+    /// matching `)`.
+    Expr {
+        /// The raw expression source (without the surrounding `\(` … `)`).
+        source: String,
+        /// The byte offset of `source` within the lexer's input, so the parser
+        /// can fold in its own `offset` and re-parse with absolute spans.
+        start: usize,
+    },
 }
 
 /// A lexer-level failure to form a token at a specific byte range.

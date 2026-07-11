@@ -41,7 +41,7 @@
 use crate::ast::*;
 use crate::error::{SyntaxError, SyntaxErrorKind};
 use crate::lexer::Lexer;
-use crate::token::{LexicalError, Token};
+use crate::token::{LexicalError, StringSegment, Token};
 use phalcom_common::range::SourceRange;
 
 /// Result of parsing a Phalcom source string with error recovery.
@@ -901,6 +901,96 @@ impl<'source> Parser<'source> {
         Ok(left)
     }
 
+    /// Desugars an interpolated string literal (ADR-0022) into a `+`-chain of
+    /// stringified segments.
+    ///
+    /// Each [`StringSegment::Literal`] becomes an [`Expr::String`]; each
+    /// [`StringSegment::Expr`] is re-parsed from its source slice (with this
+    /// parser's [`offset`](Self::offset) folded onto the segment's start so
+    /// spans stay absolute) and wrapped as `String.new(expr)` — the working
+    /// content-stringify send while a real content `toString` is blocked on
+    /// U-CORE-4 (see ADR-0022). The parts are folded left with binary `+`
+    /// ([`BinaryOp::Add`]), so `"a \(x) b"` lowers to
+    /// `"a " + String.new(x) + " b"`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SyntaxError`] if any interpolated expression fails to parse,
+    /// or if an interpolation body is empty (no expression).
+    fn desugar_string_interp(
+        &self,
+        segments: Vec<StringSegment>,
+        range: SourceRange,
+    ) -> ParserResult<Expr> {
+        let mut acc: Option<Expr> = None;
+        for segment in segments {
+            let part = match segment {
+                StringSegment::Literal(value) => Expr::String { value, range },
+                StringSegment::Expr { source, start } => {
+                    let inner = self.parse_interp_expr(&source, start, range)?;
+                    Expr::MethodCall(Box::new(MethodCallExpr {
+                        object: Expr::Var {
+                            value: "String".to_string(),
+                            range,
+                        },
+                        method: "new".to_string(),
+                        args: vec![Argument {
+                            label: None,
+                            expr: inner,
+                            range,
+                        }],
+                        range,
+                    }))
+                }
+            };
+            acc = Some(match acc {
+                None => part,
+                Some(left) => Expr::Binary(Box::new(BinaryExpr {
+                    op: BinaryOp::Add,
+                    left,
+                    right: part,
+                    range,
+                })),
+            });
+        }
+        // An interpolated string always has at least one segment (the lexer only
+        // emits `StringInterp` once it has seen an interpolation), so `acc` is
+        // populated; fall back to the empty string for total robustness.
+        Ok(acc.unwrap_or(Expr::String {
+            value: String::new(),
+            range,
+        }))
+    }
+
+    /// Re-parses a single interpolated-expression source slice into an [`Expr`].
+    ///
+    /// `start` is the byte offset of `source` within the lexer input; this
+    /// parser's [`offset`](Self::offset) is folded on so the re-parsed spans are
+    /// absolute. The slice must contain exactly one expression.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SyntaxError`] if the slice does not parse as a single
+    /// expression (a parse failure, or an empty / non-expression body).
+    fn parse_interp_expr(
+        &self,
+        source: &str,
+        start: usize,
+        range: SourceRange,
+    ) -> ParserResult<Expr> {
+        let program = parse_source(source, self.offset + start)?;
+        match program.statements.into_iter().next() {
+            Some(Statement::Expr { expr, .. }) => Ok(expr),
+            _ => Err(SyntaxError {
+                kind: SyntaxErrorKind::UnrecognizedToken {
+                    token: String::new(),
+                    expected: primary_expected(),
+                },
+                range: range.start..range.end,
+            }),
+        }
+    }
+
     /// Wraps `expr` in a zero-parameter block literal `{ expr }`, used to build
     /// the thunk operand of a `??` desugar (`a.orElse { b }`).
     ///
@@ -1302,6 +1392,10 @@ impl<'source> Parser<'source> {
             Token::String(value) => {
                 self.advance();
                 Ok(Expr::String { value, range })
+            }
+            Token::StringInterp(segments) => {
+                self.advance();
+                self.desugar_string_interp(segments, range)
             }
             Token::Identifier(value) => {
                 if matches!(self.peek_next(), Token::FatArrow) {

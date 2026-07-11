@@ -1,0 +1,10 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"\\\"plain \\\\\\\\(not interp)\\\"\")"
+---
+[
+    String(
+        "plain \\(not interp)",
+    ),
+    Eof,
+]
