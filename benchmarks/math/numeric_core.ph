@@ -1,16 +1,23 @@
-// ============================================================
-// numeric_core — sqrt, gcd/lcm, factorial, fast exponentiation, primality
-// Benchmark corpus — NOT wired into CI. Run manually once the tree builds:
-//   cargo run -p phalcom-core --bin phalcom -- benchmarks/math/numeric_core.ph
-// Tier 1 (pure): classes, static methods, recursion, if/while, +-*/% < <= == and/or.
-//   Every feature here was observed working at commit 83c908a (U5). Unexecuted draft.
-// Verifies via identities, not hardcoded decimals:
-//   sqrt(x)^2 == x,  gcd(a,b)*lcm(a,b) == a*b,  recursive factorial == iterative.
-// Expected: every printed line is `true`.
-// ============================================================
+//! numeric_core — sqrt, gcd/lcm, factorial, fast exponentiation, primality.
+//!
+//! Benchmark corpus, **not** wired into CI. Run once the tree builds:
+//! ```sh
+//! cargo run -p phalcom-core --bin phalcom -- benchmarks/math/numeric_core.ph
+//! ```
+//! Tier 1 (pure): classes, static methods, recursion, `if`/`while`,
+//! `+ - * / % < <= == and or` — every construct observed working at `83c908a`
+//! (U5). Unexecuted draft. Verifies **identities**, not hardcoded decimals:
+//! `sqrt(x)² == x`, `gcd(a,b)·lcm(a,b) == a·b`, recursive `factorial` ==
+//! iterative. Every printed line should be `true`.
+//!
+//! Documented with **Phaldoc** (`docs/spec/experimental/doc-comments-phaldoc.md`).
 
+/// Float comparison helpers — floats never compare exactly, so tests go through here.
 class Check {
-  // Absolute-error comparison; floats never compare exactly.
+  /// Absolute-error equality within a fixed tolerance.
+  /// @param a — first Number
+  /// @param b — second Number
+  /// @returns a `Bool`: `true` iff `|a - b| < 1e-6`
   static approx(a, b) {
     let d = a - b
     if (d < 0) { d = 0 - d }
@@ -18,13 +25,20 @@ class Check {
   }
 }
 
+/// Pure static numeric routines. Stateless — every method is a `static`.
 class Math {
+  /// @param x — a Number. @returns `|x|`.
   static abs(x) {
     if (x < 0) { return 0 - x }
     return x
   }
 
-  // Newton–Raphson: x_{n+1} = (x_n + a/x_n) / 2, quadratic convergence.
+  /// Square root by Newton–Raphson: `x_{n+1} = (x_n + a/x_n) / 2` (quadratic
+  /// convergence, 40 fixed iterations).
+  /// @param a — a non-negative Number
+  /// @returns an approximation of `√a` accurate to `Check.approx` tolerance
+  /// @example
+  /// System.print(Check.approx(Math.sqrt(2) * Math.sqrt(2), 2))   // true
   static sqrt(a) {
     if (a == 0) { return 0 }
     let g = a
