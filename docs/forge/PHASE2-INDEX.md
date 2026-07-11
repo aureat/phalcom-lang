@@ -36,10 +36,15 @@ U1 (heap) ──┬─> U2 (tower) ──┬─> U7 (fields/construct)
             ├─> U6 (Option/let-var)
             └─> U3 (landed) ──> U8 (dNU/perform)
 
-Serial spine:  U1 → U2 → U4 → U5 → U6 → U7
+Serial spine:  U1 → U2 → U4 → U5 → U6 → U7 → U-LIST
 Wave F (parallel, disjoint):   U8 ‖ U-LEX ‖ U-STD  → then U10
 Wave F+1 (parallel):           U9 ‖ U11
 ```
+**U-LIST (NEW, ratified 2026-07-11 · DEC-A = "land minimal List first"):** a minimal kernel `class List`
+(construct/`at`/`size`/`add`/`each`/`toString`; no map/reduce/literals) — a **hard prerequisite of both
+U8** (`Message.args`/`labels`, `perform(_:List)`) **and U9** (rest-params collect into a `List`). Schedule
+it at the **spine tail, before Wave F**. It edits `core.ph` + `primitive/mod.rs` (+ maybe `list.rs`) →
+**never co-schedule with another `core.ph` editor.**
 `core.ph` is a single shared file edited additively along U6 → U-STD → U11 — the wave order
 already serializes those touches; **never co-schedule two `core.ph` editors**.
 
@@ -67,10 +72,10 @@ Other latent hazards:
 _Each unit's bulk proceeds regardless; only the named sub-feature waits._
 | ID | Unit | Decision | Architect recommendation |
 |---|---|---|---|
-| **DEC-A** | U8, U9, U-STD | **Kernel `List` is unscheduled but a hard dep** of dNU (`Message.args`) and rest-params. U-STD deferred all collections (need storage primitives + literals). It collides with U-STD in Wave F. | **Elevate a `List`/collections unit onto the critical path before U8/U9.** |
+| **DEC-A** ✅ **RESOLVED (user, 2026-07-11)** | U8, U9, U-STD | **Kernel `List` unscheduled but a hard dep** of dNU (`Message.args`) and rest-params. | **→ Land a minimal `List` unit (U-LIST) first**, at the spine tail before Wave F. On the critical path for U8 + U9. See §2 + U8-plan §3. |
 | **DEC-B** | U9 | **Variadic dispatch table key** — messages §4 (`key by (name, min_arity)`) isn't implementable as written (a call of arity K needs `min ≤ K`, an exact-tuple hash can't answer). | Key by **bare name**, reject a 2nd same-name variadic at definition time. Ratify via **ADR-0012 amendment**. |
 | **DEC-C** | U6 | **How is `if(opt)` a compile error?** No static/flow analysis exists; general static detection impossible. | **(A)** runtime no-coercion floor (branch opcode requires `Bool`; Option never implements branch protocol) **+** compile-time rejection of *syntactically-literal* Option conditions. New ADR / ADR-0007 amendment. |
-| **DEC-D** | U7 | **Class-side _stored_ static fields** are unspecified (ADR-0011 "static" = instance layout, not class-side state — naming collision). | **(B) descope stored static fields from U7**; ship instance fields + `construct` + static methods; defer class-side storage to its own ADR + unit. |
+| **DEC-D** ✅ **RESOLVED (user, 2026-07-11)** | U7 | **Class-side _stored_ static fields** were unspecified (ADR-0011 "static" = instance layout, not class-side state — naming collision). | **→ INCLUDE in U7 (option A): apply ADR-0011 up the tower** — class object gets its own `static_slots` indexed by a per-*metaclass* field table. **Requires a NEW ADR authored first** ("class-side field storage on the metaclass instance"); the static-stored-field slice lands behind that ADR. Instance fields + `construct` proceed regardless. See U7-plan §3. |
 | **DEC-E** | U5 / U-LEX | **Who owns `if`/`while`/`for` surface parsing?** No control-flow AST node exists today. Sets the U5↔U-LEX write-set boundary in `phalcom-ast`. | **U5 owns** tightly-scoped parse-time desugaring to block sends (adds `phalcom-ast` to U5's write-set). |
 | **DEC-F** | U-LEX | **String-interpolation sigil** (open-Q5): `{expr}` / `${expr}` / `\(expr)`. | **(a) `{expr}`** (spec §5 default). Ratify Q5 → short ADR, then implement. |
 
@@ -86,7 +91,7 @@ Soft flags (architect can proceed on the recommendation; confirm if you disagree
 | **ADR-0017** — sacred-selector inliner + override-epoch deopt guard | new ADR (required) | U5 | lands with U5 |
 | **ADR-0012 amendment** — variadic dispatch-table key + `_...` selector spelling | amendment | U9 | before U9 (DEC-B) |
 | No-truthiness enforcement mechanism | new ADR / 0007 amendment | U6 | with U6 (DEC-C) |
-| Class-side field storage on metaclass instance | new ADR | (deferred U7 follow-up) | only if DEC-D wants it |
+| **Class-side field storage on the metaclass instance** (ADR-0011 up the tower) | new ADR (**REQUIRED**, DEC-D=A) | U7 | **before** U7's static-stored-field slice |
 | String-interpolation syntax (open-Q5) | new ADR | U-LEX | before U-LEX D4 (DEC-F) |
 | Collection-literal lowering `(a,b)`/`[…]`/`{a:1}` | new ADR | (deferred; needs List) | with collections unit |
 | **ADR-0008 amendment note** — `MessageNotUnderstood` = default-dNU raise | note | U8 | with U8 |

@@ -23,7 +23,7 @@ use crate::vm::VM;
 ///
 /// # Errors
 ///
-/// Returns [`RuntimeError::Type`](crate::error::RuntimeError::Type) if the
+/// Returns [`crate::error::RuntimeError::Type`] if the
 /// receiver is not a class.
 pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let receiver_id = expect_class(vm, receiver)?;

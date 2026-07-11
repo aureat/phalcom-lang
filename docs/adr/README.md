@@ -40,6 +40,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0015](0015-object-default-tostring.md) | `Object` default `toString` is `"<{ClassName}>"` | Accepted |
 | [0016](0016-hand-written-lexer-and-recursive-descent-parser.md) | Hand-written lexer and recursive-descent parser (replacing LALRPOP) | Accepted |
 | [0017](0017-class-side-stored-static-fields.md) | Class-side stored static fields live on the metaclass instance | Accepted |
+| [0018](0018-sacred-selector-inliner-and-override-guard.md) | Sacred-selector inliner with override-epoch deopt guard | Accepted |
 
 > ADRs 0003–0008 were ratified in the object-model / language-design sessions, and
 > ADRs 0009–0015 in the Phase-2 VM-architecture session (2026-07-11); all are now

@@ -1,6 +1,6 @@
-//! The sacred-selector inliner (control-flow.md §3, ADR-0012, ADR-0017).
+//! The sacred-selector inliner (control-flow.md §3, ADR-0012, ADR-0018).
 //!
-//! [`recognize`] decides, purely from the *shape* of a
+//! `recognize` decides, purely from the *shape* of a
 //! [`phalcom_ast::ast::MethodCallExpr`] at compile time, whether a send is
 //! eligible for inlining: the selector must be one of the sacred set
 //! (`ifTrue(_)`, `ifFalse(_)`, `ifTrue(_ifFalse:)` — see the note on that
