@@ -18,7 +18,43 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **NEXT = U5 (control-flow-as-message).** |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **NEXT = U6 (absence → Option, let/var); reviewer ON.** |
+
+## U5 — LANDED ✅ (2026-07-11, `83c908a` on `main`, no worktree)
+- **Layer 0 — operators are sends.** Removed the hardwired arithmetic/boolean/comparison/equality
+  opcodes; every operator now compiles to an `Invoke` message send via `encode_selector`. Backing
+  primitives registered on `Number` (sub/mul/mod/div — IEEE-754 div allows `inf`/`NaN`, no error —
+  /comparisons/negated), `Boolean` (and/or/not/ifTrue/ifFalse/ifTrue(_:ifFalse:)), `Block`
+  (whileTrue), `Object` (generic `==`/`!=` via `value_eq`).
+- **Surface `if`/`while`** parse in `phalcom-ast` (`parse_if`/`parse_while`), desugaring to
+  `ifTrue(_:ifFalse:)` / `whileTrue(_:)` sends over block literals (DEC-E = "U5 owns", now realized).
+- **Layer 1 — sacred-selector inliner** (`compiler/inliner.rs`): recognizes literal-block sacred
+  sends and emits guarded jump opcodes (`Jump`/`JumpIfFalse`/`Loop`/`GuardBool`/`GuardBlock`) —
+  zero closure alloc, zero frames on the common path. Guarded by override-epoch pristine flags in
+  `universe.rs`, flipped by `note_method_installed` on `Bytecode::Method`; a runtime override of a
+  sacred selector fails the guard and deopts to the real send. Binary `and`/`or` route through the
+  inliner too. **ADR-0018** records the design + four deliberate deviations (see below).
+- **Deliberate deviations from the U5 plan/spec (pre-authorized defaults):**
+  (1) paired selector spelled `ifTrue(_:ifFalse:)` (keyword-labelled), not the spec's illustrative
+  comma-form `ifTrue(_)ifFalse(_)` — matches Phalcom's actual selector model (ADR-0012);
+  (2) jump offset width `i32`, not `i16` — inlining can grow a body past ±32 KB and silent
+  truncation is a correctness bug;
+  (3) **class reopening added** (`Statement::Class` attaches to an existing same-named global
+  instead of shadowing) — prerequisite to make sacred-override *testable* from surface Phalcom;
+  `install_core` now also registers kernel `Function`/`Block` as globals (were silently shadowed —
+  the one real bug fixed this session);
+  (4) `CallContext::Immediate` added — `Value::to_context` previously panicked invoking a
+  closure-backed method on an immediate receiver (`Bool`/`Number`), which is exactly the post-deopt
+  override path.
+- **Two pre-existing goldens' `.expected` fixed as in-scope side effects** (they had pinned the
+  old operator-dispatch bugs): `runtime_and_non_boolean_operand`, `class_instance_equality_identity`
+  (and `runtime_comparison_unsupported`). Graduated from `pending/`:
+  `class_operator_equals_custom_dispatch`, boolean short-circuit, `control_flow_if_else`. New
+  goldens: `control_flow_inline_{override_honored,non_local_return}`, `control_flow_send_equivalence`,
+  `control_flow_while_let`, `arithmetic_comparisons`, `runtime_inline_guard_wrong_type`.
+- **Green gate:** `cargo build`/`cargo test --workspace`/`cargo doc --workspace --no-deps` all clean.
+  Reviewer gate OFF (U5 is not hierarchy-load-bearing; policy line below lists ON units).
+- **Working model:** in-tree on `main`, no worktree (handoff-authorized precedent from U2/U4).
 
 ## U4 — LANDED ✅ (2026-07-11, in-tree on `main`, no commit yet this turn)
 - First-class blocks: `Expr::Block` in the AST/parser (braced multi-param, unbraced single-param

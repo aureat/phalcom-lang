@@ -577,7 +577,7 @@ impl VM {
                             self.heap.class_mut(meta).add_method(selector, method_id);
                         } else {
                             self.heap.class_mut(class_id).add_method(selector, method_id);
-                            // Sacred-selector override-epoch tracking (ADR-0017):
+                            // Sacred-selector override-epoch tracking (ADR-0018):
                             // any (re)definition of a sacred selector directly on
                             // the kernel Bool/Block class dirties the pristine
                             // flag the inliner's GuardBool/GuardBlock read.

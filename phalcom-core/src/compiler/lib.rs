@@ -429,7 +429,7 @@ impl<'vm> Compiler<'vm> {
                     // open-Q4) needed to make sacred-selector overriding
                     // exercisable from surface Phalcom at all, so the
                     // inliner's override-epoch deopt guard has a real,
-                    // testable trigger (ADR-0017; see
+                    // testable trigger (ADR-0018; see
                     // `Universe::note_method_installed`).
                     let class_idx = self.add_constant(Value::Obj(existing_class));
                     self.emit(Bytecode::Constant(class_idx), range);
@@ -528,7 +528,7 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn compile_expr(&mut self, expr: Expr) -> Result<(), CompilerError> {
         match expr {
             Expr::MethodCall(method_call) => {
-                // U5 Layer 1 (control-flow.md §3, ADR-0017): a sacred
+                // U5 Layer 1 (control-flow.md §3, ADR-0018): a sacred
                 // selector sent with literal-block arguments compiles to a
                 // guarded inline fast path instead of a plain send. Every
                 // other call — including a sacred selector with a

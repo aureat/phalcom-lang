@@ -14,7 +14,7 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 | U1 | [U1-plan.md](U1-plan.md) | handle/arena heap + tagged `Value` (behavior-preserving migration) | 0009/0010 | ✅ |
 | U2 | [U2-plan.md](U2-plan.md) · **✅ LANDED** [U2-progress.md](U2-progress.md) | metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` | 0002/0003 · object-model §5–6 | **skipped this pass** |
 | U4 | [U4-plan.md](U4-plan.md) · **✅ LANDED** (see STATE.md) | first-class blocks/closures, Lua open/closed upvalues, frame-token infra | 0013/0006 · blocks.md | **✅ ran, caught stubbed runtime, fixed** |
-| U5 | [U5-plan.md](U5-plan.md) | control-flow-as-message + sacred-selector inliner w/ deopt guard | control-flow.md · **0017(new)** | — |
+| U5 | [U5-plan.md](U5-plan.md) · **✅ LANDED** (see STATE.md) | control-flow-as-message + sacred-selector inliner w/ deopt guard | control-flow.md · **0018** | — (reviewer OFF per policy) |
 | U6 | [U6-plan.md](U6-plan.md) | absence → `Option`, `let`/`var`, no surface `nil`, `if(opt)` rejected | 0007/0014 · values-and-absence.md | ✅ |
 | U7 | [U7-plan.md](U7-plan.md) | fixed instance slot layout + `construct` initializer | 0011 · classes.md | — |
 | U8 | [U8-plan.md](U8-plan.md) | `doesNotUnderstand(_:)` / `perform` + `SendDynamic` | 0012 · method-lookup.md | — |
@@ -88,7 +88,7 @@ Soft flags (architect can proceed on the recommendation; confirm if you disagree
 ## 5. New ADRs / spec edits to draft (via `documentation-and-adrs`)
 | Item | Kind | Owner unit | When |
 |---|---|---|---|
-| **ADR-0017** — sacred-selector inliner + override-epoch deopt guard | new ADR (required) | U5 | lands with U5 |
+| **ADR-0018** — sacred-selector inliner + override-epoch deopt guard | ✅ landed | U5 | landed with U5 (0017 was taken by class-side static fields) |
 | **ADR-0012 amendment** — variadic dispatch-table key + `_...` selector spelling | amendment | U9 | before U9 (DEC-B) |
 | No-truthiness enforcement mechanism | new ADR / 0007 amendment | U6 | with U6 (DEC-C) |
 | **Class-side field storage on the metaclass instance** (ADR-0011 up the tower) | new ADR (**REQUIRED**, DEC-D=A) | U7 | **before** U7's static-stored-field slice |

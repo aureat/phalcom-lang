@@ -3,7 +3,7 @@
 //! `recognize` decides, purely from the *shape* of a
 //! [`phalcom_ast::ast::MethodCallExpr`] at compile time, whether a send is
 //! eligible for inlining: the selector must be one of the sacred set
-//! (`ifTrue(_)`, `ifFalse(_)`, `ifTrue(_ifFalse:)` — see the note on that
+//! (`ifTrue(_)`, `ifFalse(_)`, `ifTrue(_:ifFalse:)` — see the note on that
 //! spelling below —, `and(_)`, `or(_)`, `whileTrue(_)`) **and** every
 //! block-typed argument (and, for `whileTrue`, the receiver too) must be a
 //! **literal block** [`Expr::Block`] node at the call site, never a variable
@@ -25,7 +25,7 @@
 //! per-selector primitives in `primitive/boolean.rs`/`primitive/block.rs`,
 //! which both paths ultimately agree with.
 //!
-//! ## The paired `ifTrue(_ifFalse:)` selector
+//! ## The paired `ifTrue(_:ifFalse:)` selector
 //!
 //! control-flow.md §3 lists the paired conditional as `ifTrue(_)ifFalse(_)`,
 //! modeled on Smalltalk's independently-worded `ifTrue:ifFalse:` keyword

@@ -50,7 +50,7 @@ pub enum CallContext {
     },
     /// Executing a closure-backed (non-primitive) method on an **immediate**
     /// receiver (`Bool`/`Number`/`Symbol`) — e.g. a user-defined sacred
-    /// selector reopened onto the kernel `Bool` class (U5, ADR-0017: needed
+    /// selector reopened onto the kernel `Bool` class (U5, ADR-0018: needed
     /// to make the sacred-selector inliner's override-epoch deopt guard
     /// exercisable, since only a closure method — never a primitive — needs
     /// a `CallContext` at all). Carries the receiver `Value` itself, since

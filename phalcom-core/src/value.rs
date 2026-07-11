@@ -159,7 +159,7 @@ impl Value {
     ///
     /// An immediate receiver (`Bool`/`Number`/`Symbol`/the private `Nil`
     /// sentinel) yields [`CallContext::Immediate`] rather than panicking —
-    /// U5 (ADR-0017) needs this so a user-reopened sacred selector on the
+    /// U5 (ADR-0018) needs this so a user-reopened sacred selector on the
     /// kernel `Bool` class (a closure method, unlike the primitive it
     /// shadows) is actually callable on a real `true`/`false` receiver, not
     /// just a heap object.

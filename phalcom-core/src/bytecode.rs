@@ -82,7 +82,7 @@ pub enum Bytecode {
     /// encoding to economize; `i32` is used to comfortably cover an inlined
     /// block body of any realistic size without the relative-offset
     /// overflow risk a `clox`-style `i16` would carry
-    /// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     Jump(i32),
 
     /// Pops the top of the stack (expected [`crate::value::Value::Bool`]);
@@ -91,7 +91,7 @@ pub enum Bytecode {
     /// value is not a `Bool` at all, the VM raises a runtime type error —
     /// this is what gives the sacred-selector inliner's per-iteration
     /// `whileTrue` condition check "no truthiness" for free, without a
-    /// separate guard opcode ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    /// separate guard opcode ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     JumpIfFalse(i32),
 
     /// Backward relative jump, semantically identical to [`Bytecode::Jump`]
@@ -112,7 +112,7 @@ pub enum Bytecode {
     /// This is the override-epoch half of the deopt guard — a type-only
     /// check would be unsound because `and`/`or`/`ifTrue` are ordinary,
     /// overridable methods (control-flow.md §2–3,
-    /// [ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    /// [ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     GuardBool(i32),
 
     /// Deopt guard for the `Block`-receiver sacred selectors (`whileTrue(_)`).
@@ -124,6 +124,6 @@ pub enum Bytecode {
     /// go stale at runtime is whether `Block>>whileTrue(_)` itself has been
     /// redefined since bootstrap. Tests `!Universe::block_sacred_pristine`
     /// and, if dirty, adds `offset` to `ip`
-    /// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     GuardBlock(i32),
 }

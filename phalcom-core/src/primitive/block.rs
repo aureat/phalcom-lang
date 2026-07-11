@@ -122,7 +122,7 @@ pub fn block_call_with(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
 /// discarding its result; returns the private `nil` sentinel on normal exit
 /// (U5 guardrail — U6 reroutes this to `None`). This is what the inliner's
 /// `GuardBlock` deopt path sends to
-/// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+/// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
 ///
 /// # Errors
 ///

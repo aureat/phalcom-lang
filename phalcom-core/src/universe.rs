@@ -48,7 +48,7 @@ pub struct Universe {
     /// (re)installed directly on the kernel `Bool` class, at which point the
     /// sacred-selector inliner's [`crate::bytecode::Bytecode::GuardBool`]
     /// deopts every inlined call site back to a real send
-    /// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     pub bool_sacred_pristine: bool,
     /// Override-epoch flag for the `Block`-receiver sacred selectors
     /// (`whileTrue(_)`), mirroring [`Universe::bool_sacred_pristine`] for the
@@ -68,13 +68,13 @@ impl Universe {
 
     /// The `Bool`-receiver sacred selectors watched by
     /// [`Universe::bool_sacred_pristine`]
-    /// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     pub const BOOL_SACRED_SELECTORS: &'static [&'static str] =
         &["and(_:)", "or(_:)", "not()", "ifTrue(_:)", "ifFalse(_:)", "ifTrue(_:ifFalse:)"];
 
     /// The `Block`-receiver sacred selectors watched by
     /// [`Universe::block_sacred_pristine`]
-    /// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     pub const BLOCK_SACRED_SELECTORS: &'static [&'static str] = &["whileTrue(_:)"];
 
     /// Allocates and wires the kernel class tower via allocate-then-patch.
@@ -166,7 +166,7 @@ impl Universe {
     /// same-named redeclaration that U5 makes *reopen* the existing row
     /// (see `compiler/lib.rs`'s `Statement::Class` handling) specifically so
     /// this deopt path is exercisable and testable
-    /// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     /// A cheap `==` on two [`ClassId`]s per method definition; not on any
     /// hot path.
     pub fn note_method_installed(&mut self, class_id: ClassId, selector: Symbol, interner: &crate::interner::Interner) {
@@ -224,7 +224,7 @@ impl Universe {
         primitive_static!(vm, bool_cls, "new", SignatureKind::Method(0), bool_class_new);
         primitive_static!(vm, bool_cls, "new", SignatureKind::Method(1), bool_class_new);
         // Sacred selectors (control-flow.md §2–3): registered here as the
-        // real send targets; ADR-0017's inliner special-cases literal-block
+        // real send targets; ADR-0018's inliner special-cases literal-block
         // call sites but always deopts to exactly these on override/mismatch.
         primitive!(vm, bool_cls, "and", SignatureKind::Method(1), bool_and);
         primitive!(vm, bool_cls, "or", SignatureKind::Method(1), bool_or);
@@ -237,7 +237,7 @@ impl Universe {
         // per-argument *labels* on that name. U5 realizes the same paired
         // conditional as `ifTrue(_:ifFalse:)`: one positional arg plus one
         // `ifFalse:`-labeled arg, fully expressible via the existing
-        // `encode_selector`, and is what `if/else` desugars to (ADR-0017).
+        // `encode_selector`, and is what `if/else` desugars to (ADR-0018).
         {
             let sig_str = crate::method::encode_selector("ifTrue", &[None, Some("ifFalse".to_string())], SignatureKind::Method(2));
             let symbol = vm.get_or_intern(&sig_str);

@@ -4,7 +4,7 @@
 //! *fallbacks* — the real message-send implementations of `and(_)`, `or(_)`,
 //! `not()`, `ifTrue(_)`, `ifFalse(_)` and `ifTrue(_)ifFalse(_)` (control-flow.md
 //! §2–3). They are what every `Bool`-receiver sacred send resolves to
-//! whether or not the compiler's inliner ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md))
+//! whether or not the compiler's inliner ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md))
 //! took the fast path for a given call site: the inliner's guarded jump
 //! opcodes are an optimization over calling these, never a divergent
 //! reimplementation of their semantics.
