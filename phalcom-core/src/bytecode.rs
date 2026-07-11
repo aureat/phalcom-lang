@@ -77,6 +77,30 @@ pub enum Bytecode {
     /// Returns a value from the current method.
     Return,
 
+    /// Performs a **non-local return** from a block body: unwinds to the block's
+    /// lexically-enclosing method activation (its *home frame*) rather than just
+    /// the block's own activation ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md),
+    /// blocks.md §5).
+    ///
+    /// Emitted (in place of [`Bytecode::Return`]) for a `return` written inside a
+    /// braced block literal; a `return` in a method body still compiles to
+    /// [`Bytecode::Return`]. It carries **no operand** — the unwind target is the
+    /// executing frame's [`home_frame_token`](crate::frame::CallFrame::home_frame_token),
+    /// stamped by [`block_call`](crate::primitive::block::block_call) when the
+    /// block was invoked, not encoded in the instruction stream.
+    ///
+    /// Unlike [`Bytecode::Return`], its VM handler does **not** yield a value out
+    /// of the current `run_until` invocation (there may be several nested
+    /// `run_until`/`block_call` Rust frames between where this executes and the
+    /// home frame — see the module docs of [`crate::primitive::block`]). Instead
+    /// it eagerly, in one shot, closes escaping upvalues, truncates the value
+    /// stack and frame stack down to and including the home frame, and pushes the
+    /// return value at the home frame's stack offset; the unmodified top-of-loop
+    /// drain check in each nested `run_until` then picks the value up naturally.
+    /// If no live frame matches the home token (the home method already
+    /// returned), it raises [`RuntimeError::DeadFrameError`](crate::error::RuntimeError::DeadFrameError).
+    ReturnNonLocal,
+
     /// Creates a closure from a template.
     /// 0: constant index of the template Callable/ClosureObject.
     Closure(u16),

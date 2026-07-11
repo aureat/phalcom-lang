@@ -387,10 +387,38 @@ impl VM {
                 let receiver_idx = self.stack.len() - 1 - arity;
                 let receiver = self.stack[receiver_idx];
                 let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
+                // Snapshot the frame count so we can detect a non-local return
+                // that fired *inside* `native_fn` (e.g. `block_call` running a
+                // block whose `return` unwound past this call site). See the
+                // guard below.
+                let frames_before = self.frames.len();
                 let result = native_fn(self, &receiver, &args);
                 result.map(|result| {
-                    self.stack.truncate(receiver_idx);
-                    self.stack.push(result);
+                    if self.frames.len() >= frames_before {
+                        // Ordinary primitive return: collapse the receiver+args
+                        // window and land the result in the receiver slot.
+                        self.stack.truncate(receiver_idx);
+                        self.stack.push(result);
+                    } else {
+                        // A `Bytecode::ReturnNonLocal` fired *inside* `native_fn`
+                        // (e.g. `block_call` ran a block whose `return` unwound to
+                        // a method at or below this call site), popping one or
+                        // more frames. `receiver_idx` — computed against the
+                        // pre-call stack — now points *above* the unwound stack
+                        // top, so the normal `truncate(receiver_idx)` would be a
+                        // silent no-op and mis-place the value; skip it. But the
+                        // handler pushed the return value at the home frame's
+                        // offset only for the *innermost* `run_until` to drain
+                        // (its top-of-loop check pops and returns it), so `result`
+                        // must be re-pushed here to re-establish it for the outer
+                        // frame that resumes next. Pushing exactly once per
+                        // unwound level, balanced against each level's drain-pop,
+                        // keeps the stack consistent — no duplicate, no loss
+                        // (U10-implementation-spec.md §2 point 3, corrected: the
+                        // drain check *pops* the pushed value, so the arm must
+                        // re-push rather than skip entirely).
+                        self.stack.push(result);
+                    }
                 })
             }
             MethodKind::Closure(closure_id) => {
@@ -1036,6 +1064,58 @@ impl VM {
                         return Ok(return_value);
                     }
                     self.stack.push(return_value);
+                }
+                Bytecode::ReturnNonLocal => {
+                    // Non-local return: unwind to the block's home method
+                    // activation, not just this block frame (ADR-0013,
+                    // blocks.md §5). The whole unwind happens eagerly, here, in
+                    // one shot — control cannot be handed back to the outer
+                    // `run_until`/`block_call` Rust frames that sit between here
+                    // and the home frame any other way than by mutating the
+                    // shared `self.frames`/`self.stack` up front
+                    // (U10-implementation-spec.md §2 point 2).
+                    let token = self
+                        .frames
+                        .last()
+                        .and_then(|frame| frame.home_frame_token)
+                        .ok_or_else(|| RuntimeError::Internal("ReturnNonLocal in a frame with no home-frame token".to_string()))?;
+
+                    // Locate the still-live home frame by (index, generation).
+                    // A stale index or a generation mismatch means the home
+                    // method already returned — raise `DeadFrameError` *before*
+                    // touching any VM state, so a caught error leaves the stack
+                    // consistent.
+                    let is_live = self
+                        .frames
+                        .get(token.frame_index)
+                        .is_some_and(|home| home.generation == token.generation);
+                    if !is_live {
+                        return Err(RuntimeError::DeadFrameError.into());
+                    }
+                    let home_stack_offset = self.frames[token.frame_index].stack_offset;
+
+                    // The return value is already on the stack top (the compiler
+                    // emits the expression, or `Bytecode::Nil` for a bare
+                    // `return`); surface bare/absent to `None`, never the
+                    // private sentinel — matching `Bytecode::Return`.
+                    let return_value = self.stack.pop().unwrap_or(Value::Nil);
+                    let return_value = self.surface_absence(return_value);
+
+                    // Close every open upvalue at or above the home frame's
+                    // window before the stack is truncated, so captures escaping
+                    // *any* of the popped frames survive (one call covers all
+                    // popped frames: each popped frame's `stack_offset` is
+                    // `>= home_stack_offset`). Must run before truncation.
+                    self.close_upvalues_from(home_stack_offset);
+                    self.stack.truncate(home_stack_offset);
+                    self.stack.push(return_value);
+                    // Remove the home frame and everything above it. The value is
+                    // now exactly where an ordinary `Return` from the home method
+                    // would have left it; the unmodified top-of-loop drain check
+                    // (in whichever nested `run_until` first finds its floor at
+                    // or above the new length) yields it for real. Do NOT
+                    // `return Ok(_)` here — let the loop continue.
+                    self.frames.truncate(token.frame_index);
                 }
                 Bytecode::Jump(offset) => self.apply_jump_offset(offset),
                 Bytecode::JumpIfFalse(offset) => {

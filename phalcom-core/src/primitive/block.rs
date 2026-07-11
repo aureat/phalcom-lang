@@ -10,24 +10,32 @@
 //! the caller's own frames (functions.md §1-2).
 
 use crate::error::{PhResult, RuntimeError};
-use crate::frame::CallContext;
+use crate::frame::{CallContext, FrameToken};
 use crate::heap::Object;
 use crate::value::Value;
 use crate::vm::VM;
 
 /// Resolves `receiver` to the [`crate::closure::ClosureObject`] handle it calls
-/// through — a [`Object::Block`] unwraps to its wrapped closure, and a bare
-/// [`Object::Closure`] (e.g. a `Method`'s callable used as a `Function`) is its
-/// own target.
+/// through, together with the block's home-frame token (`None` when the receiver
+/// is not a block).
+///
+/// A [`Object::Block`] unwraps to its wrapped closure and surfaces its
+/// [`home_frame_token`](crate::block::BlockObject::home_frame_token) so
+/// [`block_call`] can stamp the pushed frame for non-local return
+/// ([ADR-0013](../../docs/adr/0013-block-closure-upvalues.md)); a bare
+/// [`Object::Closure`] (e.g. a `Method`'s callable reflectively used as a
+/// `Function`, functions.md) is its own target and has no lexical home frame, so
+/// it yields `None` — its body compiles ordinary [`Bytecode::Return`](crate::bytecode::Bytecode::Return)
+/// and can never issue a non-local return.
 ///
 /// # Errors
 ///
-/// Returns [`RuntimeError::Type`] if `receiver` is neither.
-fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<crate::heap::ObjRef> {
+/// Returns [`RuntimeError::Type`] if `receiver` is neither a block nor a closure.
+fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::heap::ObjRef, Option<FrameToken>)> {
     match receiver {
         Value::Obj(id) => match vm.heap.get(*id) {
-            Object::Block(block) => Ok(block.closure),
-            Object::Closure(_) => Ok(*id),
+            Object::Block(block) => Ok((block.closure, Some(block.home_frame_token))),
+            Object::Closure(_) => Ok((*id, None)),
             _ => Err(RuntimeError::Type { expected: "Function", found: receiver.type_name() }.into()),
         },
         other => Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
@@ -75,7 +83,7 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 /// [`RuntimeError::Arity`] on an argument-count mismatch, or any
 /// [`RuntimeError`] raised while running the block body.
 pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let closure_id = resolve_callable(vm, receiver)?;
+    let (closure_id, home_frame_token) = resolve_callable(vm, receiver)?;
     let arity = vm.heap.closure(closure_id).callable.arity;
     if args.len() != arity {
         return Err(RuntimeError::Arity { signature: "call", expected: arity, found: args.len() }.into());
@@ -93,7 +101,15 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
         Value::Obj(id) => *id,
         _ => unreachable!("resolve_callable only accepts Value::Obj"),
     } };
-    let frame = vm.new_call_frame(closure_id, context, 0, stack_offset, None);
+    let mut frame = vm.new_call_frame(closure_id, context, 0, stack_offset, None);
+    // Stamp the block activation with its lexical home frame so a `return` in
+    // the block body (compiled to `Bytecode::ReturnNonLocal`) can unwind to the
+    // enclosing method rather than just this block frame (ADR-0013, blocks.md
+    // §5). `None` for a bare closure receiver, which has no home frame. Setting
+    // the field post-construction (rather than threading a `new_call_frame`
+    // parameter) keeps `new_call_frame`'s signature stable and is sound because
+    // `CallFrame` is `Copy`.
+    frame.home_frame_token = home_frame_token;
     vm.frames.push(frame);
     vm.run_until(base_frames)
 }

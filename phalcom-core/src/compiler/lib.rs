@@ -144,11 +144,23 @@ pub(crate) struct FunctionState {
     upvalues: Vec<UpvalueDescriptor>,
     /// Whether this body compiles a constructor initializer (ADR-0011).
     is_constructor: bool,
+    /// Whether this body compiles a **block literal** (rather than a method or
+    /// constructor body).
+    ///
+    /// Set to `!is_method` in [`Compiler::compile_block`]. Gates
+    /// [`Statement::Return`]'s opcode choice: a `return` in a block body emits
+    /// [`Bytecode::ReturnNonLocal`] (unwind to the enclosing method), while a
+    /// `return` in a method body keeps [`Bytecode::Return`] (blocks.md §5,
+    /// [ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    is_block: bool,
 }
 
 impl FunctionState {
-    /// Creates an empty function-compilation state.
-    fn new(is_constructor: bool) -> Self {
+    /// Creates an empty function-compilation state for a body that is a
+    /// constructor initializer (`is_constructor`) and/or a block literal
+    /// (`is_block`); a plain method body and the top-level module body pass
+    /// `false` for both.
+    fn new(is_constructor: bool, is_block: bool) -> Self {
         FunctionState {
             chunk: Chunk::default(),
             locals: Vec::new(),
@@ -157,6 +169,7 @@ impl FunctionState {
             max_slots: 0,
             upvalues: Vec::new(),
             is_constructor,
+            is_block,
         }
     }
 }
@@ -187,7 +200,7 @@ impl<'vm> Compiler<'vm> {
         Compiler {
             vm,
             module,
-            functions: vec![FunctionState::new(false)],
+            functions: vec![FunctionState::new(false, false)],
             immutable_globals: HashSet::new(),
             current_class: None,
             is_static_context: false,
@@ -376,7 +389,7 @@ impl<'vm> Compiler<'vm> {
         let dummy_sym = self.vm.interner.intern("<block-receiver>");
 
         // Push a fresh function-compilation state for this body.
-        self.functions.push(FunctionState::new(is_constructor));
+        self.functions.push(FunctionState::new(is_constructor, !is_method));
         self.begin_scope();
 
         if is_method {
@@ -551,7 +564,17 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::Nil, range);
                     }
                 }
-                self.emit(Bytecode::Return, range);
+                // A `return` inside a block literal is a *non-local* return: it
+                // unwinds to the block's enclosing method activation, not just
+                // the block's own frame (blocks.md §5, ADR-0013). A method or
+                // constructor body keeps the ordinary single-frame `Return`.
+                // Constructors are never block bodies (`is_constructor` always
+                // accompanies `is_method`), so `is_block` is the sole gate.
+                if self.functions.last().unwrap().is_block {
+                    self.emit(Bytecode::ReturnNonLocal, range);
+                } else {
+                    self.emit(Bytecode::Return, range);
+                }
             }
             Statement::Class(class_def) => {
                 let range = class_def.range;

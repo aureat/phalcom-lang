@@ -18,7 +18,53 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **ADR-0019/0020 ratified by the user (2026-07-11)**, clearing U-LIST-plan §0's gate. **U-LIST ✅ landed (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec`, in-tree, no worktree)** — native `List` heap variant + floor primitives + `.ph` protocol; also fixed a pre-existing bug that made `core.ph` inert (see "U-LIST — LANDED" below). **U8 ✅ landed (2026-07-12, `b99ad22`/`806c9ea`, in-tree, no worktree)** — `doesNotUnderstand(_:)` miss forward + `Message` reification + `send_dynamic`/`perform`/`respondsTo` (ADR-0012); reviewer OFF per policy, self-verified on the green gate. See "U8 — LANDED" below. **U9 ✅ landed (2026-07-12, in-tree, no worktree, uncommitted at write time)** — rest parameters (`*name`), `SignatureKind::Variadic`/`(*)` selector encoding, VM call-prologue rest-arg collapse, derived-selector miss-path probe (messages-and-selectors.md §4); reviewer OFF per policy, self-verified on the green gate. See "U9 — LANDED" below. **NEXT = U-LEX / U-STD / U10 / U11 (remainder of Wave F+1) — not yet dispatched.** |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **ADR-0019/0020 ratified by the user (2026-07-11)**, clearing U-LIST-plan §0's gate. **U-LIST ✅ landed (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec`, in-tree, no worktree)** — native `List` heap variant + floor primitives + `.ph` protocol; also fixed a pre-existing bug that made `core.ph` inert (see "U-LIST — LANDED" below). **U8 ✅ landed (2026-07-12, `b99ad22`/`806c9ea`, in-tree, no worktree)** — `doesNotUnderstand(_:)` miss forward + `Message` reification + `send_dynamic`/`perform`/`respondsTo` (ADR-0012); reviewer OFF per policy, self-verified on the green gate. See "U8 — LANDED" below. **U9 ✅ landed (2026-07-12, in-tree, no worktree, uncommitted at write time)** — rest parameters (`*name`), `SignatureKind::Variadic`/`(*)` selector encoding, VM call-prologue rest-arg collapse, derived-selector miss-path probe (messages-and-selectors.md §4); reviewer OFF per policy, self-verified on the green gate. See "U9 — LANDED" below. **U10 ✅ landed (2026-07-12, in-tree, no worktree)** — non-local `return` inside blocks (`Bytecode::ReturnNonLocal` + eager frame-token unwind + `DeadFrameError`), consuming U4's frame-token infra (ADR-0013, blocks.md §5); reviewer OFF per policy, self-verified on the green gate (corrected the spec's Primitive-arm guard — re-push, don't skip, since the drain check pops). See "U10 — LANDED" below. **NEXT = U-LEX / U-STD / U11 (remainder) — not yet dispatched.** |
+
+## U10 — LANDED ✅ (2026-07-12, in-tree on `main`, no worktree)
+- **Non-local return (`return` inside a block unwinds to the enclosing method, blocks.md §5,
+  ADR-0013).** New `Bytecode::ReturnNonLocal` (no operand — the unwind target is read off the
+  executing frame). The compiler emits it in place of `Bytecode::Return` for a `return` in a
+  block-literal body: `FunctionState.is_block` (set `!is_method` in `compile_block`) gates the
+  opcode choice in `Statement::Return`; method/constructor bodies keep `Bytecode::Return`.
+- **Frame plumbing.** `CallFrame.home_frame_token: Option<FrameToken>` (`None` for ordinary
+  method/closure calls, kept `Copy`). `primitive::block::resolve_callable` now surfaces the block's
+  `home_frame_token` alongside the closure handle (`None` for a bare `Object::Closure`), and
+  `block_call` stamps the pushed `CallFrame` with it (post-construction assignment — `CallFrame` is
+  `Copy`, so `new_call_frame`'s signature stays stable). U4's `closure.rs`/`callable.rs` and the
+  `Bytecode::Closure` handler were **not** touched.
+- **Eager unwind (`vm.rs` `Bytecode::ReturnNonLocal` handler).** Every block invocation re-enters
+  `run_until` recursively, so the home frame is always in an outer, suspended `run_until`. The
+  handler unwinds in one shot at the point `return` executes: read the executing frame's
+  `home_frame_token`; if no live frame matches `(frame_index, generation)`, raise
+  `RuntimeError::DeadFrameError` **before** mutating any state; else `close_upvalues_from(home
+  offset)` **before** truncating the stack, truncate the value stack to the home offset, push the
+  (surfaced-to-`None`) return value, and `frames.truncate(home index)`. It does **not** `return
+  Ok(_)` out of `run_until` — the unmodified top-of-loop drain check in each nested `run_until`
+  picks the value up.
+- **Primitive-arm guard (`call_method`, corrected vs U10-implementation-spec.md §2 pt3).** Snapshot
+  `frames_before` before calling `native_fn`; if the frame count shrank, a non-local return unwound
+  past this call site. The spec said to skip *both* the truncate and push — but that loses the value,
+  because `run_until`'s drain check *pops* the value the handler pushed and returns it via `Ok`. The
+  landed guard instead **skips only the stale `truncate(receiver_idx)` and re-pushes** the returned
+  value, so it is re-established for the outer frame that resumes; each unwound level's push balances
+  its drain-pop exactly (no duplicate, no loss). Verified specifically on the multi-level
+  `findNegative`/`each`-calling-`.call()` case (a single-level `{ return x }.call()` never crosses
+  more than one `run_until` boundary and would not have caught this).
+- **Tests:** `blocks/blocks_non_local_return.ph` (multi-level `each` unwind → `-5`, PASS) and
+  `blocks/blocks_non_local_return_bare.ph` (value-less `return` in a block surfaces `<None instance>`,
+  PASS) — both cross a re-entrant `block_call`. `runtime-errors/runtime_non_local_return_dead_frame.ph`
+  (escaped block called after its home method returned → `DeadFrameError`, NEGATIVE).
+  `blocks/blocks_escape.ph` still passes byte-identical (upvalue promotion across the new unwind).
+- **Pending fixtures (U10-implementation-spec.md §0 pt4):** `pending/blocks_non_local_return.ph`
+  (`[3,-5,8]` list literal — doesn't parse) was rewritten off `List.new()`/`.add(_)` and **promoted**
+  to `blocks/blocks_non_local_return.ph`; the stale pending pair was deleted.
+  `pending/blocks_argument_to_method.ph` (`List.reduce(_)` — not in the kernel) stays pending with a
+  comment noting it is blocked on U-STD's `reduce`, **not** on U10 (DEFERRED #25).
+- **Green gate:** `./scripts/verify.sh` exit 0; `cargo doc --workspace --no-deps` clean (no new
+  warnings — one pre-existing `nil.rs` `wrap_some` private-link warning is unrelated). Reviewer OFF
+  per policy — self-verified, including the dead-frame path and upvalue-across-unwind promotion.
+- **Working model:** in-tree on `main`, no worktree.
+- **Hard stop:** did not begin U11/U-LEX/U-STD.
 
 ## U9 — LANDED ✅ (2026-07-12, in-tree on `main`, no worktree)
 - **Rest parameters (`*name`, messages-and-selectors.md §4).** `ParameterDef.is_rest` (ast.rs);

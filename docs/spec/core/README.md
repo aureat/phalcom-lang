@@ -33,17 +33,28 @@ Every table here is derived from ground-truth source, not aspiration:
 These docs reconcile against a **live tree**, so staleness is kept explicit
 rather than silent: each data-bearing doc pins the commit it reflects.
 
-- **Current baseline:** HEAD through **U9** (rest parameters), code commit
-  `c9805d0`. Folds in **U8** (`Object` reflective surface + the `Message` class)
-  and **U9** (variadics).
+- **Current baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6`
+  (**U-CORE-2 partial** — see below). Folds in **U8** (`Object` reflective
+  surface + the `Message` class), **U9** (variadics), and **U-CORE-2's** Bool
+  half-Option fix + core `Option` combinators. Floor count is **unchanged at 73**
+  across this bump: `0da64d6` added a `wrap_some` helper and a `WrapSome`
+  bytecode op, neither of which is a bound floor primitive.
+- **U-CORE-2 already partly landed** (`0da64d6`): `Bool#ifTrue`/`ifFalse` now
+  `Some`-lift the taken arm (closing catalog-delta §4.2), the sacred inliner
+  `Some`-lifts in lockstep via a new `WrapSome` op (ADR-0018 amendment), and
+  `core.ph`'s `Option` reopen gained `ifNone`/`orElse`/`isSome`/`isNone`. The
+  transform/extract combinators (`ifSome`/`map`/`unwrapOr`/…) are re-scoped to
+  U-STD (catalog-delta §2.2); the U-CORE-2 implementation spec covers only the
+  residue (absence invariants, `None`/`Some` surface `toString`).
 - When a forge unit lands new floor primitives, kernel classes, or `.ph`
   protocol, re-baseline [`floor-census.md`](./floor-census.md) and
   [`catalog-delta.md`](./catalog-delta.md) and bump the pin. Recommended cadence:
   a U-CORE-0 "refresh" pass before each U-CORE-N unit starts, so that unit plans
   against ground truth.
 - The 65→73 binding jump between the initial commit (`a2dd17b`, the U-LIST spine)
-  and this baseline — U8/U9 landed concurrently mid-session — is the first such
-  re-baseline, and the reason for this policy.
+  and the U9 baseline — U8/U9 landed concurrently mid-session — was the first
+  such re-baseline, and the reason for this policy; the `c9805d0`→`0da64d6` bump
+  (U-CORE-2, no floor delta) is the second.
 
 ## Deliverables
 

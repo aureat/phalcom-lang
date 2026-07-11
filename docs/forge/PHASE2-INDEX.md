@@ -16,7 +16,7 @@ see STATE.md; also fixed a pre-existing bug that made `core.ph` inert)**,
 **U9 (ADR-0012amd, 2026-07-12 — in-tree, no worktree, reviewer OFF per policy, see STATE.md;
 rest params `*name` + `SignatureKind::Variadic`/`(*)` selector + call-prologue rest-arg collapse
 + derived-selector miss probe)**.
-**Stopped at the U9 hard boundary — U-LEX/U-STD/U10/U11 (rest of Wave F+1) not dispatched yet.**
+**U10 ✅ LANDED (2026-07-12) — non-local return. Stopped at the U10 hard boundary — U-LEX/U-STD/U11 not dispatched yet.**
 Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 
 ## 1. Unit plan roster (each is a self-contained work order)
@@ -31,7 +31,7 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 | U-LIST | [U-LIST-plan.md](U-LIST-plan.md) · **✅ LANDED** (see STATE.md) | minimal kernel `List` — native array floor + thin `.ph` protocol | 0019/0020 (**Accepted**) · messages/method-lookup | — (reviewer OFF per policy) |
 | U8 | [U8-plan.md](U8-plan.md) · **✅ LANDED** (see STATE.md) | `doesNotUnderstand(_:)` / `perform` + `send_dynamic` (opcode deferred to U9) | 0012 · method-lookup.md | — (reviewer OFF per policy) |
 | U9 | [U9-plan.md](U9-plan.md) / [U9-implementation-spec.md](U9-implementation-spec.md) · **✅ LANDED** (see STATE.md) | variadics — rest params `*xs`, `SignatureKind::Variadic`/`(*)` selector, call-prologue rest-arg collapse, derived-selector miss probe (reused `ClassObject.methods`, no new table) | 0012amd · messages-and-selectors.md §4 | — (reviewer OFF per policy) |
-| U10 | [U10-plan.md](U10-plan.md) | non-local return (`^` unwinds to home method via frame token) | 0013 · blocks.md §5 | — |
+| U10 | [U10-plan.md](U10-plan.md) / [U10-implementation-spec.md](U10-implementation-spec.md) · **✅ LANDED** (see STATE.md) | non-local return — `return` inside a block unwinds to the home method via frame token (`Bytecode::ReturnNonLocal` + eager unwind + `DeadFrameError`) | 0013 · blocks.md §5 | — (reviewer OFF per policy) |
 | U11 | [U11-plan.md](U11-plan.md) | Bool tower: abstract `Bool` + singleton `True`/`False` | 0004 | — |
 | U-LEX | [U-LEX-plan.md](U-LEX-plan.md) | surface-syntax delta vs lexical-structure.md (comments, interp, `?.`/`??`) | 0016 · lexical-structure.md | — |
 | U-STD | [U-STD-plan.md](U-STD-plan.md) | grow `core.ph` base-class method surface (Object/Number/String/Symbol/System) | class specs | — |

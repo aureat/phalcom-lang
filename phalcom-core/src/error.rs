@@ -121,6 +121,23 @@ pub enum RuntimeError {
     #[error("Internal error: {0}")]
     Internal(String),
 
+    /// A non-local `return` inside a block tried to unwind to its home method
+    /// activation, but that activation is no longer live — the block escaped its
+    /// defining method and was invoked after that method had already returned.
+    ///
+    /// This is Phalcom's `BlockCannotReturn` (Smalltalk lineage): the
+    /// [`Bytecode::ReturnNonLocal`](crate::bytecode::Bytecode::ReturnNonLocal)
+    /// handler compares the executing block frame's
+    /// [`home_frame_token`](crate::frame::CallFrame::home_frame_token) against
+    /// the live frame stack, and raises this variant when no frame matches the
+    /// token's `(frame_index, generation)` — turning a would-be use-after-free
+    /// into a clean runtime error (blocks.md §5, object-model.md §4,
+    /// [ADR-0013](../../docs/adr/0013-block-closure-upvalues.md)). Detail beyond
+    /// the fixed message is intentionally omitted, matching the plain-`thiserror`
+    /// shape of every neighboring variant (no span, no miette).
+    #[error("non-local return from a block whose home method frame is no longer alive (DeadFrameError)")]
+    DeadFrameError,
+
     #[error("{0}")]
     Message(String),
 }

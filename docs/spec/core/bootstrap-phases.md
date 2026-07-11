@@ -32,7 +32,7 @@ Source of truth: [`vm.rs::VM::new`](../../../phalcom-core/src/vm.rs) L116–168 
 | **D** | Core module + globals | `install_core` | core module registered; class globals + `None`-value global bound |
 | **E** | Fixed-slot layouts | inline block, `VM::new` | `Some._value` at slot 0, plus the `Message` four-slot layout ([ADR-0011](../../adr/0011-static-instance-slot-layout.md)) |
 | **F** | Primitive floor install | `Universe::install_primitives` | all 73 native bindings ([`floor-census.md`](./floor-census.md)) |
-| **G** | Run `core.ph` | `run_core_module` | `.ph` reopens attached (List protocol, skeletons, `System.print`) |
+| **G** | Run `core.ph` | `run_core_module` | `.ph` reopens attached (List protocol, `Option` combinators (U-CORE-2, `0da64d6`), skeletons, `System.print`) |
 | **H** | Invariant verification | `verify_invariants().expect(…)` | asserts §5–6 apex table, or aborts |
 
 ### 2.1 Phase B internal steps
@@ -112,11 +112,16 @@ only send selectors that are, at the moment `run_core_module` executes:
   already-attached class, or
 - **(c)** methods on the **same class** defined above it in the class body.
 
-The current `core.ph` satisfies this trivially: only `List` has real bodies, and
-its dependencies (`Block#call`, `Number#<`, `while` lowering, same-class
-`size`/`at`) are all category (a) or (c). **This acyclicity is a requirement,
-not an accident** — U-CORE-2…5 must produce a topological load order and show it
-is acyclic, or identify the cycle and break it with a native seed method.
+The current `core.ph` satisfies this trivially: only `List` and `Option` have
+real bodies. `List`'s dependencies (`Block#call`, `Number#<`, `while` lowering,
+same-class `size`/`at`) and `Option`'s (the `match` floor eliminator + `Block#call`,
+all category (a)) resolve within the already-installed floor. **This acyclicity
+is a requirement, not an accident** — U-CORE-2…5 must produce a topological load
+order and show it is acyclic, or identify the cycle and break it with a native
+seed method. `Option`'s combinators (U-CORE-2, `0da64d6`) are the first
+non-`List` `.ph` bodies to test this rule, and they pass it: they send only
+`match` (native, Phase F) and `Block#call` (native, Phase F), never a
+later-defined class.
 
 > **Anti-requirement:** a `.ph` method must never depend on a class defined
 > *later* in `core.ph`, nor on a combinator that is itself defined in terms of

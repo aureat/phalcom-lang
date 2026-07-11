@@ -39,10 +39,14 @@ language is *self-hosting above a small, fixed native boundary*
 | Classes carrying floor primitives | **16** (of 19 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
-> **Baseline:** current HEAD through **U9** (code commit `c9805d0`). Folds in
-> **U8** (`Object` reflective surface — `perform`/`respondsTo`/`doesNotUnderstand`
-> — and the `Message` class, §2.1/§2.14) and **U9** (variadics — no new floor
-> bindings). See [`README.md`](./README.md) for the baseline-pin policy.
+> **Baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6` (U-CORE-2
+> partial). Folds in **U8** (`Object` reflective surface —
+> `perform`/`respondsTo`/`doesNotUnderstand` — and the `Message` class,
+> §2.1/§2.14), **U9** (variadics — no new floor bindings), and **U-CORE-2**
+> (Bool `Some`-lift + core `Option` combinators — **no new floor bindings**; the
+> `wrap_some` helper is `pub(crate)`, not installed, and `WrapSome` is a bytecode
+> op, not a bound selector). The count therefore stays **73**. See
+> [`README.md`](./README.md) for the baseline-pin policy.
 
 ### 1.2 Selector notation
 
@@ -218,8 +222,10 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 
 ## 3. The floor ↔ `core.ph` boundary
 
-The only class whose *surface* protocol is currently self-hosted over the floor
-is `List` ([`core.ph`](../../../phalcom-core/core/core.ph)):
+Two classes now carry `.ph` surface protocol self-hosted over the floor
+([`core.ph`](../../../phalcom-core/core/core.ph)):
+
+**`List`** (ADR-0020) —
 
 ```
 size    => self.rawLength
@@ -230,10 +236,23 @@ each(f) { var i = 0; while (i < self.size) { f.call(self.at(i)); i = i + 1 } }
 
 `each` closes over three floor capabilities — `Block#call(_)`, `Number#<(_)`,
 and `while` lowering (`Block#whileTrue(_)` / sacred inliner) — plus the
-same-class `size`/`at` defined above it. Every other `core.ph` class today is an
-**empty reopen** (`Object`, `Class`, `Metaclass`, `Number`, `String`, `Bool`,
-`Symbol`, `Option`, `Some`) that only makes the name surface-visible; `System`
-carries an empty `static print()` shell backed by the native primitive.
+same-class `size`/`at` defined above it.
+
+**`Option`** (U-CORE-2, `0da64d6`) — four combinators, each derived purely over
+the `match(some, none)` eliminator (the sole floor capability they touch):
+
+```
+ifNone(f) => self.match(some: { v => self }, none: { f.call(); self })
+orElse(f) => self.match(some: { v => self }, none: { f.call() })
+isSome    => self.match(some: { v => true }, none: { false })
+isNone    => self.match(some: { v => false }, none: { true })
+```
+
+Every other `core.ph` class today is an **empty reopen** (`Object`, `Class`,
+`Metaclass`, `Number`, `String`, `Bool`, `Symbol`, `Some`) that only makes the
+name surface-visible; `System` carries an empty `static print()` shell backed by
+the native primitive. (`None` deliberately has **no** reopen — see the `core.ph`
+comment on the `DefineGlobal`-clobber hazard.)
 
 > This boundary is the template for U-CORE-2…5: **push protocol into `core.ph`,
 > keep the floor minimal.** A new method belongs on the floor only if it fails

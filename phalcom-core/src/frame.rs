@@ -77,6 +77,21 @@ pub struct CallFrame {
     pub caller_source: Option<SourceRange>,
     /// Monotonically-assigned generation for this activation.
     pub generation: u64,
+    /// The home-frame token this activation returns *through* on a non-local
+    /// `return`, or `None` for an ordinary method/closure activation.
+    ///
+    /// Populated **only** when the frame is a block invocation: [`block_call`](crate::primitive::block::block_call)
+    /// copies it from the invoked [`BlockObject`](crate::block::BlockObject)'s
+    /// `home_frame_token`, so the [`Bytecode::ReturnNonLocal`](crate::bytecode::Bytecode::ReturnNonLocal)
+    /// handler can read "what activation am I unwinding to" straight off the
+    /// currently-executing frame (the `BlockObject` that carried the token is not
+    /// otherwise reachable from a live `CallFrame`, which only stores the
+    /// `ClosureObject` handle). Ordinary method/closure calls leave this `None`;
+    /// their `return` compiles to [`Bytecode::Return`](crate::bytecode::Bytecode::Return) and never reads it
+    /// ([ADR-0013](../../docs/adr/0013-block-closure-upvalues.md), blocks.md §5).
+    /// Because [`FrameToken`] is `Copy`, `Option<FrameToken>` keeps [`CallFrame`]
+    /// `Copy`.
+    pub home_frame_token: Option<FrameToken>,
 }
 
 impl CallFrame {
@@ -90,6 +105,7 @@ impl CallFrame {
             stack_offset,
             caller_source,
             generation: 0,
+            home_frame_token: None,
         }
     }
 

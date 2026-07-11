@@ -52,3 +52,9 @@ _Closed:_ #5 (kernel `List`) — the `List` half landed as U-LIST (2026-07-11); 
 | # | Idea | Source | Spec/ADR | Rank |
 |---|------|--------|----------|------|
 | 24 | **Duplicate variadic selector per class silently overwins in the method map.** Two variadic methods with the same bare name declared in one class body collide on the identical `<name>(*)` selector symbol; the second definition silently replaces the first in `ClassObject.methods` — same pre-existing behavior as any duplicate-selector redefinition today, not new. A clean "duplicate method" diagnostic (for this or the general case) would improve DX but is out of scope for U9. | `phalcom-core/src/class.rs` (`ClassObject.methods`); U9-implementation-spec.md §2 (BLOCKED #2) | messages-and-selectors.md §4 | low |
+
+## Surfaced during U10 implementation (2026-07-12)
+| # | Idea | Source | Spec/ADR | Rank |
+|---|------|--------|----------|------|
+| 25 | **`blocks/pending/blocks_argument_to_method.ph` is blocked on `List.reduce(_)`, not on U10.** The fixture reduces a list with a block accumulator (`numbers.reduce(0) { acc, n => acc + n }`) and uses a `[...]` list literal — neither `reduce`/`map`/`filter` nor list-literal syntax exists in the kernel yet (deferred to U-STD, DEFERRED #6/#20). Non-local return itself needs none of these and is fully covered by `blocks/blocks_non_local_return.ph`. Left in `pending/` with an in-file note; rewrite it against the real `reduce` protocol when U-STD lands. | `phalcom-core/tests/lang/blocks/pending/blocks_argument_to_method.ph` | blocks.md; U-STD | low |
+| 26 | **Pre-existing `cargo doc` warning: `nil.rs` `some_new` links to private `wrap_some`.** `phalcom-core/src/primitive/nil.rs:64` has an intra-doc link from a public item to a private one; unrelated to U10 (outside its write-set, left untouched). Fix by either making `wrap_some` `pub(crate)`-doc-visible or rewording the link. | `phalcom-core/src/primitive/nil.rs:64` | docs guidelines | low |
