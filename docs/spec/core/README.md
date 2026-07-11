@@ -68,14 +68,22 @@ analysis) all hang off it. Status of the planned set:
 | 2 | **Bootstrap phase table** (phase-scoped invariant ledger) | [`bootstrap-phases.md`](./bootstrap-phases.md) | ✅ landed |
 | 3 | Sacred-selector set (R-SACRED) | folded into `floor-census.md` §5 | ✅ landed |
 | 4 | **Baseline delta table** (catalog × {native, `.ph`, pending}) | [`catalog-delta.md`](./catalog-delta.md) | ✅ landed |
-| 5 | `_pending` → active retirement map | `pending-retirement.md` | ⏳ TODO |
-| 6 | Invariant requirements per unit | `invariant-requirements.md` | ⏳ TODO |
-| 7 | "Must not preclude" forward-compat checklist | `forward-compat.md` | ⏳ TODO |
+| 5 | **`_pending` → active retirement map** | [`pending-retirement.md`](./pending-retirement.md) | ✅ landed |
+| 6 | **Invariant requirements per unit** | [`invariant-requirements.md`](./invariant-requirements.md) | ✅ landed |
+| 7 | **"Must not preclude" forward-compat checklist** | [`forward-compat.md`](./forward-compat.md) | ✅ landed |
+
+**U-CORE-0 is complete (7/7).** The gating decisions (Q1 `hash`, Q2 errors, Q4
+prelude, Q5 collections, §4.1 `Method` superclass, §4.4 per-type `toString`) are
+ruled in [`decisions.md`](./decisions.md).
 
 Downstream implementation units (U-CORE-1 kernel reflection, U-CORE-2
 absence+Boolean, U-CORE-3 callables, U-CORE-4 value classes, U-CORE-5
-collection contract, U-CORE-6 errors) are planned in the requirements analysis
-and tracked in [`../../forge/PHASE2-INDEX.md`](../../forge/PHASE2-INDEX.md).
+collection contract, U-CORE-6 errors) each get a dispatch-ready implementation
+spec (`U-CORE-N-implementation-spec.md`). These refine — and in places
+subsume — the older, coarser forge planning for `U-STD` (base-surface growth)
+and `U11` (Bool tower) tracked in
+[`../../forge/PHASE2-INDEX.md`](../../forge/PHASE2-INDEX.md); see each spec's
+"relationship to the forge spine" note.
 
 **Continuation:** [`HANDOFF.md`](./HANDOFF.md) is the paste-ready prompt for a
 fresh session to carry this work from here (finish #5–#7, close the gating

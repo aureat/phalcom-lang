@@ -8,9 +8,11 @@
 > Its job is to say, per class, *what exists, what is missing, and who owns the
 > gap.*
 
-> **Baseline:** current HEAD through **U9** (code commit `c9805d0`). Folds in
-> **U8** — the `Object` reflective surface (`perform`/`respondsTo`/`doesNotUnderstand`)
-> and the `Message` class — and **U9** (variadics). See
+> **Baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6` (U-CORE-2
+> partial). Folds in **U8** — the `Object` reflective surface
+> (`perform`/`respondsTo`/`doesNotUnderstand`) and the `Message` class — **U9**
+> (variadics), and **U-CORE-2** (Bool `Some`-lift + core `Option` combinators),
+> which is why §2.2/§4.2 below already read as resolved. See
 > [`README.md`](./README.md) for the baseline-pin policy.
 
 > ⚠️ **`implementation-status.md` is stale for this purpose.**
@@ -74,7 +76,7 @@ value global, not a class global (values-and-absence.md §3.1). There is **no
 |---|:--:|:--:|---|---|---|---|
 | `Function` | ✅ | ✅ | `arity` `name` `callWith(_)` `call()…call(_,_,_,_)` | — | (abstract root) higher-arity `call`, variadic `callWith` semantics | U-CORE-3 |
 | `Block` | ✅ | ✅ | same as `Function` + `whileTrue(_)` | — | non-local-return surface protocol (mechanism exists, ADR-0013) | U-CORE-3 |
-| `Method` | ✅ | ✅ | `new(_)` | — | ⚠️ **superclass mismatch** (§4.1); `signature`, `holder`, `bind(_)` | U-CORE-1/3 |
+| `Method` | ✅ | ✅ | `new(_)` | — | re-parent `< Function` (§4.1, **ruled**); `signature`, `holder`, `bind(_)` | U-CORE-1/3 |
 
 `Function`/`Block` are **✅ largely complete** for the call protocol (the U-CORE-0
 floor already covers arities 0–4). `Method` is **◐ partial** and carries a
@@ -164,10 +166,10 @@ which errors are core (U-CORE-6) and the rest are U-STD/deferred.
 These are places the catalog and the code disagree, or where a catalog claim is
 unverified. Each needs a ruling before the owning unit proceeds.
 
-### 4.1 ⚠️ `Method` superclass: catalog says `Function`, code says `Object`
+### 4.1 ✅ `Method` superclass: catalog says `Function`, code says `Object` — **ruled: re-parent** ([`decisions.md`](./decisions.md) §4.1)
 - **Catalog** (§4 Callables): `Method | Function` — "Sibling of `Block`, not a subtype of it."
 - **Code:** `make_core_class(heap, "Method", object_class, …)` → `Method < Object` (`universe.rs` L133).
-- **Decision:** re-parent `Method` under `Function` (aligns the catalog; `Method` gains the `call` protocol as a sibling of `Block`), **or** amend the catalog to `Method < Object`. Touches U-CORE-1/3 and the ADR-0006 callable-root story.
+- **Ruling:** re-parent the **code** to `Method < Function`. [ADR-0006](../../adr/0006-function-as-abstract-callable-root.md) (Accepted) is explicit that `Block`/`Method` are siblings under `Function`, so the code is an ADR-0006 violation, not a catalog error — do **not** amend the catalog. Implementation note: `create_core_classes` currently allocates `Method` *before* `Function`, so the fix must also move `Method`'s `make_core_class` after `Function` in the load order. Owned by U-CORE-1/3 (see decisions.md §4.1).
 
 ### 4.2 ✅ `Bool#ifTrue`/`ifFalse` return a half-Option — **resolved in U-CORE-2**
 - **Catalog / spec:** `ifTrue`/`ifFalse` return `Option`. Ratified twice — `object-model.md` §4 and `control-flow.md` §1, whose `if/else === c.ifTrue { A }.ifNone { B }` desugaring only composes if `ifTrue` yields an `Option` that `.ifNone` (an `Option` method) can be sent to.
