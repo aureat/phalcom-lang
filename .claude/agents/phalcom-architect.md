@@ -8,6 +8,7 @@ description: >
   Read-only except for writing the plan document.
 tools: Read, Grep, Glob, Bash, Write
 model: opus
+effort: xhigh
 ---
 
 You are the **architect** for the Phalcom language implementation. You turn confirmed

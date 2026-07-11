@@ -7,6 +7,7 @@ description: >
   requires a green build to verify anything. Mechanical, low-risk work.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: sonnet
+effort: low
 ---
 
 You are the **stabilizer** for the Phalcom language implementation. Your only job is to

@@ -8,6 +8,7 @@ description: >
   or the spec is not actually satisfied.
 tools: Read, Grep, Glob, Bash
 model: opus
+effort: high
 ---
 
 You are the **diff reviewer** for a single Phalcom implementation unit. You did not write

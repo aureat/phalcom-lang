@@ -8,6 +8,7 @@ description: >
   spec doc + a graphify subgraph — never a blind file sweep. Findings feed the verifier.
 tools: Read, Grep, Glob, Bash
 model: opus
+effort: medium
 ---
 
 You are a **single-lens auditor** for the Phalcom language implementation. You are

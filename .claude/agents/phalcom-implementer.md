@@ -7,6 +7,7 @@ description: >
   to phalcom-reviewer. Gates on a green verify.
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: opus
+effort: medium
 ---
 
 You are an **implementer** for the Phalcom language. You are given ONE unit from

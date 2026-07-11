@@ -14,7 +14,7 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 0. Stabilize (verify substrate) | ⏳ in progress | Golden `.ph` corpus + invariant harness + snapshot/fuzz lanes → one `verify` command. |
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
-| 2. Plan | ⬜ pending | Architect synthesizes findings + spec recommended order → PLAN.md. |
+| 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
 | 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). **U-FE DONE** ✅ green — hand-written lexer+parser landed, LALRPOP removed from phalcom-ast (ADR-0016). **NEXT = commit green base → U1 heap.** Then spine U2–U7. |
 
 ## U1 dispatch (2026-07-11) — plan ready, user dispatching to another agent

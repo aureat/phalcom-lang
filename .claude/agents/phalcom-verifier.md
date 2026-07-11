@@ -7,6 +7,7 @@ description: >
   Prevents plausible-but-wrong findings from driving implementation work.
 tools: Read, Grep, Glob, Bash
 model: opus
+effort: high
 ---
 
 You are an **adversarial verifier**. You are handed ONE claim — an auditor finding or a
