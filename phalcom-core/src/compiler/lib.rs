@@ -6,7 +6,7 @@ use crate::closure::ClosureObject;
 use crate::diagnostics::print_parse;
 use crate::error::{PhError, PhResult};
 use crate::interner::Symbol;
-use crate::method::{make_signature, MethodKind, MethodObject, SignatureKind};
+use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::module::ModuleObject;
 use crate::value::Value;
 use crate::vm::VM;
@@ -279,10 +279,12 @@ impl<'vm> Compiler<'vm> {
                             let range = method_def.range;
 
                             let arity = method_def.params.len();
-                            let selector = make_signature(&method_def.name, SignatureKind::Method(arity as u8));
+                            let labels: Vec<Option<String>> = method_def.params.iter().map(|p| p.label.clone()).collect();
+                            let selector = encode_selector(&method_def.name, &labels, SignatureKind::Method(arity as u8));
                             let selector_sym = self.vm.interner.intern(&selector);
 
-                            let closure = self.compile_block(method_def.body, selector_sym, method_def.params, method_def.is_static)?;
+                            let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
+                            let closure = self.compile_block(method_def.body, selector_sym, param_names, method_def.is_static)?;
 
                             debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
@@ -355,10 +357,11 @@ impl<'vm> Compiler<'vm> {
             Expr::MethodCall(method_call) => {
                 self.compile_expr(method_call.object)?;
                 for arg in &method_call.args {
-                    self.compile_expr(arg.clone())?;
+                    self.compile_expr(arg.expr.clone())?;
                 }
                 let arity = method_call.args.len();
-                let selector = make_signature(&method_call.method, SignatureKind::Method(arity as u8));
+                let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
+                let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
                 let selector_sym = self.vm.interner.intern(&selector);
                 let selector_idx = self.chunk.add_constant(Value::Symbol(selector_sym));
                 self.chunk

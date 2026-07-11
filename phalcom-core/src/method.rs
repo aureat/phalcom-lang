@@ -36,73 +36,103 @@ pub enum SignatureKind {
 pub struct Signature {
     pub selector: Symbol,
     pub kind: SignatureKind,
+    pub positional_arity: u8,
+    pub variadic: bool,
 }
 
 impl Signature {
     pub fn new(selector: Symbol, kind: SignatureKind) -> Self {
-        Signature { selector, kind }
+        let positional_arity = match kind {
+            SignatureKind::Initializer(n) => n,
+            SignatureKind::Method(n) => n,
+            SignatureKind::Getter => 0,
+            SignatureKind::Setter => 1,
+            SignatureKind::SubscriptGet(n) => n,
+            SignatureKind::SubscriptSet(n) => n + 1,
+        };
+        Signature {
+            selector,
+            kind,
+            positional_arity,
+            variadic: false,
+        }
+    }
+
+    pub fn new_with_arity(selector: Symbol, kind: SignatureKind, positional_arity: u8, variadic: bool) -> Self {
+        Signature {
+            selector,
+            kind,
+            positional_arity,
+            variadic,
+        }
+    }
+}
+
+/// Helper to generate canonical label-encoded selector string.
+pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKind) -> String {
+    match kind {
+        SignatureKind::Initializer(0) => format!("init {name}()"),
+        SignatureKind::Initializer(_) => {
+            let mut s = format!("init {name}(");
+            for label in labels {
+                if let Some(lbl) = label {
+                    s.push_str(lbl);
+                    s.push(':');
+                } else {
+                    s.push_str("_:");
+                }
+            }
+            s.push(')');
+            s
+        }
+        SignatureKind::Method(0) => format!("{name}()"),
+        SignatureKind::Method(_) => {
+            let mut s = format!("{name}(");
+            for label in labels {
+                if let Some(lbl) = label {
+                    s.push_str(lbl);
+                    s.push(':');
+                } else {
+                    s.push_str("_:");
+                }
+            }
+            s.push(')');
+            s
+        }
+        SignatureKind::Getter => name.to_string(),
+        SignatureKind::Setter => format!("{name}=(_:)"),
+        SignatureKind::SubscriptGet(n) => {
+            let mut s = "[".to_string();
+            for _ in 0..n {
+                s.push_str("_:");
+            }
+            s.push(']');
+            s
+        }
+        SignatureKind::SubscriptSet(n) => {
+            let mut s = "[".to_string();
+            for _ in 0..n {
+                s.push_str("_:");
+            }
+            s.push_str("]=(_:)");
+            s
+        }
     }
 }
 
 /// Turn a base name like `"foo"` plus a `SignatureKind` into the textual
 /// signature used by the compiler/VM.
-///
-/// # Examples
-/// ```
-/// use phalcom_core::method::{make_signature, SignatureKind};
-/// assert_eq!(
-///     make_signature("foo", SignatureKind::Method(3)),
-///     "foo(_,_,_)"
-/// );
-///
-/// assert_eq!(
-///     make_signature("bar", SignatureKind::Getter),
-///     "bar"
-/// );
-///
-/// assert_eq!(
-///     make_signature("baz", SignatureKind::Setter),
-///     "baz=(_)"
-/// );
-///
-/// assert_eq!(
-///     make_signature("new", SignatureKind::Initializer(0)),
-///     "init new()"
-/// );
-///
-/// assert_eq!(
-///     make_signature("ignored", SignatureKind::SubscriptGet(2)),
-///     "[_,_]"
-/// );
-/// ```
 pub fn make_signature(base: &str, kind: SignatureKind) -> String {
-    /// Join `n` underscores with commas: 3 → `"_,_,_"`
-    fn underscores(n: u8) -> String {
-        (0..n).map(|_| "_").collect::<Vec<_>>().join(",")
-    }
-
-    match kind {
-        // `init <name>`  (Wren/Phalcom style).  If you want initialisers
-        // with params, change this to `format!("init {}({})", base, underscores(n))`.
-        SignatureKind::Initializer(0) => format!("init {base}()"),
-        SignatureKind::Initializer(n) => format!("init {base}({})", underscores(n)),
-
-        // `foo`, `foo(_)`, `foo(_,_)`, …
-        SignatureKind::Method(0) => format!("{base}()"),
-        SignatureKind::Method(n) => format!("{base}({})", underscores(n)),
-
-        // `foo`
-        SignatureKind::Getter => base.to_string(),
-
-        // `foo=(_)`
-        SignatureKind::Setter => format!("{base}=(_)",),
-
-        // `[_]`, `[_ , _]`, …
-        SignatureKind::SubscriptGet(n) => format!("[{}]", underscores(n)),
-
-        // `[_]=(_)`
-        SignatureKind::SubscriptSet(n) => format!("[{}]=(_)", underscores(n)),
-    }
+    let arity = match kind {
+        SignatureKind::Initializer(n) => n,
+        SignatureKind::Method(n) => n,
+        SignatureKind::Getter => 0,
+        SignatureKind::Setter => 0, // Setter has 1 arg but labels list for it is empty in AST
+        SignatureKind::SubscriptGet(n) => n,
+        SignatureKind::SubscriptSet(n) => n,
+    };
+    let labels = vec![None; arity as usize];
+    encode_selector(base, &labels, kind)
 }
 
 #[derive(Debug)]

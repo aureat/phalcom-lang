@@ -223,6 +223,15 @@ impl<'source> Parser<'source> {
         &self.tokens[self.pos].token
     }
 
+    /// Returns the token immediately following the current lookahead token without consuming it.
+    fn peek_next(&self) -> &Token {
+        if self.pos + 1 < self.tokens.len() {
+            &self.tokens[self.pos + 1].token
+        } else {
+            &Token::Eof
+        }
+    }
+
     /// Returns the start byte offset of the current lookahead token.
     fn cur_start(&self) -> usize {
         self.tokens[self.pos].start
@@ -602,18 +611,24 @@ impl<'source> Parser<'source> {
         Ok(name)
     }
 
-    /// Parses a comma-separated parameter name list (possibly empty).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if a parameter position is not an identifier.
-    fn parse_param_list(&mut self) -> ParserResult<Vec<String>> {
+    fn parse_param_list(&mut self) -> ParserResult<Vec<ParameterDef>> {
         if matches!(self.peek(), Token::RParen) {
             return Ok(Vec::new());
         }
-        let mut params = vec![self.expect_identifier(&["identifier"])?];
-        while self.eat(&Token::Comma) {
-            params.push(self.expect_identifier(&["identifier"])?);
+        let mut params = Vec::new();
+        loop {
+            let start = self.cur_start();
+            let name = self.expect_identifier(&["identifier"])?;
+            let label = if self.eat(&Token::Colon) {
+                Some(name.clone())
+            } else {
+                None
+            };
+            let range = (start..self.prev_end).into();
+            params.push(ParameterDef { name, label, range });
+            if !self.eat(&Token::Comma) {
+                break;
+            }
         }
         Ok(params)
     }
@@ -918,18 +933,27 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses a comma-separated argument list (possibly empty).
-    ///
-    /// # Errors
-    ///
-    /// Propagates any error from an argument expression.
-    fn parse_arg_list(&mut self) -> ParserResult<Vec<Expr>> {
+    fn parse_arg_list(&mut self) -> ParserResult<Vec<Argument>> {
         if matches!(self.peek(), Token::RParen) {
             return Ok(Vec::new());
         }
-        let mut args = vec![self.parse_expr()?];
-        while self.eat(&Token::Comma) {
-            args.push(self.parse_expr()?);
+        let mut args = Vec::new();
+        loop {
+            let start = self.cur_start();
+            let is_labelled = matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon);
+            let label = if is_labelled {
+                let lbl = self.expect_identifier(&["label"])?;
+                self.expect(&Token::Colon, &["\":\""])?;
+                Some(lbl)
+            } else {
+                None
+            };
+            let expr = self.parse_expr()?;
+            let range = (start..self.prev_end).into();
+            args.push(Argument { label, expr, range });
+            if !self.eat(&Token::Comma) {
+                break;
+            }
         }
         Ok(args)
     }

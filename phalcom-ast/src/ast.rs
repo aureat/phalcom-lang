@@ -34,9 +34,16 @@ pub enum ClassMember {
 }
 
 #[derive(Debug)]
+pub struct ParameterDef {
+    pub name: String,
+    pub label: Option<String>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug)]
 pub struct MethodDef {
     pub name: String,
-    pub params: Vec<String>,
+    pub params: Vec<ParameterDef>,
     pub body: Vec<Statement>,
     pub is_static: bool,
     pub range: SourceRange,
@@ -121,10 +128,17 @@ pub struct CallExpr {
 }
 
 #[derive(Debug, Clone)]
+pub struct Argument {
+    pub label: Option<String>,
+    pub expr: Expr,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
 pub struct MethodCallExpr {
     pub object: Expr,
     pub method: String,
-    pub args: Vec<Expr>,
+    pub args: Vec<Argument>,
     pub range: SourceRange,
 }
 
