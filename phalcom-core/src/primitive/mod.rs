@@ -80,16 +80,18 @@ impl ObjectName {
 }
 
 macro_rules! primitive {
-    ($vm:expr, $class:expr, $sig:expr, $sig_kind: expr, $func:expr) => {
-        let symbol = $vm.get_or_intern($sig);
+    ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
+        let sig_str = crate::method::make_signature($base, $sig_kind);
+        let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, PhRef::downgrade(&$class));
         $class.borrow_mut().add_method(symbol, phref_new(method));
     };
 }
 
 macro_rules! primitive_static {
-    ($vm:expr, $class:expr, $sig:expr, $sig_kind: expr, $func:expr) => {
-        let symbol = $vm.get_or_intern($sig);
+    ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
+        let sig_str = crate::method::make_signature($base, $sig_kind);
+        let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, PhRef::downgrade(&$class));
         $class.borrow().class().borrow_mut().add_method(symbol, phref_new(method));
     };

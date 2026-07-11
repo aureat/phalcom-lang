@@ -104,50 +104,50 @@ impl Universe {
         let object_cls = vm.universe.classes.object_class.clone();
         primitive!(vm, object_cls, "name", SignatureKind::Getter, object_name);
         primitive!(vm, object_cls, "class", SignatureKind::Getter, object_class);
-        primitive!(vm, object_cls, "class=(_)", SignatureKind::Setter, object_set_class);
+        primitive!(vm, object_cls, "class", SignatureKind::Setter, object_set_class);
         primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
-        primitive_static!(vm, object_cls, "new()", SignatureKind::Method(1), object_class_new);
+        primitive_static!(vm, object_cls, "new", SignatureKind::Method(0), object_class_new);
 
         let class_cls = vm.universe.classes.class_class.clone();
         primitive!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
-        primitive!(vm, class_cls, "superclass=(_)", SignatureKind::Setter, class_set_superclass);
-        primitive!(vm, class_cls, "+(_)", SignatureKind::Method(1), class_add);
-        primitive!(vm, class_cls, "new()", SignatureKind::Method(0), class_new);
+        primitive!(vm, class_cls, "superclass", SignatureKind::Setter, class_set_superclass);
+        primitive!(vm, class_cls, "+", SignatureKind::Method(1), class_add);
+        primitive!(vm, class_cls, "new", SignatureKind::Method(0), class_new);
 
         let number_cls = vm.universe.classes.number_class.clone();
-        primitive!(vm, number_cls, "+(_)", SignatureKind::Method(1), number_add);
-        primitive!(vm, number_cls, "/(_)", SignatureKind::Method(1), number_div);
-        primitive_static!(vm, number_cls, "new()", SignatureKind::Method(0), number_class_new);
-        primitive_static!(vm, number_cls, "new(_)", SignatureKind::Method(1), number_class_new);
+        primitive!(vm, number_cls, "+", SignatureKind::Method(1), number_add);
+        primitive!(vm, number_cls, "/", SignatureKind::Method(1), number_div);
+        primitive_static!(vm, number_cls, "new", SignatureKind::Method(0), number_class_new);
+        primitive_static!(vm, number_cls, "new", SignatureKind::Method(1), number_class_new);
 
         let string_cls = vm.universe.classes.string_class.clone();
-        primitive!(vm, string_cls, "+(_)", SignatureKind::Method(1), string_add);
-        primitive_static!(vm, string_cls, "new()", SignatureKind::Method(0), string_class_new);
-        primitive_static!(vm, string_cls, "new(_)", SignatureKind::Method(1), string_class_new);
+        primitive!(vm, string_cls, "+", SignatureKind::Method(1), string_add);
+        primitive_static!(vm, string_cls, "new", SignatureKind::Method(0), string_class_new);
+        primitive_static!(vm, string_cls, "new", SignatureKind::Method(1), string_class_new);
 
         let bool_cls = vm.universe.classes.bool_class.clone();
-        primitive_static!(vm, bool_cls, "new()", SignatureKind::Method(0), bool_class_new);
-        primitive_static!(vm, bool_cls, "new(_)", SignatureKind::Method(1), bool_class_new);
+        primitive_static!(vm, bool_cls, "new", SignatureKind::Method(0), bool_class_new);
+        primitive_static!(vm, bool_cls, "new", SignatureKind::Method(1), bool_class_new);
 
         let symbol_cls = vm.universe.classes.symbol_class.clone();
         primitive!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
-        primitive_static!(vm, symbol_cls, "new(_)", SignatureKind::Method(1), symbol_class_new);
+        primitive_static!(vm, symbol_cls, "new", SignatureKind::Method(1), symbol_class_new);
 
         let nil_cls = vm.universe.classes.nil_class.clone();
-        primitive_static!(vm, nil_cls, "new()", SignatureKind::Method(0), nil_class_new);
+        primitive_static!(vm, nil_cls, "new", SignatureKind::Method(0), nil_class_new);
 
         let bool_cls = vm.universe.classes.bool_class.clone();
-        primitive_static!(vm, bool_cls, "new(_)", SignatureKind::Method(1), nil_class_new);
+        primitive_static!(vm, bool_cls, "new", SignatureKind::Method(1), nil_class_new);
 
         let method_cls = vm.universe.classes.method_class.clone();
-        primitive_static!(vm, method_cls, "new(_)", SignatureKind::Method(1), method_class_new);
+        primitive_static!(vm, method_cls, "new", SignatureKind::Method(1), method_class_new);
 
         let system_cls = vm.universe.classes.system_class.clone();
-        primitive_static!(vm, system_cls, "print(_)", SignatureKind::Method(1), system_class_print);
-        primitive_static!(vm, system_cls, "new()", SignatureKind::Method(0), system_class_new);
+        primitive_static!(vm, system_cls, "print", SignatureKind::Method(1), system_class_print);
+        primitive_static!(vm, system_cls, "new", SignatureKind::Method(0), system_class_new);
 
         let module_cls = vm.universe.classes.module_class.clone();
-        primitive_static!(vm, module_cls, "new()", SignatureKind::Method(0), module_class_new);
+        primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
     }
 
     pub fn create_primitive_names() -> PrimitiveNames {
