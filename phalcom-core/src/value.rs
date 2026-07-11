@@ -154,15 +154,24 @@ impl Value {
         }
     }
 
+    /// Builds the [`CallContext`] a closure-backed method call against `self`
+    /// runs with.
+    ///
+    /// An immediate receiver (`Bool`/`Number`/`Symbol`/the private `Nil`
+    /// sentinel) yields [`CallContext::Immediate`] rather than panicking —
+    /// U5 (ADR-0017) needs this so a user-reopened sacred selector on the
+    /// kernel `Bool` class (a closure method, unlike the primitive it
+    /// shadows) is actually callable on a real `true`/`false` receiver, not
+    /// just a heap object.
     pub fn to_context(&self, heap: &crate::heap::Heap) -> CallContext {
         match self {
             Value::Obj(id) => match heap.get(*id) {
-                Object::Instance(_) | Object::Block(_) | Object::Closure(_) => CallContext::Instance { instance: *id },
+                Object::Instance(_) | Object::Block(_) | Object::Closure(_) | Object::Str(_) | Object::Method(_) => CallContext::Instance { instance: *id },
                 Object::Class(_) => CallContext::Class { class: *id },
                 Object::Module(_) => CallContext::Module { module: *id },
-                _ => panic!("receiver is not a class, instance, module or block"),
+                Object::Upvalue(_) => panic!("upvalues are not surface receivers"),
             },
-            _ => panic!("receiver is not a class, instance, module or block"),
+            Value::Nil | Value::Bool(_) | Value::Number(_) | Value::Symbol(_) => CallContext::Immediate { value: *self },
         }
     }
 

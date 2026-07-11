@@ -1,6 +1,6 @@
 // area: control flow
 // spec: control-flow.md
-// status: PENDING
+// status: PASS (graduated U5: if/else desugars to ifTrue(_:ifFalse:))
 
 if (true) {
   System.print("yes")

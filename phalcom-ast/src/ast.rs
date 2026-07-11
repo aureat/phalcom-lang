@@ -98,6 +98,34 @@ pub enum Expr {
     Block(Box<BlockExpr>),
 }
 
+impl Expr {
+    /// Returns this expression's source span.
+    ///
+    /// Added for U5's `if`/`while` desugaring (`phalcom-ast/src/parser.rs`),
+    /// which needs a uniform way to span-wrap an arbitrary sub-expression
+    /// (e.g. an `else if`'s nested [`Expr::MethodCall`]) into a synthetic
+    /// block literal.
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Expr::Number { range, .. }
+            | Expr::String { range, .. }
+            | Expr::Boolean { range, .. }
+            | Expr::Nil { range }
+            | Expr::Var { range, .. }
+            | Expr::Field { range, .. }
+            | Expr::SelfVar { range }
+            | Expr::SuperVar { range } => *range,
+            Expr::Assignment(e) => e.range,
+            Expr::Unary(e) => e.range,
+            Expr::Binary(e) => e.range,
+            Expr::MethodCall(e) => e.range,
+            Expr::GetProperty(e) => e.range,
+            Expr::SetProperty(e) => e.range,
+            Expr::Block(e) => e.range,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BinaryExpr {
     pub op: BinaryOp,

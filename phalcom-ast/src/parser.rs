@@ -471,6 +471,8 @@ impl<'source> Parser<'source> {
                 | Token::Bang
                 | Token::Minus
                 | Token::LBrace
+                | Token::If
+                | Token::While
         )
     }
 
@@ -918,6 +920,133 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parses a `{ statements }` body into a 0-parameter, statement-bodied
+    /// [`BlockExpr`] spanning `start..prev_end` after the closing brace.
+    ///
+    /// Shared by [`Parser::parse_if`] and [`Parser::parse_while`]: `if`/
+    /// `while` are keyword sugar over sends of literal blocks
+    /// (control-flow.md §1; U5-plan.md BD-U5-1 Option A), so every arm they
+    /// parse becomes exactly the same [`Expr::Block`] node a bare `{ }`
+    /// literal would produce.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the braces or the enclosed statements are
+    /// malformed.
+    fn parse_brace_block(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        let body = self.parse_block_statements()?;
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let range = (start..self.prev_end).into();
+        Ok(Expr::Block(Box::new(BlockExpr {
+            params: Vec::new(),
+            body,
+            expr_body: false,
+            range,
+        })))
+    }
+
+    /// Wraps `expr` in a synthetic 0-parameter block whose single statement
+    /// is `expr`, spanning `expr`'s own range. Used to give a nested `if`
+    /// expression (the `else if` chain) the same block shape as an ordinary
+    /// `else { ... }` arm before it is passed as a sacred-selector block
+    /// argument.
+    fn wrap_expr_as_block(expr: Expr) -> Expr {
+        let range = expr.range();
+        Expr::Block(Box::new(BlockExpr {
+            params: Vec::new(),
+            body: vec![Statement::Expr { expr, range }],
+            expr_body: true,
+            range,
+        }))
+    }
+
+    /// Parses `if (cond) { ... } (else (if ... | { ... }))?` as sacred-selector
+    /// message sends over block literals (control-flow.md §1, §3;
+    /// U5-plan.md §4.1, BD-U5-1 Option A): a bare `if` desugars to
+    /// `cond.ifTrue(_:)`; an `if`/`else` desugars to the paired
+    /// `cond.ifTrue(_:ifFalse:)` selector — **not** the spec's illustrative
+    /// `ifTrue{}.ifNone{}` `Option` chain, keeping U5 independent of U6's
+    /// `Option` (see `Universe::install_primitives`' `bool_if_true_if_false`
+    /// registration for why: Phalcom's selector model has no Smalltalk-style
+    /// independently-worded keyword pair, so the paired arm is spelled with
+    /// one positional block plus one `ifFalse:`-labeled block instead).
+    /// `else if` chains by recursing and wrapping the nested `if` expression
+    /// in a synthetic block ([`Self::wrap_expr_as_block`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the condition, parentheses, or either arm's body
+    /// is malformed.
+    fn parse_if(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // 'if'
+        self.expect(&Token::LParen, &["\"(\""])?;
+        let cond = self.parse_expr()?;
+        self.expect(&Token::RParen, &["\")\""])?;
+        let then_arm = self.parse_brace_block()?;
+        let then_range = then_arm.range();
+
+        let mut args = vec![Argument {
+            label: None,
+            expr: then_arm,
+            range: then_range,
+        }];
+
+        if self.eat(&Token::Else) {
+            let else_arm = if matches!(self.peek(), Token::If) {
+                Self::wrap_expr_as_block(self.parse_if()?)
+            } else {
+                self.parse_brace_block()?
+            };
+            let else_range = else_arm.range();
+            args.push(Argument {
+                label: Some("ifFalse".to_string()),
+                expr: else_arm,
+                range: else_range,
+            });
+        }
+
+        let range = (start..self.prev_end).into();
+        Ok(Expr::MethodCall(Box::new(MethodCallExpr {
+            object: cond,
+            method: "ifTrue".to_string(),
+            args,
+            range,
+        })))
+    }
+
+    /// Parses `while (cond) { body }` as the sacred loop send
+    /// `{ cond }.whileTrue { body }` (control-flow.md §1, §3; U5-plan.md
+    /// §4.1, BD-U5-1 Option A) — the receiver is itself a literal block
+    /// wrapping the condition, re-evaluated each iteration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the condition, parentheses, or body is malformed.
+    fn parse_while(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // 'while'
+        self.expect(&Token::LParen, &["\"(\""])?;
+        let cond = self.parse_expr()?;
+        self.expect(&Token::RParen, &["\")\""])?;
+        let cond_block = Self::wrap_expr_as_block(cond);
+        let body = self.parse_brace_block()?;
+        let body_range = body.range();
+        let range = (start..self.prev_end).into();
+        Ok(Expr::MethodCall(Box::new(MethodCallExpr {
+            object: cond_block,
+            method: "whileTrue".to_string(),
+            args: vec![Argument {
+                label: None,
+                expr: body,
+                range: body_range,
+            }],
+            range,
+        })))
+    }
+
     /// Parses a primary expression: a literal, variable/field, `self`/`super`,
     /// or a parenthesised expression.
     ///
@@ -933,6 +1062,8 @@ impl<'source> Parser<'source> {
         let end = self.tokens[self.pos].end;
         let range = (start..end).into();
         match self.peek().clone() {
+            Token::If => self.parse_if(),
+            Token::While => self.parse_while(),
             Token::Nil => {
                 self.advance();
                 Ok(Expr::Nil { range })

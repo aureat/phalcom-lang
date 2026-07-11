@@ -12,6 +12,7 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::frame::CallContext;
 use crate::heap::Object;
+use crate::nil::NIL;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -110,4 +111,32 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 /// See [`block_call`].
 pub fn block_call_with(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     block_call(vm, receiver, args)
+}
+
+/// Signature: `Block::whileTrue(_)` — sacred loop fallback (control-flow.md
+/// §1/§3: `while (c) { B }` desugars to `{ c }.whileTrue { B }`). Calls the
+/// receiver block each iteration as the condition; if its result is not a
+/// `Bool`, raises a type error (this is Phalcom's "no truthiness" floor —
+/// there is no generic coercion, only `Bool` may drive a branch). Loops
+/// while the condition is `true`, calling `args[0]` (the body) each pass and
+/// discarding its result; returns the private `nil` sentinel on normal exit
+/// (U5 guardrail — U6 reroutes this to `None`). This is what the inliner's
+/// `GuardBlock` deopt path sends to
+/// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if a condition evaluation is not `Bool`,
+/// or any error raised calling the condition/body blocks.
+pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    loop {
+        let cond = block_call(vm, receiver, &[])?;
+        let Value::Bool(cond) = cond else {
+            return Err(RuntimeError::Type { expected: "Bool", found: cond.type_name() }.into());
+        };
+        if !cond {
+            return Ok(NIL);
+        }
+        block_call(vm, &args[0], &[])?;
+    }
 }

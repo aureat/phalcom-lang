@@ -22,9 +22,10 @@ fn arithmetic() {
 }
 
 #[test]
-#[ignore = "PENDING: boolean short-circuit semantics"]
 fn booleans() {
-    support::check_pending("booleans");
+    // U5: `and`/`or` are lazy sends over a block argument (control-flow.md
+    // §2) — graduated from PENDING.
+    support::check_pass("booleans");
 }
 
 #[test]

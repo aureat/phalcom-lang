@@ -57,51 +57,6 @@ pub enum Bytecode {
     /// Returns a value from the current method.
     Return,
 
-    /// Performs addition.
-    Add,
-
-    /// Performs subtraction.
-    Subtract,
-
-    /// Performs multiplication.
-    Multiply,
-
-    /// Performs division.
-    Divide,
-
-    /// Performs modulo.
-    Modulo,
-
-    /// Performs equality comparison.
-    Equal,
-
-    /// Performs inequality comparison.
-    NotEqual,
-
-    /// Performs less than comparison.
-    Less,
-
-    /// Performs less than or equal comparison.
-    LessEqual,
-
-    /// Performs greater than comparison.
-    Greater,
-
-    /// Performs greater than or equal comparison.
-    GreaterEqual,
-
-    /// Performs logical AND.
-    And,
-
-    /// Performs logical OR.
-    Or,
-
-    /// Negates a number.
-    Negate,
-
-    /// Performs logical NOT.
-    Not,
-
     /// Creates a closure from a template.
     /// 0: constant index of the template Callable/ClosureObject.
     Closure(u16),
@@ -117,4 +72,58 @@ pub enum Bytecode {
     /// Closes any open upvalues pointing to slot index or above.
     /// 0: stack slot index.
     CloseUpvalue(u16),
+
+    /// Unconditional relative jump.
+    ///
+    /// `offset` is added to the instruction pointer *after* it has already
+    /// been advanced past this instruction (the VM increments `ip` before
+    /// dispatching), in units of **instructions**, not bytes — a [`Chunk`](crate::chunk::Chunk)
+    /// is a `Vec<Bytecode>`, not a byte stream, so there is no fixed-width
+    /// encoding to economize; `i32` is used to comfortably cover an inlined
+    /// block body of any realistic size without the relative-offset
+    /// overflow risk a `clox`-style `i16` would carry
+    /// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    Jump(i32),
+
+    /// Pops the top of the stack (expected [`crate::value::Value::Bool`]);
+    /// if it is `false`, adds `offset` to `ip` (see [`Bytecode::Jump`] for the
+    /// offset convention); if it is `true`, falls through. If the popped
+    /// value is not a `Bool` at all, the VM raises a runtime type error —
+    /// this is what gives the sacred-selector inliner's per-iteration
+    /// `whileTrue` condition check "no truthiness" for free, without a
+    /// separate guard opcode ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    JumpIfFalse(i32),
+
+    /// Backward relative jump, semantically identical to [`Bytecode::Jump`]
+    /// (`offset` is typically negative). Kept as a distinct opcode purely so
+    /// disassembly reads as a loop back-edge, matching `clox`'s `OP_LOOP`
+    /// convention.
+    Loop(i32),
+
+    /// Deopt guard for the `Bool`-receiver sacred selectors (`ifTrue(_)`,
+    /// `ifFalse(_)`, `ifTrue(_)ifFalse(_)`, `and(_)`, `or(_)`).
+    ///
+    /// Peeks (does **not** pop) the top of the stack: if it is not
+    /// [`crate::value::Value::Bool`] **or** the kernel `Bool`'s sacred
+    /// methods have been redefined since bootstrap
+    /// (`!Universe::bool_sacred_pristine`), adds `offset` to `ip`, landing on
+    /// the fallback real-send sequence the compiler emits alongside the
+    /// inlined fast path. Otherwise falls through into the inlined code.
+    /// This is the override-epoch half of the deopt guard — a type-only
+    /// check would be unsound because `and`/`or`/`ifTrue` are ordinary,
+    /// overridable methods (control-flow.md §2–3,
+    /// [ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    GuardBool(i32),
+
+    /// Deopt guard for the `Block`-receiver sacred selectors (`whileTrue(_)`).
+    ///
+    /// Unlike [`Bytecode::GuardBool`], this does **not** peek a receiver
+    /// value: the receiver of an inlined `whileTrue` is always a
+    /// compiler-materialized block literal (`{ cond }.whileTrue { body }`),
+    /// so its *type* is already statically Block — the only thing that can
+    /// go stale at runtime is whether `Block>>whileTrue(_)` itself has been
+    /// redefined since bootstrap. Tests `!Universe::block_sacred_pristine`
+    /// and, if dirty, adds `offset` to `ip`
+    /// ([ADR-0017](../../../docs/adr/0017-sacred-selector-inliner.md)).
+    GuardBlock(i32),
 }

@@ -39,3 +39,20 @@ pub fn object_class_new(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     let instance = InstanceObject::new(class_id);
     Ok(Value::Obj(vm.heap.alloc(Object::Instance(instance))))
 }
+
+/// Signature: `Object::==(_)` — the base equality send (U5, control-flow.md
+/// §1: `==`/`!=` are ordinary sends like every other operator). Delegates to
+/// [`Value::value_eq`](crate::value::Value::value_eq) (content equality for
+/// strings, identity for instances/classes/methods, by-value for
+/// immediates), so it reproduces exactly today's `==` semantics — only the
+/// *dispatch mechanism* changes. Any subclass (e.g. a user `==(other)`
+/// override, per `person2.ph`) shadows this via ordinary method lookup.
+pub fn object_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::Bool(receiver.value_eq(&args[0], &vm.heap)))
+}
+
+/// Signature: `Object::!=(_)` — the base inequality send; the logical
+/// negation of [`object_eq`].
+pub fn object_neq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::Bool(!receiver.value_eq(&args[0], &vm.heap)))
+}

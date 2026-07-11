@@ -249,6 +249,8 @@ impl VM {
         add_class!(method_class);
         add_class!(symbol_class);
         add_class!(system_class);
+        add_class!(function_class);
+        add_class!(block_class);
     }
 
     /// Dispatches a call to `method` on `callee` with `arity` arguments.
@@ -390,63 +392,17 @@ impl VM {
         self.stack.pop().ok_or_else(|| RuntimeError::Internal("Stack underflow".to_string()).into())
     }
 
-    /// Applies a fast-path binary `op` to immediate operands, if both qualify.
+    /// Adds a relative instruction-count `offset` to the current (innermost)
+    /// frame's instruction pointer.
     ///
-    /// Returns `Some(result)` for the arithmetic/logic/string fast paths and
-    /// `None` when the operands need full method dispatch. String results are
-    /// allocated on the heap.
-    ///
-    /// # Errors
-    ///
-    /// Currently never returns an error, but keeps the fallible signature for the
-    /// dispatch fast path.
-    pub fn handle_primitive_op(&mut self, a: &Value, b: &Value, op: &str) -> PhResult<Option<Value>> {
-        match (a, b) {
-            (Value::Number(a_num), Value::Number(b_num)) => {
-                let result = match op {
-                    "+" => Value::Number(a_num + b_num),
-                    "-" => Value::Number(a_num - b_num),
-                    "*" => Value::Number(a_num * b_num),
-                    "/" => Value::Number(a_num / b_num),
-                    "%" => Value::Number(a_num % b_num),
-                    _ => return Ok(None),
-                };
-                Ok(Some(result))
-            }
-            (Value::Obj(a_id), Value::Obj(b_id)) if op == "+" => {
-                let concat = match (self.heap.as_string(*a_id), self.heap.as_string(*b_id)) {
-                    (Some(a_str), Some(b_str)) => Some(a_str.value() + b_str.as_str()),
-                    _ => None,
-                };
-                match concat {
-                    Some(result) => Ok(Some(self.alloc_string_value(result))),
-                    None => Ok(None),
-                }
-            }
-            (Value::Obj(a_id), Value::Number(n)) if op == "*" => {
-                let repeated = self.heap.as_string(*a_id).map(|s| s.as_str().repeat(*n as usize));
-                match repeated {
-                    Some(result) => Ok(Some(self.alloc_string_value(result))),
-                    None => Ok(None),
-                }
-            }
-            (Value::Number(n), Value::Obj(b_id)) if op == "*" => {
-                let repeated = self.heap.as_string(*b_id).map(|s| s.as_str().repeat(*n as usize));
-                match repeated {
-                    Some(result) => Ok(Some(self.alloc_string_value(result))),
-                    None => Ok(None),
-                }
-            }
-            (Value::Bool(a_bool), Value::Bool(b_bool)) => {
-                let result = match op {
-                    "&&" => Value::Bool(*a_bool && *b_bool),
-                    "||" => Value::Bool(*a_bool || *b_bool),
-                    _ => return Ok(None),
-                };
-                Ok(Some(result))
-            }
-            _ => Ok(None),
-        }
+    /// Shared by [`Bytecode::Jump`], [`Bytecode::JumpIfFalse`],
+    /// [`Bytecode::Loop`], [`Bytecode::GuardBool`] and
+    /// [`Bytecode::GuardBlock`] — see [`Bytecode::Jump`]'s doc for the offset
+    /// convention (`ip` is already advanced past the jump instruction itself
+    /// by the time this runs).
+    fn apply_jump_offset(&mut self, offset: i32) {
+        let frame = self.frames.last_mut().unwrap();
+        frame.ip = (frame.ip as i64 + offset as i64) as usize;
     }
 
     /// Runs the dispatch loop until the call stack empties, returning the result.
@@ -473,36 +429,6 @@ impl VM {
     /// Returns any [`RuntimeError`] raised during execution (undefined variable,
     /// method-not-found, unsupported operator, and so on).
     pub(crate) fn run_until(&mut self, base_frames: usize) -> PhResult<Value> {
-        macro_rules! binary_op {
-            ($op:tt, $selector:expr, $span:expr) => {{
-                let b = self.pop()?;
-                let a = self.pop()?;
-
-                let op = stringify!($op);
-
-                if let Some(result) = self.handle_primitive_op(&a, &b, op)? {
-                    self.stack.push(result);
-                    continue;
-                }
-
-                let selector = self.interner.intern($selector);
-
-                if let Some(method) = a.lookup_method(self, selector) {
-                    self.stack.push(a);
-                    self.stack.push(b);
-                    self.call_method(&a, method, 1, $span)?;
-                } else if let Some(method) = b.lookup_method(self, selector) {
-                    self.stack.push(a);
-                    self.stack.push(b);
-                    self.call_method(&b, method, 1, $span)?;
-                } else {
-                    let left = a.to_debug(self);
-                    let right = b.to_debug(self);
-                    return Err(RuntimeError::BinaryNotSupported { op, left, right }.into());
-                }
-            }};
-        }
-
         loop {
             if self.frames.len() <= base_frames {
                 return Ok(self.stack.pop().unwrap_or(Value::Nil));
@@ -651,6 +577,11 @@ impl VM {
                             self.heap.class_mut(meta).add_method(selector, method_id);
                         } else {
                             self.heap.class_mut(class_id).add_method(selector, method_id);
+                            // Sacred-selector override-epoch tracking (ADR-0017):
+                            // any (re)definition of a sacred selector directly on
+                            // the kernel Bool/Block class dirties the pristine
+                            // flag the inliner's GuardBool/GuardBlock read.
+                            self.universe.note_method_installed(class_id, selector, &self.interner);
                         }
                     } else {
                         return Err(RuntimeError::Internal("Invalid types for method definition.".to_string()).into());
@@ -742,59 +673,30 @@ impl VM {
                     }
                     self.stack.push(return_value);
                 }
-                Bytecode::Add => binary_op!(+, "+(_:)", source_range),
-                Bytecode::Subtract => binary_op!(-, "-(_:)", source_range),
-                Bytecode::Multiply => binary_op!(*, "*(_:)", source_range),
-                Bytecode::Divide => binary_op!(/, "/(_:)", source_range),
-                Bytecode::Modulo => binary_op!(%, "%(_:)", source_range),
-                Bytecode::Equal => {
-                    let b = self.pop()?;
-                    let a = self.pop()?;
-                    self.stack.push(Value::Bool(a.value_eq(&b, &self.heap)));
+                Bytecode::Jump(offset) => self.apply_jump_offset(offset),
+                Bytecode::JumpIfFalse(offset) => {
+                    let cond = self.pop()?;
+                    match cond {
+                        Value::Bool(true) => {}
+                        Value::Bool(false) => self.apply_jump_offset(offset),
+                        other => {
+                            let found = other.type_name();
+                            return Err(RuntimeError::Type { expected: "Bool", found }.into());
+                        }
+                    }
                 }
-                Bytecode::NotEqual => {
-                    let b = self.pop()?;
-                    let a = self.pop()?;
-                    self.stack.push(Value::Bool(!a.value_eq(&b, &self.heap)));
+                Bytecode::Loop(offset) => self.apply_jump_offset(offset),
+                Bytecode::GuardBool(offset) => {
+                    let top = *self.stack.last().ok_or(RuntimeError::Internal("Stack underflow for GuardBool".to_string()))?;
+                    let takes_fast_path = matches!(top, Value::Bool(_)) && self.universe.bool_sacred_pristine;
+                    if !takes_fast_path {
+                        self.apply_jump_offset(offset);
+                    }
                 }
-                Bytecode::Greater => binary_op!(>, ">(_:)", source_range),
-                Bytecode::GreaterEqual => binary_op!(>=, ">=(_:)", source_range),
-                Bytecode::Less => binary_op!(<, "<(_:)", source_range),
-                Bytecode::LessEqual => binary_op!(<=, "<=(_:)", source_range),
-                Bytecode::And => binary_op!(&&, "and(_:)", source_range),
-                Bytecode::Or => binary_op!(||, "or(_:)", source_range),
-                Bytecode::Negate => {
-                    let val = self.pop()?;
-                    if let Value::Number(num) = val {
-                        self.stack.push(Value::Number(-num));
-                        continue;
+                Bytecode::GuardBlock(offset) => {
+                    if !self.universe.block_sacred_pristine {
+                        self.apply_jump_offset(offset);
                     }
-
-                    let selector = self.interner.intern("-");
-                    if let Some(method) = val.lookup_method(self, selector) {
-                        self.stack.push(val);
-                        self.call_method(&val, method, 0, source_range)?;
-                    }
-
-                    let value = val.to_debug(self);
-                    return Err(RuntimeError::UnaryNotSupported { op: "-", value }.into());
-                }
-                Bytecode::Not => {
-                    let val = self.pop()?;
-                    if let Value::Bool(b) = val {
-                        self.stack.push(Value::Bool(!b));
-                        continue;
-                    }
-
-                    let selector = self.interner.intern("not");
-                    if let Some(method) = val.lookup_method(self, selector) {
-                        self.stack.push(val);
-                        self.call_method(&val, method, 0, source_range)?;
-                        continue;
-                    }
-
-                    let value = val.to_debug(self);
-                    return Err(RuntimeError::UnaryNotSupported { op: "not", value }.into());
                 }
             }
             debug!("Stack after opcode {:?}: {:?}", opcode, self.stack);

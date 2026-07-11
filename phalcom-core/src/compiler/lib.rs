@@ -11,6 +11,7 @@
 use crate::bytecode::Bytecode;
 use crate::callable::{Callable, UpvalueDescriptor};
 use crate::chunk::Chunk;
+use crate::compiler::inliner;
 use crate::closure::ClosureObject;
 use crate::error::PhResult;
 use crate::heap::{ObjRef, Object};
@@ -18,7 +19,7 @@ use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_ast::ast::{BinaryOp, ClassMember, Expr, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{BinaryOp, BlockExpr, ClassMember, Expr, Program, Statement, UnaryOp};
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::{EmptySourceRange, SourceRange};
 use thiserror::Error;
@@ -80,9 +81,9 @@ struct Local {
 /// block outward through its enclosing functions using plain indices — with no
 /// aliasing `&mut` references and no raw parent pointers
 /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
-struct FunctionState {
+pub(crate) struct FunctionState {
     /// The bytecode chunk being emitted for this body.
-    chunk: Chunk,
+    pub(crate) chunk: Chunk,
     /// The live local variables, innermost last.
     locals: Vec<Local>,
     /// The current lexical scope nesting depth.
@@ -110,12 +111,12 @@ impl FunctionState {
 }
 
 pub(crate) struct Compiler<'vm> {
-    vm: &'vm mut VM,
+    pub(crate) vm: &'vm mut VM,
     module: ObjRef,
     /// The stack of function-compilation states, innermost body last. A block
     /// literal pushes a new state, compiles into it, and pops it; upvalue
     /// resolution indexes into this stack rather than following raw pointers.
-    functions: Vec<FunctionState>,
+    pub(crate) functions: Vec<FunctionState>,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -128,12 +129,12 @@ impl<'vm> Compiler<'vm> {
     }
 
     /// Emits `opcode` into the current function's chunk.
-    fn emit(&mut self, opcode: Bytecode, range: SourceRange) {
+    pub(crate) fn emit(&mut self, opcode: Bytecode, range: SourceRange) {
         self.functions.last_mut().unwrap().chunk.add_instruction(opcode, range);
     }
 
     /// Adds `value` to the current function's constant pool, returning its index.
-    fn add_constant(&mut self, value: Value) -> u16 {
+    pub(crate) fn add_constant(&mut self, value: Value) -> u16 {
         self.functions.last_mut().unwrap().chunk.add_constant(value)
     }
 
@@ -155,7 +156,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::GetSelf, range);
     }
 
-    fn begin_scope(&mut self) {
+    pub(crate) fn begin_scope(&mut self) {
         self.functions.last_mut().unwrap().scope_depth += 1;
     }
 
@@ -169,7 +170,7 @@ impl<'vm> Compiler<'vm> {
     /// cells are promoted (`Open` -> `Closed`) before the slot is reclaimed
     /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)); the VM's
     /// `Return` closes them again idempotently for the explicit-return path.
-    fn end_scope(&mut self, range: SourceRange) {
+    pub(crate) fn end_scope(&mut self, range: SourceRange) {
         let func = self.functions.last_mut().unwrap();
         func.scope_depth -= 1;
         let scope_depth = func.scope_depth;
@@ -252,6 +253,19 @@ impl<'vm> Compiler<'vm> {
         }
         upvalues.push(UpvalueDescriptor { is_local, index });
         upvalues.len() - 1
+    }
+
+    /// Emits an ordinary `Invoke` send for operator selector `name` at
+    /// `arity` (control-flow.md §1; U5-plan.md §4.1). Always builds the
+    /// selector through [`encode_selector`] — never a hand-rolled string —
+    /// so the compiler and the primitive registrations in `universe.rs`
+    /// stay in lockstep (ADR-0012).
+    fn emit_operator_send(&mut self, name: &str, arity: u8, range: SourceRange) {
+        let labels = vec![None; arity as usize];
+        let selector = encode_selector(name, &labels, SignatureKind::Method(arity));
+        let selector_sym = self.vm.interner.intern(&selector);
+        let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+        self.emit(Bytecode::Invoke(arity, selector_idx), range);
     }
 
     fn compile_block(
@@ -361,7 +375,7 @@ impl<'vm> Compiler<'vm> {
         Ok(closure)
     }
 
-    fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {
+    pub(crate) fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {
         match statement {
             Statement::Expr { expr, range } => {
                 self.compile_expr(expr)?;
@@ -402,17 +416,32 @@ impl<'vm> Compiler<'vm> {
             }
             Statement::Class(class_def) => {
                 let range = class_def.range;
-
-                // Push superclass onto the stack (for now, default to Object)
-                let object_class = self.vm.universe.classes.object_class;
-                let superclass_idx = self.add_constant(Value::Obj(object_class));
-                self.emit(Bytecode::Constant(superclass_idx), range);
-
-                // TODO: Handle explicit superclass syntax later
-
                 let name_sym = self.vm.interner.intern(&class_def.name);
                 let name_idx = self.add_constant(Value::Symbol(name_sym));
-                self.emit(Bytecode::Class(name_idx), range);
+
+                if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
+                    // Reopening: a `class Name { ... }` whose name already
+                    // resolves to a global class attaches its members to
+                    // *that* class row instead of shadowing it with a fresh
+                    // one under the same name. This is a deliberate, narrowly
+                    // scoped U5 addition (not a general object-model
+                    // redesign — `class-hierarchy mutability` stays open,
+                    // open-Q4) needed to make sacred-selector overriding
+                    // exercisable from surface Phalcom at all, so the
+                    // inliner's override-epoch deopt guard has a real,
+                    // testable trigger (ADR-0017; see
+                    // `Universe::note_method_installed`).
+                    let class_idx = self.add_constant(Value::Obj(existing_class));
+                    self.emit(Bytecode::Constant(class_idx), range);
+                } else {
+                    // Push superclass onto the stack (for now, default to Object)
+                    let object_class = self.vm.universe.classes.object_class;
+                    let superclass_idx = self.add_constant(Value::Obj(object_class));
+                    self.emit(Bytecode::Constant(superclass_idx), range);
+
+                    // TODO: Handle explicit superclass syntax later
+                    self.emit(Bytecode::Class(name_idx), range);
+                }
 
                 // The class object is now on top of the stack. Iterate through members.
                 for member in class_def.members {
@@ -496,19 +525,30 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
-    fn compile_expr(&mut self, expr: Expr) -> Result<(), CompilerError> {
+    pub(crate) fn compile_expr(&mut self, expr: Expr) -> Result<(), CompilerError> {
         match expr {
             Expr::MethodCall(method_call) => {
-                self.compile_expr(method_call.object)?;
-                for arg in &method_call.args {
-                    self.compile_expr(arg.expr.clone())?;
+                // U5 Layer 1 (control-flow.md §3, ADR-0017): a sacred
+                // selector sent with literal-block arguments compiles to a
+                // guarded inline fast path instead of a plain send. Every
+                // other call — including a sacred selector with a
+                // *non*-literal block argument — falls through unchanged.
+                let range = method_call.range;
+                match inliner::recognize(*method_call) {
+                    Ok(sacred) => return self.compile_sacred_call(sacred, range),
+                    Err(method_call) => {
+                        self.compile_expr(method_call.object)?;
+                        for arg in &method_call.args {
+                            self.compile_expr(arg.expr.clone())?;
+                        }
+                        let arity = method_call.args.len();
+                        let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
+                        let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
+                        let selector_sym = self.vm.interner.intern(&selector);
+                        let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                        self.emit(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
+                    }
                 }
-                let arity = method_call.args.len();
-                let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
-                let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
-                let selector_sym = self.vm.interner.intern(&selector);
-                let selector_idx = self.add_constant(Value::Symbol(selector_sym));
-                self.emit(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
             }
             Expr::GetProperty(get_prop) => {
                 self.compile_expr(get_prop.object)?;
@@ -585,32 +625,49 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::Binary(binary_expr) => {
-                self.compile_expr(binary_expr.left)?;
-                self.compile_expr(binary_expr.right)?;
+                // U5 (control-flow.md §1): every binary operator is an
+                // ordinary `Invoke` send — none of these are opcodes anymore.
+                // `and`/`or` are the two *lazy* exceptions (control-flow.md
+                // §2): their right operand compiles as a 0-arity block
+                // literal, not a plain expression, so `Bool::and(_)`/`or(_)`
+                // can choose whether to evaluate it at all. That literal
+                // block is compiler-synthesized here but is exactly as
+                // "literal" as a user-written `{ ... }` — U5-plan.md §4.2's
+                // "literal block at the call site" inlining condition is
+                // about the block's *shape*, not its origin — so `a and b`
+                // is built directly as a recognized `SacredCall::And` and
+                // handed to the same guarded-jump emitter `a.and { b }`
+                // uses (`inliner.rs`), not a plain send.
                 let range = binary_expr.range;
                 match binary_expr.op {
-                    BinaryOp::Add => self.emit(Bytecode::Add, range),
-                    BinaryOp::Subtract => self.emit(Bytecode::Subtract, range),
-                    BinaryOp::Multiply => self.emit(Bytecode::Multiply, range),
-                    BinaryOp::Divide => self.emit(Bytecode::Divide, range),
-                    BinaryOp::Modulo => self.emit(Bytecode::Modulo, range),
-                    BinaryOp::Equal => self.emit(Bytecode::Equal, range),
-                    BinaryOp::NotEqual => self.emit(Bytecode::NotEqual, range),
-                    BinaryOp::LessThan => self.emit(Bytecode::Less, range),
-                    BinaryOp::LessThanOrEqual => self.emit(Bytecode::LessEqual, range),
-                    BinaryOp::GreaterThan => self.emit(Bytecode::Greater, range),
-                    BinaryOp::GreaterThanOrEqual => self.emit(Bytecode::GreaterEqual, range),
-                    BinaryOp::And => self.emit(Bytecode::And, range),
-                    BinaryOp::Or => self.emit(Bytecode::Or, range),
+                    BinaryOp::And => {
+                        let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
+                        return self.compile_sacred_call(inliner::SacredCall::And { receiver: binary_expr.left, rhs_block }, range);
+                    }
+                    BinaryOp::Or => {
+                        let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
+                        return self.compile_sacred_call(inliner::SacredCall::Or { receiver: binary_expr.left, rhs_block }, range);
+                    }
+                    op => {
+                        self.compile_expr(binary_expr.left)?;
+                        self.compile_expr(binary_expr.right)?;
+                        self.emit_operator_send(binary_op_selector_name(&op), 1, range);
+                    }
                 }
             }
             Expr::Unary(unary_expr) => {
+                // U5: `-x`/`!x` lower to 0-arg sends (`negated()`/`not()`)
+                // via the single `encode_selector` helper, replacing the
+                // hand-rolled `"-"`/`"not"` lookup strings the old opcode
+                // handlers used (ADR-0012 — "do not hand-roll a divergent
+                // encoder", the F8 lesson).
                 self.compile_expr(unary_expr.expr)?;
                 let range = unary_expr.range;
-                match unary_expr.op {
-                    UnaryOp::Negate => self.emit(Bytecode::Negate, range),
-                    UnaryOp::Not => self.emit(Bytecode::Not, range),
-                }
+                let name = match unary_expr.op {
+                    UnaryOp::Negate => "negated",
+                    UnaryOp::Not => "not",
+                };
+                self.emit_operator_send(name, 0, range);
             }
             Expr::SelfVar { range } => {
                 self.emit_self(range);
@@ -636,6 +693,43 @@ impl<'vm> Compiler<'vm> {
               // }
         }
         Ok(())
+    }
+}
+
+/// Wraps `expr` in a synthetic 0-parameter, expression-bodied block literal
+/// spanning `range`, for `and`/`or`'s lazily-evaluated right-hand side
+/// (control-flow.md §2: `a and b` ≡ `a.and { b }`).
+fn wrap_expr_as_lazy_block(expr: Expr, range: SourceRange) -> Expr {
+    Expr::Block(Box::new(BlockExpr {
+        params: Vec::new(),
+        body: vec![Statement::Expr { expr, range }],
+        expr_body: true,
+        range,
+    }))
+}
+
+/// Maps a non-lazy [`BinaryOp`] to the base selector name `emit_operator_send`
+/// encodes it under. `And`/`Or` are handled separately (lazy — see
+/// [`Compiler::compile_lazy_block_operand`]) and never reach this function.
+///
+/// # Panics
+///
+/// Panics if called with `BinaryOp::And`/`BinaryOp::Or` — a compiler-internal
+/// invariant violation, not a user-reachable error.
+fn binary_op_selector_name(op: &BinaryOp) -> &'static str {
+    match op {
+        BinaryOp::Add => "+",
+        BinaryOp::Subtract => "-",
+        BinaryOp::Multiply => "*",
+        BinaryOp::Divide => "/",
+        BinaryOp::Modulo => "%",
+        BinaryOp::Equal => "==",
+        BinaryOp::NotEqual => "!=",
+        BinaryOp::LessThan => "<",
+        BinaryOp::LessThanOrEqual => "<=",
+        BinaryOp::GreaterThan => ">",
+        BinaryOp::GreaterThanOrEqual => ">=",
+        BinaryOp::And | BinaryOp::Or => unreachable!("and/or are lazy and compiled separately"),
     }
 }
 

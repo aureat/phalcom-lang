@@ -57,17 +57,105 @@ pub fn number_add(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
 
 /// Signature: `Number::/(_)` — numeric division.
 ///
+/// Follows IEEE-754 `f64` division: `1 / 0` is `inf`, `-1 / 0` is `-inf`,
+/// `0 / 0` is `NaN` (control-flow.md/arithmetic goldens pin this — Phalcom's
+/// flat `Number` never special-cases the divisor,
+/// [ADR-0005](../../../docs/adr/0005-number-as-flat-f64.md)).
+///
 /// # Errors
 ///
-/// Returns [`RuntimeError::Type`] if either operand is not a number, or
-/// [`RuntimeError::ZeroDivision`] if the divisor is zero.
+/// Returns [`RuntimeError::Type`] if either operand is not a number.
 pub fn number_div(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let this = expect_value!(_receiver, Number);
     let other = expect_value!(&args[0], Number);
-
-    if other == 0.0 {
-        return Err(RuntimeError::ZeroDivision.into());
-    }
-
     Ok(Value::Number(this / other))
+}
+
+/// Signature: `Number::-(_)` — numeric subtraction.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if either operand is not a number.
+pub fn number_sub(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(receiver, Number);
+    let other = expect_value!(&args[0], Number);
+    Ok(Value::Number(this - other))
+}
+
+/// Signature: `Number::*(_)` — numeric multiplication.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if either operand is not a number.
+pub fn number_mul(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(receiver, Number);
+    let other = expect_value!(&args[0], Number);
+    Ok(Value::Number(this * other))
+}
+
+/// Signature: `Number::%(_)` — floating-point remainder (Rust `%`/IEEE-754
+/// `fmod` semantics, sign follows the dividend).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if either operand is not a number.
+pub fn number_mod(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(receiver, Number);
+    let other = expect_value!(&args[0], Number);
+    Ok(Value::Number(this % other))
+}
+
+/// Signature: `Number::<(_)` — less-than comparison.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if either operand is not a number.
+pub fn number_lt(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(receiver, Number);
+    let other = expect_value!(&args[0], Number);
+    Ok(Value::Bool(this < other))
+}
+
+/// Signature: `Number::<=(_)` — less-than-or-equal comparison.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if either operand is not a number.
+pub fn number_le(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(receiver, Number);
+    let other = expect_value!(&args[0], Number);
+    Ok(Value::Bool(this <= other))
+}
+
+/// Signature: `Number::>(_)` — greater-than comparison.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if either operand is not a number.
+pub fn number_gt(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(receiver, Number);
+    let other = expect_value!(&args[0], Number);
+    Ok(Value::Bool(this > other))
+}
+
+/// Signature: `Number::>=(_)` — greater-than-or-equal comparison.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if either operand is not a number.
+pub fn number_ge(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(receiver, Number);
+    let other = expect_value!(&args[0], Number);
+    Ok(Value::Bool(this >= other))
+}
+
+/// Signature: `Number::negated()` — unary numeric negation (surface `-x`,
+/// control-flow.md §1, [ADR-0012](../../../docs/adr/0012-selector-encoding-and-dispatch.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if the receiver is not a number.
+pub fn number_negated(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let this = expect_value!(receiver, Number);
+    Ok(Value::Number(-this))
 }

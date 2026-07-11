@@ -1,6 +1,6 @@
 // area: classes
 // spec: classes.md; messages-and-selectors.md
-// status: PENDING
+// status: PASS (graduated U5: == dispatches through the class hierarchy)
 
 class Pt {
   x => _x

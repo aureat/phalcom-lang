@@ -1,1 +1,1 @@
-Binary operation '&&' not supported for true and 1
+Method 'and(_:)' not found for value '1'

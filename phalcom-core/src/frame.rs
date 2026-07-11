@@ -6,6 +6,7 @@
 //! `Rc<RefCell<T>>` and no borrow-panic surface.
 
 use crate::heap::ObjRef;
+use crate::value::Value;
 use phalcom_common::range::SourceRange;
 
 /// A token identifying a particular call-frame activation.
@@ -46,6 +47,17 @@ pub enum CallContext {
     Module {
         /// Handle to the running module.
         module: ObjRef,
+    },
+    /// Executing a closure-backed (non-primitive) method on an **immediate**
+    /// receiver (`Bool`/`Number`/`Symbol`) — e.g. a user-defined sacred
+    /// selector reopened onto the kernel `Bool` class (U5, ADR-0017: needed
+    /// to make the sacred-selector inliner's override-epoch deopt guard
+    /// exercisable, since only a closure method — never a primitive — needs
+    /// a `CallContext` at all). Carries the receiver `Value` itself, since
+    /// there is no [`ObjRef`] to point at.
+    Immediate {
+        /// The immediate receiver value.
+        value: Value,
     },
 }
 
