@@ -34,10 +34,15 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **65** |
-| Distinct native Rust functions | **49** |
-| Classes carrying floor primitives | **15** (of 18 named kernel classes) |
+| Installed `(class, selector)` bindings | **73** |
+| Distinct native Rust functions | **57** |
+| Classes carrying floor primitives | **16** (of 19 named kernel classes) |
 | Sacred selectors (§5) | **7** |
+
+> **Baseline:** current HEAD through **U9** (code commit `c9805d0`). Folds in
+> **U8** (`Object` reflective surface — `perform`/`respondsTo`/`doesNotUnderstand`
+> — and the `Message` class, §2.1/§2.14) and **U9** (variadics — no new floor
+> bindings). See [`README.md`](./README.md) for the baseline-pin policy.
 
 ### 1.2 Selector notation
 
@@ -78,6 +83,10 @@ Ordered as `install_primitives` installs them
 | `new()` | static | `object_class_new` | generic instance allocator — the default `new` for user classes (see §4) |
 | `==(_)` | instance | `object_eq` | ordinary send, **not** an opcode (control-flow.md §1) |
 | `!=(_)` | instance | `object_neq` | ordinary send |
+| `perform(_)` | instance | `object_perform` | reflective send (U8, messages-and-selectors.md §5) |
+| `perform(_, _)` | instance | `object_perform_with` | reflective send with a packed args argument |
+| `respondsTo(_)` | instance | `object_responds_to` | pure probe; never triggers dNU |
+| `doesNotUnderstand(_)` | instance | `object_does_not_understand` | terminal miss handler; overridable so a proxy subclass can intercept |
 
 ### 2.2 `Behavior` — class-side reflection
 
@@ -192,6 +201,21 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 | `rawPush(_)` | instance | `list_raw_push` | internal; wrapped by `add(_)`; amortized growth folds into `Vec::push` |
 | `toString` | instance | `list_to_string` | native this unit (see U-LIST return contract) |
 
+### 2.14 `Message` — reified miss-send ([messages-and-selectors.md](../messages-and-selectors.md) §5, U8)
+
+**Not** an `object-model.md` §4 catalog class — a fixed-slot `InstanceObject`
+(four slots) built directly by `VM::new_message` and handed to
+`doesNotUnderstand(_)`. Its field count is stamped in `VM::new` (mirroring
+`Some`); it has no `.ph` surface but *is* a surface global
+(`add_class!(message_class)`).
+
+| Selector | Side | Native fn | Notes |
+|---|---|---|---|
+| `selector` | instance | `message_selector` | the interned selector symbol |
+| `name` | instance | `message_name` | **shadows** `Object#name` — returns the *sent method* name, not the class name |
+| `labels` | instance | `message_labels` | per-argument labels |
+| `args` | instance | `message_args` | argument values |
+
 ## 3. The floor ↔ `core.ph` boundary
 
 The only class whose *surface* protocol is currently self-hosted over the floor
@@ -277,17 +301,19 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    change.
 2. **Audit hook (recommended, R-INV-adjacent):** a test that reconstructs the
    installed `(class, selector)` set from a live `VM::new()` and asserts it
-   equals the census here (count = 65). This turns silent floor drift into a red
+   equals the census here (count = 73). This turns silent floor drift into a red
    test. Until it exists, the counts in §1.1 are the manual checksum.
 
 ## 8. Traceability
 
 | Section | Source lines |
 |---|---|
-| §2 all | `universe.rs::install_primitives` L213–358 |
-| §2.6 encoded `ifTrue(_:ifFalse:)` | `universe.rs` L271–277 |
-| §2.8 encoded `match` | `universe.rs` L297–304 |
-| §2.8 `Some` field layout | `vm.rs::new` L142–148 |
-| §2.10 `MAX_CALL_ARITY` | `universe.rs` L314 |
+| §2 all | `universe.rs::install_primitives` L225–388 |
+| §2.1 Object reflective surface (U8) | `universe.rs` L240–243 |
+| §2.6 encoded `ifTrue(_:ifFalse:)` | `universe.rs` L302–308 |
+| §2.8 encoded `match` | `universe.rs` L328–335 |
+| §2.8 `Some` field layout | `vm.rs::new` (stamped alongside `Message`) |
+| §2.10 `MAX_CALL_ARITY` | `universe.rs` L345 |
+| §2.14 `Message` | `universe.rs` create L173, primitives L249–253 |
 | §3 `List` protocol | `core.ph` L53–72 |
-| §5 sacred set | `universe.rs` L73–79, L202–210 |
+| §5 sacred set | `universe.rs` L73–79, L214–222 |

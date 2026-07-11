@@ -27,11 +27,11 @@ Source of truth: [`vm.rs::VM::new`](../../../phalcom-core/src/vm.rs) L116–168 
 | # | Phase | Code site | Produces |
 |---|---|---|---|
 | **A** | Substrate | `Interner::with_capacity(100)`, `Heap::new()` | empty interner + heap |
-| **B** | Tower allocate-then-patch | `Universe::new` → `create_core_classes` | 18 named kernel classes (+ their metaclasses) + `None` singleton, fully wired |
+| **B** | Tower allocate-then-patch | `Universe::new` → `create_core_classes` | 19 named kernel classes (incl. `Message`, U8) (+ their metaclasses) + `None` singleton, fully wired |
 | **C** | VM struct assembly | `VM { … }` literal | frames/stack/module maps, `universe` moved in |
 | **D** | Core module + globals | `install_core` | core module registered; class globals + `None`-value global bound |
-| **E** | `Some` field layout | inline block, `VM::new` L142–148 | `Some._value` at slot 0 ([ADR-0011](../../adr/0011-static-instance-slot-layout.md)) |
-| **F** | Primitive floor install | `Universe::install_primitives` | all 65 native bindings ([`floor-census.md`](./floor-census.md)) |
+| **E** | Fixed-slot layouts | inline block, `VM::new` | `Some._value` at slot 0, plus the `Message` four-slot layout ([ADR-0011](../../adr/0011-static-instance-slot-layout.md)) |
+| **F** | Primitive floor install | `Universe::install_primitives` | all 73 native bindings ([`floor-census.md`](./floor-census.md)) |
 | **G** | Run `core.ph` | `run_core_module` | `.ph` reopens attached (List protocol, skeletons, `System.print`) |
 | **H** | Invariant verification | `verify_invariants().expect(…)` | asserts §5–6 apex table, or aborts |
 
@@ -52,7 +52,8 @@ Source of truth: [`vm.rs::VM::new`](../../../phalcom-core/src/vm.rs) L116–168 
    `Number, String, Nil, Bool, Method, Function, Block(<Function), Symbol,
    Module, System`, then absence `Option, Some(<Option), None(<Option)`, then
    allocate the **`None` singleton**, then `List` (positioned per ADR-0020 after
-   absence, before any dependant).
+   absence, before any dependant), then `Message` (U8, `< Object`, after `List`
+   per its `args`-dependency note).
 6. (returns `CoreClasses`; `verify_invariants` is step 7, deferred to Phase H.)
 
 ## 3. Phase-scoped invariant ledger
@@ -141,7 +142,7 @@ L373–451) asserts, by handle identity on the live graph:
 
 | Gap | Why it matters |
 |---|---|
-| No assertion that the floor census (65 bindings) is intact | floor drift is silent (see `floor-census.md` §7) |
+| No assertion that the floor census (73 bindings) is intact | floor drift is silent (see `floor-census.md` §7) |
 | Parallel rule checked only for `Number` | other ordinary rows unverified in-VM (the `tests/invariants.rs` corpus covers more, but `verify_invariants` itself does not) |
 | No absence-invariant check in `verify_invariants` | `Value::Nil` non-surfacing is asserted only in `tests/invariants.rs`, not at boot |
 | `Some` field layout not asserted post-boot | an E/F reordering would fail silently until first `Some(_)` |

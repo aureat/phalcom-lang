@@ -8,6 +8,11 @@
 > Its job is to say, per class, *what exists, what is missing, and who owns the
 > gap.*
 
+> **Baseline:** current HEAD through **U9** (code commit `c9805d0`). Folds in
+> **U8** — the `Object` reflective surface (`perform`/`respondsTo`/`doesNotUnderstand`)
+> and the `Message` class — and **U9** (variadics). See
+> [`README.md`](./README.md) for the baseline-pin policy.
+
 > ⚠️ **`implementation-status.md` is stale for this purpose.**
 > [`../implementation-status.md`](../implementation-status.md) is Draft 0.1 and
 > describes the *pre-U1* tree ("Wren/clox-style VM … no blocks"). The forge
@@ -35,15 +40,16 @@ Status glyphs: ✅ present · ◐ partial · ❌ absent · ⚠️ catalog↔impl
 
 | Class | Row | Global | Floor | `.ph` | Pending (catalog − have) | Unit |
 |---|:--:|:--:|---|---|---|---|
-| `Object` | ✅ | ✅ | `==` `!=` `class` `class=` `name` `toString` `new` | empty reopen | `isA(_)`, `hash`, `perform(_,_)`, `respondsTo(_)`, `doesNotUnderstand(_)` | U-CORE-1 |
+| `Object` | ✅ | ✅ | `==` `!=` `class` `class=` `name` `toString` `new` `perform` `respondsTo` `doesNotUnderstand` | empty reopen | `isA(_)`, `hash` | U-CORE-1 |
 | `Behavior` | ✅ | ✅ | `superclass` `superclass=` | — | `name`, method-dictionary reflection, allocation protocol | U-CORE-1 |
 | `Class` | ✅ | ✅ | `+(_)` `new()` | empty reopen | reflection surface (name/methods enumeration) | U-CORE-1 |
 | `Metaclass` | ✅ | ✅ | *(inherited)* | empty reopen | — (structurally complete; verified by `verify_invariants`) | — |
 
-`Object`/`Class`/`Metaclass` protocols are **◐ partial**: identity, class access
-and default `toString` exist; the reflective/dispatch surface (`hash`, `isA`,
-`perform`, `respondsTo`, `doesNotUnderstand`) is the U-CORE-1 body of work. dNU
-in particular is still a hard miss, not a hook (see §4.5).
+`Object`/`Class`/`Metaclass` protocols are **◐ partial**: identity, class access,
+default `toString`, and — since **U8** — the reflective/dispatch surface
+(`perform`, `respondsTo`, `doesNotUnderstand`, plus the `Message` reification,
+census §2.14) all exist. dNU is now an overridable hook, not a hard miss. What
+remains for U-CORE-1 is `hash` and `isA(_)` (see §4.5).
 
 ### 2.2 Primitives & singletons
 
@@ -120,8 +126,11 @@ callable protocol must leave room for these without a breaking change.
 
 None are **surface** classes yet. The *mechanism* exists natively as the
 `RuntimeError` enum (`error.rs`: `Type`, etc.) but is **not reified** into a
-Phalcom `Error` hierarchy. The reify-vs-native split, and exceptions-vs-`Result`,
-are governed by **[ADR-0008](../../adr/0008-layered-exceptions-and-result.md)**
+Phalcom `Error` hierarchy. Since **U8** the `doesNotUnderstand(_)` *hook* exists
+(`object_does_not_understand`) and the miss path reifies a `Message` (census
+§2.14); what is still missing is the surface `MessageNotUnderstood` **class** the
+hook should raise. The reify-vs-native split, and exceptions-vs-`Result`, are
+governed by **[ADR-0008](../../adr/0008-layered-exceptions-and-result.md)**
 (layered exceptions + Result) — so requirements-analysis **Q2 is partially
 pre-decided**; U-CORE-6 must be read against ADR-0008, not designed from scratch.
 
@@ -138,9 +147,12 @@ pre-decided**; U-CORE-6 must be read against ADR-0008, not designed from scratch
 | Errors | 0 / 6 | 0 / 6 | 0 | 0 | 6 |
 | **Total** | **15 / 27** | **15 / 27** | **3** | **12** | **12** |
 
-Plus one **impl-only** row absent from the catalog: **`Nil`** — exists in the
-tower to back `Value::Nil.class`, bound to no global, carries no primitives
-(§4.3). It is correct that the catalog omits it.
+Plus two **impl-only** rows absent from the `object-model.md` §4 catalog:
+**`Nil`** — exists in the tower to back `Value::Nil.class`, bound to no global,
+no primitives (§4.3); the catalog correctly omits it — and **`Message`** — the
+U8 reified miss-send (a real global with four accessor primitives, census
+§2.14), which is simply catalogued in `messages-and-selectors.md` §5 rather than
+the object-model core catalog.
 
 **Reading:** the tower and value/callable spine are *present but thin* (12 of 15
 existing rows are partial protocol). The genuine greenfield is **collections
@@ -180,11 +192,14 @@ unverified. Each needs a ruling before the owning unit proceeds.
   shows `42` — the gap is specifically the `toString` **message**. U-CORE-4 must
   override `toString` on `Number` (and `String`, `Symbol`, `Bool`, `Option`).
 
-### 4.5 dNU / `hash` are absent — gate several rows
-- `doesNotUnderstand(_)` is not installed; a missed send is a hard error, and
-  `MessageNotUnderstood` (§2.7) cannot be raised until the hook exists.
-- `Object#hash` is absent; `Map`/`Set` (§2.4) block on it. Whether `hash` is a
-  floor primitive is requirements-analysis **Q1** (an ADR-0019 amendment if yes).
+### 4.5 `hash` absent (dNU / `perform` / `respondsTo` / `Message` landed in U8)
+- **Update:** `doesNotUnderstand(_)`, `perform`, `respondsTo`, and the `Message`
+  reification landed in **U8** — a missed send now forwards to an overridable dNU
+  hook, not a hard error (census §2.1/§2.14). What remains is the surface
+  `MessageNotUnderstood` **class** (§2.7, U-CORE-6) the hook should raise.
+- `Object#hash` is **still absent**; `Map`/`Set` (§2.4) block on it. Whether
+  `hash` is a floor primitive is requirements-analysis **Q1** (an ADR-0019
+  amendment if yes).
 
 ## 5. Traceability
 
