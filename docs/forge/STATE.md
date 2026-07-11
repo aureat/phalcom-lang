@@ -18,11 +18,60 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **NEXT = U7 (fixed instance slot layout + `construct`); reviewer OFF.** **Two new draft ADRs
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **NEXT = U8/U-LIST (hard-stop boundary per `U7-implement-handoff.md`) — not yet dispatched.** **Two new draft ADRs
 landed post-U6 (`6e9b6e2`): [ADR-0019](../adr/0019-freeze-vm-blessed-primitive-floor.md) (freeze the
 VM-blessed primitive floor) and [ADR-0020](../adr/0020-kernel-list-native-array-protocol.md) (kernel
 `List` is a native-array-backed protocol, resolving DEC-A's storage design) — both **Status: Proposed**,
-gating U-LIST's implementation start (not U7's; U7 steps 1–7 are unaffected). See PHASE2-INDEX §4. |
+gating U-LIST's implementation start. See PHASE2-INDEX §4. |
+
+## U7 — LANDED ✅ (2026-07-11, `f38e591`/`561f7e2` on `main`, no worktree)
+- **Fixed instance slot layout (ADR-0011).** `InstanceObject.fields: IndexMap<Symbol, Value>` →
+  `slots: Box<[Value]>`; `GetField`/`SetField`'s `u16` operand is now a direct slot index (was a
+  constant-index of the field `Symbol`; opcode arity unchanged, only the operand's meaning
+  changed). Each `ClassObject` gets `field_slots: IndexMap<Symbol, u16>` + `field_count: u16`,
+  computed once via a whole-class field-collection pass over every method/getter/setter/
+  `construct` body (assignment order), then fixed. A subclass appends its own slots after the
+  superclass's (`subclass_field_offset_stability` invariant test) — private fields are never
+  renumbered or shared across the hierarchy.
+- **Read-before-write is a compile error.** A field read whose name is in no assignment set
+  anywhere in the class is `CompilerError::ReadBeforeWrite` (catches the `_naem` typo class of
+  bug). Golden: `compile_error_field_read_before_write`.
+- **`construct` initializer.** New `phalcom-ast` keyword; parses to
+  `ClassMember::Construct(ConstructDef)`. Lowers to `SignatureKind::Initializer(arity)` — the
+  selector kind `method.rs`/`encode_selector` already anticipated; no new selector kind, no
+  change to selector encoding or method lookup (U3 untouched). Body: `NewInstance` alloc + bind
+  `self` (`SetLocal(0)`) + run body + implicit `return self`. Installed class-side
+  (`is_static=true` → metaclass), so `new(name:age:)` / `new(name:)` are two distinct
+  `Initializer` selectors dispatched by arity/labels — no default args, no arity coercion
+  (deliberately precluded per the plan's identity-dispatch⊗optional-arity hazard).
+- **Class-side stored static fields (DEC-D, ADR-0017, user-ratified 2026-07-11).** Applies
+  ADR-0011 one level up the tower: `ClassObject.static_slots: Box<[Value]>`, indexed by the
+  **metaclass's** `field_slots` table. `static _count = 0` collects into the metaclass field
+  table (not the class's), reads/writes target the class object's own `static_slots`, not
+  `self`'s. Offset-stability holds up the tower too (`subclass_static_field_offset_stability`).
+  ADR-0017 was **Accepted** before this slice landed, per the plan's gate.
+- **Unassigned slot → `None`.** Both instance slots and static slots default to the private
+  `Value::Nil` sentinel (never a constructed `None` — would reintroduce the bootstrap-absence
+  cycle U6 solved) and surface as `None` via U6's helper on read. Goldens:
+  `class_field_unassigned_reads_none`, `class_static_field_unassigned_reads_none`.
+- **Constructor-dispatch bug found and fixed post-implementation.** `construct new()` installs
+  under `"init new()"` (`Initializer`), but the call-site compiler for `Expr::MethodCall`
+  *always* encoded `SignatureKind::Method` (`"new()"`) — so `Counter.new()` silently resolved to
+  the inherited `Object::new` bare-allocation primitive instead of the constructor (no error;
+  `_count` in `class_static_field_shared_state` just stayed `0`). Fixed with a compile-time
+  `VM.constructor_aliases: HashMap<(Symbol, Symbol), Symbol>`: a literal `ClassName.method(...)`
+  call site whose Method-style selector matches a class's declared `construct` is redirected to
+  the `Initializer` selector. Also closed the matching negative case the plan required but no
+  test exercised: a class with a `new`-named `construct` has no user-visible bare allocator — a
+  mismatched-arity `new(...)` call is now `CompilerError::Message` via `VM.has_new_construct`,
+  not a silent fallthrough. Golden: `compile_error_no_matching_constructor`.
+- **Green gate:** `./scripts/verify.sh` exit 0; `cargo doc --workspace --no-deps` clean (no new
+  warnings); `cargo clippy --workspace --all-targets` clean (also fixed one pre-existing
+  `clone_on_copy` warning in `vm.rs`'s `Dup` handling, a file touched this unit).
+  Reviewer gate **OFF** per STATE.md policy — self-verified on the green gate.
+- **Working model:** in-tree on `main`, no worktree (handoff-authorized precedent).
+- **Stopped at the U8/U-LIST hard boundary** per `U7-implement-handoff.md` — did not begin U8 or
+  U-LIST implementation.
 
 ## U6 — LANDED ✅ (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4` on `main`, no worktree)
 - **Absence → Option.** No surface `nil`; user code expresses absence exclusively through
