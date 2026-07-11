@@ -51,3 +51,13 @@ This is wired during bootstrap as an explicit ordered step:
   required for static-method inheritance to work at all.
 - Requires `Metaclass` to be modeled as an instance of itself, resolved via the
   allocate-then-wire ordering above (`PhRef::new_cyclic`).
+
+> **Superseded (U2, 2026-07-11):** [ADR-0009](0009-handle-arena-heap.md)
+> replaced `Rc<RefCell<T>>`/`PhRef::new_cyclic` with a `slotmap`-backed `Heap`
+> and `Copy` `ClassId` handles. The allocate-then-wire ordering described above
+> is unchanged in spirit but is now implemented as allocate-then-patch over
+> `ClassId`s (`Universe::create_core_classes`,
+> `phalcom-core/src/universe.rs`) — "instance of itself" is a handle pointing
+> at itself, not an `Rc` cycle. This ADR's decision (the parallel rule) is
+> implemented as of U2; `verify_invariants()` (`Universe::verify_invariants`)
+> is the regression guard referenced above.

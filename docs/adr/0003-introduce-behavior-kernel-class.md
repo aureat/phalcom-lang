@@ -40,7 +40,11 @@ as a pile of special cases.
 - Slightly deeper superclass chains (`Class` → `Behavior` → `Object`); negligible
   lookup cost, offset by simpler, more uniform code.
 
-## Status note
+## Implementation note (U2, 2026-07-11)
 
-Open question pending a go/no-go decision. Blocks a clean implementation of
-[ADR-0002](0002-metaclass-tower-parallel-rule.md); recommended to accept together.
+Resolved per open-questions Q11: `Behavior` is implemented as
+`CoreClasses::behavior_class` (`phalcom-core/src/universe.rs`), wired into the
+8-row apex per `object-model.md` §5, with `superclass`/`superclass=` installed
+once on `Behavior` (`Universe::install_primitives`) and inherited by both
+`Class` and `Metaclass`. `verify_invariants()` (`Universe::verify_invariants`)
+asserts the full apex table, including this class, on every bootstrap.

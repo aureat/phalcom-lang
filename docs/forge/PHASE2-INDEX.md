@@ -2,14 +2,15 @@
 
 _All remaining Phalcom units now have dispatch-ready work orders. This is the master map:
 plan roster, dependency graph, write-set collision matrix, open-decision register, and the
-new-ADR / spec-edit backlog. Landed: U-FE (ADR-0016), U0, U3 (ADR-0012). In flight: U1
-(ADR-0009/0010). Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
+new-ADR / spec-edit backlog. Landed: U-FE (ADR-0016), U0, U3 (ADR-0012), U1 (ADR-0009/0010),
+**U2 (ADR-0002/0003, 2026-07-11 — reviewer gate skipped this pass, see U2-progress.md)**.
+Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 
 ## 1. Unit plan roster (each is a self-contained work order)
 | Unit | Plan | Mission (1-line) | Spec / ADR | Reviewer |
 |---|---|---|---|:--:|
 | U1 | [U1-plan.md](U1-plan.md) | handle/arena heap + tagged `Value` (behavior-preserving migration) | 0009/0010 | ✅ |
-| U2 | [U2-plan.md](U2-plan.md) | metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` | 0002/0003 · object-model §5–6 | ✅ |
+| U2 | [U2-plan.md](U2-plan.md) · **✅ LANDED** [U2-progress.md](U2-progress.md) | metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` | 0002/0003 · object-model §5–6 | **skipped this pass** |
 | U4 | [U4-plan.md](U4-plan.md) | first-class blocks/closures, Lua open/closed upvalues, frame-token infra | 0013/0006 · blocks.md | ✅ |
 | U5 | [U5-plan.md](U5-plan.md) | control-flow-as-message + sacred-selector inliner w/ deopt guard | control-flow.md · **0017(new)** | — |
 | U6 | [U6-plan.md](U6-plan.md) | absence → `Option`, `let`/`var`, no surface `nil`, `if(opt)` rejected | 0007/0014 · values-and-absence.md | ✅ |

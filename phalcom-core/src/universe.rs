@@ -1,14 +1,20 @@
 //! Bootstrap of the kernel class tower and installation of core primitives.
 //!
-//! The kernel is a cyclic graph (`Metaclass` is an instance of itself, the tower
-//! closes at the top; `object-model.md` §5–6). Under
-//! [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md) that cycle is built by
-//! **allocate-then-patch**: every class row is first allocated bare in the
-//! [`Heap`] to obtain its [`ClassId`], then its `class` and
-//! `superclass` handles are written in place. This supersedes ADR-0002's
-//! `Rc::new_cyclic` mechanism while preserving the *exact* observable wiring —
-//! the metaclass parallel-superclass deviation (F2) is deliberately left as-is
-//! for a later unit (see `tests/invariants.rs`).
+//! The kernel is a cyclic graph closed through a distinct `Metaclass class`
+//! row (`Metaclass.class == Metaclass class`, `(Metaclass class).class ==
+//! Metaclass`; `object-model.md` §5–6). Under
+//! [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md) that cycle is built
+//! by **allocate-then-patch**: every class row is first allocated bare in the
+//! [`Heap`] to obtain its [`ClassId`], then its `class` and `superclass`
+//! handles are written in place.
+//!
+//! The metaclass hierarchy runs *parallel* to the instance hierarchy
+//! ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)):
+//! `(X class).superclass == (X.superclass) class`. `Behavior`
+//! ([ADR-0003](../../../docs/adr/0003-introduce-behavior-kernel-class.md)) is
+//! the shared abstract superclass of `Class` and `Metaclass`, so the tower
+//! closes at an 8-row apex instead of collapsing `Metaclass`/`Class` into
+//! their own metaclasses (F6).
 
 use crate::heap::{ClassId, Heap};
 use crate::method::MethodObject;
@@ -44,56 +50,64 @@ impl Universe {
 
     /// Allocates and wires the kernel class tower via allocate-then-patch.
     ///
-    /// Reproduces today's observable wiring exactly (`object-model.md` §5–6,
-    /// [ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)):
-    /// `Metaclass.class == Metaclass`, `Class.superclass == Object`, and every
-    /// core class `X` gets a metaclass `X.class` that is an instance of
-    /// `Metaclass` with superclass `Class`, while `X.superclass == Object`.
+    /// Follows the seven-step order of `object-model.md` §6: allocate the 8
+    /// apex rows bare, wire instance-of, wire instance-side superclasses, wire
+    /// metaclass-side superclasses by the parallel rule
+    /// ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)),
+    /// then create the remaining core classes through `make_core_class`.
+    /// Step 7 (`verify_invariants`) is run by the caller ([`VM::new`]) once
+    /// primitives are installed.
     pub fn create_core_classes(heap: &mut Heap) -> CoreClasses {
-        // 1. Allocate the four apex rows bare, capturing their handles.
-        let metaclass_class = heap.alloc_class(crate::class::ClassObject::bare("Metaclass"));
-        let class_class = heap.alloc_class(crate::class::ClassObject::bare("Class"));
+        // 1. Allocate the 8 apex rows bare (object-model.md §6 step 1).
         let object_class = heap.alloc_class(crate::class::ClassObject::bare("Object"));
-        let object_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Object.class"));
+        let behavior_class = heap.alloc_class(crate::class::ClassObject::bare("Behavior"));
+        let class_class = heap.alloc_class(crate::class::ClassObject::bare("Class"));
+        let metaclass_class = heap.alloc_class(crate::class::ClassObject::bare("Metaclass"));
+        let object_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Object class"));
+        let behavior_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Behavior class"));
+        let class_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Class class"));
+        let metaclass_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Metaclass class"));
 
-        // 2. Patch their `class`/`superclass` handles in place.
-        //    Metaclass: class == Metaclass (self-cycle), superclass == Class.
-        {
-            let metaclass = heap.class_mut(metaclass_class);
-            metaclass.class = metaclass_class;
-            metaclass.superclass = Some(class_class);
-        }
-        //    Class: class == Metaclass, superclass == Object.
-        {
-            let class = heap.class_mut(class_class);
-            class.class = metaclass_class;
-            class.superclass = Some(object_class);
-        }
-        //    Object: class == Object.class, no superclass (tower apex).
-        {
-            let object = heap.class_mut(object_class);
-            object.class = object_metaclass;
-            object.superclass = None;
-        }
-        //    Object.class: class == Metaclass, superclass == Class.
-        {
-            let object_meta = heap.class_mut(object_metaclass);
-            object_meta.class = metaclass_class;
-            object_meta.superclass = Some(class_class);
-        }
+        // 2. Wire instance-of (§6 step 2): every metaclass is an instance of
+        //    Metaclass; Metaclass itself is an instance of Metaclass class,
+        //    closing the loop; each ordinary class is an instance of its own
+        //    metaclass.
+        heap.class_mut(object_metaclass).class = metaclass_class;
+        heap.class_mut(behavior_metaclass).class = metaclass_class;
+        heap.class_mut(class_metaclass).class = metaclass_class;
+        heap.class_mut(metaclass_metaclass).class = metaclass_class;
+        heap.class_mut(metaclass_class).class = metaclass_metaclass;
+        heap.class_mut(object_class).class = object_metaclass;
+        heap.class_mut(behavior_class).class = behavior_metaclass;
+        heap.class_mut(class_class).class = class_metaclass;
 
-        // 3. The remaining core classes, each with its own metaclass.
-        let number_class = make_core_class(heap, "Number", object_class, metaclass_class, class_class);
-        let string_class = make_core_class(heap, "String", object_class, metaclass_class, class_class);
-        let nil_class = make_core_class(heap, "Nil", object_class, metaclass_class, class_class);
-        let bool_class = make_core_class(heap, "Bool", object_class, metaclass_class, class_class);
-        let method_class = make_core_class(heap, "Method", object_class, metaclass_class, class_class);
-        let symbol_class = make_core_class(heap, "Symbol", object_class, metaclass_class, class_class);
-        let module_class = make_core_class(heap, "Module", object_class, metaclass_class, class_class);
-        let system_class = make_core_class(heap, "System", object_class, metaclass_class, class_class);
+        // 3. Wire instance-side superclasses (§6 step 3).
+        heap.class_mut(object_class).superclass = None;
+        heap.class_mut(behavior_class).superclass = Some(object_class);
+        heap.class_mut(class_class).superclass = Some(behavior_class);
+        heap.class_mut(metaclass_class).superclass = Some(behavior_class);
+
+        // 4. Wire metaclass-side superclasses by the parallel rule (§6 step 4,
+        //    ADR-0002): (X class).superclass == (X.superclass) class.
+        heap.class_mut(object_metaclass).superclass = Some(class_class);
+        heap.class_mut(behavior_metaclass).superclass = Some(object_metaclass);
+        heap.class_mut(class_metaclass).superclass = Some(behavior_metaclass);
+        heap.class_mut(metaclass_metaclass).superclass = Some(behavior_metaclass);
+
+        // 5. The remaining core classes, each with its own metaclass wired by
+        //    the same parallel rule (§6 step 5).
+        let number_class = make_core_class(heap, "Number", object_class, metaclass_class);
+        let string_class = make_core_class(heap, "String", object_class, metaclass_class);
+        let nil_class = make_core_class(heap, "Nil", object_class, metaclass_class);
+        let bool_class = make_core_class(heap, "Bool", object_class, metaclass_class);
+        let method_class = make_core_class(heap, "Method", object_class, metaclass_class);
+        let symbol_class = make_core_class(heap, "Symbol", object_class, metaclass_class);
+        let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
+        let system_class = make_core_class(heap, "System", object_class, metaclass_class);
 
         CoreClasses {
             object_class,
+            behavior_class,
             class_class,
             metaclass_class,
             number_class,
@@ -116,9 +130,11 @@ impl Universe {
         primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
         primitive_static!(vm, object_cls, "new", SignatureKind::Method(0), object_class_new);
 
+        let behavior_cls = vm.universe.classes.behavior_class;
+        primitive!(vm, behavior_cls, "superclass", SignatureKind::Getter, class_superclass);
+        primitive!(vm, behavior_cls, "superclass", SignatureKind::Setter, class_set_superclass);
+
         let class_cls = vm.universe.classes.class_class;
-        primitive!(vm, class_cls, "superclass", SignatureKind::Getter, class_superclass);
-        primitive!(vm, class_cls, "superclass", SignatureKind::Setter, class_set_superclass);
         primitive!(vm, class_cls, "+", SignatureKind::Method(1), class_add);
         primitive!(vm, class_cls, "new", SignatureKind::Method(0), class_new);
 
@@ -157,20 +173,116 @@ impl Universe {
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
     }
+
+    /// Asserts the kernel tower's shape (`object-model.md` §5–6 step 7).
+    ///
+    /// Checks every apex `.class`/`.superclass` relationship in the §5 table
+    /// plus the four sanity checks (§5): the closed metaclass loop, the
+    /// parallel rule holding for an ordinary core class, and that every
+    /// metaclass's superclass chain terminates. Called once from [`VM::new`]
+    /// right after [`Universe::install_primitives`]; the caller
+    /// `.expect()`s the result, since a malformed kernel cannot run any
+    /// program correctly.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` with a description of the first violated invariant.
+    pub fn verify_invariants(&self, heap: &Heap) -> Result<(), String> {
+        let c = &self.classes;
+
+        let object_metaclass = heap.class(c.object_class).class;
+        let behavior_metaclass = heap.class(c.behavior_class).class;
+        let class_metaclass = heap.class(c.class_class).class;
+        let metaclass_metaclass = heap.class(c.metaclass_class).class;
+
+        if object_metaclass == c.object_class {
+            return Err("Object.class must not equal Object itself".to_string());
+        }
+        if heap.class(c.behavior_class).superclass != Some(c.object_class) {
+            return Err("Behavior.superclass should be Object".to_string());
+        }
+        if heap.class(c.class_class).superclass != Some(c.behavior_class) {
+            return Err("Class.superclass should be Behavior".to_string());
+        }
+        if heap.class(c.metaclass_class).superclass != Some(c.behavior_class) {
+            return Err("Metaclass.superclass should be Behavior".to_string());
+        }
+        if heap.class(c.object_class).superclass.is_some() {
+            return Err("Object.superclass should be None".to_string());
+        }
+
+        if heap.class(object_metaclass).class != c.metaclass_class {
+            return Err("Object.class.class should be Metaclass".to_string());
+        }
+        if heap.class(behavior_metaclass).class != c.metaclass_class {
+            return Err("Behavior.class.class should be Metaclass".to_string());
+        }
+        if heap.class(class_metaclass).class != c.metaclass_class {
+            return Err("Class.class.class should be Metaclass".to_string());
+        }
+        if heap.class(metaclass_metaclass).class != c.metaclass_class {
+            return Err("Metaclass.class.class should be Metaclass".to_string());
+        }
+        // The closed loop: Metaclass.class == Metaclass class, and
+        // (Metaclass class).class == Metaclass.
+        if heap.class(c.metaclass_class).class != metaclass_metaclass {
+            return Err("Metaclass.class should be Metaclass class".to_string());
+        }
+
+        if heap.class(object_metaclass).superclass != Some(c.class_class) {
+            return Err("Object.class.superclass should be Class".to_string());
+        }
+        if heap.class(behavior_metaclass).superclass != Some(object_metaclass) {
+            return Err("Behavior.class.superclass should be Object.class".to_string());
+        }
+        if heap.class(class_metaclass).superclass != Some(behavior_metaclass) {
+            return Err("Class.class.superclass should be Behavior.class".to_string());
+        }
+        if heap.class(metaclass_metaclass).superclass != Some(behavior_metaclass) {
+            return Err("Metaclass.class.superclass should be Behavior.class".to_string());
+        }
+
+        // Parallel rule holding for an ordinary core class (Number).
+        let number_meta = heap.class(c.number_class).class;
+        let expected_number_meta_super = heap.class(c.object_class).class;
+        if heap.class(number_meta).superclass != Some(expected_number_meta_super) {
+            return Err("Number.class.superclass should be Object.class (parallel rule)".to_string());
+        }
+
+        // Every metaclass's superclass chain terminates (bounded walk guards
+        // against a cycle turning into a hang instead of a failure).
+        let mut current = number_meta;
+        let mut steps = 0;
+        loop {
+            steps += 1;
+            if steps > 64 {
+                return Err("metaclass superclass chain did not terminate within 64 steps".to_string());
+            }
+            match heap.class(current).superclass {
+                Some(next) => current = next,
+                None => break,
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Allocates a core class `name` (with its own metaclass) and wires it.
 ///
-/// The metaclass `"{name}.class"` is an instance of `metaclass_class` with
-/// superclass `class_class`; the class itself is an instance of that metaclass
-/// with the given `superclass`. This reproduces the original
-/// `create_core_class` wiring exactly (F2 preserved).
-fn make_core_class(heap: &mut Heap, name: &str, superclass: ClassId, metaclass_class: ClassId, class_class: ClassId) -> ClassId {
-    let metaclass = heap.alloc_class(crate::class::ClassObject::bare(&format!("{name}.class")));
+/// The metaclass `"{name} class"` is an instance of `metaclass_class` with
+/// superclass `superclass.class` (the parallel rule,
+/// [ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)); the
+/// class itself is an instance of that metaclass with the given
+/// `superclass`. `superclass` must already have its `class` link wired.
+fn make_core_class(heap: &mut Heap, name: &str, superclass: ClassId, metaclass_class: ClassId) -> ClassId {
+    let metaclass_superclass = heap.class(superclass).class;
+
+    let metaclass = heap.alloc_class(crate::class::ClassObject::bare(&format!("{name} class")));
     {
         let meta = heap.class_mut(metaclass);
         meta.class = metaclass_class;
-        meta.superclass = Some(class_class);
+        meta.superclass = Some(metaclass_superclass);
     }
     let class = heap.alloc_class(crate::class::ClassObject::bare(name));
     {
@@ -186,9 +298,12 @@ fn make_core_class(heap: &mut Heap, name: &str, superclass: ClassId, metaclass_c
 pub struct CoreClasses {
     /// The root class, `Object`.
     pub object_class: ClassId,
-    /// `Class`, the class of all classes' metaclasses' superclass chain.
+    /// `Behavior`, the shared abstract superclass of `Class` and `Metaclass`
+    /// ([ADR-0003](../../../docs/adr/0003-introduce-behavior-kernel-class.md)).
+    pub behavior_class: ClassId,
+    /// `Class`, the class of every ordinary class.
     pub class_class: ClassId,
-    /// `Metaclass`, instance of itself.
+    /// `Metaclass`, the class of every metaclass (instance of `Metaclass class`).
     pub metaclass_class: ClassId,
     /// `Number`.
     pub number_class: ClassId,

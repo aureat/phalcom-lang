@@ -87,6 +87,9 @@ impl VM {
         // Bootstrap core module and primitive methods
         vm.install_core();
         Universe::install_primitives(&mut vm);
+        vm.universe
+            .verify_invariants(&vm.heap)
+            .expect("kernel invariants (object-model.md §5-6)");
 
         vm
     }
@@ -124,17 +127,22 @@ impl VM {
 
     /// Creates a user class `name` with its own metaclass and wires the tower.
     ///
-    /// Reproduces today's observable wiring (F2 preserved): the metaclass
-    /// `"{name}.class"` is an instance of `Class` whose superclass is `Object`'s
-    /// metaclass, and the class itself is an instance of that metaclass with the
+    /// Follows the metaclass parallel rule
+    /// ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)):
+    /// the metaclass `"{name}.class"` is an instance of `Metaclass` whose
+    /// superclass is `superclass`'s own metaclass (`Class` if `superclass` is
+    /// `None`), and the class itself is an instance of that metaclass with the
     /// requested `superclass`.
     pub fn create_class(&mut self, name: &str, superclass: Option<ClassId>) -> ClassId {
-        let class_class = self.universe.classes.class_class;
-        let object_metaclass = self.heap.class(self.universe.classes.object_class).class;
+        let metaclass_class = self.universe.classes.metaclass_class;
+        let metaclass_superclass = match superclass {
+            Some(sc) => self.heap.class(sc).class,
+            None => self.universe.classes.class_class,
+        };
 
         let metaclass_name = name.to_owned() + ".class";
-        let metaclass = self.create_single_class(&metaclass_name, Some(object_metaclass));
-        self.heap.class_mut(metaclass).set_class(class_class);
+        let metaclass = self.create_single_class(&metaclass_name, Some(metaclass_superclass));
+        self.heap.class_mut(metaclass).set_class(metaclass_class);
 
         let class = self.create_single_class(name, superclass);
         self.heap.class_mut(class).set_class(metaclass);
@@ -216,6 +224,7 @@ impl VM {
         }
 
         add_class!(object_class);
+        add_class!(behavior_class);
         add_class!(class_class);
         add_class!(metaclass_class);
         add_class!(number_class);

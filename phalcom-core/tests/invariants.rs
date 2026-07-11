@@ -1,54 +1,136 @@
 //! `verify_invariants()` harness for the object model / metaclass tower.
 //!
 //! `docs/spec/object-model.md` §6 step 7 calls for a `verify_invariants()`
-//! that runs after bootstrap and asserts every rule in §5. No such function
-//! exists in `phalcom-core/src` today (adding one is a core-source change,
-//! out of scope for this stabilization pass — flagged for the architect).
-//! This file is the test-side stand-in: it builds a real [`VM`] (which runs
-//! the actual bootstrap in [`Universe::create_core_classes`]) and asserts, via
-//! **handle identity** on the live class graph, exactly the invariants the
-//! *current* implementation satisfies.
+//! that runs after bootstrap and asserts every rule in §5. That function now
+//! lives on [`Universe`] and is called from [`VM::new`], `.expect()`-ed since
+//! a malformed kernel cannot run any program correctly. This file exercises
+//! it end-to-end via a real [`VM`] (which runs the actual bootstrap in
+//! [`Universe::create_core_classes`]) and asserts, via **handle identity** on
+//! the live class graph, the full §5 apex table plus the parallel rule
+//! ([ADR-0002](../../docs/adr/0002-metaclass-tower-parallel-rule.md)) and the
+//! `Behavior` kernel class ([ADR-0003](../../docs/adr/0003-introduce-behavior-kernel-class.md)).
 //!
 //! Since [ADR-0009](../../docs/adr/0009-handle-arena-heap.md) every class is a
 //! [`ClassId`] into the [`VM`]'s [`Heap`], and its metaclass (`class`) and
-//! superclass links are plain [`ClassId`] handles. Object identity is therefore
-//! a `==` on the `Copy` handle — the old `Rc::ptr_eq` on `PhRef<ClassObject>`
-//! is gone with the `Rc<RefCell<T>>` graph it tested. Links are read through
+//! superclass links are plain [`ClassId`] handles. Object identity is
+//! therefore a `==` on the `Copy` handle. Links are read through
 //! [`Heap::class`].
 //!
-//! Spec invariants the current bootstrap does **not** satisfy are present as
-//! `#[ignore]`d tests below, each citing the relevant spec section. Per ADR
-//! 0002, the metaclass tower's "superclass parallels instance superclass"
-//! rule is a known, deliberate deferral — do not fix it here.
-//!
 //! [`VM`]: phalcom_core::vm::VM
+//! [`VM::new`]: phalcom_core::vm::VM::new
+//! [`Universe`]: phalcom_core::universe::Universe
 //! [`Universe::create_core_classes`]: phalcom_core::universe::Universe
 //! [`ClassId`]: phalcom_core::heap::ClassId
 //! [`Heap`]: phalcom_core::heap::Heap
 //! [`Heap::class`]: phalcom_core::heap::Heap::class
 
-use phalcom_core::heap::ClassId;
 use phalcom_core::vm::VM;
 
-// --- Invariants that hold today ------------------------------------------
-
 #[test]
-fn metaclass_is_its_own_class_closing_the_loop() {
-    // Metaclass.class == Metaclass (object-model.md §5 sanity check:
-    // "Metaclass.class.class == Metaclass").
+fn verify_invariants_holds_after_bootstrap() {
+    // VM::new() already calls verify_invariants() and would have panicked;
+    // this test asserts it also succeeds when called again directly.
     let vm = VM::new();
-    let metaclass: ClassId = vm.universe.classes.metaclass_class;
-    let metaclass_class = vm.heap.class(metaclass).class;
-    assert_eq!(metaclass_class, metaclass, "Metaclass.class should be Metaclass itself");
+    assert!(vm.universe.verify_invariants(&vm.heap).is_ok());
 }
 
 #[test]
-fn class_class_is_metaclass() {
-    // Class.class == Metaclass.
+fn metaclass_superclass_parallels_instance_superclass() {
+    // object-model.md §5 rule 4 / ADR-0002: (X class).superclass ==
+    // (X.superclass) class.
+    let vm = VM::new();
+    let number_class = vm.universe.classes.number_class;
+    let object_class = vm.universe.classes.object_class;
+
+    let number_meta = vm.heap.class(number_class).class;
+    let object_meta = vm.heap.class(object_class).class;
+    let number_meta_super = vm.heap.class(number_meta).superclass.expect("Number.class should have a superclass");
+
+    assert_eq!(number_meta_super, object_meta, "Number.class.superclass should be Object.class");
+}
+
+#[test]
+fn behavior_class_exists_in_tower() {
+    // object-model.md §5 diagram / ADR-0003: Behavior is the shared abstract
+    // superclass of Class and Metaclass, itself a subclass of Object.
+    let vm = VM::new();
+    let behavior_class = vm.universe.classes.behavior_class;
+    let object_class = vm.universe.classes.object_class;
+    let class_class = vm.universe.classes.class_class;
+    let metaclass_class = vm.universe.classes.metaclass_class;
+
+    assert_eq!(vm.heap.class(behavior_class).superclass, Some(object_class), "Behavior.superclass should be Object");
+    assert_eq!(vm.heap.class(class_class).superclass, Some(behavior_class), "Class.superclass should be Behavior");
+    assert_eq!(
+        vm.heap.class(metaclass_class).superclass,
+        Some(behavior_class),
+        "Metaclass.superclass should be Behavior"
+    );
+}
+
+#[test]
+fn metaclass_responds_to_superclass_via_behavior() {
+    // Behavior inheritance: `superclass` is installed once on Behavior
+    // (universe.rs::install_primitives) and both Class and Metaclass inherit
+    // it through the superclass chain, rather than each metaclass
+    // special-casing its own accessor.
+    use phalcom_core::class::lookup_method_in_hierarchy;
+    use phalcom_core::method::{make_signature, SignatureKind};
+
+    let mut vm = VM::new();
+    let behavior_class = vm.universe.classes.behavior_class;
+    let class_class = vm.universe.classes.class_class;
+    let metaclass_class = vm.universe.classes.metaclass_class;
+
+    let getter_sym = vm.get_or_intern(&make_signature("superclass", SignatureKind::Getter));
+
+    assert!(
+        vm.heap.class(behavior_class).get_method(getter_sym).is_some(),
+        "Behavior should define superclass directly"
+    );
+    assert!(
+        vm.heap.class(class_class).get_method(getter_sym).is_none(),
+        "Class should not redefine superclass directly"
+    );
+    assert!(
+        vm.heap.class(metaclass_class).get_method(getter_sym).is_none(),
+        "Metaclass should not redefine superclass directly"
+    );
+    assert!(
+        lookup_method_in_hierarchy(&vm.heap, class_class, getter_sym).is_some(),
+        "Class should inherit superclass from Behavior"
+    );
+    assert!(
+        lookup_method_in_hierarchy(&vm.heap, metaclass_class, getter_sym).is_some(),
+        "Metaclass should inherit superclass from Behavior"
+    );
+}
+
+#[test]
+fn metaclass_is_instance_of_metaclass_class_closing_the_loop() {
+    // object-model.md §5 apex table: Metaclass.class == Metaclass class, and
+    // (Metaclass class).class == Metaclass — the loop closes through a
+    // distinct row rather than Metaclass folding into itself (F6).
+    let vm = VM::new();
+    let metaclass = vm.universe.classes.metaclass_class;
+    let metaclass_meta = vm.heap.class(metaclass).class;
+
+    assert_ne!(metaclass_meta, metaclass, "Metaclass.class should be a distinct 'Metaclass class' row, not itself");
+    assert_eq!(vm.heap.class(metaclass_meta).class, metaclass, "Metaclass.class.class should be Metaclass (closed loop)");
+}
+
+#[test]
+fn class_is_instance_of_class_class_not_metaclass_directly() {
+    // object-model.md §5 apex table: Class.class == Class class (a distinct
+    // row), and (Class class).class == Metaclass — not Class.class ==
+    // Metaclass directly (F6: the apex must not be 3-way collapsed).
     let vm = VM::new();
     let class_class = vm.universe.classes.class_class;
-    let metaclass = vm.universe.classes.metaclass_class;
-    assert_eq!(vm.heap.class(class_class).class, metaclass, "Class.class should be Metaclass");
+    let metaclass_class = vm.universe.classes.metaclass_class;
+    let class_meta = vm.heap.class(class_class).class;
+
+    assert_ne!(class_meta, metaclass_class, "Class.class should be 'Class class', not Metaclass directly");
+    assert_eq!(vm.heap.class(class_meta).class, metaclass_class, "Class.class.class should be Metaclass");
 }
 
 #[test]
@@ -58,11 +140,7 @@ fn object_class_class_is_metaclass() {
     let object_class = vm.universe.classes.object_class;
     let metaclass = vm.universe.classes.metaclass_class;
     let object_metaclass = vm.heap.class(object_class).class;
-    assert_eq!(
-        vm.heap.class(object_metaclass).class,
-        metaclass,
-        "Object.class.class should be Metaclass"
-    );
+    assert_eq!(vm.heap.class(object_metaclass).class, metaclass, "Object.class.class should be Metaclass");
 }
 
 #[test]
@@ -73,24 +151,16 @@ fn object_has_no_superclass() {
 }
 
 #[test]
-fn metaclass_superclass_is_class() {
-    // Current bootstrap wiring (universe.rs): Metaclass.superclass == Class.
-    let vm = VM::new();
-    let metaclass = vm.universe.classes.metaclass_class;
-    let class_class = vm.universe.classes.class_class;
-    let sup = vm.heap.class(metaclass).superclass.expect("Metaclass should have a superclass");
-    assert_eq!(sup, class_class, "Metaclass.superclass should be Class");
-}
-
-#[test]
 fn core_classes_have_correct_metaclass_and_superclass() {
-    // Every class created via `create_core_class` (Number, String, Nil,
-    // Bool, Method, Symbol, Module, System):
+    // Every class created via `make_core_class` (Number, String, Nil, Bool,
+    // Method, Symbol, Module, System):
     //   - X.class.class == Metaclass (every metaclass is instance-of Metaclass)
-    //   - X.superclass == Object (current bootstrap gives them all Object directly)
+    //   - X.superclass == Object
+    //   - X.class.superclass == Object.class (the parallel rule)
     let vm = VM::new();
     let metaclass = vm.universe.classes.metaclass_class;
     let object_class = vm.universe.classes.object_class;
+    let object_meta = vm.heap.class(object_class).class;
 
     let core = [
         ("Number", vm.universe.classes.number_class),
@@ -105,17 +175,11 @@ fn core_classes_have_correct_metaclass_and_superclass() {
 
     for (name, class) in core {
         let class_meta = vm.heap.class(class).class;
-        assert_eq!(
-            vm.heap.class(class_meta).class,
-            metaclass,
-            "{name}.class.class should be Metaclass"
-        );
-        let sup = vm
-            .heap
-            .class(class)
-            .superclass
-            .unwrap_or_else(|| panic!("{name}.superclass should be set"));
+        assert_eq!(vm.heap.class(class_meta).class, metaclass, "{name}.class.class should be Metaclass");
+        let sup = vm.heap.class(class).superclass.unwrap_or_else(|| panic!("{name}.superclass should be set"));
         assert_eq!(sup, object_class, "{name}.superclass should be Object");
+        let meta_sup = vm.heap.class(class_meta).superclass.unwrap_or_else(|| panic!("{name}.class.superclass should be set"));
+        assert_eq!(meta_sup, object_meta, "{name}.class.superclass should be Object.class (parallel rule)");
     }
 }
 
@@ -137,41 +201,4 @@ fn walking_metaclass_superclass_chain_terminates() {
             None => break,
         }
     }
-}
-
-// --- Spec invariants the current bootstrap does NOT satisfy ---------------
-// (targets for a later phase; do not "fix" these in a stabilization pass)
-
-#[test]
-#[ignore = "object-model.md §5 rule 4: (X class).superclass == (X.superclass) class. \
-Current bootstrap (universe.rs::create_core_class) wires every core class's metaclass \
-superclass flatly to Class, not to the metaclass of X's own superclass. Known bug, \
-see ADR 0002 (parallel metaclass hierarchy)."]
-fn metaclass_superclass_parallels_instance_superclass() {
-    let vm = VM::new();
-    let number_class = vm.universe.classes.number_class;
-    let object_class = vm.universe.classes.object_class;
-
-    let number_meta = vm.heap.class(number_class).class;
-    let object_meta = vm.heap.class(object_class).class;
-    let number_meta_super =
-        vm.heap.class(number_meta).superclass.expect("Number.class should have a superclass");
-
-    assert_eq!(
-        number_meta_super, object_meta,
-        "Number.class.superclass should be Object.class (it is currently Class)"
-    );
-}
-
-#[test]
-#[ignore = "object-model.md §5 diagram: the tower should include a `Behavior` class \
-(Object <- Behavior <- Class/Metaclass) so Class and Metaclass share a common non-Object \
-ancestor. `Universe::CoreClasses` has no `behavior_class` field today — introducing one \
-is a core-source (universe.rs) change, out of scope for this stabilization pass. \
-Flagged for the architect alongside ADR 0002."]
-fn behavior_class_exists_in_tower() {
-    unimplemented!(
-        "CoreClasses does not expose a `behavior_class`; see object-model.md §5 diagram \
-         and ADR 0002 for the target shape."
-    );
 }

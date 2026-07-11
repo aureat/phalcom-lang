@@ -4,7 +4,7 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 
 ## Green gate (last checked: 2026-07-11)
 - Single command: **`./scripts/verify.sh`** (build + test + clippy; `--fuzz`/`--miri` opt-in). Exit 0.
-- Substrate: `phalcom-core/tests/golden.rs` (+fixtures), `phalcom-core/tests/invariants.rs` (2 `#[ignore]`d spec targets: parallel-superclass rule, Behavior class).
+- Substrate: `phalcom-core/tests/golden.rs` (+fixtures), `phalcom-core/tests/invariants.rs` (10/10 passing — U2 landed the parallel-rule + Behavior-class targets, no `#[ignore]`d spec targets remain).
 - Golden corpus: `examples/core_new.ph`, `examples/person2.ph`, `tests/fixtures/golden/{hello,arithmetic}.ph`. (Other examples excluded — they trip the parser `todo!()` panic, see F9/F10.)
 
 ## Phase log
@@ -15,7 +15,7 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), **U1 ✅ landed `6515ea3`** — handle/arena heap + tagged Value (ADR-0009/0010), sliced impl (4 fresh subagents) + independent `phalcom-reviewer` gate (caught+fixed a Symbol/Module `==` regression); LALRPOP fully gone. **NEXT = U2 (metaclass tower + `verify_invariants()`), plan ready ([U2-plan.md](U2-plan.md)).** Then U4→U5→U6→U7. |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). **U2 ✅ landed (2026-07-11, in-tree on `main`, no commit yet this turn)** — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); **reviewer gate explicitly SKIPPED this pass** per user instruction, see [U2-progress.md](U2-progress.md). **NEXT = U4 (blocks/closures).** |
 
 ## U1 — LANDED ✅ (2026-07-11, `6515ea3`)
 - Migrated off `Rc<RefCell>`/`PhRef` → `slotmap`-backed `Heap` (Copy `ObjRef`/`ClassId`) + tagged `Value` (ADR-0009/0010). VM owns `Heap`; allocate-then-patch bootstrap; RefCell double-borrow panic surface removed. F2 preserved observationally (U2's job). DEFERRED #1 closed (LALRPOP gone from workspace). `verify.sh` green, goldens byte-identical, `cargo doc` clean.
