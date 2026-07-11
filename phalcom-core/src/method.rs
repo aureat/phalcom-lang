@@ -33,6 +33,18 @@ pub enum SignatureKind {
     SubscriptGet(u8),
     /// A subscript setter, `[_]=(_)`, of the given arity.
     SubscriptSet(u8),
+    /// A variadic method, `foo(*rest)`, whose payload is the *fixed/minimum*
+    /// positional arity `F` preceding the rest parameter (0 for `sum(*numbers)`,
+    /// 1 for `format(fmt, *args)`).
+    ///
+    /// The selector text this encodes to never includes `F` — it is always
+    /// the bare `name(*)`, independent of how many fixed parameters precede
+    /// the rest parameter (U9, `messages-and-selectors.md` §4; see
+    /// [`encode_selector`]'s `Variadic` arm). `F` is carried only by
+    /// [`Signature::positional_arity`] at runtime, read by the VM's
+    /// call-prologue and derived-selector dispatch probe (`vm.rs::call_method`,
+    /// `Bytecode::Invoke`'s miss arm).
+    Variadic(u8),
 }
 
 /// A method's fully-resolved calling signature.
@@ -58,12 +70,13 @@ impl Signature {
             SignatureKind::Setter => 1,
             SignatureKind::SubscriptGet(n) => n,
             SignatureKind::SubscriptSet(n) => n + 1,
+            SignatureKind::Variadic(f) => f,
         };
         Signature {
             selector,
             kind,
             positional_arity,
-            variadic: false,
+            variadic: matches!(kind, SignatureKind::Variadic(_)),
         }
     }
 
@@ -127,6 +140,12 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
             s.push_str("]=(_:)");
             s
         }
+        // The fixed/minimum arity payload is never spelled into the
+        // selector — `sum(*numbers)` and `format(fmt, *args)` both intern as
+        // `sum(*)` / `format(*)` (U9 corrections §0 point 3). Only
+        // `Signature::positional_arity` (set from the payload in
+        // `Signature::new`) distinguishes them at runtime.
+        SignatureKind::Variadic(_) => format!("{name}(*)"),
     }
 }
 
@@ -154,6 +173,11 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
 /// returns the conventional placeholder name `"[]"` / `"[]="` for them; feeding
 /// that back through [`encode_selector`] reproduces the original string (the
 /// encoder ignores the name for subscripts).
+///
+/// [`SignatureKind::Variadic`] round-trips its *name* but not its fixed
+/// arity: the selector text never carries `F` (U9 corrections §0 point 3), so
+/// this always decodes to `Variadic(0)` regardless of the original method's
+/// real fixed-prefix count.
 pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, SignatureKind) {
     // Subscript forms start with `[`.
     if let Some(rest) = selector.strip_prefix('[') {
@@ -186,6 +210,15 @@ pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, Signatur
                 return (name.to_string(), vec![None], SignatureKind::Setter);
             }
         }
+    }
+
+    // Variadic (`name(*)`): the literal `*` marker, never a labeled arg list.
+    // The fixed/minimum arity `F` cannot be recovered from the selector text
+    // alone (U9 corrections §0 point 3, by design) — this returns `0` as a
+    // documented limitation; today's only caller is the dNU `Message`
+    // reification path (`vm.rs::new_message`), which never needs the real `F`.
+    if inner == "*" {
+        return (head.to_string(), Vec::new(), SignatureKind::Variadic(0));
     }
 
     // Initializer (`init name(...)`) vs ordinary method.
@@ -246,6 +279,7 @@ pub fn make_signature(base: &str, kind: SignatureKind) -> String {
         SignatureKind::Setter => 0, // Setter has 1 arg but the label list is empty in the AST.
         SignatureKind::SubscriptGet(n) => n,
         SignatureKind::SubscriptSet(n) => n,
+        SignatureKind::Variadic(f) => f,
     };
     let labels = vec![None; arity as usize];
     encode_selector(base, &labels, kind)

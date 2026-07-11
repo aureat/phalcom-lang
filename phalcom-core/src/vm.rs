@@ -18,7 +18,7 @@ use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, CallFrame};
 use crate::heap::{ClassId, Heap, ObjRef, Object};
 use crate::interner::{Interner, Symbol};
-use crate::method::MethodKind;
+use crate::method::{MethodKind, SignatureKind, decode_selector};
 use crate::module::{ModuleObject, CORE_MODULE_NAME};
 use crate::universe::Universe;
 use crate::upvalue::Upvalue;
@@ -395,7 +395,22 @@ impl VM {
             }
             MethodKind::Closure(closure_id) => {
                 let context = callee.to_context(&self.heap);
-                let stack_offset = self.stack.len() - arity - 1;
+                let receiver_idx = self.stack.len() - arity - 1;
+                let (variadic, fixed_arity) = {
+                    let sig = &self.heap.method(method).signature;
+                    (sig.variadic, sig.positional_arity as usize)
+                };
+                if variadic {
+                    // Collect the trailing `arity - fixed_arity` positional args into
+                    // a `List` bound to the rest slot. `receiver_idx` does not move —
+                    // only the tail past the fixed prefix collapses into one `List`
+                    // value, so `stack_offset` below is unaffected (U9,
+                    // U9-implementation-spec.md §2 "Call prologue").
+                    let rest = self.stack.split_off(receiver_idx + 1 + fixed_arity);
+                    let list_id = self.heap.alloc_list(rest);
+                    self.stack.push(Value::Obj(list_id));
+                }
+                let stack_offset = receiver_idx;
                 let new_frame = self.new_call_frame(closure_id, context, 0, stack_offset, Some(source_range));
                 self.frames.push(new_frame);
                 Ok(())
@@ -949,15 +964,31 @@ impl VM {
                     } else {
                         // Exact-selector probe missed. The method-lookup.md §1
                         // miss order is:
-                        //   IC -> exact-probe -> [U9 variadic-table probe] -> doesNotUnderstand(_:).
+                        //   IC -> exact-probe -> variadic probe -> doesNotUnderstand(_:).
                         //
-                        // [U9 SEAM] The variadic/rest-parameter table probe
-                        // belongs HERE — between the exact-probe miss above and
-                        // the doesNotUnderstand forward below. Insert it at this
-                        // point without touching either side: on a variadic hit
-                        // it dispatches directly; only a miss falls through to the
-                        // dNU forward (ADR-0012, method-lookup.md §1-2).
-                        self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
+                        // Only an all-positional `Method` selector may probe for a
+                        // variadic candidate (never a labelled, getter, setter, or
+                        // subscript selector) — derive the bare name, build the
+                        // canonical `name(*)` selector, and do one ordinary
+                        // `lookup_method` walk. A hit dispatches only if the call
+                        // supplied at least the fixed prefix (`arity >=
+                        // positional_arity`); otherwise, same as a miss, this falls
+                        // through to the dNU forward (U9-implementation-spec.md §2
+                        // "Runtime dispatch rule", ADR-0012, method-lookup.md §1-2).
+                        let (name, labels, kind) = decode_selector(self.resolve_symbol(selector_sym));
+                        let eligible = matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none);
+                        let variadic_hit = eligible
+                            .then(|| self.interner.intern(&format!("{name}(*)")))
+                            .and_then(|variadic_selector| receiver.lookup_method(self, variadic_selector))
+                            .and_then(|m| {
+                                let sig = &self.heap.method(m).signature;
+                                (arity >= sig.positional_arity as usize).then_some(m)
+                            });
+                        if let Some(method) = variadic_hit {
+                            self.call_method(&receiver, method, arity, source_range)?;
+                        } else {
+                            self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
+                        }
                     }
                 }
                 Bytecode::GetUpvalue(idx) => {

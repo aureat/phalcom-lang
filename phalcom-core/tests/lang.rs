@@ -171,3 +171,11 @@ fn list() {
     // at(_:)/size/add(_:)/each(_:) protocol over the floor primitives.
     support::check_pass("list");
 }
+
+#[test]
+fn variadics() {
+    // U9: rest parameters (`*name`) — declaration, `<name>(*)` selector
+    // encoding, the VM call-prologue rest-arg collapse, and the
+    // derived-selector miss-path probe.
+    support::check_pass("variadics");
+}

@@ -724,8 +724,36 @@ impl<'vm> Compiler<'vm> {
                             let range = method_def.range;
 
                             let arity = method_def.params.len();
+                            // At most one parameter may be the rest parameter, and only
+                            // as the list's last entry — enforced by
+                            // `parse_param_list` for every OTHER position, but a rest
+                            // parameter that isn't last can still reach here if it is
+                            // the only param (`self.is_rest` false paths aside, this
+                            // guards the compiler's own invariant defensively, per U9's
+                            // write-set: "reject any other param in the list with
+                            // is_rest set").
+                            if let Some(bad) = method_def.params.iter().take(arity.saturating_sub(1)).find(|p| p.is_rest) {
+                                return Err(CompilerError::Message(format!(
+                                    "rest parameter \"*{}\" must be the last parameter of \"{}\"",
+                                    bad.name, method_def.name
+                                )));
+                            }
+                            let is_variadic = method_def.params.last().is_some_and(|p| p.is_rest);
+
+                            let sig_kind = if is_variadic {
+                                // The rest parameter itself occupies one local slot
+                                // beyond the `F` fixed parameters; `F` is the payload
+                                // U9 corrections §0 point 3 requires for
+                                // `SignatureKind::Variadic`, never spelled into the
+                                // selector text.
+                                let fixed_arity = (arity - 1) as u8;
+                                SignatureKind::Variadic(fixed_arity)
+                            } else {
+                                SignatureKind::Method(arity as u8)
+                            };
+
                             let labels: Vec<Option<String>> = method_def.params.iter().map(|p| p.label.clone()).collect();
-                            let selector = encode_selector(&method_def.name, &labels, SignatureKind::Method(arity as u8));
+                            let selector = encode_selector(&method_def.name, &labels, sig_kind);
                             let selector_sym = self.vm.interner.intern(&selector);
 
                             let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
@@ -736,7 +764,7 @@ impl<'vm> Compiler<'vm> {
 
                             let method_obj = self.vm.heap.alloc(Object::Method(MethodObject::new_single(
                                 selector_sym,
-                                SignatureKind::Method(arity as u8),
+                                sig_kind,
                                 MethodKind::Closure(closure),
                             )));
 

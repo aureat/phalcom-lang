@@ -51,10 +51,25 @@ pub struct ConstructDef {
     pub range: SourceRange,
 }
 
+/// A single parameter in a method/constructor parameter list.
+///
+/// See `messages-and-selectors.md` §4 for the surface grammar: an ordinary
+/// positional parameter is a bare identifier, a labeled (keyword) parameter is
+/// `name:`, and a rest parameter is `*name` (U9, encoded on the runtime side
+/// as `SignatureKind::Variadic` in `phalcom-core`).
 #[derive(Debug, Clone)]
 pub struct ParameterDef {
+    /// The parameter's local binding name.
     pub name: String,
+    /// The keyword label this parameter is called under, if any (`name:` in
+    /// source). `None` for an ordinary positional parameter.
     pub label: Option<String>,
+    /// Whether this is the rest parameter (`*name`), collecting every
+    /// trailing positional argument into a single `List` (U9). At most one
+    /// parameter per list may set this, and only as the list's last entry
+    /// (enforced by the parser); it may not also carry a [`label`](Self::label).
+    pub is_rest: bool,
+    /// The parameter's source span.
     pub range: SourceRange,
 }
 

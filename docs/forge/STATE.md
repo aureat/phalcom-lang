@@ -18,7 +18,55 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **ADR-0019/0020 ratified by the user (2026-07-11)**, clearing U-LIST-plan §0's gate. **U-LIST ✅ landed (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec`, in-tree, no worktree)** — native `List` heap variant + floor primitives + `.ph` protocol; also fixed a pre-existing bug that made `core.ph` inert (see "U-LIST — LANDED" below). **U8 ✅ landed (2026-07-12, `b99ad22`/`806c9ea`, in-tree, no worktree)** — `doesNotUnderstand(_:)` miss forward + `Message` reification + `send_dynamic`/`perform`/`respondsTo` (ADR-0012); reviewer OFF per policy, self-verified on the green gate. See "U8 — LANDED" below. **NEXT = U9 / U-LEX / U-STD (Wave F+1) — not yet dispatched.** |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **ADR-0019/0020 ratified by the user (2026-07-11)**, clearing U-LIST-plan §0's gate. **U-LIST ✅ landed (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec`, in-tree, no worktree)** — native `List` heap variant + floor primitives + `.ph` protocol; also fixed a pre-existing bug that made `core.ph` inert (see "U-LIST — LANDED" below). **U8 ✅ landed (2026-07-12, `b99ad22`/`806c9ea`, in-tree, no worktree)** — `doesNotUnderstand(_:)` miss forward + `Message` reification + `send_dynamic`/`perform`/`respondsTo` (ADR-0012); reviewer OFF per policy, self-verified on the green gate. See "U8 — LANDED" below. **U9 ✅ landed (2026-07-12, in-tree, no worktree, uncommitted at write time)** — rest parameters (`*name`), `SignatureKind::Variadic`/`(*)` selector encoding, VM call-prologue rest-arg collapse, derived-selector miss-path probe (messages-and-selectors.md §4); reviewer OFF per policy, self-verified on the green gate. See "U9 — LANDED" below. **NEXT = U-LEX / U-STD / U10 / U11 (remainder of Wave F+1) — not yet dispatched.** |
+
+## U9 — LANDED ✅ (2026-07-12, in-tree on `main`, no worktree)
+- **Rest parameters (`*name`, messages-and-selectors.md §4).** `ParameterDef.is_rest` (ast.rs);
+  `parse_param_list` parses an optional leading `*` and rejects (clean diagnostic, not a panic) a
+  rest parameter that isn't the list's last entry or that carries/follows a label. Block-literal
+  params are parsed by a separate scanner in `Parser::parse_primary` and never reach
+  `parse_param_list`, so no block-literal guard was needed there — block variadics still don't
+  parse at all (DEFERRED #9, confirmed still open).
+- **`SignatureKind::Variadic(u8)`** (payload = fixed/minimum positional arity `F`) in `method.rs`
+  (the plan's "signature.rs" — that module is a dead stub, untouched). Selector spelling is
+  always the bare `<name>(*)`, independent of `F` — `sum(*numbers)` and `format(fmt, *args)` both
+  intern as `sum(*)`/`format(*)`; only `Signature.positional_arity`/`variadic` (set from the
+  payload in `Signature::new`) distinguish them at runtime. `decode_selector`'s `Variadic` arm
+  round-trips the name but not `F` (documented limitation — the selector text never carries it;
+  only the dNU `Message`-reification path uses this today, which doesn't need the real `F`).
+- **Compiler:** the `ClassMember::Method` arm computes `F = params.len() - 1` and selects
+  `SignatureKind::Variadic(F)` over `SignatureKind::Method(arity)` when the last param `is_rest`;
+  `compile_block` itself needed zero changes (params.len() already includes the rest param as an
+  ordinary trailing local slot).
+- **VM call prologue (`call_method`'s `MethodKind::Closure` arm).** Before building the new call
+  frame: if the target method's signature is variadic, `Vec::split_off` the trailing
+  `arity - fixed_arity` positional args off the value stack, wrap them in one `List`
+  (`heap.alloc_list`), and push it back — `receiver_idx`/`stack_offset` are computed before this
+  mutation and are unaffected by the tail collapse, so `CallFrame` slot addressing needs no other
+  change. Verified by a black-box stack-depth-invariant golden (200 variadic calls in a loop).
+- **Runtime dispatch probe** filling the `[U9 SEAM]` in `Bytecode::Invoke`'s miss arm: only an
+  all-positional `SignatureKind::Method` selector (decoded via `decode_selector`) probes for a
+  `<name>(*)` candidate via one ordinary `lookup_method` walk; a hit dispatches only if
+  `arity >= positional_arity`, otherwise (same as an outright miss) falls through to the existing
+  `forward_does_not_understand` — no new error variant, no duplicated dNU body.
+- **Deliberate scope calls (per U9-implementation-spec.md §0, within handoff latitude):**
+  (1) no new "variadic table" — reuses `ClassObject.methods: IndexMap<Symbol, ObjRef>` under the
+  `(*)` selector; a same-name duplicate variadic silently overwins, same as any duplicate-selector
+  redefinition today (DEFERRED #24). (2) no `callable.rs`/`closure.rs` changes — the variadic flag
+  is read from `MethodObject.signature` directly in `call_method`. (3) **no
+  `Bytecode::SendDynamic` / call-site spread (`f(*args)`)** — DEFERRED #21's forward-looking note
+  ("U9 owns both the opcode and its handler") is superseded; spread-call syntax remains a future
+  unit's job, `bytecode.rs`/`disasm.rs` untouched.
+- **Tests:** new `variadics` PASS golden group (zero-prefix, fixed-prefix `F=1` prologue math,
+  fixed-vs-variadic coexistence/dispatch-ordering, dNU-fallback-preserved, real-`List` rest
+  binding, stack-depth invariant) + 2 new `syntax-errors` NEGATIVE goldens (rest not last, rest
+  labelled). Two pre-existing `clippy::useless_conversion` nits in `parse_param_list` (unrelated
+  to this unit's logic, already present in the parser diff this unit builds on) cleaned up in
+  passing.
+- **Green gate:** `./scripts/verify.sh` exit 0; `cargo doc --workspace --no-deps` clean (no new
+  warnings); clippy clean. Reviewer OFF per policy — self-verified.
+- **Working model:** in-tree on `main`, no worktree.
+- **Hard stop:** did not begin U10/U11/U-LEX/U-STD.
 
 ## U8 — LANDED ✅ (2026-07-12, `b99ad22`/`806c9ea` on `main`, no worktree)
 - **Lookup-miss → `doesNotUnderstand(_:)` forward (method-lookup.md §2, ADR-0012).** The

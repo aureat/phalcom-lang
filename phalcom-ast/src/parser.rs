@@ -659,21 +659,64 @@ impl<'source> Parser<'source> {
         Ok(name)
     }
 
+    /// Parses a parenthesized parameter list: comma-separated identifiers,
+    /// each optionally a labeled parameter (`name:`) or, at most once and only
+    /// as the final entry, a rest parameter (`*name`, U9,
+    /// `messages-and-selectors.md` §4).
+    ///
+    /// Shared by method and constructor parameter lists (block-literal
+    /// parameters are parsed by a separate ad hoc scanner in
+    /// [`Parser::parse_primary`] and never reach this function, so no
+    /// block-literal guard is needed here).
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SyntaxErrorKind::Message`] diagnostic (not a panic) if a
+    /// rest parameter is not the list's last entry, carries a label, or
+    /// follows an already-labeled parameter (mixing keyword and rest
+    /// parameters would produce a selector that call sites could never
+    /// exactly match, since [`crate`]-side selector encoding for a variadic
+    /// method ignores labels entirely — U9 corrections §0 point 3).
     fn parse_param_list(&mut self) -> ParserResult<Vec<ParameterDef>> {
         if matches!(self.peek(), Token::RParen) {
             return Ok(Vec::new());
         }
-        let mut params = Vec::new();
+        let mut params: Vec<ParameterDef> = Vec::new();
+        let mut any_labeled = false;
         loop {
             let start = self.cur_start();
+            if params.last().is_some_and(|p| p.is_rest) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("a rest parameter (\"*name\") must be the last parameter".to_string()),
+                    range: start..start,
+                });
+            }
+            let is_rest = self.eat(&Token::Asterisk);
             let name = self.expect_identifier(&["identifier"])?;
             let label = if self.eat(&Token::Colon) {
                 Some(name.clone())
             } else {
                 None
             };
+            if is_rest {
+                if label.is_some() {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("a rest parameter (\"*name\") cannot have a label".to_string()),
+                        range: start..self.prev_end,
+                    });
+                }
+                if any_labeled {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(
+                            "a rest parameter cannot follow a labeled parameter".to_string(),
+                        ),
+                        range: start..self.prev_end,
+                    });
+                }
+            }
+            any_labeled |= label.is_some();
             let range = (start..self.prev_end).into();
-            params.push(ParameterDef { name, label, range });
+            params.push(ParameterDef { name, label, is_rest, range });
             if !self.eat(&Token::Comma) {
                 break;
             }

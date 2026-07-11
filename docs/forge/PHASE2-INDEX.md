@@ -12,8 +12,11 @@ result, fixed in `51f56e4`, PASSED, see STATE.md)**,
 **U-LIST (ADR-0019/0020, 2026-07-11 — ratified then landed same session, reviewer OFF per policy,
 see STATE.md; also fixed a pre-existing bug that made `core.ph` inert)**,
 **U8 (ADR-0012, 2026-07-12 — `b99ad22`/`806c9ea`, reviewer OFF per policy, see STATE.md;
-`doesNotUnderstand(_:)`/`perform`/`respondsTo` + `Message` reification + `send_dynamic`)**.
-**Stopped at the U8 hard boundary — U9/U-LEX/U-STD (Wave F+1) not dispatched yet.**
+`doesNotUnderstand(_:)`/`perform`/`respondsTo` + `Message` reification + `send_dynamic`)**,
+**U9 (ADR-0012amd, 2026-07-12 — in-tree, no worktree, reviewer OFF per policy, see STATE.md;
+rest params `*name` + `SignatureKind::Variadic`/`(*)` selector + call-prologue rest-arg collapse
++ derived-selector miss probe)**.
+**Stopped at the U9 hard boundary — U-LEX/U-STD/U10/U11 (rest of Wave F+1) not dispatched yet.**
 Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 
 ## 1. Unit plan roster (each is a self-contained work order)
@@ -27,7 +30,7 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 | U7 | [U7-plan.md](U7-plan.md) · **✅ LANDED** (see STATE.md) | fixed instance slot layout + `construct` initializer + class-side stored static fields | 0011/**0017** · classes.md | — (reviewer OFF per policy) |
 | U-LIST | [U-LIST-plan.md](U-LIST-plan.md) · **✅ LANDED** (see STATE.md) | minimal kernel `List` — native array floor + thin `.ph` protocol | 0019/0020 (**Accepted**) · messages/method-lookup | — (reviewer OFF per policy) |
 | U8 | [U8-plan.md](U8-plan.md) · **✅ LANDED** (see STATE.md) | `doesNotUnderstand(_:)` / `perform` + `send_dynamic` (opcode deferred to U9) | 0012 · method-lookup.md | — (reviewer OFF per policy) |
-| U9 | [U9-plan.md](U9-plan.md) | variadics (rest params `*xs`, variadic dispatch table) | 0012amd · functions.md | — |
+| U9 | [U9-plan.md](U9-plan.md) / [U9-implementation-spec.md](U9-implementation-spec.md) · **✅ LANDED** (see STATE.md) | variadics — rest params `*xs`, `SignatureKind::Variadic`/`(*)` selector, call-prologue rest-arg collapse, derived-selector miss probe (reused `ClassObject.methods`, no new table) | 0012amd · messages-and-selectors.md §4 | — (reviewer OFF per policy) |
 | U10 | [U10-plan.md](U10-plan.md) | non-local return (`^` unwinds to home method via frame token) | 0013 · blocks.md §5 | — |
 | U11 | [U11-plan.md](U11-plan.md) | Bool tower: abstract `Bool` + singleton `True`/`False` | 0004 | — |
 | U-LEX | [U-LEX-plan.md](U-LEX-plan.md) | surface-syntax delta vs lexical-structure.md (comments, interp, `?.`/`??`) | 0016 · lexical-structure.md | — |
@@ -89,7 +92,7 @@ _Each unit's bulk proceeds regardless; only the named sub-feature waits._
 | ID | Unit | Decision | Architect recommendation |
 |---|---|---|---|
 | **DEC-A** ✅ **RESOLVED + IMPLEMENTED (user, 2026-07-11)** — storage design sub-gate ✅ **ADR-0019/0020 ratified, U-LIST landed same session** | U8, U9, U-STD | **Kernel `List` unscheduled but a hard dep** of dNU (`Message.args`) and rest-params. | **U-LIST landed** (see STATE.md), unblocking U8/U9/U-STD's `List` dependency. |
-| **DEC-B** | U9 | **Variadic dispatch table key** — messages §4 (`key by (name, min_arity)`) isn't implementable as written (a call of arity K needs `min ≤ K`, an exact-tuple hash can't answer). | Key by **bare name**, reject a 2nd same-name variadic at definition time. Ratify via **ADR-0012 amendment**. |
+| **DEC-B** ✅ **RESOLVED + IMPLEMENTED (2026-07-12, landed with U9)** | U9 | **Variadic dispatch table key** — messages §4 (`key by (name, min_arity)`) isn't implementable as written (a call of arity K needs `min ≤ K`, an exact-tuple hash can't answer). | Key by **bare name**, via the canonical `<name>(*)` selector spelling in the *existing* `ClassObject.methods` map — **no new table** (U9-implementation-spec.md §0 point 2/3 refines "reject a 2nd same-name variadic" to "silently overwins", same as any duplicate-selector redefinition today; DEFERRED #24). |
 | **DEC-C** ✅ **RESOLVED (user, 2026-07-11 → Option A, landed with U6)** | U6 | **How is `if(opt)` a compile error?** No static/flow analysis exists; general static detection impossible. | **(A)** runtime no-coercion floor (branch opcode requires `Bool`; Option never implements branch protocol) **+** compile-time rejection of *syntactically-literal* Option conditions. **→ shipped as [ADR-0021](../adr/0021-no-truthiness-enforcement.md).** |
 | **DEC-D** ✅ **RESOLVED + IMPLEMENTED (user, 2026-07-11; landed with U7, `f38e591`)** | U7 | **Class-side _stored_ static fields** were unspecified (ADR-0011 "static" = instance layout, not class-side state — naming collision). | **→ INCLUDE in U7 (option A): apply ADR-0011 up the tower** — class object gets its own `static_slots` indexed by a per-*metaclass* field table. [ADR-0017](../adr/0017-class-side-stored-static-fields.md) **Accepted** and landed: `static_slots` + metaclass field table wired, offset-stability-up-the-tower proven (`subclass_static_field_offset_stability`). See U7-plan §3, STATE.md "U7 — LANDED". |
 | **DEC-E** | U5 / U-LEX | **Who owns `if`/`while`/`for` surface parsing?** No control-flow AST node exists today. Sets the U5↔U-LEX write-set boundary in `phalcom-ast`. | **U5 owns** tightly-scoped parse-time desugaring to block sends (adds `phalcom-ast` to U5's write-set). |
@@ -97,7 +100,7 @@ _Each unit's bulk proceeds regardless; only the named sub-feature waits._
 
 Soft flags (architect can proceed on the recommendation; confirm if you disagree):
 - **U8:** ✅ **RESOLVED (landed 2026-07-12).** `perform` primitive-only; spread call sites `f(*args)` deferred to U9. The `Bytecode::SendDynamic` opcode was **also** deferred to U9 (nothing emits/decodes it this unit) — U8 shipped the `VM::send_dynamic` helper only (DEFERRED #21).
-- **U9:** block variadics `{ *xs => }` in scope? → include if parser extends trivially, else defer.
+- **U9:** ✅ **RESOLVED (landed 2026-07-12).** Block variadics `{ *xs => }` deferred — no such grammar exists (block-literal params use a separate scanner never reached by `parse_param_list`), so nothing silently mis-parses; DEFERRED #9 stays open for a future unit.
 - **U5 (BD-U5-2):** `repeat(_:)` semantics + unary-operator selector names unpinned → implement unambiguous sacred selectors first, defer `repeat`.
 - **U-STD:** open-Q2 Int/Float split unresolved → write `Number` against the abstract numeric protocol so the split isn't foreclosed.
 
