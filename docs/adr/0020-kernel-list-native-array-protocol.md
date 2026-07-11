@@ -1,6 +1,6 @@
 # 20. Kernel `List` is a native-array-backed Phalcom protocol on the critical path
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-11
 - Resolves: DEC-A (kernel `List` — unscheduled hard dependency)
 - Related: [ADR-0007](0007-option-as-abstract-with-some-none.md); [ADR-0009](0009-handle-arena-heap.md); [ADR-0012](0012-selector-signature-encoding-and-dispatch.md); [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md); `docs/spec/messages.md` §4 (variadics); `docs/spec/experimental/bootstrapping-and-self-hosting.md` (D2); `docs/forge/PHASE2-INDEX.md` (DEC-A)
