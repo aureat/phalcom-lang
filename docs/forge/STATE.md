@@ -18,11 +18,51 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
 | 1a. Audit | ⏳ in progress | Lenses: object-model soundness, correctness-vs-spec (aligned surface), borrow/memory. |
 | 1b. Verify | ⬜ pending | Adversarial refutation of surviving findings. |
 | 2. Plan | ✅ done (2026-07-11) | **All 11 remaining units have dispatch-ready work orders** (`U2/U4/U5/U6/U7/U8/U9/U10/U11/U-LEX/U-STD-plan.md`), written by 6 parallel architects. Master map + open-decision register + new-ADR backlog → [`PHASE2-INDEX.md`](PHASE2-INDEX.md). **6 OPEN DECISIONS (DEC-A…F) await the user** before their sub-features build. |
-| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **NEXT = U8/U-LIST (hard-stop boundary per `U7-implement-handoff.md`) — not yet dispatched.** **Two new draft ADRs
-landed post-U6 (`6e9b6e2`): [ADR-0019](../adr/0019-freeze-vm-blessed-primitive-floor.md) (freeze the
-VM-blessed primitive floor) and [ADR-0020](../adr/0020-kernel-list-native-array-protocol.md) (kernel
-`List` is a native-array-backed protocol, resolving DEC-A's storage design) — both **Status: Proposed**,
-gating U-LIST's implementation start. See PHASE2-INDEX §4. |
+| 3. Implement/Review | ⏳ in progress | U0 APPROVED (F9+F10). U-FE ✅, U3 ✅ (ADR-0012), U1 ✅ landed `6515ea3` — handle/arena heap + tagged Value (ADR-0009/0010). U2 ✅ landed — metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` (ADR-0002/0003); reviewer gate explicitly SKIPPED per user instruction, see [U2-progress.md](U2-progress.md). **U4 ✅ landed (2026-07-11)** — first-class blocks/closures, Lua-style open/closed upvalues, frame-token infrastructure (ADR-0013/0006); an independent `phalcom-reviewer` pass caught the runtime being stubbed out on the first cut (block `call` unwired, upvalue opcodes unimplemented, a golden regression), which a follow-up pass closed — see below. **U5 ✅ landed (2026-07-11, `83c908a`)** — operators lowered to sends + sacred-selector inliner with override-epoch deopt guard (ADR-0018); reviewer gate OFF per policy (not load-bearing-hierarchy). **U6 ✅ landed (2026-07-11, `3bc6ede`/`5b239ab`/`318e752`/`51f56e4`)** — absence → Option, `let`/`var`, no surface `nil`, no-truthiness enforcement (ADR-0007/0014/**0021**); reviewer ON, BLOCKed once on inlined≠non-inlined body result, fixed in `51f56e4`, then PASSED. U5✅→U6✅. **U7 ✅ landed (2026-07-11, `f38e591`/`561f7e2`, in-tree, no worktree)** — fixed `Box<[Value]>` instance slot layout + `construct` initializer + class-side stored static fields (ADR-0011/ADR-0017); reviewer OFF per policy, self-verified on the green gate. See "U7 — LANDED" below. **ADR-0019/0020 ratified by the user (2026-07-11)**, clearing U-LIST-plan §0's gate. **U-LIST ✅ landed (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec`, in-tree, no worktree)** — native `List` heap variant + floor primitives + `.ph` protocol; also fixed a pre-existing bug that made `core.ph` inert (see "U-LIST — LANDED" below). **NEXT = U8 (hard-stop boundary per `U-LIST-U8-implement-handoff.md`) — not yet dispatched.** |
+
+## U-LIST — LANDED ✅ (2026-07-11, `c7c63fb`/`6fdf0c7`/`b2f7aec` on `main`, no worktree)
+- **Native `List` heap variant (ADR-0020).** `ListObject { elements: Vec<Value> }` in new
+  `list.rs`, mirroring `StringObject`; `Object::List` variant in `heap.rs` with
+  `alloc_list`/`list`/`list_mut`/`as_list`. **Not** an `InstanceObject` — no U7 dependency,
+  confirmed: created in `universe.rs::create_core_classes` the same way `Option`/`Bool`/`String`
+  are, positioned right after `Option`/`Some`/`None`.
+- **Five floor primitives (ADR-0019), not six.** `list_class_new` (public, backs `List.new()`),
+  `list_raw_length`/`list_raw_at`/`list_raw_set`/`list_raw_push` (internal, `rawXxx`-named so
+  `.ph` can wrap them without recursing on the public selector). No separate "grow" primitive —
+  `rawPush` relies on `Vec::push`'s own amortized doubling (implementer's call, pre-authorized by
+  the plan). `rawSet` is implemented and wired but **not** surfaced at the `.ph` layer this unit
+  (no `at(_:put:)` yet — DEFERRED).
+- **`.ph` protocol in `core.ph`:** `size => self.rawLength`, `at(_:)` and `add(_:)` wrap the raw
+  primitives (`add` returns `self` for chaining), `each(_:)` is a `.ph` while-loop calling
+  `f.call(self.at(i))` (proves block-calling into `List` iteration works). **`toString` is a
+  native primitive, not `.ph`-defined** — deviation from the plan's suggested "each + concat"
+  sketch, because no kernel primitive type has a general user-callable `.toString` yet (`Number`
+  has none), so building it in `.ph` would render every non-`String` element as `"<ClassName>"`
+  instead of its value. Recorded as a DEFERRED item: once `Number`/etc. get real `toString`
+  primitives, `List.toString` can move to `.ph` over `each`.
+- **Absence boundary.** `rawAt` returns `vm.none_value()` directly for an out-of-range index —
+  never a panic, never the raw `Value::Nil` sentinel. A non-Number/negative/fractional/infinite
+  index is `RuntimeError::Type` (reused, no new variant).
+- **Found and fixed a pre-existing, codebase-wide bug while landing this: `core.ph` was
+  registered as source (`VM::install_core`) but never actually compiled or executed** — not by
+  the CLI, not by the test harness — so every existing `.ph` class-reopen skeleton
+  (`Option`/`Some`/`String`/... ) was silently inert. `VM::new` now calls a new
+  `VM::run_core_module()` right after `Universe::install_primitives`, which is what makes
+  `List`'s `.ph` protocol (and every other core-class reopen) actually take effect. This in turn
+  surfaced a second latent bug: `Statement::Class` unconditionally emits `DefineGlobal` at the
+  end of every class body, reopen or not; for every other core class that's a no-op (the global
+  already points at that class), but `None`'s global is deliberately bound to the shared
+  singleton *instance* — so the (empty, purposeless) `class None {}` reopen was clobbering that
+  binding back to the class the instant `core.ph` ran. Fixed by dropping that empty reopen
+  (nothing was lost) and documenting the trap in `core.ph`; DEFERRED for whoever needs real
+  `None` members later.
+- **Tests:** new `list` corpus label (4 PASS goldens: construction/add/size/at, absence-at-
+  out-of-range, `each` sum, `toString` bracket rendering) + 1 NEGATIVE in the shared
+  `runtime-errors` label (non-Number index → type error). `MANIFEST.md` counts updated.
+- **Green gate:** `cargo build --workspace` / `cargo test --workspace` / `cargo doc --workspace
+  --no-deps` / `cargo clippy --workspace` all clean. Reviewer OFF per policy — self-verified.
+- **Working model:** in-tree on `main`, no worktree.
+- **Did not begin U8** — stopped at the hard boundary per `U-LIST-U8-implement-handoff.md`.
 
 ## U7 — LANDED ✅ (2026-07-11, `f38e591`/`561f7e2` on `main`, no worktree)
 - **Fixed instance slot layout (ADR-0011).** `InstanceObject.fields: IndexMap<Symbol, Value>` →
