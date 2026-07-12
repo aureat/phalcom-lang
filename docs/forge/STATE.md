@@ -66,8 +66,11 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   single-HashMap design concurred correct). **U15 ACCEPTED.** 1 non-blocking filed to DEFERRED:
   `register_source` (vm.rs:396) SOURCE_MAP keyed by logical name not canonical path (same-basename
   diagnostic-source overwrite) + pre-existing duplicate insert.
-- **U14** DISPATCHED (reviewer ON) — destructuring bindings `let (a,b)=t` / `let [first,*rest]=xs`,
-  desugar to `at(_)` reads, `*rest` last, new ADR-0046. Spine free post-U15. Then U16.
+- **U14** ✅ LANDED `0769316` — destructuring `let (a,b)=t` / `let [first,*rest]=xs`. Desugar to
+  `at(_)` (single-RHS-eval into scratch local), arity guard → `Error.new().raise()` (clean), `*rest`
+  last enforced at parse. ADR-0046 + spec destructuring.md + Q7→RESOLVED. **Floor 0** (pure desugar).
+  6 positive + 4 negative goldens, all lane-correct (lane lesson applied). 7 snapshot re-baselines
+  (LetBinding.name→pattern, legit). Verify green. **Reviewer RUNNING (`a4cd9922`)** → then fire U16 (last feature).
 - **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
