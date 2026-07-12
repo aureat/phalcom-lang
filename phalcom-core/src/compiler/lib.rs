@@ -209,10 +209,12 @@ struct LoopContext {
     /// *deeper* function — e.g. the sacred inliner's deopt-fallback
     /// materialization of an `if` block into a closure, or a real block literal
     /// — cannot statically jump into this chunk, so it is compiled to a
-    /// harmless dead no-op instead of corrupting this loop's patch list. This
-    /// is what keeps `for (x in xs) { if (…) { break } }` sound: the guarded
-    /// fast path splices the `break` inline (same function → real jump), while
-    /// the never-taken fallback closure's copy becomes an inert `Jump(0)`.
+    /// runtime trap (U-ITER-FIX item 1(a): [`Compiler::emit_deopt_block_control_trap`])
+    /// instead of corrupting this loop's patch list. This is what keeps
+    /// `for (x in xs) { if (…) { break } }` sound: the guarded fast path
+    /// splices the `break` inline (same function → real jump), while the
+    /// never-taken fallback closure's copy becomes a loud runtime error —
+    /// never silently swallowed — should it somehow execute.
     func_depth: usize,
     /// Chunk indices of `break` jumps, backpatched to the loop-exit label.
     break_jumps: Vec<usize>,
@@ -1314,10 +1316,38 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    /// Emits a runtime trap for a `break`/`continue` reached through a
+    /// **materialized** block — a compiler function nested deeper than the
+    /// loop body that owns the innermost [`LoopContext`]: the sacred
+    /// inliner's deopt fallback for a non-`Bool` `if` condition, or an
+    /// ordinary block-arg closure (`each { break }`) (U-ITER-FIX item 1(a);
+    /// `docs/forge/DEFERRED.md`).
+    ///
+    /// A jump emitted here cannot statically reach the enclosing loop's own
+    /// chunk — it lives in a different [`FunctionState`] entirely — so rather
+    /// than the silent no-op U-ITER shipped with, this compiles an
+    /// unconditional `Error.new().raise()` send: the rare cross-block case now
+    /// fails **loudly** at runtime instead of quietly falling through past the
+    /// loop-control intent. Full non-local break/continue (threading the
+    /// target across [`FunctionState`] frames so the jump truly escapes the
+    /// closure) is a larger follow-on left for a future unit.
+    fn emit_deopt_block_control_trap(&mut self, range: SourceRange) {
+        let error_sym = self.vm.interner.intern("Error");
+        let error_idx = self.add_constant(Value::Symbol(error_sym));
+        self.emit(Bytecode::GetGlobal(error_idx), range);
+        self.emit_operator_send("new", 0, range);
+        self.emit_operator_send("raise", 0, range);
+        // `raise` never returns normally (it unwinds the stack), so this `Pop`
+        // is unreachable dead code — kept only so the chunk's static stack
+        // shape stays balanced like any other statement.
+        self.emit(Bytecode::Pop, range);
+    }
+
     /// Lowers a `break` statement (ADR-0035 §3, iteration.md §3, U-ITER
     /// specification §4): an unconditional forward [`Bytecode::Jump`] recorded
     /// on the innermost [`LoopContext`], backpatched to the loop-exit label by
-    /// [`Self::compile_for`].
+    /// [`Self::compile_for`] — or, when reached through a materialized block,
+    /// [`Self::emit_deopt_block_control_trap`] (U-ITER-FIX item 1(a)).
     ///
     /// # Errors
     ///
@@ -1327,20 +1357,21 @@ impl<'vm> Compiler<'vm> {
         let Some(ctx) = self.loop_contexts.last() else {
             return Err(CompilerError::BreakOutsideLoop(range));
         };
-        let same_function = ctx.func_depth == self.functions.len();
-        let jump = self.emit_forward_jump(Bytecode::Jump, range);
-        if same_function {
+        if ctx.func_depth == self.functions.len() {
+            let jump = self.emit_forward_jump(Bytecode::Jump, range);
             self.loop_contexts.last_mut().unwrap().break_jumps.push(jump);
+        } else {
+            self.emit_deopt_block_control_trap(range);
         }
-        // A deeper function (a materialized block / deopt fallback) leaves the
-        // `Jump(0)` as inert dead code — see [`LoopContext::func_depth`].
         Ok(())
     }
 
     /// Lowers a `continue` statement (ADR-0035 §3, iteration.md §3, U-ITER
     /// specification §4): an unconditional forward [`Bytecode::Jump`] recorded
     /// on the innermost [`LoopContext`], backpatched to the cursor-step label
-    /// (so the next `iterate(_)` runs) by [`Self::compile_for`].
+    /// (so the next `iterate(_)` runs) by [`Self::compile_for`] — or, when
+    /// reached through a materialized block,
+    /// [`Self::emit_deopt_block_control_trap`] (U-ITER-FIX item 1(a)).
     ///
     /// # Errors
     ///
@@ -1350,13 +1381,12 @@ impl<'vm> Compiler<'vm> {
         let Some(ctx) = self.loop_contexts.last() else {
             return Err(CompilerError::ContinueOutsideLoop(range));
         };
-        let same_function = ctx.func_depth == self.functions.len();
-        let jump = self.emit_forward_jump(Bytecode::Jump, range);
-        if same_function {
+        if ctx.func_depth == self.functions.len() {
+            let jump = self.emit_forward_jump(Bytecode::Jump, range);
             self.loop_contexts.last_mut().unwrap().continue_jumps.push(jump);
+        } else {
+            self.emit_deopt_block_control_trap(range);
         }
-        // A deeper function (a materialized block / deopt fallback) leaves the
-        // `Jump(0)` as inert dead code — see [`LoopContext::func_depth`].
         Ok(())
     }
 
