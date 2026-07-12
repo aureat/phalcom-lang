@@ -78,6 +78,26 @@ Suspected bugs → reported not pinned-as-pass (Symbol#== + method-reopening alr
   Blocks super-calling an overridden operator. Lower priority (operators still overridable, just not
   super-callable). Future grammar unit.
 - a014ff55 closures/iteration: 13 fixtures, ZERO bugs (while-vs-for freshness asymmetry confirmed by design).
+- **BUG-NOT-KEYWORD** (ad07e494, dead token): `not true` keyword negation is a PARSE ERROR —
+  `Token::Not` lexes but parser never consumes it as unary prefix; only `!` works. Fix: either wire
+  `not` as prefix in parser, or remove the dead token. File to DEFERRED after U-ERR (parser = spine).
+  (`if 5 {}` bare-form absence is BY DESIGN — conditionals via `.ifTrue`/`.ifFalse` — not a bug.)
+
+### Round-2 test wave (arithmetic/booleans + reflection/bindings/system, oracle aa1bb3d, untracked):
+- ad07e494 arithmetic+booleans: 13 fixtures (float precision, neg-modulo, inf div-zero, bignum,
+  and/or raw-operand + Bool-only, short-circuit). 1 bug (BUG-NOT-KEYWORD above).
+- a17250c5 reflection+bindings+system: 12 fixtures (class/superclass/metaclass walk, Q5 hash
+  identity-vs-structural, perform, let-shadow scoping, block-local var freshness, print renderings).
+  1 bug (BUG-PRINT-TOSTRING below).
+- **BUG-PRINT-TOSTRING** (a17250c5, correctness): `System.print(obj)` diverges from `obj.toString`
+  for USER classes/instances/metaclasses — native print path (`Value::to_string`) skips the
+  `Object#toString` `.ph` override that collections/Some/None DO route through. Repro:
+  `p.toString`→`<Point>` but `System.print(p)`→`<Point instance>`. File to DEFERRED after U-ERR
+  (print path = value.rs/vm.rs). Blocks a user-object-print golden until fixed.
+
+Round-2 total 25 fixtures (arithmetic 10, booleans 3, reflection 6, bindings 4, system 2).
+Corpus 284 → 309 after round-2 commit. 3 new bugs banked for DEFERRED: BUG-SUPER-STATIC,
+BUG-SUPER-OP-SYNTAX, BUG-NOT-KEYWORD, BUG-PRINT-TOSTRING (4 total incl. print).
 
 ## In flight (this session)
 - **U-FUTURE-A** ✅ — Slice A settle-once `Future` `f0d128a`. Pure `.ph`, zero native, floor-0,
