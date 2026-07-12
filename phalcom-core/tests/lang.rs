@@ -235,6 +235,15 @@ fn iteration() {
 }
 
 #[test]
+fn iteration_disasm() {
+    // C-ITER-4 (the §7.1 preclusion guard, D-ITER-2): a `for` body lowers to a
+    // direct jump loop — `JumpIfFalse`/`Loop` + `iterate`/`iteratorValue`
+    // sends — and emits **no** `Closure`/`block_call` on the taken path, so a
+    // `for` inside a fiber can `yield` freely.
+    support::check_for_no_block_call("iteration/for_disasm_no_block_call.ph");
+}
+
+#[test]
 fn values() {
     // U-CORE-4: per-type `toString` — `Number`/`String`/`Bool`/`Symbol`/
     // `None`/`Some(_)` message rendering, kept in agreement with the native

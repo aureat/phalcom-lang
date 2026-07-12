@@ -19,7 +19,7 @@ use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_ast::ast::{BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, Program, Statement, UnaryOp};
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::{EmptySourceRange, SourceRange};
 use std::collections::HashSet;
@@ -88,6 +88,24 @@ pub enum CompilerError {
     /// An explicit value returned from a construct initializer.
     #[error("Cannot return a value from an initializer.")]
     ReturnValueFromInitializer,
+
+    /// A `break` written outside any enclosing loop.
+    ///
+    /// `break`/`continue` are resolved lexically against the compiler's
+    /// loop-context stack (ADR-0035 §3, iteration.md §3, U-ITER specification
+    /// §4); with the stack empty there is no loop to leave, so this is a
+    /// compile error (C-ITER-7). The [`SourceRange`] is the offending keyword's
+    /// span.
+    #[error("`break` outside of a loop: `break` may only appear inside a `for` loop body.")]
+    BreakOutsideLoop(SourceRange),
+
+    /// A `continue` written outside any enclosing loop.
+    ///
+    /// The `continue` counterpart of [`CompilerError::BreakOutsideLoop`]
+    /// (ADR-0035 §3, C-ITER-7). The [`SourceRange`] is the offending keyword's
+    /// span.
+    #[error("`continue` outside of a loop: `continue` may only appear inside a `for` loop body.")]
+    ContinueOutsideLoop(SourceRange),
 }
 
 // impl From<CompilerError> for PhError {
@@ -155,6 +173,36 @@ pub(crate) struct FunctionState {
     is_block: bool,
 }
 
+/// A single enclosing loop's control-flow context (ADR-0035 §3,
+/// iteration.md §3, U-ITER specification §4).
+///
+/// One frame is pushed onto the compiler's loop-context stack while a `for`
+/// body is compiled and popped afterwards; `break`/`continue` in the body
+/// resolve to the **innermost** (top) frame. The frame records the chunk
+/// indices of the forward [`Bytecode::Jump`] placeholders each `break`/
+/// `continue` emits, so they can be backpatched to the loop's exit / cursor-
+/// step labels once those are known. An empty stack at a `break`/`continue` is
+/// the out-of-loop compile error (C-ITER-7).
+struct LoopContext {
+    /// The compiler function-nesting depth (`functions.len()`) at which this
+    /// loop was entered.
+    ///
+    /// `break`/`continue` only bind to this loop when emitted **in the same
+    /// function** (its inlined body). A control keyword reached inside a
+    /// *deeper* function — e.g. the sacred inliner's deopt-fallback
+    /// materialization of an `if` block into a closure, or a real block literal
+    /// — cannot statically jump into this chunk, so it is compiled to a
+    /// harmless dead no-op instead of corrupting this loop's patch list. This
+    /// is what keeps `for (x in xs) { if (…) { break } }` sound: the guarded
+    /// fast path splices the `break` inline (same function → real jump), while
+    /// the never-taken fallback closure's copy becomes an inert `Jump(0)`.
+    func_depth: usize,
+    /// Chunk indices of `break` jumps, backpatched to the loop-exit label.
+    break_jumps: Vec<usize>,
+    /// Chunk indices of `continue` jumps, backpatched to the cursor-step label.
+    continue_jumps: Vec<usize>,
+}
+
 impl FunctionState {
     /// Creates an empty function-compilation state for a body that is a
     /// constructor initializer (`is_constructor`) and/or a block literal
@@ -193,6 +241,11 @@ pub(crate) struct Compiler<'vm> {
     current_class: Option<Symbol>,
     /// Whether the current method/scope context is static (metaclass-side) (ADR-0017).
     is_static_context: bool,
+    /// The stack of enclosing `for`-loop contexts, innermost last (ADR-0035 §3,
+    /// U-ITER specification §4). A `for` body pushes a [`LoopContext`] while it
+    /// compiles; `break`/`continue` resolve to the top frame, and a
+    /// `break`/`continue` with this stack empty is a compile error (C-ITER-7).
+    loop_contexts: Vec<LoopContext>,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -204,6 +257,7 @@ impl<'vm> Compiler<'vm> {
             immutable_globals: HashSet::new(),
             current_class: None,
             is_static_context: false,
+            loop_contexts: Vec::new(),
         }
     }
 
@@ -958,7 +1012,246 @@ impl<'vm> Compiler<'vm> {
                 // Define it as a global variable.
                 self.emit(Bytecode::DefineGlobal(name_idx), range);
             }
+            Statement::For(for_stmt) => {
+                // A `for` is a statement consumed for effect (U-ITER spec
+                // §1.2): it leaves no value, so `emit_pop` is irrelevant.
+                self.compile_for(for_stmt)?;
+            }
+            Statement::Break { range } => {
+                self.compile_break(range)?;
+            }
+            Statement::Continue { range } => {
+                self.compile_continue(range)?;
+            }
         }
+        Ok(())
+    }
+
+    /// Returns the current end of the function-under-compilation's chunk (the
+    /// index the next emitted opcode will occupy) — a jump/loop label.
+    fn chunk_len(&self) -> usize {
+        self.functions.last().unwrap().chunk.code.len()
+    }
+
+    /// Emits a placeholder forward jump built by `make` (one of
+    /// [`Bytecode::Jump`] / [`Bytecode::JumpIfFalse`]), returning its chunk
+    /// index for a later [`Self::patch_forward_jump_to`].
+    ///
+    /// This is the loop-lowering counterpart of the sacred inliner's private
+    /// `emit_jump` (`compiler/inliner.rs`); it is re-implemented here rather
+    /// than shared because that helper is module-private to the inliner and
+    /// U-ITER's write-set does not include `inliner.rs`.
+    fn emit_forward_jump(&mut self, make: fn(i32) -> Bytecode, range: SourceRange) -> usize {
+        self.emit(make(0), range);
+        self.chunk_len() - 1
+    }
+
+    /// Backpatches the forward jump at chunk index `idx` so it lands at the
+    /// absolute chunk index `target` (the [`Bytecode::Jump`] offset convention:
+    /// relative to `ip` already advanced past the jump). Unlike the inliner's
+    /// `patch_jump`, which always targets the current chunk end, `continue`
+    /// must target the earlier cursor-step label, so this takes an explicit
+    /// `target`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `idx` is not a forward-jump opcode — a compiler-internal
+    /// invariant, never user-reachable.
+    fn patch_forward_jump_to(&mut self, idx: usize, target: usize) {
+        let offset = target as i32 - (idx as i32 + 1);
+        match &mut self.functions.last_mut().unwrap().chunk.code[idx] {
+            Bytecode::Jump(o) | Bytecode::JumpIfFalse(o) => *o = offset,
+            other => unreachable!("patch_forward_jump_to on a non-jump opcode: {other:?}"),
+        }
+    }
+
+    /// Emits a backward [`Bytecode::Loop`] to the absolute chunk index
+    /// `loop_start`, closing a `for` iteration (the loop-lowering counterpart
+    /// of the inliner's private `emit_loop`).
+    fn emit_backward_loop(&mut self, loop_start: usize, range: SourceRange) {
+        let idx = self.chunk_len() as i32;
+        self.emit(Bytecode::Loop(loop_start as i32 - (idx + 1)), range);
+    }
+
+    /// Emits a 0-arity getter send for `name` — the raw-name selector the
+    /// getter is installed under (matching the [`Expr::GetProperty`] path), not
+    /// an [`encode_selector`] method spelling. Used for `Option#isSome` in the
+    /// `for` condition.
+    fn emit_getter_send(&mut self, name: &str, range: SourceRange) {
+        let sym = self.vm.interner.intern(name);
+        let idx = self.add_constant(Value::Symbol(sym));
+        self.emit(Bytecode::Invoke(0, idx), range);
+    }
+
+    /// Declares a loop local named `name` and returns its slot. `mutable`
+    /// records whether user code may reassign it: the synthetic cursor/receiver
+    /// temporaries pass `true`, the loop variable passes `false` (it behaves as
+    /// a per-iteration `let`, iteration.md §2) — the compiler still rebinds it
+    /// each step through a direct [`Bytecode::SetLocal`], which bypasses the
+    /// user-facing immutability check.
+    fn declare_loop_local(&mut self, name: &str, mutable: bool) -> usize {
+        let sym = self.vm.interner.intern(name);
+        self.add_local(sym, mutable);
+        self.functions.last().unwrap().num_locals - 1
+    }
+
+    /// Lowers `for (binding in iter) { body }` to an inlined cursor `while`
+    /// (ADR-0035 §2, iteration.md §2, U-ITER specification §3.1).
+    ///
+    /// The iterable is evaluated **exactly once** into a synthetic local; the
+    /// loop then drives the two-selector protocol — `iterate(_)` /
+    /// `iteratorValue(_)` as ordinary (never-inlined) sends — under a jump
+    /// skeleton emitted **directly** as [`Bytecode::JumpIfFalse`] /
+    /// [`Bytecode::Loop`] (D-ITER-2), **not** via a synthesized `whileTrue`
+    /// send and **never** via `coll.each { … }`. This is load-bearing: the
+    /// emitted chunk contains **no `block_call`** on the taken path, so a `for`
+    /// body inside a fiber can `yield` freely (U-ITER specification §7.1,
+    /// guarded by C-ITER-4). A single lowering path serves both the plain and
+    /// the `break`/`continue` cases (D-ITER-3): a [`LoopContext`] is always
+    /// pushed so control keywords resolve.
+    ///
+    /// The desugar realized (U-ITER specification §3.1), with `$coll`/`$cursor`
+    /// synthetic locals:
+    ///
+    /// ```text
+    /// $coll   = iter
+    /// $cursor = $coll.iterate(None)
+    /// loop:   if !$cursor.isSome -> exit
+    ///         binding = $coll.iteratorValue($cursor.unwrapOr(0))
+    ///         <body>                       ; break -> exit, continue -> step
+    /// step:   $cursor = $coll.iterate($cursor)
+    ///         Loop -> loop
+    /// exit:
+    /// ```
+    ///
+    /// `$cursor.unwrapOr(0)` extracts the live index from the `Some` the loop
+    /// condition just proved present — this surface has no bare `Option#unwrap`,
+    /// and the `0` default is never observed.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error compiling the iterable expression or the body.
+    fn compile_for(&mut self, for_stmt: ForStatement) -> Result<(), CompilerError> {
+        let range = for_stmt.range;
+        // A fresh scope keeps the synthetic temporaries and the loop variable
+        // out of the enclosing scope after the loop.
+        self.begin_scope();
+
+        // 1. Evaluate the iterable exactly once into `$coll`.
+        self.compile_expr(for_stmt.iter)?;
+        let coll_slot = self.declare_loop_local("$for_coll", true);
+        self.emit(Bytecode::SetLocal(coll_slot as u16), range);
+
+        // 2. `$cursor = $coll.iterate(None)` — `Bytecode::Nil` pushes the
+        //    surface `None` singleton that starts the cursor.
+        self.emit(Bytecode::GetLocal(coll_slot as u16), range);
+        self.emit(Bytecode::Nil, range);
+        self.emit_operator_send("iterate", 1, range);
+        let cursor_slot = self.declare_loop_local("$for_cursor", true);
+        self.emit(Bytecode::SetLocal(cursor_slot as u16), range);
+
+        // 3. Declare the loop variable once (rebound each step); placeholder.
+        self.emit(Bytecode::Nil, range);
+        let binding_slot = self.declare_loop_local(&for_stmt.binding, false);
+
+        // 4. Enter the loop context so body `break`/`continue` resolve here.
+        self.loop_contexts.push(LoopContext {
+            func_depth: self.functions.len(),
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
+
+        // loop_start: the condition test `$cursor.isSome`.
+        let loop_start = self.chunk_len();
+        self.emit(Bytecode::GetLocal(cursor_slot as u16), range);
+        self.emit_getter_send("isSome", range);
+        let exit_on_false = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+
+        // Bind the loop variable: `binding = $coll.iteratorValue($cursor.unwrapOr(0))`.
+        self.emit(Bytecode::GetLocal(coll_slot as u16), range);
+        self.emit(Bytecode::GetLocal(cursor_slot as u16), range);
+        let zero_idx = self.add_constant(Value::Number(0.0));
+        self.emit(Bytecode::Constant(zero_idx), range);
+        self.emit_operator_send("unwrapOr", 1, range);
+        self.emit_operator_send("iteratorValue", 1, range);
+        self.emit(Bytecode::SetLocal(binding_slot as u16), range);
+        self.emit(Bytecode::Pop, range);
+
+        // Body — a nested scope; each statement's value is discarded.
+        self.begin_scope();
+        for stmt in for_stmt.body {
+            self.compile_statement_with_pop_control(stmt, true)?;
+        }
+        self.end_scope(range);
+
+        // step: (the `continue` target) advance the cursor.
+        let step_label = self.chunk_len();
+        self.emit(Bytecode::GetLocal(coll_slot as u16), range);
+        self.emit(Bytecode::GetLocal(cursor_slot as u16), range);
+        self.emit_operator_send("iterate", 1, range);
+        self.emit(Bytecode::SetLocal(cursor_slot as u16), range);
+        self.emit(Bytecode::Pop, range);
+        self.emit_backward_loop(loop_start, range);
+
+        // exit: (the `break` and condition-false target).
+        let exit_label = self.chunk_len();
+        self.patch_forward_jump_to(exit_on_false, exit_label);
+
+        let ctx = self.loop_contexts.pop().expect("loop context was pushed above");
+        for jump in ctx.break_jumps {
+            self.patch_forward_jump_to(jump, exit_label);
+        }
+        for jump in ctx.continue_jumps {
+            self.patch_forward_jump_to(jump, step_label);
+        }
+
+        self.end_scope(range);
+        Ok(())
+    }
+
+    /// Lowers a `break` statement (ADR-0035 §3, iteration.md §3, U-ITER
+    /// specification §4): an unconditional forward [`Bytecode::Jump`] recorded
+    /// on the innermost [`LoopContext`], backpatched to the loop-exit label by
+    /// [`Self::compile_for`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompilerError::BreakOutsideLoop`] (with the keyword span) when
+    /// no loop encloses the `break` (C-ITER-7).
+    fn compile_break(&mut self, range: SourceRange) -> Result<(), CompilerError> {
+        let Some(ctx) = self.loop_contexts.last() else {
+            return Err(CompilerError::BreakOutsideLoop(range));
+        };
+        let same_function = ctx.func_depth == self.functions.len();
+        let jump = self.emit_forward_jump(Bytecode::Jump, range);
+        if same_function {
+            self.loop_contexts.last_mut().unwrap().break_jumps.push(jump);
+        }
+        // A deeper function (a materialized block / deopt fallback) leaves the
+        // `Jump(0)` as inert dead code — see [`LoopContext::func_depth`].
+        Ok(())
+    }
+
+    /// Lowers a `continue` statement (ADR-0035 §3, iteration.md §3, U-ITER
+    /// specification §4): an unconditional forward [`Bytecode::Jump`] recorded
+    /// on the innermost [`LoopContext`], backpatched to the cursor-step label
+    /// (so the next `iterate(_)` runs) by [`Self::compile_for`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompilerError::ContinueOutsideLoop`] (with the keyword span)
+    /// when no loop encloses the `continue` (C-ITER-7).
+    fn compile_continue(&mut self, range: SourceRange) -> Result<(), CompilerError> {
+        let Some(ctx) = self.loop_contexts.last() else {
+            return Err(CompilerError::ContinueOutsideLoop(range));
+        };
+        let same_function = ctx.func_depth == self.functions.len();
+        let jump = self.emit_forward_jump(Bytecode::Jump, range);
+        if same_function {
+            self.loop_contexts.last_mut().unwrap().continue_jumps.push(jump);
+        }
+        // A deeper function (a materialized block / deopt fallback) leaves the
+        // `Jump(0)` as inert dead code — see [`LoopContext::func_depth`].
         Ok(())
     }
 
@@ -1309,6 +1602,15 @@ fn collect_assigned_fields_stmt(stmt: &Statement, fields: &mut Vec<Symbol>, inte
         Statement::Return(ret) => {
             if let Some(ref val) = ret.value {
                 collect_assigned_fields(val, fields, interner);
+            }
+        }
+        Statement::For(for_stmt) => {
+            // A field assigned only inside a `for` body must still be
+            // collected into the class layout (ADR-0035; U-ITER), or its
+            // first read would trip `ReadBeforeWrite`.
+            collect_assigned_fields(&for_stmt.iter, fields, interner);
+            for body_stmt in &for_stmt.body {
+                collect_assigned_fields_stmt(body_stmt, fields, interner);
             }
         }
         _ => {}
