@@ -8,9 +8,10 @@ description: >
   no-idle parallel fleet; `handoff` emits a context-only continuation prompt with no
   survey; `compact` writes a lossless continuation seed and trims; `offload "<task>"`
   formulates and spawns a well-specified background subagent without waiting; `status`
-  prints the work ledger. Use when the user types /forge, or asks to review/plan/implement
-  Phalcom, hand off, smart-compact, offload to a subagent, or run lean/parallel without
-  overthinking.
+  prints the work ledger; `caveman` stacks caveman terse-output mode on top of the senior
+  discipline for max read/work/output minimization. Use when the user types /forge, or asks
+  to review/plan/implement Phalcom, hand off, smart-compact, offload to a subagent, run
+  lean/parallel without overthinking, or combine forge with caveman mode.
 ---
 
 # /forge
@@ -25,8 +26,9 @@ Dispatch on the text after `/forge`:
 | `compact` | [§Compact](#compact) |
 | `offload <task>` | [§Offload](#offload) |
 | `status` | [§Status](#status) |
+| `caveman` | [§Caveman](#caveman) |
 
-Each subcommand is also a direct slash command (`.claude/commands/forge/`): `/forge:senior`, `/forge:orchestrate`, `/forge:handoff`, `/forge:compact`, `/forge:offload <task>`, `/forge:status`. Those thin commands load this skill and jump straight to the matching section — this file stays the single source of truth.
+Each subcommand is also a direct slash command (`.claude/commands/forge/`): `/forge:senior`, `/forge:orchestrate`, `/forge:handoff`, `/forge:compact`, `/forge:offload <task>`, `/forge:status`, `/forge:caveman`. Those thin commands load this skill and jump straight to the matching section — this file stays the single source of truth.
 
 Do not narrate the dispatch. Read only the matching section, act, done.
 
@@ -217,3 +219,42 @@ Turn `<task>` into a well-specified background subagent, spawn, **return to fore
 ## §Status — print the ledger
 
 Print `foreground:` and `outstanding:`. Nothing else. Unknown → reconstruct from the last few turns; do not survey.
+
+---
+
+<a id="caveman"></a>
+## §Caveman — senior discipline + caveman output, both maxed
+
+[§Senior](#senior) plus caveman comms plugin, stacked. Not a rename — a tighter version of both: caveman kills output waste, this kills work waste. Adopt for rest of session.
+
+### Comms
+Invoke caveman plugin (`caveman:caveman` skill, level `full` unless user says otherwise) if not already active. Drop articles/filler/pleasantries. Fragments OK. Code/commits/diagnostics/security stay normal prose — never compress those.
+
+### Ladder, tightened
+Same 4 rungs as §Senior, harder gate between them:
+
+1. Known + memory. Settled fact → never re-derive.
+2. graphify (`query`/`explain`/`path`/`affected`). Default move, not fallback.
+3. Targeted `Read` of a *named* span — one span, not a file, not a directory sweep.
+4. Subagent — only for real parallel work or an exploration whose *process* would bloat this context. Justify in one clause before spawning, else don't.
+
+Rung skip is the point: most turns resolve at 1–2. A rung-3 read that could've been a rung-2 query is waste; a rung-4 spawn for a single-file lookup is waste.
+
+### Ledger — same two lists, terser
+```
+foreground: <queue>
+outstanding: <subagent → deliverable>
+```
+No prose padding around it. Update, don't restate.
+
+### Batching
+Independent rung-2/3/4 calls fire in one message, not sequential turns. Sequential-when-parallelizable is overthinking with extra steps.
+
+### Stop-rule
+Same as §Senior — end turn only when foreground empty and rest blocked on outstanding. A subagent running is not idle; ending the turn early to "wait" is the failure mode this whole section exists to kill.
+
+### Subagent contract
+Same as [§Senior §5](#senior), terser prose: deliverable, known entry points, graphify-first clause, exact return shape. No filler around it.
+
+### When to use vs §Senior
+`/forge:caveman` when the user wants console output cut too, not just work cut. `/forge:senior` alone if user wants the discipline but full prose (e.g. writing docs, explaining decisions to stakeholders). The two compose — caveman comms wraps senior discipline, doesn't replace it.
