@@ -35,6 +35,15 @@ is the index over them.
 Each was consciously ruled "not now" during the open-questions sweep or a forge unit,
 with the door left open. Source is the decision record.
 
+> **Confirmation (2026-07-12).** This session reviewed the underspecified items
+> flagged for a keep-or-pull-in decision and confirmed **all stay deferred**, each
+> with its recorded owner: **default arguments** → the (if-ever) definition-time
+> overload-desugar; **list/`*rest` destructuring** → the pattern-matching unit;
+> **`Family` reflective mirror** → the unified reflection unit; **circular-import
+> policy** → the module unit; **`System` surface** → the System unit (§3);
+> **`Int`/`Float` substrate + `number_hash` bignum-collision fix** → the
+> numeric-substrate unit (§3/§4). None was pulled into current scope.
+
 | Decision | Ruling / future shape | Gate — why deferred | Source · owner |
 |---|---|---|---|
 | **Stateful mixins / multiple inheritance** | single inheritance only; **stateless method-only traits** are the cheap future option | state-bearing MI breaks the ADR-0011/0017 fixed slot offsets | [open-Q10](open-questions.md); ruling |
@@ -56,6 +65,11 @@ Resolutions that stand but were flagged as worth a future revisit:
 - **`ifTrue`/`ifFalse` → `Option` chaining** — `cond.ifTrue{…}.ifFalse{…}` sends `ifFalse`
   to an `Option`, not a `Bool`; a paired `ifTrue(_)ifFalse(_)` primary was floated. Not
   adopted. ([open-Q1 tail](open-questions.md); ADR-0007/0018)
+
+> **Reviewed 2026-07-12 — both stand.** This session's decision round confirmed
+> keeping `var x ⇒ None` (no trapping `Uninit` sentinel) and the `Option`-returning
+> `ifTrue`/`ifFalse` (no paired-primary revision). They remain recorded as live
+> concerns for a future revisit, not adopted.
 
 ---
 
