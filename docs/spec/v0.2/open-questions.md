@@ -94,14 +94,19 @@ before the work it blocks begins.
    this and formally reserves `#{…}` (inactive, committed meaning) alongside the
    ratified `Map` `{k:v}` and `Tuple` `(a,b)` literals.
 
-7. ~~**Destructuring.**~~ **RESOLVED** (ruling, no ADR — additive): ship
-   **irrefutable tuple destructuring** in `let`/`var` now (`let (a, b) = point`,
-   `let (q, r) = divmod(17, 5)`) — a tuple's arity is part of its type, so the
-   bind can never fail. **List/`*rest` destructuring** (`let [first, *rest] =
-   list`) is *refutable* (fails on wrong length) and is **deferred** to a later
-   pattern-matching unit with a proper `match`/`if let` failure branch, reusing
-   U9's `*rest` spelling. Fuller pattern matching (map patterns, match arms)
-   follows.
+7. ~~**Destructuring.**~~ **RESOLVED** → [ADR-0046](../../adr/0046-destructuring-bindings.md)
+   (amends this ruling's scope, U14): ship **irrefutable tuple AND list
+   destructuring** in `let`/`var` now — `let (a, b) = point`,
+   `let (q, r) = divmod(17, 5)`, `let [first, *rest] = list` — desugaring to a
+   single evaluation of the initializer followed by positional reads through the
+   same `at(_)` selector `List`/`Tuple` already expose (ADR-0020), with an inline
+   arity guard that raises a clean `Error` on a shape mismatch (a `List`'s
+   `at(_)` is already total — ADR-0020 — so the irrefutable list form costs no
+   more to build correctly than the tuple form). U9's `*rest` spelling is reused
+   verbatim, and it must be the pattern's last element. Both forms stay
+   irrefutable — there is no `match`/`if let` failure branch yet. Fuller pattern
+   matching (map patterns, match arms, a genuinely refutable evaluator over the
+   same `Pattern` AST node) remains deferred to a future unit.
 
 8. ~~**Modules / imports.**~~ **RESOLVED** →
    [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md)
@@ -201,7 +206,7 @@ before the work it blocks begins.
 | Q5 (interp.) | String interpolation uses `\(expr)` | [ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md) |
 | Q5 / absence | `Option` is abstract; `Some`/`None` subclasses; `None` is a singleton | [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) |
 | Q6 | `Set(...)` constructor; `#{…}` set literal reserved-inactive (`Map`/`Tuple` literals ship) | ruling (Q6 above) + [ADR-0032](../../adr/0032-collections-representation-and-literals.md) |
-| Q7 | Irrefutable tuple destructuring now; list/`*rest` + pattern matching deferred | ruling (Q7 above) |
+| Q7 | Irrefutable tuple AND list/`*rest` destructuring now, via `at(_)`; fuller pattern matching (map patterns, match arms) deferred | [ADR-0046](../../adr/0046-destructuring-bindings.md) |
 | Q8 | File = module; Draft 0.1: relative file-path resolution + whole-module binding only (`import "./x" as Name`), members via ordinary sends | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) + [ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md) |
 | Q9 | Layered exceptions + `Result`; terminating, not resumable; surface `throw`/`try`/`catch`/`on`/`ensure` | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md) + [ADR-0031](../../adr/0031-error-handling-surface-syntax.md) |
 | Q10 | Single inheritance only; traits/mixins deferred (stateless traits the future option) | ruling (Q10 above) |

@@ -650,21 +650,23 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses a `let`/`var` binding: `<kw> name (= expr)?`.
+    /// Parses a `let`/`var` binding: `<kw> pattern (= expr)?`.
     ///
     /// `kind` records whether the `let` or `var` keyword was consumed
     /// (ADR-0014); the caller has already confirmed the current token matches.
-    /// Mutability and missing-initializer rules are enforced later by the
-    /// compiler, not here.
+    /// The left-hand side is a [`Pattern`] (U14, open-questions.md Q7) — a
+    /// bare name or a destructuring tuple/list pattern (see
+    /// [`Self::parse_pattern`]). Mutability and missing-initializer rules are
+    /// enforced later by the compiler, not here.
     ///
     /// # Errors
     ///
-    /// Returns an error if the binding name is missing or the initialiser
-    /// expression is malformed.
+    /// Returns an error if the pattern or the initialiser expression is
+    /// malformed.
     fn parse_binding(&mut self, kind: BindingKind) -> ParserResult<Statement> {
         let start = self.cur_start();
         self.advance(); // 'let' or 'var'
-        let name = self.expect_identifier(&["identifier"])?;
+        let pattern = self.parse_pattern()?;
         let value = if self.eat(&Token::Equal) {
             Some(self.parse_expr()?)
         } else {
@@ -673,10 +675,125 @@ impl<'source> Parser<'source> {
         let range = (start..self.prev_end).into();
         Ok(Statement::Let(LetBinding {
             kind,
-            name,
+            pattern,
             value,
             range,
         }))
+    }
+
+    /// Parses a `let`/`var` binding's left-hand side [`Pattern`] (U14,
+    /// open-questions.md Q7,
+    /// [ADR-0046](../../../docs/adr/0046-destructuring-bindings.md)): a bare
+    /// name, a tuple pattern `(p1, …, pn)`, or a list pattern
+    /// `[p1, …, pn]`/`[p1, …, pn, *rest]`. Patterns nest recursively, so
+    /// `(…)`/`[…]` sub-patterns are parsed by re-entering this function.
+    ///
+    /// This is a distinct grammar path from the RHS tuple/list *literal*
+    /// parsers ([`Self::parse_paren_or_tuple`], [`Self::parse_list_literal`])
+    /// — reached only in binding-target position — so `(a, b)` never parses
+    /// ambiguously between "pattern" and "literal".
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SyntaxErrorKind::Message`] diagnostic if a rest
+    /// sub-pattern is not a list pattern's last element, or if the current
+    /// token cannot begin a pattern.
+    fn parse_pattern(&mut self) -> ParserResult<Pattern> {
+        match self.peek() {
+            Token::LParen => self.parse_tuple_pattern(),
+            Token::LBracket => self.parse_list_pattern(),
+            _ => {
+                let start = self.cur_start();
+                let name = self.expect_identifier(&["identifier", "\"(\"", "\"[\""])?;
+                let range = (start..self.prev_end).into();
+                Ok(Pattern::Name { name, range })
+            }
+        }
+    }
+
+    /// Parses a parenthesized pattern `(p)` or a tuple pattern
+    /// `(p1, …, pn)` with n ≥ 2, mirroring [`Self::parse_paren_or_tuple`]'s
+    /// grouping-vs-tuple disambiguation (only a top-level comma promotes the
+    /// form to a tuple pattern — `(p)` is just `p`, never a one-element tuple
+    /// pattern).
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`SyntaxError`] from a sub-pattern, or from a missing
+    /// closing `)`.
+    fn parse_tuple_pattern(&mut self) -> ParserResult<Pattern> {
+        let start = self.cur_start();
+        self.advance(); // '('
+        let first = self.parse_pattern()?;
+        if !matches!(self.peek(), Token::Comma) {
+            self.expect(&Token::RParen, &["\")\""])?;
+            return Ok(first);
+        }
+        self.advance(); // ','
+        let mut elements = vec![first];
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                elements.push(self.parse_pattern()?);
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                // Allow a trailing comma directly before ')'.
+                if matches!(self.peek(), Token::RParen) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RParen, &["\")\""])?;
+        let range: SourceRange = (start..self.prev_end).into();
+        Ok(Pattern::Tuple { elements, range })
+    }
+
+    /// Parses a list pattern `[p1, …, pn]`, or `[p1, …, pn, *rest]` with a
+    /// trailing rest sub-pattern (U9's `*name` spelling reused verbatim,
+    /// messages-and-selectors.md §5 spread parity).
+    ///
+    /// A rest sub-pattern must be the list pattern's **last** element — the
+    /// same rule [`Self::parse_param_list`] enforces for a variadic
+    /// parameter — so the two `*` spellings never diverge.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`SyntaxErrorKind::Message`] diagnostic if `*` appears
+    /// anywhere but the last element, propagates any [`SyntaxError`] from a
+    /// sub-pattern, or from a missing closing `]`.
+    fn parse_list_pattern(&mut self) -> ParserResult<Pattern> {
+        let start = self.cur_start();
+        self.advance(); // '['
+        let mut elements: Vec<Pattern> = Vec::new();
+        let mut rest: Option<Box<Pattern>> = None;
+        if !matches!(self.peek(), Token::RBracket) {
+            loop {
+                let elem_start = self.cur_start();
+                if rest.is_some() {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(
+                            "a rest pattern (\"*name\") must be the last element of a list pattern".to_string(),
+                        ),
+                        range: elem_start..elem_start,
+                    });
+                }
+                if self.eat(&Token::Asterisk) {
+                    rest = Some(Box::new(self.parse_pattern()?));
+                } else {
+                    elements.push(self.parse_pattern()?);
+                }
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                // Allow a trailing comma directly before ']'.
+                if matches!(self.peek(), Token::RBracket) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RBracket, &["\"]\""])?;
+        let range: SourceRange = (start..self.prev_end).into();
+        Ok(Pattern::List { elements, rest, range })
     }
 
     /// Parses a `return expr?` statement.
@@ -2135,7 +2252,7 @@ mod tests {
             panic!("expected a let binding");
         };
         assert_eq!(binding.kind, BindingKind::Let);
-        assert_eq!(binding.name, "x");
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
         assert!(binding.value.is_some());
     }
 
@@ -2145,9 +2262,68 @@ mod tests {
             panic!("expected a var binding");
         };
         assert_eq!(binding.kind, BindingKind::Var);
-        assert_eq!(binding.name, "x");
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
         // `var x` has no initializer; the compiler surfaces this as `None`.
         assert!(binding.value.is_none());
+    }
+
+    #[test]
+    fn tuple_pattern_parses_two_element_binding() {
+        // U14, open-questions.md Q7: `let (a, b) = point` — a tuple pattern.
+        let Statement::Let(binding) = only_statement("let (a, b) = point") else {
+            panic!("expected a let binding");
+        };
+        let Pattern::Tuple { elements, .. } = &binding.pattern else {
+            panic!("expected a tuple pattern, got {:?}", binding.pattern);
+        };
+        assert_eq!(elements.len(), 2);
+        assert!(matches!(&elements[0], Pattern::Name { name, .. } if name == "a"));
+        assert!(matches!(&elements[1], Pattern::Name { name, .. } if name == "b"));
+    }
+
+    #[test]
+    fn paren_pattern_with_no_comma_is_grouping_not_a_one_tuple() {
+        // Mirrors the RHS literal's grouping-vs-tuple rule: `(x)` is `x`.
+        let Statement::Let(binding) = only_statement("let (x) = point") else {
+            panic!("expected a let binding");
+        };
+        assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
+    }
+
+    #[test]
+    fn list_pattern_with_rest_parses() {
+        // U14: `let [first, *rest] = list`.
+        let Statement::Let(binding) = only_statement("let [first, *rest] = list") else {
+            panic!("expected a let binding");
+        };
+        let Pattern::List { elements, rest, .. } = &binding.pattern else {
+            panic!("expected a list pattern, got {:?}", binding.pattern);
+        };
+        assert_eq!(elements.len(), 1);
+        assert!(matches!(&elements[0], Pattern::Name { name, .. } if name == "first"));
+        let rest = rest.as_deref().expect("expected a rest sub-pattern");
+        assert!(matches!(rest, Pattern::Name { name, .. } if name == "rest"));
+    }
+
+    #[test]
+    fn nested_tuple_pattern_parses() {
+        // U14: `let ((a, b), c) = …` — patterns nest recursively.
+        let Statement::Let(binding) = only_statement("let ((a, b), c) = pair") else {
+            panic!("expected a let binding");
+        };
+        let Pattern::Tuple { elements, .. } = &binding.pattern else {
+            panic!("expected a tuple pattern, got {:?}", binding.pattern);
+        };
+        assert_eq!(elements.len(), 2);
+        assert!(matches!(&elements[0], Pattern::Tuple { elements, .. } if elements.len() == 2));
+        assert!(matches!(&elements[1], Pattern::Name { name, .. } if name == "c"));
+    }
+
+    #[test]
+    fn interior_rest_pattern_is_a_parse_error() {
+        // `*rest` must be the list pattern's last element (U9 parity).
+        let result = parse("let [*rest, last] = xs", 0);
+        assert!(!result.errors.is_empty(), "expected a parse error for an interior rest pattern");
     }
 
     #[test]

@@ -2,4 +2,4 @@
 source: phalcom-ast/tests/parser.rs
 expression: "parse(\"let = )\")"
 ---
-Err: SyntaxError { kind: UnrecognizedToken { token: "=", expected: ["identifier"] }, range: 4..5 }
+Err: SyntaxError { kind: UnrecognizedToken { token: "=", expected: ["identifier", "\"(\"", "\"[\""] }, range: 4..5 }

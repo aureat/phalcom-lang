@@ -215,22 +215,90 @@ pub enum BindingKind {
     Var,
 }
 
-/// A `let`/`var` name binding, optionally with an initializer.
+/// A `let`/`var` binding, optionally with an initializer.
 ///
 /// The [`kind`](LetBinding::kind) distinguishes the immutable `let` form from
 /// the mutable `var` form (ADR-0014). A missing [`value`](LetBinding::value)
 /// means no initializer was written; the compiler rejects that for `let` and
-/// surfaces `None` for `var`.
+/// surfaces `None` for `var`. The [`pattern`](LetBinding::pattern) is either a
+/// bare name (the pre-U14 case) or a destructuring [`Pattern`] — a tuple or
+/// list pattern that positionally unpacks the initializer (open-questions.md
+/// Q7, [ADR-0046](../../../docs/adr/0046-destructuring-bindings.md)). A
+/// destructuring `pattern` always requires an initializer, regardless of
+/// `kind` — there is nothing to unpack from an absent value.
 #[derive(Debug, Clone)]
 pub struct LetBinding {
     /// Whether this is an immutable `let` or a mutable `var` binding.
     pub kind: BindingKind,
-    /// The bound name.
-    pub name: String,
+    /// The bound name or destructuring pattern.
+    pub pattern: Pattern,
     /// The initializer expression, or `None` if the binding has no `= expr`.
     pub value: Option<Expr>,
     /// The source span covering the whole binding statement.
     pub range: SourceRange,
+}
+
+/// A `let`/`var` binding's left-hand side — a bare name or a destructuring
+/// pattern (open-questions.md Q7, U14,
+/// [ADR-0046](../../../docs/adr/0046-destructuring-bindings.md)).
+///
+/// Patterns nest recursively (`let ((a, b), c) = …`), reusing the collection
+/// literal's `(…)`/`[…]` delimiters in binding-target position — a grammar
+/// path distinct from an RHS tuple/list *literal* (`Self::parse_paren_or_tuple`
+/// vs the pattern parser in `crate::parser`), so `(a, b)` never parses
+/// ambiguously between the two positions.
+///
+/// Every destructuring binding compiles to a single evaluation of the
+/// initializer followed by positional element reads through the *same*
+/// `at(_)` selector `List`/`Tuple` already expose (ADR-0020) — there is no
+/// separate `_0`/`_1` accessor protocol. The bind is **irrefutable**: a shape
+/// mismatch (wrong arity) raises a runtime error rather than failing silently
+/// or falling back — see ADR-0046 §2. This node is intentionally reused by a
+/// future refutable `match`/`if let` (ADR-0046 §4): the "raise on mismatch"
+/// behavior lives in the compiler's lowering, not in this node's shape.
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    /// A single bound name — the non-destructuring case (`let x = …`).
+    Name {
+        /// The bound name.
+        name: String,
+        /// The source span of the name.
+        range: SourceRange,
+    },
+    /// A tuple pattern `(p1, …, pn)` — binds against a `Tuple` of the exact
+    /// same arity; any other arity is a runtime error (ADR-0046 §2).
+    Tuple {
+        /// The sub-patterns, one per tuple slot, in order.
+        elements: Vec<Pattern>,
+        /// The source span of the whole `(…)` pattern.
+        range: SourceRange,
+    },
+    /// A list pattern `[p1, …, pn]`, or `[p1, …, pn, *rest]` with a trailing
+    /// rest sub-pattern (U9's `*name` spelling reused verbatim —
+    /// messages-and-selectors.md §5 spread parity). A rest sub-pattern, if
+    /// present, **must be the pattern's last element**; the parser rejects an
+    /// interior `*` (mirrors [`ParameterDef::is_rest`]'s "last parameter"
+    /// rule).
+    List {
+        /// The fixed leading sub-patterns, in order.
+        elements: Vec<Pattern>,
+        /// The trailing `*rest` sub-pattern, or `None` if the list pattern has
+        /// no rest. When present, the scrutinee must have **at least**
+        /// `elements.len()` items; the rest sub-pattern binds a fresh `List`
+        /// holding everything from index `elements.len()` onward.
+        rest: Option<Box<Pattern>>,
+        /// The source span of the whole `[…]` pattern.
+        range: SourceRange,
+    },
+}
+
+impl Pattern {
+    /// Returns this pattern's source span.
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Pattern::Name { range, .. } | Pattern::Tuple { range, .. } | Pattern::List { range, .. } => *range,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

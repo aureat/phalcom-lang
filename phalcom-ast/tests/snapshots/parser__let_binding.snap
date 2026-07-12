@@ -7,7 +7,13 @@ Program {
         Let(
             LetBinding {
                 kind: Let,
-                name: "x",
+                pattern: Name {
+                    name: "x",
+                    range: CopyRange {
+                        start: 4,
+                        end: 5,
+                    },
+                },
                 value: Some(
                     Binary(
                         BinaryExpr {

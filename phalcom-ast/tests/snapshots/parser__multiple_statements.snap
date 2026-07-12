@@ -7,7 +7,13 @@ Program {
         Let(
             LetBinding {
                 kind: Let,
-                name: "x",
+                pattern: Name {
+                    name: "x",
+                    range: CopyRange {
+                        start: 4,
+                        end: 5,
+                    },
+                },
                 value: Some(
                     Number {
                         value: 1.0,
@@ -26,7 +32,13 @@ Program {
         Let(
             LetBinding {
                 kind: Let,
-                name: "y",
+                pattern: Name {
+                    name: "y",
+                    range: CopyRange {
+                        start: 14,
+                        end: 15,
+                    },
+                },
                 value: Some(
                     Number {
                         value: 2.0,
