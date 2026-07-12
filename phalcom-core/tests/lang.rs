@@ -225,6 +225,16 @@ fn inheritance() {
 }
 
 #[test]
+fn iteration() {
+    // U-ITER (ADR-0035, iteration.md): the two-selector cursor protocol
+    // (`iterate(_)`/`iteratorValue(_)`) on `List`, the `for (x in coll)`
+    // surface lowering to an inlined cursor `while`, and `break`/`continue`
+    // as jump-based loop control — all pure `.ph` + compiler lowering over the
+    // existing floor (zero new primitives).
+    support::check_pass("iteration");
+}
+
+#[test]
 fn values() {
     // U-CORE-4: per-type `toString` — `Number`/`String`/`Bool`/`Symbol`/
     // `None`/`Some(_)` message rendering, kept in agreement with the native
