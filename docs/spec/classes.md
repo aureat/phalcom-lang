@@ -71,11 +71,11 @@ class Person {
 
   isAdult => _age >= 18
 
-  greet(other) => "Hello {other.name}, I'm {_name}"
+  greet(other) => "Hello \(other.name), I'm \(_name)"
 
   describe() {                                    // block body
-    _age.ifSome { a => return "{_name}, {a}" }
-    "{_name}, age unknown"
+    _age.ifSome { a => return "\(_name), \(a)" }
+    "\(_name), age unknown"
   }
 
   ==(other) => self.name == other.name and self.age == other.age

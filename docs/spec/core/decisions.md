@@ -14,7 +14,10 @@
 > **Numbering caveat.** These **Q**s are the U-CORE *requirements-analysis*
 > numbers (Q1 hash, Q2 errors, Q4 prelude, Q5 collections). They are **not**
 > [`open-questions.md`](../open-questions.md)'s own Q1–Q14. Cross-references to
-> that file use its numbers explicitly (e.g. "open-Q2 Int/Float").
+> that file use its numbers explicitly (e.g. "open-Q2 Int/Float", now closed by
+> [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md);
+> "open-Q8 imports", now closed by
+> [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md)).
 
 ## Summary
 
@@ -66,7 +69,7 @@ U-CORE-3/4/6 amendments (README.md §"Cross-spec integration notes" note 2). Tex
 > (see the table above); it is the `Map`/`Set` key precondition and cannot be
 > derived. Constraint: `a == b ⇒ a.hash == b.hash` (invariant-requirements R-INV-1.3),
 > and — per forward-compat §4 — `Number#hash` must digest the *mathematical value*
-> so a future Int/Float split (open-Q2) keeps `2` and `2.0` hashing equal.
+> so the Int/Float split (open-Q2, since decided by ADR-0024) keeps `2` and `2.0` hashing equal.
 > Floor count moves **73 → 73 + N** where N = the installed hash bindings; update
 > [`floor-census.md`](./floor-census.md) in the same change.
 
@@ -116,10 +119,13 @@ auto-imported into every compilation unit."** Concretely:
    the prelude; there is no separate, customizable prelude object in core scope.
 2. A U-CORE unit that adds a surface name adds it to the core module (via
    `install_core` / `core.ph`), **not** to an ad-hoc global table keyed by raw
-   string — so a future `import` system (open-Q8) can re-scope or shadow it
-   without a breaking change (forward-compat §3).
-3. User-facing `import` semantics (the `import` token exists, open-Q8) are **out of
-   core scope** — deferred to the module unit. Core must not preclude them.
+   string — so the `import` system (open-Q8, now decided by
+   [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md):
+   file-as-module, public-by-default, qualified/selective/aliased) can re-scope
+   or shadow it without a breaking change (forward-compat §3).
+3. User-facing `import` semantics are now **decided** by ADR-0027 (open-Q8
+   closed); their **implementation** remains out of core scope — deferred to the
+   module unit. Core must not preclude them.
 
 No ADR — this is a low-ceremony ruling that fixes the forward-compat §3 constraint.
 
@@ -196,7 +202,7 @@ under an existing confirmed divergence. (Relatedly, DEFERRED F4 — the
 | `hash` on `Object` protocol; `Map`/`Set` use `hash`/`==` | [`object-model.md`](../object-model.md) §4, §8 |
 | Error model | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md); [`error-handling.md`](../error-handling.md) |
 | dNU/`Message` reification (U8) the raise wires to | [`floor-census.md`](./floor-census.md) §2.14; [`catalog-delta.md`](./catalog-delta.md) §2.7 |
-| `import` open, single global today | [`open-questions.md`](../open-questions.md) §8; `vm.rs::install_core` |
+| `import` semantics decided (ADR-0027), single global today | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md); [`open-questions.md`](../open-questions.md) §8; `vm.rs::install_core` |
 | `List` mutable native `Vec` | [ADR-0020](../../adr/0020-kernel-list-native-array-protocol.md); [`floor-census.md`](./floor-census.md) §2.13 |
 | `Method`/`Block` siblings under `Function` | [ADR-0006](../../adr/0006-function-as-abstract-callable-root.md); [`object-model.md`](../object-model.md) §4 |
 | `Method` load order | [`bootstrap-phases.md`](./bootstrap-phases.md) §2.1 step 5 |

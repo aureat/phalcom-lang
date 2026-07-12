@@ -22,7 +22,7 @@ obvious place to stub or sandbox the environment.
   not part of the surface protocol;
 - every service is a **class-side** method (`static`), so `System` is used purely
   as a receiver of class messages, exactly like a module of free functions;
-- the live values it returns (a `Number` clock reading, a `String` line of input)
+- the live values it returns (a `Float` clock reading, a `String` line of input)
   are ordinary objects — `System` itself never appears inside them.
 
 In the [Object Model](object-model.md) catalog `System` is a `U` class whose sole
@@ -47,8 +47,8 @@ All class-side. Grouped by service.
 
 | Signature | Meaning |
 |-----------|---------|
-| `clock` | monotonic seconds as a `Number`, for measuring durations |
-| `now` | wall-clock epoch seconds as a `Number` |
+| `clock` | monotonic seconds as a `Float`, for measuring durations |
+| `now` | wall-clock epoch seconds as a `Float` |
 
 ### Process & environment
 
@@ -62,7 +62,7 @@ All class-side. Grouped by service.
 
 | Signature | Meaning |
 |-----------|---------|
-| `gc` | request a garbage collection; returns `nil`'s surface substitute — settle on the unit convention in [Values & Absence](values-and-absence.md) |
+| `gc` | request a garbage collection; returns `None` ([Values & Absence](values-and-absence.md)) |
 | `version` | the runtime version `String` |
 
 ### Scheduler (with [Futures](concurrency.md))

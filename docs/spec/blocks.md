@@ -2,10 +2,13 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
-Blocks are the keystone construct. **A block, a lambda, a method body, and a getter
-body are all the same thing**, spelled at different levels of ceremony. `Block` is a
-real class ([Object Model](object-model.md)); a method is a `Block` bound to a class
-under a selector.
+Blocks are the keystone construct. A block, a lambda, a method body, and a getter
+body all **share one closure representation** — the same closure machinery, spelled
+at different levels of ceremony. `Block` is a real class
+([Object Model](object-model.md)). A `Method` and a `Block` are **siblings** under
+the abstract `Function` root ([ADR-0006](../adr/0006-function-as-abstract-callable-root.md));
+a `Method` is **not** a `Block` — it carries a selector, holder, and receiver that a
+`Block` does not (see [Functions](functions.md)).
 
 ## 1. Forms
 

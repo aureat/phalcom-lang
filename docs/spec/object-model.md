@@ -47,8 +47,9 @@ abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../adr/0004-boolean-a
   (see [Messages & Selectors](messages-and-selectors.md)), and a fixed instance
   field layout (see [Classes §Fields](classes.md)).
 - **Abstract** classes define protocol but are never the direct class of a live
-  value (e.g. `Behavior`). **Immediate/primitive** classes have live values in a
-  non-`Instance` VM representation (e.g. `Number` → `f64`).
+  value (e.g. `Behavior`, `Number`). **Immediate/primitive** classes have live
+  values in a non-`Instance` VM representation (e.g. `Float` → `f64`, `Int` →
+  tagged `i64` / heap `LargeInt`).
 
 ---
 
@@ -62,7 +63,8 @@ Object references are `ObjRef` handles into the arena heap: [ADR-0009](../adr/00
 | Surface value | Class | Notes |
 |---------------|-------|-------|
 | `true` / `false` | `True` / `False` | abstract `Bool` with concrete singleton subclasses `True`/`False` ([ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)); `true.class == True`. `ifTrue`/`ifFalse`/`and`/`or`/`not` live on `Bool`, inherited. |
-| `42`, `3.14` | `Number` | one flat numeric type (§4 note) |
+| `42` | `Int` | exact, unbounded integer (§4 note; [ADR-0024](../adr/0024-numeric-surface-split-int-float-and-division.md)) |
+| `3.14` | `Float` | IEEE-754 `f64` (§4 note; [ADR-0024](../adr/0024-numeric-surface-split-int-float-and-division.md)) |
 | `"hi"` | `String` | immutable, interpolating |
 | `#name` / selectors | `Symbol` | interned — see [Selectors, Symbols & References §2](selectors.md#2-symbol-literals-) for the name-symbol (`#name`) vs. selector-symbol (`#name(_,to,duration)`) distinction |
 | `{ x => … }` | `Block` | closures / block literals |
@@ -109,7 +111,9 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 |-------|-----------|------|------|
 | `Bool` | `Object` | A | Abstract boolean ([ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)). Holds the control-flow protocol — `not`, `and(_)`, `or(_)`, `ifTrue(_)`, `ifTrue(_)ifFalse(_)` — inherited by `True`/`False`. `ifTrue`/`ifFalse` return `Option`. No value is directly of class `Bool`. |
 | `True` / `False` | `Bool` | I | The two concrete singleton boolean classes; surface classes of `true`/`false` ([ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)). Empty bodies — all behaviour is inherited from `Bool`. |
-| `Number` | `Object` | I | IEEE-754 `f64`. Arithmetic, comparison, `toString`. |
+| `Number` | `Object` | A | Abstract numeric root ([ADR-0024](../adr/0024-numeric-surface-split-int-float-and-division.md)). Holds the shared arithmetic/comparison protocol; no value is directly of class `Number`. |
+| `Int` | `Number` | I | Exact, **unbounded** integer — tagged `i64` immediate, auto-promoting to a heap `LargeInt` (bignum) on overflow ([ADR-0009](../adr/0009-handle-arena-heap.md)). Never wraps or traps. |
+| `Float` | `Number` | I | IEEE-754 `f64`. |
 | `String` | `Object` | U/I | UTF-8 text. Immutable, interpolating. |
 | `Symbol` | `Object` | I | Interned identifier / selector. |
 | `Option` | `Object` | U | `Some(_)` / `None`. `ifSome(_)`, `ifNone(_)`, `map(_)`, `orElse(_)`, `unwrapOr(_)`, `isSome`, `isNone`. |
@@ -122,9 +126,14 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 > sacred-selector inliner ([control flow](control-flow.md); ADR-0018) elides the
 > send entirely. `True`/`False` have empty bodies.
 >
-> **Numeric note.** One flat `Number` (`f64`), matching the VM. An integer/float
-> split (abstract `Number` → immediate `Integer`/`Float`) is an
-> [open question](open-questions.md); the tower rules in §5 already accommodate it.
+> **Numeric note ([ADR-0024](../adr/0024-numeric-surface-split-int-float-and-division.md)).**
+> `Number` is **abstract**, with two concrete immediate subclasses: `Int` (exact,
+> unbounded — tagged `i64` immediate boxing to a heap `LargeInt` on overflow) and
+> `Float` (`f64`). `1` is an `Int`, `1.0` a `Float`; `1 == 1.0` is `true` and
+> `2.hash == 2.0.hash` (value-based). `/` is **true division** (`Int / Int →
+> Float`); `~/` is **floor integer division** (spelled `~/` because `//` is the
+> line-comment token). Only the *surface* split is normative here — the substrate
+> (bignum `Int`) is future implementation work ([deferred-work.md §3](deferred-work.md)).
 
 ### Callables & reflection
 

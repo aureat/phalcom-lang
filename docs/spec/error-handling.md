@@ -122,7 +122,7 @@ The layering only works because conversion is trivial in both directions
 both mean "run this, and hand me the failure as a value instead of propagating it."
 
 ```phalcom
-let parsed = { Number.parse(input) }.attempt()   // Result<Number, Error>
+let parsed = { Int.parse(input) }.attempt()   // Result<Int, Error>
 parsed.map { n => n * 2 }.unwrapOr(0)
 ```
 

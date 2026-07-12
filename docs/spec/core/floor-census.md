@@ -60,11 +60,15 @@ language is *self-hosting above a small, fixed native boundary*
 > bindings**), **U-STD** (`Option`/`List` combinators — pure `.ph` over
 > existing floor primitives, **no new floor bindings**), and **U11** (`True`/
 > `False` singleton subclasses of `Bool`, ADR-0004 — **+2 kernel classes,
-> +0 floor bindings**; dispatch is via inheritance, see §2.6). The
-> installed-bindings (73) and distinct-native-fn (57) counts are therefore
-> **unchanged** since the last pin — only the kernel-class denominator moved
-> (19 → 21). Do not infer "classes added" implies "bindings added": U11 is the
-> concrete counterexample. See [`README.md`](./README.md) for the
+> +0 floor bindings**; dispatch is via inheritance, see §2.6). None of
+> U8/U9/U-CORE-2/U-LEX/U-STD/U11 added a floor binding, so through those bumps
+> the counts held at 73 bindings / 57 native fns — only the kernel-class
+> denominator moved (19 → 21). Do not infer "classes added" implies "bindings
+> added": U11 is the concrete counterexample. **U-CORE-1 has since landed**
+> (commits `03764e3`/`b1109c2`), the first bump to *add* floor bindings: **+7**
+> bindings (73 → **80**) and **+7** native fns (57 → **64**), per the ADR-0023
+> amendment above — so the current figures are the **80 / 64** in the §1.1
+> table, not the old 73 / 57. See [`README.md`](./README.md) for the
 > baseline-pin policy.
 
 ### 1.2 Selector notation

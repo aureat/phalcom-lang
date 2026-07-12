@@ -7,6 +7,14 @@ amended by it. It exists to capture a coherent typing design end-to-end — idea
 model, implementation, edge cases, risks — so the decision can be taken (or
 rejected) deliberately rather than improvised.
 
+> **Partially superseded (2026-07-12).** The "flat f64 numbers, Int/Float split open
+> (ADR-0005, Q2)" premise is now **closed** by
+> [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md): exact
+> unbounded `Int` + `Float`, with `/` true division and `~/` floor integer division.
+> This also settles the "integer division threatens erasure" tension — **§5.9 should be
+> revisited against `~/`** (floor division is a distinct selector, not an erasure of
+> `/`). Index: [deferred-work.md](../deferred-work.md).
+
 **Anchoring ADRs (constraints, not endorsements):**
 [ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md) (metaclass tower) ·
 [ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md) (Bool tower) ·
@@ -70,7 +78,7 @@ obey, and the mechanism it forces.
 | Tagged `Value`, handle heap, "no new runtime cost" (ADR-0009/0010) | Erasable types honor this; contract systems do not. |
 | `Bool` abstract + `True`/`False`, truthiness banned (ADR-0004, [values §3.5](../values-and-absence.md)) | Typed code gets *static* enforcement of the ban; untyped code keeps the runtime floor (§5.10). |
 | Parallel metaclass tower (ADR-0002) | Classes are values with type `T class`; constructors/factories must be typed on the class side (§5.6). |
-| Flat `f64` numbers, Int/Float split open (ADR-0005, [Q2](../open-questions.md)) | A surface `Number > Int, Float` split can live in the *type lattice only* — but integer division threatens erasure (§5.9). |
+| Flat `f64` numbers, Int/Float split open (ADR-0005, [Q2](../open-questions.md)) <!-- RESOLVED by ADR-0024: split decided (exact `Int` + `Float`); `~/` floor div removes the erasure tension — see §5.9. --> | A surface `Number > Int, Float` split can live in the *type lattice only* — but integer division threatens erasure (§5.9). |
 
 ---
 

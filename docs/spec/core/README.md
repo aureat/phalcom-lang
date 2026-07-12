@@ -39,12 +39,22 @@ rather than silent: each data-bearing doc pins the commit it reflects.
   half-Option fix + core `Option` combinators, and since the last pin: **U10**
   (non-local return), **U-LEX** (surface syntax, `\(expr)` interpolation),
   **U-STD** (Option/List combinators), and **U11** (Bool tower `True`/`False`
-  singletons). Floor count is **unchanged at 73** across all of these bumps —
-  none of U10/U-LEX/U-STD/U11 added a native floor primitive (U-STD/U11 are pure
-  `.ph`; U10/U-LEX are compiler/lexer-only). See
+  singletons). Floor count held at 73 across all of those bumps — none of
+  U10/U-LEX/U-STD/U11 added a native floor primitive (U-STD/U11 are pure `.ph`;
+  U10/U-LEX are compiler/lexer-only). **U-CORE-1 has since landed** (commits
+  `03764e3`/`b1109c2`), taking the floor to **80** installed bindings / 64
+  distinct native fns (+7 for `hash`×5 + `Behavior#name`/`methods`), so the
+  current floor is **80**. See
   [`floor-census.md`](./floor-census.md) §1.1/§2.6 and
   [`catalog-delta.md`](./catalog-delta.md) for the itemized re-baseline (commit
   `b9f90ea`).
+- **ADR-0024–0027 landed** (commit `0b21e60`), closing four open-questions this
+  track previously treated as live: **open-Q2** (Int/Float — exact unbounded
+  bignum `Int` + `Float`; `/` true division, `~/` floor division), **open-Q3**
+  (external/internal parameter names), **open-Q4** (hierarchy mutability —
+  methods open, reparent sealed), and **open-Q8** (file-as-module imports). The
+  core-library specs no longer treat Int/Float, param labels, hierarchy
+  mutability, or modules as undecided.
 - **U-CORE-2 already partly landed** (`0da64d6`): `Bool#ifTrue`/`ifFalse` now
   `Some`-lift the taken arm (closing catalog-delta §4.2), the sacred inliner
   `Some`-lifts in lockstep via a new `WrapSome` op (ADR-0018 amendment), and
@@ -95,7 +105,7 @@ authored:
 
 | Unit | Spec | Native floor Δ (from 73) | Flips directly |
 |---|---|---|---|
-| U-CORE-1 kernel reflection | [`U-CORE-1-implementation-spec.md`](./U-CORE-1-implementation-spec.md) | **+7** (`hash`×5 + `Behavior#name`/`methods`); `isA` is `.ph` | `metaclass_is_a` |
+| U-CORE-1 kernel reflection | [`U-CORE-1-implementation-spec.md`](./U-CORE-1-implementation-spec.md) | **+7 — as-built/landed** (`hash`×5 + `Behavior#name`/`methods`, 73 → 80); `isA` is `.ph`; `Method < Function` re-parent applied | `metaclass_is_a` (flipped) |
 | U-CORE-2 absence + Boolean | [`U-CORE-2-implementation-spec.md`](./U-CORE-2-implementation-spec.md) | **0** (bulk landed `0da64d6`; verify/harden) | — |
 | U-CORE-3 callables/Block | [`U-CORE-3-implementation-spec.md`](./U-CORE-3-implementation-spec.md) | **+5** (`methodFor`/`invokeOn`/`bind`/`signature`/`holder`) | — (all U-LEX-gated) |
 | U-CORE-4 value classes | [`U-CORE-4-implementation-spec.md`](./U-CORE-4-implementation-spec.md) | **+1** (`Number#toString`) | `absence_option_none`, `absence_var_defaults_to_none`, `binding_var_uninitialized` |
@@ -111,9 +121,11 @@ These refine — and in places subsume — the older, coarser forge planning for
 The six specs were authored in parallel; each states its delta from the **same
 base of 73**. An implementer must reconcile the following across units:
 
-1. **Floor deltas are cumulative.** If all land, the floor is `73 + 7 + 5 + 1 + 2
-   = 88`. Each spec's "73 → N" is a *delta from base*, not a running total. The
-   floor-census audit (R-INV-0.1) must bump in lockstep with each unit's installs.
+1. **Floor deltas are cumulative.** U-CORE-1's **+7** has landed, so the floor is
+   now **80** (the new base); if the rest land, it reaches `80 + 5 + 1 + 2 = 88`.
+   Each remaining spec's "73 → N" was authored as a *delta from the old base of
+   73*, not a running total. The floor-census audit (R-INV-0.1) must bump in
+   lockstep with each unit's installs.
 2. **Four ADR-0019 amendments are folded into one omnibus
    [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)**
    (U-CORE-1 `hash`/`Behavior`, U-CORE-3 Method reflection, U-CORE-4
@@ -142,7 +154,12 @@ base of 73**. An implementer must reconcile the following across units:
 **Status:** The U-CORE-0 → implementation-spec work in [`HANDOFF.md`](./HANDOFF.md)
 is **done** — U-CORE-0 is 7/7, the gating decisions are ruled ([`decisions.md`](./decisions.md)),
 all six U-CORE-1…6 implementation specs are authored (table above), and
-**ADR-0023 is ratified** (note 2 above) — the floor gate is clear. The next
-session's job is **implementation**: dispatch the units to `phalcom-implementer`
-in dependency order (U-CORE-1 first, re-grounded against the current baseline
-above before dispatch), honoring the wave constraints in the cross-spec notes.
+**ADR-0023 is ratified** (note 2 above) — the floor gate is clear.
+**Implementation is underway: U-CORE-1 has landed** (commits `03764e3`/`b1109c2`
+— `Object#hash` + per-immediate hashes, `Behavior#name`/`methods`, `isA`, and
+the `Method < Function` re-parent; floor 73 → 80), and U-CORE-2's core bulk
+landed earlier (`0da64d6`). The **track head is now U-CORE-3** (callables/Block).
+The next job is to continue dispatching the remaining units (U-CORE-3, then
+U-CORE-4/5/6) to `phalcom-implementer` in dependency order, re-grounded against
+the current post-U-CORE-1 baseline above before dispatch, honoring the wave
+constraints in the cross-spec notes.

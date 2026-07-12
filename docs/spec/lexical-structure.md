@@ -33,7 +33,7 @@ body.
 
 ```phalcom
 42        1_000_000       3.1415          // numbers (digit separators allowed)
-"hello"   "{name} is {age}"              // strings, with interpolation
+"hello"   "\(name) is \(age)"            // strings, with interpolation
 true  false                              // booleans
 (3, 4)                                   // tuple
 [1, 2, 3]                                // list
@@ -48,14 +48,15 @@ Set(1, 2, 3)                             // set — a send, not a literal
 
 ## 5. String interpolation
 
-Interpolation uses `{expr}`. `\{` escapes a literal brace.
+Interpolation uses `\(expr)` ([ADR-0022](../adr/0022-string-interpolation-backslash-paren-sigil.md)).
+The `\(` sequence is what triggers interpolation; a literal `\(` is written `\\(`.
 
 ```phalcom
-"{name} is {age} years old"
-"a literal \{ brace"
+"\(name) is \(age) years old"
+"a literal \\( sequence"
 ```
 
-Each `{expr}` desugars to a `toString` send and string concatenation.
+Each `\(expr)` desugars to a `toString` send and string concatenation.
 
 ## 6. Brace disambiguation
 

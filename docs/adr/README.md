@@ -37,7 +37,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0012](0012-selector-signature-encoding-and-dispatch.md) | Label-encoded selectors and inline-cache-ready dispatch | Accepted |
 | [0013](0013-closure-upvalues-and-frame-token-return.md) | Open/closed upvalues and frame-token non-local return | Accepted |
 | [0014](0014-let-and-var-bindings.md) | Variable bindings are `let` (immutable) and `var` (mutable) | Accepted |
-| [0015](0015-object-default-tostring.md) | `Object` default `toString` is `"<{ClassName}>"` | Accepted |
+| [0015](0015-object-default-tostring.md) | `Object` default `toString` is `"<ClassName>"` | Accepted |
 | [0016](0016-hand-written-lexer-and-recursive-descent-parser.md) | Hand-written lexer and recursive-descent parser (replacing LALRPOP) | Accepted |
 | [0017](0017-class-side-stored-static-fields.md) | Class-side stored static fields live on the metaclass instance | Accepted |
 | [0018](0018-sacred-selector-inliner-and-override-guard.md) | Sacred-selector inliner with override-epoch deopt guard | Accepted |

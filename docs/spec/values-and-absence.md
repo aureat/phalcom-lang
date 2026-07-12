@@ -11,7 +11,7 @@ Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 | Type | Notes |
 |------|-------|
-| `Number` | Single numeric type ([open question](open-questions.md) re: int/float split) |
+| `Int` / `Float` | Abstract `Number` split into exact unbounded `Int` + `f64` `Float` ([ADR-0024](../adr/0024-numeric-surface-split-int-float-and-division.md)) |
 | `String` | Immutable, interpolating |
 | `Bool` | A real class; `ifTrue`/`ifFalse` are stdlib methods, not VM builtins |
 | `Block` | First-class closure ([Blocks](blocks.md)) |
@@ -76,7 +76,7 @@ Every other extractor is defined in terms of it.
 
 ```phalcom
 opt.match(
-  some: { v => "got {v}" },
+  some: { v => "got \(v)" },
   none: { "empty" }
 )                                             // -> the common type of both blocks
 ```

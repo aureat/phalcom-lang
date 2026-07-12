@@ -3,12 +3,20 @@
 - Status: Proposed · no open-Q covers this; **soundness teeth**
 - Axis: values (equality ladder), object-model §8
 
+> **Partially superseded (2026-07-12).** This note heavily overlaps the now-landed
+> [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) and
+> [core/decisions.md](../core/decisions.md) Q1/Q5 — it is a **candidate to become
+> normative**. Also: NaN reasoning that started from "`Number` is f64" predates
+> [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md); under the
+> split, NaN lives **only on `Float`** (`Int` is exact), so NaN-specific claims now
+> read `Float`, not `Number`. Index: [deferred-work.md](../deferred-work.md).
+
 ## Problem
 
 `Object` defines identity `==`/`hash`, but the value-type ladder is undefined, and
 two concrete hazards follow from committed decisions:
 
-1. **`Number` is f64 (ADR-0005) → `nan == nan` is `false`.** Breaks `==`
+1. **`Float` is f64 (ADR-0005; split per ADR-0024) → `nan == nan` is `false`.** Breaks `==`
    reflexivity and makes a NaN `Map`/`Set` key unfindable.
 2. **A mutable instance used as a `Map`/`Set` key, then mutated,** silently
    corrupts the table (its bucket no longer matches its `hash`).

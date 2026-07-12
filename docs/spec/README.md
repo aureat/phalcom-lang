@@ -4,8 +4,10 @@
 
 Phalcom is a class-based, object-first language with JavaScript's surface
 ergonomics and Smalltalk's semantics. This directory is the living specification,
-split into parts. Where a decision is not yet taken it lives in
-[Open Questions](open-questions.md) rather than being silently invented.
+split into parts. The 14 [Open Questions](open-questions.md) are now all resolved;
+anything deliberately postponed — deferred decisions, still-open decisions, unbuilt
+units — is tracked in [Deferred & Future Work](deferred-work.md) rather than being
+silently invented.
 
 ## Reading order
 
@@ -25,7 +27,8 @@ split into parts. Where a decision is not yet taken it lives in
 | [Fibers & Futures](concurrency.md) | Cooperative concurrency: the `Fiber` primitive, `Future`, the scheduler |
 | [System](system.md) | The runtime service surface: console, clock, process, scheduler |
 | [Implementation Status](implementation-status.md) | Divergence between this spec and the current tree |
-| [Open Questions](open-questions.md) | Undecided design points |
+| [Open Questions](open-questions.md) | The 14 design questions — **all resolved**; decision record |
+| [Deferred & Future Work](deferred-work.md) | Master index of everything postponed: deferred decisions, open decisions, unbuilt units, the experimental corpus |
 
 ## Invariants
 
@@ -63,8 +66,8 @@ class Person {
   ==(other) => self.name == other.name and self.age == other.age
 
   describe() {
-    _age.ifSome { a => return "{_name}, {a}" }
-    "{_name}, age unknown"
+    _age.ifSome { a => return "\(_name), \(a)" }
+    "\(_name), age unknown"
   }
 }
 

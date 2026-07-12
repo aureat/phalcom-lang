@@ -49,7 +49,7 @@ Status glyphs: ✅ present · ◐ partial · ❌ absent · ⚠️ catalog↔impl
 
 | Class | Row | Global | Floor | `.ph` | Pending (catalog − have) | Unit |
 |---|:--:|:--:|---|---|---|---|
-| `Object` | ✅ | ✅ | `==` `!=` `class` `class=` `name` `toString` `new` `perform` `respondsTo` `doesNotUnderstand` | empty reopen | `isA(_)`, `hash` | U-CORE-1 |
+| `Object` | ✅ | ✅ | `==` `!=` `class` `class=` `name` `toString` `new` `perform` `respondsTo` `doesNotUnderstand` `hash` | `isA(_)` | — (U-CORE-1 landed: `hash` floor + `isA(_)` `.ph`) | **U-CORE-1 — landed** |
 | `Behavior` | ✅ | ✅ | `superclass` `superclass=` | — | `name`, method-dictionary reflection, allocation protocol | U-CORE-1 |
 | `Class` | ✅ | ✅ | `+(_)` `new()` | empty reopen | reflection surface (name/methods enumeration) | U-CORE-1 |
 | `Metaclass` | ✅ | ✅ | *(inherited)* | empty reopen | — (structurally complete; verified by `verify_invariants`) | — |
@@ -57,8 +57,9 @@ Status glyphs: ✅ present · ◐ partial · ❌ absent · ⚠️ catalog↔impl
 `Object`/`Class`/`Metaclass` protocols are **◐ partial**: identity, class access,
 default `toString`, and — since **U8** — the reflective/dispatch surface
 (`perform`, `respondsTo`, `doesNotUnderstand`, plus the `Message` reification,
-census §2.14) all exist. dNU is now an overridable hook, not a hard miss. What
-remains for U-CORE-1 is `hash` and `isA(_)` (see §4.5).
+census §2.14) all exist. dNU is now an overridable hook, not a hard miss.
+`hash` and `isA(_)` have **since landed with U-CORE-1** (`hash` native, `isA(_)`
+derived in `core.ph`; see §4.5).
 
 ### 2.2 Primitives & singletons
 
@@ -85,7 +86,7 @@ L77–107. `None` is a value global, not a class global (values-and-absence.md
 |---|:--:|:--:|---|---|---|---|
 | `Function` | ✅ | ✅ | `arity` `name` `callWith(_)` `call()…call(_,_,_,_)` | — | (abstract root) higher-arity `call`, variadic `callWith` semantics | U-CORE-3 |
 | `Block` | ✅ | ✅ | same as `Function` + `whileTrue(_)` | — | non-local-return surface protocol (mechanism exists, ADR-0013) | U-CORE-3 |
-| `Method` | ✅ | ✅ | `new(_)` | — | re-parent `< Function` (§4.1, **ruled**); `signature`, `holder`, `bind(_)` | U-CORE-1/3 |
+| `Method` | ✅ | ✅ | `new(_)` | *(inherits `Function` call protocol)* | `signature`, `holder`, `bind(_)` (re-parent `< Function` **landed** U-CORE-1, §4.1) | U-CORE-3 |
 
 `Function`/`Block` are **✅ largely complete** for the call protocol (the U-CORE-0
 floor already covers arities 0–4). `Method` is **◐ partial** and carries a
@@ -192,10 +193,10 @@ plus the pre-existing 2 in Callables & reflection unchanged); Partial moves
 These are places the catalog and the code disagree, or where a catalog claim is
 unverified. Each needs a ruling before the owning unit proceeds.
 
-### 4.1 ✅ `Method` superclass: catalog says `Function`, code says `Object` — **ruled: re-parent** ([`decisions.md`](./decisions.md) §4.1)
+### 4.1 ✅ `Method` superclass: catalog says `Function`, code said `Object` — **re-parented (U-CORE-1, landed)** ([`decisions.md`](./decisions.md) §4.1)
 - **Catalog** (§4 Callables): `Method | Function` — "Sibling of `Block`, not a subtype of it."
-- **Code:** `make_core_class(heap, "Method", object_class, …)` → `Method < Object` (`universe.rs` L133).
-- **Ruling:** re-parent the **code** to `Method < Function`. [ADR-0006](../../adr/0006-function-as-abstract-callable-root.md) (Accepted) is explicit that `Block`/`Method` are siblings under `Function`, so the code is an ADR-0006 violation, not a catalog error — do **not** amend the catalog. Implementation note: `create_core_classes` currently allocates `Method` *before* `Function`, so the fix must also move `Method`'s `make_core_class` after `Function` in the load order. Owned by U-CORE-1/3 (see decisions.md §4.1).
+- **Was:** `make_core_class(heap, "Method", object_class, …)` → `Method < Object` — an ADR-0006 violation.
+- **As-built (resolved):** **U-CORE-1 re-parented the code to `Method < Function`** (`universe.rs`, in `create_core_classes`, with the load-order fix that allocates `Method` *after* `Function`). [ADR-0006](../../adr/0006-function-as-abstract-callable-root.md) (Accepted) is explicit that `Block`/`Method` are siblings under `Function`; the catalog was correct and was **not** amended. The re-parent preserves the allocate-then-patch order and the parallel rule (R-INV-0.2 / R-INV-3.1).
 
 ### 4.2 ✅ `Bool#ifTrue`/`ifFalse` return a half-Option — **resolved in U-CORE-2**
 - **Catalog / spec:** `ifTrue`/`ifFalse` return `Option`. Ratified twice — `object-model.md` §4 and `control-flow.md` §1, whose `if/else === c.ifTrue { A }.ifNone { B }` desugaring only composes if `ifTrue` yields an `Option` that `.ifNone` (an `Option` method) can be sent to.
@@ -220,14 +221,16 @@ unverified. Each needs a ruling before the owning unit proceeds.
   shows `42` — the gap is specifically the `toString` **message**. U-CORE-4 must
   override `toString` on `Number` (and `String`, `Symbol`, `Bool`, `Option`).
 
-### 4.5 `hash` absent (dNU / `perform` / `respondsTo` / `Message` landed in U8)
+### 4.5 `hash` / `isA` landed (U-CORE-1); dNU / `perform` / `respondsTo` / `Message` landed in U8
 - **Update:** `doesNotUnderstand(_)`, `perform`, `respondsTo`, and the `Message`
   reification landed in **U8** — a missed send now forwards to an overridable dNU
   hook, not a hard error (census §2.1/§2.14). What remains is the surface
   `MessageNotUnderstood` **class** (§2.7, U-CORE-6) the hook should raise.
-- `Object#hash` is **still absent**; `Map`/`Set` (§2.4) block on it. Whether
-  `hash` is a floor primitive is requirements-analysis **Q1** (an ADR-0019
-  amendment if yes).
+- `Object#hash` is **present as of U-CORE-1** — a native floor primitive
+  admitted by [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md),
+  with per-immediate overrides on `Number`/`String`/`Bool`/`Symbol` (census
+  §2.1/§2.4–2.7). `isA(_)` also landed, derived in `core.ph`. `Map`/`Set`
+  (§2.4) can now build on `hash`; requirements-analysis **Q1** is closed.
 
 ## 5. Traceability
 

@@ -50,21 +50,23 @@ a cheap structural check at boot plus a behavioral guard in the corpus.
 | `behavior_class_exists_in_tower`, `metaclass_responds_to_superclass_via_behavior`, `…closing_the_loop`, `class_is_instance_of_class_class_not_metaclass_directly`, `object_class_class_is_metaclass`, `object_has_no_superclass`, `walking_metaclass_superclass_chain_terminates` | tower apex |
 | `subclass_field_offset_stability`, `subclass_static_field_offset_stability` | ADR-0011/0017 slot layout |
 
-## 3. The four U-CORE-0-mandated gaps (close before/with U-CORE-1)
+## 3. The four U-CORE-0-mandated gaps (landed with U-CORE-1)
 
 These four are named explicitly by the U-CORE-0 charter. They are **not** owned
 by a single downstream unit — they harden the floor the whole roadmap builds on,
-so they land with U-CORE-1 (the first implementation unit) or as a standalone
-"invariants" slice.
+and **landed with U-CORE-1** (the first implementation unit), which stood up the
+invariant substrate the rest of the roadmap extends.
 
-### R-INV-0.1 — Floor-census audit (assert 73 bindings)
+### R-INV-0.1 — Floor-census audit (assert 80 bindings) — **implemented**
 - **Where:** `tests/invariants.rs` (too expensive/reflective for boot).
+- **Status:** **landed with U-CORE-1** as
+  `floor_census_matches_installed_bindings`.
 - **Assertion:** reconstruct the installed `(class, selector)` set from a live
   `VM::new()` and assert it **equals** the census in [`floor-census.md`](./floor-census.md)
-  — count **= 73**, and ideally the exact set, not just the cardinality.
+  — count **= 80**, and ideally the exact set, not just the cardinality.
 - **Why:** floor drift is otherwise silent (floor-census §7); a stray
-  `primitive!` or a dropped binding is an ADR-0019 violation that no test catches
-  today. This turns the manual checksum into a red test.
+  `primitive!` or a dropped binding is an ADR-0019 violation. This turns the
+  manual checksum into a red test.
 - **Note:** the assertion must count **bindings**, not macro-call sites (`call`
   expands to 5 arities × 2 classes; see floor-census §1.1). Prefer enumerating
   the method dictionaries of the 16 floor-carrying classes over counting source.
@@ -174,7 +176,7 @@ it adds classes.
 | `verify_invariants` current assertions | `universe.rs` L404–480 |
 | Corpus current tests | `tests/invariants.rs` (test-fn inventory) |
 | Coverage-gap ledger | [`bootstrap-phases.md`](./bootstrap-phases.md) §6 |
-| Floor count = 73 | [`floor-census.md`](./floor-census.md) §1.1 / §7 |
+| Floor count = 80 (post-U-CORE-1) | [`floor-census.md`](./floor-census.md) §1.1 / §7 |
 | `Some`/`Message` fixed slots | [`floor-census.md`](./floor-census.md) §2.8/§2.14; `vm.rs::new` (Phase E) |
 | `hash`/`isA`/`==` consistency | [`object-model.md`](../object-model.md) §4 (Map/Set), §8 (protocol) |
 | Some-lift fast≡deopt | [ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md) amendment; `0da64d6` |

@@ -114,7 +114,7 @@ one, others are co-requisites. "syntax" always means **U-LEX**.
 
 | Fixture (`…/pending/`) | Cat | Real blocker (observed) | Flips when |
 |---|:--:|---|---|
-| `metaclass/metaclass_is_a` | B | `3.isA(Number)` → dNU `isA(_:)` | **U-CORE-1** |
+| `metaclass/metaclass_is_a` | B | ~~`3.isA(Number)` → dNU `isA(_:)`~~ **retired** — `isA(_)` landed in U-CORE-1; fixture uses plain syntax (no U-LEX gate) and has been `git mv`'d to the active lane (`status: PASS`) | **U-CORE-1 — landed/green** |
 | `absence/absence_option_none` | B | `print(None)` → `<None instance>` (needs `None#toString`) | **U-CORE-4** |
 | `absence/absence_var_defaults_to_none` | B | `var x` → `<None instance>` (needs `None#toString`) | **U-CORE-4** |
 | `bindings/binding_var_uninitialized` | B | same as above (`None#toString`) | **U-CORE-4** |

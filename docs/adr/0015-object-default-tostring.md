@@ -1,4 +1,4 @@
-# 15. `Object` default `toString` is `"<{ClassName}>"`
+# 15. `Object` default `toString` is `"<ClassName>"`
 
 - Status: Accepted
 - Date: 2026-07-11
@@ -22,7 +22,7 @@ representation" with no fixed format).
 
 ## Decision
 
-- A plain instance's default `toString` renders as **`"<{ClassName}>"`** — e.g. a
+- A plain instance's default `toString` renders as **`"<ClassName>"`** — e.g. a
   `Point` instance renders `"<Point>"`.
 - A **class**'s own `name` and `toString` are its **own** name: `Number.name` and
   `Number.toString` both yield `"Number"` (and `(Number class).name` yields
@@ -45,11 +45,11 @@ stays universal on `Object`, and a class's `toString` is defined to be its own n
 
 ## Alternatives considered
 
-- **`"a {ClassName}"` / `"an {ClassName}"`** (Smalltalk `printString` style).
+- **`"a ClassName"` / `"an ClassName"`** (Smalltalk `printString` style).
   Familiar, but needs article/vowel logic and is less predictable for golden tests.
   Rejected.
-- **`"{ClassName} instance"`.** Deterministic and golden-stable, but more verbose;
-  the project owner chose the bracketed `"<{ClassName}>"` form. Rejected in favor of
+- **`"ClassName instance"`.** Deterministic and golden-stable, but more verbose;
+  the project owner chose the bracketed `"<ClassName>"` form. Rejected in favor of
   the chosen form.
 - **Introduce a separate `printString` selector** (Smalltalk's display/print split).
   Rejected explicitly: it is not a spec selector, and one `toString` is enough for

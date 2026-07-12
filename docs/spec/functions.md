@@ -46,7 +46,7 @@ place to hang function-application sugar.
 | `call` | apply with no arguments |
 | `call(_)`, `call(_,_)`, … | apply with N positional arguments |
 | `callWith(_)` | apply with a `List` of arguments (reflective, variable arity) |
-| `arity` | declared parameter count (`Number`) |
+| `arity` | declared parameter count (`Int`) |
 | `name` | a display `Symbol`/`String` for diagnostics |
 
 **Application sugar.** `f(a, b)` desugars to `f.call(a, b)` ([Blocks §7](blocks.md)).

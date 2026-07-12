@@ -16,6 +16,10 @@ before the work it blocks begins.
 > it is the chosen default; but stateful mixins, `Some` niche-encoding, list/rest
 > destructuring, `Family` reflection, and default arguments are all reserved for
 > later without being precluded).
+>
+> This file is the **decision record**; the postponed work those deferrals point to —
+> plus genuinely-still-open decisions and unbuilt units — is indexed in
+> [Deferred & Future Work](deferred-work.md).
 
 ---
 

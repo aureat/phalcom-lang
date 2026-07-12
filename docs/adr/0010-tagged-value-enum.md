@@ -1,8 +1,13 @@
 # 10. `Value` is a tagged `enum` with a private `Nil` sentinel
 
-- Status: Accepted
+- Status: Accepted (numeric arm amended by [ADR-0024](0024-numeric-surface-split-int-float-and-division.md))
 - Date: 2026-07-11
-- Related: `docs/spec/object-model.md` §3; `docs/spec/values-and-absence.md` §2; [ADR-0005](0005-number-as-flat-f64.md); [ADR-0009](0009-handle-arena-heap.md)
+- Related: `docs/spec/object-model.md` §3; `docs/spec/values-and-absence.md` §2; [ADR-0005](0005-number-as-flat-f64.md); [ADR-0009](0009-handle-arena-heap.md); [ADR-0024](0024-numeric-surface-split-int-float-and-division.md)
+
+> **Numeric arm amended (2026-07-12) by [ADR-0024](0024-numeric-surface-split-int-float-and-division.md).**
+> The single `Number(f64)` arm below is replaced by two arms — `Int(i64)` (exact,
+> auto-promoting to a heap `LargeInt` on overflow) and `Float(f64)`. The rest of the
+> enum (`Bool`/`Obj`/`Symbol`/private `Nil`) is unchanged.
 
 ## Context
 
@@ -22,7 +27,7 @@ constraints frame the rest:
 
 `Value` is a **tagged Rust `enum`** with these arms:
 
-- `Number(f64)` — the flat numeric type ([ADR-0005](0005-number-as-flat-f64.md)).
+- `Int(i64)` / `Float(f64)` — the two numeric arms ([ADR-0024](0024-numeric-surface-split-int-float-and-division.md), amending ADR-0005). `Int` is the small-integer fast path; large integers box to a heap `LargeInt`. *(Originally one `Number(f64)` arm; split by ADR-0024.)*
 - `Bool(bool)` — one `Bool` class; `True`/`False` are a later dispatch refinement,
   not a `Value` arm ([ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md)).
 - `Obj(ObjRef)` — every heap object (instances, strings, blocks, classes, …) by

@@ -43,7 +43,7 @@ class Cart {
   @observable var _items
   @computed total => _items.fold(0) { s, it => s + it.price }
 }
-c::total.subscribe { t => System.print("total → {t}") }
+c::total.subscribe { t => System.print("total → \(t)") }
 ```
 
 `@observable var _x` is `@get @set` **plus** a `self.__notify(#x)` in the setter;

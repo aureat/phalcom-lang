@@ -57,8 +57,9 @@ dogfooded like any user class.
    none:)` eliminator (ADR-0007); `True`/`False` and the sacred `ifTrue`/`and`/`or`
    primitives (ADR-0004). Already VM-blessed; the absence bootstrap cycle
    (Invariant 4) and truthiness ban (Invariant 6) forbid moving them up.
-4. **`Number` arithmetic** — the `f64` operations (ADR-0005). Cannot be defined
-   without recursing into themselves.
+4. **`Number` arithmetic** — the native numeric operations: exact `Int`
+   (`checked_*` + bignum boxing) and `Float` (`f64`) ops ([ADR-0024](0024-numeric-surface-split-int-float-and-division.md),
+   amending ADR-0005). Cannot be defined without recursing into themselves.
 5. **`Block` `call`** — the thunk primitive that all control flow (blocks-as-sends)
    is built on (ADR-0006, ADR-0018).
 6. **`System` I/O** — `print` and source-file read. The compiler and REPL need a
@@ -91,8 +92,9 @@ dogfooding direction only.
   ADR-0012) or a JIT lands. That trade is chosen deliberately: a smaller native
   surface is more auditable and keeps the object model uniform.
 - It does **not** freeze representation choices that live *below* the floor behind
-  their existing `Value`/`Number` APIs: the Int/Float surface split (open-Q2) and
-  NaN-boxing (deferred, ADR-0010) remain open, because they are internal to the
+  their existing `Value`/`Number` APIs: the Int/Float surface split is now decided
+  ([ADR-0024](0024-numeric-surface-split-int-float-and-division.md)) and NaN-boxing
+  (deferred, ADR-0010) remains open — both internal to the
   blessed `Number` primitive, not boundary moves.
 - It leaves `String` deliberately split: raw byte/codepoint access is a floor
   primitive; higher-order manipulation is `.ph`. The exact cut line for `String`

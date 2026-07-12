@@ -45,8 +45,13 @@ move(to:, duration:) { ... }       // selector: move(to,duration)
 move(x, y) { ... }                 // selector: move(_,_)
 ```
 
-A parameter declared `to:` is passed as `to: value` and bound in the body as `to`.
-(See [open question](open-questions.md) on separate external/internal names.)
+A labeled parameter may declare a **separate internal binding** — this is
+**decided** ([ADR-0025](../adr/0025-external-internal-parameter-names.md)).
+`move(to target:)` has external label `to` and internal binding `target`: callers
+pass `to: value`, and the body refers to it as `target`. The single-word form
+(`to:`) is sugar for the label==binding case. Selector identity is unchanged — the
+**label**, not the internal binding, is what is encoded into the selector symbol
+(`move(to,duration)`), so the internal name is a purely local concern.
 
 ## 4. Rest parameters
 

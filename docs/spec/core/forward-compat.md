@@ -94,10 +94,13 @@ alongside `Option`/`Some`/`None`.
 
 ## 3. Modules / imports (open-questions.md §8)
 
-**(a) Coming (undecided).** The `import` token exists; semantics are unspecified.
-`Module` is an ordinary heap class (`new()` floor primitive only). Today all
-kernel names are bound as **globals** in one core module (`install_core` +
-`core.ph`'s per-class `DefineGlobal`).
+**(a) Coming (decided by [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md)).**
+The `import` token's semantics are now fixed: **file-as-module**, **public by
+default**, with **qualified / selective / aliased** import forms. `Module` is an
+ordinary heap class (`new()` floor primitive only). Today all kernel names are
+bound as **globals** in one core module (`install_core` + `core.ph`'s per-class
+`DefineGlobal`); the constraints below still hold — the core library must not
+foreclose the ADR-0027 scoping model.
 
 **(b) Preclusion hazards.**
 - Hard-coding kernel names as **process-global** in a way a future module/namespace
@@ -116,11 +119,15 @@ kernel names are bound as **globals** in one core module (`install_core` +
 - Do not add a primitive that resolves globals by raw string without going through
   the module's binding table.
 
-## 4. Integer/Float split (open-questions.md §2, [ADR-0005](../../adr/0005-number-as-flat-f64.md))
+## 4. Integer/Float split ([ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md), [ADR-0005](../../adr/0005-number-as-flat-f64.md))
 
-**(a) Coming (undecided).** ADR-0005 fixed the substrate as a single flat `f64`.
-The **surface** split (abstract `Number` → immediate `Integer`/`Float`) remains
-open; object-model §4's tower rules "already accommodate it."
+**(a) Coming (decided by [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)).** ADR-0005
+fixed the *current* substrate as a single flat `f64`. The **surface** split is now
+**decided**: abstract `Number` → an exact **unbounded bignum `Int`** and a
+**`Float`**, with `/` as true division and `~/` as floor division. object-model
+§4's tower rules already accommodate it. The constraints below still bind — the
+core library must not foreclose this split, and (see the forward flag in (c)) the
+already-shipped `f64` `hash` must be revisited when the bignum `Int` lands.
 
 **(b) Preclusion hazards.**
 - Writing `Number` surface protocol (arithmetic, `toString`, comparison,
@@ -140,6 +147,13 @@ open; object-model §4's tower rules "already accommodate it."
   would diverge).
 - Keep `Number` positioned as it is in the tower (a row an abstract split can
   refine); do not add a subclass-hostile assumption.
+- **Forward flag (revisit when ADR-0024 is implemented):** U-CORE-1's shipped
+  `number_hash` masks the `f64` to **53 bits** of mantissa. This is a latent
+  `hash`/`==` **soundness gap** once ADR-0024's exact bignum `Int` lands — two
+  distinct large ints `> 2^53` can collide, and a bignum `Int` and a `Float` of
+  the same mathematical value must still agree on `hash`. `number_hash` must be
+  reworked to hash by exact mathematical value (not the 53-bit `f64` digest) when
+  the `Int`/`Float` split is implemented.
 
 ---
 
@@ -162,8 +176,8 @@ open; object-model §4's tower rules "already accommodate it."
 | Non-local return is frame-local ⇒ fiber-local | [`concurrency.md`](../concurrency.md) §3; [ADR-0013](../../adr/0013-closure-upvalues-and-frame-token-return.md) |
 | One unwind primitive; only `Error` throwable; `ensure` on any unwind | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md) |
 | `Result`/`Ok`/`Err` mirror `Option`/`Some`/`None` | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md); [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) |
-| `import` token exists, semantics open | [`open-questions.md`](../open-questions.md) §8 |
-| Single flat `f64`; surface Int/Float split open | [ADR-0005](../../adr/0005-number-as-flat-f64.md); [`open-questions.md`](../open-questions.md) §2 |
+| `import` semantics decided (file-as-module, public-by-default, qualified/selective/aliased) | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md); [`open-questions.md`](../open-questions.md) §8 |
+| Current substrate flat `f64`; surface Int/Float split **decided** (bignum `Int` + `Float`, `/` true, `~/` floor) | [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md); [ADR-0005](../../adr/0005-number-as-flat-f64.md); [`open-questions.md`](../open-questions.md) §2 |
 | `Value` is an extensible tagged enum | [ADR-0010](../../adr/0010-tagged-value-enum.md) |
 
 ---

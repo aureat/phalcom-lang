@@ -31,7 +31,7 @@ Source of truth: [`vm.rs::VM::new`](../../../phalcom-core/src/vm.rs) L116–168 
 | **C** | VM struct assembly | `VM { … }` literal | frames/stack/module maps, `universe` moved in |
 | **D** | Core module + globals | `install_core` | core module registered; class globals + `None`-value global bound |
 | **E** | Fixed-slot layouts | inline block, `VM::new` | `Some._value` at slot 0, plus the `Message` four-slot layout ([ADR-0011](../../adr/0011-static-instance-slot-layout.md)) |
-| **F** | Primitive floor install | `Universe::install_primitives` | all 73 native bindings ([`floor-census.md`](./floor-census.md)) |
+| **F** | Primitive floor install | `Universe::install_primitives` | all 80 native bindings ([`floor-census.md`](./floor-census.md)) |
 | **G** | Run `core.ph` | `run_core_module` | `.ph` reopens attached (List protocol, `Option` combinators (U-CORE-2, `0da64d6`), skeletons, `System.print`) |
 | **H** | Invariant verification | `verify_invariants().expect(…)` | asserts §5–6 apex table, or aborts |
 
@@ -147,7 +147,7 @@ L373–451) asserts, by handle identity on the live graph:
 
 | Gap | Why it matters |
 |---|---|
-| No assertion that the floor census (73 bindings) is intact | floor drift is silent (see `floor-census.md` §7) |
+| No assertion that the floor census (80 bindings) is intact | floor drift is silent (see `floor-census.md` §7) |
 | Parallel rule checked only for `Number` | other ordinary rows unverified in-VM (the `tests/invariants.rs` corpus covers more, but `verify_invariants` itself does not) |
 | No absence-invariant check in `verify_invariants` | `Value::Nil` non-surfacing is asserted only in `tests/invariants.rs`, not at boot |
 | `Some` field layout not asserted post-boot | an E/F reordering would fail silently until first `Some(_)` |

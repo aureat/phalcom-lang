@@ -3,6 +3,15 @@
 - Status: Proposed · resolves open-Q12 / selectors §7.3
 - Hazard: **identity-dispatch ⊗ optional arity** (canonical case)
 
+> **Partially superseded (2026-07-12).** open-Q12 is now **RULED** (see
+> [open-questions.md](../open-questions.md)): **no default arguments now.** If ever
+> added, the ratified mechanism is a **definition-time desugar to TRAILING-ONLY
+> arity-family overloads** — *linear* (n defaults → n+1 selectors), not the
+> combinatorial general-position expansion this doc rejects, so the two are
+> consistent. **Caller-side / static-callee resolution is permanently forbidden.**
+> Read this doc's "reserved mechanism" as superseded by that ruling where they differ.
+> Index: [deferred-work.md](../deferred-work.md).
+
 ## Problem
 
 Method identity is `name + labels + kind` (ADR-0012). A default that lets a call

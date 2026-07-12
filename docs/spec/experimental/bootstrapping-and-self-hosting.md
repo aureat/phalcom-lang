@@ -8,6 +8,14 @@
 - Related: ADR-0002/0003 (metaclass tower, allocate-then-wire), ADR-0006 (callable root), ADR-0007/0010 (absence, VM-blessed roots), ADR-0012 (`encode_selector` shared by compiler + runtime), ADR-0016 (hand-written lexer/parser), ADR-0017 (sacred-selector inliner + deopt guards)
 - Siblings: [iteration-protocol.md](iteration-protocol.md), [equality-and-hash.md](equality-and-hash.md), [numeric-and-string-indexing.md](numeric-and-string-indexing.md)
 
+> **Partially superseded (2026-07-12).** Two dependencies of this note are now **closed**:
+> open-Q8 (module/import semantics) by
+> [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md)
+> (file-as-module, public-by-default imports), and open-Q2 (numeric surface split) by
+> [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md). The Rung-C
+> "import of compiled units" precondition is therefore **partly satisfied** by ADR-0027.
+> No body rewrite needed. Index: [deferred-work.md](../deferred-work.md).
+
 ## Context
 
 Two requests routinely get bundled and must be kept apart — they sit on

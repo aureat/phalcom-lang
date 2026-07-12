@@ -82,7 +82,7 @@ try { … } catch (e: NetworkError) { … } // e : NetworkError; runtime class t
 | `(a, b)` | `Tuple<A, B>` — fixed-arity heterogeneous product |
 | `1..5` | `Range<Int>` |
 | `Set(a, b)` | `Set<LUB(a, b)>` |
-| `"{e}"` | `String`; constrains `e` to the root protocol's `toString` — so **any** value interpolates (interpolation is total) |
+| `"\(e)"` | `String`; constrains `e` to the root protocol's `toString` — so **any** value interpolates (interpolation is total) |
 
 Indexing types (`List<T>.at(_) -> Option<T>`, codepoint strings, integral indices)
 are **out of scope here** — they live in

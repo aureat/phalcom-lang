@@ -22,7 +22,7 @@ cannot distinguish label sets and forces malformed encodings. The forge audit
 pinned three defects in exactly this code:
 
 - **F1** — the `Invoke` handler discards `call_method`'s `Result`, so a primitive
-  error is silently swallowed (`Number.new("abc")` → no output, exit 0) with a
+  error is silently swallowed (`Point.new("abc")` → no output, exit 0) with a
   latent stack desync and no `?`.
 - **F7** — `object`'s static `new()` is registered as `Method(1)` for a 0-arg
   selector: arity metadata mismatch.
