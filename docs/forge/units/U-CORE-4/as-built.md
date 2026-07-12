@@ -6,10 +6,46 @@
 > `Bool`, `Option`/`Some`/`None`) and makes the separate native
 > `Value::to_string` print-path **agree** with them (catalog-delta §4.4,
 > decisions.md §4.4, R-INV-4.1–4.4). Resolves **DEFERRED F4** (the
-> `object_name` / instance-`toString` home, ADR-0015).
+> `object_name` / instance-`toString` home, ADR-0015) and **unblocks DEFERRED
+> #30** (the string-interpolation desugar's `String.new(_)` stand-in, ADR-0022):
+> once this unit lands a real content `toString`, `desugar_string_interp` in
+> `phalcom-ast/src/parser.rs` *can* switch its target to `expr.toString` — but
+> that switch is a separate follow-up in the `phalcom-ast` crate, outside this
+> unit's write-set (mirrors how this unit unblocks-but-does-not-perform the
+> `List#toString` move for DEFERRED #19 — see §0.2).
 >
-> **Baseline:** HEAD (U10 + U-CORE-2 landed). Last code-affecting commit at
-> census re-baseline `3c74a36`. Read against
+> **Baseline (re-grounded 2026-07-12):** HEAD `aa9cdca` (clean at the time of
+> this grounding pass). Recommended dispatch order is **U-CORE-3 → U-CORE-2 →
+> U-CORE-4**; this unit's own delta (§2, §6.1) is expressed as *current floor
+> + 1*, not a hardcoded absolute, so it stays correct regardless of exactly
+> when it lands relative to its neighbors:
+> - **Floor today (`aa9cdca`, before U-CORE-3 lands): 80** installed
+>   `(class, selector)` bindings (`floor-census.md` §1.1).
+> - **Floor after U-CORE-3 lands: 85** (U-CORE-3 adds exactly 5 new bindings —
+>   its own `as-built.md` header). Per the recommended order, U-CORE-4 is
+>   meant to dispatch on top of that 85, adding its own **+1**
+>   (`Number#toString`) → **86**.
+> - Since this unit's original baseline (`3c74a36`), **U-CORE-1** (kernel
+>   `hash`/`isA`/`Behavior` reflection), **U11** (Bool tower: abstract `Bool`
+>   with `True`/`False`), **U-LIST**, **U8** (dNU/`Message`), and **U-STD**
+>   (`Option`/`List` combinators) have all *also* landed. None of them touch
+>   this unit's *design* — the divergence this unit exists to fix
+>   (`Object#toString` still aliasing `object_name`, confirmed live at
+>   `aa9cdca`, §1.1) is unchanged — but they shifted nearly every `file:line`
+>   anchor below and grew `core.ph`'s `Option` reopen substantially.
+> - **Concurrency warning:** another session is concurrently implementing
+>   U-CORE-3 in-tree right now, touching `heap.rs`, `value.rs`, `vm.rs`,
+>   `primitive/{block,method,object,mod}.rs`, `universe.rs`, tests, and
+>   `floor-census.md`. Anchors in those specific files were re-confirmed
+>   against the working tree during this pass (two independent reads, several
+>   minutes apart, agreed) but are marked **"may shift post-U-CORE-3;
+>   re-confirm at dispatch"** below rather than trusted as final — this tree
+>   moved even *during* this grounding pass. Anchors in files U-CORE-3 does
+>   **not** touch (`primitive/{number,string,boolean,symbol,nil,list,system}.rs`,
+>   `interner.rs`, `core.ph`) were confirmed stable and are cited without that
+>   caveat.
+>
+> Read against
 > [`floor-census.md`](../../../spec/v0.2/core/floor-census.md), [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md),
 > [`decisions.md`](../../../spec/v0.2/core/decisions.md) §4.4, [`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md)
 > §4, [`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) §4,
@@ -23,31 +59,42 @@
 
 | Prereq | Why U-CORE-4 needs it | Where |
 |---|---|---|
-| `Option`/`Some`/`None` substrate + `match(some, none)` eliminator | `Option#toString` is derived over `match`; `None`/`Some` are the rendering targets | `primitive/nil.rs`; `universe.rs` L321–335 |
-| U-CORE-2 `Some`-lift + `Option` combinators (`0da64d6`) | `Option` reopen in `core.ph` already exists to hang `toString` on; `ifTrue { }` now yields `Some(None)` (a rendering case) | `core.ph` L42–60; `primitive/boolean.rs` |
-| Native `List` + `list_to_string` (U-LIST, ADR-0020) | List is in the R-INV-4.1 consistency set; its message `toString` already exists — U-CORE-4 only aligns the print path to it | `primitive/list.rs` L135 |
-| The separate native `Value::to_string(vm)` print-path | The invariant partner U-CORE-4 must keep in agreement (decisions.md §4.4) | `value.rs` L136 |
-| Sacred-selector inliner (ADR-0018), `ifTrue(_, ifFalse)` fallback | `Bool#toString` is written in `.ph` over `ifTrue(_, ifFalse)` | `primitive/boolean.rs` L152 |
+| `Option`/`Some`/`None` substrate + `match(some, none)` eliminator | `Option#toString` is derived over `match`; `None`/`Some` are the rendering targets | `primitive/nil.rs`; `universe.rs` L359–380 (Absence-substrate wiring; **may shift post-U-CORE-3**, re-confirm at dispatch) |
+| U-CORE-2 `Some`-lift + `Option` combinators (`0da64d6`) | `Option` reopen in `core.ph` already exists to hang `toString` on; `ifTrue { }` now yields `Some(None)` (a rendering case) | `core.ph` L70–124 (the `Option` reopen — now much larger than at this doc's original baseline: U-STD has since added `map`/`flatMap`/`filter`/`ifSome`/`unwrapOr` alongside the original `ifNone`/`orElse`/`isSome`/`isNone`); `primitive/boolean.rs` |
+| Native `List` + `list_to_string` (U-LIST, ADR-0020) | List is in the R-INV-4.1 consistency set; its message `toString` already exists — U-CORE-4 only aligns the print path to it | `primitive/list.rs` L135 (confirmed unchanged) |
+| The separate native `Value::to_string(vm)` print-path | The invariant partner U-CORE-4 must keep in agreement (decisions.md §4.4) | `value.rs` L149–160 (**may shift post-U-CORE-3**; re-confirm at dispatch) |
+| Sacred-selector inliner (ADR-0018), `ifTrue(_, ifFalse)` fallback | `Bool#toString` is written in `.ph` over `ifTrue(_, ifFalse)` | `primitive/boolean.rs` L164 (`bool_if_true_if_false`; confirmed unchanged — `boolean.rs` is not in U-CORE-3's write-set) |
 
 ### 0.2 Explicitly OUT of scope (do not build here)
 
 - **Richer value protocol** — `String` length/indexing/`toNumber`/comparison,
   `Number#toNumber`/richer math, `Symbol` interning-identity protocol. All
   **U-STD** (catalog-delta §2.2). U-CORE-4 is `toString`-only.
-- **`Object#hash` / `isA(_)`** — **U-CORE-1** (decisions.md Q1). `toString` and
-  `hash` share the "reads representation → native" reasoning but are separate
-  units; do not fold `hash` in here.
+- **`Object#hash` / `isA(_)`** — this was **U-CORE-1**, which has *since
+  landed* (`03764e3`, confirmed in `git log`). `toString` and `hash` shared the
+  "reads representation → native" reasoning but were kept as separate units;
+  U-CORE-4 does not revisit `hash`/`isA` (both already exist, both unaffected
+  by this unit's design).
 - **Moving `List#toString` to `.ph`** — DEFERRED #19: once value types have real
   `toString`, `list_to_string` can move to `.ph` over `each` + `String` concat.
   U-CORE-4 **unblocks** that but does **not** do the move (it stays native this
   unit); the move is **U-STD**.
+- **Switching the string-interpolation desugar target** — DEFERRED #30:
+  `phalcom-ast/src/parser.rs::desugar_string_interp` currently wraps each
+  interpolated expression as `String.new(expr)` rather than `expr.toString`,
+  precisely because no real content `toString` existed. U-CORE-4 **unblocks**
+  the switch (the root cause — no value-type `toString` — is fixed by this
+  unit) but the switch itself lives in `phalcom-ast`, a different crate outside
+  this unit's write-set; treat it exactly like the #19 `List` move above — a
+  follow-up, not part of this unit.
 - **`#…` selector-literal syntax and the human-`_`-form symbol decode** — **U-LEX**.
   U-CORE-4 only makes the two symbol-rendering paths *agree* (§2.4, BD-CORE4-2).
 - **`Some(_)` construction sugar** — **U-LEX**. U-CORE-4 tests `Some` via the
   already-supported `Some.new(_)` send (§4.1).
-- **`Behavior#name` / method-dictionary reflection** — **U-CORE-1**. U-CORE-4 fixes
-  the class-receiver case *inside `Object#toString` only* (ADR-0015); it does not
-  touch `Object#name` / `class_superclass` reflection.
+- **`Behavior#name` / method-dictionary reflection** — **U-CORE-1** (already
+  landed). U-CORE-4 fixes the class-receiver case *inside `Object#toString`
+  only* (ADR-0015); it does not touch `Object#name` / `class_superclass`
+  reflection.
 
 ---
 
@@ -55,11 +102,16 @@
 
 ### 1.1 The confirmed divergence (catalog-delta §4.4)
 
-`Object#toString` is bound to the native `object_name` (universe.rs **L230**),
-which returns the receiver's **class name** (`primitive/object.rs` **L23–27**):
+**Re-confirmed live at `aa9cdca`.** `Object#toString` is still bound to the
+native `object_name` (`universe.rs` **L250** as of this pass — was L230 at this
+doc's original baseline; drifted because U-CORE-1/U8/U-LIST additions earlier
+in `install_primitives` pushed everything down. **`universe.rs` is being
+concurrently edited by U-CORE-3 — re-confirm this line at dispatch.**), which
+returns the receiver's **class name** (`primitive/object.rs` **L23–27**,
+confirmed unchanged):
 
 ```rust
-// universe.rs L230
+// universe.rs L250 (current as of this pass; re-confirm before editing)
 primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
 ```
 
@@ -77,19 +129,21 @@ name, not a value:
 | `aFoo.toString` (user) | `"Foo"` (bare) | `"<Foo>"` (ADR-0015) |
 
 The **print path is separate**: `System.print(x)` → `system_class_print`
-(`primitive/system.rs` **L13–19**) → `arg.to_string(vm)` = the native
-`Value::to_string` (`value.rs` **L136**). That path renders `Number`/`String`/`Bool`
-correctly *already*, but renders **`None`/`Some` via `to_debug`** (`value.rs`
-L142–146 `_ => self.to_debug(vm)`) as `<None instance>` / `<Some instance>`, a
-**List** as `<list>`, and a **Symbol** as `Symbol("…")` (`interner.rs` **L20–23**).
+(`primitive/system.rs` **L13–19**, confirmed unchanged) → `arg.to_string(vm)` =
+the native `Value::to_string` (`value.rs` **L149–160**; **may shift
+post-U-CORE-3**). That path renders `Number`/`String`/`Bool` correctly
+*already*, but renders **`None`/`Some` via `to_debug`** (`value.rs` **L157**
+`_ => self.to_debug(vm)`, inside the `Value::Obj` arm at L155–158) as `<None
+instance>` / `<Some instance>`, a **List** as `<list>`, and a **Symbol** as
+`Symbol("…")` (`interner.rs` **L20–23**, confirmed unchanged).
 
 ### 1.2 The two paths, and where each disagrees today
 
 | Value type | message `x.toString` today | print `Value::to_string(x)` today | Agree? |
 |---|---|---|:--:|
-| `Number` | `"Number"` (Object default) | `"42"` (`value.rs` L140) | ✗ |
-| `String` | `"String"` | raw content (`value.rs` L143) | ✗ |
-| `Bool` | `"Bool"` | `"true"`/`"false"` (`value.rs` L139) | ✗ |
+| `Number` | `"Number"` (Object default) | `"42"` (`value.rs` L153) | ✗ |
+| `String` | `"String"` | raw content (`value.rs` L156) | ✗ |
+| `Bool` | `"Bool"` | `"true"`/`"false"` (`value.rs` L152) | ✗ |
 | `Symbol` | `"foo"` (`symbol_tostring`) | `Symbol("foo")` (`Symbol::to_string`) | ✗ |
 | `None` | `"None"` (Object default = class name) | `<None instance>` (`to_debug`) | ✗ |
 | `Some(v)` | `"Some"` (Object default) | `<Some instance>` (`to_debug`) | ✗ |
@@ -103,20 +157,25 @@ is **outside** the invariant's domain and may keep the message/print split
 
 ### 1.3 Existing anchors the implementer will touch
 
+> **Anchors marked "⚠ moving" sit in `value.rs`, `universe.rs`, or
+> `primitive/object.rs` — files a concurrent U-CORE-3 session is editing.
+> Re-grep the symbol name to confirm the exact line before editing; do not
+> trust the number alone.**
+
 | Symbol | File:line |
 |---|---|
-| `install_primitives` Object block (rebind `toString`) | `universe.rs` L226–243 |
-| `install_primitives` Number block (add `toString`) | `universe.rs` L263–277 |
-| `install_primitives` Symbol block | `universe.rs` L310–312 |
-| `object_name` (leave as `name`) | `primitive/object.rs` L23–27 |
-| `Value::to_string` (extend Obj arm) | `value.rs` L136–147 |
-| `Value::to_debug` (optional align) | `value.rs` L153–171 |
-| `Symbol::to_string` renderer | `interner.rs` L19–28 |
-| `symbol_tostring` message | `primitive/symbol.rs` L13–17 |
-| `core.ph` `Option` reopen (add `toString`) | `core.ph` L42–60 |
-| `core.ph` `String` / `Bool` reopens | `core.ph` L9, L11 |
-| `none_class` / `some_class` ids, `none_singleton` | `universe.rs` L149–157 |
-| `string_add` (both operands must be `String`) | `primitive/string.rs` L14–18 |
+| `install_primitives` Object block (rebind `toString`) | `universe.rs` L245–266 ⚠ moving |
+| `install_primitives` Number block (add `toString`) | `universe.rs` L293–310 ⚠ moving — Number now also carries a `hash` binding (L308, ADR-0023/U-CORE-1) not present at this doc's original baseline; insert `toString` after it, before the static `new`s at L309–310 |
+| `install_primitives` Symbol block | `universe.rs` L349–357 ⚠ moving |
+| `object_name` (leave as `name`) | `primitive/object.rs` L23–27 ⚠ moving (file touched by U-CORE-3, though these exact lines were unchanged across two independent reads this pass) |
+| `Value::to_string` (extend Obj arm) | `value.rs` L149–160 (Obj arm itself at L155–158) ⚠ moving |
+| `Value::to_debug` (optional align) | `value.rs` L166–184 ⚠ moving |
+| `Symbol::to_string` renderer | `interner.rs` L19–28 (confirmed stable — not touched by U-CORE-3) |
+| `symbol_tostring` message | `primitive/symbol.rs` L13–17 (confirmed stable) |
+| `core.ph` `Option` reopen (add `toString`) | `core.ph` L70–124 (stable; grew since baseline — see §0.1) |
+| `core.ph` `String` / `Bool` reopens | `core.ph` L25 (`class String {}`), L27 (`class Bool {}`) — both still bare one-line bodies, stable |
+| `none_class` / `some_class` ids, `none_singleton` | `universe.rs` L168–175 (creation), L211–213 (`CoreClasses` literal), L675–686 (struct fields) ⚠ moving |
+| `string_add` (both operands must be `String`) | `primitive/string.rs` L34–38 (confirmed stable — `string.rs` not touched by U-CORE-3) |
 
 ---
 
@@ -144,8 +203,9 @@ an existing native binding, or a native-renderer change (not a bound selector).
 ### 2.1 Native — `Object#toString` re-home (ADR-0015 / DEFERRED F4)
 
 Split `toString` off `object_name`. `object_name` stays as `Object#name` (bare
-class name — **unchanged**, that fix belongs to U-CORE-1). Add a new
-`object_to_string` and rebind `Object#toString` to it.
+class name — **unchanged**, that fix belongs to U-CORE-1, which has since
+landed without touching this). Add a new `object_to_string` and rebind
+`Object#toString` to it.
 
 `primitive/object.rs` — new fn:
 
@@ -173,15 +233,18 @@ pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 }
 ```
 
-`universe.rs` **L230** — rebind:
+`universe.rs` **L250** (current as of this pass; **`universe.rs` is being
+concurrently edited by U-CORE-3 — re-confirm the exact line before editing**)
+— rebind:
 
 ```rust
 primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_to_string);
 ```
 
-> `object_name` remains bound to `Object#name` (L227) — do **not** touch it. The
-> census note "`toString` **aliases** `name`" (floor-census §2.1) no longer holds
-> after this change; that census line must be updated (§6.1).
+> `object_name` remains bound to `Object#name` (L247) — do **not** touch it. The
+> census note "`toString` **aliases** `name`" (floor-census.md §2.1, confirmed
+> still present verbatim as of this pass) no longer holds after this change;
+> that census line must be updated (§6.1).
 
 ### 2.2 Native — `Number#toString` (the one new floor binding)
 
@@ -201,8 +264,16 @@ pub fn number_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 }
 ```
 
-`universe.rs` — insert in the Number block (after `negated`, **L275**, before the
-static `new`s):
+`universe.rs` — insert in the Number block, current shape as of this pass:
+
+```rust
+// L305: primitive!(vm, number_cls, "negated", ...);
+// L306-307: Value-digest doc comment (ADR-0023)
+// L308: primitive!(vm, number_cls, "hash", SignatureKind::Getter, number_hash);  <- added by U-CORE-1, not present at this doc's original baseline
+// L309-310: the two static `new`s
+```
+
+insert the new binding after `hash` (L308), before the static `new`s (L309–310):
 
 ```rust
 primitive!(vm, number_cls, "toString", SignatureKind::Getter, number_to_string);
@@ -213,18 +284,28 @@ primitive!(vm, number_cls, "toString", SignatureKind::Getter, number_to_string);
 > value, not hard-coded float syntax) keeps a future `Integer`/`Float` split
 > additive: each subclass inherits or overrides this binding without breaking
 > dispatch identity (forward-compat §4, §5).
+>
+> **`universe.rs` is a moving target this session** (concurrent U-CORE-3 work)
+> — re-grep for `number_cls` and `hash` before editing to confirm these exact
+> line numbers still hold.
 
 ### 2.3 `.ph` — `Option#toString` (covers `Some` **and** `None`)
 
 One method on the abstract `Option` class, derived over `match`. `Some` and
 `None` inherit it — **no `Some`/`None` primitive, and no `class None {}` reopen**
-(the `DefineGlobal`-clobber hazard, `core.ph` L32–40, stays intact).
+(the `DefineGlobal`-clobber hazard, `core.ph` L60–68, stays intact).
 
-`core.ph` — add inside the existing `Option { … }` reopen (L42–60):
+`core.ph` — add inside the existing `Option { … }` reopen, now **L70–124**
+(grew since baseline — U-STD's `map`/`flatMap`/`filter`/`ifSome`/`unwrapOr`
+were added after the original `ifNone`/`orElse`/`isSome`/`isNone` quartet;
+`core.ph` is **not** touched by the concurrent U-CORE-3 session, so this range
+is stable):
 
 ```phalcom
 class Option {
-  // ... existing ifNone / orElse / isSome / isNone ...
+  // ... existing ifNone / orElse / isSome / isNone / map / flatMap / filter /
+  // ifSome / unwrapOr (U-STD; all landed since this unit's original baseline,
+  // out of scope here) ...
 
   // Display (values-and-absence §3, R-INV-4.3). Derived over `match`, so a
   // user-overridden `match` is respected (R-INV-2.4) and the inner value is
@@ -241,10 +322,11 @@ Renderings this produces: `None` → `"None"`; `Some.new(42)` → `"Some(42)"`;
 `Some.new("hi")` → `"Some(hi)"`; `Some.new(None)` → `"Some(None)"`; nested
 `Some.new(Some.new(1))` → `"Some(Some(1))"`.
 
-> **`String#+` is strict** (`string_add`, `primitive/string.rs` L14–18: both
-> operands must be `String`). `v.toString` must therefore return a `String` — it
-> does for every value type. A pathological user `toString` returning a non-string
-> would raise from `+`; that is out of the value-type domain R-INV-4.4 covers (§5).
+> **`String#+` is strict** (`string_add`, `primitive/string.rs` L34–38,
+> confirmed stable: both operands must be `String`). `v.toString` must
+> therefore return a `String` — it does for every value type. A pathological
+> user `toString` returning a non-string would raise from `+`; that is out of
+> the value-type domain R-INV-4.4 covers (§5).
 
 ### 2.4 Native — reconcile the two `Symbol` rendering paths (BD-CORE4-2)
 
@@ -254,9 +336,10 @@ The message (`symbol_tostring` → bare `"foo"`) and print (`Value::to_string` �
 **form** is an open sub-decision (§6.2); the recommended form is the spec's `#`
 sigil (values-and-absence §1, the `messages_selector_symbol_literal` fixture):
 
-- `interner.rs` `Symbol::to_string` → return `format!("#{}", vm.resolve_symbol(*self))`.
-- `symbol_tostring` (`primitive/symbol.rs`) → call the same helper (so message ==
-  the Symbol arm of `Value::to_string`).
+- `interner.rs` `Symbol::to_string` (L20–23, confirmed stable) → return
+  `format!("#{}", vm.resolve_symbol(*self))`.
+- `symbol_tostring` (`primitive/symbol.rs` L13–17, confirmed stable) → call
+  the same helper (so message == the Symbol arm of `Value::to_string`).
 
 For a label-free symbol (`Symbol.new("foo")`), interned form == human form, so
 this is byte-stable **without** U-LEX (`#foo`). The human-`_`-form decode that
@@ -271,7 +354,9 @@ literal and the canonical print form; cross-ref `decode_selector`, `method.rs`).
 
 ### 2.5 Native — align `Value::to_string` (the print path) with the messages
 
-Extend the `Value::Obj` arm of `Value::to_string` (`value.rs` L142–146) so the
+Extend the `Value::Obj` arm of `Value::to_string` (`value.rs` **L155–158** as
+of this pass, formerly cited L142–146 — **`value.rs` is being concurrently
+edited by U-CORE-3; re-grep `fn to_string` to confirm before editing**) so the
 print path renders `None`/`Some`/`List` the same way the messages do. Use
 **guarded `if` checks with a `_ => to_debug` fallback**, not an exhaustive match —
 so a future `Fiber`/`Future` `Value` arm needs no edit here (forward-compat §1).
@@ -281,11 +366,11 @@ Value::Obj(id) => match vm.heap.get(*id) {
     Object::Str(string) => string.value(),
     Object::List(list) => {
         let parts: Vec<String> = list.elements().iter().map(|v| v.to_string(vm)).collect();
-        format!("[{}]", parts.join(", "))          // == list_to_string (list.rs L135)
+        format!("[{}]", parts.join(", "))          // == list_to_string (list.rs L135, confirmed stable)
     }
     Object::Instance(inst) if inst.class == vm.universe.classes.none_class => "None".to_string(),
     Object::Instance(inst) if inst.class == vm.universe.classes.some_class => {
-        format!("Some({})", inst.slots[0].to_string(vm))
+        format!("Some({})", inst.slots[0].to_string(vm))  // `slots` confirmed the InstanceObject field name (instance.rs L17)
     }
     _ => self.to_debug(vm),
 },
@@ -301,9 +386,10 @@ Value::Obj(id) => match vm.heap.get(*id) {
 - Leaves the generic-instance case (`_ => to_debug`) untouched: `System.print(aFoo)`
   keeps rendering `<Foo instance>` (no green print fixture regresses beyond §4.3).
 
-> **Optional:** mirror the same three cases in `Value::to_debug` (L153–171) so
-> diagnostics (`object_does_not_understand` builds `receiver.to_string`, object.rs
-> L145 — already `to_string`, so covered) stay consistent. Not required by any
+> **Optional:** mirror the same three cases in `Value::to_debug` (`value.rs`
+> L166–184 as of this pass, formerly L153–171; ⚠ moving) so diagnostics
+> (`object_does_not_understand` builds `receiver.to_string`, `object.rs` —
+> already `to_string`, so covered) stay consistent. Not required by any
 > invariant.
 
 ---
@@ -313,20 +399,20 @@ Value::Obj(id) => match vm.heap.get(*id) {
 | # | File | Change | Kind |
 |---|---|---|---|
 | 1 | `primitive/object.rs` | add `object_to_string` (§2.1) | native fn (new distinct fn) |
-| 2 | `universe.rs` L230 | rebind `Object#toString` → `object_to_string` | re-home (not a new binding) |
+| 2 | `universe.rs` (⚠ re-confirm line — L250 as of this pass) | rebind `Object#toString` → `object_to_string` | re-home (not a new binding) |
 | 3 | `primitive/number.rs` | add `number_to_string` (§2.2) | native fn |
-| 4 | `universe.rs` (Number block) | bind `Number#toString` → `number_to_string` | **+1 floor binding** (ADR-0019 amendment) |
-| 5 | `value.rs` L142–146 | extend `Value::to_string` Obj arm: `None`/`Some`/`List` (§2.5) | native renderer (no binding) |
-| 6 | `interner.rs` L20–23 + `primitive/symbol.rs` L13 | unify symbol rendering onto one helper, `#`-form (§2.4, BD-CORE4-2) | native renderer + existing binding semantics |
-| 7 | `core.ph` `Option` reopen (L42–60) | add `toString => self.match(...)` (§2.3) | `.ph` |
-| 8 | `core.ph` `String` reopen (L9) | add `toString => self` | `.ph` |
-| 9 | `core.ph` `Bool` reopen (L11) | add `toString { return self.ifTrue({ "true" }, ifFalse: { "false" }) }` | `.ph` |
+| 4 | `universe.rs` (Number block, ⚠ re-confirm — L293–310 as of this pass, insert after `hash` L308) | bind `Number#toString` → `number_to_string` | **+1 floor binding** (ADR-0019 amendment) |
+| 5 | `value.rs` (⚠ re-confirm — L155–158 as of this pass) | extend `Value::to_string` Obj arm: `None`/`Some`/`List` (§2.5) | native renderer (no binding) |
+| 6 | `interner.rs` L20–23 (stable) + `primitive/symbol.rs` L13 (stable) | unify symbol rendering onto one helper, `#`-form (§2.4, BD-CORE4-2) | native renderer + existing binding semantics |
+| 7 | `core.ph` `Option` reopen (L70–124, stable) | add `toString => self.match(...)` (§2.3) | `.ph` |
+| 8 | `core.ph` `String` reopen (L25, stable) | add `toString => self` | `.ph` |
+| 9 | `core.ph` `Bool` reopen (L27, stable) | add `toString { return self.ifTrue({ "true" }, ifFalse: { "false" }) }` | `.ph` |
 | 10 | 9 green `.expected` files (§4.3) | update `<None instance>`/`<Some instance>` → new render | golden re-pin |
 | 11 | `dispatch_message_shape.expected` | line 1 → `#move(to:duration:)` (BD-CORE4-2 A only) | golden re-pin |
-| 12 | 3 pending fixtures (§4.2) | `git mv` into active lane | retirement |
-| 13 | new unit-local fixtures (§4.1) | add | golden |
+| 12 | 3 pending fixtures (§4.2) | `git mv` into active lane (confirmed on disk at `tests/lang/{absence,bindings}/pending/*.ph`) | retirement |
+| 13 | new unit-local fixtures (§4.1) | add (new `tests/lang/values/` dir — confirmed does not yet exist) | golden |
 | 14 | `tests/invariants.rs` | add R-INV-4.1–4.4 (§4.4) | corpus |
-| 15 | `floor-census.md` | 73 → 74; §2.1/§2.4 edits (§6.1) — *census doc, done by implementer* | doc |
+| 15 | `floor-census.md` | current count (80, or 85 post-U-CORE-3) → +1; §2.1/§2.4 edits (§6.1) — *census doc, done by implementer, and itself in U-CORE-3's concurrent write-set — re-diff before editing* | doc |
 
 > **`.ph` `Bool#toString` syntax is proven.** The labeled call
 > `(3 > 2).ifTrue({ "yes" }, ifFalse: { "no" })` is a live green fixture
@@ -334,8 +420,13 @@ Value::Obj(id) => match vm.heap.get(*id) {
 > `self.ifTrue({ "true" }, ifFalse: { "false" })` parses and returns the raw
 > branch value (R-INV-2.3: the paired form is not `Some`-lifted). Adding a
 > **non-sacred** `toString` to `Bool` does **not** flip `bool_sacred_pristine`
-> (floor-census §5 — the pristine flag tracks only the six sacred selectors), so
-> there is **no inliner deopt**. Keep the six sacred selector shapes untouched.
+> (floor-census §5 — `bool_sacred_pristine` specifically tracks the **six**
+> `Bool` selectors `and`/`or`/`not`/`ifTrue`/`ifFalse`/`ifTrue(_,ifFalse)`; the
+> census's *total* sacred-selector count is now **7**, since it separately
+> counts `Block`'s `whileTrue(_)` under its own `block_sacred_pristine` flag —
+> the two flags are independent, so this parenthetical's "six" was and remains
+> correct for `Bool` specifically), so there is **no inliner deopt**. Keep the
+> six sacred selector shapes untouched.
 
 ---
 
@@ -344,7 +435,8 @@ Value::Obj(id) => match vm.heap.get(*id) {
 ### 4.1 Acceptance bar — new unit-local fixtures (already-supported syntax)
 
 These are the pass gate. All use syntax that works **today** (no U-LEX). Add
-under `tests/lang/values/` (new label) unless noted:
+under `tests/lang/values/` (new label, confirmed not yet present on disk)
+unless noted:
 
 | Fixture | Body | `.expected` | Asserts |
 |---|---|---|---|
@@ -361,23 +453,26 @@ under `tests/lang/values/` (new label) unless noted:
 
 ### 4.2 `_pending` tests this unit flips
 
-Quoting pending-retirement §4 (U-CORE-4 row). U-CORE-4 has the **most direct
-flips** of any U-CORE unit.
+Quoting pending-retirement §4 (U-CORE-4 row, re-confirmed unchanged this
+pass). U-CORE-4 has the **most direct flips** of any U-CORE unit.
 
-**Direct flips (go green on their own, plain syntax — `git mv` into the active lane):**
+**Direct flips (go green on their own, plain syntax — `git mv` into the active
+lane). Confirmed to exist on disk this pass at
+`tests/lang/<category>/pending/<name>.{ph,expected}` (note: the `pending`
+segment is a subdirectory of the category, not a sibling of it):**
 
-| Fixture (`…/pending/`) | Goes green because | Move to |
+| Fixture (`<category>/pending/<name>`) | Goes green because | Move to |
 |---|---|---|
-| `absence/absence_option_none` | `System.print(None)` → `None` (§2.5) | `absence/` |
-| `absence/absence_var_defaults_to_none` | `var x; print(x)` surfaces `None` → `None` | `absence/` |
-| `bindings/binding_var_uninitialized` | same (`None` print) | `bindings/` |
+| `absence/pending/absence_option_none` | `System.print(None)` → `None` (§2.5) | `absence/` |
+| `absence/pending/absence_var_defaults_to_none` | `var x; print(x)` surfaces `None` → `None` | `absence/` |
+| `bindings/pending/binding_var_uninitialized` | same (`None` print) | `bindings/` |
 
 **Unblocks but gated (capability lands here; fixture waits on U-LEX):**
 
 | Fixture | Waits on | Half that lands here |
 |---|---|---|
-| `absence/absence_option_some` | U-LEX `Some(_)` sugar | `Some#toString` → `Some(42)` (test it via `Some.new` in §4.1) |
-| `messages/messages_selector_symbol_literal` | U-LEX `#…` literal + human-form decode | Symbol rendering unification (§2.4) |
+| `absence/pending/absence_option_some` | U-LEX `Some(_)` sugar | `Some#toString` → `Some(42)` (test it via `Some.new` in §4.1) |
+| `messages/pending/messages_selector_symbol_literal` | U-LEX `#…` literal + human-form decode | Symbol rendering unification (§2.4) |
 
 > The three direct flips are near-duplicates of pre-existing green fixtures whose
 > expected output U-CORE-4 also updates (§4.3): `binding_var_uninitialized`
@@ -390,7 +485,8 @@ flips** of any U-CORE unit.
 Changing the render of `None`/`Some`/`Symbol` re-pins **currently-green** fixtures
 that deliberately captured the substrate output (their comments say so — e.g.
 `absence_none_prints`: *"a prettier `None` printString is U-STD's job, so this
-pins today's substrate output, not the final surface"*). **Update these `.expected`
+pins today's substrate output, not the final surface"*). All ten fixture files
+below confirmed present on disk at `aa9cdca`. **Update these `.expected`
 in the same change or the green run goes red:**
 
 | `.expected` file | old | new |
@@ -416,8 +512,12 @@ committing; `list_to_string_renders_brackets` (numbers only) and the two
 
 ### 4.4 Invariants this unit adds — all **corpus** (`tests/invariants.rs`, "C")
 
-Per invariant-requirements §4, U-CORE-4 rows are all corpus (behavioral) — none
-go in `verify_invariants` (boot):
+Per invariant-requirements §4 (re-confirmed unchanged this pass — R-INV-4.1–4.4
+still exact at `docs/spec/v0.2/core/invariant-requirements.md` §4, "U-CORE-4 —
+value classes"), U-CORE-4 rows are all corpus (behavioral) — none go in
+`verify_invariants` (boot). `tests/invariants.rs` currently defines R-INV-0.x
+(L532+) and R-INV-1.x (L749+, U-CORE-1); R-INV-4.x does not exist yet — this
+unit adds it fresh, it is not editing an existing block:
 
 | # | Assertion | Test shape |
 |---|---|---|
@@ -433,14 +533,17 @@ go in `verify_invariants` (boot):
 
 ## 5. Must-not-preclude check (forward-compat)
 
-U-CORE-4 clears sections **§4** (int/float) and **§3** (names → core module).
+U-CORE-4 clears sections **§4** (int/float) and **§3** (names → core module)
+of `forward-compat.md` (section numbers re-confirmed unchanged this pass).
 
 - **§4 Integer/Float split.** `Number#toString` is bound on `Number` (the row a
-  future abstract `Number → Integer/Float` split refines) and delegates to
-  `Value::to_string`, which renders from the numeric *value*, not hard-coded float
-  syntax. A split adds per-subclass rendering (`Integer` → `"2"`, `Float` → `"2.0"`)
-  by ordinary override/inheritance — no dispatch-identity break, no change to the
-  `Number` binding. **PASS.** (Do **not** add a concrete-f64-only `toString` that a
+  future abstract `Number → Integer/Float` split refines — note ADR-0024,
+  "Numeric surface split: Int/Float and division," has since been formalized,
+  confirming this axis is real and tracked) and delegates to `Value::to_string`,
+  which renders from the numeric *value*, not hard-coded float syntax. A split
+  adds per-subclass rendering (`Integer` → `"2"`, `Float` → `"2.0"`) by ordinary
+  override/inheritance — no dispatch-identity break, no change to the `Number`
+  binding. **PASS.** (Do **not** add a concrete-f64-only `toString` that a
   `Float` subclass could not override.)
 - **§3 Modules / imports.** Every new name is added through `install_primitives`
   and the `core.ph` core-module reopen — i.e. "the core module's exports,
@@ -448,7 +551,7 @@ U-CORE-4 clears sections **§4** (int/float) and **§3** (names → core module)
   A future `import` can re-scope `toString` like any core name. **PASS.**
 - **§1 Value openness (touched incidentally by §2.5).** The `Value::to_string`
   extension uses guarded `if class ==` checks plus a `_ => to_debug` fallback, so a
-  future `Value::Fiber`/`Future` arm compiles without editing this renderer.
+  future `Value::Fiber`/`Future` `Value` arm compiles without editing this renderer.
   **PASS.**
 - **User-typed `Some` payload divergence (documented, allowed).** `Some(aFoo)`
   renders `"Some(<Foo>)"` via the message (inner `aFoo.toString`) but
@@ -456,6 +559,13 @@ U-CORE-4 clears sections **§4** (int/float) and **§3** (names → core module)
   is the **value types**, which agree; richer user-type consistency in the print
   path is **U-STD** (and the ultimate fix is moving `List`/`Some` rendering fully
   to `.ph` once value `toString`s exist — DEFERRED #19). Not a preclusion.
+- **String-interpolation desugar (DEFERRED #30).** This unit's `Value::to_string`
+  content-render for `Number`/`String`/`Bool` was already correct before this
+  unit (only the *message* `toString` was wrong); what this unit adds is the
+  **message** parity. `desugar_string_interp` (`phalcom-ast/src/parser.rs`)
+  targeting `String.new(expr)` already renders correctly today via
+  `Value::to_string` — switching it to `expr.toString` post-U-CORE-4 is a
+  pure surface change (both now agree), not a behavior fix. Not a preclusion.
 
 ---
 
@@ -464,8 +574,16 @@ U-CORE-4 clears sections **§4** (int/float) and **§3** (names → core module)
 ### 6.1 ADR-0019 amendment (REQUIRED — one new floor binding)
 
 U-CORE-4 adds **one** native binding: `Number#toString`. Per ADR-0019 the floor
-is frozen; this is an amendment, not an ordinary commit. Draft to lift into a new
-superseding ADR when U-CORE-4 lands:
+is frozen; this is an amendment, not an ordinary commit. **Precedent since this
+doc's original draft:** ADR-0019 has already been amended twice —
+[ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
+(hash + kernel reflection, U-CORE-1, landed) and
+[ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) (Method
+reflection, U-CORE-3, in flight as of this pass). The established mechanism is
+therefore **a new, separately-numbered ADR**, not an edit to 0019 itself; this
+unit's amendment should claim the next free number at dispatch time (0029 is
+already taken, by list-literal syntax, as of this pass — check `docs/adr/` for
+the current max before numbering).
 
 > *Amends ADR-0019.* Add to the frozen floor: **`Number#toString`** (the numeric
 > value as a decimal string). Justification: rendering an `f64` as text reads the
@@ -478,10 +596,21 @@ superseding ADR when U-CORE-4 lands:
 > fix): the `(Object, toString)` binding already exists, so this changes the fn
 > behind an existing binding, not the binding set. Constraint (forward-compat §4):
 > `Number#toString` must render the mathematical value so a future `Integer`/`Float`
-> split renders each correctly. **Floor count 73 → 74**; update `floor-census.md`
-> §1.1 (count), §2.1 (drop "`toString` aliases `name`"), and §2.4 (Number gains
-> `toString`) in the same change. If the R-INV-0.1 floor-census audit test exists
-> (lands with U-CORE-1), bump its expected count 73 → 74.
+> split renders each correctly.
+>
+> **Floor count — do not hardcode.** At this unit's *original* baseline the
+> floor was 73; that number is stale. As of this grounding pass (`aa9cdca`,
+> before U-CORE-3) it is **80**; per the recommended dispatch order
+> (U-CORE-3 → U-CORE-2 → U-CORE-4) it will be **85** by the time this unit
+> lands, going to **86**. Whatever the count is *at actual dispatch time*,
+> this unit's contribution is **exactly +1** — confirm the live count in
+> `floor-census.md` §1.1 immediately before editing it, rather than trusting
+> any number in this document. Update `floor-census.md` §1.1 (count), §2.1
+> (drop "`toString` aliases `name`" — confirmed still present verbatim as of
+> this pass), and §2.4 (Number gains `toString`) in the same change. If the
+> R-INV-0.1 floor-census audit test (it exists now — landed with U-CORE-1,
+> `tests/invariants.rs` L540 area) hardcodes an expected count, bump it by
+> this unit's actual delta, not by a hardcoded "73 → 74".
 
 ### 6.2 BD-CORE4-2 — Symbol canonical rendering form (needs a ruling)
 
@@ -516,11 +645,13 @@ follow immediately after under whichever form is chosen.
 |---|---|
 | U-CORE-4 owns per-type `toString`; keep print-path separate but agreeing | [`decisions.md`](../../../spec/v0.2/core/decisions.md) §4.4; [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md) §4.4 |
 | Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../phase-next/DEFERRED.md) #4; [ADR-0015](../../../adr/0015-object-default-tostring.md) |
+| Unblocks DEFERRED #30 (interpolation desugar's `String.new(_)` stand-in) — desugar-target switch is a `phalcom-ast` follow-up, out of this unit's write-set | [`DEFERRED.md`](../../phase-next/DEFERRED.md) #30; ADR-0022 |
 | `"<ClassName>"` instance default; class `toString` = own name | [ADR-0015](../../../adr/0015-object-default-tostring.md) |
-| `Object#toString` aliases `object_name` today (the divergence) | `universe.rs` L230; `primitive/object.rs` L23 |
-| Print path = native `Value::to_string`; renders `None`/`Some`/`List` via `to_debug` | `primitive/system.rs` L15; `value.rs` L136–147 |
+| `Object#toString` aliases `object_name` today (the divergence) | `universe.rs` L250 (⚠ moving); `primitive/object.rs` L23 |
+| Print path = native `Value::to_string`; renders `None`/`Some`/`List` via `to_debug` | `primitive/system.rs` L15; `value.rs` L149–160 (⚠ moving) |
 | Symbol paths disagree (`Symbol("…")` vs bare) | `interner.rs` L20–23; `primitive/symbol.rs` L13 |
 | `Number#toString` must be native; not `.ph`-derivable | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1; DEFERRED #19; decisions.md Q1 |
+| ADR-0019 amendment precedent (already amended twice since this unit's draft) | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md); [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) |
 | `Some`/`None` `toString` derivable over `match` | [`values-and-absence.md`](../../../spec/v0.2/values-and-absence.md) §3.2; `primitive/nil.rs` `option_match` |
 | `Bool#toString` `.ph` syntax proven; non-sacred (no deopt) | `control-flow/control_flow_send_equivalence.ph` L9; floor-census §5 |
 | Direct flips + gated flips | [`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) §4 |
