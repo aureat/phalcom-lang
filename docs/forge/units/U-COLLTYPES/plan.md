@@ -253,7 +253,7 @@ cursor value yielded by `iteratorValue` is a design point: **DEC-CT-E** (recomme
 | `phalcom-core/tests/collections_contract.rs` | `build_map`/`build_set`/`build_tuple`/`build_range` + one `#[test]` each (extend U-CORE-5 harness) | 1,2,3 |
 | `phalcom-core/tests/lang/collections/` + `tests/lang.rs` | `.ph` golden corpus + per-class extras | 1,2,3 |
 | `phalcom-core/tests/invariants.rs` | R-INV-0.1 census bump (+21) + arm-registration invariant | 1,2,3 |
-| `docs/adr/00NN-amend-floor-collection-containers.md` (**new, Phase 0**) | the §0 ADR-0019 amendment (drafted by `documentation-and-adrs`) | 0 |
+| [`0039-amend-floor-admit-collection-container-primitives.md`](../../../adr/0039-amend-floor-admit-collection-container-primitives.md) (**Proposed, Phase 0**) | the §0 ADR-0019 amendment | 0 |
 
 **Deliberately NOT in scope:** any **literal** parser/lexer/compiler surface (`{k:v}`/`(a,b)`/`#{…}`/`..` —
 that is **U-COLL** / U-LEX, ADR-0032 §3); the `for`/`break`/`continue` lowering (**U-ITER**); `Fiber`
@@ -276,7 +276,7 @@ are the existing `.ph` U-STD defaults — they inherit onto each new class via t
 
 ## 5. Build order (small, independently-green diffs)
 
-0. **Phase 0 gate** — land the ADR-0019 amendment (DEC-CT-A). No code until this is ratified.
+0. **Phase 0 gate** — ratify [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md) (drafted, Proposed; DEC-CT-A). No code until it is Accepted.
 1. **Phase 1a — `Map`/`Set` arms + raw primitives (no `.ph`).** `MapObject`/`SetObject`, `Object::Map/Set`,
    `alloc_*`/accessors, `expect_*`, the raw primitives, class registration + census bump. Rust-level unit
    tests on the raw primitives (put/get/has/remove/keyAt) directly. Green (existing suite untouched — pure
@@ -337,7 +337,7 @@ Each phase is a self-verifiable commit; commit per green checkpoint (never a non
 
 | ID | Decision | Options | Architect recommendation |
 |---|---|---|---|
-| **DEC-CT-A** ⚠️ **BLOCKED-ON-DECISION (the §0 gate — needs the user before Phase 1)** | The **ADR-0019 floor amendment** admitting the ~21 native container primitives. ADR-0032 authorizes the *pattern* but does not itself amend the floor. | **(A)** a new standalone ADR "amend floor — collection containers"; **(B)** an omnibus note appended to the ADR-0023 amendment register; **(C)** four per-class amendment ADRs (mirroring how each of List/hash/Method got theirs). | **(A)** — one new ADR enumerating all four classes' raw primitives, ratified once (ADR-0023's own precedent: one omnibus over four units). Cheaper to review than (C), more discoverable than (B). Draft via `documentation-and-adrs`. **Cannot proceed without this.** |
+| **DEC-CT-A** ⚠️ **ADR DRAFTED (Proposed) — the §0 gate** | The **ADR-0019 floor amendment** admitting the ~21 native container primitives. ADR-0032 authorizes the *pattern* but does not itself amend the floor. | Recommendation was (A) one standalone ADR over all four classes. | **Drafted as [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md) (Proposed, +21, census 80→101 per-phase)**, enumerating all four classes' raw primitives. **Awaiting user ratification** — no Phase-1 code until Accepted. |
 | **DEC-CT-B** | `Map`/`Set` **shared backing** vs separate structs. | **(A)** `Set` reuses the `Map` ordered-hash helper (keys-only); **(B)** independent `SetObject`. | **(A)** — a set *is* a keys-only ordered hash map; sharing the helper halves the re-entrant-hash surface (one place for the borrow-model review). Distinct `Object` variants + distinct bindings, shared Rust helper. |
 | **DEC-CT-C** | **Enforce** mutable-key rejection now (needs U-CORE-6), or specify-only (U-CORE-5's deferral)? | **(A)** enforce: `rawPut`/`rawAdd` raise on a mutable-collection key; **(B)** leave identity-keyed (silently wrong per Q5). | **(A)** if U-CORE-6 is confirmed landed on HEAD — this unit is the *consumer* U-CORE-5 §2.4 deferred enforcement to. Ship the rejection + negative test. If U-CORE-6 is somehow not landed, degrade to (B) with a `DEFERRED.md` pointer and a `pending/` negative. |
 | **DEC-CT-D** | `Tuple`/`Range` value **hash**: `.ph` fold vs native primitive. | **(A)** `.ph` fold over element/field `.hash`; **(B)** native `tuple_hash`/`range_hash`. | **(A)** — zero extra floor, and it inherits element hashes so it survives the Int/Float split automatically (forward-compat §4). Fall back to **(B)** (a scoped +1/+1 on the §0 amendment) *only* if `.ph` `Number` arithmetic can't express a serviceable combine — verify on HEAD what bitwise/wrapping ops `Number` exposes before choosing. |
