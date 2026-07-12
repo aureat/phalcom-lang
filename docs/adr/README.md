@@ -27,7 +27,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0002](0002-metaclass-tower-parallel-rule.md) | Metaclass tower follows the parallel rule | Accepted |
 | [0003](0003-introduce-behavior-kernel-class.md) | Introduce `Behavior` as a shared kernel class | Accepted |
 | [0004](0004-boolean-as-abstract-bool-with-true-false.md) | Represent booleans as abstract `Bool` + `True`/`False` | Accepted |
-| [0005](0005-number-as-flat-f64.md) | Keep a single flat `Number` type backed by `f64` | Accepted |
+| [0005](0005-number-as-flat-f64.md) | Keep a single flat `Number` type backed by `f64` | Superseded in part by [0024](0024-numeric-surface-split-int-float-and-division.md) |
 | [0006](0006-function-as-abstract-callable-root.md) | `Function` as the abstract root of the callable tower | Accepted |
 | [0007](0007-option-as-abstract-with-some-none.md) | Represent absence as abstract `Option` + `Some`/`None` | Accepted |
 | [0008](0008-layered-exceptions-and-result.md) | Layered exceptions + `Result`, with terminating semantics | Accepted |
@@ -44,6 +44,16 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0019](0019-freeze-vm-blessed-primitive-floor.md) | Freeze the VM-blessed primitive floor | Accepted |
 | [0020](0020-kernel-list-native-array-protocol.md) | Kernel `List` is a native-array-backed protocol on the critical path | Accepted |
 | [0021](0021-no-truthiness-enforcement.md) | No-truthiness enforcement: typed branch floor + literal-only compile check | Accepted |
+| [0022](0022-string-interpolation-backslash-paren-sigil.md) | String interpolation uses the `\(expr)` sigil | Accepted |
+| [0023](0023-amend-floor-admit-hash-and-kernel-reflection.md) | Amend the frozen floor to admit `hash` + kernel reflection | Accepted |
+| [0024](0024-numeric-surface-split-int-float-and-division.md) | Split `Number` into exact `Int` (bignum) + `Float`; `/` true division, `~/` integer division | Accepted |
+| [0025](0025-external-internal-parameter-names.md) | Separate external labels from internal parameter names | Accepted |
+| [0026](0026-class-hierarchy-mutability.md) | Methods are open; superclass reparenting is sealed | Accepted |
+| [0027](0027-modules-as-files-with-public-by-default-imports.md) | A module is a file; public-by-default exports; qualified/selective/aliased imports | Accepted |
+
+> ADRs 0024–0027 were ratified by the user on 2026-07-12, resolving open-questions
+> Q2 (numeric split + division), Q3 (parameter names), Q4 (hierarchy mutability), and
+> Q8 (modules). See [`docs/spec/open-questions.md`](../spec/open-questions.md).
 
 > ADRs 0019–0020 were ratified by the user on 2026-07-11, clearing the U-LIST-plan
 > §0 gate: they derive from the experimental draft
