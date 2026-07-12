@@ -6,8 +6,9 @@ Grounded in **lexical-structure.md §4 (literals), §6 (brace disambiguation), �
 §8 (`*` grammar)**, resolving the Tier-B gap [`implementation-status.md` line 59]
 ("Tuple/list/map/set literals + brace disambiguation: no AST nodes"). Depends on **U-LIST** (the
 landed kernel `List` is the lowering target) and **U4** (block literals own `{…}`, which the map
-literal must disambiguate against). New governing ADR: **ADR-0024** (stub — see §0.2; 0023 is reserved
-for the U-CORE omnibus ADR-0019 amendment)._
+literal must disambiguate against). Governing ADRs: **[ADR-0029](../../../adr/0029-list-literal-syntax.md)**
+(list literals, Accepted) + **[ADR-0032](../../../adr/0032-collections-representation-and-literals.md)**
+(collections umbrella — map/tuple literals ratified, set/range sigils reserved, Accepted)._
 
 > **Unit-name note.** This is a Tier-B **surface-syntax** unit, so it follows the named-unit
 > convention (U-LEX / U-LIST / U-STD) rather than a number. The numeric slots U13–U17 were being
@@ -17,18 +18,19 @@ for the U-CORE omnibus ADR-0019 amendment)._
 
 ---
 
-## 0. Claim, gates, and the one blocked decision
+## 0. Claim, gates, and decisions (all resolved)
 
 ### 0.1 Unit claim
 - **Unit ID `U-COLL`** — verified free at plan time (numeric U13–U17 taken by the concurrent cluster).
 - This plan does **not** touch `docs/forge/PHASE2-INDEX.md` (shared file, concurrent editors).
 
-### 0.2 New-ADR gate (stub reference — draft before implementation lands)
-There is **no ADR** for collection-literal lowering yet (PHASE2-INDEX §5 backlog row:
-"Collection-literal lowering `(a,b)`/`[…]`/`{a:1}` — new ADR — with collections unit").
-Draft **ADR-0024 — "Collection literals lower to kernel sends (parser desugaring, zero new
-primitives)"** via the `documentation-and-adrs` skill. Its decision, in one paragraph so the
-implementer isn't blocked waiting for the file:
+### 0.2 Governing ADRs (ratified — no draft needed)
+Collection-literal lowering is now ratified — no stub required:
+**[ADR-0029](../../../adr/0029-list-literal-syntax.md)** (list literals, Accepted) and the collections
+umbrella **[ADR-0032](../../../adr/0032-collections-representation-and-literals.md)** (Accepted), which
+ratifies the **map `{k:v}`** and **tuple `(a,b)`** literals (§3.1/§3.2: bare-ident keys are symbols,
+`{}` stays a block, `(a)` stays grouping, one-element `(a,)`) and reserves the **set `#{…}`** and
+**range `..`/`...`** sigils (inactive, committed meaning). Its decision, in one paragraph:
 
 > Surface collection literals are **desugared in the parser to ordinary message sends on existing
 > kernel classes** — the same layer as `if`→`ifTrue`, `while`→`whileTrue`, `\(e)`→`toString`,
@@ -38,8 +40,10 @@ implementer isn't blocked waiting for the file:
 > This keeps the write-set inside `phalcom-ast` (+ optionally `core.ph`) and honours the frozen
 > primitive floor (ADR-0019): **not one of the 73 floor bindings is added.**
 
-### 0.3 The one BLOCKED-ON-DECISION item (needs the user before the map slice can start)
-See §8, DEC-COLL-B. Everything else is dispatch-ready under the architect recommendation.
+### 0.3 Decisions resolved (no blocker remains)
+DEC-COLL-A and DEC-COLL-B (§8) are both **resolved** by ADR-0032: `Tuple`/`Map` are native arms built
+by the collection-runtime unit (U-COLLTYPES); U-COLL ships the literals + `{k:v}` disambiguation against
+a construction/pending target. The whole unit is now dispatch-ready.
 
 ---
 
@@ -130,16 +134,18 @@ The map branch peeks `IDENT` then `Colon` (the *only* new discriminator — ever
 already handles), then parses comma-separated `IDENT : expr` pairs to `}`. Keys are **symbols**
 (`{a: 1}` ≡ key `#a`), matching the spec's `Map<Symbol, ?>` default and mirroring labeled-argument
 parsing (parser.rs:1511). Empty map is **`Map()`**, *not* `{}` (spec §6: `{}` is the empty block) —
-there is no empty-map literal, by design.
+there is no empty-map literal, by design. Per
+[ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §3.1 a **string/number literal
+or parenthesized key** is taken as an *expression* (`{"a": v}` → string key, `{(k): v}` → computed);
+the implementer handles those or explicitly defers them to a follow-on.
 
-**Runtime target — DEC-COLL-B (BLOCKED-ON-DECISION, §8).** A *correct* `Map` is gated on the
-`Object#hash`-as-floor-primitive decision (core/HANDOFF Q1 → ADR-0023 omnibus, unratified) and its
-equality/mutability model (core/HANDOFF Q5), **and** the U-CORE track is concurrently authoring
-`Map`/`Set` in `core.ph`. U-COLL therefore **must not author a competing `Map`.** Two viable
-resolutions (architect recommends B): (A) throwaway minimal `==`-keyed insertion-ordered pure-`.ph`
-`Map` now; (B) ship §6 disambiguation + a precise diagnostic, and carve the one-line `{k:v}` →
-`Map(...)` wiring into a dependent follow-on (a named `U-MAP` unit, or fold into the U-CORE `Map`
-unit). The genuinely hard work (the LR(1) disambiguation) ships in U-COLL either way.
+**Runtime target — DEC-COLL-B (resolved, §8).** `Object#hash`-as-floor is **ratified**
+([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md), landed U-CORE-1), the
+equality/mutability model is ruled ([decisions.md](../../../spec/v0.2/core/decisions.md) Q5), and
+native-arm `Map` is ratified ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md)
+§1). U-COLL **must not author a competing `Map`**: it ships §6 disambiguation + a precise diagnostic,
+and the one-line `{k:v}` → real-native-`Map` wiring lands in the **collection-runtime unit
+(U-COLLTYPES)** after it. The genuinely hard work (the LR(1) disambiguation) ships in U-COLL either way.
 
 ### 3.4 Shared element-scanner (reused by list, tuple, and — LIVE — the concurrent U14 destructuring)
 Factor the "comma-separated expression list with a terminator" loop into one private parser helper
@@ -232,7 +238,7 @@ Each step is a self-verifiable commit; if any can't go green alone, it is alread
 
 ## 6. Mandatory rules
 - **Docs:** `///` on every new parser fn (`parse_comma_exprs`, doc additions to the extended arms)
-  citing lexical-structure §4/§6/§7 and ADR-0024. `cargo doc --workspace --no-deps` adds no new warnings.
+  citing lexical-structure §4/§6/§7 and ADR-0029/0032. `cargo doc --workspace --no-deps` adds no new warnings.
 - **Green gate:** `./scripts/verify.sh` exits 0. No new clippy warnings. No `unsafe`.
 - Follow `rust-best-practices`.
 
@@ -258,8 +264,8 @@ Each step is a self-verifiable commit; if any can't go green alone, it is alread
 ## 8. Decisions flagged (the "flag, don't pick" register)
 | ID | Decision | Options | Architect recommendation |
 |---|---|---|---|
-| **DEC-COLL-A** | **Tuple lowering target.** | **(A)** distinct pure-`.ph` `Tuple` class (backed by a `List`, `fromList` factory); **(B)** lower `(a,b)` → `List` (zero `core.ph`, max parallelism, but collapses tuple≡list). | **(A)** — the typing surface specifies `Tuple<A,B>` as a distinct fixed-arity product; introducing a real `Tuple` *after* shipping tuple≡List would be a breaking `.class` change. (A) accepts serializing the tuple slice against U-CORE's `core.ph`. Choose (B) only if a zero-`core.ph`, maximally-parallel unit is worth collapsing the distinction. |
-| **DEC-COLL-B** ⛔ **BLOCKED-ON-DECISION** | **Map runtime target.** A correct hashed `Map` is gated on `Object#hash`-as-floor (core/HANDOFF Q1 → ADR-0023 omnibus, unratified) + the equality/mutability model (core/HANDOFF Q5), **and** U-CORE is concurrently authoring `Map`/`Set` in `core.ph`. | **(A)** author a throwaway `==`-keyed insertion-ordered pure-`.ph` `Map` in U-COLL now (works via `object_eq` value-equality, no hash — but U-CORE replaces it → churn + `core.ph` collision); **(B)** U-COLL ships §6 disambiguation + a precise "pending" diagnostic; a dependent follow-on (`U-MAP`, or the U-CORE `Map` unit) wires `{k:v}` → the real `Map` in one line after it lands. | **(B)** — do not build-then-throw-away a `Map`, and do not open a competing `Map` in the file U-CORE owns. **This needs the user** because it decides whether `{a:1}` yields a value or a diagnostic in U-COLL. Independent of the pick, the §6 disambiguation ships in U-COLL. |
+| **DEC-COLL-A** ✅ **RESOLVED** | **Tuple lowering target.** | Superseded by **[ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1**: `Tuple` is a **native heap arm** (`Object::Tuple`, immutable, value-hashable), **not** `.ph`-over-`List`. | `(a,b)` desugars to a **`Tuple` construction send**; the native `Tuple` class is built by the **collection-runtime unit (U-COLLTYPES)**, not here — same defer-the-runtime pattern as the map (DEC-COLL-B). U-COLL ships the literal + disambiguation against a pending/construction target. |
+| **DEC-COLL-B** ✅ **RESOLVED (B)** | **Map runtime target.** | Blocker cleared: `Object#hash`-as-floor is **ratified** ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md), landed U-CORE-1), the equality/mutability model is ruled ([decisions.md](../../../spec/v0.2/core/decisions.md) Q5), and native-arm `Map` is ratified ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1). | **(B)** — U-COLL ships §6 disambiguation + a precise "pending" diagnostic; the **collection-runtime unit (U-COLLTYPES)** wires `{k:v}` → the real native `Map` in one line after it lands. Do **not** build a throwaway `.ph` `Map` or open a competing `Map` in `core.ph`. |
 
 ## 9. Must-not-preclude check (task step 6)
 - **Q7 destructuring — now the LIVE concurrent U14** (`let (a, b) = point`, `let [first, *rest] = list`):
@@ -277,8 +283,9 @@ Each step is a self-verifiable commit; if any can't go green alone, it is alread
   `parse_comma_exprs` reserves a `*`-prefix slot per element; wiring it to a spread-send is additive
   when spread-at-call-site (`f(*args)`) is finalized. U-COLL ships no spread but leaves the §8 grammar
   hole open.
-- **Range literal `1..5`** (typing surface, no committed spec §): **not precluded.** Needs a `..` token
-  that does not exist; unrelated to `[`/`(`/`{`.
+- **Range literal `1..5` / `1...5`**: **reserved-inactive with committed meaning**
+  ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §3.3: `..` inclusive,
+  `...` exclusive). U-COLL adds no `..` token; unrelated to `[`/`(`/`{`. Activation is a later slice.
 
 ## 10. Return contract (self-report; no reviewer)
 Report: the parser arms added/extended + confirmation grouping (`(x)`) and all five §6 brace rows are
