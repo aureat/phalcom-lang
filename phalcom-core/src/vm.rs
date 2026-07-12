@@ -156,6 +156,28 @@ impl VM {
             let message_class = vm.universe.classes.message_class;
             vm.heap.class_mut(message_class).field_count = 4;
         }
+
+        // Stamp the `Error` root's and `MessageNotUnderstood`'s fixed-slot
+        // layout (U-CORE-6, ADR-0008/ADR-0011). Like `Some`/`Message`, both
+        // are built directly in Rust — `Error` has one field (`_message`,
+        // slot 0); `MessageNotUnderstood < Error` inherits that slot and adds
+        // one more (`_reifiedMessage`, slot 1), appended after the
+        // superclass's fields per the compiler's field-offset rule
+        // (`compiler/lib.rs`), keeping the two rows' slot 0 consistent.
+        {
+            let error_class = vm.universe.classes.error_class;
+            let msg_sym = vm.interner.intern("_message");
+            vm.heap.class_mut(error_class).field_slots.insert(msg_sym, 0);
+            vm.heap.class_mut(error_class).field_count = 1;
+        }
+        {
+            let mnu = vm.universe.classes.message_not_understood_class;
+            let msg_sym = vm.interner.intern("_message");
+            let reified_sym = vm.interner.intern("_reifiedMessage");
+            vm.heap.class_mut(mnu).field_slots.insert(msg_sym, 0);
+            vm.heap.class_mut(mnu).field_slots.insert(reified_sym, 1);
+            vm.heap.class_mut(mnu).field_count = 2;
+        }
         Universe::install_primitives(&mut vm);
 
         // Compile and run the registered core module now that every native
@@ -370,6 +392,12 @@ impl VM {
         add_class!(some_class);
         add_class!(list_class);
         add_class!(message_class);
+        // `Error` root + `MessageNotUnderstood < Error` (U-CORE-6, ADR-0008):
+        // globals only, no `.ph` reopen — an empty reopen would be harmless
+        // (like `Message`'s) but is skipped as unnecessary; a reopen with a
+        // body that *reads* `_message` would trip the read-before-write check.
+        add_class!(error_class);
+        add_class!(message_not_understood_class);
 
         // The `None` class row is *not* exposed under a class global (that name
         // is the singleton), but it must live in `self.classes` so a
@@ -747,7 +775,7 @@ impl VM {
     /// is replaced by `None` and never reaches user code (Invariant 4,
     /// [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
     #[inline]
-    fn surface_absence(&self, value: Value) -> Value {
+    pub(crate) fn surface_absence(&self, value: Value) -> Value {
         crate::value::sentinel_to_option(value, self.universe.classes.none_singleton)
     }
 

@@ -23,6 +23,7 @@ use crate::method::SignatureKind;
 use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_name, block_while_true};
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
+use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
 use crate::primitive::module::module_class_new;
@@ -191,6 +192,17 @@ impl Universe {
         // are native primitives (`primitive/object.rs`).
         let message_class = make_core_class(heap, "Message", object_class, metaclass_class);
 
+        // `Error` root + `MessageNotUnderstood < Error` (U-CORE-6, ADR-0008):
+        // the minimal reification slice of the surface error hierarchy. Like
+        // `Message`, both are ordinary fixed-slot `InstanceObject`s stamped in
+        // `VM::new`'s Phase E rather than given a `.ph` field layout (avoids
+        // the compiler's read-before-write check on a getter that only reads
+        // `_message`, never assigns it). `error_class` must be created before
+        // `message_not_understood_class` since the latter's superclass is the
+        // former (mirrors the `Option → Some/None` ordering above).
+        let error_class = make_core_class(heap, "Error", object_class, metaclass_class);
+        let message_not_understood_class = make_core_class(heap, "MessageNotUnderstood", error_class, metaclass_class);
+
         CoreClasses {
             object_class,
             behavior_class,
@@ -214,6 +226,8 @@ impl Universe {
             none_singleton,
             list_class,
             message_class,
+            error_class,
+            message_not_understood_class,
         }
     }
 
@@ -443,6 +457,16 @@ impl Universe {
         primitive!(vm, list_cls, "rawSet", SignatureKind::Method(2), list_raw_set);
         primitive!(vm, list_cls, "rawPush", SignatureKind::Method(1), list_raw_push);
         primitive!(vm, list_cls, "toString", SignatureKind::Getter, list_to_string);
+
+        // `Error` root (U-CORE-6, ADR-0008): `message` is a native slot-0
+        // accessor (mirrors `Message`'s accessors — a `.ph` getter over this
+        // field would trip the read-before-write check); `raise` initiates
+        // the unified unwind's `Raise` payload (`throw expr === expr.raise()`,
+        // ADR-0031 §1). Installed only on `Error`, so a non-`Error` receiver
+        // has no `raise` (R-INV-6.3). +2 floor bindings, ADR-0023-cleared.
+        let error_cls = vm.universe.classes.error_class;
+        primitive!(vm, error_cls, "message", SignatureKind::Getter, error_message);
+        primitive!(vm, error_cls, "raise", SignatureKind::Method(0), error_raise);
     }
 
     /// Asserts the kernel tower's shape (`object-model.md` §5–6 step 7).
@@ -519,7 +543,7 @@ impl Universe {
         // `False` rows (both resolve to `Bool class`) and the absence /
         // collection / message rows. Any newly-added row that breaks the rule
         // fails boot rather than silently mis-dispatching statics.
-        let ordinary_rows: [(&str, ClassId); 17] = [
+        let ordinary_rows: [(&str, ClassId); 19] = [
             ("Number", c.number_class),
             ("String", c.string_class),
             ("Nil", c.nil_class),
@@ -537,6 +561,8 @@ impl Universe {
             ("None", c.none_class),
             ("List", c.list_class),
             ("Message", c.message_class),
+            ("Error", c.error_class),
+            ("MessageNotUnderstood", c.message_not_understood_class),
         ];
         for (name, class_id) in ordinary_rows {
             let meta = heap.class(class_id).class;
@@ -591,6 +617,22 @@ impl Universe {
         }
         if heap.class(c.message_class).field_count != 4 {
             return Err("Message.field_count should be 4 (ADR-0011)".to_string());
+        }
+        if heap.class(c.error_class).field_count != 1 {
+            return Err("Error.field_count should be 1 (ADR-0011, U-CORE-6)".to_string());
+        }
+        if heap.class(c.message_not_understood_class).field_count != 2 {
+            return Err("MessageNotUnderstood.field_count should be 2 (ADR-0011, U-CORE-6)".to_string());
+        }
+
+        // R-INV-6.1 — `MessageNotUnderstood < Error < Object`, explicit beyond
+        // the generic parallel-rule loop above (U-CORE-6,
+        // invariant-requirements.md §U-CORE-6).
+        if heap.class(c.error_class).superclass != Some(c.object_class) {
+            return Err("Error.superclass should be Object (U-CORE-6)".to_string());
+        }
+        if heap.class(c.message_not_understood_class).superclass != Some(c.error_class) {
+            return Err("MessageNotUnderstood.superclass should be Error (U-CORE-6)".to_string());
         }
 
         // Every metaclass's superclass chain terminates (bounded walk guards
@@ -710,4 +752,19 @@ pub struct CoreClasses {
     /// [`VM::new_message`](crate::vm::VM::new_message); its four slots hold
     /// `selector`/`name`/`labels`/`args`.
     pub message_class: ClassId,
+    /// `Error`, the raisable root of the surface error hierarchy
+    /// ([ADR-0008](../../../docs/adr/0008-layered-exceptions-and-result.md),
+    /// U-CORE-6). Holds one field (`_message`, slot 0) and the native
+    /// `message`/`raise` primitives; `raise` initiates the unified unwind's
+    /// `Raise` payload ([`crate::error::RuntimeError::Raise`]). Only `Error`
+    /// and its subclasses respond to `raise`.
+    pub error_class: ClassId,
+    /// `MessageNotUnderstood`, the sole surface subclass of
+    /// [`Self::error_class`] this unit reifies — raised by the default
+    /// `doesNotUnderstand(_:)` handler
+    /// ([`object_does_not_understand`])
+    /// on a genuine dispatch miss (method-lookup.md §2, ADR-0012, U-CORE-6).
+    /// Adds one field beyond `Error`'s `_message`: `_reifiedMessage` (slot 1),
+    /// the reified `Message` that missed ([`Self::message_class`]).
+    pub message_not_understood_class: ClassId,
 }

@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 21] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 23] {
     let c = &vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -69,6 +69,8 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 21] {
         ("None", c.none_class),
         ("List", c.list_class),
         ("Message", c.message_class),
+        ("Error", c.error_class),
+        ("MessageNotUnderstood", c.message_not_understood_class),
     ]
 }
 
@@ -542,21 +544,23 @@ fn subclass_static_field_offset_stability() {
 fn floor_census_matches_installed_bindings() {
     // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
     // live `VM::new()` and assert it equals the census in
-    // `docs/spec/core/floor-census.md` (count = 86 after ADR-0023's +7,
-    // ADR-0028's +5, and U-CORE-4's +1). Turns silent floor drift — an
-    // accidental extra primitive, or a dropped one — into a red test. The
-    // baseline is 73; the first +7 (marked NEW below) is the ADR-0023
-    // kernel-reflection amendment (`hash` ×5 + `Behavior#name` +
+    // `docs/spec/core/floor-census.md` (count = 88 after ADR-0023's +7,
+    // ADR-0028's +5, U-CORE-4's +1, and this unit's own +2). Turns silent
+    // floor drift — an accidental extra primitive, or a dropped one — into a
+    // red test. The baseline is 73; the first +7 (marked NEW below) is the
+    // ADR-0023 kernel-reflection amendment (`hash` ×5 + `Behavior#name` +
     // `Behavior#methods`); the second +5 (marked NEW_METHOD_REFLECTION) is
     // ADR-0028's `Method` reflection surface (U-CORE-3):
     // `Object#methodFor(_)`, `Method#invokeOn(_,_)`, `Method#bind(_)`,
     // `Method#selector`, `Method#holder`; the third +1 (marked
-    // NEW_VALUE_TOSTRING) is this unit's own amendment (U-CORE-4,
-    // `Number#toString`).
+    // NEW_VALUE_TOSTRING) is U-CORE-4's amendment (`Number#toString`); the
+    // fourth +2 (marked NEW_ERROR) is this unit's own amendment (U-CORE-6,
+    // ADR-0037): `Error#message`, `Error#raise`.
     const BASELINE: usize = 73;
     const NEW: usize = 7;
     const NEW_METHOD_REFLECTION: usize = 5;
     const NEW_VALUE_TOSTRING: usize = 1;
+    const NEW_ERROR: usize = 2;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -666,6 +670,9 @@ fn floor_census_matches_installed_bindings() {
         (c.message_class, false, "name"),
         (c.message_class, false, "labels"),
         (c.message_class, false, "args"),
+        // §2.15 Error (U-CORE-6, ADR-0037) — NEW_ERROR
+        (c.error_class, false, "message"),
+        (c.error_class, false, "raise()"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -725,13 +732,13 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING,
-        "census must enumerate exactly 86 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4)"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR,
+        "census must enumerate exactly 88 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6)"
     );
     assert_eq!(
         live.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING,
-        "the live floor must be exactly 86 bindings"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR,
+        "the live floor must be exactly 88 bindings"
     );
 }
 
@@ -743,7 +750,7 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
     // rows. The boot half of this rides `Universe::verify_invariants`.
     let vm = VM::new();
     let c = &vm.universe.classes;
-    let rows: [(&str, ClassId); 17] = [
+    let rows: [(&str, ClassId); 19] = [
         ("Number", c.number_class),
         ("String", c.string_class),
         ("Nil", c.nil_class),
@@ -761,6 +768,8 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
         ("None", c.none_class),
         ("List", c.list_class),
         ("Message", c.message_class),
+        ("Error", c.error_class),
+        ("MessageNotUnderstood", c.message_not_understood_class),
     ];
     for (name, class_id) in rows {
         let meta = vm.heap.class(class_id).class;
@@ -1162,4 +1171,132 @@ fn value_tostring_is_total_and_never_leaks_nil() {
     let result = vm.heap.module(module).get(r_sym).expect("`r` global should exist");
     let rendered = send0(&mut vm, result, "toString");
     assert_eq!(rendered.to_string(&vm), "Some(None)");
+}
+
+// ---------------------------------------------------------------------------
+// R-INV-6.x — U-CORE-6 unit invariants (`Error` root + `MessageNotUnderstood`,
+// ADR-0008/ADR-0037).
+// ---------------------------------------------------------------------------
+
+/// Walks `class_id`'s superclass chain, returning whether `target` appears
+/// anywhere on it (reflexive: `is_a(X, X)` holds). Test-local mirror of the
+/// surface `isA(_:)` semantics (`core.ph`), used where a raw `ClassId` is more
+/// convenient than a `send_dynamic` round-trip.
+fn is_a(vm: &VM, mut class_id: ClassId, target: ClassId) -> bool {
+    loop {
+        if class_id == target {
+            return true;
+        }
+        match vm.heap.class(class_id).superclass {
+            Some(next) => class_id = next,
+            None => return false,
+        }
+    }
+}
+
+#[test]
+fn genuine_miss_raises_surface_message_not_understood() {
+    // R-INV-6.2 — a genuine `doesNotUnderstand(_:)` miss (not overridden)
+    // raises a *surface* `MessageNotUnderstood` through the unified unwind's
+    // `Raise` payload — not the retired native `RuntimeError::MessageNotUnderstood`.
+    let mut vm = VM::new();
+    let bogus = vm.get_or_intern("frobnicate");
+    let err = vm.send_dynamic(Value::Number(3.0), bogus, &[]).unwrap_err();
+
+    // (a) It is the `Raise` payload.
+    let raised = match err {
+        PhError::Runtime(RuntimeError::Raise { error, .. }) => error,
+        other => panic!("expected RuntimeError::Raise, got {other:?}"),
+    };
+
+    // (b) The raised object isA(Error) and is exactly a MessageNotUnderstood.
+    let cls = raised.class(&vm);
+    assert_eq!(cls, vm.universe.classes.message_not_understood_class, "the raised object's class should be MessageNotUnderstood");
+    assert!(is_a(&vm, cls, vm.universe.classes.error_class), "the raised MessageNotUnderstood must be isA(Error)");
+
+    // (c) `Error#message` reads the rendered miss string (slot 0).
+    let message = send0(&mut vm, raised, "message");
+    assert_eq!(message.to_string(&vm), "3 does not understand 'frobnicate'", "Error#message should read the rendered miss string");
+
+    // (d) Slot 1 carries the reified `Message` (census §2.14); its `selector`
+    // accessor should round-trip the missed selector symbol. `selector` lives
+    // on `Message`, not `Error`/`MessageNotUnderstood`, so read the reified
+    // `Message` out of slot 1 first, then send `selector` to *it*.
+    let reified_message = match raised {
+        Value::Obj(id) => vm.heap.as_instance(id).expect("MessageNotUnderstood should be an InstanceObject").slots[1],
+        other => panic!("expected an Obj, got {other:?}"),
+    };
+    assert_eq!(reified_message.class(&vm), vm.universe.classes.message_class, "slot 1 should hold a reified Message");
+    let reified_selector = send0(&mut vm, reified_message, "selector");
+    assert!(matches!(reified_selector, Value::Symbol(sym) if sym == bogus), "the reified Message's selector should be the missed selector");
+}
+
+#[test]
+fn only_error_subclasses_respond_to_raise() {
+    // R-INV-6.3 (runtime half) — `raise` is installed on `Error` only, so a
+    // non-`Error` receiver (`Number`, `String`) does not respond to it, while
+    // an `Error` (or subclass) instance does. The compile-time rejection of
+    // `throw 42` is the ADR-0031 error-syntax unit's job, not this one's.
+    let mut vm = VM::new();
+    let raise_sym = Value::Symbol(vm.get_or_intern("raise()"));
+
+    let responds_to_number = send1(&mut vm, Value::Number(3.0), "respondsTo(_:)", raise_sym);
+    assert!(matches!(responds_to_number, Value::Bool(false)), "a Number should not respond to `raise`");
+
+    let error_instance = {
+        let error_class = vm.universe.classes.error_class;
+        let field_count = vm.heap.class(error_class).field_count;
+        let inst = phalcom_core::instance::InstanceObject::new(error_class, field_count);
+        Value::Obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)))
+    };
+    let responds_to_error = send1(&mut vm, error_instance, "respondsTo(_:)", raise_sym);
+    assert!(matches!(responds_to_error, Value::Bool(true)), "an Error instance should respond to `raise`");
+}
+
+#[test]
+fn error_raise_unwinds_through_the_shared_raise_payload() {
+    // R-INV-6.2/6.3 (mechanism) — sending `raise()` to a bare `Error` instance
+    // raises the same `RuntimeError::Raise` payload as a genuine dNU miss,
+    // carrying the receiver itself as `error` and its own `message` as
+    // `rendered` (D3 — `error_raise` renders via a `message` send, not a
+    // direct slot read).
+    let mut vm = VM::new();
+    let error_class = vm.universe.classes.error_class;
+    let field_count = vm.heap.class(error_class).field_count;
+    let mut inst = phalcom_core::instance::InstanceObject::new(error_class, field_count);
+    let text = vm.alloc_string_value("boom".to_string());
+    inst.slots[0] = text;
+    let error_instance = Value::Obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)));
+
+    let raise_sym = vm.get_or_intern("raise()");
+    let err = vm.send_dynamic(error_instance, raise_sym, &[]).unwrap_err();
+    match err {
+        PhError::Runtime(RuntimeError::Raise { error, rendered }) => {
+            assert!(matches!(error, Value::Obj(id) if matches!(error_instance, Value::Obj(other) if id == other)), "raise() should carry `self` as the raised error");
+            assert_eq!(rendered, "boom", "raise() should render via the `message` send");
+        }
+        other => panic!("expected RuntimeError::Raise, got {other:?}"),
+    }
+}
+
+#[test]
+fn overriding_does_not_understand_still_intercepts_before_the_default_raise() {
+    // R-INV-6.4 — a user-defined `doesNotUnderstand(_)` override still runs
+    // *before* the default raise, exactly as before this unit. Guarded here
+    // at the corpus level (the .ph fixture
+    // `tests/lang/dispatch/dispatch_dnu_proxy_forwards.ph` covers the same
+    // proxy/forwarding shape end-to-end and must stay green).
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "overriding_does_not_understand_still_intercepts_before_the_default_raise");
+    vm.interpret_source(
+        module,
+        "class Proxy {\n  doesNotUnderstand(msg) { return \"intercepted: \" + msg.name }\n}\nlet p = Proxy.new()\n",
+    )
+    .expect("class + instance should compile and run");
+    let p_sym = vm.interner.intern("p");
+    let p = vm.heap.module(module).get(p_sym).expect("`p` global should exist");
+
+    let bogus = vm.get_or_intern("frobnicate");
+    let result = vm.send_dynamic(p, bogus, &[]).expect("the override should intercept, not raise");
+    assert_eq!(result.to_string(&vm), "intercepted: frobnicate", "the user override should run instead of the default raise");
 }

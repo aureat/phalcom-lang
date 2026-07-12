@@ -33,9 +33,9 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **86** |
-| Distinct native Rust functions | **71** |
-| Classes carrying floor primitives | **16** (of 21 named kernel classes) |
+| Installed `(class, selector)` bindings | **88** |
+| Distinct native Rust functions | **73** |
+| Classes carrying floor primitives | **17** (of 23 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
 > **U-CORE-1 amendment ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).**
@@ -79,17 +79,35 @@ language is *self-hosting above a small, fixed native boundary*
 > primitives. R-INV-0.1 (`tests/invariants.rs`) audits this set from a live
 > `VM::new()` and fails on drift.
 
-> **Baseline:** post-U-CORE-4 — the figures above (**86 / 71 / 16 / 7**) are the
+> **U-CORE-6 amendment ([ADR-0037](../../../adr/0037-amend-floor-admit-error-root.md)).**
+> The minimal `Error` reification (object-model.md §4 "Errors",
+> [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)) admits **+2**
+> bindings (86 → 88) and **+2** distinct fns (71 → 73): `Error#message`
+> (`error_message`) and `Error#raise` (`error_raise`) — both new native
+> functions, no rehome subtlety. Floor-carrying classes move **16 → 17**: the
+> new `Error` row is the first of the two new kernel classes
+> (`Error`/`MessageNotUnderstood`) to carry a primitive —
+> `MessageNotUnderstood` carries none of its own (it inherits `message` from
+> `Error`), so it does not bump the count further. Producing the
+> `RuntimeError::Raise` payload the dNU miss now raises through is **plumbing,
+> not itself a bound selector** (ADR-0023 Decision §4) — it does not count
+> toward either metric. R-INV-0.1/R-INV-6.5 (`tests/invariants.rs`) audit this
+> set from a live `VM::new()` and fail on drift.
+
+> **Baseline:** post-U-CORE-6 — the figures above (**88 / 73 / 17 / 7**) are the
 > current floor. The authoritative pin + full landing history live in
 > [`README.md`](./README.md) §"Baseline & drift policy"; this census is the
 > ground-truth enumeration behind that count. One census-specific caution: of the
 > post-U-CORE-0 landings, **U-CORE-1 added +7 (73 → 80, ADR-0023), U-CORE-3
-> added +5 (80 → 85, ADR-0028), and U-CORE-4 added +1 (85 → 86, ADR-00NN)** —
-> every other unit either landed `.ph`/compiler surface or added zero bindings.
-> U8's reflective surface and the `Message` class were already in the 73
-> (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were `.ph`/compiler-only; U11 added
-> `True`/`False` as kernel classes (19 → 21) with **+0** bindings — so "classes
-> added" never implies "bindings added" (U11 is the counterexample; see §2.6).
+> added +5 (80 → 85, ADR-0028), U-CORE-4 added +1 (85 → 86, ADR-0036), and
+> U-CORE-6 added +2 (86 → 88, ADR-0037)** — every other unit either landed
+> `.ph`/compiler surface or added zero bindings. U8's reflective surface and
+> the `Message` class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/
+> U-STD were `.ph`/compiler-only; U11 added `True`/`False` as kernel classes
+> (19 → 21) with **+0** bindings — so "classes added" never implies "bindings
+> added" (U11 is the counterexample; see §2.6). U-CORE-6 is the exception: its
+> two new classes (`Error`/`MessageNotUnderstood`, 21 → 23) do come with
+> bindings, but only on `Error` — see the amendment note above.
 
 ### 1.2 Selector notation
 
@@ -318,6 +336,23 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 | `name` | instance | `message_name` | **shadows** `Object#name` — returns the *sent method* name, not the class name |
 | `labels` | instance | `message_labels` | per-argument labels |
 | `args` | instance | `message_args` | argument values |
+
+### 2.15 `Error` — raisable root ([object-model.md](../../object-model.md) §4 "Errors", [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md), U-CORE-6)
+
+Root of the surface error hierarchy; `MessageNotUnderstood < Error` is the
+sole subclass this unit reifies (the retired native
+`RuntimeError::MessageNotUnderstood` is now this class). Like `Message`, both
+are fixed-slot `InstanceObject`s stamped in `VM::new`'s Phase E — `Error` has
+one field (`_message`, slot 0); `MessageNotUnderstood` inherits it and adds
+`_reifiedMessage` (slot 1). Both are surface globals
+(`add_class!(error_class)` / `add_class!(message_not_understood_class)`), no
+`.ph` reopen. `MessageNotUnderstood` carries no primitives of its own — it
+inherits `message`/`raise` from `Error`.
+
+| Selector | Side | Native fn | Notes |
+|---|---|---|---|
+| `message` | instance | `error_message` | reads `_message` (slot 0); mirrors `Message`'s native accessors |
+| `raise()` | instance | `error_raise` | initiates the unified unwind's `Raise` payload (`RuntimeError::Raise`); `throw expr === expr.raise()` (ADR-0031 §1); installed on `Error` only (R-INV-6.3) |
 
 ## 3. The floor ↔ `core.ph` boundary
 

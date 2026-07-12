@@ -204,25 +204,50 @@ pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
 }
 
 /// Signature: `Object::doesNotUnderstand(_)` — the *default* miss handler
-/// (method-lookup.md §2, ADR-0012): raises
-/// [`RuntimeError::MessageNotUnderstood`] describing the missed send.
+/// (method-lookup.md §2, ADR-0012): builds a surface
+/// [`MessageNotUnderstood`](crate::universe::CoreClasses::message_not_understood_class)
+/// carrying the reified `Message` and raises it through the unified unwind
+/// ([`RuntimeError::Raise`], ADR-0008, U-CORE-6) — rather than the retired
+/// native `RuntimeError::MessageNotUnderstood`.
 ///
 /// This is the terminal fallback the [`Bytecode::Invoke`](crate::bytecode::Bytecode::Invoke)
 /// miss path forwards to. Because it is an ordinary (overridable) method on
 /// `Object`, a subclass — e.g. a proxy — can override it to intercept and
-/// re-forward sends via [`object_perform`]. `args[0]` is the reified `Message`
-/// ([`VM::new_message`]); its selector slot supplies the diagnostic text.
+/// re-forward sends via [`object_perform`] *before* this default ever runs.
+/// `args[0]` is the reified `Message` ([`VM::new_message`]); its selector slot
+/// supplies the diagnostic text. The built `MessageNotUnderstood` instance has
+/// two slots: slot 0 the rendered message string (`Error#message`), slot 1 the
+/// reified `Message` itself (`args[0]`), stamped by [`VM::new`]'s Phase E,
+/// mirroring how `Message` itself is built directly in Rust rather than via a
+/// `.ph` `construct` (U-CORE-6 §2, avoids the read-before-write hazard a
+/// `.ph` getter over this field would trip).
 ///
 /// # Errors
 ///
-/// Always returns [`RuntimeError::MessageNotUnderstood`].
+/// Always returns [`RuntimeError::Raise`] carrying a
+/// [`MessageNotUnderstood`](crate::universe::CoreClasses::message_not_understood_class)
+/// instance.
 pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let selector = match message_slot(vm, &args[0], 0) {
         Some(Value::Symbol(sym)) => vm.resolve_symbol(sym).to_string(),
         _ => "<unknown>".to_string(),
     };
     let receiver_name = receiver.to_string(vm);
-    Err(RuntimeError::MessageNotUnderstood { selector, receiver: receiver_name }.into())
+    let rendered = format!("{receiver_name} does not understand '{selector}'");
+
+    // Reify the surface MessageNotUnderstood: slot 0 = message string, slot 1
+    // = the reified Message (`args[0]`, floor-census §2.14). Built directly in
+    // Rust — the `Message` precedent (`VM::new_message`), no `.ph` construct.
+    let mnu_class = vm.universe.classes.message_not_understood_class;
+    let field_count = vm.heap.class(mnu_class).field_count; // == 2 (Phase E)
+    let mut inst = InstanceObject::new(mnu_class, field_count);
+    inst.slots[0] = vm.alloc_string_value(rendered.clone());
+    inst.slots[1] = args[0]; // the reified Message
+    let mnu = Value::Obj(vm.heap.alloc(Object::Instance(inst)));
+
+    // Raise it through the unified unwind (NOT the retired native
+    // RuntimeError::MessageNotUnderstood variant).
+    Err(RuntimeError::Raise { error: mnu, rendered }.into())
 }
 
 /// Reads slot `index` of a `Message` instance `value`, or `None` if `value` is

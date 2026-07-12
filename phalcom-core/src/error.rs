@@ -1,4 +1,5 @@
 use crate::compiler::lib::CompilerError;
+use crate::value::Value;
 use phalcom_ast::error::SyntaxError;
 use std::io;
 // use std::io::Error as IoError;
@@ -67,19 +68,30 @@ pub enum RuntimeError {
     #[error("Expected {expected}, got {found}")]
     Type { expected: &'static str, found: &'static str },
 
-    /// A message send found no matching method anywhere on the receiver's
-    /// class chain and was forwarded to `doesNotUnderstand(_:)`, whose default
-    /// implementation ([`object_does_not_understand`](crate::primitive::object::object_does_not_understand))
-    /// raises this.
+    /// The surface-`Error` unwind payload — the `Raise(error)` half of
+    /// [ADR-0008](../../docs/adr/0008-layered-exceptions-and-result.md)'s
+    /// single unwind primitive (the sibling of U10's `Return`/
+    /// [`Bytecode::ReturnNonLocal`](crate::bytecode::Bytecode::ReturnNonLocal)).
     ///
-    /// This is the *observable* miss behavior (method-lookup.md §2, ADR-0012),
-    /// replacing the retired `MethodNotFound`: the miss is now a real,
-    /// overridable send a subclass can intercept, and this variant is only what
-    /// the *default* handler raises. `selector` is the encoded selector string
-    /// (`method.rs::encode_selector`); `receiver` is the receiver's surface
-    /// rendering ([`Value::to_string`](crate::value::Value::to_string)).
-    #[error("{receiver} does not understand '{selector}'")]
-    MessageNotUnderstood { selector: String, receiver: String },
+    /// `error` is a surface `Error` subclass instance (catchable, `isA(Error)`,
+    /// U-CORE-6); `rendered` is a snapshot of its `message` at raise time, used
+    /// only for the uncaught-render path (`{rendered}` below) — never itself
+    /// read by a future `on`/`ensure`/fiber consumer, which reads `error`
+    /// instead. Replaces the retired `MessageNotUnderstood` variant: a genuine
+    /// `doesNotUnderstand(_:)` miss now raises a surface
+    /// [`MessageNotUnderstood`](crate::universe::CoreClasses::message_not_understood_class)
+    /// through this payload
+    /// ([`object_does_not_understand`](crate::primitive::object::object_does_not_understand)),
+    /// rather than a bespoke native variant.
+    #[error("{rendered}")]
+    Raise {
+        /// The raised surface `Error` (or subclass) instance — the value a
+        /// future `on(_)`/`ensure`/fiber-result-slot consumer intercepts.
+        error: Value,
+        /// A display snapshot of `error`'s `message` at raise time, used only
+        /// to render the uncaught-error trace; never itself catchable.
+        rendered: String,
+    },
 
     #[error("Unsupported operation '{op}' for {value}")]
     UnsupportedOperation { op: &'static str, value: String },
