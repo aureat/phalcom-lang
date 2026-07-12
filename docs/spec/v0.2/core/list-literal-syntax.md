@@ -1,10 +1,11 @@
 # Specification — List Literal Syntax `[a, b, c]`
 
-> **Status:** **Proposal.** The one genuinely *un*specified list concern
+> **Status:** **Accepted.** The one genuinely *un*specified list concern
 > ([`core-classes.md`](./core-classes.md) §6, DEFERRED #6): surface literal syntax
 > for `List`. This doc is the design ratified by
-> [ADR-0029](../../../adr/0029-list-literal-syntax.md) (**Proposed** — awaiting
-> sub-decision ratification); parser/compiler work follows in U-LEX. Grounded in
+> [ADR-0029](../../../adr/0029-list-literal-syntax.md) (Accepted) and the collections
+> umbrella [ADR-0032](../../../adr/0032-collections-representation-and-literals.md);
+> parser/compiler work follows in U-LEX. Grounded in
 > [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) (native `List`),
 > [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md) (no truthiness),
 > [ADR-0016](../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md)

@@ -1,6 +1,8 @@
 # Specification — `Map` and `Set` (hash collections)
 
-> **Status:** **Proposal.** Absent classes (names reserved in `ClassName`), now
+> **Status:** **Accepted** (representation + `Map` literal ratified by the collections
+> umbrella [ADR-0032](../../../adr/0032-collections-representation-and-literals.md);
+> `Set` literal `#{…}` reserved-inactive). Absent classes (names reserved in `ClassName`), now
 > **unblocked** — their precondition `Object#hash` landed with
 > [U-CORE-1](../../../forge/units/U-CORE-1/as-built.md)
 > ([`catalog-delta.md`](./catalog-delta.md) §2.4/§4.5). Each is its own unit per
@@ -66,8 +68,11 @@ raw primitives. Combinators (`map`/`filter`/…) stay `.ph`.
 
 ## 5. Non-goals
 
-- **Literal syntax** `{ a: 1 }` (Map) and `Set(1, 2)` — deferred to a literal-syntax
-  proposal (sibling of [`list-literal-syntax.md`](./list-literal-syntax.md)).
+- **Literal syntax.** The **`Map` literal `{ a: 1 }` is ratified** and ships
+  ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §3.1:
+  bare-identifier keys are symbols; `{}` stays a block; empty map is `Map.new()`).
+  The **`Set` literal `#{…}` is reserved-inactive** — construct via `Set.new()` /
+  `Set(1, 2)` (open-Q6). Parser/compiler work is U-LEX.
 - **Ordering guarantees** beyond "stable within a run" — no sorted variant here.
 
 ## 6. Test strategy

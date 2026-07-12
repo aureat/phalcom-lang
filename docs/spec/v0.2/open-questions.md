@@ -89,7 +89,10 @@ before the work it blocks begins.
    set *literal* ships now. A dedicated literal sigil is **reserved** for the
    future collections unit (candidate `#{ }`, Clojure-precedented, **not**
    committed — `#` is left free). Sets themselves are gated on `Object#hash`
-   (U-CORE-1) regardless.
+   (U-CORE-1) regardless. The collections umbrella
+   [ADR-0032](../../adr/0032-collections-representation-and-literals.md) confirms
+   this and formally reserves `#{…}` (inactive, committed meaning) alongside the
+   ratified `Map` `{k:v}` and `Tuple` `(a,b)` literals.
 
 7. ~~**Destructuring.**~~ **RESOLVED** (ruling, no ADR — additive): ship
    **irrefutable tuple destructuring** in `let`/`var` now (`let (a, b) = point`,
@@ -188,7 +191,7 @@ before the work it blocks begins.
 | Q4 | Methods open (epoch guard); superclass reparenting sealed; future `reshape` non-foreclosed | [ADR-0026](../../adr/0026-class-hierarchy-mutability.md) |
 | Q5 (interp.) | String interpolation uses `\(expr)` | [ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md) |
 | Q5 / absence | `Option` is abstract; `Some`/`None` subclasses; `None` is a singleton | [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) |
-| Q6 | `Set(...)` constructor; dedicated set literal reserved (uncommitted) | ruling (Q6 above) |
+| Q6 | `Set(...)` constructor; `#{…}` set literal reserved-inactive (`Map`/`Tuple` literals ship) | ruling (Q6 above) + [ADR-0032](../../adr/0032-collections-representation-and-literals.md) |
 | Q7 | Irrefutable tuple destructuring now; list/`*rest` + pattern matching deferred | ruling (Q7 above) |
 | Q8 | File = module; public-by-default; qualified/selective/aliased imports | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) |
 | Q9 | Layered exceptions + `Result`; terminating, not resumable; surface `throw`/`try`/`catch`/`on`/`ensure` | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md) + [ADR-0031](../../adr/0031-error-handling-surface-syntax.md) |

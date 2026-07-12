@@ -50,14 +50,22 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0025](0025-external-internal-parameter-names.md) | Separate external labels from internal parameter names | Accepted |
 | [0026](0026-class-hierarchy-mutability.md) | Methods are open; superclass reparenting is sealed | Accepted |
 | [0027](0027-modules-as-files-with-public-by-default-imports.md) | A module is a file; public-by-default exports; qualified/selective/aliased imports | Accepted |
-| [0029](0029-list-literal-syntax.md) | List literals `[a, b, c]` desugar to `List` construction sends (no new floor) | Proposed |
+| [0029](0029-list-literal-syntax.md) | List literals `[a, b, c]` desugar to `List` construction sends (no new floor) | Accepted |
 | [0030](0030-fibers-and-futures-cooperative-concurrency.md) | Fibers and Futures: cooperative concurrency on a restricted re-entrant loop | Accepted |
 | [0031](0031-error-handling-surface-syntax.md) | Error-handling surface syntax: `throw`/`try`/`catch`/`on`/`ensure` | Accepted |
+| [0032](0032-collections-representation-and-literals.md) | Collections: native representation, shared protocol, and literal surface | Accepted |
 
-> ADR-0029 (list literals) is **Proposed** — awaiting ratification of its sub-decisions
-> (desugar-vs-opcode, subscript sugar, trailing comma). Design in
+> ADR-0029 (list literals) is now **Accepted** — its sub-decisions (desugar-to-sends,
+> no subscript sugar, trailing comma) were ratified with the collections umbrella
+> [ADR-0032](0032-collections-representation-and-literals.md). Design in
 > [`docs/spec/v0.2/core/list-literal-syntax.md`](../spec/v0.2/core/list-literal-syntax.md).
 > (0028 is claimed by a concurrent unit's `Method`-reflection floor amendment.)
+
+> ADR-0032 (collections) was ratified by the user on 2026-07-12: native heap-arm
+> representation for `Map`/`Set`/`Tuple`/`Range`, the binding collection protocol,
+> and the literal surface — `[…]` / `{k:v}` / `(a,b)` ship; `#{…}` (set) and
+> `..`/`...` (range) are reserved-inactive with committed meaning. It flips ADR-0029
+> and the four `core/` collection specs to Accepted.
 
 > ADR-0030 (Fibers & Futures) was ratified by the user on 2026-07-12, resolving the
 > concurrency execution-model open decision (open-question 15 → **Option A**, the

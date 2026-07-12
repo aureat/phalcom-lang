@@ -89,5 +89,6 @@ the harness *is* the definition of "conformant."
 |---|---|
 | Contract, harness, `List#==`, Q5 | [U-CORE-5 as-built](../../../forge/units/U-CORE-5/as-built.md); [`decisions.md`](./decisions.md) Q5 |
 | Each collection its own unit | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) |
+| Family representation + literals ratified | [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) |
 | `at(_)`→`Option`, no `nil` | [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md); [values-and-absence.md](../values-and-absence.md) |
 | `hash`/`isA` dependency | [U-CORE-1 as-built](../../../forge/units/U-CORE-1/as-built.md) |

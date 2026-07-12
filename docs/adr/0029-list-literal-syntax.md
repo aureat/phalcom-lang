@@ -1,8 +1,9 @@
 # 29. List literals `[a, b, c]` desugar to `List` construction sends
 
-- Status: Proposed
+- Status: Accepted (ratified with the collections umbrella [ADR-0032](0032-collections-representation-and-literals.md), 2026-07-12)
 - Date: 2026-07-12
-- Related: `docs/spec/v0.2/core/list-literal-syntax.md` (the design this ADR ratifies),
+- Related: [ADR-0032](0032-collections-representation-and-literals.md) (collections umbrella),
+  `docs/spec/v0.2/core/list-literal-syntax.md` (the design this ADR ratifies),
   `docs/spec/v0.2/core/core-classes.md` §6, `docs/spec/v0.2/object-model.md` §3,
   [ADR-0020](0020-kernel-list-native-array-protocol.md) (native `List`),
   [ADR-0021](0021-no-truthiness-enforcement.md) (no truthiness),

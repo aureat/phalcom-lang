@@ -41,10 +41,10 @@ with the door left open. Source is the decision record.
 | **Default arguments** | none now; if ever, **desugar to trailing-only arity-family overloads at definition time**; call-site resolution **permanently forbidden** | incompatible with selector-identity dispatch; mechanism fixed so a later add is non-breaking | [open-Q12](open-questions.md); [experimental/default-arguments.md](experimental/default-arguments.md) |
 | **List/`*rest` destructuring + pattern matching** | irrefutable **tuple** destructuring ships; refutable `let [first, *rest]`, `match`/`if let`, map patterns deferred | refutable bind needs a failure branch (a pattern-matching unit); reuses U9 `*rest` | [open-Q7](open-questions.md); ruling |
 | **`Family` reflective mirror** | `Family` callable-only now; `.candidates`/`.arities`/`.respondsTo` mirror deferred | design it with the U8 `Message`/`perform` surface as one reflection API | [open-Q14](open-questions.md); [experimental/bound-callable-unification.md](experimental/bound-callable-unification.md) |
-| **Set literal sigil** | `Set(...)` constructor ships; a literal (candidate `#{ }`) reserved, uncommitted | additive sugar; also gated on `Object#hash` (now landed) | [open-Q6](open-questions.md); ruling |
+| **Set literal sigil** | `Set(...)` constructor ships; the `#{ }` literal is **reserved-inactive** with committed meaning ([ADR-0032](../../adr/0032-collections-representation-and-literals.md)) | additive sugar; activate in a later U-LEX slice | [open-Q6](open-questions.md); [ADR-0032](../../adr/0032-collections-representation-and-literals.md) |
 | **`Some` niche-encoding** | `Some(x)` stays an ordinary heap instance; niche-encode into `Value` later | wait for a GC + benchmarks; slots behind the existing `surface_none` boundary | [open-Q13](open-questions.md); ADR-0007/0010 |
 | **`reshape` / superclass reparenting** | reparenting sealed by policy; opt-in `reshape`-with-migration left open | would shift ADR-0011/0017 offsets; ADR-0009 keeps it implementable | [ADR-0026](../../adr/0026-class-hierarchy-mutability.md) |
-| **Collection-literal lowering** `(a,b)`/`[…]`/`{a:1}` | desugar tuples/lists/maps to constructor sends | needs its own ADR + lexer/parser; entangles with `{}` blocks | [forge/phase-next/DEFERRED.md](../../forge/phase-next/DEFERRED.md) #6/#28 |
+| ~~**Collection-literal lowering** `(a,b)`/`[…]`/`{a:1}`~~ | **Ratified** ([ADR-0032](../../adr/0032-collections-representation-and-literals.md)): list/map/tuple literals desugar to construction sends; `{}` stays a block, set/range reserved | implementation → U-LEX (§3) | [ADR-0032](../../adr/0032-collections-representation-and-literals.md) |
 | **Parameterized / first-class modules** | file-modules ship (ADR-0027); first-class module objects deferred | out of core scope → module unit; a module object can subsume file-modules | [open-Q8](open-questions.md); [core/forward-compat.md §3](core/forward-compat.md) |
 | **Circular-import policy** | hard-error vs lazy-binding unspecified | implementation detail of the module unit, not a language decision | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) |
 
@@ -61,11 +61,18 @@ Resolutions that stand but were flagged as worth a future revisit:
 
 ## 2. Genuinely-open decisions (not yet made)
 
-Distinct from §1: these have **no ruling yet** and block their unit.
+**None.** The three that stood here — the concurrency execution model, the error
+surface syntax, and the collections representation/literals — were all ratified on
+2026-07-12:
 
-| Decision | What must be chosen | Blocks | Source |
-|---|---|---|---|
-| **Collections ADR** (`Map`/`Set`/`Tuple`/`Range`) | per-class storage + literal syntax + hashing contract | the collections unit | [core/catalog-delta.md](core/catalog-delta.md); forge/phase-next/DEFERRED.md #27 |
+| Was-open decision | Resolved by |
+|---|---|
+| Concurrency re-entrant-loop model | [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) (Option A — restricted re-entrant loop) |
+| Error surface syntax | [ADR-0031](../../adr/0031-error-handling-surface-syntax.md) (`throw`/`try`/`catch`/`on`/`ensure`) |
+| Collections representation + literals | [ADR-0032](../../adr/0032-collections-representation-and-literals.md) (native arms; list/map/tuple literals; set/range reserved) |
+
+Remaining work is **implementation** (§3) and the **decided-to-defer** design
+decisions (§1), not open decisions.
 
 ---
 
@@ -82,8 +89,8 @@ Reserved-but-unbuilt class names sit in `primitive/mod.rs::ClassName` (`Range`, 
 | **U-CORE-5** collection contract | shared protocol contract + `.ph` `List#==` | dispatch-ready; deps U-CORE-1 `isA` (landed) | [core/U-CORE-5](../../forge/units/U-CORE-5/as-built.md) |
 | **U-CORE-6** errors | `Error` root + `MessageNotUnderstood` raise; reserve `Result`/`Ok`/`Err` | dispatch-ready; error surface **ratified** ([ADR-0031](../../adr/0031-error-handling-surface-syntax.md)) | [core/U-CORE-6](../../forge/units/U-CORE-6/as-built.md) |
 | **`Int`/`Float` substrate** | build the ADR-0024 split: `Value::Int(i64)`/`Float(f64)`, heap `LargeInt` bignum, `checked_*` promotion, `~/` opcode, cross-repr `==`/`hash` | **decided** (ADR-0024); code unbuilt; see §4 hash flag | [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md) |
-| **Collections classes** `Map`/`Set`/`Tuple`/`Range` | whole classes + storage + literals | `Map`/`Set` need `Object#hash` (landed) + the §2 collections ADR | [core/catalog-delta.md](core/catalog-delta.md) |
-| **List / set literal syntax** | `[a,b,c]`, `#{…}` tokens → constructor desugar | new ADR + lexer/parser | forge/phase-next/DEFERRED.md #28 |
+| **Collections classes** `Map`/`Set`/`Tuple`/`Range` | whole classes + storage + literals | `Object#hash` landed; representation + literals **ratified** ([ADR-0032](../../adr/0032-collections-representation-and-literals.md)); code unbuilt (U-STD) | [core/catalog-delta.md](core/catalog-delta.md) |
+| **Collection literal syntax** | `[a,b,c]` / `{k:v}` / `(a,b)` → constructor desugar (set `#{…}` / range `..` reserved) | **ratified** ([ADR-0032](../../adr/0032-collections-representation-and-literals.md)); lexer/parser → U-LEX | forge/phase-next/DEFERRED.md #28 |
 | **Module / import unit** | `import` semantics per ADR-0027 (qualified/selective/aliased), namespace protocol | token exists, semantics unbuilt | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) |
 | **System unit** | `System.args`/`clock`/`gc`/scheduler surface | pending `system_*` fixtures | [core/pending-retirement.md](core/pending-retirement.md) |
 | **Concurrency** `Fiber`/`Future` | cooperative coroutines + async layer | surface + execution model **ratified** ([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md), Option A); code unbuilt | [concurrency.md](concurrency.md); experimental/ |

@@ -1,6 +1,9 @@
 # Specification — `Tuple` and `Range`
 
-> **Status:** **Proposal.** Absent classes (names reserved); each its own unit per
+> **Status:** **Accepted** (representation + `Tuple` literal + `Range` bound convention
+> ratified by the collections umbrella
+> [ADR-0032](../../../adr/0032-collections-representation-and-literals.md); `Range`
+> literal `a..b`/`a...b` reserved-inactive). Absent classes (names reserved); each its own unit per
 > [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md), both
 > satisfying the [collection protocol](./collection-protocol.md). Inherits the
 > baseline pin from [`README.md`](./README.md).
@@ -36,9 +39,11 @@ collection-protocol's **value-hashable** case (law 4), unlike `List`.
 | `toList` | materialize into a `List` |
 | `first` / `last` | endpoints |
 
-**Bound convention (sub-decision RG-1):** `a..b` **inclusive** of `b`, `a...b`
-**exclusive** of `b` (the two-dot / three-dot split in `object-model.md` §3). Ratify
-in the owning ADR before implementation.
+**Bound convention (RG-1 — ratified, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md)):**
+`a..b` **inclusive** of `b`, `a...b` **exclusive** of `b` (the two-dot / three-dot
+split in `object-model.md` §3). The `..`/`...` operator literal is
+**reserved-inactive** with this committed meaning; construct a `Range` via its
+constructor until it activates.
 
 **Laziness (RG-2):** `Range` does **not** allocate its elements; `each` generates
 them. `toList` is the explicit materialization escape hatch. This keeps `1..1000000`
@@ -58,10 +63,11 @@ justified when the unit lands; combinators stay `.ph`.
 
 ## 4. Non-goals
 
-- **Literal syntax** `(a, b)` (Tuple) and `1..5` / `1...5` (Range) — surface syntax,
-  U-LEX; a sibling of [`list-literal-syntax.md`](./list-literal-syntax.md). Note the
-  `(a, b)` tuple literal must be disambiguated from a parenthesized expression `(a)`
-  by the comma — flag for the literal-syntax ADR.
+- **Literal syntax.** The **`Tuple` literal `(a, b)` is ratified** and ships
+  ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §3.2:
+  disambiguated from grouping `(a)` by the comma; one-element `(a,)`; `()` empty).
+  The **`Range` literal `1..5` / `1...5` is reserved-inactive** with the committed
+  inclusive/exclusive convention (§3.3 / RG-1). Parser/compiler work is U-LEX.
 - **Non-numeric / stepped ranges** (`Range` over chars, custom step) — deferred.
 
 ## 5. Test strategy
