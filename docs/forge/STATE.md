@@ -135,8 +135,18 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   core.ph/floor-census/invariants) heavily soon. My bug-fix tail C/D contend those → run tail collision-aware:
   `git status` before each dispatch, pick a group with no live concurrent SOURCE, else PAUSE. NEVER two writers
   on one shared file. Explicit-path staging always; their uncommitted docs live in the tree.
-- **Serial spine bug-fix tail (reordered collision-aware — Group E first, lowest collision):**
-  U-FIBER-FIX (NEXT — fiber.rs cluster, floor 0) → 
+- **U-FIBER-FIX** ✅ ACCEPTED `a3e23e8` (`1451f62`+`a3e23e8`, floor 0): fiber_abort root-guard · resume-gate
+  message · run_until parked-frame clear (§5.1) · fiber_yield dedup vs switch_to_fiber_and_deliver (byte-for-byte
+  verified) · C-FIB-5 cross-fiber DeadFrameError golden+invariant. Reviewer APPROVE (9/9), clean-checkout
+  green+doc-clean, collision-clean (item #5 not deferred — invariants.rs was clean). 5 DEFERRED struck.
+- **method-reopening ROOT-CAUSED** (investigation a4dc24114): `vm.rs:1346` `Bytecode::Class` unconditionally
+  `create_class`→`classes.insert` overwrites — 2nd same-name user block orphans 1st's ClassId. Compile-time
+  reuse guard (lib.rs:886/964) can't fire (whole unit compiles before any `Bytecode::Class` runs → `classes[A]`
+  empty for both). Bootstrap safe (Rust stub pre-registers → .ph block takes Constant branch). Fix: reuse existing
+  ClassId at vm.rs:1346. Floor 0. Wrinkle: field-adding reopen won't relayout → rule method-only in-scope, defer
+  field-adding.
+- **Serial spine bug-fix tail (Group C next — window still open, concurrent still docs-only):**
+  U-REOPEN-FIX = Group C (iter deopt-trap descriptive-msg + method-reopening, both compiler/vm hot zone, floor 0) → 
   bug-fix tail (grouped by write-set: Symbol#==·U-ERR 4-wave [PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/
   NOT-KEYWORD]·iter deopt-trap+method-reopening·SuperSend-IC+SOURCE_MAP·U-FIBER-FIX cluster) → U-SCHED
   (U-FUTURE Slice B). RECONCILE-FIRST: `has_new_construct` guard (DEFERRED L18) may already be fixed per
