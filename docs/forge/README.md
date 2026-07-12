@@ -2,7 +2,7 @@
 
 This directory is the **planning-and-execution record** of the `/forge` method. Normative spec
 lives under [`../spec/`](../spec/) (current: `../spec/v0.2/`); the per-unit **as-built** specs (the
-translated, authoritative record of what landed) live under [`../spec/v0.2/units/`](../spec/v0.2/units/).
+translated, authoritative record of what landed) live under [`../spec/v0.2/units/`](units/).
 
 ## The method — six roles across four phases
 

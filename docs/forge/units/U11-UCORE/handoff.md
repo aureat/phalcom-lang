@@ -37,7 +37,7 @@ U-LIST and U-FE were added mid-flight). Last four landed this session:
 - **U-LEX** — block comments, numeric digit separators, lexer-level newline suppression, `?.`/`??`
   coverage (already landed by U6, just added a fixture), and string interpolation. **Sigil
   `\(expr)`** (Swift-style) was ratified by the user, overriding the architect's `{expr}`
-  recommendation — [ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md). Desugars
+  recommendation — [ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md). Desugars
   to `String.new(expr) + ...` (not `.toString`, since value-type `toString` doesn't exist yet —
   DEFERRED #30). Commits `dba9d49`..`d91cdf4`.
 - **U-STD** — hit a real scope conflict: the plan's Object/Number/String/Symbol/System scope was

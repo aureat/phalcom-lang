@@ -10,7 +10,7 @@ record and carries only the cross-cutting coordination knowledge (collision matr
 discipline, resolved-decision register, successor-track pointer) that outlives any single unit.
 
 Chronological landing detail → [`STATE.md`](STATE.md). Deferral ledger → [`DEFERRED.md`](DEFERRED.md).
-Per-unit as-built specs → [`../spec/v0.2/units/`](../../spec/v0.2/units/).
+Per-unit as-built specs → [`../spec/v0.2/units/`](../units/).
 
 ---
 
@@ -18,8 +18,8 @@ Per-unit as-built specs → [`../spec/v0.2/units/`](../../spec/v0.2/units/).
 
 | Track | Status of record | As-built specs |
 |---|---|---|
-| Spine roster — U-FE, U0–U11, U-LIST, U-LEX, U-STD (**all landed**) | [`STATE.md`](STATE.md) "— LANDED ✅" sections | [`../spec/v0.2/units/U/`](../../spec/v0.2/units/U/) |
-| Successor core library — U-CORE-1..6 (partly landed) | [`../spec/v0.2/core/README.md`](../../spec/v0.2/core/README.md) §"Status" | [`../spec/v0.2/units/U-CORE/`](../../spec/v0.2/units/U-CORE/) |
+| Spine roster — U-FE, U0–U11, U-LIST, U-LEX, U-STD (**all landed**) | [`STATE.md`](STATE.md) "— LANDED ✅" sections | [`../spec/v0.2/units/U/`](../units/) |
+| Successor core library — U-CORE-1..6 (partly landed) | [`../spec/v0.2/core/README.md`](../../spec/v0.2/core/README.md) §"Status" | [`../spec/v0.2/units/U-CORE/`](../units/) |
 | In-flight batch — U12–U20, U-COLL (planning) | their per-unit `U*-plan.md` in this directory | (not yet) |
 
 ---
@@ -93,12 +93,12 @@ fork its roster here.
 | Unit | Mission (1-line) | As-built spec | Status |
 |---|---|---|---|
 | U-CORE-0 | requirements/rulings: floor census, bootstrap phases, catalog delta, invariant-requirements, forward-compat | [`core/README.md`](../../spec/v0.2/core/README.md) | ✅ docs done |
-| U-CORE-1 | kernel reflection — `Object#hash`/`isA(_)`, `Behavior#name`/`methods`, `Method < Function` re-parent | [`1-kernel-reflection.md`](../../spec/v0.2/units/U-CORE/1-kernel-reflection.md) | ✅ landed (`03764e3`) |
-| U-CORE-2 | `Bool` half-Option fix + core `Option` combinators | [`2-bool-and-option-residue.md`](../../spec/v0.2/units/U-CORE/2-bool-and-option-residue.md) | mostly landed (`0da64d6`) |
-| U-CORE-3 | callables/`Block`/`Method` reflection — iteration-method prereq | [`3-callable-reflection.md`](../../spec/v0.2/units/U-CORE/3-callable-reflection.md) | dispatch-ready (track head) |
-| U-CORE-4 | value classes: per-type `toString` overrides (closes DEFERRED #30) | [`4-value-tostring.md`](../../spec/v0.2/units/U-CORE/4-value-tostring.md) | dispatch-ready |
-| U-CORE-5 | collection protocol contract (shared interface) | [`5-collection-contract.md`](../../spec/v0.2/units/U-CORE/5-collection-contract.md) | dispatch-ready |
-| U-CORE-6 | `Error` root + wire the dNU miss path to raise `MessageNotUnderstood` | [`6-errors.md`](../../spec/v0.2/units/U-CORE/6-errors.md) | dispatch-ready |
+| U-CORE-1 | kernel reflection — `Object#hash`/`isA(_)`, `Behavior#name`/`methods`, `Method < Function` re-parent | [`1-kernel-reflection.md`](../units/U-CORE-1/as-built.md) | ✅ landed (`03764e3`) |
+| U-CORE-2 | `Bool` half-Option fix + core `Option` combinators | [`2-bool-and-option-residue.md`](../units/U-CORE-2/as-built.md) | mostly landed (`0da64d6`) |
+| U-CORE-3 | callables/`Block`/`Method` reflection — iteration-method prereq | [`3-callable-reflection.md`](../units/U-CORE-3/as-built.md) | dispatch-ready (track head) |
+| U-CORE-4 | value classes: per-type `toString` overrides (closes DEFERRED #30) | [`4-value-tostring.md`](../units/U-CORE-4/as-built.md) | dispatch-ready |
+| U-CORE-5 | collection protocol contract (shared interface) | [`5-collection-contract.md`](../units/U-CORE-5/as-built.md) | dispatch-ready |
+| U-CORE-6 | `Error` root + wire the dNU miss path to raise `MessageNotUnderstood` | [`6-errors.md`](../units/U-CORE-6/as-built.md) | dispatch-ready |
 
 **Recommended order:** U-CORE-1 → U-CORE-3 → U-CORE-2 (residue check) → U-CORE-4 → U-CORE-5 → U-CORE-6.
 

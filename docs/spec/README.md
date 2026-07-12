@@ -18,8 +18,8 @@ that point, with the resolved [open questions](v0.2/open-questions.md) woven in.
 - **Deferred / future / still-open work:** [v0.2/deferred-work.md](v0.2/deferred-work.md).
 - **Architecture decisions (ADRs):** live outside the version tree at
   [`../adr/`](../adr/README.md) — they are cross-version rationale.
-- **Per-unit implementation specs:** [v0.2/units/](v0.2/units/) — one folder per
-  unit family (`U-CORE/`, `U/`), each `<n>-<name>.md`.
+- **Per-unit implementation specs:** [`../forge/units/`](../forge/units/) — one folder
+  per unit (`U1/`, `U-CORE-1/`, …), each holding `as-built.md`.
 
 ## Version policy
 
