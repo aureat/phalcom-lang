@@ -409,8 +409,50 @@ impl<'source> Parser<'source> {
             Token::Let => self.parse_binding(BindingKind::Let),
             Token::Var => self.parse_binding(BindingKind::Var),
             Token::Return => self.parse_return(),
+            Token::For => self.parse_for(),
+            Token::Break => {
+                let start = self.cur_start();
+                self.advance(); // 'break'
+                Ok(Statement::Break { range: (start..self.prev_end).into() })
+            }
+            Token::Continue => {
+                let start = self.cur_start();
+                self.advance(); // 'continue'
+                Ok(Statement::Continue { range: (start..self.prev_end).into() })
+            }
             _ => self.parse_expr_statement(),
         }
+    }
+
+    /// Parses `for (binding in iter) { body }` into a [`Statement::For`]
+    /// (ADR-0035 §2, iteration.md §2, U-ITER specification §1.1).
+    ///
+    /// Unlike [`Self::parse_while`], which desugars to a `whileTrue` send at
+    /// parse time, `for` is kept as a dedicated node: the compiler lowers it to
+    /// an inlined cursor `while` over the `iterate(_)` / `iteratorValue(_)`
+    /// protocol, which cannot be expressed as a single sacred send. `in` is a
+    /// **contextual keyword** (DEC-ITER-B): its [`Token::In`] is consumed only
+    /// here, so an identifier `in` elsewhere keeps working.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the parentheses, the loop-variable identifier, the
+    /// `in` separator, the iterable expression, or the brace body is malformed.
+    fn parse_for(&mut self) -> ParserResult<Statement> {
+        let start = self.cur_start();
+        self.advance(); // 'for'
+        self.expect(&Token::LParen, &["\"(\""])?;
+        let binding = self.expect_identifier(&["loop variable"])?;
+        self.expect(&Token::In, &["\"in\""])?;
+        let iter = self.parse_expr()?;
+        self.expect(&Token::RParen, &["\")\""])?;
+        let body = match self.parse_brace_block()? {
+            Expr::Block(block) => block.body,
+            // `parse_brace_block` always yields an `Expr::Block`.
+            _ => unreachable!("parse_brace_block must produce a block"),
+        };
+        let range = (start..self.prev_end).into();
+        Ok(Statement::For(ForStatement { binding, iter, body, range }))
     }
 
     /// Parses a `let`/`var` binding: `<kw> name (= expr)?`.

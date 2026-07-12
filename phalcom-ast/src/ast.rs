@@ -26,6 +26,31 @@ pub enum Statement {
     Let(LetBinding),
     Return(ReturnStatement),
     Expr { expr: Expr, range: SourceRange },
+    /// `for (binding in iter) { body }` — the cursor loop (ADR-0035 §2,
+    /// iteration.md §2). Lowered by the compiler to an inlined cursor `while`
+    /// over the two-selector protocol `iterate(_)` / `iteratorValue(_)` —
+    /// **never** to `coll.each { … }` (ADR-0035 §2), so a `for` body inside a
+    /// fiber can `yield` freely. `for` is a statement consumed for effect; its
+    /// value is unspecified (see the U-ITER specification §1.2).
+    For(ForStatement),
+    /// `break` — leave the innermost enclosing `for` loop (ADR-0035 §3,
+    /// iteration.md §3). Resolved lexically against the compiler's
+    /// loop-context stack; a `break` outside any loop is a compile error. It
+    /// carries no operand and no label (unlabelled form only).
+    Break {
+        /// The source span of the `break` keyword, for the out-of-loop
+        /// compile-error diagnostic.
+        range: SourceRange,
+    },
+    /// `continue` — jump to the innermost enclosing loop's cursor-step, so the
+    /// next `iterate(_)` runs (ADR-0035 §3, iteration.md §3). Resolved
+    /// lexically like [`Statement::Break`]; a `continue` outside any loop is a
+    /// compile error. Carries no operand and no label.
+    Continue {
+        /// The source span of the `continue` keyword, for the out-of-loop
+        /// compile-error diagnostic.
+        range: SourceRange,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -157,6 +182,29 @@ pub struct LetBinding {
 #[derive(Debug, Clone)]
 pub struct ReturnStatement {
     pub value: Option<Expr>,
+    pub range: SourceRange,
+}
+
+/// A `for (binding in iter) { body }` cursor loop (ADR-0035 §2,
+/// iteration.md §2).
+///
+/// The parser produces this node directly (unlike `while`, which desugars to a
+/// `whileTrue` [`Expr::MethodCall`] at parse time); the compiler lowers it to
+/// an inlined cursor `while` driving the `iterate(_)` / `iteratorValue(_)`
+/// protocol sends, evaluating [`iter`](ForStatement::iter) exactly once. See
+/// the U-ITER specification §3 for the exact desugar.
+#[derive(Debug, Clone)]
+pub struct ForStatement {
+    /// The loop variable, freshly bound to each element in turn (behaves as a
+    /// `let` per iteration; iteration.md §2).
+    pub binding: String,
+    /// The iterable expression, evaluated **once** into a synthetic temporary
+    /// before the loop (U-ITER specification §3.3).
+    pub iter: Expr,
+    /// The loop body statements, run once per element under jump-based control
+    /// flow (no `block_call` on the taken path, ADR-0035 §2).
+    pub body: Vec<Statement>,
+    /// The source span covering the whole `for` statement.
     pub range: SourceRange,
 }
 
