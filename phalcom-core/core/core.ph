@@ -230,6 +230,40 @@ class List {
     self.rawSet(i, put)
     return self
   }
+
+  // U-CORE-5 (decisions.md Q5, R-INV-5.3 E1-E5): structural equality —
+  // element-wise, order-sensitive, via each element's own `==`. Guarded by
+  // `isA(List)` so a non-List `other` is simply unequal (E2), never a dNU.
+  // Derived entirely over the floor (`size`/`at`/`isA`/`while`/`and`/`!`) —
+  // no new native primitive (ADR-0019 unchanged). `and`/`!` are the
+  // language's infix/prefix operator forms (`Bool#and(_:)`/`Bool#not()`
+  // dispatched by the compiler, not dotted-call syntax — `and`/`not` are
+  // reserved words and cannot follow `.` as a bare identifier).
+  ==(other) {
+    if (other.isA(List)) {
+      var same = (self.size == other.size)
+      var i = 0
+      // `and` is lazy (short-circuits); once `same` is false the loop
+      // condition is false without evaluating `i < self.size`, so the loop
+      // exits before `at(i)` can run out of bounds.
+      while (same and (i < self.size)) {
+        same = (self.at(i) == other.at(i))
+        i = i + 1
+      }
+      return same
+    } else {
+      return false
+    }
+  }
+
+  // U-CORE-5 (R-INV-5.3 E6): `!=` MUST route through `==`. The floor
+  // `Object#!=` (`object_neq`) negates identity `value_eq` directly, NOT
+  // `self.==` — without this override `list != other` would stay
+  // identity-based and contradict the structural `==` above (the `==`⊗`!=`
+  // decoupling hazard).
+  !=(other) {
+    return !(self == other)
+  }
 }
 
 class System {

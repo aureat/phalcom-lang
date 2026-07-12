@@ -198,6 +198,16 @@ fn list() {
 }
 
 #[test]
+fn collections() {
+    // U-CORE-5: the shared collection-protocol contract, certified against
+    // `List` as its reference implementation — sequence laws (size/at/add/
+    // each) plus the structural `==`/`!=` this unit adds. Does not duplicate
+    // `list()`'s own-unit corpus (see `list_map_and_filter.ph` etc.); this
+    // corpus guards the shared contract any future collection must satisfy.
+    support::check_pass("collections");
+}
+
+#[test]
 fn variadics() {
     // U9: rest parameters (`*name`) — declaration, `<name>(*)` selector
     // encoding, the VM call-prologue rest-arg collapse, and the
