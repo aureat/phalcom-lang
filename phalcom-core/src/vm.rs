@@ -974,6 +974,56 @@ impl VM {
                         }
                     }
                 }
+                Bytecode::SuperSend(argc, selector_idx, defining_idx) => {
+                    let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
+                    let defining_val = self.heap.closure(closure_id).callable.chunk.constants[defining_idx as usize];
+                    let argc = argc as usize;
+                    let selector_sym = selector_val.as_symbol().unwrap();
+                    let defining_sym = defining_val.as_symbol().unwrap();
+
+                    // The receiver stays the original `self` pushed by the
+                    // compiler; only the lookup *start* moves above the defining
+                    // class (method-lookup.md §1.14, U-INH §3.4).
+                    let receiver_idx = self.stack.len() - 1 - argc;
+                    let receiver = self.stack[receiver_idx];
+
+                    // Start the walk at `defining.superclass` (DEC-INH-B: the
+                    // defining class is resolved by name and its superclass read
+                    // at dispatch, so a future `superclass=` mutation stays
+                    // correct). The defining class was created before any of its
+                    // methods could run, so it is present in `self.classes`.
+                    // No superclass ⇒ the walk is empty ⇒ `doesNotUnderstand`.
+                    let parent = self.classes.get(&defining_sym).and_then(|&c| self.heap.class(c).superclass);
+
+                    let mut method = parent.and_then(|p| crate::class::lookup_method_in_hierarchy(&self.heap, p, selector_sym));
+
+                    // Super-construct fallback (U-INH §3.5): constructors are
+                    // installed on the *metaclass* under a `SignatureKind::
+                    // Initializer` selector. A positional `super.new(args)` /
+                    // `super.construct(args)` (encoded as a `Method` selector)
+                    // that misses the instance side re-encodes to its
+                    // `Initializer` form and walks the superclass's metaclass
+                    // chain, keeping the original instance as the receiver so the
+                    // parent initializer fills the inherited slots in place.
+                    if method.is_none()
+                        && let Some(p) = parent
+                    {
+                        let sel_str = self.resolve_symbol(selector_sym).to_string();
+                        let (name, labels, kind) = decode_selector(&sel_str);
+                        if let SignatureKind::Method(a) = kind {
+                            let init_selector = crate::method::encode_selector(&name, &labels, SignatureKind::Initializer(a));
+                            let init_sym = self.interner.intern(&init_selector);
+                            let parent_meta = self.heap.class(p).class;
+                            method = crate::class::lookup_method_in_hierarchy(&self.heap, parent_meta, init_sym);
+                        }
+                    }
+
+                    if let Some(method) = method {
+                        self.call_method(&receiver, method, argc, source_range)?;
+                    } else {
+                        self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
+                    }
+                }
                 Bytecode::Method(selector_idx, is_static) => {
                     let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
                     let selector = selector_val.as_symbol().unwrap();
@@ -1054,6 +1104,15 @@ impl VM {
                                 crate::instance::InstanceObject::new(class_id, field_count)
                             ));
                             self.stack.push(Value::Obj(instance_ref));
+                        } else if self.heap.as_instance(class_id).is_some() {
+                            // Super-construct (U-INH §3.5): a parent initializer
+                            // reached via `super.construct(…)` runs on the child
+                            // instance already allocated by the subclass
+                            // constructor's prologue — its `self` slot holds an
+                            // instance, not a class. `NewInstance` is idempotent
+                            // here: it reuses that instance (filling the inherited
+                            // slots in place) rather than allocating a fresh one.
+                            self.stack.push(class_val);
                         } else {
                             return Err(RuntimeError::Internal(format!("NewInstance operand is not a class: {:?}", class_val)).into());
                         }

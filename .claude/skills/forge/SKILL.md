@@ -26,6 +26,8 @@ Dispatch on the text after `/forge`:
 | `offload <task>` | [§Offload](#offload) |
 | `status` | [§Status](#status) |
 
+Each subcommand is also a direct slash command (`.claude/commands/forge/`): `/forge:senior`, `/forge:orchestrate`, `/forge:handoff`, `/forge:compact`, `/forge:offload <task>`, `/forge:status`. Those thin commands load this skill and jump straight to the matching section — this file stays the single source of truth.
+
 Do not narrate the dispatch. Read only the matching section, act, done.
 
 ---

@@ -19,7 +19,7 @@ use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_ast::ast::{BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, Program, Statement, UnaryOp};
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::{EmptySourceRange, SourceRange};
 use std::collections::HashSet;
@@ -88,6 +88,23 @@ pub enum CompilerError {
     /// An explicit value returned from a construct initializer.
     #[error("Cannot return a value from an initializer.")]
     ReturnValueFromInitializer,
+
+    /// A `super.sel(…)` send written where there is no enclosing class body to
+    /// anchor the walk (top level, or a free function).
+    ///
+    /// `super` starts method lookup at the *superclass of the defining class*
+    /// (method-lookup.md §1.14, U-INH §3.4); with no defining class there is no
+    /// superclass to start from.
+    #[error("`super` cannot be used outside a method: there is no defining class to start the lookup above.")]
+    SuperOutsideMethod,
+
+    /// A bare `super` that is not the receiver of a message send.
+    ///
+    /// `super` is only meaningful as `super.sel(…)` — it names the current
+    /// receiver but redirects the lookup start, so it has no value on its own
+    /// (U-INH §3.4). `super` no longer silently evaluates to `nil`.
+    #[error("`super` may only be used as the receiver of a message send, e.g. `super.method(...)`.")]
+    BareSuper,
 }
 
 // impl From<CompilerError> for PhError {
@@ -233,6 +250,27 @@ impl<'vm> Compiler<'vm> {
             }
         }
         self.emit(Bytecode::GetSelf, range);
+    }
+
+    /// Lowers a `super.sel(args)` send to [`Bytecode::SuperSend`] (U-INH §3.4,
+    /// method-lookup.md §1.14).
+    ///
+    /// Emits the original receiver (`self`), then the arguments, then a
+    /// `SuperSend` carrying `selector_sym`, `argc`, and the **defining class
+    /// name** ([`Self::current_class`]) so the VM starts the walk above that
+    /// class at dispatch time (DEC-INH-B). A `super` with no enclosing class —
+    /// at top level or in a free function — has no defining class to anchor the
+    /// walk and is rejected with [`CompilerError::SuperOutsideMethod`].
+    fn compile_super_send(&mut self, selector_sym: Symbol, args: Vec<Argument>, argc: u8, range: SourceRange) -> Result<(), CompilerError> {
+        let defining = self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
+        self.emit_self(range);
+        for arg in args {
+            self.compile_expr(arg.expr)?;
+        }
+        let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+        let defining_idx = self.add_constant(Value::Symbol(defining));
+        self.emit(Bytecode::SuperSend(argc, selector_idx, defining_idx), range);
+        Ok(())
     }
 
     pub(crate) fn begin_scope(&mut self) {
@@ -981,6 +1019,20 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn compile_expr_want(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
         match expr {
             Expr::MethodCall(method_call) => {
+                // A `super.sel(args)` send lowers to `SuperSend`, never an
+                // ordinary `Invoke` — and must be intercepted *before* the
+                // sacred inliner, so a `super.ifTrue { … }` is a real dispatch
+                // starting above the defining class, not an inlined fast path
+                // keyed on the receiver's static type (U-INH §3.4).
+                if matches!(&method_call.object, Expr::SuperVar { .. }) {
+                    let mc = *method_call;
+                    let argc = mc.args.len();
+                    let labels: Vec<Option<String>> = mc.args.iter().map(|a| a.label.clone()).collect();
+                    let selector = encode_selector(&mc.method, &labels, SignatureKind::Method(argc as u8));
+                    let selector_sym = self.vm.interner.intern(&selector);
+                    return self.compile_super_send(selector_sym, mc.args, argc as u8, mc.range);
+                }
+
                 // U5 Layer 1 (control-flow.md §3, ADR-0018): a sacred
                 // selector sent with literal-block arguments compiles to a
                 // guarded inline fast path instead of a plain send. Every
@@ -1048,6 +1100,13 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::GetProperty(get_prop) => {
+                // `super.prop` is a zero-arg super send (U-INH §3.4); the
+                // getter/no-arg selector is the bare property name, matching the
+                // ordinary getter dispatch below.
+                if matches!(&get_prop.object, Expr::SuperVar { .. }) {
+                    let selector_sym = self.vm.interner.intern(&get_prop.property);
+                    return self.compile_super_send(selector_sym, Vec::new(), 0, get_prop.range);
+                }
                 self.compile_expr(get_prop.object)?;
                 let selector_sym = self.vm.interner.intern(&get_prop.property);
                 let selector_idx = self.add_constant(Value::Symbol(selector_sym));
@@ -1232,9 +1291,12 @@ impl<'vm> Compiler<'vm> {
             Expr::SelfVar { range } => {
                 self.emit_self(range);
             }
-            Expr::SuperVar { range } => {
-                // TODO: Handle `super` keyword. For now, push Nil.
-                self.emit(Bytecode::Nil, range);
+            Expr::SuperVar { range: _ } => {
+                // A bare `super` that reaches here is not the receiver of a
+                // message send (the `super.sel(…)` forms are intercepted in the
+                // `MethodCall`/`GetProperty` arms). `super` has no value on its
+                // own — it only redirects a send's lookup start (U-INH §3.4).
+                return Err(CompilerError::BareSuper);
             }
             Expr::Block(block_expr) => {
                 let name_sym = self.vm.interner.intern("<block>");

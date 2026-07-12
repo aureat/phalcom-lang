@@ -65,6 +65,33 @@ pub enum Bytecode {
     /// 1: index of selector constant
     Invoke(u8, u16),
 
+    /// Sends `selector` starting the method walk **above** a statically-known
+    /// class, with the original receiver (`self`) — the lowering of a
+    /// `super.sel(…)` send (method-lookup.md §1.14, U-INH, ADR-0040).
+    ///
+    /// 0: number of arguments.
+    /// 1: constant-pool index of the selector [`Symbol`](crate::interner::Symbol).
+    /// 2: constant-pool index of the **defining class name**
+    ///    [`Symbol`](crate::interner::Symbol) — the class whose body is being
+    ///    compiled. The class object does not exist at compile time, so its
+    ///    *name* is baked and resolved to a class handle at dispatch (the same
+    ///    global lookup as [`Bytecode::GetGlobal`]).
+    ///
+    /// The **defining class** is baked in (not its superclass, DEC-INH-B) so the
+    /// VM computes `defining.superclass` at dispatch time; this stays correct
+    /// under a future `superclass=` mutation (U13). The walk begins at
+    /// `defining.superclass` on the instance side; for a super-*construct*
+    /// (the selector encodes a `SignatureKind::Initializer`) it also considers
+    /// the superclass's metaclass chain, where constructors are installed
+    /// (U-INH §3.5). The receiver stays the original `self`, so an overridden
+    /// method runs its *super*'s definition against the same instance. A walk
+    /// that exhausts the chain routes to the same `doesNotUnderstand(_:)` →
+    /// surface `MessageNotUnderstood` path as an ordinary [`Bytecode::Invoke`]
+    /// miss — never a panic. Unlike `Invoke`, the start class is a static
+    /// per-call-site constant, so a `SuperSend` cache key differs from a
+    /// receiver-polymorphic one; this first cut is uncached (DEC-INH-F).
+    SuperSend(u8, u16, u16),
+
     /// Creates a new class.
     /// 0: index of class name in constant pool.
     Class(u16),
