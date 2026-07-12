@@ -92,7 +92,11 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
     Floor 112→113 (§2.16), invariants.rs `core_class_rows` 27→28 lockstep. Census real path =
     `docs/spec/v0.2/core/floor-census.md` (brief typo said docs/forge; no docs/forge/floor-census.md exists).
     6 goldens (`tests/lang/family/`, 5 pos + 1 negative-lane). Empty-check verified DNU-honoring live.
-    **Reviewer RUNNING** (`a07b3f78`, throwaway worktree @ 41b7227) — 8 load-bearing checks. Await verdict.
+    **Reviewer APPROVE** (`a07b3f78`) — all 8 load-bearing checks PASS (single-dispatch, inheritance-flatten,
+    DNU-honoring empty-check, floor +1 lockstep, two-opcode wiring, Value-minimality, lane-correct goldens,
+    rustdoc), verify green + doc clean in throwaway worktree, no spec deviation, `Type::m` metaclass path
+    confirmed. **U16-Open ACCEPTED.** LAST feature unit complete. 2 DEFERRED filed (IC population,
+    Family/Method.bind unification). → serial spine tail begins (U-LEX-HASH next).
 
 ## Roster update (post-U16 blocker adjudication)
 - **U-LEX-HASH** (NEW prerequisite) — `#` symbol literals (selectors §2): atomic Logos token, R2
