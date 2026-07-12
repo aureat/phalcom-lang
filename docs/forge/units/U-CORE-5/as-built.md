@@ -11,11 +11,22 @@
 > laws. It adds **zero** floor primitives — no [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
 > amendment.
 
-> **Baseline:** HEAD `3c74a36` (U1–U10 + U-LIST + U-CORE-2-partial landed; census
-> re-baselined through U8/U9). Encodes [`decisions.md`](../../../spec/v0.2/core/decisions.md) **Q5**
+> **Baseline:** HEAD `8733afe`. Recommended-order position (per
+> `implementation-status.md`'s spine, unchanged by this refresh): **U-CORE-1,
+> U-CORE-2, U-CORE-3 are landed**; **U-CORE-4 is in flight right now** (a
+> concurrent session is editing `value.rs`/`universe.rs`/`primitive/number.rs`/
+> `core.ph` to add the `Object#toString` class-receiver fix + `Number#toString`);
+> **U-CORE-5 runs after U-CORE-4 lands.** **Floor is 85 installed bindings / 69
+> distinct fns today** (post-U-CORE-3 — `floor-census.md` §1.1); U-CORE-4 is
+> expected to land it at **86 / 70** (+1 `Number#toString`, its own ADR-0019
+> amendment, visible in `universe.rs`'s currently-dirty tree). **This unit's own
+> floor delta is +0**, expressed as math on whichever of those two numbers is
+> current at dispatch — do not hardcode a literal (see §3.1).
+> Encodes [`decisions.md`](../../../spec/v0.2/core/decisions.md) **Q5**
 > (mutability + equality + hashability). Depends on **U-CORE-1** (`isA(_)` and
-> `hash`, [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q1). See [`README.md`](../../../spec/v0.2/core/README.md) for
-> the baseline-pin policy.
+> `hash` — **confirmed landed**, commit `03764e3`,
+> [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q1). See
+> [`README.md`](../../../spec/v0.2/core/README.md) for the baseline-pin policy.
 
 ---
 
@@ -43,23 +54,52 @@
 | Deferred item | Owner | Why not here |
 |---|---|---|
 | `Tuple` / `Map` / `Set` / `Range` **classes** | U-STD / collections | ADR-0020: each collection is its own later unit. U-CORE-5 is the *contract they conform to*. |
-| `List#map`/`reduce`/`filter`/`includes`/`isEmpty`/`at(_,put)` | U-STD | catalog-delta §2.4; derivable over `each`/`size`/`at`. The contract is the *substrate* these build on, not these methods. |
+| `List#map`/`reduce`/`filter`/`includes`/`isEmpty`/`at(_,put)` | **U-STD — already landed** (`core.ph` L162–211, commit `5e2b395`, predates this unit's own dispatch) | catalog-delta §2.4 (now reads "✅/✅ … U-STD — combinators landed; literal syntax still open"). This unit does **not** touch them — it only certifies the `each`/`size`/`at` substrate they are built over stays contract-conformant. Do **not** re-derive or duplicate them. |
 | Collection **literal syntax** `[…]`/`{…}`/`(…)`/`#{…}` | U-LEX | pending-retirement §3 cat C. |
 | Making `List#hash` **raise** (mutable-key enforcement) | U-CORE-6 + U-STD | needs the error mechanism (ADR-0008) and a `Map`/`Set` key-boundary; neither exists yet (§2.4). The *law* is specified here; *enforcement* is a consumer obligation. |
-| Any new native primitive | — (frozen) | ADR-0019 floor stays at **73** bindings (§2.1). |
+| Any new native primitive | — (frozen) | ADR-0019 floor stays wherever U-CORE-4 lands it (**85** today → **86** expected; §2.1). Re-read `floor-census.md` §1.1 live at dispatch — do not hardcode a number. |
+
+> **Staleness note (re-grounded at HEAD `8733afe`).** At the time this unit was
+> first drafted, the derived combinators above were still hypothetical future
+> work. They have since landed on `main` (`5e2b395` "U-STD: List combinators",
+> `176d454` "U-STD: Option combinators") — **ahead of, and independent of**, this
+> unit's own sequencing. This does **not** shrink U-CORE-5's scope: the one gap
+> this unit still closes — structural `List#==`/`!=` — is **re-confirmed still
+> absent** from `core.ph` (grep-verified: no `==`/`!=` override anywhere in the
+> `List` reopen at HEAD `8733afe`). Golden fixtures for the already-landed
+> combinators already exist at `phalcom-core/tests/lang/list/list_map_and_filter.ph`,
+> `list_reduce_sum.ph`, `list_includes_and_isempty.ph`, `list_at_put.ph` — they
+> guard `List`'s *own* unit, same rule as the pre-existing
+> `list_to_string_renders_brackets.ph`/`list_each_sums_elements.ph` callout in
+> §3.3(b): do **not** duplicate them under `collections/`.
 
 ### 0.3 Prerequisites (must be landed before this unit runs)
 
-- **U-CORE-1** — provides `Object#isA(_)` (the type guard used by `List#==`,
-  catalog-delta §4.5, invariant 1.2) **and** `Object#hash` (Q1, the hashability
-  law's precondition, ADR-0019 amendment). U-CORE-5 **cannot** be implemented
-  before U-CORE-1: the `.ph` `==` body dispatches `other.isA(List)`, which does
-  not exist today (§1.3). This is a **hard, ordered dependency**, stronger than the
-  brief's "depends on `hash`" — it also depends on `isA`.
+- **U-CORE-1 — ✅ landed** (`03764e3`) — provides `Object#isA(_)` (the type guard
+  used by `List#==`, catalog-delta §4.5, invariant 1.2) **and** `Object#hash` (Q1,
+  the hashability law's precondition, ADR-0019 amendment). `isA(_)` is confirmed
+  present at `core.ph` L9 (derived over `class`/`==`/`superclass`, no native
+  primitive — `floor-census.md` L48–49). This was a **hard, ordered dependency**
+  (the `.ph` `==` body dispatches `other.isA(List)`); it is now **satisfied**.
 - **U-LIST** (ADR-0020) — the native-array `List` and its `size`/`at`/`add`/`each`
-  protocol (`core.ph` L75–94). Landed.
+  protocol. Landed; re-verified current at `core.ph` L143–160 (⚠ *`core.ph` is one
+  of U-CORE-4's concurrently-edited files — re-confirm this range at dispatch*).
 - **U10** — non-local `return` from blocks (used only incidentally; the `.ph`
-  bodies below avoid block-return by using structured `if/else`).
+  bodies below avoid block-return by using structured `if/else`). Landed.
+- **U-CORE-3 — ✅ landed** (`10ebd06`) — *newly surfaced dependency on
+  re-grounding*: the combinators U-STD has since layered onto the `List` reopen
+  (`map`/`filter`/`reduce`/`includes`, §0.2) call `f.call(...)` throughout, i.e.
+  they depend on U-CORE-3's `Block`/`Function` `call` reflection surface. That
+  surface is landed, so this is satisfied — but it was **not previously stated**
+  in this doc and is worth recording precisely: U-CORE-5's *own* deliverable
+  (structural `==`/`!=`) needs no `Block#call` at all — only `isA`/`size`/`at`/
+  `while`/`and`/`not` — so U-CORE-5 itself has **no** hard dependency on
+  U-CORE-3; only the pre-existing combinators sharing its `List` reopen do.
+- **U-CORE-4 (in flight)** — **no dependency, confirmed**. U-CORE-4's
+  `Object#toString` fix changes class-receiver rendering and adds
+  `Number#toString`; `List` already has its own native `toString`
+  (`list_to_string`, `primitive/list.rs`) that overrides the `Object` default, so
+  U-CORE-4 landing changes nothing this unit relies on.
 
 ---
 
@@ -69,10 +109,17 @@
 
 `List` is a native `Vec<Value>`-backed heap object
 ([`phalcom-core/src/list.rs`](../../../../phalcom-core/src/list.rs) L21–76,
-`ListObject`) with five raw floor primitives + native `toString`
-([`phalcom-core/src/primitive/list.rs`](../../../../phalcom-core/src/primitive/list.rs)),
-and a `.ph` public protocol
-([`phalcom-core/core/core.ph`](../../../../phalcom-core/core/core.ph) L75–94):
+`ListObject` — **re-verified current at HEAD `8733afe`, unchanged**) with five
+raw floor primitives + native `toString`
+([`phalcom-core/src/primitive/list.rs`](../../../../phalcom-core/src/primitive/list.rs) —
+**re-verified current**; `list_raw_at` still at L72–79), and a `.ph` public
+protocol ([`phalcom-core/core/core.ph`](../../../../phalcom-core/core/core.ph)
+**L142–212** ⚠ *`core.ph` is one of U-CORE-4's concurrently-edited files —
+re-confirm this range at dispatch*). The sequence-protocol core
+(`size`/`at`/`add`/`each`) sits at **L143–160**; U-STD has since landed
+`map`/`filter`/`reduce`/`includes`/`isEmpty`/`at(_,put:)` in the same reopen
+(**L162–211**, commit `5e2b395`) — **pre-existing, not built by this unit**
+(§0.2):
 
 ```
 size    => self.rawLength
@@ -99,21 +146,34 @@ collection-global iteration state — see §5.2).
 - **Structural `==` for sequences.** Q5: *"`==` is structural for sequences —
   element-wise, order-sensitive, comparing with each element's own `==`."* Today
   `List` inherits `Object#==` (`object_eq`,
-  [`primitive/object.rs`](../../../../phalcom-core/src/primitive/object.rs) L62–64),
-  which delegates to `Value::value_eq`
-  ([`value.rs`](../../../../phalcom-core/src/value.rs) L213–240). For two `List`
-  handles that arm falls through to `a == b` **handle identity** (value.rs L233–234).
-  So `List` equality is **identity, not structural** — `[1,2] == [1,2]` on two
-  distinct lists is **`false`** today. This unit adds a structural `List#==`.
-- **The `!=` decoupling hazard.** `object_neq` (primitive/object.rs L68–70) negates
-  `value_eq` **directly** — it does *not* dispatch `self.==`. So overriding only
-  `==` would leave `list != other` still identity-based and **inconsistent** with
-  the new `==`. `List#!=` must be overridden in lockstep (§3.2).
-- **Hashability.** No `hash` exists yet (Q1 → U-CORE-1). Q5: *mutable collections
-  are not hashable; immutable ones are.* `List` (mutable) must **not** be a valid
-  `Map`/`Set` key. There is nothing to *enforce* against today (no `hash`, no
-  `Map`/`Set`, no errors) — so this is **specified now, enforced by consumers**
-  (§2.4).
+  [`primitive/object.rs`](../../../../phalcom-core/src/primitive/object.rs)
+  **L119–121** ⚠ *re-grounded at HEAD `8733afe`; `primitive/object.rs` is
+  currently dirty under the concurrent U-CORE-4 session (adding
+  `object_to_string`) — re-confirm at dispatch*), which delegates to
+  `Value::value_eq` ([`value.rs`](../../../../phalcom-core/src/value.rs)
+  **L245–272** ⚠ *`value.rs` is one of U-CORE-4's concurrently-edited files —
+  re-confirm at dispatch*). For two `List` handles that arm falls through to
+  `a == b` **handle identity** (value.rs **L266**, inside the
+  `(Value::Obj(a), Value::Obj(b))` match arm — ⚠ same caveat). So `List`
+  equality is **identity, not structural** — `[1,2] == [1,2]` on two distinct
+  lists is **`false`** today (re-confirmed: no `==`/`!=` override exists
+  anywhere in the `List` reopen at HEAD `8733afe`). This unit adds a structural
+  `List#==`.
+- **The `!=` decoupling hazard.** `object_neq` (primitive/object.rs **L125–127**
+  ⚠ same dirty-tree caveat) negates `value_eq` **directly** — it does *not*
+  dispatch `self.==`. So overriding only `==` would leave `list != other` still
+  identity-based and **inconsistent** with the new `==`. `List#!=` must be
+  overridden in lockstep (§3.2).
+- **Hashability.** `hash` now **exists** (U-CORE-1 landed, `03764e3`,
+  `Object#hash` = an identity digest) — which is precisely the danger Q5 warns
+  about: `List`'s inherited identity `hash` is **inconsistent** with the
+  structural `==` this unit adds (two structurally-equal lists on different
+  handles would compare equal by `==` but unequal by `hash`). Q5: *mutable
+  collections are not hashable; immutable ones are.* `List` (mutable) must
+  **not** be a valid `Map`/`Set` key. There is still nothing to *enforce*
+  against today (no `Map`/`Set`, no error mechanism — U-CORE-6) — so this
+  remains **specified now, enforced by consumers** (§2.4), now with a
+  concretely-landed `hash` to specify *against*.
 
 ### 1.4 Substrate the `.ph` `==` needs (confirmed present / absent)
 
@@ -122,8 +182,8 @@ collection-global iteration state — see §5.2).
 | `if/else`, `while` control flow | ✅ | `control_flow_if_else` graduated U5; `core.ph` `each` uses `while` |
 | `Bool#not()`, `Bool#and(_)` | ✅ | floor-census §2.6 (sacred) |
 | `Number#<(_)`, element `==` (via `Object#==`) | ✅ | floor-census §2.1/§2.4 |
-| `Object#isA(_)` (the type guard) | ❌ today → **U-CORE-1** | catalog-delta §4.5; grep confirms no `isA`/`is_a` in `core.ph`/`src` |
-| `===` identity operator (for an identity fast-path) | ❌ | grep confirms no `===` in `phalcom-ast`; see SD-2 |
+| `Object#isA(_)` (the type guard) | ✅ **landed** (U-CORE-1, `03764e3`) | catalog-delta §4.5; confirmed present at `core.ph` L9 (`isA(cls) { ... }`), derived over `class`/`==`/`superclass`, no native primitive (`floor-census.md` L48–49) |
+| `===` identity operator (for an identity fast-path) | ❌ (re-confirmed) | grep confirms no `===` in `phalcom-ast`; see SD-2 |
 
 ---
 
@@ -176,7 +236,7 @@ For collections `A`, `B` of the same kind:
 
 ### 2.4 Why hashability is specified-not-enforced here (the honest framing)
 
-Once U-CORE-1 lands, `List` **inherits** `Object#hash` (an *identity* digest). That
+`List` **inherits** `Object#hash` (an *identity* digest, U-CORE-1, landed). That
 identity hash is **inconsistent** with `List`'s new *structural* `==` (two equal
 lists, different handles ⇒ equal by `==` but unequal by identity `hash`) — which is
 *precisely why* Q5 forbids mutable collections as keys. Making that safe requires
@@ -187,12 +247,12 @@ one of:
 - `Map`/`Set` key-insertion **rejects** `mutable` keys — needs `Map`/`Set`
   (**U-STD**).
 
-Neither consumer exists at U-CORE-5 time, and there is no `hash` selector to probe
-until U-CORE-1. Therefore U-CORE-5 **states H1–H3 as normative law** and encodes
-`hashable = false` for `List` in the harness (so the H2 consistency assertion is
-*skipped* for `List` — correct, `List` is a non-key), leaving **enforcement** as a
-`ContractSpec`-driven obligation the consumers inherit via R-INV-5.4. This is the
-task's "flips nothing directly; enables what U-STD flips" reality, stated plainly.
+Neither consumer exists at U-CORE-5 time. Therefore U-CORE-5 **states H1–H3 as
+normative law** and encodes `hashable = false` for `List` in the harness (so the
+H2 consistency assertion is *skipped* for `List` — correct, `List` is a non-key),
+leaving **enforcement** as a `ContractSpec`-driven obligation the consumers
+inherit via R-INV-5.4. This is the task's "flips nothing directly; enables what
+U-STD flips" reality, stated plainly.
 
 ---
 
@@ -200,12 +260,18 @@ task's "flips nothing directly; enables what U-STD flips" reality, stated plainl
 
 ### 3.1 Native (Rust floor) — **NONE**
 
-U-CORE-5 adds **no** native primitive. The floor stays at **73** installed
-bindings / **57** distinct fns (floor-census §1.1). **No ADR-0019 amendment.** The
-census audit (R-INV-0.1) must continue to read 73 after this unit. Structural `==`
-is *derivable* over the existing floor (`size`, `at`, `isA`, element `==`,
-`Number#<`, `Bool#not`/`and`, `while`), so it belongs in `.ph` per the census §3
-boundary rule.
+U-CORE-5 adds **no** native primitive. **Re-grounded at HEAD `8733afe`: the
+"73/57" figure this section originally cited is stale** — two amendments have
+landed since this doc was drafted (U-CORE-1 / ADR-0023: 73→80 bindings, 57→64
+fns; U-CORE-3 / ADR-0028: 80→85, 64→69), so the floor is **85 installed bindings
+/ 69 distinct fns today**, with U-CORE-4 (in flight) expected to land it at
+**86/70** (+1 `Number#toString`, its own ADR-0019 amendment — see
+`universe.rs`'s currently-dirty tree). **No ADR-0019 amendment from this unit.**
+The census audit (R-INV-0.1) must continue to read **whatever count U-CORE-4
+leaves it at** — read `floor-census.md` §1.1 live at dispatch time rather than
+hardcoding 73, 57, 85, 69, 86, or 70. Structural `==` is *derivable* over the
+existing floor (`size`, `at`, `isA`, element `==`, `Number#<`, `Bool#not`/`and`,
+`while`), so it belongs in `.ph` per the census §3 boundary rule.
 
 > If a future implementer is tempted to add a native `list_eq` primitive "for
 > speed," that is an **ADR-0019 amendment**, and it is a **speed** item — it goes to
@@ -214,11 +280,14 @@ boundary rule.
 ### 3.2 `.ph` — the reference-implementation conformance patch (`core.ph`, `List` reopen)
 
 **Write-set:** `phalcom-core/core/core.ph`, the `List { … }` reopen (currently
-L75–94). Add two methods. This is the **only** production-code change in U-CORE-5.
+L142–212 ⚠ *re-confirm at dispatch — `core.ph` is one of U-CORE-4's
+concurrently-edited files*). Add two methods. This is the **only**
+production-code change in U-CORE-5.
 
 ```phalcom
 class List {
-  // ... existing size / at(i) / add(v) / each(f) unchanged ...
+  // ... existing size / at(i) / add(v) / each(f) / map / filter / reduce /
+  // includes / isEmpty / at(i, put:) unchanged ...
 
   // Structural equality (decisions.md Q5, R-INV-5.3 E1–E5): element-wise,
   // order-sensitive, via each element's own `==`. Guarded by `isA(List)` so a
@@ -255,11 +324,12 @@ class List {
 Notes for the implementer:
 
 - `==(other)` interns as `==(_:)` / `!=(_:)` (`SignatureKind::Method(1)`, matching
-  how `object_eq`/`object_neq` install, universe.rs L233–234), so these shadow the
-  floor `Object#==`/`Object#!=` via ordinary method lookup (the `object_eq`
-  docstring explicitly anticipates subclass shadowing). `==` is **not** a sacred
-  selector (only `Bool`/`Block` selectors are — floor-census §5), so there is **no
-  inliner deopt to budget**.
+  how `object_eq`/`object_neq` install, universe.rs **L257–258** ⚠ *`universe.rs`
+  is one of U-CORE-4's concurrently-edited files — re-confirm at dispatch*), so
+  these shadow the floor `Object#==`/`Object#!=` via ordinary method lookup (the
+  `object_eq` docstring explicitly anticipates subclass shadowing). `==` is
+  **not** a sacred selector (only `Bool`/`Block` selectors are — floor-census
+  §5), so there is **no inliner deopt to budget**.
 - **Termination / correctness walk:** equal-size all-equal lists → `same` stays
   `true`, loop exits at `i == size`, returns `true`; first mismatch sets `same =
   false`, next condition check is `false.and(…) == false`, loop exits, returns
@@ -274,14 +344,14 @@ Notes for the implementer:
 ### 3.3 The reusable conformance harness (corpus — R-INV-5.4)
 
 Two surfaces, mirroring the repo's existing two invariant surfaces (in-process
-`tests/invariants.rs` + shell-out `tests/lang/` goldens):
+`tests/invariants.rs` + shell-out `tests/lang/` goldens).
 
 #### (a) In-process Rust harness — the **gate** — new file `phalcom-core/tests/collections_contract.rs`
 
-The literal realization of "keyed by the collection under test": a `ContractSpec`
-plus a build-closure. **U-STD certifies `Tuple`/`Map`/`Set` by calling the same
-function with a different closure** — the contract is the gate, not each class's
-ad-hoc tests.
+Confirmed **not yet created** at HEAD `8733afe`. The literal realization of
+"keyed by the collection under test": a `ContractSpec` plus a build-closure.
+**U-STD certifies `Tuple`/`Map`/`Set` by calling the same function with a
+different closure** — the contract is the gate, not each class's ad-hoc tests.
 
 ```rust
 //! Reusable conformance harness for the collection-protocol contract
@@ -304,7 +374,8 @@ struct ContractSpec {
 /// Builds a `List` from element values through the *surface* protocol
 /// (`List.new()` + `.add(_)`), so the harness exercises the same path user code
 /// does. (Resolve the `List` class as the invariants corpus resolves core
-/// classes — `vm.universe.classes.list_class` — or via the `List` global.)
+/// classes — `vm.universe.classes.list_class` (confirmed present,
+/// `universe.rs` L706) — or via the `List` global.)
 fn build_list(vm: &mut VM, elems: &[Value]) -> Value { /* new(), then add() each */ }
 
 /// Runs the full R-INV-5.x contract against whatever `build` produces. Every
@@ -339,11 +410,13 @@ Selector interning pattern (from `tests/invariants.rs`): `size` =
 
 #### (b) `.ph` golden corpus — user-observable laws + the reuse **template**
 
-New label directory `phalcom-core/tests/lang/collections/`, wired by a
-`collections()` → `support::check_pass("collections")` fn in
-[`tests/lang.rs`](../../../../phalcom-core/tests/lang.rs) (mirroring `list()` at
-L169). All fixtures in **already-supported** `List.new()`/`.add(_)` syntax (no
-lexer dependency). They double as the **template** U-STD copies per collection,
+New label directory `phalcom-core/tests/lang/collections/` (confirmed **not yet
+created** at HEAD `8733afe`), wired by a `collections()` →
+`support::check_pass("collections")` fn in
+[`tests/lang.rs`](../../../../phalcom-core/tests/lang.rs) (mirroring `list()`,
+re-verified now at **L194**, was L169 at the doc's original drafting). All
+fixtures in **already-supported** `List.new()`/`.add(_)` syntax (no lexer
+dependency). They double as the **template** U-STD copies per collection,
 swapping only the constructor prologue.
 
 | Fixture (`collections/`) | Proves | Law |
@@ -401,9 +474,12 @@ System.print(total)    // 1*10 + 1*20 + 2*10 + 2*20 = 90
 ```
 `.expected`: `90`
 
-> **Do not duplicate** the existing `list/list_to_string_renders_brackets.ph` or
-> `list/list_each_sums_elements.ph`. Those guard `List`'s *own* unit; the
-> `collections/` corpus guards the *shared contract*.
+> **Do not duplicate** the existing `list/list_to_string_renders_brackets.ph`,
+> `list/list_each_sums_elements.ph`, or — landed since this doc was originally
+> drafted (U-STD, `5e2b395`) — `list/list_map_and_filter.ph`,
+> `list/list_reduce_sum.ph`, `list/list_includes_and_isempty.ph`,
+> `list/list_at_put.ph`. Those guard `List`'s *own* unit; the `collections/`
+> corpus guards the *shared contract*.
 
 ---
 
@@ -412,10 +488,13 @@ System.print(total)    // 1*10 + 1*20 + 2*10 + 2*20 = 90
 ### 4.1 Acceptance bar (green **today**, against `List`)
 
 - `cargo test --test collections_contract` — `list_satisfies_sequence_contract`
-  passes (the in-process gate).
-- `cargo test --test lang collections` — the `collections/` golden corpus passes.
-- `cargo test --test invariants` — unchanged; **R-INV-0.1 still reads 73 floor
-  bindings** (proves no native primitive slipped in).
+  passes (the in-process gate). Confirmed **not yet created** at HEAD `8733afe`.
+- `cargo test --test lang collections` — the `collections/` golden corpus
+  passes. Confirmed **not yet created** at HEAD `8733afe`.
+- `cargo test --test invariants` — unchanged; **R-INV-0.1 still reads whatever
+  floor-binding count U-CORE-4 landed it at** (85 today, 86 expected
+  post-U-CORE-4 — read it live rather than hardcoding "73"; proves no native
+  primitive slipped in).
 
 ### 4.2 Invariants this unit adds
 
@@ -438,14 +517,22 @@ flip:
 
 | Fixture (`…/pending/`) | Real blocker | Flips when |
 |---|---|---|
-| `blocks/blocks_argument_to_method` | `[…]` literal + `List#reduce` | U-LEX + **U-STD** (`reduce` builds on this unit's `each`) |
-| `dispatch/dispatch_rest_param` | `numbers.reduce(…)` → dnu | **U-STD** (DEFERRED #25) |
-| `lexical/lexical_map_literal` / `_set_literal` / `_tuple_literal` | literal syntax + the class | U-LEX + collections (each certified against **this** corpus) |
+| `blocks/blocks_argument_to_method` | ~~`[…]` literal + `List#reduce`~~ **already resolved** — `reduce` landed (`core.ph` L185–189, `5e2b395`); `pending-retirement.md` §2 confirms this fixture has already been `git mv`'d out of `pending/` (re-confirmed on disk: it now lives at `tests/lang/blocks/blocks_argument_to_method.ph`, no `pending/` in its path) | **already green — not a U-CORE-5-gated item** |
+| `dispatch/dispatch_rest_param` | ~~`numbers.reduce(…)` → dnu~~ **blocker resolved** — `List#reduce` landed (same commit); `pending-retirement.md` L95 marks it "flips … move to `dispatch/`," but re-confirmed on disk the fixture **still physically sits** at `tests/lang/dispatch/pending/dispatch_rest_param.ph` — an un-executed tree-move, not a functional blocker | **blocker already gone; only a standing retirement-cleanup TODO remains, owned by whoever runs that sweep — not U-CORE-5** |
+| `lexical/lexical_map_literal` / `_set_literal` / `_tuple_literal` | literal syntax + the class (`Map`/`Set`/`Tuple` are still ❌/❌ in catalog-delta §2.4 — confirmed "entire class" not yet started) | U-LEX + collections (each certified against **this** corpus) |
 
 **Acceptance is therefore the new unit-local `collections/` corpus + the
 `collections_contract.rs` gate passing against `List` today**, not any lexer- or
 U-STD-gated fixture (the pending-retirement.md §4 rule for units whose capability
 lands ahead of the surface syntax).
+
+> **Re-grounding note.** The first two rows above turned out to be **already
+> resolved by U-STD's `reduce`**, independent of this unit — they were never
+> really "enabled by U-CORE-5," they were enabled by the pre-existing
+> `each`/`reduce` combinators (§0.2). This doc's original framing ("U-CORE-5
+> enables what U-STD then flips") slightly overstated the causal link for those
+> two rows. The `lexical_*_literal` trio is the only row still genuinely gated
+> on collections (`Map`/`Set`/`Tuple`) landing.
 
 ---
 
@@ -508,10 +595,10 @@ structural `==` and the acceptance bar is "corpus green against `List` today"
   E-laws untestable against `List` today, gutting the central Q5 decision.
 
 **SD-2 — Identity fast-path / `===` for reflexivity-under-`NaN` + cycle
-termination?** `===` does not exist (§1.4). Without it, `List#==` cannot
-short-circuit on identity, so (a) a `List` containing `NaN` is non-reflexive
-(`[nan] == [nan]` element-compare is `false`), and (b) a self-referential list
-(`l.add(l)`) recurses unboundedly.
+termination?** `===` does not exist (§1.4, re-confirmed at HEAD `8733afe`).
+Without it, `List#==` cannot short-circuit on identity, so (a) a `List`
+containing `NaN` is non-reflexive (`[nan] == [nan]` element-compare is `false`),
+and (b) a self-referential list (`l.add(l)`) recurses unboundedly.
 - *Recommendation: **DEFER** — no floor amendment.* The corpus builds only
   well-behaved (finite, acyclic) element lists, so "green today" holds and E3 is
   satisfied for the tested domain. Document the `NaN`/cycle caveat (below).
@@ -540,13 +627,16 @@ short-circuit on identity, so (a) a `List` containing `NaN` is non-reflexive
   leaves inequality identity-based and silently inconsistent. The
   `sequence_structural_equality.ph` golden asserts `a != c` explicitly to catch a
   missing/incorrect `!=` override.
-- **Ordering dependency:** implementing before **U-CORE-1** lands `isA` makes the
-  `==` body fail at dispatch. §0.3 marks this a hard, ordered prerequisite.
+- **Ordering dependency — SATISFIED.** U-CORE-1 has landed (`03764e3`); `isA` is
+  confirmed present (`core.ph` L9). The historical risk ("implementing before
+  U-CORE-1 lands `isA` makes the `==` body fail at dispatch") no longer applies;
+  §0.3 still records it as the reason for the ordering.
 - **Hashability is unenforced today (§2.4):** a reader may assume `List` is safely
-  a `Map` key because it "has a hash" (inherited identity). H1–H3 + R-INV-5.4 make
-  the rejection a consumer obligation; the risk is a `Map`/`Set` author *forgetting*
-  to reject mutable keys. Mitigation: R-INV-5.4 makes the `ContractSpec.hashable`
-  flag the gate every collection is certified through.
+  a `Map` key because it "has a hash" (inherited identity, now concretely landed
+  via U-CORE-1). H1–H3 + R-INV-5.4 make the rejection a consumer obligation; the
+  risk is a `Map`/`Set` author *forgetting* to reject mutable keys. Mitigation:
+  R-INV-5.4 makes the `ContractSpec.hashable` flag the gate every collection is
+  certified through.
 
 ### 6.3 Traceability
 
@@ -554,13 +644,14 @@ short-circuit on identity, so (a) a `List` containing `NaN` is non-reflexive
 |---|---|
 | Contract = selectors + laws, not new classes | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q5; catalog-delta §2.4 |
 | Mutable by default; `==` structural; mutable⇒not-hashable | [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q5 |
-| `List` reference protocol (`size`/`at`/`add`/`each`) | `core.ph` L75–94; floor-census §2.13/§3; `src/list.rs`; `src/primitive/list.rs` |
-| `List` equality is identity today (the gap) | `value.rs` L213–240; `primitive/object.rs` L62–70 (`object_eq`/`object_neq`) |
-| `==`/`!=` install as `Method(1)`, not sacred | `universe.rs` L233–234; floor-census §2.1/§5 |
-| `at` out-of-range → `None` singleton | `primitive/list.rs` L72–79; invariants.rs (absence precedent) |
-| `isA(_)` / `hash` are U-CORE-1 | catalog-delta §4.5; [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q1; invariant-requirements 1.2/1.3 |
+| `List` reference protocol (`size`/`at`/`add`/`each`) | `core.ph` **L143–160** (⚠ shifts with U-CORE-4, re-confirm at dispatch; was L75–94 pre-U-STD); floor-census §2.13/§3; `src/list.rs`; `src/primitive/list.rs` |
+| `List` combinators (`map`/`filter`/`reduce`/`includes`/`isEmpty`/`at(_,put)`) already landed, pre-dating this unit | commits `5e2b395`/`176d454`; `core.ph` L162–211; `catalog-delta.md` §2.4 ("combinators landed"); `pending-retirement.md` §2/L95 |
+| `List` equality is identity today (the gap) | `value.rs` **L245–272** ⚠; `primitive/object.rs` **L119–127** ⚠ (`object_eq`/`object_neq`) — both files concurrently edited by U-CORE-4, re-confirm at dispatch |
+| `==`/`!=` install as `Method(1)`, not sacred | `universe.rs` **L257–258** ⚠ (concurrently edited by U-CORE-4, re-confirm at dispatch); floor-census §2.1/§5 |
+| `at` out-of-range → `None` singleton | `primitive/list.rs` L72-79 (re-verified unchanged); invariants.rs (absence precedent) |
+| `isA(_)` / `hash` are U-CORE-1 — **landed** (`03764e3`) | catalog-delta §4.5; [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q1; invariant-requirements 1.2/1.3 |
 | R-INV-5.1…5.4 all corpus | [`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) §4 U-CORE-5 |
-| Flips nothing directly; enables U-STD/U-LEX fixtures | [`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) §4 |
-| No floor amendment; census stays 73 | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md); floor-census §1.1/§7 |
+| Flips nothing directly; enables U-STD/U-LEX fixtures (2 of 3 rows turned out already resolved, see §4.3 re-grounding note) | [`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) §4 |
+| No floor amendment; census stays wherever U-CORE-4 lands it (85 today → 86 expected) | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md); floor-census §1.1/§7 |
 | int/float-safe by element delegation; fiber-safe iteration | [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §4, §1 |
 | Harness surfaces mirror in-process + golden precedent | `tests/invariants.rs`; `tests/support/mod.rs`; `tests/lang.rs` |
