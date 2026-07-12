@@ -16,7 +16,10 @@ see STATE.md; also fixed a pre-existing bug that made `core.ph` inert)**,
 **U9 (ADR-0012amd, 2026-07-12 — in-tree, no worktree, reviewer OFF per policy, see STATE.md;
 rest params `*name` + `SignatureKind::Variadic`/`(*)` selector + call-prologue rest-arg collapse
 + derived-selector miss probe)**.
-**U10 ✅ LANDED (2026-07-12) — non-local return. Stopped at the U10 hard boundary — U-LEX/U-STD/U11 not dispatched yet.**
+**U10 ✅ LANDED (2026-07-12) — non-local return.**
+**U-LEX ✅ LANDED, U-STD ✅ LANDED, U11 ✅ LANDED (all 2026-07-12) — all 15 units in this
+roster are now landed on `main`. See §7 for the successor track (`docs/spec/core/`,
+U-CORE-1..6), which picks up where this roster leaves off.**
 Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 
 ## 1. Unit plan roster (each is a self-contained work order)
@@ -32,7 +35,7 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 | U8 | [U8-plan.md](U8-plan.md) · **✅ LANDED** (see STATE.md) | `doesNotUnderstand(_:)` / `perform` + `send_dynamic` (opcode deferred to U9) | 0012 · method-lookup.md | — (reviewer OFF per policy) |
 | U9 | [U9-plan.md](U9-plan.md) / [U9-implementation-spec.md](U9-implementation-spec.md) · **✅ LANDED** (see STATE.md) | variadics — rest params `*xs`, `SignatureKind::Variadic`/`(*)` selector, call-prologue rest-arg collapse, derived-selector miss probe (reused `ClassObject.methods`, no new table) | 0012amd · messages-and-selectors.md §4 | — (reviewer OFF per policy) |
 | U10 | [U10-plan.md](U10-plan.md) / [U10-implementation-spec.md](U10-implementation-spec.md) · **✅ LANDED** (see STATE.md) | non-local return — `return` inside a block unwinds to the home method via frame token (`Bytecode::ReturnNonLocal` + eager unwind + `DeadFrameError`) | 0013 · blocks.md §5 | — (reviewer OFF per policy) |
-| U11 | [U11-plan.md](U11-plan.md) | Bool tower: abstract `Bool` + singleton `True`/`False` | 0004 | — |
+| U11 | [U11-plan.md](U11-plan.md) · **✅ LANDED (2026-07-12)** (see STATE.md) | Bool tower: abstract `Bool` + singleton `True`/`False` | 0004 | — (reviewer OFF per policy) |
 | U-LEX | [U-LEX-plan.md](U-LEX-plan.md) / [U-LEX-implementation-spec.md](U-LEX-implementation-spec.md) · **✅ LANDED (2026-07-12)** (see STATE.md) | surface-syntax delta: block comments `/* … */`, digit separators `1_000_000`, lexer-level newline suppression, `?.`/`??` coverage (U6-landed, fixture only), `\(expr)` string interpolation | 0016 · **0022** · lexical-structure.md | — (reviewer OFF per policy) |
 | U-STD | ✅ **LANDED (2026-07-12)** [U-STD-implementation-spec.md](U-STD-implementation-spec.md) | **Built Option (B) per user ratification** — the `Option`+`List` combinator layer (map/flatMap/filter/ifSome/unwrapOr; map/reduce/filter/includes/isEmpty/at(_:put:)), pure `.ph`, zero new primitives. The plan's Object/Number/String/Symbol/System scope was ~90% already-landed or re-carved to future `U-CORE-N` (see DEFERRED #29). | catalog-delta §2.2/§2.4 | — |
 
@@ -124,3 +127,38 @@ Soft flags (architect can proceed on the recommendation; confirm if you disagree
 - **U4/U10 boundary** made crisp: U4 = closures/upvalues/`call` + frame-token *infrastructure* (ships no non-local-return); U10 = `ReturnNonLocal` opcode + unwind + `DeadFrameError`.
 - **U2 rewrites 3 currently-green invariant tests** (they encode the collapsed F6 apex) — not just "un-ignore 2".
 - **F4 (`object_name`/instance `toString`, ADR-0015)** scoped OUT of U2 → needs a home unit (see DEFERRED).
+
+## 7. Successor track — `docs/spec/core/` (U-CORE-1..6)
+
+**This roster is closed** — all 15 units above (U1–U11 + U-LIST + U-FE) are landed. The
+next work is planned in a **separate, HEAD-grounded spec track** at `docs/spec/core/`,
+not in this file. That track **subsumes** the coarser "grow Object/Number/String/Symbol/
+System" scope this roster originally sketched for a future unit (see DEFERRED #29,
+now resolved): U-STD built only the unblocked `Option`+`List` combinator residual, and
+everything else re-carved into the units below. Do not add new `U-CORE-N` rows here —
+`docs/spec/core/README.md` is the index of record for this track; this section only
+points at it so the two trees don't fork again.
+
+| Unit | Mission (1-line) | Spec | Status |
+|---|---|---|---|
+| U-CORE-0 | requirements/rulings: floor census, bootstrap phases, sacred-selector set, catalog delta, pending-retirement map, invariant-requirements, forward-compat | [`docs/spec/core/README.md`](../spec/core/README.md) | ✅ 7/7 docs done |
+| U-CORE-1 | kernel reflection — `Object#hash`, `Object#isA(_)`, `Behavior#name`/`methods`, `Method < Function` re-parent | [`U-CORE-1-implementation-spec.md`](../spec/core/U-CORE-1-implementation-spec.md) | dispatch-ready |
+| U-CORE-2 | `Bool` half-Option fix + core `Option` combinators | [`U-CORE-2-implementation-spec.md`](../spec/core/U-CORE-2-implementation-spec.md) | mostly landed (`0da64d6`); residue only |
+| U-CORE-3 | callables/`Block`/`Method` reflection — hard prereq for iteration methods | [`U-CORE-3-implementation-spec.md`](../spec/core/U-CORE-3-implementation-spec.md) | dispatch-ready |
+| U-CORE-4 | value classes: per-type `toString` overrides (closes DEFERRED #30) | [`U-CORE-4-implementation-spec.md`](../spec/core/U-CORE-4-implementation-spec.md) | dispatch-ready |
+| U-CORE-5 | collection protocol contract (shared interface; `List` already satisfies most of it) | [`U-CORE-5-implementation-spec.md`](../spec/core/U-CORE-5-implementation-spec.md) | dispatch-ready |
+| U-CORE-6 | `Error` root + wire the existing dNU miss path to raise `MessageNotUnderstood` | [`U-CORE-6-implementation-spec.md`](../spec/core/U-CORE-6-implementation-spec.md) | dispatch-ready |
+
+**Recommended order:** U-CORE-1 → U-CORE-3 → U-CORE-2 (residue check) → U-CORE-4 → U-CORE-5 →
+U-CORE-6 (`docs/spec/core/README.md` §"Status").
+
+**Cross-unit gates:**
+- **`universe.rs::create_core_classes` Method re-parent** is shared by U-CORE-1 and
+  U-CORE-3 — whichever lands first makes the change, the other asserts it (R-INV-1.5/3.1).
+  Never co-schedule the two in the same wave.
+- **`Object#hash` (U-CORE-1) blocks `Map`/`Set`** (a future collections unit, not yet
+  named) — hashing/membership needs value hashing not derivable in pure `.ph` (DEFERRED #27).
+- **ADR-0019 amendment gate**: `hash` + `Behavior` reflection (U-CORE-1), `Method`
+  reflection (U-CORE-3), `Number#toString` (U-CORE-4), and `Error#message`/`raise`
+  (U-CORE-6) are folded into one **omnibus ADR-0023** rather than four separate
+  amendments — see [ADR-0023](../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md).

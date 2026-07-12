@@ -5,7 +5,11 @@
 > catalog↔code divergences **§4.1** (Method superclass) and **§4.4** (per-type
 > `toString`). Each ruling names the owning unit and whether it needs an ADR.
 
-> **Baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6`.
+> **Baseline:** HEAD `0f84232`; last code-affecting commit `0da64d6`. (Repinned
+> 2026-07-12 to fold in U10/U-LEX/U-STD/U11 — none of these landings affect the
+> Q1–Q5/§4.1/§4.4 rulings below; they were docs/`.ph`/compiler-only, no floor
+> primitive added. See [`floor-census.md`](./floor-census.md) for the itemized
+> re-baseline.)
 >
 > **Numbering caveat.** These **Q**s are the U-CORE *requirements-analysis*
 > numbers (Q1 hash, Q2 errors, Q4 prelude, Q5 collections). They are **not**
@@ -16,7 +20,7 @@
 
 | Q / § | Question | Ruling | ADR action | Owner |
 |---|---|---|---|:--:|
-| **Q1** | Is `Object#hash` a floor primitive? | **Yes** — hash needs native access to representation/identity; underivable in `.ph`. | **ADR-0019 amendment** (proposed §Q1 below) | U-CORE-1 |
+| **Q1** | Is `Object#hash` a floor primitive? | **Yes** — hash needs native access to representation/identity; underivable in `.ph`. | **ADR-0019 amendment — ratified as [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) (Accepted)** | U-CORE-1 |
 | **Q2** | Error mechanism | **Confirm [ADR-0008](../../adr/0008-layered-exceptions-and-result.md)** — layered exceptions + `Result`, terminating, one unwind. Do not redesign. | none (note only) | U-CORE-6 |
 | **Q4** | Prelude / global model | Kernel names are **the core module's exports, auto-imported** into every unit; user `import` deferred to the module unit. | none (ruling) | (module unit) |
 | **Q5** | Collection mutability + equality | **Mutable by default**; sequence `==` is **structural**; **mutable collections are not hashable**, immutable ones are (Python-precedented). | none (contract in U-CORE-5) | U-CORE-5 |
@@ -52,7 +56,9 @@ also native. It lands with **U-CORE-1** (the reflection unit that owns the
 universal `Object` protocol) and **blocks `Map`/`Set`** (U-STD), not U-CORE-1
 itself.
 
-**Proposed ADR-0019 amendment (lift into a new ADR when U-CORE-1 lands):**
+**Ratified as [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
+(Accepted, 2026-07-12)** — the omnibus amendment covering this ruling plus the
+U-CORE-3/4/6 amendments (README.md §"Cross-spec integration notes" note 2). Text:
 
 > *Amends ADR-0019.* Add to the frozen floor: `Object#hash` (identity digest of
 > the handle) and per-immediate `hash` overrides on `Number`/`String`/`Symbol`/`Bool`.
@@ -63,6 +69,10 @@ itself.
 > so a future Int/Float split (open-Q2) keeps `2` and `2.0` hashing equal.
 > Floor count moves **73 → 73 + N** where N = the installed hash bindings; update
 > [`floor-census.md`](./floor-census.md) in the same change.
+
+**Note.** ADR-0023 admits these primitives to the floor *in principle*; each is
+still *installed* only when its owning unit (U-CORE-1 for `hash`/`Behavior`
+reflection) actually lands and bumps the census.
 
 ## Q2 — Error mechanism: confirm ADR-0008, do not redesign
 

@@ -7,7 +7,9 @@
 > It converts the "coverage gaps" ledger in [`bootstrap-phases.md`](./bootstrap-phases.md)
 > §6 into a per-unit checklist (R-INV) with acceptance-grade assertions.
 
-> **Baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6`.
+> **Baseline:** HEAD `0f84232`; last code-affecting commit `0da64d6`. (Repinned
+> 2026-07-12 to fold in U10/U-LEX/U-STD/U11 — none added a floor primitive or
+> changed the invariant surface described here.)
 
 ## 1. Two invariant surfaces (where an assertion goes)
 

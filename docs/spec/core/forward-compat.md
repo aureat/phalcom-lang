@@ -8,7 +8,9 @@
 > that subsystem lands. Every U-CORE implementation spec must pass this checklist
 > under **"what must this not preclude."**
 
-> **Baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6`. Sources:
+> **Baseline:** HEAD `0f84232`; last code-affecting commit `0da64d6`. (Repinned
+> 2026-07-12 to fold in U10/U-LEX/U-STD/U11 — none added a floor primitive or
+> changed a "must not preclude" hazard below.) Sources:
 > [`concurrency.md`](../concurrency.md), [ADR-0008](../../adr/0008-layered-exceptions-and-result.md)
 > + [`error-handling.md`](../error-handling.md), [`open-questions.md`](../open-questions.md)
 > §2 (numbers) / §8 (modules), [ADR-0010](../../adr/0010-tagged-value-enum.md).
@@ -163,3 +165,121 @@ open; object-model §4's tower rules "already accommodate it."
 | `import` token exists, semantics open | [`open-questions.md`](../open-questions.md) §8 |
 | Single flat `f64`; surface Int/Float split open | [ADR-0005](../../adr/0005-number-as-flat-f64.md); [`open-questions.md`](../open-questions.md) §2 |
 | `Value` is an extensible tagged enum | [ADR-0010](../../adr/0010-tagged-value-enum.md) |
+
+---
+
+## 7. Concurrency — code-grounded foreclosure audit (Fiber/Future deep-dive)
+
+> **Extends §1.** §1 was written against [`concurrency.md`](../concurrency.md);
+> this section re-checks each *already-landed* VM decision against the **actual
+> tree at the U11 baseline** (U1 heap, U4 blocks/closures, U8 dNU/`perform`, U9
+> variadics, U10 non-local return) and cites file+line. It **confirms** §1's
+> verdict for six decisions, **corrects** §1(a) on one point (no new `Value`
+> arm), and **surfaces one hazard §1 did not name**: the VM dispatch loop is
+> *re-entrant across native frames*, which is the single largest complication for
+> `Fiber.yield`. Owner: forward-compat pass for concurrency (2026-07-12).
+> Design-space grounding: `.claude/skills/language-design/references/vm.md`
+> ("Frames on native C stack vs heap/VM stack"; hazard *native-stack frames ⊗
+> suspendable control*) and `…/references/concurrency.md` (CROWN-JEWEL hazards
+> *stackful-fiber ⊗ moving/native-stack GC* and *non-local-return ⊗ fiber
+> boundary*).
+
+### 7.1 Per-decision verdicts (verified against code)
+
+| # | Landed decision | Where (file:line / ADR) | Forecloses Fiber/Future? | Constraint to preserve |
+|---|---|---|---|---|
+| D1 | **Handle/arena heap** — objects live in a central `Heap`, referenced by `Copy` `ObjRef`; designed so a tracing GC can relocate behind the handle. | ADR-0009; `heap.rs` `enum Object` L67. | **No.** A `FiberObject` becomes one more `Object::Fiber(...)` arena variant, reached by `ObjRef`. Owning `Vec<Value>` + `Vec<CallFrame>` inside it is fine. | When a real GC lands, a *suspended* fiber's `stack`/`frames` are live roots the collector must scan (design-space CROWN JEWEL). ADR-0009 already promises arena scanning; keep the fiber's stacks **inside the arena object**, not in native memory, so the future collector reaches them the same way. |
+| D2 | **Tagged `Value` enum** — `Nil / Bool(bool) / Number(f64) / Symbol / Obj(ObjRef)`; *every* heap object (incl. native `List`) is `Value::Obj`. | ADR-0010; `value.rs` `enum Value` L31–44. | **No — and §1(a) is imprecise.** §1(a)/§6 say `Fiber` is a *new `Value` arm* (`Value::Fiber(PhRef<FiberObject>)`), echoing `concurrency.md` §1. That phrasing **predates the handle heap.** The landed model gives no heap type its own `Value` arm — `List` proves the pattern. `Fiber` should be `Object::Fiber` + `Value::Obj(ObjRef)`, **no new `Value` arm**. This *removes* §1(b)'s "closed `Value` enum" hazard entirely. | Do **not** add a `Value::Fiber` arm; follow the `List` precedent. `PhRef<FiberObject>` in `concurrency.md` is stale — the handle is `ObjRef`. |
+| D3 | **Single VM value stack + frame stack** — `VM { frames: Vec<CallFrame>, stack: Vec<Value> }`. | `vm.rs` L52/L54. | **No (mechanical).** §1's stated relocation: hoist "current stack/frames" behind `current: ObjRef` into the running `FiberObject`; `call`/`yield` swap which fiber the loop reads. `CallFrame.stack_offset` is a **relative** window index (`frame.rs` L75), so per-fiber stacks starting at 0 keep every offset valid — no rebasing. | The relocation must be a pointer/handle swap, **not** a copy (`concurrency.md` §1 pt 2: O(1) switch). Keep `stack_offset` frame-relative. |
+| D4 | **Frame-token non-local return** — `FrameToken { frame_index, generation }`; `generation` from a **VM-global** monotonic `next_frame_generation`; `ReturnNonLocal` unwinds eagerly, matching the live home frame by `(index, generation)` else `DeadFrameError`. | ADR-0013; `frame.rs` L19–24; `vm.rs` `next_frame_generation` L72/583, `ReturnNonLocal` L1075–1125. | **No — fiber-locality falls out for free.** Once `self.frames` is the *current fiber's* vector, `ReturnNonLocal`'s `self.frames.get(token.frame_index)` searches only that fiber; a token whose home is on another fiber fails the lookup ⇒ `DeadFrameError` — exactly `concurrency.md` §3 ("`return` across a fiber boundary raises `DeadFrameError`"). Design-space CROWN JEWEL *non-local-return ⊗ fiber boundary* is thus **already handled by construction.** | **Load-bearing invariant: `next_frame_generation` MUST stay VM-global, never relocated into `FiberObject`.** A per-fiber generation counter would let fiber B's `frame_index=k, generation=g` collide with a live frame in fiber A at the same `(k,g)`, silently returning into the **wrong fiber's** frame. The global monotonic counter is the only thing making the cross-fiber token globally non-matching. |
+| D5 | **`Invoke`/`call_method` shape** — a Phalcom→Phalcom send *pushes a `CallFrame`* and returns to the same loop (no native recursion); a **primitive** runs `native_fn` in Rust and detects post-call frame-count shrink to reconcile a non-local return that fired inside it. | `vm.rs` `call_method` L390–453 (Closure arm L431–451 = frame push; Primitive arm L393–430 = `frames_before` heuristic). | **Partly (see 7.2).** The Closure arm is trampolined and fiber-friendly. The Primitive arm's `frames_before`/`frames.len()` heuristic assumes *"frame count changed ⇒ a non-local return unwound."* A **fiber switch also changes `frames.len()`** (different fiber, different depth). These two "frame count moved" causes must be disambiguated, or a fiber swap will be misread as a non-local return. | The fiber-switch signal must be **distinct** from the non-local-return signal at this call site — e.g. a typed `ControlFlow`/switch enum out of the primitive, not an implicit length delta. |
+| D6 | **Metaclass tower** (parallel rule, `Behavior` kernel, `verify_invariants`). | ADR-0002/0003; `object-model.md` §5–6. | **No.** `Fiber`/`Future` are ordinary heap classes; the class-side selectors `yield(_)`/`current`/`abort(_)`/`async(_)` are metaclass methods like any other. No apex/tower change. | New kernel classes must pass `verify_invariants()` (parallel-rule) at bootstrap, same as every other class. |
+| D7 | **Error/unwind is one primitive** — `return`/`throw`/fiber `abort` share one stack unwind; `ensure` fires on any. | ADR-0008; overlay §Unwind. Today only `return`'s half exists (U10 `ReturnNonLocal`); `throw`/`ensure` are unbuilt (U-CORE-6). | **No, but sequences after Errors.** Fiber *failure* (`failed` status, `try`, `error`, `abort`, `Future` reject) is a *payload of the same unwind*: an error unwinds the failed fiber's **own** frames to empty, stores the `Error` in its result slot, and resumes the resumer (`concurrency.md` §1 pt 4). The eager, fiber-local unwind style of `ReturnNonLocal` (L1078: "unwind happens eagerly, here, in one shot") is the correct template. | The U-CORE-6 unwind must operate on **`self.frames` = the current fiber only**, and must be able to **stop at the fiber's floor** (not the process floor) so failure is *captured*, never host-terminating (§2 hazard: "do not special-case `throw` as host-process termination"). |
+
+### 7.2 The hazard §1 did not name — the re-entrant dispatch loop
+
+**Finding.** The VM loop is **not a flat trampoline.** Pure Phalcom→Phalcom
+sends *are* trampolined — `call_method`'s Closure arm pushes a `CallFrame`
+(`vm.rs` L450) and the single `run_until` loop (L739) picks it up with no native
+recursion. **But every path where a Rust primitive needs a synchronous `Value`
+back from Phalcom code re-enters `run_until` recursively, growing the native
+Rust stack:**
+
+- `block_call` → `vm.run_until(base_frames)` (`primitive/block.rs` L114);
+- `send_dynamic`/`perform` → `run_until(base_frames)` (`vm.rs` L565);
+- `forward_does_not_understand` (same re-entrancy pattern, `vm.rs` L499+);
+- **transitively, any collection/combinator primitive that calls a block** —
+  `List.each`, `Option.map`, `reduce`, etc. — because they bottom out in
+  `block_call`.
+
+So when the running fiber is *inside such a primitive*, one or more **native
+Rust frames sit between the fiber's entry and the `Fiber.yield` call site.**
+`concurrency.md` §1's model — "repoint `current`, then **return to the dispatch
+loop**, which resumes at the new fiber's saved `ip`" — reaches only the
+**innermost** `run_until`, not the top-level one. You cannot repoint a handle and
+keep going, because the suspended fiber's position *is* those native frames, and
+returning out of them destroys it. This is precisely the design-space CROWN
+JEWEL **native-stack frames ⊗ suspendable control** (`vm.md`): a native-stack
+activation forecloses suspension "without a CPS/state-machine rewrite."
+
+**Precise scope (the good news).** The foreclosure is *not* total. It bites
+**only** across a re-entrant primitive boundary. A fiber whose body only does
+pure Phalcom sends and **inlined** control flow can suspend freely, because those
+are trampolined (the U5 sacred-selector inliner lowers `while`/`ifTrue:` to
+`Jump`/`Loop` opcodes *within one chunk* — no frame push, no native frame). The
+canonical `concurrency.md` §1 generator —
+
+```phalcom
+Fiber.new { let n = 0; while (true) { Fiber.yield(n); n = n + 1 } }
+```
+
+— uses an **inlined `while`**, so it suspends across only the *one* native frame
+of the resuming `call` primitive itself. The form that is foreclosed under the
+cheap model is the **callback generator**: `Fiber.new { list.each { Fiber.yield(x) } }`,
+where `yield` sits under `each`'s native `block_call`.
+
+**This is the load-bearing open decision** and belongs in
+[`open-questions.md`](../open-questions.md) (it is **not** currently listed there;
+overlay §OPEN lists only structured-concurrency / `select`-`race` / scheduler
+fairness). The three positions, and which pieces each foreclosure gate:
+
+| Option | What it is | Cost | Forecloses later? |
+|---|---|---|---|
+| **A — restricted (Lua 5.1 style)** | Fiber switch integrates with the **top-level** `run_until` only; `Fiber.yield` while a re-entrant primitive is on the native stack raises `CannotYieldAcrossNativeFrame`. | Small VM change (a switch signal + top-loop honoring it). No collection rewrite. | **No.** Lifting the restriction later (Option B) is purely additive. Keeps ADR-0009's GC-ready arena claim intact (no native stacks to scan). |
+| **B — full trampoline** | De-recurse *every* callback primitive (`block_call`, `each`, `map`, `reduce`, `perform`, dNU forward) so they push work onto the VM frame stack instead of calling `run_until`. Yield works anywhere. | Large, invasive rewrite of the primitive/callback protocol. | No — strictly more capable than A. |
+| **C — stackful** | Give each fiber a real native stack (`corosensei`/`makecontext`-style switch). Yield crosses native frames. | Adds an `unsafe` stack-switch dependency; **directly collides** with the CROWN-JEWEL *stackful-fiber ⊗ moving/native-stack GC* hazard — every suspended fiber's native stack becomes a root the future collector must scan/relocate, weakening ADR-0009. | Constrains the GC design permanently. |
+
+**Recommendation (audit, non-binding — this is for the user / an ADR to decide):**
+ship **Option A first.** It is the smallest correct step, keeps the spec's own
+canonical example working (inlined `while`), avoids the GC crown-jewel entirely,
+and does not foreclose Option B (the restriction is a *guard* later removed).
+This is captured as **BLOCKED-ON-DECISION** in the U14 plan and must be resolved
+**before** the fiber execution-model unit (U14.2) is scheduled.
+
+### 7.3 Invariants a pre-Fiber unit MUST NOT break
+
+1. **Keep `next_frame_generation` VM-global** (D4). Any refactor that moves it
+   into per-frame or per-context state breaks cross-fiber `DeadFrameError`.
+2. **No new `Value` arm for heap types** (D2). Reach `FiberObject` through
+   `Value::Obj(ObjRef)` + an `Object::Fiber` variant, matching `List`.
+3. **Do not conflate "frame count changed" with "non-local return"** at the
+   primitive call site (D5). Leave room for a *third* cause (fiber switch) by
+   keeping the reconciliation an explicit signal, not a length heuristic that a
+   fiber switch would trip.
+4. **Keep the eager, fiber-local unwind shape** (D4/D7). The U-CORE-6 error
+   unwind must be expressible as "unwind `self.frames` to a floor," where the
+   floor can be a *fiber* floor, not only the process floor.
+5. **Keep `stack_offset` frame-relative** (D3), so a per-fiber stack needs no
+   rebasing.
+
+### 7.4 Corrections to §1 (record)
+
+- §1(a)/§6: "`Fiber` = **new `Value` arm**" → **superseded**: `Fiber` is an
+  `Object::Fiber` heap variant reached via `Value::Obj`; **no new `Value` arm**
+  (D2). `concurrency.md` §1's `Value::Fiber(PhRef<FiberObject>)` predates
+  ADR-0009/0010 and should be read as "a `FiberObject` on the heap."
+- §1(b) hazard "closed `Value` enum" is **moot** under the handle heap — heap
+  types don't take `Value` arms.
+- §1 omitted the **re-entrant `run_until`** hazard (7.2), which is the actual
+  dominant complication. §1's "single global VM stack" worry is the *easy*
+  (mechanical) part; the *hard* part is native-frame re-entrancy.

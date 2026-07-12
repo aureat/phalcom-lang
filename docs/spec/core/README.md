@@ -33,12 +33,18 @@ Every table here is derived from ground-truth source, not aspiration:
 These docs reconcile against a **live tree**, so staleness is kept explicit
 rather than silent: each data-bearing doc pins the commit it reflects.
 
-- **Current baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6`
+- **Current baseline:** HEAD `0f84232`; last code-affecting commit `0da64d6`
   (**U-CORE-2 partial** — see below). Folds in **U8** (`Object` reflective
-  surface + the `Message` class), **U9** (variadics), and **U-CORE-2's** Bool
-  half-Option fix + core `Option` combinators. Floor count is **unchanged at 73**
-  across this bump: `0da64d6` added a `wrap_some` helper and a `WrapSome`
-  bytecode op, neither of which is a bound floor primitive.
+  surface + the `Message` class), **U9** (variadics), **U-CORE-2's** Bool
+  half-Option fix + core `Option` combinators, and since the last pin: **U10**
+  (non-local return), **U-LEX** (surface syntax, `\(expr)` interpolation),
+  **U-STD** (Option/List combinators), and **U11** (Bool tower `True`/`False`
+  singletons). Floor count is **unchanged at 73** across all of these bumps —
+  none of U10/U-LEX/U-STD/U11 added a native floor primitive (U-STD/U11 are pure
+  `.ph`; U10/U-LEX are compiler/lexer-only). See
+  [`floor-census.md`](./floor-census.md) §1.1/§2.6 and
+  [`catalog-delta.md`](./catalog-delta.md) for the itemized re-baseline (commit
+  `b9f90ea`).
 - **U-CORE-2 already partly landed** (`0da64d6`): `Bool#ifTrue`/`ifFalse` now
   `Some`-lift the taken arm (closing catalog-delta §4.2), the sacred inliner
   `Some`-lifts in lockstep via a new `WrapSome` op (ADR-0018 amendment), and
@@ -108,13 +114,16 @@ base of 73**. An implementer must reconcile the following across units:
 1. **Floor deltas are cumulative.** If all land, the floor is `73 + 7 + 5 + 1 + 2
    = 88`. Each spec's "73 → N" is a *delta from base*, not a running total. The
    floor-census audit (R-INV-0.1) must bump in lockstep with each unit's installs.
-2. **Four ADR-0019 amendments are proposed** (U-CORE-1 `hash`/`Behavior`, U-CORE-3
-   Method reflection, U-CORE-4 `Number#toString`, U-CORE-6 `Error#message`/`raise`).
-   **Reconcile them into one omnibus ADR-0023** before the first unit lands — do
-   not open four competing amendments to ADR-0019. (The individual specs were
-   authored when 0021 was the highest ADR and some say "ADR-0022"; **0022 has
-   since been taken by U-LEX's string-interpolation ADR**, so 0023 is the next
-   free number. Confirm against `docs/adr/` before drafting.)
+2. **Four ADR-0019 amendments are folded into one omnibus
+   [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)**
+   (U-CORE-1 `hash`/`Behavior`, U-CORE-3 Method reflection, U-CORE-4
+   `Number#toString`, U-CORE-6 `Error#message`/`raise`) — **ratified Accepted**
+   rather than four competing amendments to ADR-0019. Each named primitive is
+   *installed* by its owning unit when that unit lands; ADR-0023 only admits them
+   to the floor in principle. (The individual specs were authored when 0021 was
+   the highest ADR and some say "ADR-0022"; 0022 was taken by U-LEX's
+   string-interpolation ADR, so **0023** is correct — fix any spec that still
+   says 0022.)
 3. **U-CORE-1 lands first** — it stands up the invariant substrate (R-INV-0.1…0.4)
    the other units extend, and owns the `isA`+`hash` that **U-CORE-5 hard-depends
    on** (its structural `List#==` type-guard needs `isA`).
@@ -132,7 +141,8 @@ base of 73**. An implementer must reconcile the following across units:
 
 **Status:** The U-CORE-0 → implementation-spec work in [`HANDOFF.md`](./HANDOFF.md)
 is **done** — U-CORE-0 is 7/7, the gating decisions are ruled ([`decisions.md`](./decisions.md)),
-and all six U-CORE-1…6 implementation specs are authored (table above). The next
-session's job is **implementation**: reconcile the ADR-0019 amendment (note 2
-above), then dispatch the units to `phalcom-implementer` in dependency order
-(U-CORE-1 first), honoring the wave constraints in the cross-spec notes.
+all six U-CORE-1…6 implementation specs are authored (table above), and
+**ADR-0023 is ratified** (note 2 above) — the floor gate is clear. The next
+session's job is **implementation**: dispatch the units to `phalcom-implementer`
+in dependency order (U-CORE-1 first, re-grounded against the current baseline
+above before dispatch), honoring the wave constraints in the cross-spec notes.

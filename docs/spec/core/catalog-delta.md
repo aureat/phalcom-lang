@@ -155,13 +155,13 @@ pre-decided**; U-CORE-6 must be read against ADR-0008, not designed from scratch
 | Catalog group | Rows exist | Globals | Fully ✅ | Partial ◐ | Absent ❌ |
 |---|:--:|:--:|:--:|:--:|:--:|
 | Kernel tower | 4 / 4 | 4 / 4 | 1 (`Metaclass`) | 3 | 0 |
-| Primitives & singletons | 5 / 5 | 5 / 5 | 0 | 5 | 0 |
+| Primitives & singletons | 6 / 6 | 6 / 6 | 2 (`True`/`False`, `Option`) | 4 | 0 |
 | Callables & reflection | 3 / 3 | 3 / 3 | 2 | 1 | 0 |
 | Collections | 1 / 5 | 1 / 5 | 0 | 1 (`List`) | 4 |
 | Runtime & namespaces | 2 / 2 | 2 / 2 | 0 | 2 | 0 |
 | Concurrency | 0 / 2 | 0 / 2 | 0 | 0 | 2 |
 | Errors | 0 / 6 | 0 / 6 | 0 | 0 | 6 |
-| **Total** | **15 / 27** | **15 / 27** | **3** | **12** | **12** |
+| **Total** | **16 / 28** | **16 / 28** | **5** | **11** | **12** |
 
 Plus two **impl-only** rows absent from the `object-model.md` §4 catalog:
 **`Nil`** — exists in the tower to back `Value::Nil.class`, bound to no global,
@@ -170,18 +170,22 @@ U8 reified miss-send (a real global with four accessor primitives, census
 §2.14), which is simply catalogued in `messages-and-selectors.md` §5 rather than
 the object-model core catalog.
 
-**Reading:** the tower and value/callable spine are *present but thin* (12 of 15
+**Reading:** the tower and value/callable spine are *present but thin* (11 of 16
 existing rows are partial protocol). The genuine greenfield is **collections
 beyond `List`, all of errors, and all of concurrency** — 12 absent rows, of
 which errors are core (U-CORE-6) and the rest are U-STD/deferred.
 
-> **Not yet recomputed:** the row/✅/◐/❌ counts above still reflect the
-> pre-U-STD/U11 baseline. U-STD moved `Option` from ◐ to effectively ✅
-> (§2.2) and landed `List`'s combinator layer (still ◐ — literal syntax
-> remains open, §2.4); U11 adds a `True`/`False` row under Primitives &
-> singletons (§2.2), growing that group from 5/5 to 6/6 rows. Recomputing
-> the table is a follow-up, not done here to avoid guessing at cells this
-> pass didn't verify.
+**Recomputed 2026-07-12 (was "not yet recomputed" against the pre-U-STD/U11
+baseline):** U-STD moved `Option` from ◐ to ✅ (§2.2 — `map`/`flatMap`/`filter`/
+`ifSome`/`unwrapOr` landed, plus the U-CORE-2 half-Option fix) and landed
+`List`'s combinator layer (still ◐ — literal syntax remains open, §2.4). U11
+adds `True`/`False` as a **fully-✅** row under Primitives & singletons (§2.2,
+ADR-0004 — no pending protocol; `Bool` itself stays ◐ pending `hash`/richer
+protocol), growing that group 5/5 → 6/6 rows and the catalog total 27 → 28
+(U11's landing makes `True`/`False` a real, distinct tower row, +1 net vs. the
+prior count). Fully-✅ count moves 3 → 5 (`Metaclass`, `True`/`False`, `Option`,
+plus the pre-existing 2 in Callables & reflection unchanged); Partial moves
+12 → 11.
 
 ## 4. Catalog ↔ implementation divergences (decisions required)
 
