@@ -51,11 +51,18 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0026](0026-class-hierarchy-mutability.md) | Methods are open; superclass reparenting is sealed | Accepted |
 | [0027](0027-modules-as-files-with-public-by-default-imports.md) | A module is a file; public-by-default exports; qualified/selective/aliased imports | Accepted |
 | [0029](0029-list-literal-syntax.md) | List literals `[a, b, c]` desugar to `List` construction sends (no new floor) | Proposed |
+| [0030](0030-fibers-and-futures-cooperative-concurrency.md) | Fibers and Futures: cooperative concurrency on a restricted re-entrant loop | Accepted |
 
 > ADR-0029 (list literals) is **Proposed** — awaiting ratification of its sub-decisions
 > (desugar-vs-opcode, subscript sugar, trailing comma). Design in
 > [`docs/spec/v0.2/core/list-literal-syntax.md`](../spec/v0.2/core/list-literal-syntax.md).
 > (0028 is claimed by a concurrent unit's `Method`-reflection floor amendment.)
+
+> ADR-0030 (Fibers & Futures) was ratified by the user on 2026-07-12, resolving the
+> concurrency execution-model open decision (open-question 15 → **Option A**, the
+> restricted re-entrant loop). It promotes the
+> [`concurrency-adr.md`](../spec/v0.2/experimental/concurrency-adr.md) draft and the
+> [`forward-compat.md §7`](../spec/v0.2/core/forward-compat.md) code-grounded audit.
 
 > ADRs 0024–0027 were ratified by the user on 2026-07-12, resolving open-questions
 > Q2 (numeric split + division), Q3 (parameter names), Q4 (hierarchy mutability), and

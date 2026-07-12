@@ -1,6 +1,8 @@
 # Fibers & Futures
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1. The
+surface and execution model are ratified by
+[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md).
 
 Concurrency in Phalcom is **cooperative and single-threaded**, built on one
 primitive — the `Fiber` — with `Future` as the ergonomic layer over it. Both are
@@ -74,11 +76,15 @@ single value stack and a single `Vec<CallFrame>`
 require:
 
 1. a `FiberObject` holding its own `stack: Vec<Value>` and `frames:
-   Vec<CallFrame>`, a `status`, a `resumer: Option<PhRef<FiberObject>>`, and the
-   entry closure; `Value::Fiber(PhRef<FiberObject>)`;
-2. relocating the VM's "current stack / current frames" into a `current:
-   PhRef<FiberObject>` pointer, so `call`/`yield` become a swap of which fiber's
-   stacks the interpreter loop reads — no data copying, O(1) switch;
+   Vec<CallFrame>`, a `status`, a `resumer: Option<ObjRef>`, and the entry
+   closure — a new arena variant `Object::Fiber(…)` reached through
+   `Value::Obj(ObjRef)`, exactly as native `List` is (**no new `Value::Fiber`
+   arm**, per [ADR-0009](../../adr/0009-handle-arena-heap.md)/[ADR-0010](../../adr/0010-tagged-value-enum.md)
+   and [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §2);
+2. relocating the VM's "current stack / current frames" into a `current: ObjRef`
+   pointer, so `call`/`yield` become a swap of which fiber's stacks the
+   interpreter loop reads — no data copying, O(1) switch; `CallFrame.stack_offset`
+   stays frame-relative, so per-fiber stacks need no rebasing;
 3. `call`/`yield` implemented as primitives that (a) set statuses, (b) move the
    transferred value across the boundary, (c) repoint `current`, then return to
    the dispatch loop, which resumes at the new fiber's saved `ip`;
@@ -88,6 +94,34 @@ require:
 
 Because there is no preemption, no synchronization primitives are needed: a fiber
 switch happens only at an explicit `call`/`yield`/`await` point.
+
+### Execution model — restricted yield (Option A)
+
+The suspension mechanism is the **restricted re-entrant loop** ratified by
+[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4. The
+VM dispatch loop is *not* a flat trampoline: pure Phalcom→Phalcom sends are
+trampolined, but any primitive that calls a block back into Phalcom (`block_call`,
+`perform`, `doesNotUnderstand` forwarding, and every collection combinator built
+on them — `each`/`map`/`reduce`) **re-enters the loop on the native Rust stack**.
+
+`Fiber.yield` therefore integrates with the **top-level** loop only. Yielding
+while such a native frame sits between the fiber's entry and the yield site raises
+a catchable **`CannotYieldAcrossNativeFrame`** error rather than corrupting the
+suspended position:
+
+- **Suspends freely** — bodies using pure sends and *inlined* control flow
+  (`while`/`ifTrue:` lower to `Jump`/`Loop` in one chunk,
+  [ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)); the
+  `counter` generator above is exactly this shape.
+- **Foreclosed** — the *callback generator*
+  `Fiber.new { list.each { x => Fiber.yield(x) } }`, where `yield` sits under
+  `each`'s native `block_call`. Rewrite with index iteration.
+
+This restriction is a **guard, not a wall**: lifting it later (de-recursing the
+callback primitives — audit Option B) is purely additive and breaks no program
+that ran under A. The switch is signalled to the loop as a typed control-flow
+value, never inferred from a frame-count change (which a fiber swap and a
+non-local return would both trip).
 
 ---
 
@@ -147,7 +181,8 @@ same waiter list.
    fiber and `then` continuation onto the ready-queue.
 
 `Future` deliberately owns **no** new VM mechanism beyond `Fiber` + a queue —
-keeping the concurrency primitive singular ([ADR to follow](../../adr/README.md)).
+keeping the concurrency primitive singular
+([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)).
 
 ---
 
@@ -162,6 +197,8 @@ keeping the concurrency primitive singular ([ADR to follow](../../adr/README.md)
 - Errors ([Object Model §4](object-model.md)) cross fiber boundaries only through
   `call`/`await` (propagate) or `try`/`catch` (capture) — never implicitly.
 
-See [Open Questions](open-questions.md) for undecided points (structured
-concurrency / cancellation scopes, whether `Future` gets `select`/`race`
-combinators, and the scheduler's fairness guarantees).
+The **execution model** (restricted re-entrant loop, Option A) is decided —
+[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md), recorded
+as open-question 15 in [Open Questions](open-questions.md). Still open there:
+structured concurrency / cancellation scopes, whether `Future` gets `select`/`race`
+combinators, and the scheduler's fairness guarantees.

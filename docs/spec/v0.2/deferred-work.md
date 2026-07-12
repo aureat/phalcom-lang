@@ -65,7 +65,6 @@ Distinct from §1: these have **no ruling yet** and block their unit.
 
 | Decision | What must be chosen | Blocks | Source |
 |---|---|---|---|
-| **Concurrency re-entrant-loop model** | (A) restricted / Lua-5.1, (B) full trampoline, (C) stackful — the audit recommends A | the fiber execution-model unit; **not currently in open-questions.md** | [core/forward-compat.md §7.2](core/forward-compat.md) |
 | **Collections ADR** (`Map`/`Set`/`Tuple`/`Range`) | per-class storage + literal syntax + hashing contract | the collections unit | [core/catalog-delta.md](core/catalog-delta.md); forge/phase-next/DEFERRED.md #27 |
 | **Error surface syntax** | `throw`/`try`/`catch`/`on`/`ensure` spelling (model fixed by ADR-0008) | U-CORE-6's non-minimal slice | [core/decisions.md Q2](core/decisions.md); ADR-0008 |
 
@@ -88,7 +87,7 @@ Reserved-but-unbuilt class names sit in `primitive/mod.rs::ClassName` (`Range`, 
 | **List / set literal syntax** | `[a,b,c]`, `#{…}` tokens → constructor desugar | new ADR + lexer/parser | forge/phase-next/DEFERRED.md #28 |
 | **Module / import unit** | `import` semantics per ADR-0027 (qualified/selective/aliased), namespace protocol | token exists, semantics unbuilt | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) |
 | **System unit** | `System.args`/`clock`/`gc`/scheduler surface | pending `system_*` fixtures | [core/pending-retirement.md](core/pending-retirement.md) |
-| **Concurrency** `Fiber`/`Future` | cooperative coroutines + async layer | design-only; blocked on §2 re-entrant-loop decision | [concurrency.md](concurrency.md); experimental/ |
+| **Concurrency** `Fiber`/`Future` | cooperative coroutines + async layer | surface + execution model **ratified** ([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md), Option A); code unbuilt | [concurrency.md](concurrency.md); experimental/ |
 | **Typing layer** | optional/structural/erasable gradual types | experimental, uncommitted | [experimental/typing.md](experimental/typing.md) |
 | **Annotations `@`** | `@attr` mechanism, contracts, `@construct`/`@get`/`@set` | experimental (10 drafts), `@` not lexed | experimental/annotations-*.md |
 | **`Result`/`Ok`/`Err`** | `Option`-mirrored expected-failure channel + bridges | reserved by U-CORE-6; own later unit | ADR-0008 |
@@ -124,7 +123,7 @@ The full ranked list of ~33 such items is [`forge/phase-next/DEFERRED.md`](../..
 proposals promote to `adr/` + `spec/` on ratification. Grouped by the subsystem each will
 feed:
 
-- **Concurrency** — [concurrency-adr.md](experimental/concurrency-adr.md) (Fiber/Future ADR-in-waiting), [scheduler-unit.md](experimental/scheduler-unit.md), [fiber-ensure-and-limits.md](experimental/fiber-ensure-and-limits.md)
+- **Concurrency** — [concurrency-adr.md](experimental/concurrency-adr.md) (promoted → [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)), [scheduler-unit.md](experimental/scheduler-unit.md), [fiber-ensure-and-limits.md](experimental/fiber-ensure-and-limits.md)
 - **Iteration** — [iteration-protocol.md](experimental/iteration-protocol.md) (`iterate`/`iteratorValue`; unblocks `for`)
 - **Indexing / numeric** — [numeric-and-string-indexing.md](experimental/numeric-and-string-indexing.md) *(its integral-index + codepoint-string decisions are keep-worthy; its "f64 / 2⁵³ / bignum-deferred / split-open" claims are **superseded by ADR-0024**)*
 - **Equality / hash** — [equality-and-hash.md](experimental/equality-and-hash.md) *(heavy overlap with the now-landed ADR-0023 + core/decisions.md Q1/Q5 — candidate to become normative; de-dupe first)*

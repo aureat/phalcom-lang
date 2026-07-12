@@ -1,6 +1,11 @@
 # N. Fibers & Futures: cooperative concurrency (proposed ADR)
 
-- Status: Proposed · promotes concurrency.md to a ratified ADR
+> **Promoted → [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)**
+> (Accepted 2026-07-12). The ratified ADR adds the execution-model decision
+> (Option A — restricted re-entrant loop) and the forward-compat §7 corrections
+> (heap `Object::Fiber`, not a `Value` arm). This draft is retained for history.
+
+- Status: Superseded by ADR-0030 · promotes concurrency.md to a ratified ADR
 - Related: ADR-0009 (handle heap), ADR-0013 (closures/non-local return), concurrency.md
 
 ## Context

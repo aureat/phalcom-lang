@@ -9,8 +9,10 @@ before the work it blocks begins.
 > (or, for low-ceremony rulings, a one-line resolution). **Open questions** remain
 > for future design sessions.
 
-> **Status (2026-07-12):** all fourteen questions are now resolved. Q2/Q3/Q4/Q8
+> **Status (2026-07-12):** all fifteen questions are now resolved. Q2/Q3/Q4/Q8
 > were ratified this session as [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)–[ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md);
+> Q15 (concurrency execution model) was added from the forward-compat audit and
+> ratified as [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md);
 > Q6/Q7/Q10/Q12/Q13/Q14 were resolved as doc-only rulings (recorded inline). Several
 > carry deliberately **non-foreclosed** deferrals (bignum `Int` migration is not one —
 > it is the chosen default; but stateful mixins, `Some` niche-encoding, list/rest
@@ -161,6 +163,17 @@ before the work it blocks begins.
     is easy to add and painful to walk back, so the commitment waits; the candidate
     list already exists internally, so this only decides *when* to expose it.
 
+15. ~~**Concurrency execution model.** Restricted re-entrant loop, full
+    trampoline, or stackful coroutines?~~ **RESOLVED** →
+    [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md): the
+    **restricted re-entrant loop** (Lua-5.1 style). `Fiber.yield` integrates with
+    the top-level dispatch loop only; yielding across a native callback frame
+    raises `CannotYieldAcrossNativeFrame`. It is the smallest correct step on the
+    current VM, keeps the moving-GC design open (no native fiber stacks), and lifts
+    *additively* to a full trampoline later. Surfaced from the
+    [forward-compat §7.2](core/forward-compat.md) audit, which is where the
+    hazard (`native-stack frames ⊗ suspendable control`) was first named.
+
 ---
 
 ## Resolved (summary)
@@ -182,6 +195,7 @@ before the work it blocks begins.
 | Q12 | No default arguments now; if added → definition-time overload desugar, trailing-only | ruling (Q12 above) |
 | Q13 | Keep as-built `None` singleton + private `Nil` sentinel; `Some` heap instance | ruling (Q13 above) |
 | Q14 | `Family` callable-only now; reflective mirror deferred to a unified reflection unit | ruling (Q14 above) |
+| Q15 | Concurrency execution model: restricted re-entrant loop (Lua-5.1 style); yield across a native frame raises `CannotYieldAcrossNativeFrame` | [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) |
 | heap/ownership | Handle/arena heap; no `Rc`/`RefCell`; `ObjRef`/`ClassId` are `Copy` integers | [ADR-0009](../../adr/0009-handle-arena-heap.md) |
 | Value repr | Tagged `enum` with private `Nil` sentinel; `Int(i64)`/`Float(f64)`, `Bool(bool)`, `Obj(ObjRef)`, `Symbol(…)` | [ADR-0010](../../adr/0010-tagged-value-enum.md) + [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md) |
 | instance `toString` | Default renders `"<ClassName>"`; class `toString` returns its own name | [ADR-0015](../../adr/0015-object-default-tostring.md) |
