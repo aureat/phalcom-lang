@@ -33,7 +33,7 @@ No surface-language change; behavior preserved observationally (goldens byte-ide
 - Closed **DEFERRED #1**: LALRPOP fully removed from the workspace dependency graph.
 
 ## Sources
-- forge: [`STATE.md`](../../../../forge/STATE.md) "U1 — LANDED". Per-unit planning record (`U1-plan.md`, `U1-progress.md`) folded into this spec; see git history.
+- forge: [`STATE.md`](../../../../forge/archive/phase2/STATE.md) "U1 — LANDED". Per-unit planning record (`U1-plan.md`, `U1-progress.md`) folded into this spec; see git history.
 - code: `phalcom-core/src/heap.rs`, `phalcom-core/src/value.rs`.
 - ADRs: [0009](../../../../adr/0009-handle-arena-heap.md), [0010](../../../../adr/0010-tagged-value-enum.md).
 - landing: `6515ea3` (squash of `feat/u1-heap`, slices 1–4 + review fix).

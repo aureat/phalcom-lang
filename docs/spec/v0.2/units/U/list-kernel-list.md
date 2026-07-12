@@ -67,17 +67,17 @@ xs.toString                // "[1, 2, 3]"
 - **`List.toString` is a native primitive, not `.ph` over `each` + concat** (the plan's
   sketch) — no kernel value type has a general user-callable `.toString` yet, so building it in
   `.ph` would render every non-`String` element as `"<ClassName>"`. Move to `.ph` once value
-  types get real `toString` → [forge/DEFERRED.md](../../../../forge/DEFERRED.md) #19.
+  types get real `toString` → [forge/phase-next/DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #19.
 - **`rawSet` not surfaced** — no `at(_:put:)` selector this unit →
-  [forge/DEFERRED.md](../../../../forge/DEFERRED.md) #18 (later delivered by U-STD).
+  [forge/phase-next/DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #18 (later delivered by U-STD).
 - **No combinators or list-literal syntax** (`map`/`reduce`/`filter`, `[a, b, c]`) — U-STD's
-  job, layered additively over the floor → [forge/DEFERRED.md](../../../../forge/DEFERRED.md) #20;
+  job, layered additively over the floor → [forge/phase-next/DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #20;
   see also [deferred-work.md](../../deferred-work.md) (collection-literal lowering).
 - **`None`-reopen compiler trap** (`Statement::Class` unconditional `DefineGlobal`) →
-  [forge/DEFERRED.md](../../../../forge/DEFERRED.md) #17 (high priority for the next `None` work).
+  [forge/phase-next/DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #17 (high priority for the next `None` work).
 
 ## Sources
-- [forge/STATE.md](../../../../forge/STATE.md) "U-LIST — LANDED"; [forge/PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
+- [forge/archive/phase2/STATE.md](../../../../forge/archive/phase2/STATE.md) "U-LIST — LANDED"; [forge/archive/phase2/PHASE2-INDEX.md](../../../../forge/archive/phase2/PHASE2-INDEX.md).
   Per-unit planning record (`U-LIST-plan.md`, `U-LIST-U8-implement-handoff.md`) folded into this spec; see git history.
 - Commits `c7c63fb`, `6fdf0c7`, `b2f7aec`, `333823a`.
 - Code: `phalcom-core/src/{list.rs,heap.rs,value.rs,universe.rs,vm.rs}`, `primitive/{list.rs,mod.rs}`, `core/core.ph`.

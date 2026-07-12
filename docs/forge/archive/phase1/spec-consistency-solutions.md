@@ -65,8 +65,8 @@ and independent of visibility.
 
 ### A4 — broken link
 
-**Edit.** `values-and-absence.md §3.1`: `[ADR-0004](../adr/)` →
-`[ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md)`.
+**Edit.** `values-and-absence.md §3.1`: `[ADR-0004](../../../adr/)` →
+`[ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md)`.
 
 ---
 
@@ -171,7 +171,7 @@ representation" are rewritten to the sibling model:
 > representation** ([Functions §4](functions.md)). A `Method` is **not** a `Block`:
 > both are siblings under the abstract [`Function`](functions.md), and a `Method`
 > additionally carries a selector, a holder, and a `self` a `Block` does not. See
-> [ADR-0006](../adr/0006-function-as-abstract-callable-root.md).
+> [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md).
 
 ### B4 — `ifFalse(_:)` existence + the `Option`-chaining hazard
 
@@ -298,7 +298,7 @@ append-only rule — even when a subclass declares a same-named `_field` (which 
 > `K`'s fields fill `[base_K, base_K + n_K)`. Layout is append-only — a subclass
 > never renumbers a superclass's slots — which is what keeps a method's compiled
 > offsets valid under inheritance and preserves stability under a future runtime
-> `superclass=` ([Q4](../spec/open-questions.md)) as long as re-parenting only
+> `superclass=` ([Q4](../../../spec/open-questions.md)) as long as re-parenting only
 > appends. A subclass field sharing a superclass field's name occupies a distinct
 > slot (fields are private/non-inherited), so there is no aliasing.
 

@@ -88,7 +88,7 @@ and note it.
 | `Some(x)` bare-call sugar (only `Some.new(x)` exists today) | **U-LEX** | [ADR-0021](../../../../adr/0021-no-truthiness-enforcement.md) |
 | Abstract `Bool` + `True`/`False` singleton *representation* | **U11** (separate forge unit) | [ADR-0004](../../../../adr/0004-boolean-as-abstract-bool-with-true-false.md); see §5.3 |
 | `Result`/`Ok`/`Err` (the `Option` sibling) | **U-CORE-6** (reserve) / later | [`forward-compat.md`](../../core/forward-compat.md) §2; §5.2 below |
-| Removing the `bool_class_new` debug `println!`s (`boolean.rs` L33/L35) | **DEFERRED** (pre-existing noise) | `docs/forge/DEFERRED.md` |
+| Removing the `bool_class_new` debug `println!`s (`boolean.rs` L33/L35) | **DEFERRED** (pre-existing noise) | `docs/forge/phase-next/DEFERRED.md` |
 
 > **Note on the README parenthetical.** [`README.md`](../../core/README.md) L47–48 lists
 > the U-CORE-2 residue as "(absence invariants, `None`/`Some` surface

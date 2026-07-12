@@ -100,7 +100,7 @@ through the unified unwind. **Reserve** — do not implement — `Result`/`Ok`/`
 and the full `try`/`catch`/`on`/`ensure` block protocol; those are a later unit,
 shaped to mirror `Option`/`Some`/`None`. If U-CORE-6 needs a native raise
 primitive, that is a separate **ADR-0019 amendment** (cross-ref Q1's mechanism).
-The [ADR-0008 amendment note](../../../forge/PHASE2-INDEX.md) ("`MessageNotUnderstood`
+The [ADR-0008 amendment note](../../../forge/archive/phase2/PHASE2-INDEX.md) ("`MessageNotUnderstood`
 = default-dNU raise") is folded in by U-CORE-6.
 
 ## Q4 — Prelude / global model

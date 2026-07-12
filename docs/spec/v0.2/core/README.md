@@ -114,7 +114,7 @@ authored:
 
 These refine — and in places subsume — the older, coarser forge planning for
 `U-STD` (base-surface growth) and `U11` (Bool tower) tracked in
-[`../../forge/PHASE2-INDEX.md`](../../../forge/PHASE2-INDEX.md).
+[`../../forge/archive/phase2/PHASE2-INDEX.md`](../../../forge/archive/phase2/PHASE2-INDEX.md).
 
 ### Cross-spec integration notes (read before dispatching any unit)
 

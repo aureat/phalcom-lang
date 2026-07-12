@@ -2,7 +2,7 @@
 
 - **Status:** ✅ Landed — `176d454` (Option combinators), `5e2b395` (List combinators), `454f2b8` (discharge DEFERRED #25 + STATE). In-tree on `main`, no worktree.
 - **Realizes:** [ADR-0019](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md) (frozen floor — this unit adds **zero** primitives), [ADR-0020](../../../../adr/0020-kernel-list-native-array-protocol.md) (List floor), [ADR-0007](../../../../adr/0007-option-as-abstract-with-some-none.md) (Option as abstract). Spec [values-and-absence.md](../../values-and-absence.md) §3.3, [catalog-delta.md](../../core/catalog-delta.md) §2.2 / §2.4.
-- **Reviewer gate:** OFF per policy — self-verified on the green gate (`../../../../forge/STATE.md` §"U-STD — LANDED"; reviewer roster line: "Reviewer OFF … U-STD").
+- **Reviewer gate:** OFF per policy — self-verified on the green gate (`../../../../forge/archive/phase2/STATE.md` §"U-STD — LANDED"; reviewer roster line: "Reviewer OFF … U-STD").
 
 ## Mission
 
@@ -49,9 +49,9 @@ Single file — `phalcom-core/core/core.ph`:
 
 ## Deviations & deferrals
 
-- **Option (B) scope, not the literal plan:** the plan's broad Object/Number/String/Symbol/System surface was already-landed or re-carved to the `docs/spec/core/` U-CORE-N track — the forge-index vs. `docs/spec/core` scope-taxonomy divergence is [DEFERRED #29](../../../../forge/DEFERRED.md) (resolved for this unit via Option B).
-- **No element stringification** in any combinator — a general user-callable content `toString` does not exist yet (blocked on U-CORE-4); see [DEFERRED #19](../../../../forge/DEFERRED.md).
-- **List-literal syntax `[a, b, c]` still deferred** (needs a new ADR + parser work) — [DEFERRED #6/#28](../../../../forge/DEFERRED.md).
+- **Option (B) scope, not the literal plan:** the plan's broad Object/Number/String/Symbol/System surface was already-landed or re-carved to the `docs/spec/core/` U-CORE-N track — the forge-index vs. `docs/spec/core` scope-taxonomy divergence is [DEFERRED #29](../../../../forge/phase-next/DEFERRED.md) (resolved for this unit via Option B).
+- **No element stringification** in any combinator — a general user-callable content `toString` does not exist yet (blocked on U-CORE-4); see [DEFERRED #19](../../../../forge/phase-next/DEFERRED.md).
+- **List-literal syntax `[a, b, c]` still deferred** (needs a new ADR + parser work) — [DEFERRED #6/#28](../../../../forge/phase-next/DEFERRED.md).
 - The `absence` label was **not** un-ignored (its `#[ignore]` reason is unrelated drift); `system()`/`system_pending()` untouched.
 - See also [deferred-work.md](../../deferred-work.md).
 
@@ -60,5 +60,5 @@ Single file — `phalcom-core/core/core.ph`:
 - ADRs: [0019-freeze-vm-blessed-primitive-floor.md](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md), [0020-kernel-list-native-array-protocol.md](../../../../adr/0020-kernel-list-native-array-protocol.md), [0007-option-as-abstract-with-some-none.md](../../../../adr/0007-option-as-abstract-with-some-none.md).
 - Spec: [values-and-absence.md](../../values-and-absence.md) §3.3; [catalog-delta.md](../../core/catalog-delta.md) §2.2 / §2.4.
 - Code: `phalcom-core/core/core.ph` (`Option` block L70–124, `List` block L142–212); tests `phalcom-core/tests/lang/option/*`, `phalcom-core/tests/lang/list/*`, `phalcom-core/tests/lang/blocks/blocks_argument_to_method.ph`.
-- Forge: [STATE.md](../../../../forge/STATE.md) §"U-STD — LANDED". Per-unit planning record (`U-STD-implementation-spec.md`, `U-STD-plan.md`) folded into this spec; see git history.
-- Deferred: [deferred-work.md](../../deferred-work.md); [DEFERRED.md](../../../../forge/DEFERRED.md) #6/#18/#19/#25/#28/#29.
+- Forge: [STATE.md](../../../../forge/archive/phase2/STATE.md) §"U-STD — LANDED". Per-unit planning record (`U-STD-implementation-spec.md`, `U-STD-plan.md`) folded into this spec; see git history.
+- Deferred: [deferred-work.md](../../deferred-work.md); [DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #6/#18/#19/#25/#28/#29.

@@ -143,7 +143,7 @@ Reference: subagent integration map located each site.
 ### 1c. Weave selectors.md into the suite
 - **Header** (selectors.md L1-6): rewrite to house style —
   `Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.` +
-  `**Governing ADRs:** [ADR-0012](../adr/0012-…md)`. Drop the standalone `Supersedes:` line
+  `**Governing ADRs:** [ADR-0012](../../../adr/0012-…md)`. Drop the standalone `Supersedes:` line
   (ADR-0012 already owns that; it's now amended to comma form).
 - **README reading order** (L12-27): add a row **between Messages & Selectors and Classes**:
   `[Selectors, Symbols & References](selectors.md) | Selector identity, # symbols, :: method references, @ attributes, field visibility`.

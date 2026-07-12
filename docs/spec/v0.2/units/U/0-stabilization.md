@@ -37,6 +37,6 @@ The substrate is three test lanes plus one shell entry point:
 - Excluded example programs remain blocked on unimplemented surface syntax; see [deferred-work](../../deferred-work.md).
 
 ## Sources
-- forge: [`STATE.md`](../../../../forge/STATE.md) phase log ("0. Stabilize"), [`PLAN.md`](../../../../forge/PLAN.md) §"U0 — Front-end stabilization (F9 + F10)".
+- forge: [`STATE.md`](../../../../forge/archive/phase2/STATE.md) phase log ("0. Stabilize"), [`PLAN.md`](../../../../forge/archive/phase2/PLAN.md) §"U0 — Front-end stabilization (F9 + F10)".
 - code: `scripts/verify.sh`, `phalcom-core/tests/golden.rs`, `phalcom-core/tests/invariants.rs`, `phalcom-core/tests/lang/`, `fuzz/`.
 - landing: baseline commit `3657d4f` (substrate + front-end rewrite committed as ground state).

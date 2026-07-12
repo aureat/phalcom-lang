@@ -526,7 +526,7 @@ right: if typing Phalcom demanded touching the VM, the design would be wrong.
 ## 12. Suggested staging
 
 Typing is a **Phase 3+** feature; it is *not* on the current critical path
-([U5/U6 control flow](../../../forge/PHASE2-INDEX.md)) and should not be built until the
+([U5/U6 control flow](../../../forge/archive/phase2/PHASE2-INDEX.md)) and should not be built until the
 generic kernel it would type first — `Option`, `Result`, `List`, `Bool` — has
 landed.
 

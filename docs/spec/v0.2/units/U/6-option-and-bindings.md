@@ -84,7 +84,7 @@ let z = x ?? 7                 // x is None → 7
   ([deferred-work §1](../../deferred-work.md)).
 
 ## Sources
-- Forge: `U6-plan.md` (folded into this spec; see git history), [STATE.md](../../../../forge/STATE.md) "U6 — LANDED".
+- Forge: `U6-plan.md` (folded into this spec; see git history), [STATE.md](../../../../forge/archive/phase2/STATE.md) "U6 — LANDED".
 - Commits `318e752`, `51f56e4`, `aa8bb8b`.
 - Code: `phalcom-core/src/{value,vm,compiler/lib,module,bytecode}.rs`,
   `phalcom-core/src/primitive/{nil,boolean,block,class,system}.rs`, `core/core.ph`,

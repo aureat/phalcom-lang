@@ -67,7 +67,7 @@ closure.
 
 ### A4. Broken cross-reference
 
-`values-and-absence.md` §3.1: `` [ADR-0004](../adr/) `` — the link target is the
+`values-and-absence.md` §3.1: `` [ADR-0004](../../../adr/) `` — the link target is the
 ADR **directory index**, not `0004-boolean-as-abstract-bool-with-true-false.md`.
 Minor in isolation, but it is the specific citation propping up the `True`/`False`
 mirroring claim that turns out (B2) to be substantively contested, so the broken

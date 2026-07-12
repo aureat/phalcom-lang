@@ -36,7 +36,7 @@ Math.new().sum(1, 2, 3)   // rest = List[1,2,3] → 6
   parses an optional leading `*` and rejects a rest param that isn't last or that
   carries/follows a label. Block-literal params are parsed by a separate scanner in
   `parse_primary` and never reach `parse_param_list`, so block variadics still don't parse
-  ([forge/DEFERRED.md](../../../../forge/DEFERRED.md) #9, confirmed still open).
+  ([forge/phase-next/DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #9, confirmed still open).
 - **`method.rs`** — new **`SignatureKind::Variadic(u8)`**; the payload is the fixed/minimum
   positional arity `F`. The selector spelling is always the bare `<name>(*)`, independent of
   `F` — `sum(*numbers)` and `format(fmt, *args)` both intern as `sum(*)`/`format(*)`; only
@@ -70,7 +70,7 @@ Math.new().sum(1, 2, 3)   // rest = List[1,2,3] → 6
 ## Deviations & deferrals
 - **No new "variadic table"** — reuses `ClassObject.methods: IndexMap<Symbol, ObjRef>` under
   the `(*)` selector; a same-name duplicate variadic silently overwins, same as any
-  duplicate-selector redefinition → [forge/DEFERRED.md](../../../../forge/DEFERRED.md) #24.
+  duplicate-selector redefinition → [forge/phase-next/DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #24.
 - **No `callable.rs`/`closure.rs` changes** — the variadic flag is read from
   `MethodObject.signature` directly in `call_method`.
 - **No `Bytecode::SendDynamic` / call-site spread (`f(*args)`)** — U8's DEFERRED #21
@@ -79,7 +79,7 @@ Math.new().sum(1, 2, 3)   // rest = List[1,2,3] → 6
 - `decode_selector` does not recover `F` from a `(*)` selector (see Implementation).
 
 ## Sources
-- [forge/STATE.md](../../../../forge/STATE.md) "U9 — LANDED"; [forge/PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
+- [forge/archive/phase2/STATE.md](../../../../forge/archive/phase2/STATE.md) "U9 — LANDED"; [forge/archive/phase2/PHASE2-INDEX.md](../../../../forge/archive/phase2/PHASE2-INDEX.md).
   Per-unit planning record (`U9-plan.md`, `U9-implementation-spec.md`) folded into this spec; see git history.
 - Commit `c9805d0`.
 - Code: `phalcom-ast/src/{ast.rs,parser.rs}`, `phalcom-core/src/{method.rs,compiler/lib.rs,vm.rs}`.

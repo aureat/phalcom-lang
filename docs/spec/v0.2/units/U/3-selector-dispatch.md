@@ -31,7 +31,7 @@ A selector is an interned symbol encoding **name + argument labels** (Smalltalk-
 - The `Signature`'s reserved internal-binding field and variadic flag were added now but not populated until later units (variadics = U9).
 
 ## Sources
-- forge: [`STATE.md`](../../../../forge/STATE.md) (U3 ✅ ADR-0012), [`PHASE2-INDEX.md`](../../../../forge/PHASE2-INDEX.md).
+- forge: [`STATE.md`](../../../../forge/archive/phase2/STATE.md) (U3 ✅ ADR-0012), [`PHASE2-INDEX.md`](../../../../forge/archive/phase2/PHASE2-INDEX.md).
 - code: `phalcom-core/src/method.rs` (`SignatureKind`, `Signature`, `encode_selector`/`decode_selector`, `make_signature`, `MethodObject`), `phalcom-core/src/vm.rs` (`Bytecode::Invoke` handler, `call_method`, `lookup_method`), `phalcom-core/src/compiler/lib.rs`, `phalcom-ast/src/{ast,parser}.rs`.
 - ADRs: [0012](../../../../adr/0012-selector-signature-encoding-and-dispatch.md).
 - landing: `5758f3c`, `ae16924`, `845f2f9`.

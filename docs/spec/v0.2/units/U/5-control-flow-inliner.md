@@ -51,8 +51,8 @@ Non-local return through inlined blocks: inlined bodies are spliced into the hom
 - **Class reopening added** to `Statement::Class` (attach to an existing same-named global instead of shadowing) so a sacred override is testable from surface Phalcom; `install_core` now also registers kernel `Function`/`Block` as globals (they were silently shadowed — a real bug fixed this session).
 - **`if`/`else` desugars to `ifTrue(_:)ifFalse(_:)`**, not to an `Option`/`ifNone` chain — keeps U5 independent of U6.
 - **`for (x in xs)` deferred** — it desugars to `xs.each { … }`, a non-sacred send needing an iterable protocol no kernel type defines until collections exist.
-- **`repeat(_:)` deferred** — its receiver/semantics are unpinned (U5-plan BD-U5-2); only `whileTrue(_:)` is the inlinable loop selector. See [`docs/forge/DEFERRED.md`](../../../../forge/DEFERRED.md) and [deferred-work.md](../../deferred-work.md).
+- **`repeat(_:)` deferred** — its receiver/semantics are unpinned (U5-plan BD-U5-2); only `whileTrue(_:)` is the inlinable loop selector. See [`docs/forge/phase-next/DEFERRED.md`](../../../../forge/phase-next/DEFERRED.md) and [deferred-work.md](../../deferred-work.md).
 
 ## Sources
-- Forge work order (`U5-plan.md`) folded into this spec (see git history); landing record: [`docs/forge/STATE.md`](../../../../forge/STATE.md) "U5 — LANDED"; DEC-E in [`docs/forge/PHASE2-INDEX.md`](../../../../forge/PHASE2-INDEX.md) §4.
+- Forge work order (`U5-plan.md`) folded into this spec (see git history); landing record: [`docs/forge/archive/phase2/STATE.md`](../../../../forge/archive/phase2/STATE.md) "U5 — LANDED"; DEC-E in [`docs/forge/archive/phase2/PHASE2-INDEX.md`](../../../../forge/archive/phase2/PHASE2-INDEX.md) §4.
 - Code: `phalcom-core/src/compiler/inliner.rs` (new), `phalcom-core/src/compiler/lib.rs`, `phalcom-core/src/{bytecode,vm,universe,value,frame}.rs`, `phalcom-core/src/primitive/{number,boolean,string,object,block}.rs`; `phalcom-ast/src/{ast,parser}.rs`.

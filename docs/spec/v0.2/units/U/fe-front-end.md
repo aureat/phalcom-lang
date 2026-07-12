@@ -1,8 +1,8 @@
 # U-FE — Hand-written Lexer + Recursive-descent Parser (as-built)
 
-- **Status:** ✅ Landed — ADR-0016 front-end rewrite (in-tree on `main`; F10 EOF fix `f6d8753`, invalid-token span `4045085`). No single squash sha — the unit predates the per-unit commit discipline; it is recorded as landed in `../../../../forge/STATE.md` (Phase log + "U-FE follow-ups").
+- **Status:** ✅ Landed — ADR-0016 front-end rewrite (in-tree on `main`; F10 EOF fix `f6d8753`, invalid-token span `4045085`). No single squash sha — the unit predates the per-unit commit discipline; it is recorded as landed in `../../../../forge/archive/phase2/STATE.md` (Phase log + "U-FE follow-ups").
 - **Realizes:** [ADR-0016](../../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md); spec [lexical-structure.md](../../lexical-structure.md), [messages-and-selectors.md](../../messages-and-selectors.md). Closes forge fixes **F9** (`SyntaxError::Display` was `todo!()` → panicked on any parse error) and **F10** (trailing-newline file failed to parse).
-- **Reviewer gate:** Not independently reviewed — the session ended before a `phalcom-reviewer` pass; the unit self-reports green build + `cargo doc` clean (`../../../../forge/STATE.md` §"U-FE follow-ups"). User confirmed the parser/lexer finished; later units (U4/U6/U7/U-LEX) extended it in place, exercising it heavily.
+- **Reviewer gate:** Not independently reviewed — the session ended before a `phalcom-reviewer` pass; the unit self-reports green build + `cargo doc` clean (`../../../../forge/archive/phase2/STATE.md` §"U-FE follow-ups"). User confirmed the parser/lexer finished; later units (U4/U6/U7/U-LEX) extended it in place, exercising it heavily.
 
 ## Mission
 
@@ -45,13 +45,13 @@ Front end, all in `phalcom-ast/src` (`phalcom-core` compiler and every AST snaps
 ## Deviations & deferrals
 
 - **Not independently reviewed** — session ended before the reviewer pass; see reviewer-gate note above.
-- **Out-of-write-set edit:** U-FE touched `phalcom-core/bin/phalcom/cli.rs` (one line, migrating off the deleted `ProgramParser` to `parse_source`) as the sole build blocker; reported for spot-check in `../../../../forge/STATE.md`.
+- **Out-of-write-set edit:** U-FE touched `phalcom-core/bin/phalcom/cli.rs` (one line, migrating off the deleted `ProgramParser` to `parse_source`) as the sole build blocker; reported for spot-check in `../../../../forge/archive/phase2/STATE.md`.
 - **Residual LALRPOP in `phalcom-core`:** a dead `CompilerError::ParseError` variant + `From` impl referencing `lalrpop_util::ParseError`, plus `lalrpop-util`/`lalrpop` entries in `phalcom-core/Cargo.toml`, still compile and keep LALRPOP in the workspace dependency graph. Removing them is out of this unit's write-set — tracked as a follow-up (ADR-0016 §Consequences).
-- **Greenfield syntax deferred to later units** that *extend* this parser: blocks/closures (U4), `let`/`var` (U6), `construct` (U7), and the U-LEX surface delta (block comments, digit separators, newline suppression, `\(expr)` interpolation — see [lex-lexical-delta.md](lex-lexical-delta.md)). Nested block comments / lone-`?` remain [DEFERRED #12/#32](../../../../forge/DEFERRED.md).
+- **Greenfield syntax deferred to later units** that *extend* this parser: blocks/closures (U4), `let`/`var` (U6), `construct` (U7), and the U-LEX surface delta (block comments, digit separators, newline suppression, `\(expr)` interpolation — see [lex-lexical-delta.md](lex-lexical-delta.md)). Nested block comments / lone-`?` remain [DEFERRED #12/#32](../../../../forge/phase-next/DEFERRED.md).
 
 ## Sources
 
 - ADR: [0016-hand-written-lexer-and-recursive-descent-parser.md](../../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md)
 - Code: `phalcom-ast/src/lexer.rs`, `phalcom-ast/src/token.rs`, `phalcom-ast/src/parser.rs`, `phalcom-ast/src/ast.rs`, `phalcom-ast/src/error.rs`; tests `phalcom-ast/tests/lexer.rs`, `phalcom-ast/tests/parser.rs`.
-- Forge: [STATE.md](../../../../forge/STATE.md) (Phase log; "U-FE follow-ups"); [PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
-- Deferred: [deferred-work.md](../../deferred-work.md); [DEFERRED.md](../../../../forge/DEFERRED.md) #12/#32.
+- Forge: [STATE.md](../../../../forge/archive/phase2/STATE.md) (Phase log; "U-FE follow-ups"); [PHASE2-INDEX.md](../../../../forge/archive/phase2/PHASE2-INDEX.md).
+- Deferred: [deferred-work.md](../../deferred-work.md); [DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #12/#32.

@@ -53,10 +53,10 @@ The Primitive-arm guard (`call_method`) is the second, mandatory half: snapshot 
 - **`error.rs` uses plain `thiserror`, not miette** — the plan called for a miette diagnostic with spans, but no `RuntimeError` variant carries a span and miette is unused in the tree; `DeadFrameError` matches its neighbors (corrects U10-plan §3 / implementation-spec §0.1).
 - **`disasm.rs` untouched** — it is `Debug`-only, so the new opcode disassembles automatically (corrects U10-plan write-set).
 - **Primitive-arm guard re-pushes the value** rather than skipping the push, correcting U10-implementation-spec §2 pt3 (see above).
-- **Pending fixtures rewritten off real `List`:** `pending/blocks_non_local_return.ph` (used unparseable `[3,-5,8]` list-literal syntax) was rewritten against `List.new()`/`.add(_)` and promoted; `pending/blocks_argument_to_method.ph` stays pending — it needs `List.reduce`, which is U-STD's job, **not** a U10 blocker ([`docs/forge/DEFERRED.md`](../../../../forge/DEFERRED.md) #25).
+- **Pending fixtures rewritten off real `List`:** `pending/blocks_non_local_return.ph` (used unparseable `[3,-5,8]` list-literal syntax) was rewritten against `List.new()`/`.add(_)` and promoted; `pending/blocks_argument_to_method.ph` stays pending — it needs `List.reduce`, which is U-STD's job, **not** a U10 blocker ([`docs/forge/phase-next/DEFERRED.md`](../../../../forge/phase-next/DEFERRED.md) #25).
 - **No exception machinery.** ADR-0008 notes `throw`/`return`/`abort` unify as one unwind primitive; U10 implements only the `return` slice and does not preclude that reuse. `break`/`continue` are out of scope (loop sugar, U5).
 - **Concurrency-forward:** the unwind operates only on the current fiber's `frames`/`stack`; nothing assumes a single global call stack, so a future per-fiber stack is not foreclosed. See [deferred-work.md](../../deferred-work.md).
 
 ## Sources
-- Forge work orders (`U10-plan.md` and the superseding `U10-implementation-spec.md`) folded into this spec (see git history); landing record: [`docs/forge/STATE.md`](../../../../forge/STATE.md) "U10 — LANDED".
+- Forge work orders (`U10-plan.md` and the superseding `U10-implementation-spec.md`) folded into this spec (see git history); landing record: [`docs/forge/archive/phase2/STATE.md`](../../../../forge/archive/phase2/STATE.md) "U10 — LANDED".
 - Code: `phalcom-core/src/{bytecode,error,frame,vm}.rs`, `phalcom-core/src/compiler/lib.rs`, `phalcom-core/src/primitive/block.rs`.

@@ -96,7 +96,7 @@ System.print(Counter._count)   // → 2  (shared class state)
   ([deferred-work §1](../../deferred-work.md), open-Q12).
 
 ## Sources
-- Forge: `U7-plan.md` (folded into this spec; see git history), [STATE.md](../../../../forge/STATE.md) "U7 — LANDED".
+- Forge: `U7-plan.md` (folded into this spec; see git history), [STATE.md](../../../../forge/archive/phase2/STATE.md) "U7 — LANDED".
 - Commits `b619448`, `f38e591`, `561f7e2`.
 - Code: `phalcom-core/src/{instance,class,compiler/lib,bytecode,vm}.rs`,
   `phalcom-core/src/primitive/{object,class,nil}.rs`, `phalcom-core/bin/phalcom/disasm.rs`,

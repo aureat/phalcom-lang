@@ -25,19 +25,19 @@ Planning completed 2026-07-11 by 6 parallel `phalcom-architect` agents._
 ## 1. Unit plan roster (each is a self-contained work order)
 | Unit | Plan | Mission (1-line) | Spec / ADR | Reviewer |
 |---|---|---|---|:--:|
-| U1 | [U1 as-built](../spec/v0.2/units/U/1-heap-and-value.md) | handle/arena heap + tagged `Value` (behavior-preserving migration) | 0009/0010 | ✅ |
-| U2 | [U2 as-built](../spec/v0.2/units/U/2-metaclass-tower.md) · **✅ LANDED** | metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` | 0002/0003 · object-model §5–6 | **skipped this pass** |
-| U4 | [U4 as-built](../spec/v0.2/units/U/4-blocks-and-closures.md) · **✅ LANDED** (see STATE.md) | first-class blocks/closures, Lua open/closed upvalues, frame-token infra | 0013/0006 · blocks.md | **✅ ran, caught stubbed runtime, fixed** |
-| U5 | [U5 as-built](../spec/v0.2/units/U/5-control-flow-inliner.md) · **✅ LANDED** (see STATE.md) | control-flow-as-message + sacred-selector inliner w/ deopt guard | control-flow.md · **0018** | — (reviewer OFF per policy) |
-| U6 | [U6 as-built](../spec/v0.2/units/U/6-option-and-bindings.md) · **✅ LANDED** (see STATE.md) | absence → `Option`, `let`/`var`, no surface `nil`, `if(opt)` rejected | 0007/0014 · **0021** · values-and-absence.md | **✅ ran, BLOCKed on inlined≠non-inlined, fixed, PASSED** |
-| U7 | [U7 as-built](../spec/v0.2/units/U/7-fields-and-construct.md) · **✅ LANDED** (see STATE.md) | fixed instance slot layout + `construct` initializer + class-side stored static fields | 0011/**0017** · classes.md | — (reviewer OFF per policy) |
-| U-LIST | [U-LIST as-built](../spec/v0.2/units/U/list-kernel-list.md) · **✅ LANDED** (see STATE.md) | minimal kernel `List` — native array floor + thin `.ph` protocol | 0019/0020 (**Accepted**) · messages/method-lookup | — (reviewer OFF per policy) |
-| U8 | [U8 as-built](../spec/v0.2/units/U/8-dnu-and-perform.md) · **✅ LANDED** (see STATE.md) | `doesNotUnderstand(_:)` / `perform` + `send_dynamic` (opcode deferred to U9) | 0012 · method-lookup.md | — (reviewer OFF per policy) |
-| U9 | [U9 as-built](../spec/v0.2/units/U/9-variadics.md) · **✅ LANDED** (see STATE.md) | variadics — rest params `*xs`, `SignatureKind::Variadic`/`(*)` selector, call-prologue rest-arg collapse, derived-selector miss probe (reused `ClassObject.methods`, no new table) | 0012amd · messages-and-selectors.md §4 | — (reviewer OFF per policy) |
-| U10 | [U10 as-built](../spec/v0.2/units/U/10-non-local-return.md) · **✅ LANDED** (see STATE.md) | non-local return — `return` inside a block unwinds to the home method via frame token (`Bytecode::ReturnNonLocal` + eager unwind + `DeadFrameError`) | 0013 · blocks.md §5 | — (reviewer OFF per policy) |
-| U11 | [U11 as-built](../spec/v0.2/units/U/11-bool-tower.md) · **✅ LANDED (2026-07-12)** (see STATE.md) | Bool tower: abstract `Bool` + singleton `True`/`False` | 0004 | — (reviewer OFF per policy) |
-| U-LEX | [U-LEX as-built](../spec/v0.2/units/U/lex-lexical-delta.md) · **✅ LANDED (2026-07-12)** (see STATE.md) | surface-syntax delta: block comments `/* … */`, digit separators `1_000_000`, lexer-level newline suppression, `?.`/`??` coverage (U6-landed, fixture only), `\(expr)` string interpolation | 0016 · **0022** · lexical-structure.md | — (reviewer OFF per policy) |
-| U-STD | ✅ **LANDED (2026-07-12)** [U-STD as-built](../spec/v0.2/units/U/std-combinators.md) | **Built Option (B) per user ratification** — the `Option`+`List` combinator layer (map/flatMap/filter/ifSome/unwrapOr; map/reduce/filter/includes/isEmpty/at(_:put:)), pure `.ph`, zero new primitives. The plan's Object/Number/String/Symbol/System scope was ~90% already-landed or re-carved to future `U-CORE-N` (see DEFERRED #29). | catalog-delta §2.2/§2.4 | — |
+| U1 | [U1 as-built](../../../spec/v0.2/units/U/1-heap-and-value.md) | handle/arena heap + tagged `Value` (behavior-preserving migration) | 0009/0010 | ✅ |
+| U2 | [U2 as-built](../../../spec/v0.2/units/U/2-metaclass-tower.md) · **✅ LANDED** | metaclass tower parallel rule + `Behavior` kernel + `verify_invariants()` | 0002/0003 · object-model §5–6 | **skipped this pass** |
+| U4 | [U4 as-built](../../../spec/v0.2/units/U/4-blocks-and-closures.md) · **✅ LANDED** (see STATE.md) | first-class blocks/closures, Lua open/closed upvalues, frame-token infra | 0013/0006 · blocks.md | **✅ ran, caught stubbed runtime, fixed** |
+| U5 | [U5 as-built](../../../spec/v0.2/units/U/5-control-flow-inliner.md) · **✅ LANDED** (see STATE.md) | control-flow-as-message + sacred-selector inliner w/ deopt guard | control-flow.md · **0018** | — (reviewer OFF per policy) |
+| U6 | [U6 as-built](../../../spec/v0.2/units/U/6-option-and-bindings.md) · **✅ LANDED** (see STATE.md) | absence → `Option`, `let`/`var`, no surface `nil`, `if(opt)` rejected | 0007/0014 · **0021** · values-and-absence.md | **✅ ran, BLOCKed on inlined≠non-inlined, fixed, PASSED** |
+| U7 | [U7 as-built](../../../spec/v0.2/units/U/7-fields-and-construct.md) · **✅ LANDED** (see STATE.md) | fixed instance slot layout + `construct` initializer + class-side stored static fields | 0011/**0017** · classes.md | — (reviewer OFF per policy) |
+| U-LIST | [U-LIST as-built](../../../spec/v0.2/units/U/list-kernel-list.md) · **✅ LANDED** (see STATE.md) | minimal kernel `List` — native array floor + thin `.ph` protocol | 0019/0020 (**Accepted**) · messages/method-lookup | — (reviewer OFF per policy) |
+| U8 | [U8 as-built](../../../spec/v0.2/units/U/8-dnu-and-perform.md) · **✅ LANDED** (see STATE.md) | `doesNotUnderstand(_:)` / `perform` + `send_dynamic` (opcode deferred to U9) | 0012 · method-lookup.md | — (reviewer OFF per policy) |
+| U9 | [U9 as-built](../../../spec/v0.2/units/U/9-variadics.md) · **✅ LANDED** (see STATE.md) | variadics — rest params `*xs`, `SignatureKind::Variadic`/`(*)` selector, call-prologue rest-arg collapse, derived-selector miss probe (reused `ClassObject.methods`, no new table) | 0012amd · messages-and-selectors.md §4 | — (reviewer OFF per policy) |
+| U10 | [U10 as-built](../../../spec/v0.2/units/U/10-non-local-return.md) · **✅ LANDED** (see STATE.md) | non-local return — `return` inside a block unwinds to the home method via frame token (`Bytecode::ReturnNonLocal` + eager unwind + `DeadFrameError`) | 0013 · blocks.md §5 | — (reviewer OFF per policy) |
+| U11 | [U11 as-built](../../../spec/v0.2/units/U/11-bool-tower.md) · **✅ LANDED (2026-07-12)** (see STATE.md) | Bool tower: abstract `Bool` + singleton `True`/`False` | 0004 | — (reviewer OFF per policy) |
+| U-LEX | [U-LEX as-built](../../../spec/v0.2/units/U/lex-lexical-delta.md) · **✅ LANDED (2026-07-12)** (see STATE.md) | surface-syntax delta: block comments `/* … */`, digit separators `1_000_000`, lexer-level newline suppression, `?.`/`??` coverage (U6-landed, fixture only), `\(expr)` string interpolation | 0016 · **0022** · lexical-structure.md | — (reviewer OFF per policy) |
+| U-STD | ✅ **LANDED (2026-07-12)** [U-STD as-built](../../../spec/v0.2/units/U/std-combinators.md) | **Built Option (B) per user ratification** — the `Option`+`List` combinator layer (map/flatMap/filter/ifSome/unwrapOr; map/reduce/filter/includes/isEmpty/at(_:put:)), pure `.ph`, zero new primitives. The plan's Object/Number/String/Symbol/System scope was ~90% already-landed or re-carved to future `U-CORE-N` (see DEFERRED #29). | catalog-delta §2.2/§2.4 | — |
 
 Reviewer ON = load-bearing → independent `phalcom-reviewer` gate (STATE.md policy): **U1, U2, U4, U6**.
 
@@ -62,7 +62,7 @@ it at the **spine tail, before Wave F**. It edits `core.ph` + `primitive/mod.rs`
 **never co-schedule with another `core.ph` editor.**
 
 **U-LIST storage design gate — CLEARED (2026-07-11):** ADR-0019 (freeze the VM-blessed primitive
-floor) and [ADR-0020](../adr/0020-kernel-list-native-array-protocol.md) (native `Vec<Value>` behind
+floor) and [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) (native `Vec<Value>` behind
 the handle/arena `Heap`, five floor primitives — not six, "grow" folds into `push` — protocol
 authored in `.ph`) were both ratified **Accepted** by the user, then U-LIST landed the same
 session. See STATE.md's "U-LIST — LANDED" section for the as-built design and a codebase-wide
@@ -96,8 +96,8 @@ _Each unit's bulk proceeds regardless; only the named sub-feature waits._
 |---|---|---|---|
 | **DEC-A** ✅ **RESOLVED + IMPLEMENTED (user, 2026-07-11)** — storage design sub-gate ✅ **ADR-0019/0020 ratified, U-LIST landed same session** | U8, U9, U-STD | **Kernel `List` unscheduled but a hard dep** of dNU (`Message.args`) and rest-params. | **U-LIST landed** (see STATE.md), unblocking U8/U9/U-STD's `List` dependency. |
 | **DEC-B** ✅ **RESOLVED + IMPLEMENTED (2026-07-12, landed with U9)** | U9 | **Variadic dispatch table key** — messages §4 (`key by (name, min_arity)`) isn't implementable as written (a call of arity K needs `min ≤ K`, an exact-tuple hash can't answer). | Key by **bare name**, via the canonical `<name>(*)` selector spelling in the *existing* `ClassObject.methods` map — **no new table** (U9-implementation-spec.md §0 point 2/3 refines "reject a 2nd same-name variadic" to "silently overwins", same as any duplicate-selector redefinition today; DEFERRED #24). |
-| **DEC-C** ✅ **RESOLVED (user, 2026-07-11 → Option A, landed with U6)** | U6 | **How is `if(opt)` a compile error?** No static/flow analysis exists; general static detection impossible. | **(A)** runtime no-coercion floor (branch opcode requires `Bool`; Option never implements branch protocol) **+** compile-time rejection of *syntactically-literal* Option conditions. **→ shipped as [ADR-0021](../adr/0021-no-truthiness-enforcement.md).** |
-| **DEC-D** ✅ **RESOLVED + IMPLEMENTED (user, 2026-07-11; landed with U7, `f38e591`)** | U7 | **Class-side _stored_ static fields** were unspecified (ADR-0011 "static" = instance layout, not class-side state — naming collision). | **→ INCLUDE in U7 (option A): apply ADR-0011 up the tower** — class object gets its own `static_slots` indexed by a per-*metaclass* field table. [ADR-0017](../adr/0017-class-side-stored-static-fields.md) **Accepted** and landed: `static_slots` + metaclass field table wired, offset-stability-up-the-tower proven (`subclass_static_field_offset_stability`). See U7-plan §3, STATE.md "U7 — LANDED". |
+| **DEC-C** ✅ **RESOLVED (user, 2026-07-11 → Option A, landed with U6)** | U6 | **How is `if(opt)` a compile error?** No static/flow analysis exists; general static detection impossible. | **(A)** runtime no-coercion floor (branch opcode requires `Bool`; Option never implements branch protocol) **+** compile-time rejection of *syntactically-literal* Option conditions. **→ shipped as [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md).** |
+| **DEC-D** ✅ **RESOLVED + IMPLEMENTED (user, 2026-07-11; landed with U7, `f38e591`)** | U7 | **Class-side _stored_ static fields** were unspecified (ADR-0011 "static" = instance layout, not class-side state — naming collision). | **→ INCLUDE in U7 (option A): apply ADR-0011 up the tower** — class object gets its own `static_slots` indexed by a per-*metaclass* field table. [ADR-0017](../../../adr/0017-class-side-stored-static-fields.md) **Accepted** and landed: `static_slots` + metaclass field table wired, offset-stability-up-the-tower proven (`subclass_static_field_offset_stability`). See U7-plan §3, STATE.md "U7 — LANDED". |
 | **DEC-E** | U5 / U-LEX | **Who owns `if`/`while`/`for` surface parsing?** No control-flow AST node exists today. Sets the U5↔U-LEX write-set boundary in `phalcom-ast`. | **U5 owns** tightly-scoped parse-time desugaring to block sends (adds `phalcom-ast` to U5's write-set). |
 | **DEC-F** ✅ **RESOLVED (user, 2026-07-12 → `\(expr)`, overriding the architect's `{expr}` recommendation)** | U-LEX | **String-interpolation sigil** (open-Q5): `{expr}` / `${expr}` / `\(expr)`. | User ratified **`\(expr)`** (Swift-style). Requires a new ADR + rewriting `pending/lexical_string_interpolation.ph` and spec §5's `{expr}` examples off the old sigil before U-LEX's D4 slice builds. |
 
@@ -141,13 +141,13 @@ points at it so the two trees don't fork again.
 
 | Unit | Mission (1-line) | Spec | Status |
 |---|---|---|---|
-| U-CORE-0 | requirements/rulings: floor census, bootstrap phases, sacred-selector set, catalog delta, pending-retirement map, invariant-requirements, forward-compat | [`docs/spec/core/README.md`](../spec/core/README.md) | ✅ 7/7 docs done |
-| U-CORE-1 | kernel reflection — `Object#hash`, `Object#isA(_)`, `Behavior#name`/`methods`, `Method < Function` re-parent | [`U-CORE-1-implementation-spec.md`](../spec/core/U-CORE-1-implementation-spec.md) | dispatch-ready |
-| U-CORE-2 | `Bool` half-Option fix + core `Option` combinators | [`U-CORE-2-implementation-spec.md`](../spec/core/U-CORE-2-implementation-spec.md) | mostly landed (`0da64d6`); residue only |
-| U-CORE-3 | callables/`Block`/`Method` reflection — hard prereq for iteration methods | [`U-CORE-3-implementation-spec.md`](../spec/core/U-CORE-3-implementation-spec.md) | dispatch-ready |
-| U-CORE-4 | value classes: per-type `toString` overrides (closes DEFERRED #30) | [`U-CORE-4-implementation-spec.md`](../spec/core/U-CORE-4-implementation-spec.md) | dispatch-ready |
-| U-CORE-5 | collection protocol contract (shared interface; `List` already satisfies most of it) | [`U-CORE-5-implementation-spec.md`](../spec/core/U-CORE-5-implementation-spec.md) | dispatch-ready |
-| U-CORE-6 | `Error` root + wire the existing dNU miss path to raise `MessageNotUnderstood` | [`U-CORE-6-implementation-spec.md`](../spec/core/U-CORE-6-implementation-spec.md) | dispatch-ready |
+| U-CORE-0 | requirements/rulings: floor census, bootstrap phases, sacred-selector set, catalog delta, pending-retirement map, invariant-requirements, forward-compat | [`docs/spec/core/README.md`](../../../spec/core/README.md) | ✅ 7/7 docs done |
+| U-CORE-1 | kernel reflection — `Object#hash`, `Object#isA(_)`, `Behavior#name`/`methods`, `Method < Function` re-parent | [`U-CORE-1-implementation-spec.md`](../../../spec/core/U-CORE-1-implementation-spec.md) | dispatch-ready |
+| U-CORE-2 | `Bool` half-Option fix + core `Option` combinators | [`U-CORE-2-implementation-spec.md`](../../../spec/core/U-CORE-2-implementation-spec.md) | mostly landed (`0da64d6`); residue only |
+| U-CORE-3 | callables/`Block`/`Method` reflection — hard prereq for iteration methods | [`U-CORE-3-implementation-spec.md`](../../../spec/core/U-CORE-3-implementation-spec.md) | dispatch-ready |
+| U-CORE-4 | value classes: per-type `toString` overrides (closes DEFERRED #30) | [`U-CORE-4-implementation-spec.md`](../../../spec/core/U-CORE-4-implementation-spec.md) | dispatch-ready |
+| U-CORE-5 | collection protocol contract (shared interface; `List` already satisfies most of it) | [`U-CORE-5-implementation-spec.md`](../../../spec/core/U-CORE-5-implementation-spec.md) | dispatch-ready |
+| U-CORE-6 | `Error` root + wire the existing dNU miss path to raise `MessageNotUnderstood` | [`U-CORE-6-implementation-spec.md`](../../../spec/core/U-CORE-6-implementation-spec.md) | dispatch-ready |
 
 **Recommended order:** U-CORE-1 → U-CORE-3 → U-CORE-2 (residue check) → U-CORE-4 → U-CORE-5 →
 U-CORE-6 (`docs/spec/core/README.md` §"Status").
@@ -161,4 +161,4 @@ U-CORE-6 (`docs/spec/core/README.md` §"Status").
 - **ADR-0019 amendment gate**: `hash` + `Behavior` reflection (U-CORE-1), `Method`
   reflection (U-CORE-3), `Number#toString` (U-CORE-4), and `Error#message`/`raise`
   (U-CORE-6) are folded into one **omnibus ADR-0023** rather than four separate
-  amendments — see [ADR-0023](../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md).
+  amendments — see [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md).

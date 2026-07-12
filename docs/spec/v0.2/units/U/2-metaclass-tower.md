@@ -34,7 +34,7 @@ Class-side (`static`) method inheritance now works: a subclass's static methods 
 - ADR fold-ins landed here: ADR-0002 gained a "Superseded (U2)" pointer note (Rc `new_cyclic` → ADR-0009 handle-patching); ADR-0003's "Open question" note replaced with an "Implementation note (U2)" confirming Q11 resolved.
 
 ## Sources
-- forge: [`STATE.md`](../../../../forge/STATE.md). Per-unit planning record (`U2-plan.md`, `U2-progress.md`) folded into this spec; see git history.
+- forge: [`STATE.md`](../../../../forge/archive/phase2/STATE.md). Per-unit planning record (`U2-plan.md`, `U2-progress.md`) folded into this spec; see git history.
 - code: `phalcom-core/src/universe.rs` (`create_core_classes`, `make_core_class`, `verify_invariants`), `phalcom-core/src/vm.rs` (`VM::new`, `VM::create_class`), `phalcom-core/tests/invariants.rs`.
 - ADRs: [0002](../../../../adr/0002-metaclass-tower-parallel-rule.md), [0003](../../../../adr/0003-introduce-behavior-kernel-class.md).
 - landing: `037da3d`.

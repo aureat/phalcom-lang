@@ -2,7 +2,7 @@
 
 - **Status:** ✅ Landed — `dba9d49` (D1), `6660517` (D2), `ee244b2` (D3), `eb10b69` (D4), `fef1a7e` (D5), `d91cdf4` (docs). In-tree on `main`, no worktree; committed per green checkpoint D1→D2→D3→D5→D4.
 - **Realizes:** [ADR-0022](../../../../adr/0022-string-interpolation-backslash-paren-sigil.md) (new — `\(expr)` sigil); spec [lexical-structure.md](../../lexical-structure.md) §5 (interpolation), §1 (newline suppression). Extends the U-FE hand-written lexer ([fe-front-end.md](fe-front-end.md), [ADR-0016](../../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md)).
-- **Reviewer gate:** OFF per policy (surface syntax, not load-bearing-hierarchy) — self-verified on the green gate (`../../../../forge/STATE.md` §"U-LEX — LANDED"; reviewer roster line: "Reviewer OFF … U-LEX").
+- **Reviewer gate:** OFF per policy (surface syntax, not load-bearing-hierarchy) — self-verified on the green gate (`../../../../forge/archive/phase2/STATE.md` §"U-LEX — LANDED"; reviewer roster line: "Reviewer OFF … U-LEX").
 
 ## Mission
 
@@ -45,14 +45,14 @@ All in `phalcom-ast/src/lexer.rs` (+ `token.rs`, `parser.rs` for D4 desugar):
 ## Deviations & deferrals
 
 - **D4 sigil override:** the architect recommended `{expr}`; the user ratified **`\(expr)`** (Swift-style) — recorded as [ADR-0022](../../../../adr/0022-string-interpolation-backslash-paren-sigil.md).
-- **D4 desugar target:** the spec's illustrative desugar used `expr.toString`, but no value-type content `toString` exists yet (blocked on U-CORE-4). `String.new(expr)` is the working content-stringify today — [DEFERRED #30](../../../../forge/DEFERRED.md) (same root cause as #19).
-- **Interpolation scanning is balanced-paren only** — it does not understand a string literal nested inside a `\(…)` expression (`"\(f(")"))"` mis-terminates). Accepted for v1 — [DEFERRED #31](../../../../forge/DEFERRED.md).
-- **Block comments are flat (non-nesting)**; nested block comments and the reserved lone-`?` remain [DEFERRED #12/#32](../../../../forge/DEFERRED.md).
+- **D4 desugar target:** the spec's illustrative desugar used `expr.toString`, but no value-type content `toString` exists yet (blocked on U-CORE-4). `String.new(expr)` is the working content-stringify today — [DEFERRED #30](../../../../forge/phase-next/DEFERRED.md) (same root cause as #19).
+- **Interpolation scanning is balanced-paren only** — it does not understand a string literal nested inside a `\(…)` expression (`"\(f(")"))"` mis-terminates). Accepted for v1 — [DEFERRED #31](../../../../forge/phase-next/DEFERRED.md).
+- **Block comments are flat (non-nesting)**; nested block comments and the reserved lone-`?` remain [DEFERRED #12/#32](../../../../forge/phase-next/DEFERRED.md).
 - See also [deferred-work.md](../../deferred-work.md).
 
 ## Sources
 
 - ADR: [0022-string-interpolation-backslash-paren-sigil.md](../../../../adr/0022-string-interpolation-backslash-paren-sigil.md); [0016-hand-written-lexer-and-recursive-descent-parser.md](../../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md).
 - Code: `phalcom-ast/src/lexer.rs` (`skip_trivia`, `scan_number`/`scan_digits`, `scan_string`, `suppresses_following_newline`, `next`), `phalcom-ast/src/token.rs` (`StringInterp`/`StringSegment`, `LexicalError::UnterminatedBlockComment`), `phalcom-ast/src/parser.rs` (interpolation desugar); tests `phalcom-ast/tests/lexer.rs` + `phalcom-core/tests/lang/lexical/`.
-- Forge: [STATE.md](../../../../forge/STATE.md) §"U-LEX — LANDED". Per-unit planning record (`U-LEX-implementation-spec.md`, `U-LEX-plan.md`) folded into this spec; see git history.
-- Deferred: [deferred-work.md](../../deferred-work.md); [DEFERRED.md](../../../../forge/DEFERRED.md) #12/#30/#31/#32.
+- Forge: [STATE.md](../../../../forge/archive/phase2/STATE.md) §"U-LEX — LANDED". Per-unit planning record (`U-LEX-implementation-spec.md`, `U-LEX-plan.md`) folded into this spec; see git history.
+- Deferred: [deferred-work.md](../../deferred-work.md); [DEFERRED.md](../../../../forge/phase-next/DEFERRED.md) #12/#30/#31/#32.
