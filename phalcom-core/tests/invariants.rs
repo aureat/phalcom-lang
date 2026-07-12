@@ -614,7 +614,7 @@ fn floor_census_matches_installed_bindings() {
     // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
     // live `VM::new()` and assert it equals the census in
     // `docs/spec/core/floor-census.md` (count = 88 after ADR-0023's +7,
-    // ADR-0028's +5, U-CORE-4's +1, and this unit's own +2). Turns silent
+    // ADR-0028's +5, U-CORE-4's +1, and U-CORE-6's own +2). Turns silent
     // floor drift — an accidental extra primitive, or a dropped one — into a
     // red test. The baseline is 73; the first +7 (marked NEW below) is the
     // ADR-0023 kernel-reflection amendment (`hash` ×5 + `Behavior#name` +
@@ -623,8 +623,8 @@ fn floor_census_matches_installed_bindings() {
     // `Object#methodFor(_)`, `Method#invokeOn(_,_)`, `Method#bind(_)`,
     // `Method#selector`, `Method#holder`; the third +1 (marked
     // NEW_VALUE_TOSTRING) is U-CORE-4's amendment (`Number#toString`); the
-    // fourth +2 (marked NEW_ERROR) is this unit's own amendment (U-CORE-6,
-    // ADR-0037): `Error#message`, `Error#raise`.
+    // fourth +2 (marked NEW_ERROR) is U-CORE-6's amendment (ADR-0037):
+    // `Error#message`, `Error#raise`.
     const BASELINE: usize = 73;
     const NEW: usize = 7;
     const NEW_METHOD_REFLECTION: usize = 5;
@@ -638,9 +638,16 @@ fn floor_census_matches_installed_bindings() {
     // (102 -> 105). No mutation primitive — immutability is structural.
     const NEW_TUPLE: usize = 3;
     // U-COLLTYPES Phase 3 (ADR-0039): Range (4: new/rawStart/rawEnd/
-    // rawInclusive) = +4 (105 -> 109). The WHOLE floor — everything else is
-    // .ph over these + Number arithmetic.
+    // rawInclusive) = +4 (105 -> 109).
     const NEW_RANGE: usize = 4;
+    // U-ERR (ADR-0038, this unit's own amendment): `Block#on(_,_)` +
+    // `Block#ensure(_)` = +2 (109 -> 111) — the catch protocol `try`/`on`/
+    // `catch`/`ensure` (ADR-0031) desugar to. The WHOLE remaining error
+    // surface — `throw`, the `try` statement, `Result`/`Ok`/`Err`, `attempt` —
+    // is `.ph`/parser sugar over these two plus the pre-existing `Error#raise`
+    // (U-CORE-6/ADR-0037), so this is the floor's final word on error
+    // handling.
+    const NEW_ON_ENSURE: usize = 2;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -733,6 +740,9 @@ fn floor_census_matches_installed_bindings() {
         (c.block_class, false, "call(_:_:_:)"),
         (c.block_class, false, "call(_:_:_:_:)"),
         (c.block_class, false, "whileTrue(_:)"),
+        // U-ERR error-handling catch protocol (ADR-0038) — NEW_ON_ENSURE
+        (c.block_class, false, "on(_:_:)"),
+        (c.block_class, false, "ensure(_:)"),
         // §2.11 System
         (c.system_class, true, "print(_:)"),
         (c.system_class, true, "new()"),
@@ -836,13 +846,13 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE,
-        "census must enumerate exactly 109 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range)"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE + NEW_ON_ENSURE,
+        "census must enumerate exactly 111 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR)"
     );
     assert_eq!(
         live.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE,
-        "the live floor must be exactly 109 bindings"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE + NEW_ON_ENSURE,
+        "the live floor must be exactly 111 bindings"
     );
 }
 
@@ -1403,4 +1413,80 @@ fn overriding_does_not_understand_still_intercepts_before_the_default_raise() {
     let bogus = vm.get_or_intern("frobnicate");
     let result = vm.send_dynamic(p, bogus, &[]).expect("the override should intercept, not raise");
     assert_eq!(result.to_string(&vm), "intercepted: frobnicate", "the user override should run instead of the default raise");
+}
+
+#[test]
+fn on_catch_restore_survives_a_deep_throw_and_the_vm_stays_healthy() {
+    // U-ERR catch-restore invariant (error-handling.md §2, ADR-0038): after a
+    // deeply nested `throw` is caught by `on(_)`, the VM must have correctly
+    // `close_upvalues_from`-then-truncated back to the pre-`on` snapshot
+    // (`VM::unwind_to`) — not merely leave the *value* right, but leave the
+    // frame/stack machinery healthy enough that (a) the handler can allocate
+    // a fresh local (`var y = ...`) after the restore and (b) the VM can keep
+    // running further, wholly independent top-level code afterward. A missed
+    // upvalue-close or a botched truncate would very likely corrupt one of
+    // these, not just the handler's own return value.
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "on_catch_restore_survives_a_deep_throw_and_the_vm_stays_healthy");
+    vm.interpret_source(
+        module,
+        r#"
+class DeepErr extends Error {
+  construct new(msg) { super.new(msg) }
+}
+class M {
+  deep(n) {
+    (n <= 0).ifTrue { return self.boom() }
+    return self.deep(n - 1)
+  }
+  boom() {
+    throw DeepErr.new("deep")
+  }
+}
+let r = { M.new().deep(30) }.on(Error) { e =>
+  var y = "handled:" + e.message
+  y
+}
+let after = 1 + 2
+"#,
+    )
+    .expect("a deep throw caught by `on` should run to completion");
+
+    let r_sym = vm.interner.intern("r");
+    let r_value = vm.heap.module(module).get(r_sym).expect("`r` global should exist");
+    assert_eq!(r_value.to_string(&vm), "handled:deep", "the handler's post-restore allocation should survive as the `on` result");
+
+    let after_sym = vm.interner.intern("after");
+    let after_value = vm.heap.module(module).get(after_sym).expect("`after` global should exist");
+    assert!(
+        matches!(after_value, Value::Number(n) if n == 3.0),
+        "the VM must stay healthy enough to keep running top-level code after the deep catch, got {after_value:?}"
+    );
+}
+
+#[test]
+fn on_isa_match_walks_the_superclass_chain() {
+    // U-ERR isA-match invariant (error-handling.md §2: "`on T` catches `T`
+    // and its subclasses"): `on(BaseErr)` must catch a thrown `SubErr`
+    // instance by walking `SubErr`'s superclass chain up to `BaseErr` (mirrors
+    // `core.ph`'s `Object#isA`), not just an exact class-identity check.
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "on_isa_match_walks_the_superclass_chain");
+    vm.interpret_source(
+        module,
+        r#"
+class BaseErr extends Error {
+  construct new(msg) { super.new(msg) }
+}
+class SubErr extends BaseErr {
+  construct new(msg) { super.new(msg) }
+}
+let r = { throw SubErr.new("leaf") }.on(BaseErr) { e => "caught:" + e.message }
+"#,
+    )
+    .expect("on(Super) should catch a thrown Sub instance");
+
+    let r_sym = vm.interner.intern("r");
+    let r_value = vm.heap.module(module).get(r_sym).expect("`r` global should exist");
+    assert_eq!(r_value.to_string(&vm), "caught:leaf", "on(BaseErr) should catch a SubErr throw via the superclass walk");
 }

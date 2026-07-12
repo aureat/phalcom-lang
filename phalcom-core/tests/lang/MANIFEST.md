@@ -19,6 +19,20 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, collections,
   compile-errors, concurrency, control-flow, dispatch, errors, functions, inheritance,
   iteration, lexical, list, messages, metaclass, runtime-errors, syntax-errors, system.
+- **U-ERR delta (most recent; the aggregate total below predates it and is not
+  reconciled here — see the reconcile-corpus-counts history):** `errors/pending/`
+  is now empty and retired — its two placeholder fixtures
+  (`errors_throw_try_catch_finally.ph`, `errors_result_bridge.ph`) graduated to
+  PASS, rewritten onto the *ratified* ADR-0031 surface (`try`/`on T e {}`/
+  `catch e {}`/`ensure{}`; the old drafts used a pre-ADR-0031 JS-style
+  `catch (e: T) {} finally {}` placeholder spelling). +9 PASS total in `errors/`
+  (`errors_try_on_typed_and_catch_all`, `errors_try_first_match_wins`,
+  `errors_ensure_all_exits`, `errors_ensure_cleanup_supersedes`,
+  `errors_result_combinators`, `errors_result_unwrap_bridges`,
+  `errors_attempt_bridge`, plus the two graduated ones), +1 NEGATIVE
+  (`compile-errors/compile_error_throw_non_error_literal.ph`), +1 NEGATIVE
+  (`runtime-errors/runtime_error_throw_uncaught.ph`), -2 PENDING (the retired
+  `errors/pending/` pair). `errors` moves `check_pending` → `check_pass`.
 - **Case counts:** PASS 163 · NEGATIVE 34 · PENDING 32 · **total 229** (U13
   hierarchy-stability policy, DEC-U13a=A: +1 NEGATIVE —
   `runtime-errors/runtime_error_superclass_reparent_rejected.ph` pins the
@@ -69,13 +83,13 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | collections | 14 | 2 | 1 | `check_pass` (+ `check_negative`, `check_pending`) | U-CORE-5 as-built.md; U-COLL: lexical-structure.md §4/§6/§7/§8; ADR-0029; ADR-0032; U-COLLTYPES: map-and-set.md; tuple-and-range.md; ADR-0039 |
 | iteration | 9 | – | 2 | `check_pass` (+ `iteration_disasm`, `check_pending`) | ADR-0035; iteration.md; U-ITER specification |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
-| runtime-errors | – | 11 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3; ADR-0026; ADR-0041 |
-| compile-errors | – | 12 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021; object-model.md §5.1; ADR-0035 (break/continue outside loop) |
+| runtime-errors | – | 11+1 (U-ERR: `runtime_error_throw_uncaught`) | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3; ADR-0026; ADR-0041; error-handling.md §1/§4 |
+| compile-errors | – | 12+1 (U-ERR: `compile_error_throw_non_error_literal`) | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021; object-model.md §5.1; ADR-0035 (break/continue outside loop); error-handling.md §1 |
 | absence | 10 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | – | – | 2 | `check_pending` | control-flow.md |
 | concurrency | 9 | – | 1 | `check_pass` + `check_pending` | concurrency.md; ADR-0030 |
-| errors | – | – | 2 | `check_pending` | error-handling.md |
+| errors | 9 | – | – | `check_pass` | error-handling.md; result.md; ADR-0008/0031/0038 |
 | functions | – | – | 2 | `check_pending` | functions.md; selectors.md |
 
 ## Spec coverage

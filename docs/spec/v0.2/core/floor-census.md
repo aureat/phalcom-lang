@@ -33,8 +33,8 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **109** |
-| Distinct native Rust functions | **94** |
+| Installed `(class, selector)` bindings | **111** |
+| Distinct native Rust functions | **96** |
 | Classes carrying floor primitives | **21** (of 27 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
@@ -131,27 +131,45 @@ language is *self-hosting above a small, fixed native boundary*
 > storage — RG-2 laziness). Floor-carrying classes move **20 → 21**. R-INV-0.1
 > audits this set.
 
-> **Baseline:** post-U-COLLTYPES-Phase-3 — the figures above (**109 / 94 / 21 / 7**)
-> are the current floor (was **105 / 90 / 20 / 7** post-Phase-2, **102 / 87 / 19 / 7**
-> post-Phase-1, **88 / 73 / 17 / 7** post-U-CORE-6). The authoritative pin + full
-> landing history live in [`README.md`](./README.md) §"Baseline & drift
-> policy"; this census is the ground-truth enumeration behind that count. One
-> census-specific caution: of the post-U-CORE-0 landings, **U-CORE-1 added +7
-> (73 → 80, ADR-0023), U-CORE-3 added +5 (80 → 85, ADR-0028), U-CORE-4 added +1
+> **U-ERR amendment ([ADR-0038](../../../adr/0038-amend-floor-admit-block-on-ensure.md)).**
+> The error-handling catch protocol admits **+2** bindings (109 → 111) and
+> **+2** distinct fns (94 → 96): `Block#on(_,_)` (`block_on`) and
+> `Block#ensure(_)` (`block_ensure`), both `primitive/block.rs`. Installed on
+> `Block` only (mirroring `whileTrue(_)`, not `call`/`arity`/`name`/
+> `callWith`) — every `on`/`ensure` receiver, whether at a `try` desugar site
+> or inside `Function#attempt`, is always a literal `{ }` block. This is the
+> **whole** floor for error *handling* (the *raising* half, `Error#message`/
+> `raise()`, already landed under ADR-0037): `throw`, the `try`/`on`/`catch`/
+> `ensure` statement, `Result`/`Ok`/`Err`, and `Block#attempt` are all parser
+> sugar / pure `.ph` over these two plus `Error#raise` — **zero** further
+> bindings. Floor-carrying classes stay at **21** (`Block` already carried
+> `whileTrue`). R-INV-0.1 audits this set.
+>
+> **Baseline:** post-U-ERR — the figures above (**111 / 96 / 21 / 7**) are the
+> current floor (was **109 / 94 / 21 / 7** post-U-COLLTYPES-Phase-3,
+> **105 / 90 / 20 / 7** post-Phase-2, **102 / 87 / 19 / 7** post-Phase-1,
+> **88 / 73 / 17 / 7** post-U-CORE-6). The authoritative pin + full landing
+> history live in [`README.md`](./README.md) §"Baseline & drift policy"; this
+> census is the ground-truth enumeration behind that count. One census-specific
+> caution: of the post-U-CORE-0 landings, **U-CORE-1 added +7 (73 → 80,
+> ADR-0023), U-CORE-3 added +5 (80 → 85, ADR-0028), U-CORE-4 added +1
 > (85 → 86, ADR-0036), U-CORE-6 added +2 (86 → 88, ADR-0037), U-COLLTYPES
 > Phase 1 added +14 (88 → 102, ADR-0039), U-COLLTYPES Phase 2 added +3
-> (102 → 105, ADR-0039), and U-COLLTYPES Phase 3 added +4 (105 → 109,
-> ADR-0039)** — every other unit either landed `.ph`/compiler surface or added
-> zero bindings. U8's reflective surface and the `Message` class were already
-> in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were `.ph`/compiler-only; U11
-> added `True`/`False` as kernel classes (19 → 21) with **+0** bindings — so
-> "classes added" never implies "bindings added" (U11 is the counterexample;
-> see §2.6). U-CORE-6 is the exception: its two new classes
-> (`Error`/`MessageNotUnderstood`, 21 → 23) do come with bindings, but only on
-> `Error` — see the amendment note above. U-COLLTYPES Phase 1 adds two more new
-> classes (`Map`/`Set`, 23 → 25) that *both* carry bindings; Phase 2 adds one
-> more (`Tuple`, 25 → 26); Phase 3 adds the last (`Range`, 26 → 27) — closing
-> out the +21-binding, four-class amendment ADR-0039 enumerated in full.
+> (102 → 105, ADR-0039), U-COLLTYPES Phase 3 added +4 (105 → 109, ADR-0039),
+> and U-ERR added +2 (109 → 111, ADR-0038)** — every other unit either landed
+> `.ph`/compiler surface or added zero bindings. U8's reflective surface and
+> the `Message` class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/
+> U-STD were `.ph`/compiler-only; U11 added `True`/`False` as kernel classes
+> (19 → 21) with **+0** bindings — so "classes added" never implies "bindings
+> added" (U11 is the counterexample; see §2.6). U-CORE-6 is the exception: its
+> two new classes (`Error`/`MessageNotUnderstood`, 21 → 23) do come with
+> bindings, but only on `Error` — see its amendment note above. U-COLLTYPES
+> Phase 1 adds two more new classes (`Map`/`Set`, 23 → 25) that *both* carry
+> bindings; Phase 2 adds one more (`Tuple`, 25 → 26); Phase 3 adds the last
+> (`Range`, 26 → 27) — closing out the +21-binding, four-class amendment
+> ADR-0039 enumerated in full. U-ERR adds **no** new classes (`Result`/`Ok`/
+> `Err` are pure `.ph`, 27 → 27) — only two bindings on the pre-existing
+> `Block` row.
 
 ### 1.2 Selector notation
 
@@ -328,6 +346,8 @@ without a `Block`.
 | `callWith(_)` | instance | Function, Block | `block_call_with` | one packed argument |
 | `call()` … `call(_,_,_,_)` | instance | Function, Block | `block_call` | arities **0–4** (`MAX_CALL_ARITY = 4`); dispatch keys on arity, so one entry per arity (functions.md §1) |
 | `whileTrue(_)` | instance | Block | `block_while_true` | ★ sacred loop fallback |
+| `on(_,_)` | instance | Block | `block_on` | U-ERR, ADR-0038 — typed catch (`try`/`on`/`catch` desugar target) |
+| `ensure(_)` | instance | Block | `block_ensure` | U-ERR, ADR-0038 — always-runs cleanup (`try`/`ensure` desugar target) |
 
 **U-CORE-3 behavior completions (zero new bindings, ADR-0028).**
 `block_arity`/`block_name` learn an `Object::Method` receiver (reading

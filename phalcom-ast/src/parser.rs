@@ -410,6 +410,8 @@ impl<'source> Parser<'source> {
             Token::Var => self.parse_binding(BindingKind::Var),
             Token::Return => self.parse_return(),
             Token::For => self.parse_for(),
+            Token::Throw => self.parse_throw(),
+            Token::Try => self.parse_try(),
             Token::Break => {
                 let start = self.cur_start();
                 self.advance(); // 'break'
@@ -453,6 +455,169 @@ impl<'source> Parser<'source> {
         };
         let range = (start..self.prev_end).into();
         Ok(Statement::For(ForStatement { binding, iter, body, range }))
+    }
+
+    /// Parses `throw expr` — surface sugar for `expr.raise()`
+    /// ([error-handling.md §1](../../../docs/spec/v0.2/error-handling.md),
+    /// [ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+    /// The non-`Error`-literal compile check is the compiler's job
+    /// (`phalcom-core/src/compiler/lib.rs`), not the parser's — this only
+    /// builds the node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the thrown expression is malformed.
+    fn parse_throw(&mut self) -> ParserResult<Statement> {
+        let start = self.cur_start();
+        self.advance(); // 'throw'
+        let expr = self.parse_expr()?;
+        let range = (start..self.prev_end).into();
+        Ok(Statement::Throw { expr, range })
+    }
+
+    /// Parses `try { P } (on T e { … })* (catch e { … })? (ensure { … })?`
+    /// straight into the ADR-0031 §3 **nested re-wrapping** desugar over the
+    /// `Block` catch protocol (error-handling.md §2):
+    ///
+    /// ```phalcom
+    /// { { { P }.on(A) { a => HA } }.on(B) { b => HB } }.ensure { C }
+    /// ```
+    ///
+    /// `on`/`ensure` run their receiver block **eagerly**, so a flat
+    /// left-associative chain (`{P}.on(A){}.on(B){}`) would send `on(B)` to the
+    /// *value* `on(A)` returns rather than a block — each successive clause
+    /// must instead wrap the accumulated expression in a fresh block literal.
+    /// `catch e { … }` desugars to `.on(Error) { e => … }` (catch-all, `Error`
+    /// is the raisable root). This mirrors `if`/`while`'s parser-level desugar
+    /// to sends (U5) rather than carrying its own `Statement` variant — the
+    /// result is an ordinary [`Statement::Expr`].
+    ///
+    /// `on`/`catch`/`ensure` are **contextual keywords**: recognised as
+    /// ordinary [`Token::Identifier`]s solely while parsing this tail
+    /// (error-handling.md §2, ADR-0031 §4), so `.on()`/`.ensure()` selectors and
+    /// the `Fiber>>try` message keep working everywhere else. `try` itself is a
+    /// genuine reserved keyword ([`Token::Try`]); [`Self::parse_property_name`]
+    /// additionally accepts it so `fiber.try(...)` still parses.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any clause is malformed, or if the statement has
+    /// neither an `on`/`catch` handler nor an `ensure` block (an empty handler
+    /// set is rejected, error-handling.md §2).
+    fn parse_try(&mut self) -> ParserResult<Statement> {
+        let start = self.cur_start();
+        self.advance(); // 'try'
+        let mut acc = self.parse_brace_block()?;
+        let mut has_handler = false;
+        let mut has_ensure = false;
+        // The very first clause's receiver is the protected block literal
+        // itself — already a fresh `Expr::Block`, so it needs no wrapping.
+        // Every clause *after* that sends to the **value** the previous
+        // eager `.on(_)(_)`/`.ensure(_)` send just produced, not a block —
+        // `on`/`ensure` run their receiver immediately, so a flat chain
+        // (`{P}.on(A){}.on(B){}`) would send `on(B)` to `on(A)`'s *result*.
+        // Each subsequent clause must therefore re-wrap the accumulated
+        // expression in a fresh 0-param block first (ADR-0031 §3's nested
+        // re-wrapping desugar — see this fn's own doc for the worked
+        // example).
+        let mut needs_wrap = false;
+
+        loop {
+            let is_on = matches!(self.peek(), Token::Identifier(kw) if kw == "on");
+            let is_catch = matches!(self.peek(), Token::Identifier(kw) if kw == "catch");
+            if is_on {
+                self.advance(); // 'on'
+                let class_start = self.cur_start();
+                let class_name = self.expect_identifier(&["error class name"])?;
+                let class_range: SourceRange = (class_start..self.prev_end).into();
+                let param = self.expect_identifier(&["handler parameter"])?;
+                let handler = self.parse_named_param_block(param)?;
+                if needs_wrap {
+                    acc = Self::wrap_expr_as_block(acc);
+                }
+                acc = self.wrap_on(acc, Expr::Var { value: class_name, range: class_range }, handler, start);
+                has_handler = true;
+                needs_wrap = true;
+            } else if is_catch {
+                self.advance(); // 'catch'
+                let e_start = self.cur_start();
+                let param = self.expect_identifier(&["handler parameter"])?;
+                let handler = self.parse_named_param_block(param)?;
+                let class_range: SourceRange = (e_start..e_start).into();
+                if needs_wrap {
+                    acc = Self::wrap_expr_as_block(acc);
+                }
+                acc = self.wrap_on(acc, Expr::Var { value: "Error".to_string(), range: class_range }, handler, start);
+                has_handler = true;
+                needs_wrap = true;
+            } else {
+                break;
+            }
+        }
+
+        if matches!(self.peek(), Token::Identifier(kw) if kw == "ensure") {
+            self.advance(); // 'ensure'
+            let cleanup = self.parse_brace_block()?;
+            let cleanup_range = cleanup.range();
+            if needs_wrap {
+                acc = Self::wrap_expr_as_block(acc);
+            }
+            let range = (start..self.prev_end).into();
+            acc = Expr::MethodCall(Box::new(MethodCallExpr {
+                object: acc,
+                method: "ensure".to_string(),
+                args: vec![Argument { label: None, expr: cleanup, range: cleanup_range }],
+                range,
+            }));
+            has_ensure = true;
+        }
+
+        if !has_handler && !has_ensure {
+            return Err(self.error_here(strs(&["\"on\"", "\"catch\"", "\"ensure\""])));
+        }
+
+        let range = (start..self.prev_end).into();
+        Ok(Statement::Expr { expr: acc, range })
+    }
+
+    /// Wraps `protected` in the `.on(class, handler)` send that one `try`
+    /// clause desugars to (`Self::parse_try`), spanning `start..prev_end`.
+    fn wrap_on(&self, protected: Expr, class: Expr, handler: Expr, start: usize) -> Expr {
+        let class_range = class.range();
+        let handler_range = handler.range();
+        let range = (start..self.prev_end).into();
+        Expr::MethodCall(Box::new(MethodCallExpr {
+            object: protected,
+            method: "on".to_string(),
+            args: vec![
+                Argument { label: None, expr: class, range: class_range },
+                Argument { label: None, expr: handler, range: handler_range },
+            ],
+            range,
+        }))
+    }
+
+    /// Parses `{ statements }` into a 1-parameter, statement-bodied
+    /// [`BlockExpr`] naming `param` — the handler-block shape `try`'s
+    /// `on ClassName param { … }` / `catch param { … }` clauses lower to
+    /// (`Self::parse_try`). Unlike [`Self::parse_brace_block`] (0 params), this
+    /// binds the caught `Error` to `param` inside the body.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the braces or the enclosed statements are malformed.
+    fn parse_named_param_block(&mut self, param: String) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        let body = self.parse_block_statements()?;
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let range = (start..self.prev_end).into();
+        Ok(Expr::Block(Box::new(BlockExpr {
+            params: vec![param],
+            body,
+            expr_body: false,
+            range,
+        })))
     }
 
     /// Parses a `let`/`var` binding: `<kw> name (= expr)?`.
@@ -1283,6 +1448,14 @@ impl<'source> Parser<'source> {
             Token::Class => {
                 self.advance();
                 Ok("class".to_string())
+            }
+            // `try` is a genuine reserved keyword (statement-leading, ADR-0031
+            // §4) but must still resolve as an ordinary selector in message
+            // position — `fiber.try(...)`/`fiber.try` (`Fiber#try`, ADR-0030)
+            // predates this unit and must keep parsing.
+            Token::Try => {
+                self.advance();
+                Ok("try".to_string())
             }
             _ => Err(self.error_here(strs(&["identifier", "\"class\""]))),
         }

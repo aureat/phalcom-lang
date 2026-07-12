@@ -80,6 +80,16 @@ pub enum Token {
     Static,
     /// The `construct` keyword introducing an initializer definition (ADR-0011).
     Construct,
+    /// The `throw` keyword — prefix sugar for `expr.raise()` (error-handling.md
+    /// §1, [ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+    Throw,
+    /// The `try` keyword introducing a `try`/`on`/`catch`/`ensure` statement
+    /// (error-handling.md §2, ADR-0031 §3). A genuine reserved keyword, unlike
+    /// its contextual `on`/`catch`/`ensure` clause words (which stay
+    /// [`Token::Identifier`]s — ADR-0031 §4); `Fiber>>try` message sends still
+    /// parse because [`crate::parser`]'s property-name production also accepts
+    /// this token.
+    Try,
 
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),

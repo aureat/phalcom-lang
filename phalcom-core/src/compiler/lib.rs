@@ -19,7 +19,7 @@ use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_ast::ast::{Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, MethodCallExpr, Program, Statement, UnaryOp};
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::{EmptySourceRange, SourceRange};
 use std::collections::HashSet;
@@ -123,6 +123,19 @@ pub enum CompilerError {
     /// span.
     #[error("`continue` outside of a loop: `continue` may only appear inside a `for` loop body.")]
     ContinueOutsideLoop(SourceRange),
+
+    /// A `throw` of a syntactically-detectable non-`Error` literal.
+    ///
+    /// `throw "oops"`, `throw 42`, `throw true` are compile errors
+    /// ([error-handling.md §1](../../../docs/spec/v0.2/error-handling.md)):
+    /// only `Error` and its subclasses respond to `raise()`, and a literal's
+    /// non-`Error`-ness is provable without flow typing. A `throw someVariable`
+    /// cannot be statically classified and defers to the runtime
+    /// `doesNotUnderstand` miss on `raise()` instead
+    /// ([ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+    /// The [`SourceRange`] is the offending literal's own span.
+    #[error("`throw` of a non-`Error` literal is a compile error; only `Error` subclasses are throwable.")]
+    ThrowNonError(SourceRange),
 }
 
 // impl From<CompilerError> for PhError {
@@ -1076,6 +1089,35 @@ impl<'vm> Compiler<'vm> {
             Statement::Continue { range } => {
                 self.compile_continue(range)?;
             }
+            Statement::Throw { expr, range } => {
+                // The compile-time half of error-handling.md §1: a
+                // syntactically-literal non-`Error` operand is rejected before
+                // lowering (the runtime half — a genuine `doesNotUnderstand`
+                // miss on `raise()` — already exists via U-CORE-6's `Error`
+                // primitive, and covers everything this static check can't
+                // prove, e.g. `throw someVariable`).
+                if is_non_error_literal(&expr) {
+                    return Err(CompilerError::ThrowNonError(range));
+                }
+                // `throw expr` is surface sugar for `expr.raise()`
+                // (ADR-0031 §1) — reuse the ordinary `MethodCall` lowering
+                // rather than hand-rolling an `Invoke`, so it gets the same
+                // selector encoding / IC treatment as a written `.raise()`
+                // send. `raise()` always unwinds (never returns normally), so
+                // its "value" never materialises; `emit_pop` is honored purely
+                // to keep the stack discipline uniform with every other
+                // statement, not because a value is meaningfully produced.
+                let call = Expr::MethodCall(Box::new(MethodCallExpr {
+                    object: expr,
+                    method: "raise".to_string(),
+                    args: Vec::new(),
+                    range,
+                }));
+                self.compile_expr_want(call, !emit_pop)?;
+                if emit_pop {
+                    self.emit(Bytecode::Pop, range);
+                }
+            }
         }
         Ok(())
     }
@@ -1858,8 +1900,23 @@ fn collect_assigned_fields_stmt(stmt: &Statement, fields: &mut Vec<Symbol>, inte
                 collect_assigned_fields_stmt(body_stmt, fields, interner);
             }
         }
+        Statement::Throw { expr, .. } => {
+            collect_assigned_fields(expr, fields, interner);
+        }
         _ => {}
     }
+}
+
+/// Reports whether `expr` is a syntactically detectable non-`Error` literal —
+/// a `Number`/`String`/`Boolean` literal, none of which can ever answer
+/// `raise()` (only `Error` and its subclasses do). Guards `throw`'s
+/// compile-time half of error-handling.md §1 ("`throw "oops"` is a compile
+/// error"); a non-literal operand (a variable, a list/map-literal send, a
+/// user `Error` construction) cannot be statically classified and defers to
+/// the runtime `doesNotUnderstand` miss on `raise()` instead — deliberately no
+/// flow typing (U-ERR plan §2.2).
+fn is_non_error_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. })
 }
 
 /// Returns the branch-condition sub-expression of a recognized [`SacredCall`],

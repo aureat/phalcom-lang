@@ -42,14 +42,14 @@ baseline pin.** Every other doc in this directory inherits it and carries only a
 one-line back-reference here, rather than restating the landing history — so the
 pin is updated in exactly one place.
 
-**Current baseline — post-U-CORE-6 (core-library track U-CORE-1..6 complete).**
+**Current baseline — post-U-ERR (core-library track U-CORE-1..6 complete, plus
+the post-U-CORE floor amendments U-COLLTYPES and U-ERR).**
 
 | Fact | Value |
 |---|---|
-| Docs tip (HEAD) | `382e843` |
-| Last floor-affecting commit | `85c4e1d` — **U-CORE-6** Error root + dNU→MessageNotUnderstood, floor **86 → 88** (track total **73 → 88** across U-CORE-1/3/4/6; ADR-0023/0028/0036/0037) |
-| Primitive floor | **88** installed `(class, selector)` bindings · **73** distinct native fns · **17** floor-carrying classes (of **23** named kernel classes) · **7** sacred selectors |
-| Decisions closed by ADR | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) (`hash` + kernel-reflection floor), [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md) (Int/Float split — exact bignum `Int` + `Float`, `/` true ÷, `~/` floor ÷), [ADR-0025](../../../adr/0025-external-internal-parameter-names.md) (external/internal param names), [ADR-0026](../../../adr/0026-class-hierarchy-mutability.md) (hierarchy mutability — methods open, reparent sealed), [ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md) (modules-as-files, public-by-default imports) |
+| Last floor-affecting commit | this unit (**U-ERR**) — `Block#on(_,_)`/`Block#ensure(_)`, floor **109 → 111** (track total **73 → 111**: ADR-0023/0028/0036/0037 to 88, ADR-0039's three U-COLLTYPES phases to 109, ADR-0038 to 111) |
+| Primitive floor | **111** installed `(class, selector)` bindings · **96** distinct native fns · **21** floor-carrying classes (of **27** named kernel classes) · **7** sacred selectors — see [`floor-census.md`](./floor-census.md) for the full enumeration and amendment-by-amendment history |
+| Decisions closed by ADR | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) (`hash` + kernel-reflection floor), [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md) (Int/Float split — exact bignum `Int` + `Float`, `/` true ÷, `~/` floor ÷), [ADR-0025](../../../adr/0025-external-internal-parameter-names.md) (external/internal param names), [ADR-0026](../../../adr/0026-class-hierarchy-mutability.md) (hierarchy mutability — methods open, reparent sealed), [ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md) (modules-as-files, public-by-default imports), [ADR-0037](../../../adr/0037-amend-floor-admit-error-root.md) (`Error#message`/`raise`), [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md) (`Map`/`Set`/`Tuple`/`Range`, +21), [ADR-0038](../../../adr/0038-amend-floor-admit-block-on-ensure.md) (`Block#on`/`ensure`, +2 — this unit) |
 
 **Landing history** (chronological; only U-CORE-1 added a floor binding). U8
 (`Object` reflective surface + the `Message` class), U9 (variadics), **U-CORE-2

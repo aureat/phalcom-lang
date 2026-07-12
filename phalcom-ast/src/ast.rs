@@ -51,7 +51,31 @@ pub enum Statement {
         /// compile-error diagnostic.
         range: SourceRange,
     },
+    /// `throw expr` — unwind the stack raising `expr`
+    /// ([error-handling.md §1](../../../docs/spec/v0.2/error-handling.md),
+    /// [ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+    /// Surface sugar for `expr.raise()`; the compiler additionally rejects a
+    /// syntactically-detectable non-`Error` literal operand at compile time
+    /// (error-handling.md §1: "`throw "oops"` is a compile error") — a
+    /// non-literal operand (a variable, a user `Error` construction) cannot be
+    /// statically classified and defers to the runtime `doesNotUnderstand` miss
+    /// on `raise()` instead.
+    Throw {
+        /// The raised expression, evaluated then sent `raise()`.
+        expr: Expr,
+        /// The source span of the whole `throw` statement.
+        range: SourceRange,
+    },
 }
+
+// Note: `try { P } (on T e { … })* (catch e { … })? (ensure { … })?`
+// (error-handling.md §2, ADR-0031 §3) has **no** dedicated `Statement`
+// variant. The parser desugars it directly to nested [`Expr::MethodCall`]/
+// [`Expr::Block`] sends at parse time — the exact shape [`Statement::Expr`]
+// would hold for a hand-written `{ P }.on(T){e=>…}.ensure{…}` chain — mirroring
+// how `if`/`while` desugar to sends in [`crate::parser`] (U5) rather than
+// carrying their own AST node. See `Parser::parse_try`'s doc for the nested
+// re-wrapping desugar.
 
 #[derive(Debug, Clone)]
 pub struct ClassDef {

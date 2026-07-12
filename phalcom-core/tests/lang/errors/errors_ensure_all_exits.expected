@@ -1,0 +1,6 @@
+normal-body
+normal-cleanup
+return-cleanup
+early
+throw-cleanup
+caught: boom

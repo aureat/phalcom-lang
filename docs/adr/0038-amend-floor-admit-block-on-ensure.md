@@ -1,6 +1,6 @@
 # 38. Amend the frozen floor — admit `Block#on`/`Block#ensure` (error handling)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-12
 - Related: [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (the frozen floor);
   [ADR-0031](0031-error-handling-surface-syntax.md) (the ratified error surface);

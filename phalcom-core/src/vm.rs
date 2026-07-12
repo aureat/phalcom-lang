@@ -828,6 +828,34 @@ impl VM {
         }
     }
 
+    /// Discards every frame/stack slot pushed since a caught `Raise` snapshot,
+    /// restoring the VM to the state it was in immediately before the
+    /// protected block ran ([`primitive::block::block_on`](crate::primitive::block::block_on),
+    /// error-handling.md §2, [ADR-0038](../../docs/adr/0038-amend-floor-admit-block-on-ensure.md)).
+    ///
+    /// `run_until` deliberately leaves a throwing block's frames and stack
+    /// live on an `Err` (so the top-level renderer can source-map the full
+    /// trace on an *uncaught* `throw`); once a matching `on(_)` handler has
+    /// decided to catch it, those abandoned frames must be torn down before
+    /// the handler runs. Order matters: **close upvalues first**, then
+    /// truncate — mirroring [`Bytecode::Return`](crate::bytecode::Bytecode::Return)/
+    /// [`Bytecode::ReturnNonLocal`](crate::bytecode::Bytecode::ReturnNonLocal)'s
+    /// own unwind order exactly (`close_upvalues_from` before
+    /// `stack.truncate`) — so a closure that escaped the throwing block still
+    /// observes its captured locals rather than a use-after-free once its
+    /// stack slot is reclaimed.
+    ///
+    /// `stack_len`/`frames_len` are **relative** snapshots (`vm.stack.len()`/
+    /// `vm.frames.len()` taken by the caller, never an absolute index or
+    /// `0`), so this stays fiber-local by construction once a fiber owns its
+    /// own frame/stack buffers (ADR-0030 D7) — do not hardcode the main
+    /// stack.
+    pub(crate) fn unwind_to(&mut self, stack_len: usize, frames_len: usize) {
+        self.close_upvalues_from(stack_len);
+        self.frames.truncate(frames_len);
+        self.stack.truncate(stack_len);
+    }
+
     /// Prints a runtime error with a source-mapped stack trace and returns it.
     ///
     /// # Errors

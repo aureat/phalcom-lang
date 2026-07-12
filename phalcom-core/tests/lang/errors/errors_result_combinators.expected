@@ -1,0 +1,12 @@
+Ok(4)
+Err(bad)
+Ok(2)
+Err(wrapped:bad)
+Ok(3)
+Err(bad)
+true
+false
+false
+true
+2
+0

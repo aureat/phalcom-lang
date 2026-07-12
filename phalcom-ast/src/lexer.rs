@@ -268,6 +268,8 @@ impl<'input> Lexer<'input> {
             "not" => Token::Not,
             "static" => Token::Static,
             "construct" => Token::Construct,
+            "throw" => Token::Throw,
+            "try" => Token::Try,
             _ => Token::Identifier(slice.to_string()),
         }
     }

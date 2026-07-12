@@ -160,9 +160,10 @@ fn functions_pending() {
 }
 
 #[test]
-#[ignore = "PENDING: errors/Result — later"]
 fn errors() {
-    support::check_pending("errors");
+    // U-ERR (ADR-0008/0031/0037/0038): `throw`/`try`/`on`/`catch`/`ensure` +
+    // `Result`/`Ok`/`Err` + `Block#attempt()` — graduated from PENDING.
+    support::check_pass("errors");
 }
 
 #[test]

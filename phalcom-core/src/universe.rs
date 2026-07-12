@@ -21,7 +21,7 @@ use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
 use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
-use crate::primitive::block::{block_arity, block_call, block_call_with, block_name, block_while_true};
+use crate::primitive::block::{block_arity, block_call, block_call_with, block_ensure, block_name, block_on, block_while_true};
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_new, fiber_try, fiber_yield};
@@ -473,6 +473,17 @@ impl Universe {
         // deferred — its receiver/semantics aren't pinned by the spec
         // (U5-plan.md BD-U5-2) — see `docs/forge/DEFERRED.md`.
         primitive!(vm, block_cls, "whileTrue", SignatureKind::Method(1), block_while_true);
+        // The error-handling catch protocol (U-ERR, ADR-0008,
+        // [ADR-0038](../../docs/adr/0038-amend-floor-admit-block-on-ensure.md)):
+        // the +2 floor bindings this unit amends the frozen floor to admit.
+        // `try`/`on`/`catch`/`ensure` (ADR-0031) are parser sugar over these
+        // two sends — see `primitive::block::block_on`/`block_ensure` for the
+        // exact catch/cleanup semantics. Installed on `Block` only (mirroring
+        // `whileTrue`, not `call`/`arity`/`name`/`callWith`): every `on`/
+        // `ensure` receiver at a `try` desugar site or inside `Function#attempt`
+        // is always a literal `{ }` block, never a bare `Function`.
+        primitive!(vm, block_cls, "on", SignatureKind::Method(2), block_on);
+        primitive!(vm, block_cls, "ensure", SignatureKind::Method(1), block_ensure);
 
         let system_cls = vm.universe.classes.system_class;
         primitive_static!(vm, system_cls, "print", SignatureKind::Method(1), system_class_print);

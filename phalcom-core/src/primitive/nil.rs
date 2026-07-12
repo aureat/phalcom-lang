@@ -61,8 +61,9 @@ pub(crate) fn wrap_some(vm: &mut VM, value: Value) -> Value {
 ///
 /// Registered as the static `new(_)` on the kernel `Some` class
 /// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)); the surface
-/// `Some(x)` desugar (compiler's job) lowers to this send. See [`wrap_some`]
-/// for the allocation and the Invariant-4 panic condition.
+/// `Some(x)` desugar (compiler's job) lowers to this send. See `wrap_some`
+/// (private to this module) for the allocation and the Invariant-4 panic
+/// condition.
 ///
 /// # Errors
 ///

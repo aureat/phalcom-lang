@@ -9,7 +9,7 @@
 //! frame count as the base, so the call returns its result without draining
 //! the caller's own frames (functions.md §1-2).
 
-use crate::error::{PhResult, RuntimeError};
+use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, FrameToken};
 use crate::heap::Object;
 use crate::value::Value;
@@ -202,5 +202,116 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             return Ok(vm.none_value());
         }
         block_call(vm, &args[0], &[])?;
+    }
+}
+
+/// Signature: `Block::on(_)(_)` — the typed catch primitive `try`/`on`/`catch`
+/// desugar to (error-handling.md §2, [ADR-0008](../../../docs/adr/0008-layered-exceptions-and-result.md),
+/// [ADR-0038](../../../docs/adr/0038-amend-floor-admit-block-on-ensure.md)).
+///
+/// Runs the receiver block (`args[0]` unused — the receiver *is* the
+/// protected block); if it completes with a caught `throw` whose `Error`
+/// `isA(args[0])` (a `Class`), restores the VM to its pre-run snapshot and
+/// runs the handler block `args[1]` with the caught `Error`, returning its
+/// result. Any other outcome passes straight through:
+///
+/// - **Normal completion**, or an **`Ok` with a shrunk frame stack** (a
+///   non-local `return` unwound *through* the protected block, U10) — `on`
+///   does not catch a `return`; it is not a `throw` (ADR-0008 §4.2). Returned
+///   unchanged.
+/// - **A `Raise` whose `Error` does not match `args[0]`** — re-propagated
+///   **verbatim**, frames untouched, so the next `on` in a `try` chain (or the
+///   top-level trace renderer) sees the full stack (first-match-wins,
+///   error-handling.md §2).
+/// - **Any other `Err`** (`DeadFrameError`, a future fiber `abort` payload,
+///   …) — `on` catches only `Raise`; re-propagated unchanged.
+///
+/// The snapshot/restore is **length-relative** (`vm.stack.len()`/
+/// `vm.frames.len()`, never an absolute index), so this stays fiber-local by
+/// construction once a fiber owns its own frame/stack buffers (ADR-0030 D7,
+/// forward-compat.md §7 D7) — never hardcode the main stack.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Class`. Propagates a
+/// non-matching `Err`/an `isA` dispatch failure/any error raised running the
+/// protected or handler block.
+pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let class_arg = args[0];
+    let is_class = matches!(class_arg, Value::Obj(id) if matches!(vm.heap.get(id), Object::Class(_)));
+    if !is_class {
+        return Err(RuntimeError::Type { expected: "Class", found: class_arg.type_name() }.into());
+    }
+    let handler = args[1];
+
+    let stack_len = vm.stack.len();
+    let frames_len = vm.frames.len();
+    let outcome = block_call(vm, receiver, &[]);
+
+    match outcome {
+        Ok(v) => Ok(v),
+        Err(err) => match &err {
+            PhError::Runtime(RuntimeError::Raise { error, .. }) => {
+                let error = *error;
+                // `isA(_)` is an ordinary 1-arg `.ph` `Method` (`core.ph`'s
+                // `Object#isA`), so its dispatch selector is the *encoded*
+                // form `isA(_:)`, not the bare name — mirror the ordinary
+                // `.ph` call-site encoding rather than hand-rolling the walk
+                // in Rust (error-handling.md §2: "`on` catches typed by
+                // `isA`", U-ERR plan §2.3).
+                let isa_sig = crate::method::encode_selector("isA", &[None], crate::method::SignatureKind::Method(1));
+                let isa_sym = vm.get_or_intern(&isa_sig);
+                let matched = vm.send_dynamic(error, isa_sym, &[class_arg])?;
+                if matches!(matched, Value::Bool(true)) {
+                    vm.unwind_to(stack_len, frames_len);
+                    block_call(vm, &handler, &[error])
+                } else {
+                    Err(err)
+                }
+            }
+            _ => Err(err),
+        },
+    }
+}
+
+/// Signature: `Block::ensure(_)` — the always-runs cleanup primitive `try`/
+/// `ensure` desugars to (error-handling.md §4, ADR-0008 §4.1,
+/// [ADR-0038](../../../docs/adr/0038-amend-floor-admit-block-on-ensure.md)).
+///
+/// Runs the receiver (protected) block, then runs the cleanup block `args[0]`
+/// on **every** exit path — normal completion, a non-local `return` unwinding
+/// *through* the protected block, or an uncaught `throw` — and re-propagates
+/// the protected block's original outcome unchanged. `ensure` never catches a
+/// `Raise` (unlike [`block_on`]): an uncaught error's frames are left exactly
+/// as `run_until` produced them, so an enclosing `on`/the top-level trace
+/// renderer still sees the full stack.
+///
+/// **Cleanup-supersedes** (ADR-0008 §4.2): if the cleanup block itself
+/// diverges — raises, or non-locally returns — that new outcome **replaces**
+/// the pending one instead of being merely run for effect.
+///
+/// # Errors
+///
+/// Propagates whichever of the protected/cleanup outcomes wins per the
+/// cleanup-supersedes rule above.
+pub fn block_ensure(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let cleanup = args[0];
+    let outcome = block_call(vm, receiver, &[]);
+
+    let frames_before_cleanup = vm.frames.len();
+    let cleanup_outcome = block_call(vm, &cleanup, &[]);
+    match cleanup_outcome {
+        // The cleanup block itself diverged (raised) — supersedes.
+        Err(cleanup_err) => Err(cleanup_err),
+        Ok(cleanup_value) => {
+            if vm.frames.len() < frames_before_cleanup {
+                // The cleanup block itself non-locally returned — supersedes.
+                Ok(cleanup_value)
+            } else {
+                // Cleanup ran to ordinary completion for effect only; its
+                // value is discarded and the original outcome resumes.
+                outcome
+            }
+        }
     }
 }
