@@ -1,4 +1,4 @@
-# 28. List literals `[a, b, c]` desugar to `List` construction sends
+# 29. List literals `[a, b, c]` desugar to `List` construction sends
 
 - Status: Proposed
 - Date: 2026-07-12
