@@ -115,13 +115,27 @@ suspended position:
   `counter` generator above is exactly this shape.
 - **Foreclosed** — the *callback generator*
   `Fiber.new { list.each { x => Fiber.yield(x) } }`, where `yield` sits under
-  `each`'s native `block_call`. Rewrite with index iteration.
+  `each`'s native `block_call`, raises `CannotYieldAcrossNativeFrame`. Write the
+  generator with a **`for` loop** instead, which lowers to an inlined `while` over
+  the cursor protocol — no `block_call`, so it suspends freely
+  ([iteration.md](iteration.md) §2/§6, [ADR-0035](../../adr/0035-iteration-protocol-cursor.md)):
 
-This restriction is a **guard, not a wall**: lifting it later (de-recursing the
-callback primitives — audit Option B) is purely additive and breaks no program
-that ran under A. The switch is signalled to the loop as a typed control-flow
-value, never inferred from a frame-count change (which a fiber swap and a
-non-local return would both trip).
+  ```phalcom
+  Fiber.new { for (x in list) { Fiber.yield(x) } }   // ✅ inlined while — suspends
+  ```
+
+  This is the idiomatic v0.2 form and supersedes the older "rewrite with index
+  iteration" advice; `for` also gives `break`/`continue`, which a block handed to
+  `each` cannot express.
+
+This restriction is a **guard, not a wall**: lifting it for the residue that `for`
+cannot express (`.each { yield }`, a stored-block generator, a user-defined native
+combinator that yields) is the deferred general lift
+[ADR-0033](../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) —
+de-recursing the block call-site (audit Option B), purely additive, breaking no
+program that ran under A, to land with the typed fiber-switch signal below. The
+switch is signalled to the loop as a typed control-flow value, never inferred from
+a frame-count change (which a fiber swap and a non-local return would both trip).
 
 ---
 
