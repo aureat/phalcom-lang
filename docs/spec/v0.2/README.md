@@ -13,6 +13,7 @@ silently invented.
 
 | Part | Covers |
 |------|--------|
+| [Syntax](syntax/README.md) | Consolidated normative grammar — lexical + expression + declaration productions, precedence ladder, and a single-block grammar appendix |
 | [Lexical Structure](lexical-structure.md) | Tokens, newline handling, literals, string interpolation, brace disambiguation |
 | [Values & Absence](values-and-absence.md) | The value types, private `nil`, `Option` |
 | [Object Model](object-model.md) | Kernel classes, the class/metaclass tower, core catalog |
