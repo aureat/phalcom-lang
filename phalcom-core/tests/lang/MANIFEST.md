@@ -19,8 +19,8 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, compile-errors,
   concurrency, control-flow, dispatch, errors, functions, inheritance, iteration, lexical, list,
   messages, metaclass, runtime-errors, syntax-errors, system.
-- **Case counts:** recount pending U-FIBER landing (see `docs/forge/DEFERRED.md` — was PASS 144 ·
-  NEGATIVE 31 · PENDING 32 · total 207 pre-U-FIBER, at the `U-INH`/`U-ITER` merge).
+- **Case counts:** PASS 149 · NEGATIVE 31 · PENDING 31 · **total 211** (at the
+  `U-INH`/`U-ITER`/`U-FIBER` three-worktree consolidation).
 - Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
   under `-- --ignored` and are expected to fail until their feature is implemented.
 - Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`; the
@@ -50,7 +50,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | absence | 10 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | – | – | 2 | `check_pending` | control-flow.md |
-| concurrency | 4 | – | 1 | `check_pass` + `check_pending` | concurrency.md; ADR-0030 |
+| concurrency | 5 | – | 1 | `check_pass` + `check_pending` | concurrency.md; ADR-0030 |
 | errors | – | – | 2 | `check_pending` | error-handling.md |
 | functions | – | – | 2 | `check_pending` | functions.md; selectors.md |
 
