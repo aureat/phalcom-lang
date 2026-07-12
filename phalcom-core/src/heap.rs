@@ -29,10 +29,12 @@
 //! the heap contract.
 
 use slotmap::{new_key_type, SlotMap};
+use std::collections::BTreeMap;
 
 use crate::block::BlockObject;
 use crate::class::ClassObject;
 use crate::closure::ClosureObject;
+use crate::frame::CallFrame;
 use crate::instance::InstanceObject;
 use crate::list::ListObject;
 use crate::method::MethodObject;
@@ -91,6 +93,131 @@ pub enum Object {
     /// A native array-backed list ([`ListObject`],
     /// [ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
     List(ListObject),
+    /// A cooperative fiber — the sole concurrency primitive
+    /// ([`FiberObject`], [ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2).
+    ///
+    /// Reached through [`Value::Obj`] exactly as a
+    /// [`Object::List`] is — there is **no** `Value::Fiber` arm (ADR-0030 §2,
+    /// forward-compat §7 D2). It owns its own value + call stacks so it can be
+    /// suspended and resumed by an O(1) pointer swap of `vm.current`.
+    Fiber(FiberObject),
+}
+
+/// The lifecycle state of a [`FiberObject`]
+/// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §1,
+/// `concurrency.md` §1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FiberStatus {
+    /// Created but not yet started, or suspended at a `yield` — resumable via
+    /// `Fiber#call`/`Fiber#try`.
+    Suspended,
+    /// Currently executing on the VM: this is the `vm.current` fiber, whose
+    /// live stacks are mirrored in [`VM::frames`](crate::vm::VM)/`stack`.
+    Running,
+    /// The entry function returned normally; [`FiberObject::result`] holds the
+    /// return value and the fiber can no longer be resumed.
+    Done,
+    /// The entry raised an uncaught error; [`FiberObject::result`] holds the
+    /// captured `Error` value (the fiber-floor capture, ADR-0030 §6) and the
+    /// fiber can no longer be resumed.
+    Failed,
+}
+
+/// A cooperative, single-threaded fiber: its own value + call stacks, a
+/// lifecycle [`FiberStatus`], a dynamic resumer link, a result slot, and its
+/// entry closure ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2,
+/// `concurrency.md` §1).
+///
+/// A fiber owns its execution state so it can be parked and resumed by an O(1)
+/// pointer swap of `vm.current` (ADR-0030 §3): while a fiber is
+/// [`FiberStatus::Running`] its stacks live in the VM's live mirror
+/// ([`VM::frames`](crate::vm::VM)/`stack`/`open_upvalues`) and the fields here
+/// are empty; while parked they hold the fiber's state. Keeping the stacks
+/// **inside the arena object** (never in native Rust memory) is what lets a
+/// future tracing GC reach a parked fiber's roots (ADR-0030 §7, D1).
+///
+/// The `resumer` link + `result` slot are deliberately **general**, not
+/// generator-specific, so the deferred `Future`/`await` layer can suspend
+/// through exactly them (ADR-0030 §Consequences, forward-compat §7.2).
+pub struct FiberObject {
+    /// The fiber's private operand stack (empty while running — mirrored by
+    /// [`VM::stack`](crate::vm::VM)). `stack_offset`s are window-relative
+    /// (frame.rs, D3), so a per-fiber stack always based at index 0 needs no
+    /// rebasing on switch.
+    pub stack: Vec<Value>,
+    /// The fiber's private call stack (empty while running — mirrored by
+    /// [`VM::frames`](crate::vm::VM)). Because the frame-generation counter
+    /// stays VM-global (D4), a non-local `return` token whose home lives on
+    /// another fiber fails the generation check → `DeadFrameError`.
+    pub frames: Vec<CallFrame>,
+    /// The fiber's private open-upvalue map, keyed by absolute value-stack
+    /// index (empty while running — mirrored by
+    /// [`VM::open_upvalues`](crate::vm::VM)). Kept per-fiber because it is
+    /// stack-index-keyed and each fiber has its own stack; swapping it with
+    /// `stack`/`frames` prevents a cross-fiber slot-index collision.
+    pub open_upvalues: BTreeMap<usize, ObjRef>,
+    /// The fiber's lifecycle state ([`FiberStatus`]).
+    pub status: FiberStatus,
+    /// The fiber to hand control back to on `yield`/return/failure — a dynamic
+    /// caller chain, not a fixed parent (`None` for the root fiber).
+    pub resumer: Option<ObjRef>,
+    /// The last yielded/returned value, or the captured `Error` when
+    /// [`FiberStatus::Failed`] (ADR-0030 §6).
+    pub result: Value,
+    /// The entry [`Object::Block`]/[`Object::Closure`] the fiber runs on first
+    /// resume; `None` for the root fiber (which has no entry).
+    pub entry: Option<ObjRef>,
+    /// Whether the entry frame has been pushed yet — `false` until the first
+    /// `call`/`try`, then `true` for the fiber's life.
+    pub started: bool,
+    /// The value-stack length to truncate to (then push the delivered value)
+    /// when this fiber is next resumed — recorded at the `yield` send whose
+    /// window the resume value replaces (ADR-0030 §3).
+    pub resume_slot: usize,
+    /// The `run_until` nesting depth captured when the fiber last began
+    /// running — the fiber floor the restricted-yield guard compares against
+    /// (ADR-0030 §4): a `yield` is legal iff no native re-entrant `run_until`
+    /// (a `block_call` and friends) has been entered since.
+    pub floor_depth: usize,
+}
+
+impl FiberObject {
+    /// Builds a fresh, not-yet-started fiber wrapping `entry` (its
+    /// [`Object::Block`]/[`Object::Closure`] entry), status
+    /// [`FiberStatus::Suspended`] (ADR-0030 §2).
+    pub fn new_entry(entry: ObjRef) -> Self {
+        Self {
+            stack: Vec::new(),
+            frames: Vec::new(),
+            open_upvalues: BTreeMap::new(),
+            status: FiberStatus::Suspended,
+            resumer: None,
+            result: Value::Nil,
+            entry: Some(entry),
+            started: false,
+            resume_slot: 0,
+            floor_depth: 0,
+        }
+    }
+
+    /// Builds the **root** fiber wrapping the main program: no entry, already
+    /// started, [`FiberStatus::Running`] (ADR-0030 §1). Its live stacks are the
+    /// VM's own [`VM::frames`](crate::vm::VM)/`stack` mirror, so the fields
+    /// here stay empty while it runs.
+    pub fn root() -> Self {
+        Self {
+            stack: Vec::new(),
+            frames: Vec::new(),
+            open_upvalues: BTreeMap::new(),
+            status: FiberStatus::Running,
+            resumer: None,
+            result: Value::Nil,
+            entry: None,
+            started: true,
+            resume_slot: 0,
+            floor_depth: 0,
+        }
+    }
 }
 
 /// The payload of an [`Object::BoundMethod`] — a reified [`MethodObject`]
@@ -343,6 +470,41 @@ impl Heap {
     pub fn as_list(&self, id: ObjRef) -> Option<&ListObject> {
         match self.objects.get(id) {
             Some(Object::List(list)) => Some(list),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`FiberObject`] behind `id`
+    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Fiber`].
+    pub fn fiber(&self, id: ObjRef) -> &FiberObject {
+        match self.get(id) {
+            Object::Fiber(fiber) => fiber,
+            _ => panic!("ObjRef {id:?} is not a FiberObject"),
+        }
+    }
+
+    /// Mutably borrows the [`FiberObject`] behind `id`
+    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Fiber`].
+    pub fn fiber_mut(&mut self, id: ObjRef) -> &mut FiberObject {
+        match self.get_mut(id) {
+            Object::Fiber(fiber) => fiber,
+            _ => panic!("ObjRef {id:?} is not a FiberObject"),
+        }
+    }
+
+    /// Returns the [`FiberObject`] behind `id`, or `None` if it is not one
+    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2).
+    pub fn as_fiber(&self, id: ObjRef) -> Option<&FiberObject> {
+        match self.objects.get(id) {
+            Some(Object::Fiber(fiber)) => Some(fiber),
             _ => None,
         }
     }

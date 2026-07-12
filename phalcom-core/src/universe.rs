@@ -203,6 +203,16 @@ impl Universe {
         let error_class = make_core_class(heap, "Error", object_class, metaclass_class);
         let message_not_understood_class = make_core_class(heap, "MessageNotUnderstood", error_class, metaclass_class);
 
+        // `Fiber` (ADR-0030, U-FIBER): the sole concurrency primitive, a
+        // native `Object::Fiber` heap variant (D2 — no `Value::Fiber` arm),
+        // mirroring how `List` sits directly under `Object`.
+        // `CannotYieldAcrossNativeFrame < Error`: the restricted-yield guard's
+        // catchable error (D-FIB-1) — a `yield` attempted across a re-entrant
+        // native frame (e.g. under `.each { }`'s `block_call`) raises this
+        // instead of corrupting the suspended position (ADR-0030 §4).
+        let fiber_class = make_core_class(heap, "Fiber", object_class, metaclass_class);
+        let cannot_yield_across_native_frame_class = make_core_class(heap, "CannotYieldAcrossNativeFrame", error_class, metaclass_class);
+
         CoreClasses {
             object_class,
             behavior_class,
@@ -228,6 +238,8 @@ impl Universe {
             message_class,
             error_class,
             message_not_understood_class,
+            fiber_class,
+            cannot_yield_across_native_frame_class,
         }
     }
 
@@ -767,4 +779,14 @@ pub struct CoreClasses {
     /// Adds one field beyond `Error`'s `_message`: `_reifiedMessage` (slot 1),
     /// the reified `Message` that missed ([`Self::message_class`]).
     pub message_not_understood_class: ClassId,
+    /// `Fiber`, the sole concurrency primitive
+    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)).
+    /// A dedicated [`crate::heap::Object::Fiber`] heap variant — see
+    /// [`crate::heap::FiberObject`] — not an `InstanceObject`.
+    pub fiber_class: ClassId,
+    /// `CannotYieldAcrossNativeFrame`, the catchable error the restricted-yield
+    /// guard raises when a `Fiber#yield` is attempted across a re-entrant
+    /// native frame (ADR-0030 §4, D-FIB-1). A direct subclass of
+    /// [`Self::error_class`].
+    pub cannot_yield_across_native_frame_class: ClassId,
 }

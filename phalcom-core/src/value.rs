@@ -116,6 +116,7 @@ impl Value {
                 // protocol from the surface's point of view.
                 Object::BoundMethod(_) => vm.universe.classes.block_class,
                 Object::List(_) => vm.universe.classes.list_class,
+                Object::Fiber(_) => vm.universe.classes.fiber_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
             },
         }
@@ -195,6 +196,7 @@ impl Value {
                 Object::Block(_) => "<block>".to_string(),
                 Object::BoundMethod(_) => "<bound method>".to_string(),
                 Object::List(_) => "<list>".to_string(),
+                Object::Fiber(_) => "<fiber>".to_string(),
                 Object::Upvalue(_) => "<upvalue>".to_string(),
             },
         }
@@ -212,7 +214,7 @@ impl Value {
     pub fn to_context(&self, heap: &crate::heap::Heap) -> CallContext {
         match self {
             Value::Obj(id) => match heap.get(*id) {
-                Object::Instance(_) | Object::Block(_) | Object::Closure(_) | Object::Str(_) | Object::Method(_) | Object::BoundMethod(_) | Object::List(_) => {
+                Object::Instance(_) | Object::Block(_) | Object::Closure(_) | Object::Str(_) | Object::Method(_) | Object::BoundMethod(_) | Object::List(_) | Object::Fiber(_) => {
                     CallContext::Instance { instance: *id }
                 }
                 Object::Class(_) => CallContext::Class { class: *id },

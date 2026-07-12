@@ -49,9 +49,27 @@ pub struct VM {
     /// storage lives here, keyed by [`ObjRef`].
     pub heap: Heap,
     /// The active call stack, innermost frame last. [`CallFrame`] is `Copy`.
+    ///
+    /// This is the **live mirror** of the currently-[`Object::Fiber`]-running
+    /// fiber's own `frames` buffer ([`crate::heap::FiberObject`],
+    /// [ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)
+    /// §3, D-FIB-4): while [`Self::current`] runs, its state lives here; a
+    /// fiber switch stores this back into the parking fiber and loads the
+    /// resuming fiber's state in, an O(1) pointer-free copy (a `Vec` swap).
     pub(crate) frames: Vec<CallFrame>,
-    /// The operand stack of `Copy` [`Value`]s.
+    /// The operand stack of `Copy` [`Value`]s — the live mirror of
+    /// [`Self::current`]'s stack, mirroring [`Self::frames`] (see its doc).
     pub(crate) stack: Vec<Value>,
+    /// The currently-running [`crate::heap::Object::Fiber`]
+    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)
+    /// §2–§3). [`Self::frames`]/[`Self::stack`]/[`Self::open_upvalues`] are its
+    /// live state; a parked (non-current) fiber holds its own state in its
+    /// [`crate::heap::FiberObject`] fields instead. Initialized in [`VM::new`]
+    /// to a fresh **root** fiber ([`crate::heap::FiberObject::root`]) that
+    /// wraps the whole program — every VM has always run "inside a fiber",
+    /// this just makes it addressable. `Object::Fiber` is not reached through
+    /// any new `Value` arm (D2); this handle is the VM's own bookkeeping.
+    pub(crate) current: ObjRef,
 
     /// Loaded modules by name [`Symbol`], each a [`ModuleObject`] handle.
     pub modules: HashMap<Symbol, ObjRef>,
@@ -133,11 +151,17 @@ impl VM {
         let interner = Interner::with_capacity(100);
         let mut heap = Heap::new();
         let universe = Universe::new(&mut heap);
+        // The root fiber (ADR-0030 §1): already `Running`, no entry — its
+        // live state is `VM::frames`/`stack`/`open_upvalues` from the start,
+        // so this alloc is bookkeeping only, not a behavior change (D-FIB-4,
+        // Phase 1 is a pure refactor).
+        let current = heap.alloc(Object::Fiber(crate::heap::FiberObject::root()));
 
         let mut vm = Self {
             heap,
             frames: Vec::with_capacity(256),
             stack: Vec::with_capacity(1024),
+            current,
             interner,
             start_time: Instant::now(),
             modules: HashMap::new(),
