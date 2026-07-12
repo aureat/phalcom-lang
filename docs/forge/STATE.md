@@ -34,13 +34,24 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
 - **item5** ✅ — U-FIBER×generator fixtures `bf80c21`. Both PASS (for-generator suspends;
   each-generator raises `CannotYieldAcrossNativeFrame`). No bug. Mark DEFERRED item-5 resolved.
 
+- **U13** ✅ — hierarchy-stability policy `5d84ad8`. Sealing was ALREADY enforced (ADR-0026,
+  prior session; `class_set_superclass`→`InvalidSetSuper` "Can't set superclass of a class").
+  Delivered: invariants test + golden negative + ADR-0041 (DEC-U13a/b=A; MI/C3 rejected, only
+  stateless-traits-at-finalization pre-approved). Zero runtime-logic change → orchestrator-accepted.
+  **New bug filed (DEFERRED):** method-reopening broken — 2nd `class A{}` block OVERWRITES not
+  merges, violates ADR-0018 (pre-existing, repro'd on clean HEAD; compiler/lib.rs+Bytecode::Class).
+- **item4** ✅ — List combinator migration `c35171a`. `each`→`for (x in self)` (protocol-driven,
+  no block_call); map/filter/reduce/includes transitive. Behavior-preserving, goldens byte-exact.
+
+## Next writer (single-writer from here — U-ERR & U15 collide on compiler/lib.rs+vm.rs)
+- **U-ERR** — throw/try/catch/on/ensure + Result/Ok/Err. All deps free. Reviewer ON. Then U15.
+
 ## In flight (this session)
-- **U13** — hierarchy-stability policy (sealed + single-inheritance affirm, DEC-U13a/b=A).
-  Found sealing ALREADY enforced (exits non-zero, clean error). Writing golden negative test
-  (`runtime_error_superclass_reparent_rejected.{ph,expected}`) + ADR-0041. Write-set
-  `class.rs`/`vm.rs`/invariants/tests. Reviewer ON. Uncommitted.
-- **U-FUTURE-A** — Slice A settle-once `Future`, pure `.ph`, core.ph only. Building, no disk
-  write yet. Reviewer OFF (pure .ph, orchestrator-accept).
+- **U-FUTURE-A** ✅ — Slice A settle-once `Future` `f0d128a`. Pure `.ph`, zero native, floor-0,
+  green, 3 concurrency goldens (C-FUT-1/3/4/8 settled halves). Reviewer OFF, orchestrator-accepted.
+  core.ph FREE. Slice B (async/await/drain) still gated on DEC-FUT-SCHED / U-SCHED.
+- **item4** (→U-STD) — DISPATCHED. Migrate List `each`/`map`/`filter`/`reduce`/`includes`
+  off `size`/`at` onto `iterate(_)`/`iteratorValue(_)` (DEC-ITER-A). core.ph-only. Reviewer ON.
 - **U-FUTURE** — plan landed (`docs/forge/units/U-FUTURE/plan.md`). Verdict:
   **Slice A** (settle-once `Future`: `value`/`error`/`isReady`/`value` + settled
   `then`/`map`/`catch`) is **pure `.ph`, zero native — ready now**; **Slice B**
