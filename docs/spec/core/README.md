@@ -110,8 +110,11 @@ base of 73**. An implementer must reconcile the following across units:
    floor-census audit (R-INV-0.1) must bump in lockstep with each unit's installs.
 2. **Four ADR-0019 amendments are proposed** (U-CORE-1 `hash`/`Behavior`, U-CORE-3
    Method reflection, U-CORE-4 `Number#toString`, U-CORE-6 `Error#message`/`raise`).
-   **Reconcile them into one omnibus ADR-0022** (or a sequential 0022–0025 block)
-   before the first unit lands — do not open four competing amendments to ADR-0019.
+   **Reconcile them into one omnibus ADR-0023** before the first unit lands — do
+   not open four competing amendments to ADR-0019. (The individual specs were
+   authored when 0021 was the highest ADR and some say "ADR-0022"; **0022 has
+   since been taken by U-LEX's string-interpolation ADR**, so 0023 is the next
+   free number. Confirm against `docs/adr/` before drafting.)
 3. **U-CORE-1 lands first** — it stands up the invariant substrate (R-INV-0.1…0.4)
    the other units extend, and owns the `isA`+`hash` that **U-CORE-5 hard-depends
    on** (its structural `List#==` type-guard needs `isA`).
