@@ -45,6 +45,50 @@
 //! note) breaks chaining in general (`ifTrue{None}` is indistinguishable
 //! from the branch not taken). The paired selector is U6-independent and
 //! directly inlinable.
+//!
+//! ## v0.2 conditional-surface decision — READ BEFORE CHANGING THE `Some`-LIFT
+//!
+//! The one-armed `ifTrue(_)`/`ifFalse(_)` forms return an `Option`
+//! (`Some(A)` on the taken branch, `None` otherwise — U-CORE-2, ADR-0007),
+//! and *that* is the sole reason `Compiler::compile_sacred_call_want`
+//! carries a `want_value` flag and this module emits a **dual**
+//! [`Bytecode::WrapSome`] path (wrap when the result is consumed, elide when
+//! it is popped unread). The elision is a real optimization — `Some`
+//! allocates, and one-armed `ifTrue` in *statement* position (effect-only
+//! guards like `pred.ifTrue { xs.add(x) }`) is the common case — but the
+//! flag is threaded from the caller rather than derived from a single
+//! authoritative "is this value demanded" attribute, which is the known
+//! fragility (the value-demand fact lives in two places: here, and
+//! `compile_statement_with_pop_control`'s `emit_pop`).
+//!
+//! **The decision, for v0.2: leave this exactly as it is.** The *canonical*
+//! two-armed conditional surface is the paired `ifTrue(_, ifFalse:_)` send
+//! documented above — atomic, both arms present, returns the arm value `R`
+//! directly, never sends a message to an `Option`, so it sidesteps the
+//! chaining hazard entirely. The one-armed `Option`-returning forms are
+//! **retained unchanged** because real code depends on them for their value
+//! (`core.ph`'s cursor protocol, `(next < size).ifTrue { next }` →
+//! `Some(next)`/`None`) and for effect (the guards above). We are not
+//! renaming them, not switching them to `Result`, not returning a bespoke
+//! false-branch sentinel, not returning the receiver `Bool`, and not adding
+//! infix `.ifTrue{}.ifFalse{}` chaining sugar — each was considered and
+//! rejected (a `Result<A, _>` degenerates to `Option<A>` with a dead error
+//! payload and miscolors "false" as "failure"; a sentinel or receiver-return
+//! reintroduces the half-`Option` collapse or forces presence-protocol
+//! dispatch onto `Object`, contradicting the truthiness ban of ADR-0007
+//! §3.5; a forced infix pair cannot be *forced* in a dynamic message-send
+//! language and leaks a half-built conditional). See the session decision
+//! record `iftrue-conditional-surface-decision` in the project memory.
+//!
+//! **Deferred fix (NOT scheduled, do not implement speculatively):** collapse
+//! the `want_value` dual path by making value-demand a single inherited
+//! codegen attribute threaded once from the statement boundary
+//! (destination-driven / context-threading codegen), and/or introduce a
+//! Bool-only `when`/`unless` effect-sibling so effect-only callers leave
+//! `ifTrue` mono-purpose. Either removes the divergence risk without changing
+//! `Option` semantics or representation. Until one lands, the dual path below
+//! is correct and load-bearing — every edit must keep the wrapped and elided
+//! arms observationally identical to the `bool_if_true` primitive fallback.
 
 use super::lib::Compiler;
 use crate::bytecode::Bytecode;
@@ -254,6 +298,10 @@ impl<'vm> Compiler<'vm> {
         let guard = self.emit_forward_jump(Bytecode::GuardBool, range);
         let to_else = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         self.compile_inline_block_body(Self::expect_block(then_block))?;
+        // Some-lift the taken arm so this fast path yields the same `Option`
+        // as the `bool_if_true` fallback. Elided when the result is popped
+        // unread — the load-bearing `want_value` dual path; see the module
+        // doc's "v0.2 conditional-surface decision" before touching this.
         if want_value {
             self.emit(Bytecode::WrapSome, range);
         }
@@ -282,6 +330,9 @@ impl<'vm> Compiler<'vm> {
         let to_end_1 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(to_body);
         self.compile_inline_block_body(Self::expect_block(else_block))?;
+        // Mirror of `compile_if_true`'s Some-lift; same load-bearing
+        // `want_value` elision — see the module doc's "v0.2 conditional-surface
+        // decision" before touching this.
         if want_value {
             self.emit(Bytecode::WrapSome, range);
         }

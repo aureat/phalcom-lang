@@ -50,6 +50,29 @@ None
 (x > 0).ifTrue { "pos" }.unwrapOr("non-pos")  // extract with a default
 ```
 
+  The one-armed `Option`-returning forms above are for single-branch use: taking
+  a value out of the taken branch (`(next < size).ifTrue { next }`) or running a
+  guard for effect.
+
+- **Canonical two-armed conditional (v0.2): the paired
+  `ifTrue(_, ifFalse:_)` selector**, *not* an `ifTrue{}.ifFalse{}` /
+  `ifTrue{}.ifNone{}` chain. It is atomic (both arms present in one send),
+  returns the taken arm's value `R` directly with no `Option` wrapping, and
+  never sends a message to an `Option` — so it avoids the chaining hazard where
+  `ifFalse`/`ifNone` would dispatch on the one-armed `Option` result and
+  `ifTrue { None }` is indistinguishable from the branch not taken. `if (c) { A }
+  else { B }` desugars to this selector.
+
+```phalcom
+c.ifTrue({ "yes" }, ifFalse: { "no" })        // -> R directly ("yes" or "no")
+```
+
+  Chaining sugar, a `Result`-shaped return, a bespoke false-branch sentinel, and
+  a receiver-`Bool` return were all considered and rejected for v0.2; the
+  rationale is recorded alongside the inliner
+  ([`compiler/inliner.rs`](../../../phalcom-core/src/compiler/inliner.rs), module
+  doc "v0.2 conditional-surface decision").
+
 ### 3.1 Class shape
 
 `Option` is an abstract kernel class with two concrete subclasses, exactly
