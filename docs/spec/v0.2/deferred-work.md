@@ -79,10 +79,10 @@ Reserved-but-unbuilt class names sit in `primitive/mod.rs::ClassName` (`Range`, 
 
 | Unit / feature | What it is | Gate / status | Source |
 |---|---|---|---|
-| **U-CORE-3** callables reflection | `methodFor`/`invokeOn`/`bind`/`signature`/`holder` (+5 floor) | dispatch-ready; **next** on the track | [core/U-CORE-3](core/U-CORE-3-implementation-spec.md) |
-| **U-CORE-4** value `toString` | per-type `toString` (`Number`/`String`/`Symbol`/`Bool`/`Option`) | dispatch-ready; closes DEFERRED #19/#30, F4 | [core/U-CORE-4](core/U-CORE-4-implementation-spec.md) |
-| **U-CORE-5** collection contract | shared protocol contract + `.ph` `List#==` | dispatch-ready; deps U-CORE-1 `isA` (landed) | [core/U-CORE-5](core/U-CORE-5-implementation-spec.md) |
-| **U-CORE-6** errors | `Error` root + `MessageNotUnderstood` raise; reserve `Result`/`Ok`/`Err` | dispatch-ready; needs error syntax (§2) | [core/U-CORE-6](core/U-CORE-6-implementation-spec.md) |
+| **U-CORE-3** callables reflection | `methodFor`/`invokeOn`/`bind`/`signature`/`holder` (+5 floor) | dispatch-ready; **next** on the track | [core/U-CORE-3](units/U-CORE/3-callable-reflection.md) |
+| **U-CORE-4** value `toString` | per-type `toString` (`Number`/`String`/`Symbol`/`Bool`/`Option`) | dispatch-ready; closes DEFERRED #19/#30, F4 | [core/U-CORE-4](units/U-CORE/4-value-tostring.md) |
+| **U-CORE-5** collection contract | shared protocol contract + `.ph` `List#==` | dispatch-ready; deps U-CORE-1 `isA` (landed) | [core/U-CORE-5](units/U-CORE/5-collection-contract.md) |
+| **U-CORE-6** errors | `Error` root + `MessageNotUnderstood` raise; reserve `Result`/`Ok`/`Err` | dispatch-ready; needs error syntax (§2) | [core/U-CORE-6](units/U-CORE/6-errors.md) |
 | **`Int`/`Float` substrate** | build the ADR-0024 split: `Value::Int(i64)`/`Float(f64)`, heap `LargeInt` bignum, `checked_*` promotion, `~/` opcode, cross-repr `==`/`hash` | **decided** (ADR-0024); code unbuilt; see §4 hash flag | [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md) |
 | **Collections classes** `Map`/`Set`/`Tuple`/`Range` | whole classes + storage + literals | `Map`/`Set` need `Object#hash` (landed) + the §2 collections ADR | [core/catalog-delta.md](core/catalog-delta.md) |
 | **List / set literal syntax** | `[a,b,c]`, `#{…}` tokens → constructor desugar | new ADR + lexer/parser | forge/DEFERRED.md #28 |

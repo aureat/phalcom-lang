@@ -4,17 +4,17 @@
 > collection-protocol contract** (selectors + laws) that the kernel `List`
 > already satisfies as the reference implementation and that every *future*
 > collection (`Map`/`Set`/`Tuple`/`Range`) must satisfy — **not** new collection
-> classes (those are U-STD / deferred, per [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md)).
+> classes (those are U-STD / deferred, per [ADR-0020](../../../../adr/0020-kernel-list-native-array-protocol.md)).
 > Its concrete artifacts are: (a) a **reusable conformance harness keyed by "the
 > collection under test,"** (b) the minimal `.ph` needed to make `List` a *fully*
 > conformant reference implementation, and (c) the golden corpus that pins the
-> laws. It adds **zero** floor primitives — no [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
+> laws. It adds **zero** floor primitives — no [ADR-0019](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
 > amendment.
 
 > **Baseline:** HEAD `3c74a36` (U1–U10 + U-LIST + U-CORE-2-partial landed; census
-> re-baselined through U8/U9). Encodes [`decisions.md`](./decisions.md) **Q5**
+> re-baselined through U8/U9). Encodes [`decisions.md`](../../core/decisions.md) **Q5**
 > (mutability + equality + hashability). Depends on **U-CORE-1** (`isA(_)` and
-> `hash`, [`decisions.md`](./decisions.md) Q1). See [`README.md`](./README.md) for
+> `hash`, [`decisions.md`](../../core/decisions.md) Q1). See [`README.md`](../../core/README.md) for
 > the baseline-pin policy.
 
 ---
@@ -26,11 +26,11 @@
 1. The **normative contract**: the sequence-protocol selectors (`size`, `at(_)`,
    `add(_)`, `each(_)`) and the **laws** governing them (totality, deterministic
    iteration, structural equality, hashability-iff-immutable) — the
-   [`decisions.md`](./decisions.md) Q5 ruling made executable.
+   [`decisions.md`](../../core/decisions.md) Q5 ruling made executable.
 2. A **reusable conformance harness** parameterized by *the collection under
    test* (a build-closure + a `ContractSpec`), so that when `Map`/`Set`/`Tuple`
    land (U-STD) they are certified against **this** corpus rather than ad-hoc
-   tests ([R-INV-5.4](./invariant-requirements.md)).
+   tests ([R-INV-5.4](../../core/invariant-requirements.md)).
 3. The **minimal `.ph`** that makes `List` satisfy the *whole* contract today —
    specifically a **structural `==`** (and its paired `!=`). `List` today has only
    **identity** equality (§1.3); without this it is not a conformant reference
@@ -68,11 +68,11 @@
 ### 1.1 The reference implementation exists — `List` sequence surface
 
 `List` is a native `Vec<Value>`-backed heap object
-([`phalcom-core/src/list.rs`](../../../../phalcom-core/src/list.rs) L21–76,
+([`phalcom-core/src/list.rs`](../../../../../phalcom-core/src/list.rs) L21–76,
 `ListObject`) with five raw floor primitives + native `toString`
-([`phalcom-core/src/primitive/list.rs`](../../../../phalcom-core/src/primitive/list.rs)),
+([`phalcom-core/src/primitive/list.rs`](../../../../../phalcom-core/src/primitive/list.rs)),
 and a `.ph` public protocol
-([`phalcom-core/core/core.ph`](../../../../phalcom-core/core/core.ph) L75–94):
+([`phalcom-core/core/core.ph`](../../../../../phalcom-core/core/core.ph) L75–94):
 
 ```
 size    => self.rawLength
@@ -99,9 +99,9 @@ collection-global iteration state — see §5.2).
 - **Structural `==` for sequences.** Q5: *"`==` is structural for sequences —
   element-wise, order-sensitive, comparing with each element's own `==`."* Today
   `List` inherits `Object#==` (`object_eq`,
-  [`primitive/object.rs`](../../../../phalcom-core/src/primitive/object.rs) L62–64),
+  [`primitive/object.rs`](../../../../../phalcom-core/src/primitive/object.rs) L62–64),
   which delegates to `Value::value_eq`
-  ([`value.rs`](../../../../phalcom-core/src/value.rs) L213–240). For two `List`
+  ([`value.rs`](../../../../../phalcom-core/src/value.rs) L213–240). For two `List`
   handles that arm falls through to `a == b` **handle identity** (value.rs L233–234).
   So `List` equality is **identity, not structural** — `[1,2] == [1,2]` on two
   distinct lists is **`false`** today. This unit adds a structural `List#==`.
@@ -285,7 +285,7 @@ ad-hoc tests.
 
 ```rust
 //! Reusable conformance harness for the collection-protocol contract
-//! (docs/spec/core/U-CORE-5-implementation-spec.md). Keyed by "the collection
+//! (docs/spec/v0.2/units/U-CORE/5-collection-contract.md). Keyed by "the collection
 //! under test": a `ContractSpec` + a build-closure. New collections (U-STD)
 //! are certified by adding a `build_*` closure and one `#[test]` — R-INV-5.4.
 
@@ -341,7 +341,7 @@ Selector interning pattern (from `tests/invariants.rs`): `size` =
 
 New label directory `phalcom-core/tests/lang/collections/`, wired by a
 `collections()` → `support::check_pass("collections")` fn in
-[`tests/lang.rs`](../../../../phalcom-core/tests/lang.rs) (mirroring `list()` at
+[`tests/lang.rs`](../../../../../phalcom-core/tests/lang.rs) (mirroring `list()` at
 L169). All fixtures in **already-supported** `List.new()`/`.add(_)` syntax (no
 lexer dependency). They double as the **template** U-STD copies per collection,
 swapping only the constructor prologue.
@@ -421,7 +421,7 @@ System.print(total)    // 1*10 + 1*20 + 2*10 + 2*20 = 90
 
 All of R-INV-5.1…5.4 are **corpus** ("C") assertions — **none** touch
 `verify_invariants`/`universe.rs` (nothing here is a boot-soundness invariant), per
-[`invariant-requirements.md`](./invariant-requirements.md) §4 U-CORE-5.
+[`invariant-requirements.md`](../../core/invariant-requirements.md) §4 U-CORE-5.
 
 | R-INV | Contract law(s) | Where it lands |
 |---|---|---|
@@ -552,15 +552,15 @@ short-circuit on identity, so (a) a `List` containing `NaN` is non-reflexive
 
 | Claim | Source |
 |---|---|
-| Contract = selectors + laws, not new classes | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); [`decisions.md`](./decisions.md) Q5; catalog-delta §2.4 |
-| Mutable by default; `==` structural; mutable⇒not-hashable | [`decisions.md`](./decisions.md) Q5 |
+| Contract = selectors + laws, not new classes | [ADR-0020](../../../../adr/0020-kernel-list-native-array-protocol.md); [`decisions.md`](../../core/decisions.md) Q5; catalog-delta §2.4 |
+| Mutable by default; `==` structural; mutable⇒not-hashable | [`decisions.md`](../../core/decisions.md) Q5 |
 | `List` reference protocol (`size`/`at`/`add`/`each`) | `core.ph` L75–94; floor-census §2.13/§3; `src/list.rs`; `src/primitive/list.rs` |
 | `List` equality is identity today (the gap) | `value.rs` L213–240; `primitive/object.rs` L62–70 (`object_eq`/`object_neq`) |
 | `==`/`!=` install as `Method(1)`, not sacred | `universe.rs` L233–234; floor-census §2.1/§5 |
 | `at` out-of-range → `None` singleton | `primitive/list.rs` L72–79; invariants.rs (absence precedent) |
-| `isA(_)` / `hash` are U-CORE-1 | catalog-delta §4.5; [`decisions.md`](./decisions.md) Q1; invariant-requirements 1.2/1.3 |
-| R-INV-5.1…5.4 all corpus | [`invariant-requirements.md`](./invariant-requirements.md) §4 U-CORE-5 |
-| Flips nothing directly; enables U-STD/U-LEX fixtures | [`pending-retirement.md`](./pending-retirement.md) §4 |
-| No floor amendment; census stays 73 | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md); floor-census §1.1/§7 |
-| int/float-safe by element delegation; fiber-safe iteration | [`forward-compat.md`](./forward-compat.md) §4, §1 |
+| `isA(_)` / `hash` are U-CORE-1 | catalog-delta §4.5; [`decisions.md`](../../core/decisions.md) Q1; invariant-requirements 1.2/1.3 |
+| R-INV-5.1…5.4 all corpus | [`invariant-requirements.md`](../../core/invariant-requirements.md) §4 U-CORE-5 |
+| Flips nothing directly; enables U-STD/U-LEX fixtures | [`pending-retirement.md`](../../core/pending-retirement.md) §4 |
+| No floor amendment; census stays 73 | [ADR-0019](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md); floor-census §1.1/§7 |
+| int/float-safe by element delegation; fiber-safe iteration | [`forward-compat.md`](../../core/forward-compat.md) §4, §1 |
 | Harness surfaces mirror in-process + golden precedent | `tests/invariants.rs`; `tests/support/mod.rs`; `tests/lang.rs` |

@@ -10,10 +10,10 @@
 >
 > **Baseline:** HEAD (U10 + U-CORE-2 landed). Last code-affecting commit at
 > census re-baseline `3c74a36`. Read against
-> [`floor-census.md`](./floor-census.md), [`catalog-delta.md`](./catalog-delta.md),
-> [`decisions.md`](./decisions.md) §4.4, [`invariant-requirements.md`](./invariant-requirements.md)
-> §4, [`pending-retirement.md`](./pending-retirement.md) §4,
-> [`forward-compat.md`](./forward-compat.md) §3–4.
+> [`floor-census.md`](../../core/floor-census.md), [`catalog-delta.md`](../../core/catalog-delta.md),
+> [`decisions.md`](../../core/decisions.md) §4.4, [`invariant-requirements.md`](../../core/invariant-requirements.md)
+> §4, [`pending-retirement.md`](../../core/pending-retirement.md) §4,
+> [`forward-compat.md`](../../core/forward-compat.md) §3–4.
 
 ---
 
@@ -514,18 +514,18 @@ follow immediately after under whichever form is chosen.
 
 | Claim / requirement | Source |
 |---|---|
-| U-CORE-4 owns per-type `toString`; keep print-path separate but agreeing | [`decisions.md`](./decisions.md) §4.4; [`catalog-delta.md`](./catalog-delta.md) §4.4 |
-| Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../../forge/DEFERRED.md) #4; [ADR-0015](../../../adr/0015-object-default-tostring.md) |
-| `"<ClassName>"` instance default; class `toString` = own name | [ADR-0015](../../../adr/0015-object-default-tostring.md) |
+| U-CORE-4 owns per-type `toString`; keep print-path separate but agreeing | [`decisions.md`](../../core/decisions.md) §4.4; [`catalog-delta.md`](../../core/catalog-delta.md) §4.4 |
+| Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../../../forge/DEFERRED.md) #4; [ADR-0015](../../../../adr/0015-object-default-tostring.md) |
+| `"<ClassName>"` instance default; class `toString` = own name | [ADR-0015](../../../../adr/0015-object-default-tostring.md) |
 | `Object#toString` aliases `object_name` today (the divergence) | `universe.rs` L230; `primitive/object.rs` L23 |
 | Print path = native `Value::to_string`; renders `None`/`Some`/`List` via `to_debug` | `primitive/system.rs` L15; `value.rs` L136–147 |
 | Symbol paths disagree (`Symbol("…")` vs bare) | `interner.rs` L20–23; `primitive/symbol.rs` L13 |
-| `Number#toString` must be native; not `.ph`-derivable | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1; DEFERRED #19; decisions.md Q1 |
-| `Some`/`None` `toString` derivable over `match` | [`values-and-absence.md`](../values-and-absence.md) §3.2; `primitive/nil.rs` `option_match` |
+| `Number#toString` must be native; not `.ph`-derivable | [ADR-0019](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1; DEFERRED #19; decisions.md Q1 |
+| `Some`/`None` `toString` derivable over `match` | [`values-and-absence.md`](../../values-and-absence.md) §3.2; `primitive/nil.rs` `option_match` |
 | `Bool#toString` `.ph` syntax proven; non-sacred (no deopt) | `control-flow/control_flow_send_equivalence.ph` L9; floor-census §5 |
-| Direct flips + gated flips | [`pending-retirement.md`](./pending-retirement.md) §4 |
+| Direct flips + gated flips | [`pending-retirement.md`](../../core/pending-retirement.md) §4 |
 | Green fixtures pinning `<None instance>`/`<Some instance>` to re-pin | corpus audit (§4.3), fixture headers ("pins today's substrate output") |
-| R-INV-4.1–4.4 (all corpus) | [`invariant-requirements.md`](./invariant-requirements.md) §4 |
-| int/float-safe `toString`; names → core module | [`forward-compat.md`](./forward-compat.md) §4, §3, §5 |
-| `List#toString` → `.ph` is a later move (unblocked, not done here) | [`DEFERRED.md`](../../../forge/DEFERRED.md) #19; catalog-delta §2.4 (U-STD) |
-| Universal `toString` on `Object`, overridable everywhere | [`object-model.md`](../object-model.md) §4, §8 |
+| R-INV-4.1–4.4 (all corpus) | [`invariant-requirements.md`](../../core/invariant-requirements.md) §4 |
+| int/float-safe `toString`; names → core module | [`forward-compat.md`](../../core/forward-compat.md) §4, §3, §5 |
+| `List#toString` → `.ph` is a later move (unblocked, not done here) | [`DEFERRED.md`](../../../../forge/DEFERRED.md) #19; catalog-delta §2.4 (U-STD) |
+| Universal `toString` on `Object`, overridable everywhere | [`object-model.md`](../../object-model.md) §4, §8 |

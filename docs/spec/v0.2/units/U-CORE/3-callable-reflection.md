@@ -119,10 +119,10 @@ The reflection surface reads representation **below** the `.ph` boundary
 | `bind(_)` | the ADR-0006 `.ph` form `{ *args => self.invokeOn(receiver, args) }` requires **variadic block literals**, which do not parse (§0.2). No fixed-arity `.ph` form is general over a method's arity. |
 | `selector`, `holder` | read `MethodObject.signature.selector` / `.holder` — not exposed to `.ph`. |
 
-**Consequence: this unit is an [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
+**Consequence: this unit is an [ADR-0019](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
 amendment.** It adds **5 new floor bindings** (73 → 78). The amendment text is
 drafted in §2.6; the implementer lifts it into a new superseding ADR and
-re-baselines [`floor-census.md`](./floor-census.md) §2.9/§2.10 + §1.1 count in the
+re-baselines [`floor-census.md`](../../core/floor-census.md) §2.9/§2.10 + §1.1 count in the
 same change (R-INV-0.1). `core.ph` is **not** touched by this unit.
 
 ### 2.2 The §4.1 re-parent + load-order fix — CONDITIONAL
@@ -261,7 +261,7 @@ primitive!(vm, method_cls, "holder",   SignatureKind::Getter,    method_holder);
 
 ### 2.6 ADR-0019 amendment (draft — lift into a new superseding ADR when this lands)
 
-> *Amends [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md).* Add to
+> *Amends [ADR-0019](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md).* Add to
 > the frozen floor the **`Method` reflection surface**: `Object#methodFor(_)`,
 > `Method#invokeOn(_,_)`, `Method#bind(_)`, `Method#selector`, `Method#holder`
 > (5 bindings). Justification: each reads or drives representation below the
@@ -276,7 +276,7 @@ primitive!(vm, method_cls, "holder",   SignatureKind::Getter,    method_holder);
 > Constraint: `invokeOn(recv, args)` runs the **exact reified method** (no
 > re-dispatch) and `bound.call(args) ≡ method.invokeOn(recv, args)`
 > (R-INV-3.3); an arity mismatch raises `RuntimeError::Arity` (R-INV-3.4). Floor
-> count moves **73 → 78**; update [`floor-census.md`](./floor-census.md) §2.9/§2.10
+> count moves **73 → 78**; update [`floor-census.md`](../../core/floor-census.md) §2.9/§2.10
 > and §1.1 in the same change.
 
 ---
@@ -489,7 +489,7 @@ returns `None` on a miss; `isNone` is the `core.ph` combinator, U-CORE-2).
 
 ### 4.2 `_pending` fixtures this unit *unblocks* (all U-LEX-gated — none flip on its own)
 
-Per [`pending-retirement.md`](./pending-retirement.md) §3–§4, U-CORE-3 flips
+Per [`pending-retirement.md`](../../core/pending-retirement.md) §3–§4, U-CORE-3 flips
 **zero** fixtures directly; it lands the *capability*, and each fixture flips when
 U-LEX adds the surface syntax:
 
@@ -505,7 +505,7 @@ flips once U-LEX adds `#…` / `[…]` / `::`."**
 `blocks/blocks_non_local_return` was **already retired by U10** — not a U-CORE-3
 flip. U-CORE-3 only guards it still passes (R-INV-3.2).
 
-### 4.3 Invariants (from [`invariant-requirements.md`](./invariant-requirements.md) §4, R-INV-3.x)
+### 4.3 Invariants (from [`invariant-requirements.md`](../../core/invariant-requirements.md) §4, R-INV-3.x)
 
 | # | Assertion | Surface |
 |---|---|---|
@@ -578,14 +578,14 @@ frames, shared `call` protocol) and **§2 unified unwind**.
 
 | Claim | Source |
 |---|---|
-| Callable tower `Function`→`Block`/`Method` siblings; `bind` returns a Function/Block | [functions.md](../functions.md) §1–4; [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md); [object-model.md](../object-model.md) §4 |
-| `methodFor`/`invokeOn`/`bind`/`signature`/`holder` protocol | [functions.md](../functions.md) §3 |
-| Non-local return + `DeadFrameError`, frame token | [blocks.md](../blocks.md) §5, §7; [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md); `vm.rs` L1068–1102 |
-| §4.1 `Method < Function` re-parent + load-order; "first lands, other asserts" | [decisions.md](./decisions.md) §4.1; [catalog-delta.md](./catalog-delta.md) §4.1; `universe.rs` L132–138 |
-| Callable delta / pending protocol | [catalog-delta.md](./catalog-delta.md) §2.3 |
-| Pending flips (all U-LEX-gated), U10 already retired non-local-return | [pending-retirement.md](./pending-retirement.md) §3–§4 |
-| R-INV-3.1…3.4 (boot vs corpus) | [invariant-requirements.md](./invariant-requirements.md) §4 |
-| Must-not-preclude: fiber-local frames + shared call protocol; unified unwind | [forward-compat.md](./forward-compat.md) §1, §2, §5 |
-| Floor freeze; amendment required for new primitives | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md); [floor-census.md](./floor-census.md) §2.9/§2.10 |
-| No new `Value` arm / open enum | [ADR-0010](../../../adr/0010-tagged-value-enum.md); `value.rs` L31 |
-| No truthiness — `methodFor` miss returns `None`, not `nil` | [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md) |
+| Callable tower `Function`→`Block`/`Method` siblings; `bind` returns a Function/Block | [functions.md](../../functions.md) §1–4; [ADR-0006](../../../../adr/0006-function-as-abstract-callable-root.md); [object-model.md](../../object-model.md) §4 |
+| `methodFor`/`invokeOn`/`bind`/`signature`/`holder` protocol | [functions.md](../../functions.md) §3 |
+| Non-local return + `DeadFrameError`, frame token | [blocks.md](../../blocks.md) §5, §7; [ADR-0013](../../../../adr/0013-closure-upvalues-and-frame-token-return.md); `vm.rs` L1068–1102 |
+| §4.1 `Method < Function` re-parent + load-order; "first lands, other asserts" | [decisions.md](../../core/decisions.md) §4.1; [catalog-delta.md](../../core/catalog-delta.md) §4.1; `universe.rs` L132–138 |
+| Callable delta / pending protocol | [catalog-delta.md](../../core/catalog-delta.md) §2.3 |
+| Pending flips (all U-LEX-gated), U10 already retired non-local-return | [pending-retirement.md](../../core/pending-retirement.md) §3–§4 |
+| R-INV-3.1…3.4 (boot vs corpus) | [invariant-requirements.md](../../core/invariant-requirements.md) §4 |
+| Must-not-preclude: fiber-local frames + shared call protocol; unified unwind | [forward-compat.md](../../core/forward-compat.md) §1, §2, §5 |
+| Floor freeze; amendment required for new primitives | [ADR-0019](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md); [floor-census.md](../../core/floor-census.md) §2.9/§2.10 |
+| No new `Value` arm / open enum | [ADR-0010](../../../../adr/0010-tagged-value-enum.md); `value.rs` L31 |
+| No truthiness — `methodFor` miss returns `None`, not `nil` | [ADR-0021](../../../../adr/0021-no-truthiness-enforcement.md) |
