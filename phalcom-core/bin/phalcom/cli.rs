@@ -74,9 +74,21 @@ pub struct DisasmArgs {
 }
 
 pub fn cmd_run(cli: Cli) -> Result<()> {
+    // U15: a relative `import "./x"` resolves against the *importing file's*
+    // own directory (DEC-U15 resolution choice A), so the entry module's
+    // `path` must be the real absolute file path — not a placeholder — or
+    // every top-level `import` in the entry file would fail to resolve.
+    // Inline `--source`/`-i` input has no backing file, so it keeps the
+    // `"<main>"` placeholder (an `import` there resolves against the
+    // process's current directory, `resolve_import_path`'s documented
+    // fallback).
+    let abs_path = match &cli.path {
+        Some(p) => fs::canonicalize(p).with_context(|| format!("Failed to resolve path {}", p.display()))?.display().to_string(),
+        None => "<main>".to_string(),
+    };
     let source = read_source(cli.path, cli.source)?;
     let mut vm = VM::new();
-    let module = vm.create_module("main", "<main>");
+    let module = vm.create_module("main", &abs_path);
     let closure = vm.compile_closure(module.clone(), &source)?;
     if let Err(e) = vm.run_in_module(module, closure) {
         eprintln!("{e}");

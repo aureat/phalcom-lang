@@ -33,8 +33,8 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **111** |
-| Distinct native Rust functions | **96** |
+| Installed `(class, selector)` bindings | **112** |
+| Distinct native Rust functions | **97** |
 | Classes carrying floor primitives | **21** (of 27 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
@@ -145,18 +145,35 @@ language is *self-hosting above a small, fixed native boundary*
 > bindings. Floor-carrying classes stay at **21** (`Block` already carried
 > `whileTrue`). R-INV-0.1 audits this set.
 >
-> **Baseline:** post-U-ERR — the figures above (**111 / 96 / 21 / 7**) are the
-> current floor (was **109 / 94 / 21 / 7** post-U-COLLTYPES-Phase-3,
-> **105 / 90 / 20 / 7** post-Phase-2, **102 / 87 / 19 / 7** post-Phase-1,
-> **88 / 73 / 17 / 7** post-U-CORE-6). The authoritative pin + full landing
-> history live in [`README.md`](./README.md) §"Baseline & drift policy"; this
-> census is the ground-truth enumeration behind that count. One census-specific
-> caution: of the post-U-CORE-0 landings, **U-CORE-1 added +7 (73 → 80,
-> ADR-0023), U-CORE-3 added +5 (80 → 85, ADR-0028), U-CORE-4 added +1
-> (85 → 86, ADR-0036), U-CORE-6 added +2 (86 → 88, ADR-0037), U-COLLTYPES
-> Phase 1 added +14 (88 → 102, ADR-0039), U-COLLTYPES Phase 2 added +3
-> (102 → 105, ADR-0039), U-COLLTYPES Phase 3 added +4 (105 → 109, ADR-0039),
-> and U-ERR added +2 (109 → 111, ADR-0038)** — every other unit either landed
+> **U15 amendment ([ADR-0045](../../../adr/0045-module-import-relative-path-whole-module-binding.md)).**
+> The `import` member-access miss path admits **+1** binding (111 → 112) and
+> **+1** distinct fn (96 → 97): `Module#doesNotUnderstand(_)`
+> (`module_does_not_understand`, `primitive/module.rs`) — overrides `Object`'s
+> default miss handler so a member send (`math.pi`, `math.distance(1, 2)`)
+> reaches the module's own `globals`/`name_to_slot` table before falling
+> through to the ordinary `MessageNotUnderstood` raise; this table has no
+> other `.ph`-reachable accessor, so it fails the §1 derivability test exactly
+> as ADR-0038 found for the error-handling catch protocol. Floor-carrying
+> classes stay at **21** (`Module` already carried `new()`). The rest of
+> `import`'s surface — path resolution, the canonical-path registry, cyclic-
+> import termination, compile-once-run-once evaluation — is VM/compiler
+> plumbing (`Bytecode::Import` + the pre-existing `Bytecode::DefineGlobal`),
+> not a bound selector; it adds nothing to either count. R-INV-0.1 audits this
+> set.
+>
+> **Baseline:** post-U15 — the figures above (**112 / 97 / 21 / 7**) are the
+> current floor (was **111 / 96 / 21 / 7** post-U-ERR, **109 / 94 / 21 / 7**
+> post-U-COLLTYPES-Phase-3, **105 / 90 / 20 / 7** post-Phase-2,
+> **102 / 87 / 19 / 7** post-Phase-1, **88 / 73 / 17 / 7** post-U-CORE-6). The
+> authoritative pin + full landing history live in [`README.md`](./README.md)
+> §"Baseline & drift policy"; this census is the ground-truth enumeration
+> behind that count. One census-specific caution: of the post-U-CORE-0
+> landings, **U-CORE-1 added +7 (73 → 80, ADR-0023), U-CORE-3 added +5
+> (80 → 85, ADR-0028), U-CORE-4 added +1 (85 → 86, ADR-0036), U-CORE-6 added
+> +2 (86 → 88, ADR-0037), U-COLLTYPES Phase 1 added +14 (88 → 102, ADR-0039),
+> U-COLLTYPES Phase 2 added +3 (102 → 105, ADR-0039), U-COLLTYPES Phase 3
+> added +4 (105 → 109, ADR-0039), U-ERR added +2 (109 → 111, ADR-0038), and
+> U15 added +1 (111 → 112, ADR-0045)** — every other unit either landed
 > `.ph`/compiler surface or added zero bindings. U8's reflective surface and
 > the `Message` class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/
 > U-STD were `.ph`/compiler-only; U11 added `True`/`False` as kernel classes
@@ -365,11 +382,12 @@ construction (R-INV-3.3).
 | `print(_)` | static | `system_class_print` | the sole I/O primitive |
 | `new()` | static | `system_class_new` | |
 
-### 2.12 `Module`
+### 2.12 `Module` — namespace object (U15, [ADR-0045](../../../adr/0045-module-import-relative-path-whole-module-binding.md))
 
-| Selector | Side | Native fn |
-|---|---|---|
-| `new()` | static | `module_class_new` |
+| Selector | Side | Native fn | Notes |
+|---|---|---|---|
+| `new()` | static | `module_class_new` | always rejects — a `Module` is only ever produced by `VM::import_module` |
+| `doesNotUnderstand(_)` | instance | `module_does_not_understand` | overrides `Object`'s default miss handler; member access as an ordinary send (U15) |
 
 ### 2.13 `List` — native array-backed kernel collection ([ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md))
 

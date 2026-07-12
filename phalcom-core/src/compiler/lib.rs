@@ -19,7 +19,7 @@ use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_ast::ast::{Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, MethodCallExpr, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, ImportStatement, MethodCallExpr, Program, Statement, UnaryOp};
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::{EmptySourceRange, SourceRange};
 use std::collections::HashSet;
@@ -136,6 +136,16 @@ pub enum CompilerError {
     /// The [`SourceRange`] is the offending literal's own span.
     #[error("`throw` of a non-`Error` literal is a compile error; only `Error` subclasses are throwable.")]
     ThrowNonError(SourceRange),
+
+    /// An `import` statement written anywhere other than a compilation
+    /// unit's own top level.
+    ///
+    /// `import` resolves, loads and binds another `Module` (U15, DEC-U15);
+    /// like `class`, it is a program-shape construct, not an ordinary
+    /// statement — placing it inside a method/block/constructor/class body
+    /// is rejected here rather than silently compiling a per-call reload.
+    #[error("`import` is only allowed at a compilation unit's own top level, not inside a method, block, or class body.")]
+    ImportNotAtTopLevel,
 }
 
 // impl From<CompilerError> for PhError {
@@ -339,6 +349,43 @@ impl<'vm> Compiler<'vm> {
         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
         let defining_idx = self.add_constant(Value::Symbol(defining));
         self.emit(Bytecode::SuperSend(argc, selector_idx, defining_idx), range);
+        Ok(())
+    }
+
+    /// Lowers `import "path" as Name` (U15, DEC-U15 A+A) to a
+    /// [`Bytecode::Import`] carrying the raw path, immediately followed by
+    /// the same [`Bytecode::DefineGlobal`] a module-level `let Name = …`
+    /// would emit — the `as Name` binding is an ordinary immutable global
+    /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)), not a new
+    /// binding kind.
+    ///
+    /// Restricted to a compilation unit's own top level (`self.functions`
+    /// has exactly the module body's [`FunctionState`] and its scope depth
+    /// is 0) — mirroring how `class` is a program-shape construct rather
+    /// than an ordinary statement. `import` inside a method/block/class body
+    /// is a [`CompilerError::ImportNotAtTopLevel`] compile error.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompilerError::ImportNotAtTopLevel`] if `import_stmt`
+    /// appears anywhere but the module's own top level.
+    fn compile_import(&mut self, import_stmt: ImportStatement) -> Result<(), CompilerError> {
+        if self.functions.len() > 1 || self.functions.last().unwrap().scope_depth > 0 {
+            return Err(CompilerError::ImportNotAtTopLevel);
+        }
+
+        let range = import_stmt.range;
+        let path_sym = self.vm.interner.intern(&import_stmt.path);
+        let path_idx = self.add_constant(Value::Symbol(path_sym));
+        self.emit(Bytecode::Import(path_idx), range);
+
+        // `as Name` is always an immutable module-level global — the whole
+        // binding is `let`-shaped (ADR-0014), never a local (import is
+        // top-level-only, see the guard above).
+        let name_sym = self.vm.interner.intern(&import_stmt.binding);
+        self.immutable_globals.insert(name_sym);
+        let name_idx = self.add_constant(Value::Symbol(name_sym));
+        self.emit(Bytecode::DefineGlobal(name_idx), range);
         Ok(())
     }
 
@@ -656,6 +703,9 @@ impl<'vm> Compiler<'vm> {
                     let name_idx = self.add_constant(Value::Symbol(name_sym));
                     self.emit(Bytecode::DefineGlobal(name_idx), range);
                 }
+            }
+            Statement::Import(import_stmt) => {
+                self.compile_import(import_stmt)?;
             }
             Statement::Return(return_stmt) => {
                 let range = return_stmt.range;

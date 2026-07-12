@@ -1240,6 +1240,17 @@ impl VM {
                         }
                     }
                 }
+                Bytecode::Import(idx) => {
+                    let path_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let Value::Symbol(path_sym) = path_val else {
+                        return Err(RuntimeError::Internal("Import constant is not a Symbol".into()).into());
+                    };
+                    let import_path = self.resolve_symbol(path_sym).to_string();
+                    let importer_module = self.heap.closure(closure_id).module;
+                    let importer_path = self.heap.module(importer_module).path.clone();
+                    let imported = self.import_module(&importer_path, &import_path)?;
+                    self.stack.push(Value::Obj(imported));
+                }
                 Bytecode::SuperSend(argc, selector_idx, defining_idx) => {
                     let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
                     let defining_val = self.heap.closure(closure_id).callable.chunk.constants[defining_idx as usize];

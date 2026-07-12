@@ -157,7 +157,7 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Module` | `Object` | U | A compilation unit / namespace. |
+| `Module` | `Object` | U | A compilation unit / namespace, produced by `import` ([Modules & Imports](modules.md)). |
 | `System` | `Object` | U | The runtime service surface (class-side): `print(_)`, `clock`, `gc`, scheduler ([System](system.md)). |
 
 ### Concurrency

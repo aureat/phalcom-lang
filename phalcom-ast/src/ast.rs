@@ -66,6 +66,36 @@ pub enum Statement {
         /// The source span of the whole `throw` statement.
         range: SourceRange,
     },
+    /// `import "path" as Name` — resolves, loads and binds another
+    /// compilation unit as a first-class [`Module`](../../../phalcom-core/src/module.rs)
+    /// namespace (U15, DEC-U15 A+A: relative file-path resolution + whole-
+    /// module binding, [object-model.md §4](../../../docs/spec/v0.2/object-model.md)).
+    ///
+    /// Only valid at a compilation unit's own top level (never inside a
+    /// method/block/class body) — the compiler rejects any other placement.
+    /// There is deliberately no bare `import "path"` (no binding) and no
+    /// selective `import { a, b } from "path"` form in Draft 0.1 (DEC-U15);
+    /// `from` is reserved for that future selective-import grammar.
+    Import(ImportStatement),
+}
+
+/// `import "path" as Name` (U15, DEC-U15 A+A).
+///
+/// `path` is resolved relative to the *importing file's* directory with a
+/// `.ph` extension implied (DEC-U15 resolution choice A); `binding` is the
+/// name the imported unit's [`Module`](../../../phalcom-core/src/module.rs)
+/// is bound to in the importing scope — an ordinary global, not a namespace
+/// merge (no global-namespace pollution, U15 plan §1). `as Name` is
+/// mandatory in Draft 0.1: whole-module binding only (DEC-U15 binding choice
+/// A), no selective form yet.
+#[derive(Debug, Clone)]
+pub struct ImportStatement {
+    /// The literal path string as written, e.g. `"./geometry/point"`.
+    pub path: String,
+    /// The local name the imported `Module` is bound to (`as Name`).
+    pub binding: String,
+    /// The source span of the whole `import` statement.
+    pub range: SourceRange,
 }
 
 // Note: `try { P } (on T e { … })* (catch e { … })? (ensure { … })?`

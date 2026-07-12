@@ -219,4 +219,23 @@ pub enum Bytecode {
     /// amendment, U-CORE-2). The untaken arm still pushes [`Bytecode::Nil`]
     /// (surfaced to `None`) directly — only the taken arm needs the wrap.
     WrapSome,
+
+    /// Resolves, loads (or fetches from the registry), and runs an imported
+    /// compilation unit, pushing its [`Object::Module`](crate::heap::Object::Module)
+    /// handle (U15, DEC-U15 A+A).
+    ///
+    /// 0: constant-pool index of the import path [`Symbol`](crate::interner::Symbol),
+    /// exactly as written (e.g. `"./geometry/point"`).
+    ///
+    /// Emitted only for a module-top-level [`phalcom_ast::ast::Statement::Import`]
+    /// — the compiler's sole write-set restriction for U15 (never inside a
+    /// method/block/class body). At dispatch the path is resolved relative
+    /// to the *executing closure's own module* ([`crate::closure::ClosureObject::module`]),
+    /// not the call site, so a nested re-entrant import always resolves
+    /// against the file that wrote it. [`crate::vm::VM::import_module`] does
+    /// the actual resolve → registry-probe → compile → run work; this opcode
+    /// is only the dispatch-loop hook. The immediately-following
+    /// [`Bytecode::DefineGlobal`] (compiled exactly as an ordinary top-level
+    /// `let`/`var`) performs the `as Name` binding.
+    Import(u16),
 }

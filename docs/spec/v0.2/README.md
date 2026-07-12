@@ -29,6 +29,7 @@ silently invented.
 | [Result](result.md) | `Result`/`Ok`/`Err` — the value channel for expected failure; bridges to exceptions |
 | [Fibers & Futures](concurrency.md) | Cooperative concurrency: the `Fiber` primitive, `Future`, the scheduler |
 | [System](system.md) | The runtime service surface: console, clock, process, scheduler |
+| [Modules & Imports](modules.md) | `import "./path" as Name`, the `Module` namespace object, canonical-path memoization, cyclic imports |
 | [Implementation Status](implementation-status.md) | Divergence between this spec and the current tree |
 | [Open Questions](open-questions.md) | The 15 design questions — **all resolved**; decision record |
 | [Deferred & Future Work](deferred-work.md) | Master index of everything postponed: deferred decisions, open decisions, unbuilt units, the experimental corpus |

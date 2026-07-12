@@ -28,7 +28,7 @@ use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_new,
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
-use crate::primitive::module::module_class_new;
+use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::nil::{option_match, some_new};
 use crate::primitive::number::{
     number_add, number_class_new, number_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul, number_negated, number_sub,
@@ -47,6 +47,7 @@ use crate::primitive::tuple::{tuple_class_from_list, tuple_raw_at, tuple_raw_siz
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print};
 use crate::vm::VM;
+use std::collections::HashMap;
 
 /// The kernel: handles to the bootstrapped core classes.
 #[derive(Debug, Clone)]
@@ -65,6 +66,24 @@ pub struct Universe {
     /// (`whileTrue(_)`), mirroring [`Universe::bool_sacred_pristine`] for the
     /// kernel `Block` class.
     pub block_sacred_pristine: bool,
+    /// Loaded **imported** modules keyed by canonical absolute filesystem
+    /// path (U15, DEC-U15 A+A), distinct from [`VM::modules`](crate::vm::VM::modules)
+    /// (which keys the singleton `core`/`main` modules by logical name).
+    ///
+    /// Memoizes [`VM::import_module`](crate::vm::VM::import_module): a
+    /// canonical path is inserted the moment its `Module` is *allocated* —
+    /// before it is compiled or run — so a re-entrant probe of the same path
+    /// (a second `import` of the same file, or a cyclic import re-entering
+    /// mid-load) always returns the identical [`ObjRef`], never recompiles,
+    /// and never loops. There is deliberately no separate "in-progress" set:
+    /// a module reached before its own top level finishes running is simply
+    /// found here with a still-partially-populated
+    /// [`ModuleObject`](crate::module::ModuleObject) (some globals declared,
+    /// some not yet) — the documented cyclic-import partial-init hazard (U15
+    /// plan §4): a name read across the not-yet-complete edge surfaces the
+    /// ordinary "undefined global" / `doesNotUnderstand` miss, not a hang or
+    /// a silent duplicate.
+    pub module_registry: HashMap<String, ObjRef>,
 }
 
 impl Universe {
@@ -74,6 +93,7 @@ impl Universe {
             classes: Self::create_core_classes(heap),
             bool_sacred_pristine: true,
             block_sacred_pristine: true,
+            module_registry: HashMap::new(),
         }
     }
 
@@ -491,6 +511,12 @@ impl Universe {
 
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
+        // Member access as an ordinary send (object-model.md §4, U15
+        // DEC-U15): overrides `Object`'s default miss handler so `math.pi`/
+        // `math.distance(1, 2)` reach the module's own global table before
+        // falling through to `MessageNotUnderstood` — see
+        // `primitive::module::module_does_not_understand`.
+        primitive!(vm, module_cls, "doesNotUnderstand", SignatureKind::Method(1), module_does_not_understand);
 
         // Kernel `List` (ADR-0019/0020): five native floor primitives.
         // `rawLength`/`rawAt`/`rawSet`/`rawPush` are internal — `.ph`'s

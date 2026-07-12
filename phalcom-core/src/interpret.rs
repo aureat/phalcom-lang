@@ -10,10 +10,12 @@ use crate::compiler::lib::{Compiler, CompilerError};
 use crate::diagnostics::print_parse;
 use crate::error::{IoError, PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
-use crate::heap::ObjRef;
+use crate::heap::{Object, ObjRef};
+use crate::module::ModuleObject;
 use crate::vm::VM;
 use phalcom_ast::parse_source;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::{fs, io};
 
 pub enum ExitCode {
@@ -194,5 +196,81 @@ impl VM {
         })?;
 
         Ok(())
+    }
+
+    /// Resolves, loads, and memoizes the module named by `import_logical`
+    /// relative to `importer_abs_path` (U15, DEC-U15 A+A: relative file-path
+    /// resolution + whole-module binding).
+    ///
+    /// [`resolve_import_path`] canonicalizes the path (appending `.ph` if
+    /// missing) against the importer's own directory; the canonical path is
+    /// then probed against [`Universe::module_registry`](crate::universe::Universe::module_registry)
+    /// **before** any compilation happens — a path already loaded (or
+    /// mid-load, on a cyclic import) returns the identical [`ObjRef`] rather
+    /// than recompiling, so a class defined in the imported unit keeps one
+    /// identity across every importer (`isA` stays sound, U15 plan §1/§4).
+    ///
+    /// Unlike [`Self::run_in_module`] (the *outermost* program entry, which
+    /// clears the frame/value stacks), this runs the imported unit's top
+    /// level **re-entrantly**: a nested import happens mid-execution of the
+    /// importer's own frame, so clearing would destroy live state. It
+    /// follows the same re-entrant `run_until` pattern as
+    /// [`Self::send_dynamic`](crate::vm::VM::send_dynamic) — push one fresh
+    /// frame, drain exactly that activation, recover the frame stack to
+    /// where it was.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PhError::Io`] if `import_logical` does not resolve to an
+    /// existing, readable `.ph` file relative to `importer_abs_path`
+    /// (canonicalization fails on a missing file — this is the "missing
+    /// file raises a clean error with the attempted path" guarantee, U15
+    /// plan §6); propagates any [`PhError::Compile`] or [`PhError::Runtime`]
+    /// raised compiling or running the imported unit's top level (including
+    /// the documented cyclic-import partial-init hazard, U15 plan §4).
+    pub fn import_module(&mut self, importer_abs_path: &str, import_logical: &str) -> PhResult<ObjRef> {
+        let canonical = resolve_import_path(importer_abs_path, import_logical)
+            .map_err(|e| PhError::Io(IoError::Message(format!("Cannot import \"{import_logical}\": {e}"))))?;
+
+        if let Some(&existing) = self.universe.module_registry.get(&canonical) {
+            return Ok(existing);
+        }
+
+        let logical_name = Path::new(&canonical)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(import_logical)
+            .to_string();
+
+        // Allocate + register the Module *before* compiling/running it — the
+        // memo the cyclic-import guard above relies on (see
+        // `Universe::module_registry`'s doc for the partial-init hazard this
+        // ordering accepts).
+        let module_sym = self.interner.intern(&logical_name);
+        let module_obj = ModuleObject::new(logical_name.clone(), module_sym, canonical.clone(), None);
+        let module_id = self.heap.alloc(Object::Module(module_obj));
+        self.universe.module_registry.insert(canonical.clone(), module_id);
+
+        let source = fs::read_to_string(&canonical).map_err(|e| IoError::Message(format!("Failed to read file {canonical}: {e}")))?;
+        self.heap.module_mut(module_id).source = Some(Arc::new(source.clone()));
+        self.register_source(&logical_name, &source);
+
+        let closure = self.compile_closure(module_id, &source)?;
+        self.heap.module_mut(module_id).add_closure(closure);
+
+        // Re-entrant run (mirrors `send_dynamic`): push a fresh frame for the
+        // imported unit's top level and drain just that one activation —
+        // never `run_in_module`, whose stack-clearing assumes it is the
+        // *outermost* entry.
+        let base_frames = self.frames.len();
+        let stack_offset = self.stack.len();
+        let frame = self.new_call_frame(closure, CallContext::Module { module: module_id }, 0, stack_offset, None);
+        self.frames.push(frame);
+        self.native_reentry_depth += 1;
+        let result = self.run_until(base_frames);
+        self.native_reentry_depth -= 1;
+        result?;
+
+        Ok(module_id)
     }
 }

@@ -648,6 +648,11 @@ fn floor_census_matches_installed_bindings() {
     // (U-CORE-6/ADR-0037), so this is the floor's final word on error
     // handling.
     const NEW_ON_ENSURE: usize = 2;
+    // U15 (ADR-0045, this unit's own amendment): `Module#doesNotUnderstand(_:)`
+    // = +1 (111 -> 112) — member access (`math.pi`, `math.distance(1, 2)`) as
+    // an ordinary send over the module's own globals table; the only way to
+    // reach it from a message send (floor-census.md §2.12).
+    const NEW_IMPORTS: usize = 1;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -746,8 +751,9 @@ fn floor_census_matches_installed_bindings() {
         // §2.11 System
         (c.system_class, true, "print(_:)"),
         (c.system_class, true, "new()"),
-        // §2.12 Module
+        // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
+        (c.module_class, false, "doesNotUnderstand(_:)"),
         // §2.13 List
         (c.list_class, true, "new()"),
         (c.list_class, false, "rawLength"),
@@ -846,13 +852,13 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE + NEW_ON_ENSURE,
-        "census must enumerate exactly 111 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR)"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE + NEW_ON_ENSURE + NEW_IMPORTS,
+        "census must enumerate exactly 112 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045)"
     );
     assert_eq!(
         live.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE + NEW_ON_ENSURE,
-        "the live floor must be exactly 111 bindings"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE + NEW_ON_ENSURE + NEW_IMPORTS,
+        "the live floor must be exactly 112 bindings"
     );
 }
 

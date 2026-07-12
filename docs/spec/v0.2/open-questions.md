@@ -104,14 +104,23 @@ before the work it blocks begins.
    follows.
 
 8. ~~**Modules / imports.**~~ **RESOLVED** →
-   [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md):
-   **file = module**; top-level names are **public by default** (`_`-prefix =
-   private); imports come in **qualified** (`import geometry` → `geometry.Circle`),
-   **selective** (`import Circle from geometry`), and **aliased** (`import geometry
-   as geo`) forms, over **logical-name** resolution. This continues the
-   already-committed "core is an auto-imported module"
-   ([decisions.md](core/decisions.md) Q4). Parameterized/first-class modules and
-   circular-import policy are deferred (non-foreclosed).
+   [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md)
+   (design) + [ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md)
+   (Draft 0.1 implementation, DEC-U15 = A + A, U15): **file = module**; a
+   `Module` is a first-class namespace object whose members are reached by
+   **ordinary sends** ([modules.md](modules.md)). ADR-0027's original grammar
+   (qualified/selective/aliased forms over logical-name resolution) is
+   narrowed for Draft 0.1: **relative file-path resolution**
+   (`import "./geometry/point"`, `.ph` appended, canonicalized) +
+   **whole-module binding only** (`import "path" as Name`; no bare/selective
+   form yet). Every top-level name is a member — no `export`, no `_`-prefix
+   privacy enforcement yet (ADR-0027 §2 not enforced). A unit is compiled and
+   run exactly once, memoized by canonical path; a mutual import cycle
+   terminates (a name read across its not-yet-complete edge is an ordinary
+   `doesNotUnderstand` miss, documented). Parameterized/first-class modules
+   (beyond the basic `Module` object), logical-name resolution, selective
+   import, `export`, and compiled-bytecode imports (no verifier exists) are
+   all deferred (non-foreclosed).
 
 9. ~~**Error handling.** `throw` / `try` / `catch`, or `Result` as a sibling of
    `Option`?~~ **RESOLVED** → [ADR-0008](../../adr/0008-layered-exceptions-and-result.md)
@@ -193,7 +202,7 @@ before the work it blocks begins.
 | Q5 / absence | `Option` is abstract; `Some`/`None` subclasses; `None` is a singleton | [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) |
 | Q6 | `Set(...)` constructor; `#{…}` set literal reserved-inactive (`Map`/`Tuple` literals ship) | ruling (Q6 above) + [ADR-0032](../../adr/0032-collections-representation-and-literals.md) |
 | Q7 | Irrefutable tuple destructuring now; list/`*rest` + pattern matching deferred | ruling (Q7 above) |
-| Q8 | File = module; public-by-default; qualified/selective/aliased imports | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) |
+| Q8 | File = module; Draft 0.1: relative file-path resolution + whole-module binding only (`import "./x" as Name`), members via ordinary sends | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) + [ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md) |
 | Q9 | Layered exceptions + `Result`; terminating, not resumable; surface `throw`/`try`/`catch`/`on`/`ensure` | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md) + [ADR-0031](../../adr/0031-error-handling-surface-syntax.md) |
 | Q10 | Single inheritance only; traits/mixins deferred (stateless traits the future option) | ruling (Q10 above) |
 | Q11 | `Behavior` is the shared superclass of `Class`/`Metaclass` | [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md) |

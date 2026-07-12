@@ -307,3 +307,23 @@ fn values() {
     // (`"<ClassName>"`, ADR-0015, DEFERRED F4).
     support::check_pass("values");
 }
+
+#[test]
+fn imports() {
+    // U15 (DEC-U15 A+A, object-model.md §4): `import "path" as Name` —
+    // relative file-path resolution + whole-module binding. Basic member
+    // access as an ordinary send, one-object-per-canonical-path
+    // memoization (module *and* class identity), no global-namespace
+    // pollution, kernel visibility without import, and cyclic-import
+    // termination (`lib/` holds the imported units — never a standalone
+    // test case in its own right).
+    support::check_pass("imports");
+}
+
+#[test]
+fn imports_negative() {
+    // U15: a missing import target and the documented cyclic-import
+    // partial-init hazard (a name read across the not-yet-complete edge of
+    // a mutual import) both fail cleanly — never a hang, never a panic.
+    support::check_negative("imports/negative");
+}

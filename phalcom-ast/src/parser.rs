@@ -390,7 +390,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Let | Token::Var | Token::Return => return,
+                Token::Class | Token::Let | Token::Var | Token::Return | Token::Import => return,
                 _ => {
                     self.advance();
                 }
@@ -412,6 +412,7 @@ impl<'source> Parser<'source> {
             Token::For => self.parse_for(),
             Token::Throw => self.parse_throw(),
             Token::Try => self.parse_try(),
+            Token::Import => self.parse_import(),
             Token::Break => {
                 let start = self.cur_start();
                 self.advance(); // 'break'
@@ -473,6 +474,35 @@ impl<'source> Parser<'source> {
         let expr = self.parse_expr()?;
         let range = (start..self.prev_end).into();
         Ok(Statement::Throw { expr, range })
+    }
+
+    /// Parses `import "path" as Name` (U15, DEC-U15 A+A).
+    ///
+    /// `as` is [`Token::As`], a reserved word (unlike `extends`/`on`'s
+    /// contextual-keyword precedent, `as` was already lexed as its own
+    /// token, unused until this unit). Grammar: `import` STRING `as` IDENT.
+    /// The binding is mandatory in Draft 0.1 (whole-module binding only,
+    /// DEC-U15); there is no bare `import "path"` and no selective `from`
+    /// form yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path is not a string literal, `as` is
+    /// missing, or the binding name is not an identifier.
+    fn parse_import(&mut self) -> ParserResult<Statement> {
+        let start = self.cur_start();
+        self.advance(); // 'import'
+        let path = match self.peek().clone() {
+            Token::String(value) => {
+                self.advance();
+                value
+            }
+            _ => return Err(self.error_here(strs(&["string literal"]))),
+        };
+        self.expect(&Token::As, &["\"as\""])?;
+        let binding = self.expect_identifier(&["identifier"])?;
+        let range = (start..self.prev_end).into();
+        Ok(Statement::Import(ImportStatement { path, binding, range }))
     }
 
     /// Parses `try { P } (on T e { … })* (catch e { … })? (ensure { … })?`

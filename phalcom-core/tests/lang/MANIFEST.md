@@ -17,9 +17,21 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 ## Summary
 
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, collections,
-  compile-errors, concurrency, control-flow, dispatch, errors, functions, inheritance,
-  iteration, lexical, list, messages, metaclass, runtime-errors, syntax-errors, system.
-- **U-ERR delta (most recent; the aggregate total below predates it and is not
+  compile-errors, concurrency, control-flow, dispatch, errors, functions, imports,
+  inheritance, iteration, lexical, list, messages, metaclass, runtime-errors,
+  syntax-errors, system.
+- **U15 delta (most recent; ADR-0045, `import` — relative file-path resolution +
+  whole-module binding, member access as an ordinary send).** New `imports` label:
+  +5 PASS (`imports_basic_member_access`, `imports_identity_memoized`,
+  `imports_isolation_no_leak`, `imports_kernel_visible_without_import`,
+  `imports_cyclic_load_no_hang`), +2 NEGATIVE in `imports/negative/`
+  (`imports_missing_file`, `imports_cycle_partial_read_fails_cleanly`). `imports/lib/`
+  holds **8** more `.ph` files (`answer`, `shared`, `isolated`, `kernel_user`,
+  `cycle_a`/`cycle_b`, `cycle_bad_a`/`cycle_bad_b`) that are imported-by, never
+  standalone cases — `collect_cases` does not recurse into subdirectories, so they
+  are invisible to the harness but visible to a raw `find`; the case counts below
+  count only actual cases (13), not the 8 library fixtures.
+- **U-ERR delta (the aggregate total below predates it and is not
   reconciled here — see the reconcile-corpus-counts history):** `errors/pending/`
   is now empty and retired — its two placeholder fixtures
   (`errors_throw_try_catch_finally.ph`, `errors_result_bridge.ph`) graduated to
@@ -33,11 +45,14 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
   (`compile-errors/compile_error_throw_non_error_literal.ph`), +1 NEGATIVE
   (`runtime-errors/runtime_error_throw_uncaught.ph`), -2 PENDING (the retired
   `errors/pending/` pair). `errors` moves `check_pending` → `check_pass`.
-- **Case counts (RECONCILED 2026-07-12, post-U-ERR + three adversarial test-waves):**
-  PASS 292 · NEGATIVE 40 · PENDING 28 · **total 360** (recounted from the tree:
-  `find tests/lang -name '*.ph'` = 360; PENDING = `*/pending/*.ph`; NEGATIVE =
-  runtime-errors + compile-errors + syntax-errors + collections/negative lanes).
-  The stale 163/34/32/229 line and its per-delta narrative below are superseded history.
+- **Case counts (RECONCILED 2026-07-12, post-U15):**
+  PASS 297 · NEGATIVE 42 · PENDING 28 · **total 367 cases** (375 `.ph` files under
+  `tests/lang` by raw `find`, minus `imports/lib/`'s 8 non-case library fixtures =
+  367 harness-visible `.ph` files; PENDING = `*/pending/*.ph`; NEGATIVE =
+  runtime-errors + compile-errors + syntax-errors + collections/negative +
+  imports/negative lanes). Pre-U15 baseline was PASS 292 · NEGATIVE 40 · PENDING 28 ·
+  total 360. The stale 163/34/32/229 line and its per-delta narrative below are
+  superseded history.
   Net since 229: +91 adversarial goldens (waves 1-3: OO/collections/closures/absence,
   arithmetic/booleans/reflection/bindings/system, concurrency) + U-ERR's errors surface.
 - **(historical)** PASS 163 · NEGATIVE 34 · PENDING 32 · **total 229** (U13
@@ -98,6 +113,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | concurrency | 9 | – | 1 | `check_pass` + `check_pending` | concurrency.md; ADR-0030 |
 | errors | 9 | – | – | `check_pass` | error-handling.md; result.md; ADR-0008/0031/0038 |
 | functions | – | – | 2 | `check_pending` | functions.md; selectors.md |
+| imports | 5 | 2 | – | `check_pass` + `check_negative` | modules.md; object-model.md §4; ADR-0027; ADR-0045 |
 
 ## Spec coverage
 
@@ -120,6 +136,7 @@ Every document in `docs/spec/` maps to at least one label:
 | system.md | system |
 | U-LIST-plan.md | list, runtime-errors |
 | lexical-structure.md §4/§6/§7/§8 (collection literals) | collections |
+| modules.md | imports |
 
 ## Running
 
@@ -141,6 +158,13 @@ cargo test -p phalcom-core --test lang -- --ignored  # PENDING spec targets (exp
 - Adding a case: drop `<name>.ph` + `<name>.expected` in the label dir (or `pending/`);
   create the label dir first if new (a missing dir panics `collect_cases`), and wire the
   label in `../lang.rs` if it has no `check_*` test yet.
+- **Multi-file fixtures (U15 precedent, `imports/`):** a case that needs companion
+  files an `import` statement loads (not a standalone case in its own right) puts them
+  in a `<label>/lib/` subdirectory. `collect_cases` only reads files directly inside
+  the label dir (`path.is_file()`, no recursion), so `lib/` is invisible to the
+  harness — the driver `.ph` case references its dependency with a path relative to
+  *its own* directory (e.g. a case in `imports/` writes `import "./lib/x"`; a case in
+  `imports/negative/` writes `import "../lib/x"`).
 - U6 (absence → `Option` + `let`/`var`): surface `nil` was removed, so the old
   `lexical_nil_prints` / `system_print_nil` PASS cases became the single
   `compile-errors/compile_error_surface_nil` NEGATIVE (they were byte-identical), and the
