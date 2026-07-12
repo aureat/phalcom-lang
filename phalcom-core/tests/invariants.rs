@@ -218,6 +218,46 @@ fn verify_invariants_holds_after_bootstrap() {
 }
 
 #[test]
+fn sealed_hierarchy_rejects_runtime_reparent_and_keeps_invariants() {
+    // U13 / DEC-U13a=A ([ADR-0026](../../docs/adr/0026-class-hierarchy-mutability.md),
+    // [ADR-0041](../../docs/adr/0041-hierarchy-stability-policy.md)): a class's
+    // `superclass` is sealed at creation — `class_set_superclass` (the
+    // `superclass=(_)` primitive, installed on `Behavior`) always errors and
+    // never mutates the class graph, so `ClassId`-keyed dispatch and the
+    // ADR-0011 fixed instance slot layout stay provably stable. This asserts
+    // the reject is a clean, typed [`RuntimeError::InvalidSetSuper`] (never a
+    // panic), that the attempted reparent leaves `Dog.superclass` untouched,
+    // and that `verify_invariants()` is still green *after* the rejected
+    // mutation — the tower cannot be silently corrupted by a reparent attempt.
+    use phalcom_core::primitive::class::class_set_superclass;
+
+    let mut vm = VM::new();
+    let object_class = vm.universe.classes.object_class;
+    let animal = vm.create_class("Animal", Some(object_class));
+    let dog = vm.create_class("Dog", Some(animal));
+    let cat = vm.create_class("Cat", Some(object_class));
+
+    let dog_value = Value::Obj(dog);
+    let result = class_set_superclass(&mut vm, &dog_value, &[Value::Obj(cat)]);
+
+    match result {
+        Err(PhError::Runtime(RuntimeError::InvalidSetSuper)) => {}
+        other => panic!("expected RuntimeError::InvalidSetSuper, got {other:?}"),
+    }
+
+    assert_eq!(
+        vm.heap.class(dog).superclass,
+        Some(animal),
+        "a rejected superclass= must not mutate the class graph — Dog.superclass should stay Animal"
+    );
+
+    assert!(
+        vm.universe.verify_invariants(&vm.heap).is_ok(),
+        "verify_invariants() must still pass after a rejected reparent attempt"
+    );
+}
+
+#[test]
 fn metaclass_superclass_parallels_instance_superclass() {
     // object-model.md §5 rule 4 / ADR-0002: (X class).superclass ==
     // (X.superclass) class.

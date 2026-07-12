@@ -28,6 +28,15 @@ pub fn class_superclass(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 
 /// Signature: `Class::superclass=(_)` — always an error; the tower is fixed here.
 ///
+/// A class's `superclass` is sealed at class creation (U13, DEC-U13a=A;
+/// [ADR-0026](../../../docs/adr/0026-class-hierarchy-mutability.md);
+/// [ADR-0041](../../../docs/adr/0041-hierarchy-stability-policy.md)): a
+/// runtime reparent is rejected outright, never performed, so `ClassId`-keyed
+/// dispatch and the fixed instance slot layout
+/// ([ADR-0011](../../../docs/adr/0011-static-instance-slot-layout.md)) stay
+/// provably stable. Method *reopening* — adding or replacing methods on an
+/// existing class — is a separate axis and is unaffected by this seal.
+///
 /// # Errors
 ///
 /// Always returns [`RuntimeError::InvalidSetSuper`].
