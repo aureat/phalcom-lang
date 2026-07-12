@@ -49,7 +49,7 @@ Under dynamic dispatch the selector must be computable from the call site alone.
 
 ---
 
-## 2. Symbol literals (`#`)
+## 2. Symbol literals (`#`) — **IMPLEMENTED** (U-LEX-HASH)
 
 Two distinct value types, both backed by an interned `Symbol`:
 
@@ -57,13 +57,22 @@ Two distinct value types, both backed by an interned `Symbol`:
 | --- | --- | --- | --- |
 | `#move` | **Name symbol** | A bare method name; identifies a *family*, not a method. | `respondsTo`, map keys, reflection queries |
 | `#move(_,to,duration)` | **Selector symbol** | A complete method identity. | `perform`, pinned method refs |
-| `#+`, `#==`, `#[]` | Selector symbol | Operator selectors. | same |
+| `#+`, `#==` | Selector symbol | Operator selectors. | same |
 
-`perform` accepts **only** selector symbols. Passing a name symbol is a type error.
+`perform` accepts **only** selector symbols. Passing a name symbol is a type error. (`perform` itself is not yet implemented — U-LEX-HASH lexes and interns both symbol shapes only.)
+
+**Implementation note (U-LEX-HASH):** `#[]` (the bracket-subscript operator
+selector) is **not yet lexed** — the language has no user-facing `[](...)`
+method-definition syntax to fix its arity/canonical-form convention against
+(ADR-0016's hand-written parser doesn't parse a subscript method name at all
+yet), so it is deferred rather than guessed at. See `DEFERRED.md`. Every other
+row in the table above is implemented.
 
 ### Lexing
 
-Lexed as a **single atomic token** in Logos:
+Lexed as a **single atomic token** by the hand-written scanner (ADR-0016;
+`phalcom-ast::lexer`) — the grammar below is unchanged from the original
+Logos-era design, only the implementation strategy moved:
 
 ```rust
 #[regex(r"#[a-zA-Z_][a-zA-Z0-9_]*(\([^)]*\))?", callback = canon_selector)]

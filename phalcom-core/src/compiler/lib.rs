@@ -19,7 +19,10 @@ use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_ast::ast::{Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, ImportStatement, MethodCallExpr, Pattern, Program, Statement, UnaryOp};
+use phalcom_ast::ast::{
+    Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, ImportStatement, MethodCallExpr, Pattern, Program,
+    Statement, SymbolLiteralKind, UnaryOp,
+};
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::{EmptySourceRange, SourceRange};
 use std::collections::HashSet;
@@ -1965,6 +1968,25 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::False, range);
                 }
             }
+            Expr::Symbol(symbol_expr) => {
+                let range = symbol_expr.range;
+                // Both symbol shapes intern to a `Value::Symbol` constant
+                // (selectors.md §2). A selector symbol is canonicalized
+                // through `encode_selector` — the same routine method
+                // definitions use — so `#move(_,to)` interns to the *same*
+                // `Symbol` as the selector a `move(_,to:)` method definition
+                // registers (ADR-0012).
+                let canonical = match symbol_expr.kind {
+                    SymbolLiteralKind::Name(name) => name,
+                    SymbolLiteralKind::Selector { name, labels } => {
+                        let arity = labels.len() as u8;
+                        encode_selector(&name, &labels, SignatureKind::Method(arity))
+                    }
+                };
+                let sym = self.vm.interner.intern(&canonical);
+                let idx = self.add_constant(Value::Symbol(sym));
+                self.emit(Bytecode::Constant(idx), range);
+            }
             Expr::Var { value, range } => {
                 let name_sym = self.vm.interner.intern(&value);
                 if let Some(slot) = self.resolve_local(name_sym) {
@@ -2227,7 +2249,10 @@ fn collect_assigned_fields_stmt(stmt: &Statement, fields: &mut Vec<Symbol>, inte
 /// the runtime `doesNotUnderstand` miss on `raise()` instead — deliberately no
 /// flow typing (U-ERR plan §2.2).
 fn is_non_error_literal(expr: &Expr) -> bool {
-    matches!(expr, Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. })
+    matches!(
+        expr,
+        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Symbol(_)
+    )
 }
 
 /// Returns the branch-condition sub-expression of a recognized [`SacredCall`],

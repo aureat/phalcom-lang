@@ -18,9 +18,10 @@ use std::ops::Range;
 /// A single lexical token of Phalcom source.
 ///
 /// Produced by [`crate::lexer::Lexer`] and matched by [`crate::parser`]. The
-/// three data-carrying variants ([`Token::Identifier`], [`Token::String`],
-/// [`Token::Number`]) hold the already-decoded literal value; every other
-/// variant is a fixed keyword, operator, or punctuation mark.
+/// data-carrying variants ([`Token::Identifier`], [`Token::String`],
+/// [`Token::StringInterp`], [`Token::Number`], [`Token::NameSymbol`],
+/// [`Token::SelectorSymbol`]) hold the already-decoded literal value; every
+/// other variant is a fixed keyword, operator, or punctuation mark.
 ///
 /// The [`Debug`] representation is stable and is snapshotted by the lexer tests
 /// (`phalcom-ast/tests/lexer.rs`); changing a variant name changes those
@@ -108,6 +109,28 @@ pub enum Token {
     StringInterp(Vec<StringSegment>),
     /// A numeric literal decoded to an [`f64`].
     Number(f64),
+
+    /// A bare `#name` **name symbol** (selectors.md §2) — identifies a
+    /// method-name *family*, not a complete method identity. Used for map
+    /// keys, `respondsTo`, and other reflection queries that key on a base
+    /// name. Distinct from [`Token::SelectorSymbol`], which carries a full
+    /// signature; `#move` alone (no adjacent `(`) always lexes here, never as
+    /// a zero-argument selector.
+    NameSymbol(String),
+    /// A `#`-prefixed **selector symbol** (selectors.md §2) — a complete
+    /// method identity, either a paren-list form (`#move(_,to,duration)`,
+    /// `#size()`) or a bare operator form (`#+`, `#==`). `labels[i]` is
+    /// `Some(label)` for a keyword slot and `None` for the positional
+    /// placeholder `_`; `labels.len()` is the selector's arity. R2
+    /// (positionals precede labels) is validated at lex time — an interior
+    /// positional after a label is a [`LexicalError::InvalidToken`].
+    SelectorSymbol {
+        /// The selector's base name (`"move"`, `"size"`, `"+"`, `"=="`, ...).
+        name: String,
+        /// Per-argument labels in declared order; `None` is the positional
+        /// placeholder `_`.
+        labels: Vec<Option<String>>,
+    },
 
     /// The `(` delimiter.
     LParen,

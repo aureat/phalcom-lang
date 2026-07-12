@@ -289,6 +289,13 @@ impl Value {
             (Value::Nil, Value::Nil) => true,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Number(a), Value::Number(b)) => a == b,
+            // Symbols compare by interned identity, not handle — two
+            // independently-interned occurrences of the same text share one
+            // `Symbol` (the interner is content-addressed), so `a == b` here
+            // is content equality (U-LEX-HASH coupled fix; was previously
+            // absent, falling through to the generic `_ => false` below and
+            // making `Symbol.new("a") == Symbol.new("a")` false).
+            (Value::Symbol(a), Value::Symbol(b)) => a == b,
             (Value::Obj(a), Value::Obj(b)) => {
                 // Strings compare by content, regardless of handle.
                 match (heap.as_string(*a), heap.as_string(*b)) {
@@ -306,8 +313,7 @@ impl Value {
                 // Instances, classes and methods compare by identity.
                 a == b
             }
-            // Symbol pairs and every mismatched pair are unequal, matching the
-            // pre-heap `_ => false` arm.
+            // Every mismatched pair is unequal.
             _ => false,
         }
     }

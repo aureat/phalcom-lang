@@ -834,6 +834,8 @@ impl<'source> Parser<'source> {
                 | Token::True
                 | Token::False
                 | Token::Identifier(_)
+                | Token::NameSymbol(_)
+                | Token::SelectorSymbol { .. }
                 | Token::SelfKw
                 | Token::Super
                 | Token::LParen
@@ -1788,6 +1790,20 @@ impl<'source> Parser<'source> {
             Token::StringInterp(segments) => {
                 self.advance();
                 self.desugar_string_interp(segments, range)
+            }
+            Token::NameSymbol(name) => {
+                self.advance();
+                Ok(Expr::Symbol(Box::new(SymbolExpr {
+                    kind: SymbolLiteralKind::Name(name),
+                    range,
+                })))
+            }
+            Token::SelectorSymbol { name, labels } => {
+                self.advance();
+                Ok(Expr::Symbol(Box::new(SymbolExpr {
+                    kind: SymbolLiteralKind::Selector { name, labels },
+                    range,
+                })))
             }
             Token::Identifier(value) => {
                 if matches!(self.peek_next(), Token::FatArrow) {

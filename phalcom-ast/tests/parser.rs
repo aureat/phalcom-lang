@@ -86,6 +86,19 @@ fn return_statement() {
 }
 
 #[test]
+fn symbol_name_literal_parses() {
+    // selectors.md §2: `#move` parses to `Expr::Symbol(SymbolLiteralKind::Name)`.
+    insta::assert_snapshot!(parse("let s = #move"));
+}
+
+#[test]
+fn symbol_selector_literal_parses() {
+    // `#move(_,to,duration)` parses to `Expr::Symbol(SymbolLiteralKind::Selector)`
+    // carrying the ordered labels.
+    insta::assert_snapshot!(parse("let s = #move(_,to,duration)"));
+}
+
+#[test]
 fn multiple_statements() {
     insta::assert_snapshot!(parse("let x = 1\nlet y = 2"));
 }

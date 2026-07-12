@@ -1,0 +1,16 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"#move #size #_field\")"
+---
+[
+    NameSymbol(
+        "move",
+    ),
+    NameSymbol(
+        "size",
+    ),
+    NameSymbol(
+        "_field",
+    ),
+    Eof,
+]

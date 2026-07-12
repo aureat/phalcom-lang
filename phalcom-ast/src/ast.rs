@@ -349,6 +349,9 @@ pub enum Expr {
     /// A `::` method reference — `receiver::name` (selectors.md §3, U16-Open,
     /// Open form only). See [`MethodRefExpr`].
     MethodRef(Box<MethodRefExpr>),
+    /// A `#`-prefixed symbol literal (selectors.md §2, U-LEX-HASH). See
+    /// [`SymbolExpr`].
+    Symbol(Box<SymbolExpr>),
 }
 
 impl Expr {
@@ -375,6 +378,7 @@ impl Expr {
             Expr::SetProperty(e) => e.range,
             Expr::Block(e) => e.range,
             Expr::MethodRef(e) => e.range,
+            Expr::Symbol(e) => e.range,
         }
     }
 }
@@ -451,6 +455,39 @@ pub struct MethodRefExpr {
     pub name: String,
     /// The source span from the start of `receiver` through the name.
     pub range: SourceRange,
+}
+
+/// A `#`-prefixed symbol literal (selectors.md §2, U-LEX-HASH): a name symbol
+/// (`#move`) or a selector symbol (`#move(_,to,duration)`, `#+`, `#==`).
+///
+/// Both shapes lower to a `Value::Symbol` constant (`phalcom-core::compiler`)
+/// — only the interned string differs.
+#[derive(Debug, Clone)]
+pub struct SymbolExpr {
+    /// Which of the two symbol shapes this literal is.
+    pub kind: SymbolLiteralKind,
+    /// The source span of the whole `#...` literal.
+    pub range: SourceRange,
+}
+
+/// The two symbol-literal shapes (selectors.md §2), carried by [`SymbolExpr`].
+#[derive(Debug, Clone)]
+pub enum SymbolLiteralKind {
+    /// `#move` — a bare name symbol. Identifies a method-name *family*, not
+    /// a complete method identity; used for map keys, `respondsTo`, and
+    /// other reflection queries that key on a base name alone.
+    Name(String),
+    /// `#move(_,to,duration)` / `#+` / `#==` — a complete selector symbol.
+    /// Lowered by the compiler through the same `encode_selector` routine a
+    /// matching method definition uses, so the two intern to the same
+    /// `Symbol` identity (ADR-0012).
+    Selector {
+        /// The selector's base name (`"move"`, `"size"`, `"+"`, `"=="`, ...).
+        name: String,
+        /// Per-argument labels in declared order; `None` is the positional
+        /// placeholder `_`.
+        labels: Vec<Option<String>>,
+    },
 }
 
 #[derive(Debug, Clone)]

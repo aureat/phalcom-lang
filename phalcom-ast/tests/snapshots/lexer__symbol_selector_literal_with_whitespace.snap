@@ -1,0 +1,35 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"#move(_,to,duration) #move(\\n  _,\\n  to,\\n  duration\\n) #size()\")"
+---
+[
+    SelectorSymbol {
+        name: "move",
+        labels: [
+            None,
+            Some(
+                "to",
+            ),
+            Some(
+                "duration",
+            ),
+        ],
+    },
+    SelectorSymbol {
+        name: "move",
+        labels: [
+            None,
+            Some(
+                "to",
+            ),
+            Some(
+                "duration",
+            ),
+        ],
+    },
+    SelectorSymbol {
+        name: "size",
+        labels: [],
+    },
+    Eof,
+]

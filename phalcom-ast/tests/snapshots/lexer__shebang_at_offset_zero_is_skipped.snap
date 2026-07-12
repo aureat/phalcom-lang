@@ -1,0 +1,16 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"#!/usr/bin/env phalcom\\nlet x = 1\")"
+---
+[
+    Newline,
+    Let,
+    Identifier(
+        "x",
+    ),
+    Equal,
+    Number(
+        1.0,
+    ),
+    Eof,
+]

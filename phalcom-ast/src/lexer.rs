@@ -67,12 +67,26 @@ pub struct Lexer<'input> {
 
 impl<'input> Lexer<'input> {
     /// Creates a scanner over `input`, positioned at the first byte.
+    ///
+    /// A `#!` at byte offset 0 (a Unix shebang line, e.g.
+    /// `#!/usr/bin/env phalcom`) is skipped as trivia up to (not including)
+    /// its terminating newline, exactly like a `//` line comment — this is
+    /// the reserved sigil carve-out from selectors.md §2 that keeps a shebang
+    /// from being swallowed by the `#`-symbol-literal rule. The check is only
+    /// performed once, here, since `#!` has no special meaning anywhere else
+    /// in the source.
     pub fn new(input: &'input str) -> Self {
+        let bytes = input.as_bytes();
+        let pos = if bytes.starts_with(b"#!") {
+            bytes.iter().position(|&b| b == b'\n').unwrap_or(bytes.len())
+        } else {
+            0
+        };
         Self {
             input,
-            bytes: input.as_bytes(),
-            pos: 0,
-            last_end: 0,
+            bytes,
+            pos,
+            last_end: pos,
             eof_emitted: false,
             last_significant: None,
         }
@@ -168,6 +182,7 @@ impl<'input> Lexer<'input> {
             b'0'..=b'9' => self.scan_number(),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => Ok(self.scan_identifier()),
             b'"' => self.scan_string(),
+            b'#' => self.scan_symbol(),
             _ => self.scan_operator(),
         }
     }
@@ -376,6 +391,178 @@ impl<'input> Lexer<'input> {
         self.input[at..].chars().next().map_or(1, char::len_utf8)
     }
 
+    /// Scans a `#`-prefixed symbol literal (selectors.md §2) as a single
+    /// atomic token, starting with the cursor on `#`.
+    ///
+    /// Two shapes:
+    ///
+    /// * `#name` — a bare [`Token::NameSymbol`]. `(` is only consumed as the
+    ///   start of a selector's argument list when it is **adjacent** (no
+    ///   whitespace) to the name — `#move (a, b)` lexes as `#move` followed
+    ///   by a separate parenthesized expression, never as one greedy symbol
+    ///   (the ASI-hazard guard selectors.md §2 calls out).
+    /// * A bare operator (`#+`, `#==`, ...) — always a one-argument
+    ///   [`Token::SelectorSymbol`], matching every operator method definition
+    ///   in the language (`parse_method_name`'s operator set), which all take
+    ///   exactly one parameter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LexicalError::InvalidToken`] if `#` is not immediately
+    /// followed by an identifier-start byte or a known operator byte (a bare
+    /// `#` followed by whitespace, EOF, or anything else never forms a
+    /// symbol — `# move` is not a symbol).
+    fn scan_symbol(&mut self) -> Result<Token, LexicalError> {
+        let start = self.pos;
+        self.pos += 1; // past '#'
+        match self.peek_at(0) {
+            Some(b'a'..=b'z' | b'A'..=b'Z' | b'_') => self.scan_symbol_name(),
+            Some(b'+') => {
+                self.pos += 1;
+                Ok(operator_selector("+"))
+            }
+            Some(b'-') => {
+                self.pos += 1;
+                Ok(operator_selector("-"))
+            }
+            Some(b'*') => {
+                self.pos += 1;
+                Ok(operator_selector("*"))
+            }
+            Some(b'/') => {
+                self.pos += 1;
+                Ok(operator_selector("/"))
+            }
+            Some(b'%') => {
+                self.pos += 1;
+                Ok(operator_selector("%"))
+            }
+            Some(b'=') if self.peek_at(1) == Some(b'=') => {
+                self.pos += 2;
+                Ok(operator_selector("=="))
+            }
+            Some(b'!') if self.peek_at(1) == Some(b'=') => {
+                self.pos += 2;
+                Ok(operator_selector("!="))
+            }
+            Some(b'<') if self.peek_at(1) == Some(b'=') => {
+                self.pos += 2;
+                Ok(operator_selector("<="))
+            }
+            Some(b'<') => {
+                self.pos += 1;
+                Ok(operator_selector("<"))
+            }
+            Some(b'>') if self.peek_at(1) == Some(b'=') => {
+                self.pos += 2;
+                Ok(operator_selector(">="))
+            }
+            Some(b'>') => {
+                self.pos += 1;
+                Ok(operator_selector(">"))
+            }
+            _ => Err(LexicalError::InvalidToken(start..self.pos)),
+        }
+    }
+
+    /// Scans the identifier-headed half of [`Lexer::scan_symbol`]: a name
+    /// symbol (`#move`) or, when `(` is immediately adjacent, a selector
+    /// symbol (`#move(_,to,duration)`). The cursor is on the first byte of
+    /// the name on entry.
+    ///
+    /// # Errors
+    ///
+    /// See [`Lexer::scan_selector_labels`] for the selector-form error cases.
+    fn scan_symbol_name(&mut self) -> Result<Token, LexicalError> {
+        let name_start = self.pos;
+        while matches!(
+            self.peek_at(0),
+            Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+        ) {
+            self.pos += 1;
+        }
+        let name = self.input[name_start..self.pos].to_string();
+        if self.peek_at(0) == Some(b'(') {
+            let open = self.pos;
+            self.pos += 1; // past '('
+            let labels = self.scan_selector_labels(open)?;
+            return Ok(Token::SelectorSymbol { name, labels });
+        }
+        Ok(Token::NameSymbol(name))
+    }
+
+    /// Scans a selector symbol's argument-label list, from just past the
+    /// opening `(` to just past the matching `)`.
+    ///
+    /// Each slot is either the positional placeholder `_` or a label
+    /// identifier; slots are comma-separated and inner whitespace (including
+    /// newlines) is free and stripped (selectors.md §2 "inside the parens:
+    /// whitespace is free"). R2 (positionals precede labels) is enforced
+    /// here: once a label slot has been seen, a subsequent `_` is rejected.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LexicalError::InvalidToken`] for: end-of-input before the
+    /// closing `)`; a slot that is neither `_` nor a valid identifier; an
+    /// interior positional (`_` following a label, R2); or a separator other
+    /// than `,`/`)` after a slot.
+    fn scan_selector_labels(&mut self, open: usize) -> Result<Vec<Option<String>>, LexicalError> {
+        let mut labels = Vec::new();
+        let mut seen_label = false;
+        loop {
+            self.skip_selector_whitespace();
+            if self.peek_at(0) == Some(b')') {
+                self.pos += 1;
+                break;
+            }
+            if self.peek_at(0).is_none() {
+                return Err(LexicalError::InvalidToken(open..self.pos));
+            }
+
+            let slot_start = self.pos;
+            while matches!(
+                self.peek_at(0),
+                Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
+            ) {
+                self.pos += 1;
+            }
+            if self.pos == slot_start {
+                let span = self.pos..self.pos + 1;
+                return Err(LexicalError::InvalidToken(span));
+            }
+            let slot = &self.input[slot_start..self.pos];
+            if slot == "_" {
+                if seen_label {
+                    // R2: no interior positionals after a label has appeared.
+                    return Err(LexicalError::InvalidToken(slot_start..self.pos));
+                }
+                labels.push(None);
+            } else {
+                seen_label = true;
+                labels.push(Some(slot.to_string()));
+            }
+
+            self.skip_selector_whitespace();
+            match self.peek_at(0) {
+                Some(b',') => self.pos += 1,
+                Some(b')') => {
+                    self.pos += 1;
+                    break;
+                }
+                _ => return Err(LexicalError::InvalidToken(self.pos..self.pos + 1)),
+            }
+        }
+        Ok(labels)
+    }
+
+    /// Skips spaces, tabs, and newlines inside a selector symbol's parens
+    /// (selectors.md §2 "inside the parens: whitespace is free").
+    fn skip_selector_whitespace(&mut self) {
+        while matches!(self.peek_at(0), Some(b' ' | b'\t' | b'\r' | b'\n')) {
+            self.pos += 1;
+        }
+    }
+
     /// Scans an operator or punctuation token using maximal munch.
     ///
     /// Multi-character operators (`==`, `+=`, `->`, `...`, ...) take priority
@@ -443,6 +630,19 @@ impl<'input> Lexer<'input> {
         };
         self.pos += len;
         Ok(token)
+    }
+}
+
+/// Builds a bare-operator [`Token::SelectorSymbol`] (`#+`, `#==`, ...).
+///
+/// Every overloadable operator method in the language takes exactly one
+/// parameter (`parse_method_name`'s operator set, e.g. `==(other)`), so a
+/// bare operator symbol always has the single positional arity `[None]` —
+/// there is no paren-list form for operator selectors.
+fn operator_selector(op: &str) -> Token {
+    Token::SelectorSymbol {
+        name: op.to_string(),
+        labels: vec![None],
     }
 }
 

@@ -1,0 +1,73 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"#+ #- #* #/ #% #== #!= #< #<= #> #>=\")"
+---
+[
+    SelectorSymbol {
+        name: "+",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: "-",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: "*",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: "/",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: "%",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: "==",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: "!=",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: "<",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: "<=",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: ">",
+        labels: [
+            None,
+        ],
+    },
+    SelectorSymbol {
+        name: ">=",
+        labels: [
+            None,
+        ],
+    },
+    Eof,
+]

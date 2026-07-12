@@ -1,0 +1,19 @@
+---
+source: phalcom-ast/tests/lexer.rs
+expression: "tokens(\"#move (a, b)\")"
+---
+[
+    NameSymbol(
+        "move",
+    ),
+    LParen,
+    Identifier(
+        "a",
+    ),
+    Comma,
+    Identifier(
+        "b",
+    ),
+    RParen,
+    Eof,
+]

@@ -1,0 +1,46 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"let s = #move(_,to,duration)\")"
+---
+Program {
+    statements: [
+        Let(
+            LetBinding {
+                kind: Let,
+                pattern: Name {
+                    name: "s",
+                    range: CopyRange {
+                        start: 4,
+                        end: 5,
+                    },
+                },
+                value: Some(
+                    Symbol(
+                        SymbolExpr {
+                            kind: Selector {
+                                name: "move",
+                                labels: [
+                                    None,
+                                    Some(
+                                        "to",
+                                    ),
+                                    Some(
+                                        "duration",
+                                    ),
+                                ],
+                            },
+                            range: CopyRange {
+                                start: 8,
+                                end: 28,
+                            },
+                        },
+                    ),
+                ),
+                range: CopyRange {
+                    start: 0,
+                    end: 28,
+                },
+            },
+        ),
+    ],
+}
