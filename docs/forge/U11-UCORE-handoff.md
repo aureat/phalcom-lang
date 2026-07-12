@@ -1,5 +1,10 @@
 # /forge handoff — resume prompt (2026-07-12)
 
+> **SUPERSEDED.** This handoff's "immediate next steps" are done: the forge/spec-core rosters are
+> reconciled, ADR-0023 is ratified Accepted, and U-CORE-1 is landed (`03764e3`). Use
+> [`U-CORE-3-handoff.md`](U-CORE-3-handoff.md) instead — it picks up at U-CORE-3. Kept here only as
+> a historical record of the state before this session's consolidation pass.
+
 Paste the block below into a fresh Claude Code session to continue.
 
 ---
