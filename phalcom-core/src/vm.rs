@@ -104,6 +104,14 @@ pub struct VM {
     pub has_new_construct: std::collections::HashSet<Symbol>,
 }
 
+impl Default for VM {
+    /// Delegates to [`VM::new`] — a `VM` has exactly one valid initial state
+    /// (the bootstrapped kernel tower), so `Default` and `new` coincide.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VM {
     /// Creates a new VM: builds the heap, bootstraps the kernel tower, and
     /// installs the core module and native primitives.
