@@ -117,8 +117,14 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   clean-checkout verified. **NB:** implementer's 1st commit `1dd03f1` staged tests-only (source uncommitted,
   in-tree gate passed on dirty tree); orchestrator amended source in → `fac45ae`, clean-checkout re-verified.
   Lesson banked [[clean-checkout-verify-each-commit]].
-- **Serial spine tail (current front — U16-Open was LAST feature; all contend spine, single-writer):**
-  U16-Pinned (NEXT — brief ready, floor 0) → 
+- **U16-Pinned** ✅ ACCEPTED `71c703d` (pinned `::#sel(...)` arm alongside Open; `MethodRefKind::{Open,Pinned}`,
+  `FamilyObject.name→selector + open:bool`, router branch validates pinned arity + dispatches exact selector
+  verbatim; bare `::#name` rejected; exact-overload golden proves `#move(to,duration)` vs `#move(_,_)` dispatch
+  distinct methods; **floor 0**, no ADR). Reviewer APPROVE (10/10), clean-checkout verified, self-contained commit.
+  Discriminator (`(`-in-selector-string) scrutinized SOUND + filed to DEFERRED for future hardening. **Full `::`
+  method-reference feature (Open + Pinned) COMPLETE.** 2 non-blocking nits → DEFERRED.
+- **Serial spine bug-fix tail (current front — all feature units done; watch concurrent iteration-track collision):**
+  U-ERR-FIX (NEXT — brief ready: 4 test-wave bugs PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD, floor 0) → 
   bug-fix tail (grouped by write-set: Symbol#==·U-ERR 4-wave [PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/
   NOT-KEYWORD]·iter deopt-trap+method-reopening·SuperSend-IC+SOURCE_MAP·U-FIBER-FIX cluster) → U-SCHED
   (U-FUTURE Slice B). RECONCILE-FIRST: `has_new_construct` guard (DEFERRED L18) may already be fixed per
