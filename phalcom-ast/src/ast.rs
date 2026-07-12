@@ -31,7 +31,29 @@ pub enum Statement {
 #[derive(Debug, Clone)]
 pub struct ClassDef {
     pub name: String,
+    /// The explicit superclass named by an `extends` clause, if any.
+    ///
+    /// `None` means no `extends` clause was written, so the class implicitly
+    /// inherits from `Object` (object-model.md §5.1). `Some(_)` carries the
+    /// superclass identifier and its span for compile-time resolution and
+    /// diagnostics (U-INH, DEC-INH-A: `extends` is a contextual keyword
+    /// recognised only in this class-header position).
+    pub superclass: Option<SuperclassRef>,
     pub members: Vec<ClassMember>,
+    pub range: SourceRange,
+}
+
+/// A reference to a superclass named in a `class N extends S { … }` header.
+///
+/// Holds the raw identifier `S` and its source span. The name is resolved to a
+/// class value at compile time as an ordinary global lookup (object-model.md
+/// §5.1, U-INH); the span anchors an "unknown superclass" / self-inheritance
+/// diagnostic.
+#[derive(Debug, Clone)]
+pub struct SuperclassRef {
+    /// The superclass identifier as written in source.
+    pub name: String,
+    /// The source span of the identifier, for diagnostics.
     pub range: SourceRange,
 }
 

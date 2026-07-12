@@ -517,12 +517,28 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         self.advance(); // 'class'
         let name = self.expect_identifier(&["identifier"])?;
+
+        // Contextual `extends` (DEC-INH-A, U-INH): `extends` is not a reserved
+        // word — it is recognised as a keyword only here, immediately after the
+        // class name. Any other occurrence of `extends` remains an ordinary
+        // identifier. Grammar: `class` IDENT (`extends` IDENT)? `{` … `}`.
+        let superclass = if matches!(self.peek(), Token::Identifier(kw) if kw == "extends") {
+            self.advance(); // 'extends'
+            let sc_start = self.cur_start();
+            let sc_name = self.expect_identifier(&["superclass name"])?;
+            let sc_range = (sc_start..self.prev_end).into();
+            Some(SuperclassRef { name: sc_name, range: sc_range })
+        } else {
+            None
+        };
+
         self.expect(&Token::LBrace, &["\"{\""])?;
         let members = self.parse_class_body()?;
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         Ok(Statement::Class(ClassDef {
             name,
+            superclass,
             members,
             range,
         }))

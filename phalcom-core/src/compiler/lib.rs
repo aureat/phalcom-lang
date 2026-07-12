@@ -688,24 +688,57 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
 
-                // 2. Build the ClassLayout and store it in VM
-                let superclass_id = if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
-                    self.vm.heap.class(existing_class).superclass
+                // 2. Build the ClassLayout and store it in VM.
+                //
+                // A subclass's own fields stack on top of the superclass's fields
+                // (ADR-0011, U-INH §3.5): own instance/static slots begin at the
+                // superclass's field count, so inherited slots keep their offsets
+                // and are never aliased. The superclass's counts are resolved at
+                // COMPILE time — from a reopened class already in `vm.classes`,
+                // from the `extends` clause (looked up in the accumulating
+                // `field_layouts`/`classes` metadata, since a *user* superclass
+                // has not been created at runtime yet), or the implicit `Object`
+                // root.
+                let (sc_field_count, sc_meta_field_count) = if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
+                    // Reopening an existing class: keep its established superclass.
+                    match self.vm.heap.class(existing_class).superclass {
+                        Some(sc_id) => {
+                            let meta = self.vm.heap.class(sc_id).class;
+                            (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
+                        }
+                        None => (0, 0),
+                    }
+                } else if let Some(sc_ref) = &class_def.superclass {
+                    let sc_sym = self.vm.interner.intern(&sc_ref.name);
+                    // Self-inheritance and unknown/forward superclasses are
+                    // rejected here (U-INH §3.2): a class cannot appear in its own
+                    // superclass chain (that would make method lookup
+                    // non-terminating), and the single top-down compile pass
+                    // requires the superclass to be defined earlier. A longer
+                    // cycle is rejected transitively — the earlier class in the
+                    // cycle refers forward to a not-yet-defined name.
+                    if sc_sym == name_sym {
+                        return Err(CompilerError::Message(format!(
+                            "A class cannot extend itself: `{}` names itself as its superclass.",
+                            class_def.name
+                        )));
+                    }
+                    if let Some(layout) = self.vm.field_layouts.get(&sc_sym) {
+                        (layout.field_count, layout.static_field_count)
+                    } else if let Some(&sc_id) = self.vm.classes.get(&sc_sym) {
+                        let meta = self.vm.heap.class(sc_id).class;
+                        (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
+                    } else {
+                        return Err(CompilerError::Message(format!(
+                            "Unknown superclass `{}`: it must be a class defined before `{}`.",
+                            sc_ref.name, class_def.name
+                        )));
+                    }
                 } else {
-                    Some(self.vm.universe.classes.object_class)
-                };
-
-                let sc_field_count = if let Some(sc_id) = superclass_id {
-                    self.vm.heap.class(sc_id).field_count
-                } else {
-                    0
-                };
-
-                let sc_meta_field_count = if let Some(sc_id) = superclass_id {
-                    let sc_meta = self.vm.heap.class(sc_id).class;
-                    self.vm.heap.class(sc_meta).field_count
-                } else {
-                    0
+                    // Implicit `Object` root.
+                    let object_class = self.vm.universe.classes.object_class;
+                    let meta = self.vm.heap.class(object_class).class;
+                    (self.vm.heap.class(object_class).field_count, self.vm.heap.class(meta).field_count)
                 };
 
                 let mut field_slots = IndexMap::new();
@@ -735,12 +768,21 @@ impl<'vm> Compiler<'vm> {
                     let class_idx = self.add_constant(Value::Obj(existing_class));
                     self.emit(Bytecode::Constant(class_idx), range);
                 } else {
-                    // Push superclass onto the stack (for now, default to Object)
-                    let object_class = self.vm.universe.classes.object_class;
-                    let superclass_idx = self.add_constant(Value::Obj(object_class));
-                    self.emit(Bytecode::Constant(superclass_idx), range);
-
-                    // TODO: Handle explicit superclass syntax later
+                    // Push the superclass onto the stack for the `Class` handler
+                    // to consume (vm.rs `Bytecode::Class` pops it and wires both
+                    // `superclass` and the parallel metaclass via `create_class`,
+                    // ADR-0002 rule 4). An explicit `extends S` resolves `S` as an
+                    // ordinary global at runtime; with no `extends` the class
+                    // implicitly inherits from `Object`.
+                    if let Some(sc_ref) = &class_def.superclass {
+                        let sc_sym = self.vm.interner.intern(&sc_ref.name);
+                        let sc_name_idx = self.add_constant(Value::Symbol(sc_sym));
+                        self.emit(Bytecode::GetGlobal(sc_name_idx), sc_ref.range);
+                    } else {
+                        let object_class = self.vm.universe.classes.object_class;
+                        let superclass_idx = self.add_constant(Value::Obj(object_class));
+                        self.emit(Bytecode::Constant(superclass_idx), range);
+                    }
                     self.emit(Bytecode::Class(name_idx), range);
                 }
 

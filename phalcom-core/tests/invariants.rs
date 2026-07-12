@@ -226,6 +226,28 @@ fn metaclass_superclass_parallels_instance_superclass() {
 }
 
 #[test]
+fn user_subclass_metaclass_parallels_superclass() {
+    // U-INH §3.3 / ADR-0002 rule 4 — the user-class analogue of
+    // `metaclass_superclass_parallels_instance_superclass`. A class created
+    // with an explicit superclass has BOTH `B.superclass == A` AND
+    // `B.class.superclass == A.class`; the second link is what makes `static`
+    // and `construct` members inherit across `extends`. `create_class` is the
+    // single site that maintains rule 4 (DEC-INH-E), so both a surface
+    // `class B extends A` and a reflective creation stay parallel.
+    let mut vm = VM::new();
+    let object_class = vm.universe.classes.object_class;
+    let animal = vm.create_class("Animal", Some(object_class));
+    let dog = vm.create_class("Dog", Some(animal));
+
+    assert_eq!(vm.heap.class(dog).superclass, Some(animal), "Dog.superclass should be Animal");
+
+    let dog_meta = vm.heap.class(dog).class;
+    let animal_meta = vm.heap.class(animal).class;
+    let dog_meta_super = vm.heap.class(dog_meta).superclass.expect("Dog.class should have a superclass");
+    assert_eq!(dog_meta_super, animal_meta, "Dog.class.superclass should be Animal.class");
+}
+
+#[test]
 fn behavior_class_exists_in_tower() {
     // object-model.md §5 diagram / ADR-0003: Behavior is the shared abstract
     // superclass of Class and Metaclass, itself a subclass of Object.

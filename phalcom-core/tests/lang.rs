@@ -216,6 +216,15 @@ fn variadics() {
 }
 
 #[test]
+fn inheritance() {
+    // U-INH: single inheritance — `class B extends A`, inherited instance
+    // methods with subclass overrides, the parallel-metaclass rule making
+    // `static` members inherit (ADR-0002 rule 4), `super.sel(…)` sends via the
+    // `SuperSend` opcode (method-lookup.md §1.14), and super-construct chaining.
+    support::check_pass("inheritance");
+}
+
+#[test]
 fn values() {
     // U-CORE-4: per-type `toString` — `Number`/`String`/`Bool`/`Symbol`/
     // `None`/`Some(_)` message rendering, kept in agreement with the native
