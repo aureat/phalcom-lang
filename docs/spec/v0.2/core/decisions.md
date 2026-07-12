@@ -5,11 +5,10 @@
 > catalog↔code divergences **§4.1** (Method superclass) and **§4.4** (per-type
 > `toString`). Each ruling names the owning unit and whether it needs an ADR.
 
-> **Baseline:** HEAD `0f84232`; last code-affecting commit `0da64d6`. (Repinned
-> 2026-07-12 to fold in U10/U-LEX/U-STD/U11 — none of these landings affect the
-> Q1–Q5/§4.1/§4.4 rulings below; they were docs/`.ph`/compiler-only, no floor
-> primitive added. See [`floor-census.md`](./floor-census.md) for the itemized
-> re-baseline.)
+> **Baseline:** post-U-CORE-1 (floor **80**). The authoritative pin + drift
+> policy live in [`README.md`](./README.md) §"Baseline & drift policy" — this
+> doc inherits it. None of the post-U-CORE-0 landings affect the Q1–Q5/§4.1/§4.4
+> rulings below.
 >
 > **Numbering caveat.** These **Q**s are the U-CORE *requirements-analysis*
 > numbers (Q1 hash, Q2 errors, Q4 prelude, Q5 collections). They are **not**

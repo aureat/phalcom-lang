@@ -6,20 +6,18 @@
 > [`catalog-delta.md`](./catalog-delta.md): the catalog says what protocol is
 > missing; this says which **test** proves it and who retires it.
 
-> **Baseline:** HEAD `0f84232`. Folds in **U10** (non-local return, fully
-> landed — `blocks_non_local_return`/`blocks_non_local_return_bare` retired),
-> **U-LEX** (comments, numeric separators, newline suppression, string
-> interpolation shipped as **`\(expr)`** per [ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md)
-> — not the `"{expr}"` form this doc previously cited — plus a coverage
-> fixture for `?.`/`??`, already built in U6; U-LEX explicitly did **not**
-> add selector literals `#…`, collection literals `[…]`/`{…}`/`(…)`, `::`,
-> or spread-call syntax — DEFERRED.md #6/#21/#28), **U-STD** (`Option`
-> combinators `map`/`flatMap`/`filter`/`ifSome`/`unwrapOr` and `List`
-> combinators `map`/`filter`/`reduce`/`includes`/`isEmpty`, all pure `.ph`),
-> and **U11** (`True`/`False` singleton subclasses of `Bool`, ADR-0004 — no
-> effect on this map, no new pending fixtures). The pending set is still a
-> **live moving target** — re-run the audit in §1.2 before citing a specific
-> fixture's status.
+> **Baseline:** post-U-CORE-1. The authoritative pin + full landing history live
+> in [`README.md`](./README.md) §"Baseline & drift policy"; this doc inherits
+> them. Retirement-specific effects: **U10** retired
+> `blocks_non_local_return`/`_bare`; **U-LEX** shipped string interpolation as
+> **`\(expr)`** ([ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md),
+> not the `"{expr}"` form earlier drafts cited) but **not** selector literals
+> `#…`, collection literals `[…]`/`{…}`/`(…)`, `::`, or spread-call syntax
+> (DEFERRED #6/#21/#28) — which is why many reflection fixtures below stay
+> U-LEX-gated; **U-STD** landed the `Option`/`List` combinators (pure `.ph`),
+> retiring `dispatch_rest_param` and `control_flow_iftrue_iffalse`; **U11** added
+> `True`/`False` with no effect on this map. The pending set is a **live moving
+> target** — re-run the §1.2 audit before citing a specific fixture's status.
 
 ## 1. What "retirement" means
 

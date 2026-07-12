@@ -8,12 +8,14 @@
 > that subsystem lands. Every U-CORE implementation spec must pass this checklist
 > under **"what must this not preclude."**
 
-> **Baseline:** HEAD `0f84232`; last code-affecting commit `0da64d6`. (Repinned
-> 2026-07-12 to fold in U10/U-LEX/U-STD/U11 — none added a floor primitive or
-> changed a "must not preclude" hazard below.) Sources:
-> [`concurrency.md`](../concurrency.md), [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)
-> + [`error-handling.md`](../error-handling.md), [`open-questions.md`](../open-questions.md)
-> §2 (numbers) / §8 (modules), [ADR-0010](../../../adr/0010-tagged-value-enum.md).
+> **Baseline:** post-U-CORE-1. The authoritative pin + drift policy live in
+> [`README.md`](./README.md) §"Baseline & drift policy" — this doc inherits it;
+> none of the post-U-CORE-0 landings changed a "must not preclude" hazard below.
+> Sources: [`concurrency.md`](../concurrency.md),
+> [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md) +
+> [`error-handling.md`](../error-handling.md),
+> [`open-questions.md`](../open-questions.md) §2 (numbers) / §8 (modules),
+> [ADR-0010](../../../adr/0010-tagged-value-enum.md).
 
 ## How to use this
 

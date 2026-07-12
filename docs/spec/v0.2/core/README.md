@@ -31,47 +31,46 @@ Every table here is derived from ground-truth source, not aspiration:
 ## Baseline & drift policy
 
 These docs reconcile against a **live tree**, so staleness is kept explicit
-rather than silent: each data-bearing doc pins the commit it reflects.
+rather than silent. **This section is the single source of truth for the
+baseline pin.** Every other doc in this directory inherits it and carries only a
+one-line back-reference here, rather than restating the landing history — so the
+pin is updated in exactly one place.
 
-- **Current baseline:** HEAD `0f84232`; last code-affecting commit `0da64d6`
-  (**U-CORE-2 partial** — see below). Folds in **U8** (`Object` reflective
-  surface + the `Message` class), **U9** (variadics), **U-CORE-2's** Bool
-  half-Option fix + core `Option` combinators, and since the last pin: **U10**
-  (non-local return), **U-LEX** (surface syntax, `\(expr)` interpolation),
-  **U-STD** (Option/List combinators), and **U11** (Bool tower `True`/`False`
-  singletons). Floor count held at 73 across all of those bumps — none of
-  U10/U-LEX/U-STD/U11 added a native floor primitive (U-STD/U11 are pure `.ph`;
-  U10/U-LEX are compiler/lexer-only). **U-CORE-1 has since landed** (commits
-  `03764e3`/`b1109c2`), taking the floor to **80** installed bindings / 64
-  distinct native fns (+7 for `hash`×5 + `Behavior#name`/`methods`), so the
-  current floor is **80**. See
-  [`floor-census.md`](./floor-census.md) §1.1/§2.6 and
-  [`catalog-delta.md`](./catalog-delta.md) for the itemized re-baseline (commit
-  `b9f90ea`).
-- **ADR-0024–0027 landed** (commit `0b21e60`), closing four open-questions this
-  track previously treated as live: **open-Q2** (Int/Float — exact unbounded
-  bignum `Int` + `Float`; `/` true division, `~/` floor division), **open-Q3**
-  (external/internal parameter names), **open-Q4** (hierarchy mutability —
-  methods open, reparent sealed), and **open-Q8** (file-as-module imports). The
-  core-library specs no longer treat Int/Float, param labels, hierarchy
-  mutability, or modules as undecided.
-- **U-CORE-2 already partly landed** (`0da64d6`): `Bool#ifTrue`/`ifFalse` now
-  `Some`-lift the taken arm (closing catalog-delta §4.2), the sacred inliner
-  `Some`-lifts in lockstep via a new `WrapSome` op (ADR-0018 amendment), and
-  `core.ph`'s `Option` reopen gained `ifNone`/`orElse`/`isSome`/`isNone`. The
-  transform/extract combinators (`ifSome`/`map`/`unwrapOr`/…) are re-scoped to
-  U-STD (catalog-delta §2.2); the U-CORE-2 implementation spec covers only the
-  residue (absence invariants). `None`/`Some` surface `toString` is **U-CORE-4's**,
-  per decisions.md §4.4 — not U-CORE-2's.
-- When a forge unit lands new floor primitives, kernel classes, or `.ph`
-  protocol, re-baseline [`floor-census.md`](./floor-census.md) and
-  [`catalog-delta.md`](./catalog-delta.md) and bump the pin. Recommended cadence:
-  a U-CORE-0 "refresh" pass before each U-CORE-N unit starts, so that unit plans
-  against ground truth.
-- The 65→73 binding jump between the initial commit (`a2dd17b`, the U-LIST spine)
-  and the U9 baseline — U8/U9 landed concurrently mid-session — was the first
-  such re-baseline, and the reason for this policy; the `c9805d0`→`0da64d6` bump
-  (U-CORE-2, no floor delta) is the second.
+**Current baseline — post-U-CORE-1.**
+
+| Fact | Value |
+|---|---|
+| Docs tip (HEAD) | `382e843` |
+| Last floor-affecting commit | `03764e3` / `b1109c2` — **U-CORE-1** kernel reflection, floor **73 → 80** |
+| Primitive floor | **80** installed `(class, selector)` bindings · **64** distinct native fns · **16** floor-carrying classes (of **21** named kernel classes) · **7** sacred selectors |
+| Decisions closed by ADR | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) (`hash` + kernel-reflection floor), [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md) (Int/Float split — exact bignum `Int` + `Float`, `/` true ÷, `~/` floor ÷), [ADR-0025](../../../adr/0025-external-internal-parameter-names.md) (external/internal param names), [ADR-0026](../../../adr/0026-class-hierarchy-mutability.md) (hierarchy mutability — methods open, reparent sealed), [ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md) (modules-as-files, public-by-default imports) |
+
+**Landing history** (chronological; only U-CORE-1 added a floor binding). U8
+(`Object` reflective surface + the `Message` class), U9 (variadics), **U-CORE-2
+core bulk** (`0da64d6` — Bool `Some`-lift + core `Option` combinators), U10
+(non-local return), U-LEX (surface syntax, `\(expr)` interpolation), U-STD
+(Option/List transform combinators — the group re-scoped out of U-CORE-2), U11
+(`True`/`False` singleton subclasses of `Bool`), then **U-CORE-1** (`03764e3` —
+the sole floor bump, `hash`×5 + `Behavior#name`/`methods`, +7 → **80**).
+Kernel-class count moved 19 → 21 (U11's `True`/`False`) with no floor delta —
+"classes added" does **not** imply "bindings added". ADR-0024–0027 landed at
+`0b21e60`, so the core-library specs no longer treat Int/Float, param labels,
+hierarchy mutability, or modules as undecided.
+
+**Drift policy.**
+
+- Each data-bearing doc inherits the pin above. When a forge unit lands new floor
+  primitives, kernel classes, or `.ph` protocol, re-baseline
+  [`floor-census.md`](./floor-census.md) and [`catalog-delta.md`](./catalog-delta.md)
+  and bump the table above — in one place.
+- The floor count is **machine-checked**, not a manual checksum: the R-INV-0.1
+  audit (`floor_census_matches_installed_bindings` in
+  [`tests/invariants.rs`](../../../../phalcom-core/tests/invariants.rs))
+  reconstructs the installed set from a live `VM::new()` and fails on drift.
+- Recommended cadence: a U-CORE-0 "refresh" pass before each U-CORE-N unit
+  starts, so that unit plans against ground truth. (The 65→73 jump at the U-LIST
+  spine and the 73→80 jump at U-CORE-1 are the two re-baselines this policy
+  exists to catch.)
 
 ## Deliverables
 
@@ -151,15 +150,19 @@ base of 73**. An implementer must reconcile the following across units:
    acceptance on a **new** unit-local fixture in already-supported syntax
    (pending-retirement §4).
 
-**Status:** The U-CORE-0 → implementation-spec work in [`HANDOFF.md`](./HANDOFF.md)
-is **done** — U-CORE-0 is 7/7, the gating decisions are ruled ([`decisions.md`](./decisions.md)),
-all six U-CORE-1…6 implementation specs are authored (table above), and
-**ADR-0023 is ratified** (note 2 above) — the floor gate is clear.
-**Implementation is underway: U-CORE-1 has landed** (commits `03764e3`/`b1109c2`
-— `Object#hash` + per-immediate hashes, `Behavior#name`/`methods`, `isA`, and
-the `Method < Function` re-parent; floor 73 → 80), and U-CORE-2's core bulk
-landed earlier (`0da64d6`). The **track head is now U-CORE-3** (callables/Block).
-The next job is to continue dispatching the remaining units (U-CORE-3, then
-U-CORE-4/5/6) to `phalcom-implementer` in dependency order, re-grounded against
-the current post-U-CORE-1 baseline above before dispatch, honoring the wave
-constraints in the cross-spec notes.
+## Status
+
+**U-CORE-0 is complete (7/7)** and the gating decisions are ruled
+([`decisions.md`](./decisions.md)); all six U-CORE-1…6 implementation specs are
+authored (see the table above, now in
+[`../../../forge/units/`](../../../forge/units/)), and **ADR-0023 is ratified**
+(cross-spec note 2 above) — the floor gate is clear.
+
+**Implementation is underway.** **U-CORE-1 has landed** (`03764e3`/`b1109c2` —
+`Object#hash` + per-immediate hashes, `Behavior#name`/`methods`, `isA`, and the
+`Method < Function` re-parent; floor 73 → **80**); **U-CORE-2's core bulk landed**
+earlier (`0da64d6`). The **track head is U-CORE-3** (callables/Block), with
+U-CORE-4/5/6 to follow. The next job is to dispatch the remaining units to
+`phalcom-implementer` in dependency order — re-grounded against the post-U-CORE-1
+baseline above before dispatch, honoring the wave constraints in the cross-spec
+notes.

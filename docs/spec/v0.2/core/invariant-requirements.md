@@ -7,9 +7,9 @@
 > It converts the "coverage gaps" ledger in [`bootstrap-phases.md`](./bootstrap-phases.md)
 > §6 into a per-unit checklist (R-INV) with acceptance-grade assertions.
 
-> **Baseline:** HEAD `0f84232`; last code-affecting commit `0da64d6`. (Repinned
-> 2026-07-12 to fold in U10/U-LEX/U-STD/U11 — none added a floor primitive or
-> changed the invariant surface described here.)
+> **Baseline:** post-U-CORE-1 (floor **80**; R-INV-0.1 landed). The authoritative
+> pin + drift policy live in [`README.md`](./README.md) §"Baseline & drift policy"
+> — this doc inherits it.
 
 ## 1. Two invariant surfaces (where an assertion goes)
 

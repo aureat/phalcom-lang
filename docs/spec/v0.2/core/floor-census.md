@@ -50,26 +50,15 @@ language is *self-hosting above a small, fixed native boundary*
 > primitive. R-INV-0.1 (`tests/invariants.rs`) now audits this set from a live
 > `VM::new()` and fails on drift.
 
-> **Baseline:** HEAD `0f84232`. Folds in **U8** (`Object` reflective surface —
-> `perform`/`respondsTo`/`doesNotUnderstand` — and the `Message` class,
-> §2.1/§2.14), **U9** (variadics — no new floor bindings), **U-CORE-2**
-> (Bool `Some`-lift + core `Option` combinators — **no new floor bindings**; the
-> `wrap_some` helper is `pub(crate)`, not installed, and `WrapSome` is a bytecode
-> op, not a bound selector), **U-LEX** (comments, numeric separators, newline
-> suppression, string interpolation — pure lexer/parser work, **no new floor
-> bindings**), **U-STD** (`Option`/`List` combinators — pure `.ph` over
-> existing floor primitives, **no new floor bindings**), and **U11** (`True`/
-> `False` singleton subclasses of `Bool`, ADR-0004 — **+2 kernel classes,
-> +0 floor bindings**; dispatch is via inheritance, see §2.6). None of
-> U8/U9/U-CORE-2/U-LEX/U-STD/U11 added a floor binding, so through those bumps
-> the counts held at 73 bindings / 57 native fns — only the kernel-class
-> denominator moved (19 → 21). Do not infer "classes added" implies "bindings
-> added": U11 is the concrete counterexample. **U-CORE-1 has since landed**
-> (commits `03764e3`/`b1109c2`), the first bump to *add* floor bindings: **+7**
-> bindings (73 → **80**) and **+7** native fns (57 → **64**), per the ADR-0023
-> amendment above — so the current figures are the **80 / 64** in the §1.1
-> table, not the old 73 / 57. See [`README.md`](./README.md) for the
-> baseline-pin policy.
+> **Baseline:** post-U-CORE-1 — the figures above (**80 / 64 / 16 / 7**) are the
+> current floor. The authoritative pin + full landing history live in
+> [`README.md`](./README.md) §"Baseline & drift policy"; this census is the
+> ground-truth enumeration behind that count. One census-specific caution: of the
+> post-U-CORE-0 landings, **only U-CORE-1 added a floor binding** (+7, 73 → 80,
+> ADR-0023). U8's reflective surface and the `Message` class were already in the
+> 73 (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were `.ph`/compiler-only; U11 added
+> `True`/`False` as kernel classes (19 → 21) with **+0** bindings — so "classes
+> added" never implies "bindings added" (U11 is the counterexample; see §2.6).
 
 ### 1.2 Selector notation
 

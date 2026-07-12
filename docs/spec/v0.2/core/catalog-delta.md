@@ -8,19 +8,17 @@
 > Its job is to say, per class, *what exists, what is missing, and who owns the
 > gap.*
 
-> **Baseline:** HEAD `0f84232`. Folds in **U8** — the `Object` reflective
-> surface (`perform`/`respondsTo`/`doesNotUnderstand`) and the `Message`
-> class — **U9** (variadics), **U-CORE-2** (Bool `Some`-lift + core `Option`
-> combinators), which is why §2.2/§4.2 below already read as resolved,
-> **U-LEX** (comments, numeric separators, newline suppression, string
-> interpolation `\(expr)` per [ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md) —
-> lexer/parser surface only, no catalog rows change), **U-STD** (the
-> remaining `Option`/`List` combinators — `map`/`flatMap`/`filter`/`ifSome`/
-> `unwrapOr` on `Option`, `map`/`filter`/`reduce`/`includes`/`isEmpty` on
-> `List` — landed in [`core.ph`](../../../../phalcom-core/core/core.ph) L77–107
-> and L149–186, see §2.2/§2.4 below), and **U11** (`True`/`False` concrete
-> singleton subclasses of `Bool`, ADR-0004 — see §2.2). See
-> [`README.md`](./README.md) for the baseline-pin policy.
+> **Baseline:** post-U-CORE-1. The authoritative pin + full landing history live
+> in [`README.md`](./README.md) §"Baseline & drift policy"; this doc inherits
+> them. Catalog-specific effects of those landings: **U-CORE-2** (Bool
+> `Some`-lift + core `Option` combinators) is why §2.2/§4.2 below read as
+> resolved; **U-STD** landed the remaining `Option`/`List` combinators
+> (`map`/`flatMap`/`filter`/`ifSome`/`unwrapOr` on `Option`,
+> `map`/`filter`/`reduce`/`includes`/`isEmpty` on `List`) in
+> [`core.ph`](../../../../phalcom-core/core/core.ph) L77–107 / L149–186
+> (§2.2/§2.4); **U-LEX** shipped `\(expr)` interpolation
+> ([ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md),
+> surface-only, no catalog rows change); **U11** added `True`/`False` (§2.2).
 
 > ⚠️ **`implementation-status.md` is stale for this purpose.**
 > [`../implementation-status.md`](../implementation-status.md) is Draft 0.1 and
