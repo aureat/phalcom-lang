@@ -61,7 +61,13 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   (Module DNU fails derivability) → ADR-0045 superseding amendment, census **111→112**, invariants
   lockstep — STOP-and-reported. 5 PASS + 2 NEGATIVE goldens + 8 lib companions; MANIFEST self-reconciled
   →367. Write-set deltas (cli.rs entry-path fix, interpret.rs scaffolding) reported. Verify green.
-  **Reviewer RUNNING (`a1a95771`)** — verdict pending, then accept/fix-forward → fire U14 then U16.
+  **Reviewer APPROVE** (`a1a95771`) — all 9 focus areas pass, live-verified (cycle <5s no hang,
+  deep-relative resolves to self not entry, no global pollution, floor +1 lockstep, source-only,
+  single-HashMap design concurred correct). **U15 ACCEPTED.** 1 non-blocking filed to DEFERRED:
+  `register_source` (vm.rs:396) SOURCE_MAP keyed by logical name not canonical path (same-basename
+  diagnostic-source overwrite) + pre-existing duplicate insert.
+- **U14** DISPATCHED (reviewer ON) — destructuring bindings `let (a,b)=t` / `let [first,*rest]=xs`,
+  desugar to `at(_)` reads, `*rest` last, new ADR-0046. Spine free post-U15. Then U16.
 - **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
