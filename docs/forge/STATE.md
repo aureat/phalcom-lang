@@ -123,8 +123,20 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   distinct methods; **floor 0**, no ADR). Reviewer APPROVE (10/10), clean-checkout verified, self-contained commit.
   Discriminator (`(`-in-selector-string) scrutinized SOUND + filed to DEFERRED for future hardening. **Full `::`
   method-reference feature (Open + Pinned) COMPLETE.** 2 non-blocking nits → DEFERRED.
-- **Serial spine bug-fix tail (current front — all feature units done; watch concurrent iteration-track collision):**
-  U-ERR-FIX (NEXT — brief ready: 4 test-wave bugs PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD, floor 0) → 
+- **U-ERR-FIX** ✅ ACCEPTED `dd2e178` (4 test-wave bugs, floor 0): PRINT-TOSTRING (`value.rs::to_display_string`
+  routes user objects through `toString` send) · SUPER-STATIC (`compiler/lib.rs::compile_super_send` re-anchors
+  to metaclass in static ctx — write-set expansion, reviewer-ratified justified) · SUPER-OP-SYNTAX (`parser.rs::
+  parse_property_name` admits operator tokens) · NOT-KEYWORD (WIRE — spec lists `not`; `parse_unary`). Reviewer
+  APPROVE (4/4 + 9 cross-cut), clean-checkout green+doc-clean. Blemish: e904b57+b5ac831 red-in-iso (disclosed,
+  cumulatively fixed @69c1157; tip green). 4 DEFERRED struck.
+- **⚠ CONCURRENT SESSION active on main** — big iteration/string track (6 unit plans: U-IS/U-ITERABLE/
+  U-NATIVE-MARKER/U-NEG/U-SEQ/U-STRING; ADR-0048 cursor-sentinel/Iterable root, ADR-0049 string-byte floor
+  amendment). As of dd2e178 still DOCS/PLANNING only, no source uncommitted. Will churn spine (vm.rs/compiler/
+  core.ph/floor-census/invariants) heavily soon. My bug-fix tail C/D contend those → run tail collision-aware:
+  `git status` before each dispatch, pick a group with no live concurrent SOURCE, else PAUSE. NEVER two writers
+  on one shared file. Explicit-path staging always; their uncommitted docs live in the tree.
+- **Serial spine bug-fix tail (reordered collision-aware — Group E first, lowest collision):**
+  U-FIBER-FIX (NEXT — fiber.rs cluster, floor 0) → 
   bug-fix tail (grouped by write-set: Symbol#==·U-ERR 4-wave [PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/
   NOT-KEYWORD]·iter deopt-trap+method-reopening·SuperSend-IC+SOURCE_MAP·U-FIBER-FIX cluster) → U-SCHED
   (U-FUTURE Slice B). RECONCILE-FIRST: `has_new_construct` guard (DEFERRED L18) may already be fixed per
