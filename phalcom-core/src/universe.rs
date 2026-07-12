@@ -20,24 +20,24 @@ use crate::heap::{ClassId, Heap, ObjRef};
 use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
-use crate::primitive::boolean::{bool_and, bool_class_new, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
+use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_name, block_while_true};
-use crate::primitive::class::{class_add, class_new, class_set_superclass, class_superclass};
+use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::method::method_class_new;
 use crate::primitive::module::module_class_new;
 use crate::primitive::nil::{option_match, some_new};
 use crate::primitive::number::{
-    number_add, number_class_new, number_div, number_ge, number_gt, number_le, number_lt, number_mod, number_mul, number_negated, number_sub,
+    number_add, number_class_new, number_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul, number_negated, number_sub,
 };
 use crate::primitive::object::{
-    message_args, message_labels, message_name, message_selector, object_class, object_class_new, object_does_not_understand, object_eq, object_name,
-    object_neq, object_perform, object_perform_with, object_responds_to, object_set_class,
+    message_args, message_labels, message_name, message_selector, object_class, object_class_new, object_does_not_understand, object_eq, object_hash,
+    object_name, object_neq, object_perform, object_perform_with, object_responds_to, object_set_class,
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
-use crate::primitive::string::{string_add, string_class_new};
-use crate::primitive::symbol::{symbol_class_new, symbol_tostring};
+use crate::primitive::string::{string_add, string_class_new, string_hash};
+use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print};
 use crate::vm::VM;
 
@@ -144,9 +144,16 @@ impl Universe {
         // `True`/`False` to their shared parent *is* dispatch by class).
         let true_class = make_core_class(heap, "True", bool_class, metaclass_class);
         let false_class = make_core_class(heap, "False", bool_class, metaclass_class);
-        let method_class = make_core_class(heap, "Method", object_class, metaclass_class);
+        // Callables (ADR-0006, decisions.md §4.1): `Function` is the abstract
+        // callable root; `Block` and `Method` are its siblings. `Method` must be
+        // allocated *after* `Function` because `make_core_class` reads
+        // `heap.class(Function).class` to wire the parallel rule — its
+        // superclass must already have its `class` link. `Method` therefore
+        // re-parents from `Object` to `Function` and inherits the call protocol
+        // (`arity`/`name`/`call…`/`callWith`) rather than redefining it.
         let function_class = make_core_class(heap, "Function", object_class, metaclass_class);
         let block_class = make_core_class(heap, "Block", function_class, metaclass_class);
+        let method_class = make_core_class(heap, "Method", function_class, metaclass_class);
         let symbol_class = make_core_class(heap, "Symbol", object_class, metaclass_class);
         let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
         let system_class = make_core_class(heap, "System", object_class, metaclass_class);
@@ -241,6 +248,9 @@ impl Universe {
         primitive!(vm, object_cls, "class", SignatureKind::Getter, object_class);
         primitive!(vm, object_cls, "class", SignatureKind::Setter, object_set_class);
         primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
+        // Identity `hash` (object-model.md §8, ADR-0023): immediates override it
+        // per-type below; every heap object inherits this handle digest.
+        primitive!(vm, object_cls, "hash", SignatureKind::Getter, object_hash);
         primitive_static!(vm, object_cls, "new", SignatureKind::Method(0), object_class_new);
         // U5 (control-flow.md §1): `==`/`!=` are ordinary sends, not opcodes.
         primitive!(vm, object_cls, "==", SignatureKind::Method(1), object_eq);
@@ -268,6 +278,13 @@ impl Universe {
         let behavior_cls = vm.universe.classes.behavior_class;
         primitive!(vm, behavior_cls, "superclass", SignatureKind::Getter, class_superclass);
         primitive!(vm, behavior_cls, "superclass", SignatureKind::Setter, class_set_superclass);
+        // Class-side reflection (ADR-0023): `name` returns the receiver class's
+        // OWN name (shadowing `Object#name`, which yields the *metaclass* name
+        // "C class" for a class receiver); `methods` enumerates the receiver's
+        // own method dictionary as selector Symbols. Installed on `Behavior` so
+        // `Class` and `Metaclass` both inherit them (mirrors `superclass`).
+        primitive!(vm, behavior_cls, "name", SignatureKind::Getter, behavior_name);
+        primitive!(vm, behavior_cls, "methods", SignatureKind::Getter, behavior_methods);
 
         let class_cls = vm.universe.classes.class_class;
         primitive!(vm, class_cls, "+", SignatureKind::Method(1), class_add);
@@ -286,11 +303,17 @@ impl Universe {
         primitive!(vm, number_cls, ">", SignatureKind::Method(1), number_gt);
         primitive!(vm, number_cls, ">=", SignatureKind::Method(1), number_ge);
         primitive!(vm, number_cls, "negated", SignatureKind::Method(0), number_negated);
+        // Value digest (ADR-0023): overrides `Object#hash` with a hash of the
+        // mathematical value, class-agnostically (forward-compat §4).
+        primitive!(vm, number_cls, "hash", SignatureKind::Getter, number_hash);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(0), number_class_new);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(1), number_class_new);
 
         let string_cls = vm.universe.classes.string_class;
         primitive!(vm, string_cls, "+", SignatureKind::Method(1), string_add);
+        // Value digest (ADR-0023): the cached djb2 CONTENT hash, so two
+        // distinct-handle equal-content strings hash equal (R-INV-1.3).
+        primitive!(vm, string_cls, "hash", SignatureKind::Getter, string_hash);
         primitive_static!(vm, string_cls, "new", SignatureKind::Method(0), string_class_new);
         primitive_static!(vm, string_cls, "new", SignatureKind::Method(1), string_class_new);
 
@@ -319,9 +342,14 @@ impl Universe {
             let method_id = vm.heap.alloc(crate::heap::Object::Method(method));
             vm.heap.class_mut(bool_cls).add_method(symbol, method_id);
         }
+        // Value digest (ADR-0023): 1 for `true`, 0 for `false` — distinct and
+        // stable. NOT a sacred selector (no deopt budget; see `bool_hash`).
+        primitive!(vm, bool_cls, "hash", SignatureKind::Getter, bool_hash);
 
         let symbol_cls = vm.universe.classes.symbol_class;
         primitive!(vm, symbol_cls, "toString", SignatureKind::Getter, symbol_tostring);
+        // Value digest (ADR-0023): the interned id, so equal symbols agree.
+        primitive!(vm, symbol_cls, "hash", SignatureKind::Getter, symbol_hash);
         primitive_static!(vm, symbol_cls, "new", SignatureKind::Method(1), symbol_class_new);
 
         // Absence substrate (ADR-0007): `Some(_)` construction and the
@@ -469,16 +497,79 @@ impl Universe {
             return Err("Metaclass.class.superclass should be Behavior.class".to_string());
         }
 
-        // Parallel rule holding for an ordinary core class (Number).
-        let number_meta = heap.class(c.number_class).class;
-        let expected_number_meta_super = heap.class(c.object_class).class;
-        if heap.class(number_meta).superclass != Some(expected_number_meta_super) {
-            return Err("Number.class.superclass should be Object.class (parallel rule)".to_string());
+        // R-INV-0.2 — the parallel rule ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md))
+        // holds for *every* ordinary (non-apex) core row, not just `Number`:
+        // `X.class.superclass == X.superclass.class`. Includes the U11 `True`/
+        // `False` rows (both resolve to `Bool class`) and the absence /
+        // collection / message rows. Any newly-added row that breaks the rule
+        // fails boot rather than silently mis-dispatching statics.
+        let ordinary_rows: [(&str, ClassId); 17] = [
+            ("Number", c.number_class),
+            ("String", c.string_class),
+            ("Nil", c.nil_class),
+            ("Bool", c.bool_class),
+            ("True", c.true_class),
+            ("False", c.false_class),
+            ("Method", c.method_class),
+            ("Function", c.function_class),
+            ("Block", c.block_class),
+            ("Symbol", c.symbol_class),
+            ("Module", c.module_class),
+            ("System", c.system_class),
+            ("Option", c.option_class),
+            ("Some", c.some_class),
+            ("None", c.none_class),
+            ("List", c.list_class),
+            ("Message", c.message_class),
+        ];
+        for (name, class_id) in ordinary_rows {
+            let meta = heap.class(class_id).class;
+            let superclass = heap
+                .class(class_id)
+                .superclass
+                .ok_or_else(|| format!("{name}.superclass should be set (parallel rule)"))?;
+            let expected_meta_super = heap.class(superclass).class;
+            if heap.class(meta).superclass != Some(expected_meta_super) {
+                return Err(format!("{name}.class.superclass should be {name}.superclass.class (parallel rule)"));
+            }
+        }
+
+        // R-INV-1.5 (boot half) — `Method` re-parents under `Function`
+        // ([ADR-0006](../../../docs/adr/0006-function-as-abstract-callable-root.md),
+        // decisions.md §4.1), so it inherits the call protocol instead of
+        // redefining it. Guards the load-order fix in `create_core_classes`.
+        if heap.class(c.method_class).superclass != Some(c.function_class) {
+            return Err("Method.superclass should be Function (ADR-0006 re-parent)".to_string());
+        }
+
+        // R-INV-0.3 (structural half) — absence never surfaces at boot: the
+        // shared `None` singleton is an `Instance` of `None` (not a class
+        // object), and `None` is a distinct class from the unreachable `Nil`
+        // (ADR-0007/0010). The global-resolves-to-the-singleton-*value* half is
+        // asserted inline in `VM::new` (it needs the core module).
+        if c.none_class == c.nil_class {
+            return Err("None and Nil must be distinct classes".to_string());
+        }
+        match heap.get(c.none_singleton) {
+            crate::heap::Object::Instance(instance) if instance.class == c.none_class => {}
+            crate::heap::Object::Instance(_) => return Err("None singleton must be an instance of None".to_string()),
+            _ => return Err("None singleton must be an instance object, not a class object".to_string()),
+        }
+
+        // R-INV-0.4 — fixed-slot layout for the two directly-stamped classes
+        // ([ADR-0011](../../../docs/adr/0011-static-instance-slot-layout.md)):
+        // `Some` has one field (`_value`) and `Message` has four. Fences the
+        // E→F bootstrap edge (bootstrap-phases §4).
+        if heap.class(c.some_class).field_count != 1 {
+            return Err("Some.field_count should be 1 (ADR-0011)".to_string());
+        }
+        if heap.class(c.message_class).field_count != 4 {
+            return Err("Message.field_count should be 4 (ADR-0011)".to_string());
         }
 
         // Every metaclass's superclass chain terminates (bounded walk guards
         // against a cycle turning into a hang instead of a failure).
-        let mut current = number_meta;
+        let mut current = heap.class(c.number_class).class;
         let mut steps = 0;
         loop {
             steps += 1;

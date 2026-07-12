@@ -16,6 +16,24 @@ pub fn symbol_tostring(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     Ok(vm.alloc_string_value(text))
 }
 
+/// Signature: `Symbol::hash` — a digest of the interned id.
+///
+/// Digests the symbol's interned id
+/// ([`Symbol`](crate::interner::Symbol)'s inner `u32`;
+/// [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)),
+/// so two references to the same interned symbol hash equal (R-INV-1.3 is
+/// asserted as *stability* for symbols, since `value_eq` never makes two
+/// symbols surface-`==` today). Underivable — `.ph` reaches only
+/// `toString`/`new`, not the id.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if the receiver is not a symbol.
+pub fn symbol_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let symbol = expect_value!(receiver, Symbol);
+    Ok(crate::primitive::hash_code(u64::from(symbol.0)))
+}
+
 /// Signature: `Symbol.class::new(_)` — interns its argument into a symbol.
 ///
 /// A string is interned by content, a symbol is returned unchanged, and any

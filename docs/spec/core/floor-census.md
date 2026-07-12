@@ -34,10 +34,21 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **73** |
-| Distinct native Rust functions | **57** |
+| Installed `(class, selector)` bindings | **80** |
+| Distinct native Rust functions | **64** |
 | Classes carrying floor primitives | **16** (of 21 named kernel classes) |
 | Sacred selectors (§5) | **7** |
+
+> **U-CORE-1 amendment ([ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).**
+> Kernel reflection admits **+7** bindings (73 → 80) and **+7** distinct fns
+> (57 → 64): `Object#hash` (`object_hash`), per-immediate `hash` overrides on
+> `Number`/`String`/`Bool`/`Symbol` (`{number,string,bool,symbol}_hash`), and
+> `Behavior#name`/`Behavior#methods` (`behavior_name`/`behavior_methods`).
+> Floor-carrying classes stay at **16** — `Behavior` already carried
+> `superclass`. `Object#isA(_)` is **not** on this list: it is derived in
+> `core.ph` over `class`/`==`/`superclass` (ADR-0019 §1), not a native
+> primitive. R-INV-0.1 (`tests/invariants.rs`) now audits this set from a live
+> `VM::new()` and fails on drift.
 
 > **Baseline:** HEAD `0f84232`. Folds in **U8** (`Object` reflective surface —
 > `perform`/`respondsTo`/`doesNotUnderstand` — and the `Message` class,
@@ -99,6 +110,7 @@ Ordered as `install_primitives` installs them
 | `perform(_, _)` | instance | `object_perform_with` | reflective send with a packed args argument |
 | `respondsTo(_)` | instance | `object_responds_to` | pure probe; never triggers dNU |
 | `doesNotUnderstand(_)` | instance | `object_does_not_understand` | terminal miss handler; overridable so a proxy subclass can intercept |
+| `hash` | instance | `object_hash` | identity digest of the heap handle (ADR-0023); immediates override below |
 
 ### 2.2 `Behavior` — class-side reflection
 
@@ -106,6 +118,8 @@ Ordered as `install_primitives` installs them
 |---|---|---|---|
 | `superclass` | instance | `class_superclass` | on `Behavior` so `Class` and `Metaclass` both inherit it ([ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md)) |
 | `superclass=(_)` | instance | `class_set_superclass` | |
+| `name` | instance | `behavior_name` | the receiver class's OWN name; **shadows** `Object#name` for class receivers (ADR-0023) |
+| `methods` | instance | `behavior_methods` | own method-dictionary selector Symbols, as a fresh `List` (ADR-0023) |
 
 ### 2.3 `Class` — instantiation apex
 
@@ -121,6 +135,7 @@ Ordered as `install_primitives` installs them
 | `+(_)` `-(_)` `*(_)` `/(_)` `%(_)` | instance | `number_add` … `number_mod` | never inlined; ordinary sends (control-flow.md §1) |
 | `<(_)` `<=(_)` `>(_)` `>=(_)` | instance | `number_lt` … `number_ge` | |
 | `negated()` | instance | `number_negated` | |
+| `hash` | instance | `number_hash` | digest of the mathematical value, class-agnostically (ADR-0023; forward-compat §4) |
 | `new()` , `new(_)` | static | `number_class_new` | coercion / zero |
 
 ### 2.5 `String`
@@ -128,6 +143,7 @@ Ordered as `install_primitives` installs them
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `+(_)` | instance | `string_add` | concatenation |
+| `hash` | instance | `string_hash` | cached djb2 **content** hash — equal content ⇒ equal hash (ADR-0023) |
 | `new()` , `new(_)` | static | `string_class_new` | |
 
 ### 2.6 `Bool` — abstract, `True`/`False` by dispatch ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md))
@@ -141,6 +157,7 @@ Ordered as `install_primitives` installs them
 | `ifTrue(_)` | instance | `bool_if_true` | ★ |
 | `ifFalse(_)` | instance | `bool_if_false` | ★ |
 | `ifTrue(_, ifFalse)` | instance | `bool_if_true_if_false` | ★ — encoded explicitly, not via `make_signature`; interns as `ifTrue(_:ifFalse:)` |
+| `hash` | instance | `bool_hash` | 1 for `true`, 0 for `false` — distinct, stable, **not** sacred (ADR-0023) |
 
 ★ = sacred selector (§5). No-truthiness ([ADR-0021](../../adr/0021-no-truthiness-enforcement.md)):
 these dispatch on real `True`/`False` receivers; there is no implicit coercion.
@@ -157,6 +174,7 @@ these dispatch on real `True`/`False` receivers; there is no implicit coercion.
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `toString` | instance | `symbol_tostring` | |
+| `hash` | instance | `symbol_hash` | digest of the interned id — equal symbols agree (ADR-0023) |
 | `new(_)` | static | `symbol_class_new` | interning constructor |
 
 ### 2.8 Absence — `Option` / `Some` / `None` ([ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md))
@@ -173,6 +191,11 @@ value, not a constructed instance. The combinator suite (`map`, `flatMap`,
 `core.ph`/U-STD work layered over `match`.
 
 ### 2.9 `Method`
+
+`Method < Function` as of U-CORE-1 (decisions.md §4.1 / ADR-0006 re-parent,
+applied in `create_core_classes` with the load-order fix). It inherits the
+call protocol (`arity`/`name`/`call…`/`callWith`) from `Function` and carries
+only its own static `new(_)`.
 
 | Selector | Side | Native fn |
 |---|---|---|
@@ -333,10 +356,13 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
 1. **To add/remove a primitive** — open an ADR amending 0019, justify why the
    capability fails the §1 derivability test, then update this file in the same
    change.
-2. **Audit hook (recommended, R-INV-adjacent):** a test that reconstructs the
-   installed `(class, selector)` set from a live `VM::new()` and asserts it
-   equals the census here (count = 73). This turns silent floor drift into a red
-   test. Until it exists, the counts in §1.1 are the manual checksum.
+2. **Audit hook (R-INV-0.1, landed U-CORE-1):**
+   `floor_census_matches_installed_bindings` in
+   [`tests/invariants.rs`](../../../phalcom-core/tests/invariants.rs)
+   reconstructs the installed native-`(class, selector)` set from a live
+   `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
+   the census here (count = 80). This turns silent floor drift into a red test;
+   §1.1 is no longer a manual checksum.
 
 ## 8. Traceability
 

@@ -24,9 +24,70 @@
 //! [`Heap`]: phalcom_core::heap::Heap
 //! [`Heap::class`]: phalcom_core::heap::Heap::class
 
+use phalcom_core::class::lookup_method_in_hierarchy;
+use phalcom_core::heap::ClassId;
+use phalcom_core::interner::Symbol;
+use phalcom_core::primitive::boolean::bool_hash;
+use phalcom_core::primitive::class::{behavior_methods, behavior_name};
 use phalcom_core::primitive::nil::some_new;
+use phalcom_core::primitive::number::number_hash;
+use phalcom_core::primitive::object::object_hash;
+use phalcom_core::primitive::string::string_hash;
+use phalcom_core::primitive::symbol::symbol_hash;
 use phalcom_core::value::{sentinel_to_option, Value};
 use phalcom_core::vm::VM;
+use std::collections::HashSet;
+
+/// The 21 named kernel classes (`CoreClasses` rows), paired with a stable name.
+///
+/// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
+/// or whose metaclass's own — method dictionary can carry a floor binding.
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 21] {
+    let c = &vm.universe.classes;
+    [
+        ("Object", c.object_class),
+        ("Behavior", c.behavior_class),
+        ("Class", c.class_class),
+        ("Metaclass", c.metaclass_class),
+        ("Number", c.number_class),
+        ("String", c.string_class),
+        ("Nil", c.nil_class),
+        ("Bool", c.bool_class),
+        ("True", c.true_class),
+        ("False", c.false_class),
+        ("Method", c.method_class),
+        ("Function", c.function_class),
+        ("Block", c.block_class),
+        ("Symbol", c.symbol_class),
+        ("Module", c.module_class),
+        ("System", c.system_class),
+        ("Option", c.option_class),
+        ("Some", c.some_class),
+        ("None", c.none_class),
+        ("List", c.list_class),
+        ("Message", c.message_class),
+    ]
+}
+
+/// Extracts the `f64` behind a `Number` result (test-local helper).
+fn as_number(value: Value) -> f64 {
+    match value {
+        Value::Number(n) => n,
+        other => panic!("expected a Number, got {other:?}"),
+    }
+}
+
+/// Sends a nullary selector to `receiver` and returns the result value.
+fn send0(vm: &mut VM, receiver: Value, selector: &str) -> Value {
+    let sym = vm.get_or_intern(selector);
+    vm.send_dynamic(receiver, sym, &[]).unwrap_or_else(|_| panic!("send `{selector}` failed"))
+}
+
+/// Sends a unary selector to `receiver` with one argument.
+fn send1(vm: &mut VM, receiver: Value, selector: &str, arg: Value) -> Value {
+    let sym = vm.get_or_intern(selector);
+    vm.send_dynamic(receiver, sym, &[arg]).unwrap_or_else(|_| panic!("send `{selector}` failed"))
+}
 
 #[test]
 fn surface_nil_is_unreachable_from_user_code() {
@@ -262,11 +323,15 @@ fn object_has_no_superclass() {
 
 #[test]
 fn core_classes_have_correct_metaclass_and_superclass() {
-    // Every class created via `make_core_class` (Number, String, Nil, Bool,
-    // Method, Symbol, Module, System):
+    // Every direct-`Object` subclass created via `make_core_class` (Number,
+    // String, Nil, Bool, Symbol, Module, System):
     //   - X.class.class == Metaclass (every metaclass is instance-of Metaclass)
     //   - X.superclass == Object
     //   - X.class.superclass == Object.class (the parallel rule)
+    // `Method` is deliberately excluded: it re-parents under `Function`
+    // (ADR-0006 / decisions.md §4.1) — its shape is asserted by
+    // `method_reparents_under_function_with_call_protocol` and the general
+    // `parallel_rule_holds_for_all_ordinary_rows`.
     let vm = VM::new();
     let metaclass = vm.universe.classes.metaclass_class;
     let object_class = vm.universe.classes.object_class;
@@ -277,7 +342,6 @@ fn core_classes_have_correct_metaclass_and_superclass() {
         ("String", vm.universe.classes.string_class),
         ("Nil", vm.universe.classes.nil_class),
         ("Bool", vm.universe.classes.bool_class),
-        ("Method", vm.universe.classes.method_class),
         ("Symbol", vm.universe.classes.symbol_class),
         ("Module", vm.universe.classes.module_class),
         ("System", vm.universe.classes.system_class),
@@ -462,4 +526,375 @@ fn subclass_static_field_offset_stability() {
     
     assert_eq!(sub_meta_layout.field_slots.get(&count_sym).copied(), Some(1));
     assert_eq!(sub_meta_layout.field_count, 2);
+}
+
+// ---------------------------------------------------------------------------
+// R-INV-0.x — the audit substrate (U-CORE-1 spec §5.1). These are the shared
+// invariants every later U-CORE unit extends: the census set/count audit
+// (0.1), plus the corpus half of the parallel-rule / absence / fixed-slot
+// checks whose boot half rides `Universe::verify_invariants` (0.2/0.3/0.4).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn floor_census_matches_installed_bindings() {
+    // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
+    // live `VM::new()` and assert it equals the census in
+    // `docs/spec/core/floor-census.md` (count = 80 after the ADR-0023 +7).
+    // Turns silent floor drift — an accidental extra primitive, or a dropped
+    // one — into a red test. The baseline is 73; the +7 (marked NEW below) is
+    // the ADR-0023 kernel-reflection amendment (`hash` ×5 + `Behavior#name` +
+    // `Behavior#methods`), so the bump is deliberate and audit-backed.
+    const BASELINE: usize = 73;
+    const NEW: usize = 7;
+
+    let mut vm = VM::new();
+    let c = vm.universe.classes;
+
+    // `(class, is_static, human-canonical selector)`. `is_static` bindings are
+    // installed on the class's metaclass. Selectors are the interned `_:` form
+    // (floor-census §1.2).
+    let bindings: Vec<(ClassId, bool, &str)> = vec![
+        // §2.1 Object
+        (c.object_class, false, "name"),
+        (c.object_class, false, "class"),
+        (c.object_class, false, "class=(_:)"),
+        (c.object_class, false, "toString"),
+        (c.object_class, false, "hash"), // NEW (ADR-0023)
+        (c.object_class, false, "==(_:)"),
+        (c.object_class, false, "!=(_:)"),
+        (c.object_class, false, "perform(_:)"),
+        (c.object_class, false, "perform(_:_:)"),
+        (c.object_class, false, "respondsTo(_:)"),
+        (c.object_class, false, "doesNotUnderstand(_:)"),
+        (c.object_class, true, "new()"),
+        // §2.2 Behavior
+        (c.behavior_class, false, "superclass"),
+        (c.behavior_class, false, "superclass=(_:)"),
+        (c.behavior_class, false, "name"),    // NEW (ADR-0023)
+        (c.behavior_class, false, "methods"), // NEW (ADR-0023)
+        // §2.3 Class
+        (c.class_class, false, "+(_:)"),
+        (c.class_class, false, "new()"),
+        // §2.4 Number
+        (c.number_class, false, "+(_:)"),
+        (c.number_class, false, "-(_:)"),
+        (c.number_class, false, "*(_:)"),
+        (c.number_class, false, "/(_:)"),
+        (c.number_class, false, "%(_:)"),
+        (c.number_class, false, "<(_:)"),
+        (c.number_class, false, "<=(_:)"),
+        (c.number_class, false, ">(_:)"),
+        (c.number_class, false, ">=(_:)"),
+        (c.number_class, false, "negated()"),
+        (c.number_class, false, "hash"), // NEW (ADR-0023)
+        (c.number_class, true, "new()"),
+        (c.number_class, true, "new(_:)"),
+        // §2.5 String
+        (c.string_class, false, "+(_:)"),
+        (c.string_class, false, "hash"), // NEW (ADR-0023)
+        (c.string_class, true, "new()"),
+        (c.string_class, true, "new(_:)"),
+        // §2.6 Bool
+        (c.bool_class, true, "new()"),
+        (c.bool_class, true, "new(_:)"),
+        (c.bool_class, false, "and(_:)"),
+        (c.bool_class, false, "or(_:)"),
+        (c.bool_class, false, "not()"),
+        (c.bool_class, false, "ifTrue(_:)"),
+        (c.bool_class, false, "ifFalse(_:)"),
+        (c.bool_class, false, "ifTrue(_:ifFalse:)"),
+        (c.bool_class, false, "hash"), // NEW (ADR-0023)
+        // §2.7 Symbol
+        (c.symbol_class, false, "toString"),
+        (c.symbol_class, false, "hash"), // NEW (ADR-0023)
+        (c.symbol_class, true, "new(_:)"),
+        // §2.8 Absence
+        (c.some_class, true, "new(_:)"),
+        (c.option_class, false, "match(some:none:)"),
+        // §2.9 Method
+        (c.method_class, true, "new(_:)"),
+        // §2.10 Function
+        (c.function_class, false, "arity"),
+        (c.function_class, false, "name"),
+        (c.function_class, false, "callWith(_:)"),
+        (c.function_class, false, "call()"),
+        (c.function_class, false, "call(_:)"),
+        (c.function_class, false, "call(_:_:)"),
+        (c.function_class, false, "call(_:_:_:)"),
+        (c.function_class, false, "call(_:_:_:_:)"),
+        // §2.10 Block
+        (c.block_class, false, "arity"),
+        (c.block_class, false, "name"),
+        (c.block_class, false, "callWith(_:)"),
+        (c.block_class, false, "call()"),
+        (c.block_class, false, "call(_:)"),
+        (c.block_class, false, "call(_:_:)"),
+        (c.block_class, false, "call(_:_:_:)"),
+        (c.block_class, false, "call(_:_:_:_:)"),
+        (c.block_class, false, "whileTrue(_:)"),
+        // §2.11 System
+        (c.system_class, true, "print(_:)"),
+        (c.system_class, true, "new()"),
+        // §2.12 Module
+        (c.module_class, true, "new()"),
+        // §2.13 List
+        (c.list_class, true, "new()"),
+        (c.list_class, false, "rawLength"),
+        (c.list_class, false, "rawAt(_:)"),
+        (c.list_class, false, "rawSet(_:_:)"),
+        (c.list_class, false, "rawPush(_:)"),
+        (c.list_class, false, "toString"),
+        // §2.14 Message
+        (c.message_class, false, "selector"),
+        (c.message_class, false, "name"),
+        (c.message_class, false, "labels"),
+        (c.message_class, false, "args"),
+    ];
+
+    // Resolve each binding to its owning class (metaclass for statics).
+    let targets: Vec<(ClassId, String)> = bindings
+        .iter()
+        .map(|&(cls, is_static, sel)| {
+            let owner = if is_static { vm.heap.class(cls).class } else { cls };
+            (owner, sel.to_string())
+        })
+        .collect();
+
+    let mut expected: HashSet<(ClassId, Symbol)> = HashSet::new();
+    for (owner, sel) in targets {
+        let sym = vm.get_or_intern(&sel);
+        assert!(expected.insert((owner, sym)), "duplicate census entry for `{sel}`");
+    }
+
+    // Reconstruct the live floor from the heap: every core row's own methods
+    // (instance side) plus its metaclass's own methods (static side). Only
+    // native `Primitive` bindings count — `core.ph`-defined closures (e.g.
+    // `Object#isA(_)`, the `List`/`Option` protocol) are *derived* surface, not
+    // floor, and must be excluded (floor-census §1/§3).
+    let mut live: HashSet<(ClassId, Symbol)> = HashSet::new();
+    for (_, class_id) in core_class_rows(&vm) {
+        for owner in [class_id, vm.heap.class(class_id).class] {
+            let primitives: Vec<Symbol> = vm
+                .heap
+                .class(owner)
+                .methods
+                .iter()
+                .filter(|(_, method_id)| vm.heap.method(**method_id).is_primitive())
+                .map(|(sym, _)| *sym)
+                .collect();
+            for sym in primitives {
+                live.insert((owner, sym));
+            }
+        }
+    }
+
+    let describe = |pairs: HashSet<(ClassId, Symbol)>| -> Vec<String> {
+        let mut out: Vec<String> = pairs
+            .iter()
+            .map(|(id, sym)| format!("{}#{}", vm.heap.class(*id).name, vm.interner.lookup(*sym)))
+            .collect();
+        out.sort();
+        out
+    };
+
+    let missing: HashSet<_> = expected.difference(&live).copied().collect();
+    let extra: HashSet<_> = live.difference(&expected).copied().collect();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "floor census drift:\n  in census but NOT installed: {:?}\n  installed but NOT in census: {:?}",
+        describe(missing),
+        describe(extra),
+    );
+
+    assert_eq!(expected.len(), BASELINE + NEW, "census must enumerate exactly 80 bindings (73 baseline + 7 ADR-0023)");
+    assert_eq!(live.len(), BASELINE + NEW, "the live floor must be exactly 80 bindings");
+}
+
+#[test]
+fn parallel_rule_holds_for_all_ordinary_rows() {
+    // R-INV-0.2 (corpus half) — `X.class.superclass == X.superclass.class` for
+    // every ordinary (non-apex) core row, including the U11 `True`/`False`
+    // rows (both resolve to `Bool class`) and the absence / collection / message
+    // rows. The boot half of this rides `Universe::verify_invariants`.
+    let vm = VM::new();
+    let c = &vm.universe.classes;
+    let rows: [(&str, ClassId); 17] = [
+        ("Number", c.number_class),
+        ("String", c.string_class),
+        ("Nil", c.nil_class),
+        ("Bool", c.bool_class),
+        ("True", c.true_class),
+        ("False", c.false_class),
+        ("Method", c.method_class),
+        ("Function", c.function_class),
+        ("Block", c.block_class),
+        ("Symbol", c.symbol_class),
+        ("Module", c.module_class),
+        ("System", c.system_class),
+        ("Option", c.option_class),
+        ("Some", c.some_class),
+        ("None", c.none_class),
+        ("List", c.list_class),
+        ("Message", c.message_class),
+    ];
+    for (name, class_id) in rows {
+        let meta = vm.heap.class(class_id).class;
+        let superclass = vm.heap.class(class_id).superclass.unwrap_or_else(|| panic!("{name}.superclass should be set"));
+        let expected = vm.heap.class(superclass).class;
+        assert_eq!(vm.heap.class(meta).superclass, Some(expected), "{name}.class.superclass should equal {name}.superclass.class (parallel rule)");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// R-INV-1.x — U-CORE-1 unit invariants (spec §5.2).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn isa_is_reflexive_and_superclass_closed() {
+    // R-INV-1.2 — `x.isA(x.class)` and `x.isA(Object)` hold; `x.isA(C)` iff `C`
+    // is on `x.class`'s superclass chain. Exercised on an immediate, a class
+    // receiver, and a user instance.
+    let mut vm = VM::new();
+    let number = Value::Obj(vm.universe.classes.number_class);
+    let string = Value::Obj(vm.universe.classes.string_class);
+    let object = Value::Obj(vm.universe.classes.object_class);
+    let class = Value::Obj(vm.universe.classes.class_class);
+
+    // Immediate receiver `3`.
+    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_:)", number), Value::Bool(true)), "3.isA(Number)");
+    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_:)", object), Value::Bool(true)), "3.isA(Object) — reflexive-to-root");
+    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_:)", string), Value::Bool(false)), "!3.isA(String)");
+
+    // Class receiver `Number` (walks the metaclass chain, Smalltalk isKindOf:).
+    assert!(matches!(send1(&mut vm, number, "isA(_:)", class), Value::Bool(true)), "Number.isA(Class)");
+    assert!(matches!(send1(&mut vm, number, "isA(_:)", object), Value::Bool(true)), "Number.isA(Object)");
+
+    // User instance.
+    let module = vm.create_module("main", "isa_user_instance");
+    vm.interpret_source(module, "class IsaFoo {}\n").expect("class decl should run");
+    let foo_sym = vm.get_or_intern("IsaFoo");
+    let foo_cls = *vm.classes.get(&foo_sym).expect("IsaFoo registered");
+    let foo_val = Value::Obj(foo_cls);
+    let instance = send0(&mut vm, foo_val, "new()");
+    assert!(matches!(send1(&mut vm, instance, "isA(_:)", foo_val), Value::Bool(true)), "aFoo.isA(IsaFoo)");
+    assert!(matches!(send1(&mut vm, instance, "isA(_:)", object), Value::Bool(true)), "aFoo.isA(Object)");
+    assert!(matches!(send1(&mut vm, instance, "isA(_:)", number), Value::Bool(false)), "!aFoo.isA(Number)");
+}
+
+#[test]
+fn hash_is_consistent_with_equality() {
+    // R-INV-1.3 — `a == b ⇒ a.hash == b.hash`. Number, String (equal content /
+    // distinct handle), Bool, identity objects; Symbol asserted as stability
+    // (two references to one interned symbol agree) since `value_eq` never makes
+    // two symbols surface-`==` today.
+    let mut vm = VM::new();
+
+    // Number: 3 == 3.
+    let n3a = as_number(number_hash(&mut vm, &Value::Number(3.0), &[]).unwrap());
+    let n3b = as_number(number_hash(&mut vm, &Value::Number(3.0), &[]).unwrap());
+    let n4 = as_number(number_hash(&mut vm, &Value::Number(4.0), &[]).unwrap());
+    assert_eq!(n3a, n3b, "3.hash == 3.hash");
+    assert_ne!(n3a, n4, "3.hash != 4.hash");
+
+    // String: two distinct-handle, equal-content strings.
+    let s1 = vm.alloc_string_value("ab".to_string());
+    let s2 = vm.alloc_string_value("ab".to_string());
+    assert!(matches!((s1, s2), (Value::Obj(a), Value::Obj(b)) if a != b), "the two strings must have distinct handles");
+    let h1 = as_number(string_hash(&mut vm, &s1, &[]).unwrap());
+    let h2 = as_number(string_hash(&mut vm, &s2, &[]).unwrap());
+    assert_eq!(h1, h2, "equal string content ⇒ equal hash");
+
+    // Bool: distinct codes.
+    let ht = as_number(bool_hash(&mut vm, &Value::Bool(true), &[]).unwrap());
+    let hf = as_number(bool_hash(&mut vm, &Value::Bool(false), &[]).unwrap());
+    assert_ne!(ht, hf, "true.hash != false.hash");
+
+    // Identity object: same handle ⇒ equal hash.
+    let obj = Value::Obj(vm.universe.classes.none_singleton);
+    let o1 = as_number(object_hash(&mut vm, &obj, &[]).unwrap());
+    let o2 = as_number(object_hash(&mut vm, &obj, &[]).unwrap());
+    assert_eq!(o1, o2, "same-handle identity hash is equal");
+
+    // Symbol: stability across two references to the same interned symbol.
+    let sym = Value::Symbol(vm.get_or_intern("someSelector"));
+    let y1 = as_number(symbol_hash(&mut vm, &sym, &[]).unwrap());
+    let y2 = as_number(symbol_hash(&mut vm, &sym, &[]).unwrap());
+    assert_eq!(y1, y2, "the same interned symbol hashes stably");
+}
+
+#[test]
+fn hash_is_stable_across_repeated_calls() {
+    // R-INV-1.4 — `hash` is stable within a run for each kind.
+    let mut vm = VM::new();
+    let obj = Value::Obj(vm.universe.classes.none_singleton);
+    let cases: [Value; 4] = [Value::Number(42.0), Value::Bool(true), Value::Symbol(vm.get_or_intern("stable")), obj];
+    for value in cases {
+        let first = send0(&mut vm, value, "hash");
+        let second = send0(&mut vm, value, "hash");
+        assert_eq!(as_number(first), as_number(second), "hash of {value:?} must be stable across calls");
+    }
+    // String separately (needs a heap allocation, not a bare immediate).
+    let s = vm.alloc_string_value("stableString".to_string());
+    let a = send0(&mut vm, s, "hash");
+    let b = send0(&mut vm, s, "hash");
+    assert_eq!(as_number(a), as_number(b), "String#hash must be stable across calls");
+}
+
+#[test]
+fn method_reparents_under_function_with_call_protocol() {
+    // R-INV-1.5 — `Method < Function` (ADR-0006 / decisions.md §4.1); the
+    // parallel rule holds for `Method`; and `Method` reaches the `Function`
+    // call-protocol selectors by inheritance.
+    let mut vm = VM::new();
+    let method_class = vm.universe.classes.method_class;
+    let function_class = vm.universe.classes.function_class;
+    assert_eq!(vm.heap.class(method_class).superclass, Some(function_class), "Method.superclass should be Function");
+
+    // Parallel rule for Method.
+    let method_meta = vm.heap.class(method_class).class;
+    let function_meta = vm.heap.class(function_class).class;
+    assert_eq!(vm.heap.class(method_meta).superclass, Some(function_meta), "Method.class.superclass should be Function.class");
+
+    // The call protocol is reachable from Method via inheritance.
+    for selector in ["arity", "name", "callWith(_:)", "call()", "call(_:)"] {
+        let sym = vm.get_or_intern(selector);
+        assert!(lookup_method_in_hierarchy(&vm.heap, method_class, sym).is_some(), "Method should inherit `{selector}` from Function");
+    }
+}
+
+#[test]
+fn reflection_is_side_effect_free() {
+    // R-INV-1.6 — `Behavior#name` / `Behavior#methods` read the class's data
+    // without mutating it: two calls agree and the method dictionary is
+    // unchanged afterward.
+    let mut vm = VM::new();
+    let number_class = vm.universe.classes.number_class;
+    let receiver = Value::Obj(number_class);
+    let before = vm.heap.class(number_class).methods.len();
+
+    let n1 = behavior_name(&mut vm, &receiver, &[]).unwrap();
+    let n2 = behavior_name(&mut vm, &receiver, &[]).unwrap();
+    let name1 = match n1 {
+        Value::Obj(id) => vm.heap.string(id).as_str().to_string(),
+        other => panic!("Behavior#name should return a String, got {other:?}"),
+    };
+    let name2 = match n2 {
+        Value::Obj(id) => vm.heap.string(id).as_str().to_string(),
+        other => panic!("Behavior#name should return a String, got {other:?}"),
+    };
+    assert_eq!(name1, "Number");
+    assert_eq!(name1, name2, "Behavior#name is deterministic");
+
+    let m1 = match behavior_methods(&mut vm, &receiver, &[]).unwrap() {
+        Value::Obj(id) => vm.heap.list(id).len(),
+        other => panic!("Behavior#methods should return a List, got {other:?}"),
+    };
+    let m2 = match behavior_methods(&mut vm, &receiver, &[]).unwrap() {
+        Value::Obj(id) => vm.heap.list(id).len(),
+        other => panic!("Behavior#methods should return a List, got {other:?}"),
+    };
+    assert_eq!(m1, m2, "Behavior#methods returns the same count on repeat");
+
+    let after = vm.heap.class(number_class).methods.len();
+    assert_eq!(before, after, "reflection must not mutate the method dictionary");
 }

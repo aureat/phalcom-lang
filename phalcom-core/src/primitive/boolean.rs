@@ -41,6 +41,18 @@ pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     }
 }
 
+/// Signature: `Bool::hash` — `1` for `true`, `0` for `false`.
+///
+/// Two distinct, stable codes ([ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)),
+/// so `true.hash != false.hash` while `a == b ⇒ a.hash == b.hash` (R-INV-1.3).
+/// **Not** a sacred selector: [`Universe::note_method_installed`](crate::universe::Universe::note_method_installed)
+/// ignores it and it is absent from `BOOL_SACRED_SELECTORS`, so it carries no
+/// deopt budget. Underivable — `.ph` has no bool→number path without `hash`.
+pub fn bool_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let bit = u64::from(matches!(receiver, Value::Bool(true)));
+    Ok(crate::primitive::hash_code(bit))
+}
+
 /// Extracts the `bool` payload of a `Bool` receiver.
 ///
 /// # Errors

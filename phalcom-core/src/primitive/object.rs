@@ -31,6 +31,35 @@ pub fn object_class(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     Ok(Value::Obj(receiver.class(vm)))
 }
 
+/// Signature: `Object::hash` — a stable identity digest of the heap handle.
+///
+/// The universal-protocol `hash` ([`object-model.md`](../../../docs/spec/object-model.md)
+/// §8, [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
+/// underivable because it reads the receiver's [`ObjRef`](crate::heap::ObjRef)
+/// handle, which no `.ph`-visible primitive exposes. Immediates
+/// ([`Value::Number`], [`Value::Bool`], [`Value::Symbol`]) override this with a
+/// value digest; every heap object inherits this identity digest, so
+/// `a == b ⇒ a.hash == b.hash` holds for identity-`==` classes (R-INV-1.3). The
+/// non-[`Value::Obj`] arm is a defensive catch-all (kept total so a future
+/// [`Value`] arm — e.g. `Fiber`, forward-compat §1 — does not silently break
+/// this fn), routing through a single `Value`-level hash.
+pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    use slotmap::Key;
+    let bits = match receiver {
+        Value::Obj(id) => id.data().as_ffi(),
+        // Defensive: every immediate overrides `hash`, so this arm is
+        // effectively unreachable. The inner `_` catch-all keeps it total
+        // *without* a closed `Value` match — a future `Value` arm (e.g.
+        // `Fiber`, forward-compat §1) still compiles here and simply inherits
+        // this identity digest until it installs its own override.
+        Value::Bool(b) => u64::from(*b),
+        Value::Number(n) => n.to_bits(),
+        Value::Symbol(s) => u64::from(s.0),
+        _ => 0,
+    };
+    Ok(crate::primitive::hash_code(bits))
+}
+
 /// Signature: `Object::class=(_)` — always an error; an object's class is fixed.
 ///
 /// # Errors

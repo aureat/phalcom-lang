@@ -126,6 +126,13 @@ fn metaclass_pending() {
 }
 
 #[test]
+fn reflection() {
+    // U-CORE-1: kernel reflection — `hash` (stable/distinct/content-based) and
+    // `Behavior#name` (a class's own name), all over the ADR-0023 floor.
+    support::check_pass("reflection");
+}
+
+#[test]
 fn blocks() {
     support::check_pass("blocks");
 }

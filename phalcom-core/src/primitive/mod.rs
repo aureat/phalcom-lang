@@ -130,6 +130,19 @@ use crate::heap::{ClassId, ObjRef};
 use crate::value::Value;
 use crate::vm::VM;
 
+/// Folds a 64-bit digest into an exact integral [`Value::Number`] hash code.
+///
+/// Shared by every `hash` primitive ([`object_hash`](object::object_hash),
+/// [`number_hash`](number::number_hash), [`string_hash`](string::string_hash),
+/// [`symbol_hash`](symbol::symbol_hash), [`bool_hash`](boolean::bool_hash)) so
+/// they all produce a comparable, `f64`-representable integer — the digest is
+/// masked to 53 bits so the `as f64` cast is lossless and round-trips
+/// (`object-model.md` §8; [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
+pub(crate) fn hash_code(bits: u64) -> Value {
+    // Mask to 53 bits so the cast is lossless and the value round-trips as f64.
+    Value::Number((bits & 0x1F_FFFF_FFFF_FFFF) as f64)
+}
+
 /// Extracts a class handle from a receiver value.
 ///
 /// Replaces the heap-agnostic `expect_value!(_, Class)` arm: a class is now a

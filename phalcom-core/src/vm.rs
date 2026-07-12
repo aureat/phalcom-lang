@@ -170,6 +170,19 @@ impl VM {
         // reopen taking effect, which surfaced the gap.
         vm.run_core_module().expect("core module (core.ph) must compile and run cleanly");
 
+        // R-INV-0.3 (global half) — the `None` **global** resolves to the shared
+        // singleton *value*, not the `None` class object (ADR-0007/0010). This
+        // half needs the core module (its globals table), so it lives here rather
+        // than in `verify_invariants`, which is heap-structural (`&Heap` only) and
+        // cannot read module globals (U-CORE-1 spec SD-1).
+        {
+            let core = vm.get_module_from_str(CORE_MODULE_NAME).expect("core module registered by install_core");
+            let none_sym = vm.interner.intern("None");
+            let none_value = vm.heap.module(core).get(none_sym).expect("None global must be bound by install_core");
+            assert!(matches!(none_value, Value::Obj(id) if id == vm.universe.classes.none_singleton), "None global must resolve to the shared singleton value, not the None class");
+            assert_ne!(none_value, Value::Obj(vm.universe.classes.none_class), "None global must not resolve to the None class object");
+        }
+
         vm.universe
             .verify_invariants(&vm.heap)
             .expect("kernel invariants (object-model.md §5-6)");

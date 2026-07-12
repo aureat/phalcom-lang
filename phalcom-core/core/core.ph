@@ -1,4 +1,20 @@
-class Object {}
+class Object {
+  // Is-kind-of test: true iff `cls` is the receiver's class or an ancestor of
+  // it (object-model.md §8). Derived purely over the floor — class/==/superclass
+  // — so it needs no native primitive (ADR-0019/0023). The superclass chain is a
+  // run of class objects terminating in the `None` singleton (class_superclass
+  // returns `None` at the root), so the walk stops on `c == None`. The `ifTrue`
+  // result is in pop (statement) position, so U-CORE-2's Some-lift is elided;
+  // the body neither reads nor depends on `ifTrue`'s return shape.
+  isA(cls) {
+    var c = self.class
+    while (c != None) {
+      (c == cls).ifTrue { return true }
+      c = c.superclass
+    }
+    return false
+  }
+}
 
 class Class {}
  

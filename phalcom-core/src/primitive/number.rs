@@ -44,6 +44,34 @@ pub fn number_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
     }
 }
 
+/// Signature: `Number::hash` — a digest of the mathematical value.
+///
+/// Digests the *value*, class-agnostically (forward-compat §4;
+/// [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
+/// an integral number hashes to its integer, so a future `Integer 2` and
+/// `Float 2.0` agree (open-Q2); `-0.0` is normalized to `0.0`; non-integral /
+/// infinite values hash by their canonical IEEE-754 bits. `a == b ⇒
+/// a.hash == b.hash` (R-INV-1.3) and the digest is stable within a run
+/// (R-INV-1.4). Underivable — `.ph` has no bit access to an `f64`.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if the receiver is not a number.
+pub fn number_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let n = expect_value!(receiver, Number);
+    let bits = if n == 0.0 {
+        // Unify +0.0 and -0.0 (which are `==` but have distinct bit patterns).
+        0
+    } else if n.is_finite() && n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {
+        // Integral and in the safe-integer range → hash as that integer.
+        (n as i64) as u64
+    } else {
+        // Non-integral or non-finite → canonical bits.
+        n.to_bits()
+    };
+    Ok(crate::primitive::hash_code(bits))
+}
+
 /// Signature: `Number::+(_)` — numeric addition.
 ///
 /// # Errors
