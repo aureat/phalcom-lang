@@ -435,9 +435,10 @@ pub struct GetPropertyExpr {
     pub range: SourceRange,
 }
 
-/// A method reference expression, `receiver::name` (selectors.md §3,
-/// U16-Open — the **Open** form only; the Pinned `recv::#sel(...)` form is
-/// deferred to U-LEX-HASH, which needs `#`-symbol-literal lexing).
+/// A method reference expression, `receiver::name` / `receiver::#sel(...)`
+/// (selectors.md §3, U16-Open + U16-Pinned — the **bound** forms only; the
+/// unbound `Type::name` / `Type::#sel(...)` "receiver is the first argument"
+/// forms are out of this unit's scope).
 ///
 /// Both `obj::name` and `Type::name` parse to this node — `receiver` is
 /// whatever postfix expression preceded `::`, evaluated and bound as the
@@ -449,12 +450,38 @@ pub struct GetPropertyExpr {
 pub struct MethodRefExpr {
     /// The expression evaluated to produce the family's bound receiver.
     pub receiver: Expr,
-    /// The base method name after `::` (not a full selector — the call-time
-    /// selector is built from this name plus the call site's argument
-    /// labels, selectors.md §3 "Open families resolve at call time").
-    pub name: String,
-    /// The source span from the start of `receiver` through the name.
+    /// Which of the two reference shapes this is — Open (`::name`) or
+    /// Pinned (`::#sel(...)`). See [`MethodRefKind`].
+    pub kind: MethodRefKind,
+    /// The source span from the start of `receiver` through the name/selector.
     pub range: SourceRange,
+}
+
+/// The two `::` method-reference shapes (selectors.md §3), carried by
+/// [`MethodRefExpr`].
+#[derive(Debug, Clone)]
+pub enum MethodRefKind {
+    /// `obj::name` — a bare base name. The call-time selector is built from
+    /// this name plus the call site's argument labels (selectors.md §3
+    /// "Open families resolve at call time"), U16-Open.
+    Open {
+        /// The base method name after `::` (not a full selector).
+        name: String,
+    },
+    /// `obj::#name(_,to,duration)` — a full selector form. Pins the exact
+    /// selector at the reference site: the call-time labels are ignored and
+    /// only the argument *count* is validated (selectors.md §3 "Pinned
+    /// families have their selector fully known at compile time"), U16-Pinned.
+    Pinned {
+        /// The selector's base name (`"move"`, `"square"`, ...).
+        name: String,
+        /// Per-argument labels in declared order; `None` is the positional
+        /// placeholder `_`. Lowered by the compiler through the same
+        /// `encode_selector` routine a matching method definition uses
+        /// (`phalcom-core::method::encode_selector`), so the pinned selector
+        /// interns to the *same* `Symbol` as its target method (ADR-0012).
+        labels: Vec<Option<String>>,
+    },
 }
 
 /// A `#`-prefixed symbol literal (selectors.md §2, U-LEX-HASH): a name symbol

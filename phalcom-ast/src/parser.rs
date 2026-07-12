@@ -1462,17 +1462,37 @@ impl<'source> Parser<'source> {
             if self.eat(&Token::QuestionDot) {
                 expr = self.parse_optional_send(expr, start)?;
             } else if self.eat(&Token::ColonColon) {
-                // `::` method reference (selectors.md §3, U16-Open — Open
-                // form only). The Pinned `recv::#sel(...)` form is deferred
-                // to U-LEX-HASH (needs `#`-symbol-literal lexing); this
-                // unit's grammar is exactly `postfix_expr "::" name`, uniform
-                // for both `obj::name` and `Type::name` — the receiver
+                // `::` method reference (selectors.md §3, U16-Open +
+                // U16-Pinned). Ambiguity rule (LOCKED): peek the token right
+                // after `::` —
+                //   - a selector-form symbol (`#name(...)`) -> Pinned, the
+                //     full identity is pinned at this reference site;
+                //   - a bare name-form symbol (`#name`, no parens) -> reject:
+                //     Pinned is callable-only-by-full-identity (Q14), there is
+                //     no "pinned base name" shape;
+                //   - an identifier/keyword -> Open (unchanged), the selector
+                //     is rebuilt from labels at call time.
+                // Uniform for both `obj::` and `Type::` — the receiver
                 // expression is whatever postfix chain preceded `::`.
-                let name = self.parse_property_name()?;
+                let kind = match self.peek().clone() {
+                    Token::SelectorSymbol { name, labels } => {
+                        self.advance();
+                        MethodRefKind::Pinned { name, labels }
+                    }
+                    Token::NameSymbol(_) => {
+                        return Err(self.error_here(strs(&[
+                            "a selector form `::#name(...)` (a pinned method reference requires the full selector; use `::name` for an open reference)",
+                        ])));
+                    }
+                    _ => {
+                        let name = self.parse_property_name()?;
+                        MethodRefKind::Open { name }
+                    }
+                };
                 let range = (start..self.prev_end).into();
                 expr = Expr::MethodRef(Box::new(MethodRefExpr {
                     receiver: expr,
-                    name,
+                    kind,
                     range,
                 }));
             } else if self.eat(&Token::Dot) {

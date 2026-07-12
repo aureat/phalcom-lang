@@ -323,11 +323,19 @@ fn imports() {
 #[test]
 fn family() {
     // U16-Open (selectors.md §3, ADR-0047): `::` method references, Open
-    // form only — `obj::name`/`Type::name` produce a callable `Family`
+    // form — `obj::name`/`Type::name` produce a callable `Family`
     // whose call builds the selector from the base name + the call site's
     // labels and performs an ordinary send; inheritance-flattened base-name
     // index; a `doesNotUnderstand` override keeps an otherwise-empty family
     // callable.
+    //
+    // U16-Pinned (selectors.md §3, ADR-0047): the Pinned arm —
+    // `obj::#move(_,to,duration)`/`Type::#square()` — pins the full
+    // selector identity at the reference site; a call ignores the call
+    // site's own labels (only its argument count is checked) and dispatches
+    // the exact pinned selector. Includes the exact-overload proof: a class
+    // defining both a labeled and a positional `move` overload, each pinned
+    // and dispatched independently.
     support::check_pass("family");
 }
 
@@ -336,6 +344,12 @@ fn family_negative() {
     // U16-Open: `obj::typo` on a class with no `typo` method and no
     // `doesNotUnderstand` override errors at `::` reference time, naming
     // the class (selectors.md §3 error table).
+    //
+    // U16-Pinned: the same empty-family check against the exact pinned
+    // selector (not just the base name); a Pinned call's argument-count
+    // mismatch against the pinned selector's arity; and the LOCKED parser
+    // ambiguity rule rejecting a bare name symbol after `::` (`::#name`,
+    // no parens) with a clear diagnostic.
     support::check_negative("family/negative");
 }
 

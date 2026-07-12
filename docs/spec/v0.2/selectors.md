@@ -113,7 +113,7 @@ All three intern to the same `u32`.
 
 ---
 
-## 3. Method references (`::`)
+## 3. Method references (`::`) — **PARTIALLY IMPLEMENTED** (U16-Open: Open bound form; U16-Pinned: Pinned bound form; unbound `Type::name`/`Type::#sel(...)` deferred)
 
 `::` produces a **Family** — a callable value. Two forms:
 
@@ -208,6 +208,13 @@ base_names: HashMap<Symbol /* "move" */, SmallVec<[Symbol; 2]> /* full selectors
 ```
 
 Serves three purposes: the empty-family check, the candidate list in error messages, and reflection.
+
+**Implementation note (U16-Open, U16-Pinned):** the Open empty-family check
+queries this index directly (`ClassObject::responds_to_base_name`). A
+Pinned reference's empty-family check does **not** use this index — a
+Pinned selector is already the exact target identity, so the check is an
+ordinary hierarchy lookup for that one selector
+(`class::lookup_method_in_hierarchy`), same DNU-override exemption as Open.
 
 ---
 

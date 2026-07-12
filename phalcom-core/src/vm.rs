@@ -1352,16 +1352,36 @@ impl VM {
                 Bytecode::MakeFamily(name_idx) => {
                     let name_val = self.heap.closure(closure_id).callable.chunk.constants[name_idx as usize];
                     let recv = self.stack.pop().unwrap();
-                    let Value::Symbol(name_sym) = name_val else {
+                    let Value::Symbol(sym) = name_val else {
                         return Err(RuntimeError::Internal("MakeFamily constant is not a Symbol".into()).into());
                     };
                     let class_id = recv.class(self);
 
+                    // Open vs Pinned discriminator (U16-Pinned): the compiler
+                    // (`compile_expr`'s `Expr::MethodRef` arm) always runs a
+                    // Pinned reference's selector through
+                    // `method::encode_selector`, which unconditionally
+                    // appends a `(...)` argument-list suffix — even the
+                    // zero-arg `name()` shape — while an Open reference's
+                    // constant is always a bare base name from
+                    // `parse_property_name` (an identifier/keyword, never
+                    // containing `(`). No new discriminator field on the
+                    // opcode is needed: the interned string's shape already
+                    // tells the two apart.
+                    let sym_str = self.resolve_symbol(sym).to_string();
+                    let open = !sym_str.contains('(');
+
                     // Reference-time empty-family check (selectors.md §3
                     // error table): error unless the receiver's class
-                    // answers to this base name, or has a
+                    // responds to the reference (base name for Open, the
+                    // exact selector for Pinned), or has a
                     // `doesNotUnderstand(_:)` override.
-                    if !self.heap.class(class_id).responds_to_base_name(name_sym) {
+                    let responds = if open {
+                        self.heap.class(class_id).responds_to_base_name(sym)
+                    } else {
+                        crate::class::lookup_method_in_hierarchy(&self.heap, class_id, sym).is_some()
+                    };
+                    if !responds {
                         let dnu_str = crate::method::encode_selector("doesNotUnderstand", &[None], SignatureKind::Method(1));
                         let dnu_sym = self.get_or_intern(&dnu_str);
                         let object_cls = self.universe.classes.object_class;
@@ -1369,15 +1389,14 @@ impl VM {
                         let actual_dnu = crate::class::lookup_method_in_hierarchy(&self.heap, class_id, dnu_sym);
                         if actual_dnu == default_dnu {
                             let class_name = self.heap.class(class_id).name.clone();
-                            let name_str = self.resolve_symbol(name_sym).to_string();
                             return Err(RuntimeError::Message(format!(
-                                "{class_name} does not understand `{name_str}` — no method named `{name_str}` and no `doesNotUnderstand(_:)` override (`::` empty family)"
+                                "{class_name} does not understand `{sym_str}` — no method named `{sym_str}` and no `doesNotUnderstand(_:)` override (`::` empty family)"
                             ))
                             .into());
                         }
                     }
 
-                    let family = Object::Family(crate::heap::FamilyObject { recv, name: name_sym });
+                    let family = Object::Family(crate::heap::FamilyObject { recv, selector: sym, open });
                     let family_id = self.heap.alloc(family);
                     self.stack.push(Value::Obj(family_id));
                 }

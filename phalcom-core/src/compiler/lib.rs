@@ -20,8 +20,8 @@ use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, S
 use crate::value::Value;
 use crate::vm::VM;
 use phalcom_ast::ast::{
-    Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, ImportStatement, MethodCallExpr, Pattern, Program,
-    Statement, SymbolLiteralKind, UnaryOp,
+    Argument, BinaryOp, BindingKind, BlockExpr, ClassMember, Expr, ForStatement, ImportStatement, MethodCallExpr, MethodRefKind, Pattern,
+    Program, Statement, SymbolLiteralKind, UnaryOp,
 };
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::{EmptySourceRange, SourceRange};
@@ -1921,14 +1921,28 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::MethodRef(method_ref) => {
-                // `receiver::name` (selectors.md §3, U16-Open): compile the
-                // receiver, intern the bare base name as a constant, and let
+                // `receiver::name` / `receiver::#sel(...)` (selectors.md §3,
+                // U16-Open, U16-Pinned): compile the receiver, intern the
+                // reference's symbol as a constant, and let
                 // `Bytecode::MakeFamily`'s runtime handler do the
                 // reference-time empty-family check + `Family` allocation.
+                // The two shapes share one opcode: Open interns a bare base
+                // name, Pinned interns the full selector through the same
+                // `encode_selector` a matching method definition uses
+                // (ADR-0012) — the runtime handler tells them apart by
+                // whether the interned string contains `(` (`VM`'s
+                // `Bytecode::MakeFamily` arm).
                 let method_ref = *method_ref;
                 self.compile_expr(method_ref.receiver)?;
-                let name_sym = self.vm.interner.intern(&method_ref.name);
-                let name_idx = self.add_constant(Value::Symbol(name_sym));
+                let sym = match method_ref.kind {
+                    MethodRefKind::Open { name } => self.vm.interner.intern(&name),
+                    MethodRefKind::Pinned { name, labels } => {
+                        let arity = labels.len() as u8;
+                        let selector = encode_selector(&name, &labels, SignatureKind::Method(arity));
+                        self.vm.interner.intern(&selector)
+                    }
+                };
+                let name_idx = self.add_constant(Value::Symbol(sym));
                 self.emit(Bytecode::MakeFamily(name_idx), method_ref.range);
             }
             Expr::GetProperty(get_prop) => {
