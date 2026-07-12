@@ -13,12 +13,12 @@ description: >
 
 A pipeline that keeps the implementation **correct and clean** by separating *deciding*,
 *writing*, and *approving* into different agents, each grounded in an external source of
-truth (`docs/spec/`, `docs/adr/`) rather than its own judgment. A single agent that
+truth (`docs/spec/v0.2/`, `docs/adr/`) rather than its own judgment. A single agent that
 reviews and implements its own work compounds errors; this design makes each phase check
 the last.
 
 ## Ground rules (apply to every phase and every agent)
-- **Spec is source of truth.** Every finding, plan unit, and diff cites a `docs/spec/` §
+- **Spec is source of truth.** Every finding, plan unit, and diff cites a `docs/spec/v0.2/` §
   or an ADR. A change with no spec coverage requires a *new* ADR (use `documentation-and-adrs`).
 - **Orient before reading.** `graphify-out/graph.json` exists → agents run `graphify
   query/explain/path/affected` before raw file reads. Intent/"why" → `mem-search`.

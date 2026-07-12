@@ -2,14 +2,14 @@
 
 - Status: Accepted
 - Date: 2026-07-12
-- Related: `docs/spec/core/decisions.md` Q4 (core = "the core module's exports,
-  auto-imported"), `docs/spec/core/forward-compat.md` §3, `docs/spec/open-questions.md` Q8,
+- Related: `docs/spec/v0.2/core/decisions.md` Q4 (core = "the core module's exports,
+  auto-imported"), `docs/spec/v0.2/core/forward-compat.md` §3, `docs/spec/v0.2/open-questions.md` Q8,
   `vm.rs::install_core`, `phalcom-core/core/core.ph`
 
 ## Context
 
 The `import` token exists in the lexer but has no semantics. One boundary is
-**already ruled** ([decisions.md Q4](../spec/core/decisions.md)): kernel names live in
+**already ruled** ([decisions.md Q4](../spec/v0.2/core/decisions.md)): kernel names live in
 *the core module, auto-imported into every compilation unit*; there is one flat global
 namespace populated at boot, and user-facing `import` was deferred to "the module
 unit." forward-compat §3 requires that a surface name be added *to the core module*

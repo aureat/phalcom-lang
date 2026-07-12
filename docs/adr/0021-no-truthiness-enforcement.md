@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: `docs/spec/values-and-absence.md` §3.5;
+- Related: `docs/spec/v0.2/values-and-absence.md` §3.5;
   [ADR-0007](0007-option-as-abstract-with-some-none.md);
   [ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md);
   [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md);

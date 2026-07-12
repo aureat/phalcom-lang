@@ -9,7 +9,7 @@
   [ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md) (value-based `Number#hash`),
   [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md) (arithmetic inliner + deopt),
   [ADR-0012](0012-selector-signature-encoding-and-dispatch.md) (selector dispatch),
-  `docs/spec/open-questions.md` Q2, `docs/spec/core/forward-compat.md` §4,
+  `docs/spec/v0.2/open-questions.md` Q2, `docs/spec/v0.2/core/forward-compat.md` §4,
   `phalcom-core/src/value.rs`, `primitive/number.rs`
 
 ## Context

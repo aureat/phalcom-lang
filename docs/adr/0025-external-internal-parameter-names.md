@@ -4,8 +4,8 @@
 - Date: 2026-07-12
 - Related: [ADR-0012](0012-selector-signature-encoding-and-dispatch.md) (label-encoded
   selectors — the label, not the binding name, is part of selector identity),
-  `docs/spec/messages-and-selectors.md` §2–3, `docs/spec/selectors.md`,
-  `docs/spec/open-questions.md` Q3, `phalcom-ast` (parser/param list), `frame.rs`
+  `docs/spec/v0.2/messages-and-selectors.md` §2–3, `docs/spec/v0.2/selectors.md`,
+  `docs/spec/v0.2/open-questions.md` Q3, `phalcom-ast` (parser/param list), `frame.rs`
 
 ## Context
 

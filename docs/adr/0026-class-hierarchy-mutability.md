@@ -6,7 +6,7 @@
   [ADR-0017](0017-class-side-stored-static-fields.md) (class-side field offsets up the tower),
   [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md) (override-epoch deopt guard),
   [ADR-0009](0009-handle-arena-heap.md) (handle heap — makes a future reshape implementable),
-  `docs/spec/object-model.md`, `docs/spec/open-questions.md` Q4
+  `docs/spec/v0.2/object-model.md`, `docs/spec/v0.2/open-questions.md` Q4
 
 ## Context
 

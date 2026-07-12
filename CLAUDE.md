@@ -72,7 +72,7 @@ cargo clippy --workspace                 # lints
 ```
 
 Example programs live in `examples/*.ph` (e.g. `simple.ph`, `calculator.ph`, `person*.ph`).
-The object-model design spec is `docs/object-model.md`.
+The object-model design spec is `docs/spec/v0.2/object-model.md`.
 
 ## Conventions
 
@@ -85,7 +85,7 @@ The object-model design spec is `docs/object-model.md`.
 - Rust 2024 edition across all crates; shared deps are pinned in the root `[workspace.dependencies]`.
 - Errors use `thiserror` + `miette` (fancy diagnostics); prefer surfacing spans via `phalcom-common` ranges.
 - The object model follows Smalltalk-style semantics; method lookup keys on signature symbols
-  (arity + kind encoded), so `foo` and `foo(_)` can coexist. See `docs/object-model.md` for the
+  (arity + kind encoded), so `foo` and `foo(_)` can coexist. See `docs/spec/v0.2/object-model.md` for the
   target design and current deviations before changing class/metaclass wiring.
 
 ## graphify

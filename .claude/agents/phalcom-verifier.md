@@ -21,7 +21,7 @@ is **wrong** until the code forces you to concede. Recommended reasoning effort:
 2. Try to break the claim, in this order:
    - Does the cited line even say what the claim says? (Misread source is the #1 false positive.)
    - Is the failure scenario actually reachable, or guarded upstream?
-   - Does the spec (`docs/spec/`) or an ADR actually mandate the "correct" behavior the
+   - Does the spec (`docs/spec/v0.2/`) or an ADR actually mandate the "correct" behavior the
      claim assumes — or is the claim inventing a requirement?
    - Is this already a recorded decision (`mem-search`) rather than a bug?
 3. If you cannot refute it after honest effort, concede — but note the weakest point.

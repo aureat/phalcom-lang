@@ -2,11 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: [ADR-0003](0003-introduce-behavior-kernel-class.md); `docs/spec/functions.md`, `docs/spec/blocks.md`
+- Related: [ADR-0003](0003-introduce-behavior-kernel-class.md); `docs/spec/v0.2/functions.md`, `docs/spec/v0.2/blocks.md`
 
 ## Context
 
-The [Blocks](../spec/blocks.md) spec (§7) stated "a method *is* a `Block`." That
+The [Blocks](../spec/v0.2/blocks.md) spec (§7) stated "a method *is* a `Block`." That
 conflates two things that share a representation but differ in protocol: a `Block`
 is an anonymous lexical closure with a non-local-return home frame and no receiver;
 a `Method` is bound to a class under a selector and receives `self`.
@@ -20,7 +20,7 @@ meaningless home frame, and blocks to carry a meaningless selector.
 
 ## Decision
 
-Introduce `Function` as an **abstract** kernel class ([Object Model](../spec/object-model.md)):
+Introduce `Function` as an **abstract** kernel class ([Object Model](../spec/v0.2/object-model.md)):
 
 - `Function` owns the universal call protocol: `call`, `call(_,…)`, `callWith(_)`,
   `arity`, `name`. Function-application sugar `f(...)` desugars to `call(_,…)`.
@@ -34,14 +34,14 @@ the `Block` machinery) — this is the precise, non-hand-wavy meaning of the old
 ## Consequences
 
 - One call protocol, one closure representation (`ClosureObject`), two owners.
-  `Fiber` and `Future` ([Fibers & Futures](../spec/concurrency.md)) take a
+  `Fiber` and `Future` ([Fibers & Futures](../spec/v0.2/concurrency.md)) take a
   `Function` as their unit of work without caring whether it is a block or a bound
   method.
-- [Blocks §7](../spec/blocks.md) is amended: "sibling under `Function`," not "is a
+- [Blocks §7](../spec/v0.2/blocks.md) is amended: "sibling under `Function`," not "is a
   `Block`." Recorded inline in that file.
 - Requires first-class blocks to land (a `Value::Block` arm plus `Closure` /
   `GetUpvalue` / `SetUpvalue` opcodes), which the current tree lacks — tracked in
-  [Implementation Status](../spec/implementation-status.md).
+  [Implementation Status](../spec/v0.2/implementation-status.md).
 - Slightly deeper callable chain (`Method` → `Function` → `Object`); negligible
   lookup cost, and it removes the special-casing that "method is a block" would
   otherwise smuggle in.

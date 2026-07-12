@@ -53,11 +53,11 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 
 > ADRs 0024–0027 were ratified by the user on 2026-07-12, resolving open-questions
 > Q2 (numeric split + division), Q3 (parameter names), Q4 (hierarchy mutability), and
-> Q8 (modules). See [`docs/spec/open-questions.md`](../spec/open-questions.md).
+> Q8 (modules). See [`docs/spec/v0.2/open-questions.md`](../spec/v0.2/open-questions.md).
 
 > ADRs 0019–0020 were ratified by the user on 2026-07-11, clearing the U-LIST-plan
 > §0 gate: they derive from the experimental draft
-> `docs/spec/experimental/bootstrapping-and-self-hosting.md` (D1, D2/DEC-A). 0019
+> `docs/spec/v0.2/experimental/bootstrapping-and-self-hosting.md` (D1, D2/DEC-A). 0019
 > consolidates an existing boundary; 0020 resolves DEC-A.
 
 > ADRs 0003–0008 were ratified in the object-model / language-design sessions, and

@@ -20,7 +20,7 @@ effort: **medium**.
 1. `graphify-out/graph.json` exists. Run `graphify query "<your-lens question>"`,
    `graphify explain "<symbol>"`, or `graphify path "A" "B"` BEFORE reading raw source.
    The scoped subgraph tells you which files matter; read only those.
-2. Read the ONE spec doc in `docs/spec/` that owns your lens, plus any ADR it cites.
+2. Read the ONE spec doc in `docs/spec/v0.2/` that owns your lens, plus any ADR it cites.
    The spec is ground truth. `implementation-status.md` already maps module-level
    deviations — your job is to go deeper (method/line level) within your lens.
 3. For "why is it like this" questions, use the `mem-search` skill before assuming a

@@ -135,7 +135,7 @@ A written spec plus conformance tests prevents implementation-defined drift.
 | exemplar: fully formalized static + dynamic semantics | Standard ML | proofs about the language, not just about programs |
 | violation: "the implementation is the spec" | early PHP/Perl | behavior = whatever the C code did; bugs became load-bearing |
 
-**Apply.** Write the semantics down before optimizing the implementation; treat the spec + golden corpus as the oracle the VM must match. → overlay: `docs/spec/*` + ADRs are the source of truth; `verify_invariants()` and a golden `.ph` corpus enforce them against the runtime.
+**Apply.** Write the semantics down before optimizing the implementation; treat the spec + golden corpus as the oracle the VM must match. → overlay: `docs/spec/v0.2/*` + ADRs are the source of truth; `verify_invariants()` and a golden `.ph` corpus enforce them against the runtime.
 
 ## Sequence: correctness → clarity → speed, safe by construction
 Order the work correctness-first; build safety in rather than bolting it on — but don't foreclose optimization.

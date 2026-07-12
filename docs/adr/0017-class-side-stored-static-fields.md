@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: [ADR-0011](0011-static-instance-slot-layout.md); [ADR-0002](0002-metaclass-tower-parallel-rule.md); [ADR-0007](0007-option-as-abstract-with-some-none.md); [ADR-0010](0010-tagged-value-enum.md); `docs/spec/classes.md` §2–3; `docs/forge/U7-plan.md` §3 (DEC-D)
+- Related: [ADR-0011](0011-static-instance-slot-layout.md); [ADR-0002](0002-metaclass-tower-parallel-rule.md); [ADR-0007](0007-option-as-abstract-with-some-none.md); [ADR-0010](0010-tagged-value-enum.md); `docs/spec/v0.2/classes.md` §2–3; `docs/forge/U7-plan.md` §3 (DEC-D)
 
 ## Context
 

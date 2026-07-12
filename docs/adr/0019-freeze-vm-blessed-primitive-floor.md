@@ -7,7 +7,7 @@
   `Number#toString`, and `Error#message`/`raise` to the floor (73 → 88 ceiling,
   applied per-unit as U-CORE-1/3/4/6 land). This ADR's floor list and rationale
   otherwise stand unamended.
-- Related: [ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md); [ADR-0005](0005-number-as-flat-f64.md); [ADR-0006](0006-function-as-abstract-callable-root.md); [ADR-0007](0007-option-as-abstract-with-some-none.md); [ADR-0009](0009-handle-arena-heap.md); [ADR-0010](0010-tagged-value-enum.md); `docs/spec/experimental/bootstrapping-and-self-hosting.md` (D1)
+- Related: [ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md); [ADR-0005](0005-number-as-flat-f64.md); [ADR-0006](0006-function-as-abstract-callable-root.md); [ADR-0007](0007-option-as-abstract-with-some-none.md); [ADR-0009](0009-handle-arena-heap.md); [ADR-0010](0010-tagged-value-enum.md); `docs/spec/v0.2/experimental/bootstrapping-and-self-hosting.md` (D1)
 
 ## Context
 

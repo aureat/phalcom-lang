@@ -2,7 +2,7 @@
 
 > Phalcom's *committed* design positions, keyed to the generic axes in [../references/](../references/). This is the authoritative "what we chose" layer — when the generic reference lists options, this says which one Phalcom took and why it's locked. Update when an ADR lands or an open question resolves.
 
-Source of truth: `docs/adr/0001…0016`, `docs/spec/*.md`, open register in `docs/spec/open-questions.md` + `docs/forge/PHASE2-INDEX.md` (DEC-A…F).
+Source of truth: `docs/adr/0001…0016`, `docs/spec/v0.2/*.md`, open register in `docs/spec/v0.2/open-questions.md` + `docs/forge/PHASE2-INDEX.md` (DEC-A…F).
 
 ## Committed positions
 | Axis (→ generic ref) | Phalcom's choice | ADR / spec § | Consequence / what it locks |
