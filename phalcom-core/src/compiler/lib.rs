@@ -357,6 +357,20 @@ impl<'vm> Compiler<'vm> {
     /// walk and is rejected with [`CompilerError::SuperOutsideMethod`].
     fn compile_super_send(&mut self, selector_sym: Symbol, args: Vec<Argument>, argc: u8, range: SourceRange) -> Result<(), CompilerError> {
         let defining = self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
+        // Class-side `super` (U-ERR-FIX SUPER-STATIC): inside a `static`
+        // member, `self` is the class object, whose own class is the
+        // *metaclass* — so the walk must start above the metaclass's
+        // superclass, not the instance side's. Re-anchor `defining` to the
+        // metaclass's own name (`"<Name>.class"`, the ADR-0002 parallel-rule
+        // naming `VM::create_class` registers in `self.classes`) so the VM's
+        // `Bytecode::SuperSend` handler resolves the metaclass instead of
+        // the instance class.
+        let defining = if self.is_static_context {
+            let name = self.vm.resolve_symbol(defining).to_string();
+            self.vm.interner.intern(&format!("{name}.class"))
+        } else {
+            defining
+        };
         self.emit_self(range);
         for arg in args {
             self.compile_expr(arg.expr)?;
