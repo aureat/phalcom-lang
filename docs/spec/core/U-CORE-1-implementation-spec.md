@@ -6,10 +6,11 @@
 > (R-INV-0.1…0.4) every later unit extends. Post-U8 the scope is small and
 > sharply bounded (§0).
 >
-> **Baseline:** HEAD (post-U10) — code baseline `4e2ec73` (U10 landed); U-CORE-0
-> census/catalog re-baselined at `3c74a36` (folds U8/U9). **Pre-unit floor: 73
-> bindings.** **Floor delta: +7** → **80** (see §2.2; requires an ADR-0019
-> amendment).
+> **Baseline:** current HEAD `de03f26`; the `docs/spec/core` census/catalog are
+> re-baselined at `0f84232` (last code-affecting commit `0da64d6`; folds
+> U8/U9/U-LEX/U-STD/U11 — all docs/`.ph`/compiler-only, **no new floor
+> bindings**). **Pre-unit floor: 73 bindings.** **Floor delta: +7** → **80**
+> (see §2.2; authorized by the now-Accepted **ADR-0023**).
 >
 > **Governing anchors:** [`object-model.md`](../object-model.md) §8 (universal
 > protocol: `==`,`!=`,`class`,`isA(_)`,`hash`,`toString`,…), §4 (Behavior/Class
@@ -19,7 +20,8 @@
 > [`invariant-requirements.md`](./invariant-requirements.md) R-INV-0.1…0.4,
 > R-INV-1.1…1.6; [`forward-compat.md`](./forward-compat.md) §1 / §3 / §4;
 > [`pending-retirement.md`](./pending-retirement.md) §4;
-> [ADR-0019](../../adr/0019-freeze-vm-blessed-primitive-floor.md) (frozen floor),
+> [ADR-0019](../../adr/0019-freeze-vm-blessed-primitive-floor.md) (frozen floor,
+> amended by the Accepted [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)),
 > [ADR-0006](../../adr/0006-function-as-abstract-callable-root.md) (`Function`
 > root), [ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md) (parallel
 > rule), [ADR-0015](../../adr/0015-object-default-tostring.md) (default toString).
@@ -32,7 +34,7 @@
 
 - **Tower + parallel rule** (`universe.rs::create_core_classes`, ADR-0002/0003):
   `Object`/`Behavior`/`Class`/`Metaclass` + 8-row apex, `verify_invariants`
-  (`universe.rs` L404). `Behavior#superclass` / `superclass=` already installed
+  (`universe.rs` L417). `Behavior#superclass` / `superclass=` already installed
   (floor-census §2.2). `class`/`superclass` are **already floor primitives** —
   this is what makes `isA(_)` derivable (§2.1).
 - **U8 reflective surface**: `perform`/`respondsTo`/`doesNotUnderstand` + the
@@ -81,18 +83,18 @@ singletons (the old U11) remain a **separate** later unit and are untouched here
 
 | Capability | State | Evidence (`file:line`) |
 |---|---|---|
-| `Object#class` / `class=` | ✅ floor | `universe.rs` L228–229; `primitive/object.rs::object_class` L30 |
-| `Behavior#superclass` / `=` | ✅ floor | `universe.rs` L256–257; `primitive/class.rs::class_superclass` L21 |
-| `Object#==` / `!=` (identity, string content) | ✅ floor | `universe.rs` L233–234; `value.rs::value_eq` L213 |
-| `Object#hash` | ❌ **absent** | not in `install_primitives` (`universe.rs` L226–243) |
+| `Object#class` / `class=` | ✅ floor | `universe.rs` L241–242; `primitive/object.rs::object_class` L30 |
+| `Behavior#superclass` / `=` | ✅ floor | `universe.rs` L269–270; `primitive/class.rs::class_superclass` L21 |
+| `Object#==` / `!=` (identity, string content) | ✅ floor | `universe.rs` L246–247; `value.rs::value_eq` L226 |
+| `Object#hash` | ❌ **absent** | not in `install_primitives` (`universe.rs` L238–256) |
 | `Number`/`String`/`Symbol`/`Bool` `hash` | ❌ **absent** | — |
 | `Object#isA(_)` | ❌ **absent** | `metaclass/pending/metaclass_is_a` fails: `3.isA(Number)` → dNU `isA(_:)` |
 | `Behavior#name` (class's **own** name) | ❌ **wrong today** | `Object#name` (`object_name`, `object.rs` L23) returns `receiver.class(vm).name` → for a class receiver `C` this is the **metaclass** name `"C class"`, not `"C"` |
-| `Behavior#methods` (method-dict enum) | ❌ **absent** | no accessor to `ClassObject.methods` (`class.rs` L33) from `.ph` |
-| `Method` superclass | ⚠️ **wrong** | `make_core_class(heap, "Method", object_class, …)` → `Method < Object` (`universe.rs` L136); ADR-0006 requires `Method < Function` |
+| `Behavior#methods` (method-dict enum) | ❌ **absent** | no accessor to `ClassObject.methods` (`class.rs` L34) from `.ph` |
+| `Method` superclass | ⚠️ **wrong** | `make_core_class(heap, "Method", object_class, …)` → `Method < Object` (`universe.rs` L147); ADR-0006 requires `Method < Function` |
 | Immediate-hash substrate | ✅ reusable | `StringObject::calculate_hash`/cached `hash()` (`string.rs` L35/L54); `Symbol.0` (`interner.rs` L10); `ObjRef` is a `slotmap` key → `.data().as_ffi()` |
 | Census audit (73 bindings) | ❌ **absent** | floor-census §7: "until it exists, counts are a manual checksum" |
-| Parallel rule at boot | ◐ **Number only** | `verify_invariants` L459–464 checks only `Number` |
+| Parallel rule at boot | ◐ **Number only** | `verify_invariants` L472–477 checks only `Number` |
 | Absence / fixed-slot at boot | ❌ **corpus only** | not in `verify_invariants` |
 
 **Reading.** Everything `isA(_)` needs is already floor; everything `hash`/`name`/
@@ -144,9 +146,10 @@ Each fails the derivability test — it reads data `.ph` cannot reach:
 
 **7 new `(class, selector)` bindings, 7 new distinct native fns.** Floor:
 **73 → 80**; distinct fns 57 → 64; floor-carrying classes unchanged at **16**
-(`Behavior` already carries `superclass`). This is an **ADR-0019 amendment** — a
-new superseding ADR (next free number, **ADR-0022** at time of writing; confirm
-against `docs/adr/`), drafted in §2.3. `floor-census.md` §1.1/§2 is updated in the
+(`Behavior` already carries `superclass`). This is an **ADR-0019 amendment** — now
+ratified as **ADR-0023** (Accepted;
+`docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md`, the omnibus
+floor amendment). Its draft text is preserved in §2.3. `floor-census.md` §1.1/§2 is updated in the
 **same** change (the delta rows are given in §5.4).
 
 > **Note on `Some`/`None`/`Method`/`List` hash.** They add **no** override —
@@ -156,12 +159,19 @@ against `docs/adr/`), drafted in §2.3. `floor-census.md` §1.1/§2 is updated i
 > (decisions.md Q5); it inherits `Object#hash` (identity), and its *value*
 > hashability is a U-CORE-5 contract concern, not a U-CORE-1 primitive.
 
-### 2.3 Draft ADR-0019 amendment (lift into the new ADR when U-CORE-1 lands)
+### 2.3 The ADR-0019 amendment — ratified as ADR-0023 (Accepted)
 
+> **This amendment landed as [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)**
+> (Accepted — the omnibus floor amendment that also covers U-CORE-3/4/6). The
+> ADR-0019 gate is **already cleared**; the implementer does **not** draft or
+> ratify anything here. The draft below is retained only as the illustrative
+> per-unit justification — the unit's job is to install exactly the primitives
+> ADR-0023 authorizes and bump the census (§5.4).
+>
 > **Title:** *Amend ADR-0019 — admit `hash` and kernel reflection to the frozen
 > floor.*
-> **Status:** Proposed (supersedes the relevant clause of ADR-0019; ADR-0019
-> otherwise stands).
+> **Status:** Accepted as ADR-0023 (supersedes the relevant clause of ADR-0019;
+> ADR-0019 otherwise stands).
 >
 > **Decision.** Add to the VM-blessed floor exactly these native bindings:
 > `Object#hash` (identity digest of the heap handle); per-immediate `hash`
@@ -192,7 +202,7 @@ against `docs/adr/`), drafted in §2.3. `floor-census.md` §1.1/§2 is updated i
 
 All native fns follow the existing signature `fn(&mut VM, &Value, &[Value]) ->
 PhResult<Value>` and are installed via `primitive!` / `primitive_static!`
-(`primitive/mod.rs` L88/L102). All `hash` and reflection selectors are
+(`primitive/mod.rs` L100/L114). All `hash` and reflection selectors are
 `SignatureKind::Getter` (0-arg), matching `object-model.md` §8 bare-name notation
 and the existing `name`/`class`/`toString` getters.
 
@@ -284,7 +294,7 @@ pub fn bool_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 ### 3.2 `Behavior#name` and `Behavior#methods`
 
 Both live in `primitive/class.rs` (alongside `class_superclass`, on `Behavior`);
-both use the existing `expect_class` helper (`primitive/mod.rs` L129) so they
+both use the existing `expect_class` helper (`primitive/mod.rs` L141) so they
 accept **classes and metaclasses** (a metaclass is a `ClassObject` too):
 
 ```rust
@@ -358,7 +368,7 @@ later-defined `core.ph` class, so it is acyclic at any position; place it first
   the behavior either way): accumulate into a local instead of early-returning —
   `var r = false; while (c != None) { (c == cls).ifTrue { r = true }; c = c.superclass }; return r`.
   This mirrors the proven mutate-a-loop-local pattern in `List#each` (`core.ph`
-  L87).
+  L138).
 - **Immediate receivers work**: `3.class` = `Number` via `object_class`
   (`value.rs::class` handles immediates), then the walk `Number → Object → None`.
 - **Class receivers work**: `Number.isA(Class)` walks the metaclass chain
@@ -368,9 +378,9 @@ later-defined `core.ph` class, so it is acyclic at any position; place it first
 
 ## §4. Execute decisions.md §4.1 — re-parent `Method < Function`
 
-**The bug.** `create_core_classes` builds `Method < Object` (`universe.rs` L136)
+**The bug.** `create_core_classes` builds `Method < Object` (`universe.rs` L147)
 — a direct ADR-0006 violation (`Method`/`Block` are siblings under `Function`).
-`Method` is also allocated **before** `Function` (L136 vs L137), so re-parenting
+`Method` is also allocated **before** `Function` (L147 vs L148), so re-parenting
 requires reordering (a `superclass` must already have its `class` link wired —
 `make_core_class` reads `heap.class(superclass).class`).
 
@@ -388,7 +398,7 @@ let method_class   = make_core_class(heap, "Method",   function_class, metaclass
 Delete the old `let method_class = make_core_class(heap, "Method", object_class, …)`
 at its former position. The `CoreClasses { … }` struct literal is **by-name**, so
 no field reordering is needed — only the binding order and `Method`'s superclass
-change. `Method`'s primitives (`method_class_new`, `universe.rs` L338) and the
+change. `Method`'s primitives (`method_class_new`, `universe.rs` L351) and the
 call-protocol on `Function`/`Block` are unchanged; `Method` now **inherits**
 `arity`/`name`/`call…`/`callWith` from `Function` (the point of ADR-0006).
 
@@ -412,9 +422,19 @@ corpus (`tests/invariants.rs`).
 | # | Assertion | Where | Mechanism |
 |---|---|---|---|
 | **0.1** | Installed floor = **80** bindings and the exact `(class, selector)` set matches `floor-census.md` | **C** | From a live `VM::new()`, enumerate `heap.class(id).methods` (instance side) **and** `heap.class(metaclass).methods` (static side) for every `CoreClasses` row + its metaclass; collect `(class_name, selector_str)`; assert set equality vs the census. Counts **bindings**, not macro sites (floor-census §1.1). |
-| **0.2** | Parallel rule for **all** ordinary rows: `X.class.superclass == X.superclass.class` | **H** + C | Extend `verify_invariants` (currently `Number`-only, L459) to loop `Number,String,Nil,Bool,Method,Function,Block,Symbol,Module,System,Option,Some,None,List,Message`; keep the corpus sweep. |
+| **0.2** | Parallel rule for **all** ordinary rows: `X.class.superclass == X.superclass.class` | **H** + C | Extend `verify_invariants` (currently `Number`-only, L472) to loop `Number,String,Nil,Bool,True,False,Method,Function,Block,Symbol,Module,System,Option,Some,None,List,Message`; keep the corpus sweep. |
 | **0.3** | Absence non-surfacing at boot | **H** (structural) + boot check | In `verify_invariants`: `none_singleton` is an `Instance` of `none_class`, `none_class != nil_class`, and the singleton is not a class object. The **global**-resolves-to-singleton-value (not the `None` class) half needs the core module, so assert it inline in `VM::new` right after `install_core` (see §6.4 open note). |
 | **0.4** | Fixed-slot layout | **H** | In `verify_invariants`: `heap.class(some_class).field_count == 1` and `heap.class(message_class).field_count == 4` (ADR-0011; fences the E→F edge, bootstrap-phases §4). |
+
+> **U11 `True`/`False` rows (grounding note).** After U11 (ADR-0004),
+> `True`/`False` are real tower rows (`universe.rs` L145–146) with their own
+> metaclasses wired by the parallel rule, so R-INV-0.2's "for all ordinary
+> rows" **includes** them — assert `True.class.superclass == True.superclass.class`
+> (both resolve to `Bool class`) and likewise for `False`; they are in the loop
+> list above. They carry **zero own floor bindings** (all six sacred `Bool`
+> selectors are reached by inheritance — floor-census §2.6), so they add **0** to
+> the census and the **73 → 80** delta is unchanged. R-INV-0.1 already enumerates
+> them automatically (they are `CoreClasses` rows) with an empty own-method set.
 
 ### 5.2 U-CORE-1 unit invariants (R-INV-1.x)
 
@@ -530,7 +550,7 @@ No item in the plan trips a hazard in forward-compat §1/§3/§4.
 | SD-1 | Where does the "`None` global resolves to the singleton **value**, not the `None` class" half of R-INV-0.3 live? `verify_invariants` takes only `&Heap`, so it cannot read module globals. | Assert it **inline in `VM::new`** right after `install_core` (Phase D/H boundary), where the core module exists — cheap and boot-appropriate; keep `verify_invariants` heap-structural. (Alternative: corpus-only, but that loses the boot guard invariant-requirements §1 wants.) |
 | SD-2 | `Behavior#methods` return element type: selector **Symbols** vs `Method` objects. | **Symbols** (own dict, non-inherited). Minimal, needs no `Method` surface (that is U-CORE-3), and is the natural key set. `allMethods`/inherited walk deferred to U-STD, derivable over `methods` + `superclass`. |
 | SD-3 | Home of the `hash_code` reducer + the 2⁵³ mask. | `primitive/mod.rs` (shared by all five `hash` fns). Keep the mask/normalization in one place so every kind produces a comparable integral `Number`. |
-| SD-4 | ADR number for the amendment. | Next free — **ADR-0022** at time of writing; confirm against `docs/adr/` (highest is 0021). Draft text in §2.3; the `documentation-and-adrs` skill finalizes it. |
+| SD-4 | ADR number for the amendment. | **Resolved — [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)** (Accepted). U-LEX claimed ADR-0022 for string interpolation; the floor amendment landed as the omnibus ADR-0023. Nothing to draft — install the authorized primitives and bump the census. |
 
 ### 8.2 Write-set (files this unit may modify)
 
@@ -540,8 +560,8 @@ parallelize**) · `phalcom-core/src/primitive/{object,class,number,string,symbol
 boolean}.rs` (the native fns) · `phalcom-core/src/primitive/mod.rs` (`hash_code`)
 · `phalcom-core/core/core.ph` (`Object#isA`) · `phalcom-core/src/vm.rs` (SD-1 boot
 check only) · `phalcom-core/tests/invariants.rs` + `phalcom-core/tests/lang/**`
-(new/retired fixtures) · **docs applied in lockstep by the implementer**: the new
-ADR-0022 + `docs/spec/core/floor-census.md` (73 → 80).
+(new/retired fixtures) · **docs applied in lockstep by the implementer**: the census
+delta in `docs/spec/core/floor-census.md` (73 → 80) — [ADR-0023](../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) is already Accepted, so there is no ADR to draft.
 
 ### 8.3 Traceability
 
@@ -549,11 +569,11 @@ ADR-0022 + `docs/spec/core/floor-census.md` (73 → 80).
 |---|---|
 | `hash` is a floor primitive; ADR-0019 amendment | [`decisions.md`](./decisions.md) Q1; [ADR-0019](../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1 |
 | `isA`/`hash` on `Object`; `Behavior` adds `name`/`methods` | [`object-model.md`](../object-model.md) §8, §4 |
-| `class`/`superclass` already floor (⇒ `isA` derivable) | [`floor-census.md`](./floor-census.md) §2.1/§2.2; `universe.rs` L228/L256 |
-| `Object#name` returns metaclass name for a class receiver | `primitive/object.rs::object_name` L23; `value.rs::class` L87 |
-| `Method < Function` re-parent + load order | [`decisions.md`](./decisions.md) §4.1; [ADR-0006](../../adr/0006-function-as-abstract-callable-root.md); `universe.rs` L136–138; [`bootstrap-phases.md`](./bootstrap-phases.md) §2.1 step 5 |
+| `class`/`superclass` already floor (⇒ `isA` derivable) | [`floor-census.md`](./floor-census.md) §2.1/§2.2; `universe.rs` L241/L269 |
+| `Object#name` returns metaclass name for a class receiver | `primitive/object.rs::object_name` L23; `value.rs::class` L94 |
+| `Method < Function` re-parent + load order | [`decisions.md`](./decisions.md) §4.1; [ADR-0006](../../adr/0006-function-as-abstract-callable-root.md); `universe.rs` L147–149; [`bootstrap-phases.md`](./bootstrap-phases.md) §2.1 step 5 |
 | R-INV-0.1…0.4, 1.1…1.6 | [`invariant-requirements.md`](./invariant-requirements.md) §3–§4 |
-| parallel rule (all rows) | [ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md); `verify_invariants` L459 |
+| parallel rule (all rows) | [ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md); `verify_invariants` L472 |
 | `Number#hash` by mathematical value; Value openness; module scoping | [`forward-compat.md`](./forward-compat.md) §4/§1/§3 |
 | pending flips | [`pending-retirement.md`](./pending-retirement.md) §3–§4 |
 | slotmap key digest; cached string hash; interned id | `heap.rs` L43–52; `string.rs` L35/L54; `interner.rs` L10 |
