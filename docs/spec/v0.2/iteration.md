@@ -74,8 +74,16 @@ for (x in xs) {
 }
 ```
 
-Because `for` is `while` underneath, both compose with the cursor protocol without
-any special handler.
+**Lowering.** A `for`/`while` that *contains* `break`/`continue` compiles to a
+**dedicated jump-based loop** — the condition, the body, a `break` → loop-exit
+label, and a `continue` → loop-step label — **bypassing the overridable
+`whileTrue(_)` send** rather than routing through it. This keeps the jump targets
+always valid: there is **no inliner-deopt path** to fall back to
+([ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)), and a
+`continue` re-runs the cursor's `iterate(_)` step. Loops *without* `break`/`continue`
+keep the plain `whileTrue`/cursor desugar (§2). The semantics are identical either
+way; the direct lowering is purely how loop-control stays sound
+([ADR-0035](../../adr/0035-iteration-protocol-cursor.md) §3).
 
 ## 4. Dispatch and the inliner
 

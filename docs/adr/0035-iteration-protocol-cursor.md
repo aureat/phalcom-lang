@@ -49,11 +49,17 @@ jumps in the desugared `while`, which a block passed to `.each` could not expres
 (a non-local `return` is not `break`). `.each`/`.map`/`filter`/`reduce` remain
 `.ph` combinators over the same protocol, for the full-traversal case.
 
-### 3. `break` / `continue` are loop-control jumps
+### 3. `break` / `continue` are loop-control jumps (direct lowering)
 
-`break` and `continue` are ratified as loop-control keywords for `for`/`while`,
-lowering to jumps within the enclosing desugared loop (no floor primitive, no
-block send). Owned by U-LEX alongside `for`.
+`break` and `continue` are ratified as loop-control keywords for `for`/`while` (no
+floor primitive, no block send). A loop that **contains** `break`/`continue`
+compiles to a **dedicated jump-based loop** — condition, body, `break` → exit label,
+`continue` → step label — **bypassing the overridable `whileTrue(_)` send**, so the
+jump targets are always valid and there is **no inliner-deopt path** to define
+([ADR-0018](0018-sacred-selector-inliner-and-override-guard.md); methods are open,
+[ADR-0026](0026-class-hierarchy-mutability.md)). Loops without them keep the plain
+`whileTrue`/cursor desugar (§2). Semantics are identical; the direct lowering is
+only how loop-control stays sound. Owned by U-LEX alongside `for`.
 
 ### 4. Magic-method dispatch vs. the inliner
 
