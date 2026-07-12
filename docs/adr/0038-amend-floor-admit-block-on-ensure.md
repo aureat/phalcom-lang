@@ -29,7 +29,8 @@ flags it as the one gate that must clear before the primitives merge.
 ## Decision
 
 **Amend [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) to admit exactly two
-native primitives** (`floor-census.md` count **80 → 82**):
+native primitives** (`floor-census.md` **+2**; drafted at 80→82, landed at **109 → 111**
+after intervening floor bumps — U-COLLTYPES etc.):
 
 - **`Block#on(_)(_)`** — run the receiver block; if a `Raise` whose `Error` `isA` the
   given class propagates, `close_upvalues_from` the pre-run mark **then** truncate the
@@ -56,7 +57,7 @@ U7 `construct`+fields have landed, so they need **zero** floor). Net floor delta
 - **Fiber-safe by construction.** The snapshot/restore is **length-relative**, so it
   stays fiber-local when U-FIBER lands ([ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
   D7 — the unwind floor can be a *fiber* floor).
-- `floor-census.md` (count 80 → 82) must be updated in the same change that installs
+- `floor-census.md` (+2; landed 109 → 111) must be updated in the same change that installs
   the primitives (R-INV-0.1).
 
 ## Alternatives considered

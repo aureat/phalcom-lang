@@ -49,8 +49,15 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   Result/Ok/Err pure `.ph`. **Floor +2** (block_class) under ADR-0038 (Accepted), census 109→111.
   Graduated 2 pending + 7 PASS + 2 negatives. Caught+fixed Error-subclass field-aliasing (reopened
   `Error` w/ `construct new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
-  Verify green. **Reviewer RUNNING (`ada613e4`)** — verdict pending, then accept/fix-forward → fire U15.
-  DEC-ERR-B resolved (B): `Ok(v)`/`Err(v)` bare-call sugar deferred (no general class-ctor sugar; filed).
+  Verify green. **Reviewer APPROVE** (`ada613e4`) — all 8 focus areas pass (unwind_to order,
+  try/on/ensure desugar, throw-reject scope, on isA-match, Error-reopen field layout, floor +2,
+  fixture honesty, docs); spot-checks match real binary. **U-ERR ACCEPTED.** 3 non-blocking nits:
+  ADR-0038 stale count (FIXED → 109→111), unwind_to doc overstates order-equiv (vm.rs, minor),
+  multiple-catch not grammar-rejected (dead code, not unsound). DEC-ERR-B=(B): Ok/Err bare-call
+  sugar deferred (filed).
+- **U15** DISPATCHED (`a7f994dd`, reviewer ON) — modules/imports, DEC-U15=A+A (relative-path +
+  whole-module bind, source-only, memoized Module, cyclic detect, NO bytecode loader). Spine free
+  post-U-ERR. Write-set phalcom-ast + module.rs + universe.rs + compiler/lib.rs + vm.rs + tests/imports.
 - **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
