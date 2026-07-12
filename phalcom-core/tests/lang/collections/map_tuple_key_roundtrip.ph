@@ -1,0 +1,18 @@
+// area: collections
+// spec: map-and-set.md §2; tuple-and-range.md §1; DEC-CT-C; ADR-0039
+// status: PASS
+// A `Tuple` is immutable ⇒ hashable ⇒ a valid Map key (DEC-CT-C) —
+// distinguishes the "immutable" bar from "not a List": round-trips a Tuple
+// key through put/at/includes/remove.
+
+let m = Map.new()
+let k1 = Tuple.fromList(List.new().add(1).add(2))
+m.at(k1, put: "pair")
+System.print(m.size)
+System.print(m.includes(k1))
+let k2 = Tuple.fromList(List.new().add(1).add(2))
+System.print(m.includes(k2))
+System.print(m.at(k2))
+m.remove(k2)
+System.print(m.size)
+System.print(m.includes(k1))

@@ -1,0 +1,27 @@
+// area: list
+// spec: U-LIST-plan.md; ADR-0007; ADR-0020 (absence boundary)
+// status: PASS
+// Adversarial: a list of lists (a genuinely nested, mutable-in-mutable
+// structure — mutating an inner list is visible through the outer list's
+// reference); empty-list boundary for `each`/`map`/`filter`/`reduce`
+// (all must be no-ops/identity, never a panic on a zero-length receiver).
+
+let outer = List.new()
+outer.add(List.new().add(1).add(2))
+outer.add(List.new().add(3))
+System.print(outer.size)
+System.print(outer.at(0).size)
+outer.at(0).add(99)
+System.print(outer.at(0))
+System.print(outer.at(0).size)
+System.print(outer)
+
+let empty = List.new()
+System.print(empty.isEmpty)
+var sum = 0
+empty.each { x => sum = sum + x }
+System.print(sum)
+System.print(empty.map { x => x * 2 })
+System.print(empty.filter { x => true })
+System.print(empty.reduce(0) { acc, x => acc + x })
+System.print(empty.includes(1))

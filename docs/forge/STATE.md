@@ -54,6 +54,31 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   U13-filed, compiler+Bytecode::Class). Fire in order as U-ERR then each frees the spine.
 - U12/U18 ✅ closed (affirm-ADR-0042/0043, `f16b58a`).
 
+## Test-deepening wave (parallel-safe w/ U-ERR, tests-only, oracle=f54e3bf clean binary)
+Corpus was 228 basic fixtures. 4 agents authoring ADVERSARIAL goldens, disjoint dirs, all
+pin `.expected` byte-exact to real interpreter output, leave UNTRACKED (no commit), NO MANIFEST
+(orchestrator reconciles counts + batch-commits + full-verify after):
+- `acda1e03` — OO tower: inheritance/ + metaclass/ + dispatch/ (deep super chains, static-inherit,
+  selector identity foo/foo(_)/foo(_,_), metaclass walk).
+- `a0793d27` — collections/ + list/ (Map overwrite/remove/mutable-key-reject, Set dedup, Tuple
+  arity/immutability/as-key, Range empty/descending/laziness/bound-eq — FRESH U-COLLTYPES code).
+- `a014ff55` — blocks/ + iteration/ (shared-upvalue, stored-closure freshness, nested break/continue,
+  2-deep non-local return, arity mismatch).
+- `a18ca1c0` — absence/ + option/ + values/ (paired ifTrue two-armed, Option chain short-circuit,
+  nil-vs-None, number-format/toString/nested-render edges).
+Suspected bugs → reported not pinned-as-pass (Symbol#== + method-reopening already known-deferred).
+
+### NEW bugs surfaced by test wave (file to DEFERRED after U-ERR lands + tree clean; both touch parser/compiler/vm = U-ERR territory, fix later):
+- **BUG-SUPER-STATIC** (acda1e03, real correctness): class-side `super.<name>` raises DNU even
+  for a legit inherited static. Instance-side `super` works; metaclass-side super lookup broken.
+  Repro: `static bark => super.greet + "-dog"` on `Dog extends Animal` → `<class Dog> does not
+  understand 'greet'`. Plain static override (no super) works. Future fix unit (metaclass super path).
+- **BUG-SUPER-OP-SYNTAX** (acda1e03, grammar gap): `super.+(other)` unparseable — `parse_property_name`
+  (phalcom-ast/src/parser.rs:1279) accepts only Identifier/Class after `.`, rejects operator tokens.
+  Blocks super-calling an overridden operator. Lower priority (operators still overridable, just not
+  super-callable). Future grammar unit.
+- a014ff55 closures/iteration: 13 fixtures, ZERO bugs (while-vs-for freshness asymmetry confirmed by design).
+
 ## In flight (this session)
 - **U-FUTURE-A** ✅ — Slice A settle-once `Future` `f0d128a`. Pure `.ph`, zero native, floor-0,
   green, 3 concurrency goldens (C-FUT-1/3/4/8 settled halves). Reviewer OFF, orchestrator-accepted.
