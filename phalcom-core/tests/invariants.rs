@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 23] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 25] {
     let c = &vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -68,6 +68,9 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 23] {
         ("Some", c.some_class),
         ("None", c.none_class),
         ("List", c.list_class),
+        // U-COLLTYPES Phase 1 (ADR-0039): Map/Set join the audited census.
+        ("Map", c.map_class),
+        ("Set", c.set_class),
         ("Message", c.message_class),
         ("Error", c.error_class),
         ("MessageNotUnderstood", c.message_not_understood_class),
@@ -583,6 +586,10 @@ fn floor_census_matches_installed_bindings() {
     const NEW_METHOD_REFLECTION: usize = 5;
     const NEW_VALUE_TOSTRING: usize = 1;
     const NEW_ERROR: usize = 2;
+    // U-COLLTYPES Phase 1 (ADR-0039): Map (8: new/rawSize/rawGet/rawPut/
+    // rawHas/rawRemove/rawKeyAt/rawValueAt) + Set (6: new/rawSize/rawAdd/
+    // rawHas/rawRemove/rawAt) = +14 (88 -> 102).
+    const NEW_MAP_SET: usize = 14;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -695,6 +702,21 @@ fn floor_census_matches_installed_bindings() {
         // §2.15 Error (U-CORE-6, ADR-0037) — NEW_ERROR
         (c.error_class, false, "message"),
         (c.error_class, false, "raise()"),
+        // Map/Set (U-COLLTYPES Phase 1, ADR-0039) — NEW_MAP_SET
+        (c.map_class, true, "new()"),
+        (c.map_class, false, "rawSize"),
+        (c.map_class, false, "rawGet(_:)"),
+        (c.map_class, false, "rawPut(_:_:)"),
+        (c.map_class, false, "rawHas(_:)"),
+        (c.map_class, false, "rawRemove(_:)"),
+        (c.map_class, false, "rawKeyAt(_:)"),
+        (c.map_class, false, "rawValueAt(_:)"),
+        (c.set_class, true, "new()"),
+        (c.set_class, false, "rawSize"),
+        (c.set_class, false, "rawAdd(_:)"),
+        (c.set_class, false, "rawHas(_:)"),
+        (c.set_class, false, "rawRemove(_:)"),
+        (c.set_class, false, "rawAt(_:)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -754,13 +776,13 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR,
-        "census must enumerate exactly 88 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6)"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET,
+        "census must enumerate exactly 102 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set)"
     );
     assert_eq!(
         live.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR,
-        "the live floor must be exactly 88 bindings"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET,
+        "the live floor must be exactly 102 bindings"
     );
 }
 

@@ -4,11 +4,13 @@ pub mod class;
 pub mod error;
 pub mod fiber;
 pub mod list;
+pub mod map;
 pub mod method;
 pub mod module;
 pub mod nil;
 pub mod number;
 pub mod object;
+pub mod set;
 pub mod string;
 pub mod symbol;
 pub mod system;
@@ -231,4 +233,125 @@ pub(crate) fn expect_list(vm: &VM, value: &Value) -> PhResult<ObjRef> {
         }
         .into()),
     }
+}
+
+/// Extracts a map's [`ObjRef`] handle from a receiver value.
+///
+/// Mirrors [`expect_list`]: a map is a [`Value::Obj`] whose heap object is a
+/// [`crate::map::MapObject`] behind [`crate::heap::Object::Map`]
+/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a `Map`.
+pub(crate) fn expect_map(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    match value {
+        Value::Obj(id) if vm.heap.as_map(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type {
+            expected: "Map",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Extracts a set's [`ObjRef`] handle from a receiver value.
+///
+/// Mirrors [`expect_map`]: a set is a [`Value::Obj`] whose heap object is a
+/// [`crate::map::MapObject`] behind [`crate::heap::Object::Set`]
+/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a `Set`.
+pub(crate) fn expect_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    match value {
+        Value::Obj(id) if vm.heap.as_set(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type {
+            expected: "Set",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Sends the nullary `hash` selector to `value` and truncates the result to
+/// `i64` — the bucket key [`crate::primitive::map`]/[`crate::primitive::set`]'s
+/// `locate` indexes by. A re-entrant [`VM::send_dynamic`] call (ADR-0039); the
+/// caller must not hold a `&Heap` borrow across this call.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `hash` does not answer a `Number`, or
+/// propagates any [`RuntimeError`] the `hash` send itself raises (e.g.
+/// `CannotYieldAcrossNativeFrame` if the key's `hash` attempts to
+/// `Fiber.yield` under this native frame, ADR-0030 §4 — correct, expected,
+/// not engineered around).
+pub(crate) fn send_hash(vm: &mut VM, value: Value) -> PhResult<i64> {
+    let sym = vm.get_or_intern("hash");
+    match vm.send_dynamic(value, sym, &[])? {
+        Value::Number(n) => Ok(n as i64),
+        other => Err(RuntimeError::Type {
+            expected: "Number",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Sends the one-argument `==(_)` selector (`a == b`) and returns the `Bool`
+/// result — the disambiguation half of the `Map`/`Set` key-lookup re-entrant
+/// send pair (with [`send_hash`]). A re-entrant [`VM::send_dynamic`] call; the
+/// caller must not hold a `&Heap` borrow across this call.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `==` does not answer a `Bool`, or
+/// propagates any [`RuntimeError`] the `==` send itself raises.
+pub(crate) fn send_eq(vm: &mut VM, a: Value, b: Value) -> PhResult<bool> {
+    let sym = vm.get_or_intern("==(_:)");
+    match vm.send_dynamic(a, sym, &[b])? {
+        Value::Bool(result) => Ok(result),
+        other => Err(RuntimeError::Type {
+            expected: "Bool",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Returns `true` iff `value` is one of the three native **mutable**
+/// collection arms (`List`/`Map`/`Set`) — the DEC-CT-C mutable-key rejection
+/// test. Their inherited identity `hash` is inconsistent with structural `==`
+/// (collection-protocol.md law 4), so admitting one as a `Map`/`Set` key would
+/// silently corrupt the bucket index the moment the key's contents (and thus
+/// its intended structural identity, though never its actual `hash`) change.
+/// A plain structural check on the heap variant — no reflective `isA(_)` send
+/// needed, since these three variants are exhaustively enumerable in Rust.
+pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
+    match value {
+        Value::Obj(id) => matches!(vm.heap.get(*id), crate::heap::Object::List(_) | crate::heap::Object::Map(_) | crate::heap::Object::Set(_)),
+        _ => false,
+    }
+}
+
+/// Builds a catchable `Error` announcing a mutable-collection `Map`/`Set` key
+/// rejection (DEC-CT-C), ready to be raised via
+/// [`RuntimeError::Raise`]/`.into()`.
+///
+/// Mirrors [`object::object_does_not_understand`]'s construction pattern: a
+/// bare `Error` instance (one field, `_message`, stamped in `VM::new`'s Phase
+/// E), not a dedicated subclass — this rejection reuses the generic `Error`
+/// root rather than minting a new kernel class for it.
+pub(crate) fn mutable_key_error(vm: &mut VM, class_name: &str) -> RuntimeError {
+    let rendered = format!(
+        "{class_name} key must be immutable: a List/Map/Set key has identity hash, \
+         which is inconsistent with structural == (collection-protocol.md law 4)"
+    );
+    let error_class = vm.universe.classes.error_class;
+    let field_count = vm.heap.class(error_class).field_count;
+    let mut inst = crate::instance::InstanceObject::new(error_class, field_count);
+    inst.slots[0] = vm.alloc_string_value(rendered.clone());
+    let error = Value::Obj(vm.heap.alloc(crate::heap::Object::Instance(inst)));
+    RuntimeError::Raise { error, rendered }
 }

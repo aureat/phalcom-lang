@@ -33,9 +33,9 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **88** |
-| Distinct native Rust functions | **73** |
-| Classes carrying floor primitives | **17** (of 23 named kernel classes) |
+| Installed `(class, selector)` bindings | **102** |
+| Distinct native Rust functions | **87** |
+| Classes carrying floor primitives | **19** (of 25 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
 > **U-CORE-1 amendment ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).**
@@ -94,20 +94,38 @@ language is *self-hosting above a small, fixed native boundary*
 > toward either metric. R-INV-0.1/R-INV-6.5 (`tests/invariants.rs`) audit this
 > set from a live `VM::new()` and fail on drift.
 
-> **Baseline:** post-U-CORE-6 — the figures above (**88 / 73 / 17 / 7**) are the
-> current floor. The authoritative pin + full landing history live in
-> [`README.md`](./README.md) §"Baseline & drift policy"; this census is the
-> ground-truth enumeration behind that count. One census-specific caution: of the
-> post-U-CORE-0 landings, **U-CORE-1 added +7 (73 → 80, ADR-0023), U-CORE-3
-> added +5 (80 → 85, ADR-0028), U-CORE-4 added +1 (85 → 86, ADR-0036), and
-> U-CORE-6 added +2 (86 → 88, ADR-0037)** — every other unit either landed
-> `.ph`/compiler surface or added zero bindings. U8's reflective surface and
-> the `Message` class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/
-> U-STD were `.ph`/compiler-only; U11 added `True`/`False` as kernel classes
-> (19 → 21) with **+0** bindings — so "classes added" never implies "bindings
-> added" (U11 is the counterexample; see §2.6). U-CORE-6 is the exception: its
-> two new classes (`Error`/`MessageNotUnderstood`, 21 → 23) do come with
-> bindings, but only on `Error` — see the amendment note above.
+> **U-COLLTYPES Phase 1 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
+> The `Map`/`Set` hash-collection floor admits **+14** bindings (88 → 102) and
+> **+14** distinct fns (73 → 87): `Map` — `new()`, `rawSize`, `rawGet(_)`,
+> `rawPut(_,_)`, `rawHas(_)`, `rawRemove(_)`, `rawKeyAt(_)`, `rawValueAt(_)`
+> (8, `primitive/map.rs`); `Set` — `new()`, `rawSize`, `rawAdd(_)`, `rawHas(_)`,
+> `rawRemove(_)`, `rawAt(_)` (6, `primitive/set.rs`). `Set` shares `Map`'s Rust
+> backing struct ([`MapObject`](../../../../phalcom-core/src/map.rs), DEC-CT-B)
+> but every binding is its own distinct native fn — no rehome subtlety.
+> Floor-carrying classes move **17 → 19** (`Map`/`Set` are new rows, neither
+> previously carrying a primitive). `rawGet`/`rawPut`/`rawHas`/`rawRemove`
+> re-enter the VM to send Phalcom `hash`/`==` on keys (not Rust `Value: Hash`)
+> and `rawPut`/`rawAdd` reject a mutable-collection key (DEC-CT-C,
+> collection-protocol.md law 4). R-INV-0.1 (`tests/invariants.rs`) audits this
+> set from a live `VM::new()` and fails on drift.
+
+> **Baseline:** post-U-COLLTYPES-Phase-1 — the figures above (**102 / 87 / 19 / 7**)
+> are the current floor (was **88 / 73 / 17 / 7** post-U-CORE-6). The
+> authoritative pin + full landing history live in [`README.md`](./README.md)
+> §"Baseline & drift policy"; this census is the ground-truth enumeration
+> behind that count. One census-specific caution: of the post-U-CORE-0
+> landings, **U-CORE-1 added +7 (73 → 80, ADR-0023), U-CORE-3 added +5
+> (80 → 85, ADR-0028), U-CORE-4 added +1 (85 → 86, ADR-0036), U-CORE-6 added
+> +2 (86 → 88, ADR-0037), and U-COLLTYPES Phase 1 added +14 (88 → 102,
+> ADR-0039)** — every other unit either landed `.ph`/compiler surface or added
+> zero bindings. U8's reflective surface and the `Message` class were already
+> in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were `.ph`/compiler-only; U11
+> added `True`/`False` as kernel classes (19 → 21) with **+0** bindings — so
+> "classes added" never implies "bindings added" (U11 is the counterexample;
+> see §2.6). U-CORE-6 is the exception: its two new classes
+> (`Error`/`MessageNotUnderstood`, 21 → 23) do come with bindings, but only on
+> `Error` — see the amendment note above. U-COLLTYPES Phase 1 adds two more new
+> classes (`Map`/`Set`, 23 → 25) that *both* carry bindings.
 
 ### 1.2 Selector notation
 
@@ -321,6 +339,37 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 | `rawSet(_, _)` | instance | `list_raw_set` | **installed but unwrapped** — no `at(_, put)` yet (§6) |
 | `rawPush(_)` | instance | `list_raw_push` | internal; wrapped by `add(_)`; amortized growth folds into `Vec::push` |
 | `toString` | instance | `list_to_string` | native this unit (see U-LIST return contract) |
+
+### 2.13a `Map`/`Set` — native hash collections (U-COLLTYPES Phase 1, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
+
+Dedicated `Object::Map`/`Object::Set` heap variants over the shared
+`crate::map::MapObject` ordered-hash backing struct (DEC-CT-B: `Set` is a
+keys-only sibling, distinct heap variant, distinct bindings). Both are
+**mutable** ⇒ inherit identity `Object#hash` (Q5) — neither installs its own
+`hash`, so neither is a valid `Map`/`Set` key. `rawGet`/`rawPut`/`rawHas`/
+`rawRemove`/`rawAdd` re-enter the VM to send **Phalcom** `hash`/`==` on keys
+(`primitive/map.rs`'s `locate`); `rawPut`/`rawAdd` reject a mutable-collection
+key (`List`/`Map`/`Set`, DEC-CT-C) with a raised catchable `Error`. The public
+protocol (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
+`values`/`each(_)` for `Map`; `add(_)`/`includes(_)`/`size`/`remove(_)`/
+`each(_)`/`at(_)` for `Set`) is `core.ph` over these (§3).
+
+| Selector | Side | Class | Native fn | Notes |
+|---|---|---|---|---|
+| `new()` | static | `Map` | `map_class_new` | |
+| `rawSize` | instance | `Map` | `map_raw_size` | wrapped by `size` |
+| `rawGet(_)` | instance | `Map` | `map_raw_get` | wrapped by `at(_)`; total (raw value on hit, `None` on miss) |
+| `rawPut(_, _)` | instance | `Map` | `map_raw_put` | wrapped by `at(_, put:)`; DEC-CT-C mutable-key rejection |
+| `rawHas(_)` | instance | `Map` | `map_raw_has` | wrapped by `includes(_)` |
+| `rawRemove(_)` | instance | `Map` | `map_raw_remove` | wrapped by `remove(_)`; idempotent |
+| `rawKeyAt(_)` | instance | `Map` | `map_raw_key_at` | backs `keys`/`each(_)`/`iteratorValue(_)` |
+| `rawValueAt(_)` | instance | `Map` | `map_raw_value_at` | backs `values`/`each(_)` |
+| `new()` | static | `Set` | `set_class_new` | |
+| `rawSize` | instance | `Set` | `set_raw_size` | wrapped by `size` |
+| `rawAdd(_)` | instance | `Set` | `set_raw_add` | wrapped by `add(_)`; idempotent; DEC-CT-C mutable-key rejection |
+| `rawHas(_)` | instance | `Set` | `set_raw_has` | wrapped by `includes(_)` |
+| `rawRemove(_)` | instance | `Set` | `set_raw_remove` | wrapped by `remove(_)`; idempotent |
+| `rawAt(_)` | instance | `Set` | `set_raw_at` | wrapped by `at(_)`/`each(_)`; insertion-order indexed read |
 
 ### 2.14 `Message` — reified miss-send ([messages-and-selectors.md](../messages-and-selectors.md) §5, U8)
 

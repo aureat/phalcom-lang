@@ -181,3 +181,134 @@ fn list_satisfies_sequence_contract() {
     let spec = ContractSpec { class_name: "List", mutable: true, hashable: false };
     assert_sequence_contract(&mut vm, &spec, build_list);
 }
+
+/// Builds a `Map` keyed `0 -> elems[0], 1 -> elems[1], …` through the surface
+/// protocol (`Map.new()` + `.at(_, put:)`) — the numeric index doubles as the
+/// key, so the generic `at(i)` sequence-protocol check (as-built.md §3.3(a))
+/// exercises `Map#at(_)`'s real keyed-lookup path (`rawGet`, re-entering the
+/// VM to send `hash`/`==` on the `Number` key) rather than a synthetic index
+/// read (U-COLLTYPES plan.md §7).
+fn build_map(vm: &mut VM, elems: &[Value]) -> Value {
+    let map_class = Value::Obj(vm.universe.classes.map_class);
+    let map = send0(vm, map_class, "new()");
+    for (i, elem) in elems.iter().enumerate() {
+        let sym = vm.get_or_intern("at(_:put:)");
+        vm.send_dynamic(map, sym, &[Value::Number(i as f64), *elem]).expect("Map#at(_,put:) failed");
+    }
+    map
+}
+
+/// `Map` satisfies the sequence-protocol contract (as-built.md §3.3(a)):
+/// `mutable: false` skips the L5 `add(_)` growth check (`Map` has no
+/// positional `add` — it is keyed, not indexed; DEC-CT-C is exercised
+/// separately below); `hashable: false` skips H2 (Q5: `Map` is mutable ⇒
+/// identity `hash`, not value-hashable).
+#[test]
+fn map_satisfies_sequence_contract() {
+    let mut vm = VM::new();
+    let spec = ContractSpec { class_name: "Map", mutable: false, hashable: false };
+    assert_sequence_contract(&mut vm, &spec, build_map);
+}
+
+/// Builds a `Set` from element values through the surface protocol
+/// (`Set.new()` + `.add(_)`).
+fn build_set(vm: &mut VM, elems: &[Value]) -> Value {
+    let set_class = Value::Obj(vm.universe.classes.set_class);
+    let set = send0(vm, set_class, "new()");
+    for elem in elems {
+        send1(vm, set, "add(_:)", *elem);
+    }
+    set
+}
+
+/// `Set` satisfies the sequence-protocol contract (as-built.md §3.3(a)):
+/// `mutable: true` (Set has a real `add(_)` that grows by 1, insertion-order
+/// indexed by `at(_)`/`rawAt`); `hashable: false` (Q5: `Set` is mutable ⇒
+/// identity `hash`).
+#[test]
+fn set_satisfies_sequence_contract() {
+    let mut vm = VM::new();
+    let spec = ContractSpec { class_name: "Set", mutable: true, hashable: false };
+    assert_sequence_contract(&mut vm, &spec, build_set);
+}
+
+/// `Map` extras (map-and-set.md §6): key overwrite leaves `size` unchanged
+/// and updates the stored value; `remove` is idempotent (removing an absent
+/// key is a no-op returning `self`); a missing key's `at(_)` is the `None`
+/// singleton; `keys`/`values` agree with iteration order.
+#[test]
+fn map_key_overwrite_and_remove_idempotence() {
+    let mut vm = VM::new();
+    let map_class = Value::Obj(vm.universe.classes.map_class);
+    let map = send0(&mut vm, map_class, "new()");
+    let sym_put = vm.get_or_intern("at(_:put:)");
+
+    vm.send_dynamic(map, sym_put, &[Value::Number(1.0), Value::Number(10.0)]).unwrap();
+    let size_after_first = as_number(send0(&mut vm, map, "size"));
+    assert_eq!(size_after_first, 1.0, "one entry after first put");
+
+    // Overwrite: same key, new value — size unchanged, value updated.
+    vm.send_dynamic(map, sym_put, &[Value::Number(1.0), Value::Number(20.0)]).unwrap();
+    let size_after_overwrite = as_number(send0(&mut vm, map, "size"));
+    assert_eq!(size_after_overwrite, 1.0, "overwrite must not grow size");
+    let got = send1(&mut vm, map, "at(_:)", Value::Number(1.0));
+    assert_eq!(as_number(got), 20.0, "overwrite must update the stored value");
+
+    // Missing key -> the None singleton (total, never nil, never a raise).
+    let missing = send1(&mut vm, map, "at(_:)", Value::Number(999.0));
+    assert!(matches!(missing, Value::Obj(id) if id == vm.universe.classes.none_singleton));
+
+    // remove(absent) is a no-op returning self.
+    let returned = send1(&mut vm, map, "remove(_:)", Value::Number(999.0));
+    assert_eq!(returned, map, "remove(absent) returns self");
+    assert_eq!(as_number(send0(&mut vm, map, "size")), 1.0, "remove(absent) must not shrink size");
+
+    // remove(present) actually deletes.
+    send1(&mut vm, map, "remove(_:)", Value::Number(1.0));
+    assert_eq!(as_number(send0(&mut vm, map, "size")), 0.0, "remove(present) must shrink size");
+}
+
+/// `Set` extras (map-and-set.md §6): `add` is idempotent (a duplicate does
+/// not grow `size`); `remove` is idempotent.
+#[test]
+fn set_add_and_remove_idempotence() {
+    let mut vm = VM::new();
+    let set_class = Value::Obj(vm.universe.classes.set_class);
+    let set = send0(&mut vm, set_class, "new()");
+
+    send1(&mut vm, set, "add(_:)", Value::Number(7.0));
+    send1(&mut vm, set, "add(_:)", Value::Number(7.0));
+    assert_eq!(as_number(send0(&mut vm, set, "size")), 1.0, "duplicate add must not grow size");
+    assert!(as_bool(send1(&mut vm, set, "includes(_:)", Value::Number(7.0))));
+
+    let returned = send1(&mut vm, set, "remove(_:)", Value::Number(999.0));
+    assert_eq!(returned, set, "remove(absent) returns self");
+    assert_eq!(as_number(send0(&mut vm, set, "size")), 1.0, "remove(absent) must not shrink size");
+
+    send1(&mut vm, set, "remove(_:)", Value::Number(7.0));
+    assert_eq!(as_number(send0(&mut vm, set, "size")), 0.0, "remove(present) must shrink size");
+    assert!(!as_bool(send1(&mut vm, set, "includes(_:)", Value::Number(7.0))));
+}
+
+/// DEC-CT-C (negative): a mutable-collection key (`List`) rejected by both
+/// `Map#at(_, put:)` and `Set#add(_)` — a raised catchable `Error`, never a
+/// silent identity-keyed admission (collection-protocol.md law 4).
+#[test]
+fn mutable_collection_key_is_rejected() {
+    let mut vm = VM::new();
+
+    let map_class = Value::Obj(vm.universe.classes.map_class);
+    let map = send0(&mut vm, map_class, "new()");
+    let list_class = Value::Obj(vm.universe.classes.list_class);
+    let mutable_key = send0(&mut vm, list_class, "new()");
+    let sym_put = vm.get_or_intern("at(_:put:)");
+    let result = vm.send_dynamic(map, sym_put, &[mutable_key, Value::Number(1.0)]);
+    assert!(result.is_err(), "Map#at(_, put:) with a mutable List key must raise, not silently admit it");
+
+    let set_class = Value::Obj(vm.universe.classes.set_class);
+    let set = send0(&mut vm, set_class, "new()");
+    let mutable_key2 = send0(&mut vm, list_class, "new()");
+    let sym_add = vm.get_or_intern("add(_:)");
+    let result2 = vm.send_dynamic(set, sym_add, &[mutable_key2]);
+    assert!(result2.is_err(), "Set#add(_) with a mutable List key must raise, not silently admit it");
+}

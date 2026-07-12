@@ -468,6 +468,10 @@ impl VM {
         add_class!(option_class);
         add_class!(some_class);
         add_class!(list_class);
+        // `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): ordinary class globals,
+        // native heap arms mirroring `List`.
+        add_class!(map_class);
+        add_class!(set_class);
         add_class!(message_class);
         // `Error` root + `MessageNotUnderstood < Error` (U-CORE-6, ADR-0008):
         // globals only, no `.ph` reopen — an empty reopen would be harmless

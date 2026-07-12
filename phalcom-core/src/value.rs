@@ -117,6 +117,8 @@ impl Value {
                 Object::BoundMethod(_) => vm.universe.classes.block_class,
                 Object::List(_) => vm.universe.classes.list_class,
                 Object::Fiber(_) => vm.universe.classes.fiber_class,
+                Object::Map(_) => vm.universe.classes.map_class,
+                Object::Set(_) => vm.universe.classes.set_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
             },
         }
@@ -171,6 +173,14 @@ impl Value {
                 Object::Instance(inst) if inst.class == vm.universe.classes.some_class => {
                     format!("Some({})", inst.slots[0].to_string(vm))
                 }
+                Object::Map(map) => {
+                    let parts: Vec<String> = map.entries().map(|(k, v)| format!("{}: {}", k.to_string(vm), v.to_string(vm))).collect();
+                    format!("{{{}}}", parts.join(", "))
+                }
+                Object::Set(set) => {
+                    let parts: Vec<String> = set.entries().map(|(k, _)| k.to_string(vm)).collect();
+                    format!("Set({})", parts.join(", "))
+                }
                 _ => self.to_debug(vm),
             },
         }
@@ -197,6 +207,8 @@ impl Value {
                 Object::BoundMethod(_) => "<bound method>".to_string(),
                 Object::List(_) => "<list>".to_string(),
                 Object::Fiber(_) => "<fiber>".to_string(),
+                Object::Map(_) => "<map>".to_string(),
+                Object::Set(_) => "<set>".to_string(),
                 Object::Upvalue(_) => "<upvalue>".to_string(),
             },
         }
@@ -214,9 +226,16 @@ impl Value {
     pub fn to_context(&self, heap: &crate::heap::Heap) -> CallContext {
         match self {
             Value::Obj(id) => match heap.get(*id) {
-                Object::Instance(_) | Object::Block(_) | Object::Closure(_) | Object::Str(_) | Object::Method(_) | Object::BoundMethod(_) | Object::List(_) | Object::Fiber(_) => {
-                    CallContext::Instance { instance: *id }
-                }
+                Object::Instance(_)
+                | Object::Block(_)
+                | Object::Closure(_)
+                | Object::Str(_)
+                | Object::Method(_)
+                | Object::BoundMethod(_)
+                | Object::List(_)
+                | Object::Fiber(_)
+                | Object::Map(_)
+                | Object::Set(_) => CallContext::Instance { instance: *id },
                 Object::Class(_) => CallContext::Class { class: *id },
                 Object::Module(_) => CallContext::Module { module: *id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),

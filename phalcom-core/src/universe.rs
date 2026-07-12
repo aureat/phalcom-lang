@@ -26,6 +26,7 @@ use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_new, fiber_try, fiber_yield};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
+use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
 use crate::primitive::module::module_class_new;
 use crate::primitive::nil::{option_match, some_new};
@@ -39,6 +40,7 @@ use crate::primitive::object::{
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
+use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print};
@@ -185,6 +187,14 @@ impl Universe {
         // anything that will depend on it (`Message.args`/rest-params, U8/U9).
         let list_class = make_core_class(heap, "List", object_class, metaclass_class);
 
+        // Kernel `Map`/`Set` (ADR-0032 §1, ADR-0039, U-COLLTYPES): native heap
+        // variants over the shared `MapObject` ordered-hash backing struct
+        // (DEC-CT-B) — distinct `Object::Map`/`Object::Set` arms, distinct
+        // classes, positioned directly after `List` (same "no field layout,
+        // no `.ph` construct" load-order rationale as ADR-0020).
+        let map_class = make_core_class(heap, "Map", object_class, metaclass_class);
+        let set_class = make_core_class(heap, "Set", object_class, metaclass_class);
+
         // Kernel `Message` (method-lookup.md §2, ADR-0012): the reified miss
         // send handed to `doesNotUnderstand(_:)`. An ordinary fixed-slot
         // `InstanceObject` (four slots: selector/name/labels/args) built
@@ -236,6 +246,8 @@ impl Universe {
             none_class,
             none_singleton,
             list_class,
+            map_class,
+            set_class,
             message_class,
             error_class,
             message_not_understood_class,
@@ -471,6 +483,34 @@ impl Universe {
         primitive!(vm, list_cls, "rawPush", SignatureKind::Method(1), list_raw_push);
         primitive!(vm, list_cls, "toString", SignatureKind::Getter, list_to_string);
 
+        // Kernel `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): the raw
+        // hash-collection floor. `Map` gets 8 bindings (`new` + 7 raw
+        // instance ops); `Set` gets 6 (`new` + 5 raw instance ops) — a keys-only
+        // sibling reusing `Map`'s backing struct (DEC-CT-B) but with its own
+        // distinct bindings. `rawKeyAt`/`rawValueAt`/`rawAt` back
+        // `keys`/`values`/`each(_)`; `rawPut`/`rawAdd` re-enter the VM to send
+        // `hash`/`==` on keys (see `primitive::map`'s module doc) and reject a
+        // mutable-collection key (DEC-CT-C). `.ph`'s public protocol
+        // (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
+        // `values`/`each(_)`/`add(_)`) wraps these in `core.ph`.
+        let map_cls = vm.universe.classes.map_class;
+        primitive_static!(vm, map_cls, "new", SignatureKind::Method(0), map_class_new);
+        primitive!(vm, map_cls, "rawSize", SignatureKind::Getter, map_raw_size);
+        primitive!(vm, map_cls, "rawGet", SignatureKind::Method(1), map_raw_get);
+        primitive!(vm, map_cls, "rawPut", SignatureKind::Method(2), map_raw_put);
+        primitive!(vm, map_cls, "rawHas", SignatureKind::Method(1), map_raw_has);
+        primitive!(vm, map_cls, "rawRemove", SignatureKind::Method(1), map_raw_remove);
+        primitive!(vm, map_cls, "rawKeyAt", SignatureKind::Method(1), map_raw_key_at);
+        primitive!(vm, map_cls, "rawValueAt", SignatureKind::Method(1), map_raw_value_at);
+
+        let set_cls = vm.universe.classes.set_class;
+        primitive_static!(vm, set_cls, "new", SignatureKind::Method(0), set_class_new);
+        primitive!(vm, set_cls, "rawSize", SignatureKind::Getter, set_raw_size);
+        primitive!(vm, set_cls, "rawAdd", SignatureKind::Method(1), set_raw_add);
+        primitive!(vm, set_cls, "rawHas", SignatureKind::Method(1), set_raw_has);
+        primitive!(vm, set_cls, "rawRemove", SignatureKind::Method(1), set_raw_remove);
+        primitive!(vm, set_cls, "rawAt", SignatureKind::Method(1), set_raw_at);
+
         // `Error` root (U-CORE-6, ADR-0008): `message` is a native slot-0
         // accessor (mirrors `Message`'s accessors — a `.ph` getter over this
         // field would trip the read-before-write check); `raise` initiates
@@ -570,7 +610,7 @@ impl Universe {
         // `False` rows (both resolve to `Bool class`) and the absence /
         // collection / message rows. Any newly-added row that breaks the rule
         // fails boot rather than silently mis-dispatching statics.
-        let ordinary_rows: [(&str, ClassId); 19] = [
+        let ordinary_rows: [(&str, ClassId); 21] = [
             ("Number", c.number_class),
             ("String", c.string_class),
             ("Nil", c.nil_class),
@@ -587,6 +627,8 @@ impl Universe {
             ("Some", c.some_class),
             ("None", c.none_class),
             ("List", c.list_class),
+            ("Map", c.map_class),
+            ("Set", c.set_class),
             ("Message", c.message_class),
             ("Error", c.error_class),
             ("MessageNotUnderstood", c.message_not_understood_class),
@@ -773,6 +815,17 @@ pub struct CoreClasses {
     /// A dedicated [`crate::heap::Object::List`] heap variant, not an
     /// `InstanceObject` — see [`crate::list::ListObject`].
     pub list_class: ClassId,
+    /// `Map`, the native insertion-ordered hash map
+    /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// A dedicated [`crate::heap::Object::Map`] heap variant over
+    /// [`crate::map::MapObject`] — mutable, so it inherits identity
+    /// `Object#hash` and is not a valid `Map`/`Set` key (Q5).
+    pub map_class: ClassId,
+    /// `Set`, the native hash set — a keys-only [`Self::map_class`] sibling
+    /// sharing [`crate::map::MapObject`]'s backing struct (DEC-CT-B), reached
+    /// through the distinct [`crate::heap::Object::Set`] heap variant.
+    pub set_class: ClassId,
     /// `Message`, the reified message-send handed to `doesNotUnderstand(_:)`
     /// on a lookup miss (method-lookup.md §2, ADR-0012). An ordinary
     /// fixed-slot [`InstanceObject`](crate::instance::InstanceObject) built by

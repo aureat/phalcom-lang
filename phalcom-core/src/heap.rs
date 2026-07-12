@@ -37,6 +37,7 @@ use crate::closure::ClosureObject;
 use crate::frame::CallFrame;
 use crate::instance::InstanceObject;
 use crate::list::ListObject;
+use crate::map::MapObject;
 use crate::method::MethodObject;
 use crate::module::ModuleObject;
 use crate::string::StringObject;
@@ -101,6 +102,20 @@ pub enum Object {
     /// forward-compat §7 D2). It owns its own value + call stacks so it can be
     /// suspended and resumed by an O(1) pointer swap of `vm.current`.
     Fiber(FiberObject),
+    /// A native, insertion-ordered hash map ([`MapObject`],
+    /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// Keyed by **Phalcom** `hash`+`==` (not Rust identity) — see
+    /// [`crate::map`]. Mutable ⇒ inherits identity `Object#hash`, not a valid
+    /// `Map`/`Set` key (Q5, collection-protocol law 4).
+    Map(MapObject),
+    /// A native hash set — a keys-only [`MapObject`] (DEC-CT-B): every
+    /// [`Object::Set`] value shares [`MapObject`]'s backing struct with
+    /// [`Object::Map`], the `.1` (value) slot of each entry always
+    /// [`Value::Nil`] and unread by `Set`'s `.ph` protocol. A distinct heap
+    /// variant (and distinct raw-primitive bindings) from `Map`, so
+    /// `aSet.class == Set`, never `Map`.
+    Set(MapObject),
 }
 
 /// The lifecycle state of a [`FiberObject`]
@@ -305,6 +320,16 @@ impl Heap {
         self.objects.insert(Object::List(ListObject::new(elements)))
     }
 
+    /// Allocates an empty [`Object::Map`] and returns its [`ObjRef`].
+    pub fn alloc_map(&mut self) -> ObjRef {
+        self.objects.insert(Object::Map(MapObject::new()))
+    }
+
+    /// Allocates an empty [`Object::Set`] and returns its [`ObjRef`].
+    pub fn alloc_set(&mut self) -> ObjRef {
+        self.objects.insert(Object::Set(MapObject::new()))
+    }
+
     /// Borrows the [`Object`] behind `id`.
     ///
     /// # Panics
@@ -495,6 +520,74 @@ impl Heap {
     pub fn as_list(&self, id: ObjRef) -> Option<&ListObject> {
         match self.objects.get(id) {
             Some(Object::List(list)) => Some(list),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`MapObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Map`].
+    pub fn map(&self, id: ObjRef) -> &MapObject {
+        match self.get(id) {
+            Object::Map(map) => map,
+            _ => panic!("ObjRef {id:?} is not an Object::Map"),
+        }
+    }
+
+    /// Mutably borrows the [`MapObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Map`].
+    pub fn map_mut(&mut self, id: ObjRef) -> &mut MapObject {
+        match self.get_mut(id) {
+            Object::Map(map) => map,
+            _ => panic!("ObjRef {id:?} is not an Object::Map"),
+        }
+    }
+
+    /// Returns the [`MapObject`] behind `id`, or `None` if it is not an
+    /// [`Object::Map`].
+    pub fn as_map(&self, id: ObjRef) -> Option<&MapObject> {
+        match self.objects.get(id) {
+            Some(Object::Map(map)) => Some(map),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`MapObject`] behind `id`, treating it as an
+    /// [`Object::Set`]'s keys-only backing store.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Set`].
+    pub fn set(&self, id: ObjRef) -> &MapObject {
+        match self.get(id) {
+            Object::Set(set) => set,
+            _ => panic!("ObjRef {id:?} is not an Object::Set"),
+        }
+    }
+
+    /// Mutably borrows the [`MapObject`] behind `id`, treating it as an
+    /// [`Object::Set`]'s keys-only backing store.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Set`].
+    pub fn set_mut(&mut self, id: ObjRef) -> &mut MapObject {
+        match self.get_mut(id) {
+            Object::Set(set) => set,
+            _ => panic!("ObjRef {id:?} is not an Object::Set"),
+        }
+    }
+
+    /// Returns the [`MapObject`] behind `id`, or `None` if it is not an
+    /// [`Object::Set`].
+    pub fn as_set(&self, id: ObjRef) -> Option<&MapObject> {
+        match self.objects.get(id) {
+            Some(Object::Set(set)) => Some(set),
             _ => None,
         }
     }

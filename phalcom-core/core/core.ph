@@ -290,6 +290,165 @@ class List {
   }
 }
 
+// Kernel Map/Set (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 1): native
+// insertion-ordered hash collections — Object::Map/Object::Set, sharing the
+// MapObject backing struct (DEC-CT-B) but with distinct raw-primitive
+// bindings and distinct classes. This skeleton reopens the bootstrapped rows
+// to define the public protocol over the raw floor (ADR-0019's "hybrid: native
+// primitives, self-defined control"). Both are MUTABLE, so neither installs a
+// `hash` override — they inherit Object#hash (identity), so per Q5
+// (decisions.md, collection-protocol.md law 4) neither is a valid Map/Set key;
+// `rawPut`/`rawAdd` enforce this (DEC-CT-C) by rejecting a mutable-collection
+// key (List/Map/Set) with a raised Error.
+
+class Map {
+  size => self.rawSize
+
+  // Total lookup: Some-shaped by convention (raw value on hit, the None
+  // singleton on miss — mirrors List#at's rawAt shape, U-CORE-2/ADR-0021).
+  at(k) => self.rawGet(k)
+
+  // Insert/overwrite; returns self so `put` calls chain.
+  at(k, put:) {
+    self.rawPut(k, put)
+    return self
+  }
+
+  includes(k) => self.rawHas(k)
+
+  // Idempotent: removing an absent key is a no-op, still returns self.
+  remove(k) {
+    self.rawRemove(k)
+    return self
+  }
+
+  // A fresh List of keys, in iteration (insertion) order.
+  keys {
+    var result = List.new()
+    var i = 0
+    while (i < self.size) {
+      result.add(self.rawKeyAt(i))
+      i = i + 1
+    }
+    return result
+  }
+
+  // A fresh List of values, in iteration (insertion) order.
+  values {
+    var result = List.new()
+    var i = 0
+    while (i < self.size) {
+      result.add(self.rawValueAt(i))
+      i = i + 1
+    }
+    return result
+  }
+
+  // 2-arg block `{ k, v => ... }` per entry, in iteration order.
+  each(f) {
+    var i = 0
+    while (i < self.size) {
+      f.call(self.rawKeyAt(i), self.rawValueAt(i))
+      i = i + 1
+    }
+  }
+
+  // Cursor iteration protocol (ADR-0035 §1, iteration.md §1) — identical
+  // shape to List's, over `size`/`rawKeyAt`. DEC-CT-E: the cursor value
+  // `iteratorValue` yields is the KEY (both Map and Set yield keys); `each(_)`
+  // above remains the 2-arg entry form for Map.
+  iterate(cursor) {
+    let next = cursor.map { c => c + 1 }.unwrapOr(0)
+    return (next < self.size).ifTrue { next }
+  }
+
+  iteratorValue(cursor) => self.rawKeyAt(cursor)
+
+  // Structural equality: same key set, pairwise-== values (order-independent
+  // over keys — `includes`/`at` do the membership + value work, not raw
+  // index comparison). Guarded by `isA(Map)` so a non-Map is simply unequal.
+  ==(other) {
+    if (other.isA(Map)) {
+      var same = (self.size == other.size)
+      var i = 0
+      while (same and (i < self.size)) {
+        var k = self.rawKeyAt(i)
+        same = other.includes(k) and (self.rawValueAt(i) == other.at(k))
+        i = i + 1
+      }
+      return same
+    } else {
+      return false
+    }
+  }
+
+  // MUST route through == (the ==/!= decoupling hazard) — Object#!= negates
+  // identity, not this structural ==.
+  !=(other) {
+    return !(self == other)
+  }
+}
+
+class Set {
+  size => self.rawSize
+
+  add(v) {
+    self.rawAdd(v)
+    return self
+  }
+
+  includes(v) => self.rawHas(v)
+
+  remove(v) {
+    self.rawRemove(v)
+    return self
+  }
+
+  // Positional read in insertion order — not in the map-and-set.md selector
+  // table, but a direct, zero-floor-cost derivation over rawAt that the
+  // U-CORE-5 conformance harness (collection-protocol.md §2) needs, and a
+  // natural extension of the sequence protocol every collection instantiates.
+  at(i) => self.rawAt(i)
+
+  each(f) {
+    var i = 0
+    while (i < self.size) {
+      f.call(self.rawAt(i))
+      i = i + 1
+    }
+  }
+
+  // Cursor iteration protocol — identical shape to List's, over
+  // `size`/`rawAt`.
+  iterate(cursor) {
+    let next = cursor.map { c => c + 1 }.unwrapOr(0)
+    return (next < self.size).ifTrue { next }
+  }
+
+  iteratorValue(cursor) => self.rawAt(cursor)
+
+  // Structural equality: same members, order-independent. Same-size plus
+  // "every element of self is in other" is sufficient since neither set
+  // holds duplicates (rawAdd is idempotent).
+  ==(other) {
+    if (other.isA(Set)) {
+      var same = (self.size == other.size)
+      var i = 0
+      while (same and (i < self.size)) {
+        same = other.includes(self.rawAt(i))
+        i = i + 1
+      }
+      return same
+    } else {
+      return false
+    }
+  }
+
+  !=(other) {
+    return !(self == other)
+  }
+}
+
 class System {
   static print() {
     // Native print function
