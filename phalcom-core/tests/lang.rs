@@ -244,6 +244,20 @@ fn iteration_disasm() {
 }
 
 #[test]
+#[ignore = "spec target: non-local break/continue across a materialized block — U-ITER follow-on"]
+fn iteration_pending() {
+    // Reviewer-found gap (ADR-0035 §3, iteration.md §3): `break`/`continue`
+    // reached through a block the inliner materializes as a real closure — the
+    // deopt fallback of a non-Bool `if` condition, or an ordinary block-arg
+    // closure like `each { break }` — silently no-ops instead of leaving the
+    // loop (the jump lands in the closure's own chunk, `same_function` false).
+    // The common `if (Bool) { break }` path is unaffected (inliner fast path).
+    // These fixtures pin the intended semantics and fail today; see
+    // docs/forge/DEFERRED.md for the adjudication and the real-fix options.
+    support::check_pending("iteration");
+}
+
+#[test]
 fn values() {
     // U-CORE-4: per-type `toString` — `Number`/`String`/`Bool`/`Symbol`/
     // `None`/`Some(_)` message rendering, kept in agreement with the native

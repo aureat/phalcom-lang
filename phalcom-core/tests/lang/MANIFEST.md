@@ -19,7 +19,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, compile-errors,
   concurrency, control-flow, dispatch, errors, functions, iteration, lexical, list, messages,
   metaclass, runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 76 · NEGATIVE 16 · PENDING 52 · **total 144**.
+- **Case counts:** PASS 76 · NEGATIVE 16 · PENDING 54 · **total 146**.
 - Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
   under `-- --ignored` and are expected to fail until their feature is implemented.
 - Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`; the
@@ -41,7 +41,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | dispatch | 3 | – | 5 | `check_pass` + `check_pending` | messages-and-selectors.md; method-lookup.md; object-model.md |
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
 | list | 4 | – | – | `check_pass` | U-LIST-plan.md; ADR-0019; ADR-0020 |
-| iteration | 8 | – | – | `check_pass` (+ `iteration_disasm`) | ADR-0035; iteration.md; U-ITER specification |
+| iteration | 8 | – | 2 | `check_pass` (+ `iteration_disasm`, `check_pending`) | ADR-0035; iteration.md; U-ITER specification |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
 | runtime-errors | – | 5 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3 |
 | compile-errors | – | 6 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021; ADR-0035 (break/continue outside loop) |
