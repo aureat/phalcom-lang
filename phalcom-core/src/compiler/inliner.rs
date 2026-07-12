@@ -158,66 +158,6 @@ impl<'vm> Compiler<'vm> {
         }
     }
 
-    /// Emits a placeholder single-`i32`-operand jump/guard instruction built
-    /// by `make` (one of [`Bytecode::Jump`], [`Bytecode::JumpIfFalse`],
-    /// [`Bytecode::GuardBool`], [`Bytecode::GuardBlock`] — each usable
-    /// directly as an `fn(i32) -> Bytecode` tuple-variant constructor),
-    /// returning its index in the current function's chunk for a later
-    /// [`Self::patch_jump`].
-    fn emit_jump(&mut self, make: fn(i32) -> Bytecode, range: SourceRange) -> usize {
-        self.emit(make(0), range);
-        self.functions.last().unwrap().chunk.code.len() - 1
-    }
-
-    /// Backpatches the placeholder jump/guard at chunk index `idx` so its
-    /// offset lands exactly at the current end of the chunk (the
-    /// [`Bytecode::Jump`] offset convention: relative to `ip` already
-    /// advanced past the jump instruction itself).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `idx` is not one of the four offset-carrying jump/guard
-    /// opcodes — an inliner-internal invariant violation, never
-    /// user-reachable.
-    fn patch_jump(&mut self, idx: usize) {
-        let target = self.functions.last().unwrap().chunk.code.len() as i32;
-        let offset = target - (idx as i32 + 1);
-        let code = &mut self.functions.last_mut().unwrap().chunk.code;
-        match &mut code[idx] {
-            Bytecode::Jump(o) | Bytecode::JumpIfFalse(o) | Bytecode::GuardBool(o) | Bytecode::GuardBlock(o) => *o = offset,
-            other => unreachable!("patch_jump on a non-jump opcode: {other:?}"),
-        }
-    }
-
-    /// Backpatches the jump/guard placeholder at chunk index `idx` so its
-    /// offset lands at the absolute chunk index `target`, rather than
-    /// [`Self::patch_jump`]'s implicit "current chunk end". Used by
-    /// U-ITER-FIX item 2's `compile_while_true` for `continue`, which must
-    /// jump backward to the loop's condition-retest label, not forward to the
-    /// loop's exit (mirrors `compiler/lib.rs`'s `patch_forward_jump_to`; see
-    /// U-ITER-FIX item 4 for the planned dedup of this pair).
-    ///
-    /// # Panics
-    ///
-    /// Panics if `idx` is not one of the four offset-carrying jump/guard
-    /// opcodes — an inliner-internal invariant violation, never
-    /// user-reachable.
-    fn patch_jump_to(&mut self, idx: usize, target: usize) {
-        let offset = target as i32 - (idx as i32 + 1);
-        let code = &mut self.functions.last_mut().unwrap().chunk.code;
-        match &mut code[idx] {
-            Bytecode::Jump(o) | Bytecode::JumpIfFalse(o) | Bytecode::GuardBool(o) | Bytecode::GuardBlock(o) => *o = offset,
-            other => unreachable!("patch_jump_to on a non-jump opcode: {other:?}"),
-        }
-    }
-
-    /// Emits a backward [`Bytecode::Loop`] jumping to the absolute chunk
-    /// index `loop_start`, closing an inlined `whileTrue` iteration.
-    fn emit_loop(&mut self, loop_start: usize, range: SourceRange) {
-        let idx = self.functions.last().unwrap().chunk.code.len() as i32;
-        self.emit(Bytecode::Loop(loop_start as i32 - (idx + 1)), range);
-    }
-
     /// Emits an ordinary `Invoke` send for a sacred selector's *fallback*
     /// path: `name` plus `labels` (one entry per positional argument, `None`
     /// for unlabeled, `Some(label)` for a labeled one, e.g. `[None,
@@ -311,21 +251,21 @@ impl<'vm> Compiler<'vm> {
     fn compile_if_true(&mut self, receiver: Expr, then_block: Expr, range: SourceRange, want_value: bool) -> Result<(), CompilerError> {
         let then_block_fallback = then_block.clone();
         self.compile_expr(receiver)?;
-        let guard = self.emit_jump(Bytecode::GuardBool, range);
-        let to_else = self.emit_jump(Bytecode::JumpIfFalse, range);
+        let guard = self.emit_forward_jump(Bytecode::GuardBool, range);
+        let to_else = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         self.compile_inline_block_body(Self::expect_block(then_block))?;
         if want_value {
             self.emit(Bytecode::WrapSome, range);
         }
-        let to_end_1 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(to_else);
+        let to_end_1 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(to_else);
         self.emit(Bytecode::Nil, range);
-        let to_end_2 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(guard);
+        let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(guard);
         self.compile_expr(then_block_fallback)?;
         self.emit_sacred_send("ifTrue", &[None], range);
-        self.patch_jump(to_end_1);
-        self.patch_jump(to_end_2);
+        self.patch_forward_jump(to_end_1);
+        self.patch_forward_jump(to_end_2);
         Ok(())
     }
 
@@ -335,22 +275,22 @@ impl<'vm> Compiler<'vm> {
     fn compile_if_false(&mut self, receiver: Expr, else_block: Expr, range: SourceRange, want_value: bool) -> Result<(), CompilerError> {
         let else_block_fallback = else_block.clone();
         self.compile_expr(receiver)?;
-        let guard = self.emit_jump(Bytecode::GuardBool, range);
-        let to_body = self.emit_jump(Bytecode::JumpIfFalse, range);
+        let guard = self.emit_forward_jump(Bytecode::GuardBool, range);
+        let to_body = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         // Condition is `true`: the `ifFalse` arm does not run.
         self.emit(Bytecode::Nil, range);
-        let to_end_1 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(to_body);
+        let to_end_1 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(to_body);
         self.compile_inline_block_body(Self::expect_block(else_block))?;
         if want_value {
             self.emit(Bytecode::WrapSome, range);
         }
-        let to_end_2 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(guard);
+        let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(guard);
         self.compile_expr(else_block_fallback)?;
         self.emit_sacred_send("ifFalse", &[None], range);
-        self.patch_jump(to_end_1);
-        self.patch_jump(to_end_2);
+        self.patch_forward_jump(to_end_1);
+        self.patch_forward_jump(to_end_2);
         Ok(())
     }
 
@@ -362,19 +302,19 @@ impl<'vm> Compiler<'vm> {
         let then_fallback = then_block.clone();
         let else_fallback = else_block.clone();
         self.compile_expr(receiver)?;
-        let guard = self.emit_jump(Bytecode::GuardBool, range);
-        let to_else = self.emit_jump(Bytecode::JumpIfFalse, range);
+        let guard = self.emit_forward_jump(Bytecode::GuardBool, range);
+        let to_else = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         self.compile_inline_block_body(Self::expect_block(then_block))?;
-        let to_end_1 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(to_else);
+        let to_end_1 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(to_else);
         self.compile_inline_block_body(Self::expect_block(else_block))?;
-        let to_end_2 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(guard);
+        let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(guard);
         self.compile_expr(then_fallback)?;
         self.compile_expr(else_fallback)?;
         self.emit_sacred_send("ifTrue", &[None, Some("ifFalse")], range);
-        self.patch_jump(to_end_1);
-        self.patch_jump(to_end_2);
+        self.patch_forward_jump(to_end_1);
+        self.patch_forward_jump(to_end_2);
         Ok(())
     }
 
@@ -385,18 +325,18 @@ impl<'vm> Compiler<'vm> {
     fn compile_and(&mut self, receiver: Expr, rhs_block: Expr, range: SourceRange) -> Result<(), CompilerError> {
         let rhs_fallback = rhs_block.clone();
         self.compile_expr(receiver)?;
-        let guard = self.emit_jump(Bytecode::GuardBool, range);
-        let to_short_circuit = self.emit_jump(Bytecode::JumpIfFalse, range);
+        let guard = self.emit_forward_jump(Bytecode::GuardBool, range);
+        let to_short_circuit = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         self.compile_inline_block_body(Self::expect_block(rhs_block))?;
-        let to_end_1 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(to_short_circuit);
+        let to_end_1 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(to_short_circuit);
         self.emit(Bytecode::False, range);
-        let to_end_2 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(guard);
+        let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(guard);
         self.compile_expr(rhs_fallback)?;
         self.emit_sacred_send("and", &[None], range);
-        self.patch_jump(to_end_1);
-        self.patch_jump(to_end_2);
+        self.patch_forward_jump(to_end_1);
+        self.patch_forward_jump(to_end_2);
         Ok(())
     }
 
@@ -405,18 +345,18 @@ impl<'vm> Compiler<'vm> {
     fn compile_or(&mut self, receiver: Expr, rhs_block: Expr, range: SourceRange) -> Result<(), CompilerError> {
         let rhs_fallback = rhs_block.clone();
         self.compile_expr(receiver)?;
-        let guard = self.emit_jump(Bytecode::GuardBool, range);
-        let to_rhs = self.emit_jump(Bytecode::JumpIfFalse, range);
+        let guard = self.emit_forward_jump(Bytecode::GuardBool, range);
+        let to_rhs = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         self.emit(Bytecode::True, range);
-        let to_end_1 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(to_rhs);
+        let to_end_1 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(to_rhs);
         self.compile_inline_block_body(Self::expect_block(rhs_block))?;
-        let to_end_2 = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(guard);
+        let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(guard);
         self.compile_expr(rhs_fallback)?;
         self.emit_sacred_send("or", &[None], range);
-        self.patch_jump(to_end_1);
-        self.patch_jump(to_end_2);
+        self.patch_forward_jump(to_end_1);
+        self.patch_forward_jump(to_end_2);
         Ok(())
     }
 
@@ -442,7 +382,7 @@ impl<'vm> Compiler<'vm> {
     fn compile_while_true(&mut self, cond_block: Expr, body_block: Expr, range: SourceRange) -> Result<(), CompilerError> {
         let cond_fallback = cond_block.clone();
         let body_fallback = body_block.clone();
-        let guard = self.emit_jump(Bytecode::GuardBlock, range);
+        let guard = self.emit_forward_jump(Bytecode::GuardBlock, range);
         let loop_start = self.functions.last().unwrap().chunk.code.len();
         // The context stays pushed across *both* the fast-path body below and
         // the deopt-fallback body compiled further down — they are the same
@@ -450,25 +390,25 @@ impl<'vm> Compiler<'vm> {
         // [`super::lib::Compiler::peek_loop_context_jumps`]'s doc for why.
         self.push_loop_context();
         self.compile_inline_block_body(Self::expect_block(cond_block))?;
-        let to_exit = self.emit_jump(Bytecode::JumpIfFalse, range);
+        let to_exit = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         self.compile_inline_block_body(Self::expect_block(body_block))?;
         self.emit(Bytecode::Pop, range); // discard the per-iteration body result
-        self.emit_loop(loop_start, range);
+        self.emit_backward_loop(loop_start, range);
         let (break_jumps, continue_jumps) = self.peek_loop_context_jumps();
-        self.patch_jump(to_exit);
+        self.patch_forward_jump(to_exit);
         for jump in break_jumps {
-            self.patch_jump(jump);
+            self.patch_forward_jump(jump);
         }
         for jump in continue_jumps {
-            self.patch_jump_to(jump, loop_start);
+            self.patch_forward_jump_to(jump, loop_start);
         }
         self.emit(Bytecode::Nil, range);
-        let to_end = self.emit_jump(Bytecode::Jump, range);
-        self.patch_jump(guard);
+        let to_end = self.emit_forward_jump(Bytecode::Jump, range);
+        self.patch_forward_jump(guard);
         self.compile_expr(cond_fallback)?;
         self.compile_expr(body_fallback)?;
         self.emit_sacred_send("whileTrue", &[None], range);
-        self.patch_jump(to_end);
+        self.patch_forward_jump(to_end);
         // Discard the context now that both bodies are compiled (its jumps
         // were already patched from the peek above).
         self.pop_loop_context();
