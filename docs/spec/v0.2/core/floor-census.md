@@ -90,6 +90,16 @@ positional holes (`+(_)`, `new()`), and labeled arguments are named
 > [`primitive/mod.rs`](../../../../phalcom-core/src/primitive/mod.rs) are written in
 > the human `_` form, so they do **not** string-match interned selectors — they
 > are display aliases, not lookup keys.)
+>
+> **Canonical vs. current interned form.** The **comma / no-space form**
+> (`+(_)`, `match(some,none)`, `move(_,to,duration)`) is the *canonical* spelling
+> per [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) —
+> use it in all normative prose. The colon `_:` form documented above is the
+> *current interned/heap encoding only*; it is transitional, and migrating the
+> interner to emit the comma form is owned by
+> [U-CORE-4](../units/U-CORE/4-value-tostring.md) (BD-CORE4-2). Colon-form
+> selector spellings are **deprecated** as a canonical notation — they persist in
+> as-built docs solely to describe what the binary interns today.
 
 "Instance" primitives are installed on the class row via `primitive!`; "static"
 primitives are installed on the class's **metaclass** via `primitive_static!`.
