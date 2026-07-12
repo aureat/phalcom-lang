@@ -257,6 +257,15 @@ impl VM {
         }
         Universe::install_primitives(&mut vm);
 
+        // Finalize every kernel row's base-name index (selectors.md §3.1,
+        // U16-Open) now that its native primitives are installed, so `::`
+        // works against a kernel class with no `.ph` reopen (e.g. `Behavior`,
+        // `Metaclass`, `Message`, `Fiber`) and not only the ones `core.ph`
+        // happens to touch. A `.ph` reopen below re-finalizes its own row
+        // anyway (`Bytecode::FinalizeClass`, idempotent rebuild), so this
+        // pass is never stale — only ever a floor under it.
+        vm.finalize_all_core_base_names();
+
         // Compile and run the registered core module now that every native
         // primitive is installed: this is what actually attaches each
         // `core.ph` class-reopen (`List`, `Option`, `Some`, `None`, `System`,
@@ -337,6 +346,92 @@ impl VM {
 
     /// Creates a user class `name` with its own metaclass and wires the tower.
     ///
+    /// Rebuilds `class_id`'s [`base_names`](crate::class::ClassObject::base_names)
+    /// index from scratch (selectors.md §3.1, U16-Open): its own directly
+    /// bound methods' base names, merged with its superclass's
+    /// already-finalized (and thus already-flattened) index.
+    ///
+    /// Idempotent — safe to call repeatedly (once per kernel row at
+    /// bootstrap, `VM::install_core`; again on every `.ph` class body or
+    /// reopen, [`Bytecode::FinalizeClass`])
+    /// since it always recomputes from the row's current
+    /// [`methods`](crate::class::ClassObject::methods) table rather than
+    /// accumulating onto the prior index. Requires the superclass to already
+    /// be finalized — every caller (the kernel bootstrap's dependency order,
+    /// the compiler's single top-down class-compile pass) upholds that.
+    pub fn finalize_class_base_names(&mut self, class_id: ClassId) {
+        let (own_selectors, superclass): (Vec<Symbol>, Option<ClassId>) = {
+            let class = self.heap.class(class_id);
+            (class.methods.keys().copied().collect(), class.superclass)
+        };
+        let mut merged: std::collections::HashMap<Symbol, Vec<Symbol>> = match superclass {
+            Some(sc) => self.heap.class(sc).base_names.clone(),
+            None => std::collections::HashMap::new(),
+        };
+        for selector in own_selectors {
+            let selector_str = self.resolve_symbol(selector).to_string();
+            let (name, _labels, _kind) = decode_selector(&selector_str);
+            let name_sym = self.interner.intern(&name);
+            let bucket = merged.entry(name_sym).or_default();
+            if !bucket.contains(&selector) {
+                bucket.push(selector);
+            }
+        }
+        self.heap.class_mut(class_id).base_names = merged;
+    }
+
+    /// Finalizes every kernel class row's (and its metaclass's) base-name
+    /// index (selectors.md §3.1, U16-Open) right after
+    /// [`Universe::install_primitives`] wires up the native floor.
+    ///
+    /// The list is in dependency order (each row's superclass appears
+    /// earlier), matching [`Self::finalize_class_base_names`]'s precondition.
+    /// A later `.ph` reopen in `core.ph` (or user code) re-finalizes its own
+    /// row idempotently via [`Bytecode::FinalizeClass`](crate::bytecode::Bytecode::FinalizeClass) —
+    /// this pass only guarantees every row has *some* finalized index, even
+    /// one `core.ph` never touches (`Behavior`, `Metaclass`, `Message`,
+    /// `Fiber`, …).
+    fn finalize_all_core_base_names(&mut self) {
+        let c = self.universe.classes;
+        let rows: [ClassId; 30] = [
+            c.object_class,
+            c.behavior_class,
+            c.class_class,
+            c.metaclass_class,
+            c.number_class,
+            c.string_class,
+            c.nil_class,
+            c.bool_class,
+            c.true_class,
+            c.false_class,
+            c.method_class,
+            c.function_class,
+            c.block_class,
+            c.symbol_class,
+            c.module_class,
+            c.system_class,
+            c.option_class,
+            c.some_class,
+            c.none_class,
+            c.list_class,
+            c.map_class,
+            c.set_class,
+            c.tuple_class,
+            c.range_class,
+            c.message_class,
+            c.error_class,
+            c.message_not_understood_class,
+            c.fiber_class,
+            c.cannot_yield_across_native_frame_class,
+            c.family_class,
+        ];
+        for class_id in rows {
+            self.finalize_class_base_names(class_id);
+            let meta_id = self.heap.class(class_id).class;
+            self.finalize_class_base_names(meta_id);
+        }
+    }
+
     /// Follows the metaclass parallel rule
     /// ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)):
     /// the metaclass `"{name}.class"` is an instance of `Metaclass` whose
@@ -489,6 +584,9 @@ impl VM {
         // guard error, both ordinary class globals.
         add_class!(fiber_class);
         add_class!(cannot_yield_across_native_frame_class);
+        // `Family` (selectors.md §3, U16-Open, ADR-0047): ordinary class
+        // global, native heap arm mirroring `Fiber`/`List`.
+        add_class!(family_class);
 
         // The `None` class row is *not* exposed under a class global (that name
         // is the singleton), but it must live in `self.classes` so a
@@ -1250,6 +1348,45 @@ impl VM {
                     let importer_path = self.heap.module(importer_module).path.clone();
                     let imported = self.import_module(&importer_path, &import_path)?;
                     self.stack.push(Value::Obj(imported));
+                }
+                Bytecode::MakeFamily(name_idx) => {
+                    let name_val = self.heap.closure(closure_id).callable.chunk.constants[name_idx as usize];
+                    let recv = self.stack.pop().unwrap();
+                    let Value::Symbol(name_sym) = name_val else {
+                        return Err(RuntimeError::Internal("MakeFamily constant is not a Symbol".into()).into());
+                    };
+                    let class_id = recv.class(self);
+
+                    // Reference-time empty-family check (selectors.md §3
+                    // error table): error unless the receiver's class
+                    // answers to this base name, or has a
+                    // `doesNotUnderstand(_:)` override.
+                    if !self.heap.class(class_id).responds_to_base_name(name_sym) {
+                        let dnu_str = crate::method::encode_selector("doesNotUnderstand", &[None], SignatureKind::Method(1));
+                        let dnu_sym = self.get_or_intern(&dnu_str);
+                        let object_cls = self.universe.classes.object_class;
+                        let default_dnu = crate::class::lookup_method_in_hierarchy(&self.heap, object_cls, dnu_sym);
+                        let actual_dnu = crate::class::lookup_method_in_hierarchy(&self.heap, class_id, dnu_sym);
+                        if actual_dnu == default_dnu {
+                            let class_name = self.heap.class(class_id).name.clone();
+                            let name_str = self.resolve_symbol(name_sym).to_string();
+                            return Err(RuntimeError::Message(format!(
+                                "{class_name} does not understand `{name_str}` — no method named `{name_str}` and no `doesNotUnderstand(_:)` override (`::` empty family)"
+                            ))
+                            .into());
+                        }
+                    }
+
+                    let family = Object::Family(crate::heap::FamilyObject { recv, name: name_sym });
+                    let family_id = self.heap.alloc(family);
+                    self.stack.push(Value::Obj(family_id));
+                }
+                Bytecode::FinalizeClass => {
+                    if let Value::Obj(class_id) = *self.stack.last().unwrap() {
+                        self.finalize_class_base_names(class_id);
+                        let meta_id = self.heap.class(class_id).class;
+                        self.finalize_class_base_names(meta_id);
+                    }
                 }
                 Bytecode::SuperSend(argc, selector_idx, defining_idx) => {
                     let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];

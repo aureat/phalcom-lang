@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 27] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 28] {
     let c = &vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -78,6 +78,9 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 27] {
         ("Message", c.message_class),
         ("Error", c.error_class),
         ("MessageNotUnderstood", c.message_not_understood_class),
+        // `Family` (U16-Open, ADR-0047): the `::` method-reference call
+        // router joins the audited census.
+        ("Family", c.family_class),
     ]
 }
 
@@ -653,6 +656,13 @@ fn floor_census_matches_installed_bindings() {
     // an ordinary send over the module's own globals table; the only way to
     // reach it from a message send (floor-census.md §2.12).
     const NEW_IMPORTS: usize = 1;
+    // U16-Open (ADR-0047, this unit's own amendment): `Family#doesNotUnderstand(_:)`
+    // = +1 (112 -> 113) — the uniform `::` call router (selectors.md §3):
+    // every bare-call selector shape misses `Family`'s otherwise-empty
+    // method table and lands here, which rebuilds the real selector from the
+    // family's base name + the missed call's labels and re-dispatches as an
+    // ordinary send (floor-census.md §2.16).
+    const NEW_FAMILY: usize = 1;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -793,6 +803,8 @@ fn floor_census_matches_installed_bindings() {
         (c.range_class, false, "rawStart"),
         (c.range_class, false, "rawEnd"),
         (c.range_class, false, "rawInclusive"),
+        // Family (U16-Open, ADR-0047) — NEW_FAMILY
+        (c.family_class, false, "doesNotUnderstand(_:)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -852,13 +864,33 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE + NEW_ON_ENSURE + NEW_IMPORTS,
-        "census must enumerate exactly 112 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045)"
+        BASELINE
+            + NEW
+            + NEW_METHOD_REFLECTION
+            + NEW_VALUE_TOSTRING
+            + NEW_ERROR
+            + NEW_MAP_SET
+            + NEW_TUPLE
+            + NEW_RANGE
+            + NEW_ON_ENSURE
+            + NEW_IMPORTS
+            + NEW_FAMILY,
+        "census must enumerate exactly 113 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047)"
     );
     assert_eq!(
         live.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE + NEW_ON_ENSURE + NEW_IMPORTS,
-        "the live floor must be exactly 112 bindings"
+        BASELINE
+            + NEW
+            + NEW_METHOD_REFLECTION
+            + NEW_VALUE_TOSTRING
+            + NEW_ERROR
+            + NEW_MAP_SET
+            + NEW_TUPLE
+            + NEW_RANGE
+            + NEW_ON_ENSURE
+            + NEW_IMPORTS
+            + NEW_FAMILY,
+        "the live floor must be exactly 113 bindings"
     );
 }
 

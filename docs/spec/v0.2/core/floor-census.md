@@ -33,9 +33,9 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **112** |
-| Distinct native Rust functions | **97** |
-| Classes carrying floor primitives | **21** (of 27 named kernel classes) |
+| Installed `(class, selector)` bindings | **113** |
+| Distinct native Rust functions | **98** |
+| Classes carrying floor primitives | **22** (of 28 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
 > **U-CORE-1 amendment ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).**
@@ -160,6 +160,19 @@ language is *self-hosting above a small, fixed native boundary*
 > plumbing (`Bytecode::Import` + the pre-existing `Bytecode::DefineGlobal`),
 > not a bound selector; it adds nothing to either count. R-INV-0.1 audits this
 > set.
+>
+> **U16-Open amendment ([ADR-0047](../../../adr/0047-amend-floor-admit-family-call-router.md)).**
+> The `::` method-reference call router admits **+1** binding (112 → 113) and
+> **+1** distinct fn (97 → 98): `Family#doesNotUnderstand(_)`
+> (`family_does_not_understand`, `primitive/family.rs`) — overrides `Object`'s
+> default miss handler so a `Family` value's own bare-call sends (`call()`,
+> `call(_:)`, `call(to:duration:)`, …), which `Family` never defines directly,
+> reach a handler that rebuilds the real selector from the family's base name
+> plus the missed call's decoded labels and re-dispatches it as an ordinary
+> send (selectors.md §3 "a family call *is* a send"). This is the *only*
+> selector `Family` carries — there is no reflective surface in this unit (Q14
+> ruling, `open-questions.md`). Floor-carrying classes go **21 → 22** (`Family`
+> is new). R-INV-0.1 audits this set.
 >
 > **Baseline:** post-U15 — the figures above (**112 / 97 / 21 / 7**) are the
 > current floor (was **111 / 96 / 21 / 7** post-U-ERR, **109 / 94 / 21 / 7**
@@ -500,6 +513,22 @@ inherits `message`/`raise` from `Error`.
 | `message` | instance | `error_message` | reads `_message` (slot 0); mirrors `Message`'s native accessors |
 | `raise()` | instance | `error_raise` | initiates the unified unwind's `Raise` payload (`RuntimeError::Raise`); `throw expr === expr.raise()` (ADR-0031 §1); installed on `Error` only (R-INV-6.3) |
 
+### 2.16 `Family` — `::` method-reference call router ([selectors.md §3](../selectors.md#3-method-references-), U16-Open, [ADR-0047](../../../adr/0047-amend-floor-admit-family-call-router.md))
+
+A native `Object::Family` heap variant (no `Value::Family` arm — reached
+through `Value::Obj` exactly as `Object::List` is), sitting directly under
+`Object`. `obj::name`/`Type::name` build one bound to the receiver; `Family`
+itself carries **no other selector** — every call shape misses its table by
+construction and lands on the router below, which rebuilds the real selector
+(`family`'s base name + the missed call's decoded labels) and re-dispatches
+as an ordinary send. Open form only — the Pinned `recv::#sel(...)` form is
+deferred to **U-LEX-HASH** (`#`-symbol-literal lexing); there is no
+reflective surface (Q14 ruling, `open-questions.md`).
+
+| Selector | Side | Native fn | Notes |
+|---|---|---|---|
+| `doesNotUnderstand(_)` | instance | `family_does_not_understand` | overrides `Object`'s default miss handler; the uniform call router |
+
 ## 3. The floor ↔ `core.ph` boundary
 
 Two classes now carry `.ph` surface protocol self-hosted over the floor
@@ -619,8 +648,8 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    [`tests/invariants.rs`](../../../../phalcom-core/tests/invariants.rs)
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
-   the census here (count = 80). This turns silent floor drift into a red test;
-   §1.1 is no longer a manual checksum.
+   the census here (count = 113). This turns silent floor drift into a red
+   test; §1.1 is no longer a manual checksum.
 
 ## 8. Traceability
 

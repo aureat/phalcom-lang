@@ -2,6 +2,7 @@ pub mod boolean;
 pub mod block;
 pub mod class;
 pub mod error;
+pub mod family;
 pub mod fiber;
 pub mod list;
 pub mod map;

@@ -1134,6 +1134,12 @@ impl<'vm> Compiler<'vm> {
 
                 self.current_class = None;
 
+                // Rebuild the class's (and its metaclass's) base-name index
+                // (selectors.md §3.1, U16-Open) now that every member of this
+                // body has been attached — peeks, does not pop, the class
+                // value still on the stack for `DefineGlobal` below.
+                self.emit(Bytecode::FinalizeClass, range);
+
                 // After defining all methods, the class is still on the stack.
                 // Define it as a global variable.
                 self.emit(Bytecode::DefineGlobal(name_idx), range);
@@ -1910,6 +1916,17 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
                     }
                 }
+            }
+            Expr::MethodRef(method_ref) => {
+                // `receiver::name` (selectors.md §3, U16-Open): compile the
+                // receiver, intern the bare base name as a constant, and let
+                // `Bytecode::MakeFamily`'s runtime handler do the
+                // reference-time empty-family check + `Family` allocation.
+                let method_ref = *method_ref;
+                self.compile_expr(method_ref.receiver)?;
+                let name_sym = self.vm.interner.intern(&method_ref.name);
+                let name_idx = self.add_constant(Value::Symbol(name_sym));
+                self.emit(Bytecode::MakeFamily(name_idx), method_ref.range);
             }
             Expr::GetProperty(get_prop) => {
                 // `super.prop` is a zero-arg super send (U-INH §3.4); the

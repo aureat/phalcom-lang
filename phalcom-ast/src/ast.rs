@@ -346,6 +346,9 @@ pub enum Expr {
     GetProperty(Box<GetPropertyExpr>),
     SetProperty(Box<SetPropertyExpr>),
     Block(Box<BlockExpr>),
+    /// A `::` method reference — `receiver::name` (selectors.md §3, U16-Open,
+    /// Open form only). See [`MethodRefExpr`].
+    MethodRef(Box<MethodRefExpr>),
 }
 
 impl Expr {
@@ -371,6 +374,7 @@ impl Expr {
             Expr::GetProperty(e) => e.range,
             Expr::SetProperty(e) => e.range,
             Expr::Block(e) => e.range,
+            Expr::MethodRef(e) => e.range,
         }
     }
 }
@@ -424,6 +428,28 @@ pub struct MethodCallExpr {
 pub struct GetPropertyExpr {
     pub object: Expr,
     pub property: String,
+    pub range: SourceRange,
+}
+
+/// A method reference expression, `receiver::name` (selectors.md §3,
+/// U16-Open — the **Open** form only; the Pinned `recv::#sel(...)` form is
+/// deferred to U-LEX-HASH, which needs `#`-symbol-literal lexing).
+///
+/// Both `obj::name` and `Type::name` parse to this node — `receiver` is
+/// whatever postfix expression preceded `::`, evaluated and bound as the
+/// resulting [`Family`](https://en.wikipedia.org/wiki/Message_passing)
+/// value's receiver at reference time. There is no unbound form in this
+/// unit's scope: the compiled `Family` always carries a concrete receiver
+/// value (`phalcom-core::heap::Object::Family`).
+#[derive(Debug, Clone)]
+pub struct MethodRefExpr {
+    /// The expression evaluated to produce the family's bound receiver.
+    pub receiver: Expr,
+    /// The base method name after `::` (not a full selector — the call-time
+    /// selector is built from this name plus the call site's argument
+    /// labels, selectors.md §3 "Open families resolve at call time").
+    pub name: String,
+    /// The source span from the start of `receiver` through the name.
     pub range: SourceRange,
 }
 

@@ -24,6 +24,7 @@ use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_fal
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_ensure, block_name, block_on, block_while_true};
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
+use crate::primitive::family::family_does_not_understand;
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_new, fiber_try, fiber_yield};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
@@ -256,6 +257,12 @@ impl Universe {
         let fiber_class = make_core_class(heap, "Fiber", object_class, metaclass_class);
         let cannot_yield_across_native_frame_class = make_core_class(heap, "CannotYieldAcrossNativeFrame", error_class, metaclass_class);
 
+        // `Family` (selectors.md §3, U16-Open, ADR-0047): the callable value
+        // a `::` method reference produces, a native `Object::Family` heap
+        // variant (no `Value::Family` arm) sitting directly under `Object`,
+        // mirroring `Fiber`/`List`.
+        let family_class = make_core_class(heap, "Family", object_class, metaclass_class);
+
         CoreClasses {
             object_class,
             behavior_class,
@@ -287,6 +294,7 @@ impl Universe {
             message_not_understood_class,
             fiber_class,
             cannot_yield_across_native_frame_class,
+            family_class,
         }
     }
 
@@ -517,6 +525,15 @@ impl Universe {
         // falling through to `MessageNotUnderstood` — see
         // `primitive::module::module_does_not_understand`.
         primitive!(vm, module_cls, "doesNotUnderstand", SignatureKind::Method(1), module_does_not_understand);
+
+        // `Family` call router (selectors.md §3, U16-Open, ADR-0047): every
+        // bare-call selector shape (`call()`, `call(_:)`, `call(to:duration:)`,
+        // …) misses `Family`'s own (empty) method table and lands here, which
+        // rebuilds the real selector from the family's base name + the missed
+        // call's decoded labels and re-dispatches — see
+        // `primitive::family::family_does_not_understand`.
+        let family_cls = vm.universe.classes.family_class;
+        primitive!(vm, family_cls, "doesNotUnderstand", SignatureKind::Method(1), family_does_not_understand);
 
         // Kernel `List` (ADR-0019/0020): five native floor primitives.
         // `rawLength`/`rawAt`/`rawSet`/`rawPush` are internal — `.ph`'s
@@ -945,4 +962,8 @@ pub struct CoreClasses {
     /// native frame (ADR-0030 §4, D-FIB-1). A direct subclass of
     /// [`Self::error_class`].
     pub cannot_yield_across_native_frame_class: ClassId,
+    /// `Family`, the callable value a `::` method reference produces
+    /// (selectors.md §3, U16-Open, [ADR-0047](../../../docs/adr/0047-amend-floor-admit-family-call-router.md)).
+    /// Backed by [`crate::heap::Object::Family`] — no `Value::Family` arm.
+    pub family_class: ClassId,
 }

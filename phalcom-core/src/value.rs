@@ -121,6 +121,10 @@ impl Value {
                 Object::Set(_) => vm.universe.classes.set_class,
                 Object::Tuple(_) => vm.universe.classes.tuple_class,
                 Object::Range(_) => vm.universe.classes.range_class,
+                // `::` method reference (selectors.md §3, U16-Open) — reached
+                // through `Value::Obj` exactly as `Object::List` is; no
+                // `Value::Family` arm (ADR-0010 keeps `Value` minimal).
+                Object::Family(_) => vm.universe.classes.family_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
             },
         }
@@ -221,6 +225,7 @@ impl Value {
                 Object::Set(_) => "<set>".to_string(),
                 Object::Tuple(_) => "<tuple>".to_string(),
                 Object::Range(_) => "<range>".to_string(),
+                Object::Family(_) => "<family>".to_string(),
                 Object::Upvalue(_) => "<upvalue>".to_string(),
             },
         }
@@ -249,7 +254,8 @@ impl Value {
                 | Object::Map(_)
                 | Object::Set(_)
                 | Object::Tuple(_)
-                | Object::Range(_) => CallContext::Instance { instance: *id },
+                | Object::Range(_)
+                | Object::Family(_) => CallContext::Instance { instance: *id },
                 Object::Class(_) => CallContext::Class { class: *id },
                 Object::Module(_) => CallContext::Module { module: *id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),

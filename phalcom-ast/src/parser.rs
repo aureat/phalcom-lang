@@ -1455,10 +1455,24 @@ impl<'source> Parser<'source> {
         let mut expr = self.parse_primary()?;
         while matches!(
             self.peek(),
-            Token::Dot | Token::QuestionDot | Token::LParen | Token::LBrace
+            Token::Dot | Token::QuestionDot | Token::LParen | Token::LBrace | Token::ColonColon
         ) {
             if self.eat(&Token::QuestionDot) {
                 expr = self.parse_optional_send(expr, start)?;
+            } else if self.eat(&Token::ColonColon) {
+                // `::` method reference (selectors.md §3, U16-Open — Open
+                // form only). The Pinned `recv::#sel(...)` form is deferred
+                // to U-LEX-HASH (needs `#`-symbol-literal lexing); this
+                // unit's grammar is exactly `postfix_expr "::" name`, uniform
+                // for both `obj::name` and `Type::name` — the receiver
+                // expression is whatever postfix chain preceded `::`.
+                let name = self.parse_property_name()?;
+                let range = (start..self.prev_end).into();
+                expr = Expr::MethodRef(Box::new(MethodRefExpr {
+                    receiver: expr,
+                    name,
+                    range,
+                }));
             } else if self.eat(&Token::Dot) {
                 let property = self.parse_property_name()?;
                 if self.eat(&Token::LParen) {

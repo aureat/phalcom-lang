@@ -238,4 +238,40 @@ pub enum Bytecode {
     /// [`Bytecode::DefineGlobal`] (compiled exactly as an ordinary top-level
     /// `let`/`var`) performs the `as Name` binding.
     Import(u16),
+
+    /// Builds a bound `::` method-reference **Family** value from a receiver
+    /// on the stack (selectors.md §3, U16-Open, [ADR-0047]).
+    ///
+    /// 0: constant-pool index of the base name
+    /// [`Symbol`](crate::interner::Symbol) (not a full selector).
+    ///
+    /// Pops the receiver, resolves its class, and checks the **reference-time
+    /// empty-family rule**: the reference is an error unless the receiver's
+    /// class [`responds_to_base_name`](crate::class::ClassObject::responds_to_base_name)
+    /// or has a `doesNotUnderstand(_:)` override (a class row whose resolved
+    /// `doesNotUnderstand(_:)` differs from `Object`'s default handler). On
+    /// success, allocates an [`Object::Family`](crate::heap::Object::Family)
+    /// bound to the receiver and pushes it. The call site never re-derives
+    /// this at call time — an Open family's *selector* is built later, at the
+    /// call (`primitive::family::family_does_not_understand`), but the
+    /// *check* happens exactly once, here.
+    ///
+    /// [ADR-0047]: ../../../docs/adr/0047-amend-floor-admit-family-call-router.md
+    MakeFamily(u16),
+
+    /// Rebuilds a class's (and its metaclass's) flattened
+    /// [`base_names`](crate::class::ClassObject::base_names) index from its
+    /// own directly-defined methods merged with its superclass's
+    /// already-finalized index (selectors.md §3.1, U16-Open).
+    ///
+    /// No operand: it **peeks** (does not pop) the class object left on top
+    /// of the stack by the class-body compile — the same value the following
+    /// [`Bytecode::DefineGlobal`] binds. Emitted once at the tail of every
+    /// class-body compile (`compiler/lib.rs`'s `Statement::Class` lowering,
+    /// after the member loop, before `DefineGlobal`), so a reopened class is
+    /// re-finalized (rebuilt from scratch, not accumulated) every time its
+    /// body compiles again. The kernel's native-only rows (no `.ph` class
+    /// body) are finalized once directly in `VM::install_core`, mirroring
+    /// this same rebuild.
+    FinalizeClass,
 }

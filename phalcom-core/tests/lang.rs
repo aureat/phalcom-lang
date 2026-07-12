@@ -321,6 +321,25 @@ fn imports() {
 }
 
 #[test]
+fn family() {
+    // U16-Open (selectors.md §3, ADR-0047): `::` method references, Open
+    // form only — `obj::name`/`Type::name` produce a callable `Family`
+    // whose call builds the selector from the base name + the call site's
+    // labels and performs an ordinary send; inheritance-flattened base-name
+    // index; a `doesNotUnderstand` override keeps an otherwise-empty family
+    // callable.
+    support::check_pass("family");
+}
+
+#[test]
+fn family_negative() {
+    // U16-Open: `obj::typo` on a class with no `typo` method and no
+    // `doesNotUnderstand` override errors at `::` reference time, naming
+    // the class (selectors.md §3 error table).
+    support::check_negative("family/negative");
+}
+
+#[test]
 fn imports_negative() {
     // U15: a missing import target and the documented cyclic-import
     // partial-init hazard (a name read across the not-yet-complete edge of

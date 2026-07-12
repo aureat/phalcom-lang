@@ -11,6 +11,7 @@ use crate::heap::{ClassId, Heap, ObjRef};
 use crate::interner::Symbol;
 use crate::value::Value;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 
 /// Selector → [`MethodObject`](crate::method::MethodObject) handle table.
 type MethodsMap = IndexMap<Symbol, ObjRef>;
@@ -38,6 +39,21 @@ pub struct ClassObject {
     pub field_count: u16,
     /// Class-side stored fields (static fields), stored as a fixed-size slot vector (ADR-0017).
     pub static_slots: Box<[Value]>,
+    /// The per-class **base-name index** (selectors.md §3.1, U16-Open):
+    /// every base method name reachable on this class — flattened through
+    /// inheritance — mapped to the full selector [`Symbol`]s that share it.
+    ///
+    /// Rebuilt from scratch at class-finalization time
+    /// ([`Bytecode::FinalizeClass`](crate::bytecode::Bytecode::FinalizeClass),
+    /// `VM::finalize_class_base_names`) by merging this row's own directly
+    /// bound [`methods`](Self::methods) with its already-finalized
+    /// superclass's index. Backs the `::` reference-time empty-family check
+    /// (a non-empty entry means at least one method answers to that base
+    /// name) and, incidentally, a future candidate-list/reflection surface.
+    /// Empty by default (`bare`) — a bootstrapped kernel row is finalized
+    /// once its native primitives are installed (`VM::install_core`), and a
+    /// `.ph` class body is finalized at its own compile tail.
+    pub base_names: HashMap<Symbol, Vec<Symbol>>,
 }
 
 /// Walks `class` and its superclasses for a method bound to `selector`.
@@ -74,6 +90,7 @@ impl ClassObject {
             field_slots: IndexMap::new(),
             field_count: 0,
             static_slots: Box::default(),
+            base_names: HashMap::new(),
         }
     }
 
@@ -112,5 +129,14 @@ impl ClassObject {
     /// any (no superclass walk).
     pub fn get_method(&self, selector: Symbol) -> Option<ObjRef> {
         self.methods.get(&selector).copied()
+    }
+
+    /// Returns whether this class's flattened [`base_names`](Self::base_names)
+    /// index answers to `name` (selectors.md §3.1, U16-Open) — the first half
+    /// of the `::` reference-time empty-family check. The second half (a
+    /// `doesNotUnderstand` override) needs a hierarchy walk and is checked
+    /// separately (`VM`'s `Bytecode::MakeFamily` handler).
+    pub fn responds_to_base_name(&self, name: Symbol) -> bool {
+        self.base_names.get(&name).is_some_and(|selectors| !selectors.is_empty())
     }
 }

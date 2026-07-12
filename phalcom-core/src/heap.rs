@@ -36,6 +36,7 @@ use crate::class::ClassObject;
 use crate::closure::ClosureObject;
 use crate::frame::CallFrame;
 use crate::instance::InstanceObject;
+use crate::interner::Symbol;
 use crate::list::ListObject;
 use crate::map::MapObject;
 use crate::method::MethodObject;
@@ -133,6 +134,34 @@ pub enum Object {
     /// generate elements in `.ph` over the raw getters. Immutable ⇒
     /// value-hashable, a valid `Map`/`Set` key (Q5).
     Range(RangeObject),
+    /// A bound `::` method reference — the callable **Family** value
+    /// produced by `obj::name` / `Type::name`
+    /// ([`FamilyObject`], selectors.md §3, U16-Open, [ADR-0047]).
+    ///
+    /// Open form only in this unit: `recv` is always a concrete bound value
+    /// (no unbound/first-argument form), and `name` is a bare base name, not
+    /// a full selector — the call-time selector is built from it plus the
+    /// call site's argument labels (`primitive::family::family_does_not_understand`).
+    ///
+    /// [ADR-0047]: ../../../docs/adr/0047-amend-floor-admit-family-call-router.md
+    Family(FamilyObject),
+}
+
+/// A bound `::` method reference (selectors.md §3, U16-Open).
+///
+/// Reached through [`Value::Obj`] exactly as an [`Object::List`] is — there
+/// is no `Value::Family` arm (`Value` stays minimal, ADR-0010). Both fields
+/// are `Copy`, so the object itself never needs mutable accessors: a
+/// `Family` is immutable once constructed.
+#[derive(Debug, Clone, Copy)]
+pub struct FamilyObject {
+    /// The receiver this family is bound to — `obj` in `obj::name`, or the
+    /// class object itself in `Type::name`.
+    pub recv: Value,
+    /// The base method name after `::` (not a full selector). The selector
+    /// actually sent is built at call time from this name plus the call
+    /// site's argument labels (selectors.md §3).
+    pub name: Symbol,
 }
 
 /// The lifecycle state of a [`FiberObject`]
@@ -702,6 +731,29 @@ impl Heap {
     pub fn as_fiber(&self, id: ObjRef) -> Option<&FiberObject> {
         match self.objects.get(id) {
             Some(Object::Fiber(fiber)) => Some(fiber),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`FamilyObject`] behind `id` (selectors.md §3, U16-Open).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Family`].
+    pub fn family(&self, id: ObjRef) -> &FamilyObject {
+        match self.get(id) {
+            Object::Family(family) => family,
+            _ => panic!("ObjRef {id:?} is not an Object::Family"),
+        }
+    }
+
+    /// Returns the [`FamilyObject`] behind `id`, or `None` if it is not one.
+    ///
+    /// There is deliberately no `family_mut` — a `Family` is immutable once
+    /// constructed (both fields are `Copy`, set once at [`Bytecode::MakeFamily`](crate::bytecode::Bytecode::MakeFamily)).
+    pub fn as_family(&self, id: ObjRef) -> Option<&FamilyObject> {
+        match self.objects.get(id) {
+            Some(Object::Family(family)) => Some(family),
             _ => None,
         }
     }
