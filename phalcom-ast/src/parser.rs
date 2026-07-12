@@ -1617,11 +1617,18 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses a property name after `.`: an identifier or the `class` keyword.
+    /// Parses a property name after `.`: an identifier, the `class` keyword,
+    /// or an overloadable operator token.
+    ///
+    /// The operator arms mirror [`Parser::parse_method_name`]'s set exactly
+    /// (U-ERR-FIX SUPER-OP-SYNTAX) so a `super.<operator>(...)` send parses
+    /// wherever an ordinary `.<operator>(...)` send already does — e.g.
+    /// `super.+(other)` super-calling an overridden `+` — closing the gap
+    /// where operator methods were overridable but not super-callable.
     ///
     /// # Errors
     ///
-    /// Returns an error if the token following `.` is neither.
+    /// Returns an error if the token following `.` is none of the above.
     fn parse_property_name(&mut self) -> ParserResult<String> {
         match self.peek().clone() {
             Token::Identifier(name) => {
@@ -1640,7 +1647,63 @@ impl<'source> Parser<'source> {
                 self.advance();
                 Ok("try".to_string())
             }
-            _ => Err(self.error_here(strs(&["identifier", "\"class\""]))),
+            Token::Plus => {
+                self.advance();
+                Ok("+".to_string())
+            }
+            Token::Minus => {
+                self.advance();
+                Ok("-".to_string())
+            }
+            Token::Asterisk => {
+                self.advance();
+                Ok("*".to_string())
+            }
+            Token::Slash => {
+                self.advance();
+                Ok("/".to_string())
+            }
+            Token::Percent => {
+                self.advance();
+                Ok("%".to_string())
+            }
+            Token::EqualEqual => {
+                self.advance();
+                Ok("==".to_string())
+            }
+            Token::BangEqual => {
+                self.advance();
+                Ok("!=".to_string())
+            }
+            Token::Less => {
+                self.advance();
+                Ok("<".to_string())
+            }
+            Token::LessEqual => {
+                self.advance();
+                Ok("<=".to_string())
+            }
+            Token::Greater => {
+                self.advance();
+                Ok(">".to_string())
+            }
+            Token::GreaterEqual => {
+                self.advance();
+                Ok(">=".to_string())
+            }
+            Token::And => {
+                self.advance();
+                Ok("and".to_string())
+            }
+            Token::Or => {
+                self.advance();
+                Ok("or".to_string())
+            }
+            Token::Is => {
+                self.advance();
+                Ok("is".to_string())
+            }
+            _ => Err(self.error_here(strs(&["identifier", "\"class\"", "operator"]))),
         }
     }
 
