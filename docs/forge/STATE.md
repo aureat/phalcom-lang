@@ -109,9 +109,16 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
 - **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
-- **Serial spine tail (current front — U16-Open is the LAST feature; all contend spine, single-writer):**
-  U-LEX-HASH (`#` symbol literals, owns lexer.rs+token.rs; MUST carry the Symbol#== value.rs:253 fix or
-  its graduated `literal_map_symbol_keys.ph` still fails retrieval — plan drafted) → U16-Pinned follow-on →
+- **U-LEX-HASH** ✅ ACCEPTED `fac45ae` (`#` symbol literals — name + selector forms; hand-scanner not Logos
+  per ADR-0016; canonicalization reuses `encode_selector` → selector-symbol==method-identity proven; coupled
+  Symbol#== fix `value.rs` value_eq; graduated `literal_map_symbol_keys.ph` + `functions_method_bind.ph`;
+  6 goldens + 7 snapshots, 2 negative-lane; **floor 0**). `#[]`/`#+(_)` paren-operator forms deferred (no
+  `[]` method-def grammar to canonicalize against) → DEFERRED, spec §2 mark honest. Reviewer APPROVE (10/10),
+  clean-checkout verified. **NB:** implementer's 1st commit `1dd03f1` staged tests-only (source uncommitted,
+  in-tree gate passed on dirty tree); orchestrator amended source in → `fac45ae`, clean-checkout re-verified.
+  Lesson banked [[clean-checkout-verify-each-commit]].
+- **Serial spine tail (current front — U16-Open was LAST feature; all contend spine, single-writer):**
+  U16-Pinned (NEXT — brief ready, floor 0) → 
   bug-fix tail (grouped by write-set: Symbol#==·U-ERR 4-wave [PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/
   NOT-KEYWORD]·iter deopt-trap+method-reopening·SuperSend-IC+SOURCE_MAP·U-FIBER-FIX cluster) → U-SCHED
   (U-FUTURE Slice B). RECONCILE-FIRST: `has_new_construct` guard (DEFERRED L18) may already be fixed per
