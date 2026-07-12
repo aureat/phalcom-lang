@@ -95,9 +95,19 @@ Suspected bugs → reported not pinned-as-pass (Symbol#== + method-reopening alr
   `p.toString`→`<Point>` but `System.print(p)`→`<Point instance>`. File to DEFERRED after U-ERR
   (print path = value.rs/vm.rs). Blocks a user-object-print golden until fixed.
 
-Round-2 total 25 fixtures (arithmetic 10, booleans 3, reflection 6, bindings 4, system 2).
-Corpus 284 → 309 after round-2 commit. 3 new bugs banked for DEFERRED: BUG-SUPER-STATIC,
-BUG-SUPER-OP-SYNTAX, BUG-NOT-KEYWORD, BUG-PRINT-TOSTRING (4 total incl. print).
+Round-2 total 25 fixtures (arithmetic 10, booleans 3→2 pos, reflection 6, bindings 4, system 2).
+Corpus 284 → 309. Round-2 committed `bb01171`, one lane-fix `d18d290` (moved a DNU error fixture
+booleans/→runtime-errors/ negative lane; suite green 27/0). **Test-lane gotcha → memory
+[[phalcom-golden-test-lanes]].** 4 bugs banked for DEFERRED (file after U-ERR): BUG-SUPER-STATIC,
+BUG-SUPER-OP-SYNTAX, BUG-NOT-KEYWORD, BUG-PRINT-TOSTRING.
+
+## Test-corpus deepening COMPLETE (green). THREE waves, 91 adversarial fixtures, 228→319.
+- Wave 1 (56): OO tower, collections, closures, absence — `aa1bb3d`.
+- Wave 2 (25): arithmetic/booleans, reflection/bindings/system — `bb01171` + lane-fix `d18d290`.
+- Wave 3 (10): concurrency (fiber+future deep) — pre-commit verified, committing.
+16 dirs deepened. 4 bugs surfaced (BUG-SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING).
+Sole outstanding writer: U-ERR (a0e2afec, spine). On U-ERR land: reconcile MANIFEST (+91 tests +
+U-ERR's), file the 4 bugs to DEFERRED, review U-ERR diff (reviewer ON), full combined verify, fire U15.
 
 ## In flight (this session)
 - **U-FUTURE-A** ✅ — Slice A settle-once `Future` `f0d128a`. Pure `.ph`, zero native, floor-0,
