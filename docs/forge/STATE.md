@@ -1,53 +1,44 @@
-# Forge session state — paused for worktree merge
+# Forge session state — three-worktree consolidation complete
 
-Paused 2026-07-12. Resume only after both live worktrees merge to `main`.
+Consolidated 2026-07-12. All three concurrent trees landed on `main`, green.
 
-## Live worktrees (do not touch until merged)
+## Landed
 
-- `/Users/altunhasanli/dev/phalcom/phalcom/.claude/worktrees/agent-ab866f0b94ce3ab12`
-  branch `worktree-agent-ab866f0b94ce3ab12`, HEAD `482f235` — U-FIBER, **done**.
-- `/Users/altunhasanli/dev/phalcom/u-iter-wt`
-  branch `u-iter-work`, HEAD `0142c7a` — U-ITER, status unknown to this session.
+`main` at `3944cc9`, linear history:
 
-Main is at `738d17b`, untouched by either.
+- `fa7aeb2` docs — U-FIBER/U-ITER/U-FUTURE specs, refactor plan, tech-debt notes.
+- `8f6bf50` merge `u-iter-work` — **U-ITER** (for/break/continue, cursor
+  `iterate(_)`/`iteratorValue(_)` protocol, direct jump-loop lowering).
+  Conflicts resolved additively in `compiler/lib.rs` (U-INH ctor-chain helpers
+  + U-ITER loop helpers coexist), `DEFERRED.md`, `MANIFEST.md`.
+- `5334774`..`99335dd` **U-FIBER** (bare cooperative fibers — typed switch
+  signal, call/yield/try/abort/current, fiber-floor capture), rebased onto the
+  post-U-ITER `main` (auto-merged `vm.rs` against the loop-lowering trim).
+- `a26b05b` **U-FIBER blocker fix** — cross-fiber open-upvalue soundness.
+  Reviewer BLOCK: `Upvalue::Open(slot)` indexed whichever fiber's stack was
+  live, panicking (or silently corrupting) when a closure was resumed on a
+  different fiber than its home frame. Fixed by tagging
+  `Upvalue::Open { fiber, slot }` and resolving against the owning fiber's
+  stack (live if current, else parked). Regression golden C-FIB-6
+  (`concurrency_fiber_captures_enclosing_local`).
+- `3944cc9` docs — corpus recount (PASS 149 · NEG 31 · PEND 31 · total 211)
+  + U-FIBER reviewer's five non-blocking findings registered in `DEFERRED.md`.
 
-## U-FIBER — complete, verify green, ready to merge
+Gate green at HEAD: `./scripts/verify.sh` (build + full test + clippy) all lanes.
 
-Commits (on `worktree-agent-ab866f0b94ce3ab12`, stacked on main's `bb5d4f3`):
-- `475dee8` step 1 — `Object::Fiber` heap variant, `CoreClasses` fields,
-  `VM::current: ObjRef` root-fiber plumbing (pure refactor).
-- `482f235` step 2/3 — typed switch signal (`switch_pending` +
-  `native_reentry_depth`, D-FIB-5), `primitive/fiber.rs` (new/call/try/yield/
-  current/abort), `run_until` split into a fiber-aware wrapper (fiber-floor
-  capture) + `run_until_inner`, universe.rs registration, 4 concurrency
-  goldens (counter yield/resume, resume-value delivery, restricted-yield
-  guard, try/abort/current).
+## Worktrees / branches
 
-`./scripts/verify.sh` and `cargo doc --workspace --no-deps` both green at
-`482f235` (only pre-existing unrelated `nil.rs` doc warning remains).
+Both worktrees removed; `worktree-agent-ab866f0b94ce3ab12`, `u-iter-work`, and
+the temporary `main-latest` rebase branch deleted (all `-d` safe-deletes →
+fully merged). Only `main` + the unrelated `docs/spec-next-libraries` remain.
 
-No further U-FIBER work is required for the bare-fiber scope (D-FIB-1..7).
-`Future`/`async`/`await` stays pending (`concurrency/pending/`), out of
-scope for this unit.
+## Open follow-ons (in `DEFERRED.md`)
 
-### Merge note
-`core.ph` is the shared serialization point between U-FIBER and U-ITER — no
-conflict expected (U-FIBER touched no `.ph` files), but re-run
-`./scripts/verify.sh` on `main` after both merge, before any further work.
+U-FIBER non-blocking: root-abort guard (`fiber.rs:~109`), C-FIB-5 golden +
+invariants assertion, resume-gate message clarity, failure-cascade parked-frame
+retention, `switch_to_fiber_and_deliver` dedup. Plus the pre-existing U-ITER
+generator PENDING fixtures that graduate now U-FIBER has landed.
 
-## Next steps after merge
+## Next
 
-1. Merge `worktree-agent-ab866f0b94ce3ab12` → `main` (U-FIBER).
-2. Merge `u-iter-work` → `main` (U-ITER) — check its own state/plan first,
-   this session did not touch it.
-3. Re-run `./scripts/verify.sh` + `cargo doc --workspace --no-deps` on `main`
-   post-merge.
-4. Check `docs/forge/DEFERRED.md` and `docs/forge/units/U-FIBER/plan.md` for
-   any remaining checkbox/status updates the merge should carry.
-5. Then resume normal `/forge` dispatch for the next queued unit.
-
-Full implementation detail (mechanism design, decisions, exact
-edit-anchors) is in the prior turn's handoff text in this session's
-transcript and in `docs/forge/units/U-FIBER/plan.md` /
-`implementation-spec.md` — re-read those before resuming if this file alone
-isn't enough context.
+Resume normal `/forge` dispatch for the next queued unit.
