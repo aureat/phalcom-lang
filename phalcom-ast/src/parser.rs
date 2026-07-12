@@ -1650,25 +1650,39 @@ impl<'source> Parser<'source> {
     /// `#a`), mirroring labeled-argument parsing ([ADR-0032] §3.1).
     ///
     /// The disambiguation itself — one token of lookahead, `{ IDENT : }` ⇒ map
-    /// and every other `{`-form ⇒ block — is the hard, shipped part of this
-    /// unit. The *runtime* lowering to the native `Map` arm is deferred to the
-    /// collection-runtime unit (U-COLLTYPES; DEC-COLL-B), so a fully-parsed
-    /// map literal currently yields a precise "pending" diagnostic rather than
-    /// an expression. The empty map is spelled `Map()`, not `{}` (spec §6:
-    /// `{}` is the empty block, so there is no empty-map literal).
+    /// and every other `{`-form ⇒ block — was the hard, shipped part of the
+    /// surface unit (U-COLL). The *runtime* lowering to the native `Map` arm
+    /// (U-COLLTYPES) now resolves each pair to a `Map#at(_, put:)` send —
+    /// see [`Self::map_construction_chain`]. The empty map is spelled
+    /// `Map()`, not `{}` (spec §6: `{}` is the empty block, so there is no
+    /// empty-map literal).
     ///
     /// [ADR-0032]: ../../../docs/adr/0032-collections-representation-and-literals.md
     ///
     /// # Errors
     ///
-    /// Propagates any [`SyntaxError`] from a key or value, then — once the
-    /// literal parses cleanly — returns a [`SyntaxErrorKind::Message`]
-    /// "pending" diagnostic, because the map runtime is deferred.
+    /// Propagates any [`SyntaxError`] from a key or value, or from a missing
+    /// closing `}`.
     fn parse_map_literal(&mut self, start: usize) -> ParserResult<Expr> {
+        let mut pairs: Vec<(Expr, Expr)> = Vec::new();
         loop {
-            let _key = self.expect_identifier(&["map key"])?;
+            let key_start = self.cur_start();
+            let key_name = self.expect_identifier(&["map key"])?;
+            let key_range: SourceRange = (key_start..self.prev_end).into();
+            // Bare-identifier key -> a Symbol, built via `Symbol.new("name")`
+            // (ADR-0032 §3.1: `{a: 1}` ≡ key `#a`). There is no `#a` sigil in
+            // the lexer yet (a separate, reserved-inactive surface — see
+            // DEFERRED.md), so the desugar targets the existing interning
+            // constructor directly rather than a literal token.
+            let key = Expr::MethodCall(Box::new(MethodCallExpr {
+                object: Expr::Var { value: "Symbol".to_string(), range: key_range },
+                method: "new".to_string(),
+                args: vec![Argument { label: None, expr: Expr::String { value: key_name, range: key_range }, range: key_range }],
+                range: key_range,
+            }));
             self.expect(&Token::Colon, &["\":\""])?;
-            let _value = self.parse_expr()?;
+            let value = self.parse_expr()?;
+            pairs.push((key, value));
             if !self.eat(&Token::Comma) {
                 break;
             }
@@ -1678,14 +1692,38 @@ impl<'source> Parser<'source> {
             }
         }
         self.expect(&Token::RBrace, &["\"}\""])?;
-        Err(SyntaxError {
-            kind: SyntaxErrorKind::Message(
-                "map literal `{k: v}` is recognised but its runtime is not yet implemented \
-                 (pending the collection-runtime unit); use `Map()` sends for now"
-                    .to_string(),
-            ),
-            range: start..self.prev_end,
-        })
+        let range: SourceRange = (start..self.prev_end).into();
+        Ok(Self::map_construction_chain(pairs, range))
+    }
+
+    /// Folds `pairs` into a `Map` construction chain
+    /// `Map.new().at(k1, put: v1)…​.at(kn, put: vn)`, all sharing the
+    /// synthetic `range` — the map-literal analogue of
+    /// [`Self::list_construction_chain`]. Because `Map#at(_, put:)` returns
+    /// `self`, the result is a single expression; `{}`'s empty-map case does
+    /// not exist (spec §6: `{}` is the empty block), so `pairs` is never
+    /// empty at a real call site, but an empty `pairs` still yields the bare
+    /// `Map.new()` receiver for robustness.
+    fn map_construction_chain(pairs: Vec<(Expr, Expr)>, range: SourceRange) -> Expr {
+        let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
+            object: Expr::Var { value: "Map".to_string(), range },
+            method: "new".to_string(),
+            args: Vec::new(),
+            range,
+        }));
+        for (key, value) in pairs {
+            let value_range = value.range();
+            acc = Expr::MethodCall(Box::new(MethodCallExpr {
+                object: acc,
+                method: "at".to_string(),
+                args: vec![
+                    Argument { label: None, expr: key, range: value_range },
+                    Argument { label: Some("put".to_string()), expr: value, range: value_range },
+                ],
+                range,
+            }));
+        }
+        acc
     }
 
     /// Parses a comma-separated run of expressions up to (but not consuming)

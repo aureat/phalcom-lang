@@ -19,9 +19,12 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, collections,
   compile-errors, concurrency, control-flow, dispatch, errors, functions, inheritance,
   iteration, lexical, list, messages, metaclass, runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 157 · NEGATIVE 34 · PENDING 32 · **total 223** (at the
-  `U-COLLTYPES` Phase 3 `Range` landing; +1 PASS over Phase 2 (new
-  `range_basics.ph`) — Phase 2 was +2 PASS / -1 PENDING over Phase 1
+- **Case counts:** PASS 158 · NEGATIVE 33 · PENDING 32 · **total 223** (at the
+  `U-COLLTYPES` `{k:v}`-map-literal wiring, landed after Phase 3; +1 PASS /
+  -1 NEGATIVE — `negative/map_literal_pending.ph` retired (the map literal no
+  longer raises a "pending" diagnostic) and replaced by
+  `map_literal_construction.ph`. Phase 3 (`Range`) was +1 PASS over Phase 2
+  (new `range_basics.ph`) — Phase 2 was +2 PASS / -1 PENDING over Phase 1
   (`literal_tuple.ph` graduated `pending/` → PASS plus a new `tuple_basics.ph`)
   — Phase 1 was +1 PASS / +1 NEGATIVE over the `U-COLL` collection-literal
   landing, itself +4 PASS / +2 NEGATIVE / +2 PENDING over the
@@ -48,7 +51,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | dispatch | 3 | – | 5 | `check_pass` + `check_pending` | messages-and-selectors.md; method-lookup.md; object-model.md |
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
 | list | 4 | – | – | `check_pass` | U-LIST-plan.md; ADR-0019; ADR-0020 |
-| collections | 13 | 3 | 1 | `check_pass` (+ `check_negative`, `check_pending`) | U-CORE-5 as-built.md; U-COLL: lexical-structure.md §4/§6/§7/§8; ADR-0029; ADR-0032; U-COLLTYPES: map-and-set.md; tuple-and-range.md; ADR-0039 |
+| collections | 14 | 2 | 1 | `check_pass` (+ `check_negative`, `check_pending`) | U-CORE-5 as-built.md; U-COLL: lexical-structure.md §4/§6/§7/§8; ADR-0029; ADR-0032; U-COLLTYPES: map-and-set.md; tuple-and-range.md; ADR-0039 |
 | iteration | 8 | – | 2 | `check_pass` (+ `iteration_disasm`, `check_pending`) | ADR-0035; iteration.md; U-ITER specification |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
 | runtime-errors | – | 10 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3 |
