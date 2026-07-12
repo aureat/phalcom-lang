@@ -19,7 +19,14 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, collections,
   compile-errors, concurrency, control-flow, dispatch, errors, functions, inheritance,
   iteration, lexical, list, messages, metaclass, runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 160 · NEGATIVE 33 · PENDING 32 · **total 225** (+2 PASS —
+- **Case counts:** PASS 163 · NEGATIVE 33 · PENDING 32 · **total 228** (+3 PASS —
+  U-FUTURE Slice A (pure `.ph` settle-once `Future`; `docs/forge/units/U-FUTURE/plan.md`):
+  `concurrency/concurrency_future_value_error_isready.ph` (C-FUT-1 settled half,
+  C-FUT-8), `concurrency/concurrency_future_settle_once.ph` (C-FUT-3), and
+  `concurrency/concurrency_future_then_map_catch_settled.ph` (C-FUT-4 settled-only
+  half); the suspending half — `async`/`await`, pending-continuation drain — is
+  Slice B, gated on DEC-FUT-SCHED and unowned `U-SCHED`, and stays out of this
+  corpus for now (see `concurrency/pending/concurrency_future_async_await.ph`);
   the U-ITER deferred item 5 fiber x generator fixtures `iteration/for_generator_suspends.ph`
   (C-ITER-8) and `concurrency/each_generator_raises.ph`, cut from U-ITER and graduated now
   that U-FIBER has landed, over the `U-COLLTYPES` `{k:v}`-map-literal wiring, landed after
@@ -62,7 +69,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | absence | 10 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | – | – | 2 | `check_pending` | control-flow.md |
-| concurrency | 6 | – | 1 | `check_pass` + `check_pending` | concurrency.md; ADR-0030 |
+| concurrency | 9 | – | 1 | `check_pass` + `check_pending` | concurrency.md; ADR-0030 |
 | errors | – | – | 2 | `check_pending` | error-handling.md |
 | functions | – | – | 2 | `check_pending` | functions.md; selectors.md |
 

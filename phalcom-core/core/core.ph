@@ -611,3 +611,140 @@ class System {
     // Native print function
   }
 }
+
+// `Future` (U-FUTURE Slice A; concurrency.md §2; ADR-0030 §1): a settle-once
+// state machine over a fulfilled/rejected result. Slice A ships the
+// **scheduler-free** half of the spec surface only — `value(_)`/`error(_)`
+// construct an already-settled future, `isReady`/`value` read it, and
+// `then`/`map`/`catch` fire synchronously because a Slice-A future is
+// *always* already settled by the time `.ph` code can observe it. This is a
+// **plain `InstanceObject`** (concurrency.md §2 "Implementation" ¶1) — zero
+// new floor, zero native code, no `Fiber` dependency (a settled future never
+// suspends). `async(_)`/`await` and the pending→settle drain need a native
+// ready-queue (`System.schedule(_)`) and `Fiber#isDone`, neither of which is
+// landed; that is Slice B, gated on DEC-FUT-SCHED
+// (`docs/forge/units/U-FUTURE/plan.md` §9) — deliberately NOT built here.
+//
+// State lives in three private fields (plan §6.1): `_state` (one of the
+// strings `"pending"`, `"fulfilled"`, `"rejected"`), `_value` (the settled
+// value or the captured `Error`), and `_waiters` (a `List`, always empty in
+// Slice A — no suspender ever registers on it; kept as a field now so Slice
+// B's pending→settle drain is an additive change to this same layout, not a
+// field-layout break).
+class Future {
+  // Builds an already-`fulfilled` future wrapping `v` (concurrency.md §2
+  // `construct value(_)`). Goes through the pending→`settleValue` path
+  // rather than setting `_state`/`_value` directly so construction and
+  // post-construction settlement share one settle-once code path.
+  construct value(v) {
+    _state = "pending"
+    _value = None
+    _waiters = List.new()
+    self.settleValue(v)
+  }
+
+  // Builds an already-`rejected` future wrapping `e` (concurrency.md §2
+  // `construct error(_)`); see `value(_)` for why this routes
+  // through `settleError` instead of assigning state directly.
+  construct error(e) {
+    _state = "pending"
+    _value = None
+    _waiters = List.new()
+    self.settleError(e)
+  }
+
+  // `true` once `self` has settled (`fulfilled` or `rejected`); `false`
+  // while `pending`. Never suspends (C-FUT-8) — Slice A has no suspension
+  // mechanism to trigger in the first place.
+  isReady => _state != "pending"
+
+  // Settles `self` as `fulfilled` with `v`, unless already settled (settle-
+  // once, C-FUT-3): a `self.isReady` receiver is a no-op that returns `self`
+  // unchanged, so a second `settleValue`/`settleError` can never clobber the
+  // first result. Returns `self` either way so callers can chain.
+  settleValue(v) {
+    if (self.isReady) {
+      return self
+    } else {
+      _state = "fulfilled"
+      _value = v
+      return self
+    }
+  }
+
+  // Settles `self` as `rejected` with `e` (an `Error`), unless already
+  // settled — the rejection sibling of `settleValue(_)`; see it for
+  // the settle-once contract (C-FUT-3).
+  settleError(e) {
+    if (self.isReady) {
+      return self
+    } else {
+      _state = "rejected"
+      _value = e
+      return self
+    }
+  }
+
+  // The settled value as an `Option` (concurrency.md §2): `Some(v)` once
+  // `fulfilled`, `None` while `pending` or once `rejected` (the rejection
+  // reason is reached via `catch(_)`/`then(_)`, not `value`). Never
+  // suspends (C-FUT-8) — a plain field read, no `Fiber` involved.
+  value => (_state == "fulfilled").ifTrue({ Some.new(_value) }, ifFalse: { None })
+
+  // Registers a continuation on the settled/fulfilled path (concurrency.md
+  // §2 `then(_)`). Slice A receivers are always already settled, so this
+  // fires synchronously: on `fulfilled`, calls `f` with the value and wraps
+  // its result in a fresh fulfilled future (`Future.value(f.call(_value))`,
+  // plan §6.2); on `rejected`, the rejection propagates unchanged (`self`)
+  // without invoking `f`. A `pending` receiver can only occur under Slice
+  // B's scheduler (no Slice-A constructor ever produces one) — raises
+  // rather than silently hanging, since Slice A has no drain to fire the
+  // continuation later.
+  then(f) {
+    if (self.isReady) {
+      if (_state == "fulfilled") {
+        return Future.value(f.call(_value))
+      } else {
+        return self
+      }
+    } else {
+      return Error.new().raise()
+    }
+  }
+
+  // `then(_)` restricted to the fulfilled path (concurrency.md §2 `map(_)`):
+  // identical settled-synchronous behavior to `then(_)` in Slice A
+  // — both fire `f` only on `fulfilled` and propagate `rejected` unchanged —
+  // kept as a distinct selector because the spec keeps them distinct (§4:
+  // "do not introduce aliases") and Slice B's suspending forms diverge.
+  map(f) {
+    if (self.isReady) {
+      if (_state == "fulfilled") {
+        return Future.value(f.call(_value))
+      } else {
+        return self
+      }
+    } else {
+      return Error.new().raise()
+    }
+  }
+
+  // Registers an error handler on the rejected path (concurrency.md §2
+  // `catch(_)`): on `rejected`, calls `f` with the captured `Error` and
+  // wraps its result in a fresh **fulfilled** future — `catch` recovers, it
+  // does not re-reject (`Future.value(f.call(_value))`, plan §6.2); on
+  // `fulfilled`, passes through unchanged (`self`) without invoking `f`. A
+  // `pending` receiver is Slice B territory; see `then(_)` for why
+  // this raises rather than hangs.
+  catch(f) {
+    if (self.isReady) {
+      if (_state == "rejected") {
+        return Future.value(f.call(_value))
+      } else {
+        return self
+      }
+    } else {
+      return Error.new().raise()
+    }
+  }
+}
