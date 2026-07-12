@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 25] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 27] {
     let c = &vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -71,6 +71,10 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 25] {
         // U-COLLTYPES Phase 1 (ADR-0039): Map/Set join the audited census.
         ("Map", c.map_class),
         ("Set", c.set_class),
+        // U-COLLTYPES Phase 2 (ADR-0039): Tuple joins the audited census.
+        ("Tuple", c.tuple_class),
+        // U-COLLTYPES Phase 3 (ADR-0039): Range joins the audited census.
+        ("Range", c.range_class),
         ("Message", c.message_class),
         ("Error", c.error_class),
         ("MessageNotUnderstood", c.message_not_understood_class),
@@ -590,6 +594,13 @@ fn floor_census_matches_installed_bindings() {
     // rawHas/rawRemove/rawKeyAt/rawValueAt) + Set (6: new/rawSize/rawAdd/
     // rawHas/rawRemove/rawAt) = +14 (88 -> 102).
     const NEW_MAP_SET: usize = 14;
+    // U-COLLTYPES Phase 2 (ADR-0039): Tuple (3: fromList/rawSize/rawAt) = +3
+    // (102 -> 105). No mutation primitive — immutability is structural.
+    const NEW_TUPLE: usize = 3;
+    // U-COLLTYPES Phase 3 (ADR-0039): Range (4: new/rawStart/rawEnd/
+    // rawInclusive) = +4 (105 -> 109). The WHOLE floor — everything else is
+    // .ph over these + Number arithmetic.
+    const NEW_RANGE: usize = 4;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -717,6 +728,15 @@ fn floor_census_matches_installed_bindings() {
         (c.set_class, false, "rawHas(_:)"),
         (c.set_class, false, "rawRemove(_:)"),
         (c.set_class, false, "rawAt(_:)"),
+        // Tuple (U-COLLTYPES Phase 2, ADR-0039) — NEW_TUPLE
+        (c.tuple_class, true, "fromList(_:)"),
+        (c.tuple_class, false, "rawSize"),
+        (c.tuple_class, false, "rawAt(_:)"),
+        // Range (U-COLLTYPES Phase 3, ADR-0039) — NEW_RANGE
+        (c.range_class, true, "new(_:_:_:)"),
+        (c.range_class, false, "rawStart"),
+        (c.range_class, false, "rawEnd"),
+        (c.range_class, false, "rawInclusive"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -776,13 +796,13 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET,
-        "census must enumerate exactly 102 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set)"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE,
+        "census must enumerate exactly 109 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range)"
     );
     assert_eq!(
         live.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET,
-        "the live floor must be exactly 102 bindings"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING + NEW_ERROR + NEW_MAP_SET + NEW_TUPLE + NEW_RANGE,
+        "the live floor must be exactly 109 bindings"
     );
 }
 

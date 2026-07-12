@@ -10,10 +10,12 @@ pub mod module;
 pub mod nil;
 pub mod number;
 pub mod object;
+pub mod range;
 pub mod set;
 pub mod string;
 pub mod symbol;
 pub mod system;
+pub mod tuple;
 
 #[non_exhaustive]
 pub struct Sig;
@@ -83,6 +85,8 @@ impl ClassName {
     pub const List: &'static str = "List";
     pub const Range: &'static str = "Range";
     pub const Map: &'static str = "Map";
+    pub const Set: &'static str = "Set";
+    pub const Tuple: &'static str = "Tuple";
     pub const Fiber: &'static str = "Fiber";
     pub const Future: &'static str = "Future";
 }
@@ -269,6 +273,46 @@ pub(crate) fn expect_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
         Value::Obj(id) if vm.heap.as_set(*id).is_some() => Ok(*id),
         other => Err(RuntimeError::Type {
             expected: "Set",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Extracts a tuple's [`ObjRef`] handle from a receiver value.
+///
+/// Mirrors [`expect_list`]: a tuple is a [`Value::Obj`] whose heap object is a
+/// [`crate::tuple::TupleObject`] behind [`crate::heap::Object::Tuple`]
+/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a `Tuple`.
+pub(crate) fn expect_tuple(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    match value {
+        Value::Obj(id) if vm.heap.as_tuple(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type {
+            expected: "Tuple",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
+/// Extracts a range's [`ObjRef`] handle from a receiver value.
+///
+/// Mirrors [`expect_tuple`]: a range is a [`Value::Obj`] whose heap object is
+/// a [`crate::range::RangeObject`] behind [`crate::heap::Object::Range`]
+/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a `Range`.
+pub(crate) fn expect_range(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    match value {
+        Value::Obj(id) if vm.heap.as_range(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type {
+            expected: "Range",
             found: other.type_name(),
         }
         .into()),

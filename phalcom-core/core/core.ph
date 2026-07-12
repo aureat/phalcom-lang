@@ -449,6 +449,163 @@ class Set {
   }
 }
 
+// Kernel Tuple (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a native fixed
+// arity immutable slice — Object::Tuple, mirroring List's shape but with NO
+// mutation selector (immutability is structural, TupleObject's Box<[Value]>).
+// This is also the (a, b) literal's construction target (already emitted by
+// U-COLL's parser as `Tuple.fromList(List.new().add(a).add(b))`), so the
+// literal graduates automatically the moment this class exists.
+
+class Tuple {
+  size => self.rawSize
+
+  at(i) => self.rawAt(i)
+
+  each(f) {
+    var i = 0
+    while (i < self.size) {
+      f.call(self.rawAt(i))
+      i = i + 1
+    }
+  }
+
+  // Cursor iteration protocol (ADR-0035 §1) — identical shape to List's.
+  iterate(cursor) {
+    let next = cursor.map { c => c + 1 }.unwrapOr(0)
+    return (next < self.size).ifTrue { next }
+  }
+
+  iteratorValue(cursor) => self.rawAt(cursor)
+
+  // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
+  // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
+  ==(other) {
+    if (other.isA(Tuple)) {
+      var same = (self.size == other.size)
+      var i = 0
+      while (same and (i < self.size)) {
+        same = (self.at(i) == other.at(i))
+        i = i + 1
+      }
+      return same
+    } else {
+      return false
+    }
+  }
+
+  !=(other) {
+    return !(self == other)
+  }
+
+  // Value hash (DEC-CT-D): a .ph fold over each element's own `hash` —
+  // order-sensitive, zero new floor. Consistent with == by construction (a
+  // deterministic function of the same elements == compares), and survives
+  // the future Int/Float split for free (forward-compat §4): it folds
+  // *mathematical-value* hashes (whatever Number#hash decides), never bits.
+  // Bounded by a large prime modulus so the accumulator stays a stable,
+  // comparable Number regardless of tuple length.
+  hash {
+    var acc = 17
+    var i = 0
+    while (i < self.size) {
+      acc = (acc * 31 + self.at(i).hash) % 999999937
+      i = i + 1
+    }
+    return acc
+  }
+}
+
+// Kernel Range (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a native lazy
+// numeric interval — Object::Range, three raw bound-field getters and NOTHING
+// else on the floor. `each`/`toList`/`size`/`includes`/`first`/`last` are all
+// derived here over `rawStart`/`rawEnd`/`rawInclusive` + Number arithmetic —
+// `each` GENERATES elements, never allocates (RG-2 laziness), so
+// `Range.new(1, 1000000, true)` stays O(1) to construct and each step of
+// `each` is O(1). Bound convention (RG-1): `a..b` inclusive (`rawInclusive`
+// true), `a...b` exclusive (false) — the reserved `..`/`...` literal's
+// committed meaning, honored now via the explicit constructor.
+
+class Range {
+  first => self.rawStart
+
+  last {
+    return self.rawInclusive.ifTrue({ self.rawEnd }, ifFalse: { self.rawEnd - 1 })
+  }
+
+  size {
+    var n = self.rawInclusive.ifTrue({ self.rawEnd - self.rawStart + 1 }, ifFalse: { self.rawEnd - self.rawStart })
+    return (n < 0).ifTrue({ 0 }, ifFalse: { n })
+  }
+
+  includes(n) {
+    var upper = self.rawInclusive.ifTrue({ n <= self.rawEnd }, ifFalse: { n < self.rawEnd })
+    return (self.rawStart <= n) and upper
+  }
+
+  // Total indexed read (mirrors every other collection's `at(_)`): raw value
+  // on hit, the None singleton on miss — not part of map-and-set.md's/
+  // tuple-and-range.md's enumerated Range selector table, but a direct,
+  // zero-floor-cost derivation the U-CORE-5 conformance harness (every
+  // collection instantiates it) needs (U-COLLTYPES plan.md §7).
+  at(i) {
+    return (i >= 0 and (i < self.size)).ifTrue({ self.rawStart + i }, ifFalse: { None })
+  }
+
+  // Generates start, start+1, … up to the bound — no allocation (RG-2).
+  each(f) {
+    var i = 0
+    while (i < self.size) {
+      f.call(self.rawStart + i)
+      i = i + 1
+    }
+  }
+
+  // The explicit materialization escape hatch (RG-2).
+  toList {
+    var result = List.new()
+    self.each { x => result.add(x) }
+    return result
+  }
+
+  // Cursor iteration protocol (ADR-0035 §1) — identical shape to List's;
+  // `iteratorValue` is `start + cursor`, never a materialized index into an
+  // element buffer (there is none).
+  iterate(cursor) {
+    let next = cursor.map { c => c + 1 }.unwrapOr(0)
+    return (next < self.size).ifTrue { next }
+  }
+
+  iteratorValue(cursor) => self.rawStart + cursor
+
+  // Structural equality over the normalized bound fields (start/end/
+  // inclusive) — not the generated sequence, which would defeat laziness for
+  // a large range. Guarded by isA(Range).
+  ==(other) {
+    if (other.isA(Range)) {
+      var sameStart = (self.rawStart == other.rawStart)
+      var sameEnd = (self.rawEnd == other.rawEnd)
+      var sameBound = (self.rawInclusive == other.rawInclusive)
+      return sameStart and sameEnd and sameBound
+    } else {
+      return false
+    }
+  }
+
+  !=(other) {
+    return !(self == other)
+  }
+
+  // Value hash (immutable ⇒ hashable, Q5): a .ph fold over the three bound
+  // fields' own `hash` — zero new floor, consistent with == by construction.
+  hash {
+    var acc = 17
+    acc = (acc * 31 + self.rawStart.hash) % 999999937
+    acc = (acc * 31 + self.rawEnd.hash) % 999999937
+    acc = (acc * 31 + self.rawInclusive.hash) % 999999937
+    return acc
+  }
+}
+
 class System {
   static print() {
     // Native print function

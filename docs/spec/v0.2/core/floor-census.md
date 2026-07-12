@@ -33,9 +33,9 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **102** |
-| Distinct native Rust functions | **87** |
-| Classes carrying floor primitives | **19** (of 25 named kernel classes) |
+| Installed `(class, selector)` bindings | **109** |
+| Distinct native Rust functions | **94** |
+| Classes carrying floor primitives | **21** (of 27 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
 > **U-CORE-1 amendment ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).**
@@ -109,14 +109,38 @@ language is *self-hosting above a small, fixed native boundary*
 > collection-protocol.md law 4). R-INV-0.1 (`tests/invariants.rs`) audits this
 > set from a live `VM::new()` and fails on drift.
 
-> **Baseline:** post-U-COLLTYPES-Phase-1 — the figures above (**102 / 87 / 19 / 7**)
-> are the current floor (was **88 / 73 / 17 / 7** post-U-CORE-6). The
-> authoritative pin + full landing history live in [`README.md`](./README.md)
-> §"Baseline & drift policy"; this census is the ground-truth enumeration
-> behind that count. One census-specific caution: of the post-U-CORE-0
-> landings, **U-CORE-1 added +7 (73 → 80, ADR-0023), U-CORE-3 added +5
-> (80 → 85, ADR-0028), U-CORE-4 added +1 (85 → 86, ADR-0036), U-CORE-6 added
-> +2 (86 → 88, ADR-0037), and U-COLLTYPES Phase 1 added +14 (88 → 102,
+> **U-COLLTYPES Phase 2 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
+> The `Tuple` floor admits **+3** bindings (102 → 105) and **+3** distinct fns
+> (87 → 90): `fromList(_)` (static, `tuple_class_from_list`), `rawSize`
+> (`tuple_raw_size`), `rawAt(_)` (`tuple_raw_at`) — all in `primitive/tuple.rs`.
+> **No mutation primitive** — immutability is a representation guarantee
+> ([`TupleObject`](../../../../phalcom-core/src/tuple.rs)'s `Box<[Value]>`, no
+> mutable accessor exists). Floor-carrying classes move **19 → 20**. `hash`
+> stays `.ph` (DEC-CT-D: an order-sensitive fold over `rawAt`+element `.hash`,
+> zero new floor) — it is **not** a binding here. R-INV-0.1 audits this set.
+
+> **U-COLLTYPES Phase 3 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
+> The `Range` floor admits **+4** bindings (105 → 109) and **+4** distinct fns
+> (90 → 94): `new(_,_,_)` (static, `range_class_new`), `rawStart`
+> (`range_raw_start`), `rawEnd` (`range_raw_end`), `rawInclusive`
+> (`range_raw_inclusive`) — all in `primitive/range.rs`. This is the **whole**
+> floor for `Range` — three field reads plus the allocator; everything else
+> (`size`/`at(_)`/`includes(_)`/`first`/`last`/`each(_)`/`toList`/`==`/`hash`/
+> `iterate`/`iteratorValue`) is `.ph` over these + `Number` arithmetic
+> ([`RangeObject`](../../../../phalcom-core/src/range.rs) holds **no** element
+> storage — RG-2 laziness). Floor-carrying classes move **20 → 21**. R-INV-0.1
+> audits this set.
+
+> **Baseline:** post-U-COLLTYPES-Phase-3 — the figures above (**109 / 94 / 21 / 7**)
+> are the current floor (was **105 / 90 / 20 / 7** post-Phase-2, **102 / 87 / 19 / 7**
+> post-Phase-1, **88 / 73 / 17 / 7** post-U-CORE-6). The authoritative pin + full
+> landing history live in [`README.md`](./README.md) §"Baseline & drift
+> policy"; this census is the ground-truth enumeration behind that count. One
+> census-specific caution: of the post-U-CORE-0 landings, **U-CORE-1 added +7
+> (73 → 80, ADR-0023), U-CORE-3 added +5 (80 → 85, ADR-0028), U-CORE-4 added +1
+> (85 → 86, ADR-0036), U-CORE-6 added +2 (86 → 88, ADR-0037), U-COLLTYPES
+> Phase 1 added +14 (88 → 102, ADR-0039), U-COLLTYPES Phase 2 added +3
+> (102 → 105, ADR-0039), and U-COLLTYPES Phase 3 added +4 (105 → 109,
 > ADR-0039)** — every other unit either landed `.ph`/compiler surface or added
 > zero bindings. U8's reflective surface and the `Message` class were already
 > in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were `.ph`/compiler-only; U11
@@ -125,7 +149,9 @@ language is *self-hosting above a small, fixed native boundary*
 > see §2.6). U-CORE-6 is the exception: its two new classes
 > (`Error`/`MessageNotUnderstood`, 21 → 23) do come with bindings, but only on
 > `Error` — see the amendment note above. U-COLLTYPES Phase 1 adds two more new
-> classes (`Map`/`Set`, 23 → 25) that *both* carry bindings.
+> classes (`Map`/`Set`, 23 → 25) that *both* carry bindings; Phase 2 adds one
+> more (`Tuple`, 25 → 26); Phase 3 adds the last (`Range`, 26 → 27) — closing
+> out the +21-binding, four-class amendment ADR-0039 enumerated in full.
 
 ### 1.2 Selector notation
 
@@ -370,6 +396,39 @@ protocol (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
 | `rawHas(_)` | instance | `Set` | `set_raw_has` | wrapped by `includes(_)` |
 | `rawRemove(_)` | instance | `Set` | `set_raw_remove` | wrapped by `remove(_)`; idempotent |
 | `rawAt(_)` | instance | `Set` | `set_raw_at` | wrapped by `at(_)`/`each(_)`; insertion-order indexed read |
+
+### 2.13b `Tuple` — native fixed-arity immutable product (U-COLLTYPES Phase 2, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
+
+A dedicated `Object::Tuple` heap variant (`crate::tuple::TupleObject`, a fixed
+`Box<[Value]>`), **not** an `InstanceObject`. The floor is three raw
+primitives — **no mutation primitive**, since immutability is structural (no
+`at(_, put:)`/`add(_)` accessor exists at all). Immutable ⇒ value-hashable and
+a valid `Map`/`Set` key (Q5). The public protocol (`size`/`at(_)`/`each(_)`/
+`==`/`!=`/`hash`) is `core.ph` over these (§3); `hash` is a `.ph` fold over
+`rawAt`+element `.hash` (DEC-CT-D), not a floor primitive.
+
+| Selector | Side | Native fn | Notes |
+|---|---|---|---|
+| `fromList(_)` | static | `tuple_class_from_list` | freezes a `List`'s current elements into a fresh `Tuple`; the `(a, b)` literal's construction target |
+| `rawSize` | instance | `tuple_raw_size` | wrapped by `size` |
+| `rawAt(_)` | instance | `tuple_raw_at` | wrapped by `at(_)`/`each(_)`; total (raw value on hit, `None` on miss) |
+
+### 2.13c `Range` — native lazy numeric interval (U-COLLTYPES Phase 3, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
+
+A dedicated `Object::Range` heap variant (`crate::range::RangeObject`) — three
+fields (`start`/`end`/`inclusive`), **no element storage** (RG-2 laziness).
+The floor is the allocator plus the three field reads — the smallest floor of
+the four container arms. The public protocol (`size`/`at(_)`/`includes(_)`/
+`first`/`last`/`each(_)`/`toList`/`==`/`!=`/`hash`/`iterate`/`iteratorValue`)
+is entirely `.ph` over these + `Number` arithmetic (§3); `each`/`toList`
+*generate* elements, never allocate a buffer up front.
+
+| Selector | Side | Native fn | Notes |
+|---|---|---|---|
+| `new(_, _, _)` | static | `range_class_new` | `(start, end, inclusive)`; RG-1's bound convention |
+| `rawStart` | instance | `range_raw_start` | wrapped by `first` |
+| `rawEnd` | instance | `range_raw_end` | wrapped by `last`/`size` |
+| `rawInclusive` | instance | `range_raw_inclusive` | wrapped by `size`/`includes(_)`/`last` |
 
 ### 2.14 `Message` — reified miss-send ([messages-and-selectors.md](../messages-and-selectors.md) §5, U8)
 

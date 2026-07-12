@@ -119,6 +119,8 @@ impl Value {
                 Object::Fiber(_) => vm.universe.classes.fiber_class,
                 Object::Map(_) => vm.universe.classes.map_class,
                 Object::Set(_) => vm.universe.classes.set_class,
+                Object::Tuple(_) => vm.universe.classes.tuple_class,
+                Object::Range(_) => vm.universe.classes.range_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
             },
         }
@@ -181,6 +183,14 @@ impl Value {
                     let parts: Vec<String> = set.entries().map(|(k, _)| k.to_string(vm)).collect();
                     format!("Set({})", parts.join(", "))
                 }
+                Object::Tuple(tuple) => {
+                    let parts: Vec<String> = tuple.elements().iter().map(|v| v.to_string(vm)).collect();
+                    format!("({})", parts.join(", "))
+                }
+                Object::Range(range) => {
+                    let sep = if range.inclusive() { ".." } else { "..." };
+                    format!("{}{sep}{}", range.start().to_string(vm), range.end().to_string(vm))
+                }
                 _ => self.to_debug(vm),
             },
         }
@@ -209,6 +219,8 @@ impl Value {
                 Object::Fiber(_) => "<fiber>".to_string(),
                 Object::Map(_) => "<map>".to_string(),
                 Object::Set(_) => "<set>".to_string(),
+                Object::Tuple(_) => "<tuple>".to_string(),
+                Object::Range(_) => "<range>".to_string(),
                 Object::Upvalue(_) => "<upvalue>".to_string(),
             },
         }
@@ -235,7 +247,9 @@ impl Value {
                 | Object::List(_)
                 | Object::Fiber(_)
                 | Object::Map(_)
-                | Object::Set(_) => CallContext::Instance { instance: *id },
+                | Object::Set(_)
+                | Object::Tuple(_)
+                | Object::Range(_) => CallContext::Instance { instance: *id },
                 Object::Class(_) => CallContext::Class { class: *id },
                 Object::Module(_) => CallContext::Module { module: *id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),

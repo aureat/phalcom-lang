@@ -40,8 +40,10 @@ use crate::primitive::object::{
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
+use crate::primitive::range::{range_class_new, range_raw_end, range_raw_inclusive, range_raw_start};
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash};
+use crate::primitive::tuple::{tuple_class_from_list, tuple_raw_at, tuple_raw_size};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print};
 use crate::vm::VM;
@@ -195,6 +197,16 @@ impl Universe {
         let map_class = make_core_class(heap, "Map", object_class, metaclass_class);
         let set_class = make_core_class(heap, "Set", object_class, metaclass_class);
 
+        // Kernel `Tuple` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a fixed
+        // immutable slice — the opposite mutability corner from `List`/`Map`/
+        // `Set` (Q5: immutable ⇒ value-hashable, a valid `Map`/`Set` key).
+        let tuple_class = make_core_class(heap, "Tuple", object_class, metaclass_class);
+
+        // Kernel `Range` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a lazy
+        // numeric interval, three bound fields, no element storage (RG-2).
+        // Immutable ⇒ value-hashable, a valid `Map`/`Set` key (Q5).
+        let range_class = make_core_class(heap, "Range", object_class, metaclass_class);
+
         // Kernel `Message` (method-lookup.md §2, ADR-0012): the reified miss
         // send handed to `doesNotUnderstand(_:)`. An ordinary fixed-slot
         // `InstanceObject` (four slots: selector/name/labels/args) built
@@ -248,6 +260,8 @@ impl Universe {
             list_class,
             map_class,
             set_class,
+            tuple_class,
+            range_class,
             message_class,
             error_class,
             message_not_understood_class,
@@ -511,6 +525,26 @@ impl Universe {
         primitive!(vm, set_cls, "rawRemove", SignatureKind::Method(1), set_raw_remove);
         primitive!(vm, set_cls, "rawAt", SignatureKind::Method(1), set_raw_at);
 
+        // Kernel `Tuple` (ADR-0039, U-COLLTYPES Phase 2): 3 raw floor
+        // primitives (fromList/rawSize/rawAt) — no mutation primitive, since
+        // immutability is structural (TupleObject's Box<[Value]>). `.ph`'s
+        // `at(_)`/`size`/`each(_)`/`==`/`!=`/`hash` wrap these in `core.ph`.
+        let tuple_cls = vm.universe.classes.tuple_class;
+        primitive_static!(vm, tuple_cls, "fromList", SignatureKind::Method(1), tuple_class_from_list);
+        primitive!(vm, tuple_cls, "rawSize", SignatureKind::Getter, tuple_raw_size);
+        primitive!(vm, tuple_cls, "rawAt", SignatureKind::Method(1), tuple_raw_at);
+
+        // Kernel `Range` (ADR-0039, U-COLLTYPES Phase 3): 4 raw floor
+        // primitives — the WHOLE floor (three bound-field reads + the
+        // allocator). `.ph`'s `size`/`at(_)`/`includes(_)`/`first`/`last`/
+        // `each(_)`/`toList`/`==`/`hash` are all derived over these +
+        // `Number` arithmetic in `core.ph`.
+        let range_cls = vm.universe.classes.range_class;
+        primitive_static!(vm, range_cls, "new", SignatureKind::Method(3), range_class_new);
+        primitive!(vm, range_cls, "rawStart", SignatureKind::Getter, range_raw_start);
+        primitive!(vm, range_cls, "rawEnd", SignatureKind::Getter, range_raw_end);
+        primitive!(vm, range_cls, "rawInclusive", SignatureKind::Getter, range_raw_inclusive);
+
         // `Error` root (U-CORE-6, ADR-0008): `message` is a native slot-0
         // accessor (mirrors `Message`'s accessors — a `.ph` getter over this
         // field would trip the read-before-write check); `raise` initiates
@@ -610,7 +644,7 @@ impl Universe {
         // `False` rows (both resolve to `Bool class`) and the absence /
         // collection / message rows. Any newly-added row that breaks the rule
         // fails boot rather than silently mis-dispatching statics.
-        let ordinary_rows: [(&str, ClassId); 21] = [
+        let ordinary_rows: [(&str, ClassId); 23] = [
             ("Number", c.number_class),
             ("String", c.string_class),
             ("Nil", c.nil_class),
@@ -629,6 +663,8 @@ impl Universe {
             ("List", c.list_class),
             ("Map", c.map_class),
             ("Set", c.set_class),
+            ("Tuple", c.tuple_class),
+            ("Range", c.range_class),
             ("Message", c.message_class),
             ("Error", c.error_class),
             ("MessageNotUnderstood", c.message_not_understood_class),
@@ -826,6 +862,21 @@ pub struct CoreClasses {
     /// sharing [`crate::map::MapObject`]'s backing struct (DEC-CT-B), reached
     /// through the distinct [`crate::heap::Object::Set`] heap variant.
     pub set_class: ClassId,
+    /// `Tuple`, the native fixed-arity immutable product
+    /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// A dedicated [`crate::heap::Object::Tuple`] heap variant over
+    /// [`crate::tuple::TupleObject`] — immutable, so it value-hashes and is a
+    /// valid `Map`/`Set` key (Q5).
+    pub tuple_class: ClassId,
+    /// `Range`, the native lazy numeric interval
+    /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// A dedicated [`crate::heap::Object::Range`] heap variant over
+    /// [`crate::range::RangeObject`] — three bound fields, no element
+    /// storage (RG-2 laziness). Immutable ⇒ value-hashable, a valid
+    /// `Map`/`Set` key (Q5).
+    pub range_class: ClassId,
     /// `Message`, the reified message-send handed to `doesNotUnderstand(_:)`
     /// on a lookup miss (method-lookup.md §2, ADR-0012). An ordinary
     /// fixed-slot [`InstanceObject`](crate::instance::InstanceObject) built by

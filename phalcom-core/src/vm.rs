@@ -472,6 +472,12 @@ impl VM {
         // native heap arms mirroring `List`.
         add_class!(map_class);
         add_class!(set_class);
+        // `Tuple` (ADR-0039, U-COLLTYPES Phase 2): ordinary class global,
+        // native heap arm mirroring `List`.
+        add_class!(tuple_class);
+        // `Range` (ADR-0039, U-COLLTYPES Phase 3): ordinary class global,
+        // native heap arm mirroring `List`.
+        add_class!(range_class);
         add_class!(message_class);
         // `Error` root + `MessageNotUnderstood < Error` (U-CORE-6, ADR-0008):
         // globals only, no `.ph` reopen — an empty reopen would be harmless

@@ -40,7 +40,9 @@ use crate::list::ListObject;
 use crate::map::MapObject;
 use crate::method::MethodObject;
 use crate::module::ModuleObject;
+use crate::range::RangeObject;
 use crate::string::StringObject;
+use crate::tuple::TupleObject;
 use crate::upvalue::Upvalue;
 use crate::value::Value;
 
@@ -116,6 +118,21 @@ pub enum Object {
     /// variant (and distinct raw-primitive bindings) from `Map`, so
     /// `aSet.class == Set`, never `Map`.
     Set(MapObject),
+    /// A native, fixed-arity immutable product ([`TupleObject`],
+    /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// Immutable ⇒ value-hashable and a valid `Map`/`Set` key (Q5,
+    /// collection-protocol law 4) — the opposite corner of the mutability
+    /// axis from [`Object::List`]/[`Object::Map`]/[`Object::Set`].
+    Tuple(TupleObject),
+    /// A native, lazy numeric interval ([`RangeObject`],
+    /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// Three bound fields, **no element storage** (RG-2 laziness,
+    /// `docs/spec/v0.2/core/tuple-and-range.md` §2) — `each`/`toList`
+    /// generate elements in `.ph` over the raw getters. Immutable ⇒
+    /// value-hashable, a valid `Map`/`Set` key (Q5).
+    Range(RangeObject),
 }
 
 /// The lifecycle state of a [`FiberObject`]
@@ -328,6 +345,18 @@ impl Heap {
     /// Allocates an empty [`Object::Set`] and returns its [`ObjRef`].
     pub fn alloc_set(&mut self) -> ObjRef {
         self.objects.insert(Object::Set(MapObject::new()))
+    }
+
+    /// Allocates an [`Object::Tuple`] from a fixed `elements` slice and
+    /// returns its [`ObjRef`].
+    pub fn alloc_tuple(&mut self, elements: Box<[crate::value::Value]>) -> ObjRef {
+        self.objects.insert(Object::Tuple(TupleObject::new(elements)))
+    }
+
+    /// Allocates an [`Object::Range`] from its three bound fields and returns
+    /// its [`ObjRef`].
+    pub fn alloc_range(&mut self, start: crate::value::Value, end: crate::value::Value, inclusive: bool) -> ObjRef {
+        self.objects.insert(Object::Range(RangeObject::new(start, end, inclusive)))
     }
 
     /// Borrows the [`Object`] behind `id`.
@@ -588,6 +617,56 @@ impl Heap {
     pub fn as_set(&self, id: ObjRef) -> Option<&MapObject> {
         match self.objects.get(id) {
             Some(Object::Set(set)) => Some(set),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`TupleObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Tuple`].
+    pub fn tuple(&self, id: ObjRef) -> &TupleObject {
+        match self.get(id) {
+            Object::Tuple(tuple) => tuple,
+            _ => panic!("ObjRef {id:?} is not an Object::Tuple"),
+        }
+    }
+
+    /// Returns the [`TupleObject`] behind `id`, or `None` if it is not an
+    /// [`Object::Tuple`].
+    ///
+    /// There is deliberately no `tuple_mut` — `Tuple` is immutable by
+    /// representation (`docs/spec/v0.2/core/tuple-and-range.md` §1); a mutable
+    /// accessor here would be the one way a later diff could accidentally
+    /// reintroduce mutation.
+    pub fn as_tuple(&self, id: ObjRef) -> Option<&TupleObject> {
+        match self.objects.get(id) {
+            Some(Object::Tuple(tuple)) => Some(tuple),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`RangeObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Range`].
+    pub fn range(&self, id: ObjRef) -> &RangeObject {
+        match self.get(id) {
+            Object::Range(range) => range,
+            _ => panic!("ObjRef {id:?} is not an Object::Range"),
+        }
+    }
+
+    /// Returns the [`RangeObject`] behind `id`, or `None` if it is not an
+    /// [`Object::Range`].
+    ///
+    /// There is deliberately no `range_mut` — `Range`'s three bound fields
+    /// are fixed at construction (immutable, `docs/spec/v0.2/core/tuple-and-range.md` §2).
+    pub fn as_range(&self, id: ObjRef) -> Option<&RangeObject> {
+        match self.objects.get(id) {
+            Some(Object::Range(range)) => Some(range),
             _ => None,
         }
     }
