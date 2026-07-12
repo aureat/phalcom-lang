@@ -1340,6 +1340,27 @@ impl<'vm> Compiler<'vm> {
 
         // step: (the `continue` target) advance the cursor.
         let step_label = self.chunk_len();
+
+        // U-ITER-FIX item 3 (spec §3.3): the loop variable is one local slot
+        // rebound every iteration via `SetLocal` below — without this, every
+        // closure the body captured it in would share the *same* open
+        // upvalue cell and all observe the loop's final value. Closing it
+        // here, before the rebind, promotes this iteration's cell (if any
+        // closure actually opened one) to an immutable heap copy; the next
+        // `SetLocal` then writes to a plain stack slot with no attached
+        // upvalue, so a closure captured on the *next* iteration lazily opens
+        // a brand-new cell instead of reusing this one — each iteration gets
+        // its own snapshot (matches inlined-`while`'s per-statement capture
+        // behavior). `continue` lands at `step_label`, i.e. **at** this close,
+        // so a closure captured before a `continue` still gets its own cell.
+        // Only emitted when the body statically captured the binding at all
+        // (`Local::is_captured`, set by `Self::resolve_upvalue_in` while
+        // compiling the body above) — a harmless no-op close is still
+        // avoided for the common case that never captures it.
+        if self.functions.last().unwrap().locals[binding_slot].is_captured {
+            self.emit(Bytecode::CloseUpvalue(binding_slot as u16), range);
+        }
+
         self.emit(Bytecode::GetLocal(coll_slot as u16), range);
         self.emit(Bytecode::GetLocal(cursor_slot as u16), range);
         self.emit_operator_send("iterate", 1, range);
