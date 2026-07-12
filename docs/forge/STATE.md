@@ -17,14 +17,17 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   entailed out-of-write-set edit accepted: `syntax_unexpected_token.ph` (list literal
   made `[1,2,3]` valid → migrated to stray `=>`, intent preserved).
 
-## In flight (this session) — TWO disjoint src writers in parallel
+- **U-ITER-FIX** ✅ — loop-control follow-ons: `9288ad5` (deopt trap) · `ac4f721`
+  (`while` break/continue) · `08a323b` (loop-var freshness) · `b566e6b` (jump dedup).
+  Reviewer APPROVED (clean-worktree gate green; trap confirmed loud, exit 1). Closes
+  U-ITER DEFERRED items 1/2/3/6. **Follow-ons (do when tree clean):** strike DEFERRED.md
+  L21-24; give the deopt trap a descriptive `Error.new(_)` message (currently stderr `None`).
+
+## In flight (this session)
 - **U-COLLTYPES** — native `Map`/`Set`/`Tuple`/`Range` arena arms + `.ph` protocol;
-  ADR-0039 flip + per-phase floor bump (+21); graduates U-COLL pendings. Write-set
-  `heap.rs`/`universe.rs`/`value.rs`/`core.ph`/new `primitive/*`. In-tree, reviewer ON.
-- **U-ITER-FIX** — loop-control follow-ons (deopt trap · `while` break/continue ·
-  loop-var freshness · jump dedup). Write-set `compiler/lib.rs`/`inliner.rs` + iteration
-  tests. **Disjoint from U-COLLTYPES.** In-tree, reviewer ON.
-- Both: no-stash / explicit-path staging / commit-on-green. Shared file = MANIFEST only.
+  ADR-0039 ratified (`bdbdaaf`) + per-phase floor bump (+21); graduates U-COLL pendings.
+  Write-set `heap.rs`/`universe.rs`/`value.rs`/`core.ph`/new `primitive/*`. In-tree,
+  reviewer ON. Mid Phase 1 (Map+Set). Sole active writer now.
 - **U-FUTURE** — plan landed (`docs/forge/units/U-FUTURE/plan.md`). Verdict:
   **Slice A** (settle-once `Future`: `value`/`error`/`isReady`/`value` + settled
   `then`/`map`/`catch`) is **pure `.ph`, zero native — ready now**; **Slice B**
@@ -64,16 +67,25 @@ bootstrap ADR — mostly docs).
 - **Item 4 (→ U-STD)** — migrate `List` `each`/`map`/`filter`/`reduce`/`includes` off
   `size`/`at` onto `iterate(_)`/`iteratorValue(_)` (DEC-ITER-A resolved). Edits `core.ph`.
 
-## BLOCKED-ON-DECISION (user's call — forge does not pick; surfaced, non-blocking)
-- **DEC-U12** — flat `Number` vs surface `Integer`/`Float` split.
-- **DEC-U13a** — hierarchy: sealed-after-definition (Wren) vs mutable `superclass=`.
-  **DEC-U13b** — single-inheritance only vs traits/mixins/MI.
-- **DEC-U15** — module resolution + binding model.
-- **DEC-U18** — support default arguments at all + expansion policy.
-- **DEC-FUT-SCHED** — U-FUTURE Slice B: fold the native scheduler seam (FIFO +
-  `Fiber#isDone` + root-drive) into U-FUTURE, or ship it first as an owned `U-SCHED`?
-  Rec: Slice A only for v1 (pure `.ph`, zero `vm.rs` risk); defer Slice B. Slice A
-  does not depend on this.
+## Design forks — RESOLVED (orchestrator autonomous authority, user "do on your own"
+## 2026-07-12; conservative/reversible, revisit if user objects)
+- **DEC-U12 → A** — keep flat `Number` (f64) now; defer `Integer`/`Float` split (not
+  precluded). U12 becomes a tiny affirm-ADR, no runtime change.
+- **DEC-U13a → A** — sealed-after-definition (superclass fixed at creation, method
+  reopening kept). **U13b → A** — single inheritance, defer traits/mixins/MI. Preserves
+  one-probe dispatch + ADR-0011 slot/IC stability. U13 = small enforcement + ADR unit,
+  conservative form disjoint from `phalcom-ast` (`class.rs`/`vm.rs`/invariants).
+- **DEC-U15 → A + A** — relative file-path resolution (`import "./x"`) + whole-module
+  binding (`import "x" as X`, members via sends). Greenfield: `parser.rs` + new `module.rs`.
+- **DEC-U18 → A** — no default arguments now; selector identity pristine, add later if
+  wanted. U18 = tiny affirm-ADR.
+
+## Still user-only
+- **ADR-0039** already ratified. No open user-only decisions remain; DEC-FUT-SCHED resolved above.
+- **DEC-FUT-SCHED** — ✅ RESOLVED (orchestrator, autonomous authority 2026-07-12):
+  **Slice A only** for v1 (settle-once `Future`, pure `.ph`, zero `vm.rs` risk). Slice B
+  (native scheduler: FIFO + `Fiber#isDone` + root-drive) deferred to an owned `U-SCHED`.
+  Reversible pre-release; revisit if user objects.
 - (**ADR-0039** +21 floor — **RATIFIED by user 2026-07-12, all four arms**; U-COLLTYPES
   unblocked and resumed. Implementer Phase 0 flips Status→Accepted as landing record.)
 
