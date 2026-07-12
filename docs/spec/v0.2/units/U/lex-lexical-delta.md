@@ -54,5 +54,5 @@ All in `phalcom-ast/src/lexer.rs` (+ `token.rs`, `parser.rs` for D4 desugar):
 
 - ADR: [0022-string-interpolation-backslash-paren-sigil.md](../../../../adr/0022-string-interpolation-backslash-paren-sigil.md); [0016-hand-written-lexer-and-recursive-descent-parser.md](../../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md).
 - Code: `phalcom-ast/src/lexer.rs` (`skip_trivia`, `scan_number`/`scan_digits`, `scan_string`, `suppresses_following_newline`, `next`), `phalcom-ast/src/token.rs` (`StringInterp`/`StringSegment`, `LexicalError::UnterminatedBlockComment`), `phalcom-ast/src/parser.rs` (interpolation desugar); tests `phalcom-ast/tests/lexer.rs` + `phalcom-core/tests/lang/lexical/`.
-- Forge: [STATE.md](../../../../forge/STATE.md) §"U-LEX — LANDED"; [U-LEX-implementation-spec.md](../../../../forge/U-LEX-implementation-spec.md); [U-LEX-plan.md](../../../../forge/U-LEX-plan.md).
+- Forge: [STATE.md](../../../../forge/STATE.md) §"U-LEX — LANDED". Per-unit planning record (`U-LEX-implementation-spec.md`, `U-LEX-plan.md`) folded into this spec; see git history.
 - Deferred: [deferred-work.md](../../deferred-work.md); [DEFERRED.md](../../../../forge/DEFERRED.md) #12/#30/#31/#32.

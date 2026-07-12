@@ -79,7 +79,7 @@ Math.new().sum(1, 2, 3)   // rest = List[1,2,3] → 6
 - `decode_selector` does not recover `F` from a `(*)` selector (see Implementation).
 
 ## Sources
-- [forge/STATE.md](../../../../forge/STATE.md) "U9 — LANDED"; [forge/U9-plan.md](../../../../forge/U9-plan.md);
-  [forge/U9-implementation-spec.md](../../../../forge/U9-implementation-spec.md); [forge/PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
+- [forge/STATE.md](../../../../forge/STATE.md) "U9 — LANDED"; [forge/PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
+  Per-unit planning record (`U9-plan.md`, `U9-implementation-spec.md`) folded into this spec; see git history.
 - Commit `c9805d0`.
 - Code: `phalcom-ast/src/{ast.rs,parser.rs}`, `phalcom-core/src/{method.rs,compiler/lib.rs,vm.rs}`.

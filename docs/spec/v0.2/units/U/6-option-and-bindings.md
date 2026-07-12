@@ -1,6 +1,6 @@
 # U6 — Absence → `Option` + `let`/`var` bindings (as-built)
 
-- **Status:** ✅ Landed — `318e752` / `51f56e4` / `aa8bb8b` (build order per [U6-plan.md](../../../../forge/U6-plan.md); the two code commits close the two Invariant-4 sentinel-leak paths, the third is docs/ADR-0021).
+- **Status:** ✅ Landed — `318e752` / `51f56e4` / `aa8bb8b` (build order per `U6-plan.md`; the two code commits close the two Invariant-4 sentinel-leak paths, the third is docs/ADR-0021).
 - **Realizes:** [ADR-0007](../../../../adr/0007-option-as-abstract-with-some-none.md) (absence → Option), [ADR-0014](../../../../adr/0014-let-and-var-bindings.md) (`let`/`var`), [ADR-0021](../../../../adr/0021-no-truthiness-enforcement.md) (no-truthiness enforcement); spec [values-and-absence §2](../../values-and-absence.md) (nil is private), [§3](../../values-and-absence.md) (Absence is Option), [§3.4](../../values-and-absence.md) (`??`/`?.`), [§3.5](../../values-and-absence.md) (no truthiness). Consumes [ADR-0010](../../../../adr/0010-tagged-value-enum.md) (private `Value::Nil`).
 - **Reviewer gate:** **ON** (load-bearing — can corrupt the value model / leak the private sentinel). BLOCKed once on inlined≠non-inlined body result; fixed in `51f56e4`; re-verified → **PASSED**.
 
@@ -84,7 +84,7 @@ let z = x ?? 7                 // x is None → 7
   ([deferred-work §1](../../deferred-work.md)).
 
 ## Sources
-- Forge: [U6-plan.md](../../../../forge/U6-plan.md), [STATE.md](../../../../forge/STATE.md) "U6 — LANDED".
+- Forge: `U6-plan.md` (folded into this spec; see git history), [STATE.md](../../../../forge/STATE.md) "U6 — LANDED".
 - Commits `318e752`, `51f56e4`, `aa8bb8b`.
 - Code: `phalcom-core/src/{value,vm,compiler/lib,module,bytecode}.rs`,
   `phalcom-core/src/primitive/{nil,boolean,block,class,system}.rs`, `core/core.ph`,

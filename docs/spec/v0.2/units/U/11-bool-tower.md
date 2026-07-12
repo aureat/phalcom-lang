@@ -1,7 +1,7 @@
 # U11 — Bool tower: abstract `Bool` + `True`/`False` singletons (as-built)
 
 - **Status:** ✅ Landed — `23cafe2` (Rust wiring) → `96b440c` (`core.ph` skeletons + fixtures) → `c0e1066` (docs: STATE + object-model §3/§4 reconciliation + the implementation spec). In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0004](../../../../adr/0004-boolean-as-abstract-bool-with-true-false.md) (Bool as abstract with True/False); spec [object-model §3](../../object-model.md) (value representation), [§4](../../object-model.md) (core class catalog), [§5](../../object-model.md) (metaclass tower). Governed by [U11-implementation-spec.md](../../../../forge/U11-implementation-spec.md) (supersedes U11-plan.md). Consumes U5's sacred-selector inliner ([ADR-0018](../../../../adr/0018-sacred-selector-inliner-and-override-guard.md)) and U-CORE-2's `ifTrue`/`ifFalse` `Some`-lift.
+- **Realizes:** [ADR-0004](../../../../adr/0004-boolean-as-abstract-bool-with-true-false.md) (Bool as abstract with True/False); spec [object-model §3](../../object-model.md) (value representation), [§4](../../object-model.md) (core class catalog), [§5](../../object-model.md) (metaclass tower). Governed by the U11 implementation spec (`U11-implementation-spec.md`, superseding `U11-plan.md`; folded into this spec, see git history). Consumes U5's sacred-selector inliner ([ADR-0018](../../../../adr/0018-sacred-selector-inliner-and-override-guard.md)) and U-CORE-2's `ifTrue`/`ifFalse` `Some`-lift.
 - **Reviewer gate:** **OFF** per STATE.md policy — self-verified (proved `true.class == True` **and** `ifTrue`→`Some` / `and`/`or` short-circuit through the split).
 
 ## Mission
@@ -89,8 +89,7 @@ System.print(true.ifTrue { 42 }.isSome) // → true   (U-CORE-2 Some-lift surviv
   the same parallel wave. Landed first as recommended.
 
 ## Sources
-- Forge: [U11-implementation-spec.md](../../../../forge/U11-implementation-spec.md),
-  [U11-plan.md](../../../../forge/U11-plan.md), [STATE.md](../../../../forge/STATE.md) "U11 — LANDED".
+- Forge: `U11-implementation-spec.md`, `U11-plan.md` (folded into this spec; see git history), [STATE.md](../../../../forge/STATE.md) "U11 — LANDED".
 - Commits `23cafe2`, `96b440c`, `c0e1066`.
 - Code: `phalcom-core/src/{value,universe,vm}.rs`, `phalcom-core/src/primitive/mod.rs`,
   `core/core.ph`; docs `docs/spec/object-model.md` §3/§4.

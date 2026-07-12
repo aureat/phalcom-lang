@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-12
 - Related: `docs/spec/v0.2/lexical-structure.md` §5 (string interpolation);
-  `docs/forge/U-LEX-implementation-spec.md` §2 D4; `docs/forge/open-questions.md`
+  `docs/spec/v0.2/units/U/lex-lexical-delta.md` §D4; `docs/forge/open-questions.md`
   item 5 (Q5); `docs/forge/PHASE2-INDEX.md` §4 DEC-F;
   [ADR-0016](0016-hand-written-lexer-and-recursive-descent-parser.md)
   (hand-written scanner); `phalcom-ast/src/lexer.rs` (`scan_string`),

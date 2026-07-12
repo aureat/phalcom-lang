@@ -77,7 +77,7 @@ xs.toString                // "[1, 2, 3]"
   [forge/DEFERRED.md](../../../../forge/DEFERRED.md) #17 (high priority for the next `None` work).
 
 ## Sources
-- [forge/STATE.md](../../../../forge/STATE.md) "U-LIST — LANDED"; [forge/U-LIST-plan.md](../../../../forge/U-LIST-plan.md);
-  [forge/U-LIST-U8-implement-handoff.md](../../../../forge/U-LIST-U8-implement-handoff.md); [forge/PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
+- [forge/STATE.md](../../../../forge/STATE.md) "U-LIST — LANDED"; [forge/PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
+  Per-unit planning record (`U-LIST-plan.md`, `U-LIST-U8-implement-handoff.md`) folded into this spec; see git history.
 - Commits `c7c63fb`, `6fdf0c7`, `b2f7aec`, `333823a`.
 - Code: `phalcom-core/src/{list.rs,heap.rs,value.rs,universe.rs,vm.rs}`, `primitive/{list.rs,mod.rs}`, `core/core.ph`.

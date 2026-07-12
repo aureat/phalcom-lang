@@ -60,5 +60,5 @@ Single file — `phalcom-core/core/core.ph`:
 - ADRs: [0019-freeze-vm-blessed-primitive-floor.md](../../../../adr/0019-freeze-vm-blessed-primitive-floor.md), [0020-kernel-list-native-array-protocol.md](../../../../adr/0020-kernel-list-native-array-protocol.md), [0007-option-as-abstract-with-some-none.md](../../../../adr/0007-option-as-abstract-with-some-none.md).
 - Spec: [values-and-absence.md](../../values-and-absence.md) §3.3; [catalog-delta.md](../../core/catalog-delta.md) §2.2 / §2.4.
 - Code: `phalcom-core/core/core.ph` (`Option` block L70–124, `List` block L142–212); tests `phalcom-core/tests/lang/option/*`, `phalcom-core/tests/lang/list/*`, `phalcom-core/tests/lang/blocks/blocks_argument_to_method.ph`.
-- Forge: [STATE.md](../../../../forge/STATE.md) §"U-STD — LANDED"; [U-STD-implementation-spec.md](../../../../forge/U-STD-implementation-spec.md); [U-STD-plan.md](../../../../forge/U-STD-plan.md).
+- Forge: [STATE.md](../../../../forge/STATE.md) §"U-STD — LANDED". Per-unit planning record (`U-STD-implementation-spec.md`, `U-STD-plan.md`) folded into this spec; see git history.
 - Deferred: [deferred-work.md](../../deferred-work.md); [DEFERRED.md](../../../../forge/DEFERRED.md) #6/#18/#19/#25/#28/#29.

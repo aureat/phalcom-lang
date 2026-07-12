@@ -58,5 +58,5 @@ The Primitive-arm guard (`call_method`) is the second, mandatory half: snapshot 
 - **Concurrency-forward:** the unwind operates only on the current fiber's `frames`/`stack`; nothing assumes a single global call stack, so a future per-fiber stack is not foreclosed. See [deferred-work.md](../../deferred-work.md).
 
 ## Sources
-- Forge work orders: [`docs/forge/U10-plan.md`](../../../../forge/U10-plan.md) and the superseding [`docs/forge/U10-implementation-spec.md`](../../../../forge/U10-implementation-spec.md); landing record: [`docs/forge/STATE.md`](../../../../forge/STATE.md) "U10 — LANDED".
+- Forge work orders (`U10-plan.md` and the superseding `U10-implementation-spec.md`) folded into this spec (see git history); landing record: [`docs/forge/STATE.md`](../../../../forge/STATE.md) "U10 — LANDED".
 - Code: `phalcom-core/src/{bytecode,error,frame,vm}.rs`, `phalcom-core/src/compiler/lib.rs`, `phalcom-core/src/primitive/block.rs`.

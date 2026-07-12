@@ -60,5 +60,5 @@ Apply protocol (`primitive/block.rs`, wired in `universe.rs`): `arity` and `name
 - See [deferred-work.md](../../deferred-work.md) for the running deferral ledger.
 
 ## Sources
-- Forge work order: [`docs/forge/U4-plan.md`](../../../../forge/U4-plan.md); handoff: [`docs/forge/U4-handoff.md`](../../../../forge/U4-handoff.md); landing record: [`docs/forge/STATE.md`](../../../../forge/STATE.md) "U4 — LANDED".
+- Forge work order (`U4-plan.md`) + handoff (`U4-handoff.md`) folded into this spec (see git history); landing record: [`docs/forge/STATE.md`](../../../../forge/STATE.md) "U4 — LANDED".
 - Code: `phalcom-core/src/{block,upvalue,closure,callable,frame,value,bytecode}.rs`, `phalcom-core/src/compiler/lib.rs`, `phalcom-core/src/vm.rs`, `phalcom-core/src/universe.rs`, `phalcom-core/src/primitive/block.rs`; `phalcom-ast/src/{ast,parser}.rs`.

@@ -83,7 +83,7 @@ Proxy.new().greet()          // prints "intercepted: greet"
 - dNU render format fixed as `"{receiver} does not understand '{selector}'"` (implementer's call).
 
 ## Sources
-- [forge/STATE.md](../../../../forge/STATE.md) "U8 — LANDED"; [forge/U8-plan.md](../../../../forge/U8-plan.md);
-  [forge/U7-U8-handoff.md](../../../../forge/U7-U8-handoff.md); [forge/PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
+- [forge/STATE.md](../../../../forge/STATE.md) "U8 — LANDED"; [forge/PHASE2-INDEX.md](../../../../forge/PHASE2-INDEX.md).
+  Per-unit planning record (`U8-plan.md`, `U7-U8-handoff.md`) folded into this spec; see git history.
 - Commits `b99ad22`, `806c9ea`, `83221e8`.
 - Code: `phalcom-core/src/vm.rs`, `method.rs`, `primitive/object.rs`, `universe.rs`, `error.rs`.
