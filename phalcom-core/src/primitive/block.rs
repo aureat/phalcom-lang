@@ -36,6 +36,14 @@ fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::heap::ObjRef,
         Value::Obj(id) => match vm.heap.get(*id) {
             Object::Block(block) => Ok((block.closure, Some(block.home_frame_token))),
             Object::Closure(_) => Ok((*id, None)),
+            // `Method` `isA Function` and answers the *reflective* protocol
+            // (`arity`/`name`/`selector`/`holder`/`bind`/`invokeOn`), but not
+            // raw `call` while unbound — it has no receiver to run against
+            // (U-CORE-3, [ADR-0028](../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+            // A dedicated arm ahead of the wildcard sharpens the error over
+            // the generic "expected Function, found Method" it would
+            // otherwise fall through to.
+            Object::Method(_) => Err(RuntimeError::NotAllowed("unbound Method — use bind(_) or invokeOn(_,_)".to_string()).into()),
             _ => Err(RuntimeError::Type { expected: "Function", found: receiver.type_name() }.into()),
         },
         other => Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
@@ -43,6 +51,11 @@ fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::heap::ObjRef,
 }
 
 /// Returns the callable's arity.
+///
+/// A [`Object::Method`] reports its signature's positional arity; an
+/// [`Object::BoundMethod`] delegates to the arity of the method it wraps
+/// (U-CORE-3) — neither has a [`ClosureObject`](crate::closure::ClosureObject)
+/// to read `arity` off directly, unlike `Block`/`Closure`.
 pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     match receiver {
         Value::Obj(id) => match vm.heap.get(*id) {
@@ -51,6 +64,8 @@ pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
                 let closure = vm.heap.closure(block.closure);
                 Ok(Value::Number(closure.callable.arity as f64))
             }
+            Object::Method(method) => Ok(Value::Number(method.signature.positional_arity as f64)),
+            Object::BoundMethod(bound) => Ok(Value::Number(vm.heap.method(bound.method).signature.positional_arity as f64)),
             _ => Err(RuntimeError::Type { expected: "Function", found: receiver.type_name() }.into()),
         },
         other => Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
@@ -58,6 +73,10 @@ pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 }
 
 /// Returns the callable's display name.
+///
+/// A [`Object::Method`] renders its encoded selector text; an
+/// [`Object::BoundMethod`] delegates to the name of the method it wraps
+/// (U-CORE-3).
 pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let name = match receiver {
         Value::Obj(id) => match vm.heap.get(*id) {
@@ -65,6 +84,11 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
             Object::Block(block) => {
                 let closure = vm.heap.closure(block.closure);
                 vm.resolve_symbol(closure.callable.name_sym).to_string()
+            }
+            Object::Method(method) => vm.resolve_symbol(method.signature.selector).to_string(),
+            Object::BoundMethod(bound) => {
+                let selector = vm.heap.method(bound.method).signature.selector;
+                vm.resolve_symbol(selector).to_string()
             }
             _ => return Err(RuntimeError::Type { expected: "Function", found: receiver.type_name() }.into()),
         },
@@ -77,12 +101,27 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 /// and returning its result (functions.md §1-2, `f(a, b)` desugars to
 /// `f.call(a, b)`).
 ///
+/// A [`Object::BoundMethod`] receiver (`Method#bind(_)`'s result) is
+/// intercepted **before** `resolve_callable` and funnelled through
+/// [`VM::invoke_method_object`] instead — it has no
+/// [`ClosureObject`](crate::closure::ClosureObject) to resolve (a bound
+/// *primitive* method has none at all), and this is what makes
+/// `bound.call(args) ≡ method.invokeOn(recv, args)` hold by construction
+/// (R-INV-3.3, U-CORE-3, [ADR-0028](../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is not callable,
 /// [`RuntimeError::Arity`] on an argument-count mismatch, or any
 /// [`RuntimeError`] raised while running the block body.
 pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    if let Value::Obj(id) = receiver {
+        if let Object::BoundMethod(bound) = vm.heap.get(*id) {
+            let (method_id, target) = (bound.method, bound.receiver);
+            return vm.invoke_method_object(method_id, target, args);
+        }
+    }
+
     let (closure_id, home_frame_token) = resolve_callable(vm, receiver)?;
     let arity = vm.heap.closure(closure_id).callable.arity;
     if args.len() != arity {

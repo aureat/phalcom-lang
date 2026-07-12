@@ -24,7 +24,7 @@ use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_fal
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_name, block_while_true};
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
-use crate::primitive::method::method_class_new;
+use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
 use crate::primitive::module::module_class_new;
 use crate::primitive::nil::{option_match, some_new};
 use crate::primitive::number::{
@@ -32,7 +32,7 @@ use crate::primitive::number::{
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_class_new, object_does_not_understand, object_eq, object_hash,
-    object_name, object_neq, object_perform, object_perform_with, object_responds_to, object_set_class,
+    object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to, object_set_class,
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
@@ -264,6 +264,10 @@ impl Universe {
         primitive!(vm, object_cls, "perform", SignatureKind::Method(2), object_perform_with);
         primitive!(vm, object_cls, "respondsTo", SignatureKind::Method(1), object_responds_to);
         primitive!(vm, object_cls, "doesNotUnderstand", SignatureKind::Method(1), object_does_not_understand);
+        // `Method` reflection surface (U-CORE-3, ADR-0028): reifies the
+        // resolved `MethodObject` for a selector, a pure probe like
+        // `respondsTo` (never fires dNU on a miss).
+        primitive!(vm, object_cls, "methodFor", SignatureKind::Method(1), object_method_for);
 
         // `Message` accessors (U8): native getters reading the reified-send
         // slots directly (`VM::new_message`); `Message` has no `.ph` surface.
@@ -377,6 +381,13 @@ impl Universe {
 
         let method_cls = vm.universe.classes.method_class;
         primitive_static!(vm, method_cls, "new", SignatureKind::Method(1), method_class_new);
+        // `Method` reflection surface (U-CORE-3, ADR-0028): applying a
+        // reified method to an explicit receiver, closing it over one, and
+        // reading its selector/holder. See `primitive::method` module doc.
+        primitive!(vm, method_cls, "invokeOn", SignatureKind::Method(2), method_invoke_on);
+        primitive!(vm, method_cls, "bind", SignatureKind::Method(1), method_bind);
+        primitive!(vm, method_cls, "selector", SignatureKind::Getter, method_selector);
+        primitive!(vm, method_cls, "holder", SignatureKind::Getter, method_holder);
 
         // `call` is registered per arity (functions.md §1: `call`, `call(_:)`,
         // `call(_:_:)`, …) since Phalcom dispatch keys on the arity-encoded
@@ -540,6 +551,16 @@ impl Universe {
         // redefining it. Guards the load-order fix in `create_core_classes`.
         if heap.class(c.method_class).superclass != Some(c.function_class) {
             return Err("Method.superclass should be Function (ADR-0006 re-parent)".to_string());
+        }
+
+        // R-INV-3.1 (boot half) — the callable tower: `Block` is `Function`'s
+        // other sibling row, so both `Method` and `Block` share the call
+        // protocol root (U-CORE-3, [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+        // The `ordinary_rows` parallel-rule loop above already covers the
+        // metaclass-level half for both rows; this asserts the plain
+        // superclass link explicitly, mirroring the `Method` check above.
+        if heap.class(c.block_class).superclass != Some(c.function_class) {
+            return Err("Block.superclass should be Function (ADR-0006)".to_string());
         }
 
         // R-INV-0.3 (structural half) — absence never surfaces at boot: the

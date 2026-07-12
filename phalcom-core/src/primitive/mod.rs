@@ -190,6 +190,27 @@ pub(crate) fn expect_string(vm: &VM, value: &Value) -> PhResult<String> {
     }
 }
 
+/// Extracts a method's [`ObjRef`] handle from a receiver value.
+///
+/// Mirrors [`expect_list`]/[`expect_class`]: a reified method is a
+/// [`Value::Obj`] whose heap object is a
+/// [`crate::method::MethodObject`] (U-CORE-3,
+/// [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a `Method`.
+pub(crate) fn expect_method(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    match value {
+        Value::Obj(id) if matches!(vm.heap.get(*id), crate::heap::Object::Method(_)) => Ok(*id),
+        other => Err(RuntimeError::Type {
+            expected: "Method",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
 /// Extracts a list's [`ObjRef`] handle from a receiver value.
 ///
 /// Mirrors [`expect_string`]: a list is a [`Value::Obj`] whose heap object is

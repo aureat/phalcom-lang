@@ -144,8 +144,18 @@ fn blocks_pending() {
 }
 
 #[test]
-#[ignore = "PENDING: functions — later"]
 fn functions() {
+    // U-CORE-3: `Object#methodFor(_)` / `Method#invokeOn(_,_)` / `Method#bind(_)`
+    // / `Method#selector` / `Method#holder` — the Method reflection surface,
+    // exercised over already-supported syntax (`Symbol.new(_)`,
+    // `List.new().add(_)`). The remaining pending fixtures below are gated on
+    // U-LEX's `#...`/`[...]`/`::` literals.
+    support::check_pass("functions");
+}
+
+#[test]
+#[ignore = "PENDING: functions — U-LEX selector/list/family literals"]
+fn functions_pending() {
     support::check_pending("functions");
 }
 

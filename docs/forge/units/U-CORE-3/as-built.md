@@ -5,18 +5,23 @@
 > planning (`PHASE2-INDEX.md`, the coarse `U-STD` callable notes) disagree,
 > **follow this document**; where it is silent, the design specs it cites govern.
 >
-> **Baseline:** HEAD `4e2ec73` (U10 landed — non-local `return` +
-> `DeadFrameError`). The U-CORE-0 census docs still pin `76b5f35`; the two are
-> the same tree for callable purposes (U10 added no floor bindings). Every
-> `file:line` below was read against the working tree in this session — re-confirm
-> before editing, the tree is a moving target with concurrent forge sessions.
+> **Baseline:** HEAD `aa9cdca` (tree clean). U-CORE-1 has since landed and
+> already performed the §4.1 `Method < Function` re-parent (§2.2 below is now
+> **assert-only**, not conditional); the floor also moved on since this doc
+> was first drafted and now stands at **80** bindings, not the `73` this doc
+> originally measured against (see §2.1/§2.6 — the unit still adds exactly
+> **5** new floor bindings, only the base changed). Every `file:line` below
+> was re-confirmed against the working tree in this session — re-confirm
+> again before editing, the tree is a moving target with concurrent forge
+> sessions.
 >
 > **Owning track:** the U-CORE-N core-library roadmap. This is the *surface
 > callable / reflection layer*. The block **mechanism** (first-class closures,
 > `call`/`arity`/`callWith`, upvalues, frame tokens, non-local return) already
 > landed in **U4 + U10** — U-CORE-3 does **not** rebuild it. It adds `Method`
-> reflection (`methodFor`/`bind`/`invokeOn`/`selector`/`holder`), executes the
-> §4.1 `Method < Function` re-parent, and asserts the callable-tower invariants.
+> reflection (`methodFor`/`bind`/`invokeOn`/`selector`/`holder`), asserts the
+> §4.1 `Method < Function` re-parent (already landed by U-CORE-1 — see §2.2),
+> and asserts the callable-tower invariants.
 
 ---
 
@@ -28,7 +33,7 @@
 |---|---|
 | First-class `Block` (`Value::Obj`→`Object::Block`), `call`/`arity`/`name`/`callWith`, upvalues (U4) | `heap.rs` L81 (`Object::Block`); `primitive/block.rs` L46/L61/L85/L127; `block.rs` (`BlockObject`) L18 |
 | Frame-token infra + non-local `return` + `DeadFrameError` (U10, ADR-0013) | `vm.rs` L1068 (`Bytecode::ReturnNonLocal`), L1093 (`DeadFrameError`); `frame.rs` L18/L94 |
-| `Method` reified as `Value::Obj`→`Object::Method(MethodObject)`; `.class`→`Method` | `heap.rs` L73; `method.rs` L299 (`MethodObject`), L290 (`MethodKind`); `value.rs` L96 |
+| `Method` reified as `Value::Obj`→`Object::Method(MethodObject)`; `.class`→`Method` | `heap.rs` L73; `method.rs` L299 (`MethodObject`), L290 (`MethodKind`); `value.rs` L109 (`Value::class` `Object::Method` arm) |
 | Reflective-send workhorse `VM::send_dynamic`, lookup `Value::lookup_method` | `vm.rs` L547; `value.rs` L111 |
 | `Symbol.new(_)`, `List.new()`/`.add(_)`/`.at(_)`/`.size` (needed by the unit-local fixture) | `universe.rs` L312 (`symbol_class_new`), L383 (`list_class_new`); `core.ph` L75–94 |
 
@@ -40,7 +45,7 @@
 - **`#…` selector literals, `[…]` list literals, `::` family reference** — all
   U-LEX surface syntax. The three pending fixtures this unit *unblocks* are gated
   on U-LEX (§4.2); U-CORE-3 does not touch the lexer/parser.
-- **Composite `Method#signature` object** — functions.md §3 lists `signature`
+- **Composite `Method#signature` object.** functions.md §3 lists `signature`
   returning "the `Signature` (selector + kind)". A first-class `Signature` value
   needs a `Signature` kernel class that does not exist and is not in the catalog.
   **Deferred** (forward work, §6). Ship `selector` (the `Symbol`) + `arity`
@@ -87,21 +92,22 @@ everything reflection needs: `kind` (`Closure(ObjRef)`|`Primitive(fn)`),
 `holder: Option<ClassId>`. Accessors exist in Rust: `selector()` L327,
 `is_primitive()` L332, `set_holder()` L342.
 
-### 1.2 Two gaps to close
+### 1.2 One gap left to close (a second was already closed by U-CORE-1)
 
-1. **Structural (§4.1 divergence, ruled in `decisions.md` §4.1).** The catalog
-   (object-model §4) and ADR-0006 make `Block` **and** `Method` siblings under
-   `Function`. The code makes `Method < Object` (`universe.rs` L136:
-   `make_core_class(heap, "Method", object_class, …)`) — an **ADR-0006
-   violation**. Fix: re-parent to `Method < Function`, which also requires
-   **moving `Method`'s `make_core_class` after `Function`'s** (currently L136
-   precedes L137).
+1. **Structural (§4.1 divergence, ruled in `decisions.md` §4.1) — CLOSED.**
+   The catalog (object-model §4) and ADR-0006 make `Block` **and** `Method`
+   siblings under `Function`. This was an **ADR-0006 violation** in the tree
+   this doc was originally drafted against (`Method < Object`); **U-CORE-1
+   has since fixed it** in the current tree — `universe.rs`
+   `create_core_classes` (L93) allocates `Function` (L154) before `Block`
+   (L155) and `Method` (L156), all parented under `function_class`. **No
+   action for this unit** beyond the boot assertion (§2.2, R-INV-3.1).
 
-2. **Protocol (catalog-delta §2.3 "Pending").** `Method` is missing
-   `bind(_)`, `invokeOn(_,_)`, `selector`, `holder`; `Object` is missing
-   `methodFor(_)`; and `Method` — once re-parented under `Function` — inherits
-   `arity`/`name` whose primitive bodies do not yet understand an
-   `Object::Method` receiver.
+2. **Protocol (catalog-delta §2.3 "Pending") — still open, this unit's real
+   work.** `Method` is missing `bind(_)`, `invokeOn(_,_)`, `selector`,
+   `holder`; `Object` is missing `methodFor(_)`; and `Method` — already
+   re-parented under `Function` — inherits `arity`/`name`/`callWith`/`call`
+   whose primitive bodies do not yet understand an `Object::Method` receiver.
 
 ---
 
@@ -120,41 +126,44 @@ The reflection surface reads representation **below** the `.ph` boundary
 | `selector`, `holder` | read `MethodObject.signature.selector` / `.holder` — not exposed to `.ph`. |
 
 **Consequence: this unit is an [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
-amendment.** It adds **5 new floor bindings** (73 → 78). The amendment text is
+amendment.** It adds **5 new floor bindings** (80 → 85). The amendment text is
 drafted in §2.6; the implementer lifts it into a new superseding ADR and
 re-baselines [`floor-census.md`](../../../spec/v0.2/core/floor-census.md) §2.9/§2.10 + §1.1 count in the
 same change (R-INV-0.1). `core.ph` is **not** touched by this unit.
 
-### 2.2 The §4.1 re-parent + load-order fix — CONDITIONAL
+### 2.2 The §4.1 re-parent + load-order fix — DONE by U-CORE-1 (assert only)
 
-> **Conditional (decisions.md §4.1): "whichever of U-CORE-1 / U-CORE-3 lands
-> first makes the change; the other asserts it."**
->
-> - **If `Method < Function` is not yet in the tree** (check `universe.rs`
->   `create_core_classes`): make the change here.
-> - **If U-CORE-1 already re-parented it**, do **not** edit `create_core_classes`
->   — only add the boot assertion (R-INV-3.1) and proceed to §2.3+.
+> **Resolved.** The unconditional wording below supersedes this section's
+> earlier "whichever of U-CORE-1 / U-CORE-3 lands first" framing
+> (`decisions.md` §4.1) — U-CORE-1 landed first and made the change.
+> **Confirmed in the current tree:** `universe.rs` `create_core_classes`
+> (L93) allocates, in order, `Function` (L154), `Block` (L155), `Method`
+> (L156) — all three parented under `function_class`, with `Function`
+> allocated first so the parallel rule (ADR-0002) wires `Method class` /
+> `Block class` correctly. **Do not edit `create_core_classes`.** The only
+> action this unit takes here is the boot assertion (R-INV-3.1) in
+> `verify_invariants` (§4.3) — proceed straight to §2.3+.
 
-The change (`universe.rs` `create_core_classes`, currently L132–138): move
-`Method`'s allocation to **after** `Function`'s and re-parent it. `make_core_class`
-reads `heap.class(superclass).class` for the metaclass side (L493), so `Function`
-must be wired first — the reorder is what makes the parallel rule
-(ADR-0002) hold automatically for `Method class`:
+The historical change, kept below **only as illustration of what U-CORE-1
+already applied** — do not re-apply it, and do not rely on these line numbers
+(they predate the reorder):
 
 ```rust
-// BEFORE (L136–138):
+// BEFORE (pre-U-CORE-1):
 let method_class   = make_core_class(heap, "Method",   object_class,   metaclass_class);
 let function_class = make_core_class(heap, "Function", object_class,   metaclass_class);
 let block_class    = make_core_class(heap, "Block",    function_class, metaclass_class);
 
-// AFTER: Function first, then Method AND Block both < Function.
+// AFTER — already applied; current tree, universe.rs L154–156:
+// Function first, then Block and Method both < Function.
 let function_class = make_core_class(heap, "Function", object_class,   metaclass_class);
-let method_class   = make_core_class(heap, "Method",   function_class, metaclass_class);
 let block_class    = make_core_class(heap, "Block",    function_class, metaclass_class);
+let method_class   = make_core_class(heap, "Method",   function_class, metaclass_class);
 ```
 
-No change to the `CoreClasses` struct or field order. This is a pure superclass
-edit — it adds **zero** bindings; `Method`'s own method dictionary is unchanged.
+No change to the `CoreClasses` struct or field order. This was a pure
+superclass edit — it added **zero** bindings; `Method`'s own method
+dictionary was unchanged.
 
 ### 2.3 `Method#bind(_)` representation — sub-decision SD-3.1 (decided; reviewable)
 
@@ -188,11 +197,23 @@ pub struct BoundMethodObject {
 }
 ```
 
-- `Value::class` (`value.rs` L93–103): add `Object::BoundMethod(_) => block_class`.
-- `Value::to_debug` (L159–169): `Object::BoundMethod(_) => "<bound method>"`.
-- `Value::to_context` (L184–188): `Object::BoundMethod(_) => Instance { instance: *id }`
-  (its heap identity, same as a `Block`).
-- `Value::value_eq`: identity (`ObjRef` equality), matching `Method`/`Block`.
+- `Value::class` (`value.rs` L94; the `Object::Method` arm sits at L109):
+  add an `Object::BoundMethod(_) => block_class` arm.
+- `Value::to_debug` (`value.rs` L166; the `Object::Method` arm sits at
+  L176): add `Object::BoundMethod(_) => "<bound method>"`.
+- `Value::to_context` (`value.rs` L195; `Object::Method` is folded into the
+  combined arm at L198): fold `Object::BoundMethod(_)` into that same arm →
+  `Instance { instance: *id }` (its heap identity, same as a `Block`).
+- `Value::value_eq` (`value.rs` L226): there is **no dedicated
+  `Object::Method` arm** today — a `(Method, Method)` pair already falls
+  through the generic `(Value::Obj(a), Value::Obj(b))` arm (after the
+  string/module special cases are ruled out) to identity comparison,
+  `a == b` at L247. `Object::BoundMethod` needs **no new arm** either: it is
+  a plain `Object` variant under `Value::Obj`, so that same generic arm
+  covers it and yields identity comparison for free, matching
+  `Method`/`Block`. Confirm this by inspection when implementing; do not add
+  a redundant explicit arm unless a reviewer specifically wants one for
+  clarity/documentation.
 - The call path (`primitive/block.rs`) special-cases it **before**
   `resolve_callable` (see §3.3).
 
@@ -212,10 +233,11 @@ R-INV-3.3 testable this unit.
 
 ### 2.4 `arity`/`name` for a `Method` receiver — behavior completion (no new binding)
 
-After §2.2, `Method < Function` **inherits** `arity`/`name`/`callWith`/`call`
-from `Function`. Their bodies must learn the `Object::Method` (and
-`Object::BoundMethod`) receiver. This adds **zero bindings** — it completes
-existing floor primitives. Extend, in `primitive/block.rs`:
+Per §2.2 (already true in the current tree), `Method < Function` **inherits**
+`arity`/`name`/`callWith`/`call` from `Function`. Their bodies must learn the
+`Object::Method` (and `Object::BoundMethod`) receiver. This adds **zero
+bindings** — it completes existing floor primitives. Extend, in
+`primitive/block.rs`:
 
 - `block_arity` (L46): `Object::Method(m) => Number(m.signature.positional_arity)`;
   `Object::BoundMethod(b) => arity of the wrapped method`.
@@ -224,11 +246,16 @@ existing floor primitives. Extend, in `primitive/block.rs`:
 
 **`call`/`callWith` on an *unbound* `Method` stays an error.** An unbound method
 has no receiver; applying it is meaningless (you must `bind` or `invokeOn`).
-`resolve_callable` already errors on `Object::Method`; keep that, but improve the
-message to `"unbound Method — use bind(_) or invokeOn(_,_)"` (a
-`RuntimeError::NotAllowed`). This is a deliberate, documented semantic: `Method`
-`isA Function` and answers the *reflective* protocol (`arity`/`name`/`selector`/
-`holder`/`bind`/`invokeOn`) but not raw `call`.
+`resolve_callable` (`primitive/block.rs` L34) errors on `Object::Method` today,
+but only via the **wildcard `_` arm at L39** — there is no dedicated
+`Object::Method` case (the explicit arms are `Object::Block` at L37 and
+`Object::Closure` at L38). Keep the reject, but add an explicit
+`Object::Method(_) => …` arm *ahead of* the wildcard so the error message can
+be sharpened from the generic `"expected Function, found Method"` the
+wildcard produces today to `"unbound Method — use bind(_) or invokeOn(_,_)"`
+(a `RuntimeError::NotAllowed`). This is a deliberate, documented semantic:
+`Method` `isA Function` and answers the *reflective* protocol (`arity`/`name`/
+`selector`/`holder`/`bind`/`invokeOn`) but not raw `call`.
 
 ### 2.5 New primitives — exact signatures
 
@@ -243,12 +270,12 @@ All installed in `Universe::install_primitives` (`universe.rs`).
 | `Method` | `holder` | `Getter` | `method_holder` | `primitive/method.rs` |
 
 Install site for the `Object` binding — beside the reflective-send surface
-(`universe.rs` L240–243):
+(`universe.rs` L263–266):
 ```rust
 primitive!(vm, object_cls, "methodFor", SignatureKind::Method(1), object_method_for);
 ```
 Install site for the four `Method` bindings — replacing the lone `new(_)` block
-(`universe.rs` L337–338), keeping the static `new(_)` and adding the instance
+(`universe.rs` L378–379), keeping the static `new(_)` and adding the instance
 methods on `method_cls`:
 ```rust
 let method_cls = vm.universe.classes.method_class;
@@ -276,7 +303,7 @@ primitive!(vm, method_cls, "holder",   SignatureKind::Getter,    method_holder);
 > Constraint: `invokeOn(recv, args)` runs the **exact reified method** (no
 > re-dispatch) and `bound.call(args) ≡ method.invokeOn(recv, args)`
 > (R-INV-3.3); an arity mismatch raises `RuntimeError::Arity` (R-INV-3.4). Floor
-> count moves **73 → 78**; update [`floor-census.md`](../../../spec/v0.2/core/floor-census.md) §2.9/§2.10
+> count moves **80 → 85**; update [`floor-census.md`](../../../spec/v0.2/core/floor-census.md) §2.9/§2.10
 > and §1.1 in the same change.
 
 ---
@@ -427,8 +454,9 @@ they need the arm.
 
 ### 3.6 Write-set (this unit only — one file per the brief is the *spec*; this is the implementer's set)
 
-- `phalcom-core/src/universe.rs` — §2.2 re-parent + load order (conditional);
-  §2.5 install 5 primitives.
+- `phalcom-core/src/universe.rs` — §2.2 boot assertion only, in
+  `verify_invariants` (the re-parent itself is already done by U-CORE-1; do
+  **not** touch `create_core_classes`); §2.5 install 5 primitives.
 - `phalcom-core/src/heap.rs` — `Object::BoundMethod` arm + a `bound_method`
   accessor if needed.
 - `phalcom-core/src/boundmethod.rs` (new) — `BoundMethodObject` (or inline in
@@ -442,7 +470,7 @@ they need the arm.
   `block_arity`/`block_name` Method+BoundMethod arms; `resolve_callable` error msg.
 - `phalcom-core/src/primitive/mod.rs` — `expect_method` helper.
 - `phalcom-core/tests/` — the unit-local fixture + invariant corpus (§4).
-- `docs/spec/core/floor-census.md` — re-baseline (73 → 78); `docs/adr/00NN` — the
+- `docs/spec/core/floor-census.md` — re-baseline (80 → 85); `docs/adr/00NN` — the
   ADR-0019 amendment. **`core.ph` is NOT modified.**
 
 ---
@@ -514,14 +542,14 @@ flip. U-CORE-3 only guards it still passes (R-INV-3.2).
 | **3.3** | `method.invokeOn(recv, args)` and `method.bind(recv).call(args)` produce identical results for the same `(method, recv, args)`. | corpus (C) — holds by construction (§3.3) but assert it. |
 | **3.4** | `arity` matches the dispatcher; an arity-mismatch `invokeOn`/`bound.call` raises `RuntimeError::Arity` (the surface `ArgumentError` is U-CORE-6), not a truncation/silent wrong value. | corpus (C) |
 
-Boot additions go in `Universe::verify_invariants` (`universe.rs` L404). It today
+Boot additions go in `Universe::verify_invariants` (`universe.rs` L445). It today
 checks the parallel rule for `Number` only (L459–464); extend it to assert the
 `Function`/`Method`/`Block` rows explicitly (this is the R-INV-0.2 sweep landing
 for the callable rows). Corpus additions go in `tests/invariants.rs`.
 
 R-INV-3.2 corpus test (the subtle one): a method invoked via `invokeOn` creates
 and returns an escaping block; after the `invokeOn` activation is gone, calling
-that block's `return` must raise `DeadFrameError` — proving the frame-token
+that block's `return` must raise `DeadFrameError`, proving the frame-token
 generation check (ADR-0013) still fences the re-entrant `run_until` that
 `invoke_method_object` introduces.
 
@@ -581,7 +609,7 @@ frames, shared `call` protocol) and **§2 unified unwind**.
 | Callable tower `Function`→`Block`/`Method` siblings; `bind` returns a Function/Block | [functions.md](../../../spec/v0.2/functions.md) §1–4; [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md); [object-model.md](../../../spec/v0.2/object-model.md) §4 |
 | `methodFor`/`invokeOn`/`bind`/`signature`/`holder` protocol | [functions.md](../../../spec/v0.2/functions.md) §3 |
 | Non-local return + `DeadFrameError`, frame token | [blocks.md](../../../spec/v0.2/blocks.md) §5, §7; [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md); `vm.rs` L1068–1102 |
-| §4.1 `Method < Function` re-parent + load-order; "first lands, other asserts" | [decisions.md](../../../spec/v0.2/core/decisions.md) §4.1; [catalog-delta.md](../../../spec/v0.2/core/catalog-delta.md) §4.1; `universe.rs` L132–138 |
+| §4.1 `Method < Function` re-parent + load-order — done by U-CORE-1, this unit only asserts | [decisions.md](../../../spec/v0.2/core/decisions.md) §4.1; [catalog-delta.md](../../../spec/v0.2/core/catalog-delta.md) §4.1; `universe.rs` L93 (`create_core_classes`), L154–156 (re-parent, already applied) |
 | Callable delta / pending protocol | [catalog-delta.md](../../../spec/v0.2/core/catalog-delta.md) §2.3 |
 | Pending flips (all U-LEX-gated), U10 already retired non-local-return | [pending-retirement.md](../../../spec/v0.2/core/pending-retirement.md) §3–§4 |
 | R-INV-3.1…3.4 (boot vs corpus) | [invariant-requirements.md](../../../spec/v0.2/core/invariant-requirements.md) §4 |

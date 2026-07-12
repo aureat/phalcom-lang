@@ -153,6 +153,28 @@ pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     Ok(Value::Bool(receiver.lookup_method(vm, selector).is_some()))
 }
 
+/// Signature: `Object::methodFor(_)` — reifies the
+/// [`MethodObject`](crate::method::MethodObject) that method lookup resolves
+/// for selector `args[0]` (a [`Symbol`](crate::interner::Symbol)) on the
+/// receiver, as a bare `Method` value; the shared `None` singleton
+/// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)) on a miss
+/// (functions.md §3, U-CORE-3,
+/// [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+///
+/// A **pure** probe, like [`object_responds_to`]: a miss never triggers
+/// `doesNotUnderstand(_:)`.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Symbol`.
+pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let selector = *expect_value!(&args[0], Symbol);
+    match receiver.lookup_method(vm, selector) {
+        Some(method_id) => Ok(Value::Obj(method_id)),
+        None => Ok(vm.none_value()),
+    }
+}
+
 /// Signature: `Object::doesNotUnderstand(_)` — the *default* miss handler
 /// (method-lookup.md §2, ADR-0012): raises
 /// [`RuntimeError::MessageNotUnderstood`] describing the missed send.

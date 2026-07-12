@@ -578,6 +578,44 @@ impl VM {
         self.run_until(base_frames)
     }
 
+    /// Runs the exact method `method_id` against `receiver` with `args`,
+    /// re-entering `run_until` to recover a synchronous result — the
+    /// shared engine behind `Method#invokeOn(_,_)` and `Method#bind(_)`'s
+    /// `call` (U-CORE-3, [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+    ///
+    /// Mirrors [`Self::send_dynamic`]'s re-entrancy exactly, except there is
+    /// **no lookup**: `method_id` is already resolved, so a mismatched
+    /// receiver misbehaves inside the method body rather than raising
+    /// `doesNotUnderstand(_:)` (the caller is responsible for receiver
+    /// compatibility, functions.md §3). Arity is validated **before** the
+    /// receiver/args are pushed onto the stack, so a mismatch leaves the stack
+    /// exactly as it was found (R-INV-3.4).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::Arity`] if `args.len()` does not match the
+    /// method's signature (respecting a variadic minimum), or propagates any
+    /// [`RuntimeError`] raised while running the method body — including a
+    /// [`RuntimeError::DeadFrameError`] from a non-local `return` inside an
+    /// escaping block whose home frame is no longer live (R-INV-3.2).
+    pub fn invoke_method_object(&mut self, method_id: ObjRef, receiver: Value, args: &[Value]) -> PhResult<Value> {
+        let (positional, variadic) = {
+            let sig = &self.heap.method(method_id).signature;
+            (sig.positional_arity as usize, sig.variadic)
+        };
+        let ok = if variadic { args.len() >= positional } else { args.len() == positional };
+        if !ok {
+            return Err(RuntimeError::Arity { signature: "invokeOn", expected: positional, found: args.len() }.into());
+        }
+
+        self.stack.push(receiver);
+        self.stack.extend_from_slice(args);
+
+        let base_frames = self.frames.len();
+        self.call_method(&receiver, method_id, args.len(), SourceRange::default())?;
+        self.run_until(base_frames)
+    }
+
     /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
     /// generation for the frame-token infrastructure
     /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).

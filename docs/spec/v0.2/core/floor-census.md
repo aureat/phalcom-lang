@@ -34,8 +34,8 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **80** |
-| Distinct native Rust functions | **64** |
+| Installed `(class, selector)` bindings | **85** |
+| Distinct native Rust functions | **69** |
 | Classes carrying floor primitives | **16** (of 21 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
@@ -50,15 +50,31 @@ language is *self-hosting above a small, fixed native boundary*
 > primitive. R-INV-0.1 (`tests/invariants.rs`) now audits this set from a live
 > `VM::new()` and fails on drift.
 
-> **Baseline:** post-U-CORE-1 — the figures above (**80 / 64 / 16 / 7**) are the
+> **U-CORE-3 amendment ([ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md)).**
+> The `Method` reflection surface admits **+5** bindings (80 → 85) and **+5**
+> distinct fns (64 → 69): `Object#methodFor(_)` (`object_method_for`),
+> `Method#invokeOn(_,_)` (`method_invoke_on`), `Method#bind(_)`
+> (`method_bind`), `Method#selector` (`method_selector`), `Method#holder`
+> (`method_holder`). Floor-carrying classes stay at **16** — `Object` and
+> `Method` already carried primitives. Also adds one **heap representation**,
+> `Object::BoundMethod` (surface class `Block`), the value `bind(_)` returns —
+> not a new `Value` arm, so it changes no count in this table.
+> `block_arity`/`block_name`/`resolve_callable`/`block_call` learn the
+> `Object::Method` and `Object::BoundMethod` receivers as **behavior
+> completions** (zero new bindings). R-INV-0.1 (`tests/invariants.rs`) audits
+> this set from a live `VM::new()` and fails on drift.
+
+> **Baseline:** post-U-CORE-3 — the figures above (**85 / 69 / 16 / 7**) are the
 > current floor. The authoritative pin + full landing history live in
 > [`README.md`](./README.md) §"Baseline & drift policy"; this census is the
 > ground-truth enumeration behind that count. One census-specific caution: of the
-> post-U-CORE-0 landings, **only U-CORE-1 added a floor binding** (+7, 73 → 80,
-> ADR-0023). U8's reflective surface and the `Message` class were already in the
-> 73 (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were `.ph`/compiler-only; U11 added
-> `True`/`False` as kernel classes (19 → 21) with **+0** bindings — so "classes
-> added" never implies "bindings added" (U11 is the counterexample; see §2.6).
+> post-U-CORE-0 landings, **U-CORE-1 added +7 (73 → 80, ADR-0023) and U-CORE-3
+> added +5 (80 → 85, ADR-0028)** — every other unit either landed `.ph`/compiler
+> surface or added zero bindings. U8's reflective surface and the `Message`
+> class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were
+> `.ph`/compiler-only; U11 added `True`/`False` as kernel classes (19 → 21) with
+> **+0** bindings — so "classes added" never implies "bindings added" (U11 is
+> the counterexample; see §2.6).
 
 ### 1.2 Selector notation
 
@@ -114,6 +130,7 @@ Ordered as `install_primitives` installs them
 | `respondsTo(_)` | instance | `object_responds_to` | pure probe; never triggers dNU |
 | `doesNotUnderstand(_)` | instance | `object_does_not_understand` | terminal miss handler; overridable so a proxy subclass can intercept |
 | `hash` | instance | `object_hash` | identity digest of the heap handle (ADR-0023); immediates override below |
+| `methodFor(_)` | instance | `object_method_for` | reifies the resolved `Method` for a selector; `None` on a miss; pure probe, never fires dNU (U-CORE-3, ADR-0028) |
 
 ### 2.2 `Behavior` — class-side reflection
 
@@ -197,12 +214,28 @@ value, not a constructed instance. The combinator suite (`map`, `flatMap`,
 
 `Method < Function` as of U-CORE-1 (decisions.md §4.1 / ADR-0006 re-parent,
 applied in `create_core_classes` with the load-order fix). It inherits the
-call protocol (`arity`/`name`/`call…`/`callWith`) from `Function` and carries
-only its own static `new(_)`.
+call protocol (`arity`/`name`/`call…`/`callWith`) from `Function` — but does
+not answer raw `call` while unbound (`resolve_callable` rejects a bare
+`Object::Method` receiver with a dedicated error) — and carries its own
+static `new(_)` plus the U-CORE-3 reflection surface
+([ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md)):
+applying a reified method to an explicit receiver (`invokeOn`), closing one
+over a receiver (`bind`), and reading its selector/holder.
 
 | Selector | Side | Native fn |
 |---|---|---|
 | `new(_)` | static | `method_class_new` |
+| `invokeOn(_,_)` | instance | `method_invoke_on` |
+| `bind(_)` | instance | `method_bind` |
+| `selector` | instance | `method_selector` |
+| `holder` | instance | `method_holder` |
+
+`Object#methodFor(_)` (`object_method_for`, §2.1) reifies the `MethodObject` a
+selector resolves to on a receiver, as a bare `Method` value; the `None`
+singleton on a miss. `bind(_)` returns a new heap representation,
+`Object::BoundMethod` (method handle + receiver, no closure or frame token —
+it must work for primitive methods too), whose surface class is `Block`; see
+§2.10 for how it answers the call protocol.
 
 ### 2.10 `Function` / `Block` — callables ([ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md), [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md))
 
@@ -217,6 +250,15 @@ without a `Block`.
 | `callWith(_)` | instance | Function, Block | `block_call_with` | one packed argument |
 | `call()` … `call(_,_,_,_)` | instance | Function, Block | `block_call` | arities **0–4** (`MAX_CALL_ARITY = 4`); dispatch keys on arity, so one entry per arity (functions.md §1) |
 | `whileTrue(_)` | instance | Block | `block_while_true` | ★ sacred loop fallback |
+
+**U-CORE-3 behavior completions (zero new bindings, ADR-0028).**
+`block_arity`/`block_name` learn an `Object::Method` receiver (reading
+`signature.positional_arity`/`signature.selector` directly) and an
+`Object::BoundMethod` receiver (delegating to the wrapped method); `block_call`
+intercepts `Object::BoundMethod` **before** `resolve_callable` and funnels it
+through `VM::invoke_method_object` — the same engine `Method#invokeOn(_,_)`
+uses — so `bound.call(args) ≡ method.invokeOn(recv, args)` holds by
+construction (R-INV-3.3).
 
 ### 2.11 `System` — I/O floor
 

@@ -25,13 +25,16 @@
 //! [`Heap::class`]: phalcom_core::heap::Heap::class
 
 use phalcom_core::class::lookup_method_in_hierarchy;
+use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::heap::ClassId;
 use phalcom_core::interner::Symbol;
+use phalcom_core::primitive::block::{block_arity, block_call, block_name};
 use phalcom_core::primitive::boolean::bool_hash;
 use phalcom_core::primitive::class::{behavior_methods, behavior_name};
+use phalcom_core::primitive::method::{method_bind, method_invoke_on};
 use phalcom_core::primitive::nil::some_new;
 use phalcom_core::primitive::number::number_hash;
-use phalcom_core::primitive::object::object_hash;
+use phalcom_core::primitive::object::{object_hash, object_method_for};
 use phalcom_core::primitive::string::string_hash;
 use phalcom_core::primitive::symbol::symbol_hash;
 use phalcom_core::value::{sentinel_to_option, Value};
@@ -539,13 +542,17 @@ fn subclass_static_field_offset_stability() {
 fn floor_census_matches_installed_bindings() {
     // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
     // live `VM::new()` and assert it equals the census in
-    // `docs/spec/core/floor-census.md` (count = 80 after the ADR-0023 +7).
-    // Turns silent floor drift — an accidental extra primitive, or a dropped
-    // one — into a red test. The baseline is 73; the +7 (marked NEW below) is
-    // the ADR-0023 kernel-reflection amendment (`hash` ×5 + `Behavior#name` +
-    // `Behavior#methods`), so the bump is deliberate and audit-backed.
+    // `docs/spec/core/floor-census.md` (count = 85 after ADR-0023's +7 and
+    // ADR-0028's +5). Turns silent floor drift — an accidental extra
+    // primitive, or a dropped one — into a red test. The baseline is 73; the
+    // first +7 (marked NEW below) is the ADR-0023 kernel-reflection amendment
+    // (`hash` ×5 + `Behavior#name` + `Behavior#methods`); the second +5
+    // (marked NEW_METHOD_REFLECTION) is ADR-0028's `Method` reflection surface
+    // (U-CORE-3): `Object#methodFor(_)`, `Method#invokeOn(_,_)`,
+    // `Method#bind(_)`, `Method#selector`, `Method#holder`.
     const BASELINE: usize = 73;
     const NEW: usize = 7;
+    const NEW_METHOD_REFLECTION: usize = 5;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -566,6 +573,7 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "perform(_:_:)"),
         (c.object_class, false, "respondsTo(_:)"),
         (c.object_class, false, "doesNotUnderstand(_:)"),
+        (c.object_class, false, "methodFor(_:)"), // NEW (ADR-0028)
         (c.object_class, true, "new()"),
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
@@ -613,6 +621,10 @@ fn floor_census_matches_installed_bindings() {
         (c.option_class, false, "match(some:none:)"),
         // §2.9 Method
         (c.method_class, true, "new(_:)"),
+        (c.method_class, false, "invokeOn(_:_:)"), // NEW (ADR-0028)
+        (c.method_class, false, "bind(_:)"),        // NEW (ADR-0028)
+        (c.method_class, false, "selector"),         // NEW (ADR-0028)
+        (c.method_class, false, "holder"),           // NEW (ADR-0028)
         // §2.10 Function
         (c.function_class, false, "arity"),
         (c.function_class, false, "name"),
@@ -706,8 +718,12 @@ fn floor_census_matches_installed_bindings() {
         describe(extra),
     );
 
-    assert_eq!(expected.len(), BASELINE + NEW, "census must enumerate exactly 80 bindings (73 baseline + 7 ADR-0023)");
-    assert_eq!(live.len(), BASELINE + NEW, "the live floor must be exactly 80 bindings");
+    assert_eq!(
+        expected.len(),
+        BASELINE + NEW + NEW_METHOD_REFLECTION,
+        "census must enumerate exactly 85 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028)"
+    );
+    assert_eq!(live.len(), BASELINE + NEW + NEW_METHOD_REFLECTION, "the live floor must be exactly 85 bindings");
 }
 
 #[test]
@@ -897,4 +913,138 @@ fn reflection_is_side_effect_free() {
 
     let after = vm.heap.class(number_class).methods.len();
     assert_eq!(before, after, "reflection must not mutate the method dictionary");
+}
+
+// ---------------------------------------------------------------------------
+// R-INV-3.x — U-CORE-3 unit invariants (the `Method` reflection surface,
+// ADR-0028).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn callable_tower_and_reflection_protocol() {
+    // R-INV-3.1 — `Block < Function` (the boot half rides
+    // `Universe::verify_invariants`, alongside the pre-existing `Method <
+    // Function` assertion); a reified `Method` and the `BoundMethod`
+    // `Method#bind(_)` produces both respond to `arity`/`name` via the
+    // `Function` call-protocol primitives learning the two new receiver
+    // shapes.
+    let mut vm = VM::new();
+    let block_class = vm.universe.classes.block_class;
+    let function_class = vm.universe.classes.function_class;
+    assert_eq!(vm.heap.class(block_class).superclass, Some(function_class), "Block.superclass should be Function");
+
+    let module = vm.create_module("main", "callable_tower_and_reflection_protocol");
+    vm.interpret_source(module, "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n")
+        .expect("class + instance should compile and run");
+    let g_sym = vm.interner.intern("g");
+    let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
+
+    let selector_sym = vm.get_or_intern("greet(_:)");
+    let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
+    assert!(!matches!(method_value, Value::Obj(id) if id == vm.universe.classes.none_singleton), "methodFor should hit for a defined selector");
+
+    // `arity`/`name` on the bare `Method`.
+    assert!(matches!(block_arity(&mut vm, &method_value, &[]).unwrap(), Value::Number(n) if n == 1.0), "Method#arity should be 1");
+    match block_name(&mut vm, &method_value, &[]).unwrap() {
+        Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_:)", "Method#name should be the encoded selector"),
+        other => panic!("Method#name should return a String, got {other:?}"),
+    }
+
+    // `arity`/`name` on the `BoundMethod` produced by `bind(_)`.
+    let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
+    assert!(matches!(block_arity(&mut vm, &bound, &[]).unwrap(), Value::Number(n) if n == 1.0), "BoundMethod#arity should be 1");
+    match block_name(&mut vm, &bound, &[]).unwrap() {
+        Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_:)", "BoundMethod#name should be the wrapped method's name"),
+        other => panic!("BoundMethod#name should return a String, got {other:?}"),
+    }
+}
+
+#[test]
+fn invoke_on_preserves_dead_frame_fencing_for_escaping_blocks() {
+    // R-INV-3.2 — a method invoked via `VM::invoke_method_object` (the engine
+    // behind `Method#invokeOn`/`bound.call`) can still create an escaping
+    // block whose non-local `return` correctly raises `DeadFrameError` once
+    // its home activation is gone. Proves the frame-token generation check
+    // (ADR-0013) still fences the re-entrant `run_until` this unit
+    // introduces, mirroring `runtime_non_local_return_dead_frame.ph` but
+    // driven through `invokeOn` instead of an ordinary send.
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "invoke_on_preserves_dead_frame_fencing_for_escaping_blocks");
+    vm.interpret_source(module, "class Maker {\n  make() { return { return 1 } }\n}\nlet maker = Maker.new()\n")
+        .expect("class + instance should compile and run");
+
+    let maker_sym = vm.interner.intern("maker");
+    let maker = vm.heap.module(module).get(maker_sym).expect("`maker` global should exist");
+
+    let make_sym = vm.get_or_intern("make()");
+    let method_id = maker.lookup_method(&vm, make_sym).expect("Maker should define make()");
+
+    let escaped = vm.invoke_method_object(method_id, maker, &[]).expect("invokeOn `make()` should succeed");
+
+    let call_sym = vm.get_or_intern("call()");
+    let result = vm.send_dynamic(escaped, call_sym, &[]);
+    assert!(
+        matches!(result, Err(PhError::Runtime(RuntimeError::DeadFrameError))),
+        "calling the escaped block after its home invokeOn activation is gone should raise DeadFrameError, got {result:?}"
+    );
+}
+
+#[test]
+fn invoke_on_and_bind_call_are_equivalent() {
+    // R-INV-3.3 — `method.invokeOn(recv, args)` and
+    // `method.bind(recv).call(args)` produce identical results for the same
+    // `(method, recv, args)`; both funnel through `VM::invoke_method_object`
+    // by construction (`primitive::block::block_call`'s `BoundMethod`
+    // intercept).
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "invoke_on_and_bind_call_are_equivalent");
+    vm.interpret_source(module, "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n")
+        .expect("class + instance should compile and run");
+    let g_sym = vm.interner.intern("g");
+    let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
+
+    let selector_sym = vm.get_or_intern("greet(_:)");
+    let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
+
+    let arg = vm.alloc_string_value("World".to_string());
+    let args_list = Value::Obj(vm.heap.alloc_list(vec![arg]));
+
+    let via_invoke_on = method_invoke_on(&mut vm, &method_value, &[g, args_list]).expect("invokeOn should succeed");
+    let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
+    let via_bind_call = block_call(&mut vm, &bound, &[arg]).expect("bound.call should succeed");
+
+    assert!(
+        via_invoke_on.value_eq(&via_bind_call, &vm.heap),
+        "invokeOn(recv, args) and bind(recv).call(args) should produce equal results"
+    );
+}
+
+#[test]
+fn invoke_on_and_bind_call_reject_arity_mismatch() {
+    // R-INV-3.4 — an arity mismatch on either `invokeOn` or `bound.call`
+    // raises `RuntimeError::Arity` (checked once, before the call touches the
+    // stack), not a truncation or a silently wrong value.
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "invoke_on_and_bind_call_reject_arity_mismatch");
+    vm.interpret_source(module, "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n")
+        .expect("class + instance should compile and run");
+    let g_sym = vm.interner.intern("g");
+    let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
+
+    let selector_sym = vm.get_or_intern("greet(_:)");
+    let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
+
+    let empty_args = Value::Obj(vm.heap.alloc_list(vec![]));
+    let result = method_invoke_on(&mut vm, &method_value, &[g, empty_args]);
+    assert!(
+        matches!(result, Err(PhError::Runtime(RuntimeError::Arity { .. }))),
+        "invokeOn with the wrong argument count should raise RuntimeError::Arity, got {result:?}"
+    );
+
+    let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
+    let bound_result = block_call(&mut vm, &bound, &[]);
+    assert!(
+        matches!(bound_result, Err(PhError::Runtime(RuntimeError::Arity { .. }))),
+        "bound.call with the wrong argument count should raise RuntimeError::Arity, got {bound_result:?}"
+    );
 }

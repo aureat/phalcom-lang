@@ -39,6 +39,7 @@ use crate::method::MethodObject;
 use crate::module::ModuleObject;
 use crate::string::StringObject;
 use crate::upvalue::Upvalue;
+use crate::value::Value;
 
 new_key_type! {
     /// A `Copy` generational handle to an [`Object`] stored in the [`Heap`].
@@ -79,11 +80,39 @@ pub enum Object {
     Str(StringObject),
     /// A first-class block closure ([`BlockObject`]).
     Block(BlockObject),
+    /// A method closed over a receiver — the result of `Method#bind(_)`
+    /// ([ADR-0006](../../../docs/adr/0006-function-as-abstract-callable-root.md)).
+    /// Its surface class is `Block`; it responds to the `Function` call
+    /// protocol by delegating to [`crate::vm::VM::invoke_method_object`]
+    /// (U-CORE-3, [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+    BoundMethod(BoundMethodObject),
     /// A heap-allocated upvalue cell ([`Upvalue`]).
     Upvalue(Upvalue),
     /// A native array-backed list ([`ListObject`],
     /// [ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
     List(ListObject),
+}
+
+/// The payload of an [`Object::BoundMethod`] — a reified [`MethodObject`]
+/// closed over an explicit receiver, the runtime value
+/// [`crate::primitive::method::method_bind`] (`Method#bind(_)`, U-CORE-3)
+/// constructs.
+///
+/// Unlike [`BlockObject`], a `BoundMethodObject` carries no closure or
+/// home-frame token: it must work for **primitive** methods too (which have
+/// no [`ClosureObject`]), and it is not itself a lexical block, so it has no
+/// non-local return and introduces no frame-indexing
+/// ([ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)
+/// forward-compat §1). Calling it (`bound.call(args)`) and
+/// `method.invokeOn(receiver, args)` funnel through the same
+/// [`crate::vm::VM::invoke_method_object`] workhorse, so the two are
+/// identical by construction (R-INV-3.3).
+#[derive(Debug, Clone, Copy)]
+pub struct BoundMethodObject {
+    /// The wrapped [`Object::Method`] handle.
+    pub method: ObjRef,
+    /// The receiver this method is closed over.
+    pub receiver: Value,
 }
 
 /// The central arena owning every heap [`Object`], keyed by [`ObjRef`].
@@ -339,6 +368,18 @@ impl Heap {
         match self.get_mut(id) {
             Object::Block(block) => block,
             _ => panic!("ObjRef {id:?} is not a BlockObject"),
+        }
+    }
+
+    /// Borrows the [`BoundMethodObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::BoundMethod`].
+    pub fn bound_method(&self, id: ObjRef) -> &BoundMethodObject {
+        match self.get(id) {
+            Object::BoundMethod(bound) => bound,
+            _ => panic!("ObjRef {id:?} is not a BoundMethodObject"),
         }
     }
 
