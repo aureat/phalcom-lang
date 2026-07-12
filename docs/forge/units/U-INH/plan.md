@@ -149,6 +149,13 @@ the parent's slots, never alias the child's. Verify the `construct` selector's e
 | `phalcom-core/src/error.rs` | `InheritanceCycle` (and any needed super diagnostics) if not reusing `InvalidSuperClass` | diag |
 | `phalcom-core/tests/lang/inheritance/` (**new label**) + `tests/lang/MANIFEST.md` + `tests/invariants.rs` | goldens + negatives + disasm + user-class parallel-metaclass invariant | all |
 
+**Adopted debt (incidental — fix in this unit's `vm.rs` pass; was orphaned, no prior owner).**
+- `vm.rs:107-110` — `impl Default for VM` is a bare `todo!()` that panics if VM is ever constructed via
+  `Default`. While in `vm.rs` for the `Class`-handler / `SuperSend` work, either give it a real default
+  (delegate to the actual constructor) or delete the `Default` impl if nothing needs it — confirm first
+  with `graphify affected "VM"` that no caller depends on `VM::default()`. Small, no ADR; land it as its
+  **own tidy commit**, kept out of the load-bearing `SuperSend` diff.
+
 **Deliberately NOT in scope:** traits / mixins / multiple inheritance (U13 open-Q10); **runtime `superclass=`
 mutability** (U13 open-Q4 — this unit sets it at creation only); `value.rs`/heap tag changes; the
 `each`/family combinators. `docs/forge/units/README.md` and the phase INDEX are **not edited** (shared files,

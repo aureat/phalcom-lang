@@ -58,6 +58,13 @@ selector or the metaclass tower.
 | `docs/adr/00XX-numeric-surface-split.md` | New ADR amending ADR-0005 (number TBD — see cluster summary; grab next-free at authoring). |
 | `docs/spec/object-model.md §4`, `values-and-absence.md §1`, `open-questions.md` Q2 | Flip Q2 to RESOLVED; update the numeric note. |
 
+**Adopted debt (incidental — fix in this unit's `number.rs` pass; was orphaned, no prior owner).**
+- `primitive/number.rs:~34` — the string-parse-failure arm of the numeric coercion error hardcodes the
+  literal `"value"` instead of the argument's `type_name()` (the sibling arm already uses
+  `arg.type_name()`). Correct it while splitting the arithmetic primitives and pin a negative test
+  asserting the message names the real type. Trivial, no ADR. Applies whether DEC-U12 rules A or B (the
+  arm exists in the status-quo `number.rs`).
+
 ## 4. Design decision — **BLOCKED-ON-DECISION (DEC-U12)**
 **Question:** single flat `Number` (status quo) vs a surface `Integer`/`Float` split?
 

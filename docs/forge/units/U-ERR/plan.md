@@ -259,8 +259,20 @@ class Err { construct(e) { _error = e }  match(ok: o, err: e) => e.call(_error) 
 | `phalcom-core/core/core.ph` **(never two editors — serialize)** | `class Result`/`Ok`/`Err` (pure `.ph`); `Option`/`Some`/`None` reopen for `okOr(_)`; `Block#attempt` `.ph` | protocol |
 | `docs/adr/00NN-amend-floor-admit-block-handlers.md` (**new**, claim number at dispatch) | ADR-0019 amendment landing-record for `Block#on`/`ensure` (+2) | ADR |
 | `docs/spec/v0.2/core/floor-census.md` | +2 census rows, in lockstep with the ADR (same change) | ADR |
+| `phalcom-core/src/primitive/nil.rs` (**adopted debt**) | repoint the broken rustdoc intra-doc link at `nil.rs:~64` → private `wrap_some` (was orphaned) | docs |
+| `docs/spec/v0.2/core/README.md` (**adopted debt**) | re-baseline the stale "Baseline & drift policy" floor table to the post-U-CORE ceiling (was orphaned; ex-DEFERRED) | docs |
 | `phalcom-core/tests/lang/errors/` (**new label**) + `tests/lang/MANIFEST.md` | goldens + negatives (§6) | all |
 | `phalcom-core/tests/invariants.rs` | the catch-restore + isA-match invariants (§6) | all |
+
+**Adopted debt (incidental docs fixes folded into this unit — both were orphaned; DEFERRED.md is now empty).**
+- `primitive/nil.rs:~64` — a `cargo doc` intra-doc link points at the **private** `wrap_some`, emitting a
+  warning that survives the green gate. Repoint or privatise it so `cargo doc --workspace --no-deps` is
+  clean (this unit already gates on that, §5).
+- `docs/spec/v0.2/core/README.md` "Baseline & drift policy" — still states the pre-U-CORE-3 floor baseline
+  (**80 / 64**); the U-CORE track closed at **88**. Re-baseline the table, the "Last floor-affecting
+  commit" row, and the `80 + 5 + 1 + 2 = 88` ceiling prose while landing this unit's own `+2` census bump
+  — same floor-accounting pass, in lockstep with ADR-0038. *(Migrated from the former DEFERRED.md U-CORE-3
+  entry, which touched the same floor-accounting docs.)*
 
 **Deliberately NOT in scope:** reifying the remaining native `RuntimeError` variants (`Arity`→`ArgumentError`,
 `Type`→`TypeError`, `DeadFrameError`, `RangeError`, `ZeroDivision`) into surface classes — those stay
