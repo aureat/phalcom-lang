@@ -43,8 +43,16 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
 - **item4** ✅ — List combinator migration `c35171a`. `each`→`for (x in self)` (protocol-driven,
   no block_call); map/filter/reduce/includes transitive. Behavior-preserving, goldens byte-exact.
 
-## Next writer (single-writer from here — U-ERR & U15 collide on compiler/lib.rs+vm.rs)
-- **U-ERR** — throw/try/catch/on/ensure + Result/Ok/Err. All deps free. Reviewer ON. Then U15.
+## Single-writer phase (compiler-spine chokepoint — everything left touches compiler/lib.rs or core.ph)
+- **U-ERR** — DISPATCHED (`a0e2afec`). throw/try/catch/on/ensure + Result/Ok/Err (ADR-0007/8/31/38,
+  all pre-exist). Write-set compiler/lib.rs + parser.rs + block.rs + core.ph + small vm.rs +
+  tests/errors. Reviewer ON. Base HEAD `5d84ad8` clean+green.
+- **Serial queue behind U-ERR** (all collide on compiler/lib.rs or core.ph, cannot co-run):
+  U15 (modules, brief staged) → U16 (`::` refs) → U17 (Option-bootstrap ADR, mostly docs — hold
+  til U-ERR settles Result/Option relationship) → U-ITER-FIX follow-ons (strike DEFERRED L21-24 +
+  descriptive deopt-trap msg, compiler/lib.rs ~L1341) → method-reopening bug (ADR-0018 violation,
+  U13-filed, compiler+Bytecode::Class). Fire in order as U-ERR then each frees the spine.
+- U12/U18 ✅ closed (affirm-ADR-0042/0043, `f16b58a`).
 
 ## In flight (this session)
 - **U-FUTURE-A** ✅ — Slice A settle-once `Future` `f0d128a`. Pure `.ph`, zero native, floor-0,
@@ -94,7 +102,7 @@ bootstrap ADR — mostly docs).
 ## Design forks — RESOLVED (orchestrator autonomous authority, user "do on your own"
 ## 2026-07-12; conservative/reversible, revisit if user objects)
 - **DEC-U12 → A** — keep flat `Number` (f64) now; defer `Integer`/`Float` split (not
-  precluded). U12 becomes a tiny affirm-ADR, no runtime change.
+  precluded). ✅ LANDED as affirm-ADR-0042 (`f16b58a`), no runtime change.
 - **DEC-U13a → A** — sealed-after-definition (superclass fixed at creation, method
   reopening kept). **U13b → A** — single inheritance, defer traits/mixins/MI. Preserves
   one-probe dispatch + ADR-0011 slot/IC stability. U13 = small enforcement + ADR unit,
@@ -102,7 +110,7 @@ bootstrap ADR — mostly docs).
 - **DEC-U15 → A + A** — relative file-path resolution (`import "./x"`) + whole-module
   binding (`import "x" as X`, members via sends). Greenfield: `parser.rs` + new `module.rs`.
 - **DEC-U18 → A** — no default arguments now; selector identity pristine, add later if
-  wanted. U18 = tiny affirm-ADR.
+  wanted. ✅ LANDED as affirm-ADR-0043 (`f16b58a`), no runtime change.
 
 ## Still user-only
 - **ADR-0039** already ratified. No open user-only decisions remain; DEC-FUT-SCHED resolved above.
