@@ -31,6 +31,34 @@ pub fn object_class(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     Ok(Value::Obj(receiver.class(vm)))
 }
 
+/// Signature: `Object::toString` — the default display string (U-CORE-4,
+/// [ADR-0015](../../../docs/adr/0015-object-default-tostring.md)).
+///
+/// A **class** receiver renders as its own name (`"Number"`), fixing
+/// DEFERRED F4 (the old binding, [`object_name`], returned the *metaclass*
+/// name for a class receiver — see `universe.rs`'s `install_primitives`
+/// Object block, where this fn replaces `object_name` as the `toString`
+/// target while `object_name` itself stays bound to `Object#name`). A plain
+/// instance renders as `"<{ClassName}>"` (e.g. `"<Point>"`). User classes are
+/// free to override `toString` for a richer form; this default only
+/// guarantees the class is identifiable.
+pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    // Borrow-model care: bind the cloned name to its own `let` so the
+    // immutable `vm.heap` borrow is released before the `&mut vm` alloc below
+    // (the `object_name` idiom, this file, L25-26). Do NOT inline the clone
+    // into the alloc call.
+    let own_name = match receiver {
+        Value::Obj(id) => vm.heap.as_class(*id).map(|c| c.name.clone()),
+        _ => None,
+    };
+    if let Some(name) = own_name {
+        return Ok(vm.alloc_string_value(name)); // class receiver -> own name (fixes F4)
+    }
+    let class_id = receiver.class(vm);
+    let name = vm.heap.class(class_id).name.clone();
+    Ok(vm.alloc_string_value(format!("<{name}>")))
+}
+
 /// Signature: `Object::hash` — a stable identity digest of the heap handle.
 ///
 /// The universal-protocol `hash` ([`object-model.md`](../../../docs/spec/object-model.md)

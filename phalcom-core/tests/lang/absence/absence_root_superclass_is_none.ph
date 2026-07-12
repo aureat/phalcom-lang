@@ -3,6 +3,6 @@
 // status: PASS
 // U6 Invariant 4: the root class has no superclass; `Object.superclass` returns
 // the `None` singleton (surface absence value), never the raw `nil` sentinel.
-// The primitive result flows straight into `print`. Prints `<None instance>`.
+// The primitive result flows straight into `print`. Prints `None`.
 
 System.print(Object.superclass)

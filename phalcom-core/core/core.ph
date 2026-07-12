@@ -22,9 +22,24 @@ class Metaclass {}
 
 class Number {}
 
-class String {}
+class String {
+  // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
+  // representation read, so this is `.ph`-derivable rather than a floor
+  // primitive (ADR-0019's derivability test).
+  toString => self
+}
 
-class Bool {}
+class Bool {
+  // Display (U-CORE-4, R-INV-4.1): derived over the sacred `ifTrue(_,
+  // ifFalse)` selector (proven syntax:
+  // `control-flow/control_flow_send_equivalence.ph` L9). This `toString` is
+  // NOT itself sacred (floor-census §5's `bool_sacred_pristine` tracks only
+  // the six original selectors), so adding it does not trip the inliner
+  // deopt.
+  toString {
+    return self.ifTrue({ "true" }, ifFalse: { "false" })
+  }
+}
 
 // The boolean tower (ADR-0004): `Bool` is abstract; `True` and `False` are its
 // two concrete singleton subclasses — the surface classes of `true`/`false`
@@ -121,6 +136,12 @@ class Option {
   unwrapOr(default) {
     return self.match(some: { v => v }, none: { default })
   }
+
+  // Display (values-and-absence §3, U-CORE-4, R-INV-4.3). Derived over
+  // `match`, so a user-overridden `match` is respected (R-INV-2.4) and the
+  // inner value is rendered via its OWN `toString` message (so a
+  // value-typed payload agrees with the print path, R-INV-4.1).
+  toString => self.match(some: { v => "Some(" + v.toString + ")" }, none: { "None" })
 }
 
 class Some {}

@@ -1,4 +1,4 @@
-Symbol("move(to:duration:)")
+#move(to:duration:)
 move
 [to, duration]
 [1, 2]

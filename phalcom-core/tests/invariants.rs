@@ -542,17 +542,21 @@ fn subclass_static_field_offset_stability() {
 fn floor_census_matches_installed_bindings() {
     // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
     // live `VM::new()` and assert it equals the census in
-    // `docs/spec/core/floor-census.md` (count = 85 after ADR-0023's +7 and
-    // ADR-0028's +5). Turns silent floor drift — an accidental extra
-    // primitive, or a dropped one — into a red test. The baseline is 73; the
-    // first +7 (marked NEW below) is the ADR-0023 kernel-reflection amendment
-    // (`hash` ×5 + `Behavior#name` + `Behavior#methods`); the second +5
-    // (marked NEW_METHOD_REFLECTION) is ADR-0028's `Method` reflection surface
-    // (U-CORE-3): `Object#methodFor(_)`, `Method#invokeOn(_,_)`,
-    // `Method#bind(_)`, `Method#selector`, `Method#holder`.
+    // `docs/spec/core/floor-census.md` (count = 86 after ADR-0023's +7,
+    // ADR-0028's +5, and U-CORE-4's +1). Turns silent floor drift — an
+    // accidental extra primitive, or a dropped one — into a red test. The
+    // baseline is 73; the first +7 (marked NEW below) is the ADR-0023
+    // kernel-reflection amendment (`hash` ×5 + `Behavior#name` +
+    // `Behavior#methods`); the second +5 (marked NEW_METHOD_REFLECTION) is
+    // ADR-0028's `Method` reflection surface (U-CORE-3):
+    // `Object#methodFor(_)`, `Method#invokeOn(_,_)`, `Method#bind(_)`,
+    // `Method#selector`, `Method#holder`; the third +1 (marked
+    // NEW_VALUE_TOSTRING) is this unit's own amendment (U-CORE-4,
+    // `Number#toString`).
     const BASELINE: usize = 73;
     const NEW: usize = 7;
     const NEW_METHOD_REFLECTION: usize = 5;
+    const NEW_VALUE_TOSTRING: usize = 1;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -595,6 +599,7 @@ fn floor_census_matches_installed_bindings() {
         (c.number_class, false, ">=(_:)"),
         (c.number_class, false, "negated()"),
         (c.number_class, false, "hash"), // NEW (ADR-0023)
+        (c.number_class, false, "toString"), // NEW_VALUE_TOSTRING (U-CORE-4)
         (c.number_class, true, "new()"),
         (c.number_class, true, "new(_:)"),
         // §2.5 String
@@ -720,10 +725,14 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        BASELINE + NEW + NEW_METHOD_REFLECTION,
-        "census must enumerate exactly 85 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028)"
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING,
+        "census must enumerate exactly 86 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4)"
     );
-    assert_eq!(live.len(), BASELINE + NEW + NEW_METHOD_REFLECTION, "the live floor must be exactly 85 bindings");
+    assert_eq!(
+        live.len(),
+        BASELINE + NEW + NEW_METHOD_REFLECTION + NEW_VALUE_TOSTRING,
+        "the live floor must be exactly 86 bindings"
+    );
 }
 
 #[test]
@@ -1047,4 +1056,110 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
         matches!(bound_result, Err(PhError::Runtime(RuntimeError::Arity { .. }))),
         "bound.call with the wrong argument count should raise RuntimeError::Arity, got {bound_result:?}"
     );
+}
+
+// R-INV-4.x — U-CORE-4 unit invariants (invariant-requirements.md §4).
+
+/// Builds the value-type sweep R-INV-4.1/4.4 iterate: one representative
+/// [`Value`] per value type in scope for U-CORE-4, plus a `Some`-wrapped
+/// `Number` and the shared `None` singleton.
+fn value_type_sweep(vm: &mut VM) -> Vec<(&'static str, Value)> {
+    let string = vm.alloc_string_value("hi".to_string());
+    let symbol = Value::Symbol(vm.get_or_intern("foo"));
+    let list = Value::Obj(vm.heap.alloc_list(vec![Value::Number(1.0), Value::Number(2.0)]));
+    let none = Value::Obj(vm.universe.classes.none_singleton);
+    let some = some_new(vm, &Value::Nil, &[Value::Number(42.0)]).expect("Some.new(42) should succeed");
+    vec![
+        ("Number", Value::Number(42.0)),
+        ("String", string),
+        ("Symbol", symbol),
+        ("Bool", Value::Bool(true)),
+        ("None", none),
+        ("Some(_)", some),
+        ("List", list),
+    ]
+}
+
+#[test]
+fn value_tostring_message_agrees_with_print_path() {
+    // R-INV-4.1 — for each value type in scope, the `toString` message
+    // (dispatch) equals `Value::to_string` (the `System.print` path). This is
+    // the invariant §2.5's `Value::to_string` extension (`None`/`Some`/`List`)
+    // and §2.4's Symbol-rendering unification both exist to satisfy.
+    let mut vm = VM::new();
+    for (label, value) in value_type_sweep(&mut vm) {
+        let message = send0(&mut vm, value, "toString");
+        let message_text = message.to_string(&vm);
+        let print_text = value.to_string(&vm);
+        assert_eq!(message_text, print_text, "{label}: `toString` message disagrees with the print path");
+    }
+}
+
+#[test]
+fn value_object_default_tostring_is_angle_bracket_class_name() {
+    // R-INV-4.2 — a user class `Foo`'s instance `toString` is `"<Foo>"`
+    // (ADR-0015), and a `Number#toString` override elsewhere does not change
+    // it (the default lives on `Object`, `Number` shadows it only for
+    // `Number` receivers).
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "value_object_default_tostring_is_angle_bracket_class_name");
+    vm.interpret_source(module, "class Foo {}\nlet f = Foo.new()\n").expect("class + instance should compile and run");
+    let f_sym = vm.interner.intern("f");
+    let f = vm.heap.module(module).get(f_sym).expect("`f` global should exist");
+
+    let rendered = send0(&mut vm, f, "toString");
+    assert_eq!(rendered.to_string(&vm), "<Foo>", "a bare user instance should render as `<ClassName>`");
+
+    let number_rendered = send0(&mut vm, Value::Number(42.0), "toString");
+    assert_eq!(number_rendered.to_string(&vm), "42", "Number's own toString override must still read the numeric value");
+}
+
+#[test]
+fn option_tostring_matches_none_and_wraps_some() {
+    // R-INV-4.3 — `None.toString == "None"` and
+    // `Some(x).toString == "Some(" + x.toString + ")"`.
+    let mut vm = VM::new();
+    let none = Value::Obj(vm.universe.classes.none_singleton);
+    let none_rendered = send0(&mut vm, none, "toString");
+    assert_eq!(none_rendered.to_string(&vm), "None");
+
+    let some = some_new(&mut vm, &Value::Nil, &[Value::Number(42.0)]).expect("Some.new(42) should succeed");
+    let some_rendered = send0(&mut vm, some, "toString");
+    assert_eq!(some_rendered.to_string(&vm), "Some(42)");
+
+    // Nesting: `Some(None)` and `Some(Some(1))` respect the inner value's own
+    // `toString` (recursive over `match`, not a flat variant check).
+    let some_none = some_new(&mut vm, &Value::Nil, &[none]).expect("Some.new(None) should succeed");
+    let some_none_rendered = send0(&mut vm, some_none, "toString");
+    assert_eq!(some_none_rendered.to_string(&vm), "Some(None)");
+
+    let inner_some = some_new(&mut vm, &Value::Nil, &[Value::Number(1.0)]).expect("Some.new(1) should succeed");
+    let nested_some = some_new(&mut vm, &Value::Nil, &[inner_some]).expect("Some.new(Some.new(1)) should succeed");
+    let nested_rendered = send0(&mut vm, nested_some, "toString");
+    assert_eq!(nested_rendered.to_string(&vm), "Some(Some(1))");
+}
+
+#[test]
+fn value_tostring_is_total_and_never_leaks_nil() {
+    // R-INV-4.4 — value `toString` never raises over the value types and
+    // never surfaces the `Nil` sentinel: no rendered output contains the
+    // substring `"nil"`, and an empty-body `ifTrue` renders as `Some(None)`,
+    // never `Some(nil)`.
+    let mut vm = VM::new();
+    for (label, value) in value_type_sweep(&mut vm) {
+        let sym = vm.get_or_intern("toString");
+        let result = vm.send_dynamic(value, sym, &[]);
+        let rendered = result.unwrap_or_else(|err| panic!("{label}: toString should never raise, got {err:?}"));
+        let text = rendered.to_string(&vm);
+        assert!(!text.contains("nil"), "{label}: toString rendered the raw `nil` sentinel: {text:?}");
+    }
+
+    // The empty-body `ifTrue` case: the taken branch's absent result
+    // Some-lifts to `Some(None)`, and its message `toString` must agree.
+    let module = vm.create_module("main", "value_tostring_is_total_and_never_leaks_nil");
+    vm.interpret_source(module, "let r = true.ifTrue { }\n").expect("empty ifTrue should compile and run");
+    let r_sym = vm.interner.intern("r");
+    let result = vm.heap.module(module).get(r_sym).expect("`r` global should exist");
+    let rendered = send0(&mut vm, result, "toString");
+    assert_eq!(rendered.to_string(&vm), "Some(None)");
 }

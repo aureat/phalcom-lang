@@ -29,10 +29,11 @@ use crate::primitive::module::module_class_new;
 use crate::primitive::nil::{option_match, some_new};
 use crate::primitive::number::{
     number_add, number_class_new, number_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul, number_negated, number_sub,
+    number_to_string,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_class_new, object_does_not_understand, object_eq, object_hash,
-    object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to, object_set_class,
+    object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to, object_set_class, object_to_string,
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
@@ -247,7 +248,7 @@ impl Universe {
         primitive!(vm, object_cls, "name", SignatureKind::Getter, object_name);
         primitive!(vm, object_cls, "class", SignatureKind::Getter, object_class);
         primitive!(vm, object_cls, "class", SignatureKind::Setter, object_set_class);
-        primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
+        primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_to_string);
         // Identity `hash` (object-model.md §8, ADR-0023): immediates override it
         // per-type below; every heap object inherits this handle digest.
         primitive!(vm, object_cls, "hash", SignatureKind::Getter, object_hash);
@@ -310,6 +311,10 @@ impl Universe {
         // Value digest (ADR-0023): overrides `Object#hash` with a hash of the
         // mathematical value, class-agnostically (forward-compat §4).
         primitive!(vm, number_cls, "hash", SignatureKind::Getter, number_hash);
+        // Decimal-string render (U-CORE-4, ADR-0019 amendment): unreachable
+        // from `.ph` (no number->string path), so it earns the one new floor
+        // binding this unit adds. Delegates to `Value::to_string`.
+        primitive!(vm, number_cls, "toString", SignatureKind::Getter, number_to_string);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(0), number_class_new);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(1), number_class_new);
 

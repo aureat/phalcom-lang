@@ -17,11 +17,19 @@ impl Deref for Symbol {
 }
 
 impl Symbol {
+    /// Renders this symbol the way `System.print` and the `toString` message
+    /// present it: the interned text prefixed with `#` (U-CORE-4, BD-CORE4-2
+    /// Option A). Kept in agreement with [`symbol_tostring`](crate::primitive::symbol::symbol_tostring)
+    /// so the message and print paths never disagree (R-INV-4.1). For a
+    /// label-free symbol this is byte-stable without the U-LEX `#…` literal;
+    /// decoding an interned `move(to:duration:)` into the human `#move(_,to,duration)`
+    /// form is U-LEX's job.
     pub fn to_string(&self, vm: &VM) -> String {
-        let val = vm.resolve_symbol(*self);
-        format!("Symbol(\"{val}\")")
+        format!("#{}", vm.resolve_symbol(*self))
     }
 
+    /// Renders this symbol's debug form (used by error messages and
+    /// diagnostics): the raw interned id, distinct from the display form.
     pub fn to_debug(&self) -> String {
         format!("<symbol {}>", self.0)
     }

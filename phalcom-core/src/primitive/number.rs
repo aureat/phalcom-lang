@@ -72,6 +72,24 @@ pub fn number_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     Ok(crate::primitive::hash_code(bits))
 }
 
+/// Signature: `Number::toString` — the numeric value as a decimal string
+/// (U-CORE-4).
+///
+/// Delegates to the shared native renderer ([`Value::to_string`]) so
+/// `n.toString` is byte-identical to `System.print(n)` (R-INV-4.1). Reads the
+/// receiver's `f64` representation, which is unreachable from `.ph` — hence a
+/// floor primitive ([ADR-0019](../../../docs/adr/0019-freeze-vm-blessed-primitive-floor.md)
+/// amendment; cf. [`number_hash`], decisions.md Q1). Bound on `Number` (the
+/// abstract numeric root), not a concrete f64 path, so a future `Integer`/
+/// `Float` split (forward-compat §4) can refine this per-subclass without
+/// breaking dispatch identity.
+///
+/// Always succeeds: [`Value::to_string`] is total over every `Value` variant.
+pub fn number_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let text = receiver.to_string(vm); // immutable borrow ends before the alloc below
+    Ok(vm.alloc_string_value(text))
+}
+
 /// Signature: `Number::+(_)` — numeric addition.
 ///
 /// # Errors

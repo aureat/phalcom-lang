@@ -28,14 +28,13 @@ language is *self-hosting above a small, fixed native boundary*
 - **Installed bindings** — one per `(class, selector)` pair added by
   `install_primitives`. `call` is bound at five arities on two classes, so it
   contributes ten bindings.
-- **Distinct native functions** — the Rust `fn` behind the bindings. `name` and
-  `toString` on `Object` share `object_name`; `call`/`arity`/`name`/`callWith`
-  are shared between `Function` and `Block`.
+- **Distinct native functions** — the Rust `fn` behind the bindings.
+  `call`/`arity`/`name`/`callWith` are shared between `Function` and `Block`.
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **85** |
-| Distinct native Rust functions | **69** |
+| Installed `(class, selector)` bindings | **86** |
+| Distinct native Rust functions | **71** |
 | Classes carrying floor primitives | **16** (of 21 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
@@ -64,17 +63,33 @@ language is *self-hosting above a small, fixed native boundary*
 > completions** (zero new bindings). R-INV-0.1 (`tests/invariants.rs`) audits
 > this set from a live `VM::new()` and fails on drift.
 
-> **Baseline:** post-U-CORE-3 — the figures above (**85 / 69 / 16 / 7**) are the
+> **U-CORE-4 amendment (ADR-00NN, floor amendment; number claimed at dispatch
+> time — see `docs/adr/` for the current max).** Value-class `toString`
+> (catalog-delta.md §4.4) admits **+1** binding (85 → 86) and **+2** distinct
+> fns (69 → 71): `Number#toString` (`number_to_string`) is the one new floor
+> primitive — rendering an `f64` as decimal text is unreachable from `.ph`, the
+> same derivability failure as `hash` (decisions.md Q1). `Object#toString` is
+> **re-homed** off `object_name` onto a new, distinct fn `object_to_string`
+> (ADR-0015's `"<ClassName>"` default + class-own-name fix, DEFERRED F4) — the
+> `(Object, toString)` binding itself is unchanged, so this contributes to the
+> distinct-fn count but not the binding count. `String#toString` (`=> self`),
+> `Bool#toString` (over `ifTrue(_, ifFalse)`), and `Option#toString` (over
+> `match`) are **derivable** and stay in `core.ph` — not floor amendments.
+> Floor-carrying classes stay at **16** — `Object` and `Number` already carried
+> primitives. R-INV-0.1 (`tests/invariants.rs`) audits this set from a live
+> `VM::new()` and fails on drift.
+
+> **Baseline:** post-U-CORE-4 — the figures above (**86 / 71 / 16 / 7**) are the
 > current floor. The authoritative pin + full landing history live in
 > [`README.md`](./README.md) §"Baseline & drift policy"; this census is the
 > ground-truth enumeration behind that count. One census-specific caution: of the
-> post-U-CORE-0 landings, **U-CORE-1 added +7 (73 → 80, ADR-0023) and U-CORE-3
-> added +5 (80 → 85, ADR-0028)** — every other unit either landed `.ph`/compiler
-> surface or added zero bindings. U8's reflective surface and the `Message`
-> class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were
-> `.ph`/compiler-only; U11 added `True`/`False` as kernel classes (19 → 21) with
-> **+0** bindings — so "classes added" never implies "bindings added" (U11 is
-> the counterexample; see §2.6).
+> post-U-CORE-0 landings, **U-CORE-1 added +7 (73 → 80, ADR-0023), U-CORE-3
+> added +5 (80 → 85, ADR-0028), and U-CORE-4 added +1 (85 → 86, ADR-00NN)** —
+> every other unit either landed `.ph`/compiler surface or added zero bindings.
+> U8's reflective surface and the `Message` class were already in the 73
+> (§2.1/§2.14); U-CORE-2/U-LEX/U-STD were `.ph`/compiler-only; U11 added
+> `True`/`False` as kernel classes (19 → 21) with **+0** bindings — so "classes
+> added" never implies "bindings added" (U11 is the counterexample; see §2.6).
 
 ### 1.2 Selector notation
 
@@ -121,7 +136,7 @@ Ordered as `install_primitives` installs them
 | `name` | instance | `object_name` | class-name string ([ADR-0015](../../../adr/0015-object-default-tostring.md)) |
 | `class` | instance | `object_class` | |
 | `class=(_)` | instance | `object_set_class` | reflective class reassignment |
-| `toString` | instance | `object_name` | **aliases** `name` (ADR-0015 default) |
+| `toString` | instance | `object_to_string` | default display, `"<ClassName>"` for an instance / own name for a class receiver (ADR-0015; U-CORE-4 re-home off `object_name`, fixes DEFERRED F4) |
 | `new()` | static | `object_class_new` | generic instance allocator — the default `new` for user classes (see §4) |
 | `==(_)` | instance | `object_eq` | ordinary send, **not** an opcode (control-flow.md §1) |
 | `!=(_)` | instance | `object_neq` | ordinary send |
@@ -156,6 +171,7 @@ Ordered as `install_primitives` installs them
 | `<(_)` `<=(_)` `>(_)` `>=(_)` | instance | `number_lt` … `number_ge` | |
 | `negated()` | instance | `number_negated` | |
 | `hash` | instance | `number_hash` | digest of the mathematical value, class-agnostically (ADR-0023; forward-compat §4) |
+| `toString` | instance | `number_to_string` | decimal-string render of the `f64` value, delegates to `Value::to_string` (U-CORE-4, ADR-00NN amendment) |
 | `new()` , `new(_)` | static | `number_class_new` | coercion / zero |
 
 ### 2.5 `String`
@@ -321,21 +337,37 @@ each(f) { var i = 0; while (i < self.size) { f.call(self.at(i)); i = i + 1 } }
 and `while` lowering (`Block#whileTrue(_)` / sacred inliner) — plus the
 same-class `size`/`at` defined above it.
 
-**`Option`** (U-CORE-2, `0da64d6`) — four combinators, each derived purely over
-the `match(some, none)` eliminator (the sole floor capability they touch):
+**`Option`** (U-CORE-2, `0da64d6`; `toString` added by U-CORE-4) — combinators
+and display, each derived purely over the `match(some, none)` eliminator (the
+sole floor capability they touch):
 
 ```
-ifNone(f) => self.match(some: { v => self }, none: { f.call(); self })
-orElse(f) => self.match(some: { v => self }, none: { f.call() })
-isSome    => self.match(some: { v => true }, none: { false })
-isNone    => self.match(some: { v => false }, none: { true })
+ifNone(f)  => self.match(some: { v => self }, none: { f.call(); self })
+orElse(f)  => self.match(some: { v => self }, none: { f.call() })
+isSome     => self.match(some: { v => true }, none: { false })
+isNone     => self.match(some: { v => false }, none: { true })
+toString   => self.match(some: { v => "Some(" + v.toString + ")" }, none: { "None" })
+```
+
+**`String`** (U-CORE-4) — a string's display *is* itself, no representation
+read:
+
+```
+toString => self
+```
+
+**`Bool`** (U-CORE-4) — derived over the sacred `ifTrue(_, ifFalse)` selector
+(non-sacred itself, no inliner deopt — §5):
+
+```
+toString { return self.ifTrue({ "true" }, ifFalse: { "false" }) }
 ```
 
 Every other `core.ph` class today is an **empty reopen** (`Object`, `Class`,
-`Metaclass`, `Number`, `String`, `Bool`, `Symbol`, `Some`) that only makes the
-name surface-visible; `System` carries an empty `static print()` shell backed by
-the native primitive. (`None` deliberately has **no** reopen — see the `core.ph`
-comment on the `DefineGlobal`-clobber hazard.)
+`Metaclass`, `Symbol`, `Some`) that only makes the name surface-visible;
+`System` carries an empty `static print()` shell backed by the native
+primitive. (`None` deliberately has **no** reopen — see the `core.ph` comment
+on the `DefineGlobal`-clobber hazard.)
 
 > This boundary is the template for U-CORE-2…5: **push protocol into `core.ph`,
 > keep the floor minimal.** A new method belongs on the floor only if it fails

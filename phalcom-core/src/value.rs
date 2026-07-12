@@ -148,7 +148,11 @@ impl Value {
     ///
     /// Strings render as their raw content (no quotes); numbers, booleans and the
     /// `nil` sentinel render as their literals; a symbol renders as `Symbol("…")`;
-    /// heap objects render via their debug form. Returns an owned [`String`]
+    /// a `List` renders as `[e1, e2, …]` (each element recursively via this same
+    /// renderer); the shared `None` singleton renders as `"None"` and a `Some`
+    /// instance as `"Some(v)"` (`v` rendered recursively) — kept in agreement
+    /// with the `.ph`-message `Option#toString` (U-CORE-4, R-INV-4.1). Any other
+    /// heap object renders via its debug form. Returns an owned [`String`]
     /// rather than allocating a heap object.
     pub fn to_string(&self, vm: &VM) -> String {
         match self {
@@ -158,6 +162,14 @@ impl Value {
             Value::Symbol(s) => s.to_string(vm),
             Value::Obj(id) => match vm.heap.get(*id) {
                 Object::Str(string) => string.value(),
+                Object::List(list) => {
+                    let parts: Vec<String> = list.elements().iter().map(|v| v.to_string(vm)).collect();
+                    format!("[{}]", parts.join(", "))
+                }
+                Object::Instance(inst) if inst.class == vm.universe.classes.none_class => "None".to_string(),
+                Object::Instance(inst) if inst.class == vm.universe.classes.some_class => {
+                    format!("Some({})", inst.slots[0].to_string(vm))
+                }
                 _ => self.to_debug(vm),
             },
         }

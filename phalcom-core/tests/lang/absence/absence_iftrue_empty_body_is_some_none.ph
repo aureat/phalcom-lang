@@ -5,7 +5,7 @@
 // (`Some(A) ∪ None`), never a raw value. A *taken* `ifTrue` with an empty
 // body still wraps its arm: the block's own absent result surfaces to the
 // `None` singleton (Invariant 4), which is then `Some`-lifted because the
-// branch was taken. Prints `<Some instance>`, not `<None instance>` — the
-// old half-Option behavior this fixture pinned before U-CORE-2.
+// branch was taken. Prints `Some(None)` (U-CORE-4's `Option#toString`), not
+// `None` — the old half-Option behavior this fixture pinned before U-CORE-2.
 
 System.print(true.ifTrue { })

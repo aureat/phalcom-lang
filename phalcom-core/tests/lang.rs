@@ -204,3 +204,12 @@ fn variadics() {
     // derived-selector miss-path probe.
     support::check_pass("variadics");
 }
+
+#[test]
+fn values() {
+    // U-CORE-4: per-type `toString` — `Number`/`String`/`Bool`/`Symbol`/
+    // `None`/`Some(_)` message rendering, kept in agreement with the native
+    // print path (`Value::to_string`), plus the `Object` default
+    // (`"<ClassName>"`, ADR-0015, DEFERRED F4).
+    support::check_pass("values");
+}

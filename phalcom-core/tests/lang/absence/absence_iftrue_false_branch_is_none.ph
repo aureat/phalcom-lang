@@ -5,6 +5,6 @@
 // `None` singleton, never the raw `nil` sentinel. The result flows straight
 // into `print` without crossing a read boundary, so the sacred-inlined
 // `Bytecode::Nil` result site (and the `bool_if_true` fallback) must already be
-// `None`. Prints `<None instance>`, not `nil`.
+// `None`. Prints `None`, not `nil`.
 
 System.print(false.ifTrue { 1 })
