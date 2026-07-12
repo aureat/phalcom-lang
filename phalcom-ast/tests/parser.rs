@@ -209,3 +209,30 @@ fn postfix_call_desugars_to_call_method() {
     insta::assert_snapshot!(parse("f(1, 2)"));
 }
 
+
+// --- Iteration surface (U-ITER, ADR-0035 §2/§3) ---
+
+#[test]
+fn for_loop_over_list() {
+    insta::assert_snapshot!(parse("for (x in xs) { System.print(x) }"));
+}
+
+#[test]
+fn for_loop_binding_and_iter_expression() {
+    insta::assert_snapshot!(parse("for (item in makeList(3)) { total = total + item }"));
+}
+
+#[test]
+fn break_statement_parses() {
+    insta::assert_snapshot!(parse("for (x in xs) { break }"));
+}
+
+#[test]
+fn continue_statement_parses() {
+    insta::assert_snapshot!(parse("for (x in xs) { continue }"));
+}
+
+#[test]
+fn for_missing_in_is_error() {
+    insta::assert_snapshot!(parse("for (x xs) { }"));
+}

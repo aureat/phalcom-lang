@@ -225,6 +225,39 @@ fn inheritance() {
 }
 
 #[test]
+fn iteration() {
+    // U-ITER (ADR-0035, iteration.md): the two-selector cursor protocol
+    // (`iterate(_)`/`iteratorValue(_)`) on `List`, the `for (x in coll)`
+    // surface lowering to an inlined cursor `while`, and `break`/`continue`
+    // as jump-based loop control — all pure `.ph` + compiler lowering over the
+    // existing floor (zero new primitives).
+    support::check_pass("iteration");
+}
+
+#[test]
+fn iteration_disasm() {
+    // C-ITER-4 (the §7.1 preclusion guard, D-ITER-2): a `for` body lowers to a
+    // direct jump loop — `JumpIfFalse`/`Loop` + `iterate`/`iteratorValue`
+    // sends — and emits **no** `Closure`/`block_call` on the taken path, so a
+    // `for` inside a fiber can `yield` freely.
+    support::check_for_no_block_call("iteration/for_disasm_no_block_call.ph");
+}
+
+#[test]
+#[ignore = "spec target: non-local break/continue across a materialized block — U-ITER follow-on"]
+fn iteration_pending() {
+    // Reviewer-found gap (ADR-0035 §3, iteration.md §3): `break`/`continue`
+    // reached through a block the inliner materializes as a real closure — the
+    // deopt fallback of a non-Bool `if` condition, or an ordinary block-arg
+    // closure like `each { break }` — silently no-ops instead of leaving the
+    // loop (the jump lands in the closure's own chunk, `same_function` false).
+    // The common `if (Bool) { break }` path is unaffected (inliner fast path).
+    // These fixtures pin the intended semantics and fail today; see
+    // docs/forge/DEFERRED.md for the adjudication and the real-fix options.
+    support::check_pending("iteration");
+}
+
+#[test]
 fn values() {
     // U-CORE-4: per-type `toString` — `Number`/`String`/`Bool`/`Symbol`/
     // `None`/`Some(_)` message rendering, kept in agreement with the native

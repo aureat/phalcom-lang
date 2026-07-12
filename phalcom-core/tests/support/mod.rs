@@ -176,3 +176,38 @@ pub fn check_negative(label: &str) {
 pub fn check_pending(label: &str) {
     check_cases(label, true, false);
 }
+
+/// Disassembles the `for`-loop fixture at `rel_path` (relative to the corpus
+/// root) and asserts its taken path is a direct jump loop with no materialized
+/// block / `block_call` (C-ITER-4, the U-ITER §7.1 preclusion guard).
+///
+/// A `for` lowered to `coll.each { … }` would materialize the body as a
+/// [`Closure`] and interpose `f.call(_)` (a native frame) — which would raise
+/// `CannotYieldAcrossNativeFrame` for a fiber-backed generator. This proves the
+/// direct-jump lowering (D-ITER-2): the chunk must contain a `Loop(` back-edge
+/// and **no** `Closure(` opcode.
+pub fn check_for_no_block_call(rel_path: &str) {
+    let path = corpus_root().join(rel_path);
+    assert!(path.exists(), "missing disasm fixture: {}", path.display());
+    let output = Command::new(phalcom_bin())
+        .arg("disasm")
+        .arg(&path)
+        .output()
+        .expect("failed to spawn the `phalcom` binary for disassembly");
+    assert_no_panic(rel_path, &output);
+    assert!(
+        output.status.success(),
+        "disasm of {rel_path} failed. stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.contains("Loop("),
+        "{rel_path}: expected a `Loop(` back-edge (a direct jump loop) in the disassembly, got:\n{text}"
+    );
+    assert!(
+        !text.contains("Closure("),
+        "{rel_path}: the `for` chunk must emit NO `Closure(` (no materialized block / block_call on \
+         the taken path, C-ITER-4), but the disassembly contains one:\n{text}"
+    );
+}

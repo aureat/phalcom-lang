@@ -180,6 +180,30 @@ class List {
     }
   }
 
+  // Cursor iteration protocol (ADR-0035 §1, iteration.md §1). `List` is the
+  // reference iterable: the cursor is the integer index, and `Option` carries
+  // the "more?" signal so no surface `nil` ever appears (Invariant 4). Written
+  // purely in `.ph` over the existing `size`/`at(_)` floor — zero primitives.
+  //
+  // `iterate(_)` is given the previous cursor (or `None` to start) and returns
+  // `Some(nextIndex)` while elements remain, `None` at the end. `cursor.map { c
+  // => c + 1 }` advances a `Some(i)` to `Some(i+1)` and passes `None` through;
+  // `.unwrapOr(0)` collapses that to the raw next index (`None` → 0). The
+  // sacred `ifTrue { … }` already wraps its arm in `Some` and yields `None` on
+  // the false branch (U-CORE-2), so `(next < self.size).ifTrue { next }` is
+  // exactly `Some(next)` in range and `None` past the end — no explicit `Some`
+  // wrap, no `Option#unwrap` (which this surface does not define).
+  iterate(cursor) {
+    let next = cursor.map { c => c + 1 }.unwrapOr(0)
+    return (next < self.size).ifTrue { next }
+  }
+
+  // Given a live cursor (an index the `for` desugar extracted from a `Some`
+  // that `iterate(_)` just returned), yields the element there (ADR-0035 §1,
+  // iteration.md §1). Only ever called with an in-range index, so it defers to
+  // `at(_)` directly.
+  iteratorValue(cursor) => self.at(cursor)
+
   // U-STD (catalog-delta §2.4): a new `List` holding `f(x)` for each element,
   // in order. Built over `each`/`add`/`List.new` — never stringifies an
   // element (the `toString`-message trap, DEFERRED.md #19), so it is safe.

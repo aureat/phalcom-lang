@@ -17,9 +17,9 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 ## Summary
 
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, compile-errors,
-  concurrency, control-flow, dispatch, errors, functions, inheritance, lexical, list, messages,
-  metaclass, runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 76 · NEGATIVE 19 · PENDING 52 · **total 147**.
+  concurrency, control-flow, dispatch, errors, functions, inheritance, iteration, lexical, list,
+  messages, metaclass, runtime-errors, syntax-errors, system.
+- **Case counts:** PASS 144 · NEGATIVE 31 · PENDING 32 · **total 207** (recount at merge of `U-INH`/`U-ITER`; prior counts on each branch predate the other's landing).
 - Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
   under `-- --ignored` and are expected to fail until their feature is implemented.
 - Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`; the
@@ -42,9 +42,10 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | dispatch | 3 | – | 5 | `check_pass` + `check_pending` | messages-and-selectors.md; method-lookup.md; object-model.md |
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
 | list | 4 | – | – | `check_pass` | U-LIST-plan.md; ADR-0019; ADR-0020 |
+| iteration | 8 | – | 2 | `check_pass` (+ `iteration_disasm`, `check_pending`) | ADR-0035; iteration.md; U-ITER specification |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
-| runtime-errors | – | 6 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3 |
-| compile-errors | – | 8 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021; object-model.md §5.1 |
+| runtime-errors | – | 10 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3 |
+| compile-errors | – | 12 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021; object-model.md §5.1; ADR-0035 (break/continue outside loop) |
 | absence | 10 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | – | – | 2 | `check_pending` | control-flow.md |

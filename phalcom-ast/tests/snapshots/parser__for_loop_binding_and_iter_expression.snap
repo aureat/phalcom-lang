@@ -1,0 +1,95 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"for (item in makeList(3)) { total = total + item }\")"
+---
+Program {
+    statements: [
+        For(
+            ForStatement {
+                binding: "item",
+                iter: MethodCall(
+                    MethodCallExpr {
+                        object: Var {
+                            value: "makeList",
+                            range: CopyRange {
+                                start: 13,
+                                end: 21,
+                            },
+                        },
+                        method: "call",
+                        args: [
+                            Argument {
+                                label: None,
+                                expr: Number {
+                                    value: 3.0,
+                                    range: CopyRange {
+                                        start: 22,
+                                        end: 23,
+                                    },
+                                },
+                                range: CopyRange {
+                                    start: 22,
+                                    end: 23,
+                                },
+                            },
+                        ],
+                        range: CopyRange {
+                            start: 13,
+                            end: 24,
+                        },
+                    },
+                ),
+                body: [
+                    Expr {
+                        expr: Assignment(
+                            AssignmentExpr {
+                                name: Var {
+                                    value: "total",
+                                    range: CopyRange {
+                                        start: 28,
+                                        end: 33,
+                                    },
+                                },
+                                value: Binary(
+                                    BinaryExpr {
+                                        op: Add,
+                                        left: Var {
+                                            value: "total",
+                                            range: CopyRange {
+                                                start: 36,
+                                                end: 41,
+                                            },
+                                        },
+                                        right: Var {
+                                            value: "item",
+                                            range: CopyRange {
+                                                start: 44,
+                                                end: 48,
+                                            },
+                                        },
+                                        range: CopyRange {
+                                            start: 36,
+                                            end: 48,
+                                        },
+                                    },
+                                ),
+                                range: CopyRange {
+                                    start: 28,
+                                    end: 48,
+                                },
+                            },
+                        ),
+                        range: CopyRange {
+                            start: 28,
+                            end: 48,
+                        },
+                    },
+                ],
+                range: CopyRange {
+                    start: 0,
+                    end: 50,
+                },
+            },
+        ),
+    ],
+}
