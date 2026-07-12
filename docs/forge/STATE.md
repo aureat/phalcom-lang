@@ -70,7 +70,12 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   `at(_)` (single-RHS-eval into scratch local), arity guard → `Error.new().raise()` (clean), `*rest`
   last enforced at parse. ADR-0046 + spec destructuring.md + Q7→RESOLVED. **Floor 0** (pure desugar).
   6 positive + 4 negative goldens, all lane-correct (lane lesson applied). 7 snapshot re-baselines
-  (LetBinding.name→pattern, legit). Verify green. **Reviewer RUNNING (`a4cd9922`)** → then fire U16 (last feature).
+  (LetBinding.name→pattern, legit). Verify green. **Reviewer APPROVE** (`a4cd9922`) — all areas pass,
+  live-verified (single-eval, arity boundaries, nested, snapshot honesty); shipping list/*rest now
+  judged sound. **U14 ACCEPTED.** No new DEFERRED (implementer self-filed 4 minor obs).
+- **U16** DISPATCHED (`aa5dd23b`, reviewer ON) — LAST feature. `::` method refs → `Family` value
+  (Open/Pinned), base-name index at finalize, `Object::Family` heap variant (adopted design), family.rs
+  primitive. Expect FLOOR BUMP → amendment ADR-0047. Broad spine write-set. Then spine bug-fix tail.
 - **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
