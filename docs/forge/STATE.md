@@ -55,9 +55,13 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   ADR-0038 stale count (FIXED → 109→111), unwind_to doc overstates order-equiv (vm.rs, minor),
   multiple-catch not grammar-rejected (dead code, not unsound). DEC-ERR-B=(B): Ok/Err bare-call
   sugar deferred (filed).
-- **U15** DISPATCHED (`a7f994dd`, reviewer ON) — modules/imports, DEC-U15=A+A (relative-path +
-  whole-module bind, source-only, memoized Module, cyclic detect, NO bytecode loader). Spine free
-  post-U-ERR. Write-set phalcom-ast + module.rs + universe.rs + compiler/lib.rs + vm.rs + tests/imports.
+- **U15** ✅ LANDED `6188973` — `import "./x" as X` (relative-path + whole-module bind), source-only,
+  memoized `Module` registry (single HashMap, insert-before-compile = cycle marker), member access via
+  `Module#doesNotUnderstand`. New `Bytecode::Import` + ADR-0045 + spec `modules.md`. **Floor +1**
+  (Module DNU fails derivability) → ADR-0045 superseding amendment, census **111→112**, invariants
+  lockstep — STOP-and-reported. 5 PASS + 2 NEGATIVE goldens + 8 lib companions; MANIFEST self-reconciled
+  →367. Write-set deltas (cli.rs entry-path fix, interpret.rs scaffolding) reported. Verify green.
+  **Reviewer RUNNING (`a1a95771`)** — verdict pending, then accept/fix-forward → fire U14 then U16.
 - **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
