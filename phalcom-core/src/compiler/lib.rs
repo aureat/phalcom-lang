@@ -1180,6 +1180,57 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Loop(loop_start as i32 - (idx + 1)), range);
     }
 
+    /// Pushes a fresh [`LoopContext`] for a loop entered at the current
+    /// function-nesting depth (ADR-0035 §3, U-ITER specification §4).
+    ///
+    /// Shared by [`Self::compile_for`] and the inliner's `compile_while_true`
+    /// (U-ITER-FIX item 2, spec §3.2) — both push one context per loop, so
+    /// `break`/`continue` in either construct's body resolve against it via
+    /// [`Self::compile_break`]/[`Self::compile_continue`].
+    pub(crate) fn push_loop_context(&mut self) {
+        self.loop_contexts.push(LoopContext { func_depth: self.functions.len(), break_jumps: Vec::new(), continue_jumps: Vec::new() });
+    }
+
+    /// Pops the innermost [`LoopContext`], returning its recorded `break`
+    /// jump chunk indices and `continue` jump chunk indices (in that order)
+    /// for the caller to backpatch to its own exit and step/retest labels.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no loop context is on the stack — an internal invariant:
+    /// every [`Self::push_loop_context`] caller pops exactly once, right
+    /// after compiling its loop body.
+    pub(crate) fn pop_loop_context(&mut self) -> (Vec<usize>, Vec<usize>) {
+        let ctx = self.loop_contexts.pop().expect("loop context was pushed above");
+        (ctx.break_jumps, ctx.continue_jumps)
+    }
+
+    /// Clones the innermost [`LoopContext`]'s recorded `break`/`continue` jump
+    /// chunk indices **without** popping it.
+    ///
+    /// The inliner's `compile_while_true` (U-ITER-FIX item 2) needs this: the
+    /// fast-path loop body and the deopt-fallback's materialized closure body
+    /// are the *same* source block compiled twice, so the loop context must
+    /// stay pushed across both — a `break`/`continue` reached through the
+    /// fallback closure is a deeper function depth than the context's
+    /// `func_depth` and so takes [`Self::emit_deopt_block_control_trap`]
+    /// rather than recording a jump here, but it still needs a non-empty
+    /// [`Self::loop_contexts`] stack to avoid a spurious
+    /// [`CompilerError::BreakOutsideLoop`]/[`CompilerError::ContinueOutsideLoop`].
+    /// The fast path's jumps are backpatched from this snapshot immediately
+    /// after the fast-path loop is compiled; [`Self::pop_loop_context`] is
+    /// called once more, after the fallback compiles too, to finally discard
+    /// the context (its jumps are ignored there — already patched here).
+    ///
+    /// # Panics
+    ///
+    /// Panics if no loop context is on the stack — same invariant as
+    /// [`Self::pop_loop_context`].
+    pub(crate) fn peek_loop_context_jumps(&self) -> (Vec<usize>, Vec<usize>) {
+        let ctx = self.loop_contexts.last().expect("loop context was pushed above");
+        (ctx.break_jumps.clone(), ctx.continue_jumps.clone())
+    }
+
     /// Emits a 0-arity getter send for `name` — the raw-name selector the
     /// getter is installed under (matching the [`Expr::GetProperty`] path), not
     /// an [`encode_selector`] method spelling. Used for `Option#isSome` in the
@@ -1262,11 +1313,7 @@ impl<'vm> Compiler<'vm> {
         let binding_slot = self.declare_loop_local(&for_stmt.binding, false);
 
         // 4. Enter the loop context so body `break`/`continue` resolve here.
-        self.loop_contexts.push(LoopContext {
-            func_depth: self.functions.len(),
-            break_jumps: Vec::new(),
-            continue_jumps: Vec::new(),
-        });
+        self.push_loop_context();
 
         // loop_start: the condition test `$cursor.isSome`.
         let loop_start = self.chunk_len();
@@ -1304,11 +1351,11 @@ impl<'vm> Compiler<'vm> {
         let exit_label = self.chunk_len();
         self.patch_forward_jump_to(exit_on_false, exit_label);
 
-        let ctx = self.loop_contexts.pop().expect("loop context was pushed above");
-        for jump in ctx.break_jumps {
+        let (break_jumps, continue_jumps) = self.pop_loop_context();
+        for jump in break_jumps {
             self.patch_forward_jump_to(jump, exit_label);
         }
-        for jump in ctx.continue_jumps {
+        for jump in continue_jumps {
             self.patch_forward_jump_to(jump, step_label);
         }
 

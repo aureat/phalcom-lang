@@ -189,6 +189,28 @@ impl<'vm> Compiler<'vm> {
         }
     }
 
+    /// Backpatches the jump/guard placeholder at chunk index `idx` so its
+    /// offset lands at the absolute chunk index `target`, rather than
+    /// [`Self::patch_jump`]'s implicit "current chunk end". Used by
+    /// U-ITER-FIX item 2's `compile_while_true` for `continue`, which must
+    /// jump backward to the loop's condition-retest label, not forward to the
+    /// loop's exit (mirrors `compiler/lib.rs`'s `patch_forward_jump_to`; see
+    /// U-ITER-FIX item 4 for the planned dedup of this pair).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `idx` is not one of the four offset-carrying jump/guard
+    /// opcodes — an inliner-internal invariant violation, never
+    /// user-reachable.
+    fn patch_jump_to(&mut self, idx: usize, target: usize) {
+        let offset = target as i32 - (idx as i32 + 1);
+        let code = &mut self.functions.last_mut().unwrap().chunk.code;
+        match &mut code[idx] {
+            Bytecode::Jump(o) | Bytecode::JumpIfFalse(o) | Bytecode::GuardBool(o) | Bytecode::GuardBlock(o) => *o = offset,
+            other => unreachable!("patch_jump_to on a non-jump opcode: {other:?}"),
+        }
+    }
+
     /// Emits a backward [`Bytecode::Loop`] jumping to the absolute chunk
     /// index `loop_start`, closing an inlined `whileTrue` iteration.
     fn emit_loop(&mut self, loop_start: usize, range: SourceRange) {
@@ -409,17 +431,37 @@ impl<'vm> Compiler<'vm> {
     /// type-checked by [`Bytecode::JumpIfFalse`] itself (raising a runtime
     /// type error on a non-`Bool` condition) — this is what gives `while`'s
     /// "no truthiness" floor without a second guard opcode.
+    ///
+    /// A [`super::lib::Compiler::push_loop_context`]-pushed loop context wraps
+    /// the fast-path loop body (U-ITER-FIX item 2, spec §3.2), so `break`/
+    /// `continue` bind inside a bare `while` exactly as they do inside a
+    /// `for` body: `break` jumps to the same "loop is over" label the
+    /// condition-false exit already targets, `continue` jumps back to
+    /// `loop_start` to retest the condition (there is no separate step label —
+    /// re-evaluating the condition block *is* the step).
     fn compile_while_true(&mut self, cond_block: Expr, body_block: Expr, range: SourceRange) -> Result<(), CompilerError> {
         let cond_fallback = cond_block.clone();
         let body_fallback = body_block.clone();
         let guard = self.emit_jump(Bytecode::GuardBlock, range);
         let loop_start = self.functions.last().unwrap().chunk.code.len();
+        // The context stays pushed across *both* the fast-path body below and
+        // the deopt-fallback body compiled further down — they are the same
+        // source block compiled twice — see
+        // [`super::lib::Compiler::peek_loop_context_jumps`]'s doc for why.
+        self.push_loop_context();
         self.compile_inline_block_body(Self::expect_block(cond_block))?;
         let to_exit = self.emit_jump(Bytecode::JumpIfFalse, range);
         self.compile_inline_block_body(Self::expect_block(body_block))?;
         self.emit(Bytecode::Pop, range); // discard the per-iteration body result
         self.emit_loop(loop_start, range);
+        let (break_jumps, continue_jumps) = self.peek_loop_context_jumps();
         self.patch_jump(to_exit);
+        for jump in break_jumps {
+            self.patch_jump(jump);
+        }
+        for jump in continue_jumps {
+            self.patch_jump_to(jump, loop_start);
+        }
         self.emit(Bytecode::Nil, range);
         let to_end = self.emit_jump(Bytecode::Jump, range);
         self.patch_jump(guard);
@@ -427,6 +469,9 @@ impl<'vm> Compiler<'vm> {
         self.compile_expr(body_fallback)?;
         self.emit_sacred_send("whileTrue", &[None], range);
         self.patch_jump(to_end);
+        // Discard the context now that both bodies are compiled (its jumps
+        // were already patched from the peek above).
+        self.pop_loop_context();
         Ok(())
     }
 }
