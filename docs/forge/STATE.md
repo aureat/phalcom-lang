@@ -44,9 +44,16 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   no block_call); map/filter/reduce/includes transitive. Behavior-preserving, goldens byte-exact.
 
 ## Single-writer phase (compiler-spine chokepoint — everything left touches compiler/lib.rs or core.ph)
-- **U-ERR** — DISPATCHED (`a0e2afec`). throw/try/catch/on/ensure + Result/Ok/Err (ADR-0007/8/31/38,
-  all pre-exist). Write-set compiler/lib.rs + parser.rs + block.rs + core.ph + small vm.rs +
-  tests/errors. Reviewer ON. Base HEAD `5d84ad8` clean+green.
+- **U-ERR** ✅ LANDED `7c901cf` (42 files, +952/-68). throw=AST node→`.raise()` (no bytecode);
+  try/on/catch/ensure=pure parser desugar (no new AST); `Block#on/ensure` native via `VM::unwind_to`;
+  Result/Ok/Err pure `.ph`. **Floor +2** (block_class) under ADR-0038 (Accepted), census 109→111.
+  Graduated 2 pending + 7 PASS + 2 negatives. Caught+fixed Error-subclass field-aliasing (reopened
+  `Error` w/ `construct new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
+  Verify green. **Reviewer RUNNING (`ada613e4`)** — verdict pending, then accept/fix-forward → fire U15.
+  DEC-ERR-B resolved (B): `Ok(v)`/`Err(v)` bare-call sugar deferred (no general class-ctor sugar; filed).
+- **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
+  (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
+  (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
 - **Serial queue behind U-ERR** (all collide on compiler/lib.rs or core.ph, cannot co-run):
   U15 (modules, brief staged) → U16 (`::` refs) → U17 (Option-bootstrap ADR, mostly docs — hold
   til U-ERR settles Result/Option relationship) → U-ITER-FIX follow-ons (strike DEFERRED L21-24 +

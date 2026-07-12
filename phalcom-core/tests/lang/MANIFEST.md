@@ -33,7 +33,14 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
   (`compile-errors/compile_error_throw_non_error_literal.ph`), +1 NEGATIVE
   (`runtime-errors/runtime_error_throw_uncaught.ph`), -2 PENDING (the retired
   `errors/pending/` pair). `errors` moves `check_pending` → `check_pass`.
-- **Case counts:** PASS 163 · NEGATIVE 34 · PENDING 32 · **total 229** (U13
+- **Case counts (RECONCILED 2026-07-12, post-U-ERR + three adversarial test-waves):**
+  PASS 292 · NEGATIVE 40 · PENDING 28 · **total 360** (recounted from the tree:
+  `find tests/lang -name '*.ph'` = 360; PENDING = `*/pending/*.ph`; NEGATIVE =
+  runtime-errors + compile-errors + syntax-errors + collections/negative lanes).
+  The stale 163/34/32/229 line and its per-delta narrative below are superseded history.
+  Net since 229: +91 adversarial goldens (waves 1-3: OO/collections/closures/absence,
+  arithmetic/booleans/reflection/bindings/system, concurrency) + U-ERR's errors surface.
+- **(historical)** PASS 163 · NEGATIVE 34 · PENDING 32 · **total 229** (U13
   hierarchy-stability policy, DEC-U13a=A: +1 NEGATIVE —
   `runtime-errors/runtime_error_superclass_reparent_rejected.ph` pins the
   sealed-hierarchy reject, `Can't set superclass of a class`, as a catchable
