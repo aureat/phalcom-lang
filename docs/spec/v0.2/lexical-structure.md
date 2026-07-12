@@ -164,13 +164,17 @@ overlap with `#` (symbols) or `::` (method references).
 
 ## 13. Error-handling keywords
 
-`throw`, `try`, `catch`, and `finally` are reserved keywords
-([Error Handling](error-handling.md)).
+`throw`, `try`, `catch`, `on`, and `ensure` are the error-handling keywords
+([Error Handling](error-handling.md); [ADR-0031](../../adr/0031-error-handling-surface-syntax.md)).
 
 - `throw expr` is a prefix statement/expression; `expr` must evaluate to an
   [`Error`](values-and-absence.md). Sugar for `expr.raise()`.
-- `try` / `catch` / `finally` form the block-handler statement. They are pure
-  sugar over the `Block` sends `on(_)(_)`, `ensure(_)`, and `attempt()` — no
-  token carries semantics the desugaring lacks. `catch (e: T)` binds `e` and
-  filters on class `T`; the `: T` is optional and defaults to `Error`.
+- `try` / `on` / `catch` / `ensure` form the block-handler statement — pure sugar
+  over the `Block` sends `on(_)(_)`, `ensure(_)`, and `attempt()`, no token
+  carrying semantics the desugaring lacks. `on T e { … }` is a typed handler
+  (`.on(T){ e => … }`); `catch e { … }` is the catch-all (`.on(Error){ e => … }`);
+  `ensure { … }` is the cleanup (`.ensure{ … }`).
+- `on`, `catch`, and `ensure` are **contextual keywords** — reserved only as
+  `try`-clauses — so the `.on()`/`.ensure()` selectors and the `Fiber>>try` message
+  keep working; `try` is reserved at statement-leading position.
 </content>

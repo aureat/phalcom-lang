@@ -6,7 +6,7 @@ that point, with the resolved [open questions](v0.2/open-questions.md) woven in.
 
 | Version | Status | Contents |
 |---|---|---|
-| **[v0.2](v0.2/README.md)** | **Current** | The consolidated, decision-complete snapshot: all 14 open questions resolved (ADR-0022/0024/0025/0027), numeric `Int`/`Float` split, `\(expr)` interpolation, external/internal parameter names, file-as-module imports. |
+| **[v0.2](v0.2/README.md)** | **Current** | The consolidated, decision-complete snapshot: all 15 open questions resolved, numeric `Int`/`Float` split, `\(expr)` interpolation, external/internal parameter names, file-as-module imports, plus the concurrency, collections, error-syntax, and iteration subsystems ratified (ADR-0030–0032, 0035). |
 | v0.1 | Historical | The pre-decision draft (superseded by v0.2; not retained as a separate tree — see git history before the v0.2 consolidation). |
 
 ## Where things go

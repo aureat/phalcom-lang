@@ -94,7 +94,7 @@ structural divergence.
 
 | Class | Row | Global | Floor | `.ph` | Pending | Unit |
 |---|:--:|:--:|---|---|---|---|
-| `List` | ✅ | ✅ | `new` `rawLength` `rawAt` `rawSet` `rawPush` `toString` | `size` `at(_)` `add(_)` `each(_)` `at(_, put)` `map(_)` `filter(_)` `reduce(_,_)` `includes(_)` `isEmpty` | literal syntax `[a,b,c]` only (DEFERRED #6) | **U-STD — combinators landed**; literal syntax still open |
+| `List` | ✅ | ✅ | `new` `rawLength` `rawAt` `rawSet` `rawPush` `toString` | `size` `at(_)` `add(_)` `each(_)` `at(_, put)` `map(_)` `filter(_)` `reduce(_,_)` `includes(_)` `isEmpty` | literal syntax `[a,b,c]` only (DEFERRED #6) | **U-STD — combinators landed**; literal syntax ratified ([ADR-0029](../../../adr/0029-list-literal-syntax.md)/[ADR-0032](../../../adr/0032-collections-representation-and-literals.md)) |
 | `Tuple` | ❌ | ❌ | — | — | **entire class** | U-STD |
 | `Map` | ❌ | ❌ | — | — | **entire class** (name reserved in `ClassName`) | U-STD |
 | `Set` | ❌ | ❌ | — | — | **entire class** | U-STD |
