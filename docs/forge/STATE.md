@@ -55,10 +55,13 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
 - **Serial queue behind U-ERR** (all collide on compiler/lib.rs or core.ph, cannot co-run):
-  U15 (modules, brief staged) → U16 (`::` refs) → U17 (Option-bootstrap ADR, mostly docs — hold
-  til U-ERR settles Result/Option relationship) → U-ITER-FIX follow-ons (strike DEFERRED L21-24 +
-  descriptive deopt-trap msg, compiler/lib.rs ~L1341) → method-reopening bug (ADR-0018 violation,
-  U13-filed, compiler+Bytecode::Class). Fire in order as U-ERR then each frees the spine.
+  U15 (modules, brief staged — FIRE after U-ERR review clears) → U16 (`::` refs) → U-ITER-FIX
+  follow-ons (strike DEFERRED L21-24 + descriptive deopt-trap msg, compiler/lib.rs ~L1341) →
+  method-reopening bug (ADR-0018 violation, U13-filed) + the 4 test-wave bugs. Fire in order.
+- **U17** ✅ closed — Option-bootstrap formalization, affirm-ADR-0044. DEC-U17=A: defer
+  niche-encoding (perf-only, belongs with NaN-boxing pass; None fieldless-singleton bootstrap
+  already resolved, now ADR-anchored). No code. (Trivial follow-on: spec cross-ref in
+  values-and-absence §3 — delicate file, skipped for now.)
 - U12/U18 ✅ closed (affirm-ADR-0042/0043, `f16b58a`).
 
 ## Test-deepening wave (parallel-safe w/ U-ERR, tests-only, oracle=f54e3bf clean binary)
