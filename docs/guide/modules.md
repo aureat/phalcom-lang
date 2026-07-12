@@ -52,6 +52,11 @@ terse form for a name you'll use constantly and don't need to trace back.
 `as` is for the case those two don't cover — two imports that would
 otherwise collide on the same name.
 
+These three are the whole of `import`; the normative `import_decl` productions
+are in the [consolidated grammar](../spec/v0.2/syntax/grammar.md), and the
+annotated walkthrough is in
+[Statements & Declarations](../spec/v0.2/syntax/statements-and-declarations.md).
+
 ## Name resolution
 
 `import geometry` resolves `geometry` as a **logical module name**, not a
