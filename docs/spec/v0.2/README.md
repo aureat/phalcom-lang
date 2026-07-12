@@ -4,7 +4,7 @@
 
 Phalcom is a class-based, object-first language with JavaScript's surface
 ergonomics and Smalltalk's semantics. This directory is the living specification,
-split into parts. The 14 [Open Questions](open-questions.md) are now all resolved;
+split into parts. The [Open Questions](open-questions.md) (15) are now all resolved;
 anything deliberately postponed — deferred decisions, still-open decisions, unbuilt
 units — is tracked in [Deferred & Future Work](deferred-work.md) rather than being
 silently invented.
@@ -23,11 +23,13 @@ silently invented.
 | [Classes](classes.md) | `construct`, fields, methods, accessors, operators |
 | [Method Lookup](method-lookup.md) | Resolution order, `doesNotUnderstand`, `Message` |
 | [Control Flow](control-flow.md) | `if`/`while`/`for` sugar, `and`/`or`, the inliner |
-| [Error Handling](error-handling.md) | `throw`, `try`/`catch`/`finally`, `Result`, unwinding as one primitive |
+| [Iteration](iteration.md) | The cursor protocol (`iterate`/`iteratorValue`), `for` desugar, `break`/`continue` |
+| [Error Handling](error-handling.md) | `throw`, `try`/`catch`/`on`/`ensure`, unwinding as one primitive |
+| [Result](result.md) | `Result`/`Ok`/`Err` — the value channel for expected failure; bridges to exceptions |
 | [Fibers & Futures](concurrency.md) | Cooperative concurrency: the `Fiber` primitive, `Future`, the scheduler |
 | [System](system.md) | The runtime service surface: console, clock, process, scheduler |
 | [Implementation Status](implementation-status.md) | Divergence between this spec and the current tree |
-| [Open Questions](open-questions.md) | The 14 design questions — **all resolved**; decision record |
+| [Open Questions](open-questions.md) | The 15 design questions — **all resolved**; decision record |
 | [Deferred & Future Work](deferred-work.md) | Master index of everything postponed: deferred decisions, open decisions, unbuilt units, the experimental corpus |
 
 ## Invariants

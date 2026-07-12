@@ -1,6 +1,11 @@
 # Iteration protocol (proposed — untracked gap)
 
-- Status: Proposed · no open-Q covers this; **blocks `for` implementation**
+> **Promoted → [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)** + normative
+> spec [`iteration.md`](../iteration.md) (2026-07-12). This draft is retained for
+> history; the ratified version adds the `for` desugar, `break`/`continue`, the
+> inliner interaction, and the `Fiber` (ADR-0030) relationship.
+
+- Status: Superseded by ADR-0035 · no open-Q covers this; **blocks `for` implementation**
 - Axis: closures-control (iteration/generators)
 
 ## Problem

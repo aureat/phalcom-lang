@@ -11,8 +11,13 @@ compile to identical opcodes — nothing is lost.
 ```phalcom
 if (c) { ... } else { ... }          // === c.ifTrue { ... }.ifNone { ... }
 while (c) { ... }                    // === { c }.whileTrue { ... }
-for (x in xs) { ... }                // === xs.each { x => ... }
+for (x in xs) { ... }                // iteration protocol (see iteration.md)
 ```
+
+`for` lowers to the **cursor iteration protocol**
+([iteration.md](iteration.md)) — a `while` loop over `iterate(_)`/`iteratorValue(_)`,
+**not** `xs.each { … }` — so `break`/`continue` work as loop control. `.each` is the
+full-traversal combinator over the same protocol.
 
 ## 2. `and` / `or` / `??` short-circuit
 

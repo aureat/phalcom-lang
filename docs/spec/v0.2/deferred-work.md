@@ -96,7 +96,7 @@ Reserved-but-unbuilt class names sit in `primitive/mod.rs::ClassName` (`Range`, 
 | **Concurrency** `Fiber`/`Future` | cooperative coroutines + async layer | surface + execution model **ratified** ([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md), Option A); code unbuilt | [concurrency.md](concurrency.md); experimental/ |
 | **Typing layer** | optional/structural/erasable gradual types | experimental, uncommitted | [experimental/typing.md](experimental/typing.md) |
 | **Annotations `@`** | `@attr` mechanism, contracts, `@construct`/`@get`/`@set` | experimental (10 drafts), `@` not lexed | experimental/annotations-*.md |
-| **`Result`/`Ok`/`Err`** | `Option`-mirrored expected-failure channel + bridges | reserved by U-CORE-6; own later unit | ADR-0008 |
+| **`Result`/`Ok`/`Err`** | `Option`-mirrored expected-failure channel + bridges | design **normative** ([result.md](result.md); ADR-0008); reserved by U-CORE-6, built by a later value-classes unit | [result.md](result.md); ADR-0008 |
 
 ---
 
@@ -130,7 +130,7 @@ proposals promote to `adr/` + `spec/` on ratification. Grouped by the subsystem 
 feed:
 
 - **Concurrency** — [concurrency-adr.md](experimental/concurrency-adr.md) (promoted → [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)), [scheduler-unit.md](experimental/scheduler-unit.md), [fiber-ensure-and-limits.md](experimental/fiber-ensure-and-limits.md)
-- **Iteration** — [iteration-protocol.md](experimental/iteration-protocol.md) (`iterate`/`iteratorValue`; unblocks `for`)
+- **Iteration** — [iteration-protocol.md](experimental/iteration-protocol.md) (promoted → [ADR-0035](../../adr/0035-iteration-protocol-cursor.md) + normative [iteration.md](iteration.md))
 - **Indexing / numeric** — [numeric-and-string-indexing.md](experimental/numeric-and-string-indexing.md) *(its integral-index + codepoint-string decisions are keep-worthy; its "f64 / 2⁵³ / bignum-deferred / split-open" claims are **superseded by ADR-0024**)*
 - **Equality / hash** — [equality-and-hash.md](experimental/equality-and-hash.md) *(heavy overlap with the now-landed ADR-0023 + core/decisions.md Q1/Q5 — candidate to become normative; de-dupe first)*
 - **Typing** — [typing.md](experimental/typing.md) + `typing-initialization`/`-subtyping`/`-inference`/`-stdlib-surface`
