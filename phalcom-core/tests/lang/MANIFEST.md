@@ -19,8 +19,11 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, collections,
   compile-errors, concurrency, control-flow, dispatch, errors, functions, inheritance,
   iteration, lexical, list, messages, metaclass, runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 158 · NEGATIVE 33 · PENDING 32 · **total 223** (at the
-  `U-COLLTYPES` `{k:v}`-map-literal wiring, landed after Phase 3; +1 PASS /
+- **Case counts:** PASS 160 · NEGATIVE 33 · PENDING 32 · **total 225** (+2 PASS —
+  the U-ITER deferred item 5 fiber x generator fixtures `iteration/for_generator_suspends.ph`
+  (C-ITER-8) and `concurrency/each_generator_raises.ph`, cut from U-ITER and graduated now
+  that U-FIBER has landed, over the `U-COLLTYPES` `{k:v}`-map-literal wiring, landed after
+  Phase 3; +1 PASS /
   -1 NEGATIVE — `negative/map_literal_pending.ph` retired (the map literal no
   longer raises a "pending" diagnostic) and replaced by
   `map_literal_construction.ph`. Phase 3 (`Range`) was +1 PASS over Phase 2
@@ -52,14 +55,14 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
 | list | 4 | – | – | `check_pass` | U-LIST-plan.md; ADR-0019; ADR-0020 |
 | collections | 14 | 2 | 1 | `check_pass` (+ `check_negative`, `check_pending`) | U-CORE-5 as-built.md; U-COLL: lexical-structure.md §4/§6/§7/§8; ADR-0029; ADR-0032; U-COLLTYPES: map-and-set.md; tuple-and-range.md; ADR-0039 |
-| iteration | 8 | – | 2 | `check_pass` (+ `iteration_disasm`, `check_pending`) | ADR-0035; iteration.md; U-ITER specification |
+| iteration | 9 | – | 2 | `check_pass` (+ `iteration_disasm`, `check_pending`) | ADR-0035; iteration.md; U-ITER specification |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
 | runtime-errors | – | 10 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3 |
 | compile-errors | – | 12 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021; object-model.md §5.1; ADR-0035 (break/continue outside loop) |
 | absence | 10 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | – | – | 2 | `check_pending` | control-flow.md |
-| concurrency | 5 | – | 1 | `check_pass` + `check_pending` | concurrency.md; ADR-0030 |
+| concurrency | 6 | – | 1 | `check_pass` + `check_pending` | concurrency.md; ADR-0030 |
 | errors | – | – | 2 | `check_pending` | error-handling.md |
 | functions | – | – | 2 | `check_pending` | functions.md; selectors.md |
 

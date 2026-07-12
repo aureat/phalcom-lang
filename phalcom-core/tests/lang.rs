@@ -181,6 +181,11 @@ fn concurrency() {
     // U-FIBER (ADR-0030): bare cooperative `Fiber` — `call`/`try`/`yield`/
     // `current`/`abort`, the restricted-yield guard, and fiber-floor error
     // capture. `Future`/`async`/`await` stay pending (see below).
+    //
+    // `each_generator_raises.ph` (U-ITER deferred item 5): `List#each { Fiber.yield }`
+    // yields across `each`'s native block-call frame — `CannotYieldAcrossNativeFrame`,
+    // same guard as `concurrency_fiber_restricted_yield_guard.ph` but reached via the
+    // collection protocol rather than `Function#call` directly.
     support::check_pass("concurrency");
 }
 
@@ -262,6 +267,11 @@ fn iteration() {
     // surface lowering to an inlined cursor `while`, and `break`/`continue`
     // as jump-based loop control — all pure `.ph` + compiler lowering over the
     // existing floor (zero new primitives).
+    //
+    // `for_generator_suspends.ph` (C-ITER-8, U-ITER deferred item 5): a `for`
+    // loop body running inside a `Fiber` suspends at each `Fiber.yield` and
+    // resumes at the next cursor position on the next `call` — the direct-jump
+    // `for` lowering (C-ITER-4) composes with fiber suspension.
     support::check_pass("iteration");
 }
 
