@@ -11,9 +11,20 @@ Re-check before starting new work.
 
 ## Current position
 - Spine roster (U-FE, U0–U11, U-LIST, U-LEX, U-STD): **closed**, all landed.
-- Successor core-library track (U-CORE-1..6): **in progress** — U-CORE-1 landed (`03764e3`),
-  U-CORE-2 mostly landed (`0da64d6`, residue only). **NEXT = U-CORE-3** (callable/Block/Method
-  reflection — see [`../units/U-CORE-3/handoff.md`](../units/U-CORE-3/handoff.md)).
+- Successor core-library track (U-CORE-1..6): **U-CORE-1..5 LANDED; U-CORE-6 (final unit) in
+  flight.** This session (2026-07-12) landed, in recommended order 3→2→4→5:
+  - U-CORE-3 `10ebd06` — Method reflection (`methodFor`/`invokeOn`/`bind`/`selector`/`holder`) +
+    `Object::BoundMethod` heap arm; floor 80→85 (ADR-0028).
+  - U-CORE-2 residue `ce84283` — the R-INV-2.1..2.4 absence/control-flow corpus fixtures the
+    unit had specified but never landed (no code change).
+  - U-CORE-4 `2061795` — per-type value `toString` + Symbol `#`-sigil render unification
+    (BD-CORE4-2); floor 85→86 (ADR-0036). Re-pinned the golden corpus (`<X instance>`→proper
+    toString) incl. U-CORE-3's method-reflection fixture (`selector.toString`→`#greet(_:)`).
+  - U-CORE-5 `bc161fb` — structural `List#==`/`!=` (`.ph` over the floor, native `list_eq`
+    rejected by spec §3.1) + reusable collection ContractSpec; **+0 floor**.
+  - **NEXT = U-CORE-6** (Error root + `MessageNotUnderstood`; wire dNU miss → surface error via
+    the unified unwind; +2 floor → 88, ADR ~0037) — dispatched, awaiting verify. Closes the track.
+- Pre-grounds committed for the tail: U-CORE-4/5/6 as-built specs re-anchored to current HEAD.
 - In-flight planning batch (U12–U20, U-COLL) under [`../units/`](../units/) — not yet dispatched.
 
 ## Standing conventions (carried forward — not recorded elsewhere)
@@ -22,9 +33,16 @@ Re-check before starting new work.
 model): historically U1, U2, U3, U4, U6. Everything else self-verifies on the green gate + `cargo
 doc` clean. Apply the same load-bearing test to new units.
 
-**Worktree seeding hazard.** Worktrees branch from committed HEAD. Any uncommitted `docs/forge/`,
-spec, or script change is invisible to a fresh worktree. Commit before spinning up parallel
-worktree-isolated units; run serial/spine work in-tree.
+**Worktree seeding hazard — DO NOT worktree-isolate subagents on this tree (2026-07-12).**
+Beyond the branch-from-HEAD staleness: a worktree-isolated implementer this session was handed a
+worktree at an *ancient* base (predating `docs/forge/` and the test corpus), couldn't build, and
+while investigating ran `git stash push -u` in the SHARED main checkout — silently yanking every
+concurrently-running agent's uncommitted work into `stash@{0}`. Recovered via
+`git show 'stash@{0}^3:PATH'` (untracked) / `git show 'stash@{0}:PATH'` (tracked). Rule: run the
+U-CORE tail IN-TREE, one active writer at a time, commit each unit the instant it is green (a
+committed diff cannot be stashed away); parallelize only by DISJOINT write-set (docs vs
+`tests/lang/**` vs `src/`), never by worktree. The `verify.sh` green gate is the backstop that
+catches a mid-flight clobber (a half-reverted tree won't compile).
 
 **Design mandate (user, 2026-07-11).** "Build the architecture. You don't have to preserve the
 current implementation. Architecture and design should be built on best practices." — spec is the
