@@ -50,6 +50,11 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0025](0025-external-internal-parameter-names.md) | Separate external labels from internal parameter names | Accepted |
 | [0026](0026-class-hierarchy-mutability.md) | Methods are open; superclass reparenting is sealed | Accepted |
 | [0027](0027-modules-as-files-with-public-by-default-imports.md) | A module is a file; public-by-default exports; qualified/selective/aliased imports | Accepted |
+| [0028](0028-list-literal-syntax.md) | List literals `[a, b, c]` desugar to `List` construction sends (no new floor) | Proposed |
+
+> ADR-0028 (list literals) is **Proposed** — awaiting ratification of its sub-decisions
+> (desugar-vs-opcode, subscript sugar, trailing comma). Design in
+> [`docs/spec/v0.2/core/list-literal-syntax.md`](../spec/v0.2/core/list-literal-syntax.md).
 
 > ADRs 0024–0027 were ratified by the user on 2026-07-12, resolving open-questions
 > Q2 (numeric split + division), Q3 (parameter names), Q4 (hierarchy mutability), and
