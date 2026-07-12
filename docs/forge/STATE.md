@@ -83,6 +83,16 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
     `family_class#doesNotUnderstand` call-router (encode_selector→send_dynamic, no new dispatch), base-name
     index via new `FinalizeClass` opcode, empty-family check honors DNU. Floor +1 (the one call-router) →
     ADR-0047. Does NOT touch lexer.rs/token.rs.
+  - **LANDED** `dfb96ff` (feat) + `41b7227` (deferred-filing). Gate green, cargo doc clean. As-built:
+    Family defines ONLY `doesNotUnderstand(_:)`; bare `f(args)`→`call(...)` misses→DNU router
+    `decode_selector`→`encode_selector(name,labels,kind)`→`send_dynamic` (U8 path, no 2nd dispatch).
+    TWO opcodes: `FinalizeClass` (class-tail, finalizes base_names incl. metaclass) + `MakeFamily`
+    (compiles `Expr::MethodRef`, builds Family + reference-time empty-check). `finalize_all_core_base_names`
+    in `VM::new` covers kernel rows w/ no `.ph` reopen. `ClassObject.base_names: HashMap<Symbol,Vec<Symbol>>`.
+    Floor 112→113 (§2.16), invariants.rs `core_class_rows` 27→28 lockstep. Census real path =
+    `docs/spec/v0.2/core/floor-census.md` (brief typo said docs/forge; no docs/forge/floor-census.md exists).
+    6 goldens (`tests/lang/family/`, 5 pos + 1 negative-lane). Empty-check verified DNU-honoring live.
+    **Reviewer RUNNING** (`a07b3f78`, throwaway worktree @ 41b7227) — 8 load-bearing checks. Await verdict.
 
 ## Roster update (post-U16 blocker adjudication)
 - **U-LEX-HASH** (NEW prerequisite) — `#` symbol literals (selectors §2): atomic Logos token, R2
@@ -95,10 +105,13 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
 - **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
-- **Serial queue behind U-ERR** (all collide on compiler/lib.rs or core.ph, cannot co-run):
-  U15 (modules, brief staged — FIRE after U-ERR review clears) → U16 (`::` refs) → U-ITER-FIX
-  follow-ons (strike DEFERRED L21-24 + descriptive deopt-trap msg, compiler/lib.rs ~L1341) →
-  method-reopening bug (ADR-0018 violation, U13-filed) + the 4 test-wave bugs. Fire in order.
+- **Serial spine tail (current front — U16-Open is the LAST feature; all contend spine, single-writer):**
+  U-LEX-HASH (`#` symbol literals, owns lexer.rs+token.rs; MUST carry the Symbol#== value.rs:253 fix or
+  its graduated `literal_map_symbol_keys.ph` still fails retrieval — plan drafted) → U16-Pinned follow-on →
+  bug-fix tail (grouped by write-set: Symbol#==·U-ERR 4-wave [PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/
+  NOT-KEYWORD]·iter deopt-trap+method-reopening·SuperSend-IC+SOURCE_MAP·U-FIBER-FIX cluster) → U-SCHED
+  (U-FUTURE Slice B). RECONCILE-FIRST: `has_new_construct` guard (DEFERRED L18) may already be fixed per
+  [[ctor-inherit-guard-fix]] — verify before implementing. Fire in order after U16-Open ACCEPTED.
 - **U17** ✅ closed — Option-bootstrap formalization, affirm-ADR-0044. DEC-U17=A: defer
   niche-encoding (perf-only, belongs with NaN-boxing pass; None fieldless-singleton bootstrap
   already resolved, now ADR-anchored). No code. (Trivial follow-on: spec cross-ref in
