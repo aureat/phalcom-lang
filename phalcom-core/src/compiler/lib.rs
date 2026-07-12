@@ -761,7 +761,7 @@ impl<'vm> Compiler<'vm> {
                             class_def.name
                         )));
                     }
-                    if let Some(layout) = self.vm.field_layouts.get(&sc_sym) {
+                    let counts = if let Some(layout) = self.vm.field_layouts.get(&sc_sym) {
                         (layout.field_count, layout.static_field_count)
                     } else if let Some(&sc_id) = self.vm.classes.get(&sc_sym) {
                         let meta = self.vm.heap.class(sc_id).class;
@@ -771,7 +771,20 @@ impl<'vm> Compiler<'vm> {
                             "Unknown superclass `{}`: it must be a class defined before `{}`.",
                             sc_ref.name, class_def.name
                         )));
-                    }
+                    };
+                    // Record the compile-time superclass edge (U-INH follow-on)
+                    // ONLY here — past the self-check, on a known/validated
+                    // superclass. The reopen branch above and the self/unknown
+                    // error paths deliberately do not populate `class_parents`, so
+                    // no self- or dangling edge can enter the map (the VM persists
+                    // across REPL lines, so a stale edge would otherwise make the
+                    // guard/alias chain-walks spin). Edges normally point only to a
+                    // strictly-earlier-defined class; the one residual way to form a
+                    // back-edge is a reopen-redefinition within a unit (`class A {}`,
+                    // `class B extends A`, then `class A extends B`), which the
+                    // `visited` guard in both chain-walks handles without spinning.
+                    self.vm.class_parents.insert(name_sym, sc_sym);
+                    counts
                 } else {
                     // Implicit `Object` root.
                     let object_class = self.vm.universe.classes.object_class;
@@ -1000,6 +1013,60 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    /// Reports whether `class_sym` or any of its compile-time ancestors
+    /// (via [`VM::class_parents`](crate::vm::VM::class_parents)) declares a
+    /// `new`-named `construct`.
+    ///
+    /// Inheritance-aware form of a bare `has_new_construct` membership test.
+    /// A subclass that *inherits* a `new` constructor but declares none still
+    /// has no user-visible bare allocator, so a mis-arity `Sub.new(...)` must
+    /// error rather than silently fall through to the `Object.class::new`
+    /// bare allocator and yield an uninitialized instance (U-INH follow-on;
+    /// `docs/forge/DEFERRED.md` correctness entry). The walk terminates at the
+    /// implicit `Object` root, which never has an edge in `class_parents`.
+    fn inherits_new_construct(&self, mut class_sym: Symbol) -> bool {
+        // `class_parents` is normally a strict-ancestry DAG, but a reopen-
+        // redefinition within a unit can form a back-edge (see the populate site);
+        // the `visited` guard makes the walk terminate regardless, so the compiler
+        // never spins.
+        let mut visited = std::collections::HashSet::new();
+        while visited.insert(class_sym) {
+            if self.vm.has_new_construct.contains(&class_sym) {
+                return true;
+            }
+            match self.vm.class_parents.get(&class_sym) {
+                Some(&parent) => class_sym = parent,
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// Resolves the `construct` call-site alias for `selector_sym` sent to
+    /// `class_sym`, walking the compile-time superclass chain
+    /// ([`VM::class_parents`](crate::vm::VM::class_parents)) so an *inherited*
+    /// constructor — declared only on an ancestor — is redirected to its
+    /// installed `Initializer` selector at the subclass call site, exactly as
+    /// a locally declared one is (ADR-0011). Returns `None` if no class in the
+    /// chain declares a `construct` matching `selector_sym`.
+    fn lookup_constructor_alias(&self, mut class_sym: Symbol, selector_sym: Symbol) -> Option<Symbol> {
+        // Nearest-declared wins: the walk checks each class before its parent, so
+        // a subclass `construct` shadows an ancestor's of the same selector. The
+        // `visited` guard terminates the walk even on a reopen-redefinition back-
+        // edge (see [`Self::inherits_new_construct`]).
+        let mut visited = std::collections::HashSet::new();
+        while visited.insert(class_sym) {
+            if let Some(&alias) = self.vm.constructor_aliases.get(&(class_sym, selector_sym)) {
+                return Some(alias);
+            }
+            match self.vm.class_parents.get(&class_sym) {
+                Some(&parent) => class_sym = parent,
+                None => return None,
+            }
+        }
+        None
+    }
+
     /// Compiles `expr`, always leaving exactly one value on the stack.
     /// Equivalent to `compile_expr_want(expr, true)` — see that method for
     /// `want_value`.
@@ -1071,7 +1138,7 @@ impl<'vm> Compiler<'vm> {
                         let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
                         let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
                         let selector_sym = self.vm.interner.intern(&selector);
-                        let alias = receiver_class_sym.and_then(|class_sym| self.vm.constructor_aliases.get(&(class_sym, selector_sym)).copied());
+                        let alias = receiver_class_sym.and_then(|class_sym| self.lookup_constructor_alias(class_sym, selector_sym));
 
                         // U7-plan §6 negative: a class with a `new`
                         // constructor has no user-visible bare allocator —
@@ -1081,7 +1148,7 @@ impl<'vm> Compiler<'vm> {
                         if alias.is_none()
                             && method_call.method == "new"
                             && let Some(class_sym) = receiver_class_sym
-                            && self.vm.has_new_construct.contains(&class_sym)
+                            && self.inherits_new_construct(class_sym)
                         {
                             return Err(CompilerError::Message(format!(
                                 "No constructor `{}.new(...)` matches this call: arity/labels don't match any declared `construct`",

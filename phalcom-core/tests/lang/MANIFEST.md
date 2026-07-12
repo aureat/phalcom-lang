@@ -19,7 +19,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 - **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, compile-errors,
   concurrency, control-flow, dispatch, errors, functions, inheritance, lexical, list, messages,
   metaclass, runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 75 · NEGATIVE 18 · PENDING 52 · **total 145**.
+- **Case counts:** PASS 76 · NEGATIVE 19 · PENDING 52 · **total 147**.
 - Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
   under `-- --ignored` and are expected to fail until their feature is implemented.
 - Baseline recorded 2026-07-11 against `./target/debug/phalcom` at commit `037da3d`; the
@@ -34,7 +34,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | arithmetic | 12 | – | – | `check_pass` | values-and-absence.md; messages-and-selectors.md; control-flow.md |
 | lexical | 10 | – | 7 | `check_pass` + `check_pending` | lexical-structure.md; values-and-absence.md; selectors.md |
 | classes | 10 | – | 10 | `check_pass` + `check_pending` | classes.md; object-model.md; ADR-0011; ADR-0017 |
-| inheritance | 7 | – | – | `check_pass` | object-model.md §5.1; method-lookup.md §1.14; ADR-0002; ADR-0040 |
+| inheritance | 8 | – | – | `check_pass` | object-model.md §5.1; method-lookup.md §1.14; ADR-0002; ADR-0040 |
 | messages | 7 | – | 2 | `check_pass` + `check_pending` | messages-and-selectors.md; selectors.md; object-model.md |
 | system | 4 | – | 2 | `check_pass` + `check_pending` | system.md |
 | bindings | 3 | – | 2 | `check_pass` + `check_pending` | values-and-absence.md; open-questions.md; ADR-0014 |
@@ -44,7 +44,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | list | 4 | – | – | `check_pass` | U-LIST-plan.md; ADR-0019; ADR-0020 |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
 | runtime-errors | – | 6 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3 |
-| compile-errors | – | 7 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021; object-model.md §5.1 |
+| compile-errors | – | 8 | – | `check_negative` | values-and-absence.md; ADR-0014; ADR-0007; ADR-0021; object-model.md §5.1 |
 | absence | 10 | – | 5 | `check_pass` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | – | – | 2 | `check_pending` | control-flow.md |

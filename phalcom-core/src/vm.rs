@@ -102,6 +102,20 @@ pub struct VM {
     /// a compile error rather than a silent fall-through to the inherited
     /// `Object::new` primitive.
     pub has_new_construct: std::collections::HashSet<Symbol>,
+    /// Compile-time superclass edges: a user class name (by [`Symbol`]) mapped
+    /// to the name of its `extends` superclass.
+    ///
+    /// Populated by the compiler as each `class B extends A { … }` is lowered
+    /// (the superclass is required to be defined earlier in the same pass, so
+    /// the edge is always known here). Lets constructor-guard and
+    /// constructor-alias lookups walk the inheritance chain at compile time —
+    /// so a subclass that *inherits* a `new`-named `construct` but declares
+    /// none still has no user-visible bare allocator, and an inherited
+    /// `construct` is redirected to its `Initializer` selector at a subclass
+    /// call site exactly as a locally declared one is (U-INH follow-on;
+    /// `docs/forge/DEFERRED.md` correctness entry). Only user classes appear;
+    /// the implicit `Object` root is absent (chain-walks terminate there).
+    pub class_parents: HashMap<Symbol, Symbol>,
 }
 
 impl Default for VM {
@@ -136,6 +150,7 @@ impl VM {
             field_layouts: HashMap::new(),
             constructor_aliases: HashMap::new(),
             has_new_construct: std::collections::HashSet::new(),
+            class_parents: HashMap::new(),
         };
 
         // Bootstrap core module and primitive methods
