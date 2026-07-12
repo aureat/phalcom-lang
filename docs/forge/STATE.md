@@ -73,9 +73,25 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   (LetBinding.name→pattern, legit). Verify green. **Reviewer APPROVE** (`a4cd9922`) — all areas pass,
   live-verified (single-eval, arity boundaries, nested, snapshot honesty); shipping list/*rest now
   judged sound. **U14 ACCEPTED.** No new DEFERRED (implementer self-filed 4 minor obs).
-- **U16** DISPATCHED (`aa5dd23b`, reviewer ON) — LAST feature. `::` method refs → `Family` value
-  (Open/Pinned), base-name index at finalize, `Object::Family` heap variant (adopted design), family.rs
-  primitive. Expect FLOOR BUMP → amendment ADR-0047. Broad spine write-set. Then spine bug-fix tail.
+- **U16** — STOPPED pre-edit on 2 real plan-vs-reality blockers (adversarial gate worked), adjudicated
+  + RE-SCOPED; re-dispatched fresh as U16-Open (reviewer ON):
+  - **Blocker 1:** Pinned form `obj::#sel` needs `#`-symbol-literal lexing (selectors §2, unlanded,
+    lexer.rs/token.rs — outside U16 write-set). **DEFER Pinned** → new prerequisite unit **U-LEX-HASH**.
+  - **Blocker 2:** Q14 already RESOLVED in spec (Family callable-only; reflective mirror deferred to a
+    unified reflection unit). Plan §4/§6 was stale. **Honor the ruling** → callable-only, NO reflective surface.
+  - **U16 now = Open-form `::` only, callable-only:** `obj::m`/`Type::m` → `Object::Family` heap variant,
+    `family_class#doesNotUnderstand` call-router (encode_selector→send_dynamic, no new dispatch), base-name
+    index via new `FinalizeClass` opcode, empty-family check honors DNU. Floor +1 (the one call-router) →
+    ADR-0047. Does NOT touch lexer.rs/token.rs.
+
+## Roster update (post-U16 blocker adjudication)
+- **U-LEX-HASH** (NEW prerequisite) — `#` symbol literals (selectors §2): atomic Logos token, R2
+  validate/canonicalize, shebang-offset-0 carve-out. Owns lexer.rs + token.rs. Unblocks: U16-Pinned +
+  the known `#IDENT` map-symbol-key DEFERRED item (line 12) + future `perform`/reflection selector symbols.
+  Contends phalcom-ast → serialize after U16-Open frees it.
+- **U16-Pinned** (follow-on) — adds Pinned `obj::#sel` form to U16, after U-LEX-HASH lands.
+- **Reflective Family mirror** — deferred per Q14 ruling to a future unified reflection unit (with U8
+  Message/perform/respondsTo surface).
 - **Housekeeping done (tree clean post-U-ERR):** 4 test-wave bugs filed to DEFERRED
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
