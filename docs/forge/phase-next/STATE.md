@@ -22,8 +22,11 @@ Re-check before starting new work.
     toString) incl. U-CORE-3's method-reflection fixture (`selector.toString`→`#greet(_:)`).
   - U-CORE-5 `bc161fb` — structural `List#==`/`!=` (`.ph` over the floor, native `list_eq`
     rejected by spec §3.1) + reusable collection ContractSpec; **+0 floor**.
-  - **NEXT = U-CORE-6** (Error root + `MessageNotUnderstood`; wire dNU miss → surface error via
-    the unified unwind; +2 floor → 88, ADR ~0037) — dispatched, awaiting verify. Closes the track.
+  - U-CORE-6 `85c4e1d` — Error root + `MessageNotUnderstood < Error`; dNU miss now raises a
+    surface `MessageNotUnderstood` via the unified unwind (`RuntimeError::Raise`, ADR-0008
+    sibling of U10's Return); +2 floor → 88 (ADR-0037). Proxy path preserved; Arity/Type stay native.
+  - **U-CORE core-library track (U-CORE-1..6) is COMPLETE.** Floor 73 → 88 across the track.
+    Reserved for a future unit: `ArgumentError`/`TypeError` reification (Arity/Type still native).
 - Pre-grounds committed for the tail: U-CORE-4/5/6 as-built specs re-anchored to current HEAD.
 - In-flight planning batch (U12–U20, U-COLL) under [`../units/`](../units/) — not yet dispatched.
 

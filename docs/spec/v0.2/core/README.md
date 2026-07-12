@@ -42,13 +42,13 @@ baseline pin.** Every other doc in this directory inherits it and carries only a
 one-line back-reference here, rather than restating the landing history — so the
 pin is updated in exactly one place.
 
-**Current baseline — post-U-CORE-1.**
+**Current baseline — post-U-CORE-6 (core-library track U-CORE-1..6 complete).**
 
 | Fact | Value |
 |---|---|
 | Docs tip (HEAD) | `382e843` |
-| Last floor-affecting commit | `03764e3` / `b1109c2` — **U-CORE-1** kernel reflection, floor **73 → 80** |
-| Primitive floor | **80** installed `(class, selector)` bindings · **64** distinct native fns · **16** floor-carrying classes (of **21** named kernel classes) · **7** sacred selectors |
+| Last floor-affecting commit | `85c4e1d` — **U-CORE-6** Error root + dNU→MessageNotUnderstood, floor **86 → 88** (track total **73 → 88** across U-CORE-1/3/4/6; ADR-0023/0028/0036/0037) |
+| Primitive floor | **88** installed `(class, selector)` bindings · **73** distinct native fns · **17** floor-carrying classes (of **23** named kernel classes) · **7** sacred selectors |
 | Decisions closed by ADR | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) (`hash` + kernel-reflection floor), [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md) (Int/Float split — exact bignum `Int` + `Float`, `/` true ÷, `~/` floor ÷), [ADR-0025](../../../adr/0025-external-internal-parameter-names.md) (external/internal param names), [ADR-0026](../../../adr/0026-class-hierarchy-mutability.md) (hierarchy mutability — methods open, reparent sealed), [ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md) (modules-as-files, public-by-default imports) |
 
 **Landing history** (chronological; only U-CORE-1 added a floor binding). U8
