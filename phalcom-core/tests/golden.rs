@@ -67,8 +67,12 @@ fn assert_golden(path: &str, expected_stdout: &str) {
 
 #[test]
 fn example_core_new() {
-    // `System.new()` is disallowed and `System` prints as `<class System>`.
-    assert_golden("../examples/core_new.ph", "<class System>\n");
+    // `System.new()` is disallowed. `System` prints as `System` — the class's
+    // own name via `Object#toString`'s class-receiver case (ADR-0015), which
+    // `System.print` now agrees with (U-ERR-FIX PRINT-TOSTRING routes the
+    // print path through a `toString` send for any object with no bespoke
+    // native renderer).
+    assert_golden("../examples/core_new.ph", "System\n");
 }
 
 #[test]
@@ -86,14 +90,15 @@ fn example_person() {
     // Unblocked by the U0 trailing-newline fix (the file ends in `\n`).
     // Exercises instance creation, field getters/setters, and `+=`; unset
     // fields read back as the surface `None` value (U6 removed surface `nil`;
-    // ADR-0007), matching `example_person2`'s behavior. `<Person instance>`
-    // is the debug-form fallback (`Value::to_debug`) used by
-    // `System.print` on a bare instance printed directly, distinct from the
-    // `Object#toString` message default (`"<Person>"`, U-CORE-4, ADR-0015) —
-    // this example never sends `.toString`.
+    // ADR-0007), matching `example_person2`'s behavior. `<Person>` is the
+    // `Object#toString` message default (U-CORE-4, ADR-0015) — this example
+    // never sends `.toString` explicitly, but `System.print` on a bare
+    // instance now routes through the same `toString` send (U-ERR-FIX
+    // PRINT-TOSTRING), so the two agree instead of the old debug-form
+    // fallback (`"<Person instance>"`, `Value::to_debug`) diverging from it.
     assert_golden(
         "../examples/person.ph",
-        "<Person instance>\nAnonymous\nNone\nAlice\nNone\nBob\n30\n31\n",
+        "<Person>\nAnonymous\nNone\nAlice\nNone\nBob\n30\n31\n",
     );
 }
 

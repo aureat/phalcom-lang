@@ -15,6 +15,7 @@
 //! `docs/forge/DEFERRED.md`.
 
 use crate::class::lookup_method_in_hierarchy;
+use crate::error::PhResult;
 use crate::frame::CallContext;
 use crate::heap::{ClassId, Object, ObjRef};
 use crate::interner::Symbol;
@@ -198,6 +199,44 @@ impl Value {
                 _ => self.to_debug(vm),
             },
         }
+    }
+
+    /// Renders this value for display (`System.print`), sending `toString`
+    /// to any heap object [`Value::to_string`] has no bespoke native
+    /// renderer for.
+    ///
+    /// [`Value::to_string`] hardcodes formatting for `Str`/`List`/`Map`/
+    /// `Set`/`Tuple`/`Range` and the shared `None`/`Some` singletons/wrapper
+    /// — all cases where the native rendering already agrees with what a
+    /// `.ph` `toString` override would produce. Every other heap object
+    /// (a plain instance, a class, a metaclass, …) instead falls through
+    /// [`Value::to_string`] to [`Value::to_debug`], which disagrees with the
+    /// object's own `Object#toString` message
+    /// ([ADR-0015](../../../docs/adr/0015-object-default-tostring.md)) — e.g.
+    /// a bare `Point` instance printed `<Point instance>` via
+    /// `System.print` but `<Point>` via `.toString`. This method closes that
+    /// gap by sending `toString` for exactly those cases, so `System.print`
+    /// and an explicit `.toString` send always agree (U-ERR-FIX
+    /// PRINT-TOSTRING).
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error the `toString` send itself raises (e.g. a user
+    /// override that throws).
+    pub fn to_display_string(&self, vm: &mut VM) -> PhResult<String> {
+        if let Value::Obj(id) = *self {
+            let handled_natively = match vm.heap.get(id) {
+                Object::Str(_) | Object::List(_) | Object::Map(_) | Object::Set(_) | Object::Tuple(_) | Object::Range(_) => true,
+                Object::Instance(inst) => inst.class == vm.universe.classes.none_class || inst.class == vm.universe.classes.some_class,
+                _ => false,
+            };
+            if !handled_natively {
+                let selector = vm.get_or_intern("toString");
+                let rendered = vm.send_dynamic(*self, selector, &[])?;
+                return Ok(rendered.to_string(vm));
+            }
+        }
+        Ok(self.to_string(vm))
     }
 
     /// Renders this value's debug form (used by error messages and diagnostics).
