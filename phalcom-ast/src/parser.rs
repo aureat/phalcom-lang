@@ -1489,12 +1489,7 @@ impl<'source> Parser<'source> {
                 Ok(Expr::SuperVar { range })
             }
             Token::LBracket => self.parse_list_literal(),
-            Token::LParen => {
-                self.advance();
-                let expr = self.parse_expr()?;
-                self.expect(&Token::RParen, &["\")\""])?;
-                Ok(expr)
-            }
+            Token::LParen => self.parse_paren_or_tuple(),
             Token::LBrace => {
                 let start = self.cur_start();
                 self.advance(); // '{'
@@ -1590,6 +1585,57 @@ impl<'source> Parser<'source> {
         self.expect(&Token::RBracket, &["\"]\""])?;
         let range: SourceRange = (start..self.prev_end).into();
         Ok(Self::list_construction_chain(elems, range))
+    }
+
+    /// Parses a parenthesised expression `(e)` or a tuple literal
+    /// `(e1, …, en)` with n ≥ 2 (lexical-structure.md §7; [ADR-0032] §3.2).
+    ///
+    /// A single parenthesised expression stays *grouping* — `(x)` is `x`,
+    /// never a one-tuple — matching prior behaviour and the LALRPOP grammar;
+    /// only a top-level comma promotes the form to a tuple. This is
+    /// unambiguous because unbraced arrows are single-parameter (spec §7), so
+    /// `(` never begins a parameter list and no cover grammar is required.
+    ///
+    /// A tuple desugars to a `Tuple` construction send over an already-built
+    /// `List` (so it depends on no variadic `construct`), reusing the list
+    /// slice's construction chain as its argument. Per [ADR-0032] §1 `Tuple`
+    /// is a native heap arm supplied by the collection-runtime unit
+    /// (U-COLLTYPES); its runtime is therefore deferred, but the surface
+    /// lowering is fixed here:
+    ///
+    /// - `(a, b)` → `Tuple.fromList(List.new().add(a).add(b))`
+    ///
+    /// [ADR-0032]: ../../../docs/adr/0032-collections-representation-and-literals.md
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`SyntaxError`] from an element expression, or from a
+    /// missing closing `)`.
+    fn parse_paren_or_tuple(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // '('
+        let first = self.parse_expr()?;
+        if !matches!(self.peek(), Token::Comma) {
+            // Grouping: behave exactly as the pre-U-COLL `(` arm did.
+            self.expect(&Token::RParen, &["\")\""])?;
+            return Ok(first);
+        }
+        // Tuple: consume the first comma, then gather any remaining elements.
+        self.advance(); // ','
+        let mut elems = vec![first];
+        // A lone trailing comma `(a,)` still yields a tuple (spec §7).
+        if !matches!(self.peek(), Token::RParen) {
+            elems.extend(self.parse_comma_exprs(&Token::RParen)?);
+        }
+        self.expect(&Token::RParen, &["\")\""])?;
+        let range: SourceRange = (start..self.prev_end).into();
+        let list = Self::list_construction_chain(elems, range);
+        Ok(Expr::MethodCall(Box::new(MethodCallExpr {
+            object: Expr::Var { value: "Tuple".to_string(), range },
+            method: "fromList".to_string(),
+            args: vec![Argument { label: None, expr: list, range }],
+            range,
+        })))
     }
 
     /// Parses a comma-separated run of expressions up to (but not consuming)
