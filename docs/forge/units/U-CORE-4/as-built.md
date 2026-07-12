@@ -14,36 +14,50 @@
 > unit's write-set (mirrors how this unit unblocks-but-does-not-perform the
 > `List#toString` move for DEFERRED #19 — see §0.2).
 >
-> **Baseline (re-grounded 2026-07-12):** HEAD `aa9cdca` (clean at the time of
-> this grounding pass). Recommended dispatch order is **U-CORE-3 → U-CORE-2 →
-> U-CORE-4**; this unit's own delta (§2, §6.1) is expressed as *current floor
-> + 1*, not a hardcoded absolute, so it stays correct regardless of exactly
-> when it lands relative to its neighbors:
-> - **Floor today (`aa9cdca`, before U-CORE-3 lands): 80** installed
->   `(class, selector)` bindings (`floor-census.md` §1.1).
-> - **Floor after U-CORE-3 lands: 85** (U-CORE-3 adds exactly 5 new bindings —
->   its own `as-built.md` header). Per the recommended order, U-CORE-4 is
->   meant to dispatch on top of that 85, adding its own **+1**
->   (`Number#toString`) → **86**.
+> **Baseline (re-grounded 2026-07-12, post-U-CORE-3):** HEAD `049c34e`.
+> U-CORE-3 (commit `10ebd06`, ADR-0028 — Method reflection surface +
+> `BoundMethod` arm) has **landed**. This is a pure anchor/floor refresh on
+> top of that landing — the design below is unchanged from the prior
+> grounding pass. This unit's own delta (§2, §6.1) is still expressed as
+> *current floor + 1*, not a hardcoded absolute:
+> - **Floor today (`049c34e`): 85** installed `(class, selector)` bindings
+>   (`floor-census.md` §1.1, confirmed live this pass: "Installed
+>   `(class, selector)` bindings | **85**" — U-CORE-3 landed exactly its
+>   promised +5, 80 → 85). There is no more "will be 85 once U-CORE-3 lands"
+>   conditional; 85 is the actual, confirmed current count.
+> - **U-CORE-4's own contribution is +1** (`Number#toString`) → **86**. Per
+>   the recommended dispatch order (U-CORE-3 → U-CORE-2 → U-CORE-4), this
+>   unit dispatches on top of the now-landed 85.
 > - Since this unit's original baseline (`3c74a36`), **U-CORE-1** (kernel
 >   `hash`/`isA`/`Behavior` reflection), **U11** (Bool tower: abstract `Bool`
->   with `True`/`False`), **U-LIST**, **U8** (dNU/`Message`), and **U-STD**
->   (`Option`/`List` combinators) have all *also* landed. None of them touch
->   this unit's *design* — the divergence this unit exists to fix
->   (`Object#toString` still aliasing `object_name`, confirmed live at
->   `aa9cdca`, §1.1) is unchanged — but they shifted nearly every `file:line`
->   anchor below and grew `core.ph`'s `Option` reopen substantially.
-> - **Concurrency warning:** another session is concurrently implementing
->   U-CORE-3 in-tree right now, touching `heap.rs`, `value.rs`, `vm.rs`,
->   `primitive/{block,method,object,mod}.rs`, `universe.rs`, tests, and
->   `floor-census.md`. Anchors in those specific files were re-confirmed
->   against the working tree during this pass (two independent reads, several
->   minutes apart, agreed) but are marked **"may shift post-U-CORE-3;
->   re-confirm at dispatch"** below rather than trusted as final — this tree
->   moved even *during* this grounding pass. Anchors in files U-CORE-3 does
->   **not** touch (`primitive/{number,string,boolean,symbol,nil,list,system}.rs`,
->   `interner.rs`, `core.ph`) were confirmed stable and are cited without that
->   caveat.
+>   with `True`/`False`), **U-LIST**, **U8** (dNU/`Message`), **U-STD**
+>   (`Option`/`List` combinators), and now **U-CORE-3** (Method reflection +
+>   `BoundMethod`) have all landed. None of them touch this unit's *design* —
+>   the divergence this unit exists to fix (`Object#toString` still aliasing
+>   `object_name`, re-confirmed live at `049c34e`; `floor-census.md` L124
+>   still reads "`toString` | instance | `object_name` | **aliases** `name`")
+>   is unchanged — but U-CORE-3 shifted `file:line` anchors in `value.rs` and
+>   `universe.rs`, the only two files in its write-set that this unit also
+>   cites.
+> - **Anchor resolution (this pass):** every anchor previously tagged
+>   "⚠ may shift post-U-CORE-3; re-confirm at dispatch" has now been re-read
+>   against the current tree (`git diff 39a1887 10ebd06 -- phalcom-core/src/
+>   {value,universe}.rs` plus direct greps) and is stated below as a
+>   **resolved, exact line number** — the ⚠ tags are removed. `universe.rs`'s
+>   `Object#toString` bind site happens to be numerically **unchanged** (L250
+>   — U-CORE-3's own additions land later in `install_primitives`, at
+>   L267–270 and L309–314); the Number/Symbol blocks and the `CoreClasses`
+>   struct-field block shifted by a net **+4 to +10 lines** depending on
+>   position (see §1.3, §2.1, §2.2, §2.5).
+> - `primitive/object.rs` was also in U-CORE-3's write-set, but the specific
+>   `object_name` fn this unit reads (L23–27) sits well before U-CORE-3's
+>   addition (`object_method_for`, appended after L153); confirmed
+>   byte-for-byte unchanged — no caveat needed.
+> - `core.ph` was **not** in U-CORE-3's write-set (confirmed via
+>   `git diff 39a1887 10ebd06 --stat`, which lists no `core.ph` entry) — the
+>   `Option`/`String`/`Bool` reopen anchors (§0.1, §2.3, §1.3) are
+>   sanity-checked unchanged this pass (`class String {}` L25, `class Bool {}`
+>   L27, `class Option {` L70; no drift from any other concurrent edit).
 >
 > Read against
 > [`floor-census.md`](../../../spec/v0.2/core/floor-census.md), [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md),
@@ -59,10 +73,10 @@
 
 | Prereq | Why U-CORE-4 needs it | Where |
 |---|---|---|
-| `Option`/`Some`/`None` substrate + `match(some, none)` eliminator | `Option#toString` is derived over `match`; `None`/`Some` are the rendering targets | `primitive/nil.rs`; `universe.rs` L359–380 (Absence-substrate wiring; **may shift post-U-CORE-3**, re-confirm at dispatch) |
+| `Option`/`Some`/`None` substrate + `match(some, none)` eliminator | `Option#toString` is derived over `match`; `None`/`Some` are the rendering targets | `primitive/nil.rs`; `universe.rs` L359–380 (Absence-substrate wiring; confirmed unchanged across U-CORE-3's landing — this block sits before U-CORE-3's Method-reflection additions at L382+) |
 | U-CORE-2 `Some`-lift + `Option` combinators (`0da64d6`) | `Option` reopen in `core.ph` already exists to hang `toString` on; `ifTrue { }` now yields `Some(None)` (a rendering case) | `core.ph` L70–124 (the `Option` reopen — now much larger than at this doc's original baseline: U-STD has since added `map`/`flatMap`/`filter`/`ifSome`/`unwrapOr` alongside the original `ifNone`/`orElse`/`isSome`/`isNone`); `primitive/boolean.rs` |
 | Native `List` + `list_to_string` (U-LIST, ADR-0020) | List is in the R-INV-4.1 consistency set; its message `toString` already exists — U-CORE-4 only aligns the print path to it | `primitive/list.rs` L135 (confirmed unchanged) |
-| The separate native `Value::to_string(vm)` print-path | The invariant partner U-CORE-4 must keep in agreement (decisions.md §4.4) | `value.rs` L149–160 (**may shift post-U-CORE-3**; re-confirm at dispatch) |
+| The separate native `Value::to_string(vm)` print-path | The invariant partner U-CORE-4 must keep in agreement (decisions.md §4.4) | `value.rs` L153–164, confirmed post-U-CORE-3 (was L149–160 pre-landing; shifted +4 because U-CORE-3 added a `BoundMethod` arm earlier in `Value::class()`) |
 | Sacred-selector inliner (ADR-0018), `ifTrue(_, ifFalse)` fallback | `Bool#toString` is written in `.ph` over `ifTrue(_, ifFalse)` | `primitive/boolean.rs` L164 (`bool_if_true_if_false`; confirmed unchanged — `boolean.rs` is not in U-CORE-3's write-set) |
 
 ### 0.2 Explicitly OUT of scope (do not build here)
@@ -102,16 +116,19 @@
 
 ### 1.1 The confirmed divergence (catalog-delta §4.4)
 
-**Re-confirmed live at `aa9cdca`.** `Object#toString` is still bound to the
-native `object_name` (`universe.rs` **L250** as of this pass — was L230 at this
-doc's original baseline; drifted because U-CORE-1/U8/U-LIST additions earlier
-in `install_primitives` pushed everything down. **`universe.rs` is being
-concurrently edited by U-CORE-3 — re-confirm this line at dispatch.**), which
-returns the receiver's **class name** (`primitive/object.rs` **L23–27**,
-confirmed unchanged):
+**Re-confirmed live at `049c34e` (post-U-CORE-3).** `Object#toString` is still
+bound to the native `object_name` (`universe.rs` **L250** — numerically
+**unchanged** across U-CORE-3's landing, confirmed via
+`git diff 39a1887 10ebd06 -- phalcom-core/src/universe.rs`: U-CORE-3's own
+additions to `install_primitives` land later, at L267–270 (`methodFor`) and
+L309–314 (Number block); this line was L230 at this doc's original baseline,
+drifted to L250 from earlier U-CORE-1/U8/U-LIST additions, and has now been
+independently re-confirmed stable through U-CORE-3), which returns the
+receiver's **class name** (`primitive/object.rs` **L23–27**, confirmed
+unchanged):
 
 ```rust
-// universe.rs L250 (current as of this pass; re-confirm before editing)
+// universe.rs L250 (confirmed stable at 049c34e, post-U-CORE-3 landing)
 primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_name);
 ```
 
@@ -130,20 +147,21 @@ name, not a value:
 
 The **print path is separate**: `System.print(x)` → `system_class_print`
 (`primitive/system.rs` **L13–19**, confirmed unchanged) → `arg.to_string(vm)` =
-the native `Value::to_string` (`value.rs` **L149–160**; **may shift
-post-U-CORE-3**). That path renders `Number`/`String`/`Bool` correctly
-*already*, but renders **`None`/`Some` via `to_debug`** (`value.rs` **L157**
-`_ => self.to_debug(vm)`, inside the `Value::Obj` arm at L155–158) as `<None
-instance>` / `<Some instance>`, a **List** as `<list>`, and a **Symbol** as
-`Symbol("…")` (`interner.rs` **L20–23**, confirmed unchanged).
+the native `Value::to_string` (`value.rs` **L153–164**, confirmed post-U-CORE-3
+— was L149–160 pre-landing, shifted +4 by U-CORE-3's new `BoundMethod` arm
+earlier in `Value::class()`). That path renders `Number`/`String`/`Bool`
+correctly *already*, but renders **`None`/`Some` via `to_debug`** (`value.rs`
+**L161** `_ => self.to_debug(vm)`, inside the `Value::Obj` arm at L159–162) as
+`<None instance>` / `<Some instance>`, a **List** as `<list>`, and a **Symbol**
+as `Symbol("…")` (`interner.rs` **L20–23**, confirmed unchanged).
 
 ### 1.2 The two paths, and where each disagrees today
 
 | Value type | message `x.toString` today | print `Value::to_string(x)` today | Agree? |
 |---|---|---|:--:|
-| `Number` | `"Number"` (Object default) | `"42"` (`value.rs` L153) | ✗ |
-| `String` | `"String"` | raw content (`value.rs` L156) | ✗ |
-| `Bool` | `"Bool"` | `"true"`/`"false"` (`value.rs` L152) | ✗ |
+| `Number` | `"Number"` (Object default) | `"42"` (`value.rs` L157) | ✗ |
+| `String` | `"String"` | raw content (`value.rs` L160) | ✗ |
+| `Bool` | `"Bool"` | `"true"`/`"false"` (`value.rs` L156) | ✗ |
 | `Symbol` | `"foo"` (`symbol_tostring`) | `Symbol("foo")` (`Symbol::to_string`) | ✗ |
 | `None` | `"None"` (Object default = class name) | `<None instance>` (`to_debug`) | ✗ |
 | `Some(v)` | `"Some"` (Object default) | `<Some instance>` (`to_debug`) | ✗ |
@@ -157,24 +175,26 @@ is **outside** the invariant's domain and may keep the message/print split
 
 ### 1.3 Existing anchors the implementer will touch
 
-> **Anchors marked "⚠ moving" sit in `value.rs`, `universe.rs`, or
-> `primitive/object.rs` — files a concurrent U-CORE-3 session is editing.
-> Re-grep the symbol name to confirm the exact line before editing; do not
-> trust the number alone.**
+> All anchors below were re-confirmed against the current tree (`049c34e`,
+> post-U-CORE-3) by direct read/grep of `value.rs`, `universe.rs`, and
+> `primitive/object.rs` — the files U-CORE-3 also touched. They are stated as
+> exact line numbers, not "as of this pass" approximations; still re-grep the
+> symbol name before editing in case a later, still-in-flight concurrent
+> change has moved them again.
 
 | Symbol | File:line |
 |---|---|
-| `install_primitives` Object block (rebind `toString`) | `universe.rs` L245–266 ⚠ moving |
-| `install_primitives` Number block (add `toString`) | `universe.rs` L293–310 ⚠ moving — Number now also carries a `hash` binding (L308, ADR-0023/U-CORE-1) not present at this doc's original baseline; insert `toString` after it, before the static `new`s at L309–310 |
-| `install_primitives` Symbol block | `universe.rs` L349–357 ⚠ moving |
-| `object_name` (leave as `name`) | `primitive/object.rs` L23–27 ⚠ moving (file touched by U-CORE-3, though these exact lines were unchanged across two independent reads this pass) |
-| `Value::to_string` (extend Obj arm) | `value.rs` L149–160 (Obj arm itself at L155–158) ⚠ moving |
-| `Value::to_debug` (optional align) | `value.rs` L166–184 ⚠ moving |
+| `install_primitives` Object block (rebind `toString`) | `universe.rs` L246–270 (the `toString` rebind itself is at L250; U-CORE-3's own `methodFor` addition lands after this block, at L267–270) |
+| `install_primitives` Number block (add `toString`) | `universe.rs` L297–314 — Number carries a `hash` binding at L312 (ADR-0023/U-CORE-1); insert `toString` after it, before the two static `new`s at L313–314 |
+| `install_primitives` Symbol block | `universe.rs` L353–357 |
+| `object_name` (leave as `name`) | `primitive/object.rs` L23–27 (confirmed byte-for-byte unchanged across U-CORE-3 — its `object_method_for` addition lands separately, at L153+) |
+| `Value::to_string` (extend Obj arm) | `value.rs` L153–164 (Obj arm itself at L159–162) |
+| `Value::to_debug` (optional align) | `value.rs` L170–189 (Obj arm at L176–187, which now carries an extra `Object::BoundMethod(_) => "<bound method>"` line at L184, added by U-CORE-3) |
 | `Symbol::to_string` renderer | `interner.rs` L19–28 (confirmed stable — not touched by U-CORE-3) |
 | `symbol_tostring` message | `primitive/symbol.rs` L13–17 (confirmed stable) |
 | `core.ph` `Option` reopen (add `toString`) | `core.ph` L70–124 (stable; grew since baseline — see §0.1) |
 | `core.ph` `String` / `Bool` reopens | `core.ph` L25 (`class String {}`), L27 (`class Bool {}`) — both still bare one-line bodies, stable |
-| `none_class` / `some_class` ids, `none_singleton` | `universe.rs` L168–175 (creation), L211–213 (`CoreClasses` literal), L675–686 (struct fields) ⚠ moving |
+| `none_class` / `some_class` ids, `none_singleton` | `universe.rs` L168–175 (creation, unchanged), L211–213 (`CoreClasses` literal, unchanged), L685–696 (struct fields — shifted from the doc's prior L675–686 by U-CORE-3's Method-reflection primitives block (L382–388) and its `verify_invariants` `Block`/`Function` superclass check, both landing earlier in the file) |
 | `string_add` (both operands must be `String`) | `primitive/string.rs` L34–38 (confirmed stable — `string.rs` not touched by U-CORE-3) |
 
 ---
@@ -233,9 +253,9 @@ pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 }
 ```
 
-`universe.rs` **L250** (current as of this pass; **`universe.rs` is being
-concurrently edited by U-CORE-3 — re-confirm the exact line before editing**)
-— rebind:
+`universe.rs` **L250** (confirmed stable across U-CORE-3's landing — its
+additions land later in `install_primitives`, at L267+ and L309–314) —
+rebind:
 
 ```rust
 primitive!(vm, object_cls, "toString", SignatureKind::Getter, object_to_string);
@@ -264,16 +284,17 @@ pub fn number_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 }
 ```
 
-`universe.rs` — insert in the Number block, current shape as of this pass:
+`universe.rs` — insert in the Number block, current shape (confirmed at
+`049c34e`, post-U-CORE-3):
 
 ```rust
-// L305: primitive!(vm, number_cls, "negated", ...);
-// L306-307: Value-digest doc comment (ADR-0023)
-// L308: primitive!(vm, number_cls, "hash", SignatureKind::Getter, number_hash);  <- added by U-CORE-1, not present at this doc's original baseline
-// L309-310: the two static `new`s
+// L309: primitive!(vm, number_cls, "negated", ...);
+// L310-311: Value-digest doc comment (ADR-0023)
+// L312: primitive!(vm, number_cls, "hash", SignatureKind::Getter, number_hash);  <- added by U-CORE-1
+// L313-314: the two static `new`s
 ```
 
-insert the new binding after `hash` (L308), before the static `new`s (L309–310):
+insert the new binding after `hash` (L312), before the static `new`s (L313–314):
 
 ```rust
 primitive!(vm, number_cls, "toString", SignatureKind::Getter, number_to_string);
@@ -285,9 +306,10 @@ primitive!(vm, number_cls, "toString", SignatureKind::Getter, number_to_string);
 > additive: each subclass inherits or overrides this binding without breaking
 > dispatch identity (forward-compat §4, §5).
 >
-> **`universe.rs` is a moving target this session** (concurrent U-CORE-3 work)
-> — re-grep for `number_cls` and `hash` before editing to confirm these exact
-> line numbers still hold.
+> These line numbers reflect `install_primitives`'s current shape at `049c34e`
+> (U-CORE-3 has landed and is no longer editing this file); still re-grep for
+> `number_cls` and `hash` immediately before editing in case another unit's
+> concurrent work has since shifted the block again.
 
 ### 2.3 `.ph` — `Option#toString` (covers `Some` **and** `None`)
 
@@ -354,12 +376,14 @@ literal and the canonical print form; cross-ref `decode_selector`, `method.rs`).
 
 ### 2.5 Native — align `Value::to_string` (the print path) with the messages
 
-Extend the `Value::Obj` arm of `Value::to_string` (`value.rs` **L155–158** as
-of this pass, formerly cited L142–146 — **`value.rs` is being concurrently
-edited by U-CORE-3; re-grep `fn to_string` to confirm before editing**) so the
-print path renders `None`/`Some`/`List` the same way the messages do. Use
-**guarded `if` checks with a `_ => to_debug` fallback**, not an exhaustive match —
-so a future `Fiber`/`Future` `Value` arm needs no edit here (forward-compat §1).
+Extend the `Value::Obj` arm of `Value::to_string` (`value.rs` **L159–162**,
+confirmed post-U-CORE-3 — was L155–158 immediately pre-landing, shifted +4 by
+U-CORE-3's new `BoundMethod` arm earlier in `Value::class()`; re-grep `fn
+to_string` before editing in case a later concurrent change has moved it
+again) so the print path renders `None`/`Some`/`List` the same way the
+messages do. Use **guarded `if` checks with a `_ => to_debug` fallback**, not
+an exhaustive match — so a future `Fiber`/`Future` `Value` arm needs no edit
+here (forward-compat §1).
 
 ```rust
 Value::Obj(id) => match vm.heap.get(*id) {
@@ -387,7 +411,9 @@ Value::Obj(id) => match vm.heap.get(*id) {
   keeps rendering `<Foo instance>` (no green print fixture regresses beyond §4.3).
 
 > **Optional:** mirror the same three cases in `Value::to_debug` (`value.rs`
-> L166–184 as of this pass, formerly L153–171; ⚠ moving) so diagnostics
+> L170–189, Obj arm at L176–187 — confirmed post-U-CORE-3; the arm now also
+> carries an `Object::BoundMethod(_) => "<bound method>"` line at L184, added
+> by U-CORE-3, ahead of the `List` case) so diagnostics
 > (`object_does_not_understand` builds `receiver.to_string`, `object.rs` —
 > already `to_string`, so covered) stay consistent. Not required by any
 > invariant.
@@ -399,10 +425,10 @@ Value::Obj(id) => match vm.heap.get(*id) {
 | # | File | Change | Kind |
 |---|---|---|---|
 | 1 | `primitive/object.rs` | add `object_to_string` (§2.1) | native fn (new distinct fn) |
-| 2 | `universe.rs` (⚠ re-confirm line — L250 as of this pass) | rebind `Object#toString` → `object_to_string` | re-home (not a new binding) |
+| 2 | `universe.rs` (L250, confirmed stable post-U-CORE-3) | rebind `Object#toString` → `object_to_string` | re-home (not a new binding) |
 | 3 | `primitive/number.rs` | add `number_to_string` (§2.2) | native fn |
-| 4 | `universe.rs` (Number block, ⚠ re-confirm — L293–310 as of this pass, insert after `hash` L308) | bind `Number#toString` → `number_to_string` | **+1 floor binding** (ADR-0019 amendment) |
-| 5 | `value.rs` (⚠ re-confirm — L155–158 as of this pass) | extend `Value::to_string` Obj arm: `None`/`Some`/`List` (§2.5) | native renderer (no binding) |
+| 4 | `universe.rs` (Number block, L297–314, insert after `hash` at L312) | bind `Number#toString` → `number_to_string` | **+1 floor binding** (ADR-0019 amendment) |
+| 5 | `value.rs` (L159–162, confirmed post-U-CORE-3) | extend `Value::to_string` Obj arm: `None`/`Some`/`List` (§2.5) | native renderer (no binding) |
 | 6 | `interner.rs` L20–23 (stable) + `primitive/symbol.rs` L13 (stable) | unify symbol rendering onto one helper, `#`-form (§2.4, BD-CORE4-2) | native renderer + existing binding semantics |
 | 7 | `core.ph` `Option` reopen (L70–124, stable) | add `toString => self.match(...)` (§2.3) | `.ph` |
 | 8 | `core.ph` `String` reopen (L25, stable) | add `toString => self` | `.ph` |
@@ -412,7 +438,7 @@ Value::Obj(id) => match vm.heap.get(*id) {
 | 12 | 3 pending fixtures (§4.2) | `git mv` into active lane (confirmed on disk at `tests/lang/{absence,bindings}/pending/*.ph`) | retirement |
 | 13 | new unit-local fixtures (§4.1) | add (new `tests/lang/values/` dir — confirmed does not yet exist) | golden |
 | 14 | `tests/invariants.rs` | add R-INV-4.1–4.4 (§4.4) | corpus |
-| 15 | `floor-census.md` | current count (80, or 85 post-U-CORE-3) → +1; §2.1/§2.4 edits (§6.1) — *census doc, done by implementer, and itself in U-CORE-3's concurrent write-set — re-diff before editing* | doc |
+| 15 | `floor-census.md` | count **85 → 86**; §2.1/§2.4 edits (§6.1) — *census doc, done by implementer; re-diff before editing in case another unit lands first* | doc |
 
 > **`.ph` `Bool#toString` syntax is proven.** The labeled call
 > `(3 > 2).ifTrue({ "yes" }, ifFalse: { "no" })` is a live green fixture
@@ -579,11 +605,15 @@ doc's original draft:** ADR-0019 has already been amended twice —
 [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
 (hash + kernel reflection, U-CORE-1, landed) and
 [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) (Method
-reflection, U-CORE-3, in flight as of this pass). The established mechanism is
-therefore **a new, separately-numbered ADR**, not an edit to 0019 itself; this
-unit's amendment should claim the next free number at dispatch time (0029 is
-already taken, by list-literal syntax, as of this pass — check `docs/adr/` for
-the current max before numbering).
+reflection, U-CORE-3, **landed** — commit `10ebd06`). The established mechanism
+is therefore **a new, separately-numbered ADR**, not an edit to 0019 itself;
+this unit's amendment should claim the next free number at dispatch time.
+**As of this pass the ADR directory's max is `0031`**
+(`0031-error-handling-surface-syntax.md`) — concurrent sessions have kept
+adding ADRs since this doc's prior draft (which saw only up through 0028/0029/
+0030), so the next free number is **likely `0032`, chosen at dispatch time**;
+check `docs/adr/` for the current max immediately before numbering rather than
+trusting this document.
 
 > *Amends ADR-0019.* Add to the frozen floor: **`Number#toString`** (the numeric
 > value as a decimal string). Justification: rendering an `f64` as text reads the
@@ -599,18 +629,21 @@ the current max before numbering).
 > split renders each correctly.
 >
 > **Floor count — do not hardcode.** At this unit's *original* baseline the
-> floor was 73; that number is stale. As of this grounding pass (`aa9cdca`,
-> before U-CORE-3) it is **80**; per the recommended dispatch order
-> (U-CORE-3 → U-CORE-2 → U-CORE-4) it will be **85** by the time this unit
-> lands, going to **86**. Whatever the count is *at actual dispatch time*,
-> this unit's contribution is **exactly +1** — confirm the live count in
-> `floor-census.md` §1.1 immediately before editing it, rather than trusting
-> any number in this document. Update `floor-census.md` §1.1 (count), §2.1
-> (drop "`toString` aliases `name`" — confirmed still present verbatim as of
-> this pass), and §2.4 (Number gains `toString`) in the same change. If the
-> R-INV-0.1 floor-census audit test (it exists now — landed with U-CORE-1,
-> `tests/invariants.rs` L540 area) hardcodes an expected count, bump it by
-> this unit's actual delta, not by a hardcoded "73 → 74".
+> floor was 73; that number is long stale. **U-CORE-3 has now landed** (commit
+> `10ebd06`) and brought the floor to **85** — confirmed live this pass in
+> `floor-census.md` §1.1: "Installed `(class, selector)` bindings | **85**".
+> There is no more "will be 85 by the time this unit lands" conditional; 85 is
+> the actual, confirmed current count, and this unit's contribution is
+> **exactly +1** → **86**. Still, confirm the live count in `floor-census.md`
+> §1.1 immediately before editing it, rather than trusting any number in this
+> document — another unit may land first. Update `floor-census.md` §1.1
+> (count: **85 → 86**), §2.1 (drop "`toString` **aliases** `name`" — confirmed
+> still present verbatim at `floor-census.md` L124 this pass), and §2.4
+> (Number gains `toString`) in the same change. The R-INV-0.1 floor-census
+> audit test (`floor_census_matches_installed_bindings`, landed with
+> U-CORE-1, confirmed this pass at `tests/invariants.rs` **L542**, previously
+> approximated as "L540 area") hardcodes an expected count; bump it by this
+> unit's actual delta (**85 → 86**), not by a stale "73 → 74".
 
 ### 6.2 BD-CORE4-2 — Symbol canonical rendering form (needs a ruling)
 
@@ -647,8 +680,8 @@ follow immediately after under whichever form is chosen.
 | Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../phase-next/DEFERRED.md) #4; [ADR-0015](../../../adr/0015-object-default-tostring.md) |
 | Unblocks DEFERRED #30 (interpolation desugar's `String.new(_)` stand-in) — desugar-target switch is a `phalcom-ast` follow-up, out of this unit's write-set | [`DEFERRED.md`](../../phase-next/DEFERRED.md) #30; ADR-0022 |
 | `"<ClassName>"` instance default; class `toString` = own name | [ADR-0015](../../../adr/0015-object-default-tostring.md) |
-| `Object#toString` aliases `object_name` today (the divergence) | `universe.rs` L250 (⚠ moving); `primitive/object.rs` L23 |
-| Print path = native `Value::to_string`; renders `None`/`Some`/`List` via `to_debug` | `primitive/system.rs` L15; `value.rs` L149–160 (⚠ moving) |
+| `Object#toString` aliases `object_name` today (the divergence) | `universe.rs` L250 (confirmed stable post-U-CORE-3); `primitive/object.rs` L23 |
+| Print path = native `Value::to_string`; renders `None`/`Some`/`List` via `to_debug` | `primitive/system.rs` L15; `value.rs` L153–164 (confirmed post-U-CORE-3) |
 | Symbol paths disagree (`Symbol("…")` vs bare) | `interner.rs` L20–23; `primitive/symbol.rs` L13 |
 | `Number#toString` must be native; not `.ph`-derivable | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1; DEFERRED #19; decisions.md Q1 |
 | ADR-0019 amendment precedent (already amended twice since this unit's draft) | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md); [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) |
