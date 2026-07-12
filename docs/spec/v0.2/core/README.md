@@ -15,6 +15,12 @@ It is the executable-facing companion to the design specs one level up
 Where those describe the *target* model, the documents here fix the **as-built
 baseline** and the **rules any future core-library change must obey**.
 
+**Start here for a class-by-class view:** [`core-classes.md`](./core-classes.md)
+is the consolidated reference — for each kernel class, its role, structure,
+interface (floor + `.ph` methods), governing ADR, and landed/pending status. It
+reads *by class*; the census/catalog/object-model docs read by primitive, by
+delta, and by target respectively (the axis table at the top of that file).
+
 ## Provenance
 
 Every table here is derived from ground-truth source, not aspiration:
