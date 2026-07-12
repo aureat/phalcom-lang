@@ -3,7 +3,8 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0008](../../adr/0008-layered-exceptions-and-result.md) (layered exceptions + `Result`, terminating semantics)
+[ADR-0008](../../adr/0008-layered-exceptions-and-result.md) (layered exceptions + `Result`, terminating semantics) ·
+[ADR-0031](../../adr/0031-error-handling-surface-syntax.md) (surface syntax: `throw`/`try`/`catch`/`on`/`ensure`)
 
 Phalcom has **two** failure channels, layered rather than competing:
 
@@ -51,27 +52,34 @@ protected block — the same shape as control flow:
   unwinding.
 - `ensure(_)` runs its block on every exit path (§4).
 
-### JavaScript sugar
+### The `try` statement (sugar)
 
-`try` / `catch` / `finally` desugar directly to the block protocol:
+`try` / `on` / `catch` / `ensure` desugar directly to the block protocol
+([ADR-0031](../../adr/0031-error-handling-surface-syntax.md)):
 
 ```phalcom
 try {
   risky()
-} catch (e: TypeError) {
+} on TypeError e {
   recover(e)
-} finally {
+} catch e {
+  fallback(e)
+} ensure {
   cleanup()
 }
 ```
 
-- `catch (e: T)` ≡ `.on(T) { e => … }`. Multiple `catch` clauses chain.
-- A bare `catch (e)` ≡ `.on(Error) { e => … }` — catches everything, since `Error`
-  is the root of the raisable hierarchy.
-- `finally` ≡ `.ensure { … }`.
+- `on T e { … }` ≡ `.on(T) { e => … }` — a typed handler for `T` and its
+  subclasses. Clauses chain; the **first** matching class wins.
+- `catch e { … }` ≡ `.on(Error) { e => … }` — catch-all, since `Error` is the root
+  of the raisable hierarchy.
+- `ensure { … }` ≡ `.ensure { … }` — runs on every exit path (§4).
 
-The sugar adds no semantics the block protocol lacks; it exists so a JavaScript
-programmer is not surprised ([Invariant 6](README.md)).
+Each keyword mirrors the block-protocol method of the **same name**, so the sugar
+adds no semantics the protocol lacks; it exists so a JavaScript programmer is not
+surprised ([Invariant 6](README.md)). `on`/`catch`/`ensure` are **contextual
+keywords** (reserved only as `try`-clauses), so the `.on()`/`.ensure()` selectors
+and the `Fiber>>try` message keep working.
 
 ## 3. Terminating, not resumable
 

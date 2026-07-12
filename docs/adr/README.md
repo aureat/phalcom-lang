@@ -52,6 +52,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0027](0027-modules-as-files-with-public-by-default-imports.md) | A module is a file; public-by-default exports; qualified/selective/aliased imports | Accepted |
 | [0029](0029-list-literal-syntax.md) | List literals `[a, b, c]` desugar to `List` construction sends (no new floor) | Proposed |
 | [0030](0030-fibers-and-futures-cooperative-concurrency.md) | Fibers and Futures: cooperative concurrency on a restricted re-entrant loop | Accepted |
+| [0031](0031-error-handling-surface-syntax.md) | Error-handling surface syntax: `throw`/`try`/`catch`/`on`/`ensure` | Accepted |
 
 > ADR-0029 (list literals) is **Proposed** — awaiting ratification of its sub-decisions
 > (desugar-vs-opcode, subscript sugar, trailing comma). Design in
@@ -63,6 +64,11 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 > restricted re-entrant loop). It promotes the
 > [`concurrency-adr.md`](../spec/v0.2/experimental/concurrency-adr.md) draft and the
 > [`forward-compat.md §7`](../spec/v0.2/core/forward-compat.md) code-grounded audit.
+
+> ADR-0031 (error surface syntax) was ratified by the user on 2026-07-12: the
+> `throw`/`try`/`catch`/`on`/`ensure` spelling, 1:1 sugar over the ADR-0008 block
+> protocol (`ensure` mirrors `.ensure{}`; `on T e` mirrors `.on(T){}`). It settles
+> the surface ADR-0008 left illustrative; the error *model* is unchanged.
 
 > ADRs 0024–0027 were ratified by the user on 2026-07-12, resolving open-questions
 > Q2 (numeric split + division), Q3 (parameter names), Q4 (hierarchy mutability), and

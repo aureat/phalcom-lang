@@ -66,7 +66,6 @@ Distinct from §1: these have **no ruling yet** and block their unit.
 | Decision | What must be chosen | Blocks | Source |
 |---|---|---|---|
 | **Collections ADR** (`Map`/`Set`/`Tuple`/`Range`) | per-class storage + literal syntax + hashing contract | the collections unit | [core/catalog-delta.md](core/catalog-delta.md); forge/phase-next/DEFERRED.md #27 |
-| **Error surface syntax** | `throw`/`try`/`catch`/`on`/`ensure` spelling (model fixed by ADR-0008) | U-CORE-6's non-minimal slice | [core/decisions.md Q2](core/decisions.md); ADR-0008 |
 
 ---
 
@@ -81,7 +80,7 @@ Reserved-but-unbuilt class names sit in `primitive/mod.rs::ClassName` (`Range`, 
 | **U-CORE-3** callables reflection | `methodFor`/`invokeOn`/`bind`/`signature`/`holder` (+5 floor) | dispatch-ready; **next** on the track | [core/U-CORE-3](../../forge/units/U-CORE-3/as-built.md) |
 | **U-CORE-4** value `toString` | per-type `toString` (`Number`/`String`/`Symbol`/`Bool`/`Option`) | dispatch-ready; closes DEFERRED #19/#30, F4 | [core/U-CORE-4](../../forge/units/U-CORE-4/as-built.md) |
 | **U-CORE-5** collection contract | shared protocol contract + `.ph` `List#==` | dispatch-ready; deps U-CORE-1 `isA` (landed) | [core/U-CORE-5](../../forge/units/U-CORE-5/as-built.md) |
-| **U-CORE-6** errors | `Error` root + `MessageNotUnderstood` raise; reserve `Result`/`Ok`/`Err` | dispatch-ready; needs error syntax (§2) | [core/U-CORE-6](../../forge/units/U-CORE-6/as-built.md) |
+| **U-CORE-6** errors | `Error` root + `MessageNotUnderstood` raise; reserve `Result`/`Ok`/`Err` | dispatch-ready; error surface **ratified** ([ADR-0031](../../adr/0031-error-handling-surface-syntax.md)) | [core/U-CORE-6](../../forge/units/U-CORE-6/as-built.md) |
 | **`Int`/`Float` substrate** | build the ADR-0024 split: `Value::Int(i64)`/`Float(f64)`, heap `LargeInt` bignum, `checked_*` promotion, `~/` opcode, cross-repr `==`/`hash` | **decided** (ADR-0024); code unbuilt; see §4 hash flag | [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md) |
 | **Collections classes** `Map`/`Set`/`Tuple`/`Range` | whole classes + storage + literals | `Map`/`Set` need `Object#hash` (landed) + the §2 collections ADR | [core/catalog-delta.md](core/catalog-delta.md) |
 | **List / set literal syntax** | `[a,b,c]`, `#{…}` tokens → constructor desugar | new ADR + lexer/parser | forge/phase-next/DEFERRED.md #28 |

@@ -115,7 +115,9 @@ before the work it blocks begins.
    (see also [Error Handling](error-handling.md)):
    both, layered — unwinding `throw`/`Error` for the exceptional path, `Result`
    for expected failure, with bridges. Terminating (non-resumable) semantics;
-   `throw`/`return`/`abort` unify as one unwind primitive.
+   `throw`/`return`/`abort` unify as one unwind primitive. The surface **syntax**
+   (`throw`/`try`/`catch`/`on`/`ensure`, 1:1 sugar over the block protocol) is
+   ratified by [ADR-0031](../../adr/0031-error-handling-surface-syntax.md).
 
 10. ~~**Traits / mixins / multiple inheritance.**~~ **RESOLVED** (ruling, no ADR):
     **single inheritance only** for now — no traits, mixins, or multiple
@@ -189,7 +191,7 @@ before the work it blocks begins.
 | Q6 | `Set(...)` constructor; dedicated set literal reserved (uncommitted) | ruling (Q6 above) |
 | Q7 | Irrefutable tuple destructuring now; list/`*rest` + pattern matching deferred | ruling (Q7 above) |
 | Q8 | File = module; public-by-default; qualified/selective/aliased imports | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) |
-| Q9 | Layered exceptions + `Result`; terminating, not resumable | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md) |
+| Q9 | Layered exceptions + `Result`; terminating, not resumable; surface `throw`/`try`/`catch`/`on`/`ensure` | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md) + [ADR-0031](../../adr/0031-error-handling-surface-syntax.md) |
 | Q10 | Single inheritance only; traits/mixins deferred (stateless traits the future option) | ruling (Q10 above) |
 | Q11 | `Behavior` is the shared superclass of `Class`/`Metaclass` | [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md) |
 | Q12 | No default arguments now; if added → definition-time overload desugar, trailing-only | ruling (Q12 above) |

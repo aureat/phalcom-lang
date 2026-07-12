@@ -23,7 +23,7 @@
 | Q / § | Question | Ruling | ADR action | Owner |
 |---|---|---|---|:--:|
 | **Q1** | Is `Object#hash` a floor primitive? | **Yes** — hash needs native access to representation/identity; underivable in `.ph`. | **ADR-0019 amendment — ratified as [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) (Accepted)** | U-CORE-1 |
-| **Q2** | Error mechanism | **Confirm [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)** — layered exceptions + `Result`, terminating, one unwind. Do not redesign. | none (note only) | U-CORE-6 |
+| **Q2** | Error mechanism | **Confirm [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)** — layered exceptions + `Result`, terminating, one unwind. Do not redesign. | surface spelling: [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md) | U-CORE-6 |
 | **Q4** | Prelude / global model | Kernel names are **the core module's exports, auto-imported** into every unit; user `import` deferred to the module unit. | none (ruling) | (module unit) |
 | **Q5** | Collection mutability + equality | **Mutable by default**; sequence `==` is **structural**; **mutable collections are not hashable**, immutable ones are (Python-precedented). | none (contract in U-CORE-5) | U-CORE-5 |
 | **§4.1** | `Method` superclass: catalog `<Function`, code `<Object` | **Re-parent code to `Method < Function`** (ADR-0006 is explicit). | none (fixes an ADR-0006 violation) | U-CORE-1/3 |
@@ -101,6 +101,13 @@ shaped to mirror `Option`/`Some`/`None`. If U-CORE-6 needs a native raise
 primitive, that is a separate **ADR-0019 amendment** (cross-ref Q1's mechanism).
 The [ADR-0008 amendment note](../../../forge/archive/phase2/PHASE2-INDEX.md) ("`MessageNotUnderstood`
 = default-dNU raise") is folded in by U-CORE-6.
+
+> **Surface syntax (2026-07-12).** The keyword *spelling* ADR-0008 left
+> illustrative is now ratified as
+> **[ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)**:
+> `throw` / `try` / `catch` / `on` / `ensure`, pure 1:1 sugar over the block
+> protocol (`ensure` mirrors `.ensure{}`; `on T e` mirrors `.on(T){}`). U-CORE-6's
+> non-minimal slice implements against this spelling.
 
 ## Q4 — Prelude / global model
 
