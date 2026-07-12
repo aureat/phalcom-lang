@@ -384,3 +384,37 @@ closures + `#[test]`s green against the **U-CORE-5 harness** · how DEC-CT-B/C/D
 delta (**+21**, or +22/+23 if DEC-CT-D fell back to native) with the R-INV-0.1 census bump · confirmation
 **zero `unsafe` / zero `Rc`/`RefCell`** · worktree/serialization notes vs U-ITER, U-FIBER, and the U-CORE
 `core.ph` track · `verify.sh` + `cargo doc` (+ miri) tails per phase.
+
+## 11. As-built correction (post-review, 2026-07-12) — history-honesty amendment
+
+`phalcom-reviewer` returned **BLOCK** on the *commit record*, not the tree. The final HEAD
+`10e1715` is **functionally correct, green, and sound** — every load-bearing check passed
+(re-entrant hash borrow model, Q5 hash contract, exhaustive `Object::` match arms, floor
+census 88→102→105→109 = +21 verified by the live `floor_census_matches_installed_bindings`
+test, write-set disjointness vs U-ITER-FIX, and the legitimate hand-rolled `Range` harness).
+
+The defect is bisectability + a false commit message, isolated to the phase boundary:
+
+- **`2d140f0` ("Phase 2 — native Tuple")** added only `src/tuple.rs` + `src/primitive/tuple.rs`
+  as **orphaned, unreferenced files** — no `mod tuple`, no `Object::Tuple` arm, no `universe.rs`
+  registration, no `core.ph` `class Tuple`, no census bump, no `build_tuple` test. Its commit
+  message claims a `.ph` class, an `invariants.rs` bump to 105, and passing `build_tuple` /
+  `tuple_is_a_valid_map_key` tests — **none of which exist in that diff** (`git show
+  2d140f0:phalcom-core/tests/invariants.rs` still reads 102). Tuple is not a runtime class here.
+- **`f934cf1` ("Phase 3 — native Range")** silently bundles **all** of Phase 2's missing spine
+  wiring (both `Object::Tuple` and `Object::Range` in `heap.rs`; both classes in `universe.rs`
+  and `core.ph`; the `build_tuple`/`build_range`/tuple-hash/tuple-key tests; the whole census
+  jump to 105→109). One vm.rs hunk even labels a line "Phase 2" inside the Phase-3 commit.
+
+**Authoritative record:** the true "Phase 2 (Tuple) landed" state does **not** exist at
+`2d140f0`; it exists only at `f934cf1`. Do **not** `git bisect` against `2d140f0` expecting a
+working `Tuple`, and do not trust that commit's message as a description of its own diff.
+
+**Why not squashed:** the commits are on shared `main` with live concurrent worktrees; rewriting
+pushed `main` history is forbidden (concurrent-session stash/rebase hazard). Remedy is this
+append-only correction note (reviewer's option (b)), not a history rewrite.
+
+**Disposition: unit ACCEPTED on functional grounds at `10e1715`.** Block cleared by this note.
+Reviewer's non-blocking observations (swap_remove doc-precision; `at(_)`→raw-value vs spec-prose
+`Some(v)`, pre-existing and mirroring `List#at`; `Range#==` bound-equality by design;
+`Symbol#==` defect already filed) → tracked in `DEFERRED.md`, none blocking.

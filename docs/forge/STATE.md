@@ -23,11 +23,24 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   U-ITER DEFERRED items 1/2/3/6. **Follow-ons (do when tree clean):** strike DEFERRED.md
   L21-24; give the deopt trap a descriptive `Error.new(_)` message (currently stderr `None`).
 
+## Landed this session (cont.)
+- **U-COLLTYPES** ✅ — native `Map`/`Set`/`Tuple`/`Range` arena arms + `.ph` protocol.
+  `bdbdaaf`(ADR-0039)/`be8426e`(Map+Set)/`2d140f0`(Tuple-orphan)/`f934cf1`(Range+Phase2-spine)/
+  `10e1715`(`{k:v}`→Map). Floor 88→109 (+21). **Reviewer BLOCK → ACCEPTED functional** at
+  `10e1715` (green, sound, all load-bearing checks pass); block was history-honesty only
+  (`2d140f0` orphaned dead code + false msg; Phase-2 spine actually in `f934cf1`). Squash OFF
+  (shared main). Remedy = append-only as-built correction, plan.md §11. Reviewer non-blocking
+  obs → DEFERRED.md (do when tree clean).
+- **item5** ✅ — U-FIBER×generator fixtures `bf80c21`. Both PASS (for-generator suspends;
+  each-generator raises `CannotYieldAcrossNativeFrame`). No bug. Mark DEFERRED item-5 resolved.
+
 ## In flight (this session)
-- **U-COLLTYPES** — native `Map`/`Set`/`Tuple`/`Range` arena arms + `.ph` protocol;
-  ADR-0039 ratified (`bdbdaaf`) + per-phase floor bump (+21); graduates U-COLL pendings.
-  Write-set `heap.rs`/`universe.rs`/`value.rs`/`core.ph`/new `primitive/*`. In-tree,
-  reviewer ON. Mid Phase 1 (Map+Set). Sole active writer now.
+- **U13** — hierarchy-stability policy (sealed + single-inheritance affirm, DEC-U13a/b=A).
+  Found sealing ALREADY enforced (exits non-zero, clean error). Writing golden negative test
+  (`runtime_error_superclass_reparent_rejected.{ph,expected}`) + ADR-0041. Write-set
+  `class.rs`/`vm.rs`/invariants/tests. Reviewer ON. Uncommitted.
+- **U-FUTURE-A** — Slice A settle-once `Future`, pure `.ph`, core.ph only. Building, no disk
+  write yet. Reviewer OFF (pure .ph, orchestrator-accept).
 - **U-FUTURE** — plan landed (`docs/forge/units/U-FUTURE/plan.md`). Verdict:
   **Slice A** (settle-once `Future`: `value`/`error`/`isReady`/`value` + settled
   `then`/`map`/`catch`) is **pure `.ph`, zero native — ready now**; **Slice B**
