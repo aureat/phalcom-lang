@@ -24,6 +24,7 @@ use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_fal
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_name, block_while_true};
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
+use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_new, fiber_try, fiber_yield};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
 use crate::primitive::module::module_class_new;
@@ -479,6 +480,20 @@ impl Universe {
         let error_cls = vm.universe.classes.error_class;
         primitive!(vm, error_cls, "message", SignatureKind::Getter, error_message);
         primitive!(vm, error_cls, "raise", SignatureKind::Method(0), error_raise);
+
+        // `Fiber` (U-FIBER, ADR-0030): `new(_)` builds; `call`/`try` (arity
+        // 0 or 1) resume; `yield`/`current`/`abort` are class-side (sent to
+        // `Fiber` itself, not an instance).
+        let fiber_cls = vm.universe.classes.fiber_class;
+        primitive_static!(vm, fiber_cls, "new", SignatureKind::Method(1), fiber_new);
+        primitive!(vm, fiber_cls, "call", SignatureKind::Method(0), fiber_call);
+        primitive!(vm, fiber_cls, "call", SignatureKind::Method(1), fiber_call);
+        primitive!(vm, fiber_cls, "try", SignatureKind::Method(0), fiber_try);
+        primitive!(vm, fiber_cls, "try", SignatureKind::Method(1), fiber_try);
+        primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(0), fiber_yield);
+        primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(1), fiber_yield);
+        primitive_static!(vm, fiber_cls, "current", SignatureKind::Getter, fiber_current);
+        primitive_static!(vm, fiber_cls, "abort", SignatureKind::Method(1), fiber_abort);
     }
 
     /// Asserts the kernel tower's shape (`object-model.md` §5–6 step 7).

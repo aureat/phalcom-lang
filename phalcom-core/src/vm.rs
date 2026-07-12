@@ -70,6 +70,31 @@ pub struct VM {
     /// this just makes it addressable. `Object::Fiber` is not reached through
     /// any new `Value` arm (D2); this handle is the VM's own bookkeeping.
     pub(crate) current: ObjRef,
+    /// Set by a fiber-switch primitive (`fiber_call`/`fiber_try`/
+    /// `fiber_yield`) just before it returns, to tell
+    /// [`Self::call_method`]'s `Primitive` arm that [`Self::frames`]/
+    /// [`Self::stack`] were already repointed to a **different** fiber and
+    /// the ordinary post-call stack reconciliation (the `frames.len()`
+    /// heuristic) must be skipped — the **typed switch signal**
+    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)
+    /// §5, D5), replacing that heuristic rather than reusing it. Cleared by
+    /// the arm that consumes it. See D-FIB-5: this flag is the "VM flag"
+    /// alternative to threading a typed return through every `PrimitiveFn`
+    /// (which would touch all ~70 existing primitives) — explicitly sanctioned
+    /// by the implementation spec as the pragmatic choice.
+    pub(crate) switch_pending: bool,
+    /// Nesting depth of **re-entrant native `run_until`** calls currently on
+    /// the real Rust call stack (`block_call`, [`Self::send_dynamic`],
+    /// [`Self::invoke_method_object`] — every native primitive that
+    /// recursively drives the dispatch loop to get a synchronous [`Value`]
+    /// back). A fiber switch is legal **only** at depth 0 (ADR-0030 §4's
+    /// restricted Option A): a nested re-entrant call's `base_frames` is
+    /// computed against the *currently* running fiber's frame count, and a
+    /// switch swaps that vector out from under it, so any depth `>0` switch
+    /// would corrupt the enclosing re-entrant call's own drain condition.
+    /// `Fiber#yield`'s restricted-yield guard and `Fiber#call`/`#try`'s
+    /// resume gate both check this against 0.
+    pub(crate) native_reentry_depth: usize,
 
     /// Loaded modules by name [`Symbol`], each a [`ModuleObject`] handle.
     pub modules: HashMap<Symbol, ObjRef>,
@@ -162,6 +187,8 @@ impl VM {
             frames: Vec::with_capacity(256),
             stack: Vec::with_capacity(1024),
             current,
+            switch_pending: false,
+            native_reentry_depth: 0,
             interner,
             start_time: Instant::now(),
             modules: HashMap::new(),
@@ -218,6 +245,15 @@ impl VM {
             vm.heap.class_mut(mnu).field_slots.insert(msg_sym, 0);
             vm.heap.class_mut(mnu).field_slots.insert(reified_sym, 1);
             vm.heap.class_mut(mnu).field_count = 2;
+        }
+        // `CannotYieldAcrossNativeFrame < Error` (U-FIBER, D-FIB-1): no
+        // fields beyond the inherited `_message` slot 0 — mirrors `Error`
+        // itself rather than adding anything.
+        {
+            let cynf = vm.universe.classes.cannot_yield_across_native_frame_class;
+            let msg_sym = vm.interner.intern("_message");
+            vm.heap.class_mut(cynf).field_slots.insert(msg_sym, 0);
+            vm.heap.class_mut(cynf).field_count = 1;
         }
         Universe::install_primitives(&mut vm);
 
@@ -439,6 +475,10 @@ impl VM {
         // body that *reads* `_message` would trip the read-before-write check.
         add_class!(error_class);
         add_class!(message_not_understood_class);
+        // `Fiber` (ADR-0030, U-FIBER floor extension) + its restricted-yield
+        // guard error, both ordinary class globals.
+        add_class!(fiber_class);
+        add_class!(cannot_yield_across_native_frame_class);
 
         // The `None` class row is *not* exposed under a class global (that name
         // is the singleton), but it must live in `self.classes` so a
@@ -481,9 +521,24 @@ impl VM {
                 // block whose `return` unwound past this call site). See the
                 // guard below.
                 let frames_before = self.frames.len();
+                self.switch_pending = false;
                 let result = native_fn(self, &receiver, &args);
                 result.map(|result| {
-                    if self.frames.len() >= frames_before {
+                    if self.switch_pending {
+                        // A fiber switch (ADR-0030 §5, D5) — `self.frames`/
+                        // `self.stack` were just repointed to a *different*
+                        // fiber by the primitive itself (`fiber_call`/
+                        // `fiber_try`/`fiber_yield`); `receiver_idx` was
+                        // computed against the now-parked fiber's stack and
+                        // no longer means anything here. The typed signal
+                        // (not the `frames.len()` heuristic below) is what
+                        // distinguishes this from an ordinary return or a
+                        // non-local return: neither `result` nor the stack
+                        // is touched — the switching primitive already left
+                        // the new current fiber's stack exactly as it should
+                        // be for the dispatch loop to resume it.
+                        self.switch_pending = false;
+                    } else if self.frames.len() >= frames_before {
                         // Ordinary primitive return: collapse the receiver+args
                         // window and land the result in the receiver slot.
                         self.stack.truncate(receiver_idx);
@@ -644,7 +699,14 @@ impl VM {
         } else {
             self.forward_does_not_understand(receiver_idx, selector, SourceRange::default())?;
         }
-        self.run_until(base_frames)
+        // Re-entrant native frame (ADR-0030 §4): a fiber switch is forbidden
+        // while this recursive `run_until` is on the Rust call stack, since
+        // its `base_frames` is computed against *this* fiber and would be
+        // corrupted by a switch underneath it (see `native_reentry_depth`'s doc).
+        self.native_reentry_depth += 1;
+        let result = self.run_until(base_frames);
+        self.native_reentry_depth -= 1;
+        result
     }
 
     /// Runs the exact method `method_id` against `receiver` with `args`,
@@ -682,7 +744,12 @@ impl VM {
 
         let base_frames = self.frames.len();
         self.call_method(&receiver, method_id, args.len(), SourceRange::default())?;
-        self.run_until(base_frames)
+        // See `send_dynamic`'s matching comment — re-entrant native frame,
+        // fiber switch forbidden underneath (ADR-0030 §4).
+        self.native_reentry_depth += 1;
+        let result = self.run_until(base_frames);
+        self.native_reentry_depth -= 1;
+        result
     }
 
     /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
@@ -857,6 +924,126 @@ impl VM {
     /// Returns any [`RuntimeError`] raised during execution (undefined variable,
     /// method-not-found, unsupported operator, and so on).
     pub(crate) fn run_until(&mut self, base_frames: usize) -> PhResult<Value> {
+        // The fiber-floor capture (ADR-0030 §6, D7/DEC-FIB-A) only applies at
+        // `base_frames == 0` — the top-level call. A fiber switch is only
+        // ever legal at `native_reentry_depth == 0` (the restricted-yield
+        // guard, `fiber.rs`), and every `native_reentry_depth == 0` call site
+        // passes `base_frames == 0` (this is `run` calling `run_until(0)`, or
+        // this very wrapper recursing after a switch). A nested re-entrant
+        // call (`block_call`/`send_dynamic`/`invoke_method_object`) always
+        // passes `base_frames == self.frames.len() >= 1` at that point (there
+        // is always at least the frame dispatching the send), so it can never
+        // hit this branch — its `run_until_inner` result passes straight
+        // through unchanged, exactly as before U-FIBER (existing
+        // non-local-return goldens, C-FIB-7).
+        if base_frames != 0 {
+            return self.run_until_inner(base_frames);
+        }
+        loop {
+            match self.run_until_inner(0) {
+                Ok(value) => {
+                    let finished = self.current;
+                    let Some(resumer) = self.heap.fiber(finished).resumer else {
+                        // The root fiber's own top-level activation ended —
+                        // ordinary program/re-entrant-call completion,
+                        // unchanged from pre-U-FIBER behavior.
+                        return Ok(value);
+                    };
+                    // Fiber-floor capture, success path (spec §3.2): `finished`
+                    // is a non-root fiber whose entry activation just drained
+                    // to nothing. Deliver `value` to the resumer's `call`/
+                    // `try` expression and switch back to it.
+                    self.heap.fiber_mut(finished).status = crate::heap::FiberStatus::Done;
+                    self.heap.fiber_mut(finished).result = value;
+                    self.switch_to_fiber_and_deliver(resumer, value);
+                    // Loop again: keep draining, now as `resumer`.
+                }
+                Err(e) => {
+                    // Fiber-floor capture, failure path (spec §3.2, the
+                    // DEC-FIB-A fix): the U-CORE-6 unwind reached the top of
+                    // the current fiber's own activation uncaught. Capture it
+                    // into its result slot instead of propagating past the
+                    // fiber boundary. Under `call`, cascade the same capture
+                    // straight up the resumer chain — without executing any
+                    // of an intermediate `call`-mode resumer's own bytecode,
+                    // exactly as if `e` had been raised at each `call()` site
+                    // in turn with no handler — until a `try`-mode resumer
+                    // (which gets the `Error` delivered as a value instead)
+                    // or the root fiber (which ends the whole run) is
+                    // reached. The host, and every fiber the failure doesn't
+                    // reach, survives.
+                    let error_value = self.capture_error_value(&e);
+                    let mut failed = self.current;
+                    loop {
+                        self.heap.fiber_mut(failed).status = crate::heap::FiberStatus::Failed;
+                        self.heap.fiber_mut(failed).result = error_value;
+                        let mode = self.heap.fiber(failed).resume_mode;
+                        let Some(resumer) = self.heap.fiber(failed).resumer else {
+                            return Err(e);
+                        };
+                        match mode {
+                            crate::heap::FiberResumeMode::Try => {
+                                self.switch_to_fiber_and_deliver(resumer, error_value);
+                                break;
+                            }
+                            crate::heap::FiberResumeMode::Call => {
+                                failed = resumer;
+                            }
+                        }
+                    }
+                    // Loop again: keep draining, now as the fiber the
+                    // cascade stopped at.
+                }
+            }
+        }
+    }
+
+    /// Switches [`Self::current`] to `target`, restoring its parked live
+    /// state and delivering `value` into the stack window its own park
+    /// recorded ([`crate::heap::FiberObject::resume_slot`]) — the shared
+    /// "land a value at a fiber's resume point" step used by every direction
+    /// a switch can complete (an ordinary `yield`/`call` handoff, and the
+    /// fiber-floor capture's success/`try`-failure delivery, ADR-0030 §3/§6).
+    fn switch_to_fiber_and_deliver(&mut self, target: ObjRef, value: Value) {
+        self.current = target;
+        crate::primitive::fiber::load_live_from(self, target);
+        let slot = self.heap.fiber(target).resume_slot;
+        self.stack.truncate(slot);
+        self.stack.push(value);
+        self.heap.fiber_mut(target).status = crate::heap::FiberStatus::Running;
+    }
+
+    /// Extracts the surface `Error` [`Value`] a fiber-floor capture stores in
+    /// [`crate::heap::FiberObject::result`] (ADR-0030 §6, spec §3.2).
+    ///
+    /// [`RuntimeError::Raise`]'s `error` is already the surface instance
+    /// (U-CORE-6); any other terminal error (a native VM error with no
+    /// surface reification) is wrapped in a bare [`crate::heap::Object::Instance`]
+    /// of the kernel `Error` class carrying its rendered message, so a
+    /// fiber's failure is always a catchable `Error` value, never a native
+    /// Rust error type leaking across the fiber boundary.
+    fn capture_error_value(&mut self, e: &PhError) -> Value {
+        if let PhError::Runtime(RuntimeError::Raise { error, .. }) = e {
+            return *error;
+        }
+        let error_class = self.universe.classes.error_class;
+        let field_count = self.heap.class(error_class).field_count;
+        let mut inst = crate::instance::InstanceObject::new(error_class, field_count);
+        inst.slots[0] = self.alloc_string_value(e.to_string());
+        Value::Obj(self.heap.alloc(Object::Instance(inst)))
+    }
+
+    /// The inner dispatch loop, unaware of fibers: drains bytecode until
+    /// [`Self::frames`] shrinks to `base_frames`, or a [`RuntimeError`]
+    /// propagates out. [`Self::run_until`] wraps this with the fiber-floor
+    /// capture (ADR-0030 §6); this function's own behavior is otherwise
+    /// exactly the pre-U-FIBER `run_until`.
+    ///
+    /// # Errors
+    ///
+    /// Returns any [`RuntimeError`] raised during execution (undefined variable,
+    /// method-not-found, unsupported operator, and so on).
+    fn run_until_inner(&mut self, base_frames: usize) -> PhResult<Value> {
         loop {
             if self.frames.len() <= base_frames {
                 // A drained frame stack with nothing left to yield means the

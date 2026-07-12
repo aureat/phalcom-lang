@@ -150,7 +150,15 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     // `CallFrame` is `Copy`.
     frame.home_frame_token = home_frame_token;
     vm.frames.push(frame);
-    vm.run_until(base_frames)
+    // Re-entrant native frame — the crown-jewel hazard (ADR-0030 §4): a fiber
+    // switch is forbidden while this recursive `run_until` is live on the
+    // Rust call stack (`native_reentry_depth`, `vm.rs`). This is precisely
+    // what makes `.each { Fiber.yield(x) }` raise `CannotYieldAcrossNativeFrame`
+    // instead of corrupting the suspended position.
+    vm.native_reentry_depth += 1;
+    let result = vm.run_until(base_frames);
+    vm.native_reentry_depth -= 1;
+    result
 }
 
 /// Calls the callable receiver with a single packed-argument value.

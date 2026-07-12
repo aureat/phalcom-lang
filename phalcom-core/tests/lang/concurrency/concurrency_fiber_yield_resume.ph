@@ -1,6 +1,7 @@
 // area: concurrency
-// spec: concurrency.md
-// status: PENDING
+// spec: concurrency.md; ADR-0030
+// status: PASS
+// C-FIB-1: a Fiber yields successive counter values across resumes.
 
 let counter = Fiber.new {
   var n = 0

@@ -1,0 +1,237 @@
+//! Native primitives for `Fiber` — the sole cooperative-concurrency primitive
+//! ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)).
+//!
+//! A fiber switch (`call`/`try`/`yield`) is an O(1) pointer-free handoff: the
+//! parking fiber's live `VM::frames`/`VM::stack`/`VM::open_upvalues` are
+//! moved into its [`crate::heap::FiberObject`], the resuming fiber's own
+//! parked state is moved back in, and `VM::switch_pending` tells
+//! `VM::call_method`'s `Primitive` arm to skip the ordinary post-call stack
+//! reconciliation (D5). Every switch is legal only when
+//! `VM::native_reentry_depth` is `0` (ADR-0030 §4, the restricted-yield
+//! guard) — a nested re-entrant `run_until` (`block_call` and friends) has
+//! its own `base_frames` computed against the *currently* running fiber,
+//! which a switch underneath it would corrupt.
+
+use crate::error::{PhResult, RuntimeError};
+use crate::frame::CallContext;
+use crate::heap::{FiberResumeMode, FiberStatus, Object, ObjRef};
+use crate::instance::InstanceObject;
+use crate::value::Value;
+use crate::vm::VM;
+
+/// Moves `vm`'s live stacks (`frames`/`stack`/`open_upvalues`) into the
+/// parked [`FiberObject`] behind `fiber_ref` (ADR-0030 §3).
+///
+/// Called on the fiber giving up the CPU, just before [`VM::current`] is
+/// repointed at the fiber taking over. `mem::take` leaves the VM's live
+/// mirror empty — the counterpart [`load_live_from`] fills it back in for
+/// whichever fiber runs next.
+pub(crate) fn store_live_into(vm: &mut VM, fiber_ref: ObjRef) {
+    let frames = std::mem::take(&mut vm.frames);
+    let stack = std::mem::take(&mut vm.stack);
+    let open_upvalues = std::mem::take(&mut vm.open_upvalues);
+    let fiber = vm.heap.fiber_mut(fiber_ref);
+    fiber.frames = frames;
+    fiber.stack = stack;
+    fiber.open_upvalues = open_upvalues;
+}
+
+/// Moves the parked [`FiberObject`] behind `fiber_ref`'s stacks back into
+/// `vm`'s live mirror (`frames`/`stack`/`open_upvalues`) — the reverse of
+/// [`store_live_into`], run on the fiber that is about to become
+/// [`VM::current`].
+pub(crate) fn load_live_from(vm: &mut VM, fiber_ref: ObjRef) {
+    let fiber = vm.heap.fiber_mut(fiber_ref);
+    let frames = std::mem::take(&mut fiber.frames);
+    let stack = std::mem::take(&mut fiber.stack);
+    let open_upvalues = std::mem::take(&mut fiber.open_upvalues);
+    vm.frames = frames;
+    vm.stack = stack;
+    vm.open_upvalues = open_upvalues;
+}
+
+/// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1):
+/// resuming or yielding a fiber is illegal while a native re-entrant
+/// `run_until` (a `block_call` and friends) is on the Rust call stack,
+/// mirroring [`crate::primitive::object::object_does_not_understand`]'s
+/// build-then-raise pattern.
+fn cannot_yield_across_native_frame(vm: &mut VM) -> crate::error::PhError {
+    let rendered = "cannot switch fibers across a native call frame (e.g. inside .each { })".to_string();
+    let class = vm.universe.classes.cannot_yield_across_native_frame_class;
+    let field_count = vm.heap.class(class).field_count;
+    let mut inst = InstanceObject::new(class, field_count);
+    inst.slots[0] = vm.alloc_string_value(rendered.clone());
+    let error = Value::Obj(vm.heap.alloc(Object::Instance(inst)));
+    RuntimeError::Raise { error, rendered }.into()
+}
+
+/// Resolves `receiver` to the [`FiberObject`] handle it refers to.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
+fn expect_fiber(vm: &VM, receiver: &Value) -> PhResult<ObjRef> {
+    match receiver {
+        Value::Obj(id) if vm.heap.as_fiber(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type { expected: "Fiber", found: other.type_name() }.into()),
+    }
+}
+
+/// Signature: `Fiber.new(_)` — builds a new, not-yet-started fiber wrapping
+/// `args[0]` as its entry callable ([`crate::heap::FiberObject::new_entry`]).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Block`/`Closure`.
+pub fn fiber_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let entry = args[0];
+    match entry {
+        Value::Obj(id) => match vm.heap.get(id) {
+            Object::Block(_) | Object::Closure(_) => {}
+            _ => return Err(RuntimeError::Type { expected: "Function", found: entry.type_name() }.into()),
+        },
+        other => return Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
+    }
+    let fiber = crate::heap::FiberObject::new_entry(match entry {
+        Value::Obj(id) => id,
+        _ => unreachable!("checked above"),
+    });
+    Ok(Value::Obj(vm.heap.alloc(Object::Fiber(fiber))))
+}
+
+/// Signature: `Fiber::current` — the currently-running fiber (`VM::current`).
+pub fn fiber_current(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::Obj(vm.current))
+}
+
+/// Signature: `Fiber::abort(_)` — raises `args[0]` at the fiber floor, caught
+/// by `VM::run_until`'s fiber-floor capture exactly like any other raise.
+pub fn fiber_abort(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let error = args[0];
+    let rendered = error.to_string(vm);
+    Err(RuntimeError::Raise { error, rendered }.into())
+}
+
+/// Signature: `Fiber#call`/`call(_)` — resumes the receiver fiber, re-raising
+/// an uncaught failure into the resumer ([`FiberResumeMode::Call`]).
+pub fn fiber_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    fiber_resume(vm, receiver, args, FiberResumeMode::Call)
+}
+
+/// Signature: `Fiber#try`/`try(_)` — resumes the receiver fiber, capturing an
+/// uncaught failure as the delivered `Error` value ([`FiberResumeMode::Try`]).
+pub fn fiber_try(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    fiber_resume(vm, receiver, args, FiberResumeMode::Try)
+}
+
+/// Shared engine behind [`fiber_call`]/[`fiber_try`] (ADR-0030 §3/§4).
+///
+/// Parks the current fiber, switches `VM::current` to the callee, and
+/// either pushes its entry frame fresh (first resume) or restores its parked
+/// stacks and delivers `args[0]` at its own recorded `yield` site (a
+/// subsequent resume). Sets `VM::switch_pending` so `VM::call_method`
+/// skips ordinary post-call stack reconciliation — the callee's own
+/// eventual completion/failure is delivered later, by
+/// `VM::run_until`'s fiber-floor capture.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::NotAllowed`] if the callee is `Done`/`Failed`/
+/// already `Running`, [`RuntimeError::Arity`] on a first-resume argument
+/// mismatch, or the `CannotYieldAcrossNativeFrame` error if
+/// `VM::native_reentry_depth` is nonzero.
+fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResumeMode) -> PhResult<Value> {
+    if vm.native_reentry_depth != 0 {
+        return Err(cannot_yield_across_native_frame(vm));
+    }
+    let callee_ref = expect_fiber(vm, receiver)?;
+    match vm.heap.fiber(callee_ref).status {
+        FiberStatus::Done | FiberStatus::Failed => {
+            return Err(RuntimeError::NotAllowed("cannot resume a finished fiber".to_string()).into());
+        }
+        FiberStatus::Running => {
+            return Err(RuntimeError::NotAllowed("fiber is already running".to_string()).into());
+        }
+        FiberStatus::Suspended => {}
+    }
+
+    let receiver_idx = vm.stack.len() - 1 - args.len();
+    let resumer_ref = vm.current;
+    vm.heap.fiber_mut(resumer_ref).resume_slot = receiver_idx;
+    store_live_into(vm, resumer_ref);
+
+    vm.heap.fiber_mut(callee_ref).resumer = Some(resumer_ref);
+    vm.heap.fiber_mut(callee_ref).resume_mode = mode;
+
+    let started = vm.heap.fiber(callee_ref).started;
+    if !started {
+        let entry = vm.heap.fiber(callee_ref).entry.expect("non-root fiber always has an entry");
+        let (closure_id, home_frame_token) = match vm.heap.get(entry) {
+            Object::Block(block) => (block.closure, Some(block.home_frame_token)),
+            Object::Closure(_) => (entry, None),
+            _ => unreachable!("fiber_new only accepts Block/Closure entries"),
+        };
+        let arity = vm.heap.closure(closure_id).callable.arity;
+        if args.len() != arity {
+            return Err(RuntimeError::Arity { signature: "call", expected: arity, found: args.len() }.into());
+        }
+        // `vm.stack`/`vm.frames` are empty here (just taken by
+        // `store_live_into` above), so the callee's fresh window starts at 0.
+        let stack_offset = vm.stack.len();
+        vm.stack.push(Value::Obj(entry));
+        vm.stack.extend_from_slice(args);
+        let mut frame = vm.new_call_frame(closure_id, CallContext::Instance { instance: entry }, 0, stack_offset, None);
+        frame.home_frame_token = home_frame_token;
+        vm.frames.push(frame);
+        vm.heap.fiber_mut(callee_ref).started = true;
+    } else {
+        load_live_from(vm, callee_ref);
+        let delivered = args.first().copied().unwrap_or_else(|| vm.none_value());
+        let slot = vm.heap.fiber(callee_ref).resume_slot;
+        vm.stack.truncate(slot);
+        vm.stack.push(delivered);
+    }
+
+    vm.heap.fiber_mut(callee_ref).status = FiberStatus::Running;
+    vm.heap.fiber_mut(callee_ref).floor_depth = vm.native_reentry_depth;
+    vm.current = callee_ref;
+    vm.switch_pending = true;
+    Ok(Value::Nil)
+}
+
+/// Signature: `Fiber::yield`/`yield(_)` — suspends the current fiber and
+/// hands control back to its resumer, delivering `args[0]` (or `None`) as the
+/// resumer's `call`/`try` result.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::NotAllowed`] if the current fiber is the root
+/// (has no resumer), or the `CannotYieldAcrossNativeFrame` error if
+/// `VM::native_reentry_depth` has grown past the fiber's recorded
+/// `floor_depth` since it was last resumed (ADR-0030 §4).
+pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let me = vm.current;
+    let Some(resumer) = vm.heap.fiber(me).resumer else {
+        return Err(RuntimeError::NotAllowed("cannot yield the root fiber".to_string()).into());
+    };
+    if vm.native_reentry_depth != vm.heap.fiber(me).floor_depth {
+        return Err(cannot_yield_across_native_frame(vm));
+    }
+
+    let receiver_idx = vm.stack.len() - 1 - args.len();
+    let value = args.first().copied().unwrap_or_else(|| vm.none_value());
+
+    vm.heap.fiber_mut(me).resume_slot = receiver_idx;
+    vm.heap.fiber_mut(me).status = FiberStatus::Suspended;
+    store_live_into(vm, me);
+
+    vm.current = resumer;
+    load_live_from(vm, resumer);
+    let slot = vm.heap.fiber(resumer).resume_slot;
+    vm.stack.truncate(slot);
+    vm.stack.push(value);
+    vm.heap.fiber_mut(resumer).status = FiberStatus::Running;
+
+    vm.switch_pending = true;
+    Ok(Value::Nil)
+}

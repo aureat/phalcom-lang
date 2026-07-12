@@ -123,6 +123,24 @@ pub enum FiberStatus {
     Failed,
 }
 
+/// How a fiber was last resumed — `call` re-raises the callee's failure into
+/// the resumer, `try` captures it instead (ADR-0030 §6, spec §3.2/§5.2).
+///
+/// Recorded on the *callee* [`FiberObject`] at resume time so the fiber-floor
+/// capture (in `VM::run_until`) knows how to deliver a `Failed`
+/// outcome once it later happens — the resume call itself returns
+/// immediately (an O(1) switch), long before the callee's eventual
+/// success/failure is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FiberResumeMode {
+    /// Resumed via `Fiber#call`/`call(_:)` — an uncaught failure re-raises
+    /// into the resumer as if it had been raised at the `call` site.
+    Call,
+    /// Resumed via `Fiber#try`/`try(_:)` — a failure is captured and
+    /// delivered as the `Error` value instead of raised.
+    Try,
+}
+
 /// A cooperative, single-threaded fiber: its own value + call stacks, a
 /// lifecycle [`FiberStatus`], a dynamic resumer link, a result slot, and its
 /// entry closure ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2,
@@ -179,6 +197,11 @@ pub struct FiberObject {
     /// (ADR-0030 §4): a `yield` is legal iff no native re-entrant `run_until`
     /// (a `block_call` and friends) has been entered since.
     pub floor_depth: usize,
+    /// How this fiber was last resumed ([`FiberResumeMode`]) — read at the
+    /// fiber-floor capture when this fiber later finishes/fails. Meaningless
+    /// while [`FiberStatus::Suspended`] pre-first-resume; set on every
+    /// `call`/`try`.
+    pub resume_mode: FiberResumeMode,
 }
 
 impl FiberObject {
@@ -197,6 +220,7 @@ impl FiberObject {
             started: false,
             resume_slot: 0,
             floor_depth: 0,
+            resume_mode: FiberResumeMode::Call,
         }
     }
 
@@ -216,6 +240,7 @@ impl FiberObject {
             started: true,
             resume_slot: 0,
             floor_depth: 0,
+            resume_mode: FiberResumeMode::Call,
         }
     }
 }

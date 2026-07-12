@@ -177,7 +177,15 @@ fn system_pending() {
 }
 
 #[test]
-#[ignore = "spec target: concurrency"]
+fn concurrency() {
+    // U-FIBER (ADR-0030): bare cooperative `Fiber` — `call`/`try`/`yield`/
+    // `current`/`abort`, the restricted-yield guard, and fiber-floor error
+    // capture. `Future`/`async`/`await` stay pending (see below).
+    support::check_pass("concurrency");
+}
+
+#[test]
+#[ignore = "spec target: concurrency — Future/async/await"]
 fn concurrency_pending() {
     support::check_pending("concurrency");
 }
