@@ -54,6 +54,8 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0030](0030-fibers-and-futures-cooperative-concurrency.md) | Fibers and Futures: cooperative concurrency on a restricted re-entrant loop | Accepted |
 | [0031](0031-error-handling-surface-syntax.md) | Error-handling surface syntax: `throw`/`try`/`catch`/`on`/`ensure` | Accepted |
 | [0032](0032-collections-representation-and-literals.md) | Collections: native representation, shared protocol, and literal surface | Accepted |
+| [0033](0033-amend-fiber-execution-trampolined-block-callsite.md) | Amend fiber execution (ADR-0030 §4): trampoline the bytecode block call-site | Deferred |
+| [0035](0035-iteration-protocol-cursor.md) | Iteration protocol: a Wren-style two-selector cursor | Accepted |
 
 > ADR-0029 (list literals) is now **Accepted** — its sub-decisions (desugar-to-sends,
 > no subscript sugar, trailing comma) were ratified with the collections umbrella
@@ -77,6 +79,23 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 > `throw`/`try`/`catch`/`on`/`ensure` spelling, 1:1 sugar over the ADR-0008 block
 > protocol (`ensure` mirrors `.ensure{}`; `on T e` mirrors `.on(T){}`). It settles
 > the surface ADR-0008 left illustrative; the error *model* is unchanged.
+
+> ADR-0035 (iteration protocol) was ratified by the user on 2026-07-12, promoting
+> `experimental/iteration-protocol.md` to normative
+> [`iteration.md`](../spec/v0.2/iteration.md): a Wren-style `iterate`/`iteratorValue`
+> cursor, the `for` desugar, `break`/`continue`, and the inliner/`Fiber` interactions.
+> (`Result`/`Ok`/`Err` was promoted to normative [`result.md`](../spec/v0.2/result.md)
+> in the same session under the existing ADR-0008.)
+
+> ADR-0033 (`CallBlock` trampoline) is **Deferred past v0.2**: the callback-generator
+> ergonomic it targeted — a `Fiber.yield` inside iteration — is already delivered for
+> v0.2 by ADR-0035's `for`/cursor loop (`for (x in coll) { Fiber.yield(x) }` lowers to
+> an inlined `while` that suspends freely under ADR-0030 §4). ADR-0033 remains the
+> general lift (`.each { yield }` and other native-callback generators) for when a case
+> `for` cannot express becomes a real need, to land with the ADR-0030 §5 fiber-switch
+> signal. (An earlier draft ADR-0034 that instead inlined `each` was dropped: it
+> contradicted ADR-0035 §4/§6, which deliberately keep iteration selectors non-inlined
+> and `.each { yield }` raising `CannotYieldAcrossNativeFrame`.)
 
 > ADRs 0024–0027 were ratified by the user on 2026-07-12, resolving open-questions
 > Q2 (numeric split + division), Q3 (parameter names), Q4 (hierarchy mutability), and
