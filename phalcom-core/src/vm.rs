@@ -1113,6 +1113,15 @@ impl VM {
                     loop {
                         self.heap.fiber_mut(failed).status = crate::heap::FiberStatus::Failed;
                         self.heap.fiber_mut(failed).result = error_value;
+                        // Spec §5.1: a `Failed` fiber can never resume, so its
+                        // parked frames are pure retention — clear them here.
+                        // The originating fiber's own `FiberObject::frames` is
+                        // already empty (it was `vm.frames`, the live mirror,
+                        // when it raised); this matters for an intermediate
+                        // `Call`-mode resumer walked by this cascade, whose
+                        // `frames` field still holds the stack it parked when
+                        // it resumed the fiber that ultimately failed.
+                        self.heap.fiber_mut(failed).frames.clear();
                         let mode = self.heap.fiber(failed).resume_mode;
                         let Some(resumer) = self.heap.fiber(failed).resumer else {
                             return Err(e);
@@ -1140,7 +1149,10 @@ impl VM {
     /// "land a value at a fiber's resume point" step used by every direction
     /// a switch can complete (an ordinary `yield`/`call` handoff, and the
     /// fiber-floor capture's success/`try`-failure delivery, ADR-0030 §3/§6).
-    fn switch_to_fiber_and_deliver(&mut self, target: ObjRef, value: Value) {
+    ///
+    /// `pub(crate)` so [`crate::primitive::fiber::fiber_yield`] can reuse it
+    /// instead of hand-inlining the same four-step sequence.
+    pub(crate) fn switch_to_fiber_and_deliver(&mut self, target: ObjRef, value: Value) {
         self.current = target;
         crate::primitive::fiber::load_live_from(self, target);
         let slot = self.heap.fiber(target).resume_slot;

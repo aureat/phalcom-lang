@@ -50,19 +50,43 @@ pub(crate) fn load_live_from(vm: &mut VM, fiber_ref: ObjRef) {
     vm.open_upvalues = open_upvalues;
 }
 
-/// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1):
-/// resuming or yielding a fiber is illegal while a native re-entrant
-/// `run_until` (a `block_call` and friends) is on the Rust call stack,
-/// mirroring [`crate::primitive::object::object_does_not_understand`]'s
-/// build-then-raise pattern.
-fn cannot_yield_across_native_frame(vm: &mut VM) -> crate::error::PhError {
-    let rendered = "cannot switch fibers across a native call frame (e.g. inside .each { })".to_string();
+/// Builds and raises a `CannotYieldAcrossNativeFrame` instance carrying
+/// `rendered` as its message, mirroring
+/// [`crate::primitive::object::object_does_not_understand`]'s build-then-raise
+/// pattern. Shared by [`cannot_yield_across_native_frame`] and
+/// [`cannot_resume_across_native_frame`], whose only difference is the
+/// message text — the surface class (and thus what a `catch` clause matches
+/// on) stays the same for both restricted-switch violations (D-FIB-1).
+fn cannot_switch_across_native_frame(vm: &mut VM, rendered: String) -> crate::error::PhError {
     let class = vm.universe.classes.cannot_yield_across_native_frame_class;
     let field_count = vm.heap.class(class).field_count;
     let mut inst = InstanceObject::new(class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
     let error = Value::Obj(vm.heap.alloc(Object::Instance(inst)));
     RuntimeError::Raise { error, rendered }.into()
+}
+
+/// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1) for a
+/// `Fiber::yield` that finds `VM::native_reentry_depth` has grown past the
+/// fiber's recorded `floor_depth` since it was last resumed — a *yield*
+/// attempted underneath a native re-entrant `run_until` (a `block_call` and
+/// friends) on the Rust call stack.
+fn cannot_yield_across_native_frame(vm: &mut VM) -> crate::error::PhError {
+    cannot_switch_across_native_frame(vm, "cannot switch fibers across a native call frame (e.g. inside .each { })".to_string())
+}
+
+/// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1) for a
+/// `Fiber#call`/`try` attempted while any native re-entrant `run_until` (a
+/// `block_call` and friends) is on the Rust call stack
+/// (`VM::native_reentry_depth != 0`). This is a *resume*, not a *yield* —
+/// spec §6's restriction table only forecloses yielding underneath a native
+/// frame, so this is a deliberately wider, sound over-restriction (a
+/// nested `run_until`'s `base_frames` is computed against the currently
+/// running fiber, which any switch underneath it — resume or yield alike —
+/// would corrupt). The message names the actual violated action instead of
+/// reusing [`cannot_yield_across_native_frame`]'s yield-specific wording.
+fn cannot_resume_across_native_frame(vm: &mut VM) -> crate::error::PhError {
+    cannot_switch_across_native_frame(vm, "cannot resume a fiber across a native call frame (e.g. inside .each { })".to_string())
 }
 
 /// Resolves `receiver` to the [`FiberObject`] handle it refers to.
@@ -106,7 +130,18 @@ pub fn fiber_current(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
 
 /// Signature: `Fiber::abort(_)` — raises `args[0]` at the fiber floor, caught
 /// by `VM::run_until`'s fiber-floor capture exactly like any other raise.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::NotAllowed`] if the current fiber is the root
+/// (has no resumer) — the root fiber has nowhere to propagate a fiber-floor
+/// capture to, so aborting it is illegal (spec §2 rule 7, §6). Otherwise
+/// returns [`RuntimeError::Raise`] wrapping `args[0]`.
 pub fn fiber_abort(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let me = vm.current;
+    if vm.heap.fiber(me).resumer.is_none() {
+        return Err(RuntimeError::NotAllowed("cannot abort the root fiber".to_string()).into());
+    }
     let error = args[0];
     let rendered = error.to_string(vm);
     Err(RuntimeError::Raise { error, rendered }.into())
@@ -138,11 +173,12 @@ pub fn fiber_try(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 ///
 /// Returns [`RuntimeError::NotAllowed`] if the callee is `Done`/`Failed`/
 /// already `Running`, [`RuntimeError::Arity`] on a first-resume argument
-/// mismatch, or the `CannotYieldAcrossNativeFrame` error if
+/// mismatch, or the `CannotYieldAcrossNativeFrame` error (with a
+/// resume-specific message, see [`cannot_resume_across_native_frame`]) if
 /// `VM::native_reentry_depth` is nonzero.
 fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResumeMode) -> PhResult<Value> {
     if vm.native_reentry_depth != 0 {
-        return Err(cannot_yield_across_native_frame(vm));
+        return Err(cannot_resume_across_native_frame(vm));
     }
     let callee_ref = expect_fiber(vm, receiver)?;
     match vm.heap.fiber(callee_ref).status {
@@ -225,13 +261,7 @@ pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
     vm.heap.fiber_mut(me).status = FiberStatus::Suspended;
     store_live_into(vm, me);
 
-    vm.current = resumer;
-    load_live_from(vm, resumer);
-    let slot = vm.heap.fiber(resumer).resume_slot;
-    vm.stack.truncate(slot);
-    vm.stack.push(value);
-    vm.heap.fiber_mut(resumer).status = FiberStatus::Running;
-
+    vm.switch_to_fiber_and_deliver(resumer, value);
     vm.switch_pending = true;
     Ok(Value::Nil)
 }

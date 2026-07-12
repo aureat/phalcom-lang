@@ -197,6 +197,18 @@ fn concurrency_pending() {
 }
 
 #[test]
+fn concurrency_negative() {
+    // U-FIBER reviewer follow-ons: `Fiber.abort(_)` on the root fiber
+    // (no resumer, spec §2 rule 7/§6), `Fiber#call` gated by the
+    // restricted-switch guard underneath a native re-entrant frame (a
+    // resume-specific diagnostic, distinct from the yield-specific one),
+    // and C-FIB-5 — a block escaping to a *different* fiber's stack still
+    // raises `DeadFrameError` once its home activation is dead (ADR-0013
+    // fencing is fiber-agnostic).
+    support::check_negative("concurrency/negative");
+}
+
+#[test]
 fn option() {
     // U-STD: `Option` transform/extract combinators — `map(_)`, `flatMap(_)`,
     // `filter(_)`, `ifSome(_)`, `unwrapOr(_)`, all pure `.ph` over the native
