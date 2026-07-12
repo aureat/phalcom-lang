@@ -8,11 +8,18 @@
 > Its job is to say, per class, *what exists, what is missing, and who owns the
 > gap.*
 
-> **Baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6` (U-CORE-2
-> partial). Folds in **U8** — the `Object` reflective surface
-> (`perform`/`respondsTo`/`doesNotUnderstand`) and the `Message` class — **U9**
-> (variadics), and **U-CORE-2** (Bool `Some`-lift + core `Option` combinators),
-> which is why §2.2/§4.2 below already read as resolved. See
+> **Baseline:** HEAD `0f84232`. Folds in **U8** — the `Object` reflective
+> surface (`perform`/`respondsTo`/`doesNotUnderstand`) and the `Message`
+> class — **U9** (variadics), **U-CORE-2** (Bool `Some`-lift + core `Option`
+> combinators), which is why §2.2/§4.2 below already read as resolved,
+> **U-LEX** (comments, numeric separators, newline suppression, string
+> interpolation `\(expr)` per [ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md) —
+> lexer/parser surface only, no catalog rows change), **U-STD** (the
+> remaining `Option`/`List` combinators — `map`/`flatMap`/`filter`/`ifSome`/
+> `unwrapOr` on `Option`, `map`/`filter`/`reduce`/`includes`/`isEmpty` on
+> `List` — landed in [`core.ph`](../../../phalcom-core/core/core.ph) L77–107
+> and L149–186, see §2.2/§2.4 below), and **U11** (`True`/`False` concrete
+> singleton subclasses of `Bool`, ADR-0004 — see §2.2). See
 > [`README.md`](./README.md) for the baseline-pin policy.
 
 > ⚠️ **`implementation-status.md` is stale for this purpose.**
@@ -58,17 +65,19 @@ remains for U-CORE-1 is `hash` and `isA(_)` (see §4.5).
 | Class | Row | Global | Floor | `.ph` | Pending (catalog − have) | Unit |
 |---|:--:|:--:|---|---|---|---|
 | `Bool` | ✅ | ✅ | `and` `or` `not` `ifTrue` `ifFalse` `ifTrue(_, ifFalse)` `new` | empty reopen | — (§4.2 half-Option divergence resolved) | U-CORE-2 |
+| `True` / `False` | ✅ | ✅ | — (own primitives: none) | empty reopen | — (concrete singleton subclasses of `Bool`, dispatch via inheritance) | **U11 — landed** |
 | `Number` | ✅ | ✅ | `+ - * / %` `< <= > >=` `negated` `new` | empty reopen | ⚠️ numeric `toString` (today inherits `Object#toString` → class name, not value); `toNumber`, richer math | U-CORE-4 |
 | `String` | ✅ | ✅ | `+(_)` `new` | empty reopen | length, indexing→`Option`, comparison, interpolation, `toSymbol`/`toNumber`, value `toString` | U-CORE-4 |
 | `Symbol` | ✅ | ✅ | `toString` `new(_)` | empty reopen | `asString`/interning-identity protocol, `==` semantics | U-CORE-4 |
-| `Option` | ✅ | ✅ | `match(some, none)` (on `Option`); `Some.new(_)` | `ifNone(_)` `orElse(_)` `isSome` `isNone` on `Option`; empty reopen of `Some` | `ifSome(_)`, `map(_)`, `unwrapOr(_)` — still derivable over `match`, deferred to U-STD | U-CORE-2 |
+| `Option` | ✅ | ✅ | `match(some, none)` (on `Option`); `Some.new(_)` | `ifNone(_)` `orElse(_)` `isSome` `isNone` `map(_)` `flatMap(_)` `filter(_)` `ifSome(_)` `unwrapOr(_)` on `Option`; empty reopen of `Some` | — (§2.2 transform/extract combinators landed) | U-CORE-2 + **U-STD — landed** |
 
-`Some` and `None` are **◐ partial**: construction, the `match` eliminator, the
-shared `None` singleton, and the effect/query combinators (`ifNone`, `orElse`,
-`isSome`, `isNone`) exist; the transform/extract combinators (`ifSome`, `map`,
-`flatMap`, `filter`, `unwrapOr`, …) are still deferred to U-STD. `None` is a
-value global, not a class global (values-and-absence.md §3.1). There is **no
-`Nil`/`nil`** surface — forbidden by Invariant 4 (§4.3).
+`Some` and `None` are **✅ complete** for the combinator surface: construction,
+the `match` eliminator, the shared `None` singleton, the effect/query
+combinators (`ifNone`, `orElse`, `isSome`, `isNone`), and the transform/extract
+combinators (`ifSome`, `map`, `flatMap`, `filter`, `unwrapOr`) all exist —
+U-STD landed the latter group in [`core.ph`](../../../phalcom-core/core/core.ph)
+L77–107. `None` is a value global, not a class global (values-and-absence.md
+§3.1). There is **no `Nil`/`nil`** surface — forbidden by Invariant 4 (§4.3).
 
 ### 2.3 Callables & reflection
 
@@ -86,15 +95,20 @@ structural divergence.
 
 | Class | Row | Global | Floor | `.ph` | Pending | Unit |
 |---|:--:|:--:|---|---|---|---|
-| `List` | ✅ | ✅ | `new` `rawLength` `rawAt` `rawSet` `rawPush` `toString` | `size` `at(_)` `add(_)` `each(_)` | `at(_, put)` (wrap `rawSet`), `map`/`reduce`/`filter`/`includes`/`isEmpty`, literal syntax | U-STD |
+| `List` | ✅ | ✅ | `new` `rawLength` `rawAt` `rawSet` `rawPush` `toString` | `size` `at(_)` `add(_)` `each(_)` `at(_, put)` `map(_)` `filter(_)` `reduce(_,_)` `includes(_)` `isEmpty` | literal syntax `[a,b,c]` only (DEFERRED #6) | **U-STD — combinators landed**; literal syntax still open |
 | `Tuple` | ❌ | ❌ | — | — | **entire class** | U-STD |
 | `Map` | ❌ | ❌ | — | — | **entire class** (name reserved in `ClassName`) | U-STD |
 | `Set` | ❌ | ❌ | — | — | **entire class** | U-STD |
 | `Range` | ❌ | ❌ | — | — | **entire class** (name reserved) | U-STD |
 
-Only `List` exists (ADR-0020). Per ADR-0020 each remaining collection is its own
-unit; **U-CORE-5's job is the shared collection-protocol *contract*, not these
-classes.** `Map`/`Set` additionally block on `Object#hash` (§4.5, Q1).
+Only `List` exists (ADR-0020). U-STD landed its combinator layer
+(`map`/`filter`/`reduce`/`includes`/`isEmpty`, plus the `at(_,put:)` wrapper
+over `rawSet`) in [`core.ph`](../../../phalcom-core/core/core.ph) L149–186
+— only list-**literal** syntax (`[a, b, c]`) remains deferred (needs an ADR +
+parser work, DEFERRED #6), not part of U-STD's combinator scope. Per ADR-0020
+each remaining collection is its own unit; **U-CORE-5's job is the shared
+collection-protocol *contract*, not these classes.** `Map`/`Set` additionally
+block on `Object#hash` (§4.5, Q1).
 
 ### 2.5 Runtime & namespaces
 
@@ -160,6 +174,14 @@ the object-model core catalog.
 existing rows are partial protocol). The genuine greenfield is **collections
 beyond `List`, all of errors, and all of concurrency** — 12 absent rows, of
 which errors are core (U-CORE-6) and the rest are U-STD/deferred.
+
+> **Not yet recomputed:** the row/✅/◐/❌ counts above still reflect the
+> pre-U-STD/U11 baseline. U-STD moved `Option` from ◐ to effectively ✅
+> (§2.2) and landed `List`'s combinator layer (still ◐ — literal syntax
+> remains open, §2.4); U11 adds a `True`/`False` row under Primitives &
+> singletons (§2.2), growing that group from 5/5 to 6/6 rows. Recomputing
+> the table is a follow-up, not done here to avoid guessing at cells this
+> pass didn't verify.
 
 ## 4. Catalog ↔ implementation divergences (decisions required)
 

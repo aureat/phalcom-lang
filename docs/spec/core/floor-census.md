@@ -36,17 +36,25 @@ language is *self-hosting above a small, fixed native boundary*
 |---|---|
 | Installed `(class, selector)` bindings | **73** |
 | Distinct native Rust functions | **57** |
-| Classes carrying floor primitives | **16** (of 19 named kernel classes) |
+| Classes carrying floor primitives | **16** (of 21 named kernel classes) |
 | Sacred selectors (§5) | **7** |
 
-> **Baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6` (U-CORE-2
-> partial). Folds in **U8** (`Object` reflective surface —
+> **Baseline:** HEAD `0f84232`. Folds in **U8** (`Object` reflective surface —
 > `perform`/`respondsTo`/`doesNotUnderstand` — and the `Message` class,
-> §2.1/§2.14), **U9** (variadics — no new floor bindings), and **U-CORE-2**
+> §2.1/§2.14), **U9** (variadics — no new floor bindings), **U-CORE-2**
 > (Bool `Some`-lift + core `Option` combinators — **no new floor bindings**; the
 > `wrap_some` helper is `pub(crate)`, not installed, and `WrapSome` is a bytecode
-> op, not a bound selector). The count therefore stays **73**. See
-> [`README.md`](./README.md) for the baseline-pin policy.
+> op, not a bound selector), **U-LEX** (comments, numeric separators, newline
+> suppression, string interpolation — pure lexer/parser work, **no new floor
+> bindings**), **U-STD** (`Option`/`List` combinators — pure `.ph` over
+> existing floor primitives, **no new floor bindings**), and **U11** (`True`/
+> `False` singleton subclasses of `Bool`, ADR-0004 — **+2 kernel classes,
+> +0 floor bindings**; dispatch is via inheritance, see §2.6). The
+> installed-bindings (73) and distinct-native-fn (57) counts are therefore
+> **unchanged** since the last pin — only the kernel-class denominator moved
+> (19 → 21). Do not infer "classes added" implies "bindings added": U11 is the
+> concrete counterexample. See [`README.md`](./README.md) for the
+> baseline-pin policy.
 
 ### 1.2 Selector notation
 
@@ -136,6 +144,13 @@ Ordered as `install_primitives` installs them
 
 ★ = sacred selector (§5). No-truthiness ([ADR-0021](../../adr/0021-no-truthiness-enforcement.md)):
 these dispatch on real `True`/`False` receivers; there is no implicit coercion.
+
+> **U11 landed** (`true_class`/`false_class`, [`universe.rs`](../../../phalcom-core/src/universe.rs)
+> L550/L555): `True`/`False` are now concrete singleton subclasses of `Bool`,
+> not just a documented design intent. Neither carries any *own* floor
+> primitive — both selectors and sacred inlining stay on `Bool`, reached by
+> ordinary inheritance, so this unit added **0** rows to this table. It did
+> add **2** to the kernel-class count (§1.1).
 
 ### 2.7 `Symbol`
 

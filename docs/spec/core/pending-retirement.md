@@ -6,11 +6,20 @@
 > [`catalog-delta.md`](./catalog-delta.md): the catalog says what protocol is
 > missing; this says which **test** proves it and who retires it.
 
-> **Baseline:** HEAD `76b5f35`; last code-affecting commit `0da64d6` (U-CORE-2
-> partial). The pending set is a **live moving target** — a concurrent session is
-> finalizing **U10** (non-local return) and is mid-retirement of
-> `blocks/pending/blocks_non_local_return` at the time of writing (§2, category A).
-> Re-run the audit in §1.2 before citing a specific fixture's status.
+> **Baseline:** HEAD `0f84232`. Folds in **U10** (non-local return, fully
+> landed — `blocks_non_local_return`/`blocks_non_local_return_bare` retired),
+> **U-LEX** (comments, numeric separators, newline suppression, string
+> interpolation shipped as **`\(expr)`** per [ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md)
+> — not the `"{expr}"` form this doc previously cited — plus a coverage
+> fixture for `?.`/`??`, already built in U6; U-LEX explicitly did **not**
+> add selector literals `#…`, collection literals `[…]`/`{…}`/`(…)`, `::`,
+> or spread-call syntax — DEFERRED.md #6/#21/#28), **U-STD** (`Option`
+> combinators `map`/`flatMap`/`filter`/`ifSome`/`unwrapOr` and `List`
+> combinators `map`/`filter`/`reduce`/`includes`/`isEmpty`, all pure `.ph`),
+> and **U11** (`True`/`False` singleton subclasses of `Bool`, ADR-0004 — no
+> effect on this map, no new pending fixtures). The pending set is still a
+> **live moving target** — re-run the audit in §1.2 before citing a specific
+> fixture's status.
 
 ## 1. What "retirement" means
 
@@ -84,9 +93,16 @@ green lane actually guards the feature.
 | `control-flow/pending/control_flow_while` | `while` lowering (U4/U5) | `control-flow/` |
 | `control-flow/pending/control_flow_sacred_selector_inliner` | `{…}.whileTrue{…}` sacred inliner (U5, ADR-0018) | `control-flow/` |
 | `dispatch/pending/dispatch_does_not_understand` | overridable dNU hook (U8) | `dispatch/` |
-| `blocks/pending/blocks_non_local_return` | non-local `return` (U10) | `blocks/` — **in flight now** |
+| `control-flow/pending/control_flow_iftrue_iffalse` | `Option#unwrapOr` (U-STD, `core.ph:105`) | `control-flow/` |
+| `dispatch/pending/dispatch_rest_param` | `List#reduce` (U-STD, `core.ph:169`) | `dispatch/` |
 
-> These seven are **not** a U-CORE deliverable; they are a standing cleanup the
+> `blocks/pending/blocks_non_local_return` (U10) and
+> `blocks/pending/blocks_argument_to_method`, `lexical/pending/lexical_numeric_separator`,
+> `lexical/pending/lexical_string_interpolation` (U-LEX/U-STD) have already
+> been `git mv`'d out of `pending/` — confirmed absent from the current tree,
+> removed from this table and from §3 below.
+>
+> These eight are **not** a U-CORE deliverable; they are a standing cleanup the
 > forge spine left behind. Listed here so the count in §3 is honest about what is
 > genuinely *unbuilt* versus merely *un-moved*.
 
@@ -103,23 +119,18 @@ one, others are co-requisites. "syntax" always means **U-LEX**.
 | `absence/absence_var_defaults_to_none` | B | `var x` → `<None instance>` (needs `None#toString`) | **U-CORE-4** |
 | `bindings/binding_var_uninitialized` | B | same as above (`None#toString`) | **U-CORE-4** |
 | `absence/absence_option_some` | B+C | `Some(42)` → `<class Some> dnu 'call(_:)'` (needs `Some(_)` sugar **and** `Some#toString`) | **U-CORE-4** + U-LEX |
-| `control-flow/control_flow_iftrue_iffalse` | D | `…ifTrue{…}.unwrapOr("no")` → `<Some instance> dnu 'unwrapOr(_:)'` (ifTrue now returns `Some`; needs `Option#unwrapOr`) | **U-STD** |
 | `dispatch/dispatch_perform` | C | `#+(_)` selector literal + `[4]` list literal (perform primitive exists) | **U-LEX** |
 | `dispatch/dispatch_responds_to` | C | `#+(_)` selector literal (respondsTo primitive exists) | **U-LEX** |
-| `dispatch/dispatch_rest_param` | D | parses (U9 rest params ✅); `numbers.reduce(…)` → dnu `reduce(_:_:)` | **U-STD** (DEFERRED #25) |
 | `dispatch/dispatch_spread_call` | C | `[1,2,3]` list literal + `f(*args)` spread-call syntax | **U-LEX** (STATE.md: spread-call future) |
 | `functions/functions_method_bind` | C+B | `#greet(_)` literal + `methodFor(_)`/`Method#bind(_)` | U-LEX + **U-CORE-1/3** |
 | `functions/functions_method_for_invoke_on` | C+B | `#+(_)` literal + `[4]` literal + `methodFor(_)`/`Method#invokeOn(_,_)` | U-LEX + **U-CORE-3** |
 | `messages/messages_family_reference` | C+B | `p::move` family reference (`::`) | U-LEX + **U-CORE-3** (Family) |
 | `messages/messages_selector_symbol_literal` | C | `#move(_,to,duration)` selector literal + its `toString` | **U-LEX** (+ U-CORE-4 Symbol `toString`) |
-| `blocks/blocks_argument_to_method` | C+D | `[…]` list literal + `List#reduce` | U-LEX + **U-STD** |
 | `lexical/lexical_list_literal` | C | `[…]` literal lowering | **U-LEX** |
 | `lexical/lexical_tuple_literal` | C+E | `(a,b)` literal + `Tuple` class | U-LEX + collections |
 | `lexical/lexical_map_literal` | C+E | `{k:v}` literal + `Map` class | U-LEX + collections |
 | `lexical/lexical_set_literal` | C+E | `Set(…)`/`#{…}` + `Set` class | U-LEX + collections |
-| `lexical/lexical_string_interpolation` | C | `"{expr}"` interpolation (open-Q5/DEC-F) | **U-LEX** |
-| `lexical/lexical_numeric_separator` | C | `1_000` digit separator | **U-LEX** |
-| `lexical/literals_escape` | C | string escape sequences | **U-LEX** |
+| `lexical/literals_escape` | C | string escape sequences (empirically still red at HEAD `0f84232`: `\n` prints literally) | **U-LEX** (escape sequences not yet built, despite interpolation D4 landing) |
 | `control-flow/control_flow_for` | C | `for (x in …)` + list literal | **U-LEX** |
 | `classes/class_inheritance_super` | C | `class Dog : Animal` + `super.speak()` | **inheritance unit** (not U-CORE) |
 | `classes/class_attribute_construct_get_set` | C | `@construct` / `@get` attribute annotations | **attribute unit** (not U-CORE) |
@@ -144,8 +155,13 @@ an immediate green.
 | **U-CORE-2** absence + Boolean | — (its combinators already landed `0da64d6`; no pending fixture is gated on the residue) | — |
 | **U-CORE-3** callables/Block | — | `functions/functions_method_for_invoke_on`, `functions/functions_method_bind`, `messages/messages_family_reference` (all need U-LEX `#…`/`::`) |
 | **U-CORE-4** value classes | `absence/absence_option_none`, `absence/absence_var_defaults_to_none`, `bindings/binding_var_uninitialized` (all via `None#toString`) | `absence/absence_option_some` (needs U-LEX `Some(_)` sugar too); `messages/messages_selector_symbol_literal` (Symbol `toString`, needs U-LEX literal) |
-| **U-CORE-5** collection contract | — (contract, not classes — ADR-0020; flips nothing directly) | enables `List#reduce`/`Map`/`Set` fixtures that U-STD/collections then flip |
+| **U-CORE-5** collection contract | — (contract, not classes — ADR-0020; flips nothing directly) | enables `Map`/`Set` fixtures once those classes land |
 | **U-CORE-6** errors | — | `errors/errors_result_bridge`, `errors/errors_throw_try_catch_finally` (both need error-syntax sugar) |
+
+> **U-STD update:** `List#reduce` and `Option#unwrapOr` have since landed
+> (`core.ph:169`, `core.ph:105`), directly flipping `dispatch/dispatch_rest_param`
+> and `control-flow/control_flow_iftrue_iffalse` — both moved to §2.1
+> (category A, housekeeping-only) and out of this table.
 
 **Reading:** U-CORE-1 and U-CORE-4 are the only units with a *direct* flip; U-CORE-4
 has the most (three `None#toString` fixtures). Everything reflective is
@@ -160,7 +176,7 @@ waiting on the lexer.
 | Claim | Source |
 |---|---|
 | Harness semantics (exact stdout, `#[ignore]`) | `tests/support/mod.rs` L137–178; `tests/lang.rs`; `tests/lang/MANIFEST.md` |
-| Per-fixture pass/fail | the §1.2 audit against `./target/debug/phalcom` at HEAD `76b5f35` |
+| Per-fixture pass/fail | the §1.2 audit against `./target/debug/phalcom` at HEAD `0f84232` |
 | U10 retiring `blocks_non_local_return` | working-tree `git status` (in-flight); STATE.md "U10 — LANDED" |
 | `reduce` blocked on U-STD (not U10) | STATE.md DEFERRED #25 |
 | spread-call syntax is future | STATE.md (U9 section); PHASE2-INDEX.md soft-flag |
