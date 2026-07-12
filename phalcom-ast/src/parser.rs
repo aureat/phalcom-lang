@@ -1494,6 +1494,13 @@ impl<'source> Parser<'source> {
                 let start = self.cur_start();
                 self.advance(); // '{'
 
+                // Spec §6 one-token brace disambiguation: `{ IDENT : … }` is a
+                // map literal; every other `{`-form stays a block and is
+                // handled by the param-scan below (ADR-0032 §3.1).
+                if matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon) {
+                    return self.parse_map_literal(start);
+                }
+
                 let mut params = Vec::new();
                 let mut has_arrow = false;
                 
@@ -1636,6 +1643,49 @@ impl<'source> Parser<'source> {
             args: vec![Argument { label: None, expr: list, range }],
             range,
         })))
+    }
+
+    /// Parses a map literal `{ k1: v1, …, kn: vn }` per the spec §6 brace
+    /// disambiguation, where bare-identifier keys are symbols (`{a: 1}` ≡ key
+    /// `#a`), mirroring labeled-argument parsing ([ADR-0032] §3.1).
+    ///
+    /// The disambiguation itself — one token of lookahead, `{ IDENT : }` ⇒ map
+    /// and every other `{`-form ⇒ block — is the hard, shipped part of this
+    /// unit. The *runtime* lowering to the native `Map` arm is deferred to the
+    /// collection-runtime unit (U-COLLTYPES; DEC-COLL-B), so a fully-parsed
+    /// map literal currently yields a precise "pending" diagnostic rather than
+    /// an expression. The empty map is spelled `Map()`, not `{}` (spec §6:
+    /// `{}` is the empty block, so there is no empty-map literal).
+    ///
+    /// [ADR-0032]: ../../../docs/adr/0032-collections-representation-and-literals.md
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`SyntaxError`] from a key or value, then — once the
+    /// literal parses cleanly — returns a [`SyntaxErrorKind::Message`]
+    /// "pending" diagnostic, because the map runtime is deferred.
+    fn parse_map_literal(&mut self, start: usize) -> ParserResult<Expr> {
+        loop {
+            let _key = self.expect_identifier(&["map key"])?;
+            self.expect(&Token::Colon, &["\":\""])?;
+            let _value = self.parse_expr()?;
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+            // Permit a trailing comma before the closing brace.
+            if matches!(self.peek(), Token::RBrace) {
+                break;
+            }
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        Err(SyntaxError {
+            kind: SyntaxErrorKind::Message(
+                "map literal `{k: v}` is recognised but its runtime is not yet implemented \
+                 (pending the collection-runtime unit); use `Map()` sends for now"
+                    .to_string(),
+            ),
+            range: start..self.prev_end,
+        })
     }
 
     /// Parses a comma-separated run of expressions up to (but not consuming)

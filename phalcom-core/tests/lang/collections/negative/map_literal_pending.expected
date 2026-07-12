@@ -1,0 +1,1 @@
+map literal `{k: v}` is recognised but its runtime is not yet implemented

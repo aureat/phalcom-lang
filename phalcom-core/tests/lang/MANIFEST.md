@@ -16,10 +16,11 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 
 ## Summary
 
-- **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, compile-errors,
-  concurrency, control-flow, dispatch, errors, functions, inheritance, iteration, lexical, list,
-  messages, metaclass, runtime-errors, syntax-errors, system.
-- **Case counts:** PASS 149 · NEGATIVE 31 · PENDING 31 · **total 211** (at the
+- **Labels:** absence, arithmetic, bindings, blocks, booleans, classes, collections,
+  compile-errors, concurrency, control-flow, dispatch, errors, functions, inheritance,
+  iteration, lexical, list, messages, metaclass, runtime-errors, syntax-errors, system.
+- **Case counts:** PASS 153 · NEGATIVE 33 · PENDING 33 · **total 219** (at the
+  `U-COLL` collection-literal landing; +4 PASS / +2 NEGATIVE / +2 PENDING over the
   `U-INH`/`U-ITER`/`U-FIBER` three-worktree consolidation).
 - Active suites (`cargo test -p phalcom-core --test lang`) are green; PENDING run only
   under `-- --ignored` and are expected to fail until their feature is implemented.
@@ -43,6 +44,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | dispatch | 3 | – | 5 | `check_pass` + `check_pending` | messages-and-selectors.md; method-lookup.md; object-model.md |
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
 | list | 4 | – | – | `check_pass` | U-LIST-plan.md; ADR-0019; ADR-0020 |
+| collections | 9 | 2 | 2 | `check_pass` (+ `check_negative`, `check_pending`) | U-CORE-5 as-built.md; U-COLL: lexical-structure.md §4/§6/§7/§8; ADR-0029; ADR-0032 |
 | iteration | 8 | – | 2 | `check_pass` (+ `iteration_disasm`, `check_pending`) | ADR-0035; iteration.md; U-ITER specification |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
 | runtime-errors | – | 10 | – | `check_negative` | messages-and-selectors.md; method-lookup.md; U-LIST-plan.md §3 |
@@ -74,6 +76,7 @@ Every document in `docs/spec/` maps to at least one label:
 | concurrency.md | concurrency |
 | system.md | system |
 | U-LIST-plan.md | list, runtime-errors |
+| lexical-structure.md §4/§6/§7/§8 (collection literals) | collections |
 
 ## Running
 

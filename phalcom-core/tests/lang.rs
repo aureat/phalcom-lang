@@ -215,6 +215,29 @@ fn collections() {
     support::check_pass("collections");
 }
 
+// NB: U-COLL's list/tuple/grouping/brace-disambiguation PASS fixtures live in
+// `tests/lang/collections/` and are exercised by `collections()` above; the
+// deferred-runtime cases are split out below.
+
+#[test]
+fn collections_literals_negative() {
+    // U-COLL: the map literal (`{k: v}`) and a spread element (`[*xs]`) are
+    // *recognised* by the parser but their runtime lowering is deferred to the
+    // collection-runtime unit (U-COLLTYPES; DEC-COLL-B), so each raises a
+    // precise "pending" diagnostic instead of silently mis-parsing.
+    support::check_negative("collections/negative");
+}
+
+#[test]
+#[ignore = "spec target: native Tuple/Map arms land in U-COLLTYPES (DEC-COLL-A/B)"]
+fn collections_literals_pending() {
+    // U-COLL: the tuple and map literals desugar in the parser here, but their
+    // native heap arms (`Tuple`, `Map`) are built by U-COLLTYPES. These
+    // fixtures pin the intended runtime (a `Tuple` distinct from `List`;
+    // symbol-keyed map lookup) and graduate to PASS when U-COLLTYPES lands.
+    support::check_pending("collections");
+}
+
 #[test]
 fn variadics() {
     // U9: rest parameters (`*name`) — declaration, `<name>(*)` selector
