@@ -795,7 +795,7 @@ impl VM {
         if let Some(&existing) = self.open_upvalues.get(&stack_index) {
             return existing;
         }
-        let cell = self.heap.alloc(Object::Upvalue(Upvalue::Open(stack_index)));
+        let cell = self.heap.alloc(Object::Upvalue(Upvalue::Open { fiber: self.current, slot: stack_index }));
         self.open_upvalues.insert(stack_index, cell);
         cell
     }
@@ -1400,7 +1400,16 @@ impl VM {
                 Bytecode::GetUpvalue(idx) => {
                     let cell = self.heap.closure(closure_id).upvalues[idx as usize];
                     let value = match *self.heap.upvalue(cell) {
-                        Upvalue::Open(slot) => self.stack[slot],
+                        // Resolve against the owning fiber's stack: the live VM
+                        // stack when that fiber is current, else its parked
+                        // stack in the `FiberObject` (ADR-0030).
+                        Upvalue::Open { fiber, slot } => {
+                            if fiber == self.current {
+                                self.stack[slot]
+                            } else {
+                                self.heap.fiber(fiber).stack[slot]
+                            }
+                        }
                         Upvalue::Closed(value) => value,
                     };
                     // A captured-but-uninitialized `var` cell surfaces as `None`.
@@ -1412,7 +1421,15 @@ impl VM {
                     let value = *self.stack.last().unwrap();
                     let cell = self.heap.closure(closure_id).upvalues[idx as usize];
                     match *self.heap.upvalue(cell) {
-                        Upvalue::Open(slot) => self.stack[slot] = value,
+                        // Write through to the owning fiber's stack — live when
+                        // that fiber is current, else its parked stack (ADR-0030).
+                        Upvalue::Open { fiber, slot } => {
+                            if fiber == self.current {
+                                self.stack[slot] = value;
+                            } else {
+                                self.heap.fiber_mut(fiber).stack[slot] = value;
+                            }
+                        }
                         Upvalue::Closed(_) => *self.heap.upvalue_mut(cell) = Upvalue::Closed(value),
                     }
                 }
