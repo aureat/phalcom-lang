@@ -1160,6 +1160,30 @@ fn invoke_on_preserves_dead_frame_fencing_for_escaping_blocks() {
 }
 
 #[test]
+fn cross_fiber_non_local_return_raises_dead_frame_error() {
+    // C-FIB-5 (ADR-0030; ADR-0013 frame-token fencing) — a block whose home
+    // frame belongs to a *different* fiber's already-drained activation
+    // still raises `DeadFrameError` when invoked, exactly like the
+    // intra-fiber escaping-block case
+    // (`invoke_on_preserves_dead_frame_fencing_for_escaping_blocks` above).
+    // Proves the frame-token generation check is fiber-agnostic: it fences a
+    // non-local `return` the same way whether the dead home frame belonged
+    // to the currently-running fiber or to a resumer whose own activation
+    // has since ended. Mirrors the golden
+    // `concurrency/negative/fiber_cross_fiber_non_local_return_dead_frame.ph`.
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "cross_fiber_non_local_return_raises_dead_frame_error");
+    vm.interpret_source(module, "class Maker {\n  make() { return { return 1 } }\n}\nlet escaped = Maker.new().make()\n")
+        .expect("class + escaping block should compile and run");
+
+    let result = vm.interpret_source(module, "let f = Fiber.new(escaped)\nf.call()\n");
+    assert!(
+        matches!(result, Err(PhError::Runtime(RuntimeError::DeadFrameError))),
+        "invoking, via a fresh fiber, a block whose home frame is a dead prior activation should raise DeadFrameError, got {result:?}"
+    );
+}
+
+#[test]
 fn invoke_on_and_bind_call_are_equivalent() {
     // R-INV-3.3 — `method.invokeOn(recv, args)` and
     // `method.bind(recv).call(args)` produce identical results for the same
