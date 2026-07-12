@@ -104,12 +104,6 @@ pub struct VM {
     pub has_new_construct: std::collections::HashSet<Symbol>,
 }
 
-impl Default for VM {
-    fn default() -> Self {
-        todo!()
-    }
-}
-
 impl VM {
     /// Creates a new VM: builds the heap, bootstraps the kernel tower, and
     /// installs the core module and native primitives.

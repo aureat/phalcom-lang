@@ -19,7 +19,6 @@ Every other deferral has been homed in its owning unit's plan — each carries a
 
 | Debt | Owning unit |
 |---|---|
-| `vm.rs:107-110` — `impl Default for VM` is `todo!()` | [U-INH](units/U-INH/plan.md) §4 |
 | `primitive/number.rs:~34` — type-error message hardcodes `"value"` | [U12](units/U12/plan.md) §3 |
 | `primitive/nil.rs:~64` — broken rustdoc link → private `wrap_some` | [U-ERR](units/U-ERR/plan.md) §3 |
 | `core/README.md` — stale floor baseline (80/64, should track 88) | [U-ERR](units/U-ERR/plan.md) §3 |
