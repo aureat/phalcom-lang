@@ -1488,6 +1488,7 @@ impl<'source> Parser<'source> {
                 self.advance();
                 Ok(Expr::SuperVar { range })
             }
+            Token::LBracket => self.parse_list_literal(),
             Token::LParen => {
                 self.advance();
                 let expr = self.parse_expr()?;
@@ -1497,7 +1498,7 @@ impl<'source> Parser<'source> {
             Token::LBrace => {
                 let start = self.cur_start();
                 self.advance(); // '{'
-                
+
                 let mut params = Vec::new();
                 let mut has_arrow = false;
                 
@@ -1556,6 +1557,118 @@ impl<'source> Parser<'source> {
                 })))
             }
             _ => Err(self.error_here(primary_expected())),
+        }
+    }
+
+    /// Parses a list literal `[e1, …, en]` and desugars it to a `List`
+    /// construction chain (lexical-structure.md §4; [ADR-0029]; [ADR-0032] §1).
+    ///
+    /// Following the parser-level sugar precedent (`if`→`ifTrue`,
+    /// `while`→`whileTrue`, `\(e)`→`toString`), the literal lowers to ordinary
+    /// message sends on the landed kernel `List` rather than a dedicated
+    /// [`Expr`] variant — no new AST node, bytecode, or floor primitive:
+    ///
+    /// - `[]`        → `List.new()`
+    /// - `[a]`       → `List.new().add(a)`
+    /// - `[a, b, c]` → `List.new().add(a).add(b).add(c)`
+    ///
+    /// Because `List#add(_)` returns `self`, the `.add` chain is one
+    /// well-typed expression. The synthetic range spans the `[ … ]` so
+    /// diagnostics point at the literal.
+    ///
+    /// [ADR-0029]: ../../../docs/adr/0029-list-literal-syntax.md
+    /// [ADR-0032]: ../../../docs/adr/0032-collections-representation-and-literals.md
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`SyntaxError`] from an element expression, or from a
+    /// missing closing `]`.
+    fn parse_list_literal(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // '['
+        let elems = self.parse_comma_exprs(&Token::RBracket)?;
+        self.expect(&Token::RBracket, &["\"]\""])?;
+        let range: SourceRange = (start..self.prev_end).into();
+        Ok(Self::list_construction_chain(elems, range))
+    }
+
+    /// Parses a comma-separated run of expressions up to (but not consuming)
+    /// `terminator`, returning the elements in source order
+    /// (lexical-structure.md §4). Shared by the list `[…]` and tuple `(…)`
+    /// literal arms; a trailing comma before the terminator is permitted, and
+    /// an immediate terminator yields an empty vector.
+    ///
+    /// The element grammar is kept intentionally pattern-compatible with the
+    /// destructuring-pattern scanner (lexical-structure.md §8) so the
+    /// concurrent U14 unit can share this helper rather than fork a parallel
+    /// scanner: a leading `*` ([`Token::Asterisk`], spread) slot is *reserved*
+    /// here. U-COLL ships no spread, so a spread element is rejected with a
+    /// precise "not yet supported" diagnostic rather than silently
+    /// mis-parsed (ADR-0032 §3.2; the U9 spread follow-on wires it later).
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`SyntaxError`] from an element expression, and rejects a
+    /// leading-`*` spread element with a [`SyntaxErrorKind::Message`]
+    /// "pending" diagnostic.
+    fn parse_comma_exprs(&mut self, terminator: &Token) -> ParserResult<Vec<Expr>> {
+        let mut elems = Vec::new();
+        if self.peek() == terminator {
+            return Ok(elems);
+        }
+        loop {
+            if matches!(self.peek(), Token::Asterisk) {
+                return Err(self.error_message_here(
+                    "spread element (`*x`) in a collection literal is not yet supported",
+                ));
+            }
+            elems.push(self.parse_expr()?);
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+            // Allow a trailing comma directly before the terminator.
+            if self.peek() == terminator {
+                break;
+            }
+        }
+        Ok(elems)
+    }
+
+    /// Folds `elems` into a `List` construction chain
+    /// `List.new().add(e1)…​.add(en)`, all sharing the synthetic `range`
+    /// ([ADR-0029]). Because `List#add(_)` returns `self`, the result is a
+    /// single expression; `[]`/`()` with no elements yields the bare
+    /// `List.new()` receiver.
+    ///
+    /// [ADR-0029]: ../../../docs/adr/0029-list-literal-syntax.md
+    fn list_construction_chain(elems: Vec<Expr>, range: SourceRange) -> Expr {
+        let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
+            object: Expr::Var { value: "List".to_string(), range },
+            method: "new".to_string(),
+            args: Vec::new(),
+            range,
+        }));
+        for elem in elems {
+            let elem_range = elem.range();
+            acc = Expr::MethodCall(Box::new(MethodCallExpr {
+                object: acc,
+                method: "add".to_string(),
+                args: vec![Argument { label: None, expr: elem, range: elem_range }],
+                range,
+            }));
+        }
+        acc
+    }
+
+    /// Builds a free-form [`SyntaxErrorKind::Message`] diagnostic anchored at
+    /// the current token's span. Used for surface features whose *syntax* is
+    /// recognised but whose runtime lowering is deferred to a follow-on unit
+    /// (e.g. a spread element in a collection literal; ADR-0032 §3.2).
+    fn error_message_here(&self, msg: &str) -> SyntaxError {
+        let lexeme = &self.tokens[self.pos];
+        SyntaxError {
+            kind: SyntaxErrorKind::Message(msg.to_string()),
+            range: lexeme.start..lexeme.end,
         }
     }
 
