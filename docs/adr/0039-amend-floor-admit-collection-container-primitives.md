@@ -1,7 +1,8 @@
 # 39. Amend the frozen floor — admit collection-container primitives (`Map`/`Set`/`Tuple`/`Range`)
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-12
+- Ratified by user 2026-07-12; landing record for U-COLLTYPES.
 - Related: [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (the frozen floor);
   [ADR-0032](0032-collections-representation-and-literals.md) (native-arm representation);
   [ADR-0020](0020-kernel-list-native-array-protocol.md) (the `List` native-array precedent);
