@@ -1,0 +1,147 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Phalcom",
+	"patterns": [
+		{ "include": "#phalcom.comment" },
+		{ "include": "#phalcom.string" },
+		{ "include": "#phalcom.symbol" },
+		{ "include": "#phalcom.methodref" },
+		{ "include": "#phalcom.attribute" },
+		{ "include": "#phalcom.option-operator" },
+		{ "include": "#phalcom.index-bracket" },
+		{ "include": "#phalcom.number" },
+		{ "include": "#phalcom.keyword" },
+		{ "include": "#phalcom.field" },
+		{ "include": "#variables" }
+	],
+	"repository": {
+		"phalcom.comment": {
+			"patterns": [
+				{
+					"name": "comment.block.documentation.phalcom",
+					"match": "(^|(?<=\\s))//[/!].*$"
+				},
+				{
+					"name": "comment.line.double-slash.phalcom",
+					"match": "//.*$"
+				},
+				{
+					"name": "comment.block.phalcom",
+					"begin": "/\\*",
+					"end": "\\*/"
+				}
+			]
+		},
+		"phalcom.string": {
+			"name": "string.quoted.double.phalcom",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{ "include": "#phalcom.interpolation" },
+				{
+					"name": "constant.character.escape.phalcom",
+					"match": "\\\\."
+				}
+			]
+		},
+		"phalcom.interpolation": {
+			"name": "meta.embedded.line.phalcom",
+			"begin": "\\\\\\(",
+			"beginCaptures": {
+				"0": { "name": "punctuation.section.embedded.begin.phalcom" }
+			},
+			"end": "\\)",
+			"endCaptures": {
+				"0": { "name": "punctuation.section.embedded.end.phalcom" }
+			},
+			"patterns": [
+				{ "include": "#phalcom.interpolation.round" },
+				{ "include": "#phalcom.symbol" },
+				{ "include": "#phalcom.methodref" },
+				{ "include": "#phalcom.attribute" },
+				{ "include": "#phalcom.option-operator" },
+				{ "include": "#phalcom.number" },
+				{ "include": "#phalcom.keyword" },
+				{ "include": "#phalcom.field" },
+				{ "include": "#variables" }
+			]
+		},
+		"phalcom.interpolation.round": {
+			"name": "meta.embedded.line.phalcom",
+			"begin": "\\(",
+			"end": "\\)",
+			"patterns": [
+				{ "include": "#phalcom.interpolation.round" },
+				{ "include": "#phalcom.symbol" },
+				{ "include": "#phalcom.methodref" },
+				{ "include": "#phalcom.attribute" },
+				{ "include": "#phalcom.option-operator" },
+				{ "include": "#phalcom.number" },
+				{ "include": "#phalcom.keyword" },
+				{ "include": "#phalcom.field" },
+				{ "include": "#variables" }
+			]
+		},
+		"phalcom.symbol": {
+			"patterns": [
+				{
+					"name": "constant.other.symbol.phalcom",
+					"match": "#[a-zA-Z_][a-zA-Z0-9_]*(\\([^)]*\\))?"
+				},
+				{
+					"name": "constant.other.symbol.phalcom",
+					"match": "#(==|!=|<=|>=|<<|>>|\\+\\+|--|\\+|-|\\*|/|%|<|>|\\[\\])"
+				}
+			]
+		},
+		"phalcom.methodref": {
+			"name": "keyword.operator.methodref.phalcom",
+			"match": "::\\s*#?[a-zA-Z_][a-zA-Z0-9_]*(\\([^)]*\\))?"
+		},
+		"phalcom.attribute": {
+			"name": "entity.name.tag.attribute.phalcom",
+			"match": "@[a-zA-Z_][a-zA-Z0-9_]*"
+		},
+		"phalcom.option-operator": {
+			"name": "keyword.operator.option.phalcom",
+			"match": "\\?\\.|\\?\\?"
+		},
+		"phalcom.index-bracket": {
+			"name": "punctuation.definition.index.phalcom",
+			"match": "\\[|\\]"
+		},
+		"phalcom.number": {
+			"name": "constant.numeric.phalcom",
+			"match": "\\b[0-9][0-9_]*(\\.[0-9][0-9_]*)?\\b"
+		},
+		"phalcom.keyword": {
+			"patterns": [
+				{
+					"name": "keyword.control.phalcom",
+					"match": "\\b(class|extends|super|self|static|try|catch|on|ensure|throw|break|continue|match|return|while|for|var)\\b"
+				},
+				{
+					"name": "keyword.operator.phalcom",
+					"match": "\\+\\+|--|\\+|-|\\*|/|%|==|!=|<=|>=|<|>|=>|->|=|\\+=|-=|/=|\\*=|%="
+				}
+			]
+		},
+		"phalcom.field": {
+			"name": "variable.other.field.phalcom",
+			"match": "\\b_[a-zA-Z][a-zA-Z0-9_]*\\b"
+		},
+		"variables": {
+			"patterns": [
+				{
+					"name": "variable.language.phalcom",
+					"match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+				},
+				{
+					"name": "variable.other.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+				}
+			]
+		}
+	},
+	"scopeName": "source.phalcom"
+}
