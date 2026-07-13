@@ -54,6 +54,15 @@ pub struct ClassObject {
     /// once its native primitives are installed (`VM::install_core`), and a
     /// `.ph` class body is finalized at its own compile tail.
     pub base_names: HashMap<Symbol, Vec<Symbol>>,
+    /// Attribute instances attached via `Object#__attach`
+    /// (M-ATTR-ROOT, `attribute-classes.md`) — the retention store behind
+    /// `Behavior#attributes`/`attributesOfType(_)`. Empty until a class-level
+    /// `@AttrName(...)` attaches one.
+    pub attributes: Vec<Value>,
+    /// Set by `Object#__freezeAttributes` once class-definition codegen has
+    /// finished attaching every class-level attribute — further `__attach`
+    /// calls are rejected (`attr.frozen`).
+    pub attributes_frozen: bool,
 }
 
 /// Walks `class` and its superclasses for a method bound to `selector`.
@@ -91,7 +100,24 @@ impl ClassObject {
             field_count: 0,
             static_slots: Box::default(),
             base_names: HashMap::new(),
+            attributes: Vec::new(),
+            attributes_frozen: false,
         }
+    }
+
+    /// Appends `attr` to this class's attribute-retention store.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(())` if [`Self::attributes_frozen`] is set — the caller
+    /// (`primitive::attribute::attribute_attach`) renders the `attr.frozen`
+    /// `RuntimeError`.
+    pub fn attach_attribute(&mut self, attr: Value) -> Result<(), ()> {
+        if self.attributes_frozen {
+            return Err(());
+        }
+        self.attributes.push(attr);
+        Ok(())
     }
 
     /// Resolves a field name to its slot index (own table only, non-inherited).

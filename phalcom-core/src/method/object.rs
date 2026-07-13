@@ -47,13 +47,21 @@ pub struct MethodObject {
     /// in the stripped case the predicate closures are never compiled in the
     /// first place, not compiled-then-discarded.
     pub contracts: Option<Vec<(Symbol, Value)>>,
+    /// Attribute instances attached via `Object#__attach` (M-ATTR-ROOT,
+    /// `attribute-classes.md`) — the retention store behind
+    /// `Method#attributes`/`attributesOfType(_)`.
+    pub attributes: Vec<Value>,
+    /// Set by `Object#__freezeAttributes` once this method's member-level
+    /// `@AttrName(...)` attaches have all run — further `__attach` calls are
+    /// rejected (`attr.frozen`).
+    pub attributes_frozen: bool,
 }
 
 impl MethodObject {
     /// Builds a method with the given `kind`, deriving its signature.
     pub fn new(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind, holder: Option<ClassId>) -> Self {
         let signature = Signature::new(selector, sig_kind);
-        MethodObject { kind, signature, holder, contracts: None }
+        MethodObject { kind, signature, holder, contracts: None, attributes: Vec::new(), attributes_frozen: false }
     }
 
     /// Builds an unbound method (holder `None`), typically a compiler-produced
@@ -70,6 +78,19 @@ impl MethodObject {
     /// Returns this method's selector [`Symbol`].
     pub fn selector(&self) -> Symbol {
         self.signature.selector
+    }
+
+    /// Appends `attr` to this method's attribute-retention store.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(())` if [`Self::attributes_frozen`] is set.
+    pub fn attach_attribute(&mut self, attr: Value) -> Result<(), ()> {
+        if self.attributes_frozen {
+            return Err(());
+        }
+        self.attributes.push(attr);
+        Ok(())
     }
 
     /// Returns whether this method is a native primitive.

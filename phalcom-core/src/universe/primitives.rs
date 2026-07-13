@@ -1,5 +1,6 @@
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
+use crate::primitive::attribute::{attribute_attach, attribute_attributes, attribute_freeze};
 use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_ensure, block_name, block_on, block_while_true};
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
@@ -65,6 +66,13 @@ impl Universe {
         // never `.ph`-authored, never part of any public protocol.
         primitive!(vm, object_cls, "__invariantEnter", SignatureKind::Method(0), object_invariant_enter);
         primitive!(vm, object_cls, "__invariantExit", SignatureKind::Method(0), object_invariant_exit);
+        // Attribute-retention store (M-ATTR-ROOT, `attribute-classes.md`):
+        // registered once here since `Object` sits under every class/method/
+        // module row in the metaclass tower (ADR-0002 parallel rule) — one
+        // site covers all three receiver kinds.
+        primitive!(vm, object_cls, "__attributes", SignatureKind::Getter, attribute_attributes);
+        primitive!(vm, object_cls, "__attach", SignatureKind::Method(1), attribute_attach);
+        primitive!(vm, object_cls, "__freezeAttributes", SignatureKind::Method(0), attribute_freeze);
 
         // `Message` accessors (U8): native getters reading the reified-send
         // slots directly (`VM::new_message`); `Message` has no `.ph` surface.

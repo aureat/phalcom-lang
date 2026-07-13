@@ -1,3 +1,4 @@
+pub mod attribute;
 pub mod boolean;
 pub mod block;
 pub mod class;

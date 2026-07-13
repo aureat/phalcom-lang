@@ -49,6 +49,12 @@ pub struct ModuleObject {
     pub globals: Vec<Value>,
     /// Maps a global name [`Symbol`] to its slot index in [`Self::globals`].
     pub name_to_slot: HashMap<Symbol, usize>,
+    /// Attribute instances attached via `Object#__attach` (M-ATTR-ROOT,
+    /// `attribute-classes.md`).
+    pub attributes: Vec<Value>,
+    /// Set by `Object#__freezeAttributes` — further `__attach` calls are
+    /// rejected (`attr.frozen`).
+    pub attributes_frozen: bool,
 }
 
 impl ModuleObject {
@@ -63,7 +69,22 @@ impl ModuleObject {
             globals: Vec::new(),
             name_to_slot: HashMap::new(),
             source,
+            attributes: Vec::new(),
+            attributes_frozen: false,
         }
+    }
+
+    /// Appends `attr` to this module's attribute-retention store.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(())` if [`Self::attributes_frozen`] is set.
+    pub fn attach_attribute(&mut self, attr: Value) -> Result<(), ()> {
+        if self.attributes_frozen {
+            return Err(());
+        }
+        self.attributes.push(attr);
+        Ok(())
     }
 
     /// Returns the module's name symbol.
