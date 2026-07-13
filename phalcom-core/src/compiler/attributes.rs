@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use phalcom_ast::ast::{AssignmentExpr, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, ParameterDef};
+use phalcom_ast::ast::{AssignmentExpr, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, GetterDef, ParameterDef, SetterDef};
 use crate::compiler::lib::CompilerError;
 use crate::interner::Symbol;
 use crate::method::{encode_selector, SignatureKind};
@@ -470,6 +470,46 @@ impl AttributeExpander for ConstructExpander {
     }
 }
 
+/// Registry entry for `@get` (U-ANNOT-LAYOUT §3.2, `annotations-construct.md`
+/// §"@get/@set"). Same deliberate-no-op shape as [`ConstructExpander`]: the
+/// derive appends a sibling [`ClassMember::Getter`] next to the `Field` this
+/// attribute is attached to, which `AttributeExpander::expand`'s
+/// mutate-in-place signature cannot do — the real derive runs once from
+/// [`expand_class_attributes`] via `derive_accessors`. This row only exists
+/// so `attr.unknown`/`attr.illegal_target` fire correctly for `@get`.
+pub struct GetExpander;
+impl AttributeExpander for GetExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Field]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
+/// Registry entry for `@set` — see [`GetExpander`].
+pub struct SetExpander;
+impl AttributeExpander for SetExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Field]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
 /// Registry entry for `@On` — the builtin attribute carrying legality + tier
 /// for a user `Attribute` subclass's own header (M-ATTR-ROOT,
 /// `attribute-classes.md` §"`@On`"). Like [`InvariantExpander`]/
@@ -508,6 +548,8 @@ impl AttributeRegistry {
         expanders.insert("ensures".to_string(), Box::new(EnsuresExpander));
         expanders.insert("invariant".to_string(), Box::new(InvariantExpander));
         expanders.insert("construct".to_string(), Box::new(ConstructExpander));
+        expanders.insert("get".to_string(), Box::new(GetExpander));
+        expanders.insert("set".to_string(), Box::new(SetExpander));
         expanders.insert("On".to_string(), Box::new(OnExpander));
         Self { expanders }
     }
@@ -628,6 +670,108 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
         body,
         range: attr_range,
     }));
+    Ok(())
+}
+
+/// Returns `attr.accessor_collision` if `class` already carries a
+/// hand-written [`ClassMember::Getter`]/[`ClassMember::Setter`] (per `kind`)
+/// whose derived selector matches `base_name`'s (ADR-0012: selector is the
+/// sole dispatch key, no last-wins). Shared by every layout-derive attribute
+/// that can collide with a hand-written accessor (`@get`/`@set`, and later
+/// `@data` reusing the same field-derived names) — plan §3.2 asks for one
+/// helper here, not N inline copies (`derive_construct`'s own inline
+/// construct-vs-construct check is a different member kind and stays as-is).
+fn check_accessor_collision(
+    class: &ClassDef,
+    ctx: &mut ExpandCtx,
+    base_name: &str,
+    kind: SignatureKind,
+    attr_name: &str,
+) -> Result<(), CompilerError> {
+    let derived_selector = encode_selector(base_name, &[], kind);
+    let derived_sym = ctx.interner.intern(&derived_selector);
+
+    for m in &class.members {
+        let existing_selector = match (m, kind) {
+            (ClassMember::Getter(g), SignatureKind::Getter) => {
+                Some(encode_selector(&g.name, &[], SignatureKind::Getter))
+            }
+            (ClassMember::Setter(s), SignatureKind::Setter) => {
+                Some(encode_selector(&s.name, &[], SignatureKind::Setter))
+            }
+            _ => None,
+        };
+        if let Some(existing_selector) = existing_selector {
+            if ctx.interner.intern(&existing_selector) == derived_sym {
+                return Err(CompilerError::Message(format!(
+                    "attr.accessor_collision: `@{}` on class `{}` collides with a hand-written accessor of the same selector",
+                    attr_name, class.name
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Derives `Getter`/`Setter` members for every declared [`FieldDef`]
+/// carrying `@get`/`@set` and appends them to `class.members` (U-ANNOT-LAYOUT
+/// §3.2, `annotations-construct.md` §"@get/@set").
+///
+/// Must run before [`expand_class_attributes`]'s member-level loop consumes
+/// each `Field`'s attributes — same signature gap as [`derive_construct`]:
+/// `AttributeExpander::expand` only mutates the one member it's attached to,
+/// and this derive needs to append sibling members instead.
+///
+/// Field reads/writes in this AST always use [`Expr::Field`] (never
+/// [`Expr::Var`]) — the getter body reads `_label` via `Expr::Field`, and the
+/// setter body assigns it via [`field_assign_stmt`] reading its `value`
+/// parameter via `Expr::Var` (an ordinary parameter binding, not a field).
+///
+/// `@get(priv)`'s bare argument is advisory naming only (§3.2) — parsed but
+/// not inspected here; nothing gates on it.
+fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), CompilerError> {
+    let fields: Vec<FieldDef> = class
+        .members
+        .iter()
+        .filter_map(|m| match m {
+            ClassMember::Field(f) => Some(f.clone()),
+            _ => None,
+        })
+        .collect();
+
+    for field in &fields {
+        let base_name = strip_leading_underscore(&field.name);
+
+        for attr in &field.attributes {
+            if attr.name == "get" {
+                check_accessor_collision(class, ctx, &base_name, SignatureKind::Getter, "get")?;
+                class.members.push(ClassMember::Getter(GetterDef {
+                    name: base_name.clone(),
+                    body: vec![Statement::Expr {
+                        expr: Expr::Field { value: field.name.clone(), range: attr.range },
+                        range: attr.range,
+                    }],
+                    is_static: false,
+                    attributes: Vec::new(),
+                    range: attr.range,
+                }));
+            } else if attr.name == "set" {
+                check_accessor_collision(class, ctx, &base_name, SignatureKind::Setter, "set")?;
+                class.members.push(ClassMember::Setter(SetterDef {
+                    name: base_name.clone(),
+                    param: "value".to_string(),
+                    body: vec![field_assign_stmt(
+                        &field.name,
+                        Expr::Var { value: "value".to_string(), range: attr.range },
+                        attr.range,
+                    )],
+                    is_static: false,
+                    attributes: Vec::new(),
+                    range: attr.range,
+                }));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -801,6 +945,10 @@ pub fn expand_class_attributes(
             return Err(CompilerError::Message("contract.impure_predicate: predicate contains mutating or side-effecting operations".to_string()));
         }
     }
+
+    // 1.5. Derive @get/@set accessors from declared fields, before the
+    // member-level loop below consumes each Field's attributes.
+    derive_accessors(&mut class, ctx)?;
 
     // 2. Expand member-level attributes
     for member in &mut class.members {
