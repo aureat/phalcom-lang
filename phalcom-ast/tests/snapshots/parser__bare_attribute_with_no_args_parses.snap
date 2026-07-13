@@ -1,0 +1,62 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"class Point {\\n  @pure\\n  x() {\\n    return 1\\n  }\\n}\\n\")"
+---
+Program {
+    statements: [
+        Class(
+            ClassDef {
+                name: "Point",
+                superclass: None,
+                members: [
+                    Method(
+                        MethodDef {
+                            name: "x",
+                            params: [],
+                            body: [
+                                Return(
+                                    ReturnStatement {
+                                        value: Some(
+                                            Number {
+                                                value: 1.0,
+                                                range: CopyRange {
+                                                    start: 41,
+                                                    end: 42,
+                                                },
+                                            },
+                                        ),
+                                        range: CopyRange {
+                                            start: 34,
+                                            end: 42,
+                                        },
+                                    },
+                                ),
+                            ],
+                            is_static: false,
+                            attributes: [
+                                Attribute {
+                                    name: "pure",
+                                    args: [],
+                                    range: CopyRange {
+                                        start: 16,
+                                        end: 21,
+                                    },
+                                },
+                            ],
+                            range: CopyRange {
+                                start: 24,
+                                end: 46,
+                            },
+                        },
+                    ),
+                ],
+                attributes: [],
+                invariants: [],
+                range: CopyRange {
+                    start: 0,
+                    end: 48,
+                },
+            },
+        ),
+    ],
+}

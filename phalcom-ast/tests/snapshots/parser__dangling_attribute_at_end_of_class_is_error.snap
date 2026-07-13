@@ -1,0 +1,5 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"class Point {\\n  @requires(x > 0)\\n}\\n\")"
+---
+Err: SyntaxError { kind: Message("attr.dangling: `@requires` has no following method, getter, or setter to attach to"), range: 16..32 }

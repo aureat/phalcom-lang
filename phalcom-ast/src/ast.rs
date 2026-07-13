@@ -119,6 +119,49 @@ pub struct ClassDef {
     /// recognised only in this class-header position).
     pub superclass: Option<SuperclassRef>,
     pub members: Vec<ClassMember>,
+    /// `@name(args…)` attributes attached directly to the class header
+    /// (e.g. a future class-level decorator), distinct from
+    /// [`invariants`](Self::invariants) — `@invariant` is a parse-time
+    /// carve-out that is *never* collected here (see
+    /// [`Attribute`]/DEC-ANNOT-B in `annotations-legality-grammar.md`).
+    pub attributes: Vec<Attribute>,
+    /// Standalone `@invariant(pred)` class-body predicates, in declaration
+    /// order, paired with each predicate's own source span.
+    ///
+    /// Per DEC-ANNOT-B (`docs/spec/v0.2/experimental/annotations-contracts.md`,
+    /// `docs/forge/units/U-ANNOT-CONTRACTS/plan.md` §3.1), `@invariant` is a
+    /// one-off parse-time exception to the normal "attribute binds to the
+    /// following member" rule: it stands alone in the class body with no
+    /// following member to attach to, so the parser routes it here directly
+    /// instead of into a [`ClassMember`]'s [`Attribute`] list. The compiler
+    /// conjoins these in order into one synthesized `__check_invariant()`
+    /// method, woven receiver-scoped per
+    /// [ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
+    pub invariants: Vec<(Expr, SourceRange)>,
+    pub range: SourceRange,
+}
+
+/// A `@name(args…)` attribute attached to a class or class member.
+///
+/// Attributes bind to the *following* class member by default (the parser's
+/// newline-tolerant attribute-collection loop, `crate::parser`'s
+/// `parse_class_body`); the sole exception is a
+/// standalone `@invariant(...)`, which is diverted at parse time into
+/// [`ClassDef::invariants`] instead of ever becoming an `Attribute` here (see
+/// that field's doc and DEC-ANNOT-B). The compiler resolves `name` against a
+/// registry of [`AttributeExpander`](../../../phalcom-core/src/compiler/attributes.rs)
+/// implementations (`docs/spec/v0.2/experimental/annotations-core.md`,
+/// `annotations-legality-grammar.md`) that desugar it into ordinary AST before
+/// the rest of compilation runs.
+#[derive(Debug, Clone)]
+pub struct Attribute {
+    /// The attribute's bare name, without the leading `@` (e.g. `"requires"`
+    /// for `@requires(...)`).
+    pub name: String,
+    /// The attribute's parenthesized argument expressions, in source order.
+    /// Empty for a bare `@name` with no argument list.
+    pub args: Vec<Expr>,
+    /// The source span of the whole `@name(args…)` attribute.
     pub range: SourceRange,
 }
 
@@ -180,6 +223,11 @@ pub struct MethodDef {
     pub params: Vec<ParameterDef>,
     pub body: Vec<Statement>,
     pub is_static: bool,
+    /// `@name(args…)` attributes attached to this method, in declaration
+    /// order (e.g. `@requires`/`@ensures` — U-ANNOT-CONTRACTS). Consumed and
+    /// cleared by [`AttributeExpander::expand`](../../../phalcom-core/src/compiler/attributes.rs)
+    /// during class expansion.
+    pub attributes: Vec<Attribute>,
     pub range: SourceRange,
 }
 
@@ -188,6 +236,9 @@ pub struct GetterDef {
     pub name: String,
     pub body: Vec<Statement>,
     pub is_static: bool,
+    /// `@name(args…)` attributes attached to this getter, in declaration
+    /// order. See [`MethodDef::attributes`].
+    pub attributes: Vec<Attribute>,
     pub range: SourceRange,
 }
 
@@ -197,6 +248,9 @@ pub struct SetterDef {
     pub param: String,
     pub body: Vec<Statement>,
     pub is_static: bool,
+    /// `@name(args…)` attributes attached to this setter, in declaration
+    /// order. See [`MethodDef::attributes`].
+    pub attributes: Vec<Attribute>,
     pub range: SourceRange,
 }
 

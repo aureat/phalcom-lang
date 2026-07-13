@@ -44,6 +44,12 @@ use crate::lexer::Lexer;
 use crate::token::{LexicalError, StringSegment, Token};
 use phalcom_common::range::SourceRange;
 
+/// The three pieces [`Parser::parse_class_body`] assembles a [`ClassDef`]
+/// from: its members, its (currently always-empty, see that field's doc)
+/// class-level attributes, and its standalone `@invariant(...)` predicates
+/// (DEC-ANNOT-B).
+type ClassBodyParts = (Vec<ClassMember>, Vec<Attribute>, Vec<(Expr, SourceRange)>);
+
 /// Result of parsing a Phalcom source string with error recovery.
 ///
 /// Carries the [`Program`] built from every statement that parsed successfully,
@@ -889,37 +895,178 @@ impl<'source> Parser<'source> {
         };
 
         self.expect(&Token::LBrace, &["\"{\""])?;
-        let members = self.parse_class_body()?;
+        let (members, attributes, invariants) = self.parse_class_body()?;
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         Ok(Statement::Class(ClassDef {
             name,
             superclass,
             members,
+            attributes,
+            invariants,
             range,
         }))
     }
 
     /// Parses the members of a class body up to the closing `}`.
     ///
-    /// Blank lines are ignored; each member is a method, getter, or setter.
+    /// Blank lines are ignored; each member is a method, getter, setter, or
+    /// constructor. A member may be preceded by zero or more `@name(args…)`
+    /// attributes, which are collected and attached to the member that
+    /// immediately follows them (`annotations-legality-grammar.md`'s
+    /// `class-member := attribute* [static] member-decl`) — except a
+    /// standalone `@invariant(...)`, a one-off parse-time carve-out
+    /// (DEC-ANNOT-B) that is diverted straight into the returned
+    /// `invariants` list instead of binding to any member. This class-level
+    /// `attributes`/`invariants` split mirrors [`ClassDef`]'s own fields; the
+    /// caller assembles the final `ClassDef` from all three return values.
     ///
     /// # Errors
     ///
-    /// Returns an error on a malformed member or if end-of-file is reached
-    /// before the closing brace.
-    fn parse_class_body(&mut self) -> ParserResult<Vec<ClassMember>> {
+    /// Returns an error on a malformed member, a malformed attribute, an
+    /// attribute with nothing following it to attach to (`attr.dangling`), or
+    /// if end-of-file is reached before the closing brace.
+    fn parse_class_body(&mut self) -> ParserResult<ClassBodyParts> {
         let mut members = Vec::new();
+        // No surface grammar attaches an attribute to the class header
+        // itself yet (only to a following member, or `@invariant`'s
+        // standalone carve-out below) — this is always empty today, reserved
+        // for a future class-level decorator (`ClassDef::attributes`'s own
+        // doc).
+        let class_attributes: Vec<Attribute> = Vec::new();
+        let mut class_invariants = Vec::new();
+        let mut pending_attrs: Vec<Attribute> = Vec::new();
         loop {
             self.skip_newlines();
             match self.peek() {
-                Token::RBrace => break,
+                Token::RBrace if pending_attrs.is_empty() => break,
+                Token::RBrace => return Err(self.dangling_attribute_error(&pending_attrs)),
+                Token::Eof if !pending_attrs.is_empty() => return Err(self.dangling_attribute_error(&pending_attrs)),
+                Token::At => {
+                    let attr = self.parse_attribute()?;
+                    self.skip_newlines();
+                    // DEC-ANNOT-B (annotations-legality-grammar.md,
+                    // U-ANNOT-CONTRACTS plan §3.1): `@invariant` alone has no
+                    // following member to bind to — it stands as its own
+                    // class-body item. This `if` is the *only* place any
+                    // attribute skips the ordinary "binds to the next member"
+                    // rule; do not generalize it to other attribute names.
+                    if attr.name == "invariant" {
+                        if attr.args.len() != 1 {
+                            return Err(SyntaxError {
+                                kind: SyntaxErrorKind::Message(
+                                    "@invariant expects exactly one predicate argument".to_string(),
+                                ),
+                                range: attr.range.start..attr.range.end,
+                            });
+                        }
+                        let predicate = attr.args.into_iter().next().unwrap();
+                        class_invariants.push((predicate, attr.range));
+                        continue;
+                    }
+                    pending_attrs.push(attr);
+                    continue;
+                }
                 Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
                 _ => {}
             }
-            members.push(self.parse_class_member()?);
+            let mut member = self.parse_class_member()?;
+            if !pending_attrs.is_empty() {
+                self.attach_attrs(&mut member, std::mem::take(&mut pending_attrs))?;
+            }
+            members.push(member);
         }
-        Ok(members)
+        Ok((members, class_attributes, class_invariants))
+    }
+
+    /// Parses a single `@name` or `@name(args…)` attribute.
+    ///
+    /// `args`, if present, is a parenthesized comma-separated list of
+    /// ordinary expressions (`self.parse_expr`), exactly the grammar
+    /// `annotations-legality-grammar.md` specifies — a bare identifier that
+    /// isn't otherwise meaningful in this position still parses as an
+    /// ordinary `Expr::Var`, so no special-casing is needed here.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `@` is not followed by an identifier, or the
+    /// argument list is malformed.
+    fn parse_attribute(&mut self) -> ParserResult<Attribute> {
+        let start = self.cur_start();
+        self.advance(); // '@'
+        let name = self.expect_identifier(&["attribute name"])?;
+        let args = if self.eat(&Token::LParen) {
+            let args = self.parse_attribute_arg_list()?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            args
+        } else {
+            Vec::new()
+        };
+        let range = (start..self.prev_end).into();
+        Ok(Attribute { name, args, range })
+    }
+
+    /// Parses a parenthesized, comma-separated list of attribute argument
+    /// expressions (no labels — attribute arguments are always positional).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any argument expression is malformed.
+    fn parse_attribute_arg_list(&mut self) -> ParserResult<Vec<Expr>> {
+        if matches!(self.peek(), Token::RParen) {
+            return Ok(Vec::new());
+        }
+        let mut args = Vec::new();
+        loop {
+            args.push(self.parse_expr()?);
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+        }
+        Ok(args)
+    }
+
+    /// Attaches `attrs` to `member`'s `attributes` field.
+    ///
+    /// Every [`ClassMember`] variant except [`ClassMember::Construct`] carries
+    /// an `attributes` field (U-ANNOT-CONTRACTS plan §3.1: no method-table-
+    /// macro or layout-tier attribute targets a constructor) — attaching to a
+    /// `Construct` member is therefore an `attr.dangling`-class error, not a
+    /// silent drop.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `member` is a [`ClassMember::Construct`], since it
+    /// has nowhere to attach the attributes.
+    fn attach_attrs(&mut self, member: &mut ClassMember, attrs: Vec<Attribute>) -> ParserResult<()> {
+        match member {
+            ClassMember::Method(m) => m.attributes = attrs,
+            ClassMember::Getter(g) => g.attributes = attrs,
+            ClassMember::Setter(s) => s.attributes = attrs,
+            ClassMember::Construct(c) => {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(
+                        "attr.dangling: attributes cannot be attached to a constructor".to_string(),
+                    ),
+                    range: c.range.start..c.range.start,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Builds the `attr.dangling` diagnostic for one or more attributes with
+    /// no following class member to bind to (end-of-file or a closing `}`
+    /// reached while attributes are still pending).
+    fn dangling_attribute_error(&self, pending: &[Attribute]) -> SyntaxError {
+        let first = pending.first().expect("dangling_attribute_error called with no pending attributes");
+        SyntaxError {
+            kind: SyntaxErrorKind::Message(format!(
+                "attr.dangling: `@{}` has no following method, getter, or setter to attach to",
+                first.name
+            )),
+            range: first.range.start..first.range.end,
+        }
     }
 
     /// Parses a single class member: a method, getter, or setter.
@@ -959,6 +1106,7 @@ impl<'source> Parser<'source> {
                 name,
                 body: vec![Statement::Expr { expr, range }],
                 is_static,
+                attributes: Vec::new(),
                 range,
             }));
         }
@@ -986,6 +1134,7 @@ impl<'source> Parser<'source> {
                 param,
                 body,
                 is_static,
+                attributes: Vec::new(),
                 range,
             }))
         } else if let Some(params) = params {
@@ -994,6 +1143,7 @@ impl<'source> Parser<'source> {
                 params,
                 body,
                 is_static,
+                attributes: Vec::new(),
                 range,
             }))
         } else {
@@ -1001,6 +1151,7 @@ impl<'source> Parser<'source> {
                 name,
                 body,
                 is_static,
+                attributes: Vec::new(),
                 range,
             }))
         }

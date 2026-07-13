@@ -9,6 +9,8 @@ Program {
                 name: "Point",
                 superclass: None,
                 members: [],
+                attributes: [],
+                invariants: [],
                 range: CopyRange {
                     start: 0,
                     end: 14,

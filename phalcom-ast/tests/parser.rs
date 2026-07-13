@@ -249,3 +249,41 @@ fn continue_statement_parses() {
 fn for_missing_in_is_error() {
     insta::assert_snapshot!(parse("for (x xs) { }"));
 }
+
+// --- `@` attributes (U-ANNOT-CONTRACTS, annotations-legality-grammar.md) ---
+
+#[test]
+fn requires_attribute_attaches_to_following_method() {
+    // `@requires(...)` binds to the method immediately following it —
+    // `MethodDef::attributes` carries the parsed `Attribute`, not yet
+    // expanded (expansion is `phalcom-core`'s job, not the parser's).
+    insta::assert_snapshot!(parse("class Point {\n  @requires(x > 0)\n  set(x) {\n    self.x = x\n  }\n}\n"));
+}
+
+#[test]
+fn ensures_attribute_on_getter() {
+    insta::assert_snapshot!(parse("class Point {\n  @ensures(__result >= 0)\n  magnitude() {\n    return 1\n  }\n}\n"));
+}
+
+#[test]
+fn bare_attribute_with_no_args_parses() {
+    insta::assert_snapshot!(parse("class Point {\n  @pure\n  x() {\n    return 1\n  }\n}\n"));
+}
+
+#[test]
+fn multiple_attributes_attach_to_same_member_in_order() {
+    insta::assert_snapshot!(parse("class Point {\n  @requires(x > 0)\n  @requires(x < 100)\n  set(x) {\n    self.x = x\n  }\n}\n"));
+}
+
+#[test]
+fn standalone_invariant_diverts_to_class_invariants() {
+    // DEC-ANNOT-B: `@invariant` alone has no following member — it lands in
+    // `ClassDef::invariants`, not in any member's `attributes`.
+    insta::assert_snapshot!(parse("class Point {\n  @invariant(x >= 0)\n\n  get() {\n    return x\n  }\n}\n"));
+}
+
+#[test]
+fn dangling_attribute_at_end_of_class_is_error() {
+    // `@requires(...)` with nothing following it before `}` is `attr.dangling`.
+    insta::assert_snapshot!(parse("class Point {\n  @requires(x > 0)\n}\n"));
+}

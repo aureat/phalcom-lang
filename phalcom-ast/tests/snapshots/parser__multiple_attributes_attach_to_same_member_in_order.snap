@@ -1,0 +1,139 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"class Point {\\n  @requires(x > 0)\\n  @requires(x < 100)\\n  set(x) {\\n    self.x = x\\n  }\\n}\\n\")"
+---
+Program {
+    statements: [
+        Class(
+            ClassDef {
+                name: "Point",
+                superclass: None,
+                members: [
+                    Method(
+                        MethodDef {
+                            name: "set",
+                            params: [
+                                ParameterDef {
+                                    name: "x",
+                                    label: None,
+                                    is_rest: false,
+                                    range: CopyRange {
+                                        start: 60,
+                                        end: 61,
+                                    },
+                                },
+                            ],
+                            body: [
+                                Expr {
+                                    expr: SetProperty(
+                                        SetPropertyExpr {
+                                            object: SelfVar {
+                                                range: CopyRange {
+                                                    start: 69,
+                                                    end: 73,
+                                                },
+                                            },
+                                            property: "x",
+                                            value: Var {
+                                                value: "x",
+                                                range: CopyRange {
+                                                    start: 78,
+                                                    end: 79,
+                                                },
+                                            },
+                                            range: CopyRange {
+                                                start: 69,
+                                                end: 79,
+                                            },
+                                        },
+                                    ),
+                                    range: CopyRange {
+                                        start: 69,
+                                        end: 79,
+                                    },
+                                },
+                            ],
+                            is_static: false,
+                            attributes: [
+                                Attribute {
+                                    name: "requires",
+                                    args: [
+                                        Binary(
+                                            BinaryExpr {
+                                                op: GreaterThan,
+                                                left: Var {
+                                                    value: "x",
+                                                    range: CopyRange {
+                                                        start: 26,
+                                                        end: 27,
+                                                    },
+                                                },
+                                                right: Number {
+                                                    value: 0.0,
+                                                    range: CopyRange {
+                                                        start: 30,
+                                                        end: 31,
+                                                    },
+                                                },
+                                                range: CopyRange {
+                                                    start: 26,
+                                                    end: 31,
+                                                },
+                                            },
+                                        ),
+                                    ],
+                                    range: CopyRange {
+                                        start: 16,
+                                        end: 32,
+                                    },
+                                },
+                                Attribute {
+                                    name: "requires",
+                                    args: [
+                                        Binary(
+                                            BinaryExpr {
+                                                op: LessThan,
+                                                left: Var {
+                                                    value: "x",
+                                                    range: CopyRange {
+                                                        start: 45,
+                                                        end: 46,
+                                                    },
+                                                },
+                                                right: Number {
+                                                    value: 100.0,
+                                                    range: CopyRange {
+                                                        start: 49,
+                                                        end: 52,
+                                                    },
+                                                },
+                                                range: CopyRange {
+                                                    start: 45,
+                                                    end: 52,
+                                                },
+                                            },
+                                        ),
+                                    ],
+                                    range: CopyRange {
+                                        start: 35,
+                                        end: 53,
+                                    },
+                                },
+                            ],
+                            range: CopyRange {
+                                start: 56,
+                                end: 83,
+                            },
+                        },
+                    ),
+                ],
+                attributes: [],
+                invariants: [],
+                range: CopyRange {
+                    start: 0,
+                    end: 85,
+                },
+            },
+        ),
+    ],
+}

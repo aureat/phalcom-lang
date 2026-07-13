@@ -1,0 +1,86 @@
+---
+source: phalcom-ast/tests/parser.rs
+expression: "parse(\"class Point {\\n  @ensures(__result >= 0)\\n  magnitude() {\\n    return 1\\n  }\\n}\\n\")"
+---
+Program {
+    statements: [
+        Class(
+            ClassDef {
+                name: "Point",
+                superclass: None,
+                members: [
+                    Method(
+                        MethodDef {
+                            name: "magnitude",
+                            params: [],
+                            body: [
+                                Return(
+                                    ReturnStatement {
+                                        value: Some(
+                                            Number {
+                                                value: 1.0,
+                                                range: CopyRange {
+                                                    start: 67,
+                                                    end: 68,
+                                                },
+                                            },
+                                        ),
+                                        range: CopyRange {
+                                            start: 60,
+                                            end: 68,
+                                        },
+                                    },
+                                ),
+                            ],
+                            is_static: false,
+                            attributes: [
+                                Attribute {
+                                    name: "ensures",
+                                    args: [
+                                        Binary(
+                                            BinaryExpr {
+                                                op: GreaterThanOrEqual,
+                                                left: Field {
+                                                    value: "__result",
+                                                    range: CopyRange {
+                                                        start: 25,
+                                                        end: 33,
+                                                    },
+                                                },
+                                                right: Number {
+                                                    value: 0.0,
+                                                    range: CopyRange {
+                                                        start: 37,
+                                                        end: 38,
+                                                    },
+                                                },
+                                                range: CopyRange {
+                                                    start: 25,
+                                                    end: 38,
+                                                },
+                                            },
+                                        ),
+                                    ],
+                                    range: CopyRange {
+                                        start: 16,
+                                        end: 39,
+                                    },
+                                },
+                            ],
+                            range: CopyRange {
+                                start: 42,
+                                end: 72,
+                            },
+                        },
+                    ),
+                ],
+                attributes: [],
+                invariants: [],
+                range: CopyRange {
+                    start: 0,
+                    end: 74,
+                },
+            },
+        ),
+    ],
+}
