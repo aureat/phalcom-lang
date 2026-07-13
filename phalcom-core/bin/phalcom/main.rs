@@ -2,7 +2,7 @@
 pub mod cli;
 pub mod disasm;
 
-use crate::cli::{cmd_disasm, cmd_parse, cmd_run, cmd_tokenize, cmd_version, Cli, Commands};
+use crate::cli::{cmd_check, cmd_disasm, cmd_parse, cmd_run, cmd_tokenize, cmd_version, Cli, Commands};
 use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::layer::SubscriberExt;
@@ -21,6 +21,7 @@ fn main() -> Result<()> {
         Some(Commands::Tokenize(args)) => cmd_tokenize(args),
         Some(Commands::Parse(args)) => cmd_parse(args),
         Some(Commands::Disasm(args)) => cmd_disasm(args),
+        Some(Commands::Check(args)) => cmd_check(args),
         Some(Commands::Version) => cmd_version(),
     }
 }
