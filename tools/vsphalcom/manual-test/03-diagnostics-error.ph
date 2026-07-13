@@ -10,7 +10,7 @@
 
 class Broken {
   test {
-    let x =
+    let x = ;
     return x
   }
 }

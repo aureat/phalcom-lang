@@ -32,6 +32,6 @@ class Probe {
 // MOVE TEST:
 class Probe2 {
   check2(obj) {
-
+    self
   }
 }

@@ -202,6 +202,37 @@ entry and raises `TypeError` on violation. Consequences:
   later phase on one member compose in **source order, innermost-last** (the
   Python stacking convention). This is a genuine ordering the user controls (unlike
   the cross-tier order, which is fixed) and must be documented at the call site.
+- **Dispatch-tier collision with hand-written `doesNotUnderstand` (D-4, resolved).**
+  A class declaring both a Dispatch-tier attribute (e.g. `@Delegate`) and its own
+  `doesNotUnderstand(_)` is `attr.dispatch_collision` at compile time — not
+  last-wins (the Ruby `method_missing`-redefinition footgun this house style
+  rejects everywhere else it recurs).
+
+## Future optimizations (not built now)
+
+Recorded so a future implementer doesn't have to rediscover them; none of this
+changes the semantics above, all of it is enabled by **D-3's resolution being
+"frozen after class-definition"** ([attribute-classes.md A-5](attribute-classes.md)) —
+a chain that can never change post-freeze needs no invalidation logic, so every
+item below is pure work-hoisting (per-send cost moved to per-definition cost),
+not speculation:
+
+- **Pre-compose the chain once, at class-definition time.** Instead of storing
+  `Vec<Interceptor>` and looping it per send, build one fused closure
+  (`traced.wrap(rateLimited.wrap(realMethod))`) exactly once when the class is
+  defined, and cache *that*, not the list.
+- **Cache the composed chain behind [ADR-0053](../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
+  `has_runtime_interceptor` guard bit.** A monomorphic call site can hold a
+  direct pointer to the pre-composed chain alongside the existing `ClassId`
+  check — a warm decorated call site then costs one bit-check + one direct
+  jump, not an N-length walk.
+- **Specialize the common `n = 1` case.** Most decorated methods carry exactly
+  one Runtime interceptor, not a chain — skip the generic composition
+  machinery and store the interceptor directly when there's only one.
+- **Optional interceptor-declared bypass check.** An interceptor that's
+  frequently a no-op (e.g. `@FeatureFlag` off) can expose a cheap "would I
+  actually do anything" probe the composed chain consults first, skipping the
+  full `aroundSend` body — author opt-in, not required.
 
 ## What this precludes
 
@@ -221,8 +252,8 @@ entry and raises `TypeError` on violation. Consequences:
 
 | # | Question |
 |---|---|
-| D-1 | Does the `runtime` flag live per-decorator only, or also per-*module* (a `--decorators=static` build that rejects Install/Runtime tiers wholesale)? |
+| D-1 | **DEFERRED** (2026-07-13): not decided now. A per-module `--decorators=static` flag would be the same *shape* of decision as `CompileMode` (`Debug`/`Release`/`Unchecked`, U-ANNOT-CONTRACTS) — revisit once that axis ships rather than bolting on a second, unrelated build-mode dimension speculatively. |
 | D-2 | Install-tier wrapping needs `Method.invokeOn(recv, *args)` and `Behavior.defineMethod(sel, block)` — ratify these as object-model surface, or keep them behind a reflection unit? |
-| D-3 | Do Runtime around-send hooks compose as a chain (multiple `@traced`-like hooks) or is at most one interceptor per class allowed? |
-| D-4 | Should Dispatch-tier `@delegate` and a user `doesNotUnderstand` coexist (delegate first, hand-written fallback second), or is declaring both an error? |
-| D-5 | Exhaustiveness of the erasure golden test: is "strip `runtime: false` → identical bytecode" checked per-member or whole-program? |
+| ~~D-3~~ | **RESOLVED** (2026-07-13, design-session ruling): Runtime around-send hooks **chain** (multiple `@traced`-like hooks compose), reusing the same source-order-innermost-last rule as Install. See "Future optimizations" above for the composed-chain-caching consequence. |
+| ~~D-4~~ | **RESOLVED** (2026-07-13): a class that both hand-writes `doesNotUnderstand(_)` and carries a Dispatch-tier attribute is a compile error (`attr.dispatch_collision`), not silent last-wins — matches the `attr.accessor_collision` house style used throughout this spec family (`@get`/`@set`/`@construct`/`@data`) rather than Ruby's `method_missing` last-definition-wins footgun. A delegate-then-fallback proxy is still expressible — hand-write one `doesNotUnderstand` that runs the delegation logic itself — just not auto-composed. |
+| ~~D-5~~ | **RESOLVED** (2026-07-13): the erasure golden test ("strip `runtime: false` → identical bytecode") is checked **per-member**, not whole-program — matches the receiver-scoped granularity already used elsewhere in this design (`@invariant`'s guard, the contract test-strategy's stripping checks). Localizes failures to the specific member whose stripping broke, and is cheaper to compute than a whole-file double-compile diff. |

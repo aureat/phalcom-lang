@@ -132,6 +132,14 @@ they aren't lost:
   not built; no spread syntax exists yet. (forge/phase-next/DEFERRED.md #21)
 - **Captured-`let` reassignment** via an upvalue compiles to `SetUpvalue` with no diagnostic
   (U6's check is syntactic, current-fn + module only). (forge/phase-next/DEFERRED.md #13)
+- **Runtime-tier interceptor-chain caching.** Once Install/Dispatch/Runtime decorators
+  (`next/decorators.md`, `next/attribute-classes.md`) are built: pre-compose a class's
+  chained `aroundSend` interceptors into one fused closure at class-definition time
+  (not a per-send list walk), cache it behind ADR-0053's `has_runtime_interceptor`
+  guard bit, and specialize the common single-interceptor case. Safe with no
+  invalidation logic because the retained-attribute store is frozen post-definition
+  (attribute-classes.md A-5) — pure work-hoisting, not speculation. (`next/decorators.md`
+  "Future optimizations")
 
 The full ranked list of ~33 such items is [`forge/phase-next/DEFERRED.md`](../../forge/phase-next/DEFERRED.md).
 

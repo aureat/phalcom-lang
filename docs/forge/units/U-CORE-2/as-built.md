@@ -1,5 +1,78 @@
 # U-CORE-2 — Absence + Boolean (implementation spec)
 
+## Residue check (grounded to HEAD `aa9cdca`)
+
+> Performed 2026-07-12. This spec's own baseline was HEAD `4e2ec73` (U10
+> landed); HEAD has since moved to `aa9cdca` and, along the way, U-CORE-1,
+> U11 (Bool tower), U-LEX (all of D1–D5, incl. `??`/`?.`), and U-STD (List +
+> the rest of the `Option` combinators) have **all landed and been marked
+> done** — none of that touches this unit's write-set, but it does mean
+> `core.ph`'s `Option` reopen is now larger than §1.1/§1.2 below describe (the
+> extra methods are U-STD's, out of scope here, and are ignored in this
+> check). Nothing below required a source read beyond `core.ph`,
+> `primitive/boolean.rs`, `primitive/nil.rs`, `bytecode.rs`, `vm.rs`,
+> `compiler/inliner.rs`, `compiler/lib.rs`, `universe.rs`, and
+> `tests/lang/{absence,control-flow,booleans}/`.
+
+**Bottom line: NOT a no-op.** The behavioural core (`0da64d6`) is confirmed
+still intact and correct at `aa9cdca` — including surviving U11's later,
+unrelated `Bool → Bool/True/False` representation split. But the **invariant
+corpus** this spec calls "the whole work order" (§0.2) was **never added to
+the tree**. The leftover work is exactly, and only, the five fixture files
+§4 below already fully specifies verbatim (source + `.expected`) — no new
+design, no runtime-code change expected, no other doc to touch.
+
+### Per-item verdict
+
+| §0.1 item | Verdict | Cite (HEAD `aa9cdca`) |
+|---|---|---|
+| A.1 `ifTrue`/`ifFalse` Some-lift the taken arm | ✅ landed | `primitive/boolean.rs` `bool_if_true` L127–134, `bool_if_false` L145–153 (mirror); `wrap_some` `nil.rs` L47–58, still asserts `!matches!(value, Value::Nil)`. (Line numbers drifted +12…+20 from this spec's original citations — purely added rustdoc; logic unchanged.) |
+| A.2 `WrapSome` opcode + inliner emit + `want_value` elision thread | ✅ landed | `bytecode.rs` `WrapSome` L194; `vm.rs` exec L1002–1006; `inliner.rs` `compile_if_true` L289 (emit L296), `compile_if_false` L313 (emit L324); `compiler/lib.rs` `compile_statement_with_pop_control` L502, `compile_expr_want` L939 (these two are at the **identical** line numbers this spec cites — no drift in `lib.rs`). `compile_if_true_if_false` (L339), `compile_and` (L363), `compile_or` (L383) confirmed to emit **no** `WrapSome` — the one-armed-only property holds. |
+| A.3 four `core.ph` combinators over `match` | ✅ landed, and exceeded | `Option` class in `core.ph`: `ifNone` L74–76, `orElse` L81–83, `isSome` L85, `isNone` L87 — all still pure `match`-eliminator bodies as specified. U-STD (separate, already-landed unit) has since added `map` L93–95, `flatMap` L100–102, `filter` L107–109, `ifSome` L114–116, `unwrapOr` and siblings further down — all out of this unit's scope per §0.3, noted only so the residue check isn't confused by the larger file. |
+| A.4 golden fixtures from `0da64d6` | ✅ present | `tests/lang/absence/absence_iftrue_{empty_body_is_some_none,issome_isnone,orelse,false_branch_is_none}.ph`, `tests/lang/control-flow/control_flow_iftrue_ifnone_desugar.ph` — all present, none in `pending/`. |
+| §0.1-B `Bytecode::Nil` pushes the `None` singleton | ✅ confirmed unchanged | `vm.rs` L824: `Bytecode::Nil => self.stack.push(self.none_value())`. |
+| **§0.2 — the invariant corpus itself (R-INV-2.1…2.4)** | ❌ **missing** | Verified absent by full-repo search: no file matching `*some_lift*`, `*pop_elision*`, `*paired_and_or*`, or `*combinators_route*` exists anywhere in the tree. `tests/lang/absence/` and `tests/lang/control-flow/` (non-`pending/`) contents fully enumerated; none of the four fixtures named in §4 are present. Adjacent fixtures that *do* exist (`booleans/bool_iftrue_option.ph`, `booleans/bool_sacred_through_split.ph`, `control-flow/control_flow_{and,or}_truth_table.ph`, `control-flow/control_flow_inline_override_honored.ph`) were read and confirmed **not** to substitute — none exercises the fast-path≡deopt-path Some-lift identity, pop-elision invisibility, paired/`and`/`or` rawness, or the `match`-override routing property. |
+| R-INV-0.3 boot half | ✅ done — by U-CORE-1, as this spec's own coordination rule anticipates | `universe.rs::verify_invariants` L445, with `None`-singleton checks at L521, L550–556. U-CORE-1 landed (`03764e3`, closed out `b1109c2`) after this spec's baseline. Per §4 R-INV-0.3: "if U-CORE-1 lands first, U-CORE-2 need do nothing here" — nothing to do. |
+| §2 floor unchanged (no ADR-0019 amendment) | ✅ confirmed | `floor-census.md` now reads 80 (post-U-CORE-1, +7 kernel-reflection bindings) but explicitly notes "U-CORE-2/U-LEX/U-STD were `.ph`/compiler-only" — U-CORE-2's own delta is still zero, as §2 claims; the 73→80 move is U-CORE-1's, not this unit's. |
+| §5.3 U11 must-not-preclude | ✅ held | U11 landed (`23cafe2`, `96b440c`, closed `c0e1066`): `True`/`False` singleton subclasses now exist. `tests/lang/booleans/bool_iftrue_option.ph` is a **post-U11** regression fixture proving `ifTrue`/`ifFalse`'s Some-lift survived the `Bool` representation split via inheritance — independent confirmation this unit's behaviour is intact under a later, unrelated unit built on top of it. |
+
+### `isNone` availability (U-CORE-3 dependency)
+
+**Present and working — U-CORE-3 is unblocked on this specific method.**
+`Option>>isNone` is defined at `core.ph` L87 as
+`isNone => self.match(some: { v => false }, none: { true })`, dispatched
+through the `option_match` primitive (`nil.rs` L92–116), unconditionally
+installed on the abstract `Option` class (inherited by both `Some` and
+`None`) at bootstrap. U-CORE-3's miss-probe fixture pattern
+`g.methodFor(Symbol.new("nope")).isNone` needs nothing further from this
+unit's residue — it only requires that `methodFor` (a U-CORE-3 concern)
+return a genuine `Option`; once it does, `isNone` already routes correctly
+through `match`.
+
+### Punch-list (the only leftover work)
+
+Exactly the five `.ph` + `.expected` pairs §4 of this spec already fully
+specifies (verbatim source and verbatim expected output) — no new design, no
+runtime change, no harness change (labels already wired; `tests/lang.rs`'s
+`fn absence()` / `fn control_flow()` glob their directories automatically):
+
+1. `tests/lang/absence/absence_iftrue_some_lift_fast_path.ph` + `.expected` (R-INV-2.1)
+2. `tests/lang/absence/absence_iftrue_some_lift_deopt_path.ph` + `.expected` (R-INV-2.1 — same `.expected` as #1; that identity *is* the assertion)
+3. `tests/lang/absence/absence_iftrue_pop_elision_invisible.ph` + `.expected` (R-INV-2.2)
+4. `tests/lang/control-flow/control_flow_paired_and_or_raw.ph` + `.expected` (R-INV-2.3)
+5. `tests/lang/absence/absence_combinators_route_through_match.ph` + `.expected` (R-INV-2.4 — mind the §4 residual-risk note: confirm kernel-class `match` reopen-replacement actually works before committing to the reopen form; fall back to the U-LEX-gated subclass form + Rust twin only if it doesn't)
+
+Drop the five files in, run `cargo test`, done. No `.rs` change and no
+`core.ph` change are expected; if one of R-INV-2.1/2.2 goes red, §3's
+contingency list names the exact narrow blast radius to fix.
+
+### Verdict
+
+U-CORE-2 is **not** fully done. Dispatch it as a small, mechanical,
+already-fully-specified fixture-authoring pass — not a re-verify-and-close.
+
+---
+
 > **Status:** Normative work order. **Verification / hardening + residue**, *not*
 > new protocol. The behavioural core of U-CORE-2 already shipped in commit
 > [`0da64d6`](#a-the-0da64d6-baseline); this spec closes the remaining

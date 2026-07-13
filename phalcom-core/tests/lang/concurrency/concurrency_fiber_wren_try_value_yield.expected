@@ -1,0 +1,6 @@
+before
+value1
+value2
+MessageNotUnderstood
+true does not understand 'unknownMethod'
+after try
