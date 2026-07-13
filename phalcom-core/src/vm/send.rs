@@ -1,0 +1,261 @@
+use crate::error::{PhResult, RuntimeError};
+use crate::heap::{ObjRef, Object};
+use crate::interner::Symbol;
+use crate::method::MethodKind;
+use crate::value::Value;
+use phalcom_common::range::SourceRange;
+
+use super::VM;
+
+impl VM {
+    /// Dispatches a call to `method` on `callee` with `arity` arguments.
+    ///
+    /// A primitive runs its native function in place; a closure pushes a new
+    /// [`crate::frame::CallFrame`] to be executed by [`Self::run`].
+    ///
+    /// # Errors
+    ///
+    /// Propagates errors returned by a primitive implementation.
+    pub(super) fn call_method(&mut self, callee: &Value, method: ObjRef, arity: usize, source_range: SourceRange) -> PhResult<()> {
+        let kind = self.heap.method(method).kind;
+        match kind {
+            MethodKind::Primitive(native_fn) => {
+                let receiver_idx = self.stack.len() - 1 - arity;
+                let receiver = self.stack[receiver_idx];
+                let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
+                // Snapshot the frame count so we can detect a non-local return
+                // that fired *inside* `native_fn` (e.g. `block_call` running a
+                // block whose `return` unwound past this call site). See the
+                // guard below.
+                let frames_before = self.frames.len();
+                self.switch_pending = false;
+                let result = native_fn(self, &receiver, &args);
+                result.map(|result| {
+                    if self.switch_pending {
+                        // A fiber switch (ADR-0030 §5, D5) — `self.frames`/
+                        // `self.stack` were just repointed to a *different*
+                        // fiber by the primitive itself (`fiber_call`/
+                        // `fiber_try`/`fiber_yield`); `receiver_idx` was
+                        // computed against the now-parked fiber's stack and
+                        // no longer means anything here. The typed signal
+                        // (not the `frames.len()` heuristic below) is what
+                        // distinguishes this from an ordinary return or a
+                        // non-local return: neither `result` nor the stack
+                        // is touched — the switching primitive already left
+                        // the new current fiber's stack exactly as it should
+                        // be for the dispatch loop to resume it.
+                        self.switch_pending = false;
+                    } else if self.frames.len() >= frames_before {
+                        // Ordinary primitive return: collapse the receiver+args
+                        // window and land the result in the receiver slot.
+                        self.stack.truncate(receiver_idx);
+                        self.stack.push(result);
+                    } else {
+                        // A `Bytecode::ReturnNonLocal` fired *inside* `native_fn`
+                        // (e.g. `block_call` ran a block whose `return` unwound to
+                        // a method at or below this call site), popping one or
+                        // more frames. `receiver_idx` — computed against the
+                        // pre-call stack — now points *above* the unwound stack
+                        // top, so the normal `truncate(receiver_idx)` would be a
+                        // silent no-op and mis-place the value; skip it. But the
+                        // handler pushed the return value at the home frame's
+                        // offset only for the *innermost* `run_until` to drain
+                        // (its top-of-loop check pops and returns it), so `result`
+                        // must be re-pushed here to re-establish it for the outer
+                        // frame that resumes next. Pushing exactly once per
+                        // unwound level, balanced against each level's drain-pop,
+                        // keeps the stack consistent — no duplicate, no loss
+                        // (U10-implementation-spec.md §2 point 3, corrected: the
+                        // drain check *pops* the pushed value, so the arm must
+                        // re-push rather than skip entirely).
+                        self.stack.push(result);
+                    }
+                })
+            }
+            MethodKind::Closure(closure_id) => {
+                let context = callee.to_context(&self.heap);
+                let receiver_idx = self.stack.len() - arity - 1;
+                let (variadic, fixed_arity) = {
+                    let sig = &self.heap.method(method).signature;
+                    (sig.variadic, sig.positional_arity as usize)
+                };
+                if variadic {
+                    // Collect the trailing `arity - fixed_arity` positional args into
+                    // a `List` bound to the rest slot. `receiver_idx` does not move —
+                    // only the tail past the fixed prefix collapses into one `List`
+                    // value, so `stack_offset` below is unaffected (U9,
+                    // U9-implementation-spec.md §2 "Call prologue").
+                    let rest = self.stack.split_off(receiver_idx + 1 + fixed_arity);
+                    let list_id = self.heap.alloc_list(rest);
+                    self.stack.push(Value::Obj(list_id));
+                }
+                let stack_offset = receiver_idx;
+                let new_frame = self.new_call_frame(closure_id, context, 0, stack_offset, Some(source_range));
+                self.frames.push(new_frame);
+                Ok(())
+            }
+        }
+    }
+
+    /// Reifies a message send as a `Message` instance (method-lookup.md §2,
+    /// ADR-0012), for the `doesNotUnderstand(_:)` miss path.
+    ///
+    /// The returned `Message` is an ordinary fixed-slot
+    /// [`InstanceObject`](crate::instance::InstanceObject) of the kernel
+    /// `Message` class ([`CoreClasses::message_class`](crate::universe::CoreClasses::message_class)),
+    /// built directly in Rust (no `.ph` `construct`) with four slots:
+    ///
+    /// 0. `selector` — the interned [`Symbol`] as sent;
+    /// 1. `name` — the bare method name [`String`] (encoder-inverse, `+` for `+(_:)`);
+    /// 2. `labels` — a [`List`](crate::list::ListObject) of `String`, one per
+    ///    argument, `""` for a positional (unlabeled) argument so that
+    ///    `labels.size == args.size` and callers can zip them;
+    /// 3. `args` — a [`List`](crate::list::ListObject) of the argument values.
+    ///
+    /// The `""`-for-positional convention (rather than a separate absence
+    /// marker) keeps the two lists index-aligned; it is a deliberate U8 choice,
+    /// not spec-pinned.
+    pub fn new_message(&mut self, selector: Symbol, args: &[Value]) -> Value {
+        let selector_str = self.resolve_symbol(selector).to_string();
+        let (name, labels, _kind) = crate::method::decode_selector(&selector_str);
+
+        let name_val = self.alloc_string_value(name);
+
+        // Index-align labels with args: pad or truncate to `args.len()`, using
+        // `""` for positional arguments (kinds whose decoded arity differs from
+        // the call arity, e.g. subscripts, are made consistent here).
+        let mut label_texts: Vec<String> = labels.into_iter().map(|label| label.unwrap_or_default()).collect();
+        label_texts.resize(args.len(), String::new());
+        let label_values: Vec<Value> = label_texts.into_iter().map(|text| self.alloc_string_value(text)).collect();
+
+        let labels_list = Value::Obj(self.heap.alloc_list(label_values));
+        let args_list = Value::Obj(self.heap.alloc_list(args.to_vec()));
+
+        let message_class = self.universe.classes.message_class;
+        let mut instance = crate::instance::InstanceObject::new(message_class, 4);
+        instance.slots[0] = Value::Symbol(selector);
+        instance.slots[1] = name_val;
+        instance.slots[2] = labels_list;
+        instance.slots[3] = args_list;
+        Value::Obj(self.heap.alloc(Object::Instance(instance)))
+    }
+
+    /// Forwards a missed send to the receiver's `doesNotUnderstand(_:)`
+    /// (method-lookup.md §2, ADR-0012).
+    ///
+    /// Precondition: `self.stack[receiver_idx..]` holds `[receiver, args…]`.
+    /// The arguments are replaced by a single synthesized
+    /// [`Message`](Self::new_message) and the receiver's
+    /// `doesNotUnderstand(_:)` is dispatched via [`Self::call_method`] (a
+    /// primitive runs in place; a user override pushes a frame). Because
+    /// `doesNotUnderstand(_:)` is looked up by the *exact* selector, it always
+    /// resolves to at least `Object`'s default handler — a receiver whose chain
+    /// somehow lacks it is a kernel-invariant violation, surfaced as
+    /// [`RuntimeError::Internal`] rather than recursing (the recursion guard:
+    /// a missing dNU is never itself re-sent as a dNU).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::Internal`] if `doesNotUnderstand(_:)` is missing
+    /// from the receiver's chain, or propagates any error raised by the handler.
+    pub(super) fn forward_does_not_understand(&mut self, receiver_idx: usize, selector: Symbol, source_range: SourceRange) -> PhResult<()> {
+        let receiver = self.stack[receiver_idx];
+        let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
+        // Keep the receiver, drop the original argument values.
+        self.stack.truncate(receiver_idx + 1);
+        let message = self.new_message(selector, &args);
+        self.stack.push(message);
+
+        let dnu_str = crate::method::encode_selector("doesNotUnderstand", &[None], crate::method::SignatureKind::Method(1));
+        let dnu_sym = self.get_or_intern(&dnu_str);
+        match receiver.lookup_method(self, dnu_sym) {
+            Some(method) => self.call_method(&receiver, method, 1, source_range),
+            None => Err(RuntimeError::Internal("doesNotUnderstand(_:) missing from Object — kernel invariant violated".into()).into()),
+        }
+    }
+
+    /// Sends `selector` to `receiver` with `args`, runs the resolved method to
+    /// completion, and returns its result value (messages-and-selectors.md §5).
+    ///
+    /// This is the shared runtime-send workhorse behind reflective dispatch:
+    /// its three consumers are [`object_perform`](crate::primitive::object::object_perform)
+    /// / [`object_perform_with`](crate::primitive::object::object_perform_with),
+    /// the `doesNotUnderstand(_:)` forward (indirectly, via the same
+    /// lookup+`call_method`+dNU path), and — deferred to U9 — a `SendDynamic`
+    /// spread call-site opcode. Unlike the [`crate::bytecode::Bytecode::Invoke`] handler it can
+    /// be called from *inside* a native primitive: it saves the frame count,
+    /// pushes `receiver`+`args` at a fresh stack window, dispatches, then
+    /// re-enters `run_until` to drain that one activation and recover a
+    /// synchronous [`Value`] (the same re-entrancy pattern as
+    /// [`block_call`](crate::primitive::block::block_call)). A miss routes
+    /// through `doesNotUnderstand(_:)` exactly once — a `perform` of an unknown
+    /// selector re-enters dNU, it does not loop.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`RuntimeError`] raised by lookup, the dispatched method,
+    /// or the `doesNotUnderstand(_:)` forward.
+    pub fn send_dynamic(&mut self, receiver: Value, selector: Symbol, args: &[Value]) -> PhResult<Value> {
+        let receiver_idx = self.stack.len();
+        self.stack.push(receiver);
+        self.stack.extend_from_slice(args);
+
+        let base_frames = self.frames.len();
+        if let Some(method) = receiver.lookup_method(self, selector) {
+            self.call_method(&receiver, method, args.len(), SourceRange::default())?;
+        } else {
+            self.forward_does_not_understand(receiver_idx, selector, SourceRange::default())?;
+        }
+        // Re-entrant native frame (ADR-0030 §4): a fiber switch is forbidden
+        // while this recursive `run_until` is on the Rust call stack, since
+        // its `base_frames` is computed against *this* fiber and would be
+        // corrupted by a switch underneath it (see `native_reentry_depth`'s doc).
+        self.native_reentry_depth += 1;
+        let result = self.run_until(base_frames);
+        self.native_reentry_depth -= 1;
+        result
+    }
+
+    /// Runs the exact method `method_id` against `receiver` with `args`,
+    /// re-entering `run_until` to recover a synchronous result — the
+    /// shared engine behind `Method#invokeOn(_,_)` and `Method#bind(_)`'s
+    /// `call` (U-CORE-3, [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+    ///
+    /// Mirrors [`Self::send_dynamic`]'s re-entrancy exactly, except there is
+    /// **no lookup**: `method_id` is already resolved, so a mismatched
+    /// receiver misbehaves inside the method body rather than raising
+    /// `doesNotUnderstand(_:)` (the caller is responsible for receiver
+    /// compatibility, functions.md §3). Arity is validated **before** the
+    /// receiver/args are pushed onto the stack, so a mismatch leaves the stack
+    /// exactly as it was found (R-INV-3.4).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError::Arity`] if `args.len()` does not match the
+    /// method's signature (respecting a variadic minimum), or propagates any
+    /// [`RuntimeError`] raised while running the method body — including a
+    /// [`RuntimeError::DeadFrameError`] from a non-local `return` inside an
+    /// escaping block whose home frame is no longer live (R-INV-3.2).
+    pub fn invoke_method_object(&mut self, method_id: ObjRef, receiver: Value, args: &[Value]) -> PhResult<Value> {
+        let (positional, variadic) = {
+            let sig = &self.heap.method(method_id).signature;
+            (sig.positional_arity as usize, sig.variadic)
+        };
+        let ok = if variadic { args.len() >= positional } else { args.len() == positional };
+        if !ok {
+            return Err(RuntimeError::Arity { signature: "invokeOn", expected: positional, found: args.len() }.into());
+        }
+
+        self.stack.push(receiver);
+        self.stack.extend_from_slice(args);
+
+        let base_frames = self.frames.len();
+        self.call_method(&receiver, method_id, args.len(), SourceRange::default())?;
+        // See `send_dynamic`'s matching comment — re-entrant native frame,
+        // fiber switch forbidden underneath (ADR-0030 §4).
+        self.native_reentry_depth += 1;
+        let result = self.run_until(base_frames);
+        self.native_reentry_depth -= 1;
+        result
+    }
+}

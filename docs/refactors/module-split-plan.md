@@ -42,7 +42,7 @@ order, before or after U-ITER lands.
 
 ---
 
-## 1. `vm.rs` (1288 lines) → `vm/`
+## 1. `vm.rs` (1800 lines) → `vm/`
 
 Turn `vm.rs` into `vm/mod.rs` (struct + field docs only) plus:
 
@@ -58,7 +58,7 @@ Net effect: `vm/dispatch.rs` will still be sizeable (the opcode match alone is
 ~500 lines), but it's now the *only* long file in this crate, and its length
 is inherent to the algorithm rather than accumulated unrelated concerns.
 
-## 2. `universe.rs` (770 lines) → `universe/`
+## 2. `universe.rs` (969 lines) → `universe/`
 
 | New file | Contents | Why this seam |
 |---|---|---|
@@ -67,9 +67,9 @@ is inherent to the algorithm rather than accumulated unrelated concerns.
 | `universe/primitives.rs` | `impl Universe { fn install_primitives }` | Registers every native Rust method onto its core class. High-churn: adding a new primitive method is one of the most common unit-of-work edits in this codebase, so isolating it means that work never touches bootstrap or invariant-checking code. |
 | `universe/invariants.rs` | `impl Universe { fn verify_invariants }` | The kernel-soundness checker (object-model.md §5-6). Read-only over `&Heap`; a fully separate concern from both construction and primitive registration, and changed only when the invariant set itself changes. |
 
-## 3. `compiler/lib.rs` (1644 lines) → `compiler/`
+## 3. `compiler/lib.rs` (2623 lines) → `compiler/`
 
-**Gated on U-ITER landing (see Sequencing above).**
+**U-ITER landed on main — gate clear.**
 
 | New file | Contents | Why this seam |
 |---|---|---|
