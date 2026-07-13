@@ -1,6 +1,6 @@
 # 54. Two-speed ratification: Compile/Layout tier now, Install/Dispatch/Runtime gated on ADR-0053
 
-- Status: Accepted (Compile/Layout tier ratified by the user 2026-07-13; Install/Dispatch/Runtime remain gated per Decision §2)
+- Status: Accepted (Compile/Layout tier ratified by the user 2026-07-13; Install/Dispatch/Runtime tier ratified by the user 2026-07-13 — both gate conditions in Decision §2 satisfied: (a) ADR-0053 Accepted, (b) `attribute-classes.md` A-1–A-5 resolved, A-6 explicitly deferred to v0.3 as a non-blocking per-instance-behavior question)
 - Date: 2026-07-13
 - Related: `docs/spec/v0.2/experimental/annotations-core.md` (the original
   derive-macro-only foreclosure, amended below), `docs/spec/v0.2/next/decorators.md`
@@ -78,7 +78,7 @@ The statement "committing to derive-macro semantics forecloses ever making
 **amended to apply to the Compile/Layout tier only.** It is no longer a
 blanket statement over all of `@`. `decorators.md`'s Install/Dispatch/Runtime
 tiers are the permitted second mechanism this ADR admits — but they are
-**not** ratified by this decision. They remain `Status: Proposed`, gated on:
+**were** gated on, both now satisfied — **ratified 2026-07-13**:
 
 - **(a) Runtime-tier cost model — satisfied.** [ADR-0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
   closes the specific soundness/performance gap that was the substantive
@@ -86,9 +86,22 @@ tiers are the permitted second mechanism this ADR admits — but they are
   runtime hook interacting unsoundly with the sacred-selector inliner and
   imposing an unbounded tax on undecorated sends). That concern is now
   answered, not merely asserted away.
-- **(b) `attribute-classes.md` open questions A-1–A-6 — not yet resolved.**
-  Tracked separately; none of them block the Compile/Layout ratification
-  above, but all of them block treating Install/Dispatch/Runtime as settled.
+- **(b) `attribute-classes.md` open questions A-1–A-6 — satisfied.** A-1
+  (explicit tier declaration), A-2 (`inherited:` opt-in), A-3 (arbitrary code
+  allowed, Compile/Layout stay compiler-reserved), A-4 (repeated attributes
+  compose), and A-5 (frozen retention post-class-definition) all resolved
+  2026-07-13, recorded inline in `attribute-classes.md`. A-6 (per-instance
+  behavior's effect on Install-hook scoping) is explicitly deferred to v0.3 —
+  it concerns a feature (per-object method dictionaries) that does not exist
+  yet, so it cannot block ratifying a mechanism that only needs to work over
+  the `Behavior`-side surface that exists today.
+
+With both satisfied, Install/Dispatch/Runtime tier moves from mechanism-only
+to implementable: the 8 named decorators speced in
+[decorators-behavioral.md](../spec/v0.2/next/decorators-behavioral.md),
+[decorators-dispatch-observability.md](../spec/v0.2/next/decorators-dispatch-observability.md),
+and [decorators-observable.md](../spec/v0.2/next/decorators-observable.md)
+are ratification-ready, not just mechanism-illustrated.
 
 The justification for reopening the foreclosure is **no longer**
 `decorators.md`'s original one. Borrowing `typing.md`'s erasure-invariant

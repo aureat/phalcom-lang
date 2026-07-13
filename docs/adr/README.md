@@ -58,7 +58,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0035](0035-iteration-protocol-cursor.md) | Iteration protocol: a Wren-style two-selector cursor | Accepted |
 | [0052](0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) | Invariant re-entrancy is receiver-scoped; per-receiver decorator state is Layout-confined | Accepted |
 | [0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md) | Runtime-tier decorator interception reuses the sacred-selector override-epoch guard | Accepted |
-| [0054](0054-two-speed-ratification-annotation-decorator-tiers.md) | Two-speed ratification: annotation Compile/Layout tier now, Install/Dispatch/Runtime gated on ADR-0053 | Accepted (Compile/Layout only) |
+| [0054](0054-two-speed-ratification-annotation-decorator-tiers.md) | Two-speed ratification: annotation Compile/Layout tier + Install/Dispatch/Runtime tier, both gates satisfied | Accepted (all tiers) |
 | [0055](0055-index-syntax-sugar-over-at-selectors.md) | Subscript indexing syntax sugar over `at`/`at:put:` selectors | Accepted |
 | [0056](0056-phalcom-lsp-architecture.md) | Phalcom language intelligence is an in-process `phalcom-lsp` server | Proposed |
 | [0057](0057-decorator-granularity-vs-proxy-granularity-split.md) | Decorator vs proxy granularity: method-declaration (`@name`) vs whole-object (`Proxy`) interception; both kept | Accepted |
