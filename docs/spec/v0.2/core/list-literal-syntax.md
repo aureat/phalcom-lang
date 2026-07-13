@@ -51,7 +51,7 @@ Two lowering strategies (the ADR picks one):
 
 | Strategy | Mechanism | Trade-off |
 |---|---|---|
-| **A — desugar to sends** (recommended) | parser emits the `List.new().add(_)…` AST | zero new bytecode; reuses `list_class_new`/`rawPush`; `add` returns `self` so the chain composes |
+| **A — desugar to sends** (recommended) | parser emits the `List.new().add(_)…` AST | zero new bytecode; reuses `list_class_new`/`push_`; `add` returns `self` so the chain composes |
 | **B — dedicated `BuildList(n)` opcode** | compiler pushes *n* values, one opcode builds the `List` | avoids *n* message sends per literal; needs a new `Bytecode` variant + VM handler + disassembler row |
 
 Strategy **A** ships within U-LEX with no floor change (the derivability default,

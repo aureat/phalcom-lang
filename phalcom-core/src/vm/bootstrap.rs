@@ -42,6 +42,7 @@ impl VM {
             constructor_aliases: HashMap::new(),
             has_new_construct: std::collections::HashSet::new(),
             class_parents: HashMap::new(),
+            checking: std::collections::HashSet::new(),
         };
 
         // Bootstrap core module and primitive methods
@@ -111,7 +112,7 @@ impl VM {
         // `core.ph` class-reopen (`List`, `Option`, `Some`, `None`, `System`,
         // …) to its bootstrapped kernel row. Must run after
         // `install_primitives` so a reopen can call the primitives it wraps
-        // (e.g. `List.at(_:)` calling `rawAt(_:)`). Previously `install_core`
+        // (e.g. `List.at(_:)` calling `at_(_:)`). Previously `install_core`
         // only registered the source text (for diagnostics) without ever
         // compiling or executing it, so every `.ph` skeleton was inert; U-LIST
         // is the first unit whose surface protocol actually depends on a

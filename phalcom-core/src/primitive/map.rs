@@ -30,7 +30,7 @@ pub fn map_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
     Ok(Value::Obj(vm.heap.alloc_map()))
 }
 
-/// Signature: `Map::rawSize` — the map's entry count.
+/// Signature: `Map::size_` — the map's entry count.
 ///
 /// # Errors
 ///
@@ -65,7 +65,7 @@ fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)>
     Ok((bucket, None))
 }
 
-/// Signature: `Map::rawGet(_)` — value for `key`, or the `None` singleton if
+/// Signature: `Map::get_(_)` — value for `key`, or the `None` singleton if
 /// absent (total, mirroring `list_raw_at`'s `Some`/`None`-free raw shape:
 /// hit returns the raw value, miss returns `vm.none_value()`).
 ///
@@ -82,7 +82,7 @@ pub fn map_raw_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     }
 }
 
-/// Signature: `Map::rawPut(_,_)` — inserts or overwrites the entry for `key`,
+/// Signature: `Map::put_(_,_)` — inserts or overwrites the entry for `key`,
 /// returning the receiver (the `.ph` `at(_, put:)` wrapper's chainable
 /// return).
 ///
@@ -111,7 +111,7 @@ pub fn map_raw_put(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     Ok(*receiver)
 }
 
-/// Signature: `Map::rawHas(_)` — whether `key` is present.
+/// Signature: `Map::has_(_)` — whether `key` is present.
 ///
 /// # Errors
 ///
@@ -123,7 +123,7 @@ pub fn map_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     Ok(Value::Bool(slot.is_some()))
 }
 
-/// Signature: `Map::rawRemove(_)` — deletes the entry for `key` if present;
+/// Signature: `Map::remove_(_)` — deletes the entry for `key` if present;
 /// idempotent (a missing key is a no-op), returning the receiver.
 ///
 /// # Errors
@@ -159,7 +159,7 @@ fn expect_index(value: &Value) -> PhResult<usize> {
     Ok(n as usize)
 }
 
-/// Signature: `Map::rawKeyAt(_)` — the key at insertion-order slot `i`, or the
+/// Signature: `Map::keyAt_(_)` — the key at insertion-order slot `i`, or the
 /// `None` singleton if `i` is out of range. Backs `Map#keys`/`Map#each(_)`.
 ///
 /// # Errors
@@ -175,7 +175,7 @@ pub fn map_raw_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     }
 }
 
-/// Signature: `Map::rawValueAt(_)` — the value at insertion-order slot `i`, or
+/// Signature: `Map::valueAt_(_)` — the value at insertion-order slot `i`, or
 /// the `None` singleton if `i` is out of range. Backs `Map#values`/`Map#each(_)`.
 ///
 /// # Errors

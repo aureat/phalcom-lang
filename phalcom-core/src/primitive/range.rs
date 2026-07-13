@@ -3,7 +3,7 @@
 //! Realizes the [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
 //! floor for [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md)'s
 //! native `Range`: allocate from three bound fields, plus the three raw field
-//! reads (`rawStart`/`rawEnd`/`rawInclusive`). That is the **whole** floor —
+//! reads (`start_`/`end_`/`inclusive_`). That is the **whole** floor —
 //! `size`/`at(_)`/`includes(_)`/`first`/`last`/`each(_)`/`toList`/`==`/`hash`
 //! are all `.ph` over these + `Number` arithmetic
 //! (`docs/spec/v0.2/core/tuple-and-range.md` §2). `new(_,_,_)` is a public
@@ -30,7 +30,7 @@ pub fn range_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
     Ok(Value::Obj(vm.heap.alloc_range(start, end, inclusive)))
 }
 
-/// Signature: `Range::rawStart` — the start bound (`Range#first`'s source).
+/// Signature: `Range::start_` — the start bound (`Range#first`'s source).
 ///
 /// # Errors
 ///
@@ -40,8 +40,8 @@ pub fn range_raw_start(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     Ok(vm.heap.range(id).start())
 }
 
-/// Signature: `Range::rawEnd` — the end bound (inclusive/exclusive per
-/// `rawInclusive`).
+/// Signature: `Range::end_` — the end bound (inclusive/exclusive per
+/// `inclusive_`).
 ///
 /// # Errors
 ///
@@ -51,7 +51,7 @@ pub fn range_raw_end(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
     Ok(vm.heap.range(id).end())
 }
 
-/// Signature: `Range::rawInclusive` — `true` for `a..b` (inclusive of the end
+/// Signature: `Range::inclusive_` — `true` for `a..b` (inclusive of the end
 /// bound), `false` for `a...b` (exclusive) — RG-1's bound convention.
 ///
 /// # Errors

@@ -633,15 +633,15 @@ fn floor_census_matches_installed_bindings() {
     const NEW_METHOD_REFLECTION: usize = 5;
     const NEW_VALUE_TOSTRING: usize = 1;
     const NEW_ERROR: usize = 2;
-    // U-COLLTYPES Phase 1 (ADR-0039): Map (8: new/rawSize/rawGet/rawPut/
-    // rawHas/rawRemove/rawKeyAt/rawValueAt) + Set (6: new/rawSize/rawAdd/
-    // rawHas/rawRemove/rawAt) = +14 (88 -> 102).
+    // U-COLLTYPES Phase 1 (ADR-0039): Map (8: new/size_/get_/put_/
+    // has_/remove_/keyAt_/valueAt_) + Set (6: new/size_/add_/
+    // has_/remove_/at_) = +14 (88 -> 102).
     const NEW_MAP_SET: usize = 14;
-    // U-COLLTYPES Phase 2 (ADR-0039): Tuple (3: fromList/rawSize/rawAt) = +3
+    // U-COLLTYPES Phase 2 (ADR-0039): Tuple (3: fromList/size_/at_) = +3
     // (102 -> 105). No mutation primitive — immutability is structural.
     const NEW_TUPLE: usize = 3;
-    // U-COLLTYPES Phase 3 (ADR-0039): Range (4: new/rawStart/rawEnd/
-    // rawInclusive) = +4 (105 -> 109).
+    // U-COLLTYPES Phase 3 (ADR-0039): Range (4: new/start_/end_/
+    // inclusive_) = +4 (105 -> 109).
     const NEW_RANGE: usize = 4;
     // U-ERR (ADR-0038, this unit's own amendment): `Block#on(_,_)` +
     // `Block#ensure(_)` = +2 (109 -> 111) — the catch protocol `try`/`on`/
@@ -668,6 +668,12 @@ fn floor_census_matches_installed_bindings() {
     // `System::schedule(_)` (`system_schedule`) and `System::nextScheduled`
     // (`system_next_scheduled`), both `primitive/system.rs`.
     const NEW_SCHED: usize = 2;
+    // U-ANNOT-CONTRACTS (ADR-0052 Fix 1, this unit's own amendment): the
+    // `@invariant` re-entrancy guard admits **+2** bindings (115 -> 117):
+    // `Object::__invariantEnter()` and `Object::__invariantExit()`, both
+    // `primitive/object.rs` — the native pair the woven prologue/epilogue
+    // call, never `.ph`-authored.
+    const NEW_INVARIANT_GUARD: usize = 2;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -689,6 +695,8 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "respondsTo(_:)"),
         (c.object_class, false, "doesNotUnderstand(_:)"),
         (c.object_class, false, "methodFor(_:)"), // NEW (ADR-0028)
+        (c.object_class, false, "__invariantEnter()"), // NEW_INVARIANT_GUARD (ADR-0052)
+        (c.object_class, false, "__invariantExit()"), // NEW_INVARIANT_GUARD (ADR-0052)
         (c.object_class, true, "new()"),
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
@@ -774,10 +782,10 @@ fn floor_census_matches_installed_bindings() {
         (c.module_class, false, "doesNotUnderstand(_:)"),
         // §2.13 List
         (c.list_class, true, "new()"),
-        (c.list_class, false, "rawLength"),
-        (c.list_class, false, "rawAt(_:)"),
-        (c.list_class, false, "rawSet(_:_:)"),
-        (c.list_class, false, "rawPush(_:)"),
+        (c.list_class, false, "length_"),
+        (c.list_class, false, "at_(_:)"),
+        (c.list_class, false, "set_(_:_:)"),
+        (c.list_class, false, "push_(_:)"),
         (c.list_class, false, "toString"),
         // §2.14 Message
         (c.message_class, false, "selector"),
@@ -789,28 +797,28 @@ fn floor_census_matches_installed_bindings() {
         (c.error_class, false, "raise()"),
         // Map/Set (U-COLLTYPES Phase 1, ADR-0039) — NEW_MAP_SET
         (c.map_class, true, "new()"),
-        (c.map_class, false, "rawSize"),
-        (c.map_class, false, "rawGet(_:)"),
-        (c.map_class, false, "rawPut(_:_:)"),
-        (c.map_class, false, "rawHas(_:)"),
-        (c.map_class, false, "rawRemove(_:)"),
-        (c.map_class, false, "rawKeyAt(_:)"),
-        (c.map_class, false, "rawValueAt(_:)"),
+        (c.map_class, false, "size_"),
+        (c.map_class, false, "get_(_:)"),
+        (c.map_class, false, "put_(_:_:)"),
+        (c.map_class, false, "has_(_:)"),
+        (c.map_class, false, "remove_(_:)"),
+        (c.map_class, false, "keyAt_(_:)"),
+        (c.map_class, false, "valueAt_(_:)"),
         (c.set_class, true, "new()"),
-        (c.set_class, false, "rawSize"),
-        (c.set_class, false, "rawAdd(_:)"),
-        (c.set_class, false, "rawHas(_:)"),
-        (c.set_class, false, "rawRemove(_:)"),
-        (c.set_class, false, "rawAt(_:)"),
+        (c.set_class, false, "size_"),
+        (c.set_class, false, "add_(_:)"),
+        (c.set_class, false, "has_(_:)"),
+        (c.set_class, false, "remove_(_:)"),
+        (c.set_class, false, "at_(_:)"),
         // Tuple (U-COLLTYPES Phase 2, ADR-0039) — NEW_TUPLE
         (c.tuple_class, true, "fromList(_:)"),
-        (c.tuple_class, false, "rawSize"),
-        (c.tuple_class, false, "rawAt(_:)"),
+        (c.tuple_class, false, "size_"),
+        (c.tuple_class, false, "at_(_:)"),
         // Range (U-COLLTYPES Phase 3, ADR-0039) — NEW_RANGE
         (c.range_class, true, "new(_:_:_:)"),
-        (c.range_class, false, "rawStart"),
-        (c.range_class, false, "rawEnd"),
-        (c.range_class, false, "rawInclusive"),
+        (c.range_class, false, "start_"),
+        (c.range_class, false, "end_"),
+        (c.range_class, false, "inclusive_"),
         // Family (U16-Open, ADR-0047) — NEW_FAMILY
         (c.family_class, false, "doesNotUnderstand(_:)"),
     ];
@@ -883,8 +891,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_ON_ENSURE
             + NEW_IMPORTS
             + NEW_FAMILY
-            + NEW_SCHED,
-        "census must enumerate exactly 115 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED)"
+            + NEW_SCHED
+            + NEW_INVARIANT_GUARD,
+        "census must enumerate exactly 117 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052)"
     );
     assert_eq!(
         live.len(),
@@ -899,8 +908,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_ON_ENSURE
             + NEW_IMPORTS
             + NEW_FAMILY
-            + NEW_SCHED,
-        "the live floor must be exactly 115 bindings"
+            + NEW_SCHED
+            + NEW_INVARIANT_GUARD,
+        "the live floor must be exactly 117 bindings"
     );
 }
 

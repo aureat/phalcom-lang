@@ -17,7 +17,8 @@ use crate::primitive::number::{
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_class_new, object_does_not_understand, object_eq, object_hash,
-    object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to, object_set_class, object_to_string,
+    object_invariant_enter, object_invariant_exit, object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to,
+    object_set_class, object_to_string,
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
@@ -59,6 +60,11 @@ impl Universe {
         // resolved `MethodObject` for a selector, a pure probe like
         // `respondsTo` (never fires dNU on a miss).
         primitive!(vm, object_cls, "methodFor", SignatureKind::Method(1), object_method_for);
+        // `@invariant` re-entrancy guard (U-ANNOT-CONTRACTS, ADR-0052 Fix 1):
+        // a receiver-scoped native pair the woven prologue/epilogue call —
+        // never `.ph`-authored, never part of any public protocol.
+        primitive!(vm, object_cls, "__invariantEnter", SignatureKind::Method(0), object_invariant_enter);
+        primitive!(vm, object_cls, "__invariantExit", SignatureKind::Method(0), object_invariant_exit);
 
         // `Message` accessors (U8): native getters reading the reified-send
         // slots directly (`VM::new_message`); `Message` has no `.ph` surface.
@@ -253,68 +259,69 @@ impl Universe {
         primitive!(vm, family_cls, "doesNotUnderstand", SignatureKind::Method(1), family_does_not_understand);
 
         // Kernel `List` (ADR-0019/0020): five native floor primitives.
-        // `rawLength`/`rawAt`/`rawSet`/`rawPush` are internal — `.ph`'s
-        // `size`/`at(_:)`/`add(_:)` wrap the first three (`rawSet` is
+        // `length_`/`at_`/`set_`/`push_` are internal (U-NATIVE-MARKER: the
+        // trailing `_` marks a native/private primitive selector) — `.ph`'s
+        // `size`/`at(_:)`/`add(_:)` wrap the first three (`set_` is
         // implemented but not yet surfaced, see DEFERRED.md); amortized growth
-        // folds into `rawPush` (`Vec::push`'s own doubling), so there is no
+        // folds into `push_` (`Vec::push`'s own doubling), so there is no
         // separate "grow" primitive. `new()` and `toString` are public
         // primitives directly, mirroring `String`'s `+(_)` (see the U-LIST
         // return contract for why `toString` is native this unit).
         let list_cls = vm.universe.classes.list_class;
         primitive_static!(vm, list_cls, "new", SignatureKind::Method(0), list_class_new);
-        primitive!(vm, list_cls, "rawLength", SignatureKind::Getter, list_raw_length);
-        primitive!(vm, list_cls, "rawAt", SignatureKind::Method(1), list_raw_at);
-        primitive!(vm, list_cls, "rawSet", SignatureKind::Method(2), list_raw_set);
-        primitive!(vm, list_cls, "rawPush", SignatureKind::Method(1), list_raw_push);
+        primitive!(vm, list_cls, "length_", SignatureKind::Getter, list_raw_length);
+        primitive!(vm, list_cls, "at_", SignatureKind::Method(1), list_raw_at);
+        primitive!(vm, list_cls, "set_", SignatureKind::Method(2), list_raw_set);
+        primitive!(vm, list_cls, "push_", SignatureKind::Method(1), list_raw_push);
         primitive!(vm, list_cls, "toString", SignatureKind::Getter, list_to_string);
 
-        // Kernel `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): the raw
-        // hash-collection floor. `Map` gets 8 bindings (`new` + 7 raw
-        // instance ops); `Set` gets 6 (`new` + 5 raw instance ops) — a keys-only
+        // Kernel `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): the native
+        // hash-collection floor. `Map` gets 8 bindings (`new` + 7 native
+        // instance ops); `Set` gets 6 (`new` + 5 native instance ops) — a keys-only
         // sibling reusing `Map`'s backing struct (DEC-CT-B) but with its own
-        // distinct bindings. `rawKeyAt`/`rawValueAt`/`rawAt` back
-        // `keys`/`values`/`each(_)`; `rawPut`/`rawAdd` re-enter the VM to send
+        // distinct bindings. `keyAt_`/`valueAt_`/`at_` back
+        // `keys`/`values`/`each(_)`; `put_`/`add_` re-enter the VM to send
         // `hash`/`==` on keys (see `primitive::map`'s module doc) and reject a
         // mutable-collection key (DEC-CT-C). `.ph`'s public protocol
         // (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
         // `values`/`each(_)`/`add(_)`) wraps these in `core.ph`.
         let map_cls = vm.universe.classes.map_class;
         primitive_static!(vm, map_cls, "new", SignatureKind::Method(0), map_class_new);
-        primitive!(vm, map_cls, "rawSize", SignatureKind::Getter, map_raw_size);
-        primitive!(vm, map_cls, "rawGet", SignatureKind::Method(1), map_raw_get);
-        primitive!(vm, map_cls, "rawPut", SignatureKind::Method(2), map_raw_put);
-        primitive!(vm, map_cls, "rawHas", SignatureKind::Method(1), map_raw_has);
-        primitive!(vm, map_cls, "rawRemove", SignatureKind::Method(1), map_raw_remove);
-        primitive!(vm, map_cls, "rawKeyAt", SignatureKind::Method(1), map_raw_key_at);
-        primitive!(vm, map_cls, "rawValueAt", SignatureKind::Method(1), map_raw_value_at);
+        primitive!(vm, map_cls, "size_", SignatureKind::Getter, map_raw_size);
+        primitive!(vm, map_cls, "get_", SignatureKind::Method(1), map_raw_get);
+        primitive!(vm, map_cls, "put_", SignatureKind::Method(2), map_raw_put);
+        primitive!(vm, map_cls, "has_", SignatureKind::Method(1), map_raw_has);
+        primitive!(vm, map_cls, "remove_", SignatureKind::Method(1), map_raw_remove);
+        primitive!(vm, map_cls, "keyAt_", SignatureKind::Method(1), map_raw_key_at);
+        primitive!(vm, map_cls, "valueAt_", SignatureKind::Method(1), map_raw_value_at);
 
         let set_cls = vm.universe.classes.set_class;
         primitive_static!(vm, set_cls, "new", SignatureKind::Method(0), set_class_new);
-        primitive!(vm, set_cls, "rawSize", SignatureKind::Getter, set_raw_size);
-        primitive!(vm, set_cls, "rawAdd", SignatureKind::Method(1), set_raw_add);
-        primitive!(vm, set_cls, "rawHas", SignatureKind::Method(1), set_raw_has);
-        primitive!(vm, set_cls, "rawRemove", SignatureKind::Method(1), set_raw_remove);
-        primitive!(vm, set_cls, "rawAt", SignatureKind::Method(1), set_raw_at);
+        primitive!(vm, set_cls, "size_", SignatureKind::Getter, set_raw_size);
+        primitive!(vm, set_cls, "add_", SignatureKind::Method(1), set_raw_add);
+        primitive!(vm, set_cls, "has_", SignatureKind::Method(1), set_raw_has);
+        primitive!(vm, set_cls, "remove_", SignatureKind::Method(1), set_raw_remove);
+        primitive!(vm, set_cls, "at_", SignatureKind::Method(1), set_raw_at);
 
-        // Kernel `Tuple` (ADR-0039, U-COLLTYPES Phase 2): 3 raw floor
-        // primitives (fromList/rawSize/rawAt) — no mutation primitive, since
+        // Kernel `Tuple` (ADR-0039, U-COLLTYPES Phase 2): 3 native floor
+        // primitives (fromList/size_/at_) — no mutation primitive, since
         // immutability is structural (TupleObject's Box<[Value]>). `.ph`'s
         // `at(_)`/`size`/`each(_)`/`==`/`!=`/`hash` wrap these in `core.ph`.
         let tuple_cls = vm.universe.classes.tuple_class;
         primitive_static!(vm, tuple_cls, "fromList", SignatureKind::Method(1), tuple_class_from_list);
-        primitive!(vm, tuple_cls, "rawSize", SignatureKind::Getter, tuple_raw_size);
-        primitive!(vm, tuple_cls, "rawAt", SignatureKind::Method(1), tuple_raw_at);
+        primitive!(vm, tuple_cls, "size_", SignatureKind::Getter, tuple_raw_size);
+        primitive!(vm, tuple_cls, "at_", SignatureKind::Method(1), tuple_raw_at);
 
-        // Kernel `Range` (ADR-0039, U-COLLTYPES Phase 3): 4 raw floor
+        // Kernel `Range` (ADR-0039, U-COLLTYPES Phase 3): 4 native floor
         // primitives — the WHOLE floor (three bound-field reads + the
         // allocator). `.ph`'s `size`/`at(_)`/`includes(_)`/`first`/`last`/
         // `each(_)`/`toList`/`==`/`hash` are all derived over these +
         // `Number` arithmetic in `core.ph`.
         let range_cls = vm.universe.classes.range_class;
         primitive_static!(vm, range_cls, "new", SignatureKind::Method(3), range_class_new);
-        primitive!(vm, range_cls, "rawStart", SignatureKind::Getter, range_raw_start);
-        primitive!(vm, range_cls, "rawEnd", SignatureKind::Getter, range_raw_end);
-        primitive!(vm, range_cls, "rawInclusive", SignatureKind::Getter, range_raw_inclusive);
+        primitive!(vm, range_cls, "start_", SignatureKind::Getter, range_raw_start);
+        primitive!(vm, range_cls, "end_", SignatureKind::Getter, range_raw_end);
+        primitive!(vm, range_cls, "inclusive_", SignatureKind::Getter, range_raw_inclusive);
 
         // `Error` root (U-CORE-6, ADR-0008): `message` is a native slot-0
         // accessor (mirrors `Message`'s accessors — a `.ph` getter over this

@@ -43,6 +43,18 @@ class Error {
   construct new(msg) { _message = msg }
 }
 
+// Design-by-Contract failure classes (U-ANNOT-CONTRACTS,
+// `docs/spec/v0.2/experimental/annotations-contracts.md`). Each is raised by
+// the woven `@requires`/`@ensures`/`@invariant` check emitted by
+// `phalcom-core/src/compiler/attributes.rs`'s `build_check_stmt` — zero Rust,
+// zero new primitive, ordinary `Error` subclasses that inherit `message`/
+// `raise` from the `_message`-slot machinery above.
+class PreconditionError extends Error {}
+
+class PostconditionError extends Error {}
+
+class InvariantError extends Error {}
+
 class Number {}
 
 class String {
@@ -265,7 +277,7 @@ class Function {
 
 // Kernel List (ADR-0020): a native array-backed heap object (ListObject),
 // not an InstanceObject — bootstrapped in Rust (universe.rs) with five floor
-// primitives (rawLength/rawAt/rawSet/rawPush, plus native `new()`). This
+// primitives (length_/at_/set_/push_, plus native `new()`). This
 // skeleton reopens that bootstrapped row to define the public protocol over
 // those primitives (ADR-0019's "hybrid: native primitives, self-defined
 // control"). `toString` is ALSO a native primitive this unit, not defined
@@ -273,19 +285,19 @@ class Function {
 // is blocked on U-CORE-4; DEFERRED.md #19). U-STD (catalog-delta §2.4;
 // DEFERRED.md #18/#20/#25) discharges the deferral for the combinator layer:
 // `map`/`reduce`/`filter`/`includes`/`isEmpty` and the `at(_:put:)` wrapper
-// over `rawSet` now live below, all pure `.ph` over the floor. Only
+// over `set_` now live below, all pure `.ph` over the floor. Only
 // **list-literal syntax** `[a, b, c]` remains deferred (it needs a new ADR +
 // parser work; DEFERRED.md #6) — do not add that here.
 
 class List {
-  size => self.rawLength
+  size => self.length_
 
   at(i) {
-    return self.rawAt(i)
+    return self.at_(i)
   }
 
   add(v) {
-    self.rawPush(v)
+    self.push_(v)
     return self
   }
 
@@ -368,12 +380,12 @@ class List {
   // is a real `Number`, so the `== 0` condition is a well-formed `Bool`.
   isEmpty => self.size == 0
 
-  // U-STD (DEFERRED.md #18): the public `.ph` wrapper over the `rawSet(_,_)`
+  // U-STD (DEFERRED.md #18): the public `.ph` wrapper over the `set_(_,_)`
   // floor primitive — writes `put` at index `i` and returns `self` so writes
-  // chain (mirrors `add`). Selector `at(_:put:)` matches `rawSet`'s 2 args;
+  // chain (mirrors `add`). Selector `at(_:put:)` matches `set_`'s 2 args;
   // the labeled parameter is named `put` (label == name, parser convention).
   at(i, put:) {
-    self.rawSet(i, put)
+    self.set_(i, put)
     return self
   }
 
@@ -414,33 +426,33 @@ class List {
 
 // Kernel Map/Set (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 1): native
 // insertion-ordered hash collections — Object::Map/Object::Set, sharing the
-// MapObject backing struct (DEC-CT-B) but with distinct raw-primitive
+// MapObject backing struct (DEC-CT-B) but with distinct native-primitive
 // bindings and distinct classes. This skeleton reopens the bootstrapped rows
-// to define the public protocol over the raw floor (ADR-0019's "hybrid: native
+// to define the public protocol over the native floor (ADR-0019's "hybrid: native
 // primitives, self-defined control"). Both are MUTABLE, so neither installs a
 // `hash` override — they inherit Object#hash (identity), so per Q5
 // (decisions.md, collection-protocol.md law 4) neither is a valid Map/Set key;
-// `rawPut`/`rawAdd` enforce this (DEC-CT-C) by rejecting a mutable-collection
+// `put_`/`add_` enforce this (DEC-CT-C) by rejecting a mutable-collection
 // key (List/Map/Set) with a raised Error.
 
 class Map {
-  size => self.rawSize
+  size => self.size_
 
   // Total lookup: Some-shaped by convention (raw value on hit, the None
-  // singleton on miss — mirrors List#at's rawAt shape, U-CORE-2/ADR-0021).
-  at(k) => self.rawGet(k)
+  // singleton on miss — mirrors List#at's at_ shape, U-CORE-2/ADR-0021).
+  at(k) => self.get_(k)
 
   // Insert/overwrite; returns self so `put` calls chain.
   at(k, put:) {
-    self.rawPut(k, put)
+    self.put_(k, put)
     return self
   }
 
-  includes(k) => self.rawHas(k)
+  includes(k) => self.has_(k)
 
   // Idempotent: removing an absent key is a no-op, still returns self.
   remove(k) {
-    self.rawRemove(k)
+    self.remove_(k)
     return self
   }
 
@@ -449,7 +461,7 @@ class Map {
     var result = List.new()
     var i = 0
     while (i < self.size) {
-      result.add(self.rawKeyAt(i))
+      result.add(self.keyAt_(i))
       i = i + 1
     }
     return result
@@ -460,7 +472,7 @@ class Map {
     var result = List.new()
     var i = 0
     while (i < self.size) {
-      result.add(self.rawValueAt(i))
+      result.add(self.valueAt_(i))
       i = i + 1
     }
     return result
@@ -470,13 +482,13 @@ class Map {
   each(f) {
     var i = 0
     while (i < self.size) {
-      f.call(self.rawKeyAt(i), self.rawValueAt(i))
+      f.call(self.keyAt_(i), self.valueAt_(i))
       i = i + 1
     }
   }
 
   // Cursor iteration protocol (ADR-0035 §1, iteration.md §1) — identical
-  // shape to List's, over `size`/`rawKeyAt`. DEC-CT-E: the cursor value
+  // shape to List's, over `size`/`keyAt_`. DEC-CT-E: the cursor value
   // `iteratorValue` yields is the KEY (both Map and Set yield keys); `each(_)`
   // above remains the 2-arg entry form for Map.
   iterate(cursor) {
@@ -484,7 +496,7 @@ class Map {
     return (next < self.size).ifTrue { next }
   }
 
-  iteratorValue(cursor) => self.rawKeyAt(cursor)
+  iteratorValue(cursor) => self.keyAt_(cursor)
 
   // Structural equality: same key set, pairwise-== values (order-independent
   // over keys — `includes`/`at` do the membership + value work, not raw
@@ -494,8 +506,8 @@ class Map {
       var same = (self.size == other.size)
       var i = 0
       while (same and (i < self.size)) {
-        var k = self.rawKeyAt(i)
-        same = other.includes(k) and (self.rawValueAt(i) == other.at(k))
+        var k = self.keyAt_(i)
+        same = other.includes(k) and (self.valueAt_(i) == other.at(k))
         i = i + 1
       }
       return same
@@ -512,52 +524,52 @@ class Map {
 }
 
 class Set {
-  size => self.rawSize
+  size => self.size_
 
   add(v) {
-    self.rawAdd(v)
+    self.add_(v)
     return self
   }
 
-  includes(v) => self.rawHas(v)
+  includes(v) => self.has_(v)
 
   remove(v) {
-    self.rawRemove(v)
+    self.remove_(v)
     return self
   }
 
   // Positional read in insertion order — not in the map-and-set.md selector
-  // table, but a direct, zero-floor-cost derivation over rawAt that the
+  // table, but a direct, zero-floor-cost derivation over at_ that the
   // U-CORE-5 conformance harness (collection-protocol.md §2) needs, and a
   // natural extension of the sequence protocol every collection instantiates.
-  at(i) => self.rawAt(i)
+  at(i) => self.at_(i)
 
   each(f) {
     var i = 0
     while (i < self.size) {
-      f.call(self.rawAt(i))
+      f.call(self.at_(i))
       i = i + 1
     }
   }
 
   // Cursor iteration protocol — identical shape to List's, over
-  // `size`/`rawAt`.
+  // `size`/`at_`.
   iterate(cursor) {
     let next = cursor.map { c => c + 1 }.unwrapOr(0)
     return (next < self.size).ifTrue { next }
   }
 
-  iteratorValue(cursor) => self.rawAt(cursor)
+  iteratorValue(cursor) => self.at_(cursor)
 
   // Structural equality: same members, order-independent. Same-size plus
   // "every element of self is in other" is sufficient since neither set
-  // holds duplicates (rawAdd is idempotent).
+  // holds duplicates (add_ is idempotent).
   ==(other) {
     if (other.isA(Set)) {
       var same = (self.size == other.size)
       var i = 0
       while (same and (i < self.size)) {
-        same = other.includes(self.rawAt(i))
+        same = other.includes(self.at_(i))
         i = i + 1
       }
       return same
@@ -579,14 +591,14 @@ class Set {
 // literal graduates automatically the moment this class exists.
 
 class Tuple {
-  size => self.rawSize
+  size => self.size_
 
-  at(i) => self.rawAt(i)
+  at(i) => self.at_(i)
 
   each(f) {
     var i = 0
     while (i < self.size) {
-      f.call(self.rawAt(i))
+      f.call(self.at_(i))
       i = i + 1
     }
   }
@@ -597,7 +609,7 @@ class Tuple {
     return (next < self.size).ifTrue { next }
   }
 
-  iteratorValue(cursor) => self.rawAt(cursor)
+  iteratorValue(cursor) => self.at_(cursor)
 
   // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
@@ -638,30 +650,30 @@ class Tuple {
 }
 
 // Kernel Range (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a native lazy
-// numeric interval — Object::Range, three raw bound-field getters and NOTHING
+// numeric interval — Object::Range, three native bound-field getters and NOTHING
 // else on the floor. `each`/`toList`/`size`/`includes`/`first`/`last` are all
-// derived here over `rawStart`/`rawEnd`/`rawInclusive` + Number arithmetic —
+// derived here over `start_`/`end_`/`inclusive_` + Number arithmetic —
 // `each` GENERATES elements, never allocates (RG-2 laziness), so
 // `Range.new(1, 1000000, true)` stays O(1) to construct and each step of
-// `each` is O(1). Bound convention (RG-1): `a..b` inclusive (`rawInclusive`
+// `each` is O(1). Bound convention (RG-1): `a..b` inclusive (`inclusive_`
 // true), `a...b` exclusive (false) — the reserved `..`/`...` literal's
 // committed meaning, honored now via the explicit constructor.
 
 class Range {
-  first => self.rawStart
+  first => self.start_
 
   last {
-    return self.rawInclusive.ifTrue({ self.rawEnd }, ifFalse: { self.rawEnd - 1 })
+    return self.inclusive_.ifTrue({ self.end_ }, ifFalse: { self.end_ - 1 })
   }
 
   size {
-    var n = self.rawInclusive.ifTrue({ self.rawEnd - self.rawStart + 1 }, ifFalse: { self.rawEnd - self.rawStart })
+    var n = self.inclusive_.ifTrue({ self.end_ - self.start_ + 1 }, ifFalse: { self.end_ - self.start_ })
     return (n < 0).ifTrue({ 0 }, ifFalse: { n })
   }
 
   includes(n) {
-    var upper = self.rawInclusive.ifTrue({ n <= self.rawEnd }, ifFalse: { n < self.rawEnd })
-    return (self.rawStart <= n) and upper
+    var upper = self.inclusive_.ifTrue({ n <= self.end_ }, ifFalse: { n < self.end_ })
+    return (self.start_ <= n) and upper
   }
 
   // Total indexed read (mirrors every other collection's `at(_)`): raw value
@@ -670,14 +682,14 @@ class Range {
   // zero-floor-cost derivation the U-CORE-5 conformance harness (every
   // collection instantiates it) needs (U-COLLTYPES plan.md §7).
   at(i) {
-    return (i >= 0 and (i < self.size)).ifTrue({ self.rawStart + i }, ifFalse: { None })
+    return (i >= 0 and (i < self.size)).ifTrue({ self.start_ + i }, ifFalse: { None })
   }
 
   // Generates start, start+1, … up to the bound — no allocation (RG-2).
   each(f) {
     var i = 0
     while (i < self.size) {
-      f.call(self.rawStart + i)
+      f.call(self.start_ + i)
       i = i + 1
     }
   }
@@ -697,16 +709,16 @@ class Range {
     return (next < self.size).ifTrue { next }
   }
 
-  iteratorValue(cursor) => self.rawStart + cursor
+  iteratorValue(cursor) => self.start_ + cursor
 
   // Structural equality over the normalized bound fields (start/end/
   // inclusive) — not the generated sequence, which would defeat laziness for
   // a large range. Guarded by isA(Range).
   ==(other) {
     if (other.isA(Range)) {
-      var sameStart = (self.rawStart == other.rawStart)
-      var sameEnd = (self.rawEnd == other.rawEnd)
-      var sameBound = (self.rawInclusive == other.rawInclusive)
+      var sameStart = (self.start_ == other.start_)
+      var sameEnd = (self.end_ == other.end_)
+      var sameBound = (self.inclusive_ == other.inclusive_)
       return sameStart and sameEnd and sameBound
     } else {
       return false
@@ -721,9 +733,9 @@ class Range {
   // fields' own `hash` — zero new floor, consistent with == by construction.
   hash {
     var acc = 17
-    acc = (acc * 31 + self.rawStart.hash) % 999999937
-    acc = (acc * 31 + self.rawEnd.hash) % 999999937
-    acc = (acc * 31 + self.rawInclusive.hash) % 999999937
+    acc = (acc * 31 + self.start_.hash) % 999999937
+    acc = (acc * 31 + self.end_.hash) % 999999937
+    acc = (acc * 31 + self.inclusive_.hash) % 999999937
     return acc
   }
 }

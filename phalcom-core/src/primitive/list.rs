@@ -5,7 +5,7 @@
 //! kernel `List`: allocate, length, indexed get, indexed set, and push
 //! (amortized growth is `Vec::push`'s own doubling strategy, so there is no
 //! separate "grow" primitive — see the U-LIST return contract). These are
-//! internal-only (`rawLength`/`rawAt`/`rawSet`/`rawPush`), wrapped by the
+//! internal-only (`length_`/`at_`/`set_`/`push_`), wrapped by the
 //! `.ph`-defined public protocol (`size`/`at(_:)`/`add(_:)`/`each(_:)`) in
 //! `core.ph`, except `new()` and `toString`, which are public primitives
 //! directly (mirroring `String`'s `+(_)`; see the return contract for why
@@ -45,7 +45,7 @@ pub fn list_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResu
     Ok(Value::Obj(vm.heap.alloc_list(Vec::new())))
 }
 
-/// Signature: `List::rawLength` — the list's element count.
+/// Signature: `List::length_` — the list's element count.
 ///
 /// The length floor primitive (ADR-0020 §3); `.ph`'s `size` getter wraps
 /// this.
@@ -58,7 +58,7 @@ pub fn list_raw_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
     Ok(Value::Number(vm.heap.list(id).len() as f64))
 }
 
-/// Signature: `List::rawAt(_)` — raw indexed read.
+/// Signature: `List::at_(_)` — raw indexed read.
 ///
 /// The indexed-get floor primitive (ADR-0020 §3); `.ph`'s `at(_:)` wraps
 /// this. An out-of-range index surfaces the kernel `None` singleton
@@ -78,7 +78,7 @@ pub fn list_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     }
 }
 
-/// Signature: `List::rawSet(_,_)` — raw indexed write.
+/// Signature: `List::set_(_,_)` — raw indexed write.
 ///
 /// The indexed-set floor primitive (ADR-0020 §3). Implemented but **not**
 /// surfaced at the `.ph` layer this unit — no `at(_:put:)` selector exists
@@ -103,7 +103,7 @@ pub fn list_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     Ok(vm.none_value())
 }
 
-/// Signature: `List::rawPush(_)` — appends one element.
+/// Signature: `List::push_(_)` — appends one element.
 ///
 /// The push floor primitive (ADR-0020 §3), backed by `Vec::push`'s own
 /// amortized growth (folding the "grow" primitive into this one — see the

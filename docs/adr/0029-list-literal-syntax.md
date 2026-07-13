@@ -27,7 +27,7 @@ subscripting, so there is no existing grammar conflict to resolve. The native `L
 
 The frozen floor (ADR-0019) sets the default: a new capability is `.ph`/desugaring
 unless it fails the derivability test. List construction is fully expressible over
-the existing floor (`List.new` + `rawPush`/`add`), so the literal must **not** add a
+the existing floor (`List.new` + `push_`/`add`), so the literal must **not** add a
 primitive unless a measured performance need justifies it.
 
 ## Decision

@@ -96,33 +96,33 @@ language is *self-hosting above a small, fixed native boundary*
 
 > **U-COLLTYPES Phase 1 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
 > The `Map`/`Set` hash-collection floor admits **+14** bindings (88 → 102) and
-> **+14** distinct fns (73 → 87): `Map` — `new()`, `rawSize`, `rawGet(_)`,
-> `rawPut(_,_)`, `rawHas(_)`, `rawRemove(_)`, `rawKeyAt(_)`, `rawValueAt(_)`
-> (8, `primitive/map.rs`); `Set` — `new()`, `rawSize`, `rawAdd(_)`, `rawHas(_)`,
-> `rawRemove(_)`, `rawAt(_)` (6, `primitive/set.rs`). `Set` shares `Map`'s Rust
+> **+14** distinct fns (73 → 87): `Map` — `new()`, `size_`, `get_(_)`,
+> `put_(_,_)`, `has_(_)`, `remove_(_)`, `keyAt_(_)`, `valueAt_(_)`
+> (8, `primitive/map.rs`); `Set` — `new()`, `size_`, `add_(_)`, `has_(_)`,
+> `remove_(_)`, `at_(_)` (6, `primitive/set.rs`). `Set` shares `Map`'s Rust
 > backing struct ([`MapObject`](../../../../phalcom-core/src/map.rs), DEC-CT-B)
 > but every binding is its own distinct native fn — no rehome subtlety.
 > Floor-carrying classes move **17 → 19** (`Map`/`Set` are new rows, neither
-> previously carrying a primitive). `rawGet`/`rawPut`/`rawHas`/`rawRemove`
+> previously carrying a primitive). `get_`/`put_`/`has_`/`remove_`
 > re-enter the VM to send Phalcom `hash`/`==` on keys (not Rust `Value: Hash`)
-> and `rawPut`/`rawAdd` reject a mutable-collection key (DEC-CT-C,
+> and `put_`/`add_` reject a mutable-collection key (DEC-CT-C,
 > collection-protocol.md law 4). R-INV-0.1 (`tests/invariants.rs`) audits this
 > set from a live `VM::new()` and fails on drift.
 
 > **U-COLLTYPES Phase 2 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
 > The `Tuple` floor admits **+3** bindings (102 → 105) and **+3** distinct fns
-> (87 → 90): `fromList(_)` (static, `tuple_class_from_list`), `rawSize`
-> (`tuple_raw_size`), `rawAt(_)` (`tuple_raw_at`) — all in `primitive/tuple.rs`.
+> (87 → 90): `fromList(_)` (static, `tuple_class_from_list`), `size_`
+> (`tuple_raw_size`), `at_(_)` (`tuple_raw_at`) — all in `primitive/tuple.rs`.
 > **No mutation primitive** — immutability is a representation guarantee
 > ([`TupleObject`](../../../../phalcom-core/src/tuple.rs)'s `Box<[Value]>`, no
 > mutable accessor exists). Floor-carrying classes move **19 → 20**. `hash`
-> stays `.ph` (DEC-CT-D: an order-sensitive fold over `rawAt`+element `.hash`,
+> stays `.ph` (DEC-CT-D: an order-sensitive fold over `at_`+element `.hash`,
 > zero new floor) — it is **not** a binding here. R-INV-0.1 audits this set.
 
 > **U-COLLTYPES Phase 3 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
 > The `Range` floor admits **+4** bindings (105 → 109) and **+4** distinct fns
-> (90 → 94): `new(_,_,_)` (static, `range_class_new`), `rawStart`
-> (`range_raw_start`), `rawEnd` (`range_raw_end`), `rawInclusive`
+> (90 → 94): `new(_,_,_)` (static, `range_class_new`), `start_`
+> (`range_raw_start`), `end_` (`range_raw_end`), `inclusive_`
 > (`range_raw_inclusive`) — all in `primitive/range.rs`. This is the **whole**
 > floor for `Range` — three field reads plus the allocator; everything else
 > (`size`/`at(_)`/`includes(_)`/`first`/`last`/`each(_)`/`toList`/`==`/`hash`/
@@ -256,6 +256,8 @@ Ordered as `install_primitives` installs them
 | `doesNotUnderstand(_)` | instance | `object_does_not_understand` | terminal miss handler; overridable so a proxy subclass can intercept |
 | `hash` | instance | `object_hash` | identity digest of the heap handle (ADR-0023); immediates override below |
 | `methodFor(_)` | instance | `object_method_for` | reifies the resolved `Method` for a selector; `None` on a miss; pure probe, never fires dNU (U-CORE-3, ADR-0028) |
+| `__invariantEnter()` | instance | `object_invariant_enter` | `@invariant` re-entrancy guard entry (U-ANNOT-CONTRACTS, [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1); returns whether this call owns the receiver's `checking` entry |
+| `__invariantExit()` | instance | `object_invariant_exit` | `@invariant` re-entrancy guard exit; unconditionally removes the receiver from `checking` |
 
 ### 2.2 `Behavior` — class-side reflection
 
@@ -411,10 +413,10 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `new()` | static | `list_class_new` | |
-| `rawLength` | instance | `list_raw_length` | internal; wrapped by `size` |
-| `rawAt(_)` | instance | `list_raw_at` | internal; wrapped by `at(_)` |
-| `rawSet(_, _)` | instance | `list_raw_set` | **installed but unwrapped** — no `at(_, put)` yet (§6) |
-| `rawPush(_)` | instance | `list_raw_push` | internal; wrapped by `add(_)`; amortized growth folds into `Vec::push` |
+| `length_` | instance | `list_raw_length` | internal; wrapped by `size` |
+| `at_(_)` | instance | `list_raw_at` | internal; wrapped by `at(_)` |
+| `set_(_, _)` | instance | `list_raw_set` | **installed but unwrapped** — no `at(_, put)` yet (§6) |
+| `push_(_)` | instance | `list_raw_push` | internal; wrapped by `add(_)`; amortized growth folds into `Vec::push` |
 | `toString` | instance | `list_to_string` | native this unit (see U-LIST return contract) |
 
 ### 2.13a `Map`/`Set` — native hash collections (U-COLLTYPES Phase 1, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
@@ -423,9 +425,9 @@ Dedicated `Object::Map`/`Object::Set` heap variants over the shared
 `crate::map::MapObject` ordered-hash backing struct (DEC-CT-B: `Set` is a
 keys-only sibling, distinct heap variant, distinct bindings). Both are
 **mutable** ⇒ inherit identity `Object#hash` (Q5) — neither installs its own
-`hash`, so neither is a valid `Map`/`Set` key. `rawGet`/`rawPut`/`rawHas`/
-`rawRemove`/`rawAdd` re-enter the VM to send **Phalcom** `hash`/`==` on keys
-(`primitive/map.rs`'s `locate`); `rawPut`/`rawAdd` reject a mutable-collection
+`hash`, so neither is a valid `Map`/`Set` key. `get_`/`put_`/`has_`/
+`remove_`/`add_` re-enter the VM to send **Phalcom** `hash`/`==` on keys
+(`primitive/map.rs`'s `locate`); `put_`/`add_` reject a mutable-collection
 key (`List`/`Map`/`Set`, DEC-CT-C) with a raised catchable `Error`. The public
 protocol (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
 `values`/`each(_)` for `Map`; `add(_)`/`includes(_)`/`size`/`remove(_)`/
@@ -434,19 +436,19 @@ protocol (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
 | Selector | Side | Class | Native fn | Notes |
 |---|---|---|---|---|
 | `new()` | static | `Map` | `map_class_new` | |
-| `rawSize` | instance | `Map` | `map_raw_size` | wrapped by `size` |
-| `rawGet(_)` | instance | `Map` | `map_raw_get` | wrapped by `at(_)`; total (raw value on hit, `None` on miss) |
-| `rawPut(_, _)` | instance | `Map` | `map_raw_put` | wrapped by `at(_, put:)`; DEC-CT-C mutable-key rejection |
-| `rawHas(_)` | instance | `Map` | `map_raw_has` | wrapped by `includes(_)` |
-| `rawRemove(_)` | instance | `Map` | `map_raw_remove` | wrapped by `remove(_)`; idempotent |
-| `rawKeyAt(_)` | instance | `Map` | `map_raw_key_at` | backs `keys`/`each(_)`/`iteratorValue(_)` |
-| `rawValueAt(_)` | instance | `Map` | `map_raw_value_at` | backs `values`/`each(_)` |
+| `size_` | instance | `Map` | `map_raw_size` | wrapped by `size` |
+| `get_(_)` | instance | `Map` | `map_raw_get` | wrapped by `at(_)`; total (raw value on hit, `None` on miss) |
+| `put_(_, _)` | instance | `Map` | `map_raw_put` | wrapped by `at(_, put:)`; DEC-CT-C mutable-key rejection |
+| `has_(_)` | instance | `Map` | `map_raw_has` | wrapped by `includes(_)` |
+| `remove_(_)` | instance | `Map` | `map_raw_remove` | wrapped by `remove(_)`; idempotent |
+| `keyAt_(_)` | instance | `Map` | `map_raw_key_at` | backs `keys`/`each(_)`/`iteratorValue(_)` |
+| `valueAt_(_)` | instance | `Map` | `map_raw_value_at` | backs `values`/`each(_)` |
 | `new()` | static | `Set` | `set_class_new` | |
-| `rawSize` | instance | `Set` | `set_raw_size` | wrapped by `size` |
-| `rawAdd(_)` | instance | `Set` | `set_raw_add` | wrapped by `add(_)`; idempotent; DEC-CT-C mutable-key rejection |
-| `rawHas(_)` | instance | `Set` | `set_raw_has` | wrapped by `includes(_)` |
-| `rawRemove(_)` | instance | `Set` | `set_raw_remove` | wrapped by `remove(_)`; idempotent |
-| `rawAt(_)` | instance | `Set` | `set_raw_at` | wrapped by `at(_)`/`each(_)`; insertion-order indexed read |
+| `size_` | instance | `Set` | `set_raw_size` | wrapped by `size` |
+| `add_(_)` | instance | `Set` | `set_raw_add` | wrapped by `add(_)`; idempotent; DEC-CT-C mutable-key rejection |
+| `has_(_)` | instance | `Set` | `set_raw_has` | wrapped by `includes(_)` |
+| `remove_(_)` | instance | `Set` | `set_raw_remove` | wrapped by `remove(_)`; idempotent |
+| `at_(_)` | instance | `Set` | `set_raw_at` | wrapped by `at(_)`/`each(_)`; insertion-order indexed read |
 
 ### 2.13b `Tuple` — native fixed-arity immutable product (U-COLLTYPES Phase 2, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
 
@@ -456,13 +458,13 @@ primitives — **no mutation primitive**, since immutability is structural (no
 `at(_, put:)`/`add(_)` accessor exists at all). Immutable ⇒ value-hashable and
 a valid `Map`/`Set` key (Q5). The public protocol (`size`/`at(_)`/`each(_)`/
 `==`/`!=`/`hash`) is `core.ph` over these (§3); `hash` is a `.ph` fold over
-`rawAt`+element `.hash` (DEC-CT-D), not a floor primitive.
+`at_`+element `.hash` (DEC-CT-D), not a floor primitive.
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `fromList(_)` | static | `tuple_class_from_list` | freezes a `List`'s current elements into a fresh `Tuple`; the `(a, b)` literal's construction target |
-| `rawSize` | instance | `tuple_raw_size` | wrapped by `size` |
-| `rawAt(_)` | instance | `tuple_raw_at` | wrapped by `at(_)`/`each(_)`; total (raw value on hit, `None` on miss) |
+| `size_` | instance | `tuple_raw_size` | wrapped by `size` |
+| `at_(_)` | instance | `tuple_raw_at` | wrapped by `at(_)`/`each(_)`; total (raw value on hit, `None` on miss) |
 
 ### 2.13c `Range` — native lazy numeric interval (U-COLLTYPES Phase 3, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
 
@@ -477,9 +479,9 @@ is entirely `.ph` over these + `Number` arithmetic (§3); `each`/`toList`
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `new(_, _, _)` | static | `range_class_new` | `(start, end, inclusive)`; RG-1's bound convention |
-| `rawStart` | instance | `range_raw_start` | wrapped by `first` |
-| `rawEnd` | instance | `range_raw_end` | wrapped by `last`/`size` |
-| `rawInclusive` | instance | `range_raw_inclusive` | wrapped by `size`/`includes(_)`/`last` |
+| `start_` | instance | `range_raw_start` | wrapped by `first` |
+| `end_` | instance | `range_raw_end` | wrapped by `last`/`size` |
+| `inclusive_` | instance | `range_raw_inclusive` | wrapped by `size`/`includes(_)`/`last` |
 
 ### 2.14 `Message` — reified miss-send ([messages-and-selectors.md](../messages-and-selectors.md) §5, U8)
 
@@ -537,9 +539,9 @@ Two classes now carry `.ph` surface protocol self-hosted over the floor
 **`List`** (ADR-0020) —
 
 ```
-size    => self.rawLength
-at(i)   { return self.rawAt(i) }
-add(v)  { self.rawPush(v); return self }
+size    => self.length_
+at(i)   { return self.at_(i) }
+add(v)  { self.push_(v); return self }
 each(f) { var i = 0; while (i < self.size) { f.call(self.at(i)); i = i + 1 } }
 ```
 
@@ -625,7 +627,7 @@ the interned `_:` form: `and(_:)`, `ifTrue(_:ifFalse:)`, `whileTrue(_:)`).
 
 | Item | State | Owner |
 |---|---|---|
-| `List#at(_, put)` (wrap `rawSet`) | primitive exists, unwrapped | U-STD |
+| `List#at(_, put)` (wrap `set_`) | primitive exists, unwrapped | U-STD |
 | `List` `map`/`reduce`/`filter`/literal syntax | derivable over floor | U-STD |
 | `Option` combinators (`map`/`flatMap`/`orElse`/`ifSome`/`unwrapOr`) | derivable over `match` | U-STD / U-CORE-2 |
 | `Block#repeat(_)` | receiver/semantics unpinned | deferred (U5-plan BD-U5-2) |
@@ -648,8 +650,9 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    [`tests/invariants.rs`](../../../../phalcom-core/tests/invariants.rs)
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
-   the census here (count = 113). This turns silent floor drift into a red
-   test; §1.1 is no longer a manual checksum.
+   the census here (count = 117, after U-ANNOT-CONTRACTS's `__invariantEnter`/
+   `__invariantExit` +2, ADR-0052 Fix 1). This turns silent floor drift into a
+   red test; §1.1 is no longer a manual checksum.
 
 ## 8. Traceability
 

@@ -94,7 +94,7 @@ structural divergence.
 
 | Class | Row | Global | Floor | `.ph` | Pending | Unit |
 |---|:--:|:--:|---|---|---|---|
-| `List` | ✅ | ✅ | `new` `rawLength` `rawAt` `rawSet` `rawPush` `toString` | `size` `at(_)` `add(_)` `each(_)` `at(_, put)` `map(_)` `filter(_)` `reduce(_,_)` `includes(_)` `isEmpty` | literal syntax `[a,b,c]` only (DEFERRED #6) | **U-STD — combinators landed**; literal syntax ratified ([ADR-0029](../../../adr/0029-list-literal-syntax.md)/[ADR-0032](../../../adr/0032-collections-representation-and-literals.md)) |
+| `List` | ✅ | ✅ | `new` `length_` `at_` `set_` `push_` `toString` | `size` `at(_)` `add(_)` `each(_)` `at(_, put)` `map(_)` `filter(_)` `reduce(_,_)` `includes(_)` `isEmpty` | literal syntax `[a,b,c]` only (DEFERRED #6) | **U-STD — combinators landed**; literal syntax ratified ([ADR-0029](../../../adr/0029-list-literal-syntax.md)/[ADR-0032](../../../adr/0032-collections-representation-and-literals.md)) |
 | `Tuple` | ❌ | ❌ | — | — | **entire class** | U-STD |
 | `Map` | ❌ | ❌ | — | — | **entire class** (name reserved in `ClassName`) | U-STD |
 | `Set` | ❌ | ❌ | — | — | **entire class** | U-STD |
@@ -102,7 +102,7 @@ structural divergence.
 
 Only `List` exists (ADR-0020). U-STD landed its combinator layer
 (`map`/`filter`/`reduce`/`includes`/`isEmpty`, plus the `at(_,put:)` wrapper
-over `rawSet`) in [`core.ph`](../../../../phalcom-core/core/core.ph) L149–186
+over `set_`) in [`core.ph`](../../../../phalcom-core/core/core.ph) L149–186
 — only list-**literal** syntax (`[a, b, c]`) remains deferred (needs an ADR +
 parser work, DEFERRED #6), not part of U-STD's combinator scope. Per ADR-0020
 each remaining collection is its own unit; **U-CORE-5's job is the shared

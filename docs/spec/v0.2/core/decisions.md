@@ -142,7 +142,7 @@ central choice the U-CORE-5 *contract* encodes.)
 
 **Ruling.**
 
-- **Mutable by default.** `List` is already mutable (`rawPush`/`rawSet` over a
+- **Mutable by default.** `List` is already mutable (`push_`/`set_` over a
   native `Vec`, ADR-0020); the Smalltalk lineage and the native substrate both
   favor mutability. Immutability is **opt-in later** (a `freeze`/immutable view),
   not the default. Tuple is the fixed-arity immutable exception (object-model §4).

@@ -30,10 +30,10 @@ container primitives** (combinators stay `.ph`). Per class:
 
 | Class | Raw primitives | Count |
 |---|---|---|
-| `Map` | `new` `rawSize` `rawGet` `rawPut` `rawHas` `rawRemove` `rawKeyAt` `rawValueAt` | 8 |
-| `Set` | `new` `rawSize` `rawAdd` `rawHas` `rawRemove` `rawAt` | 6 |
-| `Tuple` | `fromList` `rawSize` `rawAt` | 3 |
-| `Range` | `new` `rawStart` `rawEnd` `rawInclusive` | 4 |
+| `Map` | `new` `size_` `get_` `put_` `has_` `remove_` `keyAt_` `valueAt_` | 8 |
+| `Set` | `new` `size_` `add_` `has_` `remove_` `at_` | 6 |
+| `Tuple` | `fromList` `size_` `at_` | 3 |
+| `Range` | `new` `start_` `end_` `inclusive_` | 4 |
 
 Total **+21**, installed **per-phase** as each class lands (`floor-census.md` count
 **80 → 101**; Map+Set +14, Tuple +3, Range +4). Everything above these — `at`/`each`/
@@ -49,7 +49,7 @@ raw primitives + the U-CORE-5 contract.
   native containers, each with irreducible raw storage access.
 - **Key-hashing re-enters dispatch (load-bearing).** `Map`/`Set` must key by **Phalcom**
   `hash`+`==` (not Rust's identity `Value: Hash`, which would wrongly identity-key
-  value-hashable `Tuple`s), so `rawGet`/`rawPut`/`rawHas` re-enter VM dispatch on keys —
+  value-hashable `Tuple`s), so `get_`/`put_`/`has_` re-enter VM dispatch on keys —
   the primitive must **re-resolve the `ObjRef` after each such send** (arena borrow
   discipline, per `list_raw_at`), and is subject to the
   [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) restricted-yield model

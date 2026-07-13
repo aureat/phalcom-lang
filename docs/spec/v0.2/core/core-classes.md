@@ -337,13 +337,13 @@ receiver, so raw `call` on it is an error — you must `bind` or `invokeOn`.
 | Status | ◐ partial — combinator layer ✅ landed; only **literal syntax `[a,b,c]`** remains deferred |
 
 **Interface — floor** ([census §2.13](./floor-census.md)): static `new()` ·
-`rawLength` · `rawAt(_)` · `rawSet(_, _)` · `rawPush(_)` · `toString` (native this
+`length_` · `at_(_)` · `set_(_, _)` · `push_(_)` · `toString` (native this
 unit — element stringification was blocked on U-CORE-4).
 
 **Interface — `.ph`** ([`core.ph`](../../../../phalcom-core/core/core.ph) L142–212, all
 over the raw floor): `size` · `at(_)` · `add(_)` · `each(_)` (**U-LIST**) ·
 `map(_)` · `filter(_)` · `reduce(_, _)` · `includes(_)` · `isEmpty` ·
-`at(_, put:)` (wraps `rawSet`) (**U-STD**).
+`at(_, put:)` (wraps `set_`) (**U-STD**).
 
 **Architecture.** The hybrid pattern in miniature: five raw native primitives that
 touch the backing `Vec`, everything else self-hosted. `List` is **mutable ⇒ not

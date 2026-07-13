@@ -27,7 +27,7 @@ pub fn set_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
     Ok(Value::Obj(vm.heap.alloc_set()))
 }
 
-/// Signature: `Set::rawSize` — the set's element count.
+/// Signature: `Set::size_` — the set's element count.
 ///
 /// # Errors
 ///
@@ -58,7 +58,7 @@ fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)>
     Ok((bucket, None))
 }
 
-/// Signature: `Set::rawAdd(_)` — inserts `key` if absent (idempotent),
+/// Signature: `Set::add_(_)` — inserts `key` if absent (idempotent),
 /// returning the receiver (the `.ph` `add(_)` wrapper's chainable return).
 ///
 /// Rejects a mutable-collection key (DEC-CT-C) — see
@@ -84,7 +84,7 @@ pub fn set_raw_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     Ok(*receiver)
 }
 
-/// Signature: `Set::rawHas(_)` — membership test.
+/// Signature: `Set::has_(_)` — membership test.
 ///
 /// # Errors
 ///
@@ -96,7 +96,7 @@ pub fn set_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     Ok(Value::Bool(slot.is_some()))
 }
 
-/// Signature: `Set::rawRemove(_)` — deletes `key` if present; idempotent (a
+/// Signature: `Set::remove_(_)` — deletes `key` if present; idempotent (a
 /// missing key is a no-op), returning the receiver.
 ///
 /// # Errors
@@ -112,7 +112,7 @@ pub fn set_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     Ok(*receiver)
 }
 
-/// Signature: `Set::rawAt(_)` — the element at insertion-order slot `i`, or
+/// Signature: `Set::at_(_)` — the element at insertion-order slot `i`, or
 /// the `None` singleton if `i` is out of range (total, mirrors
 /// `list_raw_at`). Backs `Set#each(_)`.
 ///

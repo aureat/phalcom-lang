@@ -59,7 +59,7 @@ identity hash.
 
 | Option | Mechanism | Recommendation |
 |---|---|---|
-| **Native heap arm** (`Object::Map`/`Object::Set` over a Rust `HashMap`/`HashSet` keyed by the value's `hash`+`==`) | mirrors `List`'s `ListObject` (ADR-0020) | **Recommended** — O(1) ops, matches the "native container, `.ph` protocol" pattern; needs a small floor for `rawGet`/`rawPut`/`rawHas`/iteration |
+| **Native heap arm** (`Object::Map`/`Object::Set` over a Rust `HashMap`/`HashSet` keyed by the value's `hash`+`==`) | mirrors `List`'s `ListObject` (ADR-0020) | **Recommended** — O(1) ops, matches the "native container, `.ph` protocol" pattern; needs a small floor for `get_`/`put_`/`has_`/iteration |
 | **`.ph` over `List`** of buckets | pure `.ph`, zero floor | rejected — O(n) lookup defeats the point; hashing in `.ph` is awkward |
 
 The native arm implies a small **ADR-0019 amendment** (the raw hash-table

@@ -47,7 +47,7 @@ only.
   the selector `move(to)`; they are the *same* method and dispatch identically. Only
   the frame slot the argument binds to differs.
   ```phalcom
-  at(i, put value:) { self.rawSet(i, value) }   // selector still at(_,put)
+  at(i, put value:) { self.set_(i, value) }   // selector still at(_,put)
   grid.at(0, put: x)                             // call unchanged
   ```
 

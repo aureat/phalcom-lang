@@ -47,7 +47,7 @@ impl ListObject {
 
     /// Returns the element at `index`, or `None` if `index` is out of range.
     ///
-    /// The caller (the `rawAt` primitive) surfaces an out-of-range read as
+    /// The caller (the `at_` primitive) surfaces an out-of-range read as
     /// the kernel `None` singleton, never a panic — this method just reports
     /// range membership.
     pub fn get(&self, index: usize) -> Option<Value> {
@@ -58,7 +58,7 @@ impl ListObject {
     ///
     /// # Panics
     ///
-    /// Panics if `index` is out of range. Callers (the `rawSet` primitive)
+    /// Panics if `index` is out of range. Callers (the `set_` primitive)
     /// must bounds-check first and surface a catchable [`crate::error::RuntimeError`]
     /// instead of reaching this panic.
     pub fn set(&mut self, index: usize, value: Value) {

@@ -29,6 +29,12 @@ machine, not parser lookahead.
 The two are distinct token classes: a field reference is only legal inside a class
 body.
 
+- **Convention — trailing `_`:** a selector ending in `_` (e.g. `at_`, `size_`,
+  `keyAt_`) is not a distinct token class, just a naming convention (Wren-style):
+  it marks a native/private primitive selector — internal floor plumbing wrapped
+  by a public `.ph` method of the same base name (`at_` vs. `at`) — not meant to
+  be sent directly from user code (U-NATIVE-MARKER).
+
 ## 4. Literals
 
 ```phalcom

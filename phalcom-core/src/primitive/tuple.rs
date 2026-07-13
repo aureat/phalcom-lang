@@ -3,7 +3,7 @@
 //! Realizes the [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
 //! floor for [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md)'s
 //! native `Tuple`: freeze a `List`'s elements into a fixed slice, length, and
-//! indexed get. These are internal-only (`rawSize`/`rawAt`), wrapped by the
+//! indexed get. These are internal-only (`size_`/`at_`), wrapped by the
 //! `.ph`-defined public protocol (`size`/`at(_)`/`each(_)`/`==`/`hash`) in
 //! `core.ph`, except `fromList(_)`, which is a public static primitive
 //! directly (mirroring `List::new()`) — the construction path until the
@@ -56,7 +56,7 @@ pub fn tuple_class_from_list(vm: &mut VM, _receiver: &Value, args: &[Value]) -> 
     Ok(Value::Obj(vm.heap.alloc_tuple(elements)))
 }
 
-/// Signature: `Tuple::rawSize` — the tuple's fixed arity.
+/// Signature: `Tuple::size_` — the tuple's fixed arity.
 ///
 /// # Errors
 ///
@@ -66,7 +66,7 @@ pub fn tuple_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     Ok(Value::Number(vm.heap.tuple(id).len() as f64))
 }
 
-/// Signature: `Tuple::rawAt(_)` — raw indexed read, total (mirrors
+/// Signature: `Tuple::at_(_)` — raw indexed read, total (mirrors
 /// `list_raw_at`: hit returns the raw element, miss returns the `None`
 /// singleton — never a panic, never the raw `nil` sentinel).
 ///

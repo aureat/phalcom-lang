@@ -73,7 +73,7 @@ mid-phase.
 | D | `universe.classes` populated | primitives absent (globals point at method-less rows) |
 | E | `Some` class exists | `some_new` not yet callable (installed in F) |
 | F | `Some` layout set (E) — `some_new` allocates a 1-field instance | `core.ph` reopens not yet attached |
-| G | **all** primitives installed (reopens call `rawAt`, `<`, `call`, …) | — (this is the last mutation) |
+| G | **all** primitives installed (reopens call `at_`, `<`, `call`, …) | — (this is the last mutation) |
 | H | G complete | *nothing* — full §5–6 invariant set asserted here |
 
 **Key reading:** the object model is only *fully* consistent at the **end of
@@ -92,7 +92,7 @@ must be preserved by any change to `VM::new`:
    *(This is why the `Some` layout block sits between `install_core` and
    `install_primitives`, not in `create_core_classes`.)*
 3. **F → G.** `core.ph` reopens invoke the primitives they wrap
-   (`List.at(_)` → `rawAt(_)`, `List.each` → `Block#call`/`Number#<`). Running
+   (`List.at(_)` → `at_(_)`, `List.each` → `Block#call`/`Number#<`). Running
    `core.ph` before the floor is installed leaves every skeleton inert — the
    historical bug U-LIST surfaced (see `vm.rs` L152–160).
 4. **G → H.** `verify_invariants` asserts the quiescent shape; it must run after

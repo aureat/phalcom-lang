@@ -110,7 +110,7 @@ impl MapObject {
     /// Appends a fresh `(key, value)` entry and indexes it under `bucket`.
     ///
     /// Does **not** check for an existing key at `bucket` — the caller (the
-    /// `rawPut`/`rawAdd` primitive) must have already confirmed no live entry
+    /// `put_`/`add_` primitive) must have already confirmed no live entry
     /// matches `key` (via [`Self::bucket`] + a Phalcom `==` scan) before
     /// calling this, or the map gains a duplicate key.
     pub fn insert_new(&mut self, bucket: i64, key: Value, value: Value) {

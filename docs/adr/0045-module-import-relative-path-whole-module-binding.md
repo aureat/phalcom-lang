@@ -169,8 +169,8 @@ further floor growth. Net floor delta = **+1**.
   (or bind every top-level name individually), which the "everything top-level is a
   member" Draft-0.1 model does not yet distinguish. Reserved (`from` unlexed) for a
   clean follow-up once whole-module binding is exercised.
-- **Split the floor amendment into `Module#rawGet(_:)`/`Module#rawHas(_:)` plus a
-  `.ph`-defined `doesNotUnderstand` override (mirroring `List`'s `rawAt`/`at`
+- **Split the floor amendment into `Module#get_(_:)`/`Module#has_(_:)` plus a
+  `.ph`-defined `doesNotUnderstand` override (mirroring `List`'s `at_`/`at`
   split).** Rejected — two floor primitives instead of one for no behavioral gain;
   `doesNotUnderstand`'s selector-to-member-name decoding
   (`crate::method::decode_selector`) is not itself expressible in `.ph` (no surface
