@@ -1,0 +1,32 @@
+[package]
+name = "phalcom-lsp"
+version = "0.1.0"
+edition = "2024"
+description = "In-process Language Server Protocol server for Phalcom (ADR-0056)."
+
+[[bin]]
+name = "phalcom-lsp"
+path = "src/main.rs"
+
+[lib]
+name = "phalcom_lsp"
+path = "src/lib.rs"
+
+[dependencies]
+# Front end only — no `phalcom-core`. See ADR-0056 §2: this crate is
+# deliberately VM-free so it starts instantly and cannot be destabilized by
+# runtime/heap churn.
+phalcom-ast = { path = "../phalcom-ast" }
+phalcom-common = { path = "../phalcom-common" }
+# `tower-lsp` over the raw `lsp-server`+`lsp-types` stack: ADR-0056 §1
+# (DEC-LSP-A), decided. Pinned to 0.20, the current stable release; the
+# `tower-lsp` vs `tower-lsp-server` (community fork) choice is a maintenance
+# detail left open by the ADR — `tower-lsp` is used here.
+tower-lsp = "0.20.0"
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "macros", "sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dashmap = "6.2.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "io-util", "macros", "sync", "time"] }
