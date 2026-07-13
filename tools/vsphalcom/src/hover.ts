@@ -5,8 +5,7 @@ import {
     TextDocument,
     Position,
     CancellationToken,
-    ProviderResult,
-    Range
+    ProviderResult
 } from "vscode"
 import coreTable from "./generated/core-table.json"
 
@@ -279,48 +278,67 @@ export class PhalcomHoverProvider implements HoverProvider {
             return new Hover(md, wordRange)
         }
 
-        // Selector signature hover.
+        // Selector signature hover and the Phaldoc layer are independent
+        // sources — a purely local method (not in the harvested core
+        // table) still gets a hover from its own `///` doc block, and a
+        // core selector still gets a signature hover with no local doc.
+        // Gating Phaldoc behind "only if it's also a core selector" was
+        // the bug: it made local-declaration hover (the common case)
+        // silently never fire.
         const matches = selectorsForName(word)
-        if (matches.length > 0) {
-            return new Hover(renderSelectorHover(document, wordRange, matches), wordRange)
+        const summary = findPhaldocSummaryForLine(document, wordRange.start.line)
+
+        if (matches.length === 0 && !summary) {
+            return undefined
         }
 
-        return undefined
+        return new Hover(renderHover(word, matches, summary), wordRange)
     }
 }
 
 /**
- * Composes the hover markdown for a matched selector name: one signature
- * line per distinct selector (kind + defining class(es)), a Phaldoc
- * summary when the hover line is itself a local `///`-documented
- * declaration, and the (currently inert) contract-view seam.
+ * Composes the hover markdown from whichever of its two independent
+ * sources are present: a core-table signature (one line per distinct
+ * selector — kind + defining class(es)) and/or a local `///` Phaldoc
+ * summary, plus the (currently inert) contract-view seam attached per
+ * matched selector, if any.
  */
-function renderSelectorHover(document: TextDocument, wordRange: Range, matches: FlatSelector[]): MarkdownString {
+function renderHover(word: string, matches: FlatSelector[], summary: string | undefined): MarkdownString {
     const md = new MarkdownString()
     md.isTrusted = false
 
-    const lines = matches.map(flat => {
-        const sources = Array.from(flat.sources).join(", ")
-        return `\`${flat.selector}\` — ${flat.kind} on ${flat.classes.join(", ")} (${sources})`
-    })
-    md.appendMarkdown(lines.join("\n\n"))
+    const sections: string[] = []
 
-    // Phaldoc layer: only resolves when the hovered line is itself a
-    // local declaration line documented by a `///` block in this
-    // document (see `findPhaldocSummaryForLine`).
-    const summary = findPhaldocSummaryForLine(document, wordRange.start.line)
+    if (matches.length > 0) {
+        sections.push(
+            matches
+                .map(flat => {
+                    const sources = Array.from(flat.sources).join(", ")
+                    return `\`${flat.selector}\` — ${flat.kind} on ${flat.classes.join(", ")} (${sources})`
+                })
+                .join("\n\n")
+        )
+    } else {
+        // No core-table match: still label the hover with the bare name so
+        // a purely local, Phaldoc-only hover doesn't render as an
+        // unlabelled floating paragraph.
+        sections.push(`**${word}**`)
+    }
+
     if (summary) {
-        md.appendMarkdown(`\n\n---\n\n${summary}`)
+        sections.push(summary)
     }
 
     // Contract-view seam — always inert today, wired so it drops in later
-    // without restructuring this composition path.
+    // without restructuring this composition path. Only meaningful for a
+    // real core selector, so it's skipped when there's no match.
     for (const flat of matches) {
         const contractView = renderContractView(flat.selector)
         if (contractView) {
-            md.appendMarkdown(`\n\n---\n\n${contractView}`)
+            sections.push(contractView)
         }
     }
 
+    md.appendMarkdown(sections.join("\n\n---\n\n"))
     return md
 }
