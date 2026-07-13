@@ -1114,14 +1114,18 @@ impl VM {
                         self.heap.fiber_mut(failed).status = crate::heap::FiberStatus::Failed;
                         self.heap.fiber_mut(failed).result = error_value;
                         // Spec §5.1: a `Failed` fiber can never resume, so its
-                        // parked frames are pure retention — clear them here.
-                        // The originating fiber's own `FiberObject::frames` is
-                        // already empty (it was `vm.frames`, the live mirror,
-                        // when it raised); this matters for an intermediate
-                        // `Call`-mode resumer walked by this cascade, whose
-                        // `frames` field still holds the stack it parked when
-                        // it resumed the fiber that ultimately failed.
+                        // parked state is pure retention — clear all three
+                        // parked fields here (not just `frames`). The
+                        // originating fiber's own `FiberObject` fields are
+                        // already empty (they were `vm.frames`/`stack`/
+                        // `open_upvalues`, the live mirror, when it raised);
+                        // this matters for an intermediate `Call`-mode
+                        // resumer walked by this cascade, whose fields still
+                        // hold the state it parked when it resumed the fiber
+                        // that ultimately failed.
                         self.heap.fiber_mut(failed).frames.clear();
+                        self.heap.fiber_mut(failed).stack.clear();
+                        self.heap.fiber_mut(failed).open_upvalues.clear();
                         let mode = self.heap.fiber(failed).resume_mode;
                         let Some(resumer) = self.heap.fiber(failed).resumer else {
                             return Err(e);

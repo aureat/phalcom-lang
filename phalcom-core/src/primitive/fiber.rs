@@ -191,16 +191,15 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
         FiberStatus::Suspended => {}
     }
 
-    let receiver_idx = vm.stack.len() - 1 - args.len();
-    let resumer_ref = vm.current;
-    vm.heap.fiber_mut(resumer_ref).resume_slot = receiver_idx;
-    store_live_into(vm, resumer_ref);
-
-    vm.heap.fiber_mut(callee_ref).resumer = Some(resumer_ref);
-    vm.heap.fiber_mut(callee_ref).resume_mode = mode;
-
+    // Resolve and validate the entry callable *before* any state mutation
+    // (the resumer steal below): an early return here must leave the calling
+    // fiber's live stacks and `vm.current` completely untouched, since this
+    // check can fail for an ordinary usage error (wrong arity) that has
+    // nothing to do with the callee having actually started running. Doing
+    // this after `store_live_into` was a real bug — see the regression
+    // golden `fiber_first_resume_arity_mismatch_does_not_corrupt_resumer.ph`.
     let started = vm.heap.fiber(callee_ref).started;
-    if !started {
+    let entry_call = if !started {
         let entry = vm.heap.fiber(callee_ref).entry.expect("non-root fiber always has an entry");
         let (closure_id, home_frame_token) = match vm.heap.get(entry) {
             Object::Block(block) => (block.closure, Some(block.home_frame_token)),
@@ -209,8 +208,26 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
         };
         let arity = vm.heap.closure(closure_id).callable.arity;
         if args.len() != arity {
-            return Err(RuntimeError::Arity { signature: "call", expected: arity, found: args.len() }.into());
+            let signature = match mode {
+                FiberResumeMode::Call => "call",
+                FiberResumeMode::Try => "try",
+            };
+            return Err(RuntimeError::Arity { signature, expected: arity, found: args.len() }.into());
         }
+        Some((entry, closure_id, home_frame_token))
+    } else {
+        None
+    };
+
+    let receiver_idx = vm.stack.len() - 1 - args.len();
+    let resumer_ref = vm.current;
+    vm.heap.fiber_mut(resumer_ref).resume_slot = receiver_idx;
+    store_live_into(vm, resumer_ref);
+
+    vm.heap.fiber_mut(callee_ref).resumer = Some(resumer_ref);
+    vm.heap.fiber_mut(callee_ref).resume_mode = mode;
+
+    if let Some((entry, closure_id, home_frame_token)) = entry_call {
         // `vm.stack`/`vm.frames` are empty here (just taken by
         // `store_live_into` above), so the callee's fresh window starts at 0.
         let stack_offset = vm.stack.len();
