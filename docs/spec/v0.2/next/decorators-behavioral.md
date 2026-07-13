@@ -459,9 +459,9 @@ a composition lane:
   side-effecting method safe to re-run; it forecloses only the *illusion* that it
   does, by stating the contract at the decorator rather than hiding it.
 
-## Open questions
+## Open questions — resolved
 
-| # | Question |
+| # | Decision |
 |---|----------|
-| B-1 | **Per-receiver-lifetime `@memoize`.** Should a Layout-tier builtin `@memoize(perReceiver: true)` ship — a compute-cache in a reserved slot that dies with the receiver (leak-free, like `@lazy`/`@computed`) — or is the class-wide `(recv,args)` cache with optional `max:` LRU sufficient for v0.2? Options: **(a)** ship class-wide Install only now, defer per-receiver to the same v0.3 session as ADR-0052's weak-key revisit; **(b)** ship both now (a builtin Layout variant alongside the user Install one). Recommendation leans (a) — do not build a second builtin before the weak-key story is decided. |
-| B-2 | **`Backoff` strategy surface.** Is `Backoff` a ratified core class (`none`/`fixed`/`exponential` constructors, a `waitBefore(attempt)` protocol), or does `@retry` take a raw block `backoff: { attempt => … }`? Options: **(a)** core `Backoff` class (discoverable, testable, three named strategies); **(b)** bare block (maximally flexible, no new class). Leans (a) for testability and a fake-clock seam. |
+| B-1 | **(a) — class-wide Install cache only, `max:` LRU as the only bound.** No Layout-tier `perReceiver:` builtin variant ships in v0.2. Revisit alongside ADR-0052's weak-key GC revisit in v0.3 (see [DEFERRED.md](../../../forge/DEFERRED.md)) — do not build a second builtin before that story is decided. |
+| B-2 | **(a) — `Backoff` is a ratified core class**, as specified above (`Backoff.none`/`.fixed(ms)`/`.exponential(base:,max:)`, `waitBefore(attempt)`). Chosen for the fake-clock test seam a raw block can't offer. |

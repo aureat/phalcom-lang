@@ -335,10 +335,10 @@ Golden `.ph` cases (positive stdout-exact unless noted):
   are kept distinct; neither is deleted, and neither is presented as a replacement for
   the other's use case.
 
-## Open questions
+## Open questions — resolved
 
-| # | Question |
+| # | Decision |
 |---|----------|
-| D-1 | **Open whole-protocol forwarding.** Should a separate **Dispatch**-tier `@forwardMissing(to:)` decorator exist (forward *every* miss to a field via `doesNotUnderstand`, colliding-checked against a hand-written DNU per [decorators.md D-4](decorators.md)), or is the explicit-selector Compile `@delegate` plus the hand-written `Proxy`/DNU library ([proxy.md](proxy.md)) sufficient? Options: **(a)** ship Compile `@delegate` only; open forwarding stays library/hand-written; **(b)** add `@forwardMissing` as a distinct Dispatch decorator for the "delegate the whole interface" case. Leans (a) — the explicit list covers the safe common case and the DNU library already covers the open case; a second decorator earns its keep only if whole-interface delegation proves common. |
-| D-2 | **`Tracer` core class.** Is `Tracer` a ratified core protocol with a `stdout` default and named methods (`enter`/`exit`/`threw`), or does `@traced` take three raw blocks? Options: **(a)** a `Tracer` protocol + `Tracer.stdout` builtin (pluggable, testable via a double); **(b)** blocks (`onEnter:`/`onExit:`/`onThrow:`). Leans (a) for the test-double seam and structured-logger drop-in. |
-| D-3 | **`Flags` registry ownership.** Does `@featureFlag` query a ratified ambient `Flags` core module, or a user-supplied `FeatureFlags` service resolved by name / dependency-injected? Options: **(a)** a core `Flags` module (`Flags.enabled(name)`), simplest, one global registry; **(b)** an injected `FeatureFlags` service the decorator resolves (testable per-scope, no global). Leans (a) for v0.2 (global registry, matches the sketch), with (b) as the natural upgrade once dependency injection (`@inject`, [decorators-stdlib.md](decorators-stdlib.md)) is specified. |
+| D-1 | **(a) — `@delegate` stays Compile-only, explicit-selector.** No separate Dispatch-tier `@forwardMissing(to:)`. Open whole-protocol forwarding remains the hand-written `Proxy`/DNU library's job ([proxy.md](proxy.md)). The `@forwardMissing` alternative is recorded for v0.3 reconsideration in [DEFERRED.md](../../../forge/DEFERRED.md), to be revisited only if whole-interface delegation proves common enough to earn a second decorator. |
+| D-2 | **(a) — `Tracer` is a ratified core protocol** (`enter`/`exit`/`threw`) with a `Tracer.stdout` default, as specified above. The raw-three-blocks alternative is recorded for v0.3 in [DEFERRED.md](../../../forge/DEFERRED.md). |
+| D-3 | **(a) — `Flags` is a ratified ambient core module** (`Flags.enabled(name)`), one global registry, as specified above. The injected/per-scope `FeatureFlags` service alternative is recorded for v0.3 in [DEFERRED.md](../../../forge/DEFERRED.md), as the natural upgrade once dependency injection (`@inject`, [decorators-stdlib.md](decorators-stdlib.md)) is specified. |
