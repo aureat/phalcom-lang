@@ -35,7 +35,17 @@
         "scopeName": "source.phalcom",
         "path": "./syntaxes/phalcom.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Phalcom",
+      "properties": {
+        "phalcom.executablePath": {
+          "type": "string",
+          "default": "phalcom",
+          "description": "Path to the phalcom CLI executable used for diagnostics (e.g. target/debug/phalcom for a local build). Defaults to \"phalcom\" on $PATH."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
