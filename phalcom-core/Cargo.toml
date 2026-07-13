@@ -7,6 +7,10 @@ edition = "2024"
 name = "phalcom"
 path = "bin/phalcom/main.rs"
 
+[[bin]]
+name = "gen-core-table"
+path = "bin/gen-core-table/main.rs"
+
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
