@@ -1,14 +1,14 @@
-use crate::block::BlockObject;
-use crate::boolean::{FALSE, TRUE};
+use crate::heap::BlockObject;
+use crate::value::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
-use crate::closure::ClosureObject;
+use crate::heap::ClosureObject;
 use crate::diagnostics::{print_rt, SourceLoc};
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, CallFrame};
 use crate::heap::{ObjRef, Object};
 use crate::method::{decode_selector, SignatureKind};
-use crate::module::CORE_MODULE_NAME;
-use crate::upvalue::Upvalue;
+use crate::heap::CORE_MODULE_NAME;
+use crate::heap::Upvalue;
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 use tracing::{debug, span, Level};
@@ -336,7 +336,7 @@ impl VM {
         }
         let error_class = self.universe.classes.error_class;
         let field_count = self.heap.class(error_class).field_count;
-        let mut inst = crate::instance::InstanceObject::new(error_class, field_count);
+        let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
         inst.slots[0] = self.alloc_string_value(e.to_string());
         Value::Obj(self.heap.alloc(Object::Instance(inst)))
     }
@@ -591,14 +591,14 @@ impl VM {
                     let responds = if open {
                         self.heap.class(class_id).responds_to_base_name(sym)
                     } else {
-                        crate::class::lookup_method_in_hierarchy(&self.heap, class_id, sym).is_some()
+                        crate::heap::lookup_method_in_hierarchy(&self.heap, class_id, sym).is_some()
                     };
                     if !responds {
                         let dnu_str = crate::method::encode_selector("doesNotUnderstand", &[None], SignatureKind::Method(1));
                         let dnu_sym = self.get_or_intern(&dnu_str);
                         let object_cls = self.universe.classes.object_class;
-                        let default_dnu = crate::class::lookup_method_in_hierarchy(&self.heap, object_cls, dnu_sym);
-                        let actual_dnu = crate::class::lookup_method_in_hierarchy(&self.heap, class_id, dnu_sym);
+                        let default_dnu = crate::heap::lookup_method_in_hierarchy(&self.heap, object_cls, dnu_sym);
+                        let actual_dnu = crate::heap::lookup_method_in_hierarchy(&self.heap, class_id, dnu_sym);
                         if actual_dnu == default_dnu {
                             let class_name = self.heap.class(class_id).name.clone();
                             return Err(RuntimeError::Message(format!(
@@ -640,7 +640,7 @@ impl VM {
                     // No superclass ⇒ the walk is empty ⇒ `doesNotUnderstand`.
                     let parent = self.classes.get(&defining_sym).and_then(|&c| self.heap.class(c).superclass);
 
-                    let mut method = parent.and_then(|p| crate::class::lookup_method_in_hierarchy(&self.heap, p, selector_sym));
+                    let mut method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, selector_sym));
 
                     // Super-construct fallback (U-INH §3.5): constructors are
                     // installed on the *metaclass* under a `SignatureKind::
@@ -659,7 +659,7 @@ impl VM {
                             let init_selector = crate::method::encode_selector(&name, &labels, SignatureKind::Initializer(a));
                             let init_sym = self.interner.intern(&init_selector);
                             let parent_meta = self.heap.class(p).class;
-                            method = crate::class::lookup_method_in_hierarchy(&self.heap, parent_meta, init_sym);
+                            method = crate::heap::lookup_method_in_hierarchy(&self.heap, parent_meta, init_sym);
                         }
                     }
 
@@ -746,7 +746,7 @@ impl VM {
                         if self.heap.as_class(class_id).is_some() {
                             let field_count = self.heap.class(class_id).field_count;
                             let instance_ref = self.heap.alloc(Object::Instance(
-                                crate::instance::InstanceObject::new(class_id, field_count)
+                                crate::heap::InstanceObject::new(class_id, field_count)
                             ));
                             self.stack.push(Value::Obj(instance_ref));
                         } else if self.heap.as_instance(class_id).is_some() {

@@ -2,8 +2,8 @@
 //!
 //! Realizes [ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md):
 //! `List` is a dedicated [`crate::heap::Object::List`] heap variant — mirroring
-//! [`crate::string::StringObject`] — **not** an
-//! [`crate::instance::InstanceObject`] built on U7's field-slot layout (U-LIST
+//! [`crate::heap::StringObject`] — **not** an
+//! [`crate::heap::InstanceObject`] built on U7's field-slot layout (U-LIST
 //! has no technical dependency on U7). There is no `Rc`/`RefCell`: mutation
 //! goes through `&mut Heap` like every other heap object
 //! ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)), so there is no

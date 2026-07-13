@@ -18,7 +18,7 @@ use crate::value::Value;
 use crate::vm::VM;
 
 /// Reads slot `index` of a `Message` instance `value`, or `None` if `value`
-/// is not an [`InstanceObject`](crate::instance::InstanceObject). Mirrors
+/// is not an [`InstanceObject`](crate::heap::InstanceObject). Mirrors
 /// [`crate::primitive::module`]'s private helper of the same shape (kept
 /// local rather than shared, since it is a one-line, non-generic accessor).
 fn message_slot(vm: &VM, value: &Value, index: usize) -> Option<Value> {

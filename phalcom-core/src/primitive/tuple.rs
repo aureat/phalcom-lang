@@ -11,7 +11,7 @@
 //! against this class.
 //!
 //! **No mutation primitive exists** — `Tuple`'s immutability is a
-//! representation guarantee ([`crate::tuple::TupleObject`]'s `Box<[Value]>`),
+//! representation guarantee ([`crate::heap::TupleObject`]'s `Box<[Value]>`),
 //! not merely an absent selector.
 
 use crate::error::{PhResult, RuntimeError};

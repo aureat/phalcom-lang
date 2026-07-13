@@ -3,7 +3,7 @@
 use crate::error::PhResult;
 use crate::error::RuntimeError;
 use crate::heap::Object;
-use crate::instance::InstanceObject;
+use crate::heap::InstanceObject;
 use crate::primitive::expect_class;
 use crate::value::Value;
 use crate::vm::VM;
@@ -51,7 +51,7 @@ pub fn class_set_superclass(_vm: &mut VM, _receiver: &Value, _args: &[Value]) ->
 /// `Object#name` returns the *class-of-receiver*'s name, which for a class `C`
 /// is the metaclass name `"C class"`, whereas `Behavior#name` returns the
 /// class's own stored name `"C"`. Underivable — no `.ph` primitive exposes a
-/// class's own [`name`](crate::class::ClassObject::name) field, and there is no
+/// class's own [`name`](crate::heap::ClassObject::name) field, and there is no
 /// `.ph` string slicing to recover `"C"` from `"C class"`. A non-class receiver
 /// has no `Behavior` in its chain, so it still resolves `name` to `object_name`.
 /// Side-effect-free (R-INV-1.6).
@@ -65,12 +65,12 @@ pub fn behavior_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
     Ok(vm.alloc_string_value(name))
 }
 
-/// Signature: `Behavior::methods` — a fresh [`List`](crate::list::ListObject)
+/// Signature: `Behavior::methods` — a fresh [`List`](crate::heap::ListObject)
 /// of the selectors defined DIRECTLY on the receiver class, as
 /// [`Symbol`](crate::interner::Symbol)s.
 ///
 /// Enumerates the receiver's own method dictionary
-/// ([`ClassObject::methods`](crate::class::ClassObject::methods)) — the
+/// ([`ClassObject::methods`](crate::heap::ClassObject::methods)) — the
 /// non-inherited, own-dictionary keys — and returns them, one interned selector
 /// symbol per binding (SD-2;
 /// [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).

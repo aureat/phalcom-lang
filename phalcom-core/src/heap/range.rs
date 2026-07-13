@@ -5,7 +5,7 @@
 //! [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
 //! (the raw-primitive floor amendment): `Range` is a dedicated
 //! [`crate::heap::Object::Range`] heap variant, mirroring
-//! [`crate::list::ListObject`] — **not** an [`crate::instance::InstanceObject`].
+//! [`crate::heap::ListObject`] — **not** an [`crate::heap::InstanceObject`].
 //! Unlike every other native collection arm this unit builds, `Range` holds
 //! **no element storage at all** — just its three bound fields
 //! (`docs/spec/v0.2/core/tuple-and-range.md` §2 RG-2, laziness): `each`/

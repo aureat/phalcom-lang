@@ -55,7 +55,7 @@ pub struct Universe {
     /// and never loops. There is deliberately no separate "in-progress" set:
     /// a module reached before its own top level finishes running is simply
     /// found here with a still-partially-populated
-    /// [`ModuleObject`](crate::module::ModuleObject) (some globals declared,
+    /// [`ModuleObject`](crate::heap::ModuleObject) (some globals declared,
     /// some not yet) — the documented cyclic-import partial-init hazard (U15
     /// plan §4): a name read across the not-yet-complete edge surfaces the
     /// ordinary "undefined global" / `doesNotUnderstand` miss, not a hang or

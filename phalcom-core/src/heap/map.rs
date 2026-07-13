@@ -5,7 +5,7 @@
 //! [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
 //! (the raw-primitive floor amendment): `Map` is a dedicated
 //! [`crate::heap::Object::Map`] heap variant, mirroring
-//! [`crate::list::ListObject`] — **not** an [`crate::instance::InstanceObject`].
+//! [`crate::heap::ListObject`] — **not** an [`crate::heap::InstanceObject`].
 //! There is no `Rc`/`RefCell`: mutation goes through `&mut Heap` like every
 //! other heap object ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
 //!

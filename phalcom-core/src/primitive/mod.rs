@@ -155,7 +155,7 @@ pub(crate) fn hash_code(bits: u64) -> Value {
 /// Extracts a class handle from a receiver value.
 ///
 /// Replaces the heap-agnostic `expect_value!(_, Class)` arm: a class is now a
-/// [`Value::Obj`] whose heap object is a [`ClassObject`](crate::class::ClassObject).
+/// [`Value::Obj`] whose heap object is a [`ClassObject`](crate::heap::ClassObject).
 ///
 /// # Errors
 ///
@@ -174,7 +174,7 @@ pub(crate) fn expect_class(vm: &VM, value: &Value) -> PhResult<ClassId> {
 /// Extracts a string's contents from a receiver value.
 ///
 /// Replaces the heap-agnostic `expect_value!(_, String)` arm: a string is now a
-/// [`Value::Obj`] whose heap object is a [`StringObject`](crate::string::StringObject).
+/// [`Value::Obj`] whose heap object is a [`StringObject`](crate::heap::StringObject).
 /// Returns an owned copy so callers can subsequently allocate without holding a
 /// heap borrow.
 ///
@@ -223,7 +223,7 @@ pub(crate) fn expect_method(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 /// Extracts a list's [`ObjRef`] handle from a receiver value.
 ///
 /// Mirrors [`expect_string`]: a list is a [`Value::Obj`] whose heap object is
-/// a [`crate::list::ListObject`]
+/// a [`crate::heap::ListObject`]
 /// ([ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
 ///
 /// # Errors
@@ -243,7 +243,7 @@ pub(crate) fn expect_list(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 /// Extracts a map's [`ObjRef`] handle from a receiver value.
 ///
 /// Mirrors [`expect_list`]: a map is a [`Value::Obj`] whose heap object is a
-/// [`crate::map::MapObject`] behind [`crate::heap::Object::Map`]
+/// [`crate::heap::MapObject`] behind [`crate::heap::Object::Map`]
 /// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
@@ -263,7 +263,7 @@ pub(crate) fn expect_map(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 /// Extracts a set's [`ObjRef`] handle from a receiver value.
 ///
 /// Mirrors [`expect_map`]: a set is a [`Value::Obj`] whose heap object is a
-/// [`crate::map::MapObject`] behind [`crate::heap::Object::Set`]
+/// [`crate::heap::MapObject`] behind [`crate::heap::Object::Set`]
 /// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
@@ -283,7 +283,7 @@ pub(crate) fn expect_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 /// Extracts a tuple's [`ObjRef`] handle from a receiver value.
 ///
 /// Mirrors [`expect_list`]: a tuple is a [`Value::Obj`] whose heap object is a
-/// [`crate::tuple::TupleObject`] behind [`crate::heap::Object::Tuple`]
+/// [`crate::heap::TupleObject`] behind [`crate::heap::Object::Tuple`]
 /// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
@@ -303,7 +303,7 @@ pub(crate) fn expect_tuple(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 /// Extracts a range's [`ObjRef`] handle from a receiver value.
 ///
 /// Mirrors [`expect_tuple`]: a range is a [`Value::Obj`] whose heap object is
-/// a [`crate::range::RangeObject`] behind [`crate::heap::Object::Range`]
+/// a [`crate::heap::RangeObject`] behind [`crate::heap::Object::Range`]
 /// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
@@ -395,7 +395,7 @@ pub(crate) fn mutable_key_error(vm: &mut VM, class_name: &str) -> RuntimeError {
     );
     let error_class = vm.universe.classes.error_class;
     let field_count = vm.heap.class(error_class).field_count;
-    let mut inst = crate::instance::InstanceObject::new(error_class, field_count);
+    let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
     let error = Value::Obj(vm.heap.alloc(crate::heap::Object::Instance(inst)));
     RuntimeError::Raise { error, rendered }

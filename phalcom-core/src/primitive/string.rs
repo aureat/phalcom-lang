@@ -8,8 +8,8 @@ use crate::vm::VM;
 /// Signature: `String::hash` — the cached djb2 content hash.
 ///
 /// Reuses the content hash the string already caches
-/// ([`StringObject::hash`](crate::string::StringObject::hash) /
-/// [`calculate_hash`](crate::string::StringObject::calculate_hash)) so equal
+/// ([`StringObject::hash`](crate::heap::StringObject::hash) /
+/// [`calculate_hash`](crate::heap::StringObject::calculate_hash)) so equal
 /// content hashes equal, satisfying `a == b ⇒ a.hash == b.hash` (R-INV-1.3)
 /// even for two distinct-handle strings — `String#==` is content equality.
 /// Underivable — the `String` floor exposes only `+`/`new`, not the bytes.

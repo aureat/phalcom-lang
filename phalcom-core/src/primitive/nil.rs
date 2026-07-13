@@ -20,7 +20,7 @@
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::Object;
-use crate::instance::InstanceObject;
+use crate::heap::InstanceObject;
 use crate::primitive::block::block_call;
 use crate::value::Value;
 use crate::vm::VM;

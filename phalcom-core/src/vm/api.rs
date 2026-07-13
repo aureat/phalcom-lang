@@ -1,9 +1,9 @@
-use crate::class::ClassObject;
+use crate::heap::ClassObject;
 use crate::error::PhResult;
 use crate::heap::{ClassId, Object, ObjRef};
 use crate::interner::Symbol;
 use crate::method::decode_selector;
-use crate::module::ModuleObject;
+use crate::heap::ModuleObject;
 use crate::value::Value;
 use std::sync::Arc;
 use tracing::debug;
@@ -123,7 +123,7 @@ impl VM {
     ///
     /// # Errors
     ///
-    /// Propagates [`ModuleObject::define`](crate::module::ModuleObject::define)
+    /// Propagates [`ModuleObject::define`](crate::heap::ModuleObject::define)
     /// errors (e.g. too many globals).
     pub fn define_global(&mut self, module_sym: Symbol, name_sym: Symbol, val: Value) -> PhResult<usize> {
         let module = self.get_module(module_sym).expect("correct module");
@@ -132,7 +132,7 @@ impl VM {
 
     /// Creates a user class `name` with its own metaclass and wires the tower.
     ///
-    /// Rebuilds `class_id`'s [`base_names`](crate::class::ClassObject::base_names)
+    /// Rebuilds `class_id`'s [`base_names`](crate::heap::ClassObject::base_names)
     /// index from scratch (selectors.md §3.1, U16-Open): its own directly
     /// bound methods' base names, merged with its superclass's
     /// already-finalized (and thus already-flattened) index.
@@ -141,7 +141,7 @@ impl VM {
     /// bootstrap, `VM::install_core`; again on every `.ph` class body or
     /// reopen, [`crate::bytecode::Bytecode::FinalizeClass`])
     /// since it always recomputes from the row's current
-    /// [`methods`](crate::class::ClassObject::methods) table rather than
+    /// [`methods`](crate::heap::ClassObject::methods) table rather than
     /// accumulating onto the prior index. Requires the superclass to already
     /// be finalized — every caller (the kernel bootstrap's dependency order,
     /// the compiler's single top-down class-compile pass) upholds that.

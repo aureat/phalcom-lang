@@ -18,7 +18,7 @@ pub fn module_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
 }
 
 /// Reads slot `index` of a `Message` instance `value`, or `None` if `value`
-/// is not an [`InstanceObject`](crate::instance::InstanceObject). Mirrors
+/// is not an [`InstanceObject`](crate::heap::InstanceObject). Mirrors
 /// [`crate::primitive::object`]'s private helper of the same shape (kept
 /// local rather than shared, since it is a one-line, non-generic accessor).
 fn message_slot(vm: &VM, value: &Value, index: usize) -> Option<Value> {
@@ -39,7 +39,7 @@ fn message_args(vm: &VM, message: &Value) -> Vec<Value> {
 /// `Module#doesNotUnderstand(_:)` — member access is an ordinary send
 /// (object-model.md §4, U15 DEC-U15): a message the kernel `Module` class
 /// itself does not define is checked against the module's own global table
-/// (its member table, [`ModuleObject::get`](crate::module::ModuleObject::get))
+/// (its member table, [`ModuleObject::get`](crate::heap::ModuleObject::get))
 /// before falling through to the [`Object`](crate::universe::CoreClasses::object_class)
 /// default's `MessageNotUnderstood` raise.
 ///

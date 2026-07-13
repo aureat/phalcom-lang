@@ -29,20 +29,35 @@
 //! the heap contract.
 
 mod accessors;
+mod block;
+mod class;
+mod closure;
 mod fiber;
+mod instance;
+mod list;
+mod map;
+mod module;
 mod object;
+mod range;
+mod string;
+mod tuple;
+mod upvalue;
 
+pub use block::BlockObject;
+pub use class::{lookup_method_in_hierarchy, ClassObject};
+pub use closure::ClosureObject;
 pub use fiber::{FiberObject, FiberResumeMode, FiberStatus};
+pub use instance::InstanceObject;
+pub use list::ListObject;
+pub use map::MapObject;
+pub use module::{next_module_id, ModuleObject, ModuleId, CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS};
 pub use object::{BoundMethodObject, FamilyObject, Object};
+pub use range::RangeObject;
+pub use string::StringObject;
+pub use tuple::TupleObject;
+pub use upvalue::Upvalue;
 
 use slotmap::{new_key_type, SlotMap};
-
-use crate::class::ClassObject;
-use crate::list::ListObject;
-use crate::map::MapObject;
-use crate::range::RangeObject;
-use crate::string::StringObject;
-use crate::tuple::TupleObject;
 
 new_key_type! {
     /// A `Copy` generational handle to an [`Object`] stored in the [`Heap`].

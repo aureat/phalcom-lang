@@ -14,7 +14,7 @@ use crate::error::PhResult;
 use crate::error::RuntimeError;
 use crate::expect_value;
 use crate::heap::Object;
-use crate::instance::InstanceObject;
+use crate::heap::InstanceObject;
 use crate::primitive::{expect_class, expect_list};
 use crate::value::Value;
 use crate::vm::VM;
@@ -146,7 +146,7 @@ pub fn object_perform(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 
 /// Signature: `Object::perform(_,_)` — reflectively send selector `args[0]`
 /// (a [`Symbol`](crate::interner::Symbol)) to the receiver with the arguments
-/// packed in the [`List`](crate::list::ListObject) `args[1]`
+/// packed in the [`List`](crate::heap::ListObject) `args[1]`
 /// (messages-and-selectors.md §5).
 ///
 /// Because the selector is a *complete* selector symbol (built via
@@ -285,7 +285,7 @@ pub fn message_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
     message_slot(vm, receiver, 1).ok_or_else(|| not_a_message(receiver))
 }
 
-/// Signature: `Message::labels` — the [`List`](crate::list::ListObject) of
+/// Signature: `Message::labels` — the [`List`](crate::heap::ListObject) of
 /// per-argument keyword labels (slot 2), one `String` per argument (`""` for a
 /// positional argument), index-aligned with [`message_args`].
 ///
@@ -296,7 +296,7 @@ pub fn message_labels(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     message_slot(vm, receiver, 2).ok_or_else(|| not_a_message(receiver))
 }
 
-/// Signature: `Message::args` — the [`List`](crate::list::ListObject) of the
+/// Signature: `Message::args` — the [`List`](crate::heap::ListObject) of the
 /// send's argument values (slot 3).
 ///
 /// # Errors

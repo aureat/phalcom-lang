@@ -14,9 +14,14 @@
 //! ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)); see
 //! `docs/forge/DEFERRED.md`.
 
+mod boolean;
+mod nil;
 mod render;
 
-use crate::class::lookup_method_in_hierarchy;
+pub use boolean::{FALSE, TRUE};
+pub use nil::NIL;
+
+use crate::heap::lookup_method_in_hierarchy;
 use crate::frame::CallContext;
 use crate::heap::{ClassId, Object, ObjRef};
 use crate::interner::Symbol;

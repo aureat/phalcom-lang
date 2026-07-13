@@ -101,16 +101,16 @@ impl VM {
     /// ADR-0012), for the `doesNotUnderstand(_:)` miss path.
     ///
     /// The returned `Message` is an ordinary fixed-slot
-    /// [`InstanceObject`](crate::instance::InstanceObject) of the kernel
+    /// [`InstanceObject`](crate::heap::InstanceObject) of the kernel
     /// `Message` class ([`CoreClasses::message_class`](crate::universe::CoreClasses::message_class)),
     /// built directly in Rust (no `.ph` `construct`) with four slots:
     ///
     /// 0. `selector` — the interned [`Symbol`] as sent;
     /// 1. `name` — the bare method name [`String`] (encoder-inverse, `+` for `+(_:)`);
-    /// 2. `labels` — a [`List`](crate::list::ListObject) of `String`, one per
+    /// 2. `labels` — a [`List`](crate::heap::ListObject) of `String`, one per
     ///    argument, `""` for a positional (unlabeled) argument so that
     ///    `labels.size == args.size` and callers can zip them;
-    /// 3. `args` — a [`List`](crate::list::ListObject) of the argument values.
+    /// 3. `args` — a [`List`](crate::heap::ListObject) of the argument values.
     ///
     /// The `""`-for-positional convention (rather than a separate absence
     /// marker) keeps the two lists index-aligned; it is a deliberate U8 choice,
@@ -132,7 +132,7 @@ impl VM {
         let args_list = Value::Obj(self.heap.alloc_list(args.to_vec()));
 
         let message_class = self.universe.classes.message_class;
-        let mut instance = crate::instance::InstanceObject::new(message_class, 4);
+        let mut instance = crate::heap::InstanceObject::new(message_class, 4);
         instance.slots[0] = Value::Symbol(selector);
         instance.slots[1] = name_val;
         instance.slots[2] = labels_list;

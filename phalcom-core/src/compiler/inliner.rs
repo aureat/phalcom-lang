@@ -15,7 +15,7 @@
 //!
 //! Each `compile_*` method below emits **both** paths for its construct: a
 //! guarded, zero-allocation inline fast path (the block body is spliced
-//! directly into the enclosing function's bytecode — no [`crate::closure::ClosureObject`]
+//! directly into the enclosing function's bytecode — no [`crate::heap::ClosureObject`]
 //! allocation, no call frame, spec §3's "zero closure allocation and zero
 //! call frames on the common path") and a fallback that materializes the
 //! block literal(s) and performs the exact same [`crate::bytecode::Bytecode::Invoke`]
@@ -219,7 +219,7 @@ impl<'vm> Compiler<'vm> {
     }
 
     /// Compiles `block`'s statements **inline** into the current function —
-    /// no new [`super::lib::FunctionState`], no [`crate::closure::ClosureObject`]
+    /// no new [`super::lib::FunctionState`], no [`crate::heap::ClosureObject`]
     /// allocation, no call frame (spec §3's zero-allocation invariant). A
     /// `return` inside therefore compiles to the enclosing method's ordinary
     /// [`Bytecode::Return`] and unwinds to the home method exactly as the

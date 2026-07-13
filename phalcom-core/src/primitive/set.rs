@@ -2,7 +2,7 @@
 //!
 //! Realizes the [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
 //! floor for [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md)'s
-//! native `Set` — a keys-only [`crate::map::MapObject`] (DEC-CT-B,
+//! native `Set` — a keys-only [`crate::heap::MapObject`] (DEC-CT-B,
 //! `docs/forge/units/U-COLLTYPES/plan.md` §8): allocate, size, membership
 //! add/has/remove, and indexed read (backs `Set#each(_)`). These are
 //! internal-only (`raw*`), wrapped by the `.ph`-defined public protocol
@@ -13,7 +13,7 @@
 //! [`crate::primitive::map`] `locate` — see that module's doc for the
 //! borrow-model proof; `locate` here (module-private) is its `Object::Set`-typed twin (same
 //! algorithm, different heap accessor, since `Object::Map` and `Object::Set`
-//! are distinct heap variants over the same [`crate::map::MapObject`] backing
+//! are distinct heap variants over the same [`crate::heap::MapObject`] backing
 //! struct and so need distinct `vm.heap.set`/`set_mut` calls).
 
 use crate::error::PhResult;

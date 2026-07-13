@@ -15,12 +15,12 @@ use crate::heap::Object;
 use crate::value::Value;
 use crate::vm::VM;
 
-/// Resolves `receiver` to the [`crate::closure::ClosureObject`] handle it calls
+/// Resolves `receiver` to the [`crate::heap::ClosureObject`] handle it calls
 /// through, together with the block's home-frame token (`None` when the receiver
 /// is not a block).
 ///
 /// A [`Object::Block`] unwraps to its wrapped closure and surfaces its
-/// [`home_frame_token`](crate::block::BlockObject::home_frame_token) so
+/// [`home_frame_token`](crate::heap::BlockObject::home_frame_token) so
 /// [`block_call`] can stamp the pushed frame for non-local return
 /// ([ADR-0013](../../docs/adr/0013-block-closure-upvalues.md)); a bare
 /// [`Object::Closure`] (e.g. a `Method`'s callable reflectively used as a
@@ -54,7 +54,7 @@ fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::heap::ObjRef,
 ///
 /// A [`Object::Method`] reports its signature's positional arity; an
 /// [`Object::BoundMethod`] delegates to the arity of the method it wraps
-/// (U-CORE-3) — neither has a [`ClosureObject`](crate::closure::ClosureObject)
+/// (U-CORE-3) — neither has a [`ClosureObject`](crate::heap::ClosureObject)
 /// to read `arity` off directly, unlike `Block`/`Closure`.
 pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     match receiver {
@@ -104,7 +104,7 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 /// A [`Object::BoundMethod`] receiver (`Method#bind(_)`'s result) is
 /// intercepted **before** `resolve_callable` and funnelled through
 /// [`VM::invoke_method_object`] instead — it has no
-/// [`ClosureObject`](crate::closure::ClosureObject) to resolve (a bound
+/// [`ClosureObject`](crate::heap::ClosureObject) to resolve (a bound
 /// *primitive* method has none at all), and this is what makes
 /// `bound.call(args) ≡ method.invokeOn(recv, args)` hold by construction
 /// (R-INV-3.3, U-CORE-3, [ADR-0028](../../docs/adr/0028-amend-floor-admit-method-reflection.md)).

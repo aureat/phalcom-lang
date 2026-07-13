@@ -21,7 +21,7 @@ pub use error::CompilerError;
 
 use crate::bytecode::Bytecode;
 use crate::callable::Callable;
-use crate::closure::ClosureObject;
+use crate::heap::ClosureObject;
 use crate::error::PhResult;
 use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;

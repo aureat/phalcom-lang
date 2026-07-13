@@ -43,7 +43,7 @@ pub struct ModuleObject {
     pub path: String,
     /// The module's source text, shared for diagnostics.
     pub source: Option<Arc<String>>,
-    /// Handle to the module's top-level [`ClosureObject`](crate::closure::ClosureObject), once compiled.
+    /// Handle to the module's top-level [`ClosureObject`](crate::heap::ClosureObject), once compiled.
     pub closure: Option<ObjRef>,
     /// Global variable slots, indexed by slot number.
     pub globals: Vec<Value>,

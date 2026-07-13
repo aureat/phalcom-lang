@@ -5,7 +5,7 @@
 //! [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
 //! (the raw-primitive floor amendment): `Tuple` is a dedicated
 //! [`crate::heap::Object::Tuple`] heap variant, mirroring
-//! [`crate::list::ListObject`] — **not** an [`crate::instance::InstanceObject`].
+//! [`crate::heap::ListObject`] — **not** an [`crate::heap::InstanceObject`].
 //! Unlike `List`, immutability is a **representation guarantee**: the backing
 //! `Box<[Value]>` is a fixed-length slice, and [`TupleObject`] exposes no
 //! mutation accessor at all (`docs/spec/v0.2/core/tuple-and-range.md` §1) — a
@@ -48,7 +48,7 @@ impl TupleObject {
     ///
     /// The caller (the `rawAt` primitive) surfaces an out-of-range read as
     /// the kernel `None` singleton, never a panic — mirrors
-    /// [`crate::list::ListObject::get`].
+    /// [`crate::heap::ListObject::get`].
     pub fn get(&self, index: usize) -> Option<Value> {
         self.elements.get(index).copied()
     }

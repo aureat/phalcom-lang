@@ -64,7 +64,7 @@ pub enum CallContext {
 /// A single closure activation: its code handle, receiver, and stack window.
 #[derive(Debug, Clone, Copy)]
 pub struct CallFrame {
-    /// Handle to the [`ClosureObject`](crate::closure::ClosureObject) executing.
+    /// Handle to the [`ClosureObject`](crate::heap::ClosureObject) executing.
     pub closure: ObjRef,
     /// The receiver context (`self`) for this activation.
     pub context: CallContext,
@@ -81,7 +81,7 @@ pub struct CallFrame {
     /// `return`, or `None` for an ordinary method/closure activation.
     ///
     /// Populated **only** when the frame is a block invocation: [`block_call`](crate::primitive::block::block_call)
-    /// copies it from the invoked [`BlockObject`](crate::block::BlockObject)'s
+    /// copies it from the invoked [`BlockObject`](crate::heap::BlockObject)'s
     /// `home_frame_token`, so the [`Bytecode::ReturnNonLocal`](crate::bytecode::Bytecode::ReturnNonLocal)
     /// handler can read "what activation am I unwinding to" straight off the
     /// currently-executing frame (the `BlockObject` that carried the token is not

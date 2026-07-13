@@ -9,7 +9,7 @@
 //! opcodes are an optimization over calling these, never a divergent
 //! reimplementation of their semantics.
 
-use crate::boolean::{FALSE, TRUE};
+use crate::value::{FALSE, TRUE};
 use crate::error::{PhResult, RuntimeError};
 use crate::primitive::block::block_call;
 use crate::primitive::expect_class;

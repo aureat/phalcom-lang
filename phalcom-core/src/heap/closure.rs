@@ -12,7 +12,7 @@ use crate::heap::ObjRef;
 ///
 /// A method/getter/setter body and a block literal both compile to a
 /// `ClosureObject`. Its `upvalues` are handles to heap-allocated
-/// [`Upvalue`](crate::upvalue::Upvalue) cells
+/// [`Upvalue`](crate::heap::Upvalue) cells
 /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md),
 /// [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)): the template
 /// closure the compiler emits carries an empty list, and the VM materializes a
@@ -22,7 +22,7 @@ use crate::heap::ObjRef;
 pub struct ClosureObject {
     /// The compiled bytecode and metadata this closure runs.
     pub callable: Callable,
-    /// Handle to the [`ModuleObject`](crate::module::ModuleObject) this closure
+    /// Handle to the [`ModuleObject`](crate::heap::ModuleObject) this closure
     /// was compiled in.
     pub module: ObjRef,
     /// Captured upvalue cells, as heap [`ObjRef`] handles into the

@@ -230,7 +230,7 @@ pub enum Bytecode {
     /// Emitted only for a module-top-level [`phalcom_ast::ast::Statement::Import`]
     /// — the compiler's sole write-set restriction for U15 (never inside a
     /// method/block/class body). At dispatch the path is resolved relative
-    /// to the *executing closure's own module* ([`crate::closure::ClosureObject::module`]),
+    /// to the *executing closure's own module* ([`crate::heap::ClosureObject::module`]),
     /// not the call site, so a nested re-entrant import always resolves
     /// against the file that wrote it. [`crate::vm::VM::import_module`] does
     /// the actual resolve → registry-probe → compile → run work; this opcode
@@ -247,7 +247,7 @@ pub enum Bytecode {
     ///
     /// Pops the receiver, resolves its class, and checks the **reference-time
     /// empty-family rule**: the reference is an error unless the receiver's
-    /// class [`responds_to_base_name`](crate::class::ClassObject::responds_to_base_name)
+    /// class [`responds_to_base_name`](crate::heap::ClassObject::responds_to_base_name)
     /// or has a `doesNotUnderstand(_:)` override (a class row whose resolved
     /// `doesNotUnderstand(_:)` differs from `Object`'s default handler). On
     /// success, allocates an [`Object::Family`](crate::heap::Object::Family)
@@ -260,7 +260,7 @@ pub enum Bytecode {
     MakeFamily(u16),
 
     /// Rebuilds a class's (and its metaclass's) flattened
-    /// [`base_names`](crate::class::ClassObject::base_names) index from its
+    /// [`base_names`](crate::heap::ClassObject::base_names) index from its
     /// own directly-defined methods merged with its superclass's
     /// already-finalized index (selectors.md §3.1, U16-Open).
     ///

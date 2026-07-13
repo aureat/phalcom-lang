@@ -1,15 +1,15 @@
-use crate::block::BlockObject;
-use crate::class::ClassObject;
-use crate::closure::ClosureObject;
-use crate::instance::InstanceObject;
-use crate::list::ListObject;
-use crate::map::MapObject;
+use crate::heap::BlockObject;
+use crate::heap::ClassObject;
+use crate::heap::ClosureObject;
+use crate::heap::InstanceObject;
+use crate::heap::ListObject;
+use crate::heap::MapObject;
 use crate::method::MethodObject;
-use crate::module::ModuleObject;
-use crate::range::RangeObject;
-use crate::string::StringObject;
-use crate::tuple::TupleObject;
-use crate::upvalue::Upvalue;
+use crate::heap::ModuleObject;
+use crate::heap::RangeObject;
+use crate::heap::StringObject;
+use crate::heap::TupleObject;
+use crate::heap::Upvalue;
 
 use super::object::{BoundMethodObject, FamilyObject};
 use super::{ClassId, FiberObject, Heap, ObjRef, Object};

@@ -1,6 +1,6 @@
 use crate::error::PhResult;
 use crate::heap::{ClassId, Object};
-use crate::module::CORE_MODULE_NAME;
+use crate::heap::CORE_MODULE_NAME;
 use crate::universe::Universe;
 use crate::value::Value;
 use std::collections::{BTreeMap, HashMap};

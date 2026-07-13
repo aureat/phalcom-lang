@@ -15,7 +15,7 @@ pub type PrimitiveFn = fn(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> P
 /// The implementation strategy behind a [`MethodObject`].
 #[derive(Debug, Clone, Copy)]
 pub enum MethodKind {
-    /// Phalcom code compiled to bytecode, by [`ClosureObject`](crate::closure::ClosureObject) handle.
+    /// Phalcom code compiled to bytecode, by [`ClosureObject`](crate::heap::ClosureObject) handle.
     Closure(ObjRef),
     /// A native Rust function for a core-library method.
     Primitive(PrimitiveFn),

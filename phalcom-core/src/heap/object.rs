@@ -1,16 +1,16 @@
-use crate::block::BlockObject;
-use crate::class::ClassObject;
-use crate::closure::ClosureObject;
-use crate::instance::InstanceObject;
+use crate::heap::BlockObject;
+use crate::heap::ClassObject;
+use crate::heap::ClosureObject;
+use crate::heap::InstanceObject;
 use crate::interner::Symbol;
-use crate::list::ListObject;
-use crate::map::MapObject;
+use crate::heap::ListObject;
+use crate::heap::MapObject;
 use crate::method::MethodObject;
-use crate::module::ModuleObject;
-use crate::range::RangeObject;
-use crate::string::StringObject;
-use crate::tuple::TupleObject;
-use crate::upvalue::Upvalue;
+use crate::heap::ModuleObject;
+use crate::heap::RangeObject;
+use crate::heap::StringObject;
+use crate::heap::TupleObject;
+use crate::heap::Upvalue;
 use crate::value::Value;
 
 use super::{FiberObject, ObjRef};
@@ -59,7 +59,7 @@ pub enum Object {
     /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
     /// Keyed by **Phalcom** `hash`+`==` (not Rust identity) — see
-    /// [`crate::map`]. Mutable ⇒ inherits identity `Object#hash`, not a valid
+    /// [`crate::heap::map`]. Mutable ⇒ inherits identity `Object#hash`, not a valid
     /// `Map`/`Set` key (Q5, collection-protocol law 4).
     Map(MapObject),
     /// A native hash set — a keys-only [`MapObject`] (DEC-CT-B): every

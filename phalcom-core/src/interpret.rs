@@ -11,7 +11,7 @@ use crate::diagnostics::print_parse;
 use crate::error::{IoError, PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
 use crate::heap::{Object, ObjRef};
-use crate::module::ModuleObject;
+use crate::heap::ModuleObject;
 use crate::vm::VM;
 use phalcom_ast::parse_source;
 use std::path::{Component, Path, PathBuf};

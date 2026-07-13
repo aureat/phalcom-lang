@@ -24,7 +24,7 @@
 //! [`Heap`]: phalcom_core::heap::Heap
 //! [`Heap::class`]: phalcom_core::heap::Heap::class
 
-use phalcom_core::class::lookup_method_in_hierarchy;
+use phalcom_core::heap::lookup_method_in_hierarchy;
 use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::heap::ClassId;
 use phalcom_core::interner::Symbol;
@@ -322,7 +322,7 @@ fn metaclass_responds_to_superclass_via_behavior() {
     // (universe.rs::install_primitives) and both Class and Metaclass inherit
     // it through the superclass chain, rather than each metaclass
     // special-casing its own accessor.
-    use phalcom_core::class::lookup_method_in_hierarchy;
+    use phalcom_core::heap::lookup_method_in_hierarchy;
     use phalcom_core::method::{make_signature, SignatureKind};
 
     let mut vm = VM::new();
@@ -1422,7 +1422,7 @@ fn only_error_subclasses_respond_to_raise() {
     let error_instance = {
         let error_class = vm.universe.classes.error_class;
         let field_count = vm.heap.class(error_class).field_count;
-        let inst = phalcom_core::instance::InstanceObject::new(error_class, field_count);
+        let inst = phalcom_core::heap::InstanceObject::new(error_class, field_count);
         Value::Obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)))
     };
     let responds_to_error = send1(&mut vm, error_instance, "respondsTo(_:)", raise_sym);
@@ -1439,7 +1439,7 @@ fn error_raise_unwinds_through_the_shared_raise_payload() {
     let mut vm = VM::new();
     let error_class = vm.universe.classes.error_class;
     let field_count = vm.heap.class(error_class).field_count;
-    let mut inst = phalcom_core::instance::InstanceObject::new(error_class, field_count);
+    let mut inst = phalcom_core::heap::InstanceObject::new(error_class, field_count);
     let text = vm.alloc_string_value("boom".to_string());
     inst.slots[0] = text;
     let error_instance = Value::Obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)));

@@ -14,14 +14,14 @@ impl Universe {
     /// primitives are installed.
     pub fn create_core_classes(heap: &mut Heap) -> CoreClasses {
         // 1. Allocate the 8 apex rows bare (object-model.md §6 step 1).
-        let object_class = heap.alloc_class(crate::class::ClassObject::bare("Object"));
-        let behavior_class = heap.alloc_class(crate::class::ClassObject::bare("Behavior"));
-        let class_class = heap.alloc_class(crate::class::ClassObject::bare("Class"));
-        let metaclass_class = heap.alloc_class(crate::class::ClassObject::bare("Metaclass"));
-        let object_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Object class"));
-        let behavior_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Behavior class"));
-        let class_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Class class"));
-        let metaclass_metaclass = heap.alloc_class(crate::class::ClassObject::bare("Metaclass class"));
+        let object_class = heap.alloc_class(crate::heap::ClassObject::bare("Object"));
+        let behavior_class = heap.alloc_class(crate::heap::ClassObject::bare("Behavior"));
+        let class_class = heap.alloc_class(crate::heap::ClassObject::bare("Class"));
+        let metaclass_class = heap.alloc_class(crate::heap::ClassObject::bare("Metaclass"));
+        let object_metaclass = heap.alloc_class(crate::heap::ClassObject::bare("Object class"));
+        let behavior_metaclass = heap.alloc_class(crate::heap::ClassObject::bare("Behavior class"));
+        let class_metaclass = heap.alloc_class(crate::heap::ClassObject::bare("Class class"));
+        let metaclass_metaclass = heap.alloc_class(crate::heap::ClassObject::bare("Metaclass class"));
 
         // 2. Wire instance-of (§6 step 2): every metaclass is an instance of
         //    Metaclass; Metaclass itself is an instance of Metaclass class,
@@ -94,7 +94,7 @@ impl Universe {
         // `None` is identity-comparable and zero-allocation. The `None` global
         // (bound in `VM::install_core`) points at *this* object, not the `None`
         // class.
-        let none_singleton = heap.alloc(crate::heap::Object::Instance(crate::instance::InstanceObject::new(none_class, 0)));
+        let none_singleton = heap.alloc(crate::heap::Object::Instance(crate::heap::InstanceObject::new(none_class, 0)));
 
         // Kernel `List` (ADR-0020): a native heap variant, not an
         // `InstanceObject`, so it has no field layout and needs no `construct`
@@ -203,13 +203,13 @@ impl Universe {
 fn make_core_class(heap: &mut Heap, name: &str, superclass: ClassId, metaclass_class: ClassId) -> ClassId {
     let metaclass_superclass = heap.class(superclass).class;
 
-    let metaclass = heap.alloc_class(crate::class::ClassObject::bare(&format!("{name} class")));
+    let metaclass = heap.alloc_class(crate::heap::ClassObject::bare(&format!("{name} class")));
     {
         let meta = heap.class_mut(metaclass);
         meta.class = metaclass_class;
         meta.superclass = Some(metaclass_superclass);
     }
-    let class = heap.alloc_class(crate::class::ClassObject::bare(name));
+    let class = heap.alloc_class(crate::heap::ClassObject::bare(name));
     {
         let class_ref = heap.class_mut(class);
         class_ref.class = metaclass;
@@ -283,37 +283,37 @@ pub struct CoreClasses {
     /// `List`, the native array-backed kernel list
     /// ([ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
     /// A dedicated [`crate::heap::Object::List`] heap variant, not an
-    /// `InstanceObject` — see [`crate::list::ListObject`].
+    /// `InstanceObject` — see [`crate::heap::ListObject`].
     pub list_class: ClassId,
     /// `Map`, the native insertion-ordered hash map
     /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
     /// A dedicated [`crate::heap::Object::Map`] heap variant over
-    /// [`crate::map::MapObject`] — mutable, so it inherits identity
+    /// [`crate::heap::MapObject`] — mutable, so it inherits identity
     /// `Object#hash` and is not a valid `Map`/`Set` key (Q5).
     pub map_class: ClassId,
     /// `Set`, the native hash set — a keys-only [`Self::map_class`] sibling
-    /// sharing [`crate::map::MapObject`]'s backing struct (DEC-CT-B), reached
+    /// sharing [`crate::heap::MapObject`]'s backing struct (DEC-CT-B), reached
     /// through the distinct [`crate::heap::Object::Set`] heap variant.
     pub set_class: ClassId,
     /// `Tuple`, the native fixed-arity immutable product
     /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
     /// A dedicated [`crate::heap::Object::Tuple`] heap variant over
-    /// [`crate::tuple::TupleObject`] — immutable, so it value-hashes and is a
+    /// [`crate::heap::TupleObject`] — immutable, so it value-hashes and is a
     /// valid `Map`/`Set` key (Q5).
     pub tuple_class: ClassId,
     /// `Range`, the native lazy numeric interval
     /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
     /// A dedicated [`crate::heap::Object::Range`] heap variant over
-    /// [`crate::range::RangeObject`] — three bound fields, no element
+    /// [`crate::heap::RangeObject`] — three bound fields, no element
     /// storage (RG-2 laziness). Immutable ⇒ value-hashable, a valid
     /// `Map`/`Set` key (Q5).
     pub range_class: ClassId,
     /// `Message`, the reified message-send handed to `doesNotUnderstand(_:)`
     /// on a lookup miss (method-lookup.md §2, ADR-0012). An ordinary
-    /// fixed-slot [`InstanceObject`](crate::instance::InstanceObject) built by
+    /// fixed-slot [`InstanceObject`](crate::heap::InstanceObject) built by
     /// [`crate::vm::VM::new_message`]; its four slots hold
     /// `selector`/`name`/`labels`/`args`.
     pub message_class: ClassId,

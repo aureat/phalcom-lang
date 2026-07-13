@@ -15,7 +15,7 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::frame::CallContext;
 use crate::heap::{FiberResumeMode, FiberStatus, Object, ObjRef};
-use crate::instance::InstanceObject;
+use crate::heap::InstanceObject;
 use crate::value::Value;
 use crate::vm::VM;
 

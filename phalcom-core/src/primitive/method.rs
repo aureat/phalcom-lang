@@ -24,7 +24,7 @@ pub fn method_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
 
 /// Signature: `Method::invokeOn(_,_)` — applies the reified method (`self`,
 /// the receiver of this send) to the explicit receiver `args[0]` and the
-/// argument [`List`](crate::list::ListObject) `args[1]`, unpacked as
+/// argument [`List`](crate::heap::ListObject) `args[1]`, unpacked as
 /// positional arguments (functions.md §3, U-CORE-3).
 ///
 /// Runs the **exact** reified method against `args[0]` via

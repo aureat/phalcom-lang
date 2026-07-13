@@ -1,34 +1,20 @@
 #![allow(unused_variables)]
 extern crate core;
 
-pub mod boolean;
 pub mod bytecode;
-pub mod block;
 pub mod callable;
 pub mod chunk;
-pub mod class;
-pub mod closure;
 
 pub mod compiler;
 pub mod diagnostics;
 pub mod error;
 pub mod frame;
 pub mod heap;
-pub mod instance;
 pub mod interner;
 pub mod interpret;
-pub mod list;
-pub mod map;
 pub mod method;
-pub mod module;
-pub mod nil;
 pub mod primitive;
-pub mod range;
-pub mod signature;
-pub mod string;
-pub mod tuple;
 pub mod universe;
-pub mod upvalue;
 pub mod value;
 pub mod vm;
 
