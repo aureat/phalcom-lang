@@ -1,6 +1,10 @@
 # Reactivity & Signals — the fourth capability from the substrate
 
-- Status: **Proposed** (experimental; not ratified — exploratory)
+- Status: **Accepted** (ratified 2026-07-13; R-1–R-5 resolved the same day,
+  see `## Ties to the model & open questions`). **Implementation still
+  blocked** on a new native module for `Reactive`'s ambient tracking-context
+  and effect scheduler ([ADR-0058](../../../adr/0058-reactive-tracking-context-needs-a-native-module.md)) —
+  not yet built.
 - Date: 2026-07-12
 - Depends on:
   [method-lookup.md](../method-lookup.md) (read/write interception) ·
@@ -232,15 +236,17 @@ assigns fields.
 
 `@observable`'s Layout tier reserves the `Signal` slot; auto-tracking is the same
 read-interception [proxies](proxy.md) use — so `@traced` (a Runtime decorator) and
-reactive tracking are the same interception seam. That is exactly
-[decorators.md](decorators.md)'s **D-3** (do multiple Runtime around-send hooks
-chain?), now with a concrete stake: a reactive object that is also `@traced` must
-compose both interceptors.
+reactive tracking are the same interception seam. `decorators.md`'s **D-3** (do
+multiple Runtime around-send hooks chain?) — this doc's stake in that question —
+is **already resolved**: Runtime hooks chain, source-order-innermost-last, same
+rule as Install (`decorators.md` D-3, ratified 2026-07-13). A reactive object
+that is also `@traced` composes both interceptors under that existing rule; no
+open question remains here.
 
-| # | Question |
+| # | Decision |
 |---|----------|
-| R-1 | Adopt the three-color (clean/check/dirty) algorithm as the ratified propagation semantics, or the simpler over-eager mark-and-pull? |
-| R-2 | Does `Reactive`'s ambient tracking context live in class-side (metaclass) state, or a well-known global singleton? |
-| R-3 | Default reactivity granularity: shallow (reference) with opt-in reactive collections, vs deep (auto-wrap nested collections in reactive proxies)? |
-| R-4 | Effect scheduling policy — synchronous, microtask, or frame — and is it per-`Reactive`-scope configurable? |
-| R-5 | Ownership: is there a `Reactive.root { }` owner tree (Solid-style) that ties effect disposal to a lexical scope, unifying with the membrane `Revoker`? |
+| R-1 | **(a) — boolean stale-flag propagation (the over-eager skeleton shown above), not three-color.** Three-color (clean/check/dirty) is a pure correctness-preserving optimization — same recompute *results*, fewer redundant ones — deferrable to v0.3 per [ADR-0051](../../../adr/0051-performance-strategy-measure-first-tiered-optimization.md)'s measure-first strategy. Ship the simpler algorithm now. |
+| R-2 | **(a) — a native `Reactive` module**, not class-side `.ph` state (which does not exist as a language feature — `concurrency.md:234`) and not general VM support for class-side mutable slots. See [ADR-0058](../../../adr/0058-reactive-tracking-context-needs-a-native-module.md): reuses `System.schedule`'s precedent. Implementation is a new forge unit (`U-REACTIVE-NATIVE`), not yet built — this is the actual blocker on `R-REACTIVITY`/`D-OBSERVABLE`, now design-decided rather than open. |
+| R-3 | **(a) — shallow (reference) tracking by default**, opt-in reactive collections deferred. Deep-by-default would import a dependency on the [`Proxy`](proxy.md) library, itself still unratified — shallow has no such dependency and is this doc's own stated preference. |
+| R-4 | **(a) — synchronous flush only.** Microtask/animation-frame batching solves a UI-event-loop problem Phalcom doesn't have (cooperative fiber scheduler, no browser runtime). `Reactive.flush` stays the extension seam per-scope configurability would hook into, if ever needed. |
+| R-5 | **(a) — manual `Effect#dispose` only**, no `Reactive.root { }` owner tree. The owner-tree design explicitly wants to unify with the `Capability` membrane's `Revoker` (`proxy.md`), itself unratified — same dependency problem as R-3. Manual dispose is already fully specified above and sufficient for v1. |

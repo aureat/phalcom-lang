@@ -62,6 +62,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0055](0055-index-syntax-sugar-over-at-selectors.md) | Subscript indexing syntax sugar over `at`/`at:put:` selectors | Accepted |
 | [0056](0056-phalcom-lsp-architecture.md) | Phalcom language intelligence is an in-process `phalcom-lsp` server | Proposed |
 | [0057](0057-decorator-granularity-vs-proxy-granularity-split.md) | Decorator vs proxy granularity: method-declaration (`@name`) vs whole-object (`Proxy`) interception; both kept | Accepted |
+| [0058](0058-reactive-tracking-context-needs-a-native-module.md) | Reactive tracking-context and effect scheduler need a native module, not class-side `.ph` state | Accepted |
 
 > ADR-0029 (list literals) is now **Accepted** — its sub-decisions (desugar-to-sends,
 > no subscript sugar, trailing comma) were ratified with the collections umbrella
