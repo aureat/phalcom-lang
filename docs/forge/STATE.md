@@ -7,6 +7,9 @@ U-ERR, U-FUTURE) per `phase-next/INDEX.md` §build-order.
 ## Landed (do not redispatch)
 Spine U0–U11 + U-FE/U-LEX/U-LIST/U-STD. Core track U-CORE-1..6 (floor → 88).
 U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
+Later-landed (accepted): U-COLL, U-COLLTYPES, U-ITER-FIX, U-ERR, U15, U14, U16-Open,
+U-LEX-HASH, U16-Pinned, U-ERR-FIX, U-FIBER-FIX, U-FUTURE-A, U-REOPEN-FIX. ADR-affirm-closed:
+U12/U13/U17/U18. Floor → 113. Tip `e85f31a`.
 
 ## Landed this session
 - **U-COLL** ✅ — collection literals. `1274504` (list) / `5bc31e8` (tuple) /
@@ -145,12 +148,20 @@ U-INH, U-ITER, U-FIBER. Gate green at `0de7496` (`./scripts/verify.sh`).
   empty for both). Bootstrap safe (Rust stub pre-registers → .ph block takes Constant branch). Fix: reuse existing
   ClassId at vm.rs:1346. Floor 0. Wrinkle: field-adding reopen won't relayout → rule method-only in-scope, defer
   field-adding.
-- **Serial spine bug-fix tail (Group C next — window still open, concurrent still docs-only):**
-  U-REOPEN-FIX = Group C (iter deopt-trap descriptive-msg + method-reopening, both compiler/vm hot zone, floor 0) → 
-  bug-fix tail (grouped by write-set: Symbol#==·U-ERR 4-wave [PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/
-  NOT-KEYWORD]·iter deopt-trap+method-reopening·SuperSend-IC+SOURCE_MAP·U-FIBER-FIX cluster) → U-SCHED
-  (U-FUTURE Slice B). RECONCILE-FIRST: `has_new_construct` guard (DEFERRED L18) may already be fixed per
-  [[ctor-inherit-guard-fix]] — verify before implementing. Fire in order after U16-Open ACCEPTED.
+- **U-REOPEN-FIX** ✅ LANDED `e85f31a` (Group C, floor 0): Fix 1 method-reopening — `Bytecode::Class` (vm.rs)
+  now checks `self.classes` at runtime and REUSES the already-registered ClassId instead of `create_class`
+  shadowing, so a 2nd surface `class A {}` block APPENDS methods onto block 1's dict (ADR-0018; existing
+  `Bytecode::Method` epoch-bump unchanged). Field-adding + superclass-change reopen out of scope → rejected at
+  compile time with clear diagnostic (detected via persist-within-unit `field_layouts`/`class_parents`). Fix 2
+  materialized-block break/continue (U-ITER-FIX item 1(a)) — `emit_deopt_block_control_trap` raises
+  `Error.new(message)` w/ descriptive msg (was bare `Error.new()`), fails loud. Graduated
+  `iteration/pending/{break,continue}_across_materialized_block.ph` → NEGATIVE lane. Both DEFERRED entries struck
+  RESOLVED. Files: compiler/lib.rs +57, vm.rs +44, tests/lang.rs, DEFERRED.md, 2 fixtures moved.
+- **Serial spine bug-fix tail (Group C landed — remaining groups, concurrent still docs-only):**
+  DONE: Symbol#==·U-ERR 4-wave [PRINT-TOSTRING/SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD] (`dd2e178`)·iter
+  deopt-trap+method-reopening (`e85f31a`)·U-FIBER-FIX cluster (`a3e23e8`). REMAINING: **SuperSend-IC+SOURCE_MAP**
+  group → then **U-SCHED** (U-FUTURE Slice B). RECONCILE-FIRST: `has_new_construct` guard (DEFERRED L18) may
+  already be fixed per [[ctor-inherit-guard-fix]] — verify before implementing.
 - **U17** ✅ closed — Option-bootstrap formalization, affirm-ADR-0044. DEC-U17=A: defer
   niche-encoding (perf-only, belongs with NaN-boxing pass; None fieldless-singleton bootstrap
   already resolved, now ADR-anchored). No code. (Trivial follow-on: spec cross-ref in
@@ -282,6 +293,8 @@ bootstrap ADR — mostly docs).
 The unblocked queue (U-COLL→U-COLLTYPES→U-ERR) runs regardless of these.
 
 ## Next
-On U-COLL completion: verify green + `git show --stat`, then dispatch U-COLLTYPES
-(re-ground its §0/§4.1 anchors on HEAD first), reviewer ON. Integrate U-FUTURE
-plan into the queue once the architect returns.
+Bug-fix tail: only **SuperSend-IC + SOURCE_MAP** group left, then **U-SCHED** (U-FUTURE Slice B).
+BUT ⚠ concurrent iteration/string track (U-IS/U-ITERABLE/U-SEQ/U-STRING/U-NEG/U-NATIVE-MARKER,
+ADR-0048/0049) will churn spine (vm.rs/compiler/core.ph/floor-census/invariants) heavily — as of
+`e85f31a` still docs/planning only, no source uncommitted. Run tail collision-aware: `git status`
+before each dispatch; if their SOURCE goes live on a shared file, PAUSE (never two writers on one file).
