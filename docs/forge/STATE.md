@@ -298,3 +298,35 @@ BUT ⚠ concurrent iteration/string track (U-IS/U-ITERABLE/U-SEQ/U-STRING/U-NEG/
 ADR-0048/0049) will churn spine (vm.rs/compiler/core.ph/floor-census/invariants) heavily — as of
 `e85f31a` still docs/planning only, no source uncommitted. Run tail collision-aware: `git status`
 before each dispatch; if their SOURCE goes live on a shared file, PAUSE (never two writers on one file).
+
+---
+
+## 2026-07-13 5:3xpm — M-ATTR-ROOT dispatch + root-drive-pump fix (stale entry above, new session)
+
+U-SCHED (`34246a8`, ready-queue + `System.schedule`/`runScheduled`) already landed on `main`
+since this STATE.md was last written — superseded the "Next" section above. Also landed since:
+U-LSP Stage 1-3 (`ba4bf25`), decorator ADRs 0052/0053/0057/0058 ratified, `PLAN-DECORATORS.md`
+written (critical path: **M-ATTR-ROOT → M-METAOBJECT → {M-INSTALL|M-LAYOUT-SLOTS|M-RUNTIME} →
+decorators**).
+
+**In flight now (2 agents, disjoint write-sets, worktree-isolated):**
+- `phalcom-implementer` on **M-ATTR-ROOT** (`docs/forge/HANDOFF-M-ATTR-ROOT.md`) — write-set:
+  `heap/class.rs`, `method/object.rs`, `heap/module.rs`, `primitive/attribute.rs` (new),
+  `primitive/mod.rs`, `universe/primitives.rs`, `compiler/attributes.rs`,
+  `compiler/lib/class_decl.rs`, `core.ph`, goldens. Gate: `annotation_unknown_error` +
+  `contracts_invariant_fiber_yield` go green.
+- `phalcom-implementer` on **root-drive-pump gap** — real bug, NOT a regression: despite
+  `concurrency.md:239`'s "VM::run drains the ready-queue" and U-SCHED's commit message claiming
+  it landed, `run_until`'s top-level-completion return (`vm/dispatch.rs:242`) never drains
+  `VM::ready_queue` — no `drain_ready_queue` fn exists anywhere. `runScheduled` (`core.ph:778`)
+  is manual-only. Write-set: `vm/dispatch.rs` only. Gate:
+  `concurrency_sched_fifo_order.ph` → `a\nb\nc\n`.
+
+**Next after both land:** M-METAOBJECT (`Method.fromBlock`/`Behavior.defineMethod`) — serialize
+after M-ATTR-ROOT, shares `core.ph`+`universe/primitives.rs`. D-DELEGATE is NOT parallelizable
+despite no M-ATTR-ROOT dependency — blocked externally on U-ANNOT-LAYOUT (not landed) and
+collides on `compiler/attributes.rs` anyway.
+
+Baseline `cargo test -p phalcom-core --test lang` pre-existing reds (independent, not blockers):
+`indexing`/`indexing_negative` (U-LEX-HASH `#[]` gap), `errors::annotation_construct_own_fields`
+(U-ANNOT-LAYOUT step 3/7, in-flight concurrent session).

@@ -236,9 +236,30 @@ impl VM {
                 Ok(value) => {
                     let finished = self.current;
                     let Some(resumer) = self.heap.fiber(finished).resumer else {
-                        // The root fiber's own top-level activation ended —
-                        // ordinary program/re-entrant-call completion,
-                        // unchanged from pre-U-FIBER behavior.
+                        // The root fiber's own top-level activation ended.
+                        // Root-drive pump (concurrency.md §2, "a root-drive
+                        // pump: `VM::run` drains the ready-queue once the
+                        // top-level program's own activation ends"): before
+                        // finishing, resume any fiber `System.schedule(_)`
+                        // queued, exactly like the `.ph`-level manual pump
+                        // (`System.runScheduled`, `core.ph`) does, so `await`
+                        // can rely on this firing automatically without the
+                        // top-level program calling `runScheduled` itself.
+                        //
+                        // `fiber_try` expects the ordinary Invoke calling
+                        // convention (a receiver value already sitting on
+                        // `self.stack`, consumed via its own `resume_slot`
+                        // bookkeeping) — push a placeholder so its
+                        // `receiver_idx` arithmetic doesn't underflow; it is
+                        // parked into this (root) fiber's stack by
+                        // `store_live_into` and overwritten on restore
+                        // (`switch_to_fiber_and_deliver`'s `stack.truncate`),
+                        // so it never leaks.
+                        if let Some(next) = self.ready_queue.pop_front() {
+                            self.stack.push(Value::Obj(next));
+                            crate::primitive::fiber::fiber_try(self, &Value::Obj(next), &[])?;
+                            continue;
+                        }
                         return Ok(value);
                     };
                     // Fiber-floor capture, success path (spec §3.2): `finished`
