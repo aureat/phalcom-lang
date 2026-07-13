@@ -89,7 +89,7 @@ pub struct VM {
     /// resume gate both check this against 0.
     pub(crate) native_reentry_depth: usize,
 
-    /// Loaded modules by name [`Symbol`], each a [`ModuleObject`] handle.
+    /// Loaded modules by name [`Symbol`], each a [`ModuleObject`](crate::heap::ModuleObject) handle.
     pub modules: HashMap<Symbol, ObjRef>,
     /// Handle to the program entry module, once known.
     pub main_module: Option<ObjRef>,

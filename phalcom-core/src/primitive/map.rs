@@ -11,7 +11,7 @@
 //!
 //! ## The re-entrant key-hash crux
 //!
-//! Per [`crate::heap::map`]'s module doc, a key's bucket and equality are **Phalcom**
+//! Per the `heap::map` module doc, a key's bucket and equality are **Phalcom**
 //! `hash`/`==`, sent via [`crate::vm::VM::send_dynamic`] — a re-entrant VM
 //! call. `locate` (module-private) is the single place that performs this: it extracts every
 //! candidate slot's key as an **owned** `Value` (`Value` is `Copy`) *before*

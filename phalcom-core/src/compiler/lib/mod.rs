@@ -1,6 +1,6 @@
 //! The AST-to-bytecode compiler.
 //!
-//! Lowers a parsed [`Program`] into a [`ClosureObject`] whose [`Chunk`] the VM
+//! Lowers a parsed [`Program`] into a [`ClosureObject`] whose [`Chunk`](crate::chunk::Chunk) the VM
 //! executes. String, method and superclass constants are materialized onto the
 //! [`Heap`](crate::heap::Heap) as the compiler emits them — the compiler already
 //! holds `&mut VM` and therefore the heap — and are referenced from the constant

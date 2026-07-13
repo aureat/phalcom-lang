@@ -38,7 +38,7 @@ pub enum CompilerError {
 
     /// A destructuring `let`/`var` pattern written without an initializer.
     ///
-    /// A tuple or list [`Pattern`] has nothing to unpack from an absent
+    /// A tuple or list [`Pattern`](phalcom_ast::ast::Pattern) has nothing to unpack from an absent
     /// value, so `let (a, b)` / `var [a, b]` with no `= expr` is rejected
     /// regardless of `let`/`var` (U14, open-questions.md Q7,
     /// [ADR-0046](../../../docs/adr/0046-destructuring-bindings.md)) — unlike

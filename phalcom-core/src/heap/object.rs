@@ -59,7 +59,7 @@ pub enum Object {
     /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
     /// Keyed by **Phalcom** `hash`+`==` (not Rust identity) — see
-    /// [`crate::heap::map`]. Mutable ⇒ inherits identity `Object#hash`, not a valid
+    /// the `heap::map` module doc. Mutable ⇒ inherits identity `Object#hash`, not a valid
     /// `Map`/`Set` key (Q5, collection-protocol law 4).
     Map(MapObject),
     /// A native hash set — a keys-only [`MapObject`] (DEC-CT-B): every
