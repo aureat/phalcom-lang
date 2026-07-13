@@ -1563,7 +1563,21 @@ impl<'source> Parser<'source> {
     fn parse_binary(&mut self, min_prec: u8) -> ParserResult<Expr> {
         let start = self.cur_start();
         let mut left = self.parse_unary()?;
-        while let Some((prec, op)) = binary_op(self.peek()) {
+        loop {
+            // `is`/`is!`/`is not`/`is! not` sit at the equality tier (prec 3)
+            // but are not a `binary_op` entry — they carry affixes (a
+            // contiguous `!` for strict, a `not` particle for negation) and
+            // are non-chaining, so [`Parser::parse_is`] handles the whole
+            // suffix itself. Gated to `min_prec <= 3` so a nested RHS
+            // (`parse_binary(4)`, comparison-tier-and-above) never re-enters
+            // this arm, keeping `is` from chaining through recursion.
+            if min_prec <= 3 && matches!(self.peek(), Token::Is) {
+                left = self.parse_is(left, start)?;
+                continue;
+            }
+            let Some((prec, op)) = binary_op(self.peek()) else {
+                break;
+            };
             if prec < min_prec {
                 break;
             }
@@ -1578,6 +1592,79 @@ impl<'source> Parser<'source> {
             }));
         }
         Ok(left)
+    }
+
+    /// Parses the `is` type-test operator suite (`is`, `is!`, `is not`,
+    /// `is! not`) following `left`, desugaring into existing AST nodes —
+    /// no dedicated `is` node exists.
+    ///
+    /// Per [is-tests.md](../../../docs/spec/v0.2/next/is-tests.md):
+    /// - `x is T` desugars to the send `x.is(T)` (subclass-inclusive).
+    /// - `x is! T` (a `!` **contiguous** with `is`, i.e. no whitespace
+    ///   between — the same adjacency test `selectors.md §2` uses for
+    ///   `#move`) desugars to `x.isExactly(T)` (live direct-class identity).
+    /// - A `not` particle immediately after `is`/`is!` is **always** the
+    ///   negation particle (Python's `is not` rule: it is consumed greedily
+    ///   here and is never parsed as a prefix on the RHS), wrapping the base
+    ///   send in `Expr::Unary(UnaryOp::Not)`.
+    /// - `is` is **non-chaining**: the desugared result is `Bool`, so a
+    ///   second `is` immediately following is a compile error rather than a
+    ///   silently-accepted `(x is T) is U`.
+    ///
+    /// The RHS is parsed at the comparison tier and above
+    /// (`parse_binary(4)`), matching the equality tier `is` itself occupies.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error from the RHS class expression, or returns a
+    /// [`SyntaxError`] if another `is` immediately follows the result.
+    fn parse_is(&mut self, left: Expr, start: usize) -> ParserResult<Expr> {
+        self.advance(); // consume `is`
+        let is_end = self.prev_end;
+
+        // Strict suffix: `!` contiguous with `is` (no whitespace). A `!`
+        // preceded by whitespace is not strict, and — post-U-NEG — a bare
+        // `!` elsewhere in expression position is itself a parse error, so
+        // this adjacency check is unambiguous.
+        let strict = matches!(self.peek(), Token::Bang) && self.cur_start() == is_end;
+        if strict {
+            self.advance(); // consume `!`
+        }
+
+        // `not` particle: greedy, always the negation particle here — never
+        // a prefix on the RHS.
+        let negate = self.eat(&Token::Not);
+
+        let rhs = self.parse_binary(4)?;
+        let range = (start..self.prev_end).into();
+        let method = if strict { "isExactly" } else { "is" }.to_string();
+        let base = Expr::MethodCall(Box::new(MethodCallExpr {
+            object: left,
+            method,
+            args: vec![Argument {
+                label: None,
+                expr: rhs,
+                range,
+            }],
+            range,
+        }));
+        let result = if negate {
+            Expr::Unary(Box::new(UnaryExpr {
+                op: UnaryOp::Not,
+                expr: base,
+                range,
+            }))
+        } else {
+            base
+        };
+
+        if matches!(self.peek(), Token::Is) {
+            return Err(self.error_here(strs(&[
+                "an expression (chained `is` is not allowed — the result of `is` is a `Bool`)",
+            ])));
+        }
+
+        Ok(result)
     }
 
     /// Parses a prefix unary expression (`-x`, `not x`), or delegates to

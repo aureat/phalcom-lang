@@ -1,6 +1,6 @@
 # `is` / `is!` / `is not` — kind-of and exact-instance test operators
 
-- Status: **Proposed** (experimental; not ratified — exploratory)
+- Status: **IMPLEMENTED** (U-IS)
 - Date: 2026-07-13
 - Depends on:
   [object-model.md](../object-model.md) (`isA(_)`, the metaclass tower, `class`) ·
@@ -62,6 +62,25 @@ There is **no prefix `!`**. General boolean negation is `not x`; inequality stay
 > operator (`Token::Not` → `UnaryOp::Not` in `parse_unary`); prefix `!` (`Token::Bang`)
 > is retired as an expression operator and now survives only inside the lexer's `!=`
 > (`Token::BangEqual`) disambiguation. All `!x` sites in `core.ph` migrated to `not x`.
+
+> Implementation note (U-IS): the `is`/`is!`/`is not`/`is! not` surface landed as a
+> pure parser desugar — `Parser::parse_is` (`phalcom-ast/src/parser.rs`), hooked into
+> `parse_binary`'s equality tier (`min_prec <= 3`) rather than a `binary_op` table
+> entry, since `is` carries affixes and is non-chaining. No new AST variant: the base
+> send desugars to an `Expr::MethodCall` (`is`/`isExactly`) and negation wraps it in
+> `Expr::Unary(UnaryOp::Not)`, reusing the existing lowering — no compiler.rs change,
+> no new bytecode. `is!` needs no dedicated lexer token: strictness is a parser-level
+> contiguous-span check (`self.cur_start() == is_end`, mirroring the `#move` adjacency
+> rule), exactly the "lexer alternative" this doc flagged as unneeded. `core.ph`'s
+> `Object#is`/`#isExactly`/`#isA` land exactly as specified above (no RHS-is-a-class
+> guard; I-4 = `false`).
+>
+> **Worked-example discrepancy:** the "Semantics" section's `3 is! Number` /
+> `3 is! Int` example assumes a `Number`/`Int` split that does not exist in this
+> codebase — numeric literals are direct `Number` instances (there is no separate
+> `Int` class over the floor yet), so `3.class == Number` and `3 is! Number` is
+> **`true`**, not `false`. The mechanism is unaffected; the `Dog extends Animal` /
+> `Point is Class` examples are unchanged and are what the golden corpus pins.
 
 ### Grammar & lexing
 
