@@ -38,8 +38,14 @@ git history) — see those specs' "Sources" sections for landing commits.
 - [`phase2/`](archive/phase2/) — the Phase-2 planning index, master `PLAN.md`, `parallel-tasks.md`,
   and the closed-out `STATE.md`/`HANDOFF.md` for that phase.
 
+**[`UNITS-TRACKER.md`](UNITS-TRACKER.md)** — cross-cutting index over `units/`, grouped by
+feature area (concurrency, collections, error-handling, …) instead of by unit number, with
+checkboxes and a landing-order timeline. A view, not a fork of the roster (see Conventions).
+
 ## Conventions
 
 - Don't fork the roster: status of record is `phase-next/STATE.md` + the as-built specs +
   `../spec/v0.2/core/README.md`. `phase-next/INDEX.md` *points*, it does not re-list.
+  `UNITS-TRACKER.md` is a read grouping of that same roster, not a second source of truth —
+  update the roster first, then refresh the tracker.
 - When a phase closes: `git mv phase-next/* archive/phaseN/`, then write a fresh `phase-next/`.
