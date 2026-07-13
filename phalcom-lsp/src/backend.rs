@@ -14,8 +14,12 @@
 //! receiver-aware `textDocument/completion`, resolving the receiver's class
 //! (via [`crate::completion::ReceiverResolver`]) and offering its selectors —
 //! user members from the [`WorkspaceIndex`], builtin members from
-//! [`crate::core_table`]. No hover or semantic tokens yet; those land in later
-//! stages.
+//! [`crate::core_table`].
+//!
+//! Stage 5 (ADR-0056, `docs/forge/units/U-LSP/plan.md` "Stage 5"):
+//! `textDocument/semanticTokens/full`, a flat lexer-driven token-coloring
+//! pass ([`crate::semantic_tokens`]). No hover yet; that lands in a later
+//! stage.
 
 use std::path::{Path, PathBuf};
 
@@ -25,8 +29,9 @@ use tower_lsp::lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, InitializeResult,
     InitializedParams, Location, MessageType, OneOf, Position, PositionEncodingKind,
-    ReferenceParams, ServerCapabilities, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkspaceSymbolParams,
+    ReferenceParams, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
+    SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -36,6 +41,7 @@ use crate::diagnostics::syntax_errors_to_diagnostics;
 use crate::documents::DocumentStore;
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::line_index::LineIndex;
+use crate::semantic_tokens;
 
 /// The Phalcom language server.
 ///
@@ -230,6 +236,10 @@ impl LanguageServer for Backend {
     /// (`Self::scan_workspace`) over every root named in `params`
     /// (`root_uri` and/or `workspace_folders` — plan "P4": no single-root
     /// assumption, every named root is scanned).
+    ///
+    /// Also advertises Stage 5's `semanticTokensProvider` (full-document
+    /// only, no `range`/`delta` support yet), with the legend built by
+    /// [`semantic_tokens::legend`].
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
         let mut roots: Vec<Url> = params
             .workspace_folders
@@ -260,6 +270,15 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec![".".to_string()]),
                     ..CompletionOptions::default()
                 }),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: semantic_tokens::legend(),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            ..SemanticTokensOptions::default()
+                        },
+                    ),
+                ),
                 ..ServerCapabilities::default()
             },
             server_info: Some(tower_lsp::lsp_types::ServerInfo {
@@ -436,5 +455,28 @@ impl LanguageServer for Backend {
         });
 
         Ok(items.map(CompletionResponse::Array))
+    }
+
+    /// Answers `textDocument/semanticTokens/full` (Stage 5): a flat,
+    /// lexer-driven token-coloring pass over the whole document
+    /// ([`semantic_tokens::tokens_for`]).
+    ///
+    /// Runs directly off the document's cached text and [`LineIndex`] — no
+    /// parse tree involved, so this works even on a currently-unparseable
+    /// buffer (diagnostics squiggle it red; tokens still color it).
+    ///
+    /// Returns `Ok(None)` if the document is not open.
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        let data = self
+            .documents
+            .with_document(&uri, |doc| semantic_tokens::tokens_for(&doc.text, &doc.line_index));
+        Ok(data.map(|data| SemanticTokensResult::Tokens(tower_lsp::lsp_types::SemanticTokens {
+            result_id: None,
+            data,
+        })))
     }
 }

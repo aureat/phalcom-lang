@@ -25,10 +25,13 @@
 //!   (`core-table.json`), consulted by completion for builtin receivers.
 //! - [`completion`] — receiver-aware [`textDocument/completion`] (Stage 3):
 //!   the pluggable [`completion::ReceiverResolver`] plus snippet rendering.
+//! - [`semantic_tokens`] — flat, lexer-driven [`textDocument/semanticTokens/
+//!   full`] (Stage 5): token classification and LSP delta-encoding.
 //! - [`backend`] — the [`tower_lsp::LanguageServer`] trait implementation,
 //!   exported as [`Backend`].
 //!
 //! [`textDocument/completion`]: tower_lsp::LanguageServer::completion
+//! [`textDocument/semanticTokens/full`]: tower_lsp::LanguageServer::semantic_tokens_full
 
 #![warn(missing_docs)]
 
@@ -40,5 +43,6 @@ pub mod documents;
 pub mod index;
 pub mod line_index;
 pub mod selectors;
+pub mod semantic_tokens;
 
 pub use backend::Backend;
