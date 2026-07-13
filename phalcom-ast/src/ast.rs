@@ -345,6 +345,10 @@ pub enum Expr {
     MethodCall(Box<MethodCallExpr>),
     GetProperty(Box<GetPropertyExpr>),
     SetProperty(Box<SetPropertyExpr>),
+    /// A postfix subscript read `object[index]` (U-INDEX). See [`IndexExpr`].
+    Index(Box<IndexExpr>),
+    /// A postfix subscript write `object[index] = value` (U-INDEX). See [`SetIndexExpr`].
+    SetIndex(Box<SetIndexExpr>),
     Block(Box<BlockExpr>),
     /// A `::` method reference — `receiver::name` (selectors.md §3, U16-Open,
     /// Open form only). See [`MethodRefExpr`].
@@ -376,6 +380,8 @@ impl Expr {
             Expr::MethodCall(e) => e.range,
             Expr::GetProperty(e) => e.range,
             Expr::SetProperty(e) => e.range,
+            Expr::Index(e) => e.range,
+            Expr::SetIndex(e) => e.range,
             Expr::Block(e) => e.range,
             Expr::MethodRef(e) => e.range,
             Expr::Symbol(e) => e.range,
@@ -396,6 +402,40 @@ pub struct SetPropertyExpr {
     pub object: Expr,
     pub property: String,
     pub value: Expr,
+    pub range: SourceRange,
+}
+
+/// A postfix subscript read — `object[index]` (U-INDEX).
+///
+/// Sugar over `object.at(index)` (collection-protocol.md §2, ADR-0055).
+/// Kept as a distinct node (rather than an immediate `MethodCall` desugar)
+/// so `parse_assignment` can distinguish the read form from the write form
+/// — the same reason `GetProperty`/`SetProperty` are distinct from `MethodCall`.
+#[derive(Debug, Clone)]
+pub struct IndexExpr {
+    /// The collection being indexed.
+    pub object: Expr,
+    /// The index expression.
+    pub index: Expr,
+    /// Source span from `object` start through `]`.
+    pub range: SourceRange,
+}
+
+/// A postfix subscript write — `object[index] = value` (U-INDEX).
+///
+/// Sugar over `object.at(index, put: value)` (collection-protocol.md §3,
+/// ADR-0055). Produced by `parse_assignment` when it sees an `Expr::Index`
+/// on the left of `=`, parallel to `SetProperty`'s production from
+/// `GetProperty`.
+#[derive(Debug, Clone)]
+pub struct SetIndexExpr {
+    /// The collection being mutated.
+    pub object: Expr,
+    /// The index expression.
+    pub index: Expr,
+    /// The new value.
+    pub value: Expr,
+    /// Source span from `object` start through the RHS.
     pub range: SourceRange,
 }
 

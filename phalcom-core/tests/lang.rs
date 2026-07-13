@@ -22,6 +22,12 @@ fn arithmetic() {
 }
 
 #[test]
+#[ignore = "spec target: arithmetic"]
+fn arithmetic_pending() {
+    support::check_pending("arithmetic");
+}
+
+#[test]
 fn booleans() {
     // U5: `and`/`or` are lazy sends over a block argument (control-flow.md
     // §2) — graduated from PENDING.
@@ -117,6 +123,15 @@ fn absence_pending() {
 }
 
 #[test]
+fn absence_negative() {
+    // Ported from Wren `test/core/null/{no_constructor,not}.wren`: `None`
+    // has no `new()` (it is the shared blessed singleton, ADR-0007) and no
+    // `not()` (Phalcom's `!` is `Bool`-only, ADR-0021 — no truthiness
+    // coercion makes `None` an exception) — both plain does-not-understand.
+    support::check_negative("absence/negative");
+}
+
+#[test]
 fn compile_errors() {
     // U6: compile-time diagnostics — surface `nil` is undefined, `let` requires
     // an initializer and rejects reassignment (ADR-0014), and a literal
@@ -167,6 +182,17 @@ fn functions() {
 #[ignore = "PENDING: functions — U-LEX selector/list/family literals"]
 fn functions_pending() {
     support::check_pending("functions");
+}
+
+#[test]
+fn functions_negative() {
+    // Ported from Wren `test/core/function/{call_extra_arguments,
+    // call_missing_arguments,call_runtime_error}.wren`: unlike Wren's
+    // pad/truncate call-arity leniency, `Block#call` (`primitive/block.rs`'s
+    // `block_call`) is strict — any arity mismatch raises
+    // `RuntimeError::Arity`; a body error still propagates through `call`
+    // unchanged.
+    support::check_negative("functions/negative");
 }
 
 #[test]
@@ -231,6 +257,12 @@ fn list() {
     // U-LIST: kernel `List` — native array storage, `.ph`-defined
     // at(_:)/size/add(_:)/each(_:) protocol over the floor primitives.
     support::check_pass("list");
+}
+
+#[test]
+#[ignore = "spec target: U-SEQ breadth (count/count(f)/join/join(sep)/find(f)) — collection-protocol.md §2, deps U-ITERABLE, not yet landed"]
+fn list_pending() {
+    support::check_pending("list");
 }
 
 #[test]
@@ -380,9 +412,45 @@ fn family_negative() {
 }
 
 #[test]
+fn string() {
+    // Wren-suite port (test/core/string/*.wren, string_byte_sequence/*.wren,
+    // string_code_point_sequence/*.wren): the behavior that already carries
+    // over onto today's thin `String` floor (`+(_)`/`hash`/`toString`/static
+    // `new`, primitive/string.rs) — content-equality `==`/`!=`, `+`
+    // concatenation, `toString` identity, `isA`/`class` type tests, and the
+    // `String.new(_)` any-value coercion (a deliberate divergence from
+    // Wren's constructor-less `String` metaclass).
+    support::check_pass("string");
+}
+
+#[test]
+#[ignore = "spec target: string — U-STRING (docs/forge/units/U-STRING/plan.md)"]
+fn string_pending() {
+    support::check_pending("string");
+}
+
+// NB: no `string_negative` test — the two Wren-suite NEGATIVE ports
+// (`string_concatenation_wrong_arg_type.ph`, `string_not_operator_unsupported.ph`)
+// live in `tests/lang/runtime-errors/`, already fully exercised by
+// `runtime_errors()` above (a second `check_negative("runtime-errors")` call
+// would just re-run the same directory).
+
+#[test]
 fn imports_negative() {
     // U15: a missing import target and the documented cyclic-import
     // partial-init hazard (a name read across the not-yet-complete edge of
     // a mutual import) both fail cleanly — never a hang, never a panic.
     support::check_negative("imports/negative");
+}
+
+#[test]
+fn indexing() {
+    // U-INDEX: postfix `[]` and `[]=` syntax sugar over `at(_)` / `at(_,put:)`.
+    support::check_pass("indexing");
+}
+
+#[test]
+fn indexing_negative() {
+    // U-INDEX: negative indexing scenarios (OOB write raises, non-indexable doesNotUnderstand).
+    support::check_negative("indexing/negative");
 }

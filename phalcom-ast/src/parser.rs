@@ -1225,6 +1225,12 @@ impl<'source> Parser<'source> {
                     value,
                     range,
                 })),
+                Expr::Index(ix) => Expr::SetIndex(Box::new(SetIndexExpr {
+                    object: ix.object,
+                    index: ix.index,
+                    value,
+                    range,
+                })),
                 other => Expr::Assignment(Box::new(AssignmentExpr {
                     name: Box::new(other),
                     value,
@@ -1464,7 +1470,7 @@ impl<'source> Parser<'source> {
         let mut expr = self.parse_primary()?;
         while matches!(
             self.peek(),
-            Token::Dot | Token::QuestionDot | Token::LParen | Token::LBrace | Token::ColonColon
+            Token::Dot | Token::QuestionDot | Token::LParen | Token::LBrace | Token::ColonColon | Token::LBracket
         ) {
             if self.eat(&Token::QuestionDot) {
                 expr = self.parse_optional_send(expr, start)?;
@@ -1530,6 +1536,15 @@ impl<'source> Parser<'source> {
                     object: expr,
                     method: "call".to_string(),
                     args,
+                    range,
+                }));
+            } else if self.eat(&Token::LBracket) {
+                let index = self.parse_assignment()?;
+                self.expect(&Token::RBracket, &["\"]\""])?;
+                let range = (start..self.prev_end).into();
+                expr = Expr::Index(Box::new(IndexExpr {
+                    object: expr,
+                    index,
                     range,
                 }));
             } else if matches!(self.peek(), Token::LBrace) {

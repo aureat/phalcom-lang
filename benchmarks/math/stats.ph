@@ -7,11 +7,10 @@
 // stdlib method surface is still DEFERRED (typing-stdlib-surface.md), so the exact
 // selector names below may shift. Assumed list API:
 //   [a, b, c]           list literal
-//   xs.length           element count
-//   xs[i]               indexing (returns element; see numeric-and-string-indexing.md)
+//   xs.size             element count
+//   xs[i]               indexing (returns element; see U-INDEX and ADR-0055)
 //   for (x in xs) {..}  === xs.each { x => .. }
 //   xs.reduce(init) { acc, x => .. }   left fold
-//   xs.sorted           ascending copy
 // Verifies via identities (independent of hardcoded results):
 //   sum via reduce == sum via for-loop
 //   two-pass variance == E[x^2] - E[x]^2
@@ -33,7 +32,7 @@ class Stats {
   }
 
   static mean(xs) {
-    return Stats.sum(xs) / xs.length
+    return Stats.sum(xs) / xs.size
   }
 
   // Two-pass variance: (1/n) * sum (x - mean)^2
@@ -43,7 +42,7 @@ class Stats {
     for (x in xs) {
       acc = acc + (x - m) * (x - m)
     }
-    return acc / xs.length
+    return acc / xs.size
   }
 
   // Alternate route: E[x^2] - (E[x])^2. Must match variance() up to rounding.
@@ -51,12 +50,26 @@ class Stats {
     let m = Stats.mean(xs)
     var sq = 0
     for (x in xs) { sq = sq + x * x }
-    return sq / xs.length - m * m
+    return sq / xs.size - m * m
   }
 
   static median(xs) {
-    let s = xs.sorted
-    let n = s.length
+    var s = List.new()
+    for (x in xs) { s.add(x) }
+    var i = 0
+    while (i < s.size) {
+      var min_idx = i
+      var j = i + 1
+      while (j < s.size) {
+        if (s[j] < s[min_idx]) { min_idx = j }
+        j = j + 1
+      }
+      var temp = s[i]
+      s[i] = s[min_idx]
+      s[min_idx] = temp
+      i = i + 1
+    }
+    let n = s.size
     if (n % 2 == 1) {
       return s[(n - 1) / 2]
     }

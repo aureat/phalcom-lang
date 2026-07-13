@@ -2053,6 +2053,24 @@ impl<'vm> Compiler<'vm> {
                 let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                 self.emit(Bytecode::Invoke(1, selector_idx), set_prop.range);
             }
+            Expr::Index(ix) => {
+                self.compile_expr(ix.object.clone())?;
+                self.compile_expr(ix.index.clone())?;
+                let selector = encode_selector("at", &[None], SignatureKind::Method(1));
+                let sym = self.vm.interner.intern(&selector);
+                let idx = self.add_constant(Value::Symbol(sym));
+                self.emit(Bytecode::Invoke(1, idx), ix.range);
+            }
+            Expr::SetIndex(six) => {
+                self.compile_expr(six.object.clone())?;
+                self.compile_expr(six.index.clone())?;
+                self.compile_expr(six.value.clone())?;
+                let labels: Vec<Option<String>> = vec![None, Some("put".to_string())];
+                let selector = encode_selector("at", &labels, SignatureKind::Method(2));
+                let sym = self.vm.interner.intern(&selector);
+                let idx = self.add_constant(Value::Symbol(sym));
+                self.emit(Bytecode::Invoke(2, idx), six.range);
+            }
             Expr::Number { value, range } => {
                 let idx = self.add_constant(Value::Number(value));
                 self.emit(Bytecode::Constant(idx), range);
@@ -2300,6 +2318,15 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut
         Expr::SetProperty(set_prop) => {
             collect_assigned_fields(&set_prop.object, fields, interner);
             collect_assigned_fields(&set_prop.value, fields, interner);
+        }
+        Expr::Index(ix) => {
+            collect_assigned_fields(&ix.object, fields, interner);
+            collect_assigned_fields(&ix.index, fields, interner);
+        }
+        Expr::SetIndex(six) => {
+            collect_assigned_fields(&six.object, fields, interner);
+            collect_assigned_fields(&six.index, fields, interner);
+            collect_assigned_fields(&six.value, fields, interner);
         }
         Expr::Block(block) => {
             for stmt in &block.body {

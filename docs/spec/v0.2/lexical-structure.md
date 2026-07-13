@@ -177,4 +177,13 @@ overlap with `#` (symbols) or `::` (method references).
 - `on`, `catch`, and `ensure` are **contextual keywords** — reserved only as
   `try`-clauses — so the `.on()`/`.ensure()` selectors and the `Fiber>>try` message
   keep working; `try` is reserved at statement-leading position.
+
+## 14. Subscript indexing syntax: `[]` / `[]=`
+
+Full semantics in [ADR-0055](../../adr/0055-index-syntax-sugar-over-at-selectors.md).
+
+`expr[idx]` is syntactic sugar for `expr.at(idx)` (collection-protocol.md §2).
+`expr[idx] = value` is syntactic sugar for `expr.at(idx, put: value)` (collection-protocol.md §3).
+
+The `[` is recognized as a postfix operator only when it immediately follows a completed primary/postfix chain on the **same line**. A `[` at the start of a new line is always parsed as a fresh list literal, not an index (avoiding JavaScript-style ASI hazard).
 </content>

@@ -4,7 +4,7 @@
 //   cargo run -p phalcom-core --bin phalcom -- benchmarks/math/vectors.ph
 // Tier 2 (needs U6 `var` + collections + stdlib). Grounded in the spec surface;
 // stdlib selectors still DEFERRED (typing-stdlib-surface.md) so names may shift.
-// Assumed list API:  [..] literal, xs.length, xs[i], for (x in xs){..},
+// Assumed list API:  [..] literal, xs.size, xs[i], for (x in xs){..},
 //                    xs.reduce(init){acc,x=>..}, xs.map{x=>..}
 // Verifies via linear-algebra identities (no hardcoded magnitudes):
 //   dot(a, a) == norm(a)^2
@@ -35,7 +35,7 @@ class Vec {
   static dot(a, b) {
     var acc = 0
     var i = 0
-    while (i < a.length) {
+    while (i < a.size) {
       acc = acc + a[i] * b[i]
       i = i + 1
     }
@@ -45,8 +45,8 @@ class Vec {
   static add(a, b) {
     var out = []
     var i = 0
-    while (i < a.length) {
-      out = out + [a[i] + b[i]]   // list concat; see lexical-structure.md §6 (assumed)
+    while (i < a.size) {
+      out.add(a[i] + b[i])
       i = i + 1
     }
     return out
@@ -71,7 +71,7 @@ System.print(Check.approx(Vec.dot(a, a), Vec.norm(a) * Vec.norm(a)))   // true
 System.print(Vec.norm(a) == 5)                                         // true (3-4-5)
 
 // --- Cauchy–Schwarz inequality --------------------------------------------
-let lhs = Vec.dot(a, b)
+var lhs = Vec.dot(a, b)
 if (lhs < 0) { lhs = 0 - lhs }
 System.print(lhs <= Vec.norm(a) * Vec.norm(b))                         // true
 
