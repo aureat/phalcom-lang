@@ -981,3 +981,77 @@ class Backoff {
     }
   }
 }
+
+// `Attribute`/`On`/`Tier` (M-ATTR-ROOT, attribute-classes.md §"Decision"/
+// §"`@On`"/§"Bootstrap"): the reified-descriptor root every attribute class
+// extends, the `@On` builtin attribute carrying legality + declared tier, and
+// the tier marker classes. `@Name(args)` desugars, at the enclosing class's
+// definition time, to `Name.new(args)` + `artifact.__attach(_a)`
+// (`compiler::attributes`/`compiler::lib::class_decl`) — the constructed
+// instance is retained on the decorated artifact's native `_attributes` store
+// (`ClassObject`/`MethodObject`/`ModuleObject`, `primitive/attribute.rs`),
+// reflectable via `Behavior#attributes`/`Method#attributes` below.
+//
+// **Forced deviation (positional-only args, filed to `docs/forge/DEFERRED.md`):**
+// attribute-arg lists are positional-only — `parser.rs`'s
+// `parse_attribute_arg_list` has no label grammar — so `On`'s own
+// constructors are positional (`On.new(target)` / `On.new(target, tier)`),
+// not the spec's labeled `tier:`/`inherited:` form. `inherited:` is dropped
+// entirely for the same reason (v0.3 follow-on once labeled attribute args
+// exist). A single `target` (not a list) is stored, since the parser also has
+// no list-literal syntax yet (`core.ph` L306) to build a multi-target list at
+// a use site — multi-target `@On` is deferred alongside labeled args.
+
+// Root. Every attribute extends this — usage (retention, `resolves_to_
+// attribute_class`'s `extends` chain walk) is fixed in
+// `compiler::attributes` at this root.
+class Attribute {}
+
+// Builtin attribute carrying legality + declared tier (A-1) — recursion
+// bottoms out here: `On` is itself an `Attribute` subclass, so `@On(...)` on
+// an `Attribute` subclass's own header is retained/reflectable like any other
+// attribute. `tier` is `None` for passive metadata (no hook selector may be
+// implemented — `attr.undeclared_hook`) or one of the `Tier` marker classes
+// below (`Install`/`Dispatch`/`Runtime` — `Compile`/`Layout` are reserved for
+// compiler-native hooks only, `attr.compile_tier_reserved`).
+class On extends Attribute {
+  var _targets
+  var _tier
+
+  construct new(target) { _targets = target; _tier = None }
+  construct new(target, tier) { _targets = target; _tier = tier }
+
+  targets => _targets
+  tier => _tier
+}
+
+// The tier marker classes (attribute-classes.md: "same pattern Phalcom
+// already uses for `Bool`'s `True`/`False`" — real singleton objects, not
+// symbols; a bare class, used purely by identity, is the same pattern
+// `True`/`False` already establish). `Compile`/`Layout` are reserved for
+// compiler-native hooks only; `Install`/`Dispatch`/`Runtime` are the
+// user-facing tiers (M-INSTALL/M-DISPATCH/M-RUNTIME, PLAN-DECORATORS.md).
+class Tier {}
+class Compile extends Tier {}
+class Layout extends Tier {}
+class Install extends Tier {}
+class Dispatch extends Tier {}
+class Runtime extends Tier {}
+
+// `Behavior#attributes`/`#attributesOfType(_)` (object-model.md's metaclass
+// tower superclass of `Class`+`Metaclass`) — the reflection surface over the
+// native `_attributes` store every class object carries (M-ATTR-ROOT).
+// Method-only reopen (no new fields) — safe on a bootstrap class (a
+// reopen-with-fields would trip read-before-write).
+class Behavior {
+  attributes => self.__attributes
+  attributesOfType(cls) => self.__attributes.filter { a => a.isA(cls) }
+}
+
+// `Method#attributes`/`#attributesOfType(_)` — the same reflection surface
+// as `Behavior` above, for the reified `Method` object a class's method
+// dictionary holds.
+class Method {
+  attributes => self.__attributes
+  attributesOfType(cls) => self.__attributes.filter { a => a.isA(cls) }
+}

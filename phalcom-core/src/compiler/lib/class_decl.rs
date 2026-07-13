@@ -4,11 +4,22 @@ use crate::heap::Object;
 use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
-use phalcom_ast::ast::{Attribute, ClassDef, ClassMember, Expr, Statement};
+use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, MethodCallExpr, Statement};
 use indexmap::IndexMap;
+use phalcom_common::range::SourceRange;
 
 use super::error::CompilerError;
 use super::Compiler;
+
+/// Attribute names handled entirely by the compiler itself — the guard weave
+/// (`@requires`/`@ensures`/`@invariant`) or the field-derive (`@construct`,
+/// U-ANNOT-LAYOUT) — that carry no matching `Attribute`-subclass runtime
+/// instance and therefore emit no `Name.new(args)`/`__attach` codegen
+/// (M-ATTR-ROOT, `attribute-classes.md` §"What the compiler lowers"). `@On`
+/// is *not* in this set: it names an ordinary `Attribute` subclass instance
+/// (retained via `__attach` like any other) even though its own expansion is
+/// also a compiler-side no-op (see `compiler::attributes::OnExpander`).
+const COMPILER_ONLY_ATTRS: &[&str] = &["requires", "ensures", "invariant", "construct"];
 
 impl<'vm> Compiler<'vm> {
     /// Lowers a `class Name [extends Super] { members }` declaration
@@ -39,13 +50,26 @@ impl<'vm> Compiler<'vm> {
             CompileMode::Release => self.vm.strip_contract_metadata,
             CompileMode::Unchecked => true,
         };
+        // M-ATTR-ROOT: whether this class itself is a would-be `Attribute`
+        // subclass — a direct `extends Attribute` (transitively-inherited
+        // `On`/tier declarations are v0.3, `attribute-classes.md`'s A-1 "at
+        // most one tier per class" scope). Read before `expand_class_attributes`
+        // consumes `class_def` and before `ctx` borrows `self.vm.interner`
+        // mutably (borrow-order matters, see the handoff's "still unknown"
+        // list — `class_parents` is read-only here, `interner` mutable).
+        let is_attribute_class = class_def.superclass.as_ref().is_some_and(|sc| sc.name == "Attribute");
         let mut ctx = ExpandCtx {
             interner: &mut self.vm.interner,
             compile_mode: self.vm.compile_mode,
             strip_metadata,
+            class_parents: &self.vm.class_parents,
         };
         let registry = AttributeRegistry::new();
-        let class_def = expand_class_attributes(class_def, &mut ctx, &registry)?;
+        let mut class_def = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        // Retained class-level attributes (M-ATTR-ROOT): needed after
+        // `DefineGlobal` below, once `class_def.members` has been moved out
+        // by the member loop — captured here rather than re-read later.
+        let class_level_attrs = std::mem::take(&mut class_def.attributes);
 
         let range = class_def.range;
         let name_sym = self.vm.interner.intern(&class_def.name);
@@ -424,6 +448,8 @@ impl<'vm> Compiler<'vm> {
 
                     let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                     self.emit(Bytecode::Method(selector_idx, method_def.is_static), range);
+
+                    self.emit_member_attribute_attaches(&method_def.attributes, method_obj_idx, range)?;
                 }
                 ClassMember::Getter(getter_def) => {
                     let range = getter_def.range;
@@ -473,6 +499,8 @@ impl<'vm> Compiler<'vm> {
 
                         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                         self.emit(Bytecode::Method(selector_idx, getter_def.is_static), range);
+
+                        self.emit_member_attribute_attaches(&getter_def.attributes, method_obj_idx, range)?;
                     }
                 }
                 ClassMember::Setter(setter_def) => {
@@ -501,6 +529,8 @@ impl<'vm> Compiler<'vm> {
 
                     let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                     self.emit(Bytecode::Method(selector_idx, setter_def.is_static), range);
+
+                    self.emit_member_attribute_attaches(&setter_def.attributes, method_obj_idx, range)?;
                 }
                 ClassMember::Construct(construct_def) => {
                     let range = construct_def.range;
@@ -565,7 +595,109 @@ impl<'vm> Compiler<'vm> {
         // After defining all methods, the class is still on the stack.
         // Define it as a global variable.
         self.emit(Bytecode::DefineGlobal(name_idx), range);
+
+        // M-ATTR-ROOT: class-level `@Name(args)` runtime instantiate+attach
+        // codegen (`attribute-classes.md` §"What the compiler lowers").
+        // `DefineGlobal` above *consumed* the class value off the stack — no
+        // prior "run this after the class opcode" mechanism exists in this
+        // compiler, so the class is re-fetched here via `GetGlobal` (the
+        // closure that follows compiles the attach sends, then *runs* them —
+        // `DefineGlobal` already executed by the time these run, so the
+        // re-fetch always resolves). Compiler-only names
+        // (`COMPILER_ONLY_ATTRS`) are woven directly into method bodies
+        // above and carry no runtime `Attribute` instance, so they are
+        // skipped here.
+        let has_runtime_attrs = class_level_attrs.iter().any(|a| !COMPILER_ONLY_ATTRS.contains(&a.name.as_str()));
+        if has_runtime_attrs {
+            for attr in &class_level_attrs {
+                if COMPILER_ONLY_ATTRS.contains(&attr.name.as_str()) {
+                    continue;
+                }
+                self.emit(Bytecode::GetGlobal(name_idx), range);
+                self.emit_attribute_attach(attr)?;
+            }
+        }
+        // The retention store is frozen once, at the end of class
+        // definition (A-5, `attribute-classes.md`'s hazards table) — further
+        // `__attach` calls raise `attr.frozen`. Always emitted, even for a
+        // class with no attributes at all, so the invariant holds uniformly.
+        self.emit(Bytecode::GetGlobal(name_idx), range);
+        self.emit_freeze_attributes(range);
+
         Ok(())
+    }
+
+    /// Emits the member-level counterpart of the class-level attach codegen
+    /// above: for each of `attrs` not in [`COMPILER_ONLY_ATTRS`], pushes
+    /// `method_obj_idx` (the same constant-pool entry already used for this
+    /// member's [`Bytecode::Method`] — the identical [`crate::heap::ObjRef`]
+    /// now shared with the class's method dictionary, so attaching here
+    /// mutates the installed method object in place) as the `__attach(_)`
+    /// receiver. Freezes the method's own store afterward, same rationale as
+    /// the class-level freeze.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error compiling a retained attribute's constructor
+    /// arguments.
+    fn emit_member_attribute_attaches(&mut self, attrs: &[Attribute], method_obj_idx: u16, range: SourceRange) -> Result<(), CompilerError> {
+        let mut any = false;
+        for attr in attrs {
+            if COMPILER_ONLY_ATTRS.contains(&attr.name.as_str()) {
+                continue;
+            }
+            any = true;
+            self.emit(Bytecode::Constant(method_obj_idx), range);
+            self.emit_attribute_attach(attr)?;
+        }
+        if any {
+            self.emit(Bytecode::Constant(method_obj_idx), range);
+            self.emit_freeze_attributes(range);
+        }
+        Ok(())
+    }
+
+    /// Compiles `AttrName.new(args…)` (`@Name(args)` desugars to a normal,
+    /// fully positional constructor send — attribute arg lists are
+    /// positional-only, `parser.rs`'s `parse_attribute_arg_list`, filed to
+    /// `docs/forge/DEFERRED.md`) and immediately sends `__attach(_)` with it
+    /// as the sole argument, against whatever receiver is already on top of
+    /// the stack (a class or method object the caller pushed). Leaves the
+    /// stack exactly as found: the `__attach` call's `None` result is
+    /// popped.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error compiling the constructor call (e.g. an unknown
+    /// global, a malformed argument expression).
+    fn emit_attribute_attach(&mut self, attr: &Attribute) -> Result<(), CompilerError> {
+        let range = attr.range;
+        let ctor_call = Expr::MethodCall(Box::new(MethodCallExpr {
+            object: Expr::Var { value: attr.name.clone(), range },
+            method: "new".to_string(),
+            args: attr.args.iter().map(|expr| Argument { label: None, expr: expr.clone(), range }).collect(),
+            range,
+        }));
+        self.compile_expr(ctor_call)?;
+
+        let attach_selector = make_signature("__attach", SignatureKind::Method(1));
+        let attach_sym = self.vm.interner.intern(&attach_selector);
+        let attach_idx = self.add_constant(Value::Symbol(attach_sym));
+        self.emit(Bytecode::Invoke(1, attach_idx), range);
+        self.emit(Bytecode::Pop, range);
+        Ok(())
+    }
+
+    /// Sends `__freezeAttributes()` against whatever receiver is already on
+    /// top of the stack, then pops its `None` result — see
+    /// [`Self::emit_attribute_attach`] for the receiver-already-pushed
+    /// convention.
+    fn emit_freeze_attributes(&mut self, range: SourceRange) {
+        let freeze_selector = make_signature("__freezeAttributes", SignatureKind::Method(0));
+        let freeze_sym = self.vm.interner.intern(&freeze_selector);
+        let freeze_idx = self.add_constant(Value::Symbol(freeze_sym));
+        self.emit(Bytecode::Invoke(0, freeze_idx), range);
+        self.emit(Bytecode::Pop, range);
     }
 
     /// Builds `MethodObject::contracts` (U-ANNOT-CONTRACTS plan §3.5,

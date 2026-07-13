@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use phalcom_ast::ast::{AssignmentExpr, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, ParameterDef};
 use crate::compiler::lib::CompilerError;
+use crate::interner::Symbol;
 use crate::method::{encode_selector, SignatureKind};
 
 /// The active contract-stripping mode (U-ANNOT-CONTRACTS plan §3.6,
@@ -47,6 +48,14 @@ pub struct ExpandCtx<'a> {
     /// override — see `Compiler::new`'s call site — never coupled to guard
     /// stripping directly.
     pub strip_metadata: bool,
+    /// The compile-time superclass-edge map
+    /// ([`crate::vm::VM::class_parents`]), read-only here — used to walk an
+    /// attribute name's `extends` chain up to the `Attribute` root (M-ATTR-ROOT,
+    /// `attribute-classes.md` §"Decision") so an unrecognized attribute name
+    /// that *does* name a user `Attribute` subclass is retained silently
+    /// instead of raising `attr.unknown` (see `resolves_to_attribute_class`
+    /// in this module).
+    pub class_parents: &'a HashMap<Symbol, Symbol>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -461,6 +470,33 @@ impl AttributeExpander for ConstructExpander {
     }
 }
 
+/// Registry entry for `@On` — the builtin attribute carrying legality + tier
+/// for a user `Attribute` subclass's own header (M-ATTR-ROOT,
+/// `attribute-classes.md` §"`@On`"). Like [`InvariantExpander`]/
+/// [`ConstructExpander`], this impl's own [`AttributeExpander::expand`] is a
+/// deliberate no-op — `@On`'s actual work (tier-vs-hook validation, forced to
+/// positional args by the parser's arg-list grammar, see
+/// `docs/forge/DEFERRED.md`) needs the *whole class* (its declared members,
+/// to check for a matching reserved hook selector), so it runs once from
+/// [`expand_class_attributes`] itself via `validate_attribute_class`, not
+/// per-attribute through this trait method. The registry row still exists so
+/// `@On` on any non-`Class` target raises the ordinary `attr.illegal_target`.
+pub struct OnExpander;
+impl AttributeExpander for OnExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Class]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
 pub struct AttributeRegistry {
     expanders: HashMap<String, Box<dyn AttributeExpander + Send + Sync>>,
 }
@@ -472,6 +508,7 @@ impl AttributeRegistry {
         expanders.insert("ensures".to_string(), Box::new(EnsuresExpander));
         expanders.insert("invariant".to_string(), Box::new(InvariantExpander));
         expanders.insert("construct".to_string(), Box::new(ConstructExpander));
+        expanders.insert("On".to_string(), Box::new(OnExpander));
         Self { expanders }
     }
 
@@ -594,10 +631,130 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
     Ok(())
 }
 
+/// Walks `name`'s compile-time `extends` chain
+/// ([`ExpandCtx::class_parents`]) up to the `Attribute` root, returning
+/// whether `name` names a (possibly transitive) `Attribute` subclass.
+///
+/// Used by [`expand_class_attributes`] to decide whether an attribute name
+/// unrecognized by the [`AttributeRegistry`] (`@requires`/`@ensures`/
+/// `@invariant`/`@construct`/`@On` are the only registered names) is a real
+/// user `Attribute` subclass — retained silently — or genuinely unknown —
+/// `attr.unknown` (M-ATTR-ROOT, `attribute-classes.md` §"Decision"). The walk
+/// terminates at the implicit `Object` root (no entry in `class_parents`) or
+/// on revisiting an already-seen symbol (a reopen-redefinition back-edge, the
+/// same guard [`crate::compiler::lib::Compiler::inherits_new_construct`]
+/// uses).
+fn resolves_to_attribute_class(class_parents: &HashMap<Symbol, Symbol>, interner: &mut crate::interner::Interner, name: &str) -> bool {
+    let attribute_sym = interner.intern("Attribute");
+    let mut sym = interner.intern(name);
+    let mut visited = std::collections::HashSet::new();
+    while visited.insert(sym) {
+        if sym == attribute_sym {
+            return true;
+        }
+        match class_parents.get(&sym) {
+            Some(&parent) => sym = parent,
+            None => return false,
+        }
+    }
+    false
+}
+
+/// The hook selectors reserved for an `Attribute` subclass's tier
+/// declaration ([`validate_attribute_class`]), each paired with the tier
+/// name (as matched against a bare `@On(...)` argument `Var`) it belongs to.
+const RESERVED_HOOKS: &[(&str, &str)] =
+    &[("expand", "Compile"), ("finalizeLayout", "Layout"), ("wrap", "Install"), ("resolveMissing", "Dispatch"), ("aroundSend", "Runtime")];
+
+/// The five tier names recognized in a bare `@On(...)` argument position —
+/// matched by `Var` name, not resolved to the runtime [`Tier`] singleton
+/// object it names, since attribute-arg lists are positional-only (the
+/// parser cannot express `tier: Install`, see `docs/forge/DEFERRED.md`) and
+/// this check runs at compile time, before any singleton could be evaluated.
+const TIER_NAMES: &[&str] = &["Compile", "Layout", "Install", "Dispatch", "Runtime"];
+
+/// Validates a would-be `Attribute` subclass's own `@On(...)` tier
+/// declaration against its declared members (M-ATTR-ROOT,
+/// `attribute-classes.md` §"A-1"/§"The `Attribute` root and the hook
+/// protocol"). Called from [`expand_class_attributes`] only when
+/// `is_attribute_class` is set (the class directly `extends Attribute`).
+///
+/// # Errors
+///
+/// - `attr.compile_tier_reserved` — a declared tier of `Compile` or `Layout`
+///   (compiler-native only, A-3); no non-builtin class may occupy these.
+/// - `attr.missing_hook` — a declared `Install`/`Dispatch`/`Runtime` tier
+///   with no matching hook selector (`wrap`/`resolveMissing`/`aroundSend`)
+///   implemented among the class's members.
+/// - `attr.undeclared_hook` — a reserved hook selector implemented without a
+///   matching declared tier (no `@On` tier at all, or a tier declared but a
+///   *different* reserved selector is also implemented) — these names are
+///   reserved on `Attribute` subclasses specifically so an unrelated
+///   same-named method can't silently be drafted into a tier.
+fn validate_attribute_class(class: &ClassDef, class_attrs: &[phalcom_ast::ast::Attribute]) -> Result<(), CompilerError> {
+    let on_attr = class_attrs.iter().find(|a| a.name == "On");
+    let declared_tier: Option<&str> = on_attr.and_then(|attr| {
+        attr.args.iter().find_map(|arg| match arg {
+            Expr::Var { value, .. } if TIER_NAMES.contains(&value.as_str()) => Some(value.as_str()),
+            _ => None,
+        })
+    });
+
+    if let Some(tier) = declared_tier
+        && (tier == "Compile" || tier == "Layout")
+    {
+        return Err(CompilerError::Message(format!(
+            "attr.compile_tier_reserved: class `{}` declares `@On(..., {})` — Compile/Layout are compiler-native tiers, not available to user `Attribute` subclasses",
+            class.name, tier
+        )));
+    }
+
+    let expected_hook = declared_tier.map(|tier| RESERVED_HOOKS.iter().find(|(_, t)| *t == tier).map(|(h, _)| *h).unwrap());
+
+    let implemented: Vec<&str> = class
+        .members
+        .iter()
+        .filter_map(|m| match m {
+            ClassMember::Method(md) if RESERVED_HOOKS.iter().any(|(h, _)| *h == md.name) => Some(md.name.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    match expected_hook {
+        Some(hook) => {
+            if !implemented.contains(&hook) {
+                return Err(CompilerError::Message(format!(
+                    "attr.missing_hook: class `{}` declares `@On(..., {})` but implements no `{}(_)` hook method",
+                    class.name,
+                    declared_tier.unwrap(),
+                    hook
+                )));
+            }
+            if let Some(&extra) = implemented.iter().find(|h| **h != hook) {
+                return Err(CompilerError::Message(format!(
+                    "attr.undeclared_hook: class `{}` implements reserved hook method `{}(_)` without a matching declared `@On` tier",
+                    class.name, extra
+                )));
+            }
+        }
+        None => {
+            if let Some(&extra) = implemented.first() {
+                return Err(CompilerError::Message(format!(
+                    "attr.undeclared_hook: class `{}` implements reserved hook method `{}(_)` without a matching declared `@On` tier",
+                    class.name, extra
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn expand_class_attributes(
     mut class: ClassDef,
     ctx: &mut ExpandCtx,
     registry: &AttributeRegistry,
+    is_attribute_class: bool,
 ) -> Result<ClassDef, CompilerError> {
     // 1. Expand class-level attributes
     let class_attrs = std::mem::take(&mut class.attributes);
@@ -619,6 +776,11 @@ pub fn expand_class_attributes(
             } else if attr.name == "construct" {
                 derive_construct(&mut class, ctx, attr.range)?;
             }
+        } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name) {
+            // M-ATTR-ROOT: an unrecognized name that resolves to a user
+            // `Attribute` subclass is retained silently — its runtime
+            // instantiate+attach codegen is emitted separately by
+            // `compiler::lib::class_decl::compile_class`, not here.
         } else {
             return Err(CompilerError::Message(format!(
                 "attr.unknown: unknown attribute `@{}`",
@@ -626,8 +788,13 @@ pub fn expand_class_attributes(
             )));
         }
     }
+
+    if is_attribute_class {
+        validate_attribute_class(&class, &class_attrs)?;
+    }
+
     class.attributes = class_attrs;
-    
+
     // Validate standalone invariants for purity too
     for (inv_expr, _) in &class_invariants {
         if !is_pure_expr(inv_expr) {
@@ -662,6 +829,8 @@ pub fn expand_class_attributes(
                     )));
                 }
                 expander.expand(ctx, member, &attr.args)?;
+            } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name) {
+                // Retained silently — see the class-level branch above.
             } else {
                 return Err(CompilerError::Message(format!(
                     "attr.unknown: unknown attribute `@{}`",

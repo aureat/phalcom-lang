@@ -674,6 +674,13 @@ fn floor_census_matches_installed_bindings() {
     // `primitive/object.rs` — the native pair the woven prologue/epilogue
     // call, never `.ph`-authored.
     const NEW_INVARIANT_GUARD: usize = 2;
+    // M-ATTR-ROOT (attribute-classes.md, this unit's own amendment): the
+    // attribute-retention mechanism admits **+3** bindings (117 -> 120):
+    // `Object#__attach(_)`, `Object#__attributes`, `Object#__freezeAttributes()`,
+    // all `primitive/attribute.rs` — the native pair (triple) the compiler's
+    // `@Name(args)` desugar (`compiler::attributes`/`compiler::lib::class_decl`)
+    // calls, never `.ph`-authored.
+    const NEW_ATTR_ROOT: usize = 3;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -697,6 +704,9 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "methodFor(_)"), // NEW (ADR-0028)
         (c.object_class, false, "__invariantEnter()"), // NEW_INVARIANT_GUARD (ADR-0052)
         (c.object_class, false, "__invariantExit()"), // NEW_INVARIANT_GUARD (ADR-0052)
+        (c.object_class, false, "__attach(_)"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "__attributes"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "__freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         (c.object_class, true, "new()"),
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
@@ -892,8 +902,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_IMPORTS
             + NEW_FAMILY
             + NEW_SCHED
-            + NEW_INVARIANT_GUARD,
-        "census must enumerate exactly 117 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052)"
+            + NEW_INVARIANT_GUARD
+            + NEW_ATTR_ROOT,
+        "census must enumerate exactly 120 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT)"
     );
     assert_eq!(
         live.len(),
@@ -909,8 +920,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_IMPORTS
             + NEW_FAMILY
             + NEW_SCHED
-            + NEW_INVARIANT_GUARD,
-        "the live floor must be exactly 117 bindings"
+            + NEW_INVARIANT_GUARD
+            + NEW_ATTR_ROOT,
+        "the live floor must be exactly 120 bindings"
     );
 }
 

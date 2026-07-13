@@ -1,0 +1,1 @@
+attr.missing_hook: class `Memoize` declares `@On(..., Install)` but implements no `wrap(_)` hook method
