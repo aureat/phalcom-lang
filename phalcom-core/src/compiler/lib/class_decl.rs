@@ -1,9 +1,10 @@
 use crate::bytecode::Bytecode;
+use crate::compiler::attributes::{expand_class_attributes, AttributeRegistry, CompileMode, ExpandCtx};
 use crate::heap::Object;
 use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
-use phalcom_ast::ast::{ClassDef, ClassMember, Expr, Statement};
+use phalcom_ast::ast::{Attribute, ClassDef, ClassMember, Expr, Statement};
 use indexmap::IndexMap;
 
 use super::error::CompilerError;
@@ -17,12 +18,35 @@ impl<'vm> Compiler<'vm> {
     /// [`Bytecode::Class`] allocation/reopen opcode, then one method/getter/
     /// setter/constructor member at a time attached via [`Bytecode::Method`].
     ///
+    /// Before any of that, runs the U-ANNOT-CONTRACTS/U-ANNOT-LAYOUT
+    /// attribute-expansion pass ([`expand_class_attributes`]): derives
+    /// `@construct`'s constructor, weaves `@requires`/`@ensures`/`@invariant`
+    /// guards (mode-gated per [`CompileMode`]), and resolves
+    /// `attr.unknown`/`attr.illegal_target` legality — all *before* field
+    /// collection and layout build see the class's final member list.
+    ///
     /// # Errors
     ///
-    /// Propagates any error compiling a member body, an invalid reopen
-    /// (adding fields or changing the superclass — ADR-0018/U13), an unknown
-    /// or self-referential superclass, or a malformed rest parameter.
+    /// Propagates any attribute-expansion error (`attr.unknown`,
+    /// `attr.illegal_target`, `attr.accessor_collision`,
+    /// `contract.impure_predicate`), any error compiling a member body, an
+    /// invalid reopen (adding fields or changing the superclass —
+    /// ADR-0018/U13), an unknown or self-referential superclass, or a
+    /// malformed rest parameter.
     pub(super) fn compile_class(&mut self, class_def: ClassDef) -> Result<(), CompilerError> {
+        let strip_metadata = match self.vm.compile_mode {
+            CompileMode::Debug => false,
+            CompileMode::Release => self.vm.strip_contract_metadata,
+            CompileMode::Unchecked => true,
+        };
+        let mut ctx = ExpandCtx {
+            interner: &mut self.vm.interner,
+            compile_mode: self.vm.compile_mode,
+            strip_metadata,
+        };
+        let registry = AttributeRegistry::new();
+        let class_def = expand_class_attributes(class_def, &mut ctx, &registry)?;
+
         let range = class_def.range;
         let name_sym = self.vm.interner.intern(&class_def.name);
         let name_idx = self.add_constant(Value::Symbol(name_sym));
@@ -77,60 +101,88 @@ impl<'vm> Compiler<'vm> {
             }
         }
 
-        // Pass 2: Collect instance fields (only if not static)
-        for member in &class_def.members {
-            match member {
-                ClassMember::Method(m) if !m.is_static => {
-                    let mut fields = Vec::new();
-                    for stmt in &m.body {
-                        collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                    }
-                    for f in fields {
-                        if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                            own_instance_fields.push(f);
+        // Pass 2: Collect instance fields (only if not static).
+        //
+        // U-ANNOT-LAYOUT §3.1/DEC-ANNOT-H: a class that declares at least one
+        // `ClassMember::Field` uses its declared `FieldDef`s, in source
+        // order, as the *complete* instance-field list — the legacy
+        // implicit-by-assignment inference below is skipped entirely for
+        // that class. A class with zero `FieldDef`s is completely unaffected
+        // (byte-for-byte the same inference path as before this unit).
+        // Mixing declared and inferred fields within one class is
+        // unsupported (the "Rubric" hazard) — not detected/rejected here,
+        // just not attempted: any assignment-inferred field in a
+        // `FieldDef`-bearing class's hand-written members is simply not
+        // added to the layout, which will surface as a
+        // `ReadBeforeWrite`/missing-slot error at the assignment site rather
+        // than a dedicated diagnostic (deferred to a follow-on unit per
+        // DEC-ANNOT-H's "not a hard error, just inference off" resolution).
+        let declared_fields: Vec<Symbol> = class_def
+            .members
+            .iter()
+            .filter_map(|m| match m {
+                ClassMember::Field(f) => Some(self.vm.interner.intern(&f.name)),
+                _ => None,
+            })
+            .collect();
+        let has_declared_fields = !declared_fields.is_empty();
+        if has_declared_fields {
+            own_instance_fields = declared_fields;
+        } else {
+            for member in &class_def.members {
+                match member {
+                    ClassMember::Method(m) if !m.is_static => {
+                        let mut fields = Vec::new();
+                        for stmt in &m.body {
+                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        }
+                        for f in fields {
+                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                own_instance_fields.push(f);
+                            }
                         }
                     }
+                    ClassMember::Getter(g) if !g.is_static => {
+                        if g.name.starts_with('_') {
+                            let f = self.vm.interner.intern(&g.name);
+                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                own_instance_fields.push(f);
+                            }
+                        }
+                        let mut fields = Vec::new();
+                        for stmt in &g.body {
+                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        }
+                        for f in fields {
+                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                own_instance_fields.push(f);
+                            }
+                        }
+                    }
+                    ClassMember::Setter(s) if !s.is_static => {
+                        let mut fields = Vec::new();
+                        for stmt in &s.body {
+                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        }
+                        for f in fields {
+                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                own_instance_fields.push(f);
+                            }
+                        }
+                    }
+                    ClassMember::Construct(c) => {
+                        let mut fields = Vec::new();
+                        for stmt in &c.body {
+                            collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
+                        }
+                        for f in fields {
+                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
+                                own_instance_fields.push(f);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                ClassMember::Getter(g) if !g.is_static => {
-                    if g.name.starts_with('_') {
-                        let f = self.vm.interner.intern(&g.name);
-                        if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                            own_instance_fields.push(f);
-                        }
-                    }
-                    let mut fields = Vec::new();
-                    for stmt in &g.body {
-                        collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                    }
-                    for f in fields {
-                        if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                            own_instance_fields.push(f);
-                        }
-                    }
-                }
-                ClassMember::Setter(s) if !s.is_static => {
-                    let mut fields = Vec::new();
-                    for stmt in &s.body {
-                        collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                    }
-                    for f in fields {
-                        if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                            own_instance_fields.push(f);
-                        }
-                    }
-                }
-                ClassMember::Construct(c) => {
-                    let mut fields = Vec::new();
-                    for stmt in &c.body {
-                        collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
-                    }
-                    for f in fields {
-                        if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                            own_instance_fields.push(f);
-                        }
-                    }
-                }
-                _ => {}
             }
         }
 
@@ -360,6 +412,13 @@ impl<'vm> Compiler<'vm> {
                         MethodKind::Closure(closure),
                     )));
 
+                    if !strip_metadata {
+                        let contracts = self.build_contracts_metadata(&method_def.attributes)?;
+                        if !contracts.is_empty() {
+                            self.vm.heap.method_mut(method_obj).contracts = Some(contracts);
+                        }
+                    }
+
                     let method_obj_idx = self.add_constant(Value::Obj(method_obj));
                     self.emit(Bytecode::Constant(method_obj_idx), range);
 
@@ -402,6 +461,13 @@ impl<'vm> Compiler<'vm> {
                         let method_obj =
                             self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure))));
 
+                        if !strip_metadata {
+                            let contracts = self.build_contracts_metadata(&getter_def.attributes)?;
+                            if !contracts.is_empty() {
+                                self.vm.heap.method_mut(method_obj).contracts = Some(contracts);
+                            }
+                        }
+
                         let method_obj_idx = self.add_constant(Value::Obj(method_obj));
                         self.emit(Bytecode::Constant(method_obj_idx), range);
 
@@ -422,6 +488,13 @@ impl<'vm> Compiler<'vm> {
 
                     let method_obj =
                         self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure))));
+
+                    if !strip_metadata {
+                        let contracts = self.build_contracts_metadata(&setter_def.attributes)?;
+                        if !contracts.is_empty() {
+                            self.vm.heap.method_mut(method_obj).contracts = Some(contracts);
+                        }
+                    }
 
                     let method_obj_idx = self.add_constant(Value::Obj(method_obj));
                     self.emit(Bytecode::Constant(method_obj_idx), range);
@@ -472,6 +545,12 @@ impl<'vm> Compiler<'vm> {
                     let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                     self.emit(Bytecode::Method(selector_idx, true), range);
                 }
+                // A declared field is layout-only (U-ANNOT-LAYOUT §3.1): it
+                // already fed `own_instance_fields`/`field_slots` above and
+                // emits no bytecode of its own. Its `default` expression, if
+                // any, is data for a future layout-derive attribute
+                // (`@construct`/`@data`) to read — not compiled here.
+                ClassMember::Field(_) => {}
             }
         }
 
@@ -487,6 +566,44 @@ impl<'vm> Compiler<'vm> {
         // Define it as a global variable.
         self.emit(Bytecode::DefineGlobal(name_idx), range);
         Ok(())
+    }
+
+    /// Builds `MethodObject::contracts` (U-ANNOT-CONTRACTS plan §3.5,
+    /// D-contract-1) from a member's post-expansion `@requires`/`@ensures`
+    /// attributes: each predicate is compiled standalone, **un-woven**, as a
+    /// zero-argument receiver-shaped closure (same shape as a getter body —
+    /// `self` in slot 0), tagged `#requires_<n>`/`#ensures_<n>` with one
+    /// counter per attribute kind in source declaration order.
+    ///
+    /// Returns an empty `Vec` if `attrs` carries neither kind — the caller
+    /// stores `None` rather than `Some(vec![])` (`ExpandCtx::strip_metadata`
+    /// callers gate on `Option`, not emptiness).
+    ///
+    /// # Errors
+    ///
+    /// Propagates any error compiling a predicate expression.
+    fn build_contracts_metadata(&mut self, attrs: &[Attribute]) -> Result<Vec<(Symbol, Value)>, CompilerError> {
+        let mut contracts = Vec::new();
+        let mut requires_n = 0usize;
+        let mut ensures_n = 0usize;
+        for attr in attrs {
+            let kind = match attr.name.as_str() {
+                "requires" => "requires",
+                "ensures" => "ensures",
+                _ => continue,
+            };
+            for arg in &attr.args {
+                let counter = if kind == "requires" { &mut requires_n } else { &mut ensures_n };
+                let name = format!("#{}_{}", kind, *counter);
+                *counter += 1;
+                let name_sym = self.vm.interner.intern(&name);
+                let range = arg.range();
+                let body = vec![Statement::Expr { expr: arg.clone(), range }];
+                let closure_ref = self.compile_block(body, name_sym, Vec::new(), true, false)?;
+                contracts.push((name_sym, Value::Obj(closure_ref)));
+            }
+        }
+        Ok(contracts)
     }
 
     /// Reports whether `class_sym` or any of its compile-time ancestors

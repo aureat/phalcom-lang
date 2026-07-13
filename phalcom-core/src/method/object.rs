@@ -30,13 +30,30 @@ pub struct MethodObject {
     pub signature: Signature,
     /// Handle to the class that owns this method, once bound (`None` until set).
     pub holder: Option<ClassId>,
+    /// Reflectable `@requires`/`@ensures` predicate metadata (U-ANNOT-CONTRACTS
+    /// plan §3.5 "Contracts are reflectable", D-contract-1).
+    ///
+    /// Each entry is `(Symbol, Value)` — a name like `#requires_0`/`#ensures_1`
+    /// (source declaration order, one counter per attribute kind) paired with
+    /// the **un-woven** predicate compiled standalone as a zero-argument,
+    /// receiver-shaped [`crate::heap::ClosureObject`] (`self` in slot 0, same
+    /// shape as a getter's closure) — for property-testing harnesses and a
+    /// future `Method>>contracts` accessor.
+    ///
+    /// `None` when the method carries no `@requires`/`@ensures` attributes, or
+    /// when metadata retention is stripped for the active
+    /// [`crate::compiler::attributes::CompileMode`]
+    /// (`ExpandCtx::strip_metadata`, plan §3.6's independent metadata axis) —
+    /// in the stripped case the predicate closures are never compiled in the
+    /// first place, not compiled-then-discarded.
+    pub contracts: Option<Vec<(Symbol, Value)>>,
 }
 
 impl MethodObject {
     /// Builds a method with the given `kind`, deriving its signature.
     pub fn new(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind, holder: Option<ClassId>) -> Self {
         let signature = Signature::new(selector, sig_kind);
-        MethodObject { kind, signature, holder }
+        MethodObject { kind, signature, holder, contracts: None }
     }
 
     /// Builds an unbound method (holder `None`), typically a compiler-produced

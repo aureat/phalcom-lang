@@ -310,10 +310,10 @@ pub fn message_args(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 /// `@invariant` re-entrancy guard
 /// ([ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
 /// Fix 1, U-ANNOT-CONTRACTS). Woven by
-/// [`crate::compiler::attributes::weave_invariant_checks`] into every public
+/// `crate::compiler::attributes::weave_invariant_checks` into every public
 /// method/getter/setter of an `@invariant`-bearing class.
 ///
-/// Inserts the receiver into [`VM::checking`] and returns `true` **iff** the
+/// Inserts the receiver into `VM::checking` and returns `true` **iff** the
 /// receiver was not already present — i.e. this call is the *outermost*
 /// guarded call on `self` (own-object nesting, Eiffel's rule). The caller
 /// binds this return value to a local (`__invariant_owner`) and gates both
@@ -340,12 +340,12 @@ pub fn object_invariant_enter(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
 /// Signature: `Object::__invariantExit()` — the exit half of the `@invariant`
 /// re-entrancy guard (see [`object_invariant_enter`]).
 ///
-/// Unconditionally removes the receiver from [`VM::checking`]. Only ever
+/// Unconditionally removes the receiver from `VM::checking`. Only ever
 /// called from the woven `Block#ensure(_)` cleanup, itself gated on the
 /// caller's own `__invariant_owner` local — so in practice this only fires
 /// once per outermost guarded call, but removal is idempotent regardless.
 ///
-/// Returns [`VM::none_value`] — **never** a raw `Value::Nil` — matching every
+/// Returns `VM::none_value` — **never** a raw `Value::Nil` — matching every
 /// other unit-returning native primitive: the one-armed `ifTrue` inliner's
 /// Some-wrap expects the surface `None` singleton, not the bare tag.
 pub fn object_invariant_exit(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {

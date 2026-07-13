@@ -114,6 +114,9 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                         source: "core.ph",
                     });
                 }
+                // A declared field (U-ANNOT-LAYOUT §3.1) has no selector of
+                // its own to harvest — it is not a dispatchable member.
+                ClassMember::Field(_) => {}
             }
         }
     }

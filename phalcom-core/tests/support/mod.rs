@@ -8,8 +8,29 @@ fn phalcom_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_phalcom"))
 }
 
+/// Extra CLI flags a golden `.ph` case can request, via a `// flags: <args>`
+/// comment line anywhere in the source (U-ANNOT-CONTRACTS stripping goldens
+/// need to select `--release`/`--unchecked`, which the default `phalcom
+/// <path>` invocation has no other way to express per-file). Returns `None`
+/// for the overwhelming majority of cases with no such line, which run
+/// exactly as before this helper existed.
+fn extra_flags(path: &Path) -> Vec<String> {
+    let Ok(source) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    source
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("// flags:"))
+        .map(|rest| rest.split_whitespace().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
 fn run(path: &Path) -> Output {
-    Command::new(phalcom_bin()).arg(path).output().expect("failed to spawn the `phalcom` binary")
+    Command::new(phalcom_bin())
+        .args(extra_flags(path))
+        .arg(path)
+        .output()
+        .expect("failed to spawn the `phalcom` binary")
 }
 
 fn corpus_root() -> PathBuf {

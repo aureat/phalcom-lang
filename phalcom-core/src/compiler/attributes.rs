@@ -1,0 +1,878 @@
+use std::collections::HashMap;
+use phalcom_ast::ast::{AssignmentExpr, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, ParameterDef};
+use crate::compiler::lib::CompilerError;
+use crate::method::{encode_selector, SignatureKind};
+
+/// The active contract-stripping mode (U-ANNOT-CONTRACTS plan §3.6,
+/// `annotations-contract-semantics.md`'s stripping table).
+///
+/// Selected on the CLI (`--release`/`--unchecked`, default `Debug`) and
+/// threaded through `Compiler` (`compiler::lib`) into every
+/// [`ExpandCtx`] built for a class's attribute expansion. Guard weaving
+/// (`@requires`/`@ensures`/`@invariant`'s runtime checks) and reflectable
+/// metadata (`MethodObject::contracts`) are stripped independently along
+/// two separate axes — see [`ExpandCtx::strip_metadata`] for the second
+/// axis. The verbatim table:
+///
+/// | Mode | `@requires` guard | `@ensures` guard | `@invariant` guard | Metadata (default) |
+/// |------|------|------|------|------|
+/// | `Debug` (default) | woven | woven | woven | retained |
+/// | `Release` | woven | stripped | stripped | retained (opt out `--strip-contract-metadata`) |
+/// | `Unchecked` | stripped | stripped | stripped | stripped by default |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompileMode {
+    /// Every contract guard is woven; metadata is retained. The default.
+    Debug,
+    /// `@ensures`/`@invariant` guards are stripped (no-op weave); `@requires`
+    /// stays woven. Metadata is retained by default (opt out with
+    /// `--strip-contract-metadata`).
+    Release,
+    /// All three guards are stripped. Metadata is stripped by default.
+    Unchecked,
+}
+
+/// Shared state threaded through one class's attribute expansion
+/// ([`expand_class_attributes`]).
+pub struct ExpandCtx<'a> {
+    /// The compiler's symbol interner, needed to intern synthesized names
+    /// (e.g. `__old_0`) and reflectable-metadata selector symbols.
+    pub interner: &'a mut crate::interner::Interner,
+    /// The active [`CompileMode`] — governs whether each expander's guard
+    /// weave is a no-op (§3.6's first axis).
+    pub compile_mode: CompileMode,
+    /// Whether reflectable contract metadata
+    /// (`MethodObject::contracts`, plan §3.5) should be skipped for this
+    /// compile (§3.6's second, independent axis). Derived from
+    /// [`Self::compile_mode`] plus the `--strip-contract-metadata` CLI
+    /// override — see `Compiler::new`'s call site — never coupled to guard
+    /// stripping directly.
+    pub strip_metadata: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Target {
+    Class,
+    Method,
+    Getter,
+    Setter,
+    Construct,
+    /// A declared [`phalcom_ast::ast::ClassMember::Field`] (U-ANNOT-LAYOUT
+    /// §3.1) — the legal target for the not-yet-implemented `@get`/`@set`
+    /// derive tier (§3.2).
+    Field,
+}
+
+pub trait AttributeExpander {
+    fn legal_targets(&self) -> &'static [Target];
+    fn expand(
+        &self,
+        ctx: &mut ExpandCtx,
+        member: &mut ClassMember,
+        args: &[Expr],
+    ) -> Result<(), CompilerError>;
+}
+
+use phalcom_ast::ast::{Argument, MethodCallExpr, Statement, BlockExpr, LetBinding, BindingKind, Pattern};
+use phalcom_common::range::SourceRange;
+
+fn is_pure_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Var { .. } | Expr::Field { .. } | Expr::SelfVar { .. } | Expr::SuperVar { .. } => true,
+        Expr::Assignment(_) | Expr::SetProperty(_) | Expr::SetIndex(_) => false,
+        Expr::Unary(u) => is_pure_expr(&u.expr),
+        Expr::Binary(b) => is_pure_expr(&b.left) && is_pure_expr(&b.right),
+        Expr::MethodCall(m) => {
+            // impure list: mutable sends like add, remove, put, or setter name=
+            let impure_names = ["add", "remove", "put"];
+            if impure_names.contains(&m.method.as_str()) || m.method.ends_with('=') {
+                return false;
+            }
+            is_pure_expr(&m.object) && m.args.iter().all(|a| is_pure_expr(&a.expr))
+        }
+        Expr::GetProperty(g) => is_pure_expr(&g.object),
+        Expr::Index(i) => is_pure_expr(&i.object) && is_pure_expr(&i.index),
+        Expr::Block(b) => b.body.iter().all(|s| {
+            match s {
+                Statement::Expr { expr, .. } => is_pure_expr(expr),
+                Statement::Let(l) => l.value.as_ref().map_or(true, |v| is_pure_expr(v)),
+                Statement::Return(r) => r.value.as_ref().map_or(true, |v| is_pure_expr(v)),
+                _ => false,
+            }
+        }),
+        _ => true,
+    }
+}
+
+/// Recognizes the `old(sub)` pseudo-selector call shape. `old` is a reserved
+/// name meaningful only inside `@ensures` (annotations-contracts.md); it is
+/// not an ordinary method — the parser has no bare-call grammar (calls
+/// always need an explicit receiver), so `old(sub)` parses as an *invocation
+/// of the variable* `old` — `Expr::MethodCall{ object: Var("old"), method:
+/// "call", args: [sub] }` (`parse_call`'s bare-`(args)` postfix, mirroring
+/// how a `Function`/`Block` value stored in a var is called). Matching on
+/// this exact shape, not a method literally named `old`, is what lets
+/// `old(...)` compile at all — `old` is never a real binding.
+fn as_old_call(m: &MethodCallExpr) -> bool {
+    m.method == "call" && m.args.len() == 1 && matches!(&m.object, Expr::Var { value, .. } if value == "old")
+}
+
+fn contains_old_call(expr: &Expr) -> bool {
+    match expr {
+        Expr::MethodCall(m) => {
+            if as_old_call(m) {
+                true
+            } else {
+                contains_old_call(&m.object) || m.args.iter().any(|a| contains_old_call(&a.expr))
+            }
+        }
+        Expr::Unary(u) => contains_old_call(&u.expr),
+        Expr::Binary(b) => contains_old_call(&b.left) || contains_old_call(&b.right),
+        Expr::Index(i) => contains_old_call(&i.object) || contains_old_call(&i.index),
+        Expr::GetProperty(g) => contains_old_call(&g.object),
+        _ => false,
+    }
+}
+
+fn validate_purity(args: &[Expr]) -> Result<(), CompilerError> {
+    for arg in args {
+        if !is_pure_expr(arg) {
+            return Err(CompilerError::Message("contract.impure_predicate: predicate contains mutating or side-effecting operations".to_string()));
+        }
+    }
+    Ok(())
+}
+
+pub struct RequiresExpander;
+impl AttributeExpander for RequiresExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method, Target::Getter, Target::Setter]
+    }
+
+    fn expand(
+        &self,
+        ctx: &mut ExpandCtx,
+        member: &mut ClassMember,
+        args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        validate_purity(args)?;
+
+        // §3.6 axis 1 (guard stripping): `@requires` is woven in `Debug`
+        // and `Release` (row 1/2 of the table) — only `Unchecked` strips it.
+        // Purity validation above still runs regardless of mode: it is a
+        // compile-time soundness floor, not a runtime guard, so stripping
+        // the *guard* must not also silently skip catching an impure
+        // predicate (implementer judgment call, flagged in the return
+        // contract — the plan does not state this explicitly).
+        if ctx.compile_mode == CompileMode::Unchecked {
+            for arg in args {
+                if contains_old_call(arg) {
+                    return Err(CompilerError::Message("contract.old_in_precondition: requires cannot contain old() expressions".to_string()));
+                }
+            }
+            return Ok(());
+        }
+
+        let method_name = match member {
+            ClassMember::Method(m) => m.name.clone(),
+            ClassMember::Getter(g) => g.name.clone(),
+            ClassMember::Setter(s) => s.name.clone(),
+            _ => unreachable!(),
+        };
+
+        // requires checks go directly into the prologue
+        let body = match member {
+            ClassMember::Method(m) => &mut m.body,
+            ClassMember::Getter(g) => &mut g.body,
+            ClassMember::Setter(s) => &mut s.body,
+            _ => unreachable!(),
+        };
+
+        // Weave requires in declaration order
+        let mut new_prologue = Vec::new();
+        for arg in args {
+            if contains_old_call(arg) {
+                return Err(CompilerError::Message("contract.old_in_precondition: requires cannot contain old() expressions".to_string()));
+            }
+
+            let range = arg.range();
+            let err_msg = format!("Precondition failed for method `{}`: {}", method_name, arg.range().start);
+            new_prologue.push(build_check_stmt(arg.clone(), "PreconditionError", err_msg, range));
+        }
+
+        new_prologue.append(body);
+        *body = new_prologue;
+
+        Ok(())
+    }
+}
+
+pub struct EnsuresExpander;
+impl AttributeExpander for EnsuresExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method, Target::Getter, Target::Setter]
+    }
+
+    fn expand(
+        &self,
+        ctx: &mut ExpandCtx,
+        member: &mut ClassMember,
+        args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        validate_purity(args)?;
+
+        // §3.6 axis 1 (guard stripping): `@ensures` is woven only in
+        // `Debug` (row 1) — both `Release` and `Unchecked` strip it
+        // (rows 2/3). Purity validation still runs unconditionally, same
+        // rationale as `RequiresExpander`.
+        if ctx.compile_mode != CompileMode::Debug {
+            return Ok(());
+        }
+
+        let method_name = match member {
+            ClassMember::Method(m) => m.name.clone(),
+            ClassMember::Getter(g) => g.name.clone(),
+            ClassMember::Setter(s) => s.name.clone(),
+            _ => unreachable!(),
+        };
+
+        let body = match member {
+            ClassMember::Method(m) => &mut m.body,
+            ClassMember::Getter(g) => &mut g.body,
+            ClassMember::Setter(s) => &mut s.body,
+            _ => unreachable!(),
+        };
+
+        // 1. Hoist old(...) calls to lets
+        let mut old_lets = Vec::new();
+        let mut new_args = Vec::new();
+        
+        for arg in args {
+            let mut rewritten_arg = arg.clone();
+            rewrite_old_calls(&mut rewritten_arg, &mut old_lets, &mut new_args, ctx)?;
+            new_args.push(rewritten_arg);
+        }
+
+        // Prepend old lets to the body
+        let mut new_body = old_lets;
+
+        // If body has early returns, we rewrite them or we can wrap the whole body in a block call
+        // Wait, ensures must verify on *all* exit paths. Wrapping in a block or rewriting Statement::Return.
+        // Let's rewrite returns recursively in the body.
+        rewrite_returns(body, &new_args, &method_name);
+
+        new_body.append(body);
+
+        // Append ensures checks at the end if the body doesn't end with an explicit Return
+        let last_is_return = body.last().map_or(false, |s| matches!(s, Statement::Return(_)));
+        if !last_is_return {
+            // Bind last expression to __result if it's Statement::Expr
+            let mut result_stmt = None;
+            if let Some(Statement::Expr { expr, range }) = new_body.last().cloned() {
+                new_body.pop();
+                let range = expr.range();
+                new_body.push(Statement::Let(LetBinding {
+                    kind: BindingKind::Let,
+                    pattern: Pattern::Name { name: "__result".to_string(), range },
+                    value: Some(expr),
+                    range,
+                }));
+                result_stmt = Some(Statement::Expr { expr: Expr::Var { value: "__result".to_string(), range }, range });
+            }
+
+            for arg in &new_args {
+                let range = arg.range();
+                let err_msg = format!("Postcondition failed for method `{}`: {}", method_name, arg.range().start);
+                new_body.push(build_check_stmt(arg.clone(), "PostconditionError", err_msg, range));
+            }
+
+            if let Some(stmt) = result_stmt {
+                new_body.push(stmt);
+            }
+        }
+
+        *body = new_body;
+        Ok(())
+    }
+}
+
+fn rewrite_old_calls(
+    expr: &mut Expr,
+    old_lets: &mut Vec<Statement>,
+    new_args: &mut Vec<Expr>,
+    ctx: &mut ExpandCtx,
+) -> Result<(), CompilerError> {
+    match expr {
+        Expr::MethodCall(m) if as_old_call(m) => {
+            let mut inner = m.args[0].expr.clone();
+            rewrite_old_calls(&mut inner, old_lets, new_args, ctx)?;
+
+            // contract.old_on_mutable: capturing the whole receiver aliases
+            // the live, mutable object — `old(self)`/`old(super)` can never
+            // observe pre-mutation state, since the snapshot is the same
+            // reference the method goes on to mutate (annotations-contracts.md
+            // "old(...) ⊗ mutable aliasing"). Anything else (a field read, a
+            // getter call, an arithmetic expression) is accepted: Phalcom is
+            // dynamically typed with no flow analysis (the same floor-not-proof
+            // limitation as the truthiness ban, ADR-0021), so whether a given
+            // sub-expression's *runtime value* is itself a mutable heap
+            // reference can't be checked here — only the unambiguous
+            // whole-receiver case is.
+            match &inner {
+                Expr::SelfVar { .. } | Expr::SuperVar { .. } => {
+                    return Err(CompilerError::Message("contract.old_on_mutable: old() operand must not be the whole receiver (aliases the live, mutable object)".to_string()));
+                }
+                _ => {}
+            }
+
+            let var_name = format!("__old_{}", old_lets.len());
+            let range = m.range;
+            old_lets.push(Statement::Let(LetBinding {
+                kind: BindingKind::Let,
+                pattern: Pattern::Name { name: var_name.clone(), range },
+                value: Some(inner),
+                range,
+            }));
+
+            *expr = Expr::Var { value: var_name, range };
+        }
+        Expr::MethodCall(m) => {
+            rewrite_old_calls(&mut m.object, old_lets, new_args, ctx)?;
+            for arg in &mut m.args {
+                rewrite_old_calls(&mut arg.expr, old_lets, new_args, ctx)?;
+            }
+        }
+        Expr::Unary(u) => rewrite_old_calls(&mut u.expr, old_lets, new_args, ctx)?,
+        Expr::Binary(b) => {
+            rewrite_old_calls(&mut b.left, old_lets, new_args, ctx)?;
+            rewrite_old_calls(&mut b.right, old_lets, new_args, ctx)?;
+        }
+        Expr::Index(i) => {
+            rewrite_old_calls(&mut i.object, old_lets, new_args, ctx)?;
+            rewrite_old_calls(&mut i.index, old_lets, new_args, ctx)?;
+        }
+        Expr::GetProperty(g) => rewrite_old_calls(&mut g.object, old_lets, new_args, ctx)?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn rewrite_returns(body: &mut Vec<Statement>, ensures_args: &[Expr], method_name: &str) {
+    let mut rewritten = Vec::new();
+    for stmt in std::mem::take(body) {
+        match stmt {
+            Statement::Return(ret) => {
+                let range = ret.range;
+                let value_expr = ret.value.unwrap_or(Expr::Var { value: "None".to_string(), range });
+                let mut local_block = Vec::new();
+                
+                // let __result = value_expr
+                local_block.push(Statement::Let(LetBinding {
+                    kind: BindingKind::Let,
+                    pattern: Pattern::Name { name: "__result".to_string(), range },
+                    value: Some(value_expr),
+                    range,
+                }));
+
+                for arg in ensures_args {
+                    let arg_range = arg.range();
+                    let err_msg = format!("Postcondition failed for method `{}`: {}", method_name, arg.range().start);
+                    local_block.push(build_check_stmt(arg.clone(), "PostconditionError", err_msg, arg_range));
+                }
+
+                // return __result
+                local_block.push(Statement::Return(phalcom_ast::ast::ReturnStatement {
+                    value: Some(Expr::Var { value: "__result".to_string(), range }),
+                    range,
+                }));
+
+                rewritten.push(Statement::Expr {
+                    expr: Expr::Block(Box::new(BlockExpr {
+                        params: Vec::new(),
+                        body: local_block,
+                        expr_body: false,
+                        range,
+                    })),
+                    range,
+                });
+            }
+            Statement::Expr { expr: Expr::Block(mut b), range } => {
+                rewrite_returns(&mut b.body, ensures_args, method_name);
+                rewritten.push(Statement::Expr { expr: Expr::Block(b), range });
+            }
+            _ => rewritten.push(stmt),
+        }
+    }
+    *body = rewritten;
+}
+
+/// Registry entry for `@invariant` as a class-target attribute.
+///
+/// This impl's own [`AttributeExpander::expand`] is a deliberate no-op: the
+/// registry/legality-check machinery in [`expand_class_attributes`] requires
+/// every registered name to have an `AttributeExpander` row so `attr.unknown`
+/// fires correctly, but `@invariant`'s actual weave — folding
+/// [`ClassDef::invariants`] into every public non-static, non-constructor
+/// member's prologue/epilogue (ADR-0052 Fix 1) — needs the *whole class*
+/// (every member, not just the one this attribute happened to be attached
+/// to), so it runs once from [`expand_class_attributes`] itself via
+/// `weave_invariant_checks`, not per-attribute through this trait method.
+pub struct InvariantExpander;
+impl AttributeExpander for InvariantExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Class] // Note: standalone invariant is parsed directly to class.invariants, but @invariant class-decorator target is legal too
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
+/// Registry entry for `@construct` as a class-target attribute (U-ANNOT-LAYOUT
+/// §3.3, `annotations-construct.md`).
+///
+/// Like [`InvariantExpander`], this impl's own [`AttributeExpander::expand`]
+/// is a deliberate no-op: `@construct` needs the *whole class* (every
+/// declared [`phalcom_ast::ast::ClassMember::Field`], read in declaration
+/// order, not just the one member this attribute happened to be attached to
+/// — and `@construct` attaches to the class header, not any one member) so
+/// its derive runs once from [`expand_class_attributes`] itself via
+/// [`derive_construct`], not per-attribute through this trait method. The
+/// registry row still exists so the ordinary `attr.unknown`/
+/// `attr.illegal_target` legality checks fire correctly for `@construct`
+/// like any other registered name.
+pub struct ConstructExpander;
+impl AttributeExpander for ConstructExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Class]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
+pub struct AttributeRegistry {
+    expanders: HashMap<String, Box<dyn AttributeExpander + Send + Sync>>,
+}
+
+impl AttributeRegistry {
+    pub fn new() -> Self {
+        let mut expanders: HashMap<String, Box<dyn AttributeExpander + Send + Sync>> = HashMap::new();
+        expanders.insert("requires".to_string(), Box::new(RequiresExpander));
+        expanders.insert("ensures".to_string(), Box::new(EnsuresExpander));
+        expanders.insert("invariant".to_string(), Box::new(InvariantExpander));
+        expanders.insert("construct".to_string(), Box::new(ConstructExpander));
+        Self { expanders }
+    }
+
+    pub fn get(&self, name: &str) -> Option<&(dyn AttributeExpander + Send + Sync)> {
+        self.expanders.get(name).map(|boxed| &**boxed)
+    }
+}
+
+/// Strips a single leading underscore from a declared field's name
+/// (`"_x"` → `"x"`), the naming convention `@construct`'s generated
+/// parameter/label uses (`annotations-construct.md`'s worked example). A
+/// field name with no leading underscore is returned unchanged.
+fn strip_leading_underscore(name: &str) -> String {
+    name.strip_prefix('_').unwrap_or(name).to_string()
+}
+
+/// Builds `_field = value` — an ordinary field assignment statement, the
+/// shape every `@construct`-derived constructor body statement takes.
+fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> Statement {
+    Statement::Expr {
+        expr: Expr::Assignment(Box::new(AssignmentExpr {
+            name: Box::new(Expr::Field { value: field_name.to_string(), range }),
+            value,
+            range,
+        })),
+        range,
+    }
+}
+
+/// Derives a `construct new(...)` member from `class`'s own declared
+/// [`FieldDef`]s, in declaration order, and appends it to `class.members`
+/// (U-ANNOT-LAYOUT §3.3, `annotations-construct.md` "The derive").
+///
+/// **Own-fields-only case**: this does not chain a superclass constructor
+/// (the inheritance-aware F-fix, `annotations-construct-inheritance.md`, is a
+/// separate follow-on build-order step, not implemented here) — a `@construct`
+/// class that `extends` a superclass with its own constructor gets only its
+/// own fields' assignments, never a `super.new(...)` call.
+///
+/// A field carrying a `default` expression is omitted from the generated
+/// parameter list (`annotations-construct-inheritance.md`: "supply-and-
+/// default is mutually exclusive per field"); every defaulted field's default
+/// expression is assigned first, in declaration order, *before* the
+/// labeled-parameter assignments — so a later field's default (if any) still
+/// observes prior defaults already applied.
+///
+/// Emits a real [`ConstructDef`]/[`ClassMember::Construct`] — not a
+/// `MethodDef` (`annotations-construct.md`'s "Prerequisite 2 correction":
+/// `MethodDef` has no `is_constructor` field; emitting a plain method named
+/// `new` would silently produce a non-constructor). The emitted node is
+/// compiled through the exact same path a hand-written `construct` member is
+/// (`compiler::lib::class_decl`'s per-member loop), so it gets the same
+/// selector encoding, `constructor_aliases` call-site registration, and
+/// `has_new_construct` bare-allocator-guard interaction a hand-written
+/// constructor would.
+///
+/// # Errors
+///
+/// Returns `attr.accessor_collision` if `class` already carries a
+/// hand-written `construct` of the exact same derived selector (ADR-0012:
+/// selector is the sole dispatch key, no last-wins) — a differently-
+/// selectored hand-written `construct` (e.g. `construct anonymous()`)
+/// coexists unaffected, since the collision check is selector-keyed, not
+/// "any hand-written construct present".
+fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRange) -> Result<(), CompilerError> {
+    let fields: Vec<FieldDef> = class
+        .members
+        .iter()
+        .filter_map(|m| match m {
+            ClassMember::Field(f) => Some(f.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let param_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.default.is_none()).collect();
+    let labels: Vec<Option<String>> = param_fields.iter().map(|f| Some(strip_leading_underscore(&f.name))).collect();
+    let arity = param_fields.len() as u8;
+
+    let derived_selector = encode_selector("new", &labels, SignatureKind::Initializer(arity));
+    let derived_sym = ctx.interner.intern(&derived_selector);
+
+    for m in &class.members {
+        if let ClassMember::Construct(c) = m {
+            let c_labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
+            let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Initializer(c.params.len() as u8));
+            if ctx.interner.intern(&c_selector) == derived_sym {
+                return Err(CompilerError::Message(format!(
+                    "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written `construct {}(...)` of the same selector",
+                    class.name, c.name
+                )));
+            }
+        }
+    }
+
+    let params: Vec<ParameterDef> = param_fields
+        .iter()
+        .map(|f| {
+            let pname = strip_leading_underscore(&f.name);
+            ParameterDef { name: pname.clone(), label: Some(pname), is_rest: false, range: f.range }
+        })
+        .collect();
+
+    let mut body = Vec::new();
+    for f in &fields {
+        if let Some(default_expr) = &f.default {
+            body.push(field_assign_stmt(&f.name, default_expr.clone(), f.range));
+        }
+    }
+    for f in &param_fields {
+        let pname = strip_leading_underscore(&f.name);
+        body.push(field_assign_stmt(&f.name, Expr::Var { value: pname, range: f.range }, f.range));
+    }
+
+    class.members.push(ClassMember::Construct(ConstructDef {
+        name: "new".to_string(),
+        params,
+        body,
+        range: attr_range,
+    }));
+    Ok(())
+}
+
+pub fn expand_class_attributes(
+    mut class: ClassDef,
+    ctx: &mut ExpandCtx,
+    registry: &AttributeRegistry,
+) -> Result<ClassDef, CompilerError> {
+    // 1. Expand class-level attributes
+    let class_attrs = std::mem::take(&mut class.attributes);
+    let mut class_invariants = std::mem::take(&mut class.invariants);
+    for attr in &class_attrs {
+        if let Some(expander) = registry.get(&attr.name) {
+            let legal = expander.legal_targets().contains(&Target::Class);
+            if !legal {
+                return Err(CompilerError::Message(format!(
+                    "attr.illegal_target: attribute `@{}` is not legal on class targets",
+                    attr.name
+                )));
+            }
+            if attr.name == "invariant" {
+                validate_purity(&attr.args)?;
+                for arg in &attr.args {
+                    class_invariants.push((arg.clone(), attr.range));
+                }
+            } else if attr.name == "construct" {
+                derive_construct(&mut class, ctx, attr.range)?;
+            }
+        } else {
+            return Err(CompilerError::Message(format!(
+                "attr.unknown: unknown attribute `@{}`",
+                attr.name
+            )));
+        }
+    }
+    class.attributes = class_attrs;
+    
+    // Validate standalone invariants for purity too
+    for (inv_expr, _) in &class_invariants {
+        if !is_pure_expr(inv_expr) {
+            return Err(CompilerError::Message("contract.impure_predicate: predicate contains mutating or side-effecting operations".to_string()));
+        }
+    }
+
+    // 2. Expand member-level attributes
+    for member in &mut class.members {
+        let member_target = match member {
+            ClassMember::Method(_) => Target::Method,
+            ClassMember::Getter(_) => Target::Getter,
+            ClassMember::Setter(_) => Target::Setter,
+            ClassMember::Construct(_) => Target::Construct,
+            ClassMember::Field(_) => Target::Field,
+        };
+
+        let attrs = match member {
+            ClassMember::Method(m) => std::mem::take(&mut m.attributes),
+            ClassMember::Getter(g) => std::mem::take(&mut g.attributes),
+            ClassMember::Setter(s) => std::mem::take(&mut s.attributes),
+            ClassMember::Construct(_) => Vec::new(),
+            ClassMember::Field(f) => std::mem::take(&mut f.attributes),
+        };
+
+        for attr in &attrs {
+            if let Some(expander) = registry.get(&attr.name) {
+                if !expander.legal_targets().contains(&member_target) {
+                    return Err(CompilerError::Message(format!(
+                        "attr.illegal_target: attribute `@{}` is not legal on this target",
+                        attr.name
+                    )));
+                }
+                expander.expand(ctx, member, &attr.args)?;
+            } else {
+                return Err(CompilerError::Message(format!(
+                    "attr.unknown: unknown attribute `@{}`",
+                    attr.name
+                )));
+            }
+        }
+
+        match member {
+            ClassMember::Method(m) => m.attributes = attrs,
+            ClassMember::Getter(g) => g.attributes = attrs,
+            ClassMember::Setter(s) => s.attributes = attrs,
+            ClassMember::Construct(_) => {}
+            ClassMember::Field(f) => f.attributes = attrs,
+        }
+    }
+
+    // 3. Weave class invariants into methods, getters, setters, and
+    // constructors. §3.6 axis 1: `@invariant`'s guard is woven only in
+    // `Debug` (table row 1) — `Release`/`Unchecked` strip it (rows 2/3),
+    // same no-op-weave rule as `EnsuresExpander`. Purity validation above
+    // (`is_pure_expr` over `class_invariants`) still ran unconditionally.
+    if !class_invariants.is_empty() && ctx.compile_mode == CompileMode::Debug {
+        let class_name = class.name.clone();
+        for member in &mut class.members {
+            match member {
+                ClassMember::Method(m) if !m.is_static => {
+                    weave_invariant_checks(&mut m.body, &class_invariants, &class_name, false);
+                }
+                ClassMember::Getter(g) if !g.is_static => {
+                    weave_invariant_checks(&mut g.body, &class_invariants, &class_name, false);
+                }
+                ClassMember::Setter(s) if !s.is_static => {
+                    weave_invariant_checks(&mut s.body, &class_invariants, &class_name, false);
+                }
+                ClassMember::Construct(c) => {
+                    // Entry check skipped — invariant cannot hold pre-construction.
+                    weave_invariant_checks(&mut c.body, &class_invariants, &class_name, true);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    class.invariants = class_invariants;
+    Ok(class)
+}
+
+/// Builds `predicate.ifFalse { <error_class>.raise("<msg>") }` — the shared
+/// check-or-raise shape used by `@requires`/`@ensures`/`@invariant` alike.
+fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: SourceRange) -> Statement {
+    // `<ErrorClass>.new(msg).raise()` — `Error#raise()` (floor-census.md
+    // §2.15) unwinds with the *instance* `self`; it takes no message
+    // argument, so the message must be baked into a constructed instance
+    // first, not passed to `raise` itself.
+    let new_instance = Expr::MethodCall(Box::new(MethodCallExpr {
+        object: Expr::Var { value: error_class.to_string(), range },
+        method: "new".to_string(),
+        args: vec![Argument { label: None, expr: Expr::String { value: err_msg, range }, range }],
+        range,
+    }));
+    let error_expr = Expr::MethodCall(Box::new(MethodCallExpr {
+        object: new_instance,
+        method: "raise".to_string(),
+        args: Vec::new(),
+        range,
+    }));
+    let block_expr = Expr::Block(Box::new(BlockExpr {
+        params: Vec::new(),
+        body: vec![Statement::Expr { expr: error_expr, range }],
+        expr_body: true,
+        range,
+    }));
+    let check_call = Expr::MethodCall(Box::new(MethodCallExpr {
+        object: predicate,
+        method: "ifFalse".to_string(),
+        args: vec![Argument { label: None, expr: block_expr, range }],
+        range,
+    }));
+    Statement::Expr { expr: check_call, range }
+}
+
+/// Builds `self.<method>()` — a zero-arg send on the implicit receiver, used
+/// for the `__invariantEnter`/`__invariantExit` re-entrancy-guard primitives.
+fn self_send0(method: &str, range: SourceRange) -> Expr {
+    Expr::MethodCall(Box::new(MethodCallExpr {
+        object: Expr::SelfVar { range },
+        method: method.to_string(),
+        args: Vec::new(),
+        range,
+    }))
+}
+
+/// Returns `stmt`'s source span.
+///
+/// [`Statement`] has no inherent `range()` method (unlike [`Expr`]/[`Pattern`]),
+/// so the invariant weave — the only place in this module that needs a
+/// statement's span rather than an expression's — reads it out of whichever
+/// variant carries one.
+fn statement_range(stmt: &Statement) -> SourceRange {
+    match stmt {
+        Statement::Class(c) => c.range,
+        Statement::Let(l) => l.range,
+        Statement::Return(r) => r.range,
+        Statement::Expr { range, .. } => *range,
+        Statement::For(f) => f.range,
+        Statement::Break { range } | Statement::Continue { range } => *range,
+        Statement::Throw { range, .. } => *range,
+        Statement::Import(i) => i.range,
+    }
+}
+
+/// Weaves the receiver-scoped `@invariant` re-entrancy guard
+/// ([ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+/// Fix 1) around `body`, replacing it in place:
+///
+/// ```text
+/// let __invariant_owner = self.__invariantEnter()
+/// __invariant_owner.ifTrue { <entry checks> }   // skipped for constructors
+/// return Block.new { <original body> }.ensure {
+///     __invariant_owner.ifTrue {
+///         <exit checks>
+///         self.__invariantExit()
+///     }
+/// }
+/// ```
+///
+/// The original `body` is moved verbatim into the wrapping block literal —
+/// no rewriting of its `return` statements is needed. `return`/`throw`/a
+/// fiber-abort inside it are already a single unwind primitive that
+/// `Block#ensure(_)` is guaranteed to observe, so the exit check and the
+/// `checking`-set removal fire on every exit path (ADR-0052 Fix 1). Ownership
+/// is a captured local, never a re-check of the guard set, so only the
+/// outermost call on a given receiver inserts/removes/checks (ADR-0052 Bug 1).
+///
+/// `is_construct` skips the entry check: a constructor's invariant cannot
+/// hold before the object is built, so only its exit (post-construction)
+/// state is checked — matching Eiffel's own-object nesting rule.
+fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, SourceRange)], class_name: &str, is_construct: bool) {
+    let range = body.first().map(statement_range).unwrap_or_default();
+
+    let owner_var = Expr::Var { value: "__invariant_owner".to_string(), range };
+    let owner_let = Statement::Let(LetBinding {
+        kind: BindingKind::Let,
+        pattern: Pattern::Name { name: "__invariant_owner".to_string(), range },
+        value: Some(self_send0("__invariantEnter", range)),
+        range,
+    });
+
+    let check_stmts = |_for_entry: bool| -> Vec<Statement> {
+        invariants
+            .iter()
+            .map(|(inv_expr, inv_range)| {
+                let err_msg = format!("Invariant failed for class `{}`: {}", class_name, inv_expr.range().start);
+                build_check_stmt(inv_expr.clone(), "InvariantError", err_msg, *inv_range)
+            })
+            .collect()
+    };
+
+    let mut new_body = vec![owner_let];
+    if !is_construct {
+        new_body.push(Statement::Expr {
+            expr: Expr::MethodCall(Box::new(MethodCallExpr {
+                object: owner_var.clone(),
+                method: "ifTrue".to_string(),
+                args: vec![Argument {
+                    label: None,
+                    expr: Expr::Block(Box::new(BlockExpr { params: Vec::new(), body: check_stmts(true), expr_body: false, range })),
+                    range,
+                }],
+                range,
+            })),
+            range,
+        });
+    }
+
+    let original_body = std::mem::take(body);
+    let body_block = Expr::Block(Box::new(BlockExpr { params: Vec::new(), body: original_body, expr_body: true, range }));
+
+    let mut cleanup_body = check_stmts(false);
+    cleanup_body.push(Statement::Expr { expr: self_send0("__invariantExit", range), range });
+    let cleanup_guard = Statement::Expr {
+        expr: Expr::MethodCall(Box::new(MethodCallExpr {
+            object: owner_var,
+            method: "ifTrue".to_string(),
+            args: vec![Argument {
+                label: None,
+                expr: Expr::Block(Box::new(BlockExpr { params: Vec::new(), body: cleanup_body, expr_body: false, range })),
+                range,
+            }],
+            range,
+        })),
+        range,
+    };
+    let cleanup_block = Expr::Block(Box::new(BlockExpr { params: Vec::new(), body: vec![cleanup_guard], expr_body: false, range }));
+
+    let ensure_call = Expr::MethodCall(Box::new(MethodCallExpr {
+        object: body_block,
+        method: "ensure".to_string(),
+        args: vec![Argument { label: None, expr: cleanup_block, range }],
+        range,
+    }));
+
+    // A constructor's initializer implicitly returns `self` and cannot
+    // `return` a value — run the wrapped block for effect only there;
+    // every other member kind returns the block's (and thus the original
+    // body's) implicit value, unchanged from the unwoven behavior.
+    if is_construct {
+        new_body.push(Statement::Expr { expr: ensure_call, range });
+    } else {
+        new_body.push(Statement::Return(phalcom_ast::ast::ReturnStatement { value: Some(ensure_call), range }));
+    }
+    *body = new_body;
+}

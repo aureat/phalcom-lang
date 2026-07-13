@@ -30,24 +30,32 @@ pub(crate) fn store_live_into(vm: &mut VM, fiber_ref: ObjRef) {
     let frames = std::mem::take(&mut vm.frames);
     let stack = std::mem::take(&mut vm.stack);
     let open_upvalues = std::mem::take(&mut vm.open_upvalues);
+    // `checking` (ADR-0052 Fix 1, U-ANNOT-CONTRACTS) swaps alongside the
+    // three fields above for the same reason: an `@invariant`-guarded call
+    // can `yield` mid-body, so this fiber's in-flight guard bookkeeping must
+    // park with it rather than leak into whichever fiber runs next.
+    let checking = std::mem::take(&mut vm.checking);
     let fiber = vm.heap.fiber_mut(fiber_ref);
     fiber.frames = frames;
     fiber.stack = stack;
     fiber.open_upvalues = open_upvalues;
+    fiber.checking = checking;
 }
 
 /// Moves the parked [`FiberObject`] behind `fiber_ref`'s stacks back into
-/// `vm`'s live mirror (`frames`/`stack`/`open_upvalues`) — the reverse of
-/// [`store_live_into`], run on the fiber that is about to become
+/// `vm`'s live mirror (`frames`/`stack`/`open_upvalues`/`checking`) — the
+/// reverse of [`store_live_into`], run on the fiber that is about to become
 /// [`VM::current`].
 pub(crate) fn load_live_from(vm: &mut VM, fiber_ref: ObjRef) {
     let fiber = vm.heap.fiber_mut(fiber_ref);
     let frames = std::mem::take(&mut fiber.frames);
     let stack = std::mem::take(&mut fiber.stack);
     let open_upvalues = std::mem::take(&mut fiber.open_upvalues);
+    let checking = std::mem::take(&mut fiber.checking);
     vm.frames = frames;
     vm.stack = stack;
     vm.open_upvalues = open_upvalues;
+    vm.checking = checking;
 }
 
 /// Builds and raises a `CannotYieldAcrossNativeFrame` instance carrying

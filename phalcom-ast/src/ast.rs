@@ -185,6 +185,51 @@ pub enum ClassMember {
     Getter(GetterDef),
     Setter(SetterDef),
     Construct(ConstructDef),
+    /// A declared field (`let`/`var` at class-body position, U-ANNOT-LAYOUT
+    /// §3.1). See [`FieldDef`].
+    Field(FieldDef),
+}
+
+/// A declared class field: `let _name [= expr]` or `var _name [= expr]` at
+/// class-body position (`docs/spec/v0.2/experimental/annotations-construct.md`
+/// "Prerequisite 1", U-ANNOT-LAYOUT §3.1).
+///
+/// Distinct from [`LetBinding`] (the statement-position form of the same
+/// `let`/`var` keywords, ADR-0014) purely by parse *position* — the parser
+/// disambiguates in [`crate::parser`]'s `parse_class_member`, which only ever
+/// runs inside a class body, so no lookahead ambiguity exists.
+///
+/// **Field order is API** (R3, `selectors.md` §1): `FieldDef`s appear in
+/// [`ClassMember`] order exactly as written, and this order is what the
+/// layout-derive attributes (`@construct`, `@data`, once built) key their
+/// generated parameter lists off. A class using at least one `FieldDef`
+/// switches its whole instance-field layout onto this declared list; the
+/// legacy implicit-by-assignment inference is skipped entirely for that class
+/// (U-ANNOT-LAYOUT §3 "Rubric" hazard, DEC-ANNOT-H) — mixing declared and
+/// inferred fields within one class is unsupported.
+#[derive(Debug, Clone)]
+pub struct FieldDef {
+    /// The field's name, as written (conventionally leading-underscore,
+    /// e.g. `"_x"`, though the grammar does not enforce this).
+    pub name: String,
+    /// Whether the field was declared `var` (`true`, mutable) or `let`
+    /// (`false`, immutable) — ADR-0014's mutability distinction, carried
+    /// over unchanged from [`LetBinding::kind`]'s two-way split.
+    pub mutable: bool,
+    /// The field's default-value expression (`= expr`), or `None` if the
+    /// field was declared with no initializer. A layout-derive attribute
+    /// (e.g. `@construct`) that omits a defaulted field from its generated
+    /// parameter list evaluates this expression per instance, at
+    /// construct time, before the derived body's own labeled-parameter
+    /// assignments (`annotations-construct-inheritance.md`'s "supply-and-
+    /// default is mutually exclusive per field").
+    pub default: Option<Expr>,
+    /// `@name(args…)` attributes attached to this field, in declaration
+    /// order (e.g. `@get`/`@set` — U-ANNOT-LAYOUT §3.2, not yet
+    /// implemented). See [`MethodDef::attributes`].
+    pub attributes: Vec<Attribute>,
+    /// The source span of the whole field declaration.
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]

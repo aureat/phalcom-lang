@@ -345,15 +345,18 @@ impl<'source> Parser<'source> {
 
     /// Parses one top-level item into `out`.
     ///
-    /// A `class` declaration is a compound statement that must be followed by a
-    /// newline terminator (never end-of-file); anything else is a run of small
-    /// statements separated by `;` and terminated by a newline or end-of-file.
+    /// A `class` declaration (optionally preceded by header attributes,
+    /// U-ANNOT-LAYOUT §3.3 — `Token::At` also dispatches here, since nothing
+    /// else in top-level position starts with `@`) is a compound statement
+    /// that must be followed by a newline terminator (never end-of-file);
+    /// anything else is a run of small statements separated by `;` and
+    /// terminated by a newline or end-of-file.
     ///
     /// # Errors
     ///
     /// Returns a [`SyntaxError`] if the item or its terminator is malformed.
     fn parse_top_item(&mut self, out: &mut Vec<Statement>) -> ParserResult<()> {
-        if matches!(self.peek(), Token::Class) {
+        if matches!(self.peek(), Token::Class | Token::At) {
             let stmt = self.parse_class()?;
             out.push(stmt);
             // A compound statement requires a NEWLINE terminator, not EOF.
@@ -870,14 +873,33 @@ impl<'source> Parser<'source> {
 
     // ── Class declarations ───────────────────────────────────────────────────
 
-    /// Parses a `class Name { members }` declaration.
+    /// Parses an optional run of `@name(args…) class Name { members }`
+    /// class-header attributes (U-ANNOT-LAYOUT §3.3, the `@construct` layout-
+    /// derive tier and friends), then the class declaration itself.
+    ///
+    /// This is the class-header decorator position `ClassDef::attributes`'s
+    /// own doc calls "reserved for a future class-level decorator" — U-ANNOT-
+    /// LAYOUT is that future. A header attribute binds to the whole class,
+    /// distinct from a class-*body* member attribute
+    /// ([`Self::parse_class_body`]'s `pending_attrs` loop), and from the
+    /// standalone `@invariant(...)` carve-out (DEC-ANNOT-B), which is
+    /// body-position only. Newlines between a header attribute and the
+    /// following `class` keyword (or a subsequent header attribute) are
+    /// tolerated, mirroring the body-position attribute loop's own
+    /// newline-tolerance.
     ///
     /// # Errors
     ///
-    /// Returns an error if the name, braces, or any member is malformed.
+    /// Returns an error if a header attribute, the class name, braces, or any
+    /// member is malformed.
     fn parse_class(&mut self) -> ParserResult<Statement> {
+        let mut header_attrs = Vec::new();
+        while matches!(self.peek(), Token::At) {
+            header_attrs.push(self.parse_attribute()?);
+            self.skip_newlines();
+        }
         let start = self.cur_start();
-        self.advance(); // 'class'
+        self.expect(&Token::Class, &["\"class\""])?;
         let name = self.expect_identifier(&["identifier"])?;
 
         // Contextual `extends` (DEC-INH-A, U-INH): `extends` is not a reserved
@@ -895,14 +917,20 @@ impl<'source> Parser<'source> {
         };
 
         self.expect(&Token::LBrace, &["\"{\""])?;
-        let (members, attributes, invariants) = self.parse_class_body()?;
+        let (members, body_attrs, invariants) = self.parse_class_body()?;
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
+        // `body_attrs` is always empty today (`parse_class_body`'s own doc:
+        // no body-position grammar produces a class-level attribute); header
+        // attributes are the sole real source of `ClassDef::attributes`.
+        // Concatenating rather than overwriting keeps this call site correct
+        // if a body-position source is ever added later.
+        header_attrs.extend(body_attrs);
         Ok(Statement::Class(ClassDef {
             name,
             superclass,
             members,
-            attributes,
+            attributes: header_attrs,
             invariants,
             range,
         }))
@@ -994,7 +1022,17 @@ impl<'source> Parser<'source> {
     fn parse_attribute(&mut self) -> ParserResult<Attribute> {
         let start = self.cur_start();
         self.advance(); // '@'
-        let name = self.expect_identifier(&["attribute name"])?;
+        // `construct` is a reserved keyword (`Token::Construct`, not
+        // `Token::Identifier`) — but it is also the exact name of the
+        // U-ANNOT-LAYOUT `@construct` layout-derive attribute
+        // (`annotations-construct.md`). Recognize it here the same way
+        // `Self::parse_property_name` already recognizes `.class`/`.try` as
+        // ordinary selector text despite being reserved words elsewhere.
+        let name = if self.eat(&Token::Construct) {
+            "construct".to_string()
+        } else {
+            self.expect_identifier(&["attribute name"])?
+        };
         let args = if self.eat(&Token::LParen) {
             let args = self.parse_attribute_arg_list()?;
             self.expect(&Token::RParen, &["\")\""])?;
@@ -1032,7 +1070,8 @@ impl<'source> Parser<'source> {
     /// an `attributes` field (U-ANNOT-CONTRACTS plan §3.1: no method-table-
     /// macro or layout-tier attribute targets a constructor) — attaching to a
     /// `Construct` member is therefore an `attr.dangling`-class error, not a
-    /// silent drop.
+    /// silent drop. [`ClassMember::Field`] carries one too (U-ANNOT-LAYOUT
+    /// §3.1), for the not-yet-implemented `@get`/`@set` derive tier.
     ///
     /// # Errors
     ///
@@ -1043,6 +1082,7 @@ impl<'source> Parser<'source> {
             ClassMember::Method(m) => m.attributes = attrs,
             ClassMember::Getter(g) => g.attributes = attrs,
             ClassMember::Setter(s) => s.attributes = attrs,
+            ClassMember::Field(f) => f.attributes = attrs,
             ClassMember::Construct(c) => {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message(
@@ -1069,6 +1109,45 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parses a declared field (`let`/`var _name [= expr]`) at class-body
+    /// position (U-ANNOT-LAYOUT §3.1).
+    ///
+    /// `start` is the position of the already-peeked `let`/`var` token
+    /// (captured by the caller before dispatching here, matching the sibling
+    /// member-parsing methods' convention). Terminated by a newline, or — with
+    /// no explicit terminator consumed — the closing `}`/end-of-file, mirroring
+    /// how every other [`ClassMember`] variant needs no trailing separator of
+    /// its own (a method/getter/setter/constructor's `{ … }` body is
+    /// self-delimiting; a field declaration has no braces, so a newline plays
+    /// that role instead).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the field name is missing, the initializer
+    /// expression is malformed, or the declaration is not followed by a
+    /// newline, `}`, or end-of-file.
+    fn parse_field_decl(&mut self, start: usize) -> ParserResult<ClassMember> {
+        let mutable = matches!(self.peek(), Token::Var);
+        self.advance(); // 'let' or 'var'
+        let name = self.expect_identifier(&["field name"])?;
+        let default = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
+        let range = (start..self.prev_end).into();
+        match self.peek() {
+            Token::Newline => {
+                self.advance();
+            }
+            Token::RBrace | Token::Eof => {}
+            _ => return Err(self.error_here(strs(&["newline", "\"}\""]))),
+        }
+        Ok(ClassMember::Field(FieldDef {
+            name,
+            mutable,
+            default,
+            attributes: Vec::new(),
+            range,
+        }))
+    }
+
     /// Parses a single class member: a method, getter, or setter.
     ///
     /// A trailing `=` after the name marks a setter (whose parameter is always
@@ -1081,6 +1160,9 @@ impl<'source> Parser<'source> {
     /// malformed.
     fn parse_class_member(&mut self) -> ParserResult<ClassMember> {
         let start = self.cur_start();
+        if matches!(self.peek(), Token::Let | Token::Var) {
+            return self.parse_field_decl(start);
+        }
         if self.eat(&Token::Construct) {
             let name = self.parse_method_name()?;
             self.expect(&Token::LParen, &["\"(\""])?;
@@ -1295,7 +1377,10 @@ impl<'source> Parser<'source> {
             self.skip_newlines();
             match self.peek() {
                 Token::RBrace | Token::Eof => break,
-                Token::Class => {
+                // `Token::At` also dispatches here — a nested class may carry
+                // header attributes too (U-ANNOT-LAYOUT §3.3), same rationale
+                // as the top-level `parse_top_item` dispatch.
+                Token::Class | Token::At => {
                     stmts.push(self.parse_class()?);
                 }
                 _ => {

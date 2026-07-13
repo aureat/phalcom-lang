@@ -43,6 +43,8 @@ impl VM {
             has_new_construct: std::collections::HashSet::new(),
             class_parents: HashMap::new(),
             checking: std::collections::HashSet::new(),
+            compile_mode: crate::compiler::attributes::CompileMode::Debug,
+            strip_contract_metadata: false,
         };
 
         // Bootstrap core module and primitive methods

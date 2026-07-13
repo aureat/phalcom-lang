@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::frame::CallFrame;
 use crate::value::Value;
@@ -104,6 +104,17 @@ pub struct FiberObject {
     /// while [`FiberStatus::Suspended`] pre-first-resume; set on every
     /// `call`/`try`.
     pub resume_mode: FiberResumeMode,
+    /// The identity set of receivers currently under `@invariant`
+    /// re-entrancy-guard checking on this fiber (empty while running —
+    /// mirrored by [`VM::checking`](crate::vm::VM)), populated/drained by the
+    /// native `__invariantEnter`/`__invariantExit` primitives the
+    /// `@invariant` weave calls
+    /// ([ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+    /// Fix 1). Kept per-fiber, swapped alongside `stack`/`frames`/
+    /// `open_upvalues` on fiber switch, because a guarded call can `yield`
+    /// mid-body: a VM-global set would leak one fiber's in-flight
+    /// invariant-checking bookkeeping into whatever fiber resumes next.
+    pub checking: HashSet<ObjRef>,
 }
 
 impl FiberObject {
@@ -123,6 +134,7 @@ impl FiberObject {
             resume_slot: 0,
             floor_depth: 0,
             resume_mode: FiberResumeMode::Call,
+            checking: HashSet::new(),
         }
     }
 
@@ -143,6 +155,7 @@ impl FiberObject {
             resume_slot: 0,
             floor_depth: 0,
             resume_mode: FiberResumeMode::Call,
+            checking: HashSet::new(),
         }
     }
 }

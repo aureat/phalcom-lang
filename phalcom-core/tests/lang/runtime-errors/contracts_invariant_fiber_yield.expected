@@ -1,0 +1,1 @@
+cannot switch fibers across a native call frame (e.g. inside .each { })

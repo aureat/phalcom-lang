@@ -162,6 +162,30 @@ pub struct VM {
     /// `docs/forge/DEFERRED.md` correctness entry). Only user classes appear;
     /// the implicit `Object` root is absent (chain-walks terminate there).
     pub class_parents: HashMap<Symbol, Symbol>,
+    /// Live mirror of [`Self::current`]'s
+    /// [`FiberObject::checking`](crate::heap::FiberObject::checking) — the
+    /// identity set of receivers currently under `@invariant`
+    /// re-entrancy-guard checking (U-ANNOT-CONTRACTS,
+    /// [ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+    /// Fix 1). Mutated only by the native `__invariantEnter`/
+    /// `__invariantExit` primitives on `Object`; swapped with the parking/
+    /// resuming fiber's own `checking` set alongside `frames`/`stack`/
+    /// `open_upvalues` on every fiber switch (`primitive/fiber.rs`
+    /// `store_live_into`/`load_live_from`).
+    pub(crate) checking: std::collections::HashSet<ObjRef>,
+    /// The active contract [`CompileMode`](crate::compiler::attributes::CompileMode)
+    /// (U-ANNOT-CONTRACTS plan §3.6), selected by the `phalcom` CLI's
+    /// `--release`/`--unchecked` flags (default `Debug`) and read by
+    /// `Compiler::compile_class` (`compiler::lib`) when it builds each
+    /// class's [`crate::compiler::attributes::ExpandCtx`].
+    pub compile_mode: crate::compiler::attributes::CompileMode,
+    /// Mirrors the CLI's `--strip-contract-metadata` flag: forces reflectable
+    /// contract metadata (`MethodObject::contracts`, plan §3.5) to be stripped
+    /// even in `Release` mode, where it is retained by default. Has no effect
+    /// in `Unchecked` mode, where metadata is already stripped by default
+    /// (plan §3.6's table) — never coupled to [`Self::compile_mode`] beyond
+    /// this one opt-in-to-stripping override.
+    pub strip_contract_metadata: bool,
 }
 
 impl Default for VM {

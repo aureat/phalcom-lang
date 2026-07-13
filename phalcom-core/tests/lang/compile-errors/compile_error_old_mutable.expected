@@ -1,0 +1,1 @@
+contract.old_on_mutable: old() operand must not be the whole receiver (aliases the live, mutable object)

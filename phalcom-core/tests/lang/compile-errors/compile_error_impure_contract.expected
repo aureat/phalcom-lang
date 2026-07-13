@@ -1,0 +1,1 @@
+contract.impure_predicate: predicate contains mutating or side-effecting operations

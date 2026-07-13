@@ -1,6 +1,7 @@
 use crate::disasm;
 use anyhow::{bail, Context, Result};
 use clap::{arg, command, Args, Parser, Subcommand, ValueHint};
+use phalcom_core::compiler::attributes::CompileMode;
 use phalcom_core::compiler::lib::CompilerError;
 use phalcom_core::vm::VM;
 use std::{fs, path::PathBuf};
@@ -17,9 +18,50 @@ pub struct Cli {
     #[arg(short = 'i', long, value_name = "source", conflicts_with = "path")]
     pub(crate) source: Option<String>,
 
+    /// Compile contracts (`@requires`/`@ensures`/`@invariant`) in release mode
+    /// (U-ANNOT-CONTRACTS plan §3.6): `@requires`'s guard stays woven,
+    /// `@ensures`/`@invariant`'s guards are stripped (no-op weave), and
+    /// reflectable contract metadata (`MethodObject::contracts`) is retained
+    /// by default — pass `--strip-contract-metadata` alongside this flag to
+    /// also strip it. Conflicts with `--unchecked`. Only affects the default
+    /// (no-subcommand) run path.
+    #[arg(long, conflicts_with = "unchecked")]
+    pub(crate) release: bool,
+
+    /// Compile contracts in unchecked mode (plan §3.6): every
+    /// `@requires`/`@ensures`/`@invariant` guard is stripped (no-op weave)
+    /// and reflectable contract metadata is stripped by default. Conflicts
+    /// with `--release`. Only affects the default (no-subcommand) run path.
+    #[arg(long, conflicts_with = "release")]
+    pub(crate) unchecked: bool,
+
+    /// Forces reflectable contract metadata (`MethodObject::contracts`) to be
+    /// stripped even under `--release`, where it is otherwise retained by
+    /// default (plan §3.6). Has no additional effect under `--unchecked`
+    /// (metadata there is already stripped by default) or under the default
+    /// debug mode (metadata is always retained in debug).
+    #[arg(long)]
+    pub(crate) strip_contract_metadata: bool,
+
     /// Sub-command to execute
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,
+}
+
+impl Cli {
+    /// Resolves the `--release`/`--unchecked` flags (mutually exclusive via
+    /// `clap`'s `conflicts_with`, so at most one is set) into a
+    /// [`CompileMode`], defaulting to [`CompileMode::Debug`] when neither is
+    /// passed (U-ANNOT-CONTRACTS plan §3.6).
+    pub(crate) fn compile_mode(&self) -> CompileMode {
+        if self.unchecked {
+            CompileMode::Unchecked
+        } else if self.release {
+            CompileMode::Release
+        } else {
+            CompileMode::Debug
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -105,8 +147,15 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
         Some(p) => fs::canonicalize(p).with_context(|| format!("Failed to resolve path {}", p.display()))?.display().to_string(),
         None => "<main>".to_string(),
     };
+    // Read before `cli.path`/`cli.source` are moved out below — `cli` would
+    // otherwise be partially moved and `cli.compile_mode()`'s `&self` borrow
+    // would no longer be legal.
+    let compile_mode = cli.compile_mode();
+    let strip_contract_metadata = cli.strip_contract_metadata;
     let source = read_source(cli.path, cli.source)?;
     let mut vm = VM::new();
+    vm.compile_mode = compile_mode;
+    vm.strip_contract_metadata = strip_contract_metadata;
     let module = vm.create_module("main", &abs_path);
     let closure = vm.compile_closure(module.clone(), &source)?;
     if let Err(e) = vm.run_in_module(module, closure) {
