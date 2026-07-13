@@ -165,10 +165,20 @@ clean) if its own value is `==` its previous — stopping the cascade.
 
 ## The ergonomic layer: `@observable` / `@computed`
 
-Nobody writes `cart.totalSignal.value`. The decorators hide the boxing (see
-[decorators-stdlib.md](decorators-stdlib.md) for their definitions): `@observable`
-(Layout+Install) makes a field signal-backed; `@computed` (Install) wraps a getter
-as a `Computed`.
+Nobody writes `cart.totalSignal.value`. The decorators hide the boxing. Their
+**authoritative** decorator spec is
+[decorators-observable.md](decorators-observable.md) (which unifies the three
+scattered `@observable` sketches into this one reactive-field decorator); this
+section is the runtime they layer onto. `@observable` makes a field signal-backed;
+`@computed` wraps a getter as a `Computed`.
+
+> **Tier correction.** `@observable` is **Layout (builtin) + a Compile/generate
+> accessor derivation**, *not* "Layout + Install" as earlier drafts (and
+> [decorators-stdlib.md](decorators-stdlib.md)) labelled it: the notifying setter is a
+> *generated member*, not an Install-tier `wrap`, and per-receiver `Signal` storage is
+> Layout by [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
+> `@computed` was likewise reclassified Install → Layout by ADR-0052. See
+> [decorators-observable.md](decorators-observable.md).
 
 ```phalcom
 class Cart {

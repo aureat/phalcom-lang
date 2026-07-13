@@ -115,6 +115,13 @@ same [`@transactional`](decorators-stdlib.md) scope as the write).
 
 ## `@observable` columns → dirty tracking
 
+> **Not a separate `@observable`.** This section *consumes* the one reactive
+> `@observable` decorator ([decorators-observable.md](decorators-observable.md)); it is
+> not a third, ORM-specific sense of the name. A `Signal`-backed column gives dirty
+> tracking for free precisely because it is the same reactive field the reactivity
+> layer defines — the persistence and reactive substrates meet on one slot. No naming
+> collision; E-3 below (opt-in vs `@entity`-implied) is the only open knob.
+
 A column that is also [`@observable`](reactivity.md) (Layout) is `Signal`-backed, so
 the ORM gets **dirty tracking for free**: `save` writes only the columns whose
 signals fired since load, and an admin/live view can subscribe to changes without

@@ -59,6 +59,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0052](0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) | Invariant re-entrancy is receiver-scoped; per-receiver decorator state is Layout-confined | Proposed |
 | [0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md) | Runtime-tier decorator interception reuses the sacred-selector override-epoch guard | Proposed |
 | [0054](0054-two-speed-ratification-annotation-decorator-tiers.md) | Two-speed ratification: annotation Compile/Layout tier now, Install/Dispatch/Runtime gated on ADR-0053 | Accepted (Compile/Layout only) |
+| [0057](0057-decorator-granularity-vs-proxy-granularity-split.md) | Decorator vs proxy granularity: method-declaration (`@name`) vs whole-object (`Proxy`) interception; both kept | Accepted |
 
 > ADR-0029 (list literals) is now **Accepted** — its sub-decisions (desugar-to-sends,
 > no subscript sugar, trailing comma) were ratified with the collections umbrella

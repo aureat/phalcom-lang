@@ -69,6 +69,13 @@ lookup. This is tracked as [open question P-1](#open-questions).
 
 ### `Lazy` — virtual proxy
 
+> **Granularity split ([ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
+> This `Lazy` proxy defers building a **whole object**. It is a *different mechanism*
+> from the `@lazy` **decorator** ([decorators-behavioral.md](decorators-behavioral.md)),
+> which caches one **method result** in a per-receiver slot. Wrap a foreign object you
+> can't annotate → `Lazy` proxy; make one getter on your own class compute-once →
+> `@lazy`.
+
 Defer building an expensive target until its first message.
 
 ```phalcom
@@ -86,6 +93,14 @@ class Lazy : Proxy {
 
 ### `Trace` — observability
 
+> **Granularity split ([ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
+> This `Trace` proxy observes a **black-box object** from outside (whole protocol,
+> with the identity leak of [P-1](#open-questions)). To instrument **your own**
+> declaration, use the `@traced` **decorator**
+> ([decorators-dispatch-observability.md](decorators-dispatch-observability.md)) —
+> Runtime tier, guarded by ADR-0053, no identity leak. Same feature, two granularities;
+> both are kept.
+
 Log every message crossing the boundary, for any object.
 
 ```phalcom
@@ -101,6 +116,14 @@ class Trace : Proxy {
 ```
 
 ### `Retry` — resilience
+
+> **Granularity split ([ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
+> This `Retry` proxy retries **every** method of a wrapped object indiscriminately —
+> **unsafe unless every method is idempotent**, which rarely holds for a whole object.
+> The **recommended** surface is the `@retry` **decorator**
+> ([decorators-behavioral.md](decorators-behavioral.md)), applied per method (the
+> author asserts *this* method is retry-safe). Use this proxy only for a black-box
+> object you cannot annotate, and only when its whole protocol is idempotent.
 
 One wrapper covers every method.
 
