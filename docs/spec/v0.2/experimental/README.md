@@ -18,6 +18,7 @@ flags. Promote to `docs/adr/` + `docs/spec/` on ratification.
 | [annotations-contract-semantics.md](annotations-contract-semantics.md) | invariant re-entrancy, predicate purity, release stripping | Proposed |
 | [annotations-construct-inheritance.md](annotations-construct-inheritance.md) | super-construct chaining, collisions, field defaults | Proposed |
 | [annotations-test-strategy.md](annotations-test-strategy.md) | AST snapshots, `.ph` corpus, diagnostics catalog | Proposed |
+| [annotations-data.md](annotations-data.md) | `@data`/`@sealed`/`@variant` — structural records, closed hierarchies, generated visitor dispatch (no new `match` grammar) | Proposed |
 | [iteration-protocol.md](iteration-protocol.md) | untracked — `iterate(_)`/`iteratorValue(_)`; unblocks `for` | Proposed |
 | [equality-and-hash.md](equality-and-hash.md) | untracked — `==`/`hash` ladder, NaN keys, mutable keys | Proposed |
 | [numeric-and-string-indexing.md](numeric-and-string-indexing.md) | untracked — integral indices, bitwise, codepoint strings | Proposed |

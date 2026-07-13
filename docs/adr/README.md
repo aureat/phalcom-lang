@@ -56,6 +56,9 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0032](0032-collections-representation-and-literals.md) | Collections: native representation, shared protocol, and literal surface | Accepted |
 | [0033](0033-amend-fiber-execution-trampolined-block-callsite.md) | Amend fiber execution (ADR-0030 §4): trampoline the bytecode block call-site | Deferred |
 | [0035](0035-iteration-protocol-cursor.md) | Iteration protocol: a Wren-style two-selector cursor | Accepted |
+| [0052](0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) | Invariant re-entrancy is receiver-scoped; per-receiver decorator state is Layout-confined | Proposed |
+| [0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md) | Runtime-tier decorator interception reuses the sacred-selector override-epoch guard | Proposed |
+| [0054](0054-two-speed-ratification-annotation-decorator-tiers.md) | Two-speed ratification: annotation Compile/Layout tier now, Install/Dispatch/Runtime gated on ADR-0053 | Accepted (Compile/Layout only) |
 
 > ADR-0029 (list literals) is now **Accepted** — its sub-decisions (desugar-to-sends,
 > no subscript sugar, trailing comma) were ratified with the collections umbrella
@@ -105,6 +108,29 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 > §0 gate: they derive from the experimental draft
 > `docs/spec/v0.2/experimental/bootstrapping-and-self-hosting.md` (D1, D2/DEC-A). 0019
 > consolidates an existing boundary; 0020 resolves DEC-A.
+
+> ADR-0052 amends two unratified annotation/decorator drafts found during spec
+> review: `experimental/annotations-contract-semantics.md`'s `@invariant`
+> re-entrancy guard (fiber-global counter → receiver-scoped, unwind-safe
+> identity set) and `next/decorators-stdlib.md`'s `@computed` (Install-tier
+> receiver-keyed cache, which leaked every receiver forever → reclassified to
+> Layout tier per `attribute-classes.md`'s own `@lazy` pattern). Not yet
+> ratified by the user.
+
+> ADR-0053 and ADR-0054 continue the same review: 0053 gives Runtime-tier
+> decorator interception (`aroundSend`) an explicit cost model by reusing
+> ADR-0018's override-epoch guard (Proposed, not yet ratified — it only
+> matters once Install/Dispatch/Runtime are); 0054 resolves the
+> annotations-core.md vs. decorators.md fork by ratifying the Compile/Layout
+> tier and gating Install/Dispatch/Runtime on 0053 plus attribute-classes.md's
+> remaining open questions (A-1–A-6, not yet resolved). **0054's Compile/Layout
+> ratification was accepted by the user on 2026-07-13** — `annotations-core.md`,
+> `annotations-legality-grammar.md`, `annotations-contracts.md`,
+> `annotations-contract-semantics.md` (as amended by 0052), `annotations-construct.md`,
+> `annotations-construct-inheritance.md` (as amended by the super-signature-inference
+> fix), and `annotation-paradigm-bridges.md`'s tier line are now the normative
+> design for `@` on the Compile/Layout tier. Install/Dispatch/Runtime remain
+> unratified.
 
 > ADRs 0003–0008 were ratified in the object-model / language-design sessions, and
 > ADRs 0009–0015 in the Phase-2 VM-architecture session (2026-07-11); all are now

@@ -23,20 +23,30 @@ must be able to initialize the parent. Rule:
 - If the class has a superclass with its own fields, the derived `@construct`'s
   synthesized params are `super-params ++ own-params`, and the synthesized body
   begins with `super.new(<super-params>)` before assigning own fields.
-- The super-param list is the parent's `@construct` param list (or, for a
-  hand-written parent constructor, a **compile error** — `@construct` cannot infer
-  a hand-written super's signature; the subclass must hand-write its constructor).
+- The super-param list is read off the parent's **reflected constructor
+  signature** — its `MethodDef.params` label list — not off whether the parent
+  used `@construct`. A constructor's labeled-parameter list is statically known
+  at the parent's definition time regardless of whether it was hand-written or
+  `@construct`-derived (`ParameterDef.label` already exists, `ast.rs:37`), so
+  requiring the parent to *also* use `@construct` was never load-bearing for
+  correctness — it only restricted *which already-known signatures* the
+  subclass could read.
 
 ```phalcom
-@construct class Animal { var _name }
+class Animal { construct new(name:) { _name = name } }   // hand-written parent
 @construct class Dog : Animal { var _breed }
 // Dog.new(name:, breed:)  ⇒  super.new(name); _breed = breed
 ```
 
-Draft 0.1 conservative fallback: **`@construct` is legal only when every ancestor
-up the chain also uses `@construct`** (uniform derivation). Mixed hand-written /
-derived hierarchies require a hand-written constructor at the mix point. This
-keeps super-signature inference total.
+**Ambiguity, not ancestry, is the failure case.** `@construct` on a subclass is
+a compile error (`construct.super_ambiguous`) only if the superclass has **more
+than one** constructor selector (overloaded `new` with different label sets) —
+there is then no single signature to infer from, and the subclass must
+hand-write its constructor and pick one explicitly via `super.new(...)`. A
+superclass with **exactly one** constructor selector — hand-written,
+`@construct`-derived, or itself inferred this same way — always has a total,
+unambiguous signature to read, so `@construct` composes freely up any
+hierarchy depth without requiring uniform derivation at every level.
 
 ### Collision with a hand-written `construct`
 
@@ -65,14 +75,25 @@ param reads as `None` (classes.md §2 / open-Q1) until assigned.
 
 ## Consequences
 
-- `@construct` derivation stays total: the uniform-derivation fallback means the
-  expander never has to reverse-engineer a hand-written super.
+- `@construct` derivation stays total for the common case (exactly one
+  superclass constructor selector): the expander never has to guess a
+  hand-written super's signature, it reads it — the same reflection surface
+  `Family`/`perform` already need to exist. It only degrades to a compile
+  error in the genuinely ambiguous case (an overloaded superclass
+  constructor), not merely because the superclass didn't itself use
+  `@construct`.
 - Default-bearing fields shrink the constructor signature — reordering or adding a
   defaulted field changes the param list, so the R3 field-order-is-API caveat
   (annotations-construct.md) extends to defaults.
+- `@construct` is now usable on the *first* subclass of any hand-written
+  `core.ph` kernel class with a single constructor selector, removing the
+  Draft 0.1 blocker that otherwise made `@construct` unusable on day one for
+  the common case of extending an unannotated base class.
 
 ## What this precludes
 
-The uniform-derivation fallback precludes `@construct` on a subclass of a
-hand-written-constructor parent (until a signature-annotation escape hatch is
-added) — a deliberate Draft 0.1 simplification, not a permanent limit.
+Signature-inference-from-reflection precludes nothing `@construct` could do
+before; it only removes the artificial "every ancestor must also use
+`@construct`" restriction. The genuine limit that remains — an overloaded
+superclass constructor has no single signature to infer — is inherent to
+inference itself, not a Draft 0.1 simplification to be lifted later.

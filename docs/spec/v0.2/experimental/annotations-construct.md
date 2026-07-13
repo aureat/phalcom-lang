@@ -30,16 +30,35 @@ class-definition time. The parser must disambiguate `var` at class-body
 (field decl) vs statement position (local binding, ADR-0014) — same keyword, two
 roles.
 
-### Prerequisite 2 — `construct` semantics
+### Prerequisite 2 — `construct` semantics — **already landed, not a prerequisite**
+
+> **Correction (2026-07-13, surfaced during `U-ANNOT-CONTRACTS`/`U-ANNOT-LAYOUT`
+> planning).** This section originally claimed `construct` had no parser
+> support. That was true when this draft was written but is stale: `construct`
+> landed in U7, before this draft was promoted. `Token::Construct`
+> (`phalcom-ast/src/lexer.rs`), `ClassMember::Construct(ConstructDef)`
+> (`phalcom-ast/src/ast.rs`), full parser handling, and compiler-side selector
+> encoding (`constructor_aliases`, `has_new_construct`, `phalcom-core/src/compiler/lib.rs`)
+> all exist at HEAD. `@construct`'s derive target is a real `ConstructDef`, not
+> a `MethodDef` — the expansion sketch in "The derive" section below, which
+> synthesizes a `MethodDef` with an invented `is_constructor: true` field, is
+> **wrong**: no such field exists on `MethodDef`, and emitting a plain method
+> named `new` would silently produce a non-constructor method — a
+> compiles-fine, wrong-behavior bug, not a build failure. The derive must
+> construct a `ConstructDef` directly. Prerequisite 1 (`FieldDef`) is the only
+> remaining real grammar gap this doc's "two prerequisites" framing was
+> describing — retitle mentally as one prerequisite, not two.
 
 Per classes.md §1 a constructor emits allocation, binds `self`, returns `self`
-implicitly. `parse_class_member` (`parser.rs` L548) has **no `construct`
-handling** today — only `static`/name/`=`/params/body — so the `construct`
-keyword is itself unbuilt. `@construct` sits downstream of it.
+implicitly — this is what `ConstructDef`'s existing compiler path already
+does; `@construct`'s job is only to *synthesize* one from declared fields, not
+to build constructor semantics from scratch.
 
-### The derive (once prerequisites land)
+### The derive (once `FieldDef` lands)
 
-Read declared fields → emit one constructor member:
+Read declared fields → emit one `ConstructDef` member (not a `MethodDef` — see
+the Prerequisite 2 correction above; `ConstructDef` and its parser/compiler
+path already exist at HEAD from U7):
 
 ```phalcom
 @construct
@@ -47,13 +66,11 @@ class Point { var _x; var _y }
 ```
 ⇒
 ```rust
-MethodDef {
-    name: "new",
+ClassMember::Construct(ConstructDef {
     params: vec![labeled("x"), labeled("y")],   // ParameterDef.label already exists (ast.rs:37)
     body:   vec![assign("_x", var("x")), assign("_y", var("y"))],
-    is_constructor: true,                         // routes through the construct path
-    ..
-}
+    ..                                            // shape per ast.rs's existing ConstructDef, not invented
+})
 ```
 
 ### `@get`/`@set`

@@ -31,6 +31,15 @@ holds for typed members anyway — a type annotation *is* a per-call runtime che
 That removes the sole argument against runtime hooks and lets `@` span its whole
 natural range.
 
+> **Superseded justification, per [ADR-0054](../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md).**
+> The `typing.md` erasure-invariant argument above is no longer the live
+> justification for reopening annotations-core.md's foreclosure — it leaned on
+> a third, unrelated, equally unratified draft. The actual justification is
+> [ADR-0053](../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md),
+> which gives the Runtime tier's interception cost an explicit, implementable
+> guard. This paragraph is kept as historical context for why this draft was
+> originally written, not as a standing argument.
+
 This note unifies every decorator kind — compile-time, layout, dispatch, install,
 runtime — under **one grammar and one registry**, distinguished by a declared
 **tier** that says *when the decoration takes effect*.

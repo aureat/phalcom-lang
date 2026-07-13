@@ -99,3 +99,12 @@ CLAUDE.md conventions).
 Committing to derive-macro semantics forecloses ever making `@` a Python-style
 runtime decorator hook without a second mechanism — no real loss, since that
 pattern is an ordinary message send in a class body and needs no sigil.
+
+> **Amended by [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md).**
+> This foreclosure is scoped to the Compile/Layout tier described in this
+> document. `docs/spec/v0.2/next/decorators.md`'s Install/Dispatch/Runtime
+> tiers are the admitted second mechanism, gated on
+> [ADR-0053](../../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
+> (satisfied) and `attribute-classes.md`'s open questions A-1–A-6 (not yet
+> resolved). Read the sentence above as historical rationale for the
+> Compile/Layout design, not as a live restriction on `@` as a whole.

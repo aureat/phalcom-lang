@@ -23,12 +23,20 @@ shape.match { Circle(r) => 3.14 * r * r ; Rect(w, h) => w * h }
 `@data` derives structural `==` **and** consistent `hash` (both or neither — a
 lone `==` breaks the equality ladder), plus functional-update `with(...)` (cheap:
 ADR-0011 fixed layout ⇒ copy-with is memcpy-shaped). `@sealed` freezes the
-subclass set at finalization → the closed-world fact that makes `match`
-exhaustiveness checkable (Phalcom has no type checker, so `@sealed` is the *sole*
-route). `match` desugars to a generated visitor (double-dispatch) — the textbook
+subclass set at finalization → the closed-world fact that makes exhaustiveness
+checkable (Phalcom has no type checker, so `@sealed` is the *sole* route).
+Dispatch desugars to a generated visitor (double-dispatch) — the textbook
 OO encoding of ADTs (Expression Problem). Precludes open extension of a sealed
 family (the point). Downstream of [annotations-construct.md](annotations-construct.md)
 (needs field decls).
+
+> **Fully specified in [annotations-data.md](annotations-data.md)** (2026-07-13,
+> ratified [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)),
+> extracted from this sketch into a standalone Compile-tier draft independent
+> of the gated [decorators.md](../next/decorators.md). One correction from the
+> sketch above: the visitor is dispatched via an ordinary keyword-argument
+> selector (`shape.match(circle: {...}, rect: {...})`), not `match { Pattern => ... }`
+> syntax — real pattern-matching grammar remains open-Q7, unbuilt.
 
 ## Bridge B — Design by Contract → formal-methods (weave)
 

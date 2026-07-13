@@ -128,15 +128,33 @@ x=(v) { _x.value = v }     // notifying write (marks dependents stale)
 
 ### `@memoize`
 
+Class-wide cache, keyed on `(recv, args)` — **not** `args` alone. Keying on
+`args` only would share one cached result across every instance of the
+decorated class, silently wrong for any method whose result depends on
+receiver state (correct only by accident for a pure function of its
+arguments, e.g. `Fib.fib`). The `(recv, args)` tuple is itself the key into
+one shared `Map`; this is a class-wide cache (not per-receiver storage — see
+`attribute-classes.md`'s Install/Layout line), so it does not need a
+reserved slot, but it does retain every `(recv, args)` pair it has ever seen
+for the life of the attribute instance — same retention shape as `@computed`
+before its Layout-tier fix (ADR-0052), acceptable here only because the *key*
+holding `recv` is a tuple inside a `Map`, still a strong reference. Treat this
+as a known, documented cost of the pattern, not a leak to silently fix: a
+`@memoize`d method on a long-lived, high-cardinality receiver set is not
+free, and callers should prefer `@computed`'s Layout-tier, per-receiver
+approach when the receiver itself should own the cache lifetime.
+
 ```phalcom
 @install
 class memoize {
   wrap(method) {
-    let cache = Map.new()                       // keyed by args; add `recv` to the key for per-receiver
-    return { recv, args => cache.at(args).match(
-      some: { hit => hit },
-      none: { let v = method.invokeOn(recv, args); cache.at(args, put: v); v }
-    )}
+    let cache = Map.new()                       // keyed by (recv, args)
+    return { recv, args => let key = Tuple.new(recv, args);
+      cache.at(key).match(
+        some: { hit => hit },
+        none: { let v = method.invokeOn(recv, args); cache.at(key, put: v); v }
+      )
+    }
   }
 }
 ```
