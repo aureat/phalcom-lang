@@ -5,7 +5,8 @@ import {
     Position,
     CompletionItem,
     CancellationToken,
-    ProviderResult
+    ProviderResult,
+    SnippetString
 } from "vscode"
 import { isPositionInComment, isPositionInString } from "./util"
 import coreTable from "./generated/core-table.json"
@@ -207,7 +208,9 @@ function getSelectorCompletions(currentWord: string): CompletionItem[] {
             continue
         }
         const item = new CompletionItem(flat.selector, kindToCompletionKind[flat.kind])
-        item.insertText = getInsertTextFromSelector(flat.selector)
+        // Must be a SnippetString, not a plain string — a plain string
+        // pastes `${1:_}` literally instead of becoming a live tab-stop.
+        item.insertText = new SnippetString(getInsertTextFromSelector(flat.selector))
         item.detail = `${flat.kind} on ${flat.classes.join(", ")}`
         item.documentation = `Core selector ${flat.selector} (${Array.from(flat.sources).join(", ")}).`
         items.push(item)
