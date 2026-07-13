@@ -91,8 +91,8 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 - [x] **U14** — [plan](units/U14/plan.md) — `0769316` destructuring `let`/`var`: `let (a,b) = point`, `let [first, *rest] = list`.
 - [x] **U16** — [plan](units/U16/plan.md) — `dfb96ff` Open-form `::` method references, `71c703d` Pinned-form + Family introspection.
 - [x] **U18** — [plan](units/U18/plan.md) — *(decision closed, no code)* `f16b58a` DEC-U18=A: no default arguments, keeps one-arity-per-selector dispatch.
-- [ ] **U-NEG** — [plan](units/U-NEG/plan.md) — unify boolean negation on `not`; retire prefix `!` (keep `!=`). No dependency on `U-IS`; can go first or in parallel.
-- [ ] **U-IS** — [plan](units/U-IS/plan.md) — `is`/`is!`/`is not` type-test operators desugaring to `is(_)`/`isExactly(_)`.
+- [x] **U-NEG** — [plan](units/U-NEG/plan.md) — `0b98ca9` unify boolean negation on `not`; retire prefix `!` (keep `!=`).
+- [x] **U-IS** — [plan](units/U-IS/plan.md) — `03dbd09` `is`/`is!`/`is not` type-test operators desugaring to `is(_)`/`isExactly(_)`.
 
 ## 8. Indexing / subscript
 
@@ -112,7 +112,7 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 Tiered strategy per `docs/spec/v0.2/performance.md` ("measure first") — `U-BENCH` gates
 everything else in this group; the rest can reorder based on what the baseline shows.
 
-- [x] **U-BENCH** *(uncommitted)* — [plan](units/U-BENCH/plan.md) — Tier 0: reproducible attributed baseline harness (`phalcom-core/bin/perf/main.rs`, untracked) + Wren-suite reference programs. Blocks every later perf tier — land/commit first.
+- [x] **U-BENCH** — [plan](units/U-BENCH/plan.md) — `ebe9d97` Tier 0: Wren-suite reference programs + plan landed (perf harness binary itself still pending). Blocks every later perf tier.
 - [ ] **U-PRIM-ABI** — [plan](units/U-PRIM-ABI/plan.md) — Tier 2: in-place primitive stack ABI + arithmetic fast path, cuts per-send allocation.
 - [ ] **U-IC** — [plan](units/U-IC/plan.md) — Tier 3: selector-only interner + monomorphic inline cache + superinstructions, populates ADR-0012's reserved IC seam.
 - [ ] **U-HOTPATH** — [plan](units/U-HOTPATH/plan.md) — dispatch-loop hot-path optimizations (register-hoisted interpreter state, behavior-invariant); natural follow-on to `U-IC`'s dispatch-loop work.
@@ -121,7 +121,7 @@ everything else in this group; the rest can reorder based on what the baseline s
 
 ## 12. Naming conventions (opportunistic, no urgency)
 
-- [ ] **U-NATIVE-MARKER** — [plan](units/U-NATIVE-MARKER/plan.md) — mechanical rename, native/private primitive `raw*` prefix → trailing `_` suffix (Wren convention). No dependency on anything else in this doc — can land whenever, doesn't gate or get gated.
+- [x] **U-NATIVE-MARKER** — [plan](units/U-NATIVE-MARKER/plan.md) — `3e362e2` mechanical rename, native/private primitive `raw*` prefix → trailing `_` suffix (Wren convention).
 
 ---
 
@@ -130,4 +130,4 @@ everything else in this group; the rest can reorder based on what the baseline s
 1. **Commit `U-ANNOT-CONTRACTS`** (§9) — already implemented, sitting uncommitted; land it before anything else touches `compiler/`.
 2. **`U-FUTURE` Slice B** (§6) — fully unblocked now, highest-value concurrency work left.
 3. **`U-ITERABLE` → `U-SEQ`** (§5) — unblocks the collections track's remaining breadth.
-4. **`U-BENCH` commit**, then walk the perf tiers (§11) as time allows — lowest urgency, gated on wanting perf work at all.
+4. Walk the perf tiers (§11) as time allows — lowest urgency, gated on wanting perf work at all.
