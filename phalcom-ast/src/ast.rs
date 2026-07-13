@@ -188,6 +188,44 @@ pub enum ClassMember {
     /// A declared field (`let`/`var` at class-body position, U-ANNOT-LAYOUT
     /// §3.1). See [`FieldDef`].
     Field(FieldDef),
+    /// A `@variant Name(labels...)` arm inside a `@sealed` class body
+    /// (U-ANNOT-LAYOUT §3.4, `annotations-data.md` §"`@variant`"). See
+    /// [`VariantDef`]. Never compiled directly — stripped and expanded into a
+    /// sibling top-level [`Statement::Class`] by `phalcom-core`'s
+    /// `compiler::attributes::expand_class_attributes`.
+    Variant(VariantDef),
+}
+
+/// A single `@variant Name(label1:, label2:, ...)` arm declared inside a
+/// `@sealed` class body (U-ANNOT-LAYOUT §3.4, `annotations-data.md`
+/// §"`@variant`").
+///
+/// Distinct grammar from every other [`ClassMember`]: `Name(labels...)` has
+/// no body and no expression value per label — each label is a bare
+/// identifier followed by `:` (no type, no default), naming one field the
+/// generated sibling class will carry. The `@variant` [`Attribute`] itself is
+/// always present in [`Self::attributes`] (it is what tells the parser's
+/// `parse_class_body` to parse this production instead of an ordinary
+/// member); a bare `Name(labels...)` with no `@variant` prefix is not valid
+/// grammar and never produces this node.
+#[derive(Debug, Clone)]
+pub struct VariantDef {
+    /// The variant's name (e.g. `"Circle"`) — becomes the generated sibling
+    /// class's name, an ordinary **global** class name (Draft 0.1 has no
+    /// nested/namespaced variant naming, `annotations-data.md`'s own
+    /// simplification).
+    pub name: String,
+    /// The declared field labels, in declaration order (e.g. `["radius"]`
+    /// for `@variant Circle(radius:)`) — R3, field order is API. Each label
+    /// becomes one `FieldDef` (named `"_" + label`) on the generated sibling
+    /// class, and one keyword-labeled parameter on the enclosing sealed
+    /// class's generated `match(...)` visitor.
+    pub labels: Vec<String>,
+    /// `@name(args…)` attributes attached to this variant declaration — in
+    /// practice always exactly one entry, the `@variant` attribute itself.
+    pub attributes: Vec<Attribute>,
+    /// The source span of the whole `@variant Name(labels...)` declaration.
+    pub range: SourceRange,
 }
 
 /// A declared class field: `let _name [= expr]` or `var _name [= expr]` at

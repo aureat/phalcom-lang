@@ -162,6 +162,28 @@ pub struct VM {
     /// `docs/forge/DEFERRED.md` correctness entry). Only user classes appear;
     /// the implicit `Object` root is absent (chain-walks terminate there).
     pub class_parents: HashMap<Symbol, Symbol>,
+    /// Class names (by [`Symbol`]) declared `@sealed` (U-ANNOT-LAYOUT §3.4,
+    /// `annotations-data.md` §"`@sealed`"), mapped to the compiling
+    /// [`ModuleObject`](crate::heap::ModuleObject) handle (`ObjRef`) whose
+    /// `Compiler::compile` call declared them — the "compile-unit-scoped"
+    /// tracking table `@sealed`'s per-unit closed-world check needs (its own
+    /// section: "the compiler finishes processing the compilation unit...
+    /// no further subclass may be declared").
+    ///
+    /// A module `ObjRef` is a natural, already-unique-per-compile-unit
+    /// identifier — `Compiler::new(vm, module)` is constructed fresh for
+    /// every top-level `.ph` file compile (including every `import`-loaded
+    /// module, `compiler::lib::mod::compile_import`), so two classes sharing
+    /// a module handle were declared in the same unit, and two sharing a
+    /// name but different module handles were not. Checked at *subclass*
+    /// compile time (`compiler::lib::class_decl::Compiler::compile_class`),
+    /// immediately after the subclass's superclass is resolved — the
+    /// existing single-pass top-down discipline (a superclass must already
+    /// be defined earlier in its own unit, U-INH) guarantees a sealed
+    /// class's entry here is always populated before any of its same-unit
+    /// subclasses compile, so an immediate check is equivalent to (and
+    /// simpler than) deferring to a dedicated end-of-unit pass.
+    pub sealed_classes: HashMap<Symbol, ObjRef>,
     /// Live mirror of [`Self::current`]'s
     /// [`FiberObject::checking`](crate::heap::FiberObject::checking) — the
     /// identity set of receivers currently under `@invariant`

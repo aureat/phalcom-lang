@@ -117,6 +117,10 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                 // A declared field (U-ANNOT-LAYOUT §3.1) has no selector of
                 // its own to harvest — it is not a dispatchable member.
                 ClassMember::Field(_) => {}
+                // A `@variant` arm (U-ANNOT-LAYOUT §3.4) is expanded away at
+                // compile time into a sibling top-level class this raw-AST
+                // harvest never sees — nothing to harvest here either.
+                ClassMember::Variant(_) => {}
             }
         }
     }

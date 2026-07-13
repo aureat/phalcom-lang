@@ -1,0 +1,1 @@
+attr.accessor_collision: `@data` on class `Money` requires `==`/`hash` to be derived together — a hand-written `==` without the other is a collision
