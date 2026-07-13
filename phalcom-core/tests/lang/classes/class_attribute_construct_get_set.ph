@@ -9,5 +9,5 @@ class Point {
   @get var label
 }
 
-let p = Point.new(3, 4, "origin")
+let p = Point.new(x: 3, y: 4, label: "origin")
 System.print(p.label)
