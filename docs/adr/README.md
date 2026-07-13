@@ -56,9 +56,12 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0032](0032-collections-representation-and-literals.md) | Collections: native representation, shared protocol, and literal surface | Accepted |
 | [0033](0033-amend-fiber-execution-trampolined-block-callsite.md) | Amend fiber execution (ADR-0030 §4): trampoline the bytecode block call-site | Deferred |
 | [0035](0035-iteration-protocol-cursor.md) | Iteration protocol: a Wren-style two-selector cursor | Accepted |
-| [0052](0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) | Invariant re-entrancy is receiver-scoped; per-receiver decorator state is Layout-confined | Proposed |
-| [0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md) | Runtime-tier decorator interception reuses the sacred-selector override-epoch guard | Proposed |
+| [0052](0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) | Invariant re-entrancy is receiver-scoped; per-receiver decorator state is Layout-confined | Accepted |
+| [0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md) | Runtime-tier decorator interception reuses the sacred-selector override-epoch guard | Accepted |
 | [0054](0054-two-speed-ratification-annotation-decorator-tiers.md) | Two-speed ratification: annotation Compile/Layout tier now, Install/Dispatch/Runtime gated on ADR-0053 | Accepted (Compile/Layout only) |
+| [0055](0055-index-syntax-sugar-over-at-selectors.md) | Subscript indexing syntax sugar over `at`/`at:put:` selectors | Accepted |
+| [0056](0056-phalcom-lsp-architecture.md) | Phalcom language intelligence is an in-process `phalcom-lsp` server | Proposed |
+| [0057](0057-decorator-granularity-vs-proxy-granularity-split.md) | Decorator vs proxy granularity: method-declaration (`@name`) vs whole-object (`Proxy`) interception; both kept | Accepted |
 
 > ADR-0029 (list literals) is now **Accepted** — its sub-decisions (desugar-to-sends,
 > no subscript sugar, trailing comma) were ratified with the collections umbrella

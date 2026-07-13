@@ -1,6 +1,6 @@
 # 53. Runtime-tier decorator interception reuses the sacred-selector override-epoch guard
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-13
 - Related: [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)
   (sacred-selector inliner + override-epoch deopt guard — the mechanism this

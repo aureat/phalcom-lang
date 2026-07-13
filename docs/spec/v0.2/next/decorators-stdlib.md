@@ -13,6 +13,24 @@
   [reactivity.md](reactivity.md) (`@observable`, `@computed` are its ergonomic layer) ·
   [proxy.md](proxy.md) (an Install decorator is a method-granularity proxy)
 
+> **Superseded surface + relocations (2026-07-13).** This doc uses the pre-[A-1](attribute-classes.md)
+> registration surface (`@install`/`@dispatch`/`@runtime` markers, lower-case class
+> names, `wrap(method) → { recv, args => … }`). The ratified surface is
+> `@On(target…, tier: …)` on a capitalized `Attribute` subclass whose hook returns a
+> `Method.fromBlock` ([attribute-classes.md A-1](attribute-classes.md)). The following
+> decorators now have **authoritative dedicated specs** at ratification depth; treat the
+> subsections below as historical sketches, superseded on both surface and semantics:
+>
+> | Decorator(s) here | Authoritative spec | Key correction |
+> |---|---|---|
+> | `@memoize`, `@synchronized`, `@retry` | [decorators-behavioral.md](decorators-behavioral.md) | `@synchronized` is a **cooperative monitor**, not an OS `Mutex`; `@synchronized` default is **Layout/per-receiver** |
+> | `@traced`, `@featureFlag`, `@delegate` | [decorators-dispatch-observability.md](decorators-dispatch-observability.md) | `@delegate` is **Compile** (explicit selectors), not Dispatch; `@featureFlag` off-default is **raise**, not silent `None` |
+> | `@observable` | [decorators-observable.md](decorators-observable.md) | tier is **Layout + generate**, not "Layout + Install" |
+>
+> `@computed` (Install → **Layout** per [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md))
+> and `@timed`/`@authorize`/`@transactional`/`@rateLimit` remain sketched here pending
+> their own dedicated specs.
+
 This is the concrete standard library implied by [decorators.md](decorators.md). It
 defines every core decorator, split by **owner**: the two static tiers are
 compiler-owned (given as descriptor + expansion, since they are not user-writable

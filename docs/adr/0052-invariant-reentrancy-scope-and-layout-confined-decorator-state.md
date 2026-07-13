@@ -1,6 +1,6 @@
 # 52. Invariant re-entrancy is receiver-scoped; per-receiver decorator state is Layout-confined
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-13
 - Related: [ADR-0008](0008-layered-exceptions-and-result.md) (unwind primitive —
   `ensure` fires on any unwind), [ADR-0009](0009-handle-arena-heap.md)
