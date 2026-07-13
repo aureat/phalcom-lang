@@ -29,6 +29,8 @@
 pub mod backend;
 pub mod diagnostics;
 pub mod documents;
+pub mod index;
 pub mod line_index;
+pub mod selectors;
 
 pub use backend::Backend;

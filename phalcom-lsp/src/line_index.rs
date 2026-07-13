@@ -89,6 +89,52 @@ impl LineIndex {
         }
     }
 
+    /// Converts a 0-based LSP [`Position`] back into a byte offset into
+    /// `text` — the inverse of [`LineIndex::position`].
+    ///
+    /// Used by `textDocument/definition` and `textDocument/references`
+    /// (`backend.rs`) to turn the cursor's client-reported position into the
+    /// byte offset [`crate::index::selector_at_offset`] needs.
+    ///
+    /// `position.line` is clamped to the last known line if it overshoots;
+    /// `position.character` (UTF-16 code units) is clamped to the end of
+    /// that line if it overshoots. Both clamps make this total rather than
+    /// panicking on a stale or out-of-range client position.
+    pub fn offset(&self, position: Position) -> usize {
+        let line = (position.line as usize).min(self.line_starts.len() - 1);
+        let line_start = self.line_starts[line];
+        let line_end = self
+            .line_starts
+            .get(line + 1)
+            .copied()
+            .unwrap_or(self.text.len());
+        // Exclude the line's own trailing `\n` from the content scanned: a
+        // character offset clamps to just before the newline, not past it
+        // (mirrors `position`, which never reports a character position
+        // inside the terminator).
+        let content_end = if line_end > line_start && self.text.as_bytes()[line_end - 1] == b'\n'
+        {
+            line_end - 1
+        } else {
+            line_end
+        };
+
+        let mut remaining_units = position.character as usize;
+        let mut offset = line_start;
+        for c in self.text[line_start..content_end].chars() {
+            if remaining_units == 0 {
+                break;
+            }
+            let units = c.len_utf16();
+            if units > remaining_units {
+                break;
+            }
+            remaining_units -= units;
+            offset += c.len_utf8();
+        }
+        offset.min(self.text.len())
+    }
+
     /// Converts a byte half-open [`std::ops::Range`] into an LSP
     /// [`tower_lsp::lsp_types::Range`] by mapping both endpoints via
     /// [`LineIndex::position`].
@@ -235,6 +281,51 @@ mod tests {
                 case.offset
             );
         }
+    }
+
+    #[test]
+    fn offset_round_trips_position_over_ascii_multibyte_and_emoji() {
+        let cases: &[(&str, usize)] = &[
+            ("let x = 1\nlet y = 2\n", 0),
+            ("let x = 1\nlet y = 2\n", 4),
+            ("let x = 1\nlet y = 2\n", 10),
+            ("let x = 1\nlet y = 2\n", 14),
+            ("café = 1", 6),
+            ("😀x", 4),
+        ];
+        for (text, byte_offset) in cases {
+            let index = LineIndex::new(text);
+            let pos = index.position(*byte_offset);
+            assert_eq!(
+                index.offset(pos),
+                *byte_offset,
+                "round-trip failed for text={text:?} offset={byte_offset}"
+            );
+        }
+    }
+
+    #[test]
+    fn offset_clamps_character_past_end_of_line() {
+        let index = LineIndex::new("abc\ndef");
+        // Line 0 is 3 chars long; asking for character 100 clamps to the
+        // line's end (byte 3, right before the '\n').
+        let offset = index.offset(Position { line: 0, character: 100 });
+        assert_eq!(offset, 3);
+    }
+
+    #[test]
+    fn offset_clamps_line_past_end_of_file() {
+        let index = LineIndex::new("abc\ndef");
+        let offset = index.offset(Position { line: 100, character: 0 });
+        assert_eq!(offset, 4); // start of (only) line 1
+    }
+
+    #[test]
+    fn offset_at_emoji_surrogate_pair_boundary() {
+        // Position (0, 2) is right after the emoji (2 UTF-16 units); must
+        // land on the byte offset where 'x' starts (byte 4).
+        let index = LineIndex::new("😀x");
+        assert_eq!(index.offset(Position { line: 0, character: 2 }), 4);
     }
 
     #[test]

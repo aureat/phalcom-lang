@@ -1,0 +1,215 @@
+//! ADR-0012 comma-form selector reconstruction from AST nodes.
+//!
+//! The index (`crate::index`), go-to-definition, find-references, and
+//! `workspace/symbol` all key on the **comma-form** selector — `move`,
+//! `move()`, `move(_,to,duration)` — never a bare method name (ADR-0012, the
+//! gate U-VSPHALCOM's `gen-core-table` already enforces on
+//! `core-table.json`). This module is the `phalcom-lsp`-side port of that
+//! same algorithm, applied to `phalcom_ast::ast` nodes instead of harvested
+//! `syn` items.
+//!
+//! **Do not confuse with `phalcom-core/src/method/mod.rs::encode_selector`.**
+//! That function builds the VM-internal runtime dispatch symbol and this
+//! crate never links `phalcom-core` (ADR-0056 §2) — this module is the sole
+//! source of selector spelling here, deliberately independent.
+
+use phalcom_ast::ast::{
+    ClassMember, ConstructDef, FieldDef, GetterDef, MethodDef, ParameterDef, SetterDef,
+};
+
+/// Builds the comma-form selector string from a method/constructor name and
+/// its parameter list: `name(_,label,...)`, or `name()` for zero-arity.
+///
+/// A positional parameter (no label) renders as `_`; a labeled (keyword)
+/// parameter renders as its label. Mirrors
+/// `phalcom-core/bin/gen-core-table/main.rs`'s `comma_form`.
+pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
+    if params.is_empty() {
+        return format!("{name}()");
+    }
+    let inner = params
+        .iter()
+        .map(|p| p.label.as_deref().unwrap_or("_"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{name}({inner})")
+}
+
+/// The comma-form selector a call-site's method name and argument labels
+/// would resolve to — the reference-side mirror of [`comma_form`], applied
+/// to `phalcom_ast::ast::Argument` labels at a `MethodCall` send site rather
+/// than a declaration's `ParameterDef`s.
+pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
+    if labels.is_empty() {
+        return format!("{name}()");
+    }
+    let inner = labels
+        .iter()
+        .map(|l| l.as_deref().unwrap_or("_"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{name}({inner})")
+}
+
+/// The comma-form selector a getter's bare-name access resolves to.
+///
+/// A getter selector is the bare name with **no** parens — distinct from a
+/// zero-arity method (`name` vs `name()`), so `foo` and `foo()` never alias
+/// the same definition (ADR-0012).
+pub fn getter_selector(g: &GetterDef) -> String {
+    g.name.clone()
+}
+
+/// The comma-form selector a `name=(_)` write resolves to, given just the
+/// bare property name.
+///
+/// Always single-param with no label: literal `name=(_)` — never
+/// comma-joined, since a setter takes exactly one argument and it is never
+/// labeled. The single spelling both [`setter_selector`] (declaration side)
+/// and `index.rs`'s `SetProperty` reference-site walk route through, so the
+/// two can never drift apart.
+pub fn setter_selector_from_name(name: &str) -> String {
+    format!("{name}=(_)")
+}
+
+/// The comma-form selector a setter's `recv.name = value` write resolves to.
+pub fn setter_selector(s: &SetterDef) -> String {
+    setter_selector_from_name(&s.name)
+}
+
+/// The comma-form selector a method declaration defines.
+pub fn method_selector(m: &MethodDef) -> String {
+    comma_form(&m.name, &m.params)
+}
+
+/// The comma-form selector a `construct name(...)` declaration defines.
+pub fn construct_selector(c: &ConstructDef) -> String {
+    comma_form(&c.name, &c.params)
+}
+
+/// The selector a declared `let`/`var` class field (U-ANNOT-LAYOUT §3.1,
+/// [`FieldDef`]) is indexed under: its bare name, with no parens.
+///
+/// A declared field is not itself message-dispatched (no synthesized
+/// getter/setter exists yet), so this is not an ADR-0012 comma-form selector
+/// in the strict sense — it is the field's plain name, kept distinct from a
+/// zero-arity method (`name` vs `name()`) the same way [`getter_selector`]
+/// is, so a future `@get`/`@set` layout-derive attribute can synthesize a
+/// real getter/setter selector here without an index-shape change.
+pub fn field_selector(f: &FieldDef) -> String {
+    f.name.clone()
+}
+
+/// The comma-form selector any [`ClassMember`] declaration defines.
+///
+/// The single dispatch point every definition-side index entry goes
+/// through, so the member kinds can never drift into inconsistent
+/// spellings.
+pub fn class_member_selector(member: &ClassMember) -> String {
+    match member {
+        ClassMember::Method(m) => method_selector(m),
+        ClassMember::Getter(g) => getter_selector(g),
+        ClassMember::Setter(s) => setter_selector(s),
+        ClassMember::Construct(c) => construct_selector(c),
+        ClassMember::Field(f) => field_selector(f),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phalcom_ast::parser::parse;
+    use phalcom_ast::ast::Statement;
+
+    fn parse_class(src: &str) -> phalcom_ast::ast::ClassDef {
+        let parsed = parse(src, 0);
+        assert!(parsed.errors.is_empty(), "unexpected parse errors: {:?}", parsed.errors);
+        for statement in parsed.program.statements {
+            if let Statement::Class(class_def) = statement {
+                return class_def;
+            }
+        }
+        panic!("no class found in {src:?}");
+    }
+
+    #[test]
+    fn method_with_positional_and_labeled_params() {
+        let class_def = parse_class(
+            "class Point {\n  move(x, to:, duration:) { }\n}\n",
+        );
+        let ClassMember::Method(m) = &class_def.members[0] else {
+            panic!("expected method")
+        };
+        assert_eq!(method_selector(m), "move(_,to,duration)");
+    }
+
+    #[test]
+    fn zero_arity_method_is_not_bare_name() {
+        let class_def = parse_class("class Point {\n  reset() { }\n}\n");
+        let ClassMember::Method(m) = &class_def.members[0] else {
+            panic!("expected method")
+        };
+        assert_eq!(method_selector(m), "reset()");
+    }
+
+    #[test]
+    fn getter_has_no_parens_and_never_aliases_zero_arity_method() {
+        let class_def = parse_class(
+            "class Point {\n  y { }\n  x() { }\n}\n",
+        );
+        let ClassMember::Getter(g) = &class_def.members[0] else {
+            panic!("expected getter")
+        };
+        let ClassMember::Method(m) = &class_def.members[1] else {
+            panic!("expected method")
+        };
+        assert_eq!(getter_selector(g), "y");
+        assert_eq!(method_selector(m), "x()");
+        assert_ne!(getter_selector(g), method_selector(m));
+    }
+
+    #[test]
+    fn setter_is_literal_single_slot() {
+        let class_def = parse_class("class Point {\n  x=(v) { }\n}\n");
+        let ClassMember::Setter(s) = &class_def.members[0] else {
+            panic!("expected setter")
+        };
+        assert_eq!(setter_selector(s), "x=(_)");
+    }
+
+    #[test]
+    fn construct_is_comma_form() {
+        let class_def = parse_class(
+            "class Point {\n  construct new(x, y:) { }\n}\n",
+        );
+        let ClassMember::Construct(c) = &class_def.members[0] else {
+            panic!("expected construct")
+        };
+        assert_eq!(construct_selector(c), "new(_,y)");
+    }
+
+    #[test]
+    fn field_is_bare_name_and_never_aliases_zero_arity_method() {
+        let class_def = parse_class("class Point {\n  let _x = 0\n  x() { }\n}\n");
+        let ClassMember::Field(f) = &class_def.members[0] else {
+            panic!("expected field")
+        };
+        let ClassMember::Method(m) = &class_def.members[1] else {
+            panic!("expected method")
+        };
+        assert_eq!(field_selector(f), "_x");
+        assert_ne!(field_selector(f), method_selector(m));
+    }
+
+    #[test]
+    fn call_site_labels_match_declaration_selector() {
+        assert_eq!(
+            comma_form_from_labels(
+                "move",
+                &[None, Some("to".to_string()), Some("duration".to_string())]
+            ),
+            "move(_,to,duration)"
+        );
+        assert_eq!(comma_form_from_labels("reset", &[]), "reset()");
+    }
+}

@@ -1,6 +1,13 @@
 # U-LSP — in-process `phalcom-lsp` language server (supersedes subprocess-per-save)
 
-Status: **PLANNED**. New Cargo workspace member `phalcom-lsp` (lib + bin) that
+Status: **IN PROGRESS**. Stage 1 (live multi-error diagnostics) complete and
+committed (`d935575`). Stage 2 (workspace symbol index → go-to-def +
+find-refs) underway: `selectors.rs` (ADR-0012 comma-form reconstruction) and
+`index.rs` (`WorkspaceIndex`, wholesale-replace-on-change) landed and tested;
+`backend.rs` wiring (workspace scan on `initialize`,
+`textDocument/definition`/`references`, `workspace/symbol`) in progress.
+
+New Cargo workspace member `phalcom-lsp` (lib + bin) that
 embeds `phalcom-ast` directly and serves LSP over stdio. Replaces, in staged and
 flag-gated increments, the subprocess-per-save intelligence U-VSPHALCOM shipped
 in `tools/vsphalcom`. **Floor: +0** — parse-only, no VM/`Value`/opcode/primitive
