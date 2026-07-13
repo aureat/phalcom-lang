@@ -1343,8 +1343,48 @@ impl VM {
                         let superclass = self.stack.pop().unwrap();
                         match superclass {
                             Value::Obj(sc_id) if self.heap.as_class(sc_id).is_some() => {
-                                let new_class = self.create_class(&name, Some(sc_id));
-                                self.stack.push(Value::Obj(new_class));
+                                // Reopening (ADR-0018: "attaches methods, not
+                                // shadows"). A second `class A { ... }` block for
+                                // a name already registered in `self.classes`
+                                // must APPEND its methods to the existing
+                                // `ClassId` rather than allocate a fresh one —
+                                // a fresh class would orphan every method the
+                                // earlier block installed (U-REOPEN-FIX).
+                                //
+                                // The compiler's own compile-time reuse guard
+                                // (`compiler/lib.rs` `Statement::Class`, keyed
+                                // on `self.vm.classes`) cannot see this case: a
+                                // whole compile unit lowers to one closure
+                                // before any `Bytecode::Class` executes, so
+                                // `self.classes` is still empty for both blocks
+                                // at compile time. This runtime check is the
+                                // real reopen seam for same-unit reopens; it
+                                // also covers the bootstrap case (a Rust stub
+                                // pre-registers the class before its `.ph` body
+                                // compiles) as a no-op fallthrough, since that
+                                // case already resolves at compile time and
+                                // never reaches here.
+                                if let Some(&existing) = self.classes.get(&name_sym) {
+                                    // A reopen must not change the superclass
+                                    // (U13 sealed inheritance): the compiler's
+                                    // `Statement::Class` handler rejects this
+                                    // earlier via `class_parents`, but that
+                                    // check only sees explicit `extends`
+                                    // clauses recorded in the *same* compile
+                                    // unit — mirror it here so a mismatch can
+                                    // never silently reuse the wrong class.
+                                    let existing_superclass = self.heap.class(existing).superclass;
+                                    if existing_superclass != Some(sc_id) {
+                                        return Err(RuntimeError::Message(format!(
+                                            "Cannot reopen class '{name}': its superclass cannot be changed by a later `class {name}` block."
+                                        ))
+                                        .into());
+                                    }
+                                    self.stack.push(Value::Obj(existing));
+                                } else {
+                                    let new_class = self.create_class(&name, Some(sc_id));
+                                    self.stack.push(Value::Obj(new_class));
+                                }
                             }
                             _ => return Err(RuntimeError::InvalidSuperClass(format!("{superclass}")).into()),
                         }

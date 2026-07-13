@@ -73,6 +73,16 @@ fn classes_pending() {
 }
 
 #[test]
+fn classes_negative() {
+    // U-REOPEN-FIX (ADR-0018 "attaches methods, not shadows"): the two
+    // reopen shapes ruled out of scope for the reopen-appends-methods fix —
+    // adding fields (the reused `ClassId` is never relayouted) and changing
+    // the superclass (forbidden by U13 sealed inheritance) — are rejected at
+    // compile time with a clear diagnostic instead of silently mishandled.
+    support::check_negative("classes/negative");
+}
+
+#[test]
 fn control_flow() {
     support::check_pass("control-flow");
 }
@@ -298,17 +308,21 @@ fn iteration_disasm() {
 }
 
 #[test]
-#[ignore = "spec target: non-local break/continue across a materialized block — U-ITER follow-on"]
-fn iteration_pending() {
-    // Reviewer-found gap (ADR-0035 §3, iteration.md §3): `break`/`continue`
-    // reached through a block the inliner materializes as a real closure — the
-    // deopt fallback of a non-Bool `if` condition, or an ordinary block-arg
-    // closure like `each { break }` — silently no-ops instead of leaving the
-    // loop (the jump lands in the closure's own chunk, `same_function` false).
-    // The common `if (Bool) { break }` path is unaffected (inliner fast path).
-    // These fixtures pin the intended semantics and fail today; see
-    // docs/forge/DEFERRED.md for the adjudication and the real-fix options.
-    support::check_pending("iteration");
+fn iteration_negative() {
+    // U-REOPEN-FIX (graduated from `iteration/pending`; ADR-0035 §3,
+    // iteration.md §3): `break`/`continue` reached through a block the
+    // inliner materializes as a real closure — the deopt fallback of a
+    // non-Bool `if` condition, or an ordinary block-arg closure like
+    // `each { break }` — cannot statically jump into the enclosing loop's
+    // chunk (`same_function` false). Rather than the silent no-op U-ITER
+    // originally shipped with, `Compiler::emit_deopt_block_control_trap`
+    // (compiler/lib.rs) now emits `Error.new(message).raise()` with a
+    // descriptive message, so the rare cross-block case fails **loudly**
+    // instead of quietly no-oping. The common `if (Bool) { break }` path is
+    // unaffected (inliner fast path never takes this deopt twin for a real
+    // Bool). See `docs/forge/DEFERRED.md` for the full non-local-break
+    // follow-on this does not attempt.
+    support::check_negative("iteration/negative");
 }
 
 #[test]

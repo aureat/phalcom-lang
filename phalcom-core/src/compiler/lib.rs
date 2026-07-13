@@ -872,6 +872,42 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
 
+                // 1b. Reopen-conflict guard (U-REOPEN-FIX, ADR-0018 "attaches
+                // methods, not shadows"). `self.vm.field_layouts` is keyed by
+                // class name and persists for the VM's whole lifetime — a
+                // second `class A { ... }` block for a name already present
+                // there is reopening `A`, whether that earlier block was
+                // compiled earlier in *this* unit or in a prior REPL/compile
+                // call. (A bootstrap Rust stub does NOT insert into
+                // `field_layouts` itself, so a `.ph` class's *first* body is
+                // never mistaken for a reopen.)
+                //
+                // Two reopen shapes are out of scope and rejected here rather
+                // than silently mishandled:
+                //   - adding fields: the runtime reopen path (`vm.rs`
+                //     `Bytecode::Class`) reuses the already-allocated
+                //     `ClassId` and does not relayout its instances, so a
+                //     later block's new fields would never get real storage.
+                //   - changing the superclass: U13 sealed inheritance forbids
+                //     it, and reusing the original `ClassId` with a different
+                //     superclass would silently keep the old one.
+                if self.vm.field_layouts.contains_key(&name_sym) {
+                    if !own_instance_fields.is_empty() || !own_static_fields.is_empty() {
+                        return Err(CompilerError::Message(format!(
+                            "Cannot reopen class `{}`: adding fields to an already-defined class is not supported. Declare all fields in the class's first `class {}` block.",
+                            class_def.name, class_def.name
+                        )));
+                    }
+                    let prev_superclass_sym = self.vm.class_parents.get(&name_sym).copied();
+                    let new_superclass_sym = class_def.superclass.as_ref().map(|sc_ref| self.vm.interner.intern(&sc_ref.name));
+                    if prev_superclass_sym != new_superclass_sym {
+                        return Err(CompilerError::Message(format!(
+                            "Cannot reopen class `{}` with a different superclass: it was already defined with a different (or no) `extends` clause.",
+                            class_def.name
+                        )));
+                    }
+                }
+
                 // 2. Build the ClassLayout and store it in VM.
                 //
                 // A subclass's own fields stack on top of the superclass's fields
@@ -1537,16 +1573,25 @@ impl<'vm> Compiler<'vm> {
     /// A jump emitted here cannot statically reach the enclosing loop's own
     /// chunk — it lives in a different [`FunctionState`] entirely — so rather
     /// than the silent no-op U-ITER shipped with, this compiles an
-    /// unconditional `Error.new().raise()` send: the rare cross-block case now
-    /// fails **loudly** at runtime instead of quietly falling through past the
-    /// loop-control intent. Full non-local break/continue (threading the
-    /// target across [`FunctionState`] frames so the jump truly escapes the
-    /// closure) is a larger follow-on left for a future unit.
+    /// unconditional `Error.new(message).raise()` send carrying a descriptive
+    /// message (U-REOPEN-FIX): the rare cross-block case now fails **loudly**
+    /// at runtime instead of quietly falling through past the loop-control
+    /// intent. Full non-local break/continue (threading the target across
+    /// [`FunctionState`] frames so the jump truly escapes the closure) is a
+    /// larger follow-on left for a future unit.
     fn emit_deopt_block_control_trap(&mut self, range: SourceRange) {
         let error_sym = self.vm.interner.intern("Error");
         let error_idx = self.add_constant(Value::Symbol(error_sym));
         self.emit(Bytecode::GetGlobal(error_idx), range);
-        self.emit_operator_send("new", 0, range);
+        let message = self.vm.alloc_string_value(
+            "`break`/`continue` reached through a materialized block (a deopt fallback or a real \
+             block-arg closure) cannot leave its enclosing loop — non-local break/continue across a \
+             materialized block is not supported (U-REOPEN-FIX; see docs/forge/DEFERRED.md)."
+                .to_string(),
+        );
+        let message_idx = self.add_constant(message);
+        self.emit(Bytecode::Constant(message_idx), range);
+        self.emit_operator_send("new", 1, range);
         self.emit_operator_send("raise", 0, range);
         // `raise` never returns normally (it unwinds the stack), so this `Pop`
         // is unreachable dead code — kept only so the chunk's static stack

@@ -1,0 +1,1 @@
+Cannot reopen class `Widget`: adding fields to an already-defined class is not supported
