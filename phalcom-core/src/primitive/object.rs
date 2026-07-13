@@ -150,7 +150,7 @@ pub fn object_perform(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 /// (messages-and-selectors.md §5).
 ///
 /// Because the selector is a *complete* selector symbol (built via
-/// `Symbol.new("+(_:)")` until the `#`-literal lexer syntax lands in U-LEX),
+/// `Symbol.new("+(_)")` until the `#`-literal lexer syntax lands in U-LEX),
 /// its encoded arity must match the number of elements in the list; a mismatch
 /// surfaces through ordinary lookup/arity checking. Delegates to
 /// [`VM::send_dynamic`].
@@ -304,4 +304,53 @@ pub fn message_labels(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Message` instance.
 pub fn message_args(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     message_slot(vm, receiver, 3).ok_or_else(|| not_a_message(receiver))
+}
+
+/// Signature: `Object::__invariantEnter()` — the entry half of the
+/// `@invariant` re-entrancy guard
+/// ([ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+/// Fix 1, U-ANNOT-CONTRACTS). Woven by
+/// [`crate::compiler::attributes::weave_invariant_checks`] into every public
+/// method/getter/setter of an `@invariant`-bearing class.
+///
+/// Inserts the receiver into [`VM::checking`] and returns `true` **iff** the
+/// receiver was not already present — i.e. this call is the *outermost*
+/// guarded call on `self` (own-object nesting, Eiffel's rule). The caller
+/// binds this return value to a local (`__invariant_owner`) and gates both
+/// the entry check and the paired [`object_invariant_exit`] on it, rather than
+/// re-checking `checking` membership at exit time — membership alone cannot
+/// distinguish the owning call from a nested one once a nested call exists,
+/// only a locally-captured boolean can (ADR-0052's own pseudocode does not
+/// capture this correctly; this primitive pair is the corrected mechanism).
+///
+/// A non-heap receiver (an immediate — `Number`/`Bool`/`Symbol`/`None`) has no
+/// [`crate::heap::ObjRef`] identity to key `checking` on; `@invariant` is only
+/// ever woven onto a user class's own instance methods, so this is not
+/// expected to fire on an immediate in practice, but returns `true`
+/// unconditionally rather than panicking if it ever does (every call is then
+/// treated as its own outermost call, the safe default).
+pub fn object_invariant_enter(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let Value::Obj(id) = receiver else {
+        return Ok(Value::Bool(true));
+    };
+    let is_owner = vm.checking.insert(*id);
+    Ok(Value::Bool(is_owner))
+}
+
+/// Signature: `Object::__invariantExit()` — the exit half of the `@invariant`
+/// re-entrancy guard (see [`object_invariant_enter`]).
+///
+/// Unconditionally removes the receiver from [`VM::checking`]. Only ever
+/// called from the woven `Block#ensure(_)` cleanup, itself gated on the
+/// caller's own `__invariant_owner` local — so in practice this only fires
+/// once per outermost guarded call, but removal is idempotent regardless.
+///
+/// Returns [`VM::none_value`] — **never** a raw `Value::Nil` — matching every
+/// other unit-returning native primitive: the one-armed `ifTrue` inliner's
+/// Some-wrap expects the surface `None` singleton, not the bare tag.
+pub fn object_invariant_exit(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if let Value::Obj(id) = receiver {
+        vm.checking.remove(id);
+    }
+    Ok(vm.none_value())
 }

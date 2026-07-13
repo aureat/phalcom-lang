@@ -17,7 +17,7 @@ class Greeter {
   }
 }
 let g = Greeter.new()
-let m = g.methodFor(Symbol.new("greet(_:)"))
+let m = g.methodFor(Symbol.new("greet(_)"))
 let args = List.new().add("World")
 System.print(m.invokeOn(g, args))
 let bound = m.bind(g)

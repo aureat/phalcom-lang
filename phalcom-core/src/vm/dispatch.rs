@@ -587,7 +587,7 @@ impl VM {
                     // error table): error unless the receiver's class
                     // responds to the reference (base name for Open, the
                     // exact selector for Pinned), or has a
-                    // `doesNotUnderstand(_:)` override.
+                    // `doesNotUnderstand(_)` override.
                     let responds = if open {
                         self.heap.class(class_id).responds_to_base_name(sym)
                     } else {
@@ -602,7 +602,7 @@ impl VM {
                         if actual_dnu == default_dnu {
                             let class_name = self.heap.class(class_id).name.clone();
                             return Err(RuntimeError::Message(format!(
-                                "{class_name} does not understand `{sym_str}` — no method named `{sym_str}` and no `doesNotUnderstand(_:)` override (`::` empty family)"
+                                "{class_name} does not understand `{sym_str}` — no method named `{sym_str}` and no `doesNotUnderstand(_)` override (`::` empty family)"
                             ))
                             .into());
                         }
@@ -787,7 +787,7 @@ impl VM {
                     } else {
                         // Exact-selector probe missed. The method-lookup.md §1
                         // miss order is:
-                        //   IC -> exact-probe -> variadic probe -> doesNotUnderstand(_:).
+                        //   IC -> exact-probe -> variadic probe -> doesNotUnderstand(_).
                         //
                         // Only an all-positional `Method` selector may probe for a
                         // variadic candidate (never a labelled, getter, setter, or

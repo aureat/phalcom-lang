@@ -78,12 +78,12 @@ impl Universe {
     /// [`Universe::bool_sacred_pristine`]
     /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
     pub const BOOL_SACRED_SELECTORS: &'static [&'static str] =
-        &["and(_:)", "or(_:)", "not()", "ifTrue(_:)", "ifFalse(_:)", "ifTrue(_:ifFalse:)"];
+        &["and(_)", "or(_)", "not()", "ifTrue(_)", "ifFalse(_)", "ifTrue(_,ifFalse)"];
 
     /// The `Block`-receiver sacred selectors watched by
     /// [`Universe::block_sacred_pristine`]
     /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
-    pub const BLOCK_SACRED_SELECTORS: &'static [&'static str] = &["whileTrue(_:)"];
+    pub const BLOCK_SACRED_SELECTORS: &'static [&'static str] = &["whileTrue(_)"];
 
     /// Flags a (re)definition of `selector` directly on `class_id`, flipping
     /// the relevant override-epoch flag if it is a sacred selector on the

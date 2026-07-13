@@ -85,55 +85,20 @@ impl Signature {
     }
 }
 
-/// Builds the canonical label-encoded selector string for `name`/`labels`/`kind`.
+/// Builds the canonical comma-form label-encoded selector string for
+/// `name`/`labels`/`kind` (ADR-0012, amended 2026-07-11: `move(_,to,duration)`
+/// spelling — a positional argument renders as `_`, a keyword argument as
+/// its label, slots joined by `,`).
 pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKind) -> String {
     match kind {
         SignatureKind::Initializer(0) => format!("init {name}()"),
-        SignatureKind::Initializer(_) => {
-            let mut s = format!("init {name}(");
-            for label in labels {
-                if let Some(lbl) = label {
-                    s.push_str(lbl);
-                    s.push(':');
-                } else {
-                    s.push_str("_:");
-                }
-            }
-            s.push(')');
-            s
-        }
+        SignatureKind::Initializer(_) => format!("init {name}({})", comma_form_slots(labels)),
         SignatureKind::Method(0) => format!("{name}()"),
-        SignatureKind::Method(_) => {
-            let mut s = format!("{name}(");
-            for label in labels {
-                if let Some(lbl) = label {
-                    s.push_str(lbl);
-                    s.push(':');
-                } else {
-                    s.push_str("_:");
-                }
-            }
-            s.push(')');
-            s
-        }
+        SignatureKind::Method(_) => format!("{name}({})", comma_form_slots(labels)),
         SignatureKind::Getter => name.to_string(),
-        SignatureKind::Setter => format!("{name}=(_:)"),
-        SignatureKind::SubscriptGet(n) => {
-            let mut s = "[".to_string();
-            for _ in 0..n {
-                s.push_str("_:");
-            }
-            s.push(']');
-            s
-        }
-        SignatureKind::SubscriptSet(n) => {
-            let mut s = "[".to_string();
-            for _ in 0..n {
-                s.push_str("_:");
-            }
-            s.push_str("]=(_:)");
-            s
-        }
+        SignatureKind::Setter => format!("{name}=(_)"),
+        SignatureKind::SubscriptGet(n) => format!("[{}]", comma_form_positional(n)),
+        SignatureKind::SubscriptSet(n) => format!("[{}]=(_)", comma_form_positional(n)),
         // The fixed/minimum arity payload is never spelled into the
         // selector — `sum(*numbers)` and `format(fmt, *args)` both intern as
         // `sum(*)` / `format(*)` (U9 corrections §0 point 3). Only
@@ -141,6 +106,18 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
         // `Signature::new`) distinguishes them at runtime.
         SignatureKind::Variadic(_) => format!("{name}(*)"),
     }
+}
+
+/// Joins `labels` into a comma-form slot list: `_` for a positional
+/// argument, the label text for a keyword argument.
+fn comma_form_slots(labels: &[Option<String>]) -> String {
+    labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",")
+}
+
+/// Joins `n` positional `_` placeholders with `,` (used by the subscript
+/// kinds, which carry no labels).
+fn comma_form_positional(n: u8) -> String {
+    vec!["_"; n as usize].join(",")
 }
 
 /// Decomposes an encoded selector string back into `(name, labels, kind)` —
@@ -175,7 +152,7 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
 pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, SignatureKind) {
     // Subscript forms start with `[`.
     if let Some(rest) = selector.strip_prefix('[') {
-        if let Some(index_part) = rest.strip_suffix("]=(_:)") {
+        if let Some(index_part) = rest.strip_suffix("]=(_)") {
             let n = count_args(index_part);
             return ("[]=".to_string(), vec![None; n as usize], SignatureKind::SubscriptSet(n));
         }
@@ -194,11 +171,11 @@ pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, Signatur
     let head = &selector[..open];
     let inner = &selector[open + 1..selector.len().saturating_sub(1)];
 
-    // Setter: `name=(_:)` — an *identifier* head ending in `=`, one arg. The
-    // identifier check disambiguates a real setter (`class=(_:)`) from an
-    // operator selector that merely ends in `=` (`==(_:)`, `>=(_:)`), which is
+    // Setter: `name=(_)` — an *identifier* head ending in `=`, one arg. The
+    // identifier check disambiguates a real setter (`class=(_)`) from an
+    // operator selector that merely ends in `=` (`==(_)`, `>=(_)`), which is
     // an ordinary one-argument method.
-    if inner == "_:" {
+    if inner == "_" {
         if let Some(name) = head.strip_suffix('=') {
             if is_identifier(name) {
                 return (name.to_string(), vec![None], SignatureKind::Setter);
@@ -227,29 +204,24 @@ pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, Signatur
     (name, labels, kind)
 }
 
-/// Counts the `_:` argument slots in a subscript index list (`"_:_:"` -> 2).
+/// Counts the comma-separated `_` argument slots in a subscript index list
+/// (`"_,_"` -> 2).
 fn count_args(inner: &str) -> u8 {
     if inner.is_empty() {
         0
     } else {
-        inner.matches("_:").count() as u8
+        inner.split(',').count() as u8
     }
 }
 
-/// Parses a method/initializer paren body (`"to:duration:"`, `"_:_:"`, `""`)
+/// Parses a method/initializer paren body (`"to,duration"`, `"_,_"`, `""`)
 /// into its per-argument labels: `Some(label)` for a keyword, `None` for the
 /// positional placeholder `_`.
 fn parse_labels(inner: &str) -> Vec<Option<String>> {
     if inner.is_empty() {
         return Vec::new();
     }
-    // Each argument is a `token:` unit; a trailing `:` yields one empty final
-    // segment after the split, which is skipped.
-    inner
-        .split(':')
-        .filter(|segment| !segment.is_empty())
-        .map(|token| if token == "_" { None } else { Some(token.to_string()) })
-        .collect()
+    inner.split(',').map(|token| if token == "_" { None } else { Some(token.to_string()) }).collect()
 }
 
 /// Returns whether `s` is a non-empty Phalcom identifier (leading letter or
@@ -328,8 +300,8 @@ mod tests {
         assert_eq!(labels, vec![None]);
         assert_eq!(kind, SignatureKind::Setter);
 
-        // `==(_:)` must decode to a one-arg method, not a setter named `=`.
-        let (op_name, _, op_kind) = decode_selector("==(_:)");
+        // `==(_)` must decode to a one-arg method, not a setter named `=`.
+        let (op_name, _, op_kind) = decode_selector("==(_)");
         assert_eq!(op_name, "==");
         assert_eq!(op_kind, SignatureKind::Method(1));
     }

@@ -98,7 +98,7 @@ impl VM {
     }
 
     /// Reifies a message send as a `Message` instance (method-lookup.md §2,
-    /// ADR-0012), for the `doesNotUnderstand(_:)` miss path.
+    /// ADR-0012), for the `doesNotUnderstand(_)` miss path.
     ///
     /// The returned `Message` is an ordinary fixed-slot
     /// [`InstanceObject`](crate::heap::InstanceObject) of the kernel
@@ -106,7 +106,7 @@ impl VM {
     /// built directly in Rust (no `.ph` `construct`) with four slots:
     ///
     /// 0. `selector` — the interned [`Symbol`] as sent;
-    /// 1. `name` — the bare method name [`String`] (encoder-inverse, `+` for `+(_:)`);
+    /// 1. `name` — the bare method name [`String`] (encoder-inverse, `+` for `+(_)`);
     /// 2. `labels` — a [`List`](crate::heap::ListObject) of `String`, one per
     ///    argument, `""` for a positional (unlabeled) argument so that
     ///    `labels.size == args.size` and callers can zip them;
@@ -140,15 +140,15 @@ impl VM {
         Value::Obj(self.heap.alloc(Object::Instance(instance)))
     }
 
-    /// Forwards a missed send to the receiver's `doesNotUnderstand(_:)`
+    /// Forwards a missed send to the receiver's `doesNotUnderstand(_)`
     /// (method-lookup.md §2, ADR-0012).
     ///
     /// Precondition: `self.stack[receiver_idx..]` holds `[receiver, args…]`.
     /// The arguments are replaced by a single synthesized
     /// [`Message`](Self::new_message) and the receiver's
-    /// `doesNotUnderstand(_:)` is dispatched via [`Self::call_method`] (a
+    /// `doesNotUnderstand(_)` is dispatched via [`Self::call_method`] (a
     /// primitive runs in place; a user override pushes a frame). Because
-    /// `doesNotUnderstand(_:)` is looked up by the *exact* selector, it always
+    /// `doesNotUnderstand(_)` is looked up by the *exact* selector, it always
     /// resolves to at least `Object`'s default handler — a receiver whose chain
     /// somehow lacks it is a kernel-invariant violation, surfaced as
     /// [`RuntimeError::Internal`] rather than recursing (the recursion guard:
@@ -156,7 +156,7 @@ impl VM {
     ///
     /// # Errors
     ///
-    /// Returns [`RuntimeError::Internal`] if `doesNotUnderstand(_:)` is missing
+    /// Returns [`RuntimeError::Internal`] if `doesNotUnderstand(_)` is missing
     /// from the receiver's chain, or propagates any error raised by the handler.
     pub(super) fn forward_does_not_understand(&mut self, receiver_idx: usize, selector: Symbol, source_range: SourceRange) -> PhResult<()> {
         let receiver = self.stack[receiver_idx];
@@ -170,7 +170,7 @@ impl VM {
         let dnu_sym = self.get_or_intern(&dnu_str);
         match receiver.lookup_method(self, dnu_sym) {
             Some(method) => self.call_method(&receiver, method, 1, source_range),
-            None => Err(RuntimeError::Internal("doesNotUnderstand(_:) missing from Object — kernel invariant violated".into()).into()),
+            None => Err(RuntimeError::Internal("doesNotUnderstand(_) missing from Object — kernel invariant violated".into()).into()),
         }
     }
 
@@ -180,7 +180,7 @@ impl VM {
     /// This is the shared runtime-send workhorse behind reflective dispatch:
     /// its three consumers are [`object_perform`](crate::primitive::object::object_perform)
     /// / [`object_perform_with`](crate::primitive::object::object_perform_with),
-    /// the `doesNotUnderstand(_:)` forward (indirectly, via the same
+    /// the `doesNotUnderstand(_)` forward (indirectly, via the same
     /// lookup+`call_method`+dNU path), and — deferred to U9 — a `SendDynamic`
     /// spread call-site opcode. Unlike the [`crate::bytecode::Bytecode::Invoke`] handler it can
     /// be called from *inside* a native primitive: it saves the frame count,
@@ -188,13 +188,13 @@ impl VM {
     /// re-enters `run_until` to drain that one activation and recover a
     /// synchronous [`Value`] (the same re-entrancy pattern as
     /// [`block_call`](crate::primitive::block::block_call)). A miss routes
-    /// through `doesNotUnderstand(_:)` exactly once — a `perform` of an unknown
+    /// through `doesNotUnderstand(_)` exactly once — a `perform` of an unknown
     /// selector re-enters dNU, it does not loop.
     ///
     /// # Errors
     ///
     /// Propagates any [`RuntimeError`] raised by lookup, the dispatched method,
-    /// or the `doesNotUnderstand(_:)` forward.
+    /// or the `doesNotUnderstand(_)` forward.
     pub fn send_dynamic(&mut self, receiver: Value, selector: Symbol, args: &[Value]) -> PhResult<Value> {
         let receiver_idx = self.stack.len();
         self.stack.push(receiver);
@@ -224,7 +224,7 @@ impl VM {
     /// Mirrors [`Self::send_dynamic`]'s re-entrancy exactly, except there is
     /// **no lookup**: `method_id` is already resolved, so a mismatched
     /// receiver misbehaves inside the method body rather than raising
-    /// `doesNotUnderstand(_:)` (the caller is responsible for receiver
+    /// `doesNotUnderstand(_)` (the caller is responsible for receiver
     /// compatibility, functions.md §3). Arity is validated **before** the
     /// receiver/args are pushed onto the stack, so a mismatch leaves the stack
     /// exactly as it was found (R-INV-3.4).

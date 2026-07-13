@@ -651,12 +651,12 @@ fn floor_census_matches_installed_bindings() {
     // (U-CORE-6/ADR-0037), so this is the floor's final word on error
     // handling.
     const NEW_ON_ENSURE: usize = 2;
-    // U15 (ADR-0045, this unit's own amendment): `Module#doesNotUnderstand(_:)`
+    // U15 (ADR-0045, this unit's own amendment): `Module#doesNotUnderstand(_)`
     // = +1 (111 -> 112) — member access (`math.pi`, `math.distance(1, 2)`) as
     // an ordinary send over the module's own globals table; the only way to
     // reach it from a message send (floor-census.md §2.12).
     const NEW_IMPORTS: usize = 1;
-    // U16-Open (ADR-0047, this unit's own amendment): `Family#doesNotUnderstand(_:)`
+    // U16-Open (ADR-0047, this unit's own amendment): `Family#doesNotUnderstand(_)`
     // = +1 (112 -> 113) — the uniform `::` call router (selectors.md §3):
     // every bare-call selector shape misses `Family`'s otherwise-empty
     // method table and lands here, which rebuilds the real selector from the
@@ -685,107 +685,107 @@ fn floor_census_matches_installed_bindings() {
         // §2.1 Object
         (c.object_class, false, "name"),
         (c.object_class, false, "class"),
-        (c.object_class, false, "class=(_:)"),
+        (c.object_class, false, "class=(_)"),
         (c.object_class, false, "toString"),
         (c.object_class, false, "hash"), // NEW (ADR-0023)
-        (c.object_class, false, "==(_:)"),
-        (c.object_class, false, "!=(_:)"),
-        (c.object_class, false, "perform(_:)"),
-        (c.object_class, false, "perform(_:_:)"),
-        (c.object_class, false, "respondsTo(_:)"),
-        (c.object_class, false, "doesNotUnderstand(_:)"),
-        (c.object_class, false, "methodFor(_:)"), // NEW (ADR-0028)
+        (c.object_class, false, "==(_)"),
+        (c.object_class, false, "!=(_)"),
+        (c.object_class, false, "perform(_)"),
+        (c.object_class, false, "perform(_,_)"),
+        (c.object_class, false, "respondsTo(_)"),
+        (c.object_class, false, "doesNotUnderstand(_)"),
+        (c.object_class, false, "methodFor(_)"), // NEW (ADR-0028)
         (c.object_class, false, "__invariantEnter()"), // NEW_INVARIANT_GUARD (ADR-0052)
         (c.object_class, false, "__invariantExit()"), // NEW_INVARIANT_GUARD (ADR-0052)
         (c.object_class, true, "new()"),
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
-        (c.behavior_class, false, "superclass=(_:)"),
+        (c.behavior_class, false, "superclass=(_)"),
         (c.behavior_class, false, "name"),    // NEW (ADR-0023)
         (c.behavior_class, false, "methods"), // NEW (ADR-0023)
         // §2.3 Class
-        (c.class_class, false, "+(_:)"),
+        (c.class_class, false, "+(_)"),
         (c.class_class, false, "new()"),
         // §2.4 Number
-        (c.number_class, false, "+(_:)"),
-        (c.number_class, false, "-(_:)"),
-        (c.number_class, false, "*(_:)"),
-        (c.number_class, false, "/(_:)"),
-        (c.number_class, false, "%(_:)"),
-        (c.number_class, false, "<(_:)"),
-        (c.number_class, false, "<=(_:)"),
-        (c.number_class, false, ">(_:)"),
-        (c.number_class, false, ">=(_:)"),
+        (c.number_class, false, "+(_)"),
+        (c.number_class, false, "-(_)"),
+        (c.number_class, false, "*(_)"),
+        (c.number_class, false, "/(_)"),
+        (c.number_class, false, "%(_)"),
+        (c.number_class, false, "<(_)"),
+        (c.number_class, false, "<=(_)"),
+        (c.number_class, false, ">(_)"),
+        (c.number_class, false, ">=(_)"),
         (c.number_class, false, "negated()"),
         (c.number_class, false, "hash"), // NEW (ADR-0023)
         (c.number_class, false, "toString"), // NEW_VALUE_TOSTRING (U-CORE-4)
         (c.number_class, true, "new()"),
-        (c.number_class, true, "new(_:)"),
+        (c.number_class, true, "new(_)"),
         // §2.5 String
-        (c.string_class, false, "+(_:)"),
+        (c.string_class, false, "+(_)"),
         (c.string_class, false, "hash"), // NEW (ADR-0023)
         (c.string_class, true, "new()"),
-        (c.string_class, true, "new(_:)"),
+        (c.string_class, true, "new(_)"),
         // §2.6 Bool
         (c.bool_class, true, "new()"),
-        (c.bool_class, true, "new(_:)"),
-        (c.bool_class, false, "and(_:)"),
-        (c.bool_class, false, "or(_:)"),
+        (c.bool_class, true, "new(_)"),
+        (c.bool_class, false, "and(_)"),
+        (c.bool_class, false, "or(_)"),
         (c.bool_class, false, "not()"),
-        (c.bool_class, false, "ifTrue(_:)"),
-        (c.bool_class, false, "ifFalse(_:)"),
-        (c.bool_class, false, "ifTrue(_:ifFalse:)"),
+        (c.bool_class, false, "ifTrue(_)"),
+        (c.bool_class, false, "ifFalse(_)"),
+        (c.bool_class, false, "ifTrue(_,ifFalse)"),
         (c.bool_class, false, "hash"), // NEW (ADR-0023)
         // §2.7 Symbol
         (c.symbol_class, false, "toString"),
         (c.symbol_class, false, "hash"), // NEW (ADR-0023)
-        (c.symbol_class, true, "new(_:)"),
+        (c.symbol_class, true, "new(_)"),
         // §2.8 Absence
-        (c.some_class, true, "new(_:)"),
-        (c.option_class, false, "match(some:none:)"),
+        (c.some_class, true, "new(_)"),
+        (c.option_class, false, "match(some,none)"),
         // §2.9 Method
-        (c.method_class, true, "new(_:)"),
-        (c.method_class, false, "invokeOn(_:_:)"), // NEW (ADR-0028)
-        (c.method_class, false, "bind(_:)"),        // NEW (ADR-0028)
+        (c.method_class, true, "new(_)"),
+        (c.method_class, false, "invokeOn(_,_)"), // NEW (ADR-0028)
+        (c.method_class, false, "bind(_)"),        // NEW (ADR-0028)
         (c.method_class, false, "selector"),         // NEW (ADR-0028)
         (c.method_class, false, "holder"),           // NEW (ADR-0028)
         // §2.10 Function
         (c.function_class, false, "arity"),
         (c.function_class, false, "name"),
-        (c.function_class, false, "callWith(_:)"),
+        (c.function_class, false, "callWith(_)"),
         (c.function_class, false, "call()"),
-        (c.function_class, false, "call(_:)"),
-        (c.function_class, false, "call(_:_:)"),
-        (c.function_class, false, "call(_:_:_:)"),
-        (c.function_class, false, "call(_:_:_:_:)"),
+        (c.function_class, false, "call(_)"),
+        (c.function_class, false, "call(_,_)"),
+        (c.function_class, false, "call(_,_,_)"),
+        (c.function_class, false, "call(_,_,_,_)"),
         // §2.10 Block
         (c.block_class, false, "arity"),
         (c.block_class, false, "name"),
-        (c.block_class, false, "callWith(_:)"),
+        (c.block_class, false, "callWith(_)"),
         (c.block_class, false, "call()"),
-        (c.block_class, false, "call(_:)"),
-        (c.block_class, false, "call(_:_:)"),
-        (c.block_class, false, "call(_:_:_:)"),
-        (c.block_class, false, "call(_:_:_:_:)"),
-        (c.block_class, false, "whileTrue(_:)"),
+        (c.block_class, false, "call(_)"),
+        (c.block_class, false, "call(_,_)"),
+        (c.block_class, false, "call(_,_,_)"),
+        (c.block_class, false, "call(_,_,_,_)"),
+        (c.block_class, false, "whileTrue(_)"),
         // U-ERR error-handling catch protocol (ADR-0038) — NEW_ON_ENSURE
-        (c.block_class, false, "on(_:_:)"),
-        (c.block_class, false, "ensure(_:)"),
+        (c.block_class, false, "on(_,_)"),
+        (c.block_class, false, "ensure(_)"),
         // §2.11 System
-        (c.system_class, true, "print(_:)"),
+        (c.system_class, true, "print(_)"),
         (c.system_class, true, "new()"),
         // Native ready-queue scheduler seam (U-SCHED) — NEW_SCHED
-        (c.system_class, true, "schedule(_:)"),
+        (c.system_class, true, "schedule(_)"),
         (c.system_class, true, "nextScheduled"),
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
-        (c.module_class, false, "doesNotUnderstand(_:)"),
+        (c.module_class, false, "doesNotUnderstand(_)"),
         // §2.13 List
         (c.list_class, true, "new()"),
         (c.list_class, false, "length_"),
-        (c.list_class, false, "at_(_:)"),
-        (c.list_class, false, "set_(_:_:)"),
-        (c.list_class, false, "push_(_:)"),
+        (c.list_class, false, "at_(_)"),
+        (c.list_class, false, "set_(_,_)"),
+        (c.list_class, false, "push_(_)"),
         (c.list_class, false, "toString"),
         // §2.14 Message
         (c.message_class, false, "selector"),
@@ -798,29 +798,29 @@ fn floor_census_matches_installed_bindings() {
         // Map/Set (U-COLLTYPES Phase 1, ADR-0039) — NEW_MAP_SET
         (c.map_class, true, "new()"),
         (c.map_class, false, "size_"),
-        (c.map_class, false, "get_(_:)"),
-        (c.map_class, false, "put_(_:_:)"),
-        (c.map_class, false, "has_(_:)"),
-        (c.map_class, false, "remove_(_:)"),
-        (c.map_class, false, "keyAt_(_:)"),
-        (c.map_class, false, "valueAt_(_:)"),
+        (c.map_class, false, "get_(_)"),
+        (c.map_class, false, "put_(_,_)"),
+        (c.map_class, false, "has_(_)"),
+        (c.map_class, false, "remove_(_)"),
+        (c.map_class, false, "keyAt_(_)"),
+        (c.map_class, false, "valueAt_(_)"),
         (c.set_class, true, "new()"),
         (c.set_class, false, "size_"),
-        (c.set_class, false, "add_(_:)"),
-        (c.set_class, false, "has_(_:)"),
-        (c.set_class, false, "remove_(_:)"),
-        (c.set_class, false, "at_(_:)"),
+        (c.set_class, false, "add_(_)"),
+        (c.set_class, false, "has_(_)"),
+        (c.set_class, false, "remove_(_)"),
+        (c.set_class, false, "at_(_)"),
         // Tuple (U-COLLTYPES Phase 2, ADR-0039) — NEW_TUPLE
-        (c.tuple_class, true, "fromList(_:)"),
+        (c.tuple_class, true, "fromList(_)"),
         (c.tuple_class, false, "size_"),
-        (c.tuple_class, false, "at_(_:)"),
+        (c.tuple_class, false, "at_(_)"),
         // Range (U-COLLTYPES Phase 3, ADR-0039) — NEW_RANGE
-        (c.range_class, true, "new(_:_:_:)"),
+        (c.range_class, true, "new(_,_,_)"),
         (c.range_class, false, "start_"),
         (c.range_class, false, "end_"),
         (c.range_class, false, "inclusive_"),
         // Family (U16-Open, ADR-0047) — NEW_FAMILY
-        (c.family_class, false, "doesNotUnderstand(_:)"),
+        (c.family_class, false, "doesNotUnderstand(_)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -967,13 +967,13 @@ fn isa_is_reflexive_and_superclass_closed() {
     let class = Value::Obj(vm.universe.classes.class_class);
 
     // Immediate receiver `3`.
-    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_:)", number), Value::Bool(true)), "3.isA(Number)");
-    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_:)", object), Value::Bool(true)), "3.isA(Object) — reflexive-to-root");
-    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_:)", string), Value::Bool(false)), "!3.isA(String)");
+    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", number), Value::Bool(true)), "3.isA(Number)");
+    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", object), Value::Bool(true)), "3.isA(Object) — reflexive-to-root");
+    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", string), Value::Bool(false)), "!3.isA(String)");
 
     // Class receiver `Number` (walks the metaclass chain, Smalltalk isKindOf:).
-    assert!(matches!(send1(&mut vm, number, "isA(_:)", class), Value::Bool(true)), "Number.isA(Class)");
-    assert!(matches!(send1(&mut vm, number, "isA(_:)", object), Value::Bool(true)), "Number.isA(Object)");
+    assert!(matches!(send1(&mut vm, number, "isA(_)", class), Value::Bool(true)), "Number.isA(Class)");
+    assert!(matches!(send1(&mut vm, number, "isA(_)", object), Value::Bool(true)), "Number.isA(Object)");
 
     // User instance.
     let module = vm.create_module("main", "isa_user_instance");
@@ -982,9 +982,9 @@ fn isa_is_reflexive_and_superclass_closed() {
     let foo_cls = *vm.classes.get(&foo_sym).expect("IsaFoo registered");
     let foo_val = Value::Obj(foo_cls);
     let instance = send0(&mut vm, foo_val, "new()");
-    assert!(matches!(send1(&mut vm, instance, "isA(_:)", foo_val), Value::Bool(true)), "aFoo.isA(IsaFoo)");
-    assert!(matches!(send1(&mut vm, instance, "isA(_:)", object), Value::Bool(true)), "aFoo.isA(Object)");
-    assert!(matches!(send1(&mut vm, instance, "isA(_:)", number), Value::Bool(false)), "!aFoo.isA(Number)");
+    assert!(matches!(send1(&mut vm, instance, "isA(_)", foo_val), Value::Bool(true)), "aFoo.isA(IsaFoo)");
+    assert!(matches!(send1(&mut vm, instance, "isA(_)", object), Value::Bool(true)), "aFoo.isA(Object)");
+    assert!(matches!(send1(&mut vm, instance, "isA(_)", number), Value::Bool(false)), "!aFoo.isA(Number)");
 }
 
 #[test]
@@ -1062,7 +1062,7 @@ fn method_reparents_under_function_with_call_protocol() {
     assert_eq!(vm.heap.class(method_meta).superclass, Some(function_meta), "Method.class.superclass should be Function.class");
 
     // The call protocol is reachable from Method via inheritance.
-    for selector in ["arity", "name", "callWith(_:)", "call()", "call(_:)"] {
+    for selector in ["arity", "name", "callWith(_)", "call()", "call(_)"] {
         let sym = vm.get_or_intern(selector);
         assert!(lookup_method_in_hierarchy(&vm.heap, method_class, sym).is_some(), "Method should inherit `{selector}` from Function");
     }
@@ -1129,14 +1129,14 @@ fn callable_tower_and_reflection_protocol() {
     let g_sym = vm.interner.intern("g");
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
-    let selector_sym = vm.get_or_intern("greet(_:)");
+    let selector_sym = vm.get_or_intern("greet(_)");
     let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
     assert!(!matches!(method_value, Value::Obj(id) if id == vm.universe.classes.none_singleton), "methodFor should hit for a defined selector");
 
     // `arity`/`name` on the bare `Method`.
     assert!(matches!(block_arity(&mut vm, &method_value, &[]).unwrap(), Value::Number(n) if n == 1.0), "Method#arity should be 1");
     match block_name(&mut vm, &method_value, &[]).unwrap() {
-        Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_:)", "Method#name should be the encoded selector"),
+        Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_)", "Method#name should be the encoded selector"),
         other => panic!("Method#name should return a String, got {other:?}"),
     }
 
@@ -1144,7 +1144,7 @@ fn callable_tower_and_reflection_protocol() {
     let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
     assert!(matches!(block_arity(&mut vm, &bound, &[]).unwrap(), Value::Number(n) if n == 1.0), "BoundMethod#arity should be 1");
     match block_name(&mut vm, &bound, &[]).unwrap() {
-        Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_:)", "BoundMethod#name should be the wrapped method's name"),
+        Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_)", "BoundMethod#name should be the wrapped method's name"),
         other => panic!("BoundMethod#name should return a String, got {other:?}"),
     }
 }
@@ -1217,7 +1217,7 @@ fn invoke_on_and_bind_call_are_equivalent() {
     let g_sym = vm.interner.intern("g");
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
-    let selector_sym = vm.get_or_intern("greet(_:)");
+    let selector_sym = vm.get_or_intern("greet(_)");
     let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
 
     let arg = vm.alloc_string_value("World".to_string());
@@ -1245,7 +1245,7 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
     let g_sym = vm.interner.intern("g");
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
-    let selector_sym = vm.get_or_intern("greet(_:)");
+    let selector_sym = vm.get_or_intern("greet(_)");
     let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
 
     let empty_args = Value::Obj(vm.heap.alloc_list(vec![]));
@@ -1376,7 +1376,7 @@ fn value_tostring_is_total_and_never_leaks_nil() {
 
 /// Walks `class_id`'s superclass chain, returning whether `target` appears
 /// anywhere on it (reflexive: `is_a(X, X)` holds). Test-local mirror of the
-/// surface `isA(_:)` semantics (`core.ph`), used where a raw `ClassId` is more
+/// surface `isA(_)` semantics (`core.ph`), used where a raw `ClassId` is more
 /// convenient than a `send_dynamic` round-trip.
 fn is_a(vm: &VM, mut class_id: ClassId, target: ClassId) -> bool {
     loop {
@@ -1392,7 +1392,7 @@ fn is_a(vm: &VM, mut class_id: ClassId, target: ClassId) -> bool {
 
 #[test]
 fn genuine_miss_raises_surface_message_not_understood() {
-    // R-INV-6.2 — a genuine `doesNotUnderstand(_:)` miss (not overridden)
+    // R-INV-6.2 — a genuine `doesNotUnderstand(_)` miss (not overridden)
     // raises a *surface* `MessageNotUnderstood` through the unified unwind's
     // `Raise` payload — not the retired native `RuntimeError::MessageNotUnderstood`.
     let mut vm = VM::new();
@@ -1436,7 +1436,7 @@ fn only_error_subclasses_respond_to_raise() {
     let mut vm = VM::new();
     let raise_sym = Value::Symbol(vm.get_or_intern("raise()"));
 
-    let responds_to_number = send1(&mut vm, Value::Number(3.0), "respondsTo(_:)", raise_sym);
+    let responds_to_number = send1(&mut vm, Value::Number(3.0), "respondsTo(_)", raise_sym);
     assert!(matches!(responds_to_number, Value::Bool(false)), "a Number should not respond to `raise`");
 
     let error_instance = {
@@ -1445,7 +1445,7 @@ fn only_error_subclasses_respond_to_raise() {
         let inst = phalcom_core::heap::InstanceObject::new(error_class, field_count);
         Value::Obj(vm.heap.alloc(phalcom_core::heap::Object::Instance(inst)))
     };
-    let responds_to_error = send1(&mut vm, error_instance, "respondsTo(_:)", raise_sym);
+    let responds_to_error = send1(&mut vm, error_instance, "respondsTo(_)", raise_sym);
     assert!(matches!(responds_to_error, Value::Bool(true)), "an Error instance should respond to `raise`");
 }
 

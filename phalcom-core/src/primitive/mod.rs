@@ -354,7 +354,7 @@ pub(crate) fn send_hash(vm: &mut VM, value: Value) -> PhResult<i64> {
 /// Returns [`RuntimeError::Type`] if `==` does not answer a `Bool`, or
 /// propagates any [`RuntimeError`] the `==` send itself raises.
 pub(crate) fn send_eq(vm: &mut VM, a: Value, b: Value) -> PhResult<bool> {
-    let sym = vm.get_or_intern("==(_:)");
+    let sym = vm.get_or_intern("==(_)");
     match vm.send_dynamic(a, sym, &[b])? {
         Value::Bool(result) => Ok(result),
         other => Err(RuntimeError::Type {

@@ -1,2 +1,2 @@
-#move(_:to:duration:)
+#move(_,to,duration)
 A to B in 3
