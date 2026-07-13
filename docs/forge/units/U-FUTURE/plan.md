@@ -45,7 +45,7 @@ today provide.
    **no `.ph`-observable way to tell "the fiber I just resumed terminated" from "it yielded"**
    — the VM knows (`FiberStatus::{Suspended,Done,Failed}`, `heap.rs` L110) but does not expose
    it. A pump-driven `async` cannot detect driver completion/failure without this. **UPDATE
-   (2026-07-13): spun out to [U-FIBER-REFLECT](../U-FIBER-REFLECT/plan.md)** — both are pure
+   (2026-07-13): spun out to [U-FIBER-REFLECT](../U-SCHED-FIBER/U-FIBER-REFLECT/plan.md)** — both are pure
    `FiberStatus`/`result`-slot reads with **no scheduler dependency**, so bundling them into
    this unit's own DEC-FUT-SCHED-gated Slice B was incidental coupling, not load-bearing. Slice
    B now **depends on** U-FIBER-REFLECT landing (a precondition, checked at Slice B dispatch)
@@ -135,7 +135,7 @@ non-`core.ph` unit.
 
 | File | Why |
 |---|---|
-| — | **Precondition, not this unit's write-set:** `Fiber#isDone`/`error` ship via **[U-FIBER-REFLECT](../U-FIBER-REFLECT/plan.md)** (standalone, unblocked, no scheduler dependency) — Slice B depends on it landing but does not implement it. |
+| — | **Precondition, not this unit's write-set:** `Fiber#isDone`/`error` ship via **[U-FIBER-REFLECT](../U-SCHED-FIBER/U-FIBER-REFLECT/plan.md)** (standalone, unblocked, no scheduler dependency) — Slice B depends on it landing but does not implement it. |
 | `phalcom-core/src/primitive/system.rs` + `universe.rs` | `System.schedule(_)` enqueue onto a native FIFO; the root-drive/pump hook |
 | `phalcom-core/src/vm.rs` | the runtime-owned ready-queue field + the root-drive entry (**SPINE** — conflicts with any `vm.rs` unit; serialize) |
 | `phalcom-core/core/core.ph` | `async`/`await`/suspending-`then` in `.ph` over the seam |
@@ -196,7 +196,7 @@ via the pump (§6.3). `Future` introduces **no error class of its own**.
 2. **Slice A.1 — settled `then`/`map`/`catch`.** Pure `.ph`; green. Adds settled-combinator
    goldens; stages pending-continuation fixtures as `pending/`.
 3. **— DEC-FUT-SCHED gate (§9) —** everything below is blocked until it is ruled.
-4. **Slice B.0 — confirm [U-FIBER-REFLECT](../U-FIBER-REFLECT/plan.md) has landed** (external
+4. **Slice B.0 — confirm [U-FIBER-REFLECT](../U-SCHED-FIBER/U-FIBER-REFLECT/plan.md) has landed** (external
    precondition, not built by this unit). It has no DEC-FUT-SCHED dependency — dispatch it any
    time, do not let it wait on this ruling. If it hasn't landed by the time Slice B is picked
    up, dispatch it first.
@@ -237,19 +237,21 @@ Invariant/regression: Slice A adds `class Future` to the tower — it must pass
   **separate, unowned** unit, and open-questions §15 leaves **fairness** OPEN — the architect
   cannot unilaterally (a) fold an unowned unit's scope in, nor (b) decide v0.2 must ship
   suspending futures. Options:
-  - **Option 1 (RECOMMENDED): U-FUTURE v1 = Slice A only (pure `.ph`, zero native).** Ship the
-    scheduler-free `Future` now; async/await wait for a ratified, owned `U-SCHED` (native FIFO +
-    root-drive — `Fiber#isDone`/`error` are no longer part of this gate, see U-FIBER-REFLECT
-    above). Smallest correct step; unblocks immediately; no `vm.rs` risk; exactly what
+  - **Option 1 (RECOMMENDED, ADOPTED): U-FUTURE v1 = Slice A only (pure `.ph`, zero native).**
+    Ship the scheduler-free `Future` now; async/await wait for a ratified, owned
+    [`U-SCHED`](../U-SCHED-FIBER/U-SCHED/plan.md) (native FIFO + root-drive pump —
+    `Fiber#isDone`/`error` are no longer part of this gate, see U-FIBER-REFLECT above).
+    Smallest correct step; unblocks immediately; no `vm.rs` risk; exactly what
     [specification.md §2](specification.md) foresaw ("the scheduler-free set could ship as a
     thin sub-slice before U-SCHED").
   - **Option 2: fold the minimal seam into U-FUTURE** (`System.schedule` + `Fiber#isDone` +
     native FIFO + `.ph` pump). Delivers async/await now, but takes on `U-SCHED`'s
     not-retrofittable root-drive definition, needs the seam design ratified, and inherits the
     OPEN fairness question. Bigger, `vm.rs`-SPINE, pulls unowned scope onto the critical path.
-  - **Architect recommendation:** **Option 1.** Ship Slice A as U-FUTURE; spin `U-SCHED` as its
-    own unit for Slice B. Slice A does **not** depend on this ruling — it is buildable today
-    regardless — so the decision gates only B.*, never A.*.
+  - **Architect recommendation:** **Option 1.** Ship Slice A as U-FUTURE; spin
+    [`U-SCHED`](../U-SCHED-FIBER/U-SCHED/plan.md) as its own unit for Slice B. Slice A does
+    **not** depend on this ruling — it is buildable today regardless — so the decision gates
+    only B.*, never A.*.
 
 - **DEC-FUT-CLEANUP (secondary, non-blocking for v1).** `ensure`-on-abandoned-fiber is
   **Proposed, unratified** (`fiber-ensure-and-limits.md`): does a `Future` whose driver is
@@ -285,9 +287,9 @@ skill should draft a short `U-SCHED` ADR recording the FIFO + root-drive + fairn
 | Surface, state machine, settle-once | concurrency.md §2; specification.md §2–§3 |
 | Landed `Fiber` surface + general `resumer`/result-slot seam | `primitive/fiber.rs` L86–237; `heap.rs` L110/160–204; `universe.rs` L487–496 |
 | Unified unwind + fiber-floor capture (reject path buildable) | `error.rs` `RuntimeError::Raise`; `fiber_try` L123–125; ADR-0008; ADR-0030 §6 |
-| `Fiber#isDone`/`error` not landed → ships via standalone U-FIBER-REFLECT, a Slice B precondition | `universe.rs` L487–496 vs concurrency.md §1; `docs/forge/units/U-FIBER-REFLECT/plan.md` |
+| `Fiber#isDone`/`error` not landed → ships via standalone U-FIBER-REFLECT, a Slice B precondition | `universe.rs` L487–496 vs concurrency.md §1; `docs/forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md` |
 | ADR-0031 catch syntax unimplemented → reject via `Fiber#try`+pump | ADR-0031 (Accepted, unbuilt); `universe.rs` L482 (`Error#raise` only) |
 | No `.ph` class-side state → ready-queue needs native home | object-model.md / classes.md (no class vars); `core.ph` L293 |
-| `System.schedule(_)`/`sleep(_)` reserved seam; `U-SCHED` unowned | system.md §2/§3; scheduler-unit.md |
+| `System.schedule(_)`/`sleep(_)` reserved seam; `U-SCHED` now ratified & planned | system.md §2/§3; scheduler-unit.md; `docs/forge/units/U-SCHED-FIBER/U-SCHED/plan.md` |
 | Still-open: structured concurrency, `select`/`race`, fairness, timers | open-questions.md §15; concurrency.md §3 |
 | U-FIBER follow-ons Future assumes (abort-root, depth-guard width) | DEFERRED.md (`fiber_abort` ~L109, `fiber_resume` L144) |

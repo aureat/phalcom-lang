@@ -102,10 +102,10 @@ The four points below are realized:
    `try` (`vm.rs` `run_until`).
 
 `isDone`/`error` (the two reflective accessors in the Interface table above)
-are **not yet landed** — U-FIBER shipped `new`/`call`/`try`/`yield`/`current`/
-`abort` only. They need no scheduler and are unblocked now; see the
-standalone follow-on unit
-[U-FIBER-REFLECT](../../forge/units/U-FIBER-REFLECT/plan.md).
+are **landed** — pure reads over `FiberObject::status`/`result`, added by
+[U-FIBER-REFLECT](../../forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md)
+alongside U-FIBER's own `new`/`call`/`try`/`yield`/`current`/`abort`. They
+needed no scheduler and no new state.
 
 Because there is no preemption, no synchronization primitives are needed: a fiber
 switch happens only at an explicit `call`/`yield`/`await` point.
@@ -172,9 +172,12 @@ A `Future` settles **exactly once**; further completions are ignored.
 ### Interface
 
 **Status column below**: **A** = landed (U-FUTURE Slice A, pure `.ph`, no
-`Fiber`/scheduler involvement); **B** = not landed, needs the native
-scheduler seam ([U-SCHED](../../forge/units/U-FUTURE/plan.md#9-blocked-on-decision-register),
-unowned).
+`Fiber`/scheduler involvement); **B** = not landed — its own owning unit is
+`Future`'s job, not built here, but its precondition (the native ready-queue
++ root-drive/`runScheduled` pump) is now landed
+([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md), ratified per
+[DEC-FUT-SCHED](../../forge/units/U-FUTURE/plan.md#9-blocked-on-decision-register)
+Option 1).
 
 | Signature | Side | Status | Meaning |
 |-----------|------|--------|---------|
@@ -219,28 +222,38 @@ settle-once state machine over three private fields (`_state`/`_value`/
 synchronously. **Zero native code, zero `Fiber` involvement** — a settled
 future never suspends.
 
-**Slice B — not landed** (needs `Fiber`, §1, as the substrate, plus a native
-scheduler seam):
+**Slice B — not landed** (needs `Fiber`, §1, as the substrate; its native
+ready-queue precondition is landed, see below):
 
 1. `await` = "add `current` to the future's waiters, then `Fiber.yield` to
    the scheduler" — needs `Fiber#isDone`/`error`
-   ([U-FIBER-REFLECT](../../forge/units/U-FIBER-REFLECT/plan.md), unblocked
+   ([U-FIBER-REFLECT](../../forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md), unblocked
    now) to detect an `async` driver's completion/failure;
 2. a **scheduler**: a ready-queue of resumable fibers plus a source of
    external completions (timers, I/O) exposed through [`System`](system.md).
    No `.ph`-reachable class-side/module mutable state exists today
    ([object-model.md](object-model.md)/[classes.md](classes.md)), so the
-   ready-queue needs a native home — the reserved `System.schedule(_)` seam
-   (`system.md` §2). The top-level program runs inside the scheduler's root
-   fiber, so `await` at top level is legal;
+   ready-queue needed a native home — **landed** as `System.schedule(_)`/
+   `System.nextScheduled`/`System.runScheduled` (`system.md` §2, `VM::ready_queue`)
+   — not a "top level runs inside the scheduler's root fiber" retrofit as
+   originally sketched, but a **root-drive pump**: `VM::run` drains the
+   ready-queue once the top-level program's own activation ends, so `await`
+   degrades to "drain, re-check" rather than requiring `main` itself to be a
+   scheduler fiber;
 3. settlement moves the future to `fulfilled`/`rejected` and enqueues every
-   waiter fiber and `then` continuation onto the ready-queue.
+   waiter fiber and `then` continuation onto the ready-queue — this
+   enqueue-on-settle half is still `Future`'s own job (U-SCHED's
+   `drain_ready_queue`/`runScheduled` only ever *pop*, never push a
+   resumed-later fiber back on).
 
-This native seam is the proposed, unowned
-[U-SCHED](../../forge/units/U-FUTURE/plan.md#9-blocked-on-decision-register)
-unit; `Future` deliberately owns **no** new VM mechanism beyond `Fiber` + a
-queue — keeping the concurrency primitive singular
+The native ready-queue seam is landed
+([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md),
+ratified — [DEC-FUT-SCHED](../../forge/units/U-FUTURE/plan.md#9-blocked-on-decision-register)
+Option 1); `Future` deliberately owns **no** new VM mechanism beyond
+`Fiber` + a queue — keeping the concurrency primitive singular
 ([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)).
+What remains for Slice B itself is `Future`'s own waiter-list/settlement
+wiring over this now-landed substrate, not the substrate itself.
 
 ---
 

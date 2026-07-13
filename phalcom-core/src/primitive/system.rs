@@ -36,3 +36,37 @@ pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhR
 pub fn system_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::NotAllowed("System instances cannot be created".to_string()).into())
 }
+
+/// Signature: `System::schedule(_)` — wraps `args[0]` (a `Function`) as a
+/// fresh, not-yet-started `Fiber` and enqueues it on `VM::ready_queue`
+/// (private VM bookkeeping, `vm/mod.rs`). Returns the `Fiber`, so a caller
+/// (e.g. `Future.async`) can hold a handle to poll it later via the
+/// already-landed `isDone`/`error`
+/// ([U-FIBER-REFLECT](../../../docs/forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md)).
+///
+/// Does **not** run the fiber — it runs at "the next scheduler turn"
+/// (`system.md` §2), i.e. whenever the queue is next drained (see
+/// [`crate::vm::VM::run`]'s root-drive, or `.ph` `System.runScheduled`).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Function` (mirrors
+/// `Fiber.new(_)`'s own check — reuses that validation via `fiber::new_fiber_ref`
+/// rather than duplicating it).
+pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = crate::primitive::fiber::new_fiber_ref(vm, args[0])?;
+    vm.ready_queue.push_back(fiber_ref);
+    Ok(Value::Obj(fiber_ref))
+}
+
+/// Signature: `System::nextScheduled` — pops and returns the next queued
+/// fiber as `Option<Fiber>` (`None` once the queue is empty). The `.ph`-
+/// visible drain seam every pump loop (native root-drive, `.ph`
+/// `System.runScheduled`, and eventually `Future`'s Slice B await-pump)
+/// bottoms out in.
+pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    match vm.ready_queue.pop_front() {
+        Some(fiber_ref) => Ok(crate::primitive::nil::wrap_some(vm, Value::Obj(fiber_ref))),
+        None => Ok(vm.none_value()),
+    }
+}

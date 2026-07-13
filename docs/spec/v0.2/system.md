@@ -69,8 +69,16 @@ All class-side. Grouped by service.
 
 | Signature | Meaning |
 |-----------|---------|
-| `schedule(_)` | enqueue a `Function` to run on a fresh fiber at the next scheduler turn |
-| `sleep(_)` | return a `Future` that settles after N seconds (a timer completion source) |
+| `schedule(_)` | enqueue a `Function` to run on a fresh fiber at the next scheduler turn — **landed** (U-SCHED, floor-census.md amendment): wraps `args[0]` as a fresh `Fiber` via the same validation `Fiber.new(_)` uses and pushes it onto the native ready-queue (`VM::ready_queue`); returns the `Fiber` handle, does not run it |
+| `nextScheduled` | **landed** (U-SCHED, not originally in this table — a floor amendment in the same vein as ADR-0037/0038/0039/0049): pops and returns the next queued fiber as `Option<Fiber>`, `None` once the queue is empty; the drain seam every pump (native root-drive, `.ph` `runScheduled`) bottoms out in |
+| `runScheduled` | **landed** (U-SCHED, `.ph`, `core.ph`): `while (next.isSome) { … }` pump over `nextScheduled` — drains everything queued so far, in order, including work newly scheduled mid-drain, then returns; the mid-program counterpart to the native root-drive below |
+| `sleep(_)` | return a `Future` that settles after N seconds (a timer completion source) — **still open**: U-SCHED deliberately splits the ready-queue from timers (`open-questions.md` §15 fairness is unresolved for a timer completion source); tracked as a follow-on unit, not built here |
+
+`VM::run`'s **root-drive pump** (`vm/dispatch.rs`) is the belt-and-suspenders
+counterpart to `runScheduled`: once the top-level program's own activation
+ends, it drains `VM::ready_queue` to exhaustion — via `fiber_try` (capture,
+not propagate) — even if `main` never explicitly calls `runScheduled`, so a
+scheduled task's side effect is never silently dropped at program exit.
 
 `print(_)` returning its argument makes `System.print(x)` usable as a
 pass-through in an expression position, consistent with everything being an
@@ -89,16 +97,23 @@ Each service is a `PrimitiveFn`
 ([`method.rs`](../../../phalcom-core/src/method.rs)) installed **on the metaclass**
 (`System class`), since the calls are class-side. A primitive receives
 `(&mut VM, receiver, args)` and returns a `PhResult<Value>`, so it can touch VM
-state (the scheduler queue, the interner) directly — this is why `schedule`/`sleep`
-belong here rather than in Phalcom code.
+state (the scheduler queue, the interner) directly — this is why `schedule`
+belongs here rather than in Phalcom code (`system_schedule`/
+`system_next_scheduled`, [`primitive/system.rs`](../../../phalcom-core/src/primitive/system.rs);
+`VM::ready_queue`, [`vm/mod.rs`](../../../phalcom-core/src/vm/mod.rs)).
+`runScheduled` itself is pure `.ph` orchestration over `nextScheduled` — no VM
+state touched directly, so it lives in `core.ph` rather than native
+([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md)).
 
 To reach the specified surface from today's tree:
 
 1. install `write`, `printErr`, `readLine`, `clock`, `now`, `args`, `env`,
    `exit`, `gc`, `version` as primitives alongside `print`;
 2. give the VM a monotonic clock handle and (for `readLine`) buffered stdin;
-3. add `schedule`/`sleep` once the [scheduler](concurrency.md) exists — `sleep`
-   registers a timer whose firing settles the returned `Future`.
+3. `schedule`/`nextScheduled`/`runScheduled` are landed (U-SCHED); `sleep`
+   remains a follow-on once the ready-queue/timer fairness question
+   (`open-questions.md` §15) is ruled — `sleep` would register a timer whose
+   firing settles the returned `Future`.
 
 Because `System` is the only sanctioned effect surface, a sandboxed or test
 embedding swaps the `System class` method dictionary for stubs and leaves the rest

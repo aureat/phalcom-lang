@@ -663,6 +663,11 @@ fn floor_census_matches_installed_bindings() {
     // family's base name + the missed call's labels and re-dispatches as an
     // ordinary send (floor-census.md §2.16).
     const NEW_FAMILY: usize = 1;
+    // U-SCHED (floor-census.md amendment, ADR-0030 §Consequences): the
+    // native ready-queue scheduler seam admits **+2** bindings (113 -> 115):
+    // `System::schedule(_)` (`system_schedule`) and `System::nextScheduled`
+    // (`system_next_scheduled`), both `primitive/system.rs`.
+    const NEW_SCHED: usize = 2;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -761,6 +766,9 @@ fn floor_census_matches_installed_bindings() {
         // §2.11 System
         (c.system_class, true, "print(_:)"),
         (c.system_class, true, "new()"),
+        // Native ready-queue scheduler seam (U-SCHED) — NEW_SCHED
+        (c.system_class, true, "schedule(_:)"),
+        (c.system_class, true, "nextScheduled"),
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
         (c.module_class, false, "doesNotUnderstand(_:)"),
@@ -874,8 +882,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_RANGE
             + NEW_ON_ENSURE
             + NEW_IMPORTS
-            + NEW_FAMILY,
-        "census must enumerate exactly 113 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047)"
+            + NEW_FAMILY
+            + NEW_SCHED,
+        "census must enumerate exactly 115 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED)"
     );
     assert_eq!(
         live.len(),
@@ -889,8 +898,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_RANGE
             + NEW_ON_ENSURE
             + NEW_IMPORTS
-            + NEW_FAMILY,
-        "the live floor must be exactly 113 bindings"
+            + NEW_FAMILY
+            + NEW_SCHED,
+        "the live floor must be exactly 115 bindings"
     );
 }
 

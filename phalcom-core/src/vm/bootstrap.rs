@@ -37,6 +37,7 @@ impl VM {
             universe,
             next_frame_generation: 0,
             open_upvalues: BTreeMap::new(),
+            ready_queue: std::collections::VecDeque::new(),
             field_layouts: HashMap::new(),
             constructor_aliases: HashMap::new(),
             has_new_construct: std::collections::HashSet::new(),

@@ -5,7 +5,7 @@ use crate::primitive::block::{block_arity, block_call, block_call_with, block_en
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::family_does_not_understand;
-use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_new, fiber_try, fiber_yield};
+use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_new, fiber_try, fiber_yield};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
@@ -26,7 +26,7 @@ use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has,
 use crate::primitive::string::{string_add, string_class_new, string_hash};
 use crate::primitive::tuple::{tuple_class_from_list, tuple_raw_at, tuple_raw_size};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
-use crate::primitive::system::{system_class_new, system_class_print};
+use crate::primitive::system::{system_class_new, system_class_print, system_next_scheduled, system_schedule};
 use crate::vm::VM;
 
 use super::Universe;
@@ -225,6 +225,14 @@ impl Universe {
         let system_cls = vm.universe.classes.system_class;
         primitive_static!(vm, system_cls, "print", SignatureKind::Method(1), system_class_print);
         primitive_static!(vm, system_cls, "new", SignatureKind::Method(0), system_class_new);
+        // Native ready-queue scheduler seam (U-SCHED, floor-census.md
+        // amendment): `schedule(_)` wraps a `Function` as a fresh `Fiber` and
+        // enqueues it on `VM::ready_queue`; `nextScheduled` pops the FIFO's
+        // front as `Option<Fiber>`. Neither runs the fiber — see
+        // `primitive::system::system_schedule`/`system_next_scheduled` for
+        // the drain contract and `VM::run`'s root-drive pump.
+        primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
+        primitive_static!(vm, system_cls, "nextScheduled", SignatureKind::Getter, system_next_scheduled);
 
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
@@ -331,5 +339,9 @@ impl Universe {
         primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(1), fiber_yield);
         primitive_static!(vm, fiber_cls, "current", SignatureKind::Getter, fiber_current);
         primitive_static!(vm, fiber_cls, "abort", SignatureKind::Method(1), fiber_abort);
+        // U-FIBER-REFLECT: `isDone`/`error` are pure instance-side reads over
+        // `FiberObject::status`/`result` — no scheduler dependency.
+        primitive!(vm, fiber_cls, "isDone", SignatureKind::Getter, fiber_is_done);
+        primitive!(vm, fiber_cls, "error", SignatureKind::Getter, fiber_error);
     }
 }

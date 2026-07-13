@@ -19,7 +19,7 @@ use crate::interner::{Interner, Symbol};
 use crate::universe::Universe;
 use crate::value::Value;
 use std::time::Instant;
-use std::{collections::BTreeMap, collections::HashMap};
+use std::{collections::BTreeMap, collections::HashMap, collections::VecDeque};
 use indexmap::IndexMap;
 
 /// Layout description for a compiled class (ADR-0011/ADR-0017).
@@ -114,6 +114,16 @@ pub struct VM {
     /// is shared while the slot is on the stack. On frame/scope exit the cell is
     /// promoted to [`Upvalue::Closed`] and removed from this map.
     pub(crate) open_upvalues: BTreeMap<usize, ObjRef>,
+    /// FIFO of scheduled-but-not-yet-run fibers ([`crate::primitive::system::system_schedule`]).
+    ///
+    /// Populated by `System.schedule(_)`; drained by the root-drive pump
+    /// ([`VM::run`]) and by any `.ph`-level pump loop (`System.runScheduled`,
+    /// `core.ph`) via [`crate::primitive::system::system_next_scheduled`]. A
+    /// fiber in this queue has never been resumed
+    /// (`FiberObject::started == false`) — draining it resumes it as a fresh
+    /// entry call, exactly like `Fiber#call`'s first-resume path
+    /// (`primitive/fiber.rs` `fiber_resume`).
+    pub(crate) ready_queue: VecDeque<ObjRef>,
     /// Registered class layouts for slot mapping.
     pub field_layouts: HashMap<Symbol, ClassLayout>,
     /// Maps a `construct`'s ordinary call-site selector (as an

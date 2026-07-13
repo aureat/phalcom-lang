@@ -732,6 +732,28 @@ class System {
   static print() {
     // Native print function
   }
+
+  // U-SCHED: the `.ph`-callable counterpart to `VM::run`'s native
+  // root-drive belt-and-suspenders pump (`vm/dispatch.rs`) — pumps
+  // `System.nextScheduled` to exhaustion, `try()`-resuming each queued
+  // fiber (capture-not-propagate, so one scheduled task's uncaught raise
+  // cannot abort another) — including any fiber a running scheduled fiber
+  // itself schedules mid-drain, since `nextScheduled` is re-read every
+  // iteration. Deliberately does **not** unwrap via `.match(some:none:)`
+  // (which runs its arm through `Block#call`'s native re-entrant
+  // `run_until`, forbidding a fiber switch underneath, ADR-0030 §4): `f.try()`
+  // must run at this method's own top level, not nested inside a block a
+  // native primitive is driving, so the receiver is unwrapped via
+  // `unwrapOr(_)` into a plain local first, and `try()` sent as its own
+  // statement.
+  static runScheduled() {
+    var next = System.nextScheduled
+    while (next.isSome) {
+      var f = next.unwrapOr(None)
+      f.try()
+      next = System.nextScheduled
+    }
+  }
 }
 
 // `Future` (U-FUTURE Slice A; concurrency.md §2; ADR-0030 §1): a settle-once

@@ -101,14 +101,19 @@ fn expect_fiber(vm: &VM, receiver: &Value) -> PhResult<ObjRef> {
     }
 }
 
-/// Signature: `Fiber.new(_)` — builds a new, not-yet-started fiber wrapping
-/// `args[0]` as its entry callable ([`crate::heap::FiberObject::new_entry`]).
+/// Validates `entry` as a `Block`/`Closure`, builds a new, not-yet-started
+/// [`crate::heap::FiberObject`] wrapping it
+/// ([`crate::heap::FiberObject::new_entry`]), and allocates it on the heap.
+///
+/// Shared construction path behind both `Fiber.new(_)` ([`fiber_new`]) and
+/// `System.schedule(_)` ([`crate::primitive::system::system_schedule`]) —
+/// extracted so the ready-queue's enqueue reuses the exact same validation
+/// and allocation as an ordinary `Fiber.new` (U-SCHED).
 ///
 /// # Errors
 ///
-/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Block`/`Closure`.
-pub fn fiber_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let entry = args[0];
+/// Returns [`RuntimeError::Type`] if `entry` is not a `Block`/`Closure`.
+pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
     match entry {
         Value::Obj(id) => match vm.heap.get(id) {
             Object::Block(_) | Object::Closure(_) => {}
@@ -120,12 +125,60 @@ pub fn fiber_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Val
         Value::Obj(id) => id,
         _ => unreachable!("checked above"),
     });
-    Ok(Value::Obj(vm.heap.alloc(Object::Fiber(fiber))))
+    Ok(vm.heap.alloc(Object::Fiber(fiber)))
+}
+
+/// Signature: `Fiber.new(_)` — builds a new, not-yet-started fiber wrapping
+/// `args[0]` as its entry callable ([`crate::heap::FiberObject::new_entry`]).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Block`/`Closure`.
+pub fn fiber_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::Obj(new_fiber_ref(vm, args[0])?))
 }
 
 /// Signature: `Fiber::current` — the currently-running fiber (`VM::current`).
 pub fn fiber_current(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::Obj(vm.current))
+}
+
+/// Signature: `Fiber#isDone` — `true` once the receiver is `Done` or `Failed`.
+///
+/// A pure read over [`crate::heap::FiberObject::status`] — no scheduler or
+/// suspension dependency, callable from anywhere (including under a native
+/// re-entrant frame, unlike `call`/`try`/`yield`) ([U-FIBER-REFLECT]).
+///
+/// [U-FIBER-REFLECT]: ../../../docs/forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
+pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    let status = vm.heap.fiber(fiber_ref).status;
+    Ok(Value::Bool(matches!(status, FiberStatus::Done | FiberStatus::Failed)))
+}
+
+/// Signature: `Fiber#error` — the captured `Error` as `Option`, if the
+/// receiver is `Failed`; `None` otherwise (including `Done`, where
+/// [`crate::heap::FiberObject::result`] holds the return value, not an
+/// `Error`) ([U-FIBER-REFLECT]).
+///
+/// [U-FIBER-REFLECT]: ../../../docs/forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
+pub fn fiber_error(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    let fiber = vm.heap.fiber(fiber_ref);
+    if fiber.status == FiberStatus::Failed {
+        let error = fiber.result;
+        Ok(crate::primitive::nil::wrap_some(vm, error))
+    } else {
+        Ok(vm.none_value())
+    }
 }
 
 /// Signature: `Fiber::abort(_)` — raises `args[0]` at the fiber floor, caught
