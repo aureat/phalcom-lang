@@ -21,12 +21,20 @@
 //!   `Diagnostic`.
 //! - [`documents`] — the open-document store (text + cached parse + cached
 //!   [`line_index::LineIndex`]).
+//! - [`core_table`] — the embedded builtin core-class selector table
+//!   (`core-table.json`), consulted by completion for builtin receivers.
+//! - [`completion`] — receiver-aware [`textDocument/completion`] (Stage 3):
+//!   the pluggable [`completion::ReceiverResolver`] plus snippet rendering.
 //! - [`backend`] — the [`tower_lsp::LanguageServer`] trait implementation,
 //!   exported as [`Backend`].
+//!
+//! [`textDocument/completion`]: tower_lsp::LanguageServer::completion
 
 #![warn(missing_docs)]
 
 pub mod backend;
+pub mod completion;
+pub mod core_table;
 pub mod diagnostics;
 pub mod documents;
 pub mod index;

@@ -17,6 +17,7 @@ use phalcom_ast::ast::{
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
+use crate::core_table::MemberKind;
 use crate::selectors::{class_member_selector, comma_form_from_labels, setter_selector_from_name};
 
 /// One occurrence of a selector at a source location within a single file.
@@ -26,6 +27,21 @@ pub struct Occurrence {
     pub uri: Url,
     /// The occurrence's byte-offset span within that file.
     pub range: SourceRange,
+}
+
+/// One member of a class, as the completion path needs it: its ADR-0012
+/// comma-form selector and its dispatch [`MemberKind`].
+///
+/// The class-side counterpart of [`crate::core_table::CoreMember`] — user
+/// classes produce these from their AST (Stage 3), builtin classes from
+/// `core-table.json`, and both render through one shared path in
+/// [`crate::completion`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassMemberInfo {
+    /// The member's ADR-0012 comma-form selector (via [`crate::selectors`]).
+    pub selector: String,
+    /// Whether the member is a getter, setter, or method.
+    pub kind: MemberKind,
 }
 
 /// A `selector -> Vec<Occurrence>` map, plus enough per-file bookkeeping to
@@ -56,6 +72,74 @@ impl SelectorMap {
     }
 }
 
+/// One class declaration's contribution from a single file: its declared
+/// members and its `extends` parent (if any).
+///
+/// Multiple files (or repeated declarations) can contribute to the same class
+/// name; [`ClassMap`] keeps every contribution and merges them on read.
+#[derive(Debug, Clone)]
+struct ClassEntry {
+    /// The file this class declaration was found in.
+    uri: Url,
+    /// The `extends` superclass name, or `None` for an implicit `Object`
+    /// parent (see [`phalcom_ast::ast::ClassDef::superclass`]).
+    parent: Option<String>,
+    /// The class's own declared members, in declaration order.
+    members: Vec<ClassMemberInfo>,
+}
+
+/// A `class name -> declarations` map, keyed by the bare class name (not a
+/// selector), backing receiver-aware completion (Stage 3).
+#[derive(Default)]
+struct ClassMap {
+    by_class: DashMap<String, Vec<ClassEntry>>,
+}
+
+impl ClassMap {
+    fn insert(&self, class: String, entry: ClassEntry) {
+        self.by_class.entry(class).or_default().push(entry);
+    }
+
+    fn remove_uri(&self, uri: &Url, classes: &[String]) {
+        for class in classes {
+            if let Some(mut entries) = self.by_class.get_mut(class) {
+                entries.retain(|entry| &entry.uri != uri);
+            }
+        }
+    }
+
+    /// Every own member of `class`, merged across all contributing files and
+    /// de-duplicated by selector (first-seen wins).
+    fn members(&self, class: &str) -> Vec<ClassMemberInfo> {
+        let mut seen = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        if let Some(entries) = self.by_class.get(class) {
+            for entry in entries.iter() {
+                for member in &entry.members {
+                    if seen.insert(member.selector.clone()) {
+                        out.push(member.clone());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The `extends` parent of `class`, if any declaration named one.
+    fn parent(&self, class: &str) -> Option<String> {
+        self.by_class
+            .get(class)
+            .and_then(|entries| entries.iter().find_map(|e| e.parent.clone()))
+    }
+
+    /// Whether any file declares a class named `class`.
+    fn contains(&self, class: &str) -> bool {
+        self.by_class
+            .get(class)
+            .is_some_and(|entries| !entries.is_empty())
+    }
+}
+
 /// Which selectors a single file last contributed as definitions/references,
 /// so [`WorkspaceIndex::update_file`] knows exactly what to remove before
 /// reinserting.
@@ -63,14 +147,17 @@ impl SelectorMap {
 struct FileContribution {
     definitions: Vec<String>,
     references: Vec<String>,
+    classes: Vec<String>,
 }
 
 /// The workspace symbol index: definitions and references, both keyed by
-/// ADR-0012 comma-form selector.
+/// ADR-0012 comma-form selector, plus a class-member map (Stage 3) keyed by
+/// bare class name for receiver-aware completion.
 #[derive(Default)]
 pub struct WorkspaceIndex {
     definitions: SelectorMap,
     references: SelectorMap,
+    classes: ClassMap,
     files: DashMap<Url, FileContribution>,
 }
 
@@ -91,8 +178,23 @@ impl WorkspaceIndex {
         let mut collector = Collector {
             definitions: Vec::new(),
             references: Vec::new(),
+            classes: Vec::new(),
         };
         collector.walk_program(program);
+
+        let mut file_classes = Vec::with_capacity(collector.classes.len());
+        for collected in collector.classes {
+            let class = collected.name.clone();
+            self.classes.insert(
+                class.clone(),
+                ClassEntry {
+                    uri: uri.clone(),
+                    parent: collected.parent,
+                    members: collected.members,
+                },
+            );
+            file_classes.push(class);
+        }
 
         let mut file_defs = Vec::with_capacity(collector.definitions.len());
         for (selector, range) in collector.definitions {
@@ -119,6 +221,7 @@ impl WorkspaceIndex {
             FileContribution {
                 definitions: file_defs,
                 references: file_refs,
+                classes: file_classes,
             },
         );
     }
@@ -132,6 +235,7 @@ impl WorkspaceIndex {
         if let Some((_, contribution)) = self.files.remove(uri) {
             self.definitions.remove_uri(uri, &contribution.definitions);
             self.references.remove_uri(uri, &contribution.references);
+            self.classes.remove_uri(uri, &contribution.classes);
         }
     }
 
@@ -159,6 +263,57 @@ impl WorkspaceIndex {
             .filter_map(|entry| entry.value().first().cloned().map(|occ| (entry.key().clone(), occ)))
             .collect()
     }
+
+    /// The own declared members of the user class named `class` (its selectors
+    /// and kinds), merged across every file that declares it and de-duplicated
+    /// by selector.
+    ///
+    /// Does **not** include inherited members — the completion path
+    /// ([`crate::completion`]) walks [`Self::class_parent`] itself, so it can
+    /// stop the walk when a parent is a builtin (whose members live in
+    /// [`crate::core_table`], not here). Empty if no user class of that name
+    /// is indexed.
+    pub fn class_members(&self, class: &str) -> Vec<ClassMemberInfo> {
+        self.classes.members(class)
+    }
+
+    /// The `extends` superclass name of the user class named `class`, or
+    /// `None` if the class named no explicit superclass (implicit `Object`) or
+    /// is not indexed.
+    pub fn class_parent(&self, class: &str) -> Option<String> {
+        self.classes.parent(class)
+    }
+
+    /// Whether a user class named `class` is indexed in the workspace.
+    ///
+    /// Used by the completion path to decide whether a resolved receiver type
+    /// is a user class (walk [`Self::class_members`]) or should fall through
+    /// to the builtin [`crate::core_table`].
+    pub fn has_class(&self, class: &str) -> bool {
+        self.classes.contains(class)
+    }
+}
+
+/// One class declaration harvested by [`Collector`]: its name, `extends`
+/// parent, and own member surface.
+struct CollectedClass {
+    name: String,
+    parent: Option<String>,
+    members: Vec<ClassMemberInfo>,
+}
+
+/// Maps an AST [`ClassMember`] to the [`MemberKind`] the completion path
+/// renders it under.
+///
+/// A `construct` renders like a method (parenthesized, argument slots); a
+/// declared `Field` renders like a getter (bare name, no parens) since it has
+/// no synthesized accessor yet (mirrors [`crate::selectors::field_selector`]).
+fn member_kind(member: &ClassMember) -> MemberKind {
+    match member {
+        ClassMember::Method(_) | ClassMember::Construct(_) => MemberKind::Method,
+        ClassMember::Getter(_) | ClassMember::Field(_) => MemberKind::Getter,
+        ClassMember::Setter(_) => MemberKind::Setter,
+    }
 }
 
 /// Finds the selector of the *smallest* selector-bearing AST node in
@@ -181,6 +336,7 @@ pub fn selector_at_offset(program: &Program, offset: usize) -> Option<String> {
     let mut collector = Collector {
         definitions: Vec::new(),
         references: Vec::new(),
+        classes: Vec::new(),
     };
     collector.walk_program(program);
 
@@ -198,6 +354,7 @@ pub fn selector_at_offset(program: &Program, offset: usize) -> Option<String> {
 struct Collector {
     definitions: Vec<(String, SourceRange)>,
     references: Vec<(String, SourceRange)>,
+    classes: Vec<CollectedClass>,
 }
 
 impl Collector {
@@ -241,6 +398,22 @@ impl Collector {
     }
 
     fn walk_class(&mut self, class_def: &ClassDef) {
+        // Stage 3: record the class's own member surface (selector + kind)
+        // and its `extends` parent for receiver-aware completion.
+        let members = class_def
+            .members
+            .iter()
+            .map(|member| ClassMemberInfo {
+                selector: class_member_selector(member),
+                kind: member_kind(member),
+            })
+            .collect();
+        self.classes.push(CollectedClass {
+            name: class_def.name.clone(),
+            parent: class_def.superclass.as_ref().map(|s| s.name.clone()),
+            members,
+        });
+
         for member in &class_def.members {
             let selector = class_member_selector(member);
             match member {
@@ -505,6 +678,53 @@ mod tests {
         let matches = index.symbols_matching("moveto");
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].0, "moveTo(_)");
+    }
+
+    #[test]
+    fn class_members_records_selectors_and_kinds() {
+        let index = WorkspaceIndex::new();
+        let src = "class Point {\n  move(x, to:) { }\n  size { }\n  size=(v) { }\n}\n";
+        index.update_file(uri("file:///a.ph"), &parse(src, 0).program);
+
+        let members = index.class_members("Point");
+        assert!(members.iter().any(|m| m.selector == "move(_,to)"
+            && m.kind == MemberKind::Method));
+        assert!(members
+            .iter()
+            .any(|m| m.selector == "size" && m.kind == MemberKind::Getter));
+        assert!(members
+            .iter()
+            .any(|m| m.selector == "size=(_)" && m.kind == MemberKind::Setter));
+        assert!(index.has_class("Point"));
+        assert!(!index.has_class("Nope"));
+    }
+
+    #[test]
+    fn class_parent_reflects_extends() {
+        let index = WorkspaceIndex::new();
+        let src = "class Dog extends Animal {\n  bark() { }\n}\n";
+        index.update_file(uri("file:///a.ph"), &parse(src, 0).program);
+        assert_eq!(index.class_parent("Dog").as_deref(), Some("Animal"));
+
+        let src2 = "class Animal {\n  eat() { }\n}\n";
+        index.update_file(uri("file:///b.ph"), &parse(src2, 0).program);
+        assert_eq!(index.class_parent("Animal"), None);
+    }
+
+    #[test]
+    fn reparse_replaces_only_the_changed_file_class_members() {
+        let index = WorkspaceIndex::new();
+        let a = uri("file:///a.ph");
+        index.update_file(a.clone(), &parse("class A {\n  one() { }\n}\n", 0).program);
+        assert!(index
+            .class_members("A")
+            .iter()
+            .any(|m| m.selector == "one()"));
+
+        index.update_file(a.clone(), &parse("class A {\n  two() { }\n}\n", 0).program);
+        let members = index.class_members("A");
+        assert!(members.iter().any(|m| m.selector == "two()"));
+        assert!(!members.iter().any(|m| m.selector == "one()"));
     }
 
     #[test]

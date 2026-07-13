@@ -8,13 +8,20 @@
 //! [`WorkspaceIndex`] scanned from every `.ph` file under the workspace
 //! root(s) at `initialize`, kept current per-file on `did_open`/`did_change`,
 //! and served through `textDocument/definition`, `textDocument/references`,
-//! and `workspace/symbol`. No completion, hover, or semantic tokens yet;
-//! those land in later stages.
+//! and `workspace/symbol`.
+//!
+//! Stage 3 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md` "Stage 3"):
+//! receiver-aware `textDocument/completion`, resolving the receiver's class
+//! (via [`crate::completion::ReceiverResolver`]) and offering its selectors —
+//! user members from the [`WorkspaceIndex`], builtin members from
+//! [`crate::core_table`]. No hover or semantic tokens yet; those land in later
+//! stages.
 
 use std::path::{Path, PathBuf};
 
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, InitializeResult,
     InitializedParams, Location, MessageType, OneOf, Position, PositionEncodingKind,
@@ -23,6 +30,8 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer};
 
+use crate::completion::{self, ConstructResolver, ReceiverResolver};
+use crate::core_table::CoreTable;
 use crate::diagnostics::syntax_errors_to_diagnostics;
 use crate::documents::DocumentStore;
 use crate::index::{self, Occurrence, WorkspaceIndex};
@@ -212,9 +221,10 @@ impl LanguageServer for Backend {
     /// Advertises Stage 1 + Stage 2 capabilities: full-document sync
     /// (`textDocumentSync=Full` — Stage 1 has no incremental patch logic,
     /// see [`crate::documents`]), UTF-16 `positionEncoding` (the LSP
-    /// default; ADR-0056 §5, DEC-LSP-C), and Stage 2's
+    /// default; ADR-0056 §5, DEC-LSP-C), Stage 2's
     /// `definition_provider`/`references_provider`/
-    /// `workspace_symbol_provider`.
+    /// `workspace_symbol_provider`, and Stage 3's `completion_provider` (with
+    /// `.` as a trigger character).
     ///
     /// Also performs Stage 2's one-time workspace scan
     /// (`Self::scan_workspace`) over every root named in `params`
@@ -244,6 +254,12 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    // `.` triggers member completion; the client also
+                    // re-requests on identifier characters as the user types.
+                    trigger_characters: Some(vec![".".to_string()]),
+                    ..CompletionOptions::default()
+                }),
                 ..ServerCapabilities::default()
             },
             server_info: Some(tower_lsp::lsp_types::ServerInfo {
@@ -393,5 +409,32 @@ impl LanguageServer for Backend {
             })
             .collect();
         Ok(Some(symbols))
+    }
+
+    /// Answers `textDocument/completion` (Stage 3): receiver-aware member
+    /// completion.
+    ///
+    /// Resolves the class of the receiver under the cursor via the pluggable
+    /// [`ReceiverResolver`] ([`ConstructResolver`] here), then renders that
+    /// class's selectors — user members from the [`WorkspaceIndex`], builtin
+    /// members from [`CoreTable`] — as snippet [`CompletionItem`]s
+    /// ([`completion::completions`]). When the receiver type cannot be
+    /// resolved, it degrades to the full builtin surface rather than
+    /// suppressing completion (never worse than the pre-LSP client behavior).
+    ///
+    /// Returns `Ok(None)` if the document is not open.
+    async fn completion(
+        &self,
+        params: CompletionParams,
+    ) -> Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let items: Option<Vec<CompletionItem>> = self.documents.with_document(&uri, |doc| {
+            let resolved = ConstructResolver.resolve(doc, position);
+            completion::completions(resolved.as_deref(), &self.index, CoreTable::bundled())
+        });
+
+        Ok(items.map(CompletionResponse::Array))
     }
 }
