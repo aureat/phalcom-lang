@@ -1,6 +1,11 @@
 # `@observable` — one reactive-field decorator, three sketches unified
 
-- Status: **Proposed** (experimental; not ratified — exploratory). Ratification-ready.
+- Status: **Accepted** (decorator design ratified 2026-07-13 under
+  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md);
+  no open questions of its own). **Implementation remains blocked**, transitively,
+  on [reactivity.md](reactivity.md)'s own Signal/Computed/Effect runtime, which is
+  still `Status: Proposed` with its R-1–R-5 open questions unresolved — see
+  `docs/forge/PLAN-DECORATORS.md` BLOCKED-ON-DECISION #1.
 - Date: 2026-07-13
 - Depends on:
   [attribute-classes.md](attribute-classes.md) (the `Attribute` root, `@On`,

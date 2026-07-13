@@ -1,7 +1,7 @@
 # Dispatch & observability decorators — `@delegate`/`@traced`/`@featureFlag`
 
-- Status: **Proposed** (experimental; not ratified — exploratory). Ratification-ready
-  except where a `## Open questions` row is called out.
+- Status: **Accepted** (ratified 2026-07-13 under [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md);
+  D-1/D-2/D-3 open questions resolved the same day).
 - Date: 2026-07-13
 - Depends on:
   [attribute-classes.md](attribute-classes.md) (the `Attribute` root, `@On(target…, tier:)`,
