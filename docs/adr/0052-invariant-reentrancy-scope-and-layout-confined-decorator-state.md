@@ -215,3 +215,59 @@ to the Layout tier does not remove any capability: the two builtin examples
 use case. It only forecloses a user-authored Install-tier decorator from
 holding a receiver-keyed cache — which was already precluded by the leak this
 ADR exists to fix, not something newly given up.
+
+## Amendment (2026-07-13) — Bug 3: `Fiber.yield` inside an `@invariant`-guarded
+method body is rejected, not merely unsafe
+
+Found during U-ANNOT-CONTRACTS implementation, distinct from the fiber-switch
+fix already folded into Fix 1 above. Fix 1 makes `checking` itself safe to
+carry across a fiber switch — but it does not make a fiber switch *possible*
+from inside a guarded call in the first place.
+
+**Cause.** The woven exit-check (Fix 1's epilogue) is lowered through
+`Block#ensure(_)` — `Block.new { <original body> }.ensure { __check_invariant();
+checking.remove(self) }` — specifically so the exit check and the `checking`
+removal are unwind-safe (fire on a thrown exception, not just normal return),
+per Fix 1's own stated goal. `Block#ensure(_)` is a **native re-entrant
+call**: the Rust interpreter recurses into `run_until` to run the block body,
+bumping `VM::native_reentry_depth` for the duration
+(`phalcom-core/src/primitive/block.rs`) — the identical mechanism `.each { }`
+uses. [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §4's
+restricted-yield guard forbids `Fiber.yield` whenever
+`native_reentry_depth != 0` (`phalcom-core/src/primitive/fiber.rs`), because a
+fiber switch is an O(1) swap of `VM::frames`/`stack`/`open_upvalues`/
+`checking`, not a Rust-stack unwind — it cannot suspend a Rust call frame
+that is mid-recursion inside `run_until`, only a Phalcom call frame. Any
+`@invariant`-guarded method whose body contains a `Fiber.yield` therefore
+hits `CannotYieldAcrossNativeFrame` today, exactly as `.each { block-with-
+yield }` already does — the guard weave inherits an existing, general VM
+restriction, it does not introduce a new class of bug.
+
+**Decision.** Accepted as a known limitation, not patched. The two ways to
+lift it were both rejected for this ADR's scope:
+
+- Relaxing `native_reentry_depth`'s check specifically for `ensure`-native
+  frames would reintroduce exactly the corruption Fix 1's own reasoning
+  guards against (a nested `run_until`'s implicit `base_frames` is computed
+  against whichever fiber is running *when the native call is entered*; a
+  switch underneath it invalidates that assumption on resume, `ensure` or not).
+- Lowering the exit-check through the `@ensures`-style `rewrite_returns`
+  return-rewrite (compiled directly into the method body, no native
+  re-entrant call) instead of `.ensure{}` would avoid the restriction, but
+  gives up throw-safety: a `rewrite_returns`-shaped check only fires on
+  normal-return exit paths, not on an unwind through a thrown exception —
+  which is the exact hole Fix 1 above (the second gap in Bug 1) exists to
+  close. Trading the fiber-yield restriction for a reopened unwind-safety
+  hole is a worse regression than the one it would fix.
+
+Regression pinned as `phalcom-core/tests/lang/runtime-errors/contracts_invariant_fiber_yield.ph`
+(NEGATIVE lane) — documents current, expected behavior; a future change to
+this decision must update that golden, not silently diverge from it.
+
+**Revisit trigger.** If Phalcom's fiber implementation is ever redesigned to
+survive a yield underneath a nested native re-entrant Rust call (a stackless
+or CPS-style suspension model, superseding ADR-0030 §4's restricted-yield
+guard wholesale — not a narrow carve-out), `@invariant`'s use of `.ensure{}`
+would become yield-safe automatically, with no change needed to the weave
+itself. Until then, `@invariant` joins `.each { }` on the documented list of
+constructs a fiber may not yield through.

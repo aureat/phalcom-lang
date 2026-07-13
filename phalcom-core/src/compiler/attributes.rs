@@ -441,7 +441,7 @@ impl AttributeExpander for InvariantExpander {
 /// order, not just the one member this attribute happened to be attached to
 /// — and `@construct` attaches to the class header, not any one member) so
 /// its derive runs once from [`expand_class_attributes`] itself via
-/// [`derive_construct`], not per-attribute through this trait method. The
+/// `derive_construct`, not per-attribute through this trait method. The
 /// registry row still exists so the ordinary `attr.unknown`/
 /// `attr.illegal_target` legality checks fire correctly for `@construct`
 /// like any other registered name.
