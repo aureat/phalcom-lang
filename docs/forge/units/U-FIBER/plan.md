@@ -180,3 +180,28 @@ goldens still green · the `Yield` opcode + counter/resume goldens · the restri
 (catchable) · failure-capture proof (host survives) · `next_frame_generation`-global invariant test · the
 floor census bump (no new ADR) · confirmation **zero `unsafe`** · worktree/serialization notes vs U-ITER &
 U-CORE `core.ph` · `verify.sh` + `cargo doc` (+ miri) tails · the U-ITER PENDING fixture that graduates.
+
+## 10. Landed — status + follow-ons (2026-07-13)
+
+**LANDED.** `Object::Fiber` + `current: ObjRef` (475dee8), the typed switch signal +
+`call`/`try`/`yield`/`current`/`abort` + fiber-floor capture (482f235), then
+U-FIBER-FIX's correctness follow-ons (root-fiber guards, gate-message split,
+cross-fiber `DeadFrameError` golden, failure-cascade parked-frame cleanup, a
+dedup pass) and a further arity-ordering + retention-cleanup fix (94487af — the
+failure cascade now clears `.stack`/`.open_upvalues` alongside `.frames`, and
+`fiber_resume`'s first-resume arity check runs before, not after, stealing the
+resumer's live stacks). No `Yield` bytecode opcode landed (D-FIB-7 deviation,
+sanctioned) — `Fiber.yield` is an ordinary class-side primitive send instead.
+
+Two items this unit deliberately left open, now tracked as their own work:
+- **[U-FIBER-REFLECT](../U-FIBER-REFLECT/plan.md)** — `Fiber#isDone`/`error`, the
+  two Interface-table (concurrency.md §1) accessors this unit didn't ship. Needs
+  no scheduler; unblocked now.
+- **[U-GC](../U-GC/plan.md)** — this unit's own §Rubric flagged "GC roots for
+  parked fibers" as an invariant to hold *pre-GC* (keep fiber stacks inside the
+  arena object, never native memory) so a future collector could reach them.
+  U-GC is now a real, owned unit plan (ADR-0050) that does exactly this — every
+  `FiberObject` a program ever creates is a live-looking-but-often-dead retention
+  root until it lands (no GC exists yet at all, not fiber-specific, but a
+  fiber's full stack+frames+upvalues make the cost visible fastest of any single
+  allocation in the language).
