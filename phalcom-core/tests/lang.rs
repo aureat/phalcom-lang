@@ -454,3 +454,12 @@ fn indexing_negative() {
     // U-INDEX: negative indexing scenarios (OOB write raises, non-indexable doesNotUnderstand).
     support::check_negative("indexing/negative");
 }
+
+#[test]
+fn decorators() {
+    // Standalone core-library classes the ratified decorator specs need
+    // (Tracer/OffBehavior/Backoff, decorators-behavioral.md/
+    // decorators-dispatch-observability.md) — shipped ahead of the
+    // Install/Dispatch/Runtime decorator mechanism itself (PLAN-DECORATORS.md).
+    support::check_pass("decorators");
+}

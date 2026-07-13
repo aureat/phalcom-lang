@@ -921,3 +921,63 @@ class Future {
     }
   }
 }
+
+// `Tracer` (decorators-dispatch-observability.md D-2, ratified 2026-07-13):
+// the pluggable observability sink `@traced`'s `sink:` argument targets —
+// duck-typed (`enter`/`exit`/`threw`), so any object answering this protocol
+// drops in. `Tracer.stdout` is the shipped default, routing through
+// `System.print` (Phalcom has no dedicated logging primitive, system.md).
+// Ships standalone: `@traced` itself is Install/Dispatch/Runtime-tier
+// decorator-mechanism work, not yet built (see PLAN-DECORATORS.md), so this
+// class has no caller yet — the sink protocol is ready when it lands.
+class Tracer {
+  static stdout => Tracer.new()
+
+  enter(name, args) { System.print("-> " + name.toString + " " + args.toString) }
+  exit(name, result, elapsed) { System.print("<- " + name.toString + " = " + result.toString) }
+  threw(name, err) { System.print("!! " + name.toString + " threw " + err.toString) }
+}
+
+// `OffBehavior` (decorators-dispatch-observability.md D-3, ratified
+// 2026-07-13): `@featureFlag`'s off-path — what a gated call does when its
+// flag reads false. `applyTo(inv)` (invoked by the not-yet-built
+// `@featureFlag` Runtime interceptor's `aroundSend` hook against a
+// not-yet-defined `inv` envelope) is deliberately NOT implemented here —
+// this class ships now as pure value semantics only; wiring it to a real
+// interception envelope is Install/Dispatch/Runtime mechanism work.
+class OffBehavior {
+  static raise => OffBehavior.new("raise", None)
+  static fallback(sel) => OffBehavior.new("fallback", Some.new(sel))
+  static skip(value) => OffBehavior.new("skip", Some.new(value))
+
+  construct new(kind, payload) { _kind = kind; _payload = payload }
+
+  kind => _kind
+  payload => _payload
+}
+
+// `Backoff` (decorators-behavioral.md B-2, ratified 2026-07-13): `@retry`'s
+// backoff strategy. `.none` is fully usable today — no suspension needed,
+// matching `@retry`'s own default. `.fixed(ms)`/`.exponential(base:,max:)`
+// need a real suspending wait between attempts, which needs `System.sleep(_)`
+// — explicitly **not landed** (system.md: "still open", gated on a
+// timer-completion-source follow-on unit, itself gated on U-SCHED's ready-
+// queue/timer split per open-questions.md §15). Rather than silently busy-
+// waiting or lying about elapsed time, `.fixed`/`.exponential`'s
+// `waitBefore` raises until that primitive exists — a real gap, not a stub
+// pretending to work.
+class Backoff {
+  static none => Backoff.new("none", 0, 0)
+  static fixed(ms) => Backoff.new("fixed", ms, 0)
+  static exponential(base:, max:) => Backoff.new("exponential", base, max)
+
+  construct new(kind, a, b) { _kind = kind; _a = a; _b = b }
+
+  waitBefore(attempt) {
+    if (_kind == "none") {
+      return None
+    } else {
+      return Error.new("Backoff." + _kind + " needs System.sleep(_), not yet landed (system.md)").raise()
+    }
+  }
+}
