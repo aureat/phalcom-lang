@@ -47,7 +47,7 @@
         "phalcom.lsp.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Launch the in-process phalcom-lsp language server (over stdio) instead of the subprocess-per-save `phalcom check` diagnostics path. Experimental; superseded providers stay active until each phalcom-lsp capability stage is proven (see ADR-0056)."
+          "description": "Launch the in-process phalcom-lsp language server (over stdio) instead of the subprocess-per-save `phalcom check` diagnostics path. Experimental; mutually exclusive with the subprocess diagnostics provider, which is superseded stage-by-stage as phalcom-lsp capabilities land (see ADR-0056 §6)."
         },
         "phalcom.lsp.serverPath": {
           "type": "string",

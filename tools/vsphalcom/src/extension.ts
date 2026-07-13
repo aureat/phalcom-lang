@@ -30,10 +30,9 @@ function getLspServerPath(): string {
  * spawns `phalcom-lsp` over stdio and registers it for `.ph` documents.
  *
  * Stage 1 of ADR-0056: this is purely a transport/launch shim — capability
- * behavior lives entirely server-side in the `phalcom-lsp` crate. Does not
- * touch or disable any of the existing TS providers; those keep running
- * regardless of this client's state (see the `What supersedes what` staging
- * in `docs/adr/0056-phalcom-lsp-architecture.md` §3, §6).
+ * behavior lives entirely server-side in the `phalcom-lsp` crate. Per §6
+ * ("the two never both publish"), the caller must gate the superseded
+ * TS provider (`diagnostics.ts`) off when this is on — see {@link activate}.
  */
 function startLspClient(context: ExtensionContext): LanguageClient {
     const command = getLspServerPath()
@@ -64,10 +63,10 @@ export function activate(context: ExtensionContext) {
     context.subscriptions.push(languages.registerCompletionItemProvider('phalcom', phalcomCompletionProvider, '.'))
     context.subscriptions.push(languages.registerHoverProvider('phalcom', phalcomHoverProvider))
 
-    registerDiagnostics(context)
-
     if (workspace.getConfiguration("phalcom").get<boolean>("lsp.enabled", false)) {
         lspClient = startLspClient(context)
+    } else {
+        registerDiagnostics(context)
     }
 }
 
