@@ -16,10 +16,15 @@
 //! user members from the [`WorkspaceIndex`], builtin members from
 //! [`crate::core_table`].
 //!
+//! Stage 4 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md` "Stage 4"):
+//! `textDocument/hover`, composing whichever of [`crate::hover`]'s three
+//! independent sources resolve at the cursor — a keyword blurb, or a
+//! selector's signature/kind/defining-class plus its harvested Phaldoc
+//! summary/tags.
+//!
 //! Stage 5 (ADR-0056, `docs/forge/units/U-LSP/plan.md` "Stage 5"):
 //! `textDocument/semanticTokens/full`, a flat lexer-driven token-coloring
-//! pass ([`crate::semantic_tokens`]). No hover yet; that lands in a later
-//! stage.
+//! pass ([`crate::semantic_tokens`]).
 
 use std::path::{Path, PathBuf};
 
@@ -27,8 +32,9 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    GotoDefinitionParams, GotoDefinitionResponse, InitializeParams, InitializeResult,
-    InitializedParams, Location, MessageType, OneOf, Position, PositionEncodingKind,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
+    MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind,
     ReferenceParams, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
     SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
     SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceSymbolParams,
@@ -39,6 +45,7 @@ use crate::completion::{self, ConstructResolver, ReceiverResolver};
 use crate::core_table::CoreTable;
 use crate::diagnostics::syntax_errors_to_diagnostics;
 use crate::documents::DocumentStore;
+use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::line_index::LineIndex;
 use crate::semantic_tokens;
@@ -185,6 +192,127 @@ impl Backend {
             .filter_map(|occ| self.occurrence_to_location(occ))
             .collect()
     }
+
+    /// Runs `f` against a snapshot of `uri`'s source text, parsed
+    /// [`phalcom_ast::ast::Program`], and [`LineIndex`] — the same "open or
+    /// on-disk" dual path [`Self::occurrence_to_location`] uses, generalized
+    /// so Stage 4's cross-file Phaldoc harvest
+    /// ([`crate::hover::harvest_doc_for_selector`]) can inspect a selector's
+    /// *defining* file even when that file is not the one currently open
+    /// under the cursor:
+    ///
+    /// - **Open**: borrows the live/unsaved buffer straight out of the
+    ///   [`DocumentStore`] (no reparse).
+    /// - **Not open**: reads the file from disk and parses it fresh, on the
+    ///   same "small `.ph` file, occasional request" cost basis
+    ///   [`Self::occurrence_to_location`] already accepts — no cache is kept
+    ///   for the on-disk path.
+    ///
+    /// Returns `None` if `uri` is not open and cannot be read from disk.
+    fn with_source_snapshot<R>(
+        &self,
+        uri: &Url,
+        f: impl FnOnce(&str, &phalcom_ast::ast::Program, &LineIndex) -> R,
+    ) -> Option<R> {
+        let is_open = self.documents.with_document(uri, |_| ()).is_some();
+        if is_open {
+            return self
+                .documents
+                .with_document(uri, |doc| f(&doc.text, &doc.parse.program, &doc.line_index));
+        }
+
+        let path = uri.to_file_path().ok()?;
+        let text = std::fs::read_to_string(path).ok()?;
+        let parse = phalcom_ast::parser::parse(&text, 0);
+        let line_index = LineIndex::new(&text);
+        Some(f(&text, &parse.program, &line_index))
+    }
+
+    /// Answers `textDocument/hover` (Stage 4): the pluggable composition of
+    /// [`crate::hover`]'s two mutually-exclusive sources.
+    ///
+    /// A keyword/contextual-word hit at the cursor
+    /// ([`hover::keyword_at_offset`]) short-circuits straight to its blurb —
+    /// mirrors `hover.ts`'s keyword branch taking priority over the selector
+    /// layer. Otherwise resolves the selector under the cursor
+    /// ([`index::selector_at_offset`]) and renders whichever of the
+    /// selector layer's sources are present: user-class sites from
+    /// [`WorkspaceIndex::definition_info`], builtin sites from
+    /// [`CoreTable`], and the harvested Phaldoc doc (from the selector's
+    /// *defining* file, which may not be the currently open one —
+    /// [`Self::with_source_snapshot`]) attached to a user-class definition.
+    ///
+    /// Returns `None` if nothing at the cursor resolves to either a keyword
+    /// or a known selector.
+    fn hover_at(&self, uri: &Url, position: Position) -> Option<Hover> {
+        if let Some((word, span)) = self
+            .documents
+            .with_document(uri, |doc| {
+                let offset = doc.line_index.offset(position);
+                hover::keyword_at_offset(&doc.text, offset)
+                    .map(|(word, range)| (word, doc.line_index.range(range)))
+            })
+            .flatten()
+        {
+            let blurb = hover::keyword_blurb(word)?;
+            return Some(Hover {
+                contents: markdown_contents(hover::render_keyword_hover(word, blurb)),
+                range: Some(span),
+            });
+        }
+
+        let selector = self.selector_at_position(uri, position)?;
+
+        let mut sites: Vec<SelectorSite> = self
+            .index
+            .definition_info(&selector)
+            .into_iter()
+            .map(|info| SelectorSite {
+                class: info.class,
+                kind: info.kind,
+            })
+            .collect();
+
+        if sites.is_empty() {
+            let table = CoreTable::bundled();
+            for (class, members) in &table.classes {
+                if let Some(member) = members.iter().find(|m| m.selector == selector) {
+                    sites.push(SelectorSite {
+                        class: class.clone(),
+                        kind: member.kind,
+                    });
+                }
+            }
+            sites.sort_by(|a, b| a.class.cmp(&b.class));
+        }
+
+        // The Phaldoc harvest only applies to a user-class definition — a
+        // builtin selector has no `.ph` source to scan (Stage 4 test
+        // "Builtin hover ... no Phaldoc section").
+        let defs = self.index.definition_info(&selector);
+        let phaldoc = defs.first().and_then(|def| {
+            self.with_source_snapshot(&def.uri, |text, program, line_index| {
+                hover::harvest_doc_for_selector(text, program, line_index, &selector)
+            })
+            .flatten()
+        });
+
+        let value = hover::render_selector_hover(&selector, &sites, phaldoc.as_ref())?;
+        Some(Hover {
+            contents: markdown_contents(value),
+            range: None,
+        })
+    }
+}
+
+/// Wraps `value` as an LSP [`HoverContents::Markup`] block of
+/// [`MarkupKind::Markdown`] — the one place `hover_at` builds a [`Hover`]'s
+/// contents, so every hover renders through the same markdown wrapper.
+fn markdown_contents(value: String) -> HoverContents {
+    HoverContents::Markup(MarkupContent {
+        kind: MarkupKind::Markdown,
+        value,
+    })
 }
 
 /// Recursively collects every `.ph` file under `root`, skipping VCS and
@@ -229,8 +357,8 @@ impl LanguageServer for Backend {
     /// see [`crate::documents`]), UTF-16 `positionEncoding` (the LSP
     /// default; ADR-0056 §5, DEC-LSP-C), Stage 2's
     /// `definition_provider`/`references_provider`/
-    /// `workspace_symbol_provider`, and Stage 3's `completion_provider` (with
-    /// `.` as a trigger character).
+    /// `workspace_symbol_provider`, Stage 3's `completion_provider` (with
+    /// `.` as a trigger character), and Stage 4's `hover_provider`.
     ///
     /// Also performs Stage 2's one-time workspace scan
     /// (`Self::scan_workspace`) over every root named in `params`
@@ -270,6 +398,7 @@ impl LanguageServer for Backend {
                     trigger_characters: Some(vec![".".to_string()]),
                     ..CompletionOptions::default()
                 }),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
@@ -455,6 +584,17 @@ impl LanguageServer for Backend {
         });
 
         Ok(items.map(CompletionResponse::Array))
+    }
+
+    /// Answers `textDocument/hover` (Stage 4). See `Self::hover_at` for the
+    /// resolution/composition logic; this is a thin `async` shim over it, as
+    /// `hover_at`'s I/O (an on-disk read for a not-currently-open defining
+    /// file) is synchronous, small, and occasional, matching every other
+    /// cross-file lookup in this backend (`Self::occurrence_to_location`).
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        Ok(self.hover_at(&uri, position))
     }
 
     /// Answers `textDocument/semanticTokens/full` (Stage 5): a flat,

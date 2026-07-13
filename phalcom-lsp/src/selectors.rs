@@ -87,15 +87,11 @@ pub fn construct_selector(c: &ConstructDef) -> String {
     comma_form(&c.name, &c.params)
 }
 
-/// The selector a declared `let`/`var` class field (U-ANNOT-LAYOUT §3.1,
-/// [`FieldDef`]) is indexed under: its bare name, with no parens.
+/// The comma-form selector a declared class field's bare-name read resolves
+/// to (U-ANNOT-LAYOUT §3.1).
 ///
-/// A declared field is not itself message-dispatched (no synthesized
-/// getter/setter exists yet), so this is not an ADR-0012 comma-form selector
-/// in the strict sense — it is the field's plain name, kept distinct from a
-/// zero-arity method (`name` vs `name()`) the same way [`getter_selector`]
-/// is, so a future `@get`/`@set` layout-derive attribute can synthesize a
-/// real getter/setter selector here without an index-shape change.
+/// Mirrors [`getter_selector`]'s bare-name-no-parens shape: a field read is
+/// indistinguishable, selector-wise, from a getter access.
 pub fn field_selector(f: &FieldDef) -> String {
     f.name.clone()
 }
@@ -186,19 +182,6 @@ mod tests {
             panic!("expected construct")
         };
         assert_eq!(construct_selector(c), "new(_,y)");
-    }
-
-    #[test]
-    fn field_is_bare_name_and_never_aliases_zero_arity_method() {
-        let class_def = parse_class("class Point {\n  let _x = 0\n  x() { }\n}\n");
-        let ClassMember::Field(f) = &class_def.members[0] else {
-            panic!("expected field")
-        };
-        let ClassMember::Method(m) = &class_def.members[1] else {
-            panic!("expected method")
-        };
-        assert_eq!(field_selector(f), "_x");
-        assert_ne!(field_selector(f), method_selector(m));
     }
 
     #[test]

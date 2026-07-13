@@ -44,11 +44,64 @@ pub struct ClassMemberInfo {
     pub kind: MemberKind,
 }
 
+/// One definition site of a selector, enriched with the class it is declared
+/// on and its dispatch [`MemberKind`] — the extra information Stage 4
+/// (`textDocument/hover`, [`crate::hover`]) needs beyond the plain
+/// [`Occurrence`] [`WorkspaceIndex::definitions`] returns, so it can render
+/// "`method(_,to)` — method on `Point`" without re-walking the AST a third
+/// time.
+///
+/// Only `ClassMember` declarations produce a [`DefinitionInfo`] today (the
+/// only kind of definition `Collector` records); a future top-level `let`
+/// doc-hover would need its own, class-less variant of this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefinitionInfo {
+    /// The file the definition was found in.
+    pub uri: Url,
+    /// The definition's byte-offset span within that file.
+    pub range: SourceRange,
+    /// The name of the class the member is declared on.
+    pub class: String,
+    /// The member's dispatch kind (method/getter/setter/construct).
+    pub kind: MemberKind,
+}
+
 /// A `selector -> Vec<Occurrence>` map, plus enough per-file bookkeeping to
 /// replace one file's contribution wholesale.
 #[derive(Default)]
 struct SelectorMap {
     by_selector: DashMap<String, Vec<Occurrence>>,
+}
+
+/// A `selector -> Vec<DefinitionInfo>` map, the [`DefinitionInfo`] counterpart
+/// of [`SelectorMap`]. Kept as its own small map (rather than folding the
+/// class/kind fields into [`Occurrence`] itself) so [`WorkspaceIndex::
+/// definitions`]/`goto_definition`'s existing `Occurrence`-shaped callers are
+/// untouched by Stage 4.
+#[derive(Default)]
+struct DefinitionMetaMap {
+    by_selector: DashMap<String, Vec<DefinitionInfo>>,
+}
+
+impl DefinitionMetaMap {
+    fn insert(&self, selector: String, info: DefinitionInfo) {
+        self.by_selector.entry(selector).or_default().push(info);
+    }
+
+    fn remove_uri(&self, uri: &Url, selectors: &[String]) {
+        for selector in selectors {
+            if let Some(mut infos) = self.by_selector.get_mut(selector) {
+                infos.retain(|info| &info.uri != uri);
+            }
+        }
+    }
+
+    fn get(&self, selector: &str) -> Vec<DefinitionInfo> {
+        self.by_selector
+            .get(selector)
+            .map(|entry| entry.clone())
+            .unwrap_or_default()
+    }
 }
 
 impl SelectorMap {
@@ -158,6 +211,11 @@ pub struct WorkspaceIndex {
     definitions: SelectorMap,
     references: SelectorMap,
     classes: ClassMap,
+    /// The [`DefinitionInfo`] (class + kind) counterpart of `definitions`,
+    /// consulted by [`Self::definition_info`] (Stage 4 hover). Always
+    /// contributed/removed in lockstep with `definitions`, keyed by the same
+    /// selector set (see [`FileContribution::definitions`]).
+    definition_meta: DefinitionMetaMap,
     files: DashMap<Url, FileContribution>,
 }
 
@@ -197,12 +255,21 @@ impl WorkspaceIndex {
         }
 
         let mut file_defs = Vec::with_capacity(collector.definitions.len());
-        for (selector, range) in collector.definitions {
+        for (selector, range, class, kind) in collector.definitions {
             let occ = Occurrence {
                 uri: uri.clone(),
                 range,
             };
             self.definitions.insert(selector.clone(), occ);
+            self.definition_meta.insert(
+                selector.clone(),
+                DefinitionInfo {
+                    uri: uri.clone(),
+                    range,
+                    class,
+                    kind,
+                },
+            );
             file_defs.push(selector);
         }
 
@@ -234,6 +301,8 @@ impl WorkspaceIndex {
     pub fn remove_file(&self, uri: &Url) {
         if let Some((_, contribution)) = self.files.remove(uri) {
             self.definitions.remove_uri(uri, &contribution.definitions);
+            self.definition_meta
+                .remove_uri(uri, &contribution.definitions);
             self.references.remove_uri(uri, &contribution.references);
             self.classes.remove_uri(uri, &contribution.classes);
         }
@@ -249,6 +318,16 @@ impl WorkspaceIndex {
     /// Every recorded send-site reference to `selector`.
     pub fn references(&self, selector: &str) -> Vec<Occurrence> {
         self.references.get(selector)
+    }
+
+    /// The definition site(s) of `selector`, each enriched with the class it
+    /// is declared on and its dispatch [`MemberKind`].
+    ///
+    /// The Stage 4 (`textDocument/hover`) counterpart of [`Self::definitions`]:
+    /// hover needs the extra class/kind fields to render "`kind` on `Class`",
+    /// which a plain [`Occurrence`] does not carry.
+    pub fn definition_info(&self, selector: &str) -> Vec<DefinitionInfo> {
+        self.definition_meta.get(selector)
     }
 
     /// Every defined selector containing `query` as a case-insensitive
@@ -305,9 +384,10 @@ struct CollectedClass {
 /// Maps an AST [`ClassMember`] to the [`MemberKind`] the completion path
 /// renders it under.
 ///
-/// A `construct` renders like a method (parenthesized, argument slots); a
-/// declared `Field` renders like a getter (bare name, no parens) since it has
-/// no synthesized accessor yet (mirrors [`crate::selectors::field_selector`]).
+/// A `construct` renders like a method (parenthesized, argument slots).
+///
+/// A declared field (U-ANNOT-LAYOUT §3.1) renders like a getter — bare name,
+/// no parens, no synthesized accessor yet.
 fn member_kind(member: &ClassMember) -> MemberKind {
     match member {
         ClassMember::Method(_) | ClassMember::Construct(_) => MemberKind::Method,
@@ -340,10 +420,14 @@ pub fn selector_at_offset(program: &Program, offset: usize) -> Option<String> {
     };
     collector.walk_program(program);
 
-    collector
+    let def_iter = collector
         .definitions
         .iter()
-        .chain(collector.references.iter())
+        .map(|(selector, range, _class, _kind)| (selector, range));
+    let ref_iter = collector.references.iter().map(|(selector, range)| (selector, range));
+
+    def_iter
+        .chain(ref_iter)
         .filter(|(_, range)| range.contains(offset))
         .min_by_key(|(_, range)| range.len())
         .map(|(selector, _)| selector.clone())
@@ -352,7 +436,11 @@ pub fn selector_at_offset(program: &Program, offset: usize) -> Option<String> {
 /// Walks one file's AST, recording every `ClassMember` declaration as a
 /// definition and every selector-bearing send expression as a reference.
 struct Collector {
-    definitions: Vec<(String, SourceRange)>,
+    /// Each definition's selector, source range, defining class name, and
+    /// dispatch kind — the class/kind fields feed [`WorkspaceIndex::
+    /// definition_meta`] (Stage 4 hover) alongside the plain `definitions`
+    /// map.
+    definitions: Vec<(String, SourceRange, String, MemberKind)>,
     references: Vec<(String, SourceRange)>,
     classes: Vec<CollectedClass>,
 }
@@ -416,36 +504,35 @@ impl Collector {
 
         for member in &class_def.members {
             let selector = class_member_selector(member);
+            let class = class_def.name.clone();
+            let kind = member_kind(member);
             match member {
                 ClassMember::Method(m) => {
-                    self.definitions.push((selector, m.range));
+                    self.definitions.push((selector, m.range, class, kind));
                     for statement in &m.body {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Getter(g) => {
-                    self.definitions.push((selector, g.range));
+                    self.definitions.push((selector, g.range, class, kind));
                     for statement in &g.body {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Setter(s) => {
-                    self.definitions.push((selector, s.range));
+                    self.definitions.push((selector, s.range, class, kind));
                     for statement in &s.body {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Construct(c) => {
-                    self.definitions.push((selector, c.range));
+                    self.definitions.push((selector, c.range, class, kind));
                     for statement in &c.body {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Field(f) => {
-                    // A declared field has no body to recurse into, only an
-                    // optional default-value expression (which may itself
-                    // contain send-site references worth indexing).
-                    self.definitions.push((selector, f.range));
+                    self.definitions.push((selector, f.range, class, kind));
                     if let Some(default) = &f.default {
                         self.walk_expr(default);
                     }
