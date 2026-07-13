@@ -5,7 +5,8 @@
       "Bash(pyenv global *)",
       "Bash(pyenv rehash *)",
       "Bash(pyenv versions *)",
-      "Bash(fish -ic 'python --version; python3 --version; which python python3')"
+      "Bash(fish -ic 'python --version; python3 --version; which python python3')",
+      "Bash(npm run *)"
     ]
   },
   "hooks": {

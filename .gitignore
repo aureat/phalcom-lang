@@ -22,3 +22,6 @@ skills-lock.json
 
 # git worktrees used by agents
 .claude/worktrees/
+
+# REPL history
+.phalcom_history
