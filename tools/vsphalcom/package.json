@@ -16,6 +16,29 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "phalcom.runFile",
+        "title": "Run Phalcom File",
+        "category": "Phalcom",
+        "icon": "$(play)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "phalcom.runFile",
+          "when": "resourceLangId == phalcom",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "phalcom.runFile",
+          "when": "resourceLangId == phalcom"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "phalcom",
@@ -42,12 +65,12 @@
         "phalcom.executablePath": {
           "type": "string",
           "default": "phalcom",
-          "description": "Path to the phalcom CLI executable used for diagnostics (e.g. target/debug/phalcom for a local build). Defaults to \"phalcom\" on $PATH."
+          "description": "Path to the phalcom CLI executable used by \"Run Phalcom File\" (e.g. target/debug/phalcom for a local build). Defaults to \"phalcom\" on $PATH."
         },
         "phalcom.lsp.enabled": {
           "type": "boolean",
-          "default": false,
-          "description": "Launch the in-process phalcom-lsp language server (over stdio) instead of the subprocess-per-save `phalcom check` diagnostics path. Experimental; mutually exclusive with the subprocess diagnostics provider, which is superseded stage-by-stage as phalcom-lsp capabilities land (see ADR-0056 §6)."
+          "default": true,
+          "description": "Launch the in-process phalcom-lsp language server (over stdio), providing diagnostics, completion, hover, go-to-definition, find-references, workspace symbols, and semantic tokens. All 5 stages have landed (ADR-0056); this is now the only intelligence provider — disabling it leaves just static TextMate syntax highlighting, with no fallback."
         },
         "phalcom.lsp.serverPath": {
           "type": "string",
