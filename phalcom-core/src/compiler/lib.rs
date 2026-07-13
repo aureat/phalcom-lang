@@ -914,84 +914,112 @@ impl<'vm> Compiler<'vm> {
                 // (ADR-0011, U-INH §3.5): own instance/static slots begin at the
                 // superclass's field count, so inherited slots keep their offsets
                 // and are never aliased. The superclass's counts are resolved at
-                // COMPILE time — from a reopened class already in `vm.classes`,
-                // from the `extends` clause (looked up in the accumulating
+                // COMPILE time — from a reopened class already in `vm.classes`
+                // (the bootstrap case: a Rust stub pre-registers the class before
+                // its `.ph` body compiles, so `field_layouts` has no entry for it
+                // yet and the reopen branch below does not fire), from the
+                // `extends` clause (looked up in the accumulating
                 // `field_layouts`/`classes` metadata, since a *user* superclass
                 // has not been created at runtime yet), or the implicit `Object`
                 // root.
-                let (sc_field_count, sc_meta_field_count) = if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
-                    // Reopening an existing class: keep its established superclass.
-                    match self.vm.heap.class(existing_class).superclass {
-                        Some(sc_id) => {
+                let layout = if let Some(existing_layout) = self.vm.field_layouts.get(&name_sym).cloned() {
+                    // U-REOPEN-FIX (field-layout preservation): a genuine
+                    // same-unit reopen is detected here by
+                    // `field_layouts.contains_key` — the same
+                    // compile-time-synchronous signal the field-adding guard
+                    // above already used, NOT the RUNTIME-populated
+                    // `self.vm.classes` (still empty for a same-unit reopen at
+                    // this point, since the whole unit compiles to one closure
+                    // before any `Bytecode::Class` executes). That guard already
+                    // rejected any reopen that declares new fields, so
+                    // `own_instance_fields`/`own_static_fields` are guaranteed
+                    // empty here — the existing layout (including its
+                    // `field_slots`/`static_field_slots` name maps, not just its
+                    // counts) is reused completely unchanged rather than
+                    // recomputed from a superclass or rebuilt with an empty
+                    // `field_slots`. Recomputing here was the root cause of a
+                    // reviewer-found regression: a method-only reopen of a
+                    // *field-bearing* class fell through to the "implicit Object
+                    // root" branch below (`sc_field_count = 0`), silently
+                    // overwriting block 1's real layout with an empty one before
+                    // any bytecode ran (`create_class`, vm.rs, then read the
+                    // zeroed layout and produced an out-of-bounds field slot).
+                    existing_layout
+                } else {
+                    let (sc_field_count, sc_meta_field_count) = if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
+                        // Bootstrap reopen: keep the Rust stub's established superclass.
+                        match self.vm.heap.class(existing_class).superclass {
+                            Some(sc_id) => {
+                                let meta = self.vm.heap.class(sc_id).class;
+                                (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
+                            }
+                            None => (0, 0),
+                        }
+                    } else if let Some(sc_ref) = &class_def.superclass {
+                        let sc_sym = self.vm.interner.intern(&sc_ref.name);
+                        // Self-inheritance and unknown/forward superclasses are
+                        // rejected here (U-INH §3.2): a class cannot appear in its own
+                        // superclass chain (that would make method lookup
+                        // non-terminating), and the single top-down compile pass
+                        // requires the superclass to be defined earlier. A longer
+                        // cycle is rejected transitively — the earlier class in the
+                        // cycle refers forward to a not-yet-defined name.
+                        if sc_sym == name_sym {
+                            return Err(CompilerError::Message(format!(
+                                "A class cannot extend itself: `{}` names itself as its superclass.",
+                                class_def.name
+                            )));
+                        }
+                        let counts = if let Some(layout) = self.vm.field_layouts.get(&sc_sym) {
+                            (layout.field_count, layout.static_field_count)
+                        } else if let Some(&sc_id) = self.vm.classes.get(&sc_sym) {
                             let meta = self.vm.heap.class(sc_id).class;
                             (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
-                        }
-                        None => (0, 0),
-                    }
-                } else if let Some(sc_ref) = &class_def.superclass {
-                    let sc_sym = self.vm.interner.intern(&sc_ref.name);
-                    // Self-inheritance and unknown/forward superclasses are
-                    // rejected here (U-INH §3.2): a class cannot appear in its own
-                    // superclass chain (that would make method lookup
-                    // non-terminating), and the single top-down compile pass
-                    // requires the superclass to be defined earlier. A longer
-                    // cycle is rejected transitively — the earlier class in the
-                    // cycle refers forward to a not-yet-defined name.
-                    if sc_sym == name_sym {
-                        return Err(CompilerError::Message(format!(
-                            "A class cannot extend itself: `{}` names itself as its superclass.",
-                            class_def.name
-                        )));
-                    }
-                    let counts = if let Some(layout) = self.vm.field_layouts.get(&sc_sym) {
-                        (layout.field_count, layout.static_field_count)
-                    } else if let Some(&sc_id) = self.vm.classes.get(&sc_sym) {
-                        let meta = self.vm.heap.class(sc_id).class;
-                        (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
+                        } else {
+                            return Err(CompilerError::Message(format!(
+                                "Unknown superclass `{}`: it must be a class defined before `{}`.",
+                                sc_ref.name, class_def.name
+                            )));
+                        };
+                        // Record the compile-time superclass edge (U-INH follow-on)
+                        // ONLY here — past the self-check, on a known/validated
+                        // superclass. The reopen branch above and the self/unknown
+                        // error paths deliberately do not populate `class_parents`, so
+                        // no self- or dangling edge can enter the map (the VM persists
+                        // across REPL lines, so a stale edge would otherwise make the
+                        // guard/alias chain-walks spin). Edges normally point only to a
+                        // strictly-earlier-defined class; the one residual way to form a
+                        // back-edge is a reopen-redefinition within a unit (`class A {}`,
+                        // `class B extends A`, then `class A extends B`), which the
+                        // `visited` guard in both chain-walks handles without spinning.
+                        self.vm.class_parents.insert(name_sym, sc_sym);
+                        counts
                     } else {
-                        return Err(CompilerError::Message(format!(
-                            "Unknown superclass `{}`: it must be a class defined before `{}`.",
-                            sc_ref.name, class_def.name
-                        )));
+                        // Implicit `Object` root.
+                        let object_class = self.vm.universe.classes.object_class;
+                        let meta = self.vm.heap.class(object_class).class;
+                        (self.vm.heap.class(object_class).field_count, self.vm.heap.class(meta).field_count)
                     };
-                    // Record the compile-time superclass edge (U-INH follow-on)
-                    // ONLY here — past the self-check, on a known/validated
-                    // superclass. The reopen branch above and the self/unknown
-                    // error paths deliberately do not populate `class_parents`, so
-                    // no self- or dangling edge can enter the map (the VM persists
-                    // across REPL lines, so a stale edge would otherwise make the
-                    // guard/alias chain-walks spin). Edges normally point only to a
-                    // strictly-earlier-defined class; the one residual way to form a
-                    // back-edge is a reopen-redefinition within a unit (`class A {}`,
-                    // `class B extends A`, then `class A extends B`), which the
-                    // `visited` guard in both chain-walks handles without spinning.
-                    self.vm.class_parents.insert(name_sym, sc_sym);
-                    counts
-                } else {
-                    // Implicit `Object` root.
-                    let object_class = self.vm.universe.classes.object_class;
-                    let meta = self.vm.heap.class(object_class).class;
-                    (self.vm.heap.class(object_class).field_count, self.vm.heap.class(meta).field_count)
-                };
 
-                let mut field_slots = IndexMap::new();
-                for (i, f) in own_instance_fields.iter().enumerate() {
-                    field_slots.insert(*f, (sc_field_count as usize + i) as u16);
-                }
-                let field_count = sc_field_count + own_instance_fields.len() as u16;
+                    let mut field_slots = IndexMap::new();
+                    for (i, f) in own_instance_fields.iter().enumerate() {
+                        field_slots.insert(*f, (sc_field_count as usize + i) as u16);
+                    }
+                    let field_count = sc_field_count + own_instance_fields.len() as u16;
 
-                let mut static_field_slots = IndexMap::new();
-                for (i, f) in own_static_fields.iter().enumerate() {
-                    static_field_slots.insert(*f, (sc_meta_field_count as usize + i) as u16);
-                }
-                let static_field_count = sc_meta_field_count + own_static_fields.len() as u16;
+                    let mut static_field_slots = IndexMap::new();
+                    for (i, f) in own_static_fields.iter().enumerate() {
+                        static_field_slots.insert(*f, (sc_meta_field_count as usize + i) as u16);
+                    }
+                    let static_field_count = sc_meta_field_count + own_static_fields.len() as u16;
 
-                let layout = crate::vm::ClassLayout {
-                    name: name_sym,
-                    field_slots,
-                    field_count,
-                    static_field_slots,
-                    static_field_count,
+                    crate::vm::ClassLayout {
+                        name: name_sym,
+                        field_slots,
+                        field_count,
+                        static_field_slots,
+                        static_field_count,
+                    }
                 };
                 self.vm.field_layouts.insert(name_sym, layout);
 
