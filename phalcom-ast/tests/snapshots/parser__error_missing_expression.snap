@@ -2,4 +2,4 @@
 source: phalcom-ast/tests/parser.rs
 expression: "parse(\"let x = \")"
 ---
-Err: SyntaxError { kind: UnrecognizedToken { token: "", expected: ["\"true\"", "\"false\"", "\"nil\"", "\"self\"", "\"super\"", "identifier", "string", "number", "\"(\"", "\"!\"", "\"-\"", "\"{\""] }, range: 7..7 }
+Err: SyntaxError { kind: UnrecognizedToken { token: "", expected: ["\"true\"", "\"false\"", "\"nil\"", "\"self\"", "\"super\"", "identifier", "string", "number", "\"(\"", "\"not\"", "\"-\"", "\"{\""] }, range: 7..7 }

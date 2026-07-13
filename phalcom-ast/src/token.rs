@@ -210,7 +210,13 @@ pub enum Token {
     /// to `opt.map { x => x.m(a) }`. See `docs/spec/values-and-absence.md` §3.4
     /// and `docs/spec/lexical-structure.md` §9.
     QuestionDot,
-    /// The `!` logical-not / prefix operator.
+    /// The bare `!` character.
+    ///
+    /// No longer a prefix expression operator (U-NEG retired prefix `!` in
+    /// favour of `not x`; a standalone `Bang` in expression position is a
+    /// parser error). This variant survives solely so `scan_operator` can
+    /// disambiguate `!=` (see [`Token::BangEqual`]) before falling back to a
+    /// lone `!` for diagnostics.
     Bang,
     /// The `@` punctuation mark.
     At,

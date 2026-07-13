@@ -392,8 +392,8 @@ class List {
   // U-CORE-5 (decisions.md Q5, R-INV-5.3 E1-E5): structural equality —
   // element-wise, order-sensitive, via each element's own `==`. Guarded by
   // `isA(List)` so a non-List `other` is simply unequal (E2), never a dNU.
-  // Derived entirely over the floor (`size`/`at`/`isA`/`while`/`and`/`!`) —
-  // no new native primitive (ADR-0019 unchanged). `and`/`!` are the
+  // Derived entirely over the floor (`size`/`at`/`isA`/`while`/`and`/`not`) —
+  // no new native primitive (ADR-0019 unchanged). `and`/`not` are the
   // language's infix/prefix operator forms (`Bool#and(_:)`/`Bool#not()`
   // dispatched by the compiler, not dotted-call syntax — `and`/`not` are
   // reserved words and cannot follow `.` as a bare identifier).
@@ -420,7 +420,7 @@ class List {
   // identity-based and contradict the structural `==` above (the `==`⊗`!=`
   // decoupling hazard).
   !=(other) {
-    return !(self == other)
+    return not (self == other)
   }
 }
 
@@ -519,7 +519,7 @@ class Map {
   // MUST route through == (the ==/!= decoupling hazard) — Object#!= negates
   // identity, not this structural ==.
   !=(other) {
-    return !(self == other)
+    return not (self == other)
   }
 }
 
@@ -579,7 +579,7 @@ class Set {
   }
 
   !=(other) {
-    return !(self == other)
+    return not (self == other)
   }
 }
 
@@ -628,7 +628,7 @@ class Tuple {
   }
 
   !=(other) {
-    return !(self == other)
+    return not (self == other)
   }
 
   // Value hash (DEC-CT-D): a .ph fold over each element's own `hash` —
@@ -726,7 +726,7 @@ class Range {
   }
 
   !=(other) {
-    return !(self == other)
+    return not (self == other)
   }
 
   // Value hash (immutable ⇒ hashable, Q5): a .ph fold over the three bound

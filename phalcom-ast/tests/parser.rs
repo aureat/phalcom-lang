@@ -77,7 +77,7 @@ fn member_access() {
 
 #[test]
 fn unary_expression() {
-    insta::assert_snapshot!(parse("!true"));
+    insta::assert_snapshot!(parse("not true"));
 }
 
 #[test]

@@ -111,7 +111,7 @@ pub fn parse(source: &str, offset: usize) -> Parse {
 fn primary_expected() -> Vec<String> {
     [
         "\"true\"", "\"false\"", "\"nil\"", "\"self\"", "\"super\"", "identifier", "string",
-        "number", "\"(\"", "\"!\"", "\"-\"", "\"{\"",
+        "number", "\"(\"", "\"not\"", "\"-\"", "\"{\"",
     ]
     .iter()
     .map(|s| (*s).to_string())
@@ -845,7 +845,7 @@ impl<'source> Parser<'source> {
                 | Token::SelfKw
                 | Token::Super
                 | Token::LParen
-                | Token::Bang
+                | Token::Not
                 | Token::Minus
                 | Token::LBrace
                 | Token::If
@@ -1580,15 +1580,15 @@ impl<'source> Parser<'source> {
         Ok(left)
     }
 
-    /// Parses a prefix unary expression (`-x`, `!x`, `not x`), or delegates
-    /// to [`Parser::parse_call`].
+    /// Parses a prefix unary expression (`-x`, `not x`), or delegates to
+    /// [`Parser::parse_call`].
     ///
-    /// `not` is the keyword spelling of `!` (same [`UnaryOp::Not`], same
-    /// precedence — `syntax/grammar.md`'s `unary := ( "-" | "!" | "not" )
-    /// unary`, `syntax/expressions.md` precedence table row 9); U-ERR-FIX
-    /// NOT-KEYWORD wires the previously-dead `Token::Not` here instead of
-    /// removing it, since the spec explicitly lists `not` as a unary prefix
-    /// operator.
+    /// `not` is the sole boolean-negation prefix (`syntax/grammar.md`'s
+    /// `unary := ( "-" | "not" ) unary`, `syntax/expressions.md` precedence
+    /// table row 9). U-NEG retires prefix `!` (`Token::Bang`) as an
+    /// expression operator — `Token::Bang` now survives only inside the
+    /// lexer's `!=` (`Token::BangEqual`) disambiguation; a bare `!` in
+    /// expression position is a parse error.
     ///
     /// # Errors
     ///
@@ -1596,7 +1596,7 @@ impl<'source> Parser<'source> {
     fn parse_unary(&mut self) -> ParserResult<Expr> {
         let op = match self.peek() {
             Token::Minus => UnaryOp::Negate,
-            Token::Bang | Token::Not => UnaryOp::Not,
+            Token::Not => UnaryOp::Not,
             _ => return self.parse_call(),
         };
         let start = self.cur_start();

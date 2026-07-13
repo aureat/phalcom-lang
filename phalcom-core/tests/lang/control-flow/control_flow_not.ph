@@ -2,5 +2,5 @@
 // spec: control-flow.md
 // status: PASS
 
-System.print(!true)
-System.print(!false)
+System.print(not true)
+System.print(not false)

@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-expression: "parse(\"!true\")"
+expression: "parse(\"not true\")"
 ---
 Program {
     statements: [
@@ -11,19 +11,19 @@ Program {
                     expr: Boolean {
                         value: true,
                         range: CopyRange {
-                            start: 1,
-                            end: 5,
+                            start: 4,
+                            end: 8,
                         },
                     },
                     range: CopyRange {
                         start: 0,
-                        end: 5,
+                        end: 8,
                     },
                 },
             ),
             range: CopyRange {
                 start: 0,
-                end: 5,
+                end: 8,
             },
         },
     ],

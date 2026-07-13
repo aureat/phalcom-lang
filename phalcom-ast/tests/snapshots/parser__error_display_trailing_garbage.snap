@@ -2,4 +2,4 @@
 source: phalcom-ast/tests/parser.rs
 expression: "parse_display(\"1 + )\")"
 ---
-Expected one of "true", "false", "nil", "self", "super", identifier, string, number, "(", "!", "-", "{" (at bytes 4..5)
+Expected one of "true", "false", "nil", "self", "super", identifier, string, number, "(", "not", "-", "{" (at bytes 4..5)
