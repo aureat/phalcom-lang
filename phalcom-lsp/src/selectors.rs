@@ -13,9 +13,7 @@
 //! crate never links `phalcom-core` (ADR-0056 §2) — this module is the sole
 //! source of selector spelling here, deliberately independent.
 
-use phalcom_ast::ast::{
-    ClassMember, ConstructDef, FieldDef, GetterDef, MethodDef, ParameterDef, SetterDef,
-};
+use phalcom_ast::ast::{ClassMember, ConstructDef, GetterDef, MethodDef, ParameterDef, SetterDef};
 
 /// Builds the comma-form selector string from a method/constructor name and
 /// its parameter list: `name(_,label,...)`, or `name()` for zero-arity.
@@ -87,18 +85,15 @@ pub fn construct_selector(c: &ConstructDef) -> String {
     comma_form(&c.name, &c.params)
 }
 
-/// The selector a declared `let`/`var` class field (U-ANNOT-LAYOUT §3.1,
-/// [`FieldDef`]) is indexed under: its bare name, with no parens.
-///
-/// A declared field is not itself message-dispatched (no synthesized
-/// getter/setter exists yet), so this is not an ADR-0012 comma-form selector
-/// in the strict sense — it is the field's plain name, kept distinct from a
-/// zero-arity method (`name` vs `name()`) the same way [`getter_selector`]
-/// is, so a future `@get`/`@set` layout-derive attribute can synthesize a
-/// real getter/setter selector here without an index-shape change.
-pub fn field_selector(f: &FieldDef) -> String {
-    f.name.clone()
-}
+// NOTE (pre-existing conflict, fixed in passing by U-LSP Stage 4): a
+// `field_selector`/`ClassMember::Field` arm for declared `let`/`var` class
+// fields (U-ANNOT-LAYOUT §3.1) previously lived here, but `phalcom_ast`'s
+// `ClassMember` on this branch has no `Field` variant (`FieldDef` does not
+// exist yet) — U-ANNOT-LAYOUT has not landed on `phalcom-ast` at this
+// commit. That made this crate fail to compile at HEAD before Stage 4. The
+// arm is removed here to restore a green build; re-add it (mirroring
+// [`getter_selector`]'s bare-name-no-parens shape) once `ClassMember::Field`
+// actually lands upstream.
 
 /// The comma-form selector any [`ClassMember`] declaration defines.
 ///
@@ -111,7 +106,6 @@ pub fn class_member_selector(member: &ClassMember) -> String {
         ClassMember::Getter(g) => getter_selector(g),
         ClassMember::Setter(s) => setter_selector(s),
         ClassMember::Construct(c) => construct_selector(c),
-        ClassMember::Field(f) => field_selector(f),
     }
 }
 
@@ -186,19 +180,6 @@ mod tests {
             panic!("expected construct")
         };
         assert_eq!(construct_selector(c), "new(_,y)");
-    }
-
-    #[test]
-    fn field_is_bare_name_and_never_aliases_zero_arity_method() {
-        let class_def = parse_class("class Point {\n  let _x = 0\n  x() { }\n}\n");
-        let ClassMember::Field(f) = &class_def.members[0] else {
-            panic!("expected field")
-        };
-        let ClassMember::Method(m) = &class_def.members[1] else {
-            panic!("expected method")
-        };
-        assert_eq!(field_selector(f), "_x");
-        assert_ne!(field_selector(f), method_selector(m));
     }
 
     #[test]

@@ -163,11 +163,15 @@ fn scan_statements(statements: &[Statement], target: &str, out: &mut Option<Stri
                         phalcom_ast::ast::ClassMember::Construct(c) => {
                             scan_statements(&c.body, target, out)
                         }
-                        phalcom_ast::ast::ClassMember::Field(f) => {
-                            if let Some(default) = &f.default {
-                                scan_expr(default, target, out);
-                            }
-                        }
+                        // NOTE (pre-existing conflict, fixed in passing by
+                        // U-LSP Stage 4): a `ClassMember::Field(f) => { ... }`
+                        // arm previously lived here, but `phalcom_ast`'s
+                        // `ClassMember` on this branch has no `Field` variant
+                        // — U-ANNOT-LAYOUT has not landed on `phalcom-ast` at
+                        // this commit, which made this crate fail to compile
+                        // at HEAD before Stage 4. Re-add the arm (scanning
+                        // the field's optional default-value expression) once
+                        // `ClassMember::Field` lands upstream.
                     }
                 }
             }

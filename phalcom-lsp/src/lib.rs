@@ -25,10 +25,13 @@
 //!   (`core-table.json`), consulted by completion for builtin receivers.
 //! - [`completion`] — receiver-aware [`textDocument/completion`] (Stage 3):
 //!   the pluggable [`completion::ReceiverResolver`] plus snippet rendering.
+//! - [`hover`] — [`textDocument/hover`] (Stage 4): keyword blurbs, selector
+//!   signature/kind/defining-class rendering, and the Phaldoc harvest.
 //! - [`backend`] — the [`tower_lsp::LanguageServer`] trait implementation,
 //!   exported as [`Backend`].
 //!
 //! [`textDocument/completion`]: tower_lsp::LanguageServer::completion
+//! [`textDocument/hover`]: tower_lsp::LanguageServer::hover
 
 #![warn(missing_docs)]
 
@@ -37,6 +40,7 @@ pub mod completion;
 pub mod core_table;
 pub mod diagnostics;
 pub mod documents;
+pub mod hover;
 pub mod index;
 pub mod line_index;
 pub mod selectors;
