@@ -998,7 +998,19 @@ impl<'source> Parser<'source> {
                 Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
                 _ => {}
             }
-            let mut member = self.parse_class_member()?;
+            // U-ANNOT-LAYOUT §3.4: `@variant Name(labels...)` is a distinct
+            // grammar production (no body, bare-colon label list) from every
+            // other class member — a pending `@variant` diverts to
+            // `parse_variant_decl` instead of the ordinary member parser,
+            // mirroring how `@invariant` above diverts to `class_invariants`.
+            // Any other attributes preceding `@variant` (unusual, but not
+            // forbidden by the grammar) are attached to the resulting
+            // `VariantDef` the same way `attach_attrs` would.
+            let mut member = if pending_attrs.iter().any(|a| a.name == "variant") {
+                self.parse_variant_decl(std::mem::take(&mut pending_attrs))?
+            } else {
+                self.parse_class_member()?
+            };
             if !pending_attrs.is_empty() {
                 self.attach_attrs(&mut member, std::mem::take(&mut pending_attrs))?;
             }
@@ -1083,6 +1095,14 @@ impl<'source> Parser<'source> {
             ClassMember::Getter(g) => g.attributes = attrs,
             ClassMember::Setter(s) => s.attributes = attrs,
             ClassMember::Field(f) => f.attributes = attrs,
+            // Unreachable in practice — `parse_class_body` diverts a pending
+            // `@variant` straight to `parse_variant_decl`, which consumes
+            // every pending attribute itself before this function could ever
+            // be called with a `Variant` member. Kept for match exhaustiveness
+            // and future-proofing (a hypothetical attribute placed *after*
+            // `@variant` in source, which the grammar does not currently
+            // support attaching, would land here rather than panicking).
+            ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Construct(c) => {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message(
@@ -1144,6 +1164,55 @@ impl<'source> Parser<'source> {
             mutable,
             default,
             attributes: Vec::new(),
+            range,
+        }))
+    }
+
+    /// Parses a `@variant Name(label1:, label2:, ...)` declaration
+    /// (U-ANNOT-LAYOUT §3.4, `annotations-data.md` §"`@variant`") — a
+    /// distinct grammar production from every other [`ClassMember`]: a
+    /// capitalized name followed by a parenthesized, comma-separated list of
+    /// bare `label:` tokens (no values, no types, no body). `pending` is
+    /// every attribute collected before this declaration (in practice always
+    /// exactly `[@variant]`, per `parse_class_body`'s dispatch) — attached
+    /// verbatim to the returned [`VariantDef`].
+    ///
+    /// Terminated the same way [`Self::parse_field_decl`] is: a newline, or —
+    /// with no explicit terminator consumed — the closing `}`/end-of-file.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the variant name or any label is missing, a label
+    /// is not followed by `:`, the argument list is unterminated, or the
+    /// declaration is not followed by a newline, `}`, or end-of-file.
+    fn parse_variant_decl(&mut self, pending: Vec<Attribute>) -> ParserResult<ClassMember> {
+        let start = self.cur_start();
+        let name = self.expect_identifier(&["variant name"])?;
+        self.expect(&Token::LParen, &["\"(\""])?;
+        let mut labels = Vec::new();
+        if !matches!(self.peek(), Token::RParen) {
+            loop {
+                let label = self.expect_identifier(&["variant label"])?;
+                self.expect(&Token::Colon, &["\":\""])?;
+                labels.push(label);
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(&Token::RParen, &["\")\""])?;
+        let range = (start..self.prev_end).into();
+        match self.peek() {
+            Token::Newline => {
+                self.advance();
+            }
+            Token::RBrace | Token::Eof => {}
+            _ => return Err(self.error_here(strs(&["newline", "\"}\""]))),
+        }
+        Ok(ClassMember::Variant(VariantDef {
+            name,
+            labels,
+            attributes: pending,
             range,
         }))
     }

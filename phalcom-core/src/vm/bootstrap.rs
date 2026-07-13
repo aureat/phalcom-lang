@@ -42,6 +42,7 @@ impl VM {
             constructor_aliases: HashMap::new(),
             has_new_construct: std::collections::HashSet::new(),
             class_parents: HashMap::new(),
+            sealed_classes: HashMap::new(),
             checking: std::collections::HashSet::new(),
             compile_mode: crate::compiler::attributes::CompileMode::Debug,
             strip_contract_metadata: false,

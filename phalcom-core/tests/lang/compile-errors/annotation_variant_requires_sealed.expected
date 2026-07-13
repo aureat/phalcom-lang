@@ -1,0 +1,1 @@
+attr.illegal_target: `@variant` requires its enclosing class `Shape` to also carry `@sealed`

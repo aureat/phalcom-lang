@@ -12,14 +12,18 @@ use super::error::CompilerError;
 use super::Compiler;
 
 /// Attribute names handled entirely by the compiler itself — the guard weave
-/// (`@requires`/`@ensures`/`@invariant`) or the field-derive (`@construct`,
-/// U-ANNOT-LAYOUT) — that carry no matching `Attribute`-subclass runtime
-/// instance and therefore emit no `Name.new(args)`/`__attach` codegen
-/// (M-ATTR-ROOT, `attribute-classes.md` §"What the compiler lowers"). `@On`
-/// is *not* in this set: it names an ordinary `Attribute` subclass instance
-/// (retained via `__attach` like any other) even though its own expansion is
-/// also a compiler-side no-op (see `compiler::attributes::OnExpander`).
-const COMPILER_ONLY_ATTRS: &[&str] = &["requires", "ensures", "invariant", "construct"];
+/// (`@requires`/`@ensures`/`@invariant`), the field-derive (`@construct`,
+/// `@data`, U-ANNOT-LAYOUT), or the closed-hierarchy bookkeeping (`@sealed`)
+/// — that carry no matching `Attribute`-subclass runtime instance and
+/// therefore emit no `Name.new(args)`/`__attach` codegen (M-ATTR-ROOT,
+/// `attribute-classes.md` §"What the compiler lowers"). `@On` is *not* in
+/// this set: it names an ordinary `Attribute` subclass instance (retained via
+/// `__attach` like any other) even though its own expansion is also a
+/// compiler-side no-op (see `compiler::attributes::OnExpander`). `@variant`
+/// never reaches this set at all — it is stripped from `class.members`
+/// entirely by `compiler::attributes::expand_variants` before this point, so
+/// it can never appear in `class_level_attrs`.
+const COMPILER_ONLY_ATTRS: &[&str] = &["requires", "ensures", "invariant", "construct", "data", "sealed"];
 
 impl<'vm> Compiler<'vm> {
     /// Lowers a `class Name [extends Super] { members }` declaration
@@ -65,7 +69,17 @@ impl<'vm> Compiler<'vm> {
             class_parents: &self.vm.class_parents,
         };
         let registry = AttributeRegistry::new();
-        let mut class_def = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        // DEC-ANNOT-G (U-ANNOT-LAYOUT §3.4): `expand_class_attributes`
+        // returns `(ClassDef, Vec<Statement>)`, not a bare `ClassDef` — the
+        // second element is every sibling top-level `Statement::Class` a
+        // `@variant` arm inside `class_def`'s body expanded into (empty for
+        // every class with no `@variant` arms). Compiled recursively at the
+        // very end of this function, once `class_def` itself is fully
+        // defined (`sibling_classes`'s own doc there explains why: each
+        // sibling `extends` this class by name, so its own `Bytecode::Class`
+        // resolves that name via `GetGlobal`, which requires this class's
+        // `DefineGlobal` to have already run).
+        let (mut class_def, sibling_classes) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
         // Retained class-level attributes (M-ATTR-ROOT): needed after
         // `DefineGlobal` below, once `class_def.members` has been moved out
         // by the member loop — captured here rather than re-read later.
@@ -307,6 +321,23 @@ impl<'vm> Compiler<'vm> {
                         "A class cannot extend itself: `{}` names itself as its superclass.",
                         class_def.name
                     )));
+                }
+                // U-ANNOT-LAYOUT §3.4 (`attr.sealed_violation`): a subclass
+                // of an `@sealed` class is only legal within the same
+                // compilation unit (`VM::sealed_classes`'s own doc) — checked
+                // here, at the *subclass's* definition site, not the sealed
+                // class's, matching `annotations-data.md`'s own placement.
+                // Fires immediately rather than deferring to an end-of-unit
+                // pass: the single-pass top-down discipline already
+                // guarantees a same-unit sealed superclass is recorded
+                // before any of its subclasses reach this point.
+                if let Some(&sealed_in_module) = self.vm.sealed_classes.get(&sc_sym) {
+                    if sealed_in_module != self.module {
+                        return Err(CompilerError::Message(format!(
+                            "attr.sealed_violation: `{}` extends `@sealed` class `{}`, but was not declared in the same compilation unit",
+                            class_def.name, sc_ref.name
+                        )));
+                    }
                 }
                 let counts = if let Some(layout) = self.vm.field_layouts.get(&sc_sym) {
                     (layout.field_count, layout.static_field_count)
@@ -578,9 +609,14 @@ impl<'vm> Compiler<'vm> {
                 // A declared field is layout-only (U-ANNOT-LAYOUT §3.1): it
                 // already fed `own_instance_fields`/`field_slots` above and
                 // emits no bytecode of its own. Its `default` expression, if
-                // any, is data for a future layout-derive attribute
+                // any, is data for a layout-derive attribute
                 // (`@construct`/`@data`) to read — not compiled here.
                 ClassMember::Field(_) => {}
+                // Unreachable in practice — `expand_class_attributes`
+                // (`compiler::attributes::expand_variants`) always strips
+                // every `Variant` member before returning; kept for match
+                // exhaustiveness over `ClassMember`'s full variant set.
+                ClassMember::Variant(_) => {}
             }
         }
 
@@ -623,6 +659,30 @@ impl<'vm> Compiler<'vm> {
         // class with no attributes at all, so the invariant holds uniformly.
         self.emit(Bytecode::GetGlobal(name_idx), range);
         self.emit_freeze_attributes(range);
+
+        // U-ANNOT-LAYOUT §3.4: record `@sealed`'s compile-unit-scoped
+        // bookkeeping now that `class_def.name`'s global is fully defined —
+        // any subclass compiled *after* this point (this unit or another)
+        // checks `VM::sealed_classes` at the point in `Self::compile_class`
+        // above where its own superclass is resolved.
+        if class_level_attrs.iter().any(|a| a.name == "sealed") {
+            self.vm.sealed_classes.insert(name_sym, self.module);
+        }
+
+        // DEC-ANNOT-G: compile every `@variant`-generated sibling class now,
+        // immediately after this class's own `DefineGlobal` — each sibling
+        // `extends` this class by name, so its `Bytecode::Class` opcode's
+        // `GetGlobal` superclass lookup requires this class to already be a
+        // defined global, which it now is. A recursive `compile_class` call
+        // reuses this exact function for the sibling (including its own
+        // `@data` expansion, `@sealed` bookkeeping, and any further sibling
+        // splicing, though `@variant` classes never themselves carry nested
+        // `@variant` arms in Draft 0.1).
+        for sibling in sibling_classes {
+            if let Statement::Class(sibling_def) = sibling {
+                self.compile_class(sibling_def)?;
+            }
+        }
 
         Ok(())
     }

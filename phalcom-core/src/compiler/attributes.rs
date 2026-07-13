@@ -1,5 +1,8 @@
 use std::collections::HashMap;
-use phalcom_ast::ast::{AssignmentExpr, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, GetterDef, ParameterDef, SetterDef};
+use phalcom_ast::ast::{
+    AssignmentExpr, Attribute, BinaryExpr, BinaryOp, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, GetPropertyExpr, GetterDef, MethodDef,
+    ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
+};
 use crate::compiler::lib::CompilerError;
 use crate::interner::Symbol;
 use crate::method::{encode_selector, SignatureKind};
@@ -66,9 +69,15 @@ pub enum Target {
     Setter,
     Construct,
     /// A declared [`phalcom_ast::ast::ClassMember::Field`] (U-ANNOT-LAYOUT
-    /// §3.1) — the legal target for the not-yet-implemented `@get`/`@set`
-    /// derive tier (§3.2).
+    /// §3.1) — the legal target for the `@get`/`@set` derive tier (§3.2).
     Field,
+    /// A declared [`phalcom_ast::ast::ClassMember::Variant`] (U-ANNOT-LAYOUT
+    /// §3.4, `annotations-data.md` §"`@variant`") — the sole legal target for
+    /// `@variant`. Distinguishes a variant arm from an ordinary `Method`, so
+    /// `@variant` on a plain method is `attr.illegal_target`
+    /// (`annotations-legality-grammar.md`'s legality table: "`@variant` |
+    /// Class-nested variant decl | plain method").
+    Variant,
 }
 
 pub trait AttributeExpander {
@@ -510,6 +519,82 @@ impl AttributeExpander for SetExpander {
     }
 }
 
+/// Registry entry for `@data` as a class-target attribute (U-ANNOT-LAYOUT
+/// §3.4, `annotations-data.md` §"`@data`"). Same deliberate-no-op shape as
+/// [`ConstructExpander`]: `@data`'s real derive (constructor reuse/generation
+/// plus `==`/`hash`/`toString`/`with(...)`) needs the whole class's declared
+/// fields and existing members, so it runs once from
+/// [`expand_class_attributes`] via `derive_data`, not per-attribute through
+/// this trait method. The registry row still exists so `attr.unknown`/
+/// `attr.illegal_target` fire correctly for `@data`.
+pub struct DataExpander;
+impl AttributeExpander for DataExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Class]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
+/// Registry entry for `@sealed` as a class-target attribute (U-ANNOT-LAYOUT
+/// §3.4, `annotations-data.md` §"`@sealed`"). Same deliberate-no-op shape as
+/// [`DataExpander`]: `@sealed`'s real work — recording the class as sealed in
+/// [`crate::vm::VM::sealed_classes`] and rejecting a same-selector cross-unit
+/// subclass at *that subclass's* compile time — happens in
+/// `compiler::lib::class_decl::Compiler::compile_class`, not here (it needs
+/// the compiling `Compiler`'s own module handle, which `AttributeExpander`'s
+/// signature has no access to). The registry row still exists so
+/// `attr.unknown`/`attr.illegal_target` fire correctly for `@sealed`.
+pub struct SealedExpander;
+impl AttributeExpander for SealedExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Class]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
+/// Registry entry for `@variant` (U-ANNOT-LAYOUT §3.4, `annotations-data.md`
+/// §"`@variant`"). Same deliberate-no-op shape as [`GetExpander`]: `@variant`'s
+/// real derive — stripping the [`phalcom_ast::ast::ClassMember::Variant`] arm
+/// and generating a sibling top-level class plus the enclosing class's
+/// `match(...)` visitor — needs the whole class's `@variant` arm set and
+/// returns *sibling statements*, a shape [`AttributeExpander::expand`] cannot
+/// produce, so it runs once from [`expand_class_attributes`] via
+/// `expand_variants`. This row only exists so `attr.unknown`/
+/// `attr.illegal_target` fire correctly for `@variant` (e.g. `@variant` on an
+/// ordinary method, per the legality table's "plain method" illegal-target
+/// row).
+pub struct VariantExpander;
+impl AttributeExpander for VariantExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Variant]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
 /// Registry entry for `@On` — the builtin attribute carrying legality + tier
 /// for a user `Attribute` subclass's own header (M-ATTR-ROOT,
 /// `attribute-classes.md` §"`@On`"). Like [`InvariantExpander`]/
@@ -550,6 +635,9 @@ impl AttributeRegistry {
         expanders.insert("construct".to_string(), Box::new(ConstructExpander));
         expanders.insert("get".to_string(), Box::new(GetExpander));
         expanders.insert("set".to_string(), Box::new(SetExpander));
+        expanders.insert("data".to_string(), Box::new(DataExpander));
+        expanders.insert("sealed".to_string(), Box::new(SealedExpander));
+        expanders.insert("variant".to_string(), Box::new(VariantExpander));
         expanders.insert("On".to_string(), Box::new(OnExpander));
         Self { expanders }
     }
@@ -673,44 +761,69 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
     Ok(())
 }
 
-/// Returns `attr.accessor_collision` if `class` already carries a
-/// hand-written [`ClassMember::Getter`]/[`ClassMember::Setter`] (per `kind`)
-/// whose derived selector matches `base_name`'s (ADR-0012: selector is the
-/// sole dispatch key, no last-wins). Shared by every layout-derive attribute
-/// that can collide with a hand-written accessor (`@get`/`@set`, and later
-/// `@data` reusing the same field-derived names) — plan §3.2 asks for one
-/// helper here, not N inline copies (`derive_construct`'s own inline
-/// construct-vs-construct check is a different member kind and stays as-is).
-fn check_accessor_collision(
-    class: &ClassDef,
-    ctx: &mut ExpandCtx,
-    base_name: &str,
-    kind: SignatureKind,
-    attr_name: &str,
-) -> Result<(), CompilerError> {
-    let derived_selector = encode_selector(base_name, &[], kind);
-    let derived_sym = ctx.interner.intern(&derived_selector);
+/// Returns the derived selector `m` would occupy if `m` is a
+/// [`ClassMember::Method`]/[`ClassMember::Getter`]/[`ClassMember::Setter`],
+/// or `None` for a member kind with no ordinary dispatch selector of its own
+/// ([`ClassMember::Field`]/[`ClassMember::Construct`]/[`ClassMember::Variant`]).
+/// Shared by [`check_selector_collision`]/[`class_has_selector`] — the one
+/// place this module computes "what selector does this existing member
+/// occupy" generically across member kinds.
+fn member_selector(m: &ClassMember) -> Option<String> {
+    match m {
+        ClassMember::Method(md) => {
+            let labels: Vec<Option<String>> = md.params.iter().map(|p| p.label.clone()).collect();
+            Some(encode_selector(&md.name, &labels, SignatureKind::Method(md.params.len() as u8)))
+        }
+        ClassMember::Getter(g) => Some(encode_selector(&g.name, &[], SignatureKind::Getter)),
+        ClassMember::Setter(s) => Some(encode_selector(&s.name, &[], SignatureKind::Setter)),
+        ClassMember::Field(_) | ClassMember::Construct(_) | ClassMember::Variant(_) => None,
+    }
+}
 
+/// Returns `attr.accessor_collision` if `class` already carries a
+/// hand-written [`ClassMember::Method`]/[`ClassMember::Getter`]/
+/// [`ClassMember::Setter`] whose own derived selector
+/// ([`member_selector`]) exactly matches `derived_selector` (ADR-0012:
+/// selector is the sole dispatch key, no last-wins). Shared by every
+/// layout-derive attribute that can collide with a hand-written member
+/// (`@get`/`@set`, `@data`'s `==`/`hash`/`toString`/`with(...)`) — plan §3.2
+/// asks for one helper here, not N inline copies (`derive_construct`'s own
+/// inline construct-vs-construct check is a different member kind and stays
+/// as-is).
+fn check_selector_collision(class: &ClassDef, ctx: &mut ExpandCtx, derived_selector: &str, attr_name: &str) -> Result<(), CompilerError> {
+    if class_has_selector(class, ctx, derived_selector) {
+        return Err(CompilerError::Message(format!(
+            "attr.accessor_collision: `@{}` on class `{}` collides with a hand-written member of the same selector",
+            attr_name, class.name
+        )));
+    }
+    Ok(())
+}
+
+/// Returns `attr.accessor_collision` if `class` already carries a
+/// hand-written accessor of the given `base_name`/`kind`
+/// ([`check_selector_collision`] specialized to `@get`/`@set`'s
+/// getter/setter shape).
+fn check_accessor_collision(class: &ClassDef, ctx: &mut ExpandCtx, base_name: &str, kind: SignatureKind, attr_name: &str) -> Result<(), CompilerError> {
+    let derived_selector = encode_selector(base_name, &[], kind);
+    check_selector_collision(class, ctx, &derived_selector, attr_name)
+}
+
+/// Returns whether `class` already carries a member (of any kind
+/// [`member_selector`] recognizes) occupying `selector` exactly — a
+/// non-erroring existence probe, used where a missing member should be
+/// filled in silently rather than reported as a collision (`@data`'s
+/// no-op-if-already-present derives).
+fn class_has_selector(class: &ClassDef, ctx: &mut ExpandCtx, selector: &str) -> bool {
+    let sym = ctx.interner.intern(selector);
     for m in &class.members {
-        let existing_selector = match (m, kind) {
-            (ClassMember::Getter(g), SignatureKind::Getter) => {
-                Some(encode_selector(&g.name, &[], SignatureKind::Getter))
-            }
-            (ClassMember::Setter(s), SignatureKind::Setter) => {
-                Some(encode_selector(&s.name, &[], SignatureKind::Setter))
-            }
-            _ => None,
-        };
-        if let Some(existing_selector) = existing_selector {
-            if ctx.interner.intern(&existing_selector) == derived_sym {
-                return Err(CompilerError::Message(format!(
-                    "attr.accessor_collision: `@{}` on class `{}` collides with a hand-written accessor of the same selector",
-                    attr_name, class.name
-                )));
+        if let Some(existing) = member_selector(m) {
+            if ctx.interner.intern(&existing) == sym {
+                return true;
             }
         }
     }
-    Ok(())
+    false
 }
 
 /// Derives `Getter`/`Setter` members for every declared [`FieldDef`]
@@ -773,6 +886,464 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
         }
     }
     Ok(())
+}
+
+/// Builds the field-by-field `and`-folded structural equality expression for
+/// `@data`'s derived `==(other)` ([`derive_data`]): `self._f1 == other.f1 and
+/// self._f2 == other.f2 and ...`, using the AST's own [`BinaryOp::Equal`]/
+/// [`BinaryOp::And`] (`annotations-data.md`'s pseudocode names `and(_)` as a
+/// method send, but the compiler already lowers a native `BinaryOp::And` to
+/// the identical short-circuit jump sequence — `compiler::lib::expr` — so
+/// this reuses that node directly rather than hand-building a `MethodCall`).
+/// `other.<name>` reads through an ordinary [`GetPropertyExpr`] getter send,
+/// never a direct field peek — [`Expr::Field`] is always implicit-`self`, so
+/// there is no other way to read a sibling instance's declared field
+/// (`derive_data`'s own doc explains why every field gets an auto-derived
+/// getter when `==`/`hash` are generated). A field-less class (`@data` with
+/// no declared `FieldDef`s) returns a vacuous `true`.
+fn build_data_eq(fields: &[FieldDef], range: SourceRange) -> Expr {
+    let mut acc: Option<Expr> = None;
+    for f in fields {
+        let base_name = strip_leading_underscore(&f.name);
+        let field_read = Expr::Field { value: f.name.clone(), range };
+        let other_read = Expr::GetProperty(Box::new(GetPropertyExpr { object: Expr::Var { value: "other".to_string(), range }, property: base_name, range }));
+        let eq = Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Equal, left: field_read, right: other_read, range }));
+        acc = Some(match acc {
+            None => eq,
+            Some(left) => Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::And, left, right: eq, range })),
+        });
+    }
+    acc.unwrap_or(Expr::Boolean { value: true, range })
+}
+
+/// Builds `@data`'s derived `hash` getter body ([`derive_data`]): a
+/// left-folded polynomial hash-combine over every field's own `.hash`
+/// (`acc = acc * 31 + field.hash`), matching the equality/hash contract's
+/// consistency requirement (`a == b ⇒ a.hash == b.hash`,
+/// `docs/spec/v0.2/experimental/equality-and-hash.md`) since it reads the
+/// exact same fields `==` compares, in the exact same order.
+///
+/// `annotations-data.md`'s own pseudocode chains `.combine(...)` — no such
+/// primitive or `core.ph` method exists on HEAD, so this builds the
+/// equivalent arithmetic fold by hand instead (the Rubric's own fallback,
+/// same rationale as [`build_data_to_string`]'s `+`-chain over `StringInterp`).
+/// A field-less class returns a constant `0`.
+fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
+    let mut acc: Option<Expr> = None;
+    for f in fields {
+        let hash_read = Expr::GetProperty(Box::new(GetPropertyExpr { object: Expr::Field { value: f.name.clone(), range }, property: "hash".to_string(), range }));
+        acc = Some(match acc {
+            None => hash_read,
+            Some(left) => {
+                let scaled = Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Multiply, left, right: Expr::Number { value: 31.0, range }, range }));
+                Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left: scaled, right: hash_read, range }))
+            }
+        });
+    }
+    acc.unwrap_or(Expr::Number { value: 0.0, range })
+}
+
+/// Builds `@data`'s derived `toString` getter body ([`derive_data`]):
+/// `"ClassName(" + String.new(_f1) + ", " + String.new(_f2) + ... + ")"`.
+///
+/// Reuses the exact `String.new(expr)`-per-segment, `BinaryOp::Add`-joined
+/// shape `crate::parser::Parser::desugar_string_interp` (phalcom-ast) already
+/// produces for `\(expr)` string interpolation, hand-built rather than
+/// constructed through the parser's interpolation desugar directly — there is
+/// no `Expr::StringInterp` AST node to synthesize (interpolation desugars
+/// entirely at *parse* time into this same `+`-chain, so by the time this
+/// module ever sees an AST there is nothing left to reuse but the shape
+/// itself). This is the Rubric's own flagged fallback ("build the equivalent
+/// `+`-chain manually is safer/less coupled").
+fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRange) -> Expr {
+    let mut acc = Expr::String { value: format!("{}(", class_name), range };
+    for (i, f) in fields.iter().enumerate() {
+        if i > 0 {
+            acc = Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left: acc, right: Expr::String { value: ", ".to_string(), range }, range }));
+        }
+        let stringified = Expr::MethodCall(Box::new(MethodCallExpr {
+            object: Expr::Var { value: "String".to_string(), range },
+            method: "new".to_string(),
+            args: vec![Argument { label: None, expr: Expr::Field { value: f.name.clone(), range }, range }],
+            range,
+        }));
+        acc = Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left: acc, right: stringified, range }));
+    }
+    Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left: acc, right: Expr::String { value: ")".to_string(), range }, range }))
+}
+
+/// Builds `@data`'s derived `with(...)` method body ([`derive_data`]): one
+/// labeled parameter per non-defaulted field, each resolved via an
+/// `(param == None).ifTrue({ self.<field> }, ifFalse: { param })` conditional
+/// (see this function's body comment for why this diverges from
+/// `annotations-data.md`'s literal `<param>.orElse { self.<field> }`
+/// pseudocode) — a caller passes `None` for every field left unchanged, an
+/// ordinary raw value for every field being replaced; every label is still
+/// required at the call site, since keyword-argument omission is an ordinary
+/// different-selector dispatch miss under this language's selector-identity
+/// model, ADR-0012 — there is no partial-application sugar here. Allocates
+/// one new instance via the same derived `new` selector `@construct`/`@data`'s
+/// own constructor-derive produces. Shallow by construction: every field
+/// value (`self.<field>`/`<param>`) is copied by reference, never cloned
+/// (`annotations-data.md`'s explicit "standard functional-update semantics,
+/// not a deep clone").
+fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRange) -> Expr {
+    let args: Vec<Argument> = param_fields
+        .iter()
+        .map(|f| {
+            let pname = strip_leading_underscore(&f.name);
+            // `(param == None).ifTrue({ self.<field> }, ifFalse: { param })` —
+            // *not* `param.orElse { self.<field> }`, which
+            // `annotations-data.md`'s own pseudocode literally shows. That
+            // shape only compiles/works when `param` is already an `Option`
+            // (`Option#orElse` is defined nowhere else, `core.ph`) — but
+            // `with(...)`'s whole point is to accept a *raw* replacement
+            // value (`money.with(cents: 700, ...)`, not `Some(700)`), which
+            // has no `orElse` to send. This is the Rubric's own
+            // "build the equivalent manually" fallback (same rationale as
+            // `hash`/`toString` above): a plain identity comparison against
+            // the `None` singleton, dispatched through the sacred two-armed
+            // `ifTrue(_, ifFalse:_)` conditional every other derived/hand-
+            // written control-flow send in this codebase already uses.
+            let is_none = Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Equal,
+                left: Expr::Var { value: pname.clone(), range },
+                right: Expr::Var { value: "None".to_string(), range },
+                range,
+            }));
+            let fallback_block = Expr::Block(Box::new(BlockExpr {
+                params: Vec::new(),
+                body: vec![Statement::Expr { expr: Expr::Field { value: f.name.clone(), range }, range }],
+                expr_body: true,
+                range,
+            }));
+            let keep_block = Expr::Block(Box::new(BlockExpr {
+                params: Vec::new(),
+                body: vec![Statement::Expr { expr: Expr::Var { value: pname.clone(), range }, range }],
+                expr_body: true,
+                range,
+            }));
+            let resolved = Expr::MethodCall(Box::new(MethodCallExpr {
+                object: is_none,
+                method: "ifTrue".to_string(),
+                args: vec![Argument { label: None, expr: fallback_block, range }, Argument { label: Some("ifFalse".to_string()), expr: keep_block, range }],
+                range,
+            }));
+            Argument { label: Some(pname), expr: resolved, range }
+        })
+        .collect();
+    Expr::MethodCall(Box::new(MethodCallExpr {
+        object: Expr::Var { value: class_name.to_string(), range },
+        method: "new".to_string(),
+        args,
+        range,
+    }))
+}
+
+/// Derives `@data`'s generate-phase additions to `class` (U-ANNOT-LAYOUT
+/// §3.4, `annotations-data.md` §"`@data`"): the field-to-constructor derive
+/// (reused unchanged from [`derive_construct`], own-fields-only shape — the
+/// inheritance-aware F-fix, §3.3's separate build-order step, is
+/// deliberately not layered on here), then `==(other)`, `hash`, `toString`,
+/// and `with(...)`, in that order, appended to `class.members`.
+///
+/// # Constructor reuse
+///
+/// If `class.members` already carries a `Construct` member named `"new"` —
+/// whether hand-written or already derived earlier in this same expansion
+/// pass by a preceding `@construct` (attribute processing order in source is
+/// not fixed either way) — this step is skipped entirely rather than
+/// re-derived, avoiding a spurious self-collision (§3.4: "detect via 'a
+/// `ConstructDef` named `new` was already emitted earlier in this same
+/// expansion pass'").
+///
+/// # `==`/`hash` togetherness
+///
+/// `==`/`hash` are derived **together or not at all**
+/// (`docs/spec/v0.2/experimental/equality-and-hash.md`'s hash-consistency
+/// invariant: `a == b ⇒ a.hash == b.hash`, which a lone hand-written `==`
+/// paired with a derived `hash` — or vice versa — could silently violate). A
+/// class hand-writing exactly one of the two is `attr.accessor_collision`; a
+/// class hand-writing **both** is a silent no-op (hand-written wins, same
+/// "opt-in derive, hand-written wins on collision" precedent `@construct`
+/// already follows); a class hand-writing **neither** gets both derived.
+/// Deriving `==` also backfills a plain getter accessor for any field that
+/// doesn't already have one — `other.<name>` (`build_data_eq`) can only ever
+/// read a sibling instance's field through a real getter send, since
+/// [`Expr::Field`] is always implicit-`self` and there is no other
+/// field-read mechanism in this AST; a hand-written accessor of the same
+/// selector is reused as-is, never treated as a collision here (only
+/// `==`/`hash` carry the strict togetherness rule — this backfill is an
+/// implementation necessity, not a user-facing derived member of its own).
+///
+/// # `toString`/`with(...)`
+///
+/// Both are independently no-op-if-already-present (silently skipped, no
+/// error) — `annotations-data.md` states no explicit collision rule for
+/// these two, unlike `==`/`hash`, so the same "hand-written wins" precedent
+/// applies without an error. `with(...)` is omitted entirely for a
+/// field-less (or all-defaulted-fields) class, since a zero-parameter
+/// `with()` would carry no useful functional-update surface.
+///
+/// # Errors
+///
+/// Propagates [`derive_construct`]'s own `attr.accessor_collision` (a
+/// hand-written `construct` of a different selector than the derived `new`
+/// does **not** error — see that function's own doc), or returns
+/// `attr.accessor_collision` directly if `class` hand-writes exactly one of
+/// `==`/`hash`.
+fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRange) -> Result<(), CompilerError> {
+    let fields: Vec<FieldDef> = class
+        .members
+        .iter()
+        .filter_map(|m| match m {
+            ClassMember::Field(f) => Some(f.clone()),
+            _ => None,
+        })
+        .collect();
+
+    let has_new_construct = class.members.iter().any(|m| matches!(m, ClassMember::Construct(c) if c.name == "new"));
+    if !has_new_construct {
+        derive_construct(class, ctx, attr_range)?;
+    }
+
+    let eq_selector = encode_selector("==", &[None], SignatureKind::Method(1));
+    let hash_selector = make_signature_getter("hash");
+    let has_eq = class_has_selector(class, ctx, &eq_selector);
+    let has_hash = class_has_selector(class, ctx, &hash_selector);
+    if has_eq != has_hash {
+        return Err(CompilerError::Message(format!(
+            "attr.accessor_collision: `@data` on class `{}` requires `==`/`hash` to be derived together — a hand-written `{}` without the other is a collision",
+            class.name,
+            if has_eq { "==" } else { "hash" }
+        )));
+    }
+    if !has_eq {
+        for f in &fields {
+            let base_name = strip_leading_underscore(&f.name);
+            let getter_selector = make_signature_getter(&base_name);
+            if !class_has_selector(class, ctx, &getter_selector) {
+                class.members.push(ClassMember::Getter(GetterDef {
+                    name: base_name,
+                    body: vec![Statement::Expr { expr: Expr::Field { value: f.name.clone(), range: attr_range }, range: attr_range }],
+                    is_static: false,
+                    attributes: Vec::new(),
+                    range: attr_range,
+                }));
+            }
+        }
+
+        let eq_body = build_data_eq(&fields, attr_range);
+        class.members.push(ClassMember::Method(MethodDef {
+            name: "==".to_string(),
+            params: vec![ParameterDef { name: "other".to_string(), label: None, is_rest: false, range: attr_range }],
+            body: vec![Statement::Return(ReturnStatement { value: Some(eq_body), range: attr_range })],
+            is_static: false,
+            attributes: Vec::new(),
+            range: attr_range,
+        }));
+
+        let hash_body = build_data_hash(&fields, attr_range);
+        class.members.push(ClassMember::Getter(GetterDef {
+            name: "hash".to_string(),
+            body: vec![Statement::Return(ReturnStatement { value: Some(hash_body), range: attr_range })],
+            is_static: false,
+            attributes: Vec::new(),
+            range: attr_range,
+        }));
+    }
+
+    let to_string_selector = make_signature_getter("toString");
+    if !class_has_selector(class, ctx, &to_string_selector) {
+        let ts_body = build_data_to_string(&class.name, &fields, attr_range);
+        class.members.push(ClassMember::Getter(GetterDef {
+            name: "toString".to_string(),
+            body: vec![Statement::Return(ReturnStatement { value: Some(ts_body), range: attr_range })],
+            is_static: false,
+            attributes: Vec::new(),
+            range: attr_range,
+        }));
+    }
+
+    let param_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.default.is_none()).collect();
+    if !param_fields.is_empty() {
+        let with_labels: Vec<Option<String>> = param_fields.iter().map(|f| Some(strip_leading_underscore(&f.name))).collect();
+        let with_selector = encode_selector("with", &with_labels, SignatureKind::Method(param_fields.len() as u8));
+        if !class_has_selector(class, ctx, &with_selector) {
+            let with_body = build_data_with(&class.name, &param_fields, attr_range);
+            let with_params: Vec<ParameterDef> = param_fields
+                .iter()
+                .map(|f| {
+                    let pname = strip_leading_underscore(&f.name);
+                    ParameterDef { name: pname.clone(), label: Some(pname), is_rest: false, range: f.range }
+                })
+                .collect();
+            class.members.push(ClassMember::Method(MethodDef {
+                name: "with".to_string(),
+                params: with_params,
+                body: vec![Statement::Return(ReturnStatement { value: Some(with_body), range: attr_range })],
+                is_static: false,
+                attributes: Vec::new(),
+                range: attr_range,
+            }));
+        }
+    }
+
+    Ok(())
+}
+
+/// `encode_selector(base, &[], SignatureKind::Getter)` — a tiny naming
+/// shorthand used repeatedly by [`derive_data`] (a bare getter selector is
+/// just its own name; kept as a named helper purely for readability at each
+/// call site, not because the encoding is nontrivial).
+fn make_signature_getter(base: &str) -> String {
+    encode_selector(base, &[], SignatureKind::Getter)
+}
+
+/// Lower-cases the first character of `name` (e.g. `"Circle"` → `"circle"`),
+/// leaving the rest unchanged — the variant-name-to-keyword-label convention
+/// [`expand_variants`]'s generated `match(...)` visitor and `__matchArm`
+/// overrides use (`annotations-data.md`'s worked `Circle`/`Rect` example:
+/// `match(circle:, rect:)`). Byte-based (not full Unicode case-folding) —
+/// consistent with every other identifier-shaping helper in this module
+/// ([`strip_leading_underscore`]).
+fn lower_first(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Expands every `@variant Name(labels...)` arm declared in `class`'s body
+/// (U-ANNOT-LAYOUT §3.4, `annotations-data.md` §"`@variant`") into a sibling
+/// top-level `Statement::Class`, `extends class.name`, itself carrying
+/// `@data` and one `FieldDef` per label — then, once every arm is known,
+/// appends the enclosing class's generated `match(...)` visitor
+/// (`self.__matchArm(...)`, double-dispatched to each variant's own
+/// `__matchArm` override).
+///
+/// Returns the generated sibling [`Statement::Class`] nodes for the caller
+/// (`compiler::lib::class_decl::Compiler::compile_class`, DEC-ANNOT-G) to
+/// compile immediately after the enclosing class — this is the one place
+/// this tier's generate phase produces something other than a member of the
+/// class it's attached to, the load-bearing reason
+/// [`expand_class_attributes`]'s return type widened to include a
+/// `Vec<Statement>` alongside the (still member-only) `ClassDef` it returns.
+///
+/// Returns an empty `Vec` (no-op) if `class` declares no `@variant` arms at
+/// all.
+///
+/// # Errors
+///
+/// Returns a compile error if `class` declares one or more `@variant` arms
+/// but `has_sealed` is `false` — `@variant` is only meaningful inside a
+/// `@sealed` class body (`annotations-data.md`'s own worked example always
+/// pairs the two; `@sealed` is what lets the generated visitor be checked
+/// exhaustive at all, per that doc's `@sealed` section).
+fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Statement>, CompilerError> {
+    let variants: Vec<VariantDef> = class
+        .members
+        .iter()
+        .filter_map(|m| match m {
+            ClassMember::Variant(v) => Some(v.clone()),
+            _ => None,
+        })
+        .collect();
+    if variants.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !has_sealed {
+        return Err(CompilerError::Message(format!(
+            "attr.illegal_target: `@variant` requires its enclosing class `{}` to also carry `@sealed`",
+            class.name
+        )));
+    }
+
+    class.members.retain(|m| !matches!(m, ClassMember::Variant(_)));
+
+    let variant_kw_names: Vec<String> = variants.iter().map(|v| lower_first(&v.name)).collect();
+    let mut siblings = Vec::with_capacity(variants.len());
+
+    for v in &variants {
+        let mut members = Vec::with_capacity(v.labels.len() + 1);
+        for label in &v.labels {
+            members.push(ClassMember::Field(FieldDef {
+                name: format!("_{}", label),
+                mutable: true,
+                default: None,
+                attributes: Vec::new(),
+                range: v.range,
+            }));
+        }
+
+        // `__matchArm(k1, k2, ...) { return <ownKeyword>.call(self) }` — every
+        // variant implements the identical selector (same keyword-name list,
+        // positional, in `@variant` declaration order across the *whole*
+        // sealed family), overriding only which positional block it calls —
+        // the double-dispatch step the enclosing class's `match(...)` defers
+        // to.
+        let own_kw = lower_first(&v.name);
+        let params: Vec<ParameterDef> = variant_kw_names
+            .iter()
+            .map(|n| ParameterDef { name: n.clone(), label: None, is_rest: false, range: v.range })
+            .collect();
+        let call_expr = Expr::MethodCall(Box::new(MethodCallExpr {
+            object: Expr::Var { value: own_kw, range: v.range },
+            method: "call".to_string(),
+            args: vec![Argument { label: None, expr: Expr::SelfVar { range: v.range }, range: v.range }],
+            range: v.range,
+        }));
+        members.push(ClassMember::Method(MethodDef {
+            name: "__matchArm".to_string(),
+            params,
+            body: vec![Statement::Return(ReturnStatement { value: Some(call_expr), range: v.range })],
+            is_static: false,
+            attributes: Vec::new(),
+            range: v.range,
+        }));
+
+        siblings.push(Statement::Class(ClassDef {
+            name: v.name.clone(),
+            superclass: Some(SuperclassRef { name: class.name.clone(), range: v.range }),
+            members,
+            attributes: vec![Attribute { name: "data".to_string(), args: Vec::new(), range: v.range }],
+            invariants: Vec::new(),
+            range: v.range,
+        }));
+    }
+
+    // `match(k1:, k2:, ...) { return self.__matchArm(k1, k2, ...) }` on the
+    // enclosing sealed class — the keyword-argument list is exactly the
+    // declared `@variant` names, in declaration order (`annotations-data.md`:
+    // "exhaustiveness for free" — a call site omitting or misnaming an arm
+    // is an ordinary missing-keyword-argument dispatch miss, no new
+    // diagnostic needed).
+    let match_range = variants.first().expect("checked non-empty above").range;
+    let match_params: Vec<ParameterDef> = variant_kw_names
+        .iter()
+        .map(|n| ParameterDef { name: n.clone(), label: Some(n.clone()), is_rest: false, range: match_range })
+        .collect();
+    let arm_args: Vec<Argument> = variant_kw_names
+        .iter()
+        .map(|n| Argument { label: None, expr: Expr::Var { value: n.clone(), range: match_range }, range: match_range })
+        .collect();
+    let arm_call = Expr::MethodCall(Box::new(MethodCallExpr {
+        object: Expr::SelfVar { range: match_range },
+        method: "__matchArm".to_string(),
+        args: arm_args,
+        range: match_range,
+    }));
+    class.members.push(ClassMember::Method(MethodDef {
+        name: "match".to_string(),
+        params: match_params,
+        body: vec![Statement::Return(ReturnStatement { value: Some(arm_call), range: match_range })],
+        is_static: false,
+        attributes: Vec::new(),
+        range: match_range,
+    }));
+
+    Ok(siblings)
 }
 
 /// Walks `name`'s compile-time `extends` chain
@@ -894,15 +1465,55 @@ fn validate_attribute_class(class: &ClassDef, class_attrs: &[phalcom_ast::ast::A
     Ok(())
 }
 
+/// Expands every `@name(args…)` attribute attached to `class` or one of its
+/// members (U-ANNOT-CONTRACTS's core pass, grown by U-ANNOT-LAYOUT's `@get`/
+/// `@set`/`@construct`/`@data`/`@sealed`/`@variant` rows) into ordinary AST,
+/// returning the rewritten class alongside any sibling top-level statements
+/// its expansion produced.
+///
+/// # Return shape (DEC-ANNOT-G)
+///
+/// Returns `(ClassDef, Vec<Statement>)`, not a bare `ClassDef` — the one
+/// non-additive change U-ANNOT-LAYOUT makes to U-ANNOT-CONTRACTS's own
+/// landed shape (§3.4 "the one place this plan's stated 'strict dependency,
+/// not reshape' assumption needs a caveat"). The `Vec<Statement>` is always
+/// `Statement::Class` nodes generated by `expand_variants` (a private helper
+/// in this module) — every `@variant
+/// Name(labels...)` arm inside `class`'s body becomes a sibling top-level
+/// class, `extends class.name`, which this function cannot append to
+/// `class.members` itself (a variant is a sibling *global* class, not a
+/// member of the class that declares it). The caller
+/// (`compiler::lib::class_decl::Compiler::compile_class`) compiles each
+/// returned sibling immediately after `class` itself, via a recursive
+/// `compile_class` call — this keeps every generate-phase decision owned by
+/// this module, per DEC-ANNOT-G's recommendation (a), rather than leaking
+/// `@variant`-specific knowledge into `compiler::lib`. The returned `Vec` is
+/// empty for every class that declares no `@variant` arms (the overwhelming
+/// majority) — no behavioral change to any pre-existing caller's assumptions
+/// beyond destructuring the new tuple.
+///
+/// # Errors
+///
+/// Returns `attr.unknown`/`attr.illegal_target` for a misplaced or
+/// unrecognized attribute, `attr.accessor_collision` for a hand-written
+/// member colliding with a derived one (`@get`/`@set`/`@construct`/`@data`),
+/// `contract.impure_predicate` for an impure `@invariant` predicate, or any
+/// error a specific expander/derive raises (`derive_construct`,
+/// `derive_data`, `expand_variants`, `validate_attribute_class`).
 pub fn expand_class_attributes(
     mut class: ClassDef,
     ctx: &mut ExpandCtx,
     registry: &AttributeRegistry,
     is_attribute_class: bool,
-) -> Result<ClassDef, CompilerError> {
+) -> Result<(ClassDef, Vec<Statement>), CompilerError> {
     // 1. Expand class-level attributes
     let class_attrs = std::mem::take(&mut class.attributes);
     let mut class_invariants = std::mem::take(&mut class.invariants);
+    // U-ANNOT-LAYOUT §3.4: whether `class` itself carries `@sealed` — read
+    // before `class_attrs` is moved back into `class.attributes` below, and
+    // threaded into `expand_variants` (a `@variant` arm with no enclosing
+    // `@sealed` is a compile error, not a silent open hierarchy).
+    let has_sealed = class_attrs.iter().any(|a| a.name == "sealed");
     for attr in &class_attrs {
         if let Some(expander) = registry.get(&attr.name) {
             let legal = expander.legal_targets().contains(&Target::Class);
@@ -919,7 +1530,14 @@ pub fn expand_class_attributes(
                 }
             } else if attr.name == "construct" {
                 derive_construct(&mut class, ctx, attr.range)?;
+            } else if attr.name == "data" {
+                derive_data(&mut class, ctx, attr.range)?;
             }
+            // `@sealed`'s own bookkeeping (recording `class` + the compiling
+            // module in `VM::sealed_classes`) needs the compiling
+            // `Compiler`'s module handle, which this function has no access
+            // to — it runs from `compile_class` itself, right after this
+            // call returns (see that function's doc).
         } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name) {
             // M-ATTR-ROOT: an unrecognized name that resolves to a user
             // `Attribute` subclass is retained silently — its runtime
@@ -950,6 +1568,12 @@ pub fn expand_class_attributes(
     // member-level loop below consumes each Field's attributes.
     derive_accessors(&mut class, ctx)?;
 
+    // 1.6. Expand @variant arms into sibling top-level classes + the
+    // enclosing class's generated `match(...)` visitor — also before the
+    // member-level loop below, so a stripped `Variant` member never reaches
+    // it (U-ANNOT-LAYOUT §3.4, DEC-ANNOT-G).
+    let sibling_statements = expand_variants(&mut class, has_sealed)?;
+
     // 2. Expand member-level attributes
     for member in &mut class.members {
         let member_target = match member {
@@ -958,6 +1582,10 @@ pub fn expand_class_attributes(
             ClassMember::Setter(_) => Target::Setter,
             ClassMember::Construct(_) => Target::Construct,
             ClassMember::Field(_) => Target::Field,
+            // Unreachable in practice — `expand_variants` above (1.6) always
+            // strips every `Variant` member before this loop runs. Kept for
+            // match exhaustiveness over `ClassMember`'s full variant set.
+            ClassMember::Variant(_) => Target::Variant,
         };
 
         let attrs = match member {
@@ -966,6 +1594,7 @@ pub fn expand_class_attributes(
             ClassMember::Setter(s) => std::mem::take(&mut s.attributes),
             ClassMember::Construct(_) => Vec::new(),
             ClassMember::Field(f) => std::mem::take(&mut f.attributes),
+            ClassMember::Variant(v) => std::mem::take(&mut v.attributes),
         };
 
         for attr in &attrs {
@@ -993,6 +1622,7 @@ pub fn expand_class_attributes(
             ClassMember::Setter(s) => s.attributes = attrs,
             ClassMember::Construct(_) => {}
             ClassMember::Field(f) => f.attributes = attrs,
+            ClassMember::Variant(v) => v.attributes = attrs,
         }
     }
 
@@ -1024,7 +1654,7 @@ pub fn expand_class_attributes(
     }
 
     class.invariants = class_invariants;
-    Ok(class)
+    Ok((class, sibling_statements))
 }
 
 /// Builds `predicate.ifFalse { <error_class>.raise("<msg>") }` — the shared
