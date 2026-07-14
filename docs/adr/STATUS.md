@@ -13,6 +13,13 @@ verified, do not assume either way.
 
 Gap: **ADR-0034 does not exist** (no file in `docs/adr/`, numbering skips it).
 
+## Maintenance rules — binding on any edit to an ADR or this file
+
+1. **Two-way sync.** Flip an ADR's status line (Proposed→Accepted, Accepted→Retired, etc.) → flip its row here in the same edit pass. Flip a row here → flip the ADR file's own status line. Never let the two disagree after your edit — that mismatch is exactly the defect class this file exists to catch (see the 2026-07-14 rulings above).
+2. **Record every Shipped transition.** The moment you code-verify (or code-*un*verify) an ADR's implementation — grep, read, or a subagent's confirmed finding — update its Shipped cell immediately, with the evidence inline (file:line or commit), not just `✅`/`?`/`❌` bare. Don't defer this to a later sweep.
+3. **Record every Superseded/Retired relationship the moment it's ruled.** Update both ADRs: the retired one gets a dated callout + Status flip to Retired, the superseding one gets no special mark (it's just Accepted) but this table's Superseded-by column must name it. Do this in the same commit as the ruling — not as a follow-up.
+4. **Don't guess.** `✅` requires evidence you (or a prior pass this document accounts for) actually produced. Unverified stays `?`. Upgrading `?`→`✅` without checking the tree is the ADR-0024/0042 mistake in reverse.
+
 Regenerate the sweep with:
 ```sh
 cd docs/adr && for f in 0*.md; do grep -m1 -iE '^- Status:|^Status:|^## Status' "$f"; done
