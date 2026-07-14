@@ -77,8 +77,8 @@ The statement "committing to derive-macro semantics forecloses ever making
 `@` a Python-style runtime decorator hook without a second mechanism" is
 **amended to apply to the Compile/Layout tier only.** It is no longer a
 blanket statement over all of `@`. `decorators.md`'s Install/Dispatch/Runtime
-tiers are the permitted second mechanism this ADR admits — but they are
-**were** gated on, both now satisfied — **ratified 2026-07-13**:
+tiers are the permitted second mechanism this ADR admits, gated on two
+conditions — both now satisfied, **ratified 2026-07-13**:
 
 - **(a) Runtime-tier cost model — satisfied.** [ADR-0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
   closes the specific soundness/performance gap that was the substantive
@@ -127,19 +127,25 @@ struck or footnoted as historical rationale, not live justification.
 - The gate on Install/Dispatch/Runtime is now legible and finite: one item
   satisfied (ADR-0053), six named open questions remaining (A-1–A-6), rather
   than an open-ended "later" with no checklist.
-- **Negative / accepted.** The framework-tier documents that build on the
-  open tiers (`decorators-web.md`, `decorators-persistence.md`,
-  `decorators-stdlib.md`'s Install/Dispatch/Runtime sections, the vertical-
-  slice `Resource` example) remain explicitly unratified pending the same
-  gate — real, already-written design value stays parked until A-1–A-6
-  resolve.
+- **Corrected 2026-07-14.** The line above originally said the framework-tier
+  documents (`decorators-web.md`, `decorators-persistence.md`,
+  `decorators-stdlib.md`, the base `decorators.md` model doc, and
+  `attribute-classes.md`'s own status banner) remain unratified pending the
+  same gate. That was accurate when written but the gate (a)+(b) above
+  closed — the user has since ruled that ratification is **broad**: the
+  Install/Dispatch/Runtime *mechanism* (ADR-0053's cost model + A-1–A-5) is
+  ratified for any decorator built on it, not only the three named in §2.
+  These five documents were simply never edited to reflect that — their
+  `Proposed` banners are stale paperwork, not a live gate. Flipped to
+  `Accepted` alongside this correction; no new design work was required.
 
 ## What this precludes
 
 Nothing structurally new for the Compile/Layout tier — it was already fully
 specified; this ADR is a ratification, not a redesign. For Install/Dispatch/
-Runtime, this precludes treating `decorators.md` as ratified by implication
-— e.g., starting to build `Behavior.defineMethod`/`Method.invokeOn` against
-it, or shipping any user-facing `Attribute` subclass surface — before
-`attribute-classes.md`'s A-1–A-6 are resolved. That would be building
-production surface against an admittedly-gated draft.
+Runtime: A-1–A-5 are resolved (A-6 deferred to v0.3, non-blocking per §2(b)),
+so `decorators.md` **is** ratified, not merely mechanism-illustrated —
+`Behavior.defineMethod`/`Method.invokeOn` and a user-facing `Attribute`
+subclass surface may be built against it. What remains precluded is only
+A-6's per-instance-behavior question, which concerns a feature (per-object
+method dictionaries) that does not exist yet.

@@ -1,6 +1,7 @@
 # 37. Amend the frozen floor — admit `Error#message`/`Error#raise`
 
-- Status: Proposed
+- Status: Accepted (code-confirmed 2026-07-14 — `Error.new().raise()` and
+  `_message` wiring present throughout `core.ph`, per the U-CORE-6 comment)
 - Date: 2026-07-12
 - Related: [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (frozen
   floor, amended here); [ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md)

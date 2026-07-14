@@ -1,6 +1,8 @@
 # 28. Amend the frozen floor — admit the `Method` reflection surface
 
-- Status: Proposed
+- Status: Accepted (code-confirmed 2026-07-14 — `Object::BoundMethod`,
+  `method_selector`, and `Method#bind(_)` implemented in `primitive/block.rs`
+  and `primitive/method.rs`)
 - Date: 2026-07-12
 - Related: [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (frozen floor,
   amended here); [ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md)

@@ -1,6 +1,8 @@
 # Persistence / ORM decorators — `@entity`, `@column`, associations
 
-- Status: **Proposed** (experimental; not ratified — exploratory)
+- Status: **Accepted** (ratified 2026-07-14 — banner was stale; ratified under
+  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)'s
+  broad Install/Dispatch/Runtime ratification, 2026-07-13)
 - Date: 2026-07-12
 - Depends on:
   [decorators.md](decorators.md) (Compile tier for schema derive; Dispatch tier for lazy load) ·

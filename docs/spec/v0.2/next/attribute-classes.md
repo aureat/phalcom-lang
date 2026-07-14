@@ -1,6 +1,9 @@
 # Attribute classes — the decorator descriptor as an object
 
-- Status: **Proposed** (experimental; not ratified — exploratory). A-1–A-5 below
+- Status: **Accepted** (ratified 2026-07-14 — banner was stale; A-1–A-5 were
+  resolved inline 2026-07-13 per
+  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)
+  §2(b), A-6 deferred to v0.3 non-blocking). A-1–A-5 below
   were resolved in a 2026-07-13 design session (recorded inline); A-6 stays open,
   deferred to v0.3.
 - Date: 2026-07-12 (A-1–A-5 resolved 2026-07-13)

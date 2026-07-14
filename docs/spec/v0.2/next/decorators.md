@@ -1,6 +1,9 @@
 # Decorators (`@`) — the five-tier model
 
-- Status: **Proposed** (experimental; not ratified — exploratory)
+- Status: **Accepted** (ratified 2026-07-14 — banner was stale; the Install/
+  Dispatch/Runtime mechanism this doc introduces was already ratified under
+  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)
+  on 2026-07-13, this file's status line was simply never updated)
 - Date: 2026-07-12
 - Depends on: [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism, registry, phase pipeline)
 - Related:

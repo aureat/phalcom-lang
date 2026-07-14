@@ -1,6 +1,8 @@
-# NN. Amend the frozen floor — admit `Number#toString`
+# 36. Amend the frozen floor — admit `Number#toString`
 
-- Status: Proposed
+- Status: Accepted (code-confirmed 2026-07-14 — `number_to_string` implemented
+  at `primitive/number.rs:88`; the "NN" placeholder in this header was never
+  substituted with the correct file number until this pass)
 - Date: 2026-07-12
 - Related: [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (frozen
   floor, amended here); [ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md)

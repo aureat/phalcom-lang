@@ -1,6 +1,9 @@
 # 40. Add the `SuperSend` dispatch opcode for `super.sel(…)`
 
-- Status: Proposed
+- Status: Accepted (verified against the U-INH implementation 2026-07-14 —
+  `Bytecode::SuperSend` at `bytecode.rs:93`, dispatch handler at
+  `vm/dispatch.rs:643`, compiler lowering at `compiler/lib/scope.rs`/`expr.rs`;
+  matches this ADR's design exactly)
 - Date: 2026-07-12
 - Related: [ADR-0012](0012-label-encoded-selectors.md) (label-encoded selectors
   and IC-ready message-send dispatch — `SuperSend` is a sibling send opcode to
@@ -72,10 +75,15 @@ amended). Net delta: **+1 opcode, 0 floor primitives.**
   and explicit super-construct chaining (DEC-INH-C).
 - **Inline caching (DEC-INH-F):** `SuperSend` has a static per-call-site start
   class, so its cache key differs from a receiver-polymorphic `Invoke`. This
-  first cut is **uncached** (correct, simple). A later cached `SuperSend` must be
-  invalidated by the same `superclass=` (U15) / override-epoch bump
-  ([ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)) that
-  invalidates `Invoke` — flagged to U15/U16, not silently diverged.
+  first cut is **uncached** (correct, simple). **Note (2026-07-14):** the
+  original text here said a later cached `SuperSend` must invalidate on the
+  same `superclass=` bump as `Invoke`. That half is now moot —
+  [ADR-0026](0026-class-hierarchy-mutability.md)/[ADR-0041](0041-hierarchy-stability-policy.md)
+  sealed superclass reparenting (`superclass=` raises `RuntimeError::InvalidSetSuper`),
+  so there is no reparent event to invalidate against. A future cached
+  `SuperSend` still shares [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)'s
+  override-epoch bump (method redefinition, not hierarchy mutation) with
+  `Invoke` — flagged to U15/U16, not silently diverged.
 - No `Value` tag change and no selector-encoding change; the `Class`-bytecode
   stack contract is unchanged.
 
