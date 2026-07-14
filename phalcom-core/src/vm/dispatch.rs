@@ -410,10 +410,13 @@ impl VM {
             let ip = frame.ip;
             let stack_offset = frame.stack_offset;
 
-            let (opcode, source_range) = {
-                let chunk = &self.heap.closure(closure_id).callable.chunk;
-                (chunk.code[ip], chunk.spans[ip])
-            };
+            // Only `code[ip]` is read here. The parallel `spans[ip]` is needed by
+            // exactly two arms (`Invoke`, `SuperSend`, which pass it to
+            // `call_method`/`forward_does_not_understand` for the error path) and
+            // is re-read there, inside a borrow those arms already take — so the
+            // send path pays nothing for it and every other opcode stops paying a
+            // bounds-checked load it discards (perf-log S2).
+            let opcode = self.heap.closure(closure_id).callable.chunk.code[ip];
 
             // Per-opcode instrumentation is compiled out unless `vm-trace` is on. A runtime
             // filter is not enough: even with every subscriber at `LevelFilter::OFF`, leaving
@@ -732,6 +735,9 @@ impl VM {
                 Bytecode::SuperSend(argc, selector_idx, defining_idx) => {
                     let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
                     let defining_val = self.heap.closure(closure_id).callable.chunk.constants[defining_idx as usize];
+                    // Read here rather than in the loop head (S2) — this arm and
+                    // `Invoke` are the only consumers.
+                    let source_range = self.heap.closure(closure_id).callable.chunk.spans[ip];
                     let argc = argc as usize;
                     let selector_sym = selector_val.as_symbol().unwrap();
                     let defining_sym = defining_val.as_symbol().unwrap();
@@ -893,12 +899,15 @@ impl VM {
                     let receiver_class = receiver.class(self);
 
                     // Cache probe. `chunk` is a shared borrow; the `Cell` is what lets us
-                    // write back through it (U-IC §2.1).
-                    let cached = {
+                    // write back through it (U-IC §2.1). `spans[ip]` rides along in the
+                    // same borrow (S2): the loop head no longer reads it, and this arm
+                    // needs it for whichever `call_method` / dNU forward it reaches.
+                    let (cached, source_range) = {
                         let chunk = &self.heap.closure(closure_id).callable.chunk;
-                        chunk.caches[ip].get().filter(|slot| {
+                        let cached = chunk.caches[ip].get().filter(|slot| {
                             slot.class == receiver_class && slot.version == self.world_version
-                        }).map(|slot| slot.method)
+                        }).map(|slot| slot.method);
+                        (cached, chunk.spans[ip])
                     };
 
                     if let Some(method) = cached {

@@ -586,10 +586,14 @@ not a measurement** (law P1) — none may enter SCOREBOARD without an A/B:
   `Rc<Callable>` **once per frame** and holding it as a local — the `Rc` keeps the
   chunk alive independently of `self.heap`. Cut 004 already made that share cheap, so
   S1 is the payoff for work already paid for.
-- **S2 — drop `spans[ip]` from the hot path.** Re-derive from `(closure, ip)` on the
-  error path; the frame already carries both. *Est −3–8%.* Near-zero effort, no
-  semantic change — **do it first as an isolated A/B**, before S1 makes it
-  unmeasurable.
+- **S2 — drop `spans[ip]` from the hot path.** ~~*Est −3–8%.*~~ **LANDED `cut 006` *(SHA stamped next commit)* as
+  cut 006 — measured `for` −6.8%, method_call −5.6%, variadic_send −5.2%, skynet
+  −2.8% `user`, RSS unchanged.** The estimate held (measured band sits inside
+  −3–8%), and the advice to land it *first, as an isolated A/B* was right: it is now
+  banked at a known size before S1 makes it unmeasurable. The shipped shape is
+  cheaper than "re-derive on the error path" — `Invoke` reads `spans[ip]` inside the
+  borrow its IC probe **already** takes, so the send path pays nothing and every
+  non-send opcode simply stops loading a value it discarded.
 - **S3 — safepoint on back-edges + alloc sites only.** *Est −2–5%*, and it unblocks
   S1's hoisting (a per-opcode `&mut self` call is an optimization barrier).
 - **S4 — shrink `CallFrame` 96 B → ~32 B.** See [F15](#f15--value-is-2-wrens-and-objref-blocks-nan-boxing). *Est −5–10%* send-heavy.
