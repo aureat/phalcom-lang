@@ -62,6 +62,36 @@ for f in "$here"/*.ph; do
 done
 
 echo
+echo "==> bootstrap tripwire (whole-process ceiling ${BOOTSTRAP_CEILING_MS:-20} ms)"
+# H7 / F13. Bootstrap regressed 5ms -> 180ms (35x) and passed every gate this
+# harness had: the loop above only asks "did it run", the criterion benches
+# amortize bootstrap inside a ~0.9s program, and the wren-suite table is
+# single-run. A ceiling on `VM::new` is the one gate that would have caught it.
+# Best-of-3: the check must fail on a 35x regression, not on a scheduling blip.
+if bootstrap_ms="$(BIN="$bin" PH="$here/bootstrap.ph" python3 -c '
+import os, subprocess, time, sys
+best = min(
+    (lambda t0: (subprocess.run([os.environ["BIN"], os.environ["PH"]],
+                                capture_output=True), time.perf_counter() - t0)[1])(time.perf_counter())
+    for _ in range(3)
+)
+print(f"{best * 1000:.1f}")
+' 2>/dev/null)"; then
+  ceiling="${BOOTSTRAP_CEILING_MS:-20}"
+  if awk "BEGIN{exit !($bootstrap_ms > $ceiling)}"; then
+    echo "FAIL     bootstrap.ph  ${bootstrap_ms} ms  (ceiling ${ceiling} ms)"
+    echo "           | Bootstrap is VM::new re-compiling core.ph. A blowup here is a"
+    echo "           | COMPILER regression, not a VM one — profile the compiler first."
+    echo "           | perf-log findings F13; raise with BOOTSTRAP_CEILING_MS= if core.ph grew."
+    rc=1
+  else
+    echo "PASS     bootstrap.ph  ${bootstrap_ms} ms  (ceiling ${ceiling} ms)"
+  fi
+else
+  echo "SKIP     bootstrap.ph — python3 unavailable for timing"
+fi
+
+echo
 echo "==> Skynet (Phalcom, whole-process, wall-clock + peak RSS)"
 /usr/bin/time -l "$bin" "$repo/benchmarks/concurrency/skynet.ph"
 
