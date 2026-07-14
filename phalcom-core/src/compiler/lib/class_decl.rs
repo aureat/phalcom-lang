@@ -461,11 +461,11 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
-                    let method_obj = self.vm.heap.alloc(Object::Method(MethodObject::new_single(
+                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                         selector_sym,
                         sig_kind,
                         MethodKind::Closure(closure),
-                    )));
+                    ))));
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&method_def.attributes)?;
@@ -516,7 +516,7 @@ impl<'vm> Compiler<'vm> {
                         tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
                         let method_obj =
-                            self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure))));
+                            self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure)))));
 
                         if !strip_metadata {
                             let contracts = self.build_contracts_metadata(&getter_def.attributes)?;
@@ -546,7 +546,7 @@ impl<'vm> Compiler<'vm> {
                     tracing::debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
                     let method_obj =
-                        self.vm.heap.alloc(Object::Method(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure))));
+                        self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure)))));
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&setter_def.attributes)?;
@@ -594,11 +594,11 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling constructor: {}", selector);
 
-                    let method_obj = self.vm.heap.alloc(Object::Method(MethodObject::new_single(
+                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                         selector_sym,
                         SignatureKind::Initializer(arity as u8),
                         MethodKind::Closure(closure),
-                    )));
+                    ))));
 
                     let method_obj_idx = self.add_constant(Value::Obj(method_obj));
                     self.emit(Bytecode::Constant(method_obj_idx), range);

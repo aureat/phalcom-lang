@@ -133,7 +133,7 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
         Value::Obj(id) => id,
         _ => unreachable!("checked above"),
     });
-    Ok(vm.heap.alloc(Object::Fiber(fiber)))
+    Ok(vm.heap.alloc(Object::Fiber(Box::new(fiber))))
 }
 
 /// Signature: `Fiber.new(_)` — builds a new, not-yet-started fiber wrapping

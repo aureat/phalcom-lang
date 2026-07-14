@@ -171,11 +171,11 @@ impl<'vm> Compiler<'vm> {
             name_sym,
         };
 
-        let closure = self.vm.heap.alloc(Object::Closure(ClosureObject {
+        let closure = self.vm.heap.alloc(Object::Closure(Box::new(ClosureObject {
             callable,
             module: self.module,
             upvalues: Vec::new(),
-        }));
+        })));
         Ok(closure)
     }
 
@@ -208,11 +208,11 @@ impl<'vm> Compiler<'vm> {
             name_sym,
         };
 
-        let closure = self.vm.heap.alloc(Object::Closure(ClosureObject {
+        let closure = self.vm.heap.alloc(Object::Closure(Box::new(ClosureObject {
             callable,
             module: self.module,
             upvalues: Vec::new(),
-        }));
+        })));
 
         Ok(closure)
     }

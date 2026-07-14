@@ -248,7 +248,7 @@ impl VM {
         // ordering accepts).
         let module_sym = self.interner.intern(&logical_name);
         let module_obj = ModuleObject::new(logical_name.clone(), module_sym, canonical.clone(), None);
-        let module_id = self.heap.alloc(Object::Module(module_obj));
+        let module_id = self.heap.alloc(Object::Module(Box::new(module_obj)));
         self.universe.module_registry.insert(canonical.clone(), module_id);
 
         let source = fs::read_to_string(&canonical).map_err(|e| IoError::Message(format!("Failed to read file {canonical}: {e}")))?;

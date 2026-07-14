@@ -25,13 +25,24 @@ pub enum Object {
     /// A user-defined object with per-instance fields ([`InstanceObject`]).
     Instance(InstanceObject),
     /// A class or metaclass row in the tower ([`ClassObject`]).
-    Class(ClassObject),
+    ///
+    /// **Boxed.** `ClassObject` is the fattest payload (280 B measured); the
+    /// `SlotMap` sizes every slot to the fattest variant, so leaving it inline
+    /// would tax every `Str`/`Tuple`/`Instance` on the hot `Heap::get` path. See
+    /// [memory-management.md §7](../../../docs/spec/v0.2/memory-management.md).
+    Class(Box<ClassObject>),
     /// A method — primitive or bytecode closure ([`MethodObject`]).
-    Method(MethodObject),
+    ///
+    /// **Boxed** (88 B) — see [`Object::Class`].
+    Method(Box<MethodObject>),
     /// A loaded module and its global slots ([`ModuleObject`]).
-    Module(ModuleObject),
+    ///
+    /// **Boxed** (168 B) — see [`Object::Class`].
+    Module(Box<ModuleObject>),
     /// A compiled closure over a [`crate::callable::Callable`] ([`ClosureObject`]).
-    Closure(ClosureObject),
+    ///
+    /// **Boxed** (160 B) — see [`Object::Class`].
+    Closure(Box<ClosureObject>),
     /// An immutable interned-by-content string ([`StringObject`]).
     Str(StringObject),
     /// A first-class block closure ([`BlockObject`]).
@@ -54,21 +65,27 @@ pub enum Object {
     /// [`Object::List`] is — there is **no** `Value::Fiber` arm (ADR-0030 §2,
     /// forward-compat §7 D2). It owns its own value + call stacks so it can be
     /// suspended and resumed by an O(1) pointer swap of `vm.current`.
-    Fiber(FiberObject),
+    ///
+    /// **Boxed** (176 B) — see [`Object::Class`].
+    Fiber(Box<FiberObject>),
     /// A native, insertion-ordered hash map ([`MapObject`],
     /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
     /// Keyed by **Phalcom** `hash`+`==` (not Rust identity) — see
     /// the `heap::map` module doc. Mutable ⇒ inherits identity `Object#hash`, not a valid
     /// `Map`/`Set` key (Q5, collection-protocol law 4).
-    Map(MapObject),
+    ///
+    /// **Boxed** (72 B) — see [`Object::Class`].
+    Map(Box<MapObject>),
     /// A native hash set — a keys-only [`MapObject`] (DEC-CT-B): every
     /// [`Object::Set`] value shares [`MapObject`]'s backing struct with
     /// [`Object::Map`], the `.1` (value) slot of each entry always
     /// [`Value::Nil`] and unread by `Set`'s `.ph` protocol. A distinct heap
     /// variant (and distinct raw-primitive bindings) from `Map`, so
     /// `aSet.class == Set`, never `Map`.
-    Set(MapObject),
+    ///
+    /// **Boxed** (72 B) — see [`Object::Class`].
+    Set(Box<MapObject>),
     /// A native, fixed-arity immutable product ([`TupleObject`],
     /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).

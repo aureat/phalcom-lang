@@ -112,7 +112,7 @@ macro_rules! primitive {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
-        let method_id = $vm.heap.alloc(crate::heap::Object::Method(method));
+        let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         $vm.heap.class_mut($class).add_method(symbol, method_id);
     };
 }
@@ -126,7 +126,7 @@ macro_rules! primitive_static {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
-        let method_id = $vm.heap.alloc(crate::heap::Object::Method(method));
+        let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         let meta = $vm.heap.class($class).class;
         $vm.heap.class_mut(meta).add_method(symbol, method_id);
     };

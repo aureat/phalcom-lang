@@ -152,7 +152,7 @@ impl Universe {
             let sig_str = crate::method::encode_selector("ifTrue", &[None, Some("ifFalse".to_string())], SignatureKind::Method(2));
             let symbol = vm.get_or_intern(&sig_str);
             let method = MethodObject::new_primitive(symbol, SignatureKind::Method(2), bool_if_true_if_false, bool_cls);
-            let method_id = vm.heap.alloc(crate::heap::Object::Method(method));
+            let method_id = vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
             vm.heap.class_mut(bool_cls).add_method(symbol, method_id);
         }
         // Value digest (ADR-0023): 1 for `true`, 0 for `false` — distinct and
@@ -184,7 +184,7 @@ impl Universe {
             let sig_str = crate::method::encode_selector("match", &[Some("some".to_string()), Some("none".to_string())], SignatureKind::Method(2));
             let symbol = vm.get_or_intern(&sig_str);
             let method = MethodObject::new_primitive(symbol, SignatureKind::Method(2), option_match, option_cls);
-            let method_id = vm.heap.alloc(crate::heap::Object::Method(method));
+            let method_id = vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
             vm.heap.class_mut(option_cls).add_method(symbol, method_id);
         }
 

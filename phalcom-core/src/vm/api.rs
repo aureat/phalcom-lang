@@ -83,7 +83,7 @@ impl VM {
     pub fn create_module(&mut self, logical_name: &str, abs_path: &str) -> ObjRef {
         let module_sym = self.interner.intern(logical_name);
         let module = ModuleObject::new(logical_name.to_string(), module_sym, abs_path.to_string(), None);
-        let id = self.heap.alloc(Object::Module(module));
+        let id = self.heap.alloc(Object::Module(Box::new(module)));
         self.modules.insert(module_sym, id);
         id
     }

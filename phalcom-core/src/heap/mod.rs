@@ -102,7 +102,7 @@ impl Heap {
 
     /// Allocates a [`ClassObject`] and returns its [`ClassId`].
     pub fn alloc_class(&mut self, class: ClassObject) -> ClassId {
-        self.objects.insert(Object::Class(class))
+        self.objects.insert(Object::Class(Box::new(class)))
     }
 
     /// Allocates a [`StringObject`] from `value` and returns its [`ObjRef`].
@@ -117,12 +117,12 @@ impl Heap {
 
     /// Allocates an empty [`Object::Map`] and returns its [`ObjRef`].
     pub fn alloc_map(&mut self) -> ObjRef {
-        self.objects.insert(Object::Map(MapObject::new()))
+        self.objects.insert(Object::Map(Box::new(MapObject::new())))
     }
 
     /// Allocates an empty [`Object::Set`] and returns its [`ObjRef`].
     pub fn alloc_set(&mut self) -> ObjRef {
-        self.objects.insert(Object::Set(MapObject::new()))
+        self.objects.insert(Object::Set(Box::new(MapObject::new())))
     }
 
     /// Allocates an [`Object::Tuple`] from a fixed `elements` slice and

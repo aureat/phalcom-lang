@@ -19,7 +19,7 @@ impl VM {
         // live state is `VM::frames`/`stack`/`open_upvalues` from the start,
         // so this alloc is bookkeeping only, not a behavior change (D-FIB-4,
         // Phase 1 is a pure refactor).
-        let current = heap.alloc(Object::Fiber(crate::heap::FiberObject::root()));
+        let current = heap.alloc(Object::Fiber(Box::new(crate::heap::FiberObject::root())));
 
         let mut vm = Self {
             heap,

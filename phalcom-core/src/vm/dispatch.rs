@@ -428,7 +428,7 @@ impl VM {
                         upvalues.push(cell);
                     }
 
-                    let new_closure = self.heap.alloc(Object::Closure(ClosureObject { callable, module, upvalues }));
+                    let new_closure = self.heap.alloc(Object::Closure(Box::new(ClosureObject { callable, module, upvalues })));
                     let token = self.current_frame_token().expect("closure created inside a frame");
                     let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
                     self.stack.push(Value::Obj(block));
