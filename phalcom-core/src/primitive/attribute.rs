@@ -10,6 +10,7 @@ use crate::heap::Object;
 use crate::value::Value;
 use crate::vm::VM;
 
+// TODO: Can these methods be inlined wherever possible? Why call them and load frames?
 // TODO: Change mentions non-heap value, a different heap object to the specific type name of the found value
 
 /// Signature: `Object#__attach(_)` — appends `args[0]` (an `Attribute`
