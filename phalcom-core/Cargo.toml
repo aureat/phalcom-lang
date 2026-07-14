@@ -11,6 +11,20 @@ path = "bin/phalcom/main.rs"
 name = "gen-core-table"
 path = "bin/gen-core-table/main.rs"
 
+[features]
+default = []
+# Per-opcode `tracing` instrumentation in the VM dispatch loop (`vm/dispatch.rs`):
+# a `vm_opcode` span plus stack-state `debug!`s around every instruction.
+#
+# Off by default and compiled out entirely, because the cost is not avoidable at
+# runtime: with every subscriber filtered to `LevelFilter::OFF` the callsites still
+# cost a measured 18.2% of arith wall-clock (perf-log 003). Enable it to debug the
+# dispatch loop; do not enable it for benchmarking or release use.
+#
+# This gates only the dispatch loop. `tracing` stays a hard dependency: the compiler
+# and `vm/api.rs` instrument cold paths, where the same cost does not arise.
+vm-trace = []
+
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }

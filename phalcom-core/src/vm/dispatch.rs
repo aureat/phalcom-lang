@@ -11,6 +11,7 @@ use crate::heap::CORE_MODULE_NAME;
 use crate::heap::Upvalue;
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
+#[cfg(feature = "vm-trace")]
 use tracing::{debug, span, Level};
 
 use super::VM;
@@ -400,15 +401,24 @@ impl VM {
                 (chunk.code[ip], chunk.spans[ip])
             };
 
-            let span = span!(Level::DEBUG, "vm_opcode", opcode = ?opcode);
-            let _enter = span.enter();
-            debug!("Stack before: {:?}", self.stack);
+            // Per-opcode instrumentation is compiled out unless `vm-trace` is on. A runtime
+            // filter is not enough: even with every subscriber at `LevelFilter::OFF`, leaving
+            // these callsites in the loop costs a measured 18.2% of arith wall-clock, split
+            // evenly between the span and the `debug!`s (perf-log 003). The cost is the code
+            // the compiler must still emit per opcode, which no subscriber setting can remove.
+            #[cfg(feature = "vm-trace")]
+            let _opcode_span = {
+                let entered = span!(Level::DEBUG, "vm_opcode", opcode = ?opcode).entered();
+                debug!("Stack before: {:?}", self.stack);
+                entered
+            };
 
             self.frames.last_mut().unwrap().ip += 1;
 
             match opcode {
                 Bytecode::Constant(idx) => {
                     let constant = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    #[cfg(feature = "vm-trace")]
                     debug!("Pushing constant: {:?}", constant);
                     self.stack.push(constant);
                 }
@@ -979,6 +989,7 @@ impl VM {
                     }
                 }
             }
+            #[cfg(feature = "vm-trace")]
             debug!("Stack after opcode {:?}: {:?}", opcode, self.stack);
         }
     }
