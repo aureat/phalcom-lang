@@ -81,6 +81,21 @@ Full write-ups in [`findings.md`](findings.md):
   revival condition is refuted, the flag should be deleted, and while it exists its
   `fiber_pool: _` non-root classification holds only because one push site calls
   `.clear()`.
+- **F14** — **the dispatch loop re-derives every frame field on every opcode**: a 96 B
+  `CallFrame` copy, 2–3 SlotMap lookups, a `spans[ip]` load discarded on the happy
+  path, and a per-opcode safepoint. Wren hoists all of it into locals and reloads only
+  on call/return. **This, not method lookup, is where 174 ns/send vs Wren's ~47 ns
+  lives** — and it is why `run_until_inner` has held 33–35% of ticks across every cut.
+  Not a new lever: it **resizes lever 4** below.
+- **F15** — **`Value` is 16 B against Wren's NaN-boxed 8 B, and that 2.0× *is* skynet's
+  2.0× RSS** (a fiber is a stack of `Value`s) — superseding F7's arena framing; the
+  arena is fine at 40 B/slot. **NaN-boxing is blocked**: a NaN payload holds ~48–51
+  bits and `ObjRef` is a full 64 (`slotmap` `u32` index + `u32` version). Shrinking the
+  key first is a correctness review (version-wraparound), likely more work than the
+  boxing. `CallFrame` is 96 B against Wren's 24 B.
+- **F16** — **superinstructions: no, defer.** They would amortize F14's re-derivation
+  rather than fix it; H3 (no opcode histogram exists) makes the fusion pairs
+  unchoosable; and the F13 inliner already covers the classic arithmetic win.
 - **F9** — Tier 1's size held (18.2% measured vs 18.3% predicted) but **both**
   mechanisms were wrong: not a subscriber misconfiguration (−0.4%), and not the span
   (half the cost — the three `debug!`s are the other half). A fix dispatched from the
@@ -155,17 +170,36 @@ below is measured on a prototype, not hypothesized:
    guards against is reachable in **0 of 672** `.ph` files. See [F12](findings.md#f12--module-globals-are-a-siphash-probe-per-access-the-ic-does-not-cover-them).
 3. **Yield-adaptive GC threshold (F11).** **−10% skynet user, −10% fiber_churn, RSS
    better on both**, ~15 lines. Skynet is GC-bound and its collections free nothing.
-4. **U-HOTPATH Change 1 — hoist the chunk pointer out of the dispatch loop.** Not
-   optional and not a fresh candidate: cut 004 traded a per-instruction pointer hop
-   for a per-block-evaluation chunk copy and left a **measured +5–7% regression on
+4. **U-HOTPATH Change 1 — hoist the *frame* out of the dispatch loop.** Not optional
+   and not a fresh candidate: cut 004 traded a per-instruction pointer hop for a
+   per-block-evaluation chunk copy and left a **measured +5–7% regression on
    send-heavy programs** on the table. This is the half that pays it back.
+   **[F14](findings.md#f14--the-dispatch-loop-re-derives-every-frame-field-on-every-opcode)
+   resizes this item: it is not "a chunk pointer".** The loop re-derives the *whole*
+   frame every opcode — a 96 B copy, 2–3 SlotMap lookups, a discarded `spans[ip]` load,
+   a per-opcode safepoint — and that is where 174 ns/send vs Wren's ~47 ns lives. Sized
+   at *est* −30–45%/send (S1), with S2 (drop `spans[ip]`, *est* −3–8%) worth landing
+   **first** as an isolated A/B before S1 makes it unmeasurable. Estimates, not
+   measurements — law P1.
 5. **Cache variadic resolution in the IC (004).** A variadic hit never refills the
    IC, so every variadic call pays **two** full hierarchy walks. Change 2 removed
    the string work from that path and left both walks.
 6. **DEC-PRIM-B arithmetic fast path.** `call_method` is ~14% of `bare_send` ticks
    (arg-buffer build + frame setup); `Value::class` another ~4%.
-7. **Object density (F7).** 1.5 GB / 1.1M skynet fibers ≈ 1.4 KB each vs Wren's
-   ~0.6 KB. Unexercised since Win A.
+7. ~~**Object density (F7).**~~ **Reframed by [F15](findings.md#f15--value-is-2-wrens-and-objref-blocks-nan-boxing)
+   — this was never an arena question.** The arena is fine at 40 B/slot; the bytes are
+   in the fiber's two `Vec`s. At HEAD skynet is ~1.19 KB/fiber vs Wren's ~0.6 KB, and
+   **that 2.0× is `Value`'s 2.0×** (16 B vs Wren's NaN-boxed 8 B) — a fiber is a stack
+   of `Value`s. Split into the real ladder, all *estimates* (law P1):
+   - **Presize the two fiber `Vec`s — this is [F3](findings.md#f3--memmove-206-skynet-is-vec-growth-not-memtake)/H9,
+     ~10 lines, *est* −10–15% skynet `user`. Highest gain-per-effort item on the whole
+     list**, open since origin, never re-profiled after cuts 001–004.
+   - Box the fiber side tables (`BTreeMap` + `HashSet` sit inline in every
+     `FiberObject`, empty for ~every skynet fiber): shell 176 → ~104 B.
+   - `CallFrame` 96 → ~32 B (S4; Wren's is 24 B).
+   - `Value` 16 → 8 B: **blocked** — a NaN payload holds ~48–51 bits and `ObjRef` is a
+     full 64. Shrinking the key is a version-wraparound correctness review, likely more
+     work than the boxing. *Est* RSS 1.32 → ~0.85 GB (~1.3× Wren, **not** under it).
 
 ## Session ledger (2026-07-14)
 

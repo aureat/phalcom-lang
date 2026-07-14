@@ -499,3 +499,140 @@ The profiler named the span because the span is where the samples landed; the
 check — build one variant per suspect — and the check is what sized the fix.
 Corollary, already in the README's method: **no runtime filter can remove code.**
 `LevelFilter::OFF` was set the whole time and bought nothing; only `#[cfg]` did.
+
+## F14 — the dispatch loop re-derives every frame field on every opcode
+
+**Not a new lever — a resizing of README lever 4** ("U-HOTPATH Change 1 — hoist the
+chunk pointer out of the dispatch loop"), which has been on the list since cut
+[004](004-hotpath-rc-callable.md) left a measured **+5–7% send-path regression** to
+repay. F14's correction: the debt is not "a chunk pointer". It is the entire
+read-decode step, and the hoist is worth multiples of what lever 4 implies.
+
+Read [`vm/dispatch.rs:390–431`](../../../phalcom-core/src/vm/dispatch.rs). **Per
+opcode**, every iteration of `run_until_inner` does:
+
+| # | Work | Cost |
+|---|---|---|
+| 1 | `service_gc_safepoint()` | load + branch, **every opcode** |
+| 2 | `let frame = *self.frames.last().unwrap()` | **copies 96 B** (see [F15](#f15--value-is-2-wrens-and-objref-blocks-nan-boxing)) |
+| 3 | `self.heap.closure(closure_id)` | SlotMap lookup (bounds + generation + enum match) → `Rc` deref → `.chunk` |
+| 4 | `chunk.code[ip]` **and `chunk.spans[ip]`** | two bounds-checked loads; **the span is discarded on the happy path** |
+| 5 | `self.frames.last_mut().unwrap().ip += 1` | re-index `frames` |
+| 6 | arm body: `self.heap.closure(closure_id)` **again** | `Constant`, `Closure`, `Invoke` each redo #3 |
+
+Wren hoists `ip`, `stack`, `frame`, `fn->code` and `fn->constants` into C locals via
+`LOAD_FRAME()`/`STORE_FRAME()` and reloads them **only on call/return**. Phalcom
+re-derives all of it from `self` on every single opcode.
+
+**This — not method lookup — is where 174 ns/send vs Wren's ~47 ns lives.** U-IC
+(`f5e41f1`) already removed lookup from the top of the profile; §4a's remaining
+`call_method` 14% and `Value::class` 4% are small next to a per-opcode 96 B copy plus
+two-to-three SlotMap lookups. Consistent with §4a/§4d showing `run_until_inner` itself
+holding 33–35% of leaf ticks across every workload and every cut: **the loop's own
+overhead is the residue nothing has attacked yet.** A switch-dispatch loop collapses
+every arm into one frame, so `sample` has always attributed this cost to
+`run_until_inner` and could never name it — cf. [H3](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it).
+
+Candidate cuts, in gain-per-effort order. **Every Δ below is an engineering estimate,
+not a measurement** (law P1) — none may enter SCOREBOARD without an A/B:
+
+- **S1 — hoist the frame into loop locals.** Keep `ip`, `code`, `constants`,
+  `stack_offset` as locals; store back only on call/return/yield/error/safepoint.
+  Kills #2, #3, #5, #6. *Est −30–45%/send.* **Borrow friction is the design risk**:
+  `chunk` borrows `self.heap` while arms need `&mut self`. Resolves by cloning the
+  `Rc<Callable>` **once per frame** and holding it as a local — the `Rc` keeps the
+  chunk alive independently of `self.heap`. Cut 004 already made that share cheap, so
+  S1 is the payoff for work already paid for.
+- **S2 — drop `spans[ip]` from the hot path.** Re-derive from `(closure, ip)` on the
+  error path; the frame already carries both. *Est −3–8%.* Near-zero effort, no
+  semantic change — **do it first as an isolated A/B**, before S1 makes it
+  unmeasurable.
+- **S3 — safepoint on back-edges + alloc sites only.** *Est −2–5%*, and it unblocks
+  S1's hoisting (a per-opcode `&mut self` call is an optimization barrier).
+- **S4 — shrink `CallFrame` 96 B → ~32 B.** See [F15](#f15--value-is-2-wrens-and-objref-blocks-nan-boxing). *Est −5–10%* send-heavy.
+- **S6 — direct threading / computed goto: do not.** Rust has no computed goto;
+  `become` is unstable. LLVM already emits a jump table for the dense `match`.
+  Revisit only if S1–S4 re-measure leaves a gap worth the unsafety.
+
+**Stacked estimate: 174 → ~90–110 ns/send** (~2× Wren, not parity). That is the honest
+ceiling of loop surgery, and it does not reach Wren's dispatch cost.
+
+## F15 — `Value` is 2× Wren's, and `ObjRef` blocks NaN-boxing
+
+**Measured at HEAD (`39d9042`)** via a temporary `size_of` probe in
+`tests/invariants.rs` (run, recorded, reverted — not committed). Wren side read from
+the local source mirror at `~/dev/repos/wren`, not from memory:
+
+| | Phalcom | Wren | Ratio | Wren source |
+|---|---|---|---|---|
+| `Value` | **16 B** (tagged enum) | **8 B** | **2.0×** | `wren_value.h:123` `typedef uint64_t Value`; `wren_common.h:28` `WREN_NAN_TAGGING` defaults to **1** |
+| `CallFrame` | **96 B** | **24 B** | **4.0×** | `wren_value.h:283–296` — exactly 3 pointers (`ip`, `closure`, `stackStart`) |
+| `Bytecode` | **8 B** | 1 B + operands | **8×** | — |
+| `FiberObject` shell | **176 B** | — | — | — |
+| `ObjRef` | **8 B** (`Option<ObjRef>` also 8 B — niche) | — | — | — |
+| `Object` | 40 B | — | — | post-`7480d75`, cf. [F7](#f7--size_ofobject-grew-to-280-b-win-a-is-six-variants-not-the-driver) |
+
+**The 2.0× RSS ratio on skynet is `Value`'s 2.0×, and that is not a coincidence to be
+re-derived.** [SCOREBOARD §2](SCOREBOARD.md#2-memory--peak-rss-vs-wren) records skynet
+at 1.322 GB vs Wren's 0.667 GB = ~2.0×, and ~1.19 KB/fiber vs ~0.6 KB. A fiber *is*
+a stack of `Value`s. This supersedes [F7](#f7--size_ofobject-grew-to-280-b-win-a-is-six-variants-not-the-driver)'s
+framing of per-fiber density as an `Object`-arena question: the arena is 40 B/slot and
+fine; **the bytes are in the two `Vec`s.**
+
+**The blocker nobody had named.** NaN-boxing is deferred *behind the enum API* by
+[ADR-0010](../../adr/accepted/0010-tagged-value-enum.md), and `Value::as_obj` is
+documented as the GC's sole seam precisely so the rewrite touches one function
+([`value/mod.rs:37`](../../../phalcom-core/src/value/mod.rs)) — the runway is
+deliberately prepared. But a NaN payload holds ~48–51 bits, and **`ObjRef` is a full
+64** (`slotmap::new_key_type!` ⇒ `KeyData` = `u32` index + `u32` version). It does not
+fit. Wren gets away with 48 by boxing a **raw pointer** (`wren_value.h:848`:
+`SIGN_BIT | QNAN | (uint64_t)(uintptr_t)(obj)`); Phalcom's handle-arena
+([ADR-0009](../../adr/accepted/0009-handle-arena-heap.md)) deliberately is not a
+pointer.
+
+⇒ **NaN-boxing requires shrinking `ObjRef` to ≤48 bits first** (e.g. `u32` index +
+`u16` version), which means a custom key type and an audit of `slotmap`'s
+version-wraparound guarantee — the thing that makes a stale handle detectable rather
+than silently valid. **Estimate that precondition at more work than the boxing
+itself**, and note it puts a use-after-free-detection invariant on the table, so it is
+a correctness review, not just a perf cut.
+
+**Estimated, not measured** — the fiber-representation ladder:
+
+| Lever | Effect | Est |
+|---|---|---|
+| **Presize the two fiber `Vec`s** — this is **[F3](#f3--memmove-206-skynet-is-vec-growth-not-memtake)/[H9](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)**, still unexercised | `Vec::new()` + push ⇒ growth 4→8→16 = **two reallocs + two `memmove`s per fiber, 1.11M times**. The compiler knows each chunk's max stack depth | **−10–15% skynet `user`**, ~10 lines |
+| Box the fiber side tables | `BTreeMap open_upvalues` + `HashSet checking` sit **inline in every `FiberObject`** (~72 B of the 176 B shell) and are empty for essentially every skynet fiber. Fold to one `Option<Box<…>>` | shell **176 → ~104 B**; cheaper construct/drop/trace |
+| `CallFrame` 96 → ~32 B (**S4**) | `caller_source` is derivable (−16 B); `context` duplicates the receiver already at `stack[stack_offset]`, which is where Wren reads it (−16 B); `generation` → `u32`; `home_frame_token` only blocks need | `frames` `Vec` −65% |
+| `Value` 16 → 8 B | halves every `stack` `Vec` | RSS **1.32 → ~0.85 GB** (~1.3× Wren, **not** under it); `user` −10–20% |
+| Lazy stacks | no skynet gain (every fiber is called); real for `fiber_churn` | — |
+
+Combined est: **1.19 KB → ~0.5 KB/fiber**, `sys` below Wren's 0.10–0.12 s,
+**−25–35% skynet `user`**.
+
+**F3/H9 is the highest gain-per-effort item on this list and is ~10 lines.** It has
+been open since origin and was never re-profiled after cuts 001–004.
+
+## F16 — superinstructions are premature: no opcode histogram, and the inliner already covers the classic win
+
+Asked directly whether superinstructions would help. **No — defer**, three reasons in
+order of force:
+
+1. **They would pay for a bug, not a cost.** Superinstructions amortize dispatch
+   overhead across fused opcodes. Phalcom's per-opcode overhead *is* large — but
+   because of [F14](#f14--the-dispatch-loop-re-derives-every-frame-field-on-every-opcode)'s
+   re-derivation, not because dispatch is inherently expensive. Fusing opcodes to
+   amortize an artificially costly fetch buys a workaround for something S1 deletes.
+   **Do S1, then re-ask; the case may evaporate.**
+2. **The pairs cannot be chosen.** [H3](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)
+   is open: there is **no per-opcode histogram anywhere in the repo**, and H3's own
+   note says the honest instrument is a `bytecode-histogram` feature counting
+   executions (`sample` cannot do it — switch dispatch collapses every arm into one
+   frame). Picking fusions without one is guessing. **H3 is a prerequisite for the
+   question being answerable at all.**
+3. **Partly redundant already.** The sacred-selector inliner
+   ([F13](#f13--bootstrap-went-5-ms--180-ms-the-iftrue-inliner-is-exponential-in-nest-depth),
+   `0274f10`) is a stronger form of the same idea and is already in the tree. For
+   arithmetic — the classic superinstruction win — it likely covers the ground.
+
+Ranked **below** S1–S4 and below the fiber work. Revisit only with H3 data.
