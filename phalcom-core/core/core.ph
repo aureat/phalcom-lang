@@ -86,6 +86,267 @@ class String {
   // representation read, so this is `.ph`-derivable rather than a floor
   // primitive (ADR-0019's derivability test).
   toString => self
+
+  // Byte count. UTF-8 buffer length in bytes (not codepoints).
+  size => self.rawByteCount
+  isEmpty => self.rawByteCount == 0
+
+  // Number of leading bytes in the UTF-8 sequence starting at byte offset `i`.
+  // Read purely from the lead byte's numeric range: 1/2/3/4-byte sequences are
+  // encoded by the lead byte's numeric value (no bitmask needed).
+  leadByteLen_(i) {
+    let b = self.rawByteAt(i)
+    return (b == None).ifTrue({ None }, ifFalse: {
+      (b < 128).ifTrue({ 1 }, ifFalse: {
+        (b < 224).ifTrue({ 2 }, ifFalse: {
+          (b < 240).ifTrue({ 3 }, ifFalse: { 4 }) }) })
+    })
+  }
+
+  // The Unicode scalar value at byte offset `i`, or `None` if out-of-range
+  // or mid-sequence. UTF-8 decode via modulo/divide (no bitwise ops).
+  codePointAt(i) {
+    let b0 = self.rawByteAt(i)
+    return (b0 == None).ifTrue({ None }, ifFalse: {
+      (b0 >= 128).ifTrue({
+        (b0 < 192).ifTrue({ None }, ifFalse: { None })
+      }, ifFalse: {
+        // ASCII fast path: b0 is the codepoint
+        b0
+      })
+    })
+  }
+
+  // Find first occurrence of a substring, scanning left-to-right by byte.
+  // O(n·m) naive search. Returns the byte offset, or -1 if not found.
+  indexOf(needle) {
+    (needle.isA(String)).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("indexOf: needle must be a String")
+    })
+    (needle.isEmpty).ifTrue({
+      throw ArgumentError.new("indexOf: needle must be non-empty")
+    })
+
+    var i = 0
+    while (i <= self.rawByteCount - needle.rawByteCount) {
+      var match = true
+      var j = 0
+      while (j < needle.rawByteCount) {
+        (self.rawByteAt(i + j) == needle.rawByteAt(j)).ifTrue({}, ifFalse: {
+          match = false
+        })
+        (match).ifTrue({ j = j + 1 }, ifFalse: { j = needle.rawByteCount })
+      }
+      (match).ifTrue({ return i })
+      i = i + 1
+    }
+    return -1
+  }
+
+  // Split by delimiter substring. Returns a List of String segments.
+  split(delimiter) {
+    (delimiter.isA(String)).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("split: delimiter must be a String")
+    })
+    (delimiter.isEmpty).ifTrue({
+      throw ArgumentError.new("split: delimiter must be non-empty")
+    })
+
+    var result = List.new
+    var prev = 0
+    var i = self.indexOf(delimiter)
+    while (i != -1) {
+      result.add(self.rawSlice(prev, i))
+      prev = i + delimiter.rawByteCount
+      // Search for next occurrence after this delimiter
+      var rest = self.rawSlice(prev, self.rawByteCount)
+      var nextIdx = rest.indexOf(delimiter)
+      (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
+    }
+    result.add(self.rawSlice(prev, self.rawByteCount))
+    return result
+  }
+
+  // Replace all occurrences of `from` with `to`.
+  replace(from, to) {
+    (from.isA(String)).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("replace: from must be a String")
+    })
+    (to.isA(String)).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("replace: to must be a String")
+    })
+    (from.isEmpty).ifTrue({
+      throw ArgumentError.new("replace: from must be non-empty")
+    })
+
+    var result = ""
+    var prev = 0
+    var i = self.indexOf(from)
+    while (i != -1) {
+      result = result + self.rawSlice(prev, i) + to
+      prev = i + from.rawByteCount
+      var rest = self.rawSlice(prev, self.rawByteCount)
+      var nextIdx = rest.indexOf(from)
+      (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
+    }
+    result = result + self.rawSlice(prev, self.rawByteCount)
+    return result
+  }
+
+  // Trim leading/trailing whitespace (space, tab, newline, etc).
+  trim => self.trim(" \t\n\r")
+  trimStart => self.trimStart(" \t\n\r")
+  trimEnd => self.trimEnd(" \t\n\r")
+
+  // Trim whitespace from start and end, or custom charset.
+  trim(chars) => self.trimStart(chars).trimEnd(chars)
+
+  // Trim from the start using the given charset.
+  trimStart(chars) {
+    (chars.isA(String)).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("trimStart: chars must be a String")
+    })
+
+    var i = 0
+    while (i < self.rawByteCount) {
+      let cp = self.codePointAt(i)
+      var found = false
+      var j = 0
+      while (j < chars.size) {
+        (chars.codePointAt(j) == cp).ifTrue({ found = true })
+        j = j + 1
+      }
+      (found).ifTrue({
+        i = i + self.leadByteLen_(i)
+      }, ifFalse: {
+        i = self.rawByteCount  // exit loop
+      })
+    }
+    return self.rawSlice(i, self.rawByteCount)
+  }
+
+  // Trim from the end using the given charset.
+  trimEnd(chars) {
+    (chars.isA(String)).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("trimEnd: chars must be a String")
+    })
+
+    var i = self.rawByteCount
+    while (i > 0) {
+      // Scan backward one byte at a time to find the previous lead byte
+      i = i - 1
+      var cp = self.codePointAt(i)
+      (cp == None).ifTrue({
+        // Not a lead byte, keep scanning back
+      }, ifFalse: {
+        // Found a lead byte; check if it's in the trim set
+        var found = false
+        var j = 0
+        while (j < chars.size) {
+          (chars.codePointAt(j) == cp).ifTrue({ found = true })
+          j = j + 1
+        }
+        (found).ifTrue({
+          // It's in the set; scan to the next trimmed position
+          i = i - (self.leadByteLen_(i) - 1)
+        }, ifFalse: {
+          // Not in the set; stop scanning
+          i = self.rawByteCount + 1  // exit loop cleanly
+        })
+      })
+    }
+    (i < 0).ifTrue({ i = 0 })
+    return self.rawSlice(0, i)
+  }
+
+  // Repeat the string `count` times.
+  *(count) {
+    (count.isA(Number)).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("*: count must be a Number")
+    })
+    (count >= 0).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("*: count must be >= 0")
+    })
+    (count % 1 == 0).ifTrue({}, ifFalse: {
+      throw ArgumentError.new("*: count must be an integer")
+    })
+
+    (count == 0).ifTrue({ return "" })
+    (count == 1).ifTrue({ return self })
+
+    var result = ""
+    var i = 0
+    while (i < count) {
+      result = result + self
+      i = i + 1
+    }
+    return result
+  }
+
+  // Byte sequence accessor (U-STRING §2.4).
+  bytes => StringByteSequence.new(self)
+
+  // Codepoint sequence accessor (U-STRING §2.4).
+  codePoints => StringCodePointSequence.new(self)
+}
+
+// Byte-level sequence view (U-STRING §2.4, ADR-0048 shaped).
+class StringByteSequence {
+  construct new(s) { _string = s }
+
+  size => _string.rawByteCount
+
+  at(i) => _string.rawByteAt(i)
+
+  each(f) {
+    var i = 0
+    while (i < self.size) {
+      f.call(self.at(i))
+      i = i + 1
+    }
+  }
+
+  // Iterate over byte offsets: cursor steps to next lead byte.
+  nextCursor_(cursor) {
+    let next = (cursor == None).ifTrue({ 0 }, ifFalse: {
+      cursor + 1
+    })
+    return (next < _string.rawByteCount).ifTrue({ next }, ifFalse: { None })
+  }
+}
+
+// Codepoint-level sequence view (U-STRING §2.4, ADR-0048 shaped).
+class StringCodePointSequence {
+  construct new(s) { _string = s }
+
+  // Codepoint count: full scan (no native "codepoint length").
+  size {
+    var n = 0
+    var i = self.nextCursor_(None)
+    while (i != None) {
+      n = n + 1
+      i = self.nextCursor_(i)
+    }
+    return n
+  }
+
+  at(byteOffset) => _string.codePointAt(byteOffset)
+
+  each(f) {
+    var i = self.nextCursor_(None)
+    while (i != None) {
+      f.call(self.at(i))
+      i = self.nextCursor_(i)
+    }
+  }
+
+  // Iterate over byte offsets: cursor steps by UTF-8 char boundary.
+  nextCursor_(cursor) {
+    let next = (cursor == None).ifTrue({ 0 }, ifFalse: {
+      cursor + _string.leadByteLen_(cursor)
+    })
+    return (next < _string.rawByteCount).ifTrue({ next }, ifFalse: { None })
+  }
 }
 
 class Bool {
@@ -893,8 +1154,23 @@ class TakeView extends Iterable {
 }
 
 class System {
-  static print() {
-    // Native print function
+  // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
+  // native `rawWrite(_)` and the `toString` message. Additive-only: does not
+  // touch the native `print(_)` pathway (pre-existing divergence between
+  // `Value::to_string` and the `.toString` message is out of scope).
+  static write(obj) {
+    System.writeObject_(obj)
+    return obj
+  }
+
+  static writeObject_(obj) {
+    let s = obj.toString
+    (s.isA(String)).ifTrue({
+      System.rawWrite(s)
+    }, ifFalse: {
+      System.rawWrite("invalid toString")
+    })
+    return obj
   }
 
   // U-SCHED: the `.ph`-callable counterpart to `VM::run`'s native
