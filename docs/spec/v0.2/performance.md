@@ -204,7 +204,25 @@ These are the standing checks a reviewer verifies for any optimization unit.
   currently UNSPECIFIED (see §6) and are owed before the VM is exposed to untrusted
   bytecode.
 
-## 6. What stays open
+## 6. Feature flags (measured, gated behind Cargo features)
+
+Cargo features in `phalcom-core/Cargo.toml`, both off by default (`default = []`)
+so a plain build/release pays nothing:
+
+- **`vm-trace`** — the per-opcode `tracing` span + stack `debug!`s in the
+  dispatch loop (`vm/dispatch.rs`, Tier 1). Measured cost with every subscriber
+  at `LevelFilter::OFF`: 18.2% of arith wall-clock (perf-log 003) — not
+  avoidable at runtime without compiling the callsites out, hence the gate.
+  Enable only to debug the dispatch loop; never for benchmarking or release.
+- **`fiber-pool`** — recycles a finished fiber's `stack`/`frames` `Vec`s into a
+  bounded `VM::fiber_pool` free-list instead of allocating fresh ones per
+  `Fiber.new` (U-GC step 5, Tier 4's "pool fiber operand and frame `Vec`s
+  across fiber death"). Measured **net negative** in whole-process A/B
+  benchmarking (perf-log, 2026-07-14): pool bookkeeping cost exceeds the
+  allocations it avoids. Kept as a flag, off by default, so the experiment can
+  be re-run/re-measured later without reconstructing it.
+
+## 7. What stays open
 
 - **Resource caps are unspecified.** The concrete stack-depth / allocation /
   recursion limits (and the diagnostic each raises) are not yet defined; I6 states
