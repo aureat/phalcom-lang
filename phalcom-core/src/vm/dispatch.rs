@@ -1,6 +1,7 @@
 use crate::heap::BlockObject;
 use crate::value::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
+use crate::callable::Callable;
 use crate::heap::ClosureObject;
 use crate::diagnostics::{print_rt, SourceLoc};
 use crate::error::{PhError, PhResult, RuntimeError};
@@ -388,6 +389,18 @@ impl VM {
     /// Returns any [`RuntimeError`] raised during execution (undefined variable,
     /// method-not-found, unsupported operator, and so on).
     fn run_until_inner(&mut self, base_frames: usize) -> PhResult<Value> {
+        // The hoisted callable of the frame we are executing (F14 S1a, U-HOTPATH
+        // Change 1, resolution (a)). Refreshed by a one-compare guard below rather
+        // than re-derived from `self.heap` every instruction.
+        //
+        // Holding the `Rc` — not a `&Chunk` — is what makes this work: a borrow out
+        // of `self.heap` cannot live across the `&mut self` calls the arms make,
+        // whereas an `Rc` in a local keeps the `Callable` alive independently of the
+        // heap, so the arms keep full `&mut self`. Cut 004 made the `Callable`
+        // shared precisely so this hoist would need no `unsafe`; this is that
+        // payoff. Soundness rests on 004's invariant that a `Callable` is never
+        // mutated after construction.
+        let mut hoisted: Option<(ObjRef, Rc<Callable>)> = None;
         loop {
             if self.frames.len() <= base_frames {
                 // A drained frame stack with nothing left to yield means the
@@ -410,13 +423,39 @@ impl VM {
             let ip = frame.ip;
             let stack_offset = frame.stack_offset;
 
+            // One compare replaces a SlotMap lookup (bounds + generation + enum
+            // match) plus an `Rc` deref, per instruction (F14 S1a). The `Rc::clone`
+            // is per *frame change*, not per opcode — a refcount bump on call and
+            // return only, which is why this does not re-pay cut 004's per-instruction
+            // `Rc` hop.
+            //
+            // Guarding on `closure_id` alone is sound **because only the callable is
+            // hoisted, never `ip`**. A chunk is a property of the closure, so any
+            // path that reaches this point with the same `closure_id` — including a
+            // fiber switch, which swaps `self.frames` wholesale — is entitled to the
+            // same chunk. `ip` and `stack_offset` are still read from the live frame
+            // every iteration, so a switch into the *same* closure at a *different*
+            // `ip` reloads the correct `ip` and executes correctly.
+            //
+            // **Do not extend this guard to cover a hoisted `ip`.** That is the
+            // stale-across-fiber-switch bug U-HOTPATH §4 names as the one this unit
+            // could ship: two fibers in the same closure at different `ip`s compare
+            // equal here. Hoisting `ip` needs a frame-identity guard, not this one.
+            let callable = match &hoisted {
+                Some((id, callable)) if *id == closure_id => callable,
+                _ => {
+                    let callable = Rc::clone(&self.heap.closure(closure_id).callable);
+                    &hoisted.insert((closure_id, callable)).1
+                }
+            };
+
             // Only `code[ip]` is read here. The parallel `spans[ip]` is needed by
             // exactly two arms (`Invoke`, `SuperSend`, which pass it to
             // `call_method`/`forward_does_not_understand` for the error path) and
             // is re-read there, inside a borrow those arms already take — so the
             // send path pays nothing for it and every other opcode stops paying a
             // bounds-checked load it discards (perf-log S2).
-            let opcode = self.heap.closure(closure_id).callable.chunk.code[ip];
+            let opcode = callable.chunk.code[ip];
 
             // Per-opcode instrumentation is compiled out unless `vm-trace` is on. A runtime
             // filter is not enough: even with every subscriber at `LevelFilter::OFF`, leaving
@@ -444,7 +483,7 @@ impl VM {
 
             match opcode {
                 Bytecode::Constant(idx) => {
-                    let constant = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let constant = callable.chunk.constants[idx as usize];
                     #[cfg(feature = "vm-trace")]
                     debug!("Pushing constant: {:?}", constant);
                     self.stack.push(constant);
@@ -455,7 +494,7 @@ impl VM {
                     // upvalue cells are captured from the current activation per
                     // the callable's descriptors, then wrap it in a BlockObject
                     // stamped with the home frame token (ADR-0013, functions.md §2).
-                    let template = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let template = callable.chunk.constants[idx as usize];
                     let Value::Obj(template_id) = template else {
                         return Err(RuntimeError::Internal("Closure constant is not a closure".to_string()).into());
                     };
@@ -496,7 +535,7 @@ impl VM {
                     self.stack.pop();
                 }
                 Bytecode::DefineGlobal(idx) => {
-                    let name_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let name_val = callable.chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
                         let module_id = self.heap.closure(closure_id).module;
                         let value = *self.stack.last().unwrap();
@@ -505,7 +544,7 @@ impl VM {
                     }
                 }
                 Bytecode::GetGlobal(idx) => {
-                    let name_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let name_val = callable.chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
                         let module_id = self.heap.closure(closure_id).module;
                         let version = self.heap.module(module_id).globals_version;
@@ -515,7 +554,7 @@ impl VM {
                         // can have shadowed it). One integer compare replaces the
                         // SipHash probe — and the second, core-module probe that a
                         // kernel name would otherwise pay on every access.
-                        let cached = self.heap.closure(closure_id).callable.chunk.gcaches[ip].get();
+                        let cached = callable.chunk.gcaches[ip].get();
                         if let Some(hit) = cached
                             && hit.version == version
                             && let Some(value) = self.heap.module(hit.module).get_by_slot(hit.slot)
@@ -543,7 +582,7 @@ impl VM {
                             }
                         };
 
-                        self.heap.closure(closure_id).callable.chunk.gcaches[ip].set(Some(crate::chunk::GlobalCache {
+                        callable.chunk.gcaches[ip].set(Some(crate::chunk::GlobalCache {
                             module: resolved_module,
                             slot,
                             version,
@@ -558,7 +597,7 @@ impl VM {
                     }
                 }
                 Bytecode::SetGlobal(idx) => {
-                    let name_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let name_val = callable.chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
                         let module_id = self.heap.closure(closure_id).module;
                         let version = self.heap.module(module_id).globals_version;
@@ -567,13 +606,13 @@ impl VM {
                         // fallback: writing a kernel name the module never declared
                         // is an error, not a write into core. So a hit here always
                         // names this module's own slot.
-                        let cached = self.heap.closure(closure_id).callable.chunk.gcaches[ip].get();
+                        let cached = callable.chunk.gcaches[ip].get();
                         let slot = match cached {
                             Some(hit) if hit.version == version => Some(hit.slot),
                             _ => {
                                 let resolved = self.heap.module(module_id).slot_of(name_sym);
                                 if let Some(slot) = resolved {
-                                    self.heap.closure(closure_id).callable.chunk.gcaches[ip].set(Some(crate::chunk::GlobalCache {
+                                    callable.chunk.gcaches[ip].set(Some(crate::chunk::GlobalCache {
                                         module: module_id,
                                         slot,
                                         version,
@@ -613,7 +652,7 @@ impl VM {
                     }
                 }
                 Bytecode::Class(idx) => {
-                    let name_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let name_val = callable.chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
                         let name = self.resolve_symbol(name_sym).to_string();
                         let superclass = self.stack.pop().unwrap();
@@ -667,7 +706,7 @@ impl VM {
                     }
                 }
                 Bytecode::Import(idx) => {
-                    let path_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
+                    let path_val = callable.chunk.constants[idx as usize];
                     let Value::Symbol(path_sym) = path_val else {
                         return Err(RuntimeError::Internal("Import constant is not a Symbol".into()).into());
                     };
@@ -678,7 +717,7 @@ impl VM {
                     self.stack.push(Value::Obj(imported));
                 }
                 Bytecode::MakeFamily(name_idx) => {
-                    let name_val = self.heap.closure(closure_id).callable.chunk.constants[name_idx as usize];
+                    let name_val = callable.chunk.constants[name_idx as usize];
                     let recv = self.stack.pop().unwrap();
                     let Value::Symbol(sym) = name_val else {
                         return Err(RuntimeError::Internal("MakeFamily constant is not a Symbol".into()).into());
@@ -736,11 +775,11 @@ impl VM {
                     }
                 }
                 Bytecode::SuperSend(argc, selector_idx, defining_idx) => {
-                    let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
-                    let defining_val = self.heap.closure(closure_id).callable.chunk.constants[defining_idx as usize];
+                    let selector_val = callable.chunk.constants[selector_idx as usize];
+                    let defining_val = callable.chunk.constants[defining_idx as usize];
                     // Read here rather than in the loop head (S2) — this arm and
                     // `Invoke` are the only consumers.
-                    let source_range = self.heap.closure(closure_id).callable.chunk.spans[ip];
+                    let source_range = callable.chunk.spans[ip];
                     let argc = argc as usize;
                     let selector_sym = selector_val.as_symbol().unwrap();
                     let defining_sym = defining_val.as_symbol().unwrap();
@@ -789,7 +828,7 @@ impl VM {
                     }
                 }
                 Bytecode::Method(selector_idx, is_static) => {
-                    let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
+                    let selector_val = callable.chunk.constants[selector_idx as usize];
                     let selector = selector_val.as_symbol().unwrap();
                     let method_val = self.stack.pop().unwrap();
                     let class_val = *self.stack.last().unwrap();
@@ -906,7 +945,7 @@ impl VM {
                     // same borrow (S2): the loop head no longer reads it, and this arm
                     // needs it for whichever `call_method` / dNU forward it reaches.
                     let (cached, source_range) = {
-                        let chunk = &self.heap.closure(closure_id).callable.chunk;
+                        let chunk = &callable.chunk;
                         let cached = chunk.caches[ip].get().filter(|slot| {
                             slot.class == receiver_class && slot.version == self.world_version
                         }).map(|slot| slot.method);
@@ -916,14 +955,14 @@ impl VM {
                     if let Some(method) = cached {
                         self.call_method(&receiver, method, arity, source_range)?;
                     } else {
-                        let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
+                        let selector_val = callable.chunk.constants[selector_idx as usize];
                         let selector_sym = selector_val.as_symbol().unwrap();
 
                         if let Some(method) = receiver.lookup_method(self, selector_sym) {
                             // Refill. Both `receiver_class` and `world_version` are read
                             // AFTER the lookup on purpose — see U-IC §2.3 hazard 2.
                             let entry = crate::chunk::InlineCache { class: receiver_class, method, version: self.world_version };
-                            self.heap.closure(closure_id).callable.chunk.caches[ip].set(Some(entry));
+                            callable.chunk.caches[ip].set(Some(entry));
                             self.call_method(&receiver, method, arity, source_range)?;
                         } else {
                             // Exact-selector probe missed. The method-lookup.md §1

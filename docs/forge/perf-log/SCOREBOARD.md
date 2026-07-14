@@ -22,13 +22,18 @@
   drifted two commits reported the wrong *sign* once (HANDOFF §Traps).
 - A `~` prefix means derived (e.g. ns/send = mean ÷ send count), not directly timed.
 
-Current HEAD when last updated: **`45ffe76`** (2026-07-14).
+Current HEAD when last updated: **`cut 007` *(SHA stamped next commit)*** (2026-07-14).
 
-> **§1's suite table and §3b are one commit behind** (`2997d0b`, pre-F12); §2, §3a,
-> §3c and §5 are at `39d9042`. F12 moved `for` 0.729 → 0.69 s and `method_call`
-> 0.535 → 0.519 s in the post-landing verification run, but that run was not
-> best-of-5 — the table is re-run at the next cut rather than mixing instruments.
-> Skynet's §1 row **is** updated (best-of-3, `user`).
+> **§1 is current** — re-measured best-of-5 at `cut 007` *(SHA stamped next commit)* (post cuts 006 + 007), closing
+> hole H1's successor; it had been pinned at `2997d0b` (pre-F12) for three cuts. §2's
+> skynet/fiber_churn rows carry a second, post-007 line (`user` + RSS only — `sys` and
+> `real` were not captured on that run, and a cell nobody measured says so).
+>
+> **§3a (criterion) and §3b are now stale** — both predate cuts 006 + 007, which moved
+> every send row 10–22%. So **§3a's ~174 ns/send and §3b's ~268 ns/send are upper
+> bounds, not current**. §3b's `for`/`method_call`/`string_equals` rows can be re-derived
+> from §1 above (the ops counts are unchanged); §3a needs a `cargo bench` run. Marked
+> stale rather than deleted, per rule 4.
 
 ---
 
@@ -39,27 +44,40 @@ row is output-verified (Phalcom stdout diffed byte-for-byte against Wren's) —
 a row that computes the wrong answer is not a measurement and is not reported.
 
 Instrument: `REPS=5 benchmarks/vm/compare-wren.py` (best-of-5, output-verified,
-exits non-zero on any stdout mismatch). Measured at **`2997d0b` (HEAD)**, 2026-07-14.
+exits non-zero on any stdout mismatch). Measured at **`cut 007` *(SHA stamped next commit)* (HEAD)**, 2026-07-14 —
+post cuts 006 + 007. Skynet is not in `compare-wren.py`; its row is best-of-3 `user`
+under `/usr/bin/time -l`, same session.
 
-| Benchmark | Work | Wren | Phalcom (best) | **Slowdown** | At `debadfa` | At origin |
+| Benchmark | Work | Wren | Phalcom (best) | **Slowdown** | At `2997d0b` | At origin |
 |---|---|---|---|---|---|---|
-| `binary_trees_gc` | alloc + explicit GC | 0.552 s\* | 0.824 s | **1.5×**\* | 1.5×\* | 2×\* |
-| `fibers` | 100k chained fibers | 0.032 s | 0.122 s | **3.8×** | 4.0× | ~12× |
-| `binary_trees` | alloc-heavy tree | 0.176 s | 0.829 s | **4.7×** | 4.9× | 7.3× |
-| `fib` | fib(28) ×5, recursion | 0.173 s | 0.864 s | **5.0×** | 4.8× | 8.6× |
-| `map_numeric` | 2M map ops | 0.750 s | 3.913 s | **5.2×** | 4.5× | 5.9× |
-| `method_call` | 2M dispatch | 0.093 s | 0.535 s | **5.8×** | 5.7× | 8.2× |
-| `map_string` | ~193k-key string map | 0.099 s | 0.691 s | **7.0×** | 6.9× | 46× |
-| `string_equals` | 10M compares | 0.109 s | 1.107 s | **10.1×** | 10.0× | 17× |
-| `for` | 1M list build + sum | 0.053 s | 0.729 s | **13.7×** | 13.6× | ~144× |
-| **`skynet`** | **1.11M fibers, depth-6 ×10 fan-out** | **0.61 s `user`** | **1.79 s `user`** | **2.9×** | — | **~19–20×** |
+| `binary_trees_gc` | alloc + explicit GC | 0.566 s\* | 0.635 s | **1.1×**\* | 1.5×\* | 2×\* |
+| **`skynet`** | **1.11M fibers, depth-6 ×10 fan-out** | **0.61 s `user`** | **1.62 s `user`** | **2.7×** | 2.9× | **~19–20×** |
+| `fibers` | 100k chained fibers | 0.033 s | 0.108 s | **3.3×** | 3.8× | ~12× |
+| `binary_trees` | alloc-heavy tree | 0.175 s | 0.629 s | **3.6×** | 4.7× | 7.3× |
+| `fib` | fib(28) ×5, recursion | 0.177 s | 0.681 s | **3.9×** | 5.0× | 8.6× |
+| `map_numeric` | 2M map ops | 0.854 s | 3.409 s | **4.0×** | 5.2× | 5.9× |
+| `method_call` | 2M dispatch | 0.094 s | 0.436 s | **4.6×** | 5.8× | 8.2× |
+| `map_string` | ~193k-key string map | 0.109 s | 0.655 s | **6.0×** | 7.0× | 46× |
+| `string_equals` | 10M compares | 0.110 s | 0.888 s | **8.1×** | 10.1× | 17× |
+| `for` | 1M list build + sum | 0.054 s | 0.576 s | **10.7×** | 13.7× | ~144× |
 
 All 9 suite rows `ok` (stdout byte-identical to Wren's). \* `binary_trees_gc`'s Wren
 time includes `System.gc()` calls that Phalcom's port drops — not apples-to-apples.
 
-**Band: 1.5–13.7×, centre of mass ~5×.** `for` and `string_equals` are the tail.
+**Band: 1.1–10.7×, centre of mass ~4×** (was 1.5–13.7× / ~5× at `2997d0b`). `for` and
+`string_equals` are still the tail, and every row improved — cuts 006 + 007 are
+loop-overhead cuts, so they pay out across the whole suite rather than on one
+workload. **`for` fell out of the teens for the first time** (13.7× → 10.7×) and
+skynet is **2.7×**.
+
 The oral "~29× on Skynet" is **superseded** — never reproduced; measured origin was
-~19–20× (F1) and HEAD is **3.2×**.
+~19–20× (F1) and HEAD is **2.7×**.
+
+**Read the `map_numeric` row's Wren column, not just its ratio.** Wren moved 0.750 →
+0.854 s between the two sessions on the same machine; Phalcom moved 3.913 → 3.409 s.
+Part of that row's 5.2× → 4.0× is the **Wren side drifting**, not Phalcom improving.
+Every other row's Wren time is stable to ~2%, so only this one carries the caveat —
+the same trap the previous table logged in the opposite direction.
 
 **The `debadfa` column is not stale — verified, not assumed.** The obvious prediction
 (F13's +175 ms inflated that table, so HEAD should be ~24% better on a 0.73 s row) is
@@ -78,9 +96,12 @@ where allocation/paging effects hide, RSS is co-equal with time.
 | Workload | `real` | `user` | `sys` | **Peak RSS** |
 |---|---|---|---|---|
 | `skynet` — Phalcom | 2.01–2.72 s | **1.79–1.86 s** | 0.21–0.30 s | **1.322 GB** |
+| `skynet` — Phalcom, **post cuts 006+007** (`cut 007` *(SHA stamped next commit)*, best-of-3) | *not recorded* | **1.62 s** | *not recorded* | **1.192 GB** |
 | `skynet` — Wren | 0.72–0.75 s | **0.61–0.62 s** | 0.10–0.12 s | **0.667 GB** |
-| **`skynet` — ratio** | ~2.8× | **~2.9×** | ~2.1× | **~2.0×** |
+| **`skynet` — ratio** (at `2997d0b`) | ~2.8× | **~2.9×** | ~2.1× | **~2.0×** |
+| **`skynet` — ratio** (at `cut 007` *(SHA stamped next commit)*) | — | **~2.7×** | — | **~1.8×** |
 | `fiber_churn` (500k spawn→drop) — Phalcom | 0.26–0.27 s | **0.22 s** | 0.03 s | **264 MB** |
+| `fiber_churn` — Phalcom, post cuts 006+007 | — | **0.20 s** | — | **264 MB** |
 | `fiber_churn` — Wren | *not ported* (hole H4) | — | — | — |
 | `bootstrap` (`System.print(1)`) — Phalcom | 0.00 s | **0.00 s** (~5 ms) | 0.00 s | **6.8 MB** |
 
@@ -103,7 +124,19 @@ Derived density, at HEAD:
 
 | | Wren | Phalcom | Ratio |
 |---|---|---|---|
-| skynet, per fiber (1.11M fibers) | ~0.6 KB | **~1.19 KB** | **~2.0×** |
+| skynet, per fiber (1.11M fibers), at `2997d0b` | ~0.6 KB | **~1.19 KB** | **~2.0×** |
+| skynet, per fiber, post cuts 006+007 | ~0.6 KB | **~1.07 KB** | **~1.8×** |
+
+**The 1.8× row falsifies F15's identity claim as stated.** F15 reads the RSS ratio as
+*being* `Value`'s 2.0× ("a fiber is a stack of `Value`s… not a coincidence to be
+re-derived"). But cut 007 changed no representation — `Value` is still 16 B against
+Wren's 8 B, a fixed 2.0× — and the ratio moved to ~1.8× anyway. So the two are **not
+the same number**; `Value` sets a floor on fiber density, it does not determine peak
+RSS, which also carries GC scheduling and arena slack (**H14**). F15's *ladder* is
+untouched — halving `Value` is still the big lever — but "1.32 GB → ~0.85 GB" was
+derived from an identity that does not hold, so treat that estimate as softer than it
+reads. Caveat: this rests on the unattributed −6.9%; if H14 resolves as pure GC
+scheduling, the per-fiber *steady-state* may be unchanged and only the peak moved.
 
 `size_of::<Object>()` = **40 B** (was 280 B before cut 002 boxed six fat variants —
 F7). Fiber density is the open memory lever: `FiberObject` is 176 B *before* its two
@@ -342,6 +375,24 @@ same-session A/B unless noted.
 | **`39d9042`** | **F12 — per-callsite global-resolution cache, guarded by `ModuleObject.globals_version`** | **bare_send −17.9%**, arith_send −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, **skynet −7.7% `user`**, **fiber_churn −21.4%**, `for` −3.6% | unchanged (1.322 GB skynet, 264 MB fiber_churn) | none |
 | | | ⇒ per-send **~211 → ~174 ns**; skynet **2.9× Wren** — under 3× for the first time | | |
 | **`916be0a`** | **Cut 006 — F14 S2: drop `spans[ip]` from the dispatch loop's read-decode** | **`for` −6.8%**, **method_call −5.6%**, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, **skynet −2.8% `user`** (1.80 → 1.75 s) | unchanged (skynet 1.304 → 1.316 GB, within noise) | none |
+| `2679032` | H7 — bootstrap ceiling asserted in `run.sh` (fails >20 ms; measures **7.7 ms**) | *(harness only)* — closes H7 | — | none |
+| `5516504` | Pair histogram — statically-adjacent `(prev, cur)` counts | *(instrument only)* — retires F16 reason 2. `for`'s top fusion candidate `GetLocal -> Invoke` = **8.8%** of instructions retired | — | none |
+| **`cut 007` *(SHA stamped next commit)*** | **Cut 007 — F14 S1a: hoist the frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard** | **arith_send −22.3%**, **bare_send −16.7%**, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, **skynet −6.9% `user`** (1.74 → 1.62 s ⇒ **2.7× Wren**), fiber_churn −4.8% | **skynet 1.280 → 1.192 GB (−6.9%)** — unpredicted, unattributed (see below); fiber_churn unchanged | none |
+| | | ⇒ suite band **1.5–13.7× → 1.1–10.7×**, centre ~5× → **~4×**; `for` out of the teens (13.7× → 10.7×) | | |
+
+**Cut 007's RSS is not claimed as a memory win.** A dispatch hoist allocates nothing
+less, so −6.9% RSS has no mechanism on its face. The plausible story is that a faster
+loop shifts *when* safepoints land, and the yield-adaptive threshold (F11) grows
+`next_gc` from what a cycle reclaims — so a timing change moves the collection
+schedule and the peak. **That is a hypothesis; the −6.9% is a measurement** (3 of 3
+pairs, same session). Do not cite it as "the hoist saves memory" until someone A/Bs it
+with the GC policy pinned. Filed as **H14**.
+
+**Cut 007's variance discipline**: alternating same-session A/B, `REPS=5` (3 for
+skynet/fiber_churn), both binaries built before any timing, stdout byte-compared every
+run. **25 of 25 pairs negative** on the five send/loop rows; 3 of 3 on skynet and
+fiber_churn. All 9 wren-suite rows re-verified `ok` against Wren's stdout at this
+commit.
 
 **Cut 006's variance discipline** (H11's ask, recorded per-row): alternating
 same-session A/B, `REPS=5` per benchmark (3 for skynet), best-of-N on `user`, both
@@ -373,6 +424,7 @@ Ranked by how much they distort the numbers above.
 | **H13** | **No per-opcode *price*.** §3bb gives a mean over each program's mix, not the cost of `Invoke` vs `GetLocal`. **Still open** — and note this is *not* the opcode-**pair** gap, which was F16 reason 2 and is now retired (pair counter shipped; `GetLocal -> Invoke` is `for`'s top fusion at 8.8% of instructions). A handoff conflated the two | The histogram says `Invoke` is 13–25% of every hot program's mix but not what it costs. Sizing DEC-PRIM-B or the variadic-IC refill wants a price, not a share | Build a **differential**: two programs whose instruction counts differ by a known quantity of exactly one opcode, timed on a default build. The histogram makes the "known quantity" verifiable, which is what makes the subtraction sound. Least-squares over the 11 execution-bound rows is the cheaper alternative but is underdetermined at 35 opcodes — do not fit it and report the coefficients as prices |
 | **H4** | **No fiber-churn ÷ Wren row.** `fiber_churn.ph` has no `.wren` twin | It is the *only* Phalcom fiber row with no Wren ratio, and high-turnover is the workload F5/F10 turned on. §3b's ~560 ns/fiber has nothing to divide by | Port `fiber_churn.ph` → `fiber_churn.wren` (12 lines; `Fiber.new{}`/`.call()` exist in both). Then per-spawn ns = wall ÷ 500,000 both sides |
 | **H5** | **RSS is missing on all 9 wren-suite rows.** Only skynet/fiber_churn/bootstrap have it | Law: "a row without RSS is half a row." Cut 002 was nearly abandoned because RSS effects were invisible to the chosen instrument | `compare-wren.py` should shell `/usr/bin/time -l` and add peak-RSS + `sys` columns per row for both runtimes. **Partially closed**: skynet/fiber_churn/bootstrap now carry all four columns (§2) |
+| **H14** | **Cut 007's −6.9% skynet RSS (1.280 → 1.192 GB) is unattributed** | A dispatch hoist allocates nothing less, so the number has no mechanism on its face. If the cause is GC *scheduling* (a faster loop moves safepoints, and F11's yield-adaptive threshold sizes `next_gc` from reclaim yield), then **every wall-clock cut silently moves RSS**, and RSS deltas on this suite are not independent evidence — which would matter for reading cut 002's and 004's RSS rows too | A/B `5516504` vs cut 007 on skynet with the GC policy pinned (fixed `next_gc`, or `GC_GROW_FACTOR` forced constant). If RSS equalizes, it is scheduling; if it persists, something else moved. Same shape as H12 |
 | **H12** | **fiber_churn's −37% RSS (420 → 264 MB) is unattributed** | It is a large memory win nobody claimed. F13's constant explains its −39% `user`, but **not** the RSS | A/B `0274f10` vs `4f2eed8` on fiber_churn RSS. Suspect adaptive GC (F11 measured −15% there); if it is bigger than that, something else moved |
 | **H6** | **No CPython column.** BASELINE §1 records `not measured` deliberately (DEC-BENCH-B) | `performance.md` §3 makes CPython parity the intermediate checkpoint — currently unfalsifiable | Port `skynet.ph` → generators/`asyncio`, or nominate a different recursive/alloc microbenchmark as the checkpoint. Needs a ruling on which, not a silent pick |
 | ~~**H7**~~ | ~~Bootstrap has no tripwire in the harness~~ | **CLOSED (this commit).** `run.sh` now times `bootstrap.ph` whole-process (best-of-3) and fails over a **20 ms** ceiling, overridable via `BOOTSTRAP_CEILING_MS`. Measures **7.7 ms** at HEAD, so the ceiling sits ~2.6× above current and ~9× below F13's 180 ms — it catches a blowup without flaking on a scheduling blip. **Verified to fail, not just to pass**: at `BOOTSTRAP_CEILING_MS=1` the suite exits 1. The failure text points at the *compiler*, since that is what bootstrap prices (F17) | — |

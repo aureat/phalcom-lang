@@ -586,6 +586,31 @@ not a measurement** (law P1) — none may enter SCOREBOARD without an A/B:
   `Rc<Callable>` **once per frame** and holding it as a local — the `Rc` keeps the
   chunk alive independently of `self.heap`. Cut 004 already made that share cheap, so
   S1 is the payoff for work already paid for.
+
+  **S1a — the callable half — LANDED `cut 007` *(SHA stamped next commit)* as cut 007.** Measured **arith_send
+  −22.3%, bare_send −16.7%, `for` −12.9%, variadic_send −11.6%, method_call −10.5%,
+  skynet −6.9% `user`, fiber_churn −4.8%**; 25/25 pairs negative; all 9 wren-suite
+  outputs still byte-identical to Wren's. The borrow resolution was exactly the
+  spec's option (a) and needed **no `unsafe`**: hold the `Rc` in a local, and the
+  arms keep `&mut self` because the borrow is of the local, not of `self.heap`.
+  Kills #3 and #6 (the 19 per-arm `heap.closure(closure_id).callable.chunk`
+  re-derivations are now one guarded local).
+
+  **What is NOT done, and why the guard is the reason.** `ip` and `stack_offset` are
+  still read from the live frame every opcode (#2's 96 B copy, #5's re-index survive).
+  This is deliberate: the one-compare guard is on `closure_id`, and that is sound
+  **only** while the hoisted state is a pure function of the closure. A chunk is;
+  `ip` is not. **Two fibers suspended in the same closure at different `ip`s compare
+  equal under this guard** — hoisting `ip` behind it is precisely the
+  stale-across-fiber-switch bug U-HOTPATH §4 warns this unit could ship. The
+  remaining S1b (hoist `ip`) needs a **frame-identity** guard (the frame token /
+  generation already on `CallFrame`), not this one. Do not widen the guard's payload
+  without widening the guard.
+
+  **Remaining headroom is smaller than S1's original estimate implies.** S1 was sized
+  *est* −30–45%/send for #2+#3+#5+#6 together; S1a alone booked −10.5 to −22.3% and
+  took the two heap-chase items. What is left (a 96 B copy + a `Vec` re-index) is the
+  cheap half.
 - **S2 — drop `spans[ip]` from the hot path.** ~~*Est −3–8%.*~~ **LANDED `916be0a` as
   cut 006 — measured `for` −6.8%, method_call −5.6%, variadic_send −5.2%, skynet
   −2.8% `user`, RSS unchanged.** The estimate held (measured band sits inside
