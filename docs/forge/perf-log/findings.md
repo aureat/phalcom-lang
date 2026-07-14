@@ -673,7 +673,7 @@ a correctness review, not just a perf cut.
 
 | Lever | Effect | Est |
 |---|---|---|
-| **Presize the two fiber `Vec`s** — this is **[F3](#f3--memmove-206-skynet-is-vec-growth-not-memtake)/[H9](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)**, still unexercised | `Vec::new()` + push ⇒ growth 4→8→16 = **two reallocs + two `memmove`s per fiber, 1.11M times**. The compiler knows each chunk's max stack depth | **−10–15% skynet `user`**, ~10 lines |
+| ~~**Presize the two fiber `Vec`s** — F3/[H9](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)~~ | ~~growth 4→8→16 = two reallocs + two `memmove`s per fiber~~ **REFUTED — [F18](#f18--presizing-the-fiber-vecs-is-negative-and-f3h9s-memmove-lever-is-spent-206--30)**: `memmove` is 3.0% at HEAD (not 20.6%), and presizing measures **skynet +2.4% `user`**, **fiber_churn +20% / +121% RSS** | ~~−10–15% skynet~~ **negative; reverted** |
 | Box the fiber side tables | `BTreeMap open_upvalues` + `HashSet checking` sit **inline in every `FiberObject`** (~72 B of the 176 B shell) and are empty for essentially every skynet fiber. Fold to one `Option<Box<…>>` | shell **176 → ~104 B**; cheaper construct/drop/trace |
 | `CallFrame` 96 → ~32 B (**S4**) | `caller_source` is derivable (−16 B); `context` duplicates the receiver already at `stack[stack_offset]`, which is where Wren reads it (−16 B); `generation` → `u32`; `home_frame_token` only blocks need | `frames` `Vec` −65% |
 | `Value` 16 → 8 B | halves every `stack` `Vec` | RSS **1.32 → ~0.85 GB** (~1.3× Wren, **not** under it); `user` −10–20% |
@@ -684,6 +684,84 @@ Combined est: **1.19 KB → ~0.5 KB/fiber**, `sys` below Wren's 0.10–0.12 s,
 
 **F3/H9 is the highest gain-per-effort item on this list and is ~10 lines.** It has
 been open since origin and was never re-profiled after cuts 001–004.
+
+## F18 — presizing the fiber `Vec`s is negative, and F3/H9's memmove lever is spent (20.6% → 3.0%)
+
+**Closes [H9](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it). Refutes
+the README's "highest gain-per-effort item on the whole list" and
+[F15](#f15--value-is-2-wrens-and-objref-blocks-nan-boxing)'s *est* −10–15% ladder
+row.** Two independent nails, in the order they were driven.
+
+**Nail 1 — the re-profile H9 asked for, finally run** (`sample` skynet @ `5254586`,
+leaf frames, 677 listed ticks):
+
+| mechanism | ticks | share | at origin (F1) |
+|---|---|---|---|
+| `run_until_inner` | 264 | 39% | 27.7% |
+| `trace_object` (GC mark) | 107 | 16% | — |
+| `call_method` | 76 | 11% | 3.7% |
+| malloc/free family | ~96 | ~14% | 28.2% |
+| **`_platform_memmove`** | **20** | **~3.0%** | **20.6%** |
+| `Value::class` | 25 | 4% | — |
+
+**`memmove` fell from 20.6% to ~3.0%.** The *mechanism* is intact — the profile still
+shows `_platform_memmove` under `_realloc`, i.e. `Vec` growth, exactly as F3
+described. What changed is its **share**: cuts 001/002/004 plus U-GC rebuilt the
+allocation landscape around it. So the −10–15% estimate was never re-derived after the
+cuts that invalidated it — **which is precisely what H9 said, and why it was open.**
+The ceiling was ~3%, not 10–15%, before a line was written.
+
+**Nail 2 — built it anyway and measured** (`Vec::with_capacity(16)`/`(4)` in
+`FiberObject::new_entry`, the constant probe that kills F3's 4→8→16 growth; A/B vs
+`5254586`, best-of-3, output byte-identical):
+
+| workload | Δ `user` | Δ peak RSS | pairs |
+|---|---|---|---|
+| skynet | **+2.4%** | −5.6% | +++ |
+| `fiber_churn` | **+20.0%** | **+121.3%** (263 → 581 MB) | +++ |
+| `fibers` | **+12.5%** | **+23.2%** | +++ |
+
+**Negative on time across all three, catastrophic on memory under turnover.** Not
+landed; reverted.
+
+**The mechanism is F10's, exactly.** Presizing eagerly buys ~640 B per fiber
+(16 × 16 B stack + 4 × 96 B `CallFrame`) where growth previously fitted actual need —
+and a fiber shell outlives its run until the collector sweeps it. That is **the same
+"recycled capacity is retained per fiber, not reused" failure F10 measured at ~450 B/
+fiber (+72–86% RSS)**, arrived at from the opposite direction: F10 handed a shell a
+*pooled* buffer's capacity, this hands it a *presized* one. The shell does not care
+where the capacity came from.
+
+⇒ **Any per-fiber eager allocation is negative on this object model while shells are
+GC-lifetime.** That is now measured twice by two different mechanisms, and it is the
+generalization neither F5, F10 nor F3 stated: the problem was never the pool, and it
+is not the presize — **it is that a fiber shell outlives its run.** A future attempt
+needs to change *that* (shrink/release buffers at `Done`, before the sweep), not to
+pick a better initial capacity.
+
+**Why it is also *slower*, not just fatter**: two eager `malloc`s per fiber of larger
+blocks, against a growth path that for a short fiber may have allocated once or not at
+all — plus the page-fault cost of touching them (F10 saw the same `sys` inflation).
+skynet's −5.6% RSS is the lone non-negative cell and does not rescue it: skynet's
+fibers are all live, so presizing over-allocates uniformly rather than churning, and
+the GC schedule shifts (cf. **H14**).
+
+**Consequences:**
+- **README lever 7's "highest gain-per-effort item on the whole list, ~10 lines,
+  *est* −10–15%" is dead.** It was a live estimate resting on a stale profile for four
+  cuts. Delete it from the ranking, do not re-attempt it as written.
+- **F15's fiber ladder loses its top rung**, the one it called highest gain-per-effort.
+  The remaining rungs (box the side tables, `CallFrame` 96 → 32 B, `Value` 16 → 8 B)
+  are untouched by this — but note the ladder's top two entries have now *both* been
+  measured wrong (this one, and the RSS identity SCOREBOARD §2 corrects).
+- **`Callable.max_slots` exists**, so a *right-sized* presize (per-chunk, not a
+  constant 16) is buildable and would over-allocate less. **It does not rescue the
+  item**: the ceiling is memmove's ~3%, and the RSS mechanism is per-fiber retention,
+  which right-sizing reduces but does not remove. Not worth a unit at a ~3% ceiling.
+- **The estimate-vs-measurement gap is the lesson, again.** −10–15% *est* → +2.4%
+  measured on skynet is a sign error, not a magnitude error, and one `sample` run
+  (~2 minutes) predicted it before any code was written. F14's S1–S4 estimates are
+  the same species of number and none of them has been re-derived at HEAD either.
 
 ## F16 — superinstructions are premature: no opcode histogram, and the inliner already covers the classic win
 

@@ -30,6 +30,7 @@ recorded as a finding, not shipped.
 | Candidate | Result | Why | Ref |
 |-----------|--------|-----|-----|
 | Fiber-stack pool (U-GC "Win B") | **negative — flag kept, stays OFF, do not use** | Rebuilt behind the off-by-default `fiber-pool` feature after F5's revert. Re-measured against the high-turnover workload F5 asked for (`fiber_churn.ph`): **+72–86% peak RSS**, linear at ~450 B/fiber, and +37% `user` at 1M fibers. Worse, not neutral. Owner ruled the flag stays for reconstructability; reviving it needs a new mechanism, not a re-run | [findings F10](findings.md#f10--the-fiber-pool-is-not-neutral-it-is-negative--and-f5-measured-the-wrong-workload), [F5](findings.md#f5--fiber-stack-pool-implemented-measured-reverted-null-result), `ad4a215` |
+| **Presize the fiber `stack`/`frames` `Vec`s (F3/H9 "Win B"-adjacent)** | **negative — built, measured, reverted** | Was ranked *est* −10–15% skynet and "highest gain-per-effort item on the whole list". The re-profile H9 asked for shows `memmove` at **3.0%**, not origin's 20.6% — the estimate was four cuts stale. Built anyway: **skynet +2.4% `user`**, **fiber_churn +20% `user` / +121% RSS**, fibers +12.5% / +23.2%. Same mechanism as the fiber pool (F10) from the other direction — eager per-fiber capacity retained on a shell that outlives its run | [findings F18](findings.md#f18--presizing-the-fiber-vecs-is-negative-and-f3h9s-memmove-lever-is-spent-206--30) |
 | U-HOTPATH Change 3 (reorder `Value::class` arms) | dropped pre-landing | No measurable change; LLVM was already ordering the match | [004](004-hotpath-rc-callable.md) |
 | Escape-analysis of `Option` (`Some`) | not built — premise falsified | `List/Map.at` already zero-alloc (`None` singleton); discarded `Some` already elided | [findings F2](findings.md#f2--option-escape-optimization-premise-falsified) |
 
@@ -107,6 +108,15 @@ Full write-ups in [`findings.md`](findings.md):
   now exists — but it counts **single opcodes, not adjacent pairs**, and fusion
   selection needs pair frequencies. Extend `opcode_stats::record` to `(prev, cur)`
   (~10 lines) before re-asking. Reason 1 (do F14's S1 first) is load-bearing regardless.
+- **F18** — **presizing the fiber `Vec`s is negative, and F3/H9's memmove lever is
+  spent.** Closes H9: `memmove` is **3.0%** of skynet leaf ticks at HEAD, down from
+  20.6% at origin — mechanism intact (`_realloc` → `Vec` growth), share gone, so the
+  *est* −10–15% "highest gain-per-effort item" rested on a profile four cuts stale.
+  Built regardless: **skynet +2.4% `user`**, **fiber_churn +20% `user` / +121% RSS**.
+  It is **F10's failure from the opposite direction** — eager per-fiber capacity on a
+  shell that outlives its run. Generalization neither F5, F10 nor F3 reached: **any
+  per-fiber eager allocation is negative while shells are GC-lifetime; the lever is the
+  shell's lifetime, not the buffer's initial size.**
 - **F9** — Tier 1's size held (18.2% measured vs 18.3% predicted) but **both**
   mechanisms were wrong: not a subscriber misconfiguration (−0.4%), and not the span
   (half the cost — the three `debug!`s are the other half). A fix dispatched from the
@@ -217,9 +227,17 @@ below is measured on a prototype, not hypothesized:
    in the fiber's two `Vec`s. At HEAD skynet is ~1.19 KB/fiber vs Wren's ~0.6 KB, and
    **that 2.0× is `Value`'s 2.0×** (16 B vs Wren's NaN-boxed 8 B) — a fiber is a stack
    of `Value`s. Split into the real ladder, all *estimates* (law P1):
-   - **Presize the two fiber `Vec`s — this is [F3](findings.md#f3--memmove-206-skynet-is-vec-growth-not-memtake)/H9,
-     ~10 lines, *est* −10–15% skynet `user`. Highest gain-per-effort item on the whole
-     list**, open since origin, never re-profiled after cuts 001–004.
+   - ~~**Presize the two fiber `Vec`s — F3/H9, ~10 lines, *est* −10–15% skynet `user`.
+     Highest gain-per-effort item on the whole list.**~~ **REFUTED — measured negative,
+     do not re-attempt as written** ([F18](findings.md#f18--presizing-the-fiber-vecs-is-negative-and-f3h9s-memmove-lever-is-spent-206--30)).
+     Two nails: (1) the re-profile H9 asked for shows `memmove` at **3.0%**, not 20.6% —
+     the estimate rested on a profile four cuts stale, so the ceiling was ~3% before a
+     line was written; (2) built anyway, it costs **skynet +2.4% `user`**, **fiber_churn
+     +20% `user` / +121% RSS**. It is **F10's failure mode** from the opposite direction:
+     eager per-fiber capacity retained on a shell that outlives its run. The
+     generalization neither F5, F10 nor F3 stated — **any per-fiber eager allocation is
+     negative while shells are GC-lifetime; the problem is the shell's lifetime, not the
+     buffer's initial size.**
    - Box the fiber side tables (`BTreeMap` + `HashSet` sit inline in every
      `FiberObject`, empty for ~every skynet fiber): shell 176 → ~104 B.
    - `CallFrame` 96 → ~32 B (S4; Wren's is 24 B).
