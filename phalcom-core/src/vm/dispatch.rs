@@ -434,8 +434,11 @@ impl VM {
             // increment is exactly the per-opcode cost `vm-trace` was gated for.
             // Counts are deterministic, so the protocol is two runs: counts here,
             // wall-clock from a default build (`benchmarks/vm/opcode-cost.py`).
+            // `closure_id` and `ip` are what let the counter tell a *fusible* pair
+            // (static successor in the same chunk) from a mere execution-order
+            // neighbour across a call or back-edge — H13. `ip` is pre-increment.
             #[cfg(feature = "opcode-histogram")]
-            crate::opcode_stats::record(&opcode);
+            crate::opcode_stats::record(&opcode, closure_id, ip);
 
             self.frames.last_mut().unwrap().ip += 1;
 

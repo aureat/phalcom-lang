@@ -678,13 +678,38 @@ order of force:
    parenthetical (`sample` cannot do it — switch dispatch collapses every arm into
    one frame).
 
-   **But this reason survives, narrowed.** F17's histogram counts **single opcodes,
-   not adjacent pairs** — it reports that `Invoke` is 13–25% of every hot program's
-   mix, which does not say what `Invoke` *follows* or *precedes*. Superinstruction
-   selection needs **pair frequencies**, and picking fusions from a single-opcode
-   histogram is still guessing. The extension is small (record `(prev, cur)` instead
-   of `cur` in `opcode_stats::record`, ~10 lines) — do that before re-asking, not a
-   full re-derivation. Reason 1 is unaffected and remains the load-bearing one.
+   ~~**But this reason survives, narrowed.**~~ **RETIRED (this commit)** — the pair
+   counter is built (`opcode_stats::PAIRS`, `--features opcode-histogram`), so the
+   pairs **can** now be chosen. `for.ph`'s ranked candidates:
+
+   | fusion candidate | count | share of all instructions retired |
+   |---|---|---|
+   | `GetLocal -> Invoke` | 6,000,000 | **8.8%** |
+   | `Constant -> Invoke` | 3,000,001 | 4.4% |
+   | `GetSelf -> GetLocal` | 3,000,000 | 4.4% |
+   | `GetGlobal -> Invoke` | 2,000,050 | 2.9% |
+
+   **Only *statically adjacent* pairs are counted** — same closure, `ip == prev+1` —
+   because a fusion is a compile-time rewrite of two opcodes in one chunk's code
+   array. The opcode dynamically preceding a callee's first instruction is the
+   caller's `Invoke`, and the one before a loop body's first is the bottom `Loop`;
+   both are execution-adjacent and **unfusible**. A naive `(prev, cur)` counter would
+   have ranked exactly those non-candidates at the top. Self-check: the resulting
+   53.0M pairs over 68.0M instructions imply **15,000,011 control-flow transfers**,
+   which the single-opcode table independently derives (5M `Return` ⇒ 5M calls ⇒ 10M
+   transfers, + 2M `Loop` + 2M `Jump` + ~1M taken conditionals ≈ 15M). A wrong
+   adjacency predicate would not land on its own derivation.
+
+   **Reason 1 is unaffected and remains the load-bearing one**, so the verdict does
+   not change: still defer. The ceiling is now known rather than guessed — the best
+   single fusion removes **8.8%** of dispatches on `for`, against S1's *est* −30–45%
+   per send, and S1 may delete the motive entirely. Re-ask **after** S1, with these
+   counts re-taken at that commit.
+
+   *(Numbering: [SCOREBOARD](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)'s
+   **H13 is a different hole** — no per-opcode *price*, fillable only by a
+   differential — and is **still open**. A handoff conflated the two; pairs were never
+   H13. Do not read this row as closing it.)*
 3. **Partly redundant already.** The sacred-selector inliner
    ([F13](#f13--bootstrap-went-5-ms--180-ms-the-iftrue-inliner-is-exponential-in-nest-depth),
    `0274f10`) is a stronger form of the same idea and is already in the tree. For
