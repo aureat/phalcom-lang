@@ -45,3 +45,18 @@ One folder per implementation unit. A landed unit holds `as-built.md` (moved her
   realizes.
 - `<unit>/plan.md` — pre-implementation work order, for units not yet built.
 - `<unit>/handoff.md` — session-resume note for a specific unit, when one exists.
+- `<unit>/IMPL-SPEC-*.md` — corrective/prescriptive companion spec for remaining steps of a plan
+  already in progress, when re-grounding against HEAD found the original plan's framing wrong for
+  part of the work (e.g. `U-GC/IMPL-SPEC-steps-3-5.md`). Supersedes the named section(s) of
+  `plan.md`; does not replace it.
+
+## Performance / GC track (`§11` of `UNITS-TRACKER.md`)
+
+| Unit | Spec | Status |
+|---|---|---|
+| U-BENCH | [plan](U-BENCH/plan.md) | landed — Tier 0 Wren-suite reference programs; gates the rest of this track |
+| U-GC | [plan](U-GC/plan.md) · [impl spec steps 3–5](U-GC/IMPL-SPEC-steps-3-5.md) | steps 0–4 done, uncommitted; step 5 (fiber-stack pool re-measure) open |
+| U-PRIM-ABI | [plan](U-PRIM-ABI/plan.md) | not started |
+| U-IC | [plan](U-IC/plan.md) | not started |
+| U-HOTPATH | [plan](U-HOTPATH/plan.md) | not started |
+| U-COMPILE | [plan](U-COMPILE/plan.md) | not started |
