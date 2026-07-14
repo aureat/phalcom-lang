@@ -1,7 +1,7 @@
 //! Call frames and their receiver context.
 //!
 //! A [`CallFrame`] is a single method/closure activation. Because every link it
-//! holds is now a `Copy` handle ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md))
+//! holds is now a `Copy` handle ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md))
 //! the whole frame is `Copy`, so the VM keeps frames in a plain `Vec` with no
 //! `Rc<RefCell<T>>` and no borrow-panic surface.
 
@@ -11,7 +11,7 @@ use phalcom_common::range::SourceRange;
 
 /// A token identifying a particular call-frame activation.
 ///
-/// Realizes the frame-token infrastructure from [ADR-0013](../../docs/adr/0013-block-closure-upvalues.md).
+/// Realizes the frame-token infrastructure from [ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md).
 /// A token pairs a frame index with a monotonically-assigned generation so a
 /// block can later tell whether the activation it was created in is still the
 /// same live frame.
@@ -88,7 +88,7 @@ pub struct CallFrame {
     /// otherwise reachable from a live `CallFrame`, which only stores the
     /// `ClosureObject` handle). Ordinary method/closure calls leave this `None`;
     /// their `return` compiles to [`Bytecode::Return`](crate::bytecode::Bytecode::Return) and never reads it
-    /// ([ADR-0013](../../docs/adr/0013-block-closure-upvalues.md), blocks.md §5).
+    /// ([ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md), blocks.md §5).
     /// Because [`FrameToken`] is `Copy`, `Option<FrameToken>` keeps [`CallFrame`]
     /// `Copy`.
     pub home_frame_token: Option<FrameToken>,

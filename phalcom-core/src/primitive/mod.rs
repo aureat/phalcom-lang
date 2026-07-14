@@ -67,13 +67,13 @@ impl ClassName {
     /// class of the `true` immediate ([ADR-0004]). Distinct from
     /// [`ObjectName::True`], which is the lowercase value spelling `"true"`.
     ///
-    /// [ADR-0004]: ../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md
+    /// [ADR-0004]: ../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md
     pub const True: &'static str = "True";
     /// The `False` class — concrete singleton subclass of `Bool` and surface
     /// class of the `false` immediate ([ADR-0004]). Distinct from
     /// [`ObjectName::False`], which is the lowercase value spelling `"false"`.
     ///
-    /// [ADR-0004]: ../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md
+    /// [ADR-0004]: ../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md
     pub const False: &'static str = "False";
     pub const Number: &'static str = "Number";
     pub const String: &'static str = "String";
@@ -147,7 +147,7 @@ use crate::vm::VM;
 /// [`symbol_hash`](symbol::symbol_hash), [`bool_hash`](boolean::bool_hash)) so
 /// they all produce a comparable, `f64`-representable integer — the digest is
 /// masked to 53 bits so the `as f64` cast is lossless and round-trips
-/// (`object-model.md` §8; [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
+/// (`object-model.md` §8; [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
 pub(crate) fn hash_code(bits: u64) -> Value {
     // Mask to 53 bits so the cast is lossless and the value round-trips as f64.
     Value::Number((bits & 0x1F_FFFF_FFFF_FFFF) as f64)
@@ -205,7 +205,7 @@ pub(crate) fn expect_string(vm: &VM, value: &Value) -> PhResult<String> {
 /// Mirrors [`expect_list`]/[`expect_class`]: a reified method is a
 /// [`Value::Obj`] whose heap object is a
 /// [`crate::method::MethodObject`] (U-CORE-3,
-/// [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+/// [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
 ///
 /// # Errors
 ///
@@ -225,7 +225,7 @@ pub(crate) fn expect_method(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 ///
 /// Mirrors [`expect_string`]: a list is a [`Value::Obj`] whose heap object is
 /// a [`crate::heap::ListObject`]
-/// ([ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
+/// ([ADR-0020](../../../docs/adr/accepted/0020-kernel-list-native-array-protocol.md)).
 ///
 /// # Errors
 ///
@@ -245,7 +245,7 @@ pub(crate) fn expect_list(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 ///
 /// Mirrors [`expect_list`]: a map is a [`Value::Obj`] whose heap object is a
 /// [`crate::heap::MapObject`] behind [`crate::heap::Object::Map`]
-/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
 ///
@@ -265,7 +265,7 @@ pub(crate) fn expect_map(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 ///
 /// Mirrors [`expect_map`]: a set is a [`Value::Obj`] whose heap object is a
 /// [`crate::heap::MapObject`] behind [`crate::heap::Object::Set`]
-/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
 ///
@@ -285,7 +285,7 @@ pub(crate) fn expect_set(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 ///
 /// Mirrors [`expect_list`]: a tuple is a [`Value::Obj`] whose heap object is a
 /// [`crate::heap::TupleObject`] behind [`crate::heap::Object::Tuple`]
-/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
 ///
@@ -305,7 +305,7 @@ pub(crate) fn expect_tuple(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 ///
 /// Mirrors [`expect_tuple`]: a range is a [`Value::Obj`] whose heap object is
 /// a [`crate::heap::RangeObject`] behind [`crate::heap::Object::Range`]
-/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
 ///
 /// # Errors
 ///

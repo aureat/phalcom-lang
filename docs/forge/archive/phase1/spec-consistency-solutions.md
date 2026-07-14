@@ -30,7 +30,7 @@ what it covers, and is ratified by a new **ADR-0017**.
    References" to **"Symbols & Method References"** (selector *identity* proper now
    lives in `messages-and-selectors.md`, which `selectors.md` should defer to
    rather than re-declare — see B1).
-3. Create `docs/adr/0017-symbol-literals-method-references-and-attributes.md`
+3. Create `docs/adr/accepted/0017-symbol-literals-method-references-and-attributes.md`
    recording the `#`/`::`/`@` decisions, so "design-locked" is backed the same way
    every other resolved decision is. Change `selectors.md`'s status line from a
    bare "Decided (design-locked)" to `**Governing ADR:** ADR-0017`.

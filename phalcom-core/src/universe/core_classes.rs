@@ -8,7 +8,7 @@ impl Universe {
     /// Follows the seven-step order of `object-model.md` §6: allocate the 8
     /// apex rows bare, wire instance-of, wire instance-side superclasses, wire
     /// metaclass-side superclasses by the parallel rule
-    /// ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)),
+    /// ([ADR-0002](../../../docs/adr/accepted/0002-metaclass-tower-parallel-rule.md)),
     /// then create the remaining core classes through `make_core_class`.
     /// Step 7 (`verify_invariants`) is run by the caller ([`crate::vm::VM::new`]) once
     /// primitives are installed.
@@ -102,25 +102,26 @@ impl Universe {
         // positioned after the absence type per ADR-0020's load order
         // (`Bool, Option, Number, Symbol, String → List → …`) and before
         // anything that will depend on it (`Message.args`/rest-params, U8/U9).
-        let list_class = make_core_class(heap, "List", object_class, metaclass_class);
+        let iterable_class = make_core_class(heap, "Iterable", object_class, metaclass_class);
+        let list_class = make_core_class(heap, "List", iterable_class, metaclass_class);
 
         // Kernel `Map`/`Set` (ADR-0032 §1, ADR-0039, U-COLLTYPES): native heap
         // variants over the shared `MapObject` ordered-hash backing struct
         // (DEC-CT-B) — distinct `Object::Map`/`Object::Set` arms, distinct
         // classes, positioned directly after `List` (same "no field layout,
         // no `.ph` construct" load-order rationale as ADR-0020).
-        let map_class = make_core_class(heap, "Map", object_class, metaclass_class);
-        let set_class = make_core_class(heap, "Set", object_class, metaclass_class);
+        let map_class = make_core_class(heap, "Map", iterable_class, metaclass_class);
+        let set_class = make_core_class(heap, "Set", iterable_class, metaclass_class);
 
         // Kernel `Tuple` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a fixed
         // immutable slice — the opposite mutability corner from `List`/`Map`/
         // `Set` (Q5: immutable ⇒ value-hashable, a valid `Map`/`Set` key).
-        let tuple_class = make_core_class(heap, "Tuple", object_class, metaclass_class);
+        let tuple_class = make_core_class(heap, "Tuple", iterable_class, metaclass_class);
 
         // Kernel `Range` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a lazy
         // numeric interval, three bound fields, no element storage (RG-2).
         // Immutable ⇒ value-hashable, a valid `Map`/`Set` key (Q5).
-        let range_class = make_core_class(heap, "Range", object_class, metaclass_class);
+        let range_class = make_core_class(heap, "Range", iterable_class, metaclass_class);
 
         // Kernel `Message` (method-lookup.md §2, ADR-0012): the reified miss
         // send handed to `doesNotUnderstand(_:)`. An ordinary fixed-slot
@@ -178,6 +179,7 @@ impl Universe {
             some_class,
             none_class,
             none_singleton,
+            iterable_class,
             list_class,
             map_class,
             set_class,
@@ -197,7 +199,7 @@ impl Universe {
 ///
 /// The metaclass `"{name} class"` is an instance of `metaclass_class` with
 /// superclass `superclass.class` (the parallel rule,
-/// [ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)); the
+/// [ADR-0002](../../../docs/adr/accepted/0002-metaclass-tower-parallel-rule.md)); the
 /// class itself is an instance of that metaclass with the given
 /// `superclass`. `superclass` must already have its `class` link wired.
 fn make_core_class(heap: &mut Heap, name: &str, superclass: ClassId, metaclass_class: ClassId) -> ClassId {
@@ -224,7 +226,7 @@ pub struct CoreClasses {
     /// The root class, `Object`.
     pub object_class: ClassId,
     /// `Behavior`, the shared abstract superclass of `Class` and `Metaclass`
-    /// ([ADR-0003](../../../docs/adr/0003-introduce-behavior-kernel-class.md)).
+    /// ([ADR-0003](../../../docs/adr/accepted/0003-introduce-behavior-kernel-class.md)).
     pub behavior_class: ClassId,
     /// `Class`, the class of every ordinary class.
     pub class_class: ClassId,
@@ -237,18 +239,18 @@ pub struct CoreClasses {
     /// `Nil`.
     pub nil_class: ClassId,
     /// `Bool`, the abstract boolean superclass
-    /// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)). No value is ever a
+    /// ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)). No value is ever a
     /// direct instance of it; it holds the six sacred control-flow primitives
     /// that [`Self::true_class`]/[`Self::false_class`] inherit.
     pub bool_class: ClassId,
     /// `True`, the concrete singleton subclass of [`Self::bool_class`] whose sole
     /// inhabitant is the `true` immediate
-    /// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)). Selected by
+    /// ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)). Selected by
     /// [`Value::class`](crate::value::Value::class), so `true.class == True`.
     pub true_class: ClassId,
     /// `False`, the concrete singleton subclass of [`Self::bool_class`] whose sole
     /// inhabitant is the `false` immediate
-    /// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)). Selected by
+    /// ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)). Selected by
     /// [`Value::class`](crate::value::Value::class), so `false.class == False`.
     pub false_class: ClassId,
     /// `Method`.
@@ -264,7 +266,7 @@ pub struct CoreClasses {
     /// `System`.
     pub system_class: ClassId,
     /// `Option`, the abstract absence type
-    /// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)); superclass of
+    /// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)); superclass of
     /// `Some` and `None`, and holder of the `match(some:none:)` eliminator.
     pub option_class: ClassId,
     /// `Some`, the present-value `Option` subclass (one field, `_value`).
@@ -275,19 +277,21 @@ pub struct CoreClasses {
     /// The single shared `None` object (an instance of [`Self::none_class`]).
     ///
     /// Reused for every surfaced absence so `None` is identity-comparable and
-    /// zero-allocation ([ADR-0007](../../../docs/adr/0007-option-some-none.md));
+    /// zero-allocation ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md));
     /// [`sentinel_to_option`](crate::value::sentinel_to_option) hands back a
     /// [`Value::Obj`](crate::value::Value::Obj) over this handle, and the `None`
     /// global (`VM::install_core`) is bound to it.
     pub none_singleton: ObjRef,
+    /// `Iterable`, the kernel iterable root (ADR-0048).
+    pub iterable_class: ClassId,
     /// `List`, the native array-backed kernel list
-    /// ([ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
+    /// ([ADR-0020](../../../docs/adr/accepted/0020-kernel-list-native-array-protocol.md)).
     /// A dedicated [`crate::heap::Object::List`] heap variant, not an
     /// `InstanceObject` — see [`crate::heap::ListObject`].
     pub list_class: ClassId,
     /// `Map`, the native insertion-ordered hash map
-    /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
-    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
     /// A dedicated [`crate::heap::Object::Map`] heap variant over
     /// [`crate::heap::MapObject`] — mutable, so it inherits identity
     /// `Object#hash` and is not a valid `Map`/`Set` key (Q5).
@@ -297,15 +301,15 @@ pub struct CoreClasses {
     /// through the distinct [`crate::heap::Object::Set`] heap variant.
     pub set_class: ClassId,
     /// `Tuple`, the native fixed-arity immutable product
-    /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
-    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
     /// A dedicated [`crate::heap::Object::Tuple`] heap variant over
     /// [`crate::heap::TupleObject`] — immutable, so it value-hashes and is a
     /// valid `Map`/`Set` key (Q5).
     pub tuple_class: ClassId,
     /// `Range`, the native lazy numeric interval
-    /// ([ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
-    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
     /// A dedicated [`crate::heap::Object::Range`] heap variant over
     /// [`crate::heap::RangeObject`] — three bound fields, no element
     /// storage (RG-2 laziness). Immutable ⇒ value-hashable, a valid
@@ -318,7 +322,7 @@ pub struct CoreClasses {
     /// `selector`/`name`/`labels`/`args`.
     pub message_class: ClassId,
     /// `Error`, the raisable root of the surface error hierarchy
-    /// ([ADR-0008](../../../docs/adr/0008-layered-exceptions-and-result.md),
+    /// ([ADR-0008](../../../docs/adr/accepted/0008-layered-exceptions-and-result.md),
     /// U-CORE-6). Holds one field (`_message`, slot 0) and the native
     /// `message`/`raise` primitives; `raise` initiates the unified unwind's
     /// `Raise` payload ([`crate::error::RuntimeError::Raise`]). Only `Error`
@@ -333,7 +337,7 @@ pub struct CoreClasses {
     /// the reified `Message` that missed ([`Self::message_class`]).
     pub message_not_understood_class: ClassId,
     /// `Fiber`, the sole concurrency primitive
-    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)).
+    /// ([ADR-0030](../../../docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md)).
     /// A dedicated [`crate::heap::Object::Fiber`] heap variant — see
     /// [`crate::heap::FiberObject`] — not an `InstanceObject`.
     pub fiber_class: ClassId,
@@ -343,7 +347,7 @@ pub struct CoreClasses {
     /// [`Self::error_class`].
     pub cannot_yield_across_native_frame_class: ClassId,
     /// `Family`, the callable value a `::` method reference produces
-    /// (selectors.md §3, U16-Open, [ADR-0047](../../../docs/adr/0047-amend-floor-admit-family-call-router.md)).
+    /// (selectors.md §3, U16-Open, [ADR-0047](../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md)).
     /// Backed by [`crate::heap::Object::Family`] — no `Value::Family` arm.
     pub family_class: ClassId,
 }
@@ -355,7 +359,7 @@ impl CoreClasses {
     /// The kernel is **pinned**: it survives every collection (Invariant M5), and
     /// it is a cycle by construction (`Metaclass` is an instance of itself), which
     /// mark-sweep handles and reference counting could not
-    /// ([ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md)
+    /// ([ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md)
     /// §Alternatives).
     ///
     /// **Written as an exhaustive destructure on purpose.** Adding a field to
@@ -386,6 +390,7 @@ impl CoreClasses {
             some_class,
             none_class,
             none_singleton,
+            iterable_class,
             list_class,
             map_class,
             set_class,
@@ -420,6 +425,7 @@ impl CoreClasses {
             some_class,
             none_class,
             none_singleton,
+            iterable_class,
             list_class,
             map_class,
             set_class,

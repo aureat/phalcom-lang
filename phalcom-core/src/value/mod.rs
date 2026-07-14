@@ -1,9 +1,9 @@
 //! The tagged [`Value`] — Phalcom's uniform in-register value representation.
 //!
-//! Realizes [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md). `Value` is a
+//! Realizes [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md). `Value` is a
 //! small `Copy` tagged `enum`: immediate arms ([`Value::Number`], [`Value::Bool`],
 //! [`Value::Symbol`]) carry their payload inline, and every heap object is carried
-//! by an [`ObjRef`] handle in [`Value::Obj`] ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
+//! by an [`ObjRef`] handle in [`Value::Obj`] ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
 //! [`Value::Nil`] is a **private** uninitialized-slot sentinel with no surface
 //! class; user code can never produce or observe it (`values-and-absence.md`
 //! Invariant 4). Because every arm is `Copy`, values move freely on the VM stack
@@ -11,7 +11,7 @@
 //!
 //! NaN-boxing all of this into a single tagged `f64` word is a deferred
 //! optimization *behind this same enum API*
-//! ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)); see
+//! ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)); see
 //! `docs/forge/DEFERRED.md`.
 
 mod boolean;
@@ -30,7 +30,7 @@ use std::hash::{Hash, Hasher};
 
 /// A uniform Phalcom value: an immediate or a handle to a heap [`Object`].
 ///
-/// Realizes [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md). `Value` is
+/// Realizes [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md). `Value` is
 /// `Copy`; comparing two [`Value::Obj`]s tests object identity, while string
 /// content-equality is provided separately by [`Value::value_eq`].
 #[derive(Clone, Copy, PartialEq)]
@@ -39,9 +39,9 @@ pub enum Value {
     /// row and user code can never produce or observe it (Invariant 4).
     Nil,
     /// A boolean. One `Bool` class; `True`/`False` are a later dispatch
-    /// refinement, not a `Value` arm ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)).
+    /// refinement, not a `Value` arm ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)).
     Bool(bool),
-    /// A flat 64-bit float ([ADR-0005](../../../docs/adr/0005-number-as-flat-f64.md)).
+    /// A flat 64-bit float ([ADR-0005](../../../docs/adr/retired/0005-number-as-flat-f64.md)).
     Number(f64),
     /// An interned identifier or selector ([`Symbol`]).
     Symbol(Symbol),
@@ -57,9 +57,9 @@ impl Value {
     /// ([`crate::heap::trace_object`]) reaches a value's heap child *only*
     /// through this accessor and never by matching `Value`'s arms, so a future
     /// `Value` representation change — NaN-boxing, per
-    /// [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md) — rewrites this one
+    /// [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md) — rewrites this one
     /// function and leaves the mark/sweep untouched
-    /// ([ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md) §3,
+    /// ([ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) §3,
     /// [memory-management.md §2.3](../../../docs/spec/v0.2/memory-management.md)).
     ///
     /// Immediates (`nil`, `Bool`, `Number`, `Symbol`) hold no handle: symbols live
@@ -110,7 +110,7 @@ impl Value {
     /// A [`Value::Bool`] resolves by its payload to one of the two concrete
     /// singleton subclasses of the abstract `Bool` class — `true` to `True`,
     /// `false` to `False` — so `true.class == True` and `false.class == False`
-    /// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)).
+    /// ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)).
     /// The selection is a plain [`ClassId`] field read with no allocation, on
     /// the hot dispatch path.
     ///
@@ -218,7 +218,7 @@ impl Value {
     /// This reproduces, exactly, the observable semantics of the pre-heap
     /// hand-written `impl PartialEq for Value`, so `==`/`!=` behaviour is
     /// preserved across the handle-arena migration
-    /// ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)):
+    /// ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)):
     ///
     /// - `Nil`, `Bool`, `Number` compare by value.
     /// - Two [`Value::Obj`] strings compare by content; instances, classes and
@@ -271,19 +271,19 @@ impl Value {
 /// Surfaces the private [`Value::Nil`] sentinel as the `None` singleton.
 ///
 /// This is the **read-boundary surfacer** of U6's absence model: the private
-/// `Value::Nil` sentinel ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md))
+/// `Value::Nil` sentinel ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md))
 /// backs uninitialized slots internally but must never reach user code
 /// (Invariant 4, `values-and-absence.md`). Every read boundary that can observe
 /// an unwritten slot — an uninitialized `var` read, an unassigned field read, a
 /// bare-`return` default, a method falling off its end — routes the value
 /// through here so the sentinel is replaced by the shared `None` object
-/// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)); any non-sentinel
+/// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)); any non-sentinel
 /// value passes through unchanged.
 ///
 /// `none_singleton` is the handle to the process-wide `None` instance
 /// ([`crate::universe::CoreClasses::none_singleton`]); passing the same handle
 /// everywhere keeps `None` identity-comparable and zero-allocation
-/// ([ADR-0004](../../../docs/adr/0004-boolean-as-abstract-bool-with-true-false.md)
+/// ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)
 /// mirror). There is intentionally **no** public constructor that yields
 /// [`Value::Nil`]: surfacing is one-directional (sentinel → `None`), never the
 /// reverse, so `None` can never end up inside a `Some`.

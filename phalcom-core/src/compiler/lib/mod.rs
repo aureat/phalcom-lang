@@ -5,8 +5,8 @@
 //! [`Heap`](crate::heap::Heap) as the compiler emits them — the compiler already
 //! holds `&mut VM` and therefore the heap — and are referenced from the constant
 //! pool by `Copy` [`Value::Obj`] handles
-//! ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md),
-//! [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)).
+//! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md),
+//! [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
 
 mod class_decl;
 mod error;
@@ -46,7 +46,7 @@ pub(crate) struct Compiler<'vm> {
     /// ([`Bytecode::DefineGlobal`]), so [`Self::functions`] never sees them and
     /// cannot record their mutability. This set lets the assignment path reject
     /// a store to a `let` global at compile time
-    /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)).
+    /// ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)).
     immutable_globals: HashSet<Symbol>,
     /// The class name Symbol currently being compiled, if any (ADR-0011).
     current_class: Option<Symbol>,
@@ -346,7 +346,7 @@ impl<'vm> Compiler<'vm> {
     /// [`Bytecode::Import`] carrying the raw path, immediately followed by
     /// the same [`Bytecode::DefineGlobal`] a module-level `let Name = …`
     /// would emit — the `as Name` binding is an ordinary immutable global
-    /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)), not a new
+    /// ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)), not a new
     /// binding kind.
     ///
     /// Restricted to a compilation unit's own top level (`self.functions`

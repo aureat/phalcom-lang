@@ -54,7 +54,7 @@ returns `None`". Note `System`'s primitives are **static** (`System.gc`, not `aS
 
 ```rust
 /// Signature: `System.gc` — forces one full mark-sweep and returns `None`
-/// (`system.md` §`gc`, [ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md) §8).
+/// (`system.md` §`gc`, [ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) §8).
 ///
 /// Runs **no finalizers**, performs **no compaction**, and changes **no handle**
 /// (Invariant M1) — a surviving object keeps its `ObjRef`. Deterministic and safe

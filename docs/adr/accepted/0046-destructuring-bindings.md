@@ -8,11 +8,11 @@
   ADR ships **both** now, kept irrefutable (see "Why list destructuring ships
   irrefutable now" below) — the deferred item narrows to *further* pattern forms
   (map patterns, match arms), not list/`*rest` itself.
-- Related: `docs/spec/v0.2/open-questions.md` Q7; `docs/adr/0014-let-and-var-bindings.md`
-  (the base `let`/`var` binding this extends); `docs/adr/0020-kernel-list-native-array-protocol.md`
-  (`at(_)` — the accessor this reuses); `docs/adr/0032-collections-representation-and-literals.md` (the `(a,b)`/
+- Related: `docs/spec/v0.2/open-questions.md` Q7; `docs/adr/accepted/0014-let-and-var-bindings.md`
+  (the base `let`/`var` binding this extends); `docs/adr/accepted/0020-kernel-list-native-array-protocol.md`
+  (`at(_)` — the accessor this reuses); `docs/adr/accepted/0032-collections-representation-and-literals.md` (the `(a,b)`/
   `[…]` collection-literal grammar this reuses in pattern position);
-  `docs/adr/0039-amend-floor-admit-collection-container-primitives.md` (native
+  `docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md` (native
   `Tuple`/`List`); `docs/forge/units/U14/plan.md`; `phalcom-ast/src/ast.rs::Pattern`;
   `phalcom-ast/src/parser.rs::Parser::parse_pattern`;
   `phalcom-core/src/compiler/lib.rs::Compiler::compile_pattern_bind_top_of_stack`

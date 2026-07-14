@@ -32,7 +32,7 @@ pub fn object_class(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 }
 
 /// Signature: `Object::toString` — the default display string (U-CORE-4,
-/// [ADR-0015](../../../docs/adr/0015-object-default-tostring.md)).
+/// [ADR-0015](../../../docs/adr/accepted/0015-object-default-tostring.md)).
 ///
 /// A **class** receiver renders as its own name (`"Number"`), fixing
 /// DEFERRED F4 (the old binding, [`object_name`], returned the *metaclass*
@@ -62,7 +62,7 @@ pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 /// Signature: `Object::hash` — a stable identity digest of the heap handle.
 ///
 /// The universal-protocol `hash` ([`object-model.md`](../../../docs/spec/object-model.md)
-/// §8, [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
+/// §8, [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
 /// underivable because it reads the receiver's [`ObjRef`](crate::heap::ObjRef)
 /// handle, which no `.ph`-visible primitive exposes. Immediates
 /// ([`Value::Number`], [`Value::Bool`], [`Value::Symbol`]) override this with a
@@ -185,9 +185,9 @@ pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 /// [`MethodObject`](crate::method::MethodObject) that method lookup resolves
 /// for selector `args[0]` (a [`Symbol`](crate::interner::Symbol)) on the
 /// receiver, as a bare `Method` value; the shared `None` singleton
-/// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)) on a miss
+/// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)) on a miss
 /// (functions.md §3, U-CORE-3,
-/// [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+/// [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
 ///
 /// A **pure** probe, like [`object_responds_to`]: a miss never triggers
 /// `doesNotUnderstand(_:)`.
@@ -308,7 +308,7 @@ pub fn message_args(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 
 /// Signature: `Object::__invariantEnter()` — the entry half of the
 /// `@invariant` re-entrancy guard
-/// ([ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+/// ([ADR-0052](../../../docs/adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
 /// Fix 1, U-ANNOT-CONTRACTS). Woven by
 /// `crate::compiler::attributes::weave_invariant_checks` into every public
 /// method/getter/setter of an `@invariant`-bearing class.

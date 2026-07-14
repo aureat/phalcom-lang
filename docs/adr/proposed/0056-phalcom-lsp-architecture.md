@@ -2,12 +2,12 @@
 
 - Status: Proposed
 - Date: 2026-07-13
-- Related: [ADR-0012](0012-selector-signature-encoding-and-dispatch.md)
+- Related: [ADR-0012](../accepted/0012-selector-signature-encoding-and-dispatch.md)
   (selectors are comma-form label-encoded symbols — the symbol-index key);
-  [ADR-0016](0016-hand-written-lexer-and-recursive-descent-parser.md)
+  [ADR-0016](../accepted/0016-hand-written-lexer-and-recursive-descent-parser.md)
   (`phalcom-ast` is the standalone, VM-free front end this server embeds);
-  [ADR-0025](0025-external-internal-parameter-names.md) (external labels the
-  completion snippets render); [ADR-0027](0027-modules-as-files-with-public-by-default-imports.md)
+  [ADR-0025](../accepted/0025-external-internal-parameter-names.md) (external labels the
+  completion snippets render); [ADR-0027](../retired/0027-modules-as-files-with-public-by-default-imports.md)
   (module = file — the workspace-index granularity); `docs/spec/v0.2/lexical-structure.md`
   §§9–14 (token surface for semanticTokens); `docs/spec/v0.2/experimental/doc-comments-phaldoc.md`
   §§3–5,8 (Phaldoc hover sources); `docs/forge/units/U-VSPHALCOM/plan.md`
@@ -52,7 +52,7 @@ right next step rather than more TypeScript:
    `phalcom-core/bin/gen-core-table` links `phalcom-ast` and walks a `Program`
    for class/selector harvest. A long-running server is the same embedding with
    a warm cache instead of a one-shot.
-3. **Selectors are comma-form label-encoded symbols** ([ADR-0012](0012-selector-signature-encoding-and-dispatch.md)):
+3. **Selectors are comma-form label-encoded symbols** ([ADR-0012](../accepted/0012-selector-signature-encoding-and-dispatch.md)):
    `foo`, `foo(_)`, `move(_,to,duration)` are **distinct**. Any symbol index,
    go-to-def target, or reference set must key by the comma-form selector, never
    a bare name — the same gate U-VSPHALCOM already enforces for its table.
@@ -156,7 +156,7 @@ The index is keyed by **(file URI, comma-form selector)** — the ADR-0012 gate.
   ClassMember` decls. Each method/getter/setter/`construct` yields an entry
   `{ key: (file_uri, selector), class, kind, name_range, full_range }` where
   `selector` is reconstructed comma-form (name + external labels per
-  [ADR-0025](0025-external-internal-parameter-names.md); `Getter`→`name`,
+  [ADR-0025](../accepted/0025-external-internal-parameter-names.md); `Getter`→`name`,
   `Method`→`name(_,label,…)`, `Setter`→`name=(_)`, `construct`→`name(…)`).
 - **References:** walk send expressions; each dotted/operator/keyword send yields
   a reverse entry `selector → [(file_uri, call_range)]`.
@@ -264,7 +264,7 @@ of hand-rolled TS intelligence become server-side Rust reusing the real parser.
   thing this ADR supersedes, not an alternative to it.
 - **More TypeScript intelligence in the extension** (parse the buffer in JS).
   Rejected outright: it re-implements the Phalcom grammar in a second language
-  — exactly the drift ([ADR-0016](0016-hand-written-lexer-and-recursive-descent-parser.md))
+  — exactly the drift ([ADR-0016](../accepted/0016-hand-written-lexer-and-recursive-descent-parser.md))
   the single hand-written parser exists to prevent — and would re-rot like the
   2023 table did.
 - **Big-bang cutover (delete the subprocess/grammar, ship the full server).**

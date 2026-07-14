@@ -6,9 +6,9 @@ pub enum Bytecode {
     Constant(u16),
 
     /// Pushes the `None` singleton — the surface absence value
-    /// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)) — onto the
+    /// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)) — onto the
     /// stack. It **never** pushes the private [`crate::value::Value::Nil`]
-    /// sentinel ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)).
+    /// sentinel ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
     ///
     /// Emitted both to seed an uninitialized slot (e.g. a `var x` with no
     /// initializer) and as the result of sacred-inlined one-armed control flow
@@ -106,7 +106,7 @@ pub enum Bytecode {
 
     /// Performs a **non-local return** from a block body: unwinds to the block's
     /// lexically-enclosing method activation (its *home frame*) rather than just
-    /// the block's own activation ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md),
+    /// the block's own activation ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md),
     /// blocks.md §5).
     ///
     /// Emitted (in place of [`Bytecode::Return`]) for a `return` written inside a
@@ -153,7 +153,7 @@ pub enum Bytecode {
     /// encoding to economize; `i32` is used to comfortably cover an inlined
     /// block body of any realistic size without the relative-offset
     /// overflow risk a `clox`-style `i16` would carry
-    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     Jump(i32),
 
     /// Pops the top of the stack (expected [`crate::value::Value::Bool`]);
@@ -162,8 +162,17 @@ pub enum Bytecode {
     /// value is not a `Bool` at all, the VM raises a runtime type error —
     /// this is what gives the sacred-selector inliner's per-iteration
     /// `whileTrue` condition check "no truthiness" for free, without a
-    /// separate guard opcode ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+    /// separate guard opcode ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     JumpIfFalse(i32),
+
+    /// Pops the top of stack; if it **is** the shared `None` singleton (tested by
+    /// identity — `Value`'s derived `PartialEq` on `Value::Obj(ObjRef)`, i.e. arena-slot
+    /// identity, never structural/`==` dispatch), adds `offset` to `ip` (see
+    /// `Bytecode::Jump` for the offset convention). Otherwise falls through, the popped
+    /// value already consumed. Realizes the cursor-protocol end-of-iteration test
+    /// (ADR-0048 §2, iteration.md §2) as one direct, non-overridable branch — `for`'s
+    /// loop condition is compiler-owned, not a `!=` send.
+    JumpIfNone(i32),
 
     /// Backward relative jump, semantically identical to [`Bytecode::Jump`]
     /// (`offset` is typically negative). Kept as a distinct opcode purely so
@@ -183,7 +192,7 @@ pub enum Bytecode {
     /// This is the override-epoch half of the deopt guard — a type-only
     /// check would be unsound because `and`/`or`/`ifTrue` are ordinary,
     /// overridable methods (control-flow.md §2–3,
-    /// [ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+    /// [ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     GuardBool(i32),
 
     /// Deopt guard for the `Block`-receiver sacred selectors (`whileTrue(_)`).
@@ -195,7 +204,7 @@ pub enum Bytecode {
     /// go stale at runtime is whether `Block>>whileTrue(_)` itself has been
     /// redefined since bootstrap. Tests `!Universe::block_sacred_pristine`
     /// and, if dirty, adds `offset` to `ip`
-    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     GuardBlock(i32),
 
     /// Allocates a new instance of a class popped from the stack.
@@ -208,14 +217,14 @@ pub enum Bytecode {
     Dup,
 
     /// Pops the top value and pushes it back wrapped in a fresh `Some`
-    /// instance ([ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+    /// instance ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)).
     ///
     /// Emitted by the sacred-selector inliner's one-armed `ifTrue`/`ifFalse`
     /// fast path ([`crate::compiler::inliner`]) to `Some`-lift the taken
     /// arm's value, keeping the inlined fast path observationally identical
     /// to the `bool_if_true`/`bool_if_false` primitive fallback, which
     /// `Some`-wraps the same way
-    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)
     /// amendment, U-CORE-2). The untaken arm still pushes [`Bytecode::Nil`]
     /// (surfaced to `None`) directly — only the taken arm needs the wrap.
     WrapSome,
@@ -256,7 +265,7 @@ pub enum Bytecode {
     /// call (`primitive::family::family_does_not_understand`), but the
     /// *check* happens exactly once, here.
     ///
-    /// [ADR-0047]: ../../../docs/adr/0047-amend-floor-admit-family-call-router.md
+    /// [ADR-0047]: ../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md
     MakeFamily(u16),
 
     /// Rebuilds a class's (and its metaclass's) flattened

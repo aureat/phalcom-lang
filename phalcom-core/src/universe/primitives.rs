@@ -225,7 +225,7 @@ impl Universe {
         // (U5-plan.md BD-U5-2) — see `docs/forge/DEFERRED.md`.
         primitive!(vm, block_cls, "whileTrue", SignatureKind::Method(1), block_while_true);
         // The error-handling catch protocol (U-ERR, ADR-0008,
-        // [ADR-0038](../../docs/adr/0038-amend-floor-admit-block-on-ensure.md)):
+        // [ADR-0038](../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)):
         // the +2 floor bindings this unit amends the frozen floor to admit.
         // `try`/`on`/`catch`/`ensure` (ADR-0031) are parser sugar over these
         // two sends — see `primitive::block::block_on`/`block_ensure` for the

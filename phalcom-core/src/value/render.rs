@@ -64,7 +64,7 @@ impl Value {
     /// (a plain instance, a class, a metaclass, …) instead falls through
     /// [`Value::to_string`] to [`Value::to_debug`], which disagrees with the
     /// object's own `Object#toString` message
-    /// ([ADR-0015](../../../docs/adr/0015-object-default-tostring.md)) — e.g.
+    /// ([ADR-0015](../../../docs/adr/accepted/0015-object-default-tostring.md)) — e.g.
     /// a bare `Point` instance printed `<Point instance>` via
     /// `System.print` but `<Point>` via `.toString`. This method closes that
     /// gap by sending `toString` for exactly those cases, so `System.print`

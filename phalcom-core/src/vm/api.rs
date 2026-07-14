@@ -26,7 +26,7 @@ impl VM {
     /// Native primitives that produce strings (e.g. `toString`, string `+`) use
     /// this to move an owned [`String`] into an
     /// [`Object::Str`] and hand back a
-    /// [`Value::Obj`] handle ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
+    /// [`Value::Obj`] handle ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
     pub fn alloc_string_value(&mut self, text: String) -> Value {
         Value::Obj(self.heap.alloc_string(text))
     }
@@ -35,7 +35,7 @@ impl VM {
     ///
     /// The metaclass link is left unset; callers such as [`Self::create_class`]
     /// patch it. Realizes the allocate-then-patch bootstrap
-    /// ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
+    /// ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
     pub fn create_single_class(&mut self, name: &str, superclass: Option<ClassId>) -> ClassId {
         let id = self.heap.alloc_class(ClassObject::bare(name));
         self.heap.class_mut(id).set_superclass(superclass);
@@ -43,7 +43,7 @@ impl VM {
     }
 
     /// Follows the metaclass parallel rule
-    /// ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)):
+    /// ([ADR-0002](../../../docs/adr/accepted/0002-metaclass-tower-parallel-rule.md)):
     /// the metaclass `"{name}.class"` is an instance of `Metaclass` whose
     /// superclass is `superclass`'s own metaclass (`Class` if `superclass` is
     /// `None`), and the class itself is an instance of that metaclass with the

@@ -47,7 +47,7 @@ pub fn number_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
 /// Signature: `Number::hash` — a digest of the mathematical value.
 ///
 /// Digests the *value*, class-agnostically (forward-compat §4;
-/// [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
+/// [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
 /// an integral number hashes to its integer, so a future `Integer 2` and
 /// `Float 2.0` agree (open-Q2); `-0.0` is normalized to `0.0`; non-integral /
 /// infinite values hash by their canonical IEEE-754 bits. `a == b ⇒
@@ -78,7 +78,7 @@ pub fn number_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 /// Delegates to the shared native renderer ([`Value::to_string`]) so
 /// `n.toString` is byte-identical to `System.print(n)` (R-INV-4.1). Reads the
 /// receiver's `f64` representation, which is unreachable from `.ph` — hence a
-/// floor primitive ([ADR-0019](../../../docs/adr/0019-freeze-vm-blessed-primitive-floor.md)
+/// floor primitive ([ADR-0019](../../../docs/adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
 /// amendment; cf. [`number_hash`], decisions.md Q1). Bound on `Number` (the
 /// abstract numeric root), not a concrete f64 path, so a future `Integer`/
 /// `Float` split (forward-compat §4) can refine this per-subclass without
@@ -106,7 +106,7 @@ pub fn number_add(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
 /// Follows IEEE-754 `f64` division: `1 / 0` is `inf`, `-1 / 0` is `-inf`,
 /// `0 / 0` is `NaN` (control-flow.md/arithmetic goldens pin this — Phalcom's
 /// flat `Number` never special-cases the divisor,
-/// [ADR-0005](../../../docs/adr/0005-number-as-flat-f64.md)).
+/// [ADR-0005](../../../docs/adr/retired/0005-number-as-flat-f64.md)).
 ///
 /// # Errors
 ///
@@ -196,7 +196,7 @@ pub fn number_ge(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 }
 
 /// Signature: `Number::negated()` — unary numeric negation (surface `-x`,
-/// control-flow.md §1, [ADR-0012](../../../docs/adr/0012-selector-encoding-and-dispatch.md)).
+/// control-flow.md §1, [ADR-0012](../../../docs/adr/accepted/0012-selector-encoding-and-dispatch.md)).
 ///
 /// # Errors
 ///

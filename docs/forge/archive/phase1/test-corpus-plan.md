@@ -127,7 +127,7 @@ INSTA_UPDATE=always cargo test -p phalcom-ast        # bless snapshots
 ### 1b. Adopt comma canonical selector form across the spec
 The user chose **comma form** (`move(_,to,duration)`). Convert every colon-form occurrence.
 Reference: subagent integration map located each site.
-- `docs/adr/0012-selector-signature-encoding-and-dispatch.md` — **amend**: change canonical
+- `docs/adr/accepted/0012-selector-signature-encoding-and-dispatch.md` — **amend**: change canonical
   strings `add(_:_:)`, `move(to:duration:)`, `name=(_:)`, `+(_:)`, `sum(_...)` (lines ~13,34,54)
   to comma form (`add(_,_)`, `move(_,to,duration)`, `name=(_)`, `+(_)`, `sum(*)`); add an
   amendment note that comma form supersedes the original colon encoding.

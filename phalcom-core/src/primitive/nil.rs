@@ -1,7 +1,7 @@
 //! Absence primitives: `Some` construction and the `Option` `match` eliminator.
 //!
 //! U6 replaces surface `nil` with the `Option` type
-//! ([ADR-0007](../../../docs/adr/0007-option-some-none.md)): `Option` is
+//! ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)): `Option` is
 //! abstract, `Some` wraps one value in its `_value` field, and `None` is a
 //! single shared identity-comparable singleton. This module is the *substrate*
 //! bootstrapped in Rust so U6 does not depend on U7's user-facing `construct`:
@@ -13,7 +13,7 @@
 //!
 //! There is deliberately **no** surface `Nil` class or `nil` constructor here:
 //! the private [`Value::Nil`] sentinel
-//! ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)) is surfaced to
+//! ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)) is surfaced to
 //! `None` at read boundaries by
 //! [`sentinel_to_option`](crate::value::sentinel_to_option) and can never be
 //! produced by user code (Invariant 4).
@@ -26,7 +26,7 @@ use crate::value::Value;
 use crate::vm::VM;
 
 /// Wraps `value` in a fresh `Some` instance — the shared core of `Some(_)`
-/// construction ([ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+/// construction ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)).
 /// Allocates a fresh [`InstanceObject`] of `Some` and stores `value` in its
 /// `_value` field.
 ///
@@ -35,7 +35,7 @@ use crate::vm::VM;
 /// which Some-lifts the taken arm of an inlined one-armed `ifTrue`/`ifFalse`
 /// fast path to keep it observationally identical to the
 /// `bool_if_true`/`bool_if_false` primitive fallback
-/// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)
+/// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)
 /// amendment, U-CORE-2).
 ///
 /// # Panics
@@ -60,7 +60,7 @@ pub(crate) fn wrap_some(vm: &mut VM, value: Value) -> Value {
 /// Constructs a `Some` wrapping `args[0]` — the `Some(_)` primitive.
 ///
 /// Registered as the static `new(_)` on the kernel `Some` class
-/// ([ADR-0007](../../../docs/adr/0007-option-some-none.md)); the surface
+/// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)); the surface
 /// `Some(x)` desugar (compiler's job) lowers to this send. See `wrap_some`
 /// (private to this module) for the allocation and the Invariant-4 panic
 /// condition.
@@ -76,7 +76,7 @@ pub fn some_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Valu
 ///
 /// The sole primitive that leaves Option-world with a value
 /// (`values-and-absence.md` §3.2,
-/// [ADR-0007](../../../docs/adr/0007-option-some-none.md)). Registered on the
+/// [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)). Registered on the
 /// abstract `Option` class so both `Some` and `None` inherit it. If the
 /// receiver is a `Some`, calls the `some:` block with the wrapped value; if it
 /// is the `None` singleton, calls the `none:` block with no arguments.

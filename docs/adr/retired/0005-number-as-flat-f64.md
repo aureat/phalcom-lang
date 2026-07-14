@@ -1,10 +1,10 @@
 # 5. Keep a single flat `Number` type backed by `f64`
 
-- Status: Superseded in part by [ADR-0024](0024-numeric-surface-split-int-float-and-division.md)
+- Status: Superseded in part by [ADR-0024](../accepted/0024-numeric-surface-split-int-float-and-division.md)
 - Date: 2026-07-11
 - Related: `docs/object-model.md`; `phalcom-core/src/value.rs`, `primitive/number.rs`
 
-> **Superseded in part (2026-07-12) by [ADR-0024](0024-numeric-surface-split-int-float-and-division.md).**
+> **Superseded in part (2026-07-12) by [ADR-0024](../accepted/0024-numeric-surface-split-int-float-and-division.md).**
 > The `f64` representation decided here survives as the representation of the new
 > `Float` type. ADR-0024 splits the *surface* into abstract `Number` over exact,
 > unbounded `Int` (auto-promoting bignum) and `Float`, so this ADR's "single

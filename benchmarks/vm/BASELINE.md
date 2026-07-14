@@ -1,7 +1,7 @@
 # Tier 0 performance baseline (U-BENCH)
 
 Reproducible, attributed measurement backing the [performance strategy](../../docs/spec/v0.2/performance.md)
-([ADR-0051](../../docs/adr/0051-performance-strategy-measure-first-tiered-optimization.md)).
+([ADR-0051](../../docs/adr/proposed/0051-performance-strategy-measure-first-tiered-optimization.md)).
 This replaces the oral "~29× slower than Wren on Skynet" figure with a
 measured, in-repo number, and gives every later tier (`U-HOTPATH`,
 `U-PRIM-ABI`, `U-IC`, `U-GC`, `U-COMPILE`) a re-measurable baseline (law P1).

@@ -2,11 +2,11 @@
 
 - Status: Proposed (needs user ratification)
 - Date: 2026-07-14
-- Amends: [ADR-0058](0058-reactive-tracking-context-needs-a-native-module.md)
+- Amends: [ADR-0058](../accepted/0058-reactive-tracking-context-needs-a-native-module.md)
   (adds a soundness invariant its Consequences understate);
-  [ADR-0033](0033-amend-fiber-execution-trampolined-block-callsite.md)
+  [ADR-0033](../retired/0033-amend-fiber-execution-trampolined-block-callsite.md)
   (adds `Reactive.current` to §Decision 4's sequencing constraint)
-- Related: [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §4–§5
+- Related: [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §4–§5
   (restricted switch model — the guard this ADR leans on);
   [`docs/spec/v0.2/next/reactivity.md`](../spec/v0.2/next/reactivity.md)
   (`Reactive.trackedBy`/`untracked`, the `Computed` recompute path);
@@ -15,7 +15,7 @@
 
 ## Context
 
-[ADR-0058](0058-reactive-tracking-context-needs-a-native-module.md) makes
+[ADR-0058](../accepted/0058-reactive-tracking-context-needs-a-native-module.md) makes
 `Reactive.current` a single **`VM`-owned** `Option<ObjRef>`, with
 `trackedBy`/`untracked` as native save/set/run/restore. `Computed#recompute`
 (`reactivity.md`) collects dependencies by dynamic extent: every reactive read
@@ -52,7 +52,7 @@ extent, and *every* switch out of it already raises.
 So the tracking context is protected — **by accident**. Two ways that protection
 disappears without anyone noticing:
 
-1. **`trackedBy` is moved onto the trampolined path.** [ADR-0033](0033-amend-fiber-execution-trampolined-block-callsite.md)
+1. **`trackedBy` is moved onto the trampolined path.** [ADR-0033](../retired/0033-amend-fiber-execution-trampolined-block-callsite.md)
    (Deferred, not Rejected — "revisit as the general lift") makes bytecode block
    call-sites push a `CallFrame` instead of recursing, so they add no native frame.
    Its §Decision 2 retains re-entrant `block_call` for native callers, which keeps
@@ -82,7 +82,7 @@ second Negative consequence.
 ### 2. `trackedBy`/`untracked` invoke their block through the re-entrant `block_call`
 
 `Reactive.trackedBy` and `Reactive.untracked` MUST reach `run.call()` via the
-re-entrant native path ([ADR-0033](0033-amend-fiber-execution-trampolined-block-callsite.md)
+re-entrant native path ([ADR-0033](../retired/0033-amend-fiber-execution-trampolined-block-callsite.md)
 §Decision 2's retained `block_call`), never the trampolined `CallBlock` call-site.
 The resulting `native_reentry_depth != 0` is what enforces §1. This is what a
 straightforward implementation of ADR-0058 does anyway — this ADR records that it
@@ -99,7 +99,7 @@ this ADR alongside D-FIB-1.
 ### 4. Sequencing constraint added to ADR-0033 §Decision 4
 
 If ADR-0033 is ever revisited, or if the full Option-B lift
-([ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §Alternatives)
+([ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §Alternatives)
 removes native frames from the block-call path generally, then **in the same unit**
 the tracking context must move from a `VM` field to per-fiber state on
 `FiberObject`, saved/restored at switch alongside `store_live_into`/`load_live_from`

@@ -69,7 +69,7 @@ pub enum RuntimeError {
     Type { expected: &'static str, found: &'static str },
 
     /// The surface-`Error` unwind payload — the `Raise(error)` half of
-    /// [ADR-0008](../../docs/adr/0008-layered-exceptions-and-result.md)'s
+    /// [ADR-0008](../../docs/adr/accepted/0008-layered-exceptions-and-result.md)'s
     /// single unwind primitive (the sibling of U10's `Return`/
     /// [`Bytecode::ReturnNonLocal`](crate::bytecode::Bytecode::ReturnNonLocal)).
     ///
@@ -144,7 +144,7 @@ pub enum RuntimeError {
     /// the live frame stack, and raises this variant when no frame matches the
     /// token's `(frame_index, generation)` — turning a would-be use-after-free
     /// into a clean runtime error (blocks.md §5, object-model.md §4,
-    /// [ADR-0013](../../docs/adr/0013-block-closure-upvalues.md)). Detail beyond
+    /// [ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md)). Detail beyond
     /// the fixed message is intentionally omitted, matching the plain-`thiserror`
     /// shape of every neighboring variant (no span, no miette).
     #[error("non-local return from a block whose home method frame is no longer alive (DeadFrameError)")]

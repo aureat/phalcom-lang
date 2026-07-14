@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Retired — superseded by ADR-0060 (2026-07-14). `[]` is a real, directly-sent
+selector; index syntax does not lower to `at`/`at(_,put:)`.
+
+Accepted (original text below, kept for history)
 
 ## Context
 

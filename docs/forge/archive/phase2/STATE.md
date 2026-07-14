@@ -87,7 +87,7 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
   hash_string_content,behavior_name}`). All independently hand-verified against the built CLI by
   the orchestrator, not just the test harness.
 - **ADR-0023** (omnibus ADR-0019 floor amendment covering this unit plus U-CORE-3/4/6's amendments)
-  was ratified **Accepted** ahead of dispatch — see `docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md`.
+  was ratified **Accepted** ahead of dispatch — see `docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md`.
 - **Working model:** in-tree on `main`, no worktree. Dispatched in two passes (first implementer
   agent was stopped mid-task for context management, its partial working-tree state — all 7
   primitive bodies + the `Method` re-parent, only 1 of 7 installs wired — was handed to a fresh

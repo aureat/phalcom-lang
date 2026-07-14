@@ -20,7 +20,7 @@ pub enum CompilerError {
     /// A reassignment of a `let`-bound name (local, upvalue or global).
     ///
     /// `let` bindings are immutable per
-    /// [ADR-0014](../../../docs/adr/0014-let-var-bindings.md); only `var`
+    /// [ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md); only `var`
     /// bindings may be reassigned. The offending name is carried for the
     /// diagnostic.
     #[error("Cannot reassign immutable `let` binding '{0}'; declare it with `var` to allow mutation.")]
@@ -29,9 +29,9 @@ pub enum CompilerError {
     /// A `let` binding written without an initializer.
     ///
     /// `let x` with no `= expr` is rejected at compile time
-    /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)); an
+    /// ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)); an
     /// uninitialized binding must use `var x`, which reads the surface `None`
-    /// value ([ADR-0007](../../../docs/adr/0007-option-type.md)). The offending
+    /// value ([ADR-0007](../../../docs/adr/accepted/0007-option-type.md)). The offending
     /// name is carried for the diagnostic.
     #[error("`let` binding '{0}' requires an initializer; use `var {0}` for an uninitialized binding.")]
     LetWithoutInitializer(String),
@@ -41,7 +41,7 @@ pub enum CompilerError {
     /// A tuple or list [`Pattern`](phalcom_ast::ast::Pattern) has nothing to unpack from an absent
     /// value, so `let (a, b)` / `var [a, b]` with no `= expr` is rejected
     /// regardless of `let`/`var` (U14, open-questions.md Q7,
-    /// [ADR-0046](../../../docs/adr/0046-destructuring-bindings.md)) — unlike
+    /// [ADR-0046](../../../docs/adr/accepted/0046-destructuring-bindings.md)) — unlike
     /// a bare-name `var x`, which is allowed and reads `None`
     /// ([`CompilerError::LetWithoutInitializer`]'s counterpart for the
     /// non-destructuring case). The [`SourceRange`] is the pattern's span.
@@ -54,7 +54,7 @@ pub enum CompilerError {
     /// like are compile errors, and any non-`Bool` condition is a hard runtime
     /// type error (no coercion). Reach through `.isSome`/`.isNone` or use
     /// `ifSome`/`ifNone` instead
-    /// ([ADR-0007](../../../docs/adr/0007-option-type.md),
+    /// ([ADR-0007](../../../docs/adr/accepted/0007-option-type.md),
     /// values-and-absence §3.5; BD-U6-1 enforcement = typed branch +
     /// literal-only compile check).
     #[error("An `Option` value has no truth value; use `.isSome`/`.isNone` or `ifSome`/`ifNone` instead of a boolean condition.")]
@@ -119,7 +119,7 @@ pub enum CompilerError {
     /// non-`Error`-ness is provable without flow typing. A `throw someVariable`
     /// cannot be statically classified and defers to the runtime
     /// `doesNotUnderstand` miss on `raise()` instead
-    /// ([ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+    /// ([ADR-0031](../../../docs/adr/accepted/0031-error-handling-surface-syntax.md) §1).
     /// The [`SourceRange`] is the offending literal's own span.
     #[error("`throw` of a non-`Error` literal is a compile error; only `Error` subclasses are throwable.")]
     ThrowNonError(SourceRange),

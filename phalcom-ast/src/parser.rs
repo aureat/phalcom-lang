@@ -469,7 +469,7 @@ impl<'source> Parser<'source> {
 
     /// Parses `throw expr` — surface sugar for `expr.raise()`
     /// ([error-handling.md §1](../../../docs/spec/v0.2/error-handling.md),
-    /// [ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+    /// [ADR-0031](../../../docs/adr/accepted/0031-error-handling-surface-syntax.md) §1).
     /// The non-`Error`-literal compile check is the compiler's job
     /// (`phalcom-core/src/compiler/lib.rs`), not the parser's — this only
     /// builds the node.
@@ -692,7 +692,7 @@ impl<'source> Parser<'source> {
 
     /// Parses a `let`/`var` binding's left-hand side [`Pattern`] (U14,
     /// open-questions.md Q7,
-    /// [ADR-0046](../../../docs/adr/0046-destructuring-bindings.md)): a bare
+    /// [ADR-0046](../../../docs/adr/accepted/0046-destructuring-bindings.md)): a bare
     /// name, a tuple pattern `(p1, …, pn)`, or a list pattern
     /// `[p1, …, pn]`/`[p1, …, pn, *rest]`. Patterns nest recursively, so
     /// `(…)`/`[…]` sub-patterns are parsed by re-entering this function.
@@ -2437,8 +2437,8 @@ impl<'source> Parser<'source> {
     /// well-typed expression. The synthetic range spans the `[ … ]` so
     /// diagnostics point at the literal.
     ///
-    /// [ADR-0029]: ../../../docs/adr/0029-list-literal-syntax.md
-    /// [ADR-0032]: ../../../docs/adr/0032-collections-representation-and-literals.md
+    /// [ADR-0029]: ../../../docs/adr/accepted/0029-list-literal-syntax.md
+    /// [ADR-0032]: ../../../docs/adr/accepted/0032-collections-representation-and-literals.md
     ///
     /// # Errors
     ///
@@ -2471,7 +2471,7 @@ impl<'source> Parser<'source> {
     ///
     /// - `(a, b)` → `Tuple.fromList(List.new().add(a).add(b))`
     ///
-    /// [ADR-0032]: ../../../docs/adr/0032-collections-representation-and-literals.md
+    /// [ADR-0032]: ../../../docs/adr/accepted/0032-collections-representation-and-literals.md
     ///
     /// # Errors
     ///
@@ -2516,7 +2516,7 @@ impl<'source> Parser<'source> {
     /// `Map()`, not `{}` (spec §6: `{}` is the empty block, so there is no
     /// empty-map literal).
     ///
-    /// [ADR-0032]: ../../../docs/adr/0032-collections-representation-and-literals.md
+    /// [ADR-0032]: ../../../docs/adr/accepted/0032-collections-representation-and-literals.md
     ///
     /// # Errors
     ///
@@ -2633,7 +2633,7 @@ impl<'source> Parser<'source> {
     /// single expression; `[]`/`()` with no elements yields the bare
     /// `List.new()` receiver.
     ///
-    /// [ADR-0029]: ../../../docs/adr/0029-list-literal-syntax.md
+    /// [ADR-0029]: ../../../docs/adr/accepted/0029-list-literal-syntax.md
     fn list_construction_chain(elems: Vec<Expr>, range: SourceRange) -> Expr {
         let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
             object: Expr::Var { value: "List".to_string(), range },

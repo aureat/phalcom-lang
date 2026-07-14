@@ -1733,7 +1733,7 @@ fn statement_range(stmt: &Statement) -> SourceRange {
 }
 
 /// Weaves the receiver-scoped `@invariant` re-entrancy guard
-/// ([ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+/// ([ADR-0052](../../../docs/adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
 /// Fix 1) around `body`, replacing it in place:
 ///
 /// ```text

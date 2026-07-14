@@ -2,7 +2,7 @@
 //!
 //! Asserts the properties of [memory-management.md §3/§6](../../docs/spec/v0.2/memory-management.md)
 //! and the M-series invariants, per
-//! [ADR-0050](../../docs/adr/0050-non-moving-mark-sweep-collector.md) (Accepted).
+//! [ADR-0050](../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) (Accepted).
 //!
 //! These drive `vm.force_gc()` directly. Automatic safepoint-latched collection
 //! and the `temp_roots` escape hatch are step 4; the temp-root stress test lands

@@ -1,8 +1,8 @@
 //! Native primitives for `Function` and `Block`.
 //!
 //! The `Function` root is abstract and `Block` is the concrete first-class
-//! callable object ([ADR-0006](../../docs/adr/0006-function-as-abstract-callable-root.md),
-//! [ADR-0013](../../docs/adr/0013-block-closure-upvalues.md)). These
+//! callable object ([ADR-0006](../../docs/adr/accepted/0006-function-as-abstract-callable-root.md),
+//! [ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md)). These
 //! primitives expose the reflective surface (`arity`, `name`) and dispatch
 //! `call`/`call(_:…)` by pushing a fresh [`CallFrame`](crate::frame::CallFrame)
 //! for the block's closure and re-entering `VM::run_until` with the current
@@ -22,7 +22,7 @@ use crate::vm::VM;
 /// A [`Object::Block`] unwraps to its wrapped closure and surfaces its
 /// [`home_frame_token`](crate::heap::BlockObject::home_frame_token) so
 /// [`block_call`] can stamp the pushed frame for non-local return
-/// ([ADR-0013](../../docs/adr/0013-block-closure-upvalues.md)); a bare
+/// ([ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md)); a bare
 /// [`Object::Closure`] (e.g. a `Method`'s callable reflectively used as a
 /// `Function`, functions.md) is its own target and has no lexical home frame, so
 /// it yields `None` — its body compiles ordinary [`Bytecode::Return`](crate::bytecode::Bytecode::Return)
@@ -39,7 +39,7 @@ fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::heap::ObjRef,
             // `Method` `isA Function` and answers the *reflective* protocol
             // (`arity`/`name`/`selector`/`holder`/`bind`/`invokeOn`), but not
             // raw `call` while unbound — it has no receiver to run against
-            // (U-CORE-3, [ADR-0028](../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+            // (U-CORE-3, [ADR-0028](../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
             // A dedicated arm ahead of the wildcard sharpens the error over
             // the generic "expected Function, found Method" it would
             // otherwise fall through to.
@@ -107,7 +107,7 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 /// [`ClosureObject`](crate::heap::ClosureObject) to resolve (a bound
 /// *primitive* method has none at all), and this is what makes
 /// `bound.call(args) ≡ method.invokeOn(recv, args)` hold by construction
-/// (R-INV-3.3, U-CORE-3, [ADR-0028](../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+/// (R-INV-3.3, U-CORE-3, [ADR-0028](../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
 ///
 /// # Errors
 ///
@@ -183,10 +183,10 @@ pub fn block_call_with(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
 /// while the condition is `true`, calling `args[0]` (the body) each pass and
 /// discarding its result; returns the `None` singleton (surface absence value)
 /// on normal exit, matching the sacred inliner's `Bytecode::Nil` result site
-/// (Invariant 4, [ADR-0007](../../../docs/adr/0007-option-some-none.md)). This
+/// (Invariant 4, [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)). This
 /// is what the inliner's
 /// `GuardBlock` deopt path sends to
-/// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+/// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
 ///
 /// # Errors
 ///
@@ -206,8 +206,8 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 }
 
 /// Signature: `Block::on(_)(_)` — the typed catch primitive `try`/`on`/`catch`
-/// desugar to (error-handling.md §2, [ADR-0008](../../../docs/adr/0008-layered-exceptions-and-result.md),
-/// [ADR-0038](../../../docs/adr/0038-amend-floor-admit-block-on-ensure.md)).
+/// desugar to (error-handling.md §2, [ADR-0008](../../../docs/adr/accepted/0008-layered-exceptions-and-result.md),
+/// [ADR-0038](../../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)).
 ///
 /// Runs the receiver block (`args[0]` unused — the receiver *is* the
 /// protected block); if it completes with a caught `throw` whose `Error`
@@ -276,7 +276,7 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
 
 /// Signature: `Block::ensure(_)` — the always-runs cleanup primitive `try`/
 /// `ensure` desugars to (error-handling.md §4, ADR-0008 §4.1,
-/// [ADR-0038](../../../docs/adr/0038-amend-floor-admit-block-on-ensure.md)).
+/// [ADR-0038](../../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)).
 ///
 /// Runs the receiver (protected) block, then runs the cleanup block `args[0]`
 /// on **every** exit path — normal completion, a non-local `return` unwinding

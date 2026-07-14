@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-12
-- Supersedes (partially): [ADR-0027](0027-modules-as-files-with-public-by-default-imports.md)
+- Supersedes (partially): [ADR-0027](../retired/0027-modules-as-files-with-public-by-default-imports.md)
   — replaces its resolution mechanism (§2/§4: logical-name resolver) and import-form
   grammar (§3: qualified/selective/aliased) with the smaller Draft-0.1 surface below.
   ADR-0027's "core is the auto-imported module" framing and "file = module" premise
@@ -22,7 +22,7 @@
 
 The `import` token has existed in the lexer since the front-end's earliest commits
 but carried no parser production, no AST node, and no runtime semantics —
-open-question **Q8**. [ADR-0027](0027-modules-as-files-with-public-by-default-imports.md)
+open-question **Q8**. [ADR-0027](../retired/0027-modules-as-files-with-public-by-default-imports.md)
 answered Q8 at the *design* level: file = module, top-level names public by default
 (`_`-prefix private), three import forms (qualified, selective, aliased) over a
 **logical-name resolver** (`import geometry` → some search-path lookup, not a raw

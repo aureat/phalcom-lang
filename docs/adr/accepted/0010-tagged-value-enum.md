@@ -2,7 +2,7 @@
 
 - Status: Accepted (numeric arm amended by [ADR-0024](0024-numeric-surface-split-int-float-and-division.md))
 - Date: 2026-07-11
-- Related: `docs/spec/v0.2/object-model.md` §3; `docs/spec/v0.2/values-and-absence.md` §2; [ADR-0005](0005-number-as-flat-f64.md); [ADR-0009](0009-handle-arena-heap.md); [ADR-0024](0024-numeric-surface-split-int-float-and-division.md)
+- Related: `docs/spec/v0.2/object-model.md` §3; `docs/spec/v0.2/values-and-absence.md` §2; [ADR-0005](../retired/0005-number-as-flat-f64.md); [ADR-0009](0009-handle-arena-heap.md); [ADR-0024](0024-numeric-surface-split-int-float-and-division.md)
 
 > **Numeric arm amended (2026-07-12) by [ADR-0024](0024-numeric-surface-split-int-float-and-division.md).**
 > The single `Number(f64)` arm below is replaced by two arms — `Int(i64)` (exact,
@@ -12,7 +12,7 @@
 ## Context
 
 Every surface value maps onto a class ([Object Model §3](../spec/v0.2/object-model.md)),
-but the VM needs one in-register representation for all of them. [ADR-0005](0005-number-as-flat-f64.md)
+but the VM needs one in-register representation for all of them. [ADR-0005](../retired/0005-number-as-flat-f64.md)
 settled the numeric arm (`Number` = flat `f64`) but not the whole value type. Two
 constraints frame the rest:
 

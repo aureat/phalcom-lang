@@ -164,7 +164,7 @@ unchanged (ADR-0018's guard mechanism, not a new one).
 
 - **`.claude/skills/language-design/phalcom/overlay.md` lines 29 and 86** cite
   `ADR-0017 (drafting, U5)` for the sacred-selector inliner. Wrong on two counts: the
-  inliner is **ADR-0018** (`docs/adr/0018-sacred-selector-inliner-and-override-guard.md`,
+  inliner is **ADR-0018** (`docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md`,
   Status: Accepted), and ADR-0017 is a *different*, unrelated, already-shipped ADR
   (class-side stored static fields — the overlay correctly cites ADR-0017 for that at
   its own line 75). `compiler/inliner.rs:1` already cites ADR-0018 correctly; only the

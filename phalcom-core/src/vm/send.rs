@@ -239,7 +239,7 @@ impl VM {
     /// Runs the exact method `method_id` against `receiver` with `args`,
     /// re-entering `run_until` to recover a synchronous result — the
     /// shared engine behind `Method#invokeOn(_,_)` and `Method#bind(_)`'s
-    /// `call` (U-CORE-3, [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+    /// `call` (U-CORE-3, [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
     ///
     /// Mirrors [`Self::send_dynamic`]'s re-entrancy exactly, except there is
     /// **no lookup**: `method_id` is already resolved, so a mismatched

@@ -1,25 +1,25 @@
 # 33. Amend the fiber execution model — trampoline the bytecode block call-site
 
 - Status: Deferred (past v0.2 — the callback-generator ergonomic is delivered for
-  v0.2 by [ADR-0035](0035-iteration-protocol-cursor.md)'s `for`/cursor loop, which
+  v0.2 by [ADR-0035](../accepted/0035-iteration-protocol-cursor.md)'s `for`/cursor loop, which
   lowers to an inlined `while` and suspends freely under
-  [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §4. Revisit this
+  [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §4. Revisit this
   amendment as the general lift — for `.each { yield }` and other native-callback
   generators that `for` cannot express — when that becomes a real need, landing it
-  with the [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §5
+  with the [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §5
   fiber-switch signal per §Decision 4 below)
 - Date: 2026-07-12
-- Related: [ADR-0035](0035-iteration-protocol-cursor.md) (the v0.2 resolution — `for`/cursor);
-  [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
-  (fiber execution model — **§4 amended here**); [ADR-0013](0013-closure-upvalues-and-frame-token-return.md)
-  (block closures + frame-token non-local return); [ADR-0008](0008-layered-exceptions-and-result.md)
-  (one unwind primitive / error floor); [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)
-  (sacred-selector inliner); [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md)
+- Related: [ADR-0035](../accepted/0035-iteration-protocol-cursor.md) (the v0.2 resolution — `for`/cursor);
+  [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
+  (fiber execution model — **§4 amended here**); [ADR-0013](../accepted/0013-closure-upvalues-and-frame-token-return.md)
+  (block closures + frame-token non-local return); [ADR-0008](../accepted/0008-layered-exceptions-and-result.md)
+  (one unwind primitive / error floor); [ADR-0018](../accepted/0018-sacred-selector-inliner-and-override-guard.md)
+  (sacred-selector inliner); [ADR-0019](../accepted/0019-freeze-vm-blessed-primitive-floor.md)
   (frozen floor); [`docs/spec/v0.2/concurrency.md`](../spec/v0.2/concurrency.md) §1
 
 ## Context
 
-[ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §4 fixed the
+[ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §4 fixed the
 fiber execution model at **restricted Option A**: `Fiber.yield` integrates only
 with the top-level `run_until`, and a yield attempted while a re-entrant native
 primitive sits on the Rust stack raises `CannotYieldAcrossNativeFrame`. It also
@@ -38,7 +38,7 @@ step is smaller than "de-recurse every callback primitive":
 
 1. **`List.each` is already pure Phalcom** — an *inlined* `while` over
    `f.call(self.at(i))` ([`core.ph`](../../phalcom-core/core/core.ph) `each`).
-   The `while` is lowered to `Jump`/`Loop` by the [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)
+   The `while` is lowered to `Jump`/`Loop` by the [ADR-0018](../accepted/0018-sacred-selector-inliner-and-override-guard.md)
    inliner and pushes **no** frame. So `each`/`map`/`filter`/`reduce`/`includes`
    contribute no native frame *of their own*.
 2. **The one native frame is `f.call(x)` itself.** `f.call(x)` (and its `f(x)`
@@ -68,7 +68,7 @@ built on `f.call` yield-transparent at once.
 A **native frame** is a Rust activation on the real call stack (a `run_until`
 recursion): opaque to the VM, un-suspendable, only exitable by running to
 completion. A **VM frame** is a `CallFrame` entry in `self.frames`: data the VM
-owns, freely pushed/popped/parked, and — per [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
+owns, freely pushed/popped/parked, and — per [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
 §2 — living *inside* the `FiberObject` so it survives a park. De-recursing
 converts the former into the latter for the block call-path:
 
@@ -92,7 +92,7 @@ bookkeeping that the Rust stack was doing for free (§Consequences).
 
 ## Decision
 
-**Amend [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §4: block
+**Amend [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §4: block
 invocation reached from Phalcom bytecode is trampolined, not re-entrant. The
 re-entrant `block_call` primitive is retained for native callers.**
 
@@ -104,12 +104,12 @@ combinator call form) as a call-site that, when the receiver resolves to a
 to the current `run_until`** — exactly the `MethodKind::Closure` arm's behaviour,
 including the dummy receiver slot and arity check that `block_call` performs today
 ([`block.rs`](../../phalcom-core/src/primitive/block.rs) `block_call`), and the
-`home_frame_token` stamp for non-local return ([ADR-0013](0013-closure-upvalues-and-frame-token-return.md);
+`home_frame_token` stamp for non-local return ([ADR-0013](../accepted/0013-closure-upvalues-and-frame-token-return.md);
 [`block.rs`](../../phalcom-core/src/primitive/block.rs) `block_call` frame stamp).
 No new native frame is created.
 
 The **compile-time** placement (recognising `call`/`value` at the call-site, in
-the [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md) sacred-selector
+the [ADR-0018](../accepted/0018-sacred-selector-inliner-and-override-guard.md) sacred-selector
 spirit) is chosen over a runtime "is-receiver-a-Block?" branch in the `Invoke`
 handler: the latter taxes the single hottest opcode in the VM on every send. The
 accepted consequence is that a block invoked **reflectively** — `blk.perform(#call,
@@ -131,14 +131,14 @@ not a regression, and itself additively removable later (full Option B).
 
 With the block frame on `self.frames`, a block-body `return`
 (`Bytecode::ReturnNonLocal`) and any raised `Error` unwind through `run_until`'s
-**ordinary** handlers ([ADR-0013](0013-closure-upvalues-and-frame-token-return.md)
-token search; [ADR-0008](0008-layered-exceptions-and-result.md) error floor,
+**ordinary** handlers ([ADR-0013](../accepted/0013-closure-upvalues-and-frame-token-return.md)
+token search; [ADR-0008](../accepted/0008-layered-exceptions-and-result.md) error floor,
 stopping at the fiber floor). This **replaces** the non-local-return detection
 that the `MethodKind::Primitive` arm performs today by sniffing the `self.frames`
 length delta after `native_fn` returns and re-pushing the value
 ([`vm.rs`](../../phalcom-core/src/vm.rs) `call_method`, Primitive arm). That
 heuristic is deleted for the trampolined path — a strict simplification, and the
-same "typed signal, not a length delta" discipline [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
+same "typed signal, not a length delta" discipline [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
 §5 mandates for the fiber switch.
 
 `BoundMethod` receivers (which `block_call` intercepts *before* `resolve_callable`
@@ -150,7 +150,7 @@ trampolines the pure `Block`/`Closure` case only.
 ### 4. Sequencing constraint — lands with, or after, the typed fiber-switch signal
 
 Trampolining multiplies the number of `CallFrame` push/pop events during a
-fiber's lifetime. [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
+fiber's lifetime. [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
 §5 already requires that a fiber switch be reconciled with the dispatch loop by an
 **explicit typed `ControlFlow`/switch value, not** the `self.frames.len()`
 heuristic — because a switch also moves `frames.len()`. This amendment **must not**
@@ -165,7 +165,7 @@ standalone pre-fiber slice.
   Fiber.yield(x) } }` suspends correctly, as do generators over
   `map`/`filter`/`reduce`/`includes` and any `.ph` combinator built on `f.call`
   — because none of them any longer interposes a native frame. The
-  [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §4 index-iteration
+  [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §4 index-iteration
   workaround becomes optional rather than required.
 - **A strict simplification of the return path.** The Primitive-arm
   `frames.len()` re-push heuristic ([`vm.rs`](../../phalcom-core/src/vm.rs)
@@ -180,8 +180,8 @@ standalone pre-fiber slice.
   free. Trampolining moves that bookkeeping into the VM (pop the right
   `CallFrame`s, land the value in the right slot, route errors to the fiber
   floor). This is the one genuine correctness risk and the bulk of the review
-  surface — it touches the [ADR-0013](0013-closure-upvalues-and-frame-token-return.md)
-  frame-token return and [ADR-0008](0008-layered-exceptions-and-result.md) error
+  surface — it touches the [ADR-0013](../accepted/0013-closure-upvalues-and-frame-token-return.md)
+  frame-token return and [ADR-0008](../accepted/0008-layered-exceptions-and-result.md) error
   floor, the most load-bearing unwind machinery in the VM.
 - **Two implementations of "invoke a block" coexist.** The trampolined
   `CallBlock` (Phalcom bytecode) and the re-entrant `block_call` primitive (native
@@ -192,14 +192,14 @@ standalone pre-fiber slice.
 - **Residue (retained Option A tail).** Not yield-transparent: reflective/dynamic
   `call` (§Decision 1), and blocks invoked from genuinely native Rust callers
   (§Decision 2). `CannotYieldAcrossNativeFrame` remains a real, catchable error on
-  those paths — a strictly smaller set than under [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
+  those paths — a strictly smaller set than under [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
   §4, and additively removable by the eventual full Option B.
 - **No new floor surface, no GC commitment.** `CallBlock` is a dispatch-shape
   change, not a new native capability, so it does not amend the
-  [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) floor. Block activations
+  [ADR-0019](../accepted/0019-freeze-vm-blessed-primitive-floor.md) floor. Block activations
   remain VM `CallFrame`s inside the arena `FiberObject`
-  ([ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md) §2/§7); no native
-  fiber stacks are introduced, so [ADR-0009](0009-handle-arena-heap.md)'s
+  ([ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §2/§7); no native
+  fiber stacks are introduced, so [ADR-0009](../accepted/0009-handle-arena-heap.md)'s
   moving-ready arena claim is preserved. This is the promised additive A→B step,
   taken as one slice rather than the whole callback-primitive family.
 
@@ -212,22 +212,22 @@ standalone pre-fiber slice.
   residue is narrow and honest.
 - **Full Option B now** (de-recurse `block_call`, `perform`, dNU forward, and every
   Rust combinator). Strictly more capable — closes the entire residue — but is the
-  large invasive rewrite [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
+  large invasive rewrite [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
   §Alternatives deferred. This amendment is the minimal high-leverage subset;
   Option B remains additively reachable from here.
-- **`for`/cursor iteration ([ADR-0035](0035-iteration-protocol-cursor.md)) — the
+- **`for`/cursor iteration ([ADR-0035](../accepted/0035-iteration-protocol-cursor.md)) — the
   chosen v0.2 resolution.** `for (x in coll) { Fiber.yield(x) }` lowers to an inlined
   `while` over the two-selector cursor protocol, emitting no `block_call`, so the
-  yield suspends freely under [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
+  yield suspends freely under [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
   §4 with zero VM/GC risk — and it also gives `break`/`continue`, which a block handed
   to `.each` cannot. This delivers the common generator ergonomic for v0.2 without this
   amendment, which is why ADR-0033 is Deferred. It does **not** close the residue: `for`
   cannot express a `.each { yield }`, a stored-block generator, or a user native
   combinator that yields — those remain the reason this amendment exists.
-  ([ADR-0035](0035-iteration-protocol-cursor.md) §4/§6 deliberately keep iteration
+  ([ADR-0035](../accepted/0035-iteration-protocol-cursor.md) §4/§6 deliberately keep iteration
   selectors non-inlined and `.each { yield }` raising, so inlining `each` is **not** an
   available alternative — an earlier draft that did so was dropped for contradicting it.)
-- **Do nothing (keep restricted Option A).** The [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
+- **Do nothing (keep restricted Option A).** The [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
   §4 workaround stands. Rejected as the target end-state because the callback
   generator is the natural iteration idiom; but valid until the fiber unit is
   scheduled, since this amendment is bound to that unit by §Decision 4.

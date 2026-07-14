@@ -1,15 +1,15 @@
 //! Native primitives on `Error` — the raisable root of the surface error
 //! hierarchy (object-model.md §4 "Errors",
-//! [ADR-0008](../../../docs/adr/0008-layered-exceptions-and-result.md)).
+//! [ADR-0008](../../../docs/adr/accepted/0008-layered-exceptions-and-result.md)).
 //!
 //! `raise` is the surface half of the unified unwind (the `Raise` sibling of
 //! U10's `Return`/[`Bytecode::ReturnNonLocal`](crate::bytecode::Bytecode::ReturnNonLocal));
 //! `message` reads the error's `_message` slot, stamped in [`VM::new`]'s
 //! Phase E exactly like [`crate::universe::CoreClasses::message_class`]. Both
 //! are ADR-0019 floor additions (+2 bindings), pre-cleared in principle by
-//! [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
+//! [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)
 //! and landed by this unit's own amendment
-//! ([ADR-0037](../../../docs/adr/0037-amend-floor-admit-error-root.md)).
+//! ([ADR-0037](../../../docs/adr/accepted/0037-amend-floor-admit-error-root.md)).
 //!
 //! [`VM::new`]: crate::vm::VM::new
 
@@ -38,9 +38,9 @@ pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 }
 
 /// Signature: `Error::raise()` — unwinds the stack with `self` as a surface
-/// `Error` ([ADR-0008](../../../docs/adr/0008-layered-exceptions-and-result.md);
+/// `Error` ([ADR-0008](../../../docs/adr/accepted/0008-layered-exceptions-and-result.md);
 /// `throw expr` desugars to this send per
-/// [ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+/// [ADR-0031](../../../docs/adr/accepted/0031-error-handling-surface-syntax.md) §1).
 /// Only `Error` and its subclasses respond to `raise` — the primitive is
 /// installed on `Error` only, so a non-`Error` receiver misses (dNU →
 /// `MessageNotUnderstood`), realizing the runtime half of R-INV-6.3.

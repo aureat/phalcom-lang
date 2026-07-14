@@ -1,7 +1,7 @@
 //! The concrete [`BlockObject`] heap representation.
 //!
-//! Realizes [ADR-0013](../../docs/adr/0013-block-closure-upvalues.md) and
-//! [ADR-0006](../../docs/adr/0006-function-as-abstract-callable-root.md).
+//! Realizes [ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md) and
+//! [ADR-0006](../../docs/adr/accepted/0006-function-as-abstract-callable-root.md).
 //! A block is a first-class lexical closure. It wraps a [`ClosureObject`](crate::heap::ClosureObject)
 //! (the compiled bytecode and its captured upvalues) along with a [`FrameToken`]
 //! identifying the home stack frame where the block was created (used for non-local returns).
@@ -11,7 +11,7 @@ use crate::frame::FrameToken;
 
 /// A first-class block (lexical closure) object.
 ///
-/// Realizes [ADR-0013](../../docs/adr/0013-block-closure-upvalues.md).
+/// Realizes [ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md).
 /// Blocks are concrete instances of the abstract `Function` class, and siblings of `Method`.
 /// They wrap a compiled closure handle along with the frame token of their home activation.
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -1,7 +1,7 @@
 //! Native primitives on `Map`.
 //!
-//! Realizes the [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
-//! floor for [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md)'s
+//! Realizes the [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)
+//! floor for [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md)'s
 //! native `Map`: allocate, size, keyed get/put/has/remove, and indexed key/value
 //! read (the last two back `Map#keys`/`Map#values`/`Map#each(_)`). These are
 //! internal-only (`raw*`), wrapped by the `.ph`-defined public protocol

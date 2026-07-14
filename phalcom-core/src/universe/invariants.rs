@@ -71,13 +71,13 @@ impl Universe {
             return Err("Metaclass.class.superclass should be Behavior.class".to_string());
         }
 
-        // R-INV-0.2 — the parallel rule ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md))
+        // R-INV-0.2 — the parallel rule ([ADR-0002](../../../docs/adr/accepted/0002-metaclass-tower-parallel-rule.md))
         // holds for *every* ordinary (non-apex) core row, not just `Number`:
         // `X.class.superclass == X.superclass.class`. Includes the U11 `True`/
         // `False` rows (both resolve to `Bool class`) and the absence /
         // collection / message rows. Any newly-added row that breaks the rule
         // fails boot rather than silently mis-dispatching statics.
-        let ordinary_rows: [(&str, ClassId); 23] = [
+        let ordinary_rows: [(&str, ClassId); 24] = [
             ("Number", c.number_class),
             ("String", c.string_class),
             ("Nil", c.nil_class),
@@ -93,6 +93,7 @@ impl Universe {
             ("Option", c.option_class),
             ("Some", c.some_class),
             ("None", c.none_class),
+            ("Iterable", c.iterable_class),
             ("List", c.list_class),
             ("Map", c.map_class),
             ("Set", c.set_class),
@@ -115,7 +116,7 @@ impl Universe {
         }
 
         // R-INV-1.5 (boot half) — `Method` re-parents under `Function`
-        // ([ADR-0006](../../../docs/adr/0006-function-as-abstract-callable-root.md),
+        // ([ADR-0006](../../../docs/adr/accepted/0006-function-as-abstract-callable-root.md),
         // decisions.md §4.1), so it inherits the call protocol instead of
         // redefining it. Guards the load-order fix in `create_core_classes`.
         if heap.class(c.method_class).superclass != Some(c.function_class) {
@@ -124,7 +125,7 @@ impl Universe {
 
         // R-INV-3.1 (boot half) — the callable tower: `Block` is `Function`'s
         // other sibling row, so both `Method` and `Block` share the call
-        // protocol root (U-CORE-3, [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+        // protocol root (U-CORE-3, [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
         // The `ordinary_rows` parallel-rule loop above already covers the
         // metaclass-level half for both rows; this asserts the plain
         // superclass link explicitly, mirroring the `Method` check above.
@@ -147,7 +148,7 @@ impl Universe {
         }
 
         // R-INV-0.4 — fixed-slot layout for the two directly-stamped classes
-        // ([ADR-0011](../../../docs/adr/0011-static-instance-slot-layout.md)):
+        // ([ADR-0011](../../../docs/adr/accepted/0011-static-instance-slot-layout.md)):
         // `Some` has one field (`_value`) and `Message` has four. Fences the
         // E→F bootstrap edge (bootstrap-phases §4).
         if heap.class(c.some_class).field_count != 1 {

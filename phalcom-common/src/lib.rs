@@ -13,7 +13,7 @@
 //!
 //! The old `Rc<RefCell<T>>` aliases (`PhRef` / `PhWeakRef` / `MaybeWeak` /
 //! `phref_new` / `phref_weak`) have been **retired** by the handle/arena heap
-//! redesign ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)). Every
+//! redesign ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)). Every
 //! heap reference is now a `Copy` generational handle,
 //! `phalcom_core::heap::ObjRef`, resolved through the VM-owned
 //! `phalcom_core::heap::Heap` — see `phalcom-core/src/heap.rs`. No shared-owner

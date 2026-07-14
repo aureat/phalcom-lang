@@ -1,6 +1,6 @@
 //! The central object [`Heap`]: arena storage keyed by `Copy` generational handles.
 //!
-//! Realizes [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md). Every heap
+//! Realizes [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md). Every heap
 //! object (instances, classes, methods, modules, closures and strings) lives in
 //! one [`Heap`] and is referred to by an [`ObjRef`] — a small `Copy` handle, not
 //! a pointer. Dereferencing goes through the heap ([`Heap::get`] and the typed
@@ -11,7 +11,7 @@
 //! ## Why `slotmap`
 //!
 //! The arena is a [`slotmap::SlotMap`]. `slotmap` gives us exactly the shape
-//! [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md) asks for with **zero
+//! [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md) asks for with **zero
 //! `unsafe`** in this crate:
 //!
 //! - keys ([`ObjRef`]) are `Copy` and generational, so a stale handle resolves
@@ -25,7 +25,7 @@
 //! typed-key ergonomics and `no unsafe`-at-the-call-site guarantee.
 //!
 //! NaN-boxing of [`crate::value::Value`] stays deferred behind this API
-//! ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)); it does not affect
+//! ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)); it does not affect
 //! the heap contract.
 
 mod accessors;
@@ -68,7 +68,7 @@ new_key_type! {
     /// pointer. It is cheap to copy, hash and compare, and comparing two
     /// `ObjRef`s tests *object identity*. Resolve it through the heap
     /// ([`Heap::get`] / [`Heap::class`] / …). Realizes
-    /// [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md).
+    /// [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md).
     pub struct ObjRef;
 }
 
@@ -84,7 +84,7 @@ pub type ClassId = ObjRef;
 /// The [`crate::vm::VM`] owns exactly one `Heap`. Methods that historically
 /// called `self.borrow()` / `self.borrow_mut()` now take `&Heap` / `&mut Heap`
 /// and dereference a handle through it. Realizes
-/// [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md).
+/// [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md).
 #[derive(Default)]
 pub struct Heap {
     /// Backing arena. Generational keys make stale handles resolve to `None`.
@@ -237,7 +237,7 @@ impl Heap {
     /// every object not reachable from `roots`. Returns the number of objects swept.
     ///
     /// Realises [memory-management.md §3](../../../docs/spec/v0.2/memory-management.md)
-    /// per [ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md).
+    /// per [ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md).
     ///
     /// `roots` is the **complete** root set of
     /// [memory-management.md §2.1](../../../docs/spec/v0.2/memory-management.md),
@@ -249,7 +249,7 @@ impl Heap {
     /// to hold a `&VM` across the sweep.
     ///
     /// **Non-moving** (Invariant M1): a surviving object keeps its `ObjRef` for
-    /// life, so inline-cache tags ([ADR-0012](../../../docs/adr/0012-selector-signature-encoding-and-dispatch.md)),
+    /// life, so inline-cache tags ([ADR-0012](../../../docs/adr/accepted/0012-selector-signature-encoding-and-dispatch.md)),
     /// `==` identity (`Value::value_eq`), and the `Value`s parked in suspended
     /// fiber stacks all stay valid across a collection. A swept handle becomes
     /// stale and resolves to the `dangling ObjRef` diagnostic in [`Self::get`],

@@ -1,7 +1,7 @@
 //! Native primitives on `List`.
 //!
-//! Realizes the [ADR-0019](../../../docs/adr/0019-freeze-vm-blessed-primitive-floor.md)
-//! floor for [ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)'s
+//! Realizes the [ADR-0019](../../../docs/adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
+//! floor for [ADR-0020](../../../docs/adr/accepted/0020-kernel-list-native-array-protocol.md)'s
 //! kernel `List`: allocate, length, indexed get, indexed set, and push
 //! (amortized growth is `Vec::push`'s own doubling strategy, so there is no
 //! separate "grow" primitive — see the U-LIST return contract). These are

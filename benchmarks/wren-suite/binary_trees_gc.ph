@@ -1,7 +1,7 @@
 // Ported from wren/test/benchmark/binary_trees_gc.wren. Same as
 // binary_trees.ph, minus explicit `System.gc()` calls — Phalcom has no
 // `System.gc` primitive (nothing surfaces manual collection control; see
-// docs/adr/0050-non-moving-mark-sweep-collector.md, in-flight). Kept as a
+// docs/adr/accepted/0050-non-moving-mark-sweep-collector.md, in-flight). Kept as a
 // separate file anyway: still exercises the same allocation-pressure shape
 // (no `for (i in 1...1000) System.gc()` "give GC a shot" hook is the delta),
 // useful once GC control lands to see if inserting it changes anything.

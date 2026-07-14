@@ -1,7 +1,7 @@
 //! Native primitives on `Method` — the reflective callable-tower surface.
 //!
 //! `Method` is reified as an [`Object::Method`]
-//! heap object and re-parented under `Function` ([ADR-0006](../../docs/adr/0006-function-as-abstract-callable-root.md)),
+//! heap object and re-parented under `Function` ([ADR-0006](../../docs/adr/accepted/0006-function-as-abstract-callable-root.md)),
 //! so it inherits the shared call protocol (`arity`/`name`/`callWith`/`call`)
 //! but does not answer raw `call` while unbound (`primitive::block::resolve_callable`).
 //! This module adds the reflection surface that closes the gap: reifying
@@ -9,7 +9,7 @@
 //! method to an explicit receiver ([`method_invoke_on`]), closing one over a
 //! receiver ([`method_bind`]), and reading its selector/holder
 //! ([`method_selector`]/[`method_holder`]) — U-CORE-3,
-//! [ADR-0028](../../docs/adr/0028-amend-floor-admit-method-reflection.md).
+//! [ADR-0028](../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md).
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{BoundMethodObject, Object};
@@ -77,7 +77,7 @@ pub fn method_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 
 /// Signature: `Method::holder` — the defining `Class` (or metaclass, for a
 /// class-side method); the shared `None` singleton
-/// ([ADR-0007](../../docs/adr/0007-option-some-none.md)) if the method is
+/// ([ADR-0007](../../docs/adr/accepted/0007-option-some-none.md)) if the method is
 /// unbound (`MethodObject.holder`; functions.md §3, U-CORE-3).
 ///
 /// # Errors

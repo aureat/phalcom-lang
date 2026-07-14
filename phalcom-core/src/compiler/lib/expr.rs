@@ -411,7 +411,7 @@ fn branch_condition_of(sacred: &inliner::SacredCall) -> Option<&Expr> {
 /// Reports whether `expr` is a syntactically detectable `Option` literal.
 ///
 /// Matches the surface forms of the two `Option` cases that carry no truth
-/// value ([ADR-0007](../../../docs/adr/0007-option-type.md)):
+/// value ([ADR-0007](../../../docs/adr/accepted/0007-option-type.md)):
 ///
 /// - the `None` singleton, which lexes to `Var { value: "None" }`; and
 /// - a `Some.new(…)` construction — an [`Expr::MethodCall`] of `new` on the

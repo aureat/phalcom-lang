@@ -310,7 +310,7 @@ impl Heap {
     }
 
     /// Borrows the [`FiberObject`] behind `id`
-    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2).
+    /// ([ADR-0030](../../../docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §2).
     ///
     /// # Panics
     ///
@@ -323,7 +323,7 @@ impl Heap {
     }
 
     /// Mutably borrows the [`FiberObject`] behind `id`
-    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2).
+    /// ([ADR-0030](../../../docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §2).
     ///
     /// # Panics
     ///
@@ -336,7 +336,7 @@ impl Heap {
     }
 
     /// Returns the [`FiberObject`] behind `id`, or `None` if it is not one
-    /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2).
+    /// ([ADR-0030](../../../docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §2).
     pub fn as_fiber(&self, id: ObjRef) -> Option<&FiberObject> {
         match self.objects.get(id) {
             Some(Object::Fiber(fiber)) => Some(fiber),

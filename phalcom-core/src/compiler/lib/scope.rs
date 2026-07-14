@@ -86,7 +86,7 @@ impl<'vm> Compiler<'vm> {
     /// the return value sitting on top of them (the calculator-getter bug). We
     /// only emit [`Bytecode::CloseUpvalue`] for captured locals so their heap
     /// cells are promoted (`Open` -> `Closed`) before the slot is reclaimed
-    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)); the VM's
+    /// ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)); the VM's
     /// `Return` closes them again idempotently for the explicit-return path.
     pub(crate) fn end_scope(&mut self, range: SourceRange) {
         let func = self.functions.last_mut().unwrap();
@@ -110,7 +110,7 @@ impl<'vm> Compiler<'vm> {
     /// `is_mutable` records whether the binding may later be reassigned: `var`
     /// locals (and the synthetic receiver/parameter slots) pass `true`, while
     /// `let` locals pass `false` so the assignment path can reject stores to
-    /// them ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)).
+    /// them ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)).
     pub(super) fn add_local(&mut self, name: Symbol, is_mutable: bool) {
         let func = self.functions.last_mut().unwrap();
         tracing::debug!("[Compiler] Adding local at depth {}", func.scope_depth);
@@ -139,7 +139,7 @@ impl<'vm> Compiler<'vm> {
     /// Walks the enclosing function-compilation states (via [`Self::functions`]
     /// indices — no aliasing borrows) marking the captured local so the
     /// enclosing frame closes it on scope exit
-    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    /// ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)).
     pub(super) fn resolve_upvalue(&mut self, name: Symbol) -> Option<usize> {
         self.resolve_upvalue_in(self.functions.len() - 1, name)
     }

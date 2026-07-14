@@ -1,7 +1,7 @@
 //! Native primitives on `Tuple`.
 //!
-//! Realizes the [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
-//! floor for [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md)'s
+//! Realizes the [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)
+//! floor for [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md)'s
 //! native `Tuple`: freeze a `List`'s elements into a fixed slice, length, and
 //! indexed get. These are internal-only (`size_`/`at_`), wrapped by the
 //! `.ph`-defined public protocol (`size`/`at(_)`/`each(_)`/`==`/`hash`) in

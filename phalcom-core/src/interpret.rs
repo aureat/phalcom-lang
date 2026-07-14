@@ -2,7 +2,7 @@
 //!
 //! This is the top-level entry the CLI and REPL call. It resolves module
 //! paths, compiles source into a heap [`ObjRef`] closure via the compiler, and
-//! runs it on the [`VM`]. Since [ADR-0009](../../docs/adr/0009-handle-arena-heap.md)
+//! runs it on the [`VM`]. Since [ADR-0009](../../docs/adr/accepted/0009-handle-arena-heap.md)
 //! compiled closures, modules and frames are all [`ObjRef`] handles into the
 //! VM's [`Heap`](crate::heap::Heap) rather than `Rc<RefCell<T>>` graphs.
 

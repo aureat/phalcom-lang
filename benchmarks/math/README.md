@@ -59,7 +59,7 @@ don't fail the run until `--strict`.
 - **Tier 1.5** — adds the object model (instance fields, operator methods,
   static factories). Also U5-era; grouped separately only because exact rational
   arithmetic makes `==` assertions meaningful.
-- **Tier 2** — needs `var` (U6, [ADR-0014](../../docs/adr/0014-let-and-var-bindings.md)),
+- **Tier 2** — needs `var` (U6, [ADR-0014](../../docs/adr/accepted/0014-let-and-var-bindings.md)),
   list/map literals ([lexical-structure.md §4/§6](../../docs/spec/lexical-structure.md)),
   the iteration protocol ([iteration-protocol.md](../../docs/spec/experimental/iteration-protocol.md)),
   and a standard-library collection surface that is **still deferred**

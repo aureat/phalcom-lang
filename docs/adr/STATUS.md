@@ -20,9 +20,10 @@ Gap: **ADR-0034 does not exist** (no file in `docs/adr/`, numbering skips it).
 3. **Record every Superseded/Retired relationship the moment it's ruled.** Update both ADRs: the retired one gets a dated callout + Status flip to Retired, the superseding one gets no special mark (it's just Accepted) but this table's Superseded-by column must name it. Do this in the same commit as the ruling — not as a follow-up.
 4. **Don't guess.** `✅` requires evidence you (or a prior pass this document accounts for) actually produced. Unverified stays `?`. Upgrading `?`→`✅` without checking the tree is the ADR-0024/0042 mistake in reverse.
 
-Regenerate the sweep with:
+ADRs live under `accepted/`, `proposed/`, `retired/` (status-named folders, see
+`README.md` "Conventions"). Regenerate the sweep with:
 ```sh
-cd docs/adr && for f in 0*.md; do grep -m1 -iE '^- Status:|^Status:|^## Status' "$f"; done
+cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -iE '^- Status:|^Status:|^## Status' "$f"; done
 ```
 
 | ADR | Title | Status | Superseded by | Shipped |
@@ -81,15 +82,18 @@ cd docs/adr && for f in 0*.md; do grep -m1 -iE '^- Status:|^Status:|^## Status' 
 | 0052 | Invariant re-entrancy receiver-scoped; decorator state Layout-confined | Accepted | | ? |
 | 0053 | Runtime decorator interception reuses override-epoch guard | Accepted | | ? (pristine-flag mechanism confirmed present; per-class `has_runtime_interceptor` bit not re-checked this pass) |
 | 0054 | Two-speed decorator ratification | Accepted (broad, ruled 2026-07-14) | | ? |
-| 0055 | Index syntax sugar over `at` selectors | Accepted | | ? |
+| 0055 | Index syntax sugar over `at` selectors | Retired | ADR-0060 (ruled 2026-07-14) | ❌ not built as designed — superseded before full implementation |
 | 0056 | `phalcom-lsp` in-process language server | Proposed | | ✅ **shipped despite Proposed status** — `phalcom-lsp` crate exists in the workspace (`Cargo.toml` members), multiple `feat(phalcom-lsp)`/`feat(U-LSP)` commits landed. Same status/reality gap class as 0028/0036/0037/0040 before their fix — not yet reconciled |
 | 0057 | Decorator vs proxy granularity split | Accepted | | ? |
 | 0058 | Reactive tracking-context needs a native module | Accepted | | ? |
+| 0059 | Amend ADR-0058/0033 — reactive tracking context bound to native-frame switch guard | Proposed (needs user ratification) | | — (row missing pre-edit; added 2026-07-14, not yet code-checked) |
+| 0060 | `[]` is a real, overridable selector — no `at` lowering | Accepted | | ❌ not built — parser has no bracket arm in `parse_method_name`/`parse_class_member` (`phalcom-ast/src/parser.rs`), compiler still lowers to `at` |
 
 ## Known status/reality gaps not yet reconciled
 
 - **ADR-0056** — Proposed, but `phalcom-lsp` is a real workspace crate with landed `U-LSP` stages (diagnostics, symbol index, completion, hover, semantic tokens per commit log). Same pattern as 0028/0036/0037/0040 (ADR left Proposed after the unit shipped) — not yet put to the user for a ruling.
-- **0052/0053/0054/0055/0057/0058** — Accepted, plausible given the decorator/reactivity work landed this session's history shows, but not individually code-verified in this pass. Marked `?` rather than asserted.
+- **0052/0053/0054/0057/0058** — Accepted, plausible given the decorator/reactivity work landed this session's history shows, but not individually code-verified in this pass. Marked `?` rather than asserted.
+- **0055** — Retired 2026-07-14, superseded by ADR-0060 (`[]` real selector, no `at` lowering). No longer in the unreconciled-gap bucket.
 - **0050** — GC code exists in the tree (`vm/gc.rs`, `force_gc`) but wasn't diffed against this ADR's specific non-moving-mark-sweep design before marking `?`.
 
 Do not upgrade a `?` to `✅` without checking the tree — that is exactly the mistake ADR-0024/0042 made in reverse (a doc claiming a status the code didn't back).

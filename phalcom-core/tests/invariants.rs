@@ -7,10 +7,10 @@
 //! it end-to-end via a real [`VM`] (which runs the actual bootstrap in
 //! [`Universe::create_core_classes`]) and asserts, via **handle identity** on
 //! the live class graph, the full §5 apex table plus the parallel rule
-//! ([ADR-0002](../../docs/adr/0002-metaclass-tower-parallel-rule.md)) and the
-//! `Behavior` kernel class ([ADR-0003](../../docs/adr/0003-introduce-behavior-kernel-class.md)).
+//! ([ADR-0002](../../docs/adr/accepted/0002-metaclass-tower-parallel-rule.md)) and the
+//! `Behavior` kernel class ([ADR-0003](../../docs/adr/accepted/0003-introduce-behavior-kernel-class.md)).
 //!
-//! Since [ADR-0009](../../docs/adr/0009-handle-arena-heap.md) every class is a
+//! Since [ADR-0009](../../docs/adr/accepted/0009-handle-arena-heap.md) every class is a
 //! [`ClassId`] into the [`VM`]'s [`Heap`], and its metaclass (`class`) and
 //! superclass links are plain [`ClassId`] handles. Object identity is
 //! therefore a `==` on the `Copy` handle. Links are read through
@@ -107,8 +107,8 @@ fn send1(vm: &mut VM, receiver: Value, selector: &str, arg: Value) -> Value {
 #[test]
 fn surface_nil_is_unreachable_from_user_code() {
     // U6 Invariant 4 (values-and-absence.md §3;
-    // [ADR-0007](../../docs/adr/0007-option-some-none.md) /
-    // [ADR-0010](../../docs/adr/0010-tagged-value-enum.md)): the private
+    // [ADR-0007](../../docs/adr/accepted/0007-option-some-none.md) /
+    // [ADR-0010](../../docs/adr/accepted/0010-tagged-value-enum.md)): the private
     // `Value::Nil` sentinel has no surface syntax. U6 removes the `nil`
     // keyword, so `nil` is merely an undefined identifier — no user program can
     // name, print, or compare the sentinel; it fails to compile instead.
@@ -222,8 +222,8 @@ fn verify_invariants_holds_after_bootstrap() {
 
 #[test]
 fn sealed_hierarchy_rejects_runtime_reparent_and_keeps_invariants() {
-    // U13 / DEC-U13a=A ([ADR-0026](../../docs/adr/0026-class-hierarchy-mutability.md),
-    // [ADR-0041](../../docs/adr/0041-hierarchy-stability-policy.md)): a class's
+    // U13 / DEC-U13a=A ([ADR-0026](../../docs/adr/accepted/0026-class-hierarchy-mutability.md),
+    // [ADR-0041](../../docs/adr/accepted/0041-hierarchy-stability-policy.md)): a class's
     // `superclass` is sealed at creation — `class_set_superclass` (the
     // `superclass=(_)` primitive, installed on `Behavior`) always errors and
     // never mutates the class graph, so `ClassId`-keyed dispatch and the

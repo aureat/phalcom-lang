@@ -17,7 +17,7 @@ first, never slurp source into your own context).
 - `docs/forge/PHASE2-INDEX.md` §7 — the successor-track roster (U-CORE-1..6), now the single index
   of record (no more forked rosters — this was DEFERRED #29, now resolved).
 - `docs/spec/core/decisions.md`, `docs/spec/core/U-CORE-3-implementation-spec.md` — the next unit.
-- `docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md` — the omnibus floor amendment,
+- `docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md` — the omnibus floor amendment,
   **Accepted**. U-CORE-3's own floor delta (+5, `Method` reflection surface) is already authorized
   by this ADR — nothing to draft or ratify, only ground and implement.
 

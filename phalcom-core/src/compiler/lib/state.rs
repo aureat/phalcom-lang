@@ -10,14 +10,14 @@ pub(super) struct Local {
     pub(super) depth: usize,
     /// Whether a nested block captured this local as an upvalue, which forces
     /// the enclosing frame to close (heap-promote) it on scope exit
-    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    /// ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)).
     pub(super) is_captured: bool,
     /// Whether the binding may be reassigned.
     ///
     /// `let` locals are immutable (`false`); `var` locals, method parameters
     /// and the receiver slot are mutable (`true`). The assignment path rejects
     /// a store to an immutable local
-    /// ([ADR-0014](../../../docs/adr/0014-let-var-bindings.md)).
+    /// ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)).
     pub(super) is_mutable: bool,
 }
 
@@ -28,7 +28,7 @@ pub(super) struct Local {
 /// ([`super::Compiler::functions`]) so upvalue resolution can walk from the innermost
 /// block outward through its enclosing functions using plain indices — with no
 /// aliasing `&mut` references and no raw parent pointers
-/// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+/// ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)).
 pub(crate) struct FunctionState {
     /// The bytecode chunk being emitted for this body.
     pub(crate) chunk: Chunk,
@@ -51,7 +51,7 @@ pub(crate) struct FunctionState {
     /// [`phalcom_ast::ast::Statement::Return`]'s opcode choice: a `return` in a block body emits
     /// [`crate::bytecode::Bytecode::ReturnNonLocal`] (unwind to the enclosing method), while a
     /// `return` in a method body keeps [`crate::bytecode::Bytecode::Return`] (blocks.md §5,
-    /// [ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+    /// [ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)).
     pub(super) is_block: bool,
 }
 

@@ -1,7 +1,7 @@
 //! Precise tracing: the outgoing-edge enumeration the collector marks through.
 //!
 //! Realises [memory-management.md §2.3](../../../docs/spec/v0.2/memory-management.md)
-//! (normative) per [ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md)
+//! (normative) per [ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md)
 //! §3. One exhaustive `match` over [`Object`] yields every child handle an object
 //! stores; [`Heap::collect`](super::Heap::collect) drives it from a worklist.
 //!
@@ -11,7 +11,7 @@
 //!    compile until it declares its edges. There is deliberately no `_ => {}` arm.
 //! 2. **`Value` children only through [`Value::as_obj`].** Never match `Value`'s
 //!    arms here — that accessor is the seam that keeps this file independent of a
-//!    future NaN-boxed `Value` ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md)).
+//!    future NaN-boxed `Value` ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
 //!
 //! **The known gap:** the exhaustive match catches a new *variant*, never a new
 //! *field* on an existing variant. Five edges (`Class.attributes`,

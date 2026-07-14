@@ -1,8 +1,8 @@
 //! A native, heap-backed fixed-arity immutable product.
 //!
-//! Realizes [ADR-0032 §1](../../../docs/adr/0032-collections-representation-and-literals.md)
+//! Realizes [ADR-0032 §1](../../../docs/adr/accepted/0032-collections-representation-and-literals.md)
 //! (native heap-arm representation) and
-//! [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
+//! [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)
 //! (the raw-primitive floor amendment): `Tuple` is a dedicated
 //! [`crate::heap::Object::Tuple`] heap variant, mirroring
 //! [`crate::heap::ListObject`] — **not** an [`crate::heap::InstanceObject`].
@@ -17,7 +17,7 @@ use crate::value::Value;
 /// A native, fixed-length immutable slice of [`Value`]s.
 ///
 /// The three VM-blessed floor primitives
-/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md),
+/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md),
 /// `phalcom-core/src/primitive/tuple.rs`) operate directly on this buffer;
 /// the surfaced `at(_)`/`size`/`each(_)`/`==`/`hash` protocol is defined in
 /// `.ph` over those primitives (`tuple-and-range.md` §1).

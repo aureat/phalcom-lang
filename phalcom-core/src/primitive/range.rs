@@ -1,7 +1,7 @@
 //! Native primitives on `Range`.
 //!
-//! Realizes the [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
-//! floor for [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md)'s
+//! Realizes the [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)
+//! floor for [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md)'s
 //! native `Range`: allocate from three bound fields, plus the three raw field
 //! reads (`start_`/`end_`/`inclusive_`). That is the **whole** floor —
 //! `size`/`at(_)`/`includes(_)`/`first`/`last`/`each(_)`/`toList`/`==`/`hash`

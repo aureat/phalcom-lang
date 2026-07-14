@@ -57,7 +57,7 @@ ADR-0014 already foreclosed.
 
 ### A3. ADR-0004 contradicts its own status line
 
-`docs/adr/0004-boolean-as-abstract-bool-with-true-false.md` is headed
+`docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md` is headed
 `- Status: Accepted`, but its own **Decision** section reads: *"**Recommendation
 (pending approval):** adopt the abstract `Bool` + `True`/`False` model."* An ADR
 cannot simultaneously be Accepted and pending approval; downstream documents

@@ -1,12 +1,12 @@
 //! A native, heap-backed array of Phalcom [`Value`]s.
 //!
-//! Realizes [ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md):
+//! Realizes [ADR-0020](../../../docs/adr/accepted/0020-kernel-list-native-array-protocol.md):
 //! `List` is a dedicated [`crate::heap::Object::List`] heap variant — mirroring
 //! [`crate::heap::StringObject`] — **not** an
 //! [`crate::heap::InstanceObject`] built on U7's field-slot layout (U-LIST
 //! has no technical dependency on U7). There is no `Rc`/`RefCell`: mutation
 //! goes through `&mut Heap` like every other heap object
-//! ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)), so there is no
+//! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)), so there is no
 //! borrow-panic surface.
 
 use crate::value::Value;
@@ -14,7 +14,7 @@ use crate::value::Value;
 /// A native array-backed list.
 ///
 /// The six VM-blessed floor primitives
-/// ([ADR-0019](../../../docs/adr/0019-freeze-vm-blessed-primitive-floor.md),
+/// ([ADR-0019](../../../docs/adr/accepted/0019-freeze-vm-blessed-primitive-floor.md),
 /// `phalcom-core/src/primitive/list.rs`) operate directly on this buffer;
 /// the surfaced `at(_:)`/`size`/`add(_:)`/`each(_:)` protocol is defined in
 /// `.ph` over those primitives (ADR-0020).

@@ -30,7 +30,7 @@
 //! control-flow.md §3 lists the paired conditional as `ifTrue(_)ifFalse(_)`,
 //! modeled on Smalltalk's independently-worded `ifTrue:ifFalse:` keyword
 //! message. Phalcom's actual selector model
-//! ([ADR-0012](../../../docs/adr/0012-selector-encoding-and-dispatch.md))
+//! ([ADR-0012](../../../docs/adr/accepted/0012-selector-encoding-and-dispatch.md))
 //! has no such shape: a selector is **one** base name plus per-argument
 //! *labels* on that name (`encode_selector`), not several independently
 //! named keyword parts chained together. U5 realizes the same semantics as
@@ -224,7 +224,7 @@ impl<'vm> Compiler<'vm> {
     /// `return` inside therefore compiles to the enclosing method's ordinary
     /// [`Bytecode::Return`] and unwinds to the home method exactly as the
     /// non-inlined send form's frame-token non-local return would
-    /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)) — this
+    /// ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)) — this
     /// is the "for free" non-local-return transparency U5-plan.md §4.2
     /// calls the highest-value correctness assertion in the unit.
     ///

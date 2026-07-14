@@ -1,8 +1,8 @@
 //! A native, heap-backed lazy numeric interval.
 //!
-//! Realizes [ADR-0032 §1](../../../docs/adr/0032-collections-representation-and-literals.md)
+//! Realizes [ADR-0032 §1](../../../docs/adr/accepted/0032-collections-representation-and-literals.md)
 //! (native heap-arm representation) and
-//! [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
+//! [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)
 //! (the raw-primitive floor amendment): `Range` is a dedicated
 //! [`crate::heap::Object::Range`] heap variant, mirroring
 //! [`crate::heap::ListObject`] — **not** an [`crate::heap::InstanceObject`].
@@ -18,7 +18,7 @@ use crate::value::Value;
 /// A native, lazy numeric interval — three fields, no element buffer.
 ///
 /// The three VM-blessed floor primitives
-/// ([ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md),
+/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md),
 /// `phalcom-core/src/primitive/range.rs`) are raw field reads; the surfaced
 /// `size`/`at(_)`/`includes(_)`/`first`/`last`/`each(_)`/`toList` protocol is
 /// defined in `.ph` over them (`tuple-and-range.md` §2).

@@ -1,6 +1,6 @@
 //! In-process Language Server Protocol server for Phalcom.
 //!
-//! Implements [ADR-0056](../../docs/adr/0056-phalcom-lsp-architecture.md):
+//! Implements [ADR-0056](../../docs/adr/proposed/0056-phalcom-lsp-architecture.md):
 //! an editor-intelligence server that embeds `phalcom-ast` directly (no
 //! subprocess, no CLI shelling) over `tower-lsp`. Deliberately **VM-free** —
 //! this crate depends on [`phalcom_ast`] and [`phalcom_common`] only, never

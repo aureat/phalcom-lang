@@ -9,7 +9,7 @@ use crate::vm::VM;
 /// Returns the `None` singleton (surface absence value): `print` is a
 /// statement-like send whose result is user-reachable (e.g. `print(print(1))`),
 /// so it must never yield the raw `nil` sentinel (Invariant 4,
-/// [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+/// [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)).
 ///
 /// Renders each argument via [`Value::to_display_string`], which sends
 /// `toString` to any heap object with no bespoke native renderer, so this
@@ -72,7 +72,7 @@ pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) ->
 }
 
 /// Signature: `System.gc` — forces one full mark-sweep and returns `None`
-/// (`system.md` §`gc`, [ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md) §8).
+/// (`system.md` §`gc`, [ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) §8).
 ///
 /// Runs **no finalizers**, performs **no compaction**, and changes **no handle**
 /// (Invariant M1) — a surviving object keeps its `ObjRef`. Deterministic and safe

@@ -1,6 +1,6 @@
 //! Native primitives for the kernel `Family` class (`::` method references,
 //! selectors.md §3, U16-Open, U16-Pinned,
-//! [ADR-0047](../../../../docs/adr/0047-amend-floor-admit-family-call-router.md)).
+//! [ADR-0047](../../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md)).
 //!
 //! `Family` defines exactly one native primitive — [`family_does_not_understand`]
 //! — and no other methods: every bare-call selector shape a call site can

@@ -3,7 +3,7 @@
 //! A [`ModuleObject`] is a heap [`Object`](crate::heap::Object). Interior
 //! mutability now lives in the [`Heap`](crate::heap::Heap): the globals table and
 //! name index are plain fields, mutated through `heap.module_mut(id)` rather than
-//! per-object `RefCell`s ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
+//! per-object `RefCell`s ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::ObjRef;

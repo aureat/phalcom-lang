@@ -53,7 +53,7 @@ pub enum Statement {
     },
     /// `throw expr` — unwind the stack raising `expr`
     /// ([error-handling.md §1](../../../docs/spec/v0.2/error-handling.md),
-    /// [ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+    /// [ADR-0031](../../../docs/adr/accepted/0031-error-handling-surface-syntax.md) §1).
     /// Surface sugar for `expr.raise()`; the compiler additionally rejects a
     /// syntactically-detectable non-`Error` literal operand at compile time
     /// (error-handling.md §1: "`throw "oops"` is a compile error") — a
@@ -136,7 +136,7 @@ pub struct ClassDef {
     /// instead of into a [`ClassMember`]'s [`Attribute`] list. The compiler
     /// conjoins these in order into one synthesized `__check_invariant()`
     /// method, woven receiver-scoped per
-    /// [ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
+    /// [ADR-0052](../../../docs/adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
     pub invariants: Vec<(Expr, SourceRange)>,
     pub range: SourceRange,
     /// The source span of just the class name identifier (e.g. the `Foo` in
@@ -390,7 +390,7 @@ pub enum BindingKind {
 /// surfaces `None` for `var`. The [`pattern`](LetBinding::pattern) is either a
 /// bare name (the pre-U14 case) or a destructuring [`Pattern`] — a tuple or
 /// list pattern that positionally unpacks the initializer (open-questions.md
-/// Q7, [ADR-0046](../../../docs/adr/0046-destructuring-bindings.md)). A
+/// Q7, [ADR-0046](../../../docs/adr/accepted/0046-destructuring-bindings.md)). A
 /// destructuring `pattern` always requires an initializer, regardless of
 /// `kind` — there is nothing to unpack from an absent value.
 #[derive(Debug, Clone)]
@@ -407,7 +407,7 @@ pub struct LetBinding {
 
 /// A `let`/`var` binding's left-hand side — a bare name or a destructuring
 /// pattern (open-questions.md Q7, U14,
-/// [ADR-0046](../../../docs/adr/0046-destructuring-bindings.md)).
+/// [ADR-0046](../../../docs/adr/accepted/0046-destructuring-bindings.md)).
 ///
 /// Patterns nest recursively (`let ((a, b), c) = …`), reusing the collection
 /// literal's `(…)`/`[…]` delimiters in binding-target position — a grammar

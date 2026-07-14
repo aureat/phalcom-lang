@@ -1,7 +1,7 @@
 //! Native primitives on `Set`.
 //!
-//! Realizes the [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
-//! floor for [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md)'s
+//! Realizes the [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)
+//! floor for [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md)'s
 //! native `Set` — a keys-only [`crate::heap::MapObject`] (DEC-CT-B,
 //! `docs/forge/units/U-COLLTYPES/plan.md` §8): allocate, size, membership
 //! add/has/remove, and indexed read (backs `Set#each(_)`). These are

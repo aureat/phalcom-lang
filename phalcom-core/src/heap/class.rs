@@ -2,7 +2,7 @@
 //!
 //! A [`ClassObject`] is a heap [`Object`](crate::heap::Object) referenced by a
 //! [`ClassId`]. Its links to its metaclass and superclass are plain [`ClassId`]
-//! handles ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)), so the
+//! handles ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)), so the
 //! kernel's cyclic wiring (e.g. `Metaclass.class == Metaclass`) is just a handle
 //! that points at itself — no `Rc`, no `Weak`, no `RefCell` (`object-model.md`
 //! §5–6). Method lookup walks the superclass chain through the heap.
@@ -20,7 +20,7 @@ type MethodsMap = IndexMap<Symbol, ObjRef>;
 ///
 /// Both `class` (the metaclass) and `superclass` are [`ClassId`] handles into the
 /// [`Heap`], patched during bootstrap ([`crate::universe`]). See
-/// [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md).
+/// [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md).
 #[derive(Debug, Clone)]
 pub struct ClassObject {
     /// The class's display name (e.g. `"Number"`, `"Number.class"`).
@@ -89,7 +89,7 @@ impl ClassObject {
     ///
     /// The `class` handle is the null [`ObjRef`] and `superclass` is `None`; the
     /// bootstrap (allocate-then-patch, [`crate::universe`]) fills them in before
-    /// the class is used. See [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md).
+    /// the class is used. See [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md).
     pub fn bare(name: &str) -> Self {
         Self {
             name: name.to_string(),

@@ -12,7 +12,7 @@
   (sibling per-unit landing record — same amendment pattern, `Method`
   reflection slice, 80 → 85); [ADR-0015](0015-object-default-tostring.md)
   (`Object#toString` default — re-homed, not re-bound, by this unit);
-  [ADR-0005](0005-number-as-flat-f64.md) (`Number` as a flat `f64`, the
+  [ADR-0005](../retired/0005-number-as-flat-f64.md) (`Number` as a flat `f64`, the
   representation this binding renders); `docs/forge/units/U-CORE-4/as-built.md`
   §2, §6.1 (drafted amendment text and the native/`.ph` split);
   `docs/spec/v0.2/core/floor-census.md` §1.1, §2.1, §2.4 (re-baselined in the

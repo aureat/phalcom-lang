@@ -148,7 +148,7 @@ Each fails the derivability test — it reads data `.ph` cannot reach:
 **73 → 80**; distinct fns 57 → 64; floor-carrying classes unchanged at **16**
 (`Behavior` already carries `superclass`). This is an **ADR-0019 amendment** — now
 ratified as **ADR-0023** (Accepted;
-`docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md`, the omnibus
+`docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md`, the omnibus
 floor amendment). Its draft text is preserved in §2.3. `floor-census.md` §1.1/§2 is updated in the
 **same** change (the delta rows are given in §5.4).
 

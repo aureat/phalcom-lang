@@ -2,12 +2,12 @@
 
 - Status: Proposed
 - Date: 2026-07-13
-- Related: [ADR-0009](0009-handle-arena-heap.md) (handle heap),
-  [ADR-0010](0010-tagged-value-enum.md) (`Value` repr; NaN-boxing deferral),
-  [ADR-0012](0012-selector-signature-encoding-and-dispatch.md) (selector encoding;
-  inline-cache seam), [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)
-  (sacred-selector inliner + deopt guard), [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
-  (fibers own heap-resident stacks), [ADR-0050](0050-non-moving-mark-sweep-collector.md)
+- Related: [ADR-0009](../accepted/0009-handle-arena-heap.md) (handle heap),
+  [ADR-0010](../accepted/0010-tagged-value-enum.md) (`Value` repr; NaN-boxing deferral),
+  [ADR-0012](../accepted/0012-selector-signature-encoding-and-dispatch.md) (selector encoding;
+  inline-cache seam), [ADR-0018](../accepted/0018-sacred-selector-inliner-and-override-guard.md)
+  (sacred-selector inliner + deopt guard), [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
+  (fibers own heap-resident stacks), [ADR-0050](../accepted/0050-non-moving-mark-sweep-collector.md)
   (non-moving collector); `docs/spec/v0.2/performance.md` (normative);
   `docs/forge/DEFERRED.md` (the deferred perf cluster);
   `docs/forge/units/U-HOTPATH`, `U-GC` (existing units this strategy sequences).

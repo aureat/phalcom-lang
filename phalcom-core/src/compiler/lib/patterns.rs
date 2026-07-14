@@ -11,7 +11,7 @@ use super::Compiler;
 // A destructuring pattern desugars to a **single** evaluation of the
 // initializer, then positional reads through the ordinary `at(_)` selector
 // `List`/`Tuple` already expose (ADR-0020) — no parallel `_0`/`_1`
-// accessor protocol. See [`docs/adr/0046-destructuring-bindings.md`] for
+// accessor protocol. See [`docs/adr/accepted/0046-destructuring-bindings.md`] for
 // the full design record.
 
 impl<'vm> Compiler<'vm> {

@@ -20,7 +20,7 @@ use super::{FiberObject, ObjRef};
 /// Every heap-allocated Phalcom object is one of these variants. Immediate
 /// values (`nil`, booleans, numbers, interned symbols) are *not* here — they
 /// live inline in [`crate::value::Value`] per
-/// [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md).
+/// [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md).
 pub enum Object {
     /// A user-defined object with per-instance fields ([`InstanceObject`]).
     Instance(InstanceObject),
@@ -48,18 +48,18 @@ pub enum Object {
     /// A first-class block closure ([`BlockObject`]).
     Block(BlockObject),
     /// A method closed over a receiver — the result of `Method#bind(_)`
-    /// ([ADR-0006](../../../docs/adr/0006-function-as-abstract-callable-root.md)).
+    /// ([ADR-0006](../../../docs/adr/accepted/0006-function-as-abstract-callable-root.md)).
     /// Its surface class is `Block`; it responds to the `Function` call
     /// protocol by delegating to [`crate::vm::VM::invoke_method_object`]
-    /// (U-CORE-3, [ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)).
+    /// (U-CORE-3, [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
     BoundMethod(BoundMethodObject),
     /// A heap-allocated upvalue cell ([`Upvalue`]).
     Upvalue(Upvalue),
     /// A native array-backed list ([`ListObject`],
-    /// [ADR-0020](../../../docs/adr/0020-kernel-list-native-array-protocol.md)).
+    /// [ADR-0020](../../../docs/adr/accepted/0020-kernel-list-native-array-protocol.md)).
     List(ListObject),
     /// A cooperative fiber — the sole concurrency primitive
-    /// ([`FiberObject`], [ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2).
+    /// ([`FiberObject`], [ADR-0030](../../../docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §2).
     ///
     /// Reached through [`Value::Obj`] exactly as a
     /// [`Object::List`] is — there is **no** `Value::Fiber` arm (ADR-0030 §2,
@@ -69,8 +69,8 @@ pub enum Object {
     /// **Boxed** (176 B) — see [`Object::Class`].
     Fiber(Box<FiberObject>),
     /// A native, insertion-ordered hash map ([`MapObject`],
-    /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
-    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
     /// Keyed by **Phalcom** `hash`+`==` (not Rust identity) — see
     /// the `heap::map` module doc. Mutable ⇒ inherits identity `Object#hash`, not a valid
     /// `Map`/`Set` key (Q5, collection-protocol law 4).
@@ -87,15 +87,15 @@ pub enum Object {
     /// **Boxed** (72 B) — see [`Object::Class`].
     Set(Box<MapObject>),
     /// A native, fixed-arity immutable product ([`TupleObject`],
-    /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
-    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
     /// Immutable ⇒ value-hashable and a valid `Map`/`Set` key (Q5,
     /// collection-protocol law 4) — the opposite corner of the mutability
     /// axis from [`Object::List`]/[`Object::Map`]/[`Object::Set`].
     Tuple(TupleObject),
     /// A native, lazy numeric interval ([`RangeObject`],
-    /// [ADR-0032](../../../docs/adr/0032-collections-representation-and-literals.md) §1,
-    /// [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)).
+    /// [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
+    /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
     /// Three bound fields, **no element storage** (RG-2 laziness,
     /// `docs/spec/v0.2/core/tuple-and-range.md` §2) — `each`/`toList`
     /// generate elements in `.ph` over the raw getters. Immutable ⇒
@@ -110,7 +110,7 @@ pub enum Object {
     /// discriminates the two reference shapes; see its doc for what
     /// [`FamilyObject::selector`] holds in each.
     ///
-    /// [ADR-0047]: ../../../docs/adr/0047-amend-floor-admit-family-call-router.md
+    /// [ADR-0047]: ../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md
     Family(FamilyObject),
 }
 
@@ -156,7 +156,7 @@ pub struct FamilyObject {
 /// home-frame token: it must work for **primitive** methods too (which have
 /// no [`ClosureObject`]), and it is not itself a lexical block, so it has no
 /// non-local return and introduces no frame-indexing
-/// ([ADR-0028](../../../docs/adr/0028-amend-floor-admit-method-reflection.md)
+/// ([ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)
 /// forward-compat §1). Calling it (`bound.call(args)`) and
 /// `method.invokeOn(receiver, args)` funnel through the same
 /// [`crate::vm::VM::invoke_method_object`] workhorse, so the two are

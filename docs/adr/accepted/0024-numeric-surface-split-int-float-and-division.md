@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-12
-- Supersedes (in part): [ADR-0005](0005-number-as-flat-f64.md) — its single-`f64`
+- Supersedes (in part): [ADR-0005](../retired/0005-number-as-flat-f64.md) — its single-`f64`
   representation now applies only to `Float`; `Int` gets its own exact representation.
 - Related: [ADR-0009](0009-handle-arena-heap.md) (heap home for `LargeInt`),
   [ADR-0010](0010-tagged-value-enum.md) (`Value` gains `Int`/`Float` variants),
@@ -14,7 +14,7 @@
 
 ## Context
 
-[ADR-0005](0005-number-as-flat-f64.md) modeled every number as one unboxed `f64`
+[ADR-0005](../retired/0005-number-as-flat-f64.md) modeled every number as one unboxed `f64`
 and deferred an `Int`/`Float` split. Open-question Q2 asked whether to (a) expose
 distinct surface types and (b) give integers *exact* semantics. Both are now
 answered **yes**: users want `1.class != 1.0.class`, whole-number-only index/count

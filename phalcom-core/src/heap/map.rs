@@ -1,13 +1,13 @@
 //! A native, heap-backed insertion-ordered hash map.
 //!
-//! Realizes [ADR-0032 §1](../../../docs/adr/0032-collections-representation-and-literals.md)
+//! Realizes [ADR-0032 §1](../../../docs/adr/accepted/0032-collections-representation-and-literals.md)
 //! (native heap-arm representation) and
-//! [ADR-0039](../../../docs/adr/0039-amend-floor-admit-collection-container-primitives.md)
+//! [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)
 //! (the raw-primitive floor amendment): `Map` is a dedicated
 //! [`crate::heap::Object::Map`] heap variant, mirroring
 //! [`crate::heap::ListObject`] — **not** an [`crate::heap::InstanceObject`].
 //! There is no `Rc`/`RefCell`: mutation goes through `&mut Heap` like every
-//! other heap object ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
+//! other heap object ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
 //!
 //! [`Object::Set`](crate::heap::Object::Set) reuses this same backing struct
 //! (DEC-CT-B, `docs/forge/units/U-COLLTYPES/plan.md` §8) — a set is a

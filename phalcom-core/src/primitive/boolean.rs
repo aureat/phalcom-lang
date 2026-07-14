@@ -4,7 +4,7 @@
 //! *fallbacks* — the real message-send implementations of `and(_)`, `or(_)`,
 //! `not()`, `ifTrue(_)`, `ifFalse(_)` and `ifTrue(_)ifFalse(_)` (control-flow.md
 //! §2–3). They are what every `Bool`-receiver sacred send resolves to
-//! whether or not the compiler's inliner ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md))
+//! whether or not the compiler's inliner ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md))
 //! took the fast path for a given call site: the inliner's guarded jump
 //! opcodes are an optimization over calling these, never a divergent
 //! reimplementation of their semantics.
@@ -43,7 +43,7 @@ pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 
 /// Signature: `Bool::hash` — `1` for `true`, `0` for `false`.
 ///
-/// Two distinct, stable codes ([ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)),
+/// Two distinct, stable codes ([ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)),
 /// so `true.hash != false.hash` while `a == b ⇒ a.hash == b.hash` (R-INV-1.3).
 /// **Not** a sacred selector: [`Universe::note_method_installed`](crate::universe::Universe::note_method_installed)
 /// ignores it and it is absent from `BOOL_SACRED_SELECTORS`, so it carries no
@@ -118,7 +118,7 @@ pub fn bool_not(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Val
 /// desugaring) to compose. This is the non-inlined fallback for `ifTrue`, and
 /// it is observationally equal to the sacred inliner's fast path, whose taken
 /// arm is likewise `Bytecode::WrapSome`-lifted in lockstep
-/// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)
+/// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)
 /// amendment).
 ///
 /// # Errors

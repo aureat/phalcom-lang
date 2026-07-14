@@ -3,7 +3,7 @@
 //! A [`StringObject`] is stored in the [`Heap`](crate::heap::Heap) as an
 //! [`Object::Str`](crate::heap::Object::Str) and referenced from a
 //! [`Value::Obj`](crate::value::Value::Obj) handle
-//! ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)). Its content is
+//! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)). Its content is
 //! immutable and it caches a djb2 content hash for fast comparison.
 
 /// An immutable string value with a cached content hash.

@@ -82,7 +82,7 @@ pub enum Token {
     /// The `construct` keyword introducing an initializer definition (ADR-0011).
     Construct,
     /// The `throw` keyword — prefix sugar for `expr.raise()` (error-handling.md
-    /// §1, [ADR-0031](../../../docs/adr/0031-error-handling-surface-syntax.md) §1).
+    /// §1, [ADR-0031](../../../docs/adr/accepted/0031-error-handling-surface-syntax.md) §1).
     Throw,
     /// The `try` keyword introducing a `try`/`on`/`catch`/`ensure` statement
     /// (error-handling.md §2, ADR-0031 §3). A genuine reserved keyword, unlike

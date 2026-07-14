@@ -1,9 +1,9 @@
 # 42. Flat `Number` now; defer the `Integer` / `Float` split
 
-- Status: **Superseded by [ADR-0024](0024-numeric-surface-split-int-float-and-division.md)** (ruled 2026-07-14)
+- Status: **Superseded by [ADR-0024](../accepted/0024-numeric-surface-split-int-float-and-division.md)** (ruled 2026-07-14)
 - Date: 2026-07-12
 
-> **Superseded (2026-07-14) by [ADR-0024](0024-numeric-surface-split-int-float-and-division.md).**
+> **Superseded (2026-07-14) by [ADR-0024](../accepted/0024-numeric-surface-split-int-float-and-division.md).**
 > This ADR and ADR-0024 were both accepted ~12h apart on 2026-07-12 without either
 > citing the other — a genuine unreconciled contradiction, not a sequenced decision.
 > This ADR's own §"Related" lists ADR-0012/ADR-0009 only and never mentions ADR-0024
@@ -12,9 +12,9 @@
 > has now ruled directly: **the split (ADR-0024) is Phalcom's committed numeric
 > surface.** `DEC-U12 = A` below is reversed. The code (`class Number {}`, flat) has
 > not yet been updated to match ADR-0024 — this is unbuilt, not merely undocumented.
-- Related: [ADR-0012](0012-selector-signature-encoding-and-dispatch.md)
+- Related: [ADR-0012](../accepted/0012-selector-signature-encoding-and-dispatch.md)
   (one-hashmap-probe dispatch — a later numeric-type split must not add a
-  dispatch axis), [ADR-0009](0009-handle-arena-heap.md) (handle heap — leaves a
+  dispatch axis), [ADR-0009](../accepted/0009-handle-arena-heap.md) (handle heap — leaves a
   future boxed-bignum / tagged-int representation implementable without
   disturbing existing references), `docs/spec/v0.2/object-model.md` (the
   `Number` core class), `docs/forge/units/U12/plan.md`,

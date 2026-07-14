@@ -143,18 +143,14 @@ impl<'vm> Compiler<'vm> {
         // 4. Enter the loop context so body `break`/`continue` resolve here.
         self.push_loop_context();
 
-        // loop_start: the condition test `$cursor.isSome`.
+        // loop_start: the condition test `$cursor == None`.
         let loop_start = self.chunk_len();
         self.emit(Bytecode::GetLocal(cursor_slot as u16), range);
-        self.emit_getter_send("isSome", range);
-        let exit_on_false = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+        let exit_on_none = self.emit_forward_jump(Bytecode::JumpIfNone, range);
 
-        // Bind the loop variable: `binding = $coll.iteratorValue($cursor.unwrapOr(0))`.
+        // Bind the loop variable: `binding = $coll.iteratorValue($cursor)`.
         self.emit(Bytecode::GetLocal(coll_slot as u16), range);
         self.emit(Bytecode::GetLocal(cursor_slot as u16), range);
-        let zero_idx = self.add_constant(Value::Number(0.0));
-        self.emit(Bytecode::Constant(zero_idx), range);
-        self.emit_operator_send("unwrapOr", 1, range);
         self.emit_operator_send("iteratorValue", 1, range);
         self.emit(Bytecode::SetLocal(binding_slot as u16), range);
         self.emit(Bytecode::Pop, range);
@@ -198,7 +194,7 @@ impl<'vm> Compiler<'vm> {
 
         // exit: (the `break` and condition-false target).
         let exit_label = self.chunk_len();
-        self.patch_forward_jump_to(exit_on_false, exit_label);
+        self.patch_forward_jump_to(exit_on_none, exit_label);
 
         let (break_jumps, continue_jumps) = self.pop_loop_context();
         for jump in break_jumps {

@@ -3,15 +3,15 @@
 //! The kernel is a cyclic graph closed through a distinct `Metaclass class`
 //! row (`Metaclass.class == Metaclass class`, `(Metaclass class).class ==
 //! Metaclass`; `object-model.md` §5–6). Under
-//! [ADR-0009](../../../docs/adr/0009-handle-arena-heap.md) that cycle is built
+//! [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md) that cycle is built
 //! by **allocate-then-patch**: every class row is first allocated bare in the
 //! [`Heap`] to obtain its [`ClassId`], then its `class` and `superclass`
 //! handles are written in place.
 //!
 //! The metaclass hierarchy runs *parallel* to the instance hierarchy
-//! ([ADR-0002](../../../docs/adr/0002-metaclass-tower-parallel-rule.md)):
+//! ([ADR-0002](../../../docs/adr/accepted/0002-metaclass-tower-parallel-rule.md)):
 //! `(X class).superclass == (X.superclass) class`. `Behavior`
-//! ([ADR-0003](../../../docs/adr/0003-introduce-behavior-kernel-class.md)) is
+//! ([ADR-0003](../../../docs/adr/accepted/0003-introduce-behavior-kernel-class.md)) is
 //! the shared abstract superclass of `Class` and `Metaclass`, so the tower
 //! closes at an 8-row apex instead of collapsing `Metaclass`/`Class` into
 //! their own metaclasses (F6).
@@ -37,7 +37,7 @@ pub struct Universe {
     /// (re)installed directly on the kernel `Bool` class, at which point the
     /// sacred-selector inliner's [`crate::bytecode::Bytecode::GuardBool`]
     /// deopts every inlined call site back to a real send
-    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     pub bool_sacred_pristine: bool,
     /// Override-epoch flag for the `Block`-receiver sacred selectors
     /// (`whileTrue(_)`), mirroring [`Universe::bool_sacred_pristine`] for the
@@ -74,7 +74,7 @@ impl Universe {
     /// compile rather than silently go unrooted (forge finding F6).
     ///
     /// `bool_sacred_pristine`/`block_sacred_pristine` are `bool` override-epoch
-    /// flags ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)),
+    /// flags ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)),
     /// not handles.
     pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
         let Universe { classes, bool_sacred_pristine: _, block_sacred_pristine: _, module_registry } = self;
@@ -96,13 +96,13 @@ impl Universe {
 
     /// The `Bool`-receiver sacred selectors watched by
     /// [`Universe::bool_sacred_pristine`]
-    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     pub const BOOL_SACRED_SELECTORS: &'static [&'static str] =
         &["and(_)", "or(_)", "not()", "ifTrue(_)", "ifFalse(_)", "ifTrue(_,ifFalse)"];
 
     /// The `Block`-receiver sacred selectors watched by
     /// [`Universe::block_sacred_pristine`]
-    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     pub const BLOCK_SACRED_SELECTORS: &'static [&'static str] = &["whileTrue(_)"];
 
     /// Flags a (re)definition of `selector` directly on `class_id`, flipping
@@ -117,7 +117,7 @@ impl Universe {
     /// same-named redeclaration that U5 makes *reopen* the existing row
     /// (see `compiler/lib.rs`'s `Statement::Class` handling) specifically so
     /// this deopt path is exercisable and testable
-    /// ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)).
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     /// A cheap `==` on two [`ClassId`]s per method definition; not on any
     /// hot path.
     pub fn note_method_installed(&mut self, class_id: ClassId, selector: Symbol, interner: &crate::interner::Interner) {

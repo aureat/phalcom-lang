@@ -3,7 +3,7 @@
 //! A [`MethodObject`] is a heap [`Object`](crate::heap::Object): either a
 //! compiled bytecode closure or a native primitive, plus its [`Signature`] and a
 //! handle to its holder class. All object links are `Copy` handles
-//! ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)).
+//! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
 
 mod object;
 

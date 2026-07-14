@@ -25,7 +25,7 @@ pub fn symbol_tostring(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 ///
 /// Digests the symbol's interned id
 /// ([`Symbol`](crate::interner::Symbol)'s inner `u32`;
-/// [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)),
+/// [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)),
 /// so two references to the same interned symbol hash equal (R-INV-1.3 is
 /// asserted as *stability* for symbols, since `value_eq` never makes two
 /// symbols surface-`==` today). Underivable — `.ph` reaches only

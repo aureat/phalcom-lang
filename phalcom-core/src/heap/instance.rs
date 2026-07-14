@@ -2,7 +2,7 @@
 //!
 //! An [`InstanceObject`] is a heap [`Object`](crate::heap::Object): a [`ClassId`]
 //! plus a per-instance field table. Its class link is a handle
-//! ([ADR-0009](../../../docs/adr/0009-handle-arena-heap.md)); its fields hold
+//! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)); its fields hold
 //! `Copy` [`Value`]s.
 
 use crate::heap::{ClassId, Heap};

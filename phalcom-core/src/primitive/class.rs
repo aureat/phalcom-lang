@@ -13,7 +13,7 @@ use crate::vm::VM;
 ///
 /// The absent-superclass case yields the `None` singleton, not the raw `nil`
 /// sentinel: the result flows directly to user code (Invariant 4,
-/// [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
+/// [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)).
 ///
 /// # Errors
 ///
@@ -29,11 +29,11 @@ pub fn class_superclass(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 /// Signature: `Class::superclass=(_)` — always an error; the tower is fixed here.
 ///
 /// A class's `superclass` is sealed at class creation (U13, DEC-U13a=A;
-/// [ADR-0026](../../../docs/adr/0026-class-hierarchy-mutability.md);
-/// [ADR-0041](../../../docs/adr/0041-hierarchy-stability-policy.md)): a
+/// [ADR-0026](../../../docs/adr/accepted/0026-class-hierarchy-mutability.md);
+/// [ADR-0041](../../../docs/adr/accepted/0041-hierarchy-stability-policy.md)): a
 /// runtime reparent is rejected outright, never performed, so `ClassId`-keyed
 /// dispatch and the fixed instance slot layout
-/// ([ADR-0011](../../../docs/adr/0011-static-instance-slot-layout.md)) stay
+/// ([ADR-0011](../../../docs/adr/accepted/0011-static-instance-slot-layout.md)) stay
 /// provably stable. Method *reopening* — adding or replacing methods on an
 /// existing class — is a separate axis and is unaffected by this seal.
 ///
@@ -47,7 +47,7 @@ pub fn class_set_superclass(_vm: &mut VM, _receiver: &Value, _args: &[Value]) ->
 /// Signature: `Behavior::name` — the receiver class's OWN display name.
 ///
 /// Shadows [`object_name`](super::object::object_name) for class and metaclass
-/// receivers ([ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
+/// receivers ([ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
 /// `Object#name` returns the *class-of-receiver*'s name, which for a class `C`
 /// is the metaclass name `"C class"`, whereas `Behavior#name` returns the
 /// class's own stored name `"C"`. Underivable — no `.ph` primitive exposes a
@@ -73,7 +73,7 @@ pub fn behavior_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 /// ([`ClassObject::methods`](crate::heap::ClassObject::methods)) — the
 /// non-inherited, own-dictionary keys — and returns them, one interned selector
 /// symbol per binding (SD-2;
-/// [ADR-0023](../../../docs/adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
+/// [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
 /// Underivable — no `.ph` accessor reaches the method map. Side-effect-free
 /// (R-INV-1.6): builds a new `List` and reads nothing but the map. Inherited /
 /// `allMethods` walking is U-STD, derivable over this and `superclass`.
