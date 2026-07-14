@@ -829,42 +829,60 @@ impl VM {
                     self.stack.push(wrapped);
                 }
                 Bytecode::Invoke(arity, selector_idx) => {
-                    let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
                     let arity = arity as usize;
                     let receiver_idx = self.stack.len() - 1 - arity;
                     let receiver = self.stack[receiver_idx];
+                    let receiver_class = receiver.class(self);
 
-                    let selector_sym = selector_val.as_symbol().unwrap();
+                    // Cache probe. `chunk` is a shared borrow; the `Cell` is what lets us
+                    // write back through it (U-IC §2.1).
+                    let cached = {
+                        let chunk = &self.heap.closure(closure_id).callable.chunk;
+                        chunk.caches[ip].get().filter(|slot| {
+                            slot.class == receiver_class && slot.version == self.world_version
+                        }).map(|slot| slot.method)
+                    };
 
-                    if let Some(method) = receiver.lookup_method(self, selector_sym) {
+                    if let Some(method) = cached {
                         self.call_method(&receiver, method, arity, source_range)?;
                     } else {
-                        // Exact-selector probe missed. The method-lookup.md §1
-                        // miss order is:
-                        //   IC -> exact-probe -> variadic probe -> doesNotUnderstand(_).
-                        //
-                        // Only an all-positional `Method` selector may probe for a
-                        // variadic candidate (never a labelled, getter, setter, or
-                        // subscript selector) — derive the bare name, build the
-                        // canonical `name(*)` selector, and do one ordinary
-                        // `lookup_method` walk. A hit dispatches only if the call
-                        // supplied at least the fixed prefix (`arity >=
-                        // positional_arity`); otherwise, same as a miss, this falls
-                        // through to the dNU forward (U9-implementation-spec.md §2
-                        // "Runtime dispatch rule", ADR-0012, method-lookup.md §1-2).
-                        let (name, labels, kind) = decode_selector(self.resolve_symbol(selector_sym));
-                        let eligible = matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none);
-                        let variadic_hit = eligible
-                            .then(|| self.interner.intern(&format!("{name}(*)")))
-                            .and_then(|variadic_selector| receiver.lookup_method(self, variadic_selector))
-                            .and_then(|m| {
-                                let sig = &self.heap.method(m).signature;
-                                (arity >= sig.positional_arity as usize).then_some(m)
-                            });
-                        if let Some(method) = variadic_hit {
+                        let selector_val = self.heap.closure(closure_id).callable.chunk.constants[selector_idx as usize];
+                        let selector_sym = selector_val.as_symbol().unwrap();
+
+                        if let Some(method) = receiver.lookup_method(self, selector_sym) {
+                            // Refill. Both `receiver_class` and `world_version` are read
+                            // AFTER the lookup on purpose — see U-IC §2.3 hazard 2.
+                            let entry = crate::chunk::InlineCache { class: receiver_class, method, version: self.world_version };
+                            self.heap.closure(closure_id).callable.chunk.caches[ip].set(Some(entry));
                             self.call_method(&receiver, method, arity, source_range)?;
                         } else {
-                            self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
+                            // Exact-selector probe missed. The method-lookup.md §1
+                            // miss order is:
+                            //   IC -> exact-probe -> variadic probe -> doesNotUnderstand(_).
+                            //
+                            // Only an all-positional `Method` selector may probe for a
+                            // variadic candidate (never a labelled, getter, setter, or
+                            // subscript selector) — derive the bare name, build the
+                            // canonical `name(*)` selector, and do one ordinary
+                            // `lookup_method` walk. A hit dispatches only if the call
+                            // supplied at least the fixed prefix (`arity >=
+                            // positional_arity`); otherwise, same as a miss, this falls
+                            // through to the dNU forward (U9-implementation-spec.md §2
+                            // "Runtime dispatch rule", ADR-0012, method-lookup.md §1-2).
+                            let (name, labels, kind) = decode_selector(self.resolve_symbol(selector_sym));
+                            let eligible = matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none);
+                            let variadic_hit = eligible
+                                .then(|| self.interner.intern(&format!("{name}(*)")))
+                                .and_then(|variadic_selector| receiver.lookup_method(self, variadic_selector))
+                                .and_then(|m| {
+                                    let sig = &self.heap.method(m).signature;
+                                    (arity >= sig.positional_arity as usize).then_some(m)
+                                });
+                            if let Some(method) = variadic_hit {
+                                self.call_method(&receiver, method, arity, source_range)?;
+                            } else {
+                                self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
+                            }
                         }
                     }
                 }

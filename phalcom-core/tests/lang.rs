@@ -465,3 +465,18 @@ fn decorators() {
     // Install/Dispatch/Runtime decorator mechanism itself (PLAN-DECORATORS.md).
     support::check_pass("decorators");
 }
+
+#[test]
+fn ic() {
+    // U-IC (monomorphic inline cache) coherence: four tests verify that the
+    // global world_version counter correctly invalidates cached method
+    // resolutions when classes are modified at runtime. Tests cover:
+    // (1) override-after-caching — a missing version bump produces stale results;
+    // (2) add-method-invalidates — adding a subclass override invalidates the
+    //     parent method's cached entry;
+    // (3) megamorphic-still-correct — one call site hit by 4+ receiver types
+    //     thrashes the monomorphic slot but returns the right method each time;
+    // (4) class-side-init-fallback — repeated resolution via the `init`
+    //     selector fallback (value/mod.rs:171) maintains behavior parity.
+    support::check_pass("ic");
+}
