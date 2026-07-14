@@ -1,5 +1,29 @@
 # U-GC — Work order: non-moving mark-sweep collector + Object-size win + fiber-stack pool
 
+> ## ⚠ Steps 0–2 are DONE. For steps 3–5, read [`IMPL-SPEC-steps-3-5.md`](IMPL-SPEC-steps-3-5.md) instead of §3.4/§5.
+>
+> | Step | State | Commit |
+> |---|---|---|
+> | 0 — regenerate roots + edge table | **done** | `f0a8a1d` |
+> | 1 — Win A (280 B → 40 B; `for.ph` −43%, `skynet` −34%) | **done** | `7480d75` |
+> | 2 — collector behind `force_gc` + 6 GC tests | **done** | `e9fdd96` |
+> | 3–5 | **TODO** → [`IMPL-SPEC-steps-3-5.md`](IMPL-SPEC-steps-3-5.md) | — |
+>
+> **§3.4 below is wrong about where the hazard is, and following it wastes the unit's budget.**
+> It calls for auditing "≈46 re-entrant sites, 40 alloc sites" and giving each a
+> `push_temp_root`/`pop_temp_root` scope, calling this "the substantive work." **That audit has
+> since been run in full: the intersection is EMPTY — zero sites need a temp root**, because all
+> 6 `run_until` call sites in the crate push their receiver and args onto `vm.stack` before
+> re-entering. Building `temp_roots` now would be dead scaffolding.
+>
+> The hazard that *does* exist is a fresh handle held across a subsequent **allocation** (not
+> across a re-entrant send) — pervasive in `new_message`, `forward_does_not_understand`,
+> `call_method`'s varargs prologue, and four dispatch opcodes — and it is neutralised entirely by
+> the safepoint latch. **`Heap::alloc` must latch and never collect** is therefore step 4's real
+> deliverable. Evidence, sites, and the replacement spec: `IMPL-SPEC-steps-3-5.md` §2.
+>
+> §3.4 is retained below for provenance only.
+
 _Self-contained implementation plan for **one** implementer. Runtime/heap unit — no surface, no parser,
 no `core.ph` protocol. **Reviewer ON** (touches spine files `heap.rs`, `vm.rs`) — hand the diff to
 `phalcom-reviewer`; do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
