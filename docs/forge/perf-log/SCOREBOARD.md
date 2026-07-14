@@ -29,11 +29,23 @@ Current HEAD when last updated: **`5254586`** (2026-07-14).
 > skynet/fiber_churn rows carry a second, post-007 line (`user` + RSS only — `sys` and
 > `real` were not captured on that run, and a cell nobody measured says so).
 >
-> **§3a (criterion) and §3b are now stale** — both predate cuts 006 + 007, which moved
-> every send row 10–22%. So **§3a's ~174 ns/send and §3b's ~268 ns/send are upper
-> bounds, not current**. §3b's `for`/`method_call`/`string_equals` rows can be re-derived
-> from §1 above (the ops counts are unchanged); §3a needs a `cargo bench` run. Marked
-> stale rather than deleted, per rule 4.
+> **§3a and §3b are current too** — §3a re-benched at `5254586`, §3b re-derived from
+> §1 at the same commit. A send now costs **~144 ns** (criterion) / **~218 ns**
+> (whole-process, with args); the previous ~174 / ~268 are kept as columns, per rule 4.
+>
+> **§3bb (per-instruction) is the one stale table.** Its ns/instr are ~10–22% high,
+> and it re-derives for free: cuts 006 + 007 changed only the interpreter loop, never
+> the compiler, so every instruction count in it is still exact — divide the new walls
+> by the same counts. **Verified at `5254586`, not assumed**: `for` 68,000,706,
+> `method_call` 49,334,099, `bare_send` 3,200,683 — identical to the last digit against
+> the counts recorded at `45ffe76`. Re-derivation needs wall-clock (not `user`) from a
+> **default** build; do not re-run the counting build for a timing.
+>
+> That triple identity is also **the strongest behavior-invariance evidence either cut
+> has** — stronger than the stdout diff. Byte-identical output says two runs agreed on
+> the answer; an identical instruction count says they agreed on *every step taken to
+> reach it*. A loop cut that accidentally changed dispatch would have to be invisible
+> at both to slip through.
 
 ---
 
@@ -151,62 +163,97 @@ budget per op, not a cycle-accurate figure.
 
 ### 3a. Criterion micro-benches (`phalcom-core/benches/vm_bench.rs`)
 
-**At `39d9042` (HEAD, F12 landed)**, `cargo bench -p phalcom-core --bench vm_bench`:
+**At `5254586` (HEAD, cuts 006 + 007 landed)**, `cargo bench -p phalcom-core --bench
+vm_bench`. Rows re-measured 2026-07-14; the `39d9042` column is the previous run,
+kept per rule 4 (mark stale, never delete):
 
-| Benchmark | Program | Ops | Mean | **Per-op** | Criterion CI | `2997d0b` | Origin | **Δ vs origin** |
+| Benchmark | Program | Ops | Mean | **Per-op** | Criterion CI | `39d9042` | Origin | **Δ vs origin** |
 |---|---|---|---|---|---|---|---|---|
-| `bare_send` | static, arg-free send to a user method (full `CallFrame` push + `return 0`) | 200,000 sends | **34.70 ms** | **~174 ns/send** | [34.65, 34.75] ms | 42.27 ms / ~211 ns | 65.7 ms / ~329 ns | **−47.2%** |
-| `arith_send` | primitive `1 + 2` send (`number_add`, no frame push, per-call arg `Vec`) | 200,000 sends | **30.25 ms** | **~151 ns/send** | [30.17, 30.36] ms | 35.35 ms / ~177 ns | 72.1 ms / ~361 ns | **−58.0%** |
-| `fiber_spawn` | `Fiber.new{}` + `.call()` + `Fiber.yield` | 20,000 spawns | **12.31 ms** | **~615 ns/spawn** | [12.03, 12.70] ms | 15.40 ms / ~770 ns | 24.2 ms / ~1.21 µs | **−49.1%** |
-| `variadic_send` | variadic `name(*)` dispatch (added `8ba87ec`) | 2,000,000 sends | **681.03 ms** | **~341 ns/send** | [677.7, 685.0] ms | 742.65 ms / ~371 ns | *(post-dates origin)* | — |
+| `bare_send` | static, arg-free send to a user method (full `CallFrame` push + `return 0`) | 200,000 sends | **28.83 ms** | **~144 ns/send** | [28.31, 29.76] ms | 34.70 ms / ~174 ns | 65.7 ms / ~329 ns | **−56.1%** |
+| `arith_send` | primitive `1 + 2` send (`number_add`, no frame push, per-call arg `Vec`) | 200,000 sends | **22.57 ms** | **~113 ns/send** | [22.47, 22.68] ms | 30.25 ms / ~151 ns | 72.1 ms / ~361 ns | **−68.7%** |
+| `fiber_spawn` | `Fiber.new{}` + `.call()` + `Fiber.yield` | 20,000 spawns | **11.38 ms** | **~569 ns/spawn** | [11.29, 11.48] ms | 12.31 ms / ~615 ns | 24.2 ms / ~1.21 µs | **−53.0%** |
+| `variadic_send` | variadic `name(*)` dispatch (added `8ba87ec`) | 2,000,000 sends | **591.89 ms** | **~296 ns/send** | [583.4, 601.3] ms | 681.03 ms / ~341 ns | *(post-dates origin)* | — |
 
-**The headline per-op numbers: a user-method send costs ~174 ns; a primitive
-arithmetic send ~151 ns; a fiber spawn+call+yield ~615 ns.** Every one is now
-better than half its origin cost.
+**The headline per-op numbers: a user-method send costs ~144 ns; a primitive
+arithmetic send ~113 ns; a fiber spawn+call+yield ~569 ns.** Every one is now under
+half its origin cost, and `arith_send` is under a third.
 
-Note the **inversion since origin**: arith_send was *slower* than bare_send at origin
-(361 vs 329 ns) and is now *faster* (177 vs 211 ns). Cut 001 killed the per-send arg
-`Vec` that made the primitive path lose; what remains on bare_send's path — a real
-`CallFrame` push plus a bytecode body — is now the more expensive of the two. Any
-model that still says "primitives are the slow path" is out of date.
+The **inversion since origin** holds and has widened: arith_send was *slower* than
+bare_send at origin (361 vs 329 ns) and is now faster by 31 ns (113 vs 144). Cut 001
+killed the per-send arg `Vec` that made the primitive path lose; what remains on
+bare_send's path — a real `CallFrame` push plus a bytecode body — is the more
+expensive of the two. Any model that still says "primitives are the slow path" is out
+of date.
 
 Origin (`757d88a`) CIs for reference: `bare_send` [64.6, 67.1] ms; `arith_send`
 [68.2, 77.7] ms; `fiber_spawn` [23.0, 25.9] ms.
 
-> Criterion's `change:` line on this run compared against a stored baseline of unknown
-> provenance (it read `p = 0.50`, `p = 0.06`, `p = 0.00`) — **ignored**. The Δ column
-> above is against `BASELINE.md`'s recorded origin, which is the only matched
-> comparison available. README §Method: criterion's p-value covers within-run variance
-> only and has certified noise at `p = 0.00` on this hardware twice.
+> **Criterion's `change:` line is usable on this run, unusually — its baseline has
+> known provenance.** The stored baseline is the `39d9042` run recorded above, so
+> `change:` spans exactly cuts 006 + 007, and it **corroborates the alternating A/B
+> rather than competing with it**: bare_send −17.3% (A/B: −2.8% × −16.7% ≈ −19%),
+> arith_send −27.6% (A/B: −3.0% × −22.3% ≈ −24.6%), variadic_send −14.1% (A/B: −5.2%
+> × −11.6% ≈ −16%). Two instruments, ~2–3 points apart on each row.
 >
-> Bootstrap (~5 ms at HEAD) is *inside* each criterion iteration — each runs
-> `Interpreter::new()` — so these carried F13's +175 ms between `3b2dd97` and
-> `0274f10`. At HEAD that contamination is ~5 ms on a 42 ms bench: ~12%, still not
-> nothing. Isolating it is unclaimed work.
+> This does **not** rehabilitate `change:` generally. It read `p = 0.00` on all four
+> rows here — the same p-value it has certified *noise* with twice on this hardware
+> (README §Method). It is trustworthy on this run because the effects are 14–28%,
+> i.e. far outside the noise band, and because the baseline happens to be a commit
+> this file names. Under ~10%, still use alternating same-session A/B and read the
+> sign across pairs.
+>
+> `fiber_spawn`'s −4.6% is the outlier: every other row moved 14–28%. Expected — the
+> hoist pays per *instruction*, and `fiber_spawn`'s 615 ns is dominated by fiber
+> construction (allocation, buffer growth), not by dispatch. Consistent with F17's
+> finding that the fiber rows cost 24–25 ns/instr against the tight loops' 10–13:
+> their time is in per-instruction *work*, which a loop cut cannot reach.
+>
+> Bootstrap (~7.7 ms at HEAD, measured — `2679032`) is *inside* each criterion
+> iteration — each runs `Interpreter::new()`. **That contamination is now a larger
+> share than it was**: ~7.7 ms of a 28.8 ms `bare_send` is **~27%**, up from ~12% of
+> 42 ms, purely because the benchmark got faster while the constant did not. So these
+> per-op numbers are **upper bounds** and the true send costs are lower —
+> `bare_send` net of bootstrap is ~106 ns/send. Isolating it is unclaimed work and
+> is now the largest single distortion in this table.
 
-### 3b. Whole-process per-op (derived from the wren-suite at HEAD, `2997d0b`)
+### 3b. Whole-process per-op (derived from the wren-suite at HEAD, `5254586`)
 
-Whole-process, so each row carries bootstrap (~5 ms) and process start — for `fibers`
-(0.122 s) that is ~4% of the row; for `map_numeric` it is negligible.
+**Derived, not re-measured — and that is sound here.** Every Phalcom/Wren time below
+is §1's, and every `Ops` count is a **property of the program** (`method_call.ph`
+performs 2M dispatches by construction), not a measurement. So this table is §1 ÷ a
+constant and needed no new run. It moves whenever §1 moves; if you update §1, redo
+the division in the same pass or this goes silently stale.
 
-| Benchmark | Ops | Phalcom | **Per-op** | Wren per-op | Gap |
-|---|---|---|---|---|---|
-| `method_call` | 2M dispatches | 0.535 s | **~268 ns/send** | ~47 ns | 5.8× |
-| `for` | 1M iterations (build+sum) | 0.729 s | **~729 ns/iteration** | ~53 ns | 13.7× |
-| `string_equals` | 10M compares | 1.107 s | **~111 ns/compare** | ~11 ns | 10.1× |
-| `map_numeric` | 2M map ops | 3.913 s | **~1.96 µs/op** | ~375 ns | 5.2× |
-| `skynet` | 1.11M fibers (spawn+run+join) | 1.94 s `user` | **~1.75 µs/fiber** | ~549 ns | 3.2× |
-| `fiber_churn` | 500k spawn→run→drop | 0.28 s `user` | **~560 ns/fiber** | *not ported* (H4) | — |
+Whole-process, so each row carries bootstrap (~7.7 ms) and process start — for
+`fibers` (0.108 s) that is ~7% of the row; for `map_numeric` it is negligible.
 
-Cross-check: `method_call`'s ~268 ns/send (whole-process) against `bare_send`'s
-~211 ns/send (criterion) — same order, and the gap is the right sign, since
-`method_call.ph` passes arguments and `bare_send.ph` does not. Two independent
-instruments agreeing to ~25% is the closest thing to corroboration this harness has.
+| Benchmark | Ops | Phalcom | **Per-op** | Wren per-op | Gap | At `2997d0b` |
+|---|---|---|---|---|---|---|
+| `method_call` | 2M dispatches | 0.436 s | **~218 ns/send** | ~47 ns | 4.6× | ~268 ns / 5.8× |
+| `for` | 1M iterations (build+sum) | 0.576 s | **~576 ns/iteration** | ~54 ns | 10.7× | ~729 ns / 13.7× |
+| `string_equals` | 10M compares | 0.888 s | **~89 ns/compare** | ~11 ns | 8.1× | ~111 ns / 10.1× |
+| `map_numeric` | 2M map ops | 3.409 s | **~1.70 µs/op** | ~427 ns | 4.0× | ~1.96 µs / 5.2× |
+| `skynet` | 1.11M fibers (spawn+run+join) | 1.62 s `user` | **~1.46 µs/fiber** | ~549 ns | 2.7× | ~1.75 µs / 3.2× |
+| `fiber_churn` | 500k spawn→run→drop | 0.20 s `user` | **~400 ns/fiber** | *not ported* (H4) | — | ~560 ns |
 
-`for`'s ~729 ns/iteration is the worst per-op number in the suite and the one with a
-named mechanism: its inner loop pays **four SipHash global probes per iteration**
-(`i` read ×2, `list` read, `i` write) — F12. `fiber_churn`'s ~560 ns/fiber vs
-`fiber_spawn`'s ~770 ns/spawn differ by the `Fiber.yield` the latter adds.
+**Cross-check — the harness's one genuine corroboration, and it survived the cuts.**
+`method_call`'s ~218 ns/send (whole-process) against `bare_send`'s ~144 ns/send
+(criterion, §3a): same order, and the gap is the right *sign*, since `method_call.ph`
+passes arguments and `bare_send.ph` does not. The **ratio is what matters**: 218/144
+= 1.51, against 268/174 = 1.54 before the cuts. Two independent instruments moved by
+~17% and ~19% and stayed 2 points apart on their ratio — which is what it looks like
+when both are measuring the same underlying thing.
+
+**`for`'s mechanism is now partly retired.** Its ~576 ns/iteration is still the worst
+per-op number in the suite, but the named cause — **four SipHash global probes per
+iteration** (`i` read ×2, `list` read, `i` write) — was killed by F12's slot cache
+(`39d9042`). Cuts 006 + 007 then took it 729 → 576 ns without touching globals at all.
+**`for` no longer has an attributed mechanism**; it is simply the suite's most
+send-dense loop. Do not size a unit from the SipHash story — it is spent.
+
+`fiber_churn`'s ~400 ns/fiber vs `fiber_spawn`'s ~569 ns/spawn (§3a) still differ by
+the `Fiber.yield` the latter adds; that gap held through both cuts (170 ns before,
+169 ns now), which is the sort of invariance that says the decomposition is real.
 
 ### 3bb. Per-**instruction** cost (H3, F17) — `45ffe76`, 2026-07-14
 
