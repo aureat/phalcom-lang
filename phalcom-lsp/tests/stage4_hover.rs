@@ -354,6 +354,66 @@ async fn builtin_hover_has_kind_and_selector_but_no_phaldoc_section() {
 }
 
 #[tokio::test]
+async fn selector_hover_sets_range_to_the_resolved_selector_span() {
+    let (mut client_end, server_task) = spawn_server();
+    initialize(&mut client_end, None).await;
+
+    let uri = "file:///workspace/main.ph";
+    let text = "class Point {\n  move(x) { }\n}\n";
+    did_open(&mut client_end, uri, text).await;
+
+    let response = hover_at(&mut client_end, 2, uri, text, "move(x)").await;
+    let range = &response["result"]["range"];
+    assert!(!range.is_null(), "{response:#?}");
+    let (line, character) = position_of(text, "move(x)");
+    assert_eq!(range["start"]["line"].as_u64(), Some(line as u64));
+    assert_eq!(range["start"]["character"].as_u64(), Some(character as u64));
+
+    drop(client_end);
+    let _ = server_task.await;
+}
+
+#[tokio::test]
+async fn hover_over_a_top_level_binding_usage_surfaces_its_doc() {
+    let (mut client_end, server_task) = spawn_server();
+    initialize(&mut client_end, None).await;
+
+    let uri = "file:///workspace/main.ph";
+    // The usage on the last line is a bare `Expr::Var` read (not a call
+    // receiver, whose enclosing `MethodCall` range would otherwise resolve
+    // to *that* call's own selector first) — the case
+    // `index::top_level_binding_at_offset` is meant to catch.
+    let text = "/// The application's shared counter.\nlet counter = Counter.new();\nlet echo = counter;\n";
+    did_open(&mut client_end, uri, text).await;
+
+    // Hover the *usage* on the last line, not the declaration.
+    let usage_offset = text.rfind("counter").unwrap();
+    let line = text[..usage_offset].matches('\n').count();
+    let col = usage_offset - text[..usage_offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": col }
+            }
+        }),
+    )
+    .await;
+    let response = read_response(&mut client_end, 2).await;
+    let value = response["result"]["contents"]["value"]
+        .as_str()
+        .expect("markup contents");
+    assert!(value.contains("The application's shared counter."), "{value:?}");
+
+    drop(client_end);
+    let _ = server_task.await;
+}
+
+#[tokio::test]
 async fn hover_on_whitespace_returns_none() {
     let (mut client_end, server_task) = spawn_server();
     initialize(&mut client_end, None).await;

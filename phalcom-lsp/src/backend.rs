@@ -129,15 +129,23 @@ impl Backend {
     }
 
     /// Resolves the selector under `position` in the open document `uri`,
-    /// via that document's own cached parse and [`LineIndex`].
+    /// via that document's own cached parse and [`LineIndex`], together with
+    /// the matched node's own LSP [`tower_lsp::lsp_types::Range`] (so a
+    /// caller like `hover_at` can underline the exact span a selector was
+    /// resolved from, the way its keyword branch already does).
     ///
     /// Returns `None` if `uri` is not open, or if `position` sits on no
     /// selector-bearing node (see [`index::selector_at_offset`]).
-    fn selector_at_position(&self, uri: &Url, position: Position) -> Option<String> {
+    fn selector_at_position(
+        &self,
+        uri: &Url,
+        position: Position,
+    ) -> Option<(String, tower_lsp::lsp_types::Range)> {
         self.documents
             .with_document(uri, |doc| {
                 let offset = doc.line_index.offset(position);
                 index::selector_at_offset(&doc.parse.program, offset)
+                    .map(|(selector, range)| (selector, doc.line_index.range(range.start..range.end)))
             })
             .flatten()
     }
@@ -229,7 +237,7 @@ impl Backend {
     }
 
     /// Answers `textDocument/hover` (Stage 4): the pluggable composition of
-    /// [`crate::hover`]'s two mutually-exclusive sources.
+    /// [`crate::hover`]'s sources.
     ///
     /// A keyword/contextual-word hit at the cursor
     /// ([`hover::keyword_at_offset`]) short-circuits straight to its blurb —
@@ -240,10 +248,18 @@ impl Backend {
     /// [`WorkspaceIndex::definition_info`], builtin sites from
     /// [`CoreTable`], and the harvested Phaldoc doc (from the selector's
     /// *defining* file, which may not be the currently open one —
-    /// [`Self::with_source_snapshot`]) attached to a user-class definition.
+    /// [`Self::with_source_snapshot`]) attached to a user-class definition —
+    /// with [`Hover::range`] set to the resolved selector's own span
+    /// ([`Self::selector_at_position`]), matching the keyword branch.
     ///
-    /// Returns `None` if nothing at the cursor resolves to either a keyword
-    /// or a known selector.
+    /// If the cursor sits on neither a keyword nor a selector, falls back to
+    /// resolving a top-level `let`/`var` binding usage
+    /// ([`index::top_level_binding_at_offset`]) and rendering its harvested
+    /// Phaldoc doc, if any (doc-comments-phaldoc.md §5's `let`/`var`
+    /// placement-legality case).
+    ///
+    /// Returns `None` if nothing at the cursor resolves to a keyword, a
+    /// known selector, or a documented top-level binding.
     fn hover_at(&self, uri: &Url, position: Position) -> Option<Hover> {
         if let Some((word, span)) = self
             .documents
@@ -261,7 +277,9 @@ impl Backend {
             });
         }
 
-        let selector = self.selector_at_position(uri, position)?;
+        let Some((selector, span)) = self.selector_at_position(uri, position) else {
+            return self.hover_for_top_level_binding(uri, position);
+        };
 
         let mut sites: Vec<SelectorSite> = self
             .index
@@ -298,6 +316,40 @@ impl Backend {
         });
 
         let value = hover::render_selector_hover(&selector, &sites, phaldoc.as_ref())?;
+        Some(Hover {
+            contents: markdown_contents(value),
+            range: Some(span),
+        })
+    }
+
+    /// The `hover_at` fallback for a bare identifier that resolves to none of
+    /// keyword, contextual word, or a selector: a top-level `let`/`var`
+    /// binding usage ([`index::top_level_binding_at_offset`]), rendered from
+    /// its own file's harvested Phaldoc doc, if any.
+    ///
+    /// Unlike the selector layer, a top-level binding is same-file only (no
+    /// cross-file `DefinitionInfo` is tracked for it), so this reads straight
+    /// off `uri`'s own cached parse — no [`Self::with_source_snapshot`] hop.
+    /// Renders with an empty [`SelectorSite`] list ([`hover::
+    /// render_selector_hover`]'s "purely local, Phaldoc-only hover" case), so
+    /// a binding with no doc above it renders no hover at all rather than a
+    /// bare, uninformative label.
+    ///
+    /// Returns `None` if `uri` is not open, the cursor resolves to no
+    /// top-level binding, or that binding carries no Phaldoc doc.
+    fn hover_for_top_level_binding(&self, uri: &Url, position: Position) -> Option<Hover> {
+        let (name, doc) = self
+            .documents
+            .with_document(uri, |doc| {
+                let offset = doc.line_index.offset(position);
+                let name = index::top_level_binding_at_offset(&doc.parse.program, offset)?;
+                let phaldoc =
+                    hover::harvest_doc_for_selector(&doc.text, &doc.parse.program, &doc.line_index, &name)?;
+                Some((name, phaldoc))
+            })
+            .flatten()?;
+
+        let value = hover::render_selector_hover(&name, &[], Some(&doc))?;
         Some(Hover {
             contents: markdown_contents(value),
             range: None,
@@ -489,7 +541,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
-        let Some(selector) = self.selector_at_position(&uri, position) else {
+        let Some((selector, _range)) = self.selector_at_position(&uri, position) else {
             return Ok(None);
         };
 
@@ -509,7 +561,7 @@ impl LanguageServer for Backend {
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
-        let Some(selector) = self.selector_at_position(&uri, position) else {
+        let Some((selector, _range)) = self.selector_at_position(&uri, position) else {
             return Ok(None);
         };
 

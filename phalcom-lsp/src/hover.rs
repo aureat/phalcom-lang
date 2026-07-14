@@ -30,7 +30,7 @@
 //! (doc-comments-phaldoc.md §8) drops in later without reshaping this
 //! module's composition path.
 
-use phalcom_ast::ast::{ClassMember, Program, Statement};
+use phalcom_ast::ast::{ClassMember, Pattern, Program, Statement};
 use phalcom_ast::lexer::Lexer;
 use phalcom_ast::token::Token;
 
@@ -280,20 +280,44 @@ fn canonical_tag_name(name: &str) -> String {
     }
 }
 
+/// Returns the count of leading ASCII/Unicode whitespace bytes-as-chars in
+/// `line` — the indentation depth [`parse_tags`] compares a candidate
+/// continuation line's indentation against (doc-comments-phaldoc.md §3's
+/// "indented continuation lines").
+fn indent_width(line: &str) -> usize {
+    line.len() - line.trim_start().len()
+}
+
 /// Parses the `@tag payload` lines of a doc block's body (everything after
-/// the summary paragraph), folding each tag's indented continuation lines
-/// into its payload.
+/// the summary paragraph), folding each tag's **indented** continuation
+/// lines into its payload.
+///
+/// Per doc-comments-phaldoc.md §3, "everything after the tag on that line
+/// (and any following **indented** continuation lines) is the tag's
+/// payload" — a following non-blank, non-`@` line only folds into the
+/// current tag when it is indented *strictly more* than the tag line
+/// itself (`lines` here is already marker-stripped by
+/// [`strip_doc_marker`], so the comparison is against the doc-body
+/// indentation, not the `///` column). A same-or-lesser-indented line ends
+/// the tag's payload without being consumed — it is simply skipped (no tag
+/// vocabulary, no continuation), consistent with Phaldoc's "advisory only,
+/// never an error" stance (§3).
 fn parse_tags(lines: &[String]) -> Vec<(String, String)> {
     let mut tags = Vec::new();
     let mut i = 0;
     while i < lines.len() {
+        let tag_indent = indent_width(&lines[i]);
         let trimmed = lines[i].trim_start();
         if let Some(rest) = trimmed.strip_prefix('@') {
             let mut parts = rest.splitn(2, char::is_whitespace);
             let raw_name = parts.next().unwrap_or("").to_string();
             let mut payload = parts.next().unwrap_or("").trim().to_string();
             i += 1;
-            while i < lines.len() && !lines[i].trim().is_empty() && !lines[i].trim_start().starts_with('@') {
+            while i < lines.len()
+                && !lines[i].trim().is_empty()
+                && !lines[i].trim_start().starts_with('@')
+                && indent_width(&lines[i]) > tag_indent
+            {
                 if !payload.is_empty() {
                     payload.push(' ');
                 }
@@ -365,16 +389,46 @@ fn member_selector_at_line(program: &Program, line: usize, line_index: &LineInde
     None
 }
 
+/// Finds the bound name of the top-level `let`/`var` [`Statement::Let`]
+/// binding that starts on 0-based line `line` of `program`'s source, or
+/// `None` if no top-level binding starts there.
+///
+/// The doc-comments-phaldoc.md §5 placement-legality table lists `let`/`var`
+/// among the items a `///` block above it documents, alongside class members
+/// — this is [`member_selector_at_line`]'s counterpart for that case. Only a
+/// non-destructuring [`Pattern::Name`] target has a single stable name to key
+/// the doc under; a destructuring `let (a, b) = …` binds several names at
+/// once and has no single adjacency target, so it is not matched here.
+///
+/// Bindings are matched only at the top level (`program.statements`
+/// directly) — a `let` inside a class member's body is a **local** binding,
+/// out of Phaldoc's placement-legality scope (§5 only names top-of-file/
+/// class-body/class-member positions), so no recursion into member bodies
+/// is done here.
+fn top_level_binding_name_at_line(program: &Program, line: usize, line_index: &LineIndex) -> Option<String> {
+    for statement in &program.statements {
+        if let Statement::Let(binding) = statement {
+            if line_index.position(binding.range.start).line as usize == line {
+                if let Pattern::Name { name, .. } = &binding.pattern {
+                    return Some(name.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Scans `text` (the raw, un-lexed source) for `///` doc blocks and returns
 /// the one whose target selector is exactly `selector`, if any.
 ///
 /// Implements doc-comments-phaldoc.md §1-5:
 /// - `//!` lines are inner docs and are never parsed as an outer `///` block.
-/// - A `///` run's target is the selector of the `ClassMember` declaration on
-///   the next non-blank, non-`///` line (a single range-containment lookup
-///   into the cached `Program`) — adjacency. A blank line immediately after
-///   the block breaks adjacency (a
-///   dangling doc documents nothing, §5).
+/// - A `///` run's target is the selector of the `ClassMember` declaration
+///   (`member_selector_at_line`), or else the bound name of a top-level
+///   `let`/`var` binding (`top_level_binding_name_at_line`), on the next
+///   non-blank, non-`///` line (a single range-containment lookup into the
+///   cached `Program`) — adjacency. A blank line immediately after the block
+///   breaks adjacency (a dangling doc documents nothing, §5).
 /// - A first body line of the literal shape `selector: <sel>` (§4.4) pins the
 ///   block's target explicitly, overriding adjacency resolution entirely
 ///   (the block need not even be immediately followed by a declaration).
@@ -417,6 +471,7 @@ pub fn harvest_doc_for_selector(
                 Some(pin)
             } else if j < lines.len() && !lines[j].trim().is_empty() {
                 member_selector_at_line(program, j, line_index)
+                    .or_else(|| top_level_binding_name_at_line(program, j, line_index))
             } else {
                 // Either the block is at EOF (no following line) or the
                 // following line is blank — a dangling doc (§5).
@@ -632,6 +687,52 @@ mod tests {
                 ("param".to_string(), "x how far to move".to_string()),
                 ("returns".to_string(), "the new position".to_string()),
             ]
+        );
+    }
+
+    #[test]
+    fn phaldoc_attaches_to_a_top_level_let_binding() {
+        let src = "/// The application's shared counter.\nlet counter = Counter.new();\n";
+        let (program, line_index) = parsed(src);
+        let doc = harvest_doc_for_selector(src, &program, &line_index, "counter")
+            .expect("doc above a top-level let must attach to its bound name");
+        assert_eq!(doc.summary, "The application's shared counter.");
+    }
+
+    #[test]
+    fn phaldoc_attaches_to_a_top_level_var_binding() {
+        let src = "/// A mutable running total.\nvar total = 0;\n";
+        let (program, line_index) = parsed(src);
+        let doc = harvest_doc_for_selector(src, &program, &line_index, "total")
+            .expect("doc above a top-level var must attach to its bound name");
+        assert_eq!(doc.summary, "A mutable running total.");
+    }
+
+    #[test]
+    fn phaldoc_indented_continuation_line_folds_into_the_tag() {
+        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move,\n  ///   continued on an indented line\n  move(x) { }\n}\n";
+        let (program, line_index) = parsed(src);
+        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
+        assert_eq!(
+            doc.tags,
+            vec![(
+                "param".to_string(),
+                "x how far to move, continued on an indented line".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn phaldoc_non_indented_following_line_does_not_fold_into_the_tag() {
+        // The second `///` line sits at the *same* indentation as the `@param`
+        // line's own body text — per §3 it is not a continuation, so it must
+        // not fold into the tag's payload.
+        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move\n  /// not a continuation\n  move(x) { }\n}\n";
+        let (program, line_index) = parsed(src);
+        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
+        assert_eq!(
+            doc.tags,
+            vec![("param".to_string(), "x how far to move".to_string())]
         );
     }
 

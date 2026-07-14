@@ -430,7 +430,12 @@ fn member_kind(member: &ClassMember) -> MemberKind {
 ///
 /// Returns `None` if no definition or reference range contains `offset`
 /// (e.g. the cursor sits on whitespace, a literal, or a bare variable).
-pub fn selector_at_offset(program: &Program, offset: usize) -> Option<String> {
+///
+/// Also returns the matched node's own [`SourceRange`] alongside the
+/// selector, so a caller (`hover_at`) can underline the exact span the
+/// selector was resolved from — the same span [`WorkspaceIndex::
+/// definitions`]/`update_file` would have indexed this occurrence under.
+pub fn selector_at_offset(program: &Program, offset: usize) -> Option<(String, SourceRange)> {
     let mut collector = Collector {
         definitions: Vec::new(),
         references: Vec::new(),
@@ -448,7 +453,133 @@ pub fn selector_at_offset(program: &Program, offset: usize) -> Option<String> {
         .chain(ref_iter)
         .filter(|(_, range)| range.contains(offset))
         .min_by_key(|(_, range)| range.len())
-        .map(|(selector, _)| selector.clone())
+        .map(|(selector, range)| (selector.clone(), *range))
+}
+
+/// Finds the bound name of the top-level `let`/`var` binding whose
+/// non-destructuring [`Pattern::Name`] identifier occurrence contains
+/// `offset` — either the binding's own declaration site or a later bare
+/// [`Expr::Var`] read/write of that name within a top-level statement.
+///
+/// The doc-hover counterpart of [`selector_at_offset`] for a top-level
+/// binding (`hover.rs`'s `harvest_doc_for_selector` keys a `///` block above
+/// a top-level `let`/`var` by the bound name, not a selector — see
+/// `hover::top_level_binding_name_at_line`'s doc). Deliberately narrow: only
+/// `program.statements` themselves and the expressions they directly embed
+/// are walked, never a class member's body — a same-named local variable
+/// inside a method is a *different* binding and must not resolve here.
+///
+/// Returns `None` if `offset` sits on no identifier occurrence naming a
+/// top-level binding.
+pub fn top_level_binding_at_offset(program: &Program, offset: usize) -> Option<String> {
+    let mut names = std::collections::HashSet::new();
+    for statement in &program.statements {
+        if let Statement::Let(binding) = statement {
+            if let Pattern::Name { name, range } = &binding.pattern {
+                names.insert(name.clone());
+                if range.contains(offset) {
+                    return Some(name.clone());
+                }
+            }
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+
+    let mut hits: Vec<(String, SourceRange)> = Vec::new();
+    for statement in &program.statements {
+        collect_var_occurrences(statement, &names, &mut hits);
+    }
+    hits.into_iter()
+        .filter(|(_, range)| range.contains(offset))
+        .min_by_key(|(_, range)| range.len())
+        .map(|(name, _)| name)
+}
+
+/// Collects every bare [`Expr::Var`] occurrence in `statement` naming one of
+/// `names`, paired with its own [`SourceRange`] — [`top_level_binding_at_offset`]'s
+/// worker. Recurses into every expression position a top-level statement can
+/// embed one at (including a nested block's own statements), but never into
+/// a [`Statement::Class`]'s member bodies (out of scope, see that function's
+/// doc).
+fn collect_var_occurrences(statement: &Statement, names: &std::collections::HashSet<String>, out: &mut Vec<(String, SourceRange)>) {
+    match statement {
+        Statement::Let(binding) => {
+            if let Some(value) = &binding.value {
+                collect_var_occurrences_in_expr(value, names, out);
+            }
+        }
+        Statement::Return(r) => {
+            if let Some(value) = &r.value {
+                collect_var_occurrences_in_expr(value, names, out);
+            }
+        }
+        Statement::Expr { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
+        Statement::For(f) => {
+            collect_var_occurrences_in_expr(&f.iter, names, out);
+            for s in &f.body {
+                collect_var_occurrences(s, names, out);
+            }
+        }
+        Statement::Throw { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
+        Statement::Break { .. } | Statement::Continue { .. } | Statement::Import(_) | Statement::Class(_) => {}
+    }
+}
+
+/// The expression-level worker behind [`collect_var_occurrences`], recursing
+/// through every sub-expression position (including nested block bodies) to
+/// find bare [`Expr::Var`] reads/writes naming one of `names`.
+fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSet<String>, out: &mut Vec<(String, SourceRange)>) {
+    match expr {
+        Expr::Var { value, range } => {
+            if names.contains(value) {
+                out.push((value.clone(), *range));
+            }
+        }
+        Expr::Number { .. }
+        | Expr::String { .. }
+        | Expr::Boolean { .. }
+        | Expr::Field { .. }
+        | Expr::SelfVar { .. }
+        | Expr::SuperVar { .. }
+        | Expr::Symbol(_) => {}
+        Expr::Assignment(a) => {
+            collect_var_occurrences_in_expr(&a.name, names, out);
+            collect_var_occurrences_in_expr(&a.value, names, out);
+        }
+        Expr::Unary(u) => collect_var_occurrences_in_expr(&u.expr, names, out),
+        Expr::Binary(b) => {
+            collect_var_occurrences_in_expr(&b.left, names, out);
+            collect_var_occurrences_in_expr(&b.right, names, out);
+        }
+        Expr::MethodCall(m) => {
+            collect_var_occurrences_in_expr(&m.object, names, out);
+            for arg in &m.args {
+                collect_var_occurrences_in_expr(&arg.expr, names, out);
+            }
+        }
+        Expr::GetProperty(g) => collect_var_occurrences_in_expr(&g.object, names, out),
+        Expr::SetProperty(s) => {
+            collect_var_occurrences_in_expr(&s.object, names, out);
+            collect_var_occurrences_in_expr(&s.value, names, out);
+        }
+        Expr::Index(i) => {
+            collect_var_occurrences_in_expr(&i.object, names, out);
+            collect_var_occurrences_in_expr(&i.index, names, out);
+        }
+        Expr::SetIndex(si) => {
+            collect_var_occurrences_in_expr(&si.object, names, out);
+            collect_var_occurrences_in_expr(&si.index, names, out);
+            collect_var_occurrences_in_expr(&si.value, names, out);
+        }
+        Expr::Block(b) => {
+            for s in &b.body {
+                collect_var_occurrences(s, names, out);
+            }
+        }
+        Expr::MethodRef(mr) => collect_var_occurrences_in_expr(&mr.receiver, names, out),
+    }
 }
 
 /// Walks one file's AST, recording every `ClassMember` declaration as a
@@ -741,8 +872,9 @@ mod tests {
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 
         let call_site_move = src.rfind("move").unwrap();
-        let selector = selector_at_offset(&parsed.program, call_site_move);
-        assert_eq!(selector.as_deref(), Some("move(_,to,duration)"));
+        let (selector, range) = selector_at_offset(&parsed.program, call_site_move).unwrap();
+        assert_eq!(selector, "move(_,to,duration)");
+        assert!(range.contains(call_site_move));
     }
 
     #[test]
@@ -752,8 +884,8 @@ mod tests {
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 
         let inner_offset = src.rfind("inner()").unwrap();
-        let selector = selector_at_offset(&parsed.program, inner_offset);
-        assert_eq!(selector.as_deref(), Some("inner()"));
+        let (selector, _range) = selector_at_offset(&parsed.program, inner_offset).unwrap();
+        assert_eq!(selector, "inner()");
     }
 
     #[test]
@@ -763,8 +895,8 @@ mod tests {
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 
         let decl_offset = src.find("greet").unwrap();
-        let selector = selector_at_offset(&parsed.program, decl_offset);
-        assert_eq!(selector.as_deref(), Some("greet()"));
+        let (selector, _range) = selector_at_offset(&parsed.program, decl_offset).unwrap();
+        assert_eq!(selector, "greet()");
     }
 
     #[test]
@@ -849,5 +981,53 @@ mod tests {
         let refs = index.references("move(_,to)");
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].uri, uri("file:///a.ph"));
+    }
+
+    #[test]
+    fn top_level_binding_at_offset_resolves_the_declaration_site() {
+        let src = "let counter = Counter.new();\n";
+        let parsed = parse(src, 0);
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+
+        let offset = src.find("counter").unwrap();
+        assert_eq!(
+            top_level_binding_at_offset(&parsed.program, offset),
+            Some("counter".to_string())
+        );
+    }
+
+    #[test]
+    fn top_level_binding_at_offset_resolves_a_later_usage() {
+        let src = "let counter = Counter.new();\ncounter.increment();\n";
+        let parsed = parse(src, 0);
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+
+        let usage_offset = src.rfind("counter").unwrap();
+        assert_eq!(
+            top_level_binding_at_offset(&parsed.program, usage_offset),
+            Some("counter".to_string())
+        );
+    }
+
+    #[test]
+    fn top_level_binding_at_offset_none_for_a_local_binding_inside_a_method() {
+        // `counter` here is a local variable inside `Widget::run`, not a
+        // top-level binding — must not resolve.
+        let src = "class Widget {\n  run() {\n    let counter = 0;\n    counter;\n  }\n}\n";
+        let parsed = parse(src, 0);
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+
+        let offset = src.rfind("counter").unwrap();
+        assert_eq!(top_level_binding_at_offset(&parsed.program, offset), None);
+    }
+
+    #[test]
+    fn top_level_binding_at_offset_none_for_unrelated_identifier() {
+        let src = "let counter = Counter.new();\n";
+        let parsed = parse(src, 0);
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+
+        let offset = src.find("Counter").unwrap();
+        assert_eq!(top_level_binding_at_offset(&parsed.program, offset), None);
     }
 }
