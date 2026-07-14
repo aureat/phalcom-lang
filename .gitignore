@@ -20,6 +20,9 @@ skills-lock.json
 # graphify code knowledge graph (generated; rebuilt locally via post-commit hook)
 /graphify-out
 
+# Wren source code and resources (imported, not part of Phalcom)
+/resources
+
 # git worktrees used by agents
 .claude/worktrees/
 
