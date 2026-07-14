@@ -63,6 +63,7 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0056](0056-phalcom-lsp-architecture.md) | Phalcom language intelligence is an in-process `phalcom-lsp` server | Proposed |
 | [0057](0057-decorator-granularity-vs-proxy-granularity-split.md) | Decorator vs proxy granularity: method-declaration (`@name`) vs whole-object (`Proxy`) interception; both kept | Accepted |
 | [0058](0058-reactive-tracking-context-needs-a-native-module.md) | Reactive tracking-context and effect scheduler need a native module, not class-side `.ph` state | Accepted |
+| [0059](0059-amend-reactive-tracking-context-native-frame-coupling.md) | Amend ADR-0058 + ADR-0033: the reactive tracking context is bound to the native-frame switch guard | Proposed |
 
 > ADR-0029 (list literals) is now **Accepted** — its sub-decisions (desugar-to-sends,
 > no subscript sugar, trailing comma) were ratified with the collections umbrella
@@ -103,6 +104,15 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 > signal. (An earlier draft ADR-0034 that instead inlined `each` was dropped: it
 > contradicted ADR-0035 §4/§6, which deliberately keep iteration selectors non-inlined
 > and `.each { yield }` raising `CannotYieldAcrossNativeFrame`.)
+
+> ADR-0059 records a coupling that exists in the code but on no document: ADR-0058's
+> single `VM`-owned `Reactive.current` is sound only because `native_reentry_depth != 0`
+> inside `Reactive.trackedBy` blocks *every* fiber switch — including resume, which
+> `primitive/fiber.rs:96` guards deliberately wider than ADR-0030 §4's letter requires.
+> It pins `trackedBy` to the re-entrant `block_call` path, adds `Reactive.current` to
+> ADR-0033 §Decision 4's sequencing constraint, and reframes "a `Computed` cannot
+> await" as a designed guarantee (no signals implementation has async computeds).
+> Proposed — not yet ratified by the user.
 
 > ADRs 0024–0027 were ratified by the user on 2026-07-12, resolving open-questions
 > Q2 (numeric split + division), Q3 (parameter names), Q4 (hierarchy mutability), and
