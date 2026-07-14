@@ -14,7 +14,40 @@ recorded there in full. This file is only the "where I was standing" note.
 | `0274f10` | **Inliner fix (F13)**: bootstrap 0.18s → 0.005s; nest depth 26: 70.9s → 0.022s; `--test lang` 122s → 2.8s |
 | `4f2eed8` | **Yield-adaptive GC (F11)**: skynet −11.7% user / −8% RSS; fiber_churn −7.4% / −15% RSS. `cargo test --workspace` now **fully green** (was red on main since ≥`bd3f492`) |
 
-## INTERRUPTED HERE — the shadowing ruling (owner asked me to investigate + recommend)
+## RESOLVED — the shadowing ruling (2026-07-14, `39d9042`)
+
+> **F12 landed. No ruling was needed, and one claim below is wrong — read this box
+> before the section it corrects.**
+>
+> The probe named below as "the one probe I did not get to run" **was run** at
+> `2997d0b`. Result: core-fallback shadowing is reachable in **0 of 672 `.ph`
+> files**. All 4 core-name collisions in the tree (`class Bool` ×2, `class Option`,
+> `class ArgumentError`) are **reopenings** — `before == after` is `true`, same
+> object — not shadowings.
+>
+> **Claim (3) below is wrong as argued.** A forward global read *before* its define
+> is a **hard error** (`Undefined variable 'later'.`), not an ordinary resolution.
+> It works only when read *after* the define, at which point the callsite's first
+> successful resolution is already main-module. **Forward references therefore do
+> not share the shadowing machinery** and can never produce a stale cache entry.
+> The inference "late binding is not an exotic corner, so shadowing must stay
+> cheap-to-support" does not follow from (3).
+>
+> The recommendation below was nonetheless **right, and shipped** — for a simpler
+> reason than the one given: a version-guarded cache preserves current semantics
+> *exactly*, so "make shadowing illegal" would have been a semantics change bought
+> for one integer compare. It earns nothing. Also **narrower than proposed**: the
+> cache stores `(module, slot)` and reads *through* the slot, so `set_global` needs
+> no invalidation and `define` on an existing name reuses its slot — only a
+> `declare` that allocates a **new** slot bumps `globals_version`.
+>
+> Measured (matched A/B, `2c775ac` → `39d9042`): **bare_send −17.9%**, arith_send
+> −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, skynet −7.7% `user`
+> (**2.9× Wren — under 3× for the first time**), fiber_churn −21.4%, `for` −3.6%.
+> RSS unchanged. Locked by `tests/lang/ic/ic_global_cache_shadow_invalidates.ph`.
+> Full record: [`perf-log/SCOREBOARD.md`](perf-log/SCOREBOARD.md).
+
+## (superseded) INTERRUPTED HERE — the shadowing ruling
 
 **Question.** F12's slot-resolution of module globals needs a ruling: may a later
 `define` shadow a name an earlier callsite already resolved (esp. a core name)?
