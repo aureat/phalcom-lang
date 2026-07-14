@@ -1,5 +1,6 @@
 // Ported from wren/test/benchmark/method_call.wren. `is` inheritance keyword
-// -> `extends`; bare `super(startState)` call -> `super.new(startState)`
+// -> `extends`; `!x` -> `not x` (Phalcom spells logical negation `not`);
+// bare `super(startState)` call -> `super.new(startState)`
 // (Phalcom constructors are dispatched by selector, so the super initializer
 // must be named explicitly). `0...n` range-in-for replaced with a
 // while-counter. `this` -> `self` (Phalcom's self-reference keyword).
@@ -10,7 +11,7 @@ class Toggle {
 
   value => _state
   activate {
-    _state = !_state
+    _state = not _state
     return self
   }
 }

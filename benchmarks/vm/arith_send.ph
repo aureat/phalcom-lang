@@ -9,7 +9,11 @@
 // allocation tax independent of dispatch.
 //
 // Loaded by phalcom-core/benches/vm_bench.rs via `include_str!`; also
-// runnable standalone: `phalcom benchmarks/vm/arith_send.ph`.
+// runnable standalone: `phalcom benchmarks/vm/arith_send.ph` (prints `3`).
+//
+// `acc` holds `1 + 2` and `i` the loop count; the bench reads both back after
+// the run and fails on a wrong answer, so a build whose arithmetic fast path
+// is wrong cannot post a number.
 var i = 0
 var acc = 0
 while (i < 200000) {

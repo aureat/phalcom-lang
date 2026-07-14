@@ -19,12 +19,15 @@ recorded as a finding, not shipped.
 | [001](001-prim-abi-inline-args.md) | U-PRIM-ABI / Tier 2 | On-stack arg buffer replaces the per-send heap `Vec` in the primitive dispatch path | arith_send −41.5%, bare_send −33.8% | none | `37f31c9` |
 | [002](002-gc-win-a-box-fat-variants.md) | U-GC Win A / Tier 4 | Box the six fat `Object` variants — `size_of::<Object>()` 280 B → 40 B | `for.ph` −43% wall, `skynet` −34% wall (`sys` 2–4× less); RSS a wash; `bare_send` +5% | none | `7480d75` |
 | [003](003-vm-trace-feature-gate.md) | U-TRACE / Tier 1 | `vm-trace` feature compiles the dispatch loop's per-opcode span + `debug!`s out by default | arith_send (5M, whole-process) −16.7%; Skynet ≈−1% on `user`, unresolvable on `real` | none | `1ef999b` |
+| [004](004-hotpath-rc-callable.md) | U-HOTPATH / Tier 2 | Share block-literal `Callable` via `Rc` instead of deep-cloning its `Chunk` per evaluation | Skynet −30% `user`, **−63% RSS** (3.73 → 1.37 GB), `sys` −94%; fiber_churn −16%. **Costs +5–7% on send-heavy programs** (`Rc` hop per instruction) — Change 1 (chunk hoist) is what repays it | none | `1531070` |
 
 ## Investigated, not landed
 
 | Candidate | Result | Why | Ref |
 |-----------|--------|-----|-----|
-| Fiber-stack pool (U-GC "Win B") | **reverted — null result** | Skynet RSS is dominated by ~1M immortal `FiberObject` shells (no GC), not stack/frames buffers; A/B indistinguishable | [findings F5](findings.md#f5--fiber-stack-pool-implemented-measured-reverted-null-result), `ad4a215` |
+| Fiber-stack pool (U-GC "Win B") | **negative — delete the flag** | Rebuilt behind the off-by-default `fiber-pool` feature after F5's revert. Re-measured against the high-turnover workload F5 asked for (`fiber_churn.ph`): **+72–86% peak RSS**, linear at ~450 B/fiber, and +37% `user` at 1M fibers. Worse, not neutral | [findings F10](findings.md#f10--the-fiber-pool-is-not-neutral-it-is-negative--and-f5-measured-the-wrong-workload), [F5](findings.md#f5--fiber-stack-pool-implemented-measured-reverted-null-result), `ad4a215` |
+| U-HOTPATH Change 2 (memoize derived selectors) | **landed, but unmeasured** | Within noise of Change 4 alone on every benchmark; left `init_selector_cache` behind as dead code. Find the workload or revert | [004](004-hotpath-rc-callable.md), `debadfa` |
+| U-HOTPATH Change 3 (reorder `Value::class` arms) | dropped pre-landing | No measurable change; LLVM was already ordering the match | [004](004-hotpath-rc-callable.md) |
 | Escape-analysis of `Option` (`Some`) | not built — premise falsified | `List/Map.at` already zero-alloc (`None` singleton); discarded `Some` already elided | [findings F2](findings.md#f2--option-escape-optimization-premise-falsified) |
 
 ## Findings
@@ -57,6 +60,12 @@ Full write-ups in [`findings.md`](findings.md):
 - **F8** — a freshly bootstrapped `VM` is **not garbage-free**: `core.ph`'s top-level
   `Closure` is unreachable the moment bootstrap returns, so the first collection on any
   VM legitimately sweeps one object. Surfaced by U-GC's step-2 tests.
+- **F10** — the fiber pool (now the off-by-default `fiber-pool` feature) is **negative,
+  not null**: re-measured against the high-turnover workload F5 asked for, it costs
+  **+72–86% peak RSS** (linear, ~450 B per fiber) and +37% `user` at 1M fibers. F5's
+  revival condition is refuted, the flag should be deleted, and while it exists its
+  `fiber_pool: _` non-root classification holds only because one push site calls
+  `.clear()`.
 - **F9** — Tier 1's size held (18.2% measured vs 18.3% predicted) but **both**
   mechanisms were wrong: not a subscriber misconfiguration (−0.4%), and not the span
   (half the cost — the three `debug!`s are the other half). A fix dispatched from the
@@ -109,12 +118,21 @@ Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
    misconfiguration (fixing that bought −0.4%), and it is **not** span-specific — it splits
    evenly with the loop's three `debug!`s, so the fix had to gate all four callsites, not the
    span alone.
-2. **Tier 4 — U-GC collector (malloc 28.2% Skynet).** The dominant Skynet cost is
-   allocating + retaining ~1M `FiberObject` shells. This is the real RSS lever
-   (F5), a large unit (non-moving mark-sweep, ADR-0050).
-3. **Tier 3 — U-IC (dispatch lookup 13.9% arith).** Monomorphic inline cache;
-   needs the selector-only interner first (F4). Also carries the arithmetic
-   fast-path deferred from U-PRIM-ABI (DEC-PRIM-B).
+2. ~~**Tier 4 — U-GC collector (malloc 28.2% Skynet).**~~ **Landed** (non-moving
+   mark-sweep, ADR-0050), together with [cut 004](004-hotpath-rc-callable.md)'s
+   `Rc<Callable>`. Skynet is now **2.4–2.5 s / 1.44 GB** against Wren's 0.7–0.8 s /
+   0.67 GB — **~3.2× wall, ~2.2× RSS**, from F1's ~19–20× / ~7–9×.
+3. **U-HOTPATH Change 1 — hoist the chunk pointer out of the dispatch loop.** Not
+   optional and not a fresh candidate: cut 004 traded a per-instruction pointer hop
+   for a per-block-evaluation chunk copy, and left a **measured +5–7% regression on
+   send-heavy programs** on the table. This is the half that pays it back. Cheapest
+   open lever.
+4. **Tier 3 — U-IC (dispatch lookup was 13.9% arith, pre-001/003).** Monomorphic
+   inline cache; needs the selector-only interner first (F4). Also carries the
+   arithmetic fast-path deferred from U-PRIM-ABI (DEC-PRIM-B). **Re-profile before
+   sizing** — see the staleness note above; the wren-suite band is now 4–14×, and
+   what U-IC should be sized against is the spread (`for` 13.6×, `string_equals` 10×
+   vs `binary_trees` 4.9×), not the old share.
 
 ## Session ledger (2026-07-14)
 
@@ -125,3 +143,21 @@ Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
   second null result, kept in `git stash@{0}`, not shipped.
 - `1ef999b` — **U-TRACE cut 003** (arith −16.7%). Real win. Two mechanisms falsified
   on the way (F9); `main.rs` deliberately left untouched.
+- `1531070` — **U-HOTPATH cut 004** (Skynet −30% user, −63% RSS). Real win, with a
+  measured +5–7% send-path regression that Change 1 must repay.
+- `debadfa` — U-HOTPATH Change 2. Sound, green, **unmeasured** — see 004.
+
+## Harness note (2026-07-14)
+
+Two gaps closed after the whole suite was re-measured at `debadfa`:
+
+- **The criterion benches checked only that the program did not error.** They now
+  read back each program's loop counter and value checksum from the `main` module
+  and fail on a wrong answer (`benches/vm_bench.rs`). A build that skips the loop or
+  mis-dispatches is fast and wrong; the old gate would have booked it as a win.
+- **The wren-suite comparison was verified by eye, once, and had gone stale by up to
+  20×.** `benchmarks/vm/compare-wren.py` now runs each pair best-of-N and diffs
+  Phalcom's stdout against Wren's mechanically, exiting non-zero on any mismatch. It
+  immediately found `method_call.ph` failing to parse (`!x` — the surface moved to
+  `not x` under a later unit and the port was never updated), i.e. a suite row that
+  had silently stopped being a benchmark at all.

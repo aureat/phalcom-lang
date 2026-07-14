@@ -10,14 +10,19 @@
 // dispatch.
 //
 // Loaded by phalcom-core/benches/vm_bench.rs via `include_str!`; also
-// runnable standalone: `phalcom benchmarks/vm/bare_send.ph`.
+// runnable standalone: `phalcom benchmarks/vm/bare_send.ph` (prints `0`).
+//
+// `acc` holds the dispatched method's return value and `i` the loop count;
+// the bench reads both back after the run and fails on a wrong answer, so a
+// "fast" build that mis-dispatches or skips the loop cannot post a number.
 class Empty {
   static noop { return 0 }
 }
 
 var i = 0
+var acc = 0
 while (i < 200000) {
-  Empty.noop
+  acc = Empty.noop
   i = i + 1
 }
-System.print("done")
+System.print(acc)

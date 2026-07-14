@@ -114,6 +114,77 @@ Indistinguishable. `fiber_spawn` criterion likewise flat (p = 0.65). **Why:**
   6203 objects). Only the design above survives — ~1h to rebuild from it. Nothing is
   gained by hunting for the diff.
 
+## F10 — the fiber pool is not neutral, it is negative — and F5 measured the wrong workload
+
+F5 rebuilt-and-reverted the fiber-stack pool as a **null result** and left the door
+open: "would only pay off under **high fiber turnover** … revisit only with such a
+benchmark." The code was later rebuilt behind the off-by-default `fiber-pool`
+Cargo feature (`phalcom-core/Cargo.toml`, U-GC step 5), with the flag's own comment
+recording it as "measured net negative … kept so the experiment can be re-run."
+
+**It has now been re-run against the workload F5 asked for** — and the flag's
+comment is right for a reason nobody has written down: it is not a wash.
+
+`benchmarks/vm/fiber_churn.ph` (new — spawn → run to `Done` → drop, in a loop) is
+the high-turnover probe F5 said was missing. Skynet spawns 1.1M fibers and lets
+them *live*; it hits the pool's only recycle site (the `Done` path in
+`vm/dispatch.rs`) once per fiber with no reuse pressure. `fiber_churn` hits it every
+iteration with a pool that is never empty — the pool's best case.
+
+Same-machine A/B, release, `nopool` vs `--features fiber-pool`, 3 reps:
+
+| fibers | user (nopool → pool) | peak RSS (nopool → pool) | ΔRSS |
+|---|---|---|---|
+| 100k | 0.06 → 0.06 s | 52.7 MB → 98.0 MB | **+86%** |
+| 500k | 0.31 → 0.31 s | 309 MB → 539 MB | **+74%** |
+| 1M | 0.62 → **0.85 s (+37%)** | 635 MB → 1090 MB | **+72%** |
+
+Skynet, by contrast, is a wash on every axis (user 2.19 vs 2.20–2.31 s, RSS 1.437
+vs 1.437 GB) — which is why F5, measuring Skynet, saw nothing.
+
+**The RSS cost is linear in fibers created: ~450 B per fiber, dead on.** (45 MB /
+100k, 229 MB / 500k, 455 MB / 1M.) That is not pool bookkeeping — the pool is
+bounded at 100 entries and can cost at most a few hundred KB. A per-fiber cost from
+a fixed-size pool means **recycled capacity is being retained per fiber, not
+reused**: a buffer drawn from the pool carries a previous fiber's grown capacity
+into a shell that outlives its own run (fiber shells are only freed when the
+collector sweeps them, and the arena never shrinks). The pool converts a
+`Vec::new()` (capacity 0) into a capacity-carrying buffer on an object that leaks
+until the next collection. At 1M fibers that also costs time (+37% user, sys 0.09 →
+0.23 s) — the RSS is paid for in page faults.
+
+**This mechanism is a hypothesis; the numbers are not.** Confirming it means
+instrumenting where a pooled buffer's capacity ends up, and that work is only worth
+doing if someone wants to revive the flag.
+
+**Consequences:**
+- **F5's "null result" is too generous, and its stated revival condition is
+  refuted.** The pool is not "neutral, might pay off under turnover" — under
+  turnover it is *worse*, on the exact workload F5 nominated as its proving ground.
+  A revival needs a new mechanism (recycle capacity, don't hand it to a shell that
+  outlives its run), not a new benchmark.
+- **The flag should be deleted, not kept.** It costs six `#[cfg]` sites across
+  `vm/mod.rs`, `vm/bootstrap.rs`, `vm/gc.rs`, `vm/dispatch.rs`, `primitive/fiber.rs`
+  and `heap/fiber.rs`, including a **duplicate `FiberObject` constructor**
+  (`new_entry_with_buffers`) and an arm in `VM::collect_roots`'s exhaustive
+  destructure. What it buys is the ability to re-run an experiment that has now been
+  run twice with a worse answer each time. The design is fully recorded in F5 + this
+  finding; that is what "kept for re-measurement" actually needs to mean.
+- **It carries a live GC hazard while it exists.** `fiber_pool` is classified a
+  **non-root** in `collect_roots` (`fiber_pool: _`) — correct only because the single
+  push site in `dispatch.rs` calls `.clear()` on both buffers first. A future second
+  recycle site that forgets the `clear()` hands the collector a pool full of
+  reachable-but-untraced `Value`s: F6's free-a-live-object failure mode, in a feature
+  that is off, untested in CI, and therefore will not fail anything until someone
+  turns it on. An off-by-default flag is not free; it is unmeasured surface that the
+  root-classification argument still has to hold for.
+- **Generalises F5's own lesson one step further.** F5 concluded "no current
+  benchmark exercises high turnover." The follow-through was to *write* one
+  (~10 lines), not to leave the question open behind a flag. A candidate parked
+  behind a feature gate looks decided and is not: this one sat as "measured net
+  negative, re-run later" while the cheap experiment that would settle it stayed
+  unwritten.
+
 ## F6 — U-GC's normative tables had two free-a-live-object bugs
 
 Step 0 of U-GC regenerated `memory-management.md` §2.1 (roots) and §2.3 (outgoing
