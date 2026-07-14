@@ -1,7 +1,14 @@
 # 49. Amend the floor: admit String byte/slice accessors + raw stdout write
 
-- Status: Accepted
+- Status: Accepted (selector names superseded — see note below)
 - Date: 2026-07-13
+- **Naming note (added post-implementation):** this ADR specified the
+  U-NATIVE-MARKER trailing-`_` convention (`byteCount_`/`byteAt_(_)`/`slice_(_,_)`/
+  `write_(_)`). The U-STRING unit that realized this amendment shipped `raw*`-prefixed
+  names instead (`rawByteCount`/`rawByteAt(_)`/`rawSlice(_,_)`/`rawWrite(_)`) — see
+  [ADR-0062](0062-amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md),
+  which is the accurate record of the bindings as bound. This ADR's *decision to admit
+  four bindings* stands; only the selector spelling in §Decision below is stale.
 - Amends: [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (the frozen floor) — the
   fifth such amendment, after [0023](0023-amend-floor-admit-hash-and-kernel-reflection.md),
   [0036](0036-amend-floor-admit-number-tostring.md), [0037](0037-amend-floor-admit-error-root.md),

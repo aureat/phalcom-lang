@@ -236,18 +236,27 @@ substrate — U-CORE-4 / deferred.
 | | |
 |---|---|
 | Superclass · Kind | `Object` · U/I · immutable, interpolating |
-| Status | ◐ partial (concat + hash; rich protocol pending) |
+| Status | ◐ partial (concat + hash + full Wren-modelled protocol over a raw-byte floor, **landed U-STRING**) |
 
 **Interface — floor** ([census §2.5](./floor-census.md)): `+(_)` (concatenation) ·
 `hash` (cached djb2 **content** hash — equal content ⇒ equal hash, **landed
-U-CORE-1**) · static `new()`/`new(_)`.
+U-CORE-1**) · static `new()`/`new(_)` · `rawByteCount`/`rawByteAt(_)`/`rawSlice(_,_)`
+(UTF-8 byte access, **landed U-STRING**, [ADR-0062](../../../adr/accepted/0062-amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md)).
+
+**Interface — `.ph`-derived** (U-STRING, over the floor above):
+`size`/`isEmpty` · `at(_) → Option` · `codePointAt(_)`/`leadByteLen_(_)` (UTF-8
+decode via division/modulo, no bitwise ops per ADR-0024) · `indexOf(_)` ·
+`split(_)` · `replace(_,_)` · `trim()`/`trimStart()`/`trimEnd()` and their
+custom-charset forms `trim(_)`/`trimStart(_)`/`trimEnd(_)` · `*(count)` ·
+`bytes`/`codePoints` (`StringByteSequence`/`StringCodePointSequence` sub-accessors,
+ADR-0048-shaped). Argument-type/range violations raise `ArgumentError`.
 
 **Surface syntax.** `\(expr)` interpolation landed with **U-LEX**
 ([ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md)) — a
 lexer feature, adds no class rows.
 
-**Planned.** `length`, indexing → `Option`, comparison, `toSymbol`/`toNumber`, value
-`toString` — U-CORE-4.
+**Planned.** Character indexing, comparison, `toSymbol`/`toNumber` — deferred
+past U-STRING (see `deferred-work.md`).
 
 ---
 

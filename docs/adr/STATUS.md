@@ -76,7 +76,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0046 | Destructuring `let`/`var` — tuple + list/`*rest` | Accepted | | ✅ |
 | 0047 | `::` method references (Open form); amend floor | Accepted | | ✅ |
 | 0048 | Amend iteration — bare-cursor sentinel + `Iterable` root | Accepted | | ✅ |
-| 0049 | Amend floor — String byte/slice + raw stdout write | Accepted | | ✅ |
+| 0049 | Amend floor — String byte/slice + raw stdout write | Accepted (selector names superseded by 0062) | | ✅ decision landed; selector spelling is `raw*`-prefixed, not this ADR's `_`-suffix — see 0062 |
 | 0050 | Non-moving precise mark-sweep collector | Accepted (ratified 2026-07-14) | | ? (GC code present — `vm/gc.rs`, `force_gc` — not verified against this ADR's specific design this pass) |
 | 0051 | Performance strategy — measure-first, tiered | Proposed | | — (process/policy doc, nothing to ship) |
 | 0052 | Invariant re-entrancy receiver-scoped; decorator state Layout-confined | Accepted | | ? |
@@ -88,6 +88,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0058 | Reactive tracking-context needs a native module | Accepted | | ? |
 | 0059 | Amend ADR-0058/0033 — reactive tracking context bound to native-frame switch guard | Proposed (needs user ratification) | | — (row missing pre-edit; added 2026-07-14, not yet code-checked) |
 | 0060 | `[]` is a real, overridable selector — no `at` lowering | Accepted | | ✅ built 2026-07-14 (U-INDEX) — `Parser::parse_index_member` (`phalcom-ast/src/parser.rs`) is a dedicated bracket-subscript class-member production (params inside `[...]`, not `parse_method_name`); compiler (`compiler/lib/expr.rs`) sends directly to `SignatureKind::Subscript` (`[_]`/`[_,put]`/`[]`/`[put]`), no `at` lowering; `List`/`Map`/`Tuple` opt in via `core.ph` wrapper methods |
+| 0062 | Amend floor — String raw byte accessors + `System.rawWrite(_)` (supersedes 0049 naming) | Accepted | | ✅ built — `rawByteCount`/`rawByteAt(_)`/`rawSlice(_,_)` (`primitive/string.rs`), `rawWrite(_)` (`primitive/system.rs`), full `.ph`-derived protocol in `core.ph` |
 | 0061 | Underscore prefixes reserved — `_` fields, `_$` language internals, `__` reserved | Proposed (needs user ratification) | | ❌ not built — designed 2026-07-14, citations re-verified against `6d0b3b4`; current state is the *pre*-decision one it changes: `parse_primary` (`phalcom-ast/src/parser.rs:2387`) routes every leading-`_` identifier to `Expr::Field` regardless of underscore count, `parse_method_name` (`:1374`) and `parse_field_decl` (`:1156`) have no prefix check, `$` appears nowhere in `lexer.rs`, and M-ATTR-ROOT still ships as `__attach`/`__attributes`/`__freezeAttributes` (`primitive/attribute.rs`, `universe/primitives.rs:73-75`, `compiler/lib/class_decl.rs:785,798`) |
 
 ## Known status/reality gaps not yet reconciled

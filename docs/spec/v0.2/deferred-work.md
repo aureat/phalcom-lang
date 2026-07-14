@@ -111,6 +111,7 @@ Reserved-but-unbuilt class names sit in `primitive/mod.rs::ClassName` (`Range`, 
 | **Typing layer** | optional/structural/erasable gradual types | experimental, uncommitted | [experimental/typing.md](experimental/typing.md) |
 | **Annotations `@`** | `@attr` mechanism, contracts, `@construct`/`@get`/`@set` | experimental (10 drafts), `@` not lexed | experimental/annotations-*.md |
 | **`Result`/`Ok`/`Err`** | `Option`-mirrored expected-failure channel + bridges | design **normative** ([result.md](result.md); ADR-0008); reserved by U-CORE-6, built by a later value-classes unit | [result.md](result.md); ADR-0008 |
+| **U-STRING follow-ons** | `System.print(_)`/`writeObject_(_)` funnel unification (blocked on `Map`/`Set`/`Tuple`/`Range`/instance `toString` message wording), character (codepoint) indexing, derived regex-free search helpers | **U-STRING landed** ([ADR-0062](../../adr/accepted/0062-amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md)); these three follow-ons unbuilt | [core/floor-census.md §2.5/§2.11](core/floor-census.md) |
 
 ---
 

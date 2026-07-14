@@ -1,19 +1,18 @@
-# ADR-0049: Amend floor — admit `String` raw byte accessors + `System.rawWrite(_)`
-
-<!-- REVIEW: BLOCKING: ADR number collision + naming-convention violation.
-Two files both claim ADR-0049 in docs/adr/accepted/:
-(1) 0049-amend-floor-admit-string-byte-and-raw-write-primitives.md (pre-existing, dated 2026-07-13,
-    referenced by docs/adr/STATUS.md:79, specifies selector names byteCount_/byteAt_(_)/slice_(_,_)/write_(_)
-    per U-NATIVE-MARKER convention of trailing _ suffix per docs/forge/units/U-NATIVE-MARKER/plan.md:51-53)
-(2) 0049-amend-floor-admit-string-raw-byte-accessors.md (this file, new, uses rawByteCount/rawByteAt(_)/rawSlice(_,_)/rawWrite(_)
-    the raw* prefix, NOT referenced by STATUS.md, contradicts U-NATIVE-MARKER's mandated naming convention).
-
-FIX: Consolidate to ONE ADR-0049 file. Adopt the pre-existing file's naming convention (byteCount_/etc)
-per U-NATIVE-MARKER's already-landed spec. Delete this orphaned duplicate. Update primitive implementations
-to use _ suffix, not raw* prefix. Re-test all affected code.
--->
+# ADR-0062: Amend floor — admit `String` raw byte accessors + `System.rawWrite(_)`
 
 **Status:** Accepted
+
+**Supersedes:** [ADR-0049](0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)'s
+selector names. Both ADRs approve the same 4-binding amendment (byte-level `String`
+access + raw stdout write); ADR-0049 specified the U-NATIVE-MARKER trailing-`_`
+convention (`byteCount_`/`byteAt_(_)`/`slice_(_,_)`/`write_(_)`) but the U-STRING unit
+shipped the `raw*`-prefixed names below instead (`rawByteCount`/`rawByteAt(_)`/
+`rawSlice(_,_)`/`rawWrite(_)`) — confirmed live in `primitive/string.rs`,
+`primitive/system.rs`, and every `core.ph` call site. This ADR is the accurate record
+of what is actually bound; ADR-0049 is retained for history and marked superseded on
+naming only (the decision to admit the 4 bindings itself was never in question). The
+`_`-suffix rename ADR-0049 called for is **not** applied — see "Alternatives
+considered" below.
 
 **Scope:** U-STRING (docs/forge/units/U-STRING/plan.md)
 
@@ -56,4 +55,13 @@ All other operations—`split`, `replace`, `trim`, indexing, substring search (`
 - `codePointAt(_)` and `leadByteLen_(_)` are derived in `.ph` using only numeric range tests and modulo (no bitwise operators, per ADR-0024's deferral).
 - `indexOf(_)` is `.ph`-derived over `rawByteAt`, accepting O(n·m) cost per ADR-0019's stated trade.
 - The `System.print(_)` pathway is **unchanged** — it continues to bypass message dispatch and use native `Value::to_string`. The new `System.write(_)`/`writeObject_(_)` funnel is **additive only**, addressing ADR-0019's anticipation that a future unit would unify these paths (blocked here by the `Map`/`Set`/`Tuple`/`Range`/instance `toString` wording gap, per the plan's Rubric).
+
+## Alternatives considered (naming, vs. ADR-0049)
+
+- **Rename the shipped `raw*` bindings to ADR-0049's `_`-suffix convention post hoc.**
+  Rejected for this pass — U-STRING is landed, green (44 lang tests + the floor-census
+  invariant), and referenced by name throughout `core.ph`/`primitive/string.rs`/
+  `primitive/system.rs`/this test corpus. A rename is real, if mechanical, work (touch
+  every call site, re-verify) rather than a docs fix; tracked as its own follow-up
+  under U-NATIVE-MARKER's scope instead of bundled into this consolidation pass.
 
