@@ -495,31 +495,81 @@ impl VM {
                     let name_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
                         let module_id = self.heap.closure(closure_id).module;
-                        if let Some(value) = self.heap.module(module_id).get(name_sym) {
-                            // A declared-but-unassigned global holds the private
-                            // sentinel (module slots initialize to `Value::Nil`);
-                            // surface it as `None` on read.
+                        let version = self.heap.module(module_id).globals_version;
+
+                        // Fast path: this site already resolved the name, and the
+                        // accessing module has declared nothing since (so nothing
+                        // can have shadowed it). One integer compare replaces the
+                        // SipHash probe — and the second, core-module probe that a
+                        // kernel name would otherwise pay on every access.
+                        let cached = self.heap.closure(closure_id).callable.chunk.gcaches[ip].get();
+                        if let Some(hit) = cached
+                            && hit.version == version
+                            && let Some(value) = self.heap.module(hit.module).get_by_slot(hit.slot)
+                        {
                             let value = self.surface_absence(value);
                             self.stack.push(value);
-                        } else {
-                            // If not in the current module, try the core module.
-                            let core_module_sym = self.interner.intern(CORE_MODULE_NAME);
-                            let core_module = self.get_module(core_module_sym).expect("core module");
-                            if let Some(value) = self.heap.module(core_module).get(name_sym) {
-                                let value = self.surface_absence(value);
-                                self.stack.push(value);
-                            } else {
-                                let name = self.resolve_symbol(name_sym).to_string();
-                                return Err(RuntimeError::Message(format!("Undefined variable '{}'.", name)).into());
-                            }
+                            continue;
                         }
+
+                        let (resolved_module, slot) = match self.heap.module(module_id).slot_of(name_sym) {
+                            Some(slot) => (module_id, slot),
+                            None => {
+                                // Not in the current module — try the core module.
+                                let core_module_sym = self.interner.intern(CORE_MODULE_NAME);
+                                let core_module = self.get_module(core_module_sym).expect("core module");
+                                match self.heap.module(core_module).slot_of(name_sym) {
+                                    Some(slot) => (core_module, slot),
+                                    None => {
+                                        let name = self.resolve_symbol(name_sym).to_string();
+                                        return Err(
+                                            RuntimeError::Message(format!("Undefined variable '{}'.", name)).into()
+                                        );
+                                    }
+                                }
+                            }
+                        };
+
+                        self.heap.closure(closure_id).callable.chunk.gcaches[ip].set(Some(crate::chunk::GlobalCache {
+                            module: resolved_module,
+                            slot,
+                            version,
+                        }));
+
+                        let value = self.heap.module(resolved_module).get_by_slot(slot).expect("resolved slot");
+                        // A declared-but-unassigned global holds the private
+                        // sentinel (module slots initialize to `Value::Nil`);
+                        // surface it as `None` on read.
+                        let value = self.surface_absence(value);
+                        self.stack.push(value);
                     }
                 }
                 Bytecode::SetGlobal(idx) => {
                     let name_val = self.heap.closure(closure_id).callable.chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {
                         let module_id = self.heap.closure(closure_id).module;
-                        let slot = self.heap.module(module_id).name_to_slot.get(&name_sym).copied();
+                        let version = self.heap.module(module_id).globals_version;
+
+                        // Unlike `GetGlobal`, assignment has **no** core-module
+                        // fallback: writing a kernel name the module never declared
+                        // is an error, not a write into core. So a hit here always
+                        // names this module's own slot.
+                        let cached = self.heap.closure(closure_id).callable.chunk.gcaches[ip].get();
+                        let slot = match cached {
+                            Some(hit) if hit.version == version => Some(hit.slot),
+                            _ => {
+                                let resolved = self.heap.module(module_id).slot_of(name_sym);
+                                if let Some(slot) = resolved {
+                                    self.heap.closure(closure_id).callable.chunk.gcaches[ip].set(Some(crate::chunk::GlobalCache {
+                                        module: module_id,
+                                        slot,
+                                        version,
+                                    }));
+                                }
+                                resolved
+                            }
+                        };
+
                         if let Some(slot) = slot {
                             let value = *self.stack.last().unwrap();
                             self.heap.module_mut(module_id).set_global(slot, value).unwrap();

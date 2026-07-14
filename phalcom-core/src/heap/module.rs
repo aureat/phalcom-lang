@@ -49,6 +49,17 @@ pub struct ModuleObject {
     pub globals: Vec<Value>,
     /// Maps a global name [`Symbol`] to its slot index in [`Self::globals`].
     pub name_to_slot: HashMap<Symbol, usize>,
+    /// Bumped **only** when [`Self::declare`] allocates a *new* slot; guards the
+    /// per-callsite global caches in [`Chunk::gcaches`](crate::chunk::Chunk).
+    ///
+    /// A callsite that resolved through the core-module fallback must stop doing
+    /// so the moment this module defines that same name (`var List = 42` after a
+    /// site already read core's `List`). That is the *only* way a resolved
+    /// `(module, slot)` pair can become wrong: slots are append-only
+    /// ([`Self::declare`] returns the existing slot for a known name), and
+    /// [`Self::set_global`] rewrites a slot's value without moving it — so
+    /// neither redefinition nor assignment needs to invalidate anything.
+    pub globals_version: u64,
     /// Attribute instances attached via `Object#__attach` (M-ATTR-ROOT,
     /// `attribute-classes.md`).
     pub attributes: Vec<Value>,
@@ -68,6 +79,7 @@ impl ModuleObject {
             closure: None,
             globals: Vec::new(),
             name_to_slot: HashMap::new(),
+            globals_version: 0,
             source,
             attributes: Vec::new(),
             attributes_frozen: false,
@@ -124,6 +136,9 @@ impl ModuleObject {
         }
 
         self.name_to_slot.insert(name, cur);
+        // A new name here can shadow one that callsites already resolved through
+        // the core-module fallback, so their cached slots must be discarded.
+        self.globals_version += 1;
         // Storage default only: a freshly-declared global slot backs its value
         // with the private sentinel until written. Never read raw — the
         // `GetGlobal` handler surfaces it to `None` (Invariant 4).
@@ -146,6 +161,16 @@ impl ModuleObject {
     #[inline]
     pub fn get(&self, name: Symbol) -> Option<Value> {
         self.name_to_slot.get(&name).and_then(|&slot| self.globals.get(slot).copied())
+    }
+
+    /// Returns the slot `name` is declared in, or `None` if it is not declared yet.
+    ///
+    /// The resolution half of [`Self::get`], split out so a caller can cache the
+    /// slot and skip the hash probe on later accesses
+    /// ([`GlobalCache`](crate::chunk::GlobalCache)).
+    #[inline]
+    pub fn slot_of(&self, name: Symbol) -> Option<usize> {
+        self.name_to_slot.get(&name).copied()
     }
 
     /// Returns the value in `slot`, or `None` if the slot is out of range.
