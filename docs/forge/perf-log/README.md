@@ -18,6 +18,7 @@ recorded as a finding, not shipped.
 |---|-------------|-----|----------|-------------|--------|
 | [001](001-prim-abi-inline-args.md) | U-PRIM-ABI / Tier 2 | On-stack arg buffer replaces the per-send heap `Vec` in the primitive dispatch path | arith_send −41.5%, bare_send −33.8% | none | `37f31c9` |
 | [002](002-gc-win-a-box-fat-variants.md) | U-GC Win A / Tier 4 | Box the six fat `Object` variants — `size_of::<Object>()` 280 B → 40 B | `for.ph` −43% wall, `skynet` −34% wall (`sys` 2–4× less); RSS a wash; `bare_send` +5% | none | `7480d75` |
+| [003](003-vm-trace-feature-gate.md) | U-TRACE / Tier 1 | `vm-trace` feature compiles the dispatch loop's per-opcode span + `debug!`s out by default | arith_send (5M, whole-process) −16.7%; Skynet ≈−1% on `user`, unresolvable on `real` | none | `<pending>` |
 
 ## Investigated, not landed
 
@@ -53,6 +54,11 @@ Full write-ups in [`findings.md`](findings.md):
 - **F7** — `size_of::<Object>()` **grew 256 → 280 B** (`ClassObject.attributes`).
   Win A is **six** boxed variants, not "the driver"; **do not box `Instance`**
   (24 B, most-allocated). Target 280 → ~40 B, a 7× arena density win.
+- **F8** — Tier 1's size held (18.2% measured vs 18.3% predicted) but **both**
+  mechanisms were wrong: not a subscriber misconfiguration (−0.4%), and not the span
+  (half the cost — the three `debug!`s are the other half). A fix dispatched from the
+  README's "tracing span" framing would have booked −8.4% and closed the candidate.
+  Attribution ≠ mechanism; only mechanism gives the fix its shape. Closed by cut 003.
 
 ## Method — instrument selection (learned the hard way in 002)
 
@@ -64,7 +70,15 @@ micro-benches showed a regression.
 
 - **Representation / allocation changes** → `for.ph`, `skynet`, `/usr/bin/time -l`.
   Watch `sys` time, not just wall.
-- **Dispatch / send-path changes** → criterion (`benchmarks/vm/`).
+- **Dispatch / send-path changes** → criterion (`benchmarks/vm/`) — **except anything
+  `tracing`-sensitive** (003). `benches/vm_bench.rs` drives `Interpreter` directly and
+  installs **no subscriber**, so callsite interest caches as `never`: a cheaper path
+  than the real binary, which installs a registry. Criterion is *blind* to per-opcode
+  tracing cost and showed ~no win where whole-process showed −16.7%.
+- **Skynet: read `user`, not `real`** (003). Its `real` spread was 5.4 s **within one
+  binary** (13.98–19.40) — it cannot resolve a single-digit-percent effect. The
+  variance lives in `sys` (page faults, allocation); `user` held to ±0.4 s across the
+  same runs. `BASELINE.md`'s own 13.7–15.6 s range says the same thing.
 - **Criterion's p-value covers within-run variance only.** On this hardware it
   certified noise as `p = 0.00` significance twice; the *same binary* against the
   *same saved baseline* reported +8.8% and then +1.3%. For effects under ~10%, use
@@ -79,9 +93,12 @@ micro-benches showed a regression.
 
 Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
 
-1. **Tier 1 — tracing span (~18.3% arith).** The dispatch loop pays a
-   `tracing` span / `mach_absolute_time` per opcode even with logging off. A
-   behavior-invariant gate/removal is the cheapest remaining win. **Next candidate.**
+1. ~~**Tier 1 — tracing span (~18.3% arith).**~~ **Done — [cut 003](003-vm-trace-feature-gate.md)
+   ([U-TRACE](../units/U-TRACE/plan.md)), arith −16.7%.** The attribution was right about the
+   size and wrong about the mechanism twice over: the cost is **not** a subscriber
+   misconfiguration (fixing that bought −0.4%), and it is **not** span-specific — it splits
+   evenly with the loop's three `debug!`s, so the fix had to gate all four callsites, not the
+   span alone.
 2. **Tier 4 — U-GC collector (malloc 28.2% Skynet).** The dominant Skynet cost is
    allocating + retaining ~1M `FiberObject` shells. This is the real RSS lever
    (F5), a large unit (non-moving mark-sweep, ADR-0050).

@@ -216,3 +216,39 @@ Two consequences for U-GC Win A:
 
 Post-boxing target: 280 → ~40 B, a **7×** arena density win, independent of the
 collector and landable first.
+
+## F8 — the "tracing span" cost was real, but the mechanism was wrong twice
+
+Cut [003](003-vm-trace-feature-gate.md) closed F1's Tier 1 candidate. F1's *size*
+estimate held (18.3% predicted, 18.2% measured on the A/B), but both natural
+explanations of *why* were falsified — and each would have produced a worse fix.
+
+**Refuted #1 — "it's a subscriber misconfiguration."** `bin/phalcom/main.rs:15` reads
+`registry().with(layer.with_filter(LevelFilter::OFF))`. The tidy story: the registry's
+default `register_callsite` returns `Interest::always()`, the filtered layer returns
+`never`, so the callsite resolves to **`sometimes`** and every opcode pays a dynamic
+`enabled()` check. Tested first, because it promised a one-line fix touching no VM
+code. **Measured: −0.4%.** Interest already resolves to `never` in both placements.
+`main.rs` was reverted, untouched.
+
+**Refuted #2 — "it's the span."** F1, `performance.md` §2, and the README's own
+ranking all name the *span* ("Tier 1 — tracing span"). It is half the cost:
+
+| Removed | Δ |
+|---|---|
+| span only | −8.4% |
+| the three `debug!`s only | −8.4% |
+| both | −18.2% |
+
+Even and additive — generic per-callsite overhead, not a span-guard optimization
+barrier. **A unit dispatched from the README's framing would have gated the span,
+booked −8.4%, and closed the candidate** with half the win left on the floor and a
+false mechanism recorded as fact.
+
+**The transferable point:** a correct *attribution* (which line is hot) does not carry
+a correct *mechanism* (why), and only the mechanism tells you the shape of the fix.
+The profiler named the span because the span is where the samples landed; the
+`debug!`s two lines away cost the same and were invisible to the framing. Cheap to
+check — build one variant per suspect — and the check is what sized the fix.
+Corollary, already in the README's method: **no runtime filter can remove code.**
+`LevelFilter::OFF` was set the whole time and bought nothing; only `#[cfg]` did.

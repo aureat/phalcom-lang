@@ -57,6 +57,7 @@ One folder per implementation unit. A landed unit holds `as-built.md` (moved her
 | U-BENCH | [plan](U-BENCH/plan.md) | landed — Tier 0 Wren-suite reference programs; gates the rest of this track |
 | U-GC | [plan](U-GC/plan.md) · [impl spec steps 3–5](U-GC/IMPL-SPEC-steps-3-5.md) | steps 0–4 landed `94b6bbf`; step 5 (fiber-stack pool) done — second null result, no measurable win, kept in `git stash@{0}`, not shipped |
 | U-PRIM-ABI | [plan](U-PRIM-ABI/plan.md) | landed `37f31c9` — on-stack arg buffer, arith_send −41.5%; full ~70-primitive ABI migration deliberately not pursued (DEC-PRIM-B), deferred to U-IC |
+| U-TRACE | [plan](U-TRACE/plan.md) · [perf-log 003](../perf-log/003-vm-trace-feature-gate.md) | landed — Tier 1: `vm-trace` feature gates the dispatch loop's per-opcode span + `debug!`s out by default, arith_send −16.7%, zero golden diff |
 | U-IC | [plan](U-IC/plan.md) | not started — preconditions unmet (no `SelectorId`, no `ClassObject` epoch) |
 | U-HOTPATH | [plan](U-HOTPATH/plan.md) | not started — blocked on U-IC |
 | U-COMPILE | [plan](U-COMPILE/plan.md) | not started |
