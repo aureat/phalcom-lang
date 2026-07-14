@@ -1,7 +1,7 @@
 # U-TRACE — compile out the dispatch loop's per-opcode tracing
 
 _Tier 1 of the [performance strategy](../../../spec/v0.2/performance.md)
-([ADR-0051](../../../adr/0051-performance-strategy-measure-first-tiered-optimization.md)).
+([ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
 Written 2026-07-14 against HEAD `876dce2`, **after** the measurement — every number below is
 reproduced in [perf-log 003](../../perf-log/003-vm-trace-feature-gate.md), not predicted._
 

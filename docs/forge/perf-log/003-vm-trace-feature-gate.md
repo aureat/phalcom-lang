@@ -1,6 +1,6 @@
 # 003 — U-TRACE: compile out the dispatch loop's per-opcode tracing (Tier 1)
 
-Status: **landed** · Unit: [U-TRACE](../units/U-TRACE/plan.md) (Tier 1) · Spec: [performance.md §4 Tier 1](../../spec/v0.2/performance.md), [ADR-0051](../../adr/proposed/0051-performance-strategy-measure-first-tiered-optimization.md) · Behavior-invariant (no ADR, no floor change)
+Status: **landed** · Unit: [U-TRACE](../units/U-TRACE/plan.md) (Tier 1) · Spec: [performance.md §4 Tier 1](../../spec/v0.2/performance.md), [ADR-0051](../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md) · Behavior-invariant (no ADR, no floor change)
 
 Closes the "Tier 1 — tracing span (~18.3% arith)" candidate that
 [`README.md`](README.md) had ranked next but never turned into a unit.

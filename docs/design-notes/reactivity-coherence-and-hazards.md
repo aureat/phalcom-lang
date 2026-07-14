@@ -180,7 +180,7 @@ inherits whatever predicate is chosen here.
   be poor. Worth a targeted error message.
 - **Allocation shape.** `recompute` does `_sources = Set.new()` per evaluation and
   `flush` does `_pending = Set.new()` per drain. Per
-  [ADR-0051](../adr/0051-performance-strategy-measure-first-tiered-optimization.md)
+  [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
   (measure-first) this is **not** a reason to pre-optimize — recording it only so
   it is instrumented when `U-REACTIVE-NATIVE` lands, given allocation is the #1
   measured cost mechanism to date and F5 already showed a pooling null result.

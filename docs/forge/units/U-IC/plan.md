@@ -2,7 +2,7 @@
 
 Status: **PLANNED** (dispatch-ready). Tier 3 of the performance strategy
 ([performance.md](../../../spec/v0.2/performance.md) §4 Tier 3,
-[ADR-0051](../../../adr/0051-performance-strategy-measure-first-tiered-optimization.md)).
+[ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
 Populates the inline-cache seam ADR-0012 already reserves. Single-writer on
 `vm.rs` + `class.rs` + `interner.rs` → **worktree-isolate**; serialize against
 `U-HOTPATH`, `U-PRIM-ABI`, `U-GC` ([[phalcom-concurrent-session-hazards]]).

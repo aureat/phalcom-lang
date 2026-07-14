@@ -2,7 +2,7 @@
 
 **Status: FINDINGS.** Grounded in the U-TRACE cut (`1ef999b`, [perf-log 003](../forge/perf-log/003-vm-trace-feature-gate.md),
 finding [F9](../forge/perf-log/findings.md)) and the measurements taken around it. Governed by
-[performance.md](../spec/v0.2/performance.md) + [ADR-0051](../adr/0051-performance-strategy-measure-first-tiered-optimization.md)
+[performance.md](../spec/v0.2/performance.md) + [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant).
 
 Per-cut records live in `docs/forge/perf-log/`. **This file is the generalizable layer** — what the

@@ -262,7 +262,7 @@ self.at(i)`, which is itself a second `Invoke`. Under the original
 by construction; under the now-adopted dedicated-selector design it is not
 — every `[]`/`[]=` pays one extra full `IndexMap<Symbol, ObjRef>` hash-probe
 send relative to calling `.at(i)` directly
-([ADR-0051](../../../adr/0051-performance-strategy-measure-first-tiered-optimization.md)
+([ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
 context: "every `Invoke` resolves through an `IndexMap<Symbol, ObjRef>` hash
 probe… no IC populated"). This is a real, measurable cost of the user's
 directed change, not a hypothetical — flag it plainly rather than repeat

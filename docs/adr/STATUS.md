@@ -78,7 +78,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0048 | Amend iteration — bare-cursor sentinel + `Iterable` root | Accepted | | ✅ |
 | 0049 | Amend floor — String byte/slice + raw stdout write | Accepted (selector names superseded by 0062) | | ✅ decision landed; selector spelling is `raw*`-prefixed, not this ADR's `_`-suffix — see 0062 |
 | 0050 | Non-moving precise mark-sweep collector | Accepted (ratified 2026-07-14) | | ? (GC code present — `vm/gc.rs`, `force_gc` — not verified against this ADR's specific design this pass) |
-| 0051 | Performance strategy — measure-first, tiered | Proposed | | — (process/policy doc, nothing to ship) |
+| 0051 | Performance strategy — measure-first, tiered | **Accepted (ratified 2026-07-14)** | | — (policy doc, no code to ship) — but **realized by cuts 001–007** (`docs/forge/perf-log/`): its laws P1/P2/P3 were the operative gate for every one. Ratified *after* seven cuts had already shipped under it |
 | 0052 | Invariant re-entrancy receiver-scoped; decorator state Layout-confined | Accepted | | ? |
 | 0053 | Runtime decorator interception reuses override-epoch guard | Accepted | | ? (pristine-flag mechanism confirmed present; per-class `has_runtime_interceptor` bit not re-checked this pass) |
 | 0054 | Two-speed decorator ratification | Accepted (broad, ruled 2026-07-14) | | ? |

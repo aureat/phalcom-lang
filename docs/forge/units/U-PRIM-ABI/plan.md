@@ -2,7 +2,7 @@
 
 Status: **PLANNED** (dispatch-ready). Tier 2 of the performance strategy
 ([performance.md](../../../spec/v0.2/performance.md) §4 Tier 2,
-[ADR-0051](../../../adr/0051-performance-strategy-measure-first-tiered-optimization.md)).
+[ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
 Single-writer on `vm.rs` + `primitive/*` → **worktree-isolate**; serialize against
 `U-HOTPATH`, `U-IC`, `U-GC` (all single-write `vm.rs`)
 ([[phalcom-concurrent-session-hazards]]). **Requires U-BENCH first** (P1 — the win

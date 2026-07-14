@@ -2,7 +2,7 @@
 
 Status: **PLANNED** (dispatch-ready). Tier 5 of the performance strategy
 ([performance.md](../../../spec/v0.2/performance.md) §4 Tier 5,
-[ADR-0051](../../../adr/0051-performance-strategy-measure-first-tiered-optimization.md)).
+[ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
 Single-writer on the compiler front-end (`chunk.rs`, `compiler/lib.rs`, `vm.rs`
 core-load path, and optionally `phalcom-ast`) → **worktree-isolate**; the lexer
 sub-change collides broadly with `phalcom-ast` work — serialize

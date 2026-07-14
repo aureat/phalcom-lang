@@ -89,7 +89,7 @@ ever disagree, trust disk and fix this line.
 | [0048](accepted/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md) | Amend iteration: bare-cursor end-sentinel + kernel `Iterable` root | Accepted |
 | [0049](accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md) | Amend the floor: admit String byte/slice accessors + raw stdout write | Accepted |
 | [0050](accepted/0050-non-moving-mark-sweep-collector.md) | Reclamation is a non-moving precise mark-sweep collector | Accepted |
-| [0051](proposed/0051-performance-strategy-measure-first-tiered-optimization.md) | Performance strategy: measure-first, tiered, behavior-invariant | Proposed |
+| [0051](accepted/0051-performance-strategy-measure-first-tiered-optimization.md) | Performance strategy: measure-first, tiered, behavior-invariant | Accepted |
 | [0052](accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) | Invariant re-entrancy is receiver-scoped; per-receiver decorator state is Layout-confined | Accepted |
 | [0053](accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md) | Runtime-tier decorator interception reuses the sacred-selector override-epoch guard | Accepted |
 | [0054](accepted/0054-two-speed-ratification-annotation-decorator-tiers.md) | Two-speed ratification: annotation Compile/Layout tier + Install/Dispatch/Runtime tier, both gates satisfied | Accepted (all tiers) |

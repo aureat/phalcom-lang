@@ -3,7 +3,7 @@
 > Normative specification of Phalcom's performance discipline: the laws that
 > govern optimization work, the tier model and its committed sequence, the
 > success target, and the standing invariants every optimization must preserve.
-> Realises [ADR-0051](../../adr/0051-performance-strategy-measure-first-tiered-optimization.md).
+> Realises [ADR-0051](../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md).
 > This document governs *how* the runtime is made fast; it does not itself change
 > any observable semantics.
 

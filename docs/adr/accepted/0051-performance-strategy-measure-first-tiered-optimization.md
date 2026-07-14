@@ -1,6 +1,8 @@
 # 51. Performance strategy: measure-first, tiered, behavior-invariant
 
-- Status: Proposed
+- Status: **Accepted** (ratified 2026-07-14 — ratified *after* the fact: seven cuts
+  (001-007) had already landed under it, and its laws P1/P2/P3 were the operative
+  gate for every one. Ratification records existing practice, it does not change it.)
 - Date: 2026-07-13
 - Related: [ADR-0009](../accepted/0009-handle-arena-heap.md) (handle heap),
   [ADR-0010](../accepted/0010-tagged-value-enum.md) (`Value` repr; NaN-boxing deferral),

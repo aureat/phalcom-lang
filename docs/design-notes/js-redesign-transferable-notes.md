@@ -4,7 +4,7 @@
 about redesigning JavaScript from scratch, not from profiling Phalcom. Nothing here
 is a finding.
 
-Under [ADR-0051](../adr/0051-performance-strategy-measure-first-tiered-optimization.md)
+Under [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant) and perf-log law **P1** (no oral numbers),
 none of this may land as an optimization without a U-BENCH before/after. Deliberately
 kept out of [`../forge/perf-log/`](../forge/perf-log/README.md), which is a measured
