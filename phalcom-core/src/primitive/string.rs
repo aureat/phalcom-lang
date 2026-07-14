@@ -50,3 +50,102 @@ pub fn string_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
         None => Ok(vm.alloc_string_value(String::new())),
     }
 }
+
+/// Signature: `String::rawByteCount` — the byte length of the underlying UTF-8 buffer.
+///
+/// Derives from ADR-0019 (minimal native floor); the byte length is not derivable
+/// in `.ph` code since no `.ph` code can observe the buffer. Returns a `Number`.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if the receiver is not a string.
+pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let s = match receiver {
+        Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
+        other => return Err(RuntimeError::Type { expected: "String", found: other.type_name() }.into()),
+    };
+    Ok(Value::Number(s.len() as f64))
+}
+
+/// Signature: `String::rawByteAt(_)` — read a single raw byte from the buffer.
+///
+/// Derives from ADR-0019 (minimal native floor); byte-level access is not derivable
+/// in `.ph` code. Returns a `Number` (0–255) on hit; returns the `None` singleton
+/// on out-of-bounds access (mirrors `list_raw_at`'s pattern, ADR-0007 Invariant 4).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if the receiver is not a string.
+pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s = match receiver {
+        Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
+        other => return Err(RuntimeError::Type { expected: "String", found: other.type_name() }.into()),
+    };
+
+    let idx = match &args[0] {
+        Value::Number(n) => {
+            if n.fract() != 0.0 || *n < 0.0 {
+                return Ok(vm.none_value());
+            }
+            *n as usize
+        }
+        _ => return Ok(vm.none_value()),
+    };
+
+    if idx < s.len() {
+        Ok(Value::Number(s.as_bytes()[idx] as f64))
+    } else {
+        Ok(vm.none_value())
+    }
+}
+
+/// Signature: `String::rawSlice(_,_)` — extract a substring by byte range `[start, end)`.
+///
+/// Derives from ADR-0019 (minimal native floor); string allocation from computed byte
+/// offsets is not derivable in `.ph` (no way to construct a String from raw bytes).
+/// Returns a new `String`. Validates UTF-8 char-boundary alignment via
+/// [`str::is_char_boundary`]; returns [`RuntimeError::Type`] on misaligned boundaries
+/// (never panics on a malformed slice attempt).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if the receiver is not a string, or if `start`/`end`
+/// are not valid integers, out of range, or not aligned to UTF-8 char boundaries.
+pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let s = match receiver {
+        Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
+        other => return Err(RuntimeError::Type { expected: "String", found: other.type_name() }.into()),
+    };
+
+    let start = match &args[0] {
+        Value::Number(n) => {
+            if n.fract() != 0.0 || *n < 0.0 {
+                return Err(RuntimeError::Type { expected: "valid index", found: "invalid number" }.into());
+            }
+            *n as usize
+        }
+        _ => return Err(RuntimeError::Type { expected: "Number", found: args[0].type_name() }.into()),
+    };
+
+    let end = match &args[1] {
+        Value::Number(n) => {
+            if n.fract() != 0.0 || *n < 0.0 {
+                return Err(RuntimeError::Type { expected: "valid index", found: "invalid number" }.into());
+            }
+            *n as usize
+        }
+        _ => return Err(RuntimeError::Type { expected: "Number", found: args[1].type_name() }.into()),
+    };
+
+    // Validate bounds and char boundaries
+    if start > s.len() || end > s.len() || start > end {
+        return Err(RuntimeError::Type { expected: "valid slice range", found: "out of bounds" }.into());
+    }
+
+    if !s.is_char_boundary(start) || !s.is_char_boundary(end) {
+        return Err(RuntimeError::Type { expected: "char boundary", found: "mid-sequence offset" }.into());
+    }
+
+    let slice = &s[start..end];
+    Ok(vm.alloc_string_value(slice.to_string()))
+}

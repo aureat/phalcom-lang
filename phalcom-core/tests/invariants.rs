@@ -683,6 +683,11 @@ fn floor_census_matches_installed_bindings() {
     const NEW_ATTR_ROOT: usize = 3;
     // U-GC Step 3: System.gc = +1 (120 -> 121)
     const NEW_GC: usize = 1;
+    // U-STRING (ADR-0049 amendment): raw byte-level string accessors +
+    // raw stdout write = +4 (121 -> 125):
+    // `String#rawByteCount`, `String#rawByteAt(_)`, `String#rawSlice(_,_)`,
+    // `System.rawWrite(_)` — all `primitive/string.rs`/`primitive/system.rs`.
+    const NEW_STRING: usize = 4;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -738,6 +743,10 @@ fn floor_census_matches_installed_bindings() {
         (c.string_class, false, "hash"), // NEW (ADR-0023)
         (c.string_class, true, "new()"),
         (c.string_class, true, "new(_)"),
+        // U-STRING raw byte accessors (ADR-0049 amendment)
+        (c.string_class, false, "rawByteCount"), // NEW (ADR-0049)
+        (c.string_class, false, "rawByteAt(_)"), // NEW (ADR-0049)
+        (c.string_class, false, "rawSlice(_,_)"), // NEW (ADR-0049)
         // §2.6 Bool
         (c.bool_class, true, "new()"),
         (c.bool_class, true, "new(_)"),
@@ -790,6 +799,8 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "schedule(_)"),
         (c.system_class, true, "nextScheduled"),
         (c.system_class, true, "gc"),
+        // U-STRING raw I/O seam (ADR-0049 amendment)
+        (c.system_class, true, "rawWrite(_)"), // NEW (ADR-0049)
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
         (c.module_class, false, "doesNotUnderstand(_)"),
@@ -907,8 +918,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_SCHED
             + NEW_INVARIANT_GUARD
             + NEW_ATTR_ROOT
-            + NEW_GC,
-        "census must enumerate exactly 121 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 NEW_GC)"
+            + NEW_GC
+            + NEW_STRING,
+        "census must enumerate exactly 125 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 U-GC + 4 U-STRING/ADR-0049)"
     );
     assert_eq!(
         live.len(),
@@ -926,8 +938,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_SCHED
             + NEW_INVARIANT_GUARD
             + NEW_ATTR_ROOT
-            + NEW_GC,
-        "the live floor must be exactly 121 bindings"
+            + NEW_GC
+            + NEW_STRING,
+        "the live floor must be exactly 125 bindings"
     );
 }
 

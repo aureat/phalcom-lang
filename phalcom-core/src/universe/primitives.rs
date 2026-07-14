@@ -25,10 +25,10 @@ use crate::primitive::primitive;
 use crate::primitive::primitive_static;
 use crate::primitive::range::{range_class_new, range_raw_end, range_raw_inclusive, range_raw_start};
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
-use crate::primitive::string::{string_add, string_class_new, string_hash};
+use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_count, string_raw_byte_at, string_raw_slice};
 use crate::primitive::tuple::{tuple_class_from_list, tuple_raw_at, tuple_raw_size};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
-use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_schedule};
+use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_schedule, system_raw_write};
 use crate::vm::VM;
 
 use super::Universe;
@@ -129,6 +129,13 @@ impl Universe {
         primitive!(vm, string_cls, "hash", SignatureKind::Getter, string_hash);
         primitive_static!(vm, string_cls, "new", SignatureKind::Method(0), string_class_new);
         primitive_static!(vm, string_cls, "new", SignatureKind::Method(1), string_class_new);
+        // U-STRING raw byte-level accessors (ADR-0019 amendment, ADR-0049): minimal
+        // native floor for string slicing/indexing — byte length, raw byte read,
+        // and UTF-8-aware substring extraction. Not derivable in `.ph` (buffer
+        // not observable, allocation not expressible).
+        primitive!(vm, string_cls, "rawByteCount", SignatureKind::Getter, string_raw_byte_count);
+        primitive!(vm, string_cls, "rawByteAt", SignatureKind::Method(1), string_raw_byte_at);
+        primitive!(vm, string_cls, "rawSlice", SignatureKind::Method(2), string_raw_slice);
 
         let bool_cls = vm.universe.classes.bool_class;
         primitive_static!(vm, bool_cls, "new", SignatureKind::Method(0), bool_class_new);
@@ -250,6 +257,10 @@ impl Universe {
         primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
         primitive_static!(vm, system_cls, "nextScheduled", SignatureKind::Getter, system_next_scheduled);
         primitive_static!(vm, system_cls, "gc", SignatureKind::Getter, system_gc);
+        // U-STRING raw I/O seam (ADR-0019 amendment, ADR-0049): raw stdout write of
+        // an already-formed `String`, no newline, no formatting — the irreducible
+        // literal I/O act that `System.write`/`writeObject_` funnel over.
+        primitive_static!(vm, system_cls, "rawWrite", SignatureKind::Method(1), system_raw_write);
 
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
