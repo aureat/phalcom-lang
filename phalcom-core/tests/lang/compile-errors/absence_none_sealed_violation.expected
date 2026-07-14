@@ -1,0 +1,1 @@
+attr.sealed_violation: `MyNone` extends `@sealed` class `None`, but was not declared in the same compilation unit

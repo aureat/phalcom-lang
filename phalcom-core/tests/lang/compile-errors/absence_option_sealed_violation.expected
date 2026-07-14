@@ -1,0 +1,1 @@
+attr.sealed_violation: `MyOpt` extends `@sealed` class `Option`, but was not declared in the same compilation unit

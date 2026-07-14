@@ -1,0 +1,1 @@
+attr.sealed_violation: `MySome` extends `@sealed` class `Some`, but was not declared in the same compilation unit

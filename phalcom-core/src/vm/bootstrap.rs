@@ -199,8 +199,23 @@ impl VM {
         // globals. `None`, however, is a *value* global bound to the shared
         // singleton — not the `None` class — so `None` in source resolves to the
         // singleton object (values-and-absence.md §3.1).
+        //
+        // All three (`Option`/`Some`/`None`) are sealed to the core module at
+        // bootstrap (U-ANNOT-LAYOUT §3.4, `attr.sealed_violation`): user `.ph`
+        // code must not extend them. This is registered directly in
+        // `self.sealed_classes` here (rather than via the `@sealed` decorator)
+        // because `None` has no `.ph` class reopen to carry the annotation —
+        // see the singleton-binding note below.
         add_class!(option_class);
+        {
+            let option_sym = self.interner.intern(&self.heap.class(self.universe.classes.option_class).name.clone());
+            self.sealed_classes.insert(option_sym, m);
+        }
         add_class!(some_class);
+        {
+            let some_sym = self.interner.intern(&self.heap.class(self.universe.classes.some_class).name.clone());
+            self.sealed_classes.insert(some_sym, m);
+        }
         add_class!(iterable_class);
         add_class!(list_class);
         // `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): ordinary class globals,
@@ -237,6 +252,10 @@ impl VM {
         let none_class_name = self.heap.class(none_class).name.clone();
         let none_class_sym = self.interner.intern(&none_class_name);
         self.classes.insert(none_class_sym, none_class);
+        // Seal `None` to the core module too (see the sealing note above the
+        // `Option`/`Some` rows): `class MyNone extends None {}` in user code
+        // must raise `attr.sealed_violation` the same as the other two.
+        self.sealed_classes.insert(none_class_sym, m);
 
         // Bind the `None` global to the shared singleton object.
         let none_global_sym = self.interner.intern("None");
