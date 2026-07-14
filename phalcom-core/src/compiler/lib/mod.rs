@@ -58,6 +58,26 @@ pub(crate) struct Compiler<'vm> {
     /// compiles; `break`/`continue` resolve to the top frame, and a
     /// `break`/`continue` with this stack empty is a compile error (C-ITER-7).
     loop_contexts: Vec<LoopContext>,
+    /// Non-zero while compiling a sacred call's **deopt-fallback** copy of its
+    /// arms (`inliner.rs`), which suppresses inlining inside that copy.
+    ///
+    /// Every sacred call emits its arms twice: inlined for the `GuardBool` fast
+    /// path, and again as block literals for the fallback that runs when the
+    /// receiver is not a `Bool`. Without this flag the fallback copy inlines its
+    /// own nested conditionals — each of which emits *its* arms twice — so code
+    /// size doubles per nesting level: **2^depth from depth-linear source**. A
+    /// 14-deep conditional (`String.codePointAt`) cost ~200 ms to compile alone
+    /// and put a fixed 175 ms on every process start
+    /// ([perf-log F13](../../../docs/forge/perf-log/findings.md)).
+    ///
+    /// Suppressing the inliner here is behavior-preserving: the fallback is the
+    /// cold path, reached only via a full message send to a non-`Bool` receiver,
+    /// and a non-inlined conditional is the same program — the inliner is a
+    /// guarded optimization over the `bool_if_true`/`bool_and`/… primitives, not
+    /// a semantic. It costs the deopt path its inner fast paths, which is a poor
+    /// trade only if that path is hot; it is a message send into a user-defined
+    /// `ifTrue`, so it is not.
+    deopt_fallback_depth: usize,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -70,7 +90,28 @@ impl<'vm> Compiler<'vm> {
             current_class: None,
             is_static_context: false,
             loop_contexts: Vec::new(),
+            deopt_fallback_depth: 0,
         }
+    }
+
+    /// Whether compilation is currently inside a sacred call's deopt-fallback
+    /// copy, where the inliner is suppressed (see
+    /// [`Self::deopt_fallback_depth`]).
+    pub(crate) fn in_deopt_fallback(&self) -> bool {
+        self.deopt_fallback_depth > 0
+    }
+
+    /// Runs `f` with the inliner suppressed, for compiling a sacred call's
+    /// deopt-fallback copy of its arms. Nests correctly: the counter is
+    /// restored on the way out, so an outer fallback stays suppressed.
+    pub(crate) fn with_deopt_fallback<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, CompilerError>,
+    ) -> Result<T, CompilerError> {
+        self.deopt_fallback_depth += 1;
+        let result = f(self);
+        self.deopt_fallback_depth -= 1;
+        result
     }
 
     /// Compiles a block or method body into a heap-allocated closure.

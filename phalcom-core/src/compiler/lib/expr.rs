@@ -48,7 +48,16 @@ impl<'vm> Compiler<'vm> {
                 // other call — including a sacred selector with a
                 // *non*-literal block argument — falls through unchanged.
                 let range = method_call.range;
-                match inliner::recognize(*method_call) {
+                // Inside a sacred call's deopt-fallback copy, skip recognition
+                // and take the ordinary-send arm below: the copy is cold, and
+                // inlining within it is what makes nested conditionals cost
+                // 2^depth to compile (perf-log F13).
+                let recognized = if self.in_deopt_fallback() {
+                    Err(*method_call)
+                } else {
+                    inliner::recognize(*method_call)
+                };
+                match recognized {
                     Ok(sacred) => {
                         // BD-U6-1 (ADR-0007, values-and-absence §3.5): a
                         // conditional's condition that is a syntactically

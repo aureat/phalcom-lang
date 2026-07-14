@@ -310,7 +310,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Nil, range);
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
-        self.compile_expr(then_block_fallback)?;
+        self.with_deopt_fallback(|c| c.compile_expr(then_block_fallback))?;
         self.emit_sacred_send("ifTrue", &[None], range);
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
@@ -338,7 +338,7 @@ impl<'vm> Compiler<'vm> {
         }
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
-        self.compile_expr(else_block_fallback)?;
+        self.with_deopt_fallback(|c| c.compile_expr(else_block_fallback))?;
         self.emit_sacred_send("ifFalse", &[None], range);
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
@@ -361,8 +361,10 @@ impl<'vm> Compiler<'vm> {
         self.compile_inline_block_body(Self::expect_block(else_block))?;
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
-        self.compile_expr(then_fallback)?;
-        self.compile_expr(else_fallback)?;
+        self.with_deopt_fallback(|c| {
+            c.compile_expr(then_fallback)?;
+            c.compile_expr(else_fallback)
+        })?;
         self.emit_sacred_send("ifTrue", &[None, Some("ifFalse")], range);
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
@@ -384,7 +386,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::False, range);
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
-        self.compile_expr(rhs_fallback)?;
+        self.with_deopt_fallback(|c| c.compile_expr(rhs_fallback))?;
         self.emit_sacred_send("and", &[None], range);
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
@@ -404,7 +406,7 @@ impl<'vm> Compiler<'vm> {
         self.compile_inline_block_body(Self::expect_block(rhs_block))?;
         let to_end_2 = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
-        self.compile_expr(rhs_fallback)?;
+        self.with_deopt_fallback(|c| c.compile_expr(rhs_fallback))?;
         self.emit_sacred_send("or", &[None], range);
         self.patch_forward_jump(to_end_1);
         self.patch_forward_jump(to_end_2);
@@ -456,8 +458,10 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Nil, range);
         let to_end = self.emit_forward_jump(Bytecode::Jump, range);
         self.patch_forward_jump(guard);
-        self.compile_expr(cond_fallback)?;
-        self.compile_expr(body_fallback)?;
+        self.with_deopt_fallback(|c| {
+            c.compile_expr(cond_fallback)?;
+            c.compile_expr(body_fallback)
+        })?;
         self.emit_sacred_send("whileTrue", &[None], range);
         self.patch_forward_jump(to_end);
         // Discard the context now that both bodies are compiled (its jumps
