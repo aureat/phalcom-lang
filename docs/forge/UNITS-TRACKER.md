@@ -82,7 +82,7 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 - [x] **U-FUTURE (Slice A)** — [plan](units/U-FUTURE/plan.md) — `f0d128a` settle-once `Future` state machine, pure `.ph`, no scheduler dependency.
 - [x] **U-FIBER-FIX** *(follow-on, no own unit folder)* — `1451f62`/`a3e23e8` root-abort guard, resume-gate message, cross-fiber non-local-return → `DeadFrameError` (found via Fiber adversarial testing, root-caused into the reopen mechanism — see `U-REOPEN-FIX` in §3).
 - [x] **U-SCHED-FIBER** — [`U-FIBER-REFLECT`](units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md) · [`U-SCHED`](units/U-SCHED-FIBER/U-SCHED/plan.md) — `34246a8` `Fiber#isDone`/`#error` reads + native `VM::ready_queue`, `System.schedule`/`nextScheduled`, root-drive pump. Both are `U-FUTURE` Slice B's preconditions and are now satisfied.
-- [ ] **U-FUTURE (Slice B)** — [plan §6.3/§9](units/U-FUTURE/plan.md) — `async`/`await`, native pump wired through `System.runScheduled`. **Next up** — no remaining blocker; DEC-FUT-SCHED is ratified and `U-SCHED-FIBER` has landed.
+- [x] **U-FUTURE (Slice B)** — [plan §6.3/§9](units/U-FUTURE/plan.md) — `06432bd` `async`/`await` in `.ph`: `Future.async(action)` runs action in fresh fiber, `#await` suspends current fiber or pumps `System.runScheduled()` on root, `then`/`map`/`catch` register continuations on pending futures. Native fix alongside it: `block_on` (`primitive/block.rs`) now wraps VM/native-raised errors (`CannotYieldAcrossNativeFrame`, `NotAllowed`), not just user `Raise`, into reified `Error` so `.attempt()`/`try...catch` can see them. `concurrency_future_async_await.ph` graduated from `pending/`; `concurrency_future_slice_b.ph` added covering suspending continuations, top-level await, and the native-frame-yield error path. Golden suite green.
 - ~~**U20**~~ — [plan](units/U20/plan.md) — *(superseded, not future work)* speculative first-cut Fiber+Future sketch, authored before `U-FIBER`/`U-FUTURE` existed under those names; zero implementation, kept for provenance only.
 
 ## 7. Lexer & parser surface
@@ -130,7 +130,8 @@ everything else in this group; the rest can reorder based on what the baseline s
 ## Suggested next dispatch (given current state)
 
 1. **Close out `U-GC`** (§11) — steps 0–4 landed, step 5 done as a second null result (stashed, not shipped); still needs `DEFERRED.md` M-RUNTIME note, perf numbers, miri lane, and `phalcom-reviewer` sign-off (spine files).
-2. **`U-FUTURE` Slice B** (§6) — fully unblocked now, highest-value concurrency work left.
-3. **`U-SEQ`** (§5) — unblocked, `U-ITERABLE`'s golden-suite regression is fixed.
+2. **`U-SEQ`** (§5) — unblocked, `U-ITERABLE`'s golden-suite regression is fixed.
+3. **ADR-0061 ratification** (§9-adjacent, prefix reservation) — spec written and citation-verified (`51ab8eb`), needs user ruling before `_`/`_$`/`__` prefix enforcement work can start in lexer/parser/compiler.
 4. **`U-INDEX` perf re-measurement** — `phalcom-perf --bench-only` wasn't run after landing; record the expected small `[]`-vs-`.at` overhead delta (§8, plan.md Perf section) rather than assuming unchanged.
-5. Walk the remaining perf tiers (§11) as time allows — lowest urgency, gated on wanting perf work at all.
+5. **`U-STRING`** (§5) — independent of Iterable/Seq, can dispatch in parallel with `U-SEQ`.
+6. Walk the remaining perf tiers (§11) as time allows — lowest urgency, gated on wanting perf work at all.
