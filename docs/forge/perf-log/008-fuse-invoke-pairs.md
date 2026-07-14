@@ -1,6 +1,6 @@
 # 008 — superinstructions: fuse `(GetLocal | Constant) -> Invoke` (Tier 3)
 
-Status: **landed** (this commit) · Unit: [U-IC](../units/U-IC/plan.md) (superinstructions) · Finding: [F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13) (the price), [F16](findings.md#f16--superinstructions-are-premature-no-opcode-histogram-and-the-inliner-already-covers-the-classic-win) (**verdict overturned**) · Behavior-invariant (no ADR, no floor change)
+Status: **landed** `1d2baea` · Unit: [U-IC](../units/U-IC/plan.md) (superinstructions) · Finding: [F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13) (the price), [F16](findings.md#f16--superinstructions-are-premature-no-opcode-histogram-and-the-inliner-already-covers-the-classic-win) (**verdict overturned**) · Behavior-invariant (no ADR, no floor change)
 
 The F16 re-ask, run and answered: **superinstructions pay.** Fusing the two
 highest-ranked pair shapes removes 13–20% of every hot program's dispatches and

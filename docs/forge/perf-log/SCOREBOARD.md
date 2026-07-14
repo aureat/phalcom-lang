@@ -22,30 +22,53 @@
   drifted two commits reported the wrong *sign* once (HANDOFF §Traps).
 - A `~` prefix means derived (e.g. ns/send = mean ÷ send count), not directly timed.
 
-Current HEAD when last updated: **`5254586`** (2026-07-14).
+Current HEAD when last updated: **`1d2baea`** (2026-07-14) — cut 008.
 
-> **§1 is current** — re-measured best-of-5 at `5254586` (post cuts 006 + 007), closing
-> hole H1's successor; it had been pinned at `2997d0b` (pre-F12) for three cuts. §2's
+> **⚠ Cut 008 (`1d2baea`) invalidated more of this file than a cut usually does, because
+> it is the first cut since `39d9042` to touch the COMPILER.** Every table below that
+> assumes a fixed instruction count is now stale, and the §3bb note that licensed
+> re-deriving them for free **no longer applies** — read the §3bb block before reusing
+> any count.
+>
+> - **§1 and §2 are stale at `5254586`** and were **not** re-measured for cut 008: no
+>   `wren_test` binary exists on this machine this session, so `compare-wren.py` could
+>   time Phalcom but not compare it, and a ×-vs-Wren cell with no Wren in it is not a
+>   measurement. Cut 008's own Δ is in §5, measured against `b9a3048` directly. The
+>   suite is **−1.5…−8.1% faster** than every §1 row says.
+> - **§3a (criterion) is stale at `5254586`** — not re-run for 008.
+> - **§3b is stale**, since it is §1 ÷ a constant.
+>
+> **§1 is current** — ~~re-measured best-of-5 at `5254586` (post cuts 006 + 007), closing
+> hole H1's successor; it had been pinned at `2997d0b` (pre-F12) for three cuts.~~ §2's
 > skynet/fiber_churn rows carry a second, post-007 line (`user` + RSS only — `sys` and
 > `real` were not captured on that run, and a cell nobody measured says so).
 >
-> **§3a and §3b are current too** — §3a re-benched at `5254586`, §3b re-derived from
-> §1 at the same commit. A send now costs **~144 ns** (criterion) / **~218 ns**
-> (whole-process, with args); the previous ~174 / ~268 are kept as columns, per rule 4.
+> ~~**§3a and §3b are current too**~~ — §3a re-benched at `5254586`, §3b re-derived from
+> §1 at the same commit. A send cost **~144 ns** (criterion) / **~218 ns**
+> (whole-process, with args) *at that commit*; the previous ~174 / ~268 are kept as
+> columns, per rule 4.
 >
-> **§3bb (per-instruction) is the one stale table.** Its ns/instr are ~10–22% high,
-> and it re-derives for free: cuts 006 + 007 changed only the interpreter loop, never
-> the compiler, so every instruction count in it is still exact — divide the new walls
-> by the same counts. **Verified at `5254586`, not assumed**: `for` 68,000,706,
-> `method_call` 49,334,099, `bare_send` 3,200,683 — identical to the last digit against
-> the counts recorded at `45ffe76`. Re-derivation needs wall-clock (not `user`) from a
-> **default** build; do not re-run the counting build for a timing.
+> **§3bb (per-instruction): stale, and NO LONGER free to re-derive.** Its ns/instr were
+> ~10–22% high after 006 + 007, and that block said so while licensing a free fix:
+> "cuts 006 + 007 changed only the interpreter loop, never the compiler, so every
+> instruction count in it is still exact — divide the new walls by the same counts."
 >
-> That triple identity is also **the strongest behavior-invariance evidence either cut
-> has** — stronger than the stdout diff. Byte-identical output says two runs agreed on
-> the answer; an identical instruction count says they agreed on *every step taken to
-> reach it*. A loop cut that accidentally changed dispatch would have to be invisible
-> at both to slip through.
+> **Cut 008 ends that.** It is a **compiler** change, and it is the first cut whose
+> whole mechanism is *retiring fewer instructions*: `for` **68,000,706 → 59,000,705**,
+> `method_call` 49,334,099 → 48,134,098, `bare_send` 3,200,683 → 2,800,682. Re-taking
+> the counts from an `opcode-histogram` build at `1d2baea` is now **mandatory** before
+> any ns/instr in §3bb is recomputed. The identity that held across three cuts is
+> broken **by design**, not by accident.
+>
+> That triple identity was also **the strongest behavior-invariance evidence cuts 006
+> and 007 had** — stronger than the stdout diff. Byte-identical output says two runs
+> agreed on the answer; an identical instruction count says they agreed on *every step
+> taken to reach it*. **Cut 008 cannot use that argument** and does not claim it: a
+> fusion changes the steps on purpose. Its behavior evidence is the base-vs-fused
+> stdout byte-compare on every A/B run, `cargo test --workspace` green, and an
+> instruction-count delta that matches the pair counter's prediction **to the digit**
+> (−9,000,001 on `for` = 6M `InvokeLocal` + 3M `InvokeConst`) — i.e. it changed
+> *exactly* the steps it intended and no others.
 
 ---
 
@@ -255,9 +278,47 @@ send-dense loop. Do not size a unit from the SipHash story — it is spent.
 the `Fiber.yield` the latter adds; that gap held through both cuts (170 ns before,
 169 ns now), which is the sort of invariance that says the decomposition is real.
 
-### 3bb. Per-**instruction** cost (H3, F17) — `45ffe76`, 2026-07-14
+### 3bb. Per-**instruction** cost (H3, F17) — re-derived at `1d2baea` (cut 008), 2026-07-14
 
-**What one Phalcom instruction costs: ~10–13 ns on hot loops (~75–96 Minstr/s).**
+**What one Phalcom instruction costs: ~9–13 ns on hot loops (~85–110 Minstr/s).**
+
+**Re-taken from a fresh `opcode-histogram` build at `1d2baea`, not re-derived from the
+old counts** — cut 008 is a compiler change and moved every count (see the header
+note). Wall from a **default** build, best-of-3, divided.
+
+| Benchmark | Wall | Instructions retired | **ns/instr** | Minstr/s | vs `45ffe76` count | Top opcodes |
+|---|---|---|---|---|---|---|
+| `method_call` | 0.436 s | 48,134,098 | **9.1** | 110.5 | −1,200,001 | GetSelf 24%, Invoke 13%, GetField 13% |
+| `for` | 0.562 s | 59,000,705 | **9.5** | 104.9 | **−9,000,001** | GetLocal 11%, GetGlobal 10%, Pop 10% |
+| `string_equals` | 0.845 s | 84,000,673 | **10.1** | 99.5 | −15,000,001 | InvokeConst 17%, Pop 13%, JumpIfFalse 13% |
+| `binary_trees` | 0.617 s | 56,922,221 | **10.8** | 92.3 | −4,619,021 | GetSelf 13%, GetLocal 11%, Pop 8% |
+| `arith_send` | 0.027 s | 2,400,673 | **11.2** | 89.0 | −600,001 | InvokeConst 24%, GetGlobal 16%, Pop 16% |
+| `fib` | 0.668 s | 59,136,991 | **11.3** | 88.6 | −10,284,581 | GetLocal 21%, InvokeConst 17%, Invoke 13% |
+| `bare_send` | 0.033 s | 2,800,682 | **11.8** | 84.4 | −400,001 | GetGlobal 21%, Pop 14%, InvokeConst 14% |
+| `variadic_send` | 0.564 s | 42,000,685 | **13.4** | 74.4 | −8,000,001 | GetGlobal 19%, InvokeConst 14%, Constant 9% |
+| `fibers` | 0.104 s | 4,200,675 | **24.9** | 40.2 | −600,001 | GetGlobal 16%, Invoke 11%, Pop 9% |
+| `fiber_churn` | 0.272 s | 9,500,673 | **28.6** | 35.0 | −1,500,001 | GetGlobal 26%, Pop 10%, Invoke 10% |
+| `map_numeric` | 3.498 s | 108,000,696 | **32.4** | 30.9 | −18,000,003 | GetGlobal 25%, Pop 14%, InvokeConst 11% |
+| `bootstrap` | 0.009 s | 661 | *(14,045)* | 0.1 | −1 | Constant 31%, Method 26%, GetGlobal 9% |
+
+**Spread widened: 2.8× → 3.6×** (9.1 `method_call` → 32.4 `map_numeric`).
+
+> **⚠ Cut 008 made ns/instr go UP on every fused row while wall went DOWN, and that is
+> correct.** `for` moved 10.5 → **9.5**… but `map_numeric` moved 29.3 → **32.4** and
+> `bare_send` 12.2 → 11.8 with its *wall* down 4.2%. A fusion deletes the **cheapest**
+> instructions in the mix (a `GetLocal` is ~3.6 ns; the `Invoke` that absorbs it is
+> not), so the survivors are dearer *on average* even though strictly less work runs.
+>
+> **Do not read a rising ns/instr as a regression, or a falling one as a win.** This
+> column is a mean over a mix, and cut 008 changed the mix on purpose. Wall ÷ a
+> *different* denominator is a different question. The metric that moved in the honest
+> direction on every row is §5's wall-clock Δ. This is the same trap as
+> [H13](#6-open-holes--what-is-empty-and-how-to-fill-it): a mean over a mix is not a
+> price, and here it is not a score either.
+
+The pre-008 table, kept per rule 4 (mark stale, never delete):
+
+**What one Phalcom instruction cost at `45ffe76`: ~10–13 ns on hot loops (~75–96 Minstr/s).**
 
 Instrument: `benchmarks/vm/opcode-cost.py`. **Two builds on purpose** — counts from
 a `--features opcode-histogram` build, wall-clock from a **default** build, divided.
@@ -426,7 +487,7 @@ same-session A/B unless noted.
 | `5516504` | Pair histogram — statically-adjacent `(prev, cur)` counts | *(instrument only)* — retires F16 reason 2. `for`'s top fusion candidate `GetLocal -> Invoke` = **8.8%** of instructions retired | — | none |
 | **`5254586`** | **Cut 007 — F14 S1a: hoist the frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard** | **arith_send −22.3%**, **bare_send −16.7%**, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, **skynet −6.9% `user`** (1.74 → 1.62 s ⇒ **2.7× Wren**), fiber_churn −4.8% | **skynet 1.280 → 1.192 GB (−6.9%)** — unpredicted, unattributed (see below); fiber_churn unchanged | none |
 | | | ⇒ suite band **1.5–13.7× → 1.1–10.7×**, centre ~5× → **~4×**; `for` out of the teens (13.7× → 10.7×) | | |
-| **this commit** | **Cut 008 — superinstructions: fuse `(GetLocal \| Constant) -> Invoke` in place** (F16's verdict **overturned**; sized by [F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)'s ~3.3 ns dispatch price) | **`string_equals` −8.1%**, **`for` −5.1%**, variadic_send −4.7%, **bare_send −4.2%**, fib −3.9%, binary_trees −3.0%, arith_send −1.6%, method_call −1.5%, skynet −1.8% `user`. **`map_numeric` −0.2%** despite removing 18.0M dispatches — the most of any row (F17: its instructions cost 27.6 ns, so a 3.3 ns dispatch is noise) | **unchanged** (skynet 1.242 GB both sides) | none |
+| **`1d2baea`** | **Cut 008 — superinstructions: fuse `(GetLocal \| Constant) -> Invoke` in place** (F16's verdict **overturned**; sized by [F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)'s ~3.3 ns dispatch price) | **`string_equals` −8.1%**, **`for` −5.1%**, variadic_send −4.7%, **bare_send −4.2%**, fib −3.9%, binary_trees −3.0%, arith_send −1.6%, method_call −1.5%, skynet −1.8% `user`. **`map_numeric` −0.2%** despite removing 18.0M dispatches — the most of any row (F17: its instructions cost 27.6 ns, so a 3.3 ns dispatch is noise) | **unchanged** (skynet 1.242 GB both sides) | none |
 | | | ⇒ `for` **68,000,706 → 59,000,705** instructions retired, exactly **−9,000,001** (6M `InvokeLocal` + 3M `InvokeConst`) — the pair counter's prediction, to the digit | | |
 
 **Cut 007's RSS is not claimed as a memory win.** A dispatch hoist allocates nothing
