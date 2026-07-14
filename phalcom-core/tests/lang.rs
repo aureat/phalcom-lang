@@ -446,8 +446,18 @@ fn string() {
 fn strings() {
     // U-STRING corpus (plan §3/§6): split/trim/multiply smoke case, promoted
     // from tests/lang/string/pending/ once split() crash, trim*() dispatch,
-    // and codePointAt() stub were fixed. See docs/forge/units/U-STRING/plan.md.
+    // and codePointAt() stub were fixed; plus a bytes/codePoints sequence-view
+    // golden. See docs/forge/units/U-STRING/plan.md.
     support::check_pass("strings");
+}
+
+#[test]
+fn strings_negative() {
+    // U-STRING ArgumentError guards (plan §6): split/replace empty-delimiter,
+    // non-String charset/delimiter, indexOf empty needle, and *(count)
+    // range/type guards — the corpus gap the U-STRING review flagged as
+    // unreachable by the gate.
+    support::check_negative("strings/negative");
 }
 
 // REVIEW: remaining corpus gap — bytes/codePoints, ArgumentError guards, and
