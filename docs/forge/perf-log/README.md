@@ -54,7 +54,10 @@ Full write-ups in [`findings.md`](findings.md):
 - **F7** — `size_of::<Object>()` **grew 256 → 280 B** (`ClassObject.attributes`).
   Win A is **six** boxed variants, not "the driver"; **do not box `Instance`**
   (24 B, most-allocated). Target 280 → ~40 B, a 7× arena density win.
-- **F8** — Tier 1's size held (18.2% measured vs 18.3% predicted) but **both**
+- **F8** — a freshly bootstrapped `VM` is **not garbage-free**: `core.ph`'s top-level
+  `Closure` is unreachable the moment bootstrap returns, so the first collection on any
+  VM legitimately sweeps one object. Surfaced by U-GC's step-2 tests.
+- **F9** — Tier 1's size held (18.2% measured vs 18.3% predicted) but **both**
   mechanisms were wrong: not a subscriber misconfiguration (−0.4%), and not the span
   (half the cost — the three `debug!`s are the other half). A fix dispatched from the
   README's "tracing span" framing would have booked −8.4% and closed the candidate.
@@ -91,6 +94,13 @@ micro-benches showed a regression.
 
 ## Next measured levers
 
+> **The ranking basis is stale — see [design-notes O5](../../design-notes/optimization-method-and-harness-fidelity.md).**
+> These shares come from one profile of a binary that no longer exists: cut 001 removed most of
+> the malloc share and cut 003 removed the ~18.2% tracing share, which re-normalizes every
+> remaining share upward. The order below may well still hold, but **do not size or justify U-IC
+> from "13.9%"** — re-profile at HEAD first. Also open: [O4](../../design-notes/optimization-method-and-harness-fidelity.md)
+> — `fiber_spawn` ~37% vs the previous run, unattributed, plausibly U-GC's collector.
+
 Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
 
 1. ~~**Tier 1 — tracing span (~18.3% arith).**~~ **Done — [cut 003](003-vm-trace-feature-gate.md)
@@ -114,4 +124,4 @@ Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
 - `94b6bbf` — U-GC steps 3–4 (`System.gc`, safepoint latch); step 5 fiber pool a
   second null result, kept in `git stash@{0}`, not shipped.
 - `1ef999b` — **U-TRACE cut 003** (arith −16.7%). Real win. Two mechanisms falsified
-  on the way (F8); `main.rs` deliberately left untouched.
+  on the way (F9); `main.rs` deliberately left untouched.

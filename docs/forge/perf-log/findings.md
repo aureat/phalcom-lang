@@ -217,7 +217,11 @@ Two consequences for U-GC Win A:
 Post-boxing target: 280 → ~40 B, a **7×** arena density win, independent of the
 collector and landable first.
 
-## F8 — the "tracing span" cost was real, but the mechanism was wrong twice
+## F9 — the "tracing span" cost was real, but the mechanism was wrong twice
+
+_Numbered F8 while in flight; `1ef999b` and `3d6d45f`'s commit messages say "F8" and mean
+this finding. Renumbered on landing — F8 was already taken by the bootstrap-leak finding
+(`bbc12d6`), which was absent from this README's index and so invisible to a grep._
 
 Cut [003](003-vm-trace-feature-gate.md) closed F1's Tier 1 candidate. F1's *size*
 estimate held (18.3% predicted, 18.2% measured on the A/B), but both natural
