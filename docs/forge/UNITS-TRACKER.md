@@ -71,8 +71,8 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 - [x] **U-ITER-FIX** — [plan](units/U-ITER-FIX/plan.md) — four loop-control follow-ons: `9288ad5` materialized-block break/continue trap, `ac4f721` bare-`while` break/continue, `08a323b` fresh loop-var cell per iteration, `b566e6b` jump-helper dedup.
 - [x] **U-COLLTYPES** — [plan](units/U-COLLTYPES/plan.md) — native `Map`/`Set` (`be8426e`), `Tuple` (`2d140f0`), `Range` (`f934cf1`), map-literal wire (`10e1715`) — ADR-0032/0039 floor amendment.
 - [x] **U-STD** — *(see §1 — List#each migrated onto cursor protocol here, `c35171a`, alongside this track)*
-- [ ] **U-ITERABLE** — [plan](units/U-ITERABLE/plan.md) — bare-cursor Route B (kill per-step `Some` allocation) + kernel `Iterable` root hoisting `each`/`map`/`filter`/`reduce` (ADR-0048, ratified, unimplemented). **Next up** — everything below in this group waits on it.
-- [ ] **U-SEQ** — [plan](units/U-SEQ/plan.md) · [spec](units/U-SEQ/implementation-spec.md) — hard-blocked on `U-ITERABLE`. Sequence-breadth combinators (`all`/`any`/`count`/`find`/`join`) + lazy views (`MapView`/`WhereView`/…).
+- [x] **U-ITERABLE** *(golden suite red)* — [plan](units/U-ITERABLE/plan.md) — bare-cursor Route B (raw index cursor + `None` end-sentinel, no per-step `Some` allocation) + kernel `Iterable` root (`core.ph:309`) hoisting `each`/`map`/`filter`/`reduce` (ADR-0048). Code landed and live, but **5 golden fixtures never rebaselined** off the pre-Route-B Option-wrapped-cursor protocol — `list`, `collections`, `collections_literals_negative`, `indexing`, `indexing_negative` all fail `./scripts/verify.sh` (e.g. `list_wren_iterate_cursor_protocol.ph` still expects `Some(0)`/`Some(1)`/… but gets bare `0`/`1`/…). Do not treat as gate-clean until these are fixed.
+- [ ] **U-SEQ** — [plan](units/U-SEQ/plan.md) · [spec](units/U-SEQ/implementation-spec.md) — unblocked now that `U-ITERABLE` has landed (see caveat above — fix the golden-suite regression first). Sequence-breadth combinators (`all`/`any`/`count`/`find`/`join`) + lazy views (`MapView`/`WhereView`/…).
 - [ ] **U-STRING** — [plan](units/U-STRING/plan.md) — `rawByteCount`/`rawByteAt`/`rawSlice` + `System.rawWrite` funnel (ADR-0019 floor amendment, ADR-0049 draft). Independent of Iterable/Seq — can dispatch in parallel with either.
 
 ## 6. Concurrency (`Fiber` / `Future` / scheduler)
@@ -100,8 +100,8 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 
 ## 9. Annotations, contracts & layout
 
-- [x] **U-ANNOT-CONTRACTS** *(uncommitted)* — [plan](units/U-ANNOT-CONTRACTS/plan.md) — `@` core annotation mechanism + `@requires`/`@ensures`/`@invariant` contract weaving. Implemented (`compiler/attributes.rs`, `AttributeExpander`, `VM::checking` fiber-safe guard set per ADR-0052) but **not yet committed** — land this before touching it further; verify against current tree, concurrent sessions are active here.
-- [ ] **U-ANNOT-LAYOUT** — [plan](units/U-ANNOT-LAYOUT/plan.md) — `FieldDef` + `@get`/`@set`/`@construct` + `@data`/`@sealed`/`@variant` layout-derive tier. Strictly depends on `U-ANNOT-CONTRACTS` landing (committed) first.
+- [x] **U-ANNOT-CONTRACTS** — [plan](units/U-ANNOT-CONTRACTS/plan.md) — `dc01b07`/`44d277f` `@` core annotation mechanism + `@requires`/`@ensures`/`@invariant` contract weaving (`compiler/attributes.rs`, `AttributeExpander`, `VM::checking` fiber-safe guard set per ADR-0052).
+- [x] **U-ANNOT-LAYOUT** — [plan](units/U-ANNOT-LAYOUT/plan.md) — `9f1e31e`/`60db152` `FieldDef` + `@data`/`@sealed`/`@variant` layout-derive tier + `@get`/`@set` accessor derive (collision-checked against hand-written accessors).
 
 ## 10. Tooling (`vsphalcom`)
 
@@ -128,8 +128,8 @@ everything else in this group; the rest can reorder based on what the baseline s
 
 ## Suggested next dispatch (given current state)
 
-1. **Commit `U-ANNOT-CONTRACTS`** (§9) — already implemented, sitting uncommitted; land it before anything else touches `compiler/`.
+1. **Fix the U-ITERABLE golden-suite regression** (§5) — top priority, `./scripts/verify.sh` is currently red: rebaseline `list`, `collections`, `collections_literals_negative`, `indexing`, `indexing_negative` off the pre-Route-B Option-wrapped-cursor protocol onto bare-index Route B output.
 2. **Close out `U-GC`** (§11) — steps 0–4 landed, step 5 done as a second null result (stashed, not shipped); still needs `DEFERRED.md` M-RUNTIME note, perf numbers, miri lane, and `phalcom-reviewer` sign-off (spine files).
 3. **`U-FUTURE` Slice B** (§6) — fully unblocked now, highest-value concurrency work left.
-4. **`U-ITERABLE` → `U-SEQ`** (§5) — unblocks the collections track's remaining breadth.
+4. **`U-SEQ`** (§5) — now unblocked by `U-ITERABLE`; dispatch once the golden-suite regression above is fixed.
 5. Walk the remaining perf tiers (§11) as time allows — lowest urgency, gated on wanting perf work at all.

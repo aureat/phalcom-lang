@@ -273,8 +273,8 @@ pub struct FieldDef {
     /// default is mutually exclusive per field").
     pub default: Option<Expr>,
     /// `@name(args…)` attributes attached to this field, in declaration
-    /// order (e.g. `@get`/`@set` — U-ANNOT-LAYOUT §3.2, not yet
-    /// implemented). See [`MethodDef::attributes`].
+    /// order (e.g. `@get`/`@set` — U-ANNOT-LAYOUT §3.2). See
+    /// [`MethodDef::attributes`].
     pub attributes: Vec<Attribute>,
     /// The source span of the whole field declaration.
     pub range: SourceRange,
