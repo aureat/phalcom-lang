@@ -357,3 +357,15 @@ cargo test -p phalcom-core --test lang -- --ignored  # PENDING spec targets (exp
   The `absence`/`bindings` `pending/` cases stay pending: they pin the final surface (a pretty
   `None` printString and `Some(x)` sugar) that U-STD/later units deliver, not U6's substrate
   output (`<None instance>`, `Some.new(_)`).
+- **U-SEQ (sequence combinators + lazy views):** +16 PASS cases in `sequence/` lane —
+  `sequence_all_true`, `sequence_all_false_short_circuits`, `sequence_any_true_short_circuits`,
+  `sequence_any_false`, `sequence_count_arity0`, `sequence_count_predicate`, `sequence_find_hit`,
+  `sequence_find_miss_returns_none`, `sequence_join_default`, `sequence_join_custom_sep`,
+  `sequence_join_empty_collection`, `sequence_tolist_from_range`, `sequence_tolist_from_view`,
+  `sequence_mapview_basic`, `sequence_whereview_basic`, `sequence_skipview_basic`,
+  `sequence_takeview_basic`, `sequence_takeview_repeatable` (law-2 compliance),
+  `sequence_view_over_map_yields_keys` — and +2 NEGATIVE — `sequence_skip_negative_count_raises`,
+  `sequence_take_non_number_count_raises`. Tests the combinator breadth (`all`/`any`/`count`/`count(f)`/
+  `find`/`join`/`join(sep)`/`toList`) and the four lazy view classes (`MapView`/`WhereView`/`SkipView`/
+  `TakeView`), building over the cursor protocol (ADR-0035) and `Iterable` root (U-ITERABLE). No sugar
+  method wiring tests (DEC-SEQ-A decision pending).

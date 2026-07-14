@@ -360,6 +360,23 @@ fn iteration_negative() {
 }
 
 #[test]
+fn sequence() {
+    // U-SEQ (iteration.md §5, ADR-0035, collection-protocol.md §2):
+    // combinator breadth over `Iterable` (`all`/`any`/`count`/`count(f)`/`find`/
+    // `join`/`join(sep)`/`toList`) and four lazy view classes (`MapView`/`WhereView`/
+    // `SkipView`/`TakeView`) that apply the cursor protocol over a source collection.
+    // All written in `.ph` over `iterate`/`iteratorValue`, zero new primitives.
+    support::check_pass("sequence");
+}
+
+#[test]
+fn sequence_negative() {
+    // U-SEQ: guard clauses raise `Error` for negative/non-number counts in
+    // `SkipView`/`TakeView` construction.
+    support::check_negative("sequence/negative");
+}
+
+#[test]
 fn values() {
     // U-CORE-4: per-type `toString` — `Number`/`String`/`Bool`/`Symbol`/
     // `None`/`Some(_)` message rendering, kept in agreement with the native

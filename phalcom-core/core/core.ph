@@ -366,6 +366,62 @@ class Iterable {
   }
 
   isEmpty => self.size == 0
+
+  // U-SEQ (iteration.md §5 extension, wren_core.wren Sequence L7-119 precedent): combinator breadth
+  // Phalcom lacked. All written over `for (x in self)`, never `self.each { }` (Map's `each(f)` is 2-arg —
+  // see plan.md §3.1) and never index math. Zero new floor primitives.
+
+  all(f) {
+    for (x in self) {
+      f.call(x).ifFalse { return false }
+    }
+    return true
+  }
+
+  any(f) {
+    for (x in self) {
+      f.call(x).ifTrue { return true }
+    }
+    return false
+  }
+
+  count {
+    var n = 0
+    for (x in self) { n = n + 1 }
+    return n
+  }
+
+  count(f) {
+    var n = 0
+    for (x in self) { f.call(x).ifTrue { n = n + 1 } }
+    return n
+  }
+
+  find(f) {
+    for (x in self) {
+      f.call(x).ifTrue { return Some.new(x) }
+    }
+    return None
+  }
+
+  join => self.join("")
+
+  join(sep) {
+    var first = true
+    var result = ""
+    for (x in self) {
+      first.ifFalse { result = result + sep }
+      first = false
+      result = result + x.toString
+    }
+    return result
+  }
+
+  toList {
+    var result = List.new()
+    for (x in self) { result.add(x) }
+    return result
+  }
 }
 
 class List {
@@ -728,6 +784,80 @@ class Range {
     acc = (acc * 31 + self.inclusive_.hash) % 999999937
     return acc
   }
+}
+
+// Lazy view classes (wren_core.wren MapSequence/WhereSequence/SkipSequence L121-152, 168-182), ported
+// to Phalcom's bare-cursor protocol (post-U-ITERABLE: `iterate` returns the raw next cursor, or the
+// `None` singleton at exhaustion — never Some-wrapped). `extends Iterable` so combinators, `for`,
+// and every other view work on a view for free.
+
+class MapView extends Iterable {
+  construct new(source, f) {
+    _source = source
+    _f = f
+  }
+  iterate(cursor) => _source.iterate(cursor)
+  iteratorValue(cursor) => _f.call(_source.iteratorValue(cursor))
+}
+
+class WhereView extends Iterable {
+  construct new(source, pred) {
+    _source = source
+    _pred = pred
+  }
+  iterate(cursor) {
+    var cur = cursor
+    while (true) {
+      cur = _source.iterate(cur)
+      (cur == None).ifTrue { return None }
+      _pred.call(_source.iteratorValue(cur)).ifTrue { return cur }
+    }
+  }
+  iteratorValue(cursor) => _source.iteratorValue(cursor)
+}
+
+class SkipView extends Iterable {
+  construct new(source, count) {
+    (count.isA(Number) and (count >= 0)).ifFalse {
+      throw Error("skip: count must be a non-negative Number")
+    }
+    _source = source
+    _count = count
+  }
+  iterate(cursor) {
+    (cursor != None).ifTrue { return _source.iterate(cursor) }
+    var cur = _source.iterate(None)
+    var n = _count
+    while ((n > 0) and (cur != None)) {
+      cur = _source.iterate(cur)
+      n = n - 1
+    }
+    return cur
+  }
+  iteratorValue(cursor) => _source.iteratorValue(cursor)
+}
+
+class TakeView extends Iterable {
+  construct new(source, count) {
+    (count.isA(Number) and (count >= 0)).ifFalse {
+      throw Error("take: count must be a non-negative Number")
+    }
+    _source = source
+    _count = count
+  }
+  iterate(cursor) {
+    var srcCursor = None
+    var taken = 0
+    (cursor != None).ifTrue {
+      srcCursor = cursor.at(0)
+      taken = cursor.at(1)
+    }
+    ((taken + 1) > _count).ifTrue { return None }
+    var next = _source.iterate(srcCursor)
+    (next == None).ifTrue { return None }
+    return (next, taken + 1)
+  }
+  iteratorValue(cursor) => _source.iteratorValue(cursor.at(0))
 }
 
 class System {
