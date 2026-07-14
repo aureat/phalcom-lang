@@ -22,14 +22,34 @@ impl VM {
             MethodKind::Primitive(native_fn) => {
                 let receiver_idx = self.stack.len() - 1 - arity;
                 let receiver = self.stack[receiver_idx];
-                let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
                 // Snapshot the frame count so we can detect a non-local return
                 // that fired *inside* `native_fn` (e.g. `block_call` running a
                 // block whose `return` unwound past this call site). See the
                 // guard below.
                 let frames_before = self.frames.len();
                 self.switch_pending = false;
-                let result = native_fn(self, &receiver, &args);
+                // Hand the primitive its receiver+args window through an
+                // on-stack buffer rather than a per-send heap `Vec` (Tier 2
+                // U-PRIM-ABI; performance.md §4 / ADR-0051). The primitive path
+                // pushes no `CallFrame`, so this argument copy was the *only*
+                // per-send heap allocation on the native fast path — and the
+                // measured hottest one: U-BENCH attribution puts malloc/free as
+                // the top mechanism on the arithmetic micro-bench, where every
+                // `1 + 2` send heap-allocated a one-element argument `Vec`.
+                // `Value` is `Copy`, so for the overwhelmingly common small
+                // arity we copy the window into a fixed `[Value; INLINE_ARGS]`
+                // on the Rust stack and pass a slice of it; only a rare wider
+                // call falls back to a heap `Vec`. Behavior-invariant — the
+                // primitive still sees an identical `&[Value]`.
+                const INLINE_ARGS: usize = 8;
+                let result = if arity <= INLINE_ARGS {
+                    let mut args = [Value::Nil; INLINE_ARGS];
+                    args[..arity].copy_from_slice(&self.stack[receiver_idx + 1..]);
+                    native_fn(self, &receiver, &args[..arity])
+                } else {
+                    let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
+                    native_fn(self, &receiver, &args)
+                };
                 result.map(|result| {
                     if self.switch_pending {
                         // A fiber switch (ADR-0030 §5, D5) — `self.frames`/
