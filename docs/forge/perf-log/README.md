@@ -18,7 +18,7 @@ recorded as a finding, not shipped.
 |---|-------------|-----|----------|-------------|--------|
 | [001](001-prim-abi-inline-args.md) | U-PRIM-ABI / Tier 2 | On-stack arg buffer replaces the per-send heap `Vec` in the primitive dispatch path | arith_send −41.5%, bare_send −33.8% | none | `37f31c9` |
 | [002](002-gc-win-a-box-fat-variants.md) | U-GC Win A / Tier 4 | Box the six fat `Object` variants — `size_of::<Object>()` 280 B → 40 B | `for.ph` −43% wall, `skynet` −34% wall (`sys` 2–4× less); RSS a wash; `bare_send` +5% | none | `7480d75` |
-| [003](003-vm-trace-feature-gate.md) | U-TRACE / Tier 1 | `vm-trace` feature compiles the dispatch loop's per-opcode span + `debug!`s out by default | arith_send (5M, whole-process) −16.7%; Skynet ≈−1% on `user`, unresolvable on `real` | none | `<pending>` |
+| [003](003-vm-trace-feature-gate.md) | U-TRACE / Tier 1 | `vm-trace` feature compiles the dispatch loop's per-opcode span + `debug!`s out by default | arith_send (5M, whole-process) −16.7%; Skynet ≈−1% on `user`, unresolvable on `real` | none | `1ef999b` |
 
 ## Investigated, not landed
 
@@ -111,3 +111,7 @@ Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
 - `757d88a` — U-BENCH Tier 0 harness (criterion + BASELINE), concurrent session.
 - `37f31c9` — **U-PRIM-ABI cut 001** (arith −41.5%). Real win.
 - `ad4a215` — F5 fiber-pool null result (code reverted, finding kept).
+- `94b6bbf` — U-GC steps 3–4 (`System.gc`, safepoint latch); step 5 fiber pool a
+  second null result, kept in `git stash@{0}`, not shipped.
+- `1ef999b` — **U-TRACE cut 003** (arith −16.7%). Real win. Two mechanisms falsified
+  on the way (F8); `main.rs` deliberately left untouched.
