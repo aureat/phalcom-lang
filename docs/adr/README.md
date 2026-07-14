@@ -10,7 +10,9 @@ can't recover by reading `class.rs` or querying the graphify graph.
 We use [Michael Nygard's format](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions.html):
 **Context → Decision → Consequences**, plus a **Status**. One decision per file.
 
-Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
+Statuses: `Proposed`, `Accepted`, `Deprecated`, `Deferred`, `Superseded by ADR-NNNN`.
+Qualified variants of `Accepted` (e.g. `Accepted (all tiers)`) appear when an ADR
+ratifies a decision in stages — see the ADR's own Status line for the scope.
 
 ## Conventions
 
@@ -56,6 +58,22 @@ Statuses: `Proposed`, `Accepted`, `Deprecated`, `Superseded by ADR-NNNN`.
 | [0032](0032-collections-representation-and-literals.md) | Collections: native representation, shared protocol, and literal surface | Accepted |
 | [0033](0033-amend-fiber-execution-trampolined-block-callsite.md) | Amend fiber execution (ADR-0030 §4): trampoline the bytecode block call-site | Deferred |
 | [0035](0035-iteration-protocol-cursor.md) | Iteration protocol: a Wren-style two-selector cursor | Accepted |
+| [0036](0036-amend-floor-admit-number-tostring.md) | Amend the frozen floor — admit `Number#toString` | Accepted |
+| [0037](0037-amend-floor-admit-error-root.md) | Amend the frozen floor — admit `Error#message`/`Error#raise` | Accepted |
+| [0038](0038-amend-floor-admit-block-on-ensure.md) | Amend the frozen floor — admit `Block#on`/`Block#ensure` (error handling) | Accepted |
+| [0039](0039-amend-floor-admit-collection-container-primitives.md) | Amend the frozen floor — admit collection-container primitives (`Map`/`Set`/`Tuple`/`Range`) | Accepted |
+| [0040](0040-supersend-opcode.md) | Add the `SuperSend` dispatch opcode for `super.sel(…)` | Accepted |
+| [0041](0041-hierarchy-stability-policy.md) | Hierarchy-stability policy: sealed reparenting + single inheritance | Accepted |
+| [0042](0042-flat-number-defer-integer-float-split.md) | Flat `Number` now; defer the `Integer`/`Float` split | Superseded by [0024](0024-numeric-surface-split-int-float-and-division.md) |
+| [0043](0043-no-default-arguments-keep-selector-identity-pristine.md) | No default arguments; keep selector identity pristine | Accepted |
+| [0044](0044-option-bootstrap-formalization-and-defer-niche-encoding.md) | `Option` bootstrap formalization; defer niche-encoding | Accepted |
+| [0045](0045-module-import-relative-path-whole-module-binding.md) | `import` resolves by relative file path and binds a whole `Module`; amend the frozen floor +1 (`Module#doesNotUnderstand`) | Accepted |
+| [0046](0046-destructuring-bindings.md) | Destructuring `let`/`var` bindings — irrefutable tuple + list, `at(_)` protocol | Accepted |
+| [0047](0047-amend-floor-admit-family-call-router.md) | `::` method references (Open form, callable-only); amend the frozen floor +1 (`Family#doesNotUnderstand`) | Accepted |
+| [0048](0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md) | Amend iteration: bare-cursor end-sentinel + kernel `Iterable` root | Accepted |
+| [0049](0049-amend-floor-admit-string-byte-and-raw-write-primitives.md) | Amend the floor: admit String byte/slice accessors + raw stdout write | Accepted |
+| [0050](0050-non-moving-mark-sweep-collector.md) | Reclamation is a non-moving precise mark-sweep collector | Accepted |
+| [0051](0051-performance-strategy-measure-first-tiered-optimization.md) | Performance strategy: measure-first, tiered, behavior-invariant | Proposed |
 | [0052](0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) | Invariant re-entrancy is receiver-scoped; per-receiver decorator state is Layout-confined | Accepted |
 | [0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md) | Runtime-tier decorator interception reuses the sacred-selector override-epoch guard | Accepted |
 | [0054](0054-two-speed-ratification-annotation-decorator-tiers.md) | Two-speed ratification: annotation Compile/Layout tier + Install/Dispatch/Runtime tier, both gates satisfied | Accepted (all tiers) |
