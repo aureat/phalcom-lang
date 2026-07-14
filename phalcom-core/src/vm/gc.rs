@@ -136,4 +136,16 @@ impl VM {
     pub fn pop_root_for_test(&mut self) -> Option<crate::value::Value> {
         self.stack.pop()
     }
+
+    /// Services a latched `gc_pending` — **safepoint only**.
+    ///
+    /// Call this exclusively from the dispatch-loop back-edge, where `VM::stack`/
+    /// `frames` are the complete root truth. Never from `Heap::alloc` (Invariant L,
+    /// memory-management.md §4), and never mid-opcode: several opcodes have a window
+    /// where a value is popped or `split_off` the stack and held only in a Rust local.
+    pub(crate) fn service_gc_safepoint(&mut self) {
+        if self.heap.gc_pending() {
+            self.force_gc();
+        }
+    }
 }

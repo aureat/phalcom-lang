@@ -70,3 +70,24 @@ pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) ->
         None => Ok(vm.none_value()),
     }
 }
+
+/// Signature: `System.gc` — forces one full mark-sweep and returns `None`
+/// (`system.md` §`gc`, [ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md) §8).
+///
+/// Runs **no finalizers**, performs **no compaction**, and changes **no handle**
+/// (Invariant M1) — a surviving object keeps its `ObjRef`. Deterministic and safe
+/// to call from `.ph` code: a primitive runs at a dispatch safepoint by
+/// construction, where `VM::stack`/`frames` are the complete root truth
+/// ([memory-management.md §4](../../../docs/spec/v0.2/memory-management.md)).
+///
+/// Returns `None` rather than the swept count because `system.md` §`gc` says so;
+/// the count is available to Rust via [`VM::force_gc`].
+///
+/// # Errors
+///
+/// Infallible; returns [`PhResult`] to match the primitive ABI.
+pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    vm.force_gc();
+    Ok(vm.none_value())
+}
+

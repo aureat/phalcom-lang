@@ -89,54 +89,79 @@ pub type ClassId = ObjRef;
 pub struct Heap {
     /// Backing arena. Generational keys make stale handles resolve to `None`.
     objects: SlotMap<ObjRef, Object>,
+    /// Live-object count at which `alloc` next latches `gc_pending`.
+    next_gc: usize,
+    /// Set by `alloc` when `objects.len()` crosses `next_gc`; serviced only at
+    /// the dispatch back-edge safepoint. See Invariant L.
+    gc_pending: bool,
 }
+
+const INITIAL_GC_THRESHOLD: usize = 4096;
+const GC_GROW_FACTOR: f64 = 1.5;
 
 impl Heap {
     /// Creates an empty heap.
     pub fn new() -> Self {
-        Self { objects: SlotMap::with_key() }
+        Self {
+            objects: SlotMap::with_key(),
+            next_gc: INITIAL_GC_THRESHOLD,
+            gc_pending: false,
+        }
+    }
+
+    fn insert(&mut self, object: Object) -> ObjRef {
+        let id = self.objects.insert(object);
+        if self.objects.len() >= self.next_gc {
+            self.gc_pending = true; // LATCH ONLY — never collect here (Invariant L)
+        }
+        id
+    }
+
+    /// Returns whether a garbage collection is pending.
+    pub fn gc_pending(&self) -> bool {
+        self.gc_pending
     }
 
     /// Allocates `object` and returns its fresh [`ObjRef`].
     pub fn alloc(&mut self, object: Object) -> ObjRef {
-        self.objects.insert(object)
+        self.insert(object)
     }
 
     /// Allocates a [`ClassObject`] and returns its [`ClassId`].
     pub fn alloc_class(&mut self, class: ClassObject) -> ClassId {
-        self.objects.insert(Object::Class(Box::new(class)))
+        self.insert(Object::Class(Box::new(class)))
     }
 
     /// Allocates a [`StringObject`] from `value` and returns its [`ObjRef`].
     pub fn alloc_string(&mut self, value: String) -> ObjRef {
-        self.objects.insert(Object::Str(StringObject::from_string(value)))
+        self.insert(Object::Str(StringObject::from_string(value)))
     }
 
     /// Allocates a [`ListObject`] from `elements` and returns its [`ObjRef`].
     pub fn alloc_list(&mut self, elements: Vec<crate::value::Value>) -> ObjRef {
-        self.objects.insert(Object::List(ListObject::new(elements)))
+        self.insert(Object::List(ListObject::new(elements)))
     }
 
     /// Allocates an empty [`Object::Map`] and returns its [`ObjRef`].
     pub fn alloc_map(&mut self) -> ObjRef {
-        self.objects.insert(Object::Map(Box::new(MapObject::new())))
+        self.insert(Object::Map(Box::new(MapObject::new())))
     }
 
     /// Allocates an empty [`Object::Set`] and returns its [`ObjRef`].
     pub fn alloc_set(&mut self) -> ObjRef {
-        self.objects.insert(Object::Set(Box::new(MapObject::new())))
+        self.insert(Object::Set(Box::new(MapObject::new())))
     }
 
     /// Allocates an [`Object::Tuple`] from a fixed `elements` slice and
     /// returns its [`ObjRef`].
     pub fn alloc_tuple(&mut self, elements: Box<[crate::value::Value]>) -> ObjRef {
-        self.objects.insert(Object::Tuple(TupleObject::new(elements)))
+        self.insert(Object::Tuple(TupleObject::new(elements)))
     }
 
     /// Allocates an [`Object::Range`] from its three bound fields and returns
     /// its [`ObjRef`].
     pub fn alloc_range(&mut self, start: crate::value::Value, end: crate::value::Value, inclusive: bool) -> ObjRef {
-        self.objects.insert(Object::Range(RangeObject::new(start, end, inclusive)))
+        self.insert(Object::Range(RangeObject::new(start, end, inclusive)))
     }
 
     /// Borrows the [`Object`] behind `id`.
@@ -269,6 +294,9 @@ impl Heap {
 
         let before = self.objects.len();
         self.objects.retain(|id, _| marked.contains_key(id));
-        before - self.objects.len()
+        let live = self.objects.len();
+        self.next_gc = std::cmp::max(INITIAL_GC_THRESHOLD, (live as f64 * GC_GROW_FACTOR) as usize);
+        self.gc_pending = false;
+        before - live
     }
 }

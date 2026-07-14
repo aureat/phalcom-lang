@@ -382,6 +382,14 @@ impl VM {
                 return Ok(self.surface_absence(result));
             }
 
+            // Safepoint (memory-management.md §4): the *only* place collection runs. Here
+            // `stack`/`frames` are coherent — no opcode is mid-flight with a value popped
+            // into a Rust local. Servicing before reading `frame` is deliberate: a
+            // non-moving collector cannot invalidate the `CallFrame` we are about to copy,
+            // but keeping the whole read-decode-execute sequence GC-free is what makes that
+            // independent of the collector's future shape.
+            self.service_gc_safepoint();
+
             let frame = *self.frames.last().unwrap();
             let closure_id = frame.closure;
             let ip = frame.ip;

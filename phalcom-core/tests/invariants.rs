@@ -681,6 +681,8 @@ fn floor_census_matches_installed_bindings() {
     // `@Name(args)` desugar (`compiler::attributes`/`compiler::lib::class_decl`)
     // calls, never `.ph`-authored.
     const NEW_ATTR_ROOT: usize = 3;
+    // U-GC Step 3: System.gc = +1 (120 -> 121)
+    const NEW_GC: usize = 1;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -787,6 +789,7 @@ fn floor_census_matches_installed_bindings() {
         // Native ready-queue scheduler seam (U-SCHED) — NEW_SCHED
         (c.system_class, true, "schedule(_)"),
         (c.system_class, true, "nextScheduled"),
+        (c.system_class, true, "gc"),
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
         (c.module_class, false, "doesNotUnderstand(_)"),
@@ -903,8 +906,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_FAMILY
             + NEW_SCHED
             + NEW_INVARIANT_GUARD
-            + NEW_ATTR_ROOT,
-        "census must enumerate exactly 120 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT)"
+            + NEW_ATTR_ROOT
+            + NEW_GC,
+        "census must enumerate exactly 121 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 NEW_GC)"
     );
     assert_eq!(
         live.len(),
@@ -921,8 +925,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_FAMILY
             + NEW_SCHED
             + NEW_INVARIANT_GUARD
-            + NEW_ATTR_ROOT,
-        "the live floor must be exactly 120 bindings"
+            + NEW_ATTR_ROOT
+            + NEW_GC,
+        "the live floor must be exactly 121 bindings"
     );
 }
 

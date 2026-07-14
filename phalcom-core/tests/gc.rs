@@ -157,3 +157,203 @@ fn surviving_objects_keep_their_handles() {
     }
     vm.pop_root_for_test();
 }
+
+/// **System.gc returns None (U-GC step 3).**
+#[test]
+fn system_gc_returns_none() {
+    let (mut vm, _) = settled_vm();
+    let system_cls = Value::Obj(vm.universe.classes.system_class);
+    use phalcom_core::primitive::system::system_gc;
+    let result = system_gc(&mut vm, &system_cls, &[]).expect("System.gc primitive call");
+    
+    let none_singleton = vm.universe.classes.none_singleton;
+    assert!(matches!(result, Value::Obj(id) if id == none_singleton));
+}
+
+/// **System.gc collects garbage from source (U-GC step 3).**
+#[test]
+fn system_gc_collects_garbage_from_source() {
+    let (mut vm, before) = settled_vm();
+    let module = vm.create_module("test_gc", "system_gc_test");
+
+    vm.interpret_source(
+        module,
+        r#"
+        class UnusedClass {}
+        var i = 0
+        while (i < 10) {
+            UnusedClass.new()
+            i = i + 1
+        }
+        System.gc
+        "#,
+    )
+    .expect("interpret_source failed");
+
+    // Loop-allocated UnusedClass instances must be swept.
+    assert!(vm.heap.live_count() < before + 10, "GC should have reclaimed the 10 loop-allocated instances");
+}
+
+/// **System.gc is idempotent (U-GC step 3).**
+#[test]
+fn system_gc_is_idempotent() {
+    let (mut vm, _) = settled_vm();
+    let system_cls = Value::Obj(vm.universe.classes.system_class);
+    use phalcom_core::primitive::system::system_gc;
+    
+    system_gc(&mut vm, &system_cls, &[]).expect("first System.gc");
+    let count1 = vm.heap.live_count();
+    
+    system_gc(&mut vm, &system_cls, &[]).expect("second System.gc");
+    let count2 = vm.heap.live_count();
+    
+    assert_eq!(count1, count2, "System.gc twice in a row must be idempotent");
+}
+
+/// **Invariant L — alloc latches but never collects (U-GC step 4).**
+#[test]
+fn alloc_latches_but_never_collects() {
+    let (mut vm, before) = settled_vm();
+    
+    // Allocate one unrooted object and hold its handle.
+    let unrooted = alloc_instance(&mut vm, vec![]);
+    assert_eq!(vm.heap.live_count(), before + 1);
+    
+    // Allocate > 4096 objects to cross the latch without running bytecode.
+    for _ in 0..4100 {
+        alloc_instance(&mut vm, vec![]);
+    }
+    
+    // The unrooted object must STILL be alive (latch does not collect).
+    assert!(vm.heap.try_get(unrooted).is_some());
+    assert!(vm.heap.gc_pending());
+}
+
+/// **The automatic safepoint fires (U-GC step 4).**
+#[test]
+fn automatic_safepoint_fires() {
+    let (mut vm, before) = settled_vm();
+    let module = vm.create_module("test_gc_safepoint", "safepoint_test");
+
+    // Loop churns past threshold.
+    vm.interpret_source(
+        module,
+        r#"
+        class Trash {}
+        var i = 0
+        while (i < 5000) {
+            Trash.new()
+            i = i + 1
+        }
+        "#,
+    )
+    .expect("interpret_source failed");
+
+    // The automatic collections should have run, bounding live count.
+    assert!(vm.heap.live_count() < before + 2000, "live count should be bounded by GC");
+    assert!(!vm.heap.gc_pending(), "gc_pending should be reset after safepoint collection");
+}
+
+/// **Bounded churn, real workload (U-GC step 4).**
+#[test]
+fn bounded_churn_real_workload() {
+    let (mut vm, before) = settled_vm();
+    let module = vm.create_module("test_gc_workload", "workload_test");
+
+    // We do a simple loop that accumulates but does not leak.
+    vm.interpret_source(
+        module,
+        r#"
+        var i = 0
+        while (i < 6000) {
+            i = i + 1
+        }
+        "#,
+    )
+    .expect("interpret_source failed");
+
+    assert!(vm.heap.live_count() < before + 1000, "heap size must remain bounded");
+}
+
+/// **Suspended fiber roots its stack (U-GC step 4).**
+#[test]
+fn suspended_fiber_roots_its_stack() {
+    let (mut vm, _before) = settled_vm();
+    let module = vm.create_module("test_gc_fiber", "fiber_test");
+
+    vm.interpret_source(
+        module,
+        "class RootItem {}\nvar fiber = Fiber.new {\nvar item = RootItem.new()\nFiber.yield(item)\n}\nfiber.call()\n",
+    )
+    .expect("interpret_source failed");
+
+    // Retrieve the fiber from the module's globals.
+    let module_obj = match vm.heap.get(module) {
+        Object::Module(m) => m,
+        _ => panic!("expected Module"),
+    };
+    let fiber_sym = vm.interner.intern("fiber");
+    let fiber_val = module_obj.get(fiber_sym).expect("fiber global should exist");
+    let fiber_ref = match fiber_val {
+        Value::Obj(id) => id,
+        _ => panic!("expected Fiber object returned"),
+    };
+
+    // Extract the yielded item from the fiber's stack.
+    let fiber_obj = vm.heap.fiber(fiber_ref);
+    let yielded_ref = fiber_obj.stack.iter().find_map(|v| match v {
+        Value::Obj(id) => Some(*id),
+        _ => None,
+    }).expect("expected object in fiber stack");
+
+    // Root the fiber in Rust.
+    vm.push_root_for_test(fiber_val);
+
+    vm.force_gc();
+
+    // The fiber and yielded item must survive.
+    assert!(vm.heap.try_get(fiber_ref).is_some(), "fiber should survive when rooted");
+    assert!(vm.heap.try_get(yielded_ref).is_some(), "yielded item should survive via rooted fiber");
+
+    // Pop the fiber root.
+    vm.pop_root_for_test();
+
+    // The fiber is still reachable because it is a global in the module.
+    // Clear the module's global to make it unreachable.
+    let module_mut = match vm.heap.get_mut(module) {
+        Object::Module(m) => m,
+        _ => panic!("expected Module"),
+    };
+    let fiber_idx = module_mut.name_to_slot.get(&fiber_sym).copied().unwrap();
+    module_mut.globals[fiber_idx] = Value::Nil;
+
+    vm.force_gc();
+
+    assert!(vm.heap.try_get(fiber_ref).is_none(), "fiber should be collected");
+    assert!(vm.heap.try_get(yielded_ref).is_none(), "yielded item should be collected");
+}
+
+/// **verify_invariants post-GC kernel assert (U-GC step 4).**
+#[test]
+fn verify_invariants_post_automatic_gc() {
+    let mut vm = VM::new();
+    let module = vm.create_module("test_gc_invariants", "invariants_test");
+    
+    vm.interpret_source(
+        module,
+        r#"
+        var i = 0
+        while (i < 5000) {
+            i = i + 1
+        }
+        "#,
+    )
+    .expect("interpret_source failed");
+
+    vm.universe
+        .verify_invariants(&vm.heap)
+        .expect("kernel invariants must hold after automatic GC");
+}
+
+
+

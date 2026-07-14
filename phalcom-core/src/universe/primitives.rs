@@ -28,7 +28,7 @@ use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has,
 use crate::primitive::string::{string_add, string_class_new, string_hash};
 use crate::primitive::tuple::{tuple_class_from_list, tuple_raw_at, tuple_raw_size};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
-use crate::primitive::system::{system_class_new, system_class_print, system_next_scheduled, system_schedule};
+use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_schedule};
 use crate::vm::VM;
 
 use super::Universe;
@@ -247,6 +247,7 @@ impl Universe {
         // the drain contract and `VM::run`'s root-drive pump.
         primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
         primitive_static!(vm, system_cls, "nextScheduled", SignatureKind::Getter, system_next_scheduled);
+        primitive_static!(vm, system_cls, "gc", SignatureKind::Getter, system_gc);
 
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);
