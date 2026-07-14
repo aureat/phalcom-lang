@@ -442,6 +442,14 @@ fn string() {
     support::check_pass("string");
 }
 
+// REVIEW: BLOCKING: Declared test corpus for U-STRING scope (plan §3/§6) was never built.
+// phalcom-core/tests/lang/strings/ is empty — 0 files. The only fixtures exercising split/trim/*/codePoints
+// live in phalcom-core/tests/lang/string/pending/ and are #[ignore]'d here, NOT part of `cargo test`/`verify.sh`.
+// This means bugs 1-3 (split crash, trim dispatch fail, codePointAt stub) were unreachable by the gate.
+// The plan mandated: PASS goldens for split/replace Wren cross-check, trim*, *(count), ArgumentError guards,
+// bytes/codePoints, System.write/writeObject_, and NEGATIVE goldens for error paths.
+// FIX: (A) Move pending/ fixtures into active tests/lang/strings/ with #[test], (B) Wire into verify.sh gate.
+// (C) Add missing NEGATIVE suite fixtures for ArgumentError/trim-type guards, System.write divergence, invalid toString.
 #[test]
 #[ignore = "spec target: string — U-STRING (docs/forge/units/U-STRING/plan.md)"]
 fn string_pending() {

@@ -1,5 +1,18 @@
 # ADR-0049: Amend floor — admit `String` raw byte accessors + `System.rawWrite(_)`
 
+<!-- REVIEW: BLOCKING: ADR number collision + naming-convention violation.
+Two files both claim ADR-0049 in docs/adr/accepted/:
+(1) 0049-amend-floor-admit-string-byte-and-raw-write-primitives.md (pre-existing, dated 2026-07-13,
+    referenced by docs/adr/STATUS.md:79, specifies selector names byteCount_/byteAt_(_)/slice_(_,_)/write_(_)
+    per U-NATIVE-MARKER convention of trailing _ suffix per docs/forge/units/U-NATIVE-MARKER/plan.md:51-53)
+(2) 0049-amend-floor-admit-string-raw-byte-accessors.md (this file, new, uses rawByteCount/rawByteAt(_)/rawSlice(_,_)/rawWrite(_)
+    the raw* prefix, NOT referenced by STATUS.md, contradicts U-NATIVE-MARKER's mandated naming convention).
+
+FIX: Consolidate to ONE ADR-0049 file. Adopt the pre-existing file's naming convention (byteCount_/etc)
+per U-NATIVE-MARKER's already-landed spec. Delete this orphaned duplicate. Update primitive implementations
+to use _ suffix, not raw* prefix. Re-test all affected code.
+-->
+
 **Status:** Accepted
 
 **Scope:** U-STRING (docs/forge/units/U-STRING/plan.md)

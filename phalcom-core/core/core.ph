@@ -104,15 +104,78 @@ class String {
   }
 
   // The Unicode scalar value at byte offset `i`, or `None` if out-of-range
-  // or mid-sequence. UTF-8 decode via modulo/divide (no bitwise ops).
+  // or mid-sequence. UTF-8 decode via division/modulo (no bitwise ops).
   codePointAt(i) {
     let b0 = self.rawByteAt(i)
     return (b0 == None).ifTrue({ None }, ifFalse: {
-      (b0 >= 128).ifTrue({
-        (b0 < 192).ifTrue({ None }, ifFalse: { None })
-      }, ifFalse: {
-        // ASCII fast path: b0 is the codepoint
+      (b0 < 128).ifTrue({
+        // ASCII single byte (0xxxxxxx)
         b0
+      }, ifFalse: {
+        (b0 < 192).ifTrue({
+          // Continuation byte (10xxxxxx), not a start byte
+          None
+        }, ifFalse: {
+          (b0 < 224).ifTrue({
+            // 2-byte sequence (110xxxxx 10xxxxxx)
+            let b1 = self.rawByteAt(i + 1)
+            (b1 == None).ifTrue({ None }, ifFalse: {
+              (b1 < 128).ifTrue({ None }, ifFalse: {
+                (b1 >= 192).ifTrue({ None }, ifFalse: {
+                  ((b0 - 192) * 64) + (b1 - 128)
+                })
+              })
+            })
+          }, ifFalse: {
+            (b0 < 240).ifTrue({
+              // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
+              let b1 = self.rawByteAt(i + 1)
+              let b2 = self.rawByteAt(i + 2)
+              (b1 == None).ifTrue({ None }, ifFalse: {
+                (b2 == None).ifTrue({ None }, ifFalse: {
+                  (b1 < 128).ifTrue({ None }, ifFalse: {
+                    (b1 >= 192).ifTrue({ None }, ifFalse: {
+                      (b2 < 128).ifTrue({ None }, ifFalse: {
+                        (b2 >= 192).ifTrue({ None }, ifFalse: {
+                          ((b0 - 224) * 4096) + ((b1 - 128) * 64) + (b2 - 128)
+                        })
+                      })
+                    })
+                  })
+                })
+              })
+            }, ifFalse: {
+              (b0 < 248).ifTrue({
+                // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+                let b1 = self.rawByteAt(i + 1)
+                let b2 = self.rawByteAt(i + 2)
+                let b3 = self.rawByteAt(i + 3)
+                (b1 == None).ifTrue({ None }, ifFalse: {
+                  (b2 == None).ifTrue({ None }, ifFalse: {
+                    (b3 == None).ifTrue({ None }, ifFalse: {
+                      (b1 < 128).ifTrue({ None }, ifFalse: {
+                        (b1 >= 192).ifTrue({ None }, ifFalse: {
+                          (b2 < 128).ifTrue({ None }, ifFalse: {
+                            (b2 >= 192).ifTrue({ None }, ifFalse: {
+                              (b3 < 128).ifTrue({ None }, ifFalse: {
+                                (b3 >= 192).ifTrue({ None }, ifFalse: {
+                                  ((b0 - 240) * 262144) + ((b1 - 128) * 4096) + ((b2 - 128) * 64) + (b3 - 128)
+                                })
+                              })
+                            })
+                          })
+                        })
+                      })
+                    })
+                  })
+                })
+              }, ifFalse: {
+                // Invalid UTF-8 start byte
+                None
+              })
+            })
+          })
+        })
       })
     })
   }
@@ -152,7 +215,7 @@ class String {
       throw ArgumentError.new("split: delimiter must be non-empty")
     })
 
-    var result = List.new
+    var result = List.new()
     var prev = 0
     var i = self.indexOf(delimiter)
     while (i != -1) {
@@ -193,12 +256,17 @@ class String {
     return result
   }
 
-  // Trim leading/trailing whitespace (space, tab, newline, etc).
-  trim => self.trim(" \t\n\r")
-  trimStart => self.trimStart(" \t\n\r")
-  trimEnd => self.trimEnd(" \t\n\r")
+  // Trim whitespace from start and end, default or custom charset.
+  trim() {
+    return self.trim(" \t\n\r")
+  }
+  trimStart() {
+    return self.trimStart(" \t\n\r")
+  }
+  trimEnd() {
+    return self.trimEnd(" \t\n\r")
+  }
 
-  // Trim whitespace from start and end, or custom charset.
   trim(chars) => self.trimStart(chars).trimEnd(chars)
 
   // Trim from the start using the given charset.
