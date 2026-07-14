@@ -988,6 +988,15 @@ impl VM {
                         }
                     }
                 }
+                // Pops the top of stack and, if it is the `None` singleton (tested by identity),
+                // branches to `offset`. Otherwise, falls through. Realizes the cursor-protocol
+                // end-of-iteration test (ADR-0048 §2, iteration.md §2).
+                Bytecode::JumpIfNone(offset) => {
+                    let cursor = self.pop()?;
+                    if cursor == Value::Obj(self.universe.classes.none_singleton) {
+                        self.apply_jump_offset(offset);
+                    }
+                }
                 Bytecode::Loop(offset) => self.apply_jump_offset(offset),
                 Bytecode::GuardBool(offset) => {
                     let top = *self.stack.last().ok_or(RuntimeError::Internal("Stack underflow for GuardBool".to_string()))?;

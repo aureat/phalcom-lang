@@ -337,6 +337,8 @@ fn iteration_disasm() {
     // sends — and emits **no** `Closure`/`block_call` on the taken path, so a
     // `for` inside a fiber can `yield` freely.
     support::check_for_no_block_call("iteration/for_disasm_no_block_call.ph");
+    support::check_for_zero_alloc_loop("iteration/for_disasm_no_block_call.ph");
+    support::check_for_no_wrapsome("iteration/zero_alloc_disasm_probe.ph");
 }
 
 #[test]

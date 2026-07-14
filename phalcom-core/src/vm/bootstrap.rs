@@ -201,6 +201,7 @@ impl VM {
         // singleton object (values-and-absence.md §3.1).
         add_class!(option_class);
         add_class!(some_class);
+        add_class!(iterable_class);
         add_class!(list_class);
         // `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): ordinary class globals,
         // native heap arms mirroring `List`.

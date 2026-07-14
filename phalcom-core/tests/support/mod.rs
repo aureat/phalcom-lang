@@ -232,3 +232,61 @@ pub fn check_for_no_block_call(rel_path: &str) {
          the taken path, C-ITER-4), but the disassembly contains one:\n{text}"
     );
 }
+
+/// Asserts the U-ITERABLE Route B zero-allocation loop properties:
+/// - JumpIfNone is present (the end-sentinel identity check)
+/// - isSome / unwrapOr / WrapSome are absent (no option reification / extraction sends)
+pub fn check_for_zero_alloc_loop(rel_path: &str) {
+    let path = corpus_root().join(rel_path);
+    assert!(path.exists(), "missing disasm fixture: {}", path.display());
+    let output = Command::new(phalcom_bin())
+        .arg("disasm")
+        .arg(&path)
+        .output()
+        .expect("failed to spawn the `phalcom` binary for disassembly");
+    assert_no_panic(rel_path, &output);
+    assert!(
+        output.status.success(),
+        "disasm of {rel_path} failed. stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.contains("JumpIfNone("),
+        "{rel_path}: expected `JumpIfNone(` in the disassembly, got:\n{text}"
+    );
+    assert!(
+        !text.contains("isSome"),
+        "{rel_path}: expected NO `isSome` in the disassembly, got:\n{text}"
+    );
+    assert!(
+        !text.contains("unwrapOr"),
+        "{rel_path}: expected NO `unwrapOr` in the disassembly, got:\n{text}"
+    );
+    assert!(
+        !text.contains("WrapSome"),
+        "{rel_path}: expected NO `WrapSome` in the disassembly, got:\n{text}"
+    );
+}
+
+/// Asserts the disassembly of `rel_path` contains NO `WrapSome` opcode.
+pub fn check_for_no_wrapsome(rel_path: &str) {
+    let path = corpus_root().join(rel_path);
+    assert!(path.exists(), "missing disasm fixture: {}", path.display());
+    let output = Command::new(phalcom_bin())
+        .arg("disasm")
+        .arg(&path)
+        .output()
+        .expect("failed to spawn the `phalcom` binary for disassembly");
+    assert_no_panic(rel_path, &output);
+    assert!(
+        output.status.success(),
+        "disasm of {rel_path} failed. stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !text.contains("WrapSome"),
+        "{rel_path}: expected NO `WrapSome` in the disassembly, got:\n{text}"
+    );
+}

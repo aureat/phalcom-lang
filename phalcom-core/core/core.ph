@@ -306,6 +306,68 @@ class Function {
 // **list-literal syntax** `[a, b, c]` remains deferred (it needs a new ADR +
 // parser work; DEFERRED.md #6) — do not add that here.
 
+class Iterable {
+  // Generic index-cursor walk over `self.size` (ADR-0048 §1/§3). A subclass whose
+  // cursor is not a 0..size index (none in-kernel today) overrides this.
+  iterate(cursor) {
+    let next = (cursor == None).ifTrue({ 0 }, ifFalse: { cursor + 1 })
+    return (next < self.size).ifTrue({ next }, ifFalse: { None })
+  }
+
+  each(f) {
+    for (x in self) {
+      f.call(x)
+    }
+  }
+
+  // map/filter/reduce/includes walk `iterate`/`iteratorValue` DIRECTLY, not
+  // `self.each` — `Map` overrides `each` with an incompatible 2-arity (k, v)
+  // selector (DEC-CT-E); routing these through `self.each` would silently call a
+  // 1-arity block with 2 arguments the moment `Map` inherits them. See the rubric.
+  map(f) {
+    var result = List.new()
+    var c = self.iterate(None)
+    while (c != None) {
+      result.add(f.call(self.iteratorValue(c)))
+      c = self.iterate(c)
+    }
+    return result
+  }
+
+  filter(pred) {
+    var result = List.new()
+    var c = self.iterate(None)
+    while (c != None) {
+      var x = self.iteratorValue(c)
+      pred.call(x).ifTrue({ result.add(x) }, ifFalse: { None })
+      c = self.iterate(c)
+    }
+    return result
+  }
+
+  reduce(init, f) {
+    var acc = init
+    var c = self.iterate(None)
+    while (c != None) {
+      acc = f.call(acc, self.iteratorValue(c))
+      c = self.iterate(c)
+    }
+    return acc
+  }
+
+  includes(x) {
+    var found = false
+    var c = self.iterate(None)
+    while (c != None) {
+      (self.iteratorValue(c) == x).ifTrue({ found = true }, ifFalse: { None })
+      c = self.iterate(c)
+    }
+    return found
+  }
+
+  isEmpty => self.size == 0
+}
+
 class List {
   size => self.length_
 
@@ -325,77 +387,10 @@ class List {
   // user iterable (spec §3.1) — no `block_call`, no index math — so `each`
   // (and everything below built over it: `map`/`filter`/`reduce`/`includes`)
   // is protocol-driven behavior-preservingly.
-  each(f) {
-    for (x in self) {
-      f.call(x)
-    }
-  }
-
-  // Cursor iteration protocol (ADR-0035 §1, iteration.md §1). `List` is the
-  // reference iterable: the cursor is the integer index, and `Option` carries
-  // the "more?" signal so no surface `nil` ever appears (Invariant 4). Written
-  // purely in `.ph` over the existing `size`/`at(_)` floor — zero primitives.
-  //
-  // `iterate(_)` is given the previous cursor (or `None` to start) and returns
-  // `Some(nextIndex)` while elements remain, `None` at the end. `cursor.map { c
-  // => c + 1 }` advances a `Some(i)` to `Some(i+1)` and passes `None` through;
-  // `.unwrapOr(0)` collapses that to the raw next index (`None` → 0). The
-  // sacred `ifTrue { … }` already wraps its arm in `Some` and yields `None` on
-  // the false branch (U-CORE-2), so `(next < self.size).ifTrue { next }` is
-  // exactly `Some(next)` in range and `None` past the end — no explicit `Some`
-  // wrap, no `Option#unwrap` (which this surface does not define).
-  iterate(cursor) {
-    let next = cursor.map { c => c + 1 }.unwrapOr(0)
-    return (next < self.size).ifTrue { next }
-  }
-
-  // Given a live cursor (an index the `for` desugar extracted from a `Some`
-  // that `iterate(_)` just returned), yields the element there (ADR-0035 §1,
+  // Given a live cursor, yields the element there (ADR-0035 §1,
   // iteration.md §1). Only ever called with an in-range index, so it defers to
   // `at(_)` directly.
   iteratorValue(cursor) => self.at(cursor)
-
-  // U-STD (catalog-delta §2.4): a new `List` holding `f(x)` for each element,
-  // in order. Built over `each`/`add`/`List.new` — never stringifies an
-  // element (the `toString`-message trap, DEFERRED.md #19), so it is safe.
-  map(f) {
-    var result = List.new()
-    self.each { x => result.add(f.call(x)) }
-    return result
-  }
-
-  // U-STD (catalog-delta §2.4): a new `List` of the elements for which
-  // `pred(x)` holds, in order. `pred` must yield a real `Bool` (ADR-0021);
-  // the `ifTrue` result is discarded (used only for its side effect).
-  filter(pred) {
-    var result = List.new()
-    self.each { x => pred.call(x).ifTrue { result.add(x) } }
-    return result
-  }
-
-  // U-STD (catalog-delta §2.4; DEFERRED.md #25): fold `f(acc, x)` across the
-  // elements left-to-right, seeded with `init`. `f` is a 2-arity block; the
-  // final accumulator is returned. This is the shape `blocks_argument_to_method`
-  // waited on. Selector `reduce(_:_:)` — the trailing block desugars to the
-  // second positional argument (`reduce(init) { acc, x => ... }`).
-  reduce(init, f) {
-    var acc = init
-    self.each { x => acc = f.call(acc, x) }
-    return acc
-  }
-
-  // U-STD (catalog-delta §2.4): `true` when any element is `== x`, else
-  // `false`. `==` is an ordinary send (value/identity via `object_eq`); no
-  // element stringification.
-  includes(x) {
-    var found = false
-    self.each { e => (e == x).ifTrue { found = true } }
-    return found
-  }
-
-  // U-STD (catalog-delta §2.4): `true` when the list has no elements. `size`
-  // is a real `Number`, so the `== 0` condition is a well-formed `Bool`.
-  isEmpty => self.size == 0
 
   // U-STD (DEFERRED.md #18): the public `.ph` wrapper over the `set_(_,_)`
   // floor primitive — writes `put` at index `i` and returns `self` so writes
@@ -504,14 +499,8 @@ class Map {
     }
   }
 
-  // Cursor iteration protocol (ADR-0035 §1, iteration.md §1) — identical
-  // shape to List's, over `size`/`keyAt_`. DEC-CT-E: the cursor value
-  // `iteratorValue` yields is the KEY (both Map and Set yield keys); `each(_)`
-  // above remains the 2-arg entry form for Map.
-  iterate(cursor) {
-    let next = cursor.map { c => c + 1 }.unwrapOr(0)
-    return (next < self.size).ifTrue { next }
-  }
+  // DEC-CT-E: the cursor value `iteratorValue` yields is the KEY (both Map and Set yield keys);
+  // `each(_)` above remains the 2-arg entry form for Map.
 
   iteratorValue(cursor) => self.keyAt_(cursor)
 
@@ -561,20 +550,7 @@ class Set {
   // natural extension of the sequence protocol every collection instantiates.
   at(i) => self.at_(i)
 
-  each(f) {
-    var i = 0
-    while (i < self.size) {
-      f.call(self.at_(i))
-      i = i + 1
-    }
-  }
 
-  // Cursor iteration protocol — identical shape to List's, over
-  // `size`/`at_`.
-  iterate(cursor) {
-    let next = cursor.map { c => c + 1 }.unwrapOr(0)
-    return (next < self.size).ifTrue { next }
-  }
 
   iteratorValue(cursor) => self.at_(cursor)
 
@@ -612,19 +588,7 @@ class Tuple {
 
   at(i) => self.at_(i)
 
-  each(f) {
-    var i = 0
-    while (i < self.size) {
-      f.call(self.at_(i))
-      i = i + 1
-    }
-  }
 
-  // Cursor iteration protocol (ADR-0035 §1) — identical shape to List's.
-  iterate(cursor) {
-    let next = cursor.map { c => c + 1 }.unwrapOr(0)
-    return (next < self.size).ifTrue { next }
-  }
 
   iteratorValue(cursor) => self.at_(cursor)
 
@@ -703,13 +667,7 @@ class Range {
   }
 
   // Generates start, start+1, … up to the bound — no allocation (RG-2).
-  each(f) {
-    var i = 0
-    while (i < self.size) {
-      f.call(self.start_ + i)
-      i = i + 1
-    }
-  }
+
 
   // The explicit materialization escape hatch (RG-2).
   toList {
@@ -721,10 +679,7 @@ class Range {
   // Cursor iteration protocol (ADR-0035 §1) — identical shape to List's;
   // `iteratorValue` is `start + cursor`, never a materialized index into an
   // element buffer (there is none).
-  iterate(cursor) {
-    let next = cursor.map { c => c + 1 }.unwrapOr(0)
-    return (next < self.size).ifTrue { next }
-  }
+
 
   iteratorValue(cursor) => self.start_ + cursor
 
