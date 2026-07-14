@@ -88,6 +88,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0058 | Reactive tracking-context needs a native module | Accepted | | ? |
 | 0059 | Amend ADR-0058/0033 — reactive tracking context bound to native-frame switch guard | Proposed (needs user ratification) | | — (row missing pre-edit; added 2026-07-14, not yet code-checked) |
 | 0060 | `[]` is a real, overridable selector — no `at` lowering | Accepted | | ✅ built 2026-07-14 (U-INDEX) — `Parser::parse_index_member` (`phalcom-ast/src/parser.rs`) is a dedicated bracket-subscript class-member production (params inside `[...]`, not `parse_method_name`); compiler (`compiler/lib/expr.rs`) sends directly to `SignatureKind::Subscript` (`[_]`/`[_,put]`/`[]`/`[put]`), no `at` lowering; `List`/`Map`/`Tuple` opt in via `core.ph` wrapper methods |
+| 0061 | Underscore prefixes reserved — `_` fields, `_$` language internals, `__` reserved | Proposed (needs user ratification) | | ❌ not built — designed 2026-07-14, citations re-verified against `6d0b3b4`; current state is the *pre*-decision one it changes: `parse_primary` (`phalcom-ast/src/parser.rs:2387`) routes every leading-`_` identifier to `Expr::Field` regardless of underscore count, `parse_method_name` (`:1374`) and `parse_field_decl` (`:1156`) have no prefix check, `$` appears nowhere in `lexer.rs`, and M-ATTR-ROOT still ships as `__attach`/`__attributes`/`__freezeAttributes` (`primitive/attribute.rs`, `universe/primitives.rs:73-75`, `compiler/lib/class_decl.rs:785,798`) |
 
 ## Known status/reality gaps not yet reconciled
 
