@@ -763,6 +763,75 @@ the GC schedule shifts (cf. **H14**).
   (~2 minutes) predicted it before any code was written. F14's S1–S4 estimates are
   the same species of number and none of them has been re-derived at HEAD either.
 
+## F20 — Wren's `LOAD_LOCAL_0..8` / `CALL_0..16` fix a cost Phalcom does not have
+
+**Asked directly: would operand-specialized opcodes (`LOAD_LOCAL_0`…`LOAD_LOCAL_8`,
+`CALL_0`…`CALL_16`) help?** **No — and this one is decidable by reading two files,
+without a benchmark.** They are a **byte-stream** optimization. Phalcom is not a byte
+stream.
+
+**What they buy in Wren** (source now vendored at `resources/wren`, moved `ec3b6af`):
+
+Wren's code array is `uint8_t*`, so **every operand is a separate memory load**:
+
+```c
+#define READ_BYTE()  (*ip++)                 // wren_vm.c:846
+CASE_CODE(LOAD_LOCAL):    PUSH(stackStart[READ_BYTE()]); DISPATCH();   // :937 — one byte read
+CASE_CODE(LOAD_LOCAL_0):  ...
+CASE_CODE(LOAD_LOCAL_8):  PUSH(stackStart[instruction - CODE_LOAD_LOCAL_0]); DISPATCH();  // :925 — ZERO byte reads
+```
+
+The specialized forms derive the operand by **arithmetic on the opcode already in a
+register** (`instruction - CODE_LOAD_LOCAL_0`), so they delete one `READ_BYTE()` — a
+load plus an `ip` increment. `CALL_0..16` is the same trick for arity
+(`numArgs = instruction - CODE_CALL_0 + 1`, `wren_vm.c:1000`); it still does
+`READ_SHORT()` for the selector. **The saving is one operand fetch, nothing else.**
+
+**Why Phalcom cannot collect it.** `Bytecode` is a fixed-width **8 B tagged enum**
+(F15: 8× Wren's 1 B + operands), so `let opcode = callable.chunk.code[ip]` loads the
+opcode **and its operands** in one 8 B load. The arm's `Bytecode::GetLocal(slot) =>`
+extracts `slot` by shift/mask **from a register**. There is **no `READ_BYTE` in this
+VM** — the operand is already free, which is exactly what Phalcom bought with those
+8 bytes. `LOAD_LOCAL_0` would remove a load that is not performed.
+
+**The ceiling, derived from measured numbers rather than argued** (this is the check
+[F16](#f16--superinstructions-are-premature-no-opcode-histogram-and-the-inliner-already-covers-the-classic-win)
+reason 3 failed to do). From [F19](#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13):
+a cheap instruction's marginal cost is **~3.6 ns**, of which the **dispatch is ~3.3 ns**
+⇒ the entire **body** of a `GetLocal`/`SetLocal`/`Pop` is **~0.3 ns** — and that 0.3 ns
+already includes the stack push, which `LOAD_LOCAL_0` **keeps**. So operand extraction
+is some fraction of 0.3 ns, and:
+
+> `for` retires 6.5M `GetLocal` (11% of 59.0M). Ceiling = 6.5M × **0.3 ns** ÷ 562 ms =
+> **0.35%** — and that is generous by construction, since it credits the fusion with
+> the whole body including the push it does not remove.
+
+**A 0.35% absolute ceiling on the friendliest row, for 9 new opcodes.** Compare cut
+008's 9M dispatches × 3.3 ns = 5.1% on the same benchmark. Not worth a unit; not worth
+a probe.
+
+**It would plausibly be *negative*.** 9 + 17 = **26 new opcodes** takes the jump table
+from 37 to 63 for zero mechanism. Wren's own header warns this is not free: *"the order
+of instructions here affects the order of the dispatch table in the VM's interpreter
+loop. That in turn affects caching which affects overall performance. Take care to run
+benchmarks if you change the order here"* (`wren_opcodes.h:10-13`).
+
+**The one live thread, and it is a different mechanism.** `CALL_0..16` would make arity
+a **compile-time constant per arm**, which could let LLVM specialize/unroll
+`call_method`'s arg-buffer build (~14% of `bare_send` ticks, §4a). That is a **body**
+effect, not a dispatch or fetch effect — so **F19 cannot size it** and H13's open half
+(body prices) is exactly what it needs. If anyone wants it, it is an experiment about
+`call_method`, and it should be argued as DEC-PRIM-B, **not** as a superinstruction.
+
+**The transferable point.** *Do not port an optimization; port its mechanism.* Wren's
+opcode list is the output of a byte-stream design, and half of it is scaffolding
+against `READ_BYTE()`. Phalcom already paid for that with 8 B/instruction. **The real
+Wren-vs-Phalcom encoding question is the opposite one**: our 8 B costs **8× the code
+footprint**, i.e. icache — which is a `Bytecode`-shrinking question ([F15](#f15--value-is-2-wrens-and-objref-blocks-nan-boxing)'s
+neighbourhood), and shrinking it would *add* the operand fetches this finding says we
+are currently glad not to pay. That trade is unmeasured and is a real hole; operand
+specialization is not.
+
 ## F19 — a dispatch costs ~3.3 ns, and that is what a fusion buys (H13)
 
 **Answers [H13](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it) for the

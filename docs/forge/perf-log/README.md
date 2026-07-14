@@ -114,6 +114,15 @@ Full write-ups in [`findings.md`](findings.md):
   bits and `ObjRef` is a full 64 (`slotmap` `u32` index + `u32` version). Shrinking the
   key first is a correctness review (version-wraparound), likely more work than the
   boxing. `CallFrame` is 96 B against Wren's 24 B.
+- **F20** — **Wren's `LOAD_LOCAL_0..8` / `CALL_0..16` fix a cost Phalcom does not have.**
+  They delete a `READ_BYTE()` from Wren's **byte-stream** operand fetch
+  (`wren_vm.c:846,925`); Phalcom's `Bytecode` is a fixed 8 B enum, so the operand
+  arrives **in the same load as the opcode** and is extracted from a register. Ceiling
+  derived from F19 rather than argued: a `GetLocal`'s entire body is **~0.3 ns**
+  (3.6 marginal − 3.3 dispatch) *including the push these opcodes keep*, so the
+  absolute ceiling on `for` is **0.35%** — against cut 008's 5.1% on the same row —
+  for **26 new opcodes** (jump table 37 → 63). Plausibly negative; Wren's own header
+  warns table order affects caching. **Decidable by reading two files, no benchmark.**
 - **F19** — **a dispatch costs ~3.3 ns**, measured two ways that agree: a differential
   over a histogram-verified 6,000,000 near-zero-body instructions (3.56–3.68 ns, an
   upper bound since it includes the body; linear at 4.14× vs ideal 4.00) and cut 008

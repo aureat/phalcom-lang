@@ -110,7 +110,8 @@ control-flow transfers**, which the single-opcode table independently derives (5
 (`sum(pairs) < total − 1`) is **not slack** — it is the transfer count, which is why
 pair shares are reported against `total`, not against `paired`.
 
-`for.ph`'s ranked candidates:
+`for.ph`'s ranked candidates **at `5516504`** (pre-cut-008; the top two were then fused
+and no longer appear — see the current table below):
 
 | fusion | count | share of all instructions |
 |---|---|---|
@@ -118,6 +119,32 @@ pair shares are reported against `total`, not against `paired`.
 | `Constant -> Invoke` | 3,000,001 | 4.4% |
 | `GetSelf -> GetLocal` | 3,000,000 | 4.4% |
 | `GetGlobal -> Invoke` | 2,000,050 | 2.9% |
+
+### Remaining candidates at `1d2baea` (post cut 008) — measured, do not re-derive
+
+Ranked by count summed across the suite. **Ceiling for any row is
+`count × ~3.3 ns ÷ that row's wall`** ([F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)).
+
+| fusion | suite total | fattest single row | that row's ceiling |
+|---|---|---|---|
+| `GuardBool -> JumpIfFalse` | 15,142,285 | `string_equals` 10,000,000 (11.9%) | **~3.9%** |
+| `GetGlobal -> InvokeConst` | 12,400,004 | `map_numeric` 12,000,003 (11.1%) | ~1.1% — heavy row, will not pay |
+| **`GetSelf -> GetField`** | 10,295,567 | **`method_call` 6,333,335 (13.2%)** | **~4.8%** |
+| **`GetLocal -> InvokeConst`** | 10,284,565 | **`fib` 10,284,565 (17.4%)** | **~5.1%** |
+| `GetGlobal -> GetGlobal` | 10,000,001 | `map_numeric` 10,000,001 (9.3%) | ~0.9% — heavy row |
+| `Constant -> InvokeConst` | 10,000,000 | `string_equals` 10,000,000 (11.9%) | **~3.9%** |
+| `Pop -> Constant` | 9,000,030 | `string_equals` 9,000,030 (10.7%) | ~3.5% |
+| `SetGlobal -> Pop` | 8,400,002 | `map_numeric` 8,000,002 (7.4%) | ~0.8% — heavy row |
+
+**Cut 008 created new candidates by chaining.** `GetLocal -> InvokeConst` and
+`GetSelf -> InvokeLocal` did not exist before 008 — a fused opcode is itself a fusible
+head, so a second round buys **3-instruction** fusions (`GetLocal, Constant, Invoke`
+→ one dispatch). `fib`'s 10.3M `GetLocal -> InvokeConst` is its `fib(n-1) + fib(n-2)`
+shape and is the single fattest remaining candidate in the suite.
+
+**Read the ceiling column, not the count column.** The three fattest `map_numeric` rows
+are worth ~1% each because its instructions cost 32 ns; `method_call` and `fib` are
+worth ~5% because theirs cost 9–11. This is the whole of cut 008's lesson in one table.
 
 ~~**The verdict did not change: still defer.**~~ **The verdict changed — [cut 008](008-fuse-invoke-pairs.md)
 landed the top two pair shapes** (`string_equals` −8.1%, `for` −5.1%). S1a did **not**
