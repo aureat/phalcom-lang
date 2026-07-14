@@ -108,6 +108,13 @@ pub fn class_member_selector(member: &ClassMember) -> String {
         ClassMember::Setter(s) => setter_selector(s),
         ClassMember::Construct(c) => construct_selector(c),
         ClassMember::Field(f) => field_selector(f),
+        // A `@variant` arm is not itself a message selector — it names the
+        // sibling class `phalcom-core`'s `expand_class_attributes` generates
+        // at compile time, never a member dispatched on the enclosing class.
+        // `phalcom-lsp` indexes the pre-expansion AST directly (ADR-0056 §2:
+        // no `phalcom-core` link), so there is no generated selector to spell
+        // here; the variant's own name is the closest stand-in.
+        ClassMember::Variant(v) => v.name.clone(),
     }
 }
 

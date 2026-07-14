@@ -1,25 +1,52 @@
 //! `textDocument/semanticTokens/full` (Stage 5, ADR-0056, `docs/forge/units/
 //! U-LSP/plan.md` "Stage 5"): a flat, lexer-driven token-coloring pass.
 //!
-//! This is deliberately the **flat** pass only: it walks
-//! [`phalcom_ast::lexer::Lexer`] token-by-token and classifies each
-//! [`Token`] in isolation, with no AST context. It cannot yet distinguish a
-//! class/method **definition** name from a **reference** to one (that would
-//! need the cached [`phalcom_ast::parser::Parse`] tree, an optional
-//! AST-assisted refinement pass left to a later commit within this stage —
-//! see the module's design note in the U-LSP plan). What it already
-//! strictly improves on the TextMate grammar it will eventually demote
-//! (DEC-VSP-C, not yet flipped): exact string/comment boundaries and no
-//! false-positive keyword matches inside string literals, because it is
-//! driven by the real lexer rather than regexes.
+//! The base pass walks [`phalcom_ast::lexer::Lexer`] token-by-token and
+//! classifies each [`Token`] in isolation, with no AST context — it cannot
+//! by itself distinguish a class/method **definition** name from a
+//! **reference** to one. What it already strictly improves on the TextMate
+//! grammar it will eventually demote (DEC-VSP-C, not yet flipped): exact
+//! string/comment boundaries and no false-positive keyword matches inside
+//! string literals, because it is driven by the real lexer rather than
+//! regexes. A second, AST-assisted pass (below) closes the definition-vs-
+//! reference gap for declaration names specifically.
 //!
 //! Comments (including Phaldoc `///`/`//!`) are invisible to this token
 //! source — `Lexer::skip_trivia` discards them before they ever reach the
 //! `Iterator<Item = Spanned<Token, ..>>` stream — so comment coloring is out
 //! of scope for this stage; the TextMate grammar still covers it.
+//!
+//! ## AST-assisted refinement
+//!
+//! On top of the flat lexer pass, [`tokens_for`] runs a second, best-effort
+//! pass: it parses the same text (via [`phalcom_ast::parser::parse`], which
+//! recovers from syntax errors rather than aborting) and walks the resulting
+//! [`phalcom_ast::ast::Program`] to find every
+//! `class`/method/getter/setter/constructor **declaration name**'s own span
+//! ([`ClassDef::name_range`](phalcom_ast::ast::ClassDef::name_range) and its
+//! siblings on [`MethodDef`](phalcom_ast::ast::MethodDef)/
+//! [`GetterDef`](phalcom_ast::ast::GetterDef)/
+//! [`SetterDef`](phalcom_ast::ast::SetterDef)/
+//! [`ConstructDef`](phalcom_ast::ast::ConstructDef)). Any flat-pass token
+//! whose byte range exactly matches one of these declaration spans is
+//! upgraded from the generic [`SemanticTokenKind::Variable`] to
+//! [`SemanticTokenKind::Class`] or [`SemanticTokenKind::Method`].
+//!
+//! This targeted upgrade — keying off the AST's own name-only span rather
+//! than re-scanning the whole declaration's source text for the first
+//! identifier matching the declared name — is deliberate: a name can appear
+//! earlier in a declaration incidentally (e.g. inside a default-value
+//! expression), so a text-search heuristic cannot reliably tell a
+//! declaration's own name token from an unrelated occurrence. Keying off the
+//! parser-recorded span is exact by construction. If parsing produces no
+//! usable [`Program`] at all (e.g. the document is empty), the flat pass's
+//! plain-`variable` coloring is left untouched — this refinement only ever
+//! upgrades, never downgrades or removes, a flat-pass token.
 
+use phalcom_ast::ast::{ClassMember, Expr, Statement};
 use phalcom_ast::lexer::Lexer;
 use phalcom_ast::token::{StringSegment, Token};
+use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::{SemanticToken, SemanticTokenType, SemanticTokensLegend};
 
 use crate::line_index::LineIndex;
@@ -44,6 +71,8 @@ const TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::NUMBER,
     SemanticTokenType::new("selector"),
     SemanticTokenType::OPERATOR,
+    SemanticTokenType::CLASS,
+    SemanticTokenType::METHOD,
 ];
 
 /// A classified token's semantic kind, corresponding 1:1 to a slot in
@@ -74,6 +103,16 @@ enum SemanticTokenKind {
     /// colon, arrows) is deliberately left uncolored — see the module's
     /// recorded judgment call.
     Operator,
+    /// A `class` declaration's own name (the AST-assisted refinement pass's
+    /// upgrade of the flat pass's [`Variable`](Self::Variable) at
+    /// [`ClassDef::name_range`](phalcom_ast::ast::ClassDef::name_range) —
+    /// see the module doc's "AST-assisted refinement" section).
+    Class,
+    /// A method/getter/setter/constructor declaration's own name (the
+    /// AST-assisted refinement pass's upgrade of the flat pass's
+    /// [`Variable`](Self::Variable) at the declaration's own `name_range` —
+    /// see the module doc's "AST-assisted refinement" section).
+    Method,
 }
 
 impl SemanticTokenKind {
@@ -87,6 +126,8 @@ impl SemanticTokenKind {
             SemanticTokenKind::Number => 3,
             SemanticTokenKind::Selector => 4,
             SemanticTokenKind::Operator => 5,
+            SemanticTokenKind::Class => 6,
+            SemanticTokenKind::Method => 7,
         }
     }
 }
@@ -299,7 +340,98 @@ fn push_string_interp(
 pub fn tokens_for(text: &str, line_index: &LineIndex) -> Vec<SemanticToken> {
     let mut raw = Vec::new();
     collect_tokens(text, 0, &mut raw);
+    apply_decl_name_overrides(text, &mut raw);
     encode(text, line_index, &raw)
+}
+
+/// Upgrades every flat-pass token in `raw` whose byte range exactly matches a
+/// `class`/method/getter/setter/constructor declaration's own name span to
+/// [`SemanticTokenKind::Class`]/[`SemanticTokenKind::Method`] — the
+/// AST-assisted refinement pass described in the module doc.
+///
+/// Parses `text` via [`phalcom_ast::parser::parse`] (which recovers from
+/// syntax errors rather than aborting) purely to collect declaration-name
+/// spans; the flat lexer pass in `raw` is left as-is for every span this
+/// walk does not find. `raw` must already be in the ascending source order
+/// [`collect_tokens`] produces (this function only mutates in place, never
+/// reorders).
+fn apply_decl_name_overrides(text: &str, raw: &mut [RawToken]) {
+    let parsed = phalcom_ast::parser::parse(text, 0);
+    let mut decls = Vec::new();
+    collect_decl_names(&parsed.program.statements, &mut decls);
+    if decls.is_empty() {
+        return;
+    }
+    // `decls` is small in practice (one entry per declaration in the file),
+    // so a linear scan per raw token is simplest and fast enough; no need
+    // for a `HashMap` keyed on `(start, end)`.
+    for token in raw.iter_mut() {
+        if let Some(&(_, kind)) = decls
+            .iter()
+            .find(|(range, _)| range.start == token.start && range.end == token.end)
+        {
+            token.kind = kind;
+        }
+    }
+}
+
+/// Recursively collects every `class`/method/getter/setter/constructor
+/// declaration's own name span (and [`SemanticTokenKind`] override) reachable
+/// from `statements`, appending to `out`.
+///
+/// Descends into class bodies, `for` loop bodies, and block-expression
+/// bodies — the only [`Statement`]/[`Expr`] shapes that can themselves carry
+/// a nested declaration. Every other statement/expression shape is a leaf for
+/// this walk's purposes and is skipped.
+fn collect_decl_names(statements: &[Statement], out: &mut Vec<(SourceRange, SemanticTokenKind)>) {
+    for statement in statements {
+        match statement {
+            Statement::Class(class_def) => {
+                out.push((class_def.name_range, SemanticTokenKind::Class));
+                for member in &class_def.members {
+                    collect_member_decl_name(member, out);
+                }
+            }
+            Statement::For(for_stmt) => collect_decl_names(&for_stmt.body, out),
+            Statement::Expr { expr, .. } => collect_decl_names_in_expr(expr, out),
+            Statement::Let(_) | Statement::Return(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::Throw { .. } | Statement::Import(_) => {}
+        }
+    }
+}
+
+/// Pushes `member`'s own name-span override (if it has one — a
+/// [`ClassMember::Field`]/[`ClassMember::Variant`] does not) and recurses
+/// into its body, mirroring [`collect_decl_names`]'s class-body traversal.
+fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<(SourceRange, SemanticTokenKind)>) {
+    match member {
+        ClassMember::Method(method_def) => {
+            out.push((method_def.name_range, SemanticTokenKind::Method));
+            collect_decl_names(&method_def.body, out);
+        }
+        ClassMember::Getter(getter_def) => {
+            out.push((getter_def.name_range, SemanticTokenKind::Method));
+            collect_decl_names(&getter_def.body, out);
+        }
+        ClassMember::Setter(setter_def) => {
+            out.push((setter_def.name_range, SemanticTokenKind::Method));
+            collect_decl_names(&setter_def.body, out);
+        }
+        ClassMember::Construct(construct_def) => {
+            out.push((construct_def.name_range, SemanticTokenKind::Method));
+            collect_decl_names(&construct_def.body, out);
+        }
+        ClassMember::Field(_) | ClassMember::Variant(_) => {}
+    }
+}
+
+/// Descends into an [`Expr::Block`]'s body — the only expression shape that
+/// can itself carry a nested statement list (and therefore a nested
+/// declaration) — for [`collect_decl_names`]'s `Statement::Expr` arm. Every
+/// other [`Expr`] variant carries no nested statement list and is skipped.
+fn collect_decl_names_in_expr(expr: &Expr, out: &mut Vec<(SourceRange, SemanticTokenKind)>) {
+    if let Expr::Block(block_expr) = expr {
+        collect_decl_names(&block_expr.body, out);
+    }
 }
 
 /// Encodes classified, absolute-offset [`RawToken`]s into the LSP
@@ -409,11 +541,84 @@ mod tests {
         assert_eq!(kinds(r#""hello""#), vec![SemanticTokenKind::String]);
     }
 
+    /// Like [`kinds`], but also runs the AST-assisted declaration-name
+    /// refinement pass ([`apply_decl_name_overrides`]) before flattening —
+    /// for asserting the `class`/`method` upgrade, not just the flat pass.
+    fn kinds_with_decl_overrides(text: &str) -> Vec<SemanticTokenKind> {
+        let mut raw = Vec::new();
+        collect_tokens(text, 0, &mut raw);
+        apply_decl_name_overrides(text, &mut raw);
+        raw.into_iter().map(|t| t.kind).collect()
+    }
+
+    #[test]
+    fn class_declaration_name_is_class_kind() {
+        use SemanticTokenKind::{Class, Keyword};
+        assert_eq!(
+            kinds_with_decl_overrides("class Foo {\n}\n"),
+            vec![Keyword, Class]
+        );
+    }
+
+    #[test]
+    fn method_declaration_name_is_method_kind() {
+        use SemanticTokenKind::{Class, Keyword, Method, Variable};
+        // `class Foo { bar(x) { return x } }` — `bar` is the method name
+        // (Method), `x` in the parameter list and body is an ordinary
+        // Variable, untouched by the refinement pass.
+        assert_eq!(
+            kinds_with_decl_overrides("class Foo {\n  bar(x) {\n    return x\n  }\n}\n"),
+            vec![Keyword, Class, Method, Variable, Keyword, Variable]
+        );
+    }
+
+    #[test]
+    fn getter_and_construct_names_are_method_kind() {
+        use SemanticTokenKind::{Class, Keyword, Method, Number};
+        // `construct new()` and a bare-body getter `greeting { return 1 }` —
+        // both `new` and `greeting` are declaration names, upgraded to
+        // Method.
+        assert_eq!(
+            kinds_with_decl_overrides(
+                "class Foo {\n  construct new() {\n  }\n  greeting {\n    return 1\n  }\n}\n"
+            ),
+            vec![Keyword, Class, Keyword, Method, Method, Keyword, Number]
+        );
+    }
+
+    #[test]
+    fn setter_name_is_method_kind() {
+        use SemanticTokenKind::{Class, Keyword, Method, Operator, Variable};
+        // `greeting = (v) { }` — a setter: `greeting` is the declaration
+        // name (Method); `v` is an ordinary parameter binding, untouched.
+        assert_eq!(
+            kinds_with_decl_overrides("class Foo {\n  greeting = (v) {\n  }\n}\n"),
+            vec![Keyword, Class, Method, Operator, Variable]
+        );
+    }
+
+    #[test]
+    fn variable_reference_to_a_class_name_is_not_upgraded() {
+        // Only the declaration's own `name_range` is upgraded — an ordinary
+        // reference to the class name elsewhere in the file (e.g. as a
+        // superclass) stays a plain Variable, since it isn't the
+        // *declaring* occurrence. `extends` itself is a contextual keyword
+        // (DEC-INH-A) lexed as an ordinary identifier, so it also stays a
+        // plain Variable here.
+        use SemanticTokenKind::{Class, Keyword, Variable};
+        assert_eq!(
+            kinds_with_decl_overrides("class Foo {\n}\nclass Bar extends Foo {\n}\n"),
+            vec![Keyword, Class, Keyword, Class, Variable, Variable]
+        );
+    }
+
     #[test]
     fn legend_index_matches_token_types_order() {
-        assert_eq!(TOKEN_TYPES.len(), 6);
+        assert_eq!(TOKEN_TYPES.len(), 8);
         assert_eq!(SemanticTokenKind::Keyword.legend_index(), 0);
         assert_eq!(SemanticTokenKind::Operator.legend_index(), 5);
+        assert_eq!(SemanticTokenKind::Class.legend_index(), 6);
+        assert_eq!(SemanticTokenKind::Method.legend_index(), 7);
     }
 
     #[test]

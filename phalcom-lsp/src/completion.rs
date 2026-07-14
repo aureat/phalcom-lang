@@ -23,45 +23,96 @@
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position};
 
-use phalcom_ast::ast::{Expr, Pattern, Program, Statement};
+use phalcom_ast::ast::{ClassMember, Expr, Pattern, Program, Statement};
 
 use crate::core_table::{CoreTable, MemberKind};
 use crate::documents::Document;
 use crate::index::{ClassMemberInfo, WorkspaceIndex};
 
-/// Names the class of the receiver expression under a completion position.
+/// Whether a resolved receiver is an **instance** of its class or the
+/// **class object** itself (a bare class-name reference used as a receiver,
+/// e.g. `Cls.<cursor>`).
+///
+/// [`MemberKind::StaticMethod`]/[`MemberKind::Construct`] are class-side
+/// members — dispatched on the class object, never on one of its instances —
+/// while [`MemberKind::Method`]/[`MemberKind::Getter`]/[`MemberKind::Setter`]
+/// are instance-side. Threading this alongside the resolved class name lets
+/// [`completions`] offer each side only the members that side actually
+/// understands, closing the "static/construct members over-offered on an
+/// instance receiver" gap (`docs/forge/DEFERRED.md`, Stage 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiverKind {
+    /// The receiver is an instance of the resolved class (`x.<cursor>` where
+    /// `x` holds an instance) — offer instance-side members only.
+    Instance,
+    /// The receiver is the class object itself (`Cls.<cursor>`, a class-side
+    /// message send) — offer class-side (`static`/`construct`) members only.
+    ClassObject,
+}
+
+/// Names the class of the receiver expression under a completion position,
+/// and whether that receiver is an instance or the class object itself.
 ///
 /// The pluggable seam of Stage 3: the completion handler depends only on this
 /// trait, so a future type-inference pass can replace the local-dataflow
 /// [`ConstructResolver`] without any change to
 /// [`completions`] or the backend handler (plan P4).
 pub trait ReceiverResolver {
-    /// Returns the class name of the receiver at `position` in `doc`, or
-    /// `None` if there is no receiver, or its type cannot be determined.
+    /// Returns the class name and [`ReceiverKind`] of the receiver at
+    /// `position` in `doc`, or `None` if there is no receiver, or its type
+    /// cannot be determined.
     ///
     /// A `None` result degrades completion to the full builtin surface — it
     /// never suppresses completions entirely.
-    fn resolve(&self, doc: &Document, position: Position) -> Option<String>;
+    fn resolve(&self, doc: &Document, position: Position) -> Option<(String, ReceiverKind)>;
 }
 
-/// A local-dataflow [`ReceiverResolver`]: resolves `x`'s class from its
-/// `let x = Cls.new(...)` / `Cls.construct(...)` binding within the document.
+/// A local-dataflow [`ReceiverResolver`]: resolves a receiver's class from a
+/// capitalized bare class-name reference, a `self` receiver, or a
+/// `let x = Cls.new(...)` / `Cls.construct(...)` binding lexically visible at
+/// the cursor.
 ///
-/// Deliberately minimal (the plan's "first impl"): it reads the receiver
-/// identifier textually from just left of the cursor, then walks the parsed
-/// program for a `let`/`var` binding of that name whose initializer is a
-/// message send to a capitalized `Var` receiver (the class-name convention),
-/// and returns that class name. The *last* such binding in document order
-/// wins (a later rebind shadows an earlier one). It does not follow
-/// assignments, method parameters, or cross-file bindings — those are left to
-/// a future resolver behind the same trait.
+/// Three receiver shapes, tried in order:
+/// 1. **Capitalized bare name** (`Cls.<cursor>`) — the class-name convention
+///    Phalcom uses everywhere else in this module; resolves directly to that
+///    class as a [`ReceiverKind::ClassObject`], no binding lookup needed.
+/// 2. **`self`** — resolves to the name of the class whose member body
+///    encloses the cursor, as a [`ReceiverKind::Instance`]; `None` if the
+///    cursor is not inside any class member.
+/// 3. **An ordinary (lowercase) identifier** — resolves through
+///    `resolve_var_class`'s lexical-scope walk to a [`ReceiverKind::
+///    Instance`].
+///
+/// Scope/shadowing-aware (U-LSP Stage 3 DEFERRED "dataflow scope" follow-up):
+/// the binding walk is bounded to the lexical scope chain enclosing the
+/// cursor — the nearest enclosing method/getter/setter/construct body (or the
+/// top level), plus every nested block/`for` it is itself nested in — never a
+/// sibling scope, another method, or the rest of the document. Within that
+/// chain, both a fresh `let`/`var` binding and a plain reassignment
+/// (`x = OtherCls.new()`) update the tracked class, and only the binding
+/// lexically **before** the cursor in a given scope is considered, so a
+/// later-in-source binding never leaks backwards.
+///
+/// Still out of scope, left to a future resolver behind the same trait:
+/// method/block **parameters** are not tracked (a parameter's class is never
+/// known without call-site type information), and cross-file bindings are not
+/// followed (this resolver only ever sees the one open [`Document`]).
 pub struct ConstructResolver;
 
 impl ReceiverResolver for ConstructResolver {
-    fn resolve(&self, doc: &Document, position: Position) -> Option<String> {
+    fn resolve(&self, doc: &Document, position: Position) -> Option<(String, ReceiverKind)> {
         let offset = doc.line_index.offset(position);
         let (receiver, _partial) = receiver_prefix(&doc.text, offset)?;
-        resolve_var_class(&doc.parse.program, &receiver)
+
+        if receiver == "self" {
+            let (_, enclosing_class) = enclosing_scope_chain(&doc.parse.program, offset);
+            return enclosing_class.map(|class| (class, ReceiverKind::Instance));
+        }
+        if receiver.chars().next().is_some_and(char::is_uppercase) {
+            return Some((receiver, ReceiverKind::ClassObject));
+        }
+        resolve_var_class(&doc.parse.program, &receiver, offset)
+            .map(|class| (class, ReceiverKind::Instance))
     }
 }
 
@@ -106,111 +157,115 @@ fn receiver_prefix(text: &str, offset: usize) -> Option<(String, String)> {
     Some((text[recv_start..dot].to_string(), partial.to_string()))
 }
 
-/// Walks `program` for the class bound to the variable `name` by a `construct`
-/// call site, returning the class name of the last such binding.
+/// Finds the lexical scope chain enclosing `offset`, from outermost to
+/// innermost, together with the name of the class the cursor's member body
+/// (if any) is declared on.
 ///
-/// Recognizes `let name = Cls.<ctor>(...)` (and the `var` form) anywhere in
-/// the program — top level, method/getter/setter/construct bodies, block
-/// bodies, `for` bodies — where `Cls` is a capitalized `Var` receiver.
-fn resolve_var_class(program: &Program, name: &str) -> Option<String> {
-    let mut result = None;
-    scan_statements(&program.statements, name, &mut result);
-    result
+/// The chain is bounded to the nearest enclosing method/getter/setter/
+/// construct body — or the top level, if `offset` is not inside any class
+/// member's body — and never crosses into a sibling member, another class, or
+/// the rest of the document. Within that boundary it descends through every
+/// nested block/`for` body that lexically contains `offset` (innermost last),
+/// so [`resolve_var_class`]'s per-scope walk can implement proper shadowing:
+/// the nearest enclosing scope's binding wins over an outer one.
+///
+/// The returned class name is `Some` whenever `offset` sits anywhere inside a
+/// `class` declaration's range (not only inside one of its member bodies),
+/// since that is also what a `self` receiver needs (`self` is meaningful
+/// throughout a class's own member bodies).
+fn enclosing_scope_chain(program: &Program, offset: usize) -> (Vec<&[Statement]>, Option<String>) {
+    for statement in &program.statements {
+        if let Statement::Class(class_def) = statement {
+            if class_def.range.contains(offset) {
+                for member in &class_def.members {
+                    let body: Option<&[Statement]> = match member {
+                        ClassMember::Method(m) if m.range.contains(offset) => Some(&m.body),
+                        ClassMember::Getter(g) if g.range.contains(offset) => Some(&g.body),
+                        ClassMember::Setter(s) if s.range.contains(offset) => Some(&s.body),
+                        ClassMember::Construct(c) if c.range.contains(offset) => Some(&c.body),
+                        _ => None,
+                    };
+                    if let Some(body) = body {
+                        let mut chain = vec![body];
+                        descend_scope_chain(body, offset, &mut chain);
+                        return (chain, Some(class_def.name.clone()));
+                    }
+                }
+                // Inside the class but not inside any member's own body (e.g.
+                // a field default, or between members) — no local scope, but
+                // `self` is still meaningful for the class name.
+                return (Vec::new(), Some(class_def.name.clone()));
+            }
+        }
+    }
+    let mut chain = vec![program.statements.as_slice()];
+    descend_scope_chain(&program.statements, offset, &mut chain);
+    (chain, None)
 }
 
-/// Recurses `statements`, updating `out` with the class of the most recent
-/// `construct`-binding of `target`.
-fn scan_statements(statements: &[Statement], target: &str, out: &mut Option<String>) {
+/// Extends `chain` with every nested block/`for` body that lexically contains
+/// `offset`, recursing as deep as the AST goes (innermost pushed last).
+fn descend_scope_chain<'a>(statements: &'a [Statement], offset: usize, chain: &mut Vec<&'a [Statement]>) {
     for statement in statements {
-        match statement {
-            Statement::Let(binding) => {
-                if let Pattern::Name { name, .. } = &binding.pattern {
-                    if name == target {
-                        if let Some(value) = &binding.value {
-                            if let Some(class) = class_of_construct(value) {
-                                *out = Some(class);
-                            }
-                        }
-                    }
-                }
-                if let Some(value) = &binding.value {
-                    scan_expr(value, target, out);
-                }
+        if let Statement::For(f) = statement {
+            if f.range.contains(offset) {
+                chain.push(&f.body);
+                descend_scope_chain(&f.body, offset, chain);
+                return;
             }
-            Statement::Return(r) => {
-                if let Some(value) = &r.value {
-                    scan_expr(value, target, out);
-                }
-            }
-            Statement::Expr { expr, .. } => scan_expr(expr, target, out),
-            Statement::For(f) => {
-                scan_expr(&f.iter, target, out);
-                scan_statements(&f.body, target, out);
-            }
-            Statement::Throw { expr, .. } => scan_expr(expr, target, out),
-            Statement::Class(class_def) => {
-                for member in &class_def.members {
-                    match member {
-                        phalcom_ast::ast::ClassMember::Method(m) => {
-                            scan_statements(&m.body, target, out)
-                        }
-                        phalcom_ast::ast::ClassMember::Getter(g) => {
-                            scan_statements(&g.body, target, out)
-                        }
-                        phalcom_ast::ast::ClassMember::Setter(s) => {
-                            scan_statements(&s.body, target, out)
-                        }
-                        phalcom_ast::ast::ClassMember::Construct(c) => {
-                            scan_statements(&c.body, target, out)
-                        }
-                        phalcom_ast::ast::ClassMember::Field(f) => {
-                            if let Some(default) = &f.default {
-                                scan_expr(default, target, out);
-                            }
-                        }
-                    }
-                }
-            }
-            Statement::Break { .. } | Statement::Continue { .. } | Statement::Import(_) => {}
+        }
+        if let Some(inner) = nested_block_in_statement(statement, offset) {
+            chain.push(inner);
+            descend_scope_chain(inner, offset, chain);
+            return;
         }
     }
 }
 
-/// Recurses into an expression, descending into nested block bodies (and the
-/// sub-expressions that may contain them) to reach `let` bindings of `target`.
-fn scan_expr(expr: &Expr, target: &str, out: &mut Option<String>) {
+/// Finds a `{ … }` block body one expression-level deep inside `statement`
+/// whose range contains `offset` (a block used as a `let`/`return` value, a
+/// bare expression statement, or a `throw` operand).
+fn nested_block_in_statement(statement: &Statement, offset: usize) -> Option<&[Statement]> {
+    let expr = match statement {
+        Statement::Let(binding) => binding.value.as_ref(),
+        Statement::Return(r) => r.value.as_ref(),
+        Statement::Expr { expr, .. } => Some(expr),
+        Statement::Throw { expr, .. } => Some(expr),
+        _ => None,
+    }?;
+    nested_block_in_expr(expr, offset)
+}
+
+/// Recurses into `expr` for a nested block body whose range contains
+/// `offset`. Stops at the first (outermost) block found along the path — any
+/// deeper nesting inside that block is picked up by [`descend_scope_chain`]'s
+/// own recursion into the returned body.
+fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
+    if !expr.range().contains(offset) {
+        return None;
+    }
     match expr {
-        Expr::Block(b) => scan_statements(&b.body, target, out),
-        Expr::MethodCall(m) => {
-            scan_expr(&m.object, target, out);
-            for arg in &m.args {
-                scan_expr(&arg.expr, target, out);
-            }
-        }
+        Expr::Block(b) => Some(&b.body),
         Expr::Assignment(a) => {
-            scan_expr(&a.name, target, out);
-            scan_expr(&a.value, target, out);
+            nested_block_in_expr(&a.name, offset).or_else(|| nested_block_in_expr(&a.value, offset))
         }
-        Expr::Unary(u) => scan_expr(&u.expr, target, out),
+        Expr::Unary(u) => nested_block_in_expr(&u.expr, offset),
         Expr::Binary(b) => {
-            scan_expr(&b.left, target, out);
-            scan_expr(&b.right, target, out);
+            nested_block_in_expr(&b.left, offset).or_else(|| nested_block_in_expr(&b.right, offset))
         }
-        Expr::GetProperty(g) => scan_expr(&g.object, target, out),
+        Expr::MethodCall(m) => nested_block_in_expr(&m.object, offset)
+            .or_else(|| m.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
+        Expr::GetProperty(g) => nested_block_in_expr(&g.object, offset),
         Expr::SetProperty(s) => {
-            scan_expr(&s.object, target, out);
-            scan_expr(&s.value, target, out);
+            nested_block_in_expr(&s.object, offset).or_else(|| nested_block_in_expr(&s.value, offset))
         }
         Expr::Index(i) => {
-            scan_expr(&i.object, target, out);
-            scan_expr(&i.index, target, out);
+            nested_block_in_expr(&i.object, offset).or_else(|| nested_block_in_expr(&i.index, offset))
         }
-        Expr::SetIndex(si) => {
-            scan_expr(&si.object, target, out);
-            scan_expr(&si.index, target, out);
-            scan_expr(&si.value, target, out);
-        }
-        Expr::MethodRef(mr) => scan_expr(&mr.receiver, target, out),
+        Expr::SetIndex(si) => nested_block_in_expr(&si.object, offset)
+            .or_else(|| nested_block_in_expr(&si.index, offset))
+            .or_else(|| nested_block_in_expr(&si.value, offset)),
+        Expr::MethodRef(mr) => nested_block_in_expr(&mr.receiver, offset),
         Expr::Number { .. }
         | Expr::String { .. }
         | Expr::Boolean { .. }
@@ -218,8 +273,70 @@ fn scan_expr(expr: &Expr, target: &str, out: &mut Option<String>) {
         | Expr::Field { .. }
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. }
-        | Expr::Symbol(_) => {}
+        | Expr::Symbol(_) => None,
     }
+}
+
+/// Resolves the class bound to `target` at `offset` by walking
+/// [`enclosing_scope_chain`]'s scopes from innermost to outermost — the
+/// nearest enclosing scope's binding shadows an outer one, and neither a
+/// sibling scope nor another class member is ever consulted.
+fn resolve_var_class(program: &Program, target: &str, offset: usize) -> Option<String> {
+    let (chain, _enclosing_class) = enclosing_scope_chain(program, offset);
+    chain
+        .iter()
+        .rev()
+        .find_map(|scope| resolve_in_scope(scope, target, offset))
+}
+
+/// Scans one scope's own top-level statements — never descending into a
+/// nested block/`for` body, since those are separate entries in
+/// [`enclosing_scope_chain`]'s chain — for the class of the *last*
+/// `let`/`var` construct-binding or plain reassignment (`target =
+/// OtherCls.new()`) of `target` whose own range starts strictly before
+/// `offset`. A later-in-source binding (at or after `offset`) is never
+/// considered, so a rebind written after the cursor cannot leak backwards.
+fn resolve_in_scope(statements: &[Statement], target: &str, offset: usize) -> Option<String> {
+    let mut result = None;
+    for statement in statements {
+        let start = match statement {
+            Statement::Let(b) => b.range.start,
+            Statement::Return(r) => r.range.start,
+            Statement::Expr { range, .. } => range.start,
+            Statement::For(f) => f.range.start,
+            Statement::Throw { range, .. } => range.start,
+            Statement::Break { range } | Statement::Continue { range } => range.start,
+            Statement::Import(i) => i.range.start,
+            Statement::Class(c) => c.range.start,
+        };
+        // Statements are in monotonically increasing source order; once one
+        // starts at or after `offset`, nothing later in this scope is
+        // lexically before the cursor either.
+        if start >= offset {
+            break;
+        }
+        match statement {
+            Statement::Let(binding) => {
+                if let Pattern::Name { name, .. } = &binding.pattern {
+                    if name == target {
+                        result = binding.value.as_ref().and_then(class_of_construct);
+                    }
+                }
+            }
+            Statement::Expr {
+                expr: Expr::Assignment(assignment),
+                ..
+            } => {
+                if let Expr::Var { value: name, .. } = assignment.name.as_ref() {
+                    if name == target {
+                        result = class_of_construct(&assignment.value);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    result
 }
 
 /// If `expr` is a message send to a capitalized `Var` receiver (`Cls.new(...)`,
@@ -240,30 +357,35 @@ fn class_of_construct(expr: &Expr) -> Option<String> {
     None
 }
 
-/// Builds the completion item list for a (possibly unresolved) receiver class.
+/// Builds the completion item list for a (possibly unresolved) receiver class
+/// and [`ReceiverKind`].
 ///
-/// - `Some(class)` and the class has known members: that class's own members
-///   plus, walking [`WorkspaceIndex::class_parent`], its user-class ancestors'
-///   members, stopping at (and including) the first builtin ancestor whose
-///   members come from [`CoreTable`]. De-duplicated by selector, most-derived
-///   winning.
-/// - `Some(class)` but no members resolve, or `None`: the full builtin surface
-///   ([`CoreTable::all_members`]) — the graceful "receiver type unknown"
-///   fallback.
+/// - `Some((class, kind))` and the class has known members: that class's own
+///   members plus, walking [`WorkspaceIndex::class_parent`], its user-class
+///   ancestors' members up to (and including) the first builtin ancestor
+///   whose members come from [`CoreTable`] — de-duplicated by selector,
+///   most-derived winning — then filtered by `kind` (see
+///   `filter_by_receiver_kind`) so an instance receiver never sees a
+///   `static`/`construct` member and a class-object receiver sees *only*
+///   those.
+/// - `Some((class, _))` but no members resolve at all, or `None`: the full
+///   builtin surface ([`CoreTable::all_members`]), unfiltered — the graceful
+///   "receiver type unknown" fallback (never worse than pre-Stage-3
+///   completion).
 ///
 /// Items are returned sorted by label for a deterministic order.
 pub fn completions(
-    resolved: Option<&str>,
+    resolved: Option<(&str, ReceiverKind)>,
     index: &WorkspaceIndex,
     table: &CoreTable,
 ) -> Vec<CompletionItem> {
     let members = match resolved {
-        Some(class) => {
+        Some((class, kind)) => {
             let collected = collect_class_members(class, index, table);
             if collected.is_empty() {
                 table_members(table)
             } else {
-                collected
+                filter_by_receiver_kind(collected, kind)
             }
         }
         None => table_members(table),
@@ -272,6 +394,24 @@ pub fn completions(
     let mut items: Vec<CompletionItem> = members.iter().map(to_completion_item).collect();
     items.sort_by(|a, b| a.label.cmp(&b.label));
     items
+}
+
+/// Filters `members` down to the ones dispatchable on a receiver of `kind`:
+/// an [`ReceiverKind::Instance`] receiver keeps only instance-side members
+/// (drops [`MemberKind::StaticMethod`]/[`MemberKind::Construct`]); a
+/// [`ReceiverKind::ClassObject`] receiver keeps *only* those class-side
+/// members.
+fn filter_by_receiver_kind(members: Vec<ClassMemberInfo>, kind: ReceiverKind) -> Vec<ClassMemberInfo> {
+    members
+        .into_iter()
+        .filter(|member| {
+            let is_class_side = matches!(member.kind, MemberKind::StaticMethod | MemberKind::Construct);
+            match kind {
+                ReceiverKind::Instance => !is_class_side,
+                ReceiverKind::ClassObject => is_class_side,
+            }
+        })
+        .collect()
 }
 
 /// The full builtin surface as [`ClassMemberInfo`]s.
@@ -286,14 +426,27 @@ fn table_members(table: &CoreTable) -> Vec<ClassMemberInfo> {
         .collect()
 }
 
+/// The class every user class implicitly extends when it writes no `extends`
+/// clause (object-model.md §5.1).
+const IMPLICIT_ROOT_CLASS: &str = "Object";
+
 /// Collects the members visible on `class`: its own, plus inherited members
 /// up the `extends` chain, stopping at (and including) the first builtin
 /// ancestor.
 ///
-/// Builtin superclass chains are not encoded in `core-table.json`, so a
-/// builtin ancestor contributes only its own listed members and terminates the
-/// walk. A cycle guard bounds the walk defensively against a malformed
-/// (self-inheriting) chain.
+/// A user class's parent defaults to [`IMPLICIT_ROOT_CLASS`] whenever
+/// [`WorkspaceIndex::class_parent`] reports no explicit `extends` — both for
+/// a class that never wrote one, and for a chain that ends at a user class
+/// with no further `extends` — so `Object`'s selectors (`==`, `hash`,
+/// `isNil`, …) are always eventually walked, closing the "implicit `Object`
+/// never offered" gap (`docs/forge/DEFERRED.md`, Stage 3).
+///
+/// Builtin superclass chains beyond that one implicit step are not encoded in
+/// `core-table.json`, so a builtin ancestor (`Object` included) contributes
+/// only its own listed members and terminates the walk. A cycle guard bounds
+/// the walk defensively against a malformed (self-inheriting) chain, and also
+/// prevents `Object` from being visited twice if a chain already reaches it
+/// explicitly.
 fn collect_class_members(
     class: &str,
     index: &WorkspaceIndex,
@@ -314,7 +467,11 @@ fn collect_class_members(
                     out.push(member);
                 }
             }
-            current = index.class_parent(&name);
+            current = Some(
+                index
+                    .class_parent(&name)
+                    .unwrap_or_else(|| IMPLICIT_ROOT_CLASS.to_string()),
+            );
         } else if let Some(members) = table.class_members(&name) {
             for member in members {
                 if seen.insert(member.selector.clone()) {
@@ -445,8 +602,8 @@ mod tests {
         // Position at end of `m.` on line 1.
         let pos = Position { line: 1, character: 2 };
         assert_eq!(
-            ConstructResolver.resolve(&doc, pos).as_deref(),
-            Some("Mover")
+            ConstructResolver.resolve(&doc, pos),
+            Some(("Mover".to_string(), ReceiverKind::Instance))
         );
     }
 
@@ -456,6 +613,93 @@ mod tests {
         let doc = Document::new(src.to_string());
         let pos = Position { line: 1, character: 2 };
         assert_eq!(ConstructResolver.resolve(&doc, pos), None);
+    }
+
+    #[test]
+    fn construct_resolver_bare_capitalized_receiver_is_class_object() {
+        let src = "Mover.\n";
+        let doc = Document::new(src.to_string());
+        let pos = Position { line: 0, character: 6 };
+        assert_eq!(
+            ConstructResolver.resolve(&doc, pos),
+            Some(("Mover".to_string(), ReceiverKind::ClassObject))
+        );
+    }
+
+    #[test]
+    fn construct_resolver_self_resolves_to_enclosing_class_as_instance() {
+        // Cursor sits right after the `.`, before `size` — the shape
+        // `receiver_prefix` needs to read a complete, parseable `self.size`
+        // access rather than a dangling `self.` (which the parser cannot
+        // recover a full method body from).
+        let src = "class Mover {\n  move() {\n    self.size\n  }\n}\n";
+        let doc = Document::new(src.to_string());
+        let pos = Position { line: 2, character: 9 };
+        assert_eq!(
+            ConstructResolver.resolve(&doc, pos),
+            Some(("Mover".to_string(), ReceiverKind::Instance))
+        );
+    }
+
+    #[test]
+    fn construct_resolver_self_outside_any_class_is_none() {
+        let src = "self.\n";
+        let doc = Document::new(src.to_string());
+        let pos = Position { line: 0, character: 5 };
+        assert_eq!(ConstructResolver.resolve(&doc, pos), None);
+    }
+
+    #[test]
+    fn construct_resolver_reassignment_wins_over_earlier_binding() {
+        // `m` is first bound to a `Car`, then reassigned to a `Mover` before
+        // the completion point — the reassignment must win.
+        let src = "let m = Car.new();\nm = Mover.new();\nm.\n";
+        let doc = Document::new(src.to_string());
+        let pos = Position { line: 2, character: 2 };
+        assert_eq!(
+            ConstructResolver.resolve(&doc, pos),
+            Some(("Mover".to_string(), ReceiverKind::Instance))
+        );
+    }
+
+    #[test]
+    fn construct_resolver_ignores_binding_lexically_after_the_cursor() {
+        // The `Mover` rebind happens *after* the completion point; only the
+        // original `Car` binding is visible there.
+        let src = "let m = Car.new();\nm.\nm = Mover.new();\n";
+        let doc = Document::new(src.to_string());
+        let pos = Position { line: 1, character: 2 };
+        assert_eq!(
+            ConstructResolver.resolve(&doc, pos),
+            Some(("Car".to_string(), ReceiverKind::Instance))
+        );
+    }
+
+    #[test]
+    fn construct_resolver_sibling_method_binding_does_not_leak() {
+        // `m` inside `other()` is a completely separate scope from the `m.`
+        // completion inside `move()` — the sibling's binding must not apply.
+        // Cursor sits right after the `.`, before `next`, so the source stays
+        // a fully parseable `m.next` access (a dangling `m.` at buffer end
+        // does not recover a usable method-body range, see the `self`
+        // resolver test's note).
+        let src = "class Mover {\n  other() {\n    let m = Truck.new();\n  }\n  move() {\n    m.next\n  }\n}\n";
+        let doc = Document::new(src.to_string());
+        let pos = Position { line: 5, character: 6 };
+        assert_eq!(ConstructResolver.resolve(&doc, pos), None);
+    }
+
+    #[test]
+    fn construct_resolver_nested_block_binding_does_not_leak_to_outer_scope() {
+        // The `Truck` binding lives only inside the nested block; the outer
+        // `m.` after the block still sees the outer `Car` binding.
+        let src = "let m = Car.new();\n{\n  let m = Truck.new();\n};\nm.\n";
+        let doc = Document::new(src.to_string());
+        let pos = Position { line: 4, character: 2 };
+        assert_eq!(
+            ConstructResolver.resolve(&doc, pos),
+            Some(("Car".to_string(), ReceiverKind::Instance))
+        );
     }
 
     #[test]
@@ -479,7 +723,7 @@ mod tests {
             "file:///a.ph",
             "class Point {\n  move(x, to:) { }\n  size { }\n}\n",
         );
-        let items = completions(Some("Point"), &index, CoreTable::bundled());
+        let items = completions(Some(("Point", ReceiverKind::Instance)), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"move(_,to)"));
         assert!(labels.contains(&"size"));
@@ -493,19 +737,90 @@ mod tests {
             "file:///a.ph",
             "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n",
         );
-        let items = completions(Some("Dog"), &index, CoreTable::bundled());
+        let items = completions(Some(("Dog", ReceiverKind::Instance)), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
         assert!(labels.contains(&"eat()"));
     }
 
     #[test]
+    fn completions_walk_implicit_object_parent_when_no_extends() {
+        // `Point` writes no `extends` clause; its implicit parent is `Object`,
+        // whose own members (`hash`, `toString`, …) must be offered too.
+        let index = index_with("file:///a.ph", "class Point {\n  size { }\n}\n");
+        let items = completions(Some(("Point", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"size"));
+        assert!(labels.contains(&"hash"), "{labels:#?}");
+        assert!(labels.contains(&"toString"), "{labels:#?}");
+        // `Object.new()` is class-side (`static-method`) — must not appear on
+        // an instance receiver.
+        assert!(!labels.contains(&"new()"), "{labels:#?}");
+    }
+
+    #[test]
+    fn completions_walk_implicit_object_parent_past_a_user_superclass_chain() {
+        // `Animal` also writes no `extends`, so `Dog`'s walk must reach
+        // `Object` past `Animal`, not stop at `Animal`.
+        let index = index_with(
+            "file:///a.ph",
+            "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n",
+        );
+        let items = completions(Some(("Dog", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"bark()"));
+        assert!(labels.contains(&"eat()"));
+        assert!(labels.contains(&"hash"), "{labels:#?}");
+    }
+
+    #[test]
     fn completions_for_builtin_class() {
         let index = WorkspaceIndex::new();
-        let items = completions(Some("Bool"), &index, CoreTable::bundled());
+        let items = completions(Some(("Bool", ReceiverKind::Instance)), &index, CoreTable::bundled());
         assert!(!items.is_empty());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"ifTrue(_)"));
+    }
+
+    #[test]
+    fn completions_instance_receiver_excludes_static_and_construct_members() {
+        // `Object` carries both an instance getter (`name`) and class-side
+        // members (`new()` static, per `core-table.json`); an instance
+        // receiver must drop the class-side ones.
+        let index = WorkspaceIndex::new();
+        let items = completions(Some(("Object", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"name"), "{labels:#?}");
+        assert!(!labels.contains(&"new()"), "{labels:#?}");
+    }
+
+    #[test]
+    fn completions_class_object_receiver_offers_only_static_and_construct_members() {
+        let index = WorkspaceIndex::new();
+        let items = completions(Some(("Object", ReceiverKind::ClassObject)), &index, CoreTable::bundled());
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"new()"), "{labels:#?}");
+        // Instance-side members must not leak onto the class-object side.
+        assert!(!labels.contains(&"name"), "{labels:#?}");
+        assert!(!labels.contains(&"hash"), "{labels:#?}");
+    }
+
+    #[test]
+    fn completions_class_object_receiver_offers_user_static_method_only() {
+        // A user class with a `static` method and an instance method: the
+        // class-object receiver must see only the `static` one.
+        let index = index_with(
+            "file:///a.ph",
+            "class Counter {\n  static make() { }\n  next() { }\n}\n",
+        );
+        let items = completions(
+            Some(("Counter", ReceiverKind::ClassObject)),
+            &index,
+            CoreTable::bundled(),
+        );
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"make()"), "{labels:#?}");
+        assert!(!labels.contains(&"next()"), "{labels:#?}");
     }
 
     #[test]
@@ -514,7 +829,11 @@ mod tests {
         let none = completions(None, &index, CoreTable::bundled());
         assert!(!none.is_empty());
         // Unresolvable class name also falls back rather than returning empty.
-        let unknown = completions(Some("Nonexistent"), &index, CoreTable::bundled());
+        let unknown = completions(
+            Some(("Nonexistent", ReceiverKind::Instance)),
+            &index,
+            CoreTable::bundled(),
+        );
         assert_eq!(none.len(), unknown.len());
     }
 

@@ -384,15 +384,33 @@ struct CollectedClass {
 /// Maps an AST [`ClassMember`] to the [`MemberKind`] the completion path
 /// renders it under.
 ///
-/// A `construct` renders like a method (parenthesized, argument slots).
+/// An instance [`MethodDef`]/[`GetterDef`]/[`SetterDef`] (`is_static: false`)
+/// maps to the matching instance-side kind; a `static` one maps to
+/// [`MemberKind::StaticMethod`] regardless of its declaration shape, so the
+/// receiver-kind filter in [`crate::completion`] can tell class-side members
+/// apart from instance-side ones for **user** classes too (previously only
+/// `core-table.json`'s builtin members carried this distinction).
+///
+/// A `construct` is a class-side factory — [`MemberKind::Construct`], never
+/// dispatched on an instance.
 ///
 /// A declared field (U-ANNOT-LAYOUT §3.1) renders like a getter — bare name,
 /// no parens, no synthesized accessor yet.
+///
+/// A `@variant` arm ([`ClassMember::Variant`]) is not a message selector at
+/// all (see [`crate::selectors::class_member_selector`]'s doc); it renders as
+/// [`MemberKind::Getter`] only so it has *some* harmless completion-item
+/// shape rather than being silently dropped.
 fn member_kind(member: &ClassMember) -> MemberKind {
     match member {
-        ClassMember::Method(_) | ClassMember::Construct(_) => MemberKind::Method,
-        ClassMember::Getter(_) | ClassMember::Field(_) => MemberKind::Getter,
+        ClassMember::Method(m) if m.is_static => MemberKind::StaticMethod,
+        ClassMember::Method(_) => MemberKind::Method,
+        ClassMember::Construct(_) => MemberKind::Construct,
+        ClassMember::Getter(g) if g.is_static => MemberKind::StaticMethod,
+        ClassMember::Getter(_) => MemberKind::Getter,
+        ClassMember::Setter(s) if s.is_static => MemberKind::StaticMethod,
         ClassMember::Setter(_) => MemberKind::Setter,
+        ClassMember::Field(_) | ClassMember::Variant(_) => MemberKind::Getter,
     }
 }
 
@@ -536,6 +554,11 @@ impl Collector {
                     if let Some(default) = &f.default {
                         self.walk_expr(default);
                     }
+                }
+                // No body and no default-valued sub-expression to walk (see
+                // `member_kind`'s doc for why this isn't a real selector).
+                ClassMember::Variant(v) => {
+                    self.definitions.push((selector, v.range, class, kind));
                 }
             }
         }

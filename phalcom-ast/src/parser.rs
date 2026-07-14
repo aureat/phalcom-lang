@@ -900,7 +900,9 @@ impl<'source> Parser<'source> {
         }
         let start = self.cur_start();
         self.expect(&Token::Class, &["\"class\""])?;
+        let name_start = self.cur_start();
         let name = self.expect_identifier(&["identifier"])?;
+        let name_range = (name_start..self.prev_end).into();
 
         // Contextual `extends` (DEC-INH-A, U-INH): `extends` is not a reserved
         // word — it is recognised as a keyword only here, immediately after the
@@ -933,6 +935,7 @@ impl<'source> Parser<'source> {
             attributes: header_attrs,
             invariants,
             range,
+            name_range,
         }))
     }
 
@@ -1233,7 +1236,9 @@ impl<'source> Parser<'source> {
             return self.parse_field_decl(start);
         }
         if self.eat(&Token::Construct) {
+            let name_start = self.cur_start();
             let name = self.parse_method_name()?;
+            let name_range = (name_start..self.prev_end).into();
             self.expect(&Token::LParen, &["\"(\""])?;
             let params = self.parse_param_list()?;
             self.expect(&Token::RParen, &["\")\""])?;
@@ -1244,10 +1249,13 @@ impl<'source> Parser<'source> {
                 params,
                 body,
                 range,
+                name_range,
             }));
         }
         let is_static = self.eat(&Token::Static);
+        let name_start = self.cur_start();
         let name = self.parse_method_name()?;
+        let name_range = (name_start..self.prev_end).into();
         let has_equal = self.eat(&Token::Equal);
         if has_equal && name.starts_with('_') {
             let expr = self.parse_expr()?;
@@ -1259,6 +1267,7 @@ impl<'source> Parser<'source> {
                 is_static,
                 attributes: Vec::new(),
                 range,
+                name_range,
             }));
         }
         let params = if self.eat(&Token::LParen) {
@@ -1287,6 +1296,7 @@ impl<'source> Parser<'source> {
                 is_static,
                 attributes: Vec::new(),
                 range,
+                name_range,
             }))
         } else if let Some(params) = params {
             Ok(ClassMember::Method(MethodDef {
@@ -1296,6 +1306,7 @@ impl<'source> Parser<'source> {
                 is_static,
                 attributes: Vec::new(),
                 range,
+                name_range,
             }))
         } else {
             Ok(ClassMember::Getter(GetterDef {
@@ -1304,6 +1315,7 @@ impl<'source> Parser<'source> {
                 is_static,
                 attributes: Vec::new(),
                 range,
+                name_range,
             }))
         }
     }

@@ -38,6 +38,10 @@ Program {
                                 start: 38,
                                 end: 62,
                             },
+                            name_range: CopyRange {
+                                start: 38,
+                                end: 41,
+                            },
                         },
                     ),
                 ],
@@ -76,6 +80,10 @@ Program {
                 range: CopyRange {
                     start: 0,
                     end: 64,
+                },
+                name_range: CopyRange {
+                    start: 6,
+                    end: 11,
                 },
             },
         ),

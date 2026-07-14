@@ -92,6 +92,10 @@ Program {
                                 start: 35,
                                 end: 62,
                             },
+                            name_range: CopyRange {
+                                start: 35,
+                                end: 38,
+                            },
                         },
                     ),
                 ],
@@ -100,6 +104,10 @@ Program {
                 range: CopyRange {
                     start: 0,
                     end: 64,
+                },
+                name_range: CopyRange {
+                    start: 6,
+                    end: 11,
                 },
             },
         ),

@@ -757,6 +757,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
         params,
         body,
         range: attr_range,
+        name_range: attr_range,
     }));
     Ok(())
 }
@@ -867,6 +868,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     is_static: false,
                     attributes: Vec::new(),
                     range: attr.range,
+                    name_range: attr.range,
                 }));
             } else if attr.name == "set" {
                 check_accessor_collision(class, ctx, &base_name, SignatureKind::Setter, "set")?;
@@ -881,6 +883,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     is_static: false,
                     attributes: Vec::new(),
                     range: attr.range,
+                    name_range: attr.range,
                 }));
             }
         }
@@ -1129,6 +1132,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                     is_static: false,
                     attributes: Vec::new(),
                     range: attr_range,
+                    name_range: attr_range,
                 }));
             }
         }
@@ -1141,6 +1145,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             is_static: false,
             attributes: Vec::new(),
             range: attr_range,
+            name_range: attr_range,
         }));
 
         let hash_body = build_data_hash(&fields, attr_range);
@@ -1150,6 +1155,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             is_static: false,
             attributes: Vec::new(),
             range: attr_range,
+            name_range: attr_range,
         }));
     }
 
@@ -1162,6 +1168,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             is_static: false,
             attributes: Vec::new(),
             range: attr_range,
+            name_range: attr_range,
         }));
     }
 
@@ -1185,6 +1192,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 is_static: false,
                 attributes: Vec::new(),
                 range: attr_range,
+                name_range: attr_range,
             }));
         }
     }
@@ -1301,6 +1309,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             is_static: false,
             attributes: Vec::new(),
             range: v.range,
+            name_range: v.range,
         }));
 
         siblings.push(Statement::Class(ClassDef {
@@ -1310,6 +1319,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             attributes: vec![Attribute { name: "data".to_string(), args: Vec::new(), range: v.range }],
             invariants: Vec::new(),
             range: v.range,
+            name_range: v.range,
         }));
     }
 
@@ -1341,6 +1351,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         is_static: false,
         attributes: Vec::new(),
         range: match_range,
+        name_range: match_range,
     }));
 
     Ok(siblings)

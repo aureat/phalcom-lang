@@ -139,6 +139,16 @@ pub struct ClassDef {
     /// [ADR-0052](../../../docs/adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
     pub invariants: Vec<(Expr, SourceRange)>,
     pub range: SourceRange,
+    /// The source span of just the class name identifier (e.g. the `Foo` in
+    /// `class Foo extends Bar { … }`), distinct from [`Self::range`]'s
+    /// whole-declaration span. Lets a downstream consumer (e.g.
+    /// `phalcom-lsp`'s `semanticTokens/full` pass) highlight the declared
+    /// name itself with a `class`-token type without heuristically
+    /// re-scanning `range` for the first matching identifier — a prior
+    /// attempt at that heuristic was rejected as unsound (nothing guarantees
+    /// the first occurrence of `name` inside `range` is the declaration
+    /// token rather than an incidental earlier one).
+    pub name_range: SourceRange,
 }
 
 /// A `@name(args…)` attribute attached to a class or class member.
@@ -276,6 +286,11 @@ pub struct ConstructDef {
     pub params: Vec<ParameterDef>,
     pub body: Vec<Statement>,
     pub range: SourceRange,
+    /// The source span of just the constructor's name/selector token (the
+    /// `init` in `construct init(x) { … }`), distinct from [`Self::range`]'s
+    /// whole-declaration span. See [`ClassDef::name_range`]'s doc for why this
+    /// exists as its own field rather than being re-derived from `range`.
+    pub name_range: SourceRange,
 }
 
 /// A single parameter in a method/constructor parameter list.
@@ -312,6 +327,11 @@ pub struct MethodDef {
     /// during class expansion.
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
+    /// The source span of just the method's name/selector token, distinct
+    /// from [`Self::range`]'s whole-declaration span. See
+    /// [`ClassDef::name_range`]'s doc for why this exists as its own field
+    /// rather than being re-derived from `range`.
+    pub name_range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
@@ -323,6 +343,11 @@ pub struct GetterDef {
     /// order. See [`MethodDef::attributes`].
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
+    /// The source span of just the getter's name token, distinct from
+    /// [`Self::range`]'s whole-declaration span. See
+    /// [`ClassDef::name_range`]'s doc for why this exists as its own field
+    /// rather than being re-derived from `range`.
+    pub name_range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
@@ -335,6 +360,11 @@ pub struct SetterDef {
     /// order. See [`MethodDef::attributes`].
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
+    /// The source span of just the setter's name token (excluding the
+    /// trailing `=`), distinct from [`Self::range`]'s whole-declaration span.
+    /// See [`ClassDef::name_range`]'s doc for why this exists as its own
+    /// field rather than being re-derived from `range`.
+    pub name_range: SourceRange,
 }
 
 /// Whether a binding is immutable (`let`) or mutable (`var`).

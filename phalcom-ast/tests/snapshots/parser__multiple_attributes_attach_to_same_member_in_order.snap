@@ -124,6 +124,10 @@ Program {
                                 start: 56,
                                 end: 83,
                             },
+                            name_range: CopyRange {
+                                start: 56,
+                                end: 59,
+                            },
                         },
                     ),
                 ],
@@ -132,6 +136,10 @@ Program {
                 range: CopyRange {
                     start: 0,
                     end: 85,
+                },
+                name_range: CopyRange {
+                    start: 6,
+                    end: 11,
                 },
             },
         ),
