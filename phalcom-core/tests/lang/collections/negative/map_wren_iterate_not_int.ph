@@ -1,15 +1,16 @@
 // area: collections
-// spec: map-and-set.md §2; iteration.md §1; ADR-0039
+// spec: map-and-set.md §2; iteration.md §1; ADR-0039; ADR-0048
 // status: NEGATIVE
 // Adapted from wren/test/core/map/iterate_iterator_not_int.wren. Wren's
 // `iterate(_)` takes a raw int cursor and type-checks it directly; Phalcom's
-// `iterate(_)` (C-ITER-9) takes an `Option` cursor and calls `.map(_)` on it
-// — passing a bare `Number` instead of `None`/`Some(_)` is not a dedicated
-// cursor-type check but the same underlying misuse (a non-cursor value where
-// the cursor protocol expects one), surfacing as `Number does not understand
-// 'map(_:)'`.
+// post-Route-B `iterate(_)` (C-ITER-9, ADR-0048) does `cursor + 1` directly —
+// not a dedicated cursor-type check — so a value that arithmetic itself
+// rejects (a `String`, matching `range_iterate_wrong_cursor_type.ph`'s
+// pattern) is the misuse this pins, surfacing as `Expected String, got
+// number` (a bare `Number` like `1.5` no longer errors here: `1.5 + 1`
+// succeeds and just walks off the end into `None`).
 
 let m = Map.new()
 m.at(1, put: 2)
 m.at(3, put: 4)
-m.iterate(1.5)
+m.iterate("")

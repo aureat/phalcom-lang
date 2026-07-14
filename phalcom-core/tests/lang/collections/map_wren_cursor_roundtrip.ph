@@ -1,22 +1,22 @@
 // area: collections
-// spec: map-and-set.md §2; iteration.md §1; ADR-0035 §1; ADR-0039
+// spec: map-and-set.md §2; iteration.md §1; ADR-0035 §1; ADR-0039; ADR-0048
 // status: PASS
 // Adapted from wren/test/core/map/{iterate,iterator_value}.wren onto
-// Phalcom's cursor protocol (ADR-0048 bare-cursor sentinel): Wren's cursor is
-// a raw int/`null`-terminated sequence with implementation-defined values;
-// Phalcom's is the `None`/`Some(index)` two-selector protocol
-// (`iterate(_)`/`iteratorValue(_)`, C-ITER-9), so this pins the *shape*
-// directly rather than asserting "is a Num and increasing" as Wren does.
-// `iteratorValue(_)` yields the KEY (DEC-CT-E: both Map and Set yield keys
-// via the cursor; there is no `MapEntry` wrapper — Wren's `MapEntry` has no
-// Phalcom analog).
+// Phalcom's cursor protocol: Wren's cursor is a raw int/`null`-terminated
+// sequence with implementation-defined values; Phalcom's (post-Route B,
+// U-ITERABLE, ADR-0048) is the bare-index/`None`-end-sentinel protocol
+// (`iterate(_)`/`iteratorValue(_)`, C-ITER-9) — no per-step `Some` wrapper —
+// so this pins the *shape* directly rather than asserting "is a Num and
+// increasing" as Wren does. `iteratorValue(_)` yields the KEY (DEC-CT-E:
+// both Map and Set yield keys via the cursor; there is no `MapEntry`
+// wrapper — Wren's `MapEntry` has no Phalcom analog).
 
 let m = Map.new()
 m.at("one", put: 1)
 
 var c = m.iterate(None)
 System.print(c)
-System.print(m.iteratorValue(c.unwrapOr(0)))
+System.print(m.iteratorValue(c))
 
 // The map mutating afterward does not retroactively change an already-read
 // value (there is no MapEntry snapshot object in Phalcom — the value was
@@ -30,7 +30,7 @@ m2.at(1, put: "a")
 m2.at(2, put: "b")
 var cursor = m2.iterate(None)
 var seen = 0
-while (cursor.isSome) {
+while (cursor != None) {
   seen = seen + 1
   cursor = m2.iterate(cursor)
 }

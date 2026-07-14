@@ -71,7 +71,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0041 | Hierarchy-stability policy — sealed reparent, single inheritance | Accepted | | ✅ |
 | 0042 | Flat `Number`, defer split | Retired | ADR-0024 (ruled 2026-07-14) | — moot, superseded before build |
 | 0043 | No default arguments | Accepted | | ✅ |
-| 0044 | `Option` bootstrap formalization; defer niche-encoding | Accepted | | ✅ (correctness half only — niche-encoding itself deferred) |
+| 0044 | `Option` bootstrap formalization; defer niche-encoding | Accepted | | ✅ (correctness half only — niche-encoding itself deferred; `8d401f4` Track 2 sealed `Option`/`Some`/`None` against user subclassing, answering this ADR's open subclass-compatibility question by ruling it moot) |
 | 0045 | `import` relative-path, whole-module binding | Accepted | | ✅ |
 | 0046 | Destructuring `let`/`var` — tuple + list/`*rest` | Accepted | | ✅ |
 | 0047 | `::` method references (Open form); amend floor | Accepted | | ✅ |

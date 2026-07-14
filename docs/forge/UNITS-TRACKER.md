@@ -50,6 +50,7 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 - [x] **U-CORE-6** — [as-built](units/U-CORE-6/as-built.md) — `85c4e1d` `Error` root + `MessageNotUnderstood`, wired into the unified unwind.
 - [x] **U12** — [plan](units/U12/plan.md) — *(decision closed, no code)* `f16b58a` DEC-U12=A: keep flat `f64` `Number`, Integer/Float split deferred.
 - [x] **U17** — [plan](units/U17/plan.md) — *(decision closed, no code)* `0ff3239` ADR-0044: formalize `None`/`Option` bootstrap-cycle avoidance; niche-encoding deferred.
+- [x] **Track 2 (Option/Some/None sealing)** — `8d401f4` `Option`/`Some`/`None` registered in `VM::sealed_classes` at bootstrap, reusing `attr.sealed_violation` enforcement (`class_decl.rs`); user subclassing now a compile error. `None`'s singleton global binding untouched (no `.ph` reopen — would clobber the global back to the class object). 3 `compile-errors` fixtures added (`absence_{option,some,none}_sealed_violation.ph`), `compile_errors` test green. Answers ADR-0044's open subclass-compatibility question for niche-encoding by ruling the fallback-tier question moot — subclassing is no longer possible at all.
 
 ## 3. Object model & inheritance
 
@@ -71,8 +72,8 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 - [x] **U-ITER-FIX** — [plan](units/U-ITER-FIX/plan.md) — four loop-control follow-ons: `9288ad5` materialized-block break/continue trap, `ac4f721` bare-`while` break/continue, `08a323b` fresh loop-var cell per iteration, `b566e6b` jump-helper dedup.
 - [x] **U-COLLTYPES** — [plan](units/U-COLLTYPES/plan.md) — native `Map`/`Set` (`be8426e`), `Tuple` (`2d140f0`), `Range` (`f934cf1`), map-literal wire (`10e1715`) — ADR-0032/0039 floor amendment.
 - [x] **U-STD** — *(see §1 — List#each migrated onto cursor protocol here, `c35171a`, alongside this track)*
-- [x] **U-ITERABLE** *(golden suite red)* — [plan](units/U-ITERABLE/plan.md) — bare-cursor Route B (raw index cursor + `None` end-sentinel, no per-step `Some` allocation) + kernel `Iterable` root (`core.ph:309`) hoisting `each`/`map`/`filter`/`reduce` (ADR-0048). Code landed and live, but **5 golden fixtures never rebaselined** off the pre-Route-B Option-wrapped-cursor protocol — `list`, `collections`, `collections_literals_negative`, `indexing`, `indexing_negative` all fail `./scripts/verify.sh` (e.g. `list_wren_iterate_cursor_protocol.ph` still expects `Some(0)`/`Some(1)`/… but gets bare `0`/`1`/…). Do not treat as gate-clean until these are fixed.
-- [ ] **U-SEQ** — [plan](units/U-SEQ/plan.md) · [spec](units/U-SEQ/implementation-spec.md) — unblocked now that `U-ITERABLE` has landed (see caveat above — fix the golden-suite regression first). Sequence-breadth combinators (`all`/`any`/`count`/`find`/`join`) + lazy views (`MapView`/`WhereView`/…).
+- [x] **U-ITERABLE** — [plan](units/U-ITERABLE/plan.md) — bare-cursor Route B (raw index cursor + `None` end-sentinel, no per-step `Some` allocation) + kernel `Iterable` root (`core.ph:309`) hoisting `each`/`map`/`filter`/`reduce` (ADR-0048). Golden suite rebaselined off the pre-Route-B Option-wrapped-cursor protocol: `list_wren_iterate_cursor_protocol`, `map_wren_cursor_roundtrip`, `range_cursor_protocol_direct` (bare `0`/`1`/… + `None` sentinel, no `Some.new(_)`/`.unwrapOr`/`.isSome`), plus 3 negative fixtures (`map_wren_iterate_not_int/not_num`, `range_iterate_wrong_cursor_type`) updated from the old `does not understand 'map(_)'` dNU to the new arithmetic rejection `Expected String, got number` — `cursor + 1` on a non-numeric cursor is the natural error now, not a `.map(_)` dispatch on a non-`Option`. `./scripts/verify.sh` green for all of these. Gate-clean for Route B itself — **unrelated** pre-existing gap remains in `indexing`/`indexing_negative` (bracket-selector method-definition syntax `[i] { ... }` and empty-bracket calls `xs[]` don't parse at all; predates this unit, `26747d0`) — tracked separately, not a U-ITERABLE regression.
+- [ ] **U-SEQ** — [plan](units/U-SEQ/plan.md) · [spec](units/U-SEQ/implementation-spec.md) — unblocked, `U-ITERABLE`'s golden-suite regression is fixed. Sequence-breadth combinators (`all`/`any`/`count`/`find`/`join`) + lazy views (`MapView`/`WhereView`/…).
 - [ ] **U-STRING** — [plan](units/U-STRING/plan.md) — `rawByteCount`/`rawByteAt`/`rawSlice` + `System.rawWrite` funnel (ADR-0019 floor amendment, ADR-0049 draft). Independent of Iterable/Seq — can dispatch in parallel with either.
 
 ## 6. Concurrency (`Fiber` / `Future` / scheduler)
@@ -96,7 +97,7 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 
 ## 8. Indexing / subscript
 
-- [x] **U-INDEX** — [plan](units/U-INDEX/plan.md) — `47b0b22` postfix `[]` read/write sugar over a dedicated `[](...)`/`[](...,put:)` operator selector.
+- [ ] **U-INDEX** *(stale-marked, correcting)* — [plan](units/U-INDEX/plan.md) — `47b0b22` landed the **original, since-superseded** ADR-0055 draft: `xs[i]`/`xs[i]=v` desugar straight to `.at(i)`/`.at(i,put:)`, single-expr only. ADR-0060 (docs-only, `1767463`) revised the design: `[]` becomes its own dedicated, user-definable operator-selector (`[](_)`/`[](_,put:)`, joining `==`/`+`/`<`), `[...]` is arg-list-shaped (`xs[i,j]`, empty `xs[]` cleanly dNUs) via `parse_arg_list()`, `core.ph` needs explicit `[](...)` wrapper methods. That revision was never implemented — `parse_method_name` has no `[`/`]` arm, so `class C { [](i) {...} }` is a parse error, and the old single-expr `[...]` doesn't short-circuit on empty brackets. `indexing`/`indexing_negative` golden lanes are red on exactly these two gaps. Not gate-clean; do not re-mark done until the plan's build order actually lands.
 
 ## 9. Annotations, contracts & layout
 
@@ -128,8 +129,8 @@ everything else in this group; the rest can reorder based on what the baseline s
 
 ## Suggested next dispatch (given current state)
 
-1. **Fix the U-ITERABLE golden-suite regression** (§5) — top priority, `./scripts/verify.sh` is currently red: rebaseline `list`, `collections`, `collections_literals_negative`, `indexing`, `indexing_negative` off the pre-Route-B Option-wrapped-cursor protocol onto bare-index Route B output.
+1. **Fix the `indexing`/`indexing_negative` bracket-selector gap** — `./scripts/verify.sh` is red on these two: bracket-selector method-definition syntax (`[i] { ... }`) and empty-bracket calls (`xs[]`) don't parse at all; predates `U-ITERABLE`, unrelated to Route B. Not yet assigned a unit.
 2. **Close out `U-GC`** (§11) — steps 0–4 landed, step 5 done as a second null result (stashed, not shipped); still needs `DEFERRED.md` M-RUNTIME note, perf numbers, miri lane, and `phalcom-reviewer` sign-off (spine files).
 3. **`U-FUTURE` Slice B** (§6) — fully unblocked now, highest-value concurrency work left.
-4. **`U-SEQ`** (§5) — now unblocked by `U-ITERABLE`; dispatch once the golden-suite regression above is fixed.
+4. **`U-SEQ`** (§5) — unblocked, `U-ITERABLE`'s golden-suite regression is fixed.
 5. Walk the remaining perf tiers (§11) as time allows — lowest urgency, gated on wanting perf work at all.
