@@ -45,6 +45,15 @@ The root set is exactly:
 
 > **Verified against HEAD 2026-07-14.** `ClassId` is a type alias for `ObjRef`
 > (`heap/mod.rs`), so every row below names the same handle type.
+>
+> **This table is no longer the enforcement mechanism — the code is.**
+> `VM::collect_roots` (`vm/gc.rs`), `Universe::each_handle` and
+> `CoreClasses::each_handle` are written as **exhaustive destructures**, so a new
+> field on any of the three fails to compile until it is explicitly classified as a
+> root or a non-root. This table documents that classification; it cannot drift
+> ahead of the code without a build error. That inversion is deliberate: three
+> roots (`sealed_classes`, `checking`, `ready_queue`) were missed by hand-auditing
+> this table, the last of them *after* a dedicated audit pass — see forge finding F6.
 
 | Root | Type | Note |
 |---|---|---|
@@ -52,6 +61,7 @@ The root set is exactly:
 | the running fiber's call frames | `VM::frames: Vec<CallFrame>` | each frame's `closure`, its `context` (`Instance`/`Class`/`Module` handle, **or** an `Immediate` `Value` that may be an object), **not** its `home_frame_token` (an index+generation, not a handle) |
 | open upvalue cells | `VM::open_upvalues: BTreeMap<usize, ObjRef>` | the cell handles |
 | the current fiber | `VM::current: ObjRef` | |
+| the scheduler run queue | `VM::ready_queue: VecDeque<ObjRef>` | fibers `System.schedule(_)` has enqueued but not yet resumed (`started == false`). **Reachable from nowhere else** until the pump drains them — missing this root frees a scheduled fiber |
 | loaded modules | `VM::modules`, `main_module`, `last_imported_module` | module handles |
 | named classes | `VM::classes: HashMap<Symbol, ClassId>` | class handles |
 | sealed-class registry | `VM::sealed_classes: HashMap<Symbol, ObjRef>` | the sealing class-object handles (U-ANNOT-LAYOUT, `@sealed`/`@variant`) |

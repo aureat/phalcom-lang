@@ -136,11 +136,25 @@ the table was not written from the code): `ClassObject.name` is a Rust `String`,
 heap object; `MethodObject` owns no chunk — its `MethodKind::Closure(ObjRef)` does, and
 the constants live in `ClosureObject.callable.chunk`.
 
-**Two missed roots** — `VM::sealed_classes: HashMap<Symbol, ObjRef>` (U-ANNOT-LAYOUT)
-and `VM::checking: HashSet<ObjRef>` (U-ANNOT-CONTRACTS). `sealed_classes` is the nastier
-one: it sits among four *genuine* non-roots (`field_layouts`, `class_parents`,
-`constructor_aliases`, `has_new_construct`) that hold only `Symbol`s, and reads like a
-peer of them — but its values are handles.
+**Three missed roots** — `VM::sealed_classes: HashMap<Symbol, ObjRef>` (U-ANNOT-LAYOUT),
+`VM::checking: HashSet<ObjRef>` (U-ANNOT-CONTRACTS), and `VM::ready_queue:
+VecDeque<ObjRef>`. `sealed_classes` is the subtlest: it sits among four *genuine*
+non-roots (`field_layouts`, `class_parents`, `constructor_aliases`,
+`has_new_construct`) that hold only `Symbol`s, and reads like a peer of them — but its
+values are handles.
+
+**`ready_queue` is the important one, because the step-0 audit itself missed it.** It
+holds fibers `System.schedule(_)` has enqueued but not yet resumed — reachable from
+nowhere else, so an unrooted `ready_queue` frees a scheduled fiber. It was missed
+because the audit grepped `^\s+pub [a-z_]+:` and `ready_queue` is `pub(crate)`. A
+regex over field declarations is not an audit; it silently under-reports by exactly
+the visibility modifier you forgot to type.
+
+**The fix is structural, not another audit.** `VM::collect_roots`,
+`Universe::each_handle` and `CoreClasses::each_handle` are now **exhaustive
+destructures** — a new field fails to compile until classified as root or non-root.
+The spec table documents the classification; the code enforces it. `ready_queue` was
+caught the moment the destructure was written, before any test ran.
 
 **Five edges that landed after the table was written**, all from the annotation work:
 `Class.attributes`, `Method.attributes`, `Method.contracts`, `Module.attributes`,
@@ -151,9 +165,35 @@ peer of them — but its values are handles.
   *not* an edge — so the next drift is visible rather than silent.
 - The exhaustive `match` (ADR-0050 §3) catches a new **variant** at compile time but
   **not a new field on an existing variant** — which is exactly how all five annotation
-  edges got in. The field-level table is the only defence; keep regenerating it.
+  edges got in.
+- **The real lesson is that documenting the fix was not the fix.** Step 0 regenerated
+  the table by hand and *still* missed `ready_queue`. What actually worked was making
+  the compiler the enforcer: exhaustive destructures in `collect_roots` /
+  `each_handle`, and a wildcard-free `match` in `trace_object`. Prefer a construct
+  that fails the build over a table that asks the next reader to be careful.
 - Generalises past GC: a spec table written from a design rather than from the code
   drifts silently under concurrent unit work. Cheap to re-derive, expensive to trust.
+
+## F8 — the first object Phalcom ever reclaimed was leaked at bootstrap
+
+Writing the step-2 tests surfaced this: a freshly bootstrapped `VM` is **not
+garbage-free**. `core.ph`'s top-level `Closure` is unreachable the moment bootstrap
+returns — the core `ModuleObject::closure` field is already `None`, and a full
+reverse-scan over the arena (every live object traced, asking who points at it)
+finds **zero holders**. It has been leaking since ADR-0009 deferred reclamation, and
+it is the first object the collector reclaimed.
+
+Harmless in itself (one closure per process). It matters for two reasons:
+
+1. **Any test asserting an exact live count must baseline *after* a collection**
+   (`settled_vm()` in `tests/gc.rs`), or it measures this closure rather than its own
+   fixture. Four of the six step-2 tests failed on exactly this, off by one, before
+   the baseline was fixed.
+2. **The off-by-one was indistinguishable from a missed root** — the M3 failure mode.
+   The only way to tell "correctly collected garbage" from "freed a live object" is
+   to identify the object and prove nothing holds it. The reverse-scan probe that did
+   so is worth rebuilding when step 4's temp-root audit hits the same ambiguity;
+   `Heap::iter_handles_for_test`/`kind_of_for_test` exist for it.
 
 ## F7 — `size_of::<Object>()` grew to 280 B; Win A is six variants, not "the driver"
 
