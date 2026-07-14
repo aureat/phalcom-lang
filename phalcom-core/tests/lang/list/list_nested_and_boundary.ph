@@ -21,7 +21,7 @@ System.print(empty.isEmpty)
 var sum = 0
 empty.each { x => sum = sum + x }
 System.print(sum)
-System.print(empty.map { x => x * 2 })
+System.print(empty.map { x => x * 2 }.toList)
 System.print(empty.filter { x => true })
 System.print(empty.reduce(0) { acc, x => acc + x })
 System.print(empty.includes(1))

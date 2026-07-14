@@ -11,7 +11,7 @@
 // catalog-delta.md) — `filter` is Phalcom's name for Wren's `where`.
 
 let r = Range.new(1, 3, true)
-let mapped = r.toList.map { x => x + 1 }
+let mapped = r.toList.map { x => x + 1 }.toList
 System.print(mapped)
 let filtered = r.toList.filter { x => x > 1 }
 System.print(filtered)

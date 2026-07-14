@@ -3,7 +3,7 @@ let m = Map.new()
 m.at("a", put: 1)
 m.at("b", put: 2)
 System.print(m.isEmpty) // false
-let m_map = m.map { k => k + k }
+let m_map = m.map { k => k + k }.toList
 System.print(m_map.size) // 2
 System.print(m_map.at(0)) // "aa"
 System.print(m_map.at(1)) // "bb"
@@ -20,7 +20,7 @@ let s = Set.new().add(10).add(20)
 System.print(s.isEmpty) // false
 System.print(s.includes(10)) // true
 System.print(s.includes(15)) // false
-let s_map = s.map { x => x * 10 }
+let s_map = s.map { x => x * 10 }.toList
 System.print(s_map.at(0)) // 100
 System.print(s_map.at(1)) // 200
 
@@ -30,7 +30,7 @@ System.print(t.isEmpty) // false
 System.print(t.includes("hello")) // true
 System.print(t.includes("world")) // true
 System.print(t.includes("nope")) // false
-let t_map = t.map { x => x + "!" }
+let t_map = t.map { x => x + "!" }.toList
 System.print(t_map.at(0)) // "hello!"
 System.print(t_map.at(1)) // "world!"
 
@@ -38,7 +38,7 @@ System.print(t_map.at(1)) // "world!"
 let r = Range.new(1, 4, true) // 1, 2, 3, 4 (Wait, is inclusive true start and end inclusive? Let's check: 1,2,3,4, size 4. Yes, range_inclusive_exclusive_and_laziness.ph has: let inc = Range.new(1, 5, true) inc.size is 5. So let's write: let r = Range.new(1, 3, true) to get 1, 2, 3)
 let r = Range.new(1, 3, true)
 System.print(r.isEmpty) // false
-let r_map = r.map { x => x * 2 }
+let r_map = r.map { x => x * 2 }.toList
 System.print(r_map.at(0)) // 2
 System.print(r_map.at(1)) // 4
 System.print(r_map.at(2)) // 6

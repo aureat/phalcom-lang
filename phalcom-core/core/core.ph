@@ -324,14 +324,11 @@ class Iterable {
   // `self.each` — `Map` overrides `each` with an incompatible 2-arity (k, v)
   // selector (DEC-CT-E); routing these through `self.each` would silently call a
   // 1-arity block with 2 arguments the moment `Map` inherits them. See the rubric.
+  // U-SEQ DEC-SEQ-A branch (A): `map` is redefined lazy (was eager List-returning under U-ITERABLE —
+  // BREAKING, see plan.md §8 migration-audit gate). `filter` is NOT touched (stays the eager U-ITERABLE
+  // selector); `where` is the new Wren-parity lazy filter. `.toList` is the materializer for all of them.
   map(f) {
-    var result = List.new()
-    var c = self.iterate(None)
-    while (c != None) {
-      result.add(f.call(self.iteratorValue(c)))
-      c = self.iterate(c)
-    }
-    return result
+    return MapView.new(self, f)
   }
 
   filter(pred) {
@@ -421,6 +418,18 @@ class Iterable {
     var result = List.new()
     for (x in self) { result.add(x) }
     return result
+  }
+
+  where(pred) {
+    return WhereView.new(self, pred)
+  }
+
+  skip(n) {
+    return SkipView.new(self, n)
+  }
+
+  take(n) {
+    return TakeView.new(self, n)
   }
 }
 
