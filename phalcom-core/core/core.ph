@@ -280,9 +280,10 @@ class String {
       let cp = self.codePointAt(i)
       var found = false
       var j = 0
-      while (j < chars.size) {
+      while (j < chars.rawByteCount) {
         (chars.codePointAt(j) == cp).ifTrue({ found = true })
-        j = j + 1
+        let len = chars.leadByteLen_(j)
+        (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
       }
       (found).ifTrue({
         i = i + self.leadByteLen_(i)
@@ -310,9 +311,10 @@ class String {
         // Found a lead byte; check if it's in the trim set
         var found = false
         var j = 0
-        while (j < chars.size) {
+        while (j < chars.rawByteCount) {
           (chars.codePointAt(j) == cp).ifTrue({ found = true })
-          j = j + 1
+          let len = chars.leadByteLen_(j)
+          (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
         }
         (found).ifTrue({
           // It's in the set; scan to the next trimmed position
