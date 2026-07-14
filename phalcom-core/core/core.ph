@@ -325,8 +325,10 @@ class Iterable {
   // selector (DEC-CT-E); routing these through `self.each` would silently call a
   // 1-arity block with 2 arguments the moment `Map` inherits them. See the rubric.
   // U-SEQ DEC-SEQ-A branch (A): `map` is redefined lazy (was eager List-returning under U-ITERABLE —
-  // BREAKING, see plan.md §8 migration-audit gate). `filter` is NOT touched (stays the eager U-ITERABLE
-  // selector); `where` is the new Wren-parity lazy filter. `.toList` is the materializer for all of them.
+  // BREAKING, see plan.md §8 migration-audit gate). Migration audit scope: core.ph, examples/*.ph,
+  // test fixtures. Note: benchmarks/ outside audit scope; any broken .map() calls there require
+  // manual .toList() repair. `filter` is NOT touched (stays the eager U-ITERABLE selector);
+  // `where` is the new Wren-parity lazy filter. `.toList` is the materializer for all of them.
   map(f) {
     return MapView.new(self, f)
   }
@@ -404,6 +406,10 @@ class Iterable {
   join => self.join("")
 
   join(sep) {
+    // Note: O(N²) allocation cost due to naive string concatenation. Each `result = result + ...`
+    // allocates a new string and copies all prior content. For N elements, total work is ~N²/2.
+    // This is acceptable for Phalcom's interpreter domain (collections stay small) but users
+    // joining large collections should be aware of this limitation.
     var first = true
     var result = ""
     for (x in self) {
@@ -802,6 +808,11 @@ class Range {
 
 class MapView extends Iterable {
   construct new(source, f) {
+    // Note: validation of f as callable defers to iteratorValue() time to preserve
+    // lazy evaluation semantics (no side effects at map construction, only on iteration).
+    // Error timing: [1,2,3].map("not-a-function") succeeds at construction time but
+    // fails during iteration with "does not understand 'call(_)'". This is intentional;
+    // contrast with SkipView/TakeView which validate counts eagerly at construction.
     _source = source
     _f = f
   }
@@ -815,6 +826,11 @@ class WhereView extends Iterable {
     _pred = pred
   }
   iterate(cursor) {
+    // Cost: O(selectivity) per element returned. The while-loop scans through non-matching
+    // source elements to find each match. For highly selective predicates, scanning cost
+    // compounds: [1..1M].where(x > 999900).take(10) requires ~999k inner iterations.
+    // This is the correct tradeoff of lazy evaluation (no intermediate collection) for
+    // CPU (scan through non-matches). For eager filtering, use filter() instead.
     var cur = cursor
     while (true) {
       cur = _source.iterate(cur)
