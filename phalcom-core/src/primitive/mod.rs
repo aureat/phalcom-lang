@@ -114,6 +114,7 @@ macro_rules! primitive {
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         $vm.heap.class_mut($class).add_method(symbol, method_id);
+        $vm.world_version += 1;
     };
 }
 
@@ -129,6 +130,7 @@ macro_rules! primitive_static {
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         let meta = $vm.heap.class($class).class;
         $vm.heap.class_mut(meta).add_method(symbol, method_id);
+        $vm.world_version += 1;
     };
 }
 

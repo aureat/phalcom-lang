@@ -107,6 +107,13 @@ pub struct VM {
     pub universe: Universe,
     /// Monotonically-assigned generation counter for frame tokens.
     pub(crate) next_frame_generation: u64,
+    /// Global version counter for inline-cache invalidation.
+    ///
+    /// Incremented whenever a method is added or replaced on any class.
+    /// Each monomorphic inline cache records the `world_version` at the time
+    /// its entry was populated; if `world_version` changes, the cache entry
+    /// is discarded and the method lookup is re-run (ADR-FUTURE: inline cache).
+    pub(crate) world_version: u64,
     /// Live **open** upvalue cells keyed by absolute value-stack index.
     ///
     /// Realizes the Lua-style shared-cell rule

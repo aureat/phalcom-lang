@@ -154,6 +154,7 @@ impl Universe {
             let method = MethodObject::new_primitive(symbol, SignatureKind::Method(2), bool_if_true_if_false, bool_cls);
             let method_id = vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
             vm.heap.class_mut(bool_cls).add_method(symbol, method_id);
+            vm.world_version += 1;
         }
         // Value digest (ADR-0023): 1 for `true`, 0 for `false` — distinct and
         // stable. NOT a sacred selector (no deopt budget; see `bool_hash`).
@@ -186,6 +187,7 @@ impl Universe {
             let method = MethodObject::new_primitive(symbol, SignatureKind::Method(2), option_match, option_cls);
             let method_id = vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
             vm.heap.class_mut(option_cls).add_method(symbol, method_id);
+            vm.world_version += 1;
         }
 
         let method_cls = vm.universe.classes.method_class;

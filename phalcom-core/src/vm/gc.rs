@@ -78,6 +78,7 @@ impl VM {
             switch_pending: _,
             native_reentry_depth: _,
             next_frame_generation: _,
+            world_version: _,
             start_time: _,
             compile_mode: _,
             strip_contract_metadata: _,
