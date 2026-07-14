@@ -763,6 +763,59 @@ the GC schedule shifts (cf. **H14**).
   (~2 minutes) predicted it before any code was written. F14's S1–S4 estimates are
   the same species of number and none of them has been re-derived at HEAD either.
 
+## F21 — an arm's code is paid by every program, not the ones that execute it
+
+**A new opcode arm with a real body cost ~5% on rows that never execute it.** Measured
+by [cut 009](009-fuse-getself-getfield.md) (`GetSelf -> GetField`, reverted), which
+fused exactly what the pair counter predicted — `method_call` 48,134,098 → 41,800,763
+instructions, **−6,333,335 to the digit**, `method_call` −2.2% — and still lost:
+
+| Benchmark | executes the new opcode? | instrs base vs fused | Δ wall | pairs |
+|---|---|---|---|---|
+| `for` | **zero** | identical | **+4.4%** | `+-+++++` |
+| `fib` | **zero** | 59,136,991 both | **+4.8%** | `+++++++` |
+| `string_equals` | **zero** | 84,000,673 both | **+5.9%** | `+++++++` |
+
+**A fusion cannot slow a program whose bytecode it does not change.** These rows run
+byte-identical bytecode and contain zero `GetSelfField`, so the fusion is not the
+mechanism. Two probes locate it — both build the opcode but **never emit it**, so both
+run base's exact bytecode:
+
+| build | 38th variant | arm body | `string_equals` |
+|---|---|---|---|
+| **empty arm** (`unreachable!()`) | yes | erased by LLVM | **−0.6%** (neutral) |
+| **real arm**, never emitted | yes | present | **+6.1%** (`+++++++`) |
+
+**The 38th variant is free. The arm's *code* is not.** `size_of::<Bytecode>()` is 8 B
+on both sides, so this is not representation. Three counters all failed: outlining the
+shared field read (+5.4%), outlining the whole arm body (+5.4%, and the target row's
+win inverted to +1.9%), and reordering the functions in the file — a different layout,
+identical semantics, different binary — (+5.2%). **Every build with a real arm lands
+slow; only the build whose arm the compiler erases lands fast.** Systematic, not a
+per-build coin flip.
+
+**What this costs the plan.** ~5% is **larger than any remaining fusion's ceiling**
+(the fattest is `GetLocal -> InvokeConst`, ~5.1% on `fib`). If the tax is general,
+[instruments.md](instruments.md#remaining-candidates-at-1d2baea-post-cut-008)'s work
+list is gated on *this*, not on [F19](#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)'s
+arithmetic, and no remaining row closes.
+
+**It is not general, though — and that is the open part.** [Cut 008](008-fuse-invoke-pairs.md)
+added **two** arms and measured −8.1% on `string_equals`, *better* than the 5.5% its
+dispatch ceiling allowed. A uniform per-arm tax makes that impossible, so 008 did not
+pay one. Either the effect has a threshold 008 sits under and 009 crosses, or
+**dispatch-loop layout is worth several percent and neither cut controlled it** — in
+which case 008's headline is part fusion and part layout in an unknown ratio. Hole
+**H16** is exactly this question, and the next lever (outlining the loop's cold arms)
+may be worth more than every remaining fusion combined.
+
+**The lesson is [F18](#f18--presizing-a-fibers-vecs-is-negative-and-the-estimate-was-a-sign-error)'s,
+one level up.** F18 was an estimate that got the *sign* wrong. This is a **ceiling that
+was right and still insufficient**: `pairs × 3.3 ns ÷ wall` prices what a fusion
+*removes* and is silent on what adding the arm *costs*. **A ceiling is an upper bound on
+the gain, never a prediction of the net.** Every fusion sized before 009 was sized with
+the second half of the ledger missing.
+
 ## F20 — Wren's `LOAD_LOCAL_0..8` / `CALL_0..16` fix a cost Phalcom does not have
 
 **Asked directly: would operand-specialized opcodes (`LOAD_LOCAL_0`…`LOAD_LOCAL_8`,

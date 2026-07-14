@@ -18,7 +18,7 @@ recorded as a finding, not shipped.
 |---|---|
 | **`README.md`** (this) | **why** a cut landed; the ranked lever list; instrument *selection* |
 | [`SCOREBOARD.md`](SCOREBOARD.md) | **the numbers** — ×-vs-Wren (§1), RSS (§2), ns/op (§3), attribution (§4), timeline (§5), open holes (§6) |
-| [`findings.md`](findings.md) | **what was learned** — F1…F19, incl. refuted premises and one **overturned verdict** (F16) |
+| [`findings.md`](findings.md) | **what was learned** — F1…F21, incl. refuted premises, one **overturned verdict** (F16), and one **ceiling that was right and still insufficient** (F21) |
 | [`instruments.md`](instruments.md) | **what measures what, at symbol level** — the bootstrap tripwire, the opcode histogram + pair counter, and the standing traps |
 | `00N-*.md` | one per landed cut: the cost, the code, the A/B, the caveats |
 | [`negative-presize-fiber-vecs.md`](negative-presize-fiber-vecs.md) | a **negative** result at cut-level detail, incl. the reverted diff verbatim (F5 lost its implementation by not doing this) |
@@ -35,6 +35,7 @@ recorded as a finding, not shipped.
 | [005](SCOREBOARD.md#5-timeline--best-result-after-each-change) | F12 / Tier 3 | Per-callsite `(module, slot)` cache for `GetGlobal`/`SetGlobal` in `Chunk.gcaches`, guarded by `ModuleObject.globals_version` (bumped only when `declare` allocates a **new** slot) | **bare_send −17.9%**, arith_send −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, skynet −7.7% `user` (**2.9× Wren**), fiber_churn −21.4%, `for` −3.6%. RSS unchanged | none | `39d9042` |
 | [006](006-dispatch-drop-spans.md) | F14 S2 / Tier 2 | Drop `spans[ip]` from the dispatch loop's read-decode — the span is discarded on the happy path. Re-read in `Invoke` (inside the borrow the IC probe already takes, so the send path pays nothing) and in `SuperSend`, its only two consumers | **`for` −6.8%**, method_call −5.6%, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, skynet −2.8% `user`. RSS unchanged | none | `916be0a` |
 | [007](007-hoist-rc-callable.md) | F14 S1a / Tier 2 | Hoist the executing frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard — replaces a per-opcode SlotMap lookup + `Rc` deref, and the 19 per-arm re-derivations of the same chunk. No `unsafe`: the `Rc` lives in a local, so the arms keep `&mut self`. **`ip` deliberately NOT hoisted** — the `closure_id` guard cannot tell two fibers suspended in the same closure apart | **arith_send −22.3%**, bare_send −16.7%, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, skynet −6.9% `user` (**2.7× Wren**), fiber_churn −4.8%. Suite band 1.5–13.7× → **1.1–10.7×**. RSS −6.9% skynet, unattributed (H14) | none | `5254586` |
+| [009](009-fuse-getself-getfield.md) | U-IC / Tier 3 | **NEGATIVE — reverted, nothing landed.** Fuse `GetSelf -> GetField`, the next row on the work list, built exactly as 008. Removed **exactly** the 6,333,335 dispatches predicted; **`method_call` −2.2%** — and lost anyway. **Diff recorded verbatim in the cut doc** | **`string_equals` +5.9%**, **`fib` +4.8%**, **`for` +4.4%** — rows with **identical** instruction counts executing **zero** `GetSelfField`. Cost is the **arm's code in the loop**: the same variant with an erased (`unreachable!()`) body is free, a real body that is never emitted costs +6.1% ([F21](findings.md#f21--an-arms-code-is-paid-by-every-program-not-the-ones-that-execute-it), [H16](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)) | none | *(reverted)* |
 | [008](008-fuse-invoke-pairs.md) | U-IC / Tier 3 | **Superinstructions** — fuse statically-adjacent `(GetLocal \| Constant) -> Invoke` **in place** (rewrite the pair's head, leave the `Invoke` dead at `ip+1`, advance `ip` by 2), so no jump offset and no `ip`-indexed side table (`spans`/`caches`/`gcaches`) needs re-layout. **Overturns [F16](findings.md#f16--superinstructions-are-premature-no-opcode-histogram-and-the-inliner-already-covers-the-classic-win)**, whose reason 3 ("the inliner already covers arithmetic") was **false** — the sacred set is control-flow-only | **`string_equals` −8.1%**, **`for` −5.1%**, variadic_send −4.7%, bare_send −4.2%, fib −3.9%, binary_trees −3.0%, skynet −1.8% `user`. **`map_numeric` −0.2%** after removing 18.0M dispatches — the most of any row; its instructions cost 27.6 ns, so a 3.3 ns dispatch is noise (F17). RSS unchanged | none | `1d2baea` |
 
 ## Investigated, not landed
@@ -114,6 +115,17 @@ Full write-ups in [`findings.md`](findings.md):
   bits and `ObjRef` is a full 64 (`slotmap` `u32` index + `u32` version). Shrinking the
   key first is a correctness review (version-wraparound), likely more work than the
   boxing. `CallFrame` is 96 B against Wren's 24 B.
+- **F21** — **an arm's code is paid by every program, not the ones that execute it.**
+  [Cut 009](009-fuse-getself-getfield.md) removed **exactly** the 6,333,335 dispatches
+  predicted (`method_call` −2.2%) and still lost **+5.9% `string_equals` / +4.8% `fib`**
+  — rows with *identical* instruction counts executing *zero* of the new opcode. The
+  38th variant with an **erased** (`unreachable!()`) body is **free**; a **real** body
+  that is **never emitted** costs **+6.1%**. Not representation (8 B both sides), not
+  the variant count — the arm's **code in the dispatch loop**. **~5% exceeds every
+  remaining fusion's ceiling**, so the work list is gated on **H16**, not on F19. And
+  cut 008 beat its *own* ceiling (−8.1% vs 5.5% allowed), so it cannot have paid this
+  tax — one of the two numbers is not what it looks like. **A ceiling bounds the gain
+  and is silent on the cost of the arm.**
 - **F20** — **Wren's `LOAD_LOCAL_0..8` / `CALL_0..16` fix a cost Phalcom does not have.**
   They delete a `READ_BYTE()` from Wren's **byte-stream** operand fetch
   (`wren_vm.c:846,925`); Phalcom's `Bytecode` is a fixed 8 B enum, so the operand

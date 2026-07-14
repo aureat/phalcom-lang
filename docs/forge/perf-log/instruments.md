@@ -122,6 +122,17 @@ and no longer appear — see the current table below):
 
 ### Remaining candidates at `1d2baea` (post cut 008) — measured, do not re-derive
 
+> **⚠ GATED by [H16](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it) — do
+> not spend this table until H16 is answered.** [Cut 009](009-fuse-getself-getfield.md)
+> took the `GetSelf -> GetField` row below, removed exactly the 6,333,335 dispatches it
+> predicted, and **still measured net negative**: +5.9% `string_equals`, +4.8% `fib` —
+> rows that execute **zero** of the new opcode. The ~5% cost is **the new arm's code in
+> the dispatch loop**, and it is **larger than every ceiling in this table**
+> ([F21](findings.md#f21--an-arms-code-is-paid-by-every-program-not-the-ones-that-execute-it)).
+> **The counts below are still correct. The ceiling column is still an upper bound on
+> the *gain*.** What the column never included is the *cost of adding the arm* — so
+> read it as a ceiling, never as a net.
+
 Ranked by count summed across the suite. **Ceiling for any row is
 `count × ~3.3 ns ÷ that row's wall`** ([F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)).
 
