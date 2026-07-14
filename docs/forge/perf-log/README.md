@@ -20,13 +20,13 @@ recorded as a finding, not shipped.
 | [002](002-gc-win-a-box-fat-variants.md) | U-GC Win A / Tier 4 | Box the six fat `Object` variants — `size_of::<Object>()` 280 B → 40 B | `for.ph` −43% wall, `skynet` −34% wall (`sys` 2–4× less); RSS a wash; `bare_send` +5% | none | `7480d75` |
 | [003](003-vm-trace-feature-gate.md) | U-TRACE / Tier 1 | `vm-trace` feature compiles the dispatch loop's per-opcode span + `debug!`s out by default | arith_send (5M, whole-process) −16.7%; Skynet ≈−1% on `user`, unresolvable on `real` | none | `1ef999b` |
 | [004](004-hotpath-rc-callable.md) | U-HOTPATH / Tier 2 | Share block-literal `Callable` via `Rc` instead of deep-cloning its `Chunk` per evaluation | Skynet −30% `user`, **−63% RSS** (3.73 → 1.37 GB), `sys` −94%; fiber_churn −16%. **Costs +5–7% on send-heavy programs** (`Rc` hop per instruction) — Change 1 (chunk hoist) is what repays it | none | `1531070` |
+| [004](004-hotpath-rc-callable.md) | U-HOTPATH / Tier 2 | Memoize the `Invoke` variadic probe's derived `name(*)` selector (kills a `format!` + re-intern per variadic call) | **variadic_send −28%** (1.00 → 0.72 s). Invisible to every other benchmark — the probe sits behind two misses and no other program reaches it | none | `debadfa` |
 
 ## Investigated, not landed
 
 | Candidate | Result | Why | Ref |
 |-----------|--------|-----|-----|
-| Fiber-stack pool (U-GC "Win B") | **negative — delete the flag** | Rebuilt behind the off-by-default `fiber-pool` feature after F5's revert. Re-measured against the high-turnover workload F5 asked for (`fiber_churn.ph`): **+72–86% peak RSS**, linear at ~450 B/fiber, and +37% `user` at 1M fibers. Worse, not neutral | [findings F10](findings.md#f10--the-fiber-pool-is-not-neutral-it-is-negative--and-f5-measured-the-wrong-workload), [F5](findings.md#f5--fiber-stack-pool-implemented-measured-reverted-null-result), `ad4a215` |
-| U-HOTPATH Change 2 (memoize derived selectors) | **landed, but unmeasured** | Within noise of Change 4 alone on every benchmark; left `init_selector_cache` behind as dead code. Find the workload or revert | [004](004-hotpath-rc-callable.md), `debadfa` |
+| Fiber-stack pool (U-GC "Win B") | **negative — flag kept, stays OFF, do not use** | Rebuilt behind the off-by-default `fiber-pool` feature after F5's revert. Re-measured against the high-turnover workload F5 asked for (`fiber_churn.ph`): **+72–86% peak RSS**, linear at ~450 B/fiber, and +37% `user` at 1M fibers. Worse, not neutral. Owner ruled the flag stays for reconstructability; reviving it needs a new mechanism, not a re-run | [findings F10](findings.md#f10--the-fiber-pool-is-not-neutral-it-is-negative--and-f5-measured-the-wrong-workload), [F5](findings.md#f5--fiber-stack-pool-implemented-measured-reverted-null-result), `ad4a215` |
 | U-HOTPATH Change 3 (reorder `Value::class` arms) | dropped pre-landing | No measurable change; LLVM was already ordering the match | [004](004-hotpath-rc-callable.md) |
 | Escape-analysis of `Option` (`Some`) | not built — premise falsified | `List/Map.at` already zero-alloc (`None` singleton); discarded `Some` already elided | [findings F2](findings.md#f2--option-escape-optimization-premise-falsified) |
 
@@ -60,6 +60,20 @@ Full write-ups in [`findings.md`](findings.md):
 - **F8** — a freshly bootstrapped `VM` is **not garbage-free**: `core.ph`'s top-level
   `Closure` is unreachable the moment bootstrap returns, so the first collection on any
   VM legitimately sweeps one object. Surfaced by U-GC's step-2 tests.
+- **F13** — **bootstrap regressed 5 ms → 180 ms** (`debadfa` → `3b2dd97`), a fixed tax on
+  every process. Not a throughput regression: the `ifTrue` inliner is **exponential in
+  nest depth**, and `core.ph`'s new 14-deep `codePointAt` costs ~200 ms to compile *by
+  itself*. A 20-line source method can hang the compiler for seconds. Nothing in the
+  harness measures bootstrap, so a 35× regression passed every gate.
+- **F12** — **module globals are a SipHash `HashMap` probe per access** (`GetGlobal`/
+  `SetGlobal`); the IC does not cover them. Now the top non-loop cost on send-heavy code
+  (~13% of `bare_send` ticks; `for`'s inner loop pays four probes per iteration).
+  Prototyped per-callsite slot cache: **bare_send −15%, arith_send −14%, for −5%**.
+- **F11** — **skynet is GC-bound and its collections free nothing**: `trace_object` is
+  ~20% of ticks, the GC family ~30%. Its ~1.1M fibers are all live, so every cycle
+  traces everything and reclaims ~nothing, then `GC_GROW_FACTOR = 1.5` re-triggers.
+  Yield-adaptive threshold (~15 lines): **skynet −10% user with RSS also −3%**;
+  fiber_churn −10%.
 - **F10** — the fiber pool (now the off-by-default `fiber-pool` feature) is **negative,
   not null**: re-measured against the high-turnover workload F5 asked for, it costs
   **+72–86% peak RSS** (linear, ~450 B per fiber) and +37% `user` at 1M fibers. F5's
@@ -122,17 +136,35 @@ Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
    mark-sweep, ADR-0050), together with [cut 004](004-hotpath-rc-callable.md)'s
    `Rc<Callable>`. Skynet is now **2.4–2.5 s / 1.44 GB** against Wren's 0.7–0.8 s /
    0.67 GB — **~3.2× wall, ~2.2× RSS**, from F1's ~19–20× / ~7–9×.
-3. **U-HOTPATH Change 1 — hoist the chunk pointer out of the dispatch loop.** Not
+3. ~~**Tier 3 — U-IC.**~~ **Landed** (`f5e41f1`) — monomorphic IC on `Invoke`, guarded
+   by `(class, world_version)`. Method lookup is no longer the top dispatch cost;
+   re-profiled below.
+
+**Re-ranked from fresh `sample` profiles at `1e1b101`** (2026-07-14). Every item
+below is measured on a prototype, not hypothesized:
+
+1. **Fix the exponential `ifTrue` inliner (F13).** Returns **~175 ms to every
+   process** and removes a compiler-hang hazard reachable from ordinary source. The
+   cheapest large win on the list, and the only one that is also a correctness/DoS
+   issue.
+2. **Slot-resolve module globals (F12).** **−15% `bare_send`, −14% `arith_send`, −5%
+   `for`** on a ~40-line prototype. The top non-loop send cost now that the IC
+   covers method lookup. Open language question: late-binding/shadowing (a
+   `GetGlobal` resolving to `core` that a later `define` shadows) — needs a ruling,
+   not a silent choice.
+3. **Yield-adaptive GC threshold (F11).** **−10% skynet user, −10% fiber_churn, RSS
+   better on both**, ~15 lines. Skynet is GC-bound and its collections free nothing.
+4. **U-HOTPATH Change 1 — hoist the chunk pointer out of the dispatch loop.** Not
    optional and not a fresh candidate: cut 004 traded a per-instruction pointer hop
-   for a per-block-evaluation chunk copy, and left a **measured +5–7% regression on
-   send-heavy programs** on the table. This is the half that pays it back. Cheapest
-   open lever.
-4. **Tier 3 — U-IC (dispatch lookup was 13.9% arith, pre-001/003).** Monomorphic
-   inline cache; needs the selector-only interner first (F4). Also carries the
-   arithmetic fast-path deferred from U-PRIM-ABI (DEC-PRIM-B). **Re-profile before
-   sizing** — see the staleness note above; the wren-suite band is now 4–14×, and
-   what U-IC should be sized against is the spread (`for` 13.6×, `string_equals` 10×
-   vs `binary_trees` 4.9×), not the old share.
+   for a per-block-evaluation chunk copy and left a **measured +5–7% regression on
+   send-heavy programs** on the table. This is the half that pays it back.
+5. **Cache variadic resolution in the IC (004).** A variadic hit never refills the
+   IC, so every variadic call pays **two** full hierarchy walks. Change 2 removed
+   the string work from that path and left both walks.
+6. **DEC-PRIM-B arithmetic fast path.** `call_method` is ~14% of `bare_send` ticks
+   (arg-buffer build + frame setup); `Value::class` another ~4%.
+7. **Object density (F7).** 1.5 GB / 1.1M skynet fibers ≈ 1.4 KB each vs Wren's
+   ~0.6 KB. Unexercised since Win A.
 
 ## Session ledger (2026-07-14)
 

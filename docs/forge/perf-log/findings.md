@@ -114,6 +114,146 @@ Indistinguishable. `fiber_spawn` criterion likewise flat (p = 0.65). **Why:**
   6203 objects). Only the design above survives — ~1h to rebuild from it. Nothing is
   gained by hunting for the diff.
 
+## F13 — bootstrap went 5 ms → 180 ms: the `ifTrue` inliner is exponential in nest depth
+
+Every Phalcom process pays a **fixed +175 ms** at `debadfa` → `3b2dd97`
+(U-STRING's core rework). Bootstrap (`VM::new`, which recompiles `core.ph`)
+measured on `System.print(1)`, whole-process:
+
+| | user |
+|---|---|
+| `debadfa` | **0.00 s** (~5 ms) |
+| `3b2dd97` (clean) | **0.18 s** |
+
+This is what looked, at first, like a uniform ~20% throughput regression across
+`bare_send` (+22%), `arith_send` (+23%) and `for` (+28%). It is not a throughput
+regression at all — it is a **constant**, and it fooled a percentage-based reading
+because the benchmarks run for ~0.9 s. `bare_send` touches no strings, which is what
+gave it away.
+
+**Mechanism — a compiler bug, not a string bug.** `core.ph`'s new `codePointAt(i)`
+is a 32-`ifTrue` nest (UTF-8 continuation-byte decode), ~14 levels deep. Compiling
+that **one method** costs ~200 ms (0.42 s vs the 0.215 s bootstrap baseline). Compile
+time doubles per nesting level with **source length held linear**:
+
+| nest depth | 8 | 10 | 12 | 14 | 16 | 18 | 20 |
+|---|---|---|---|---|---|---|---|
+| compile (over baseline) | ~0 | 0.04 s | ~0 | 0.03 s | 0.17 s | 0.70 s | **2.8 s** |
+
+(First attempt at this table put the nested body in *both* arms, making the *source*
+exponential — it "confirmed" the hypothesis and proved nothing. The table above nests
+only the `ifFalse` arm, which is the shape `core.ph` actually has.)
+
+The `ifTrue`/`ifFalse` inliner (`compiler/inliner.rs`) evidently duplicates its
+continuation into each arm, so nested conditionals multiply rather than add: 2^depth
+compiled code from depth-linear source.
+
+**Consequences:**
+- **A 20-line source method can hang the compiler.** Depth 20 is 2.8 s; depth ~26 is
+  minutes. This is reachable by ordinary user code, not just `core.ph` — and
+  [the two-armed `ifTrue(_, ifFalse:_)` surface is locked by decision](../../adr/), so
+  deep nesting is the *idiomatic* way to write a multi-way conditional today. The
+  language's own conditional form is a compiler-blowup hazard.
+- **This is the cheapest large win available.** Bootstrap is on every process,
+  including every one of the ~200 golden tests and every criterion iteration (each
+  bench iteration runs `Interpreter::new`). Fixing the inliner returns ~175 ms per
+  process and makes Tier 5 (bootstrap) largely moot at current `core.ph` size.
+- **It landed unnoticed because nothing measures bootstrap.** `run.sh`'s gate asks
+  "did it run", the criterion benches amortize bootstrap inside a 0.9 s program, and
+  the wren-suite table is single-run. A 35× bootstrap regression passed all three.
+  **A bootstrap-only tripwire (`System.print(1)`, whole-process) belongs in the
+  harness** — it is one line and would have caught this on the commit.
+
+## F12 — module globals are a SipHash probe per access; the IC does not cover them
+
+Now that U-IC (`f5e41f1`) caches method lookup, **the top non-loop cost on
+send-heavy code is not dispatch — it is reading a variable.** `Bytecode::GetGlobal`
+/ `SetGlobal` (`vm/dispatch.rs:494-536`) resolve the name through
+`ModuleObject.name_to_slot`, a `HashMap<Symbol, usize>` with the **default SipHash**
+hasher, on **every access**. `sample` leaf ticks at `1e1b101`:
+
+| workload | `hash_one` + `sip::Hasher::write` | share |
+|---|---|---|
+| `bare_send` (40M sends) | 235 + 82 = **317** | **~13%** |
+| `for` (4M) | 131 + 37 = **168** | **~7%** |
+
+`for`'s inner loop (`while (i < N) { list.add(i); i = i + 1 }`) reads `i` twice,
+reads `list`, writes `i` — **four SipHash probes per iteration**, next to an IC'd
+send. Wren, the comparison target, resolves module variables to slot indices at
+compile time and pays zero.
+
+**Prototype measured** (per-callsite `(module, slot)` cache in `Chunk.gcaches`,
+parallel to the existing `caches` IC vector; ~40 lines, all 46 lang tests green,
+every wren-suite output still matching):
+
+| | bare_send | arith_send | for | method_call |
+|---|---|---|---|---|
+| Δ user | **−15.3%** | **−14.2%** | **−5.0%** | **−3.6%** |
+
+Understated: both binaries carry F13's +175 ms bootstrap constant, which dilutes
+every percentage. Net of it, `bare_send` is ≈ **−18%**.
+
+**Consequences:**
+- **This is the next send-path unit, ahead of anything else on the ranking.** It is
+  a bigger, cheaper win than what U-IC's remaining polish offers, and it is
+  orthogonal to it.
+- **The real fix is probably compile-time slot resolution, not a cache.** The
+  prototype caches because slots are append-only per module (`declare` only pushes),
+  so a resolved `(module, slot)` stays valid. That invariant is exactly what would
+  let the *compiler* emit `GetGlobalSlot(u16)` directly. The open question is
+  late-binding: a `GetGlobal` that resolves to `core` today can be shadowed by a
+  later `define` in the main module, and the prototype does **not** handle that (it
+  is a measurement, not a candidate to land as-is). Whether that shadowing is
+  reachable, and whether it should be legal, is a language question — flag for
+  decision, do not silently pick one.
+- **`Value::class` (92 ticks, ~4%) and `call_method` (353, ~14%) are the next two**
+  on the same profile; `call_method`'s share is the arg-buffer + frame setup that
+  DEC-PRIM-B's arithmetic fast path targets.
+
+## F11 — skynet is now GC-bound, and its collections free nothing
+
+Post-U-GC, post-cut-004, the skynet profile is unrecognizable from F1's. `sample`
+leaf ticks at `1e1b101`, mid-run:
+
+| mechanism | ticks | share |
+|---|---|---|
+| interpreter loop | 259 | 35% |
+| **`trace_object` (GC mark)** | **145** | **~20%** |
+| malloc/free family | ~130 | ~17% |
+| `call_method` | 48 | 6% |
+| slotmap slot drop + `Heap::collect` | 53 | 7% |
+
+**The GC family is ~30% of skynet, and nearly all of it is wasted work.** Skynet's
+~1.1M fibers are *all live* until the very end — every collection traces the entire
+live set and frees almost nothing, then `next_gc` grows by only
+`GC_GROW_FACTOR = 1.5` (`heap/mod.rs:99-100`), so the next cycle re-traces ~1.5×
+as much, again for nothing.
+
+**Measured fix — back off harder when a cycle is unproductive** (~15 lines: if a
+collection reclaims <10% of the heap, grow the threshold 4× instead of 1.5×):
+
+| | user | peak RSS |
+|---|---|---|
+| skynet, `1e1b101` | 2.36 s | 1.577 GB |
+| skynet, adaptive | **2.13 s (−10%)** | **1.534 GB (−3%)** |
+| fiber_churn (real garbage — the regression check) | 0.51 s → **0.46 s (−10%)** | 450 → **420 MB** |
+
+Both workloads improve and RSS improves with them, which is the surprise: the
+naive fear (a laxer threshold trades memory for time) does not materialize, because
+the collections being skipped were freeing nothing anyway.
+
+**Consequences:**
+- **A yield-adaptive threshold is a cheap, real unit** — 15 lines for −10% on the
+  two most allocation-heavy workloads in the repo, no correctness surface beyond the
+  trigger policy. Precedent is standard (V8/CPython both scale the next threshold by
+  reclamation yield).
+- **`GC_GROW_FACTOR = 1.5` with an all-live heap is the pathological case** the
+  constant was never chosen for: cost scales with the *live* set while the benefit
+  scales with the *garbage*, and skynet has none until it ends.
+- Do not read this as the whole fiber story: 1.5 GB for 1.1M fibers is ~1.4 KB each
+  against Wren's ~0.6 KB. Object density (F7's ladder — `Fiber` is 176 B before its
+  buffers) is a separate, unexercised lever.
+
 ## F10 — the fiber pool is not neutral, it is negative — and F5 measured the wrong workload
 
 F5 rebuilt-and-reverted the fiber-stack pool as a **null result** and left the door
@@ -163,13 +303,16 @@ doing if someone wants to revive the flag.
   turnover it is *worse*, on the exact workload F5 nominated as its proving ground.
   A revival needs a new mechanism (recycle capacity, don't hand it to a shell that
   outlives its run), not a new benchmark.
-- **The flag should be deleted, not kept.** It costs six `#[cfg]` sites across
+- **Ruled: the flag stays, stays off, and is not to be used** (owner's call,
+  2026-07-14). It is not a live option — do not enable it, do not benchmark against
+  it, do not cite it as an available tuning knob. Reviving it needs a **new
+  mechanism** (recycle capacity without handing it to a shell that outlives its run),
+  not a re-run: the experiment has now been run twice, with a worse answer each time.
+  The recommendation on the table was to delete the six `#[cfg]` sites across
   `vm/mod.rs`, `vm/bootstrap.rs`, `vm/gc.rs`, `vm/dispatch.rs`, `primitive/fiber.rs`
-  and `heap/fiber.rs`, including a **duplicate `FiberObject` constructor**
-  (`new_entry_with_buffers`) and an arm in `VM::collect_roots`'s exhaustive
-  destructure. What it buys is the ability to re-run an experiment that has now been
-  run twice with a worse answer each time. The design is fully recorded in F5 + this
-  finding; that is what "kept for re-measurement" actually needs to mean.
+  and `heap/fiber.rs` (including the duplicate `FiberObject::new_entry_with_buffers`
+  constructor and the `collect_roots` destructure arm); that was declined in favour
+  of keeping the experiment reconstructable in-tree.
 - **It carries a live GC hazard while it exists.** `fiber_pool` is classified a
   **non-root** in `collect_roots` (`fiber_pool: _`) — correct only because the single
   push site in `dispatch.rs` calls `.clear()` on both buffers first. A future second

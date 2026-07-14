@@ -49,6 +49,13 @@ const ARITH_SEND: &str = include_str!("../../benchmarks/vm/arith_send.ph");
 /// spawn/yield/call cycle in a 20,000-iteration loop.
 const FIBER_SPAWN: &str = include_str!("../../benchmarks/vm/fiber_spawn.ph");
 
+/// Variadic-dispatch source: `benchmarks/vm/variadic_send.ph`, 2,000,000 sends
+/// to a `sum(*args)` variadic — the only shape that reaches `Invoke`'s variadic
+/// probe (IC -> exact probe -> variadic probe). Every other program here
+/// dispatches before that line, which is why the probe was unmeasurable until
+/// this program existed (perf-log 004).
+const VARIADIC_SEND: &str = include_str!("../../benchmarks/vm/variadic_send.ph");
+
 /// Runs `src` to completion on a freshly bootstrapped [`Interpreter`], then
 /// asserts each `(global, expected)` pair holds in the `main` module.
 ///
@@ -125,5 +132,16 @@ fn bench_fiber_spawn(c: &mut Criterion) {
     });
 }
 
-criterion_group!(vm_benches, bench_bare_send, bench_arith_send, bench_fiber_spawn);
+/// Benchmarks the variadic-dispatch program ([`VARIADIC_SEND`]).
+///
+/// Checks: the loop ran all 2,000,000 times, and `acc` is `2_000_000 * 3` —
+/// i.e. every call collapsed its three trailing arguments into the rest `List`
+/// and the variadic probe resolved, rather than falling through to `dNU`.
+fn bench_variadic_send(c: &mut Criterion) {
+    c.bench_function("variadic_send", |b| {
+        b.iter(|| run_program(black_box(VARIADIC_SEND), &[("i", 2_000_000.0), ("acc", 6_000_000.0)]))
+    });
+}
+
+criterion_group!(vm_benches, bench_bare_send, bench_arith_send, bench_fiber_spawn, bench_variadic_send);
 criterion_main!(vm_benches);

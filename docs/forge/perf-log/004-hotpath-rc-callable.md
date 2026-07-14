@@ -60,21 +60,47 @@ measures". **That call should be reversed**: Change 1 is not an independent
 candidate, it is Change 4's other half. Change 4's `Rc` is precisely the
 foundation that makes the hoist clean (the chunk outlives the frame by refcount).
 
-## Change 2 (memoize derived selectors) — a wash, not a win
+## Change 2 (memoize derived selectors) — a **−28% win**, on a path no benchmark had
 
 `VM::variadic_selector_cache` replaces the `Invoke` variadic probe's
 `decode_selector` + `format!` + re-intern with a `HashMap<Symbol, Option<Symbol>>`
-lookup. Sound (derived selectors are a pure function of the input symbol), green,
-and **unmeasurable**: every benchmark above is within noise of Change 4 alone
-(`bare_send` 0.90 → 0.89, `arith_send` 0.81 → 0.80, Skynet 2.19 → 2.19).
+lookup.
 
-The probe it memoizes only fires on paths these benchmarks do not exercise
-heavily. Per measure-first (P2/P3) an unproven optimization is not a win, and this
-one also left `init_selector_cache` behind as dead code (`intern` needs `&mut`,
-`lookup_method` has `&VM`) — carrying a field, a `Default` line, and a
-`collect_roots` destructure arm for nothing. **Either find the workload that
-measures it or revert it**; it should not sit in the tree as an unfalsified
-"optimization".
+**This entry first recorded Change 2 as "a wash, not a win" and called for its
+revert. That was wrong, and the error was in the harness, not the change.** The
+variadic probe sits behind *two* misses (`dispatch.rs`: IC miss → exact-selector
+miss → variadic probe). Every benchmark in this repo dispatches through the IC or
+the exact probe, so **not one of them executed the cached line even once**. The
+measurement said "no change" because it never ran the code.
+
+`benchmarks/vm/variadic_send.ph` (new — 2M sends to a `sum(*args)` variadic, the
+only shape that reaches the probe), clean A/B `1531070` → `debadfa`:
+
+| | user (min of 3) |
+|---|---|
+| without cache (`1531070`) | 0.99–1.01 s |
+| with cache (`debadfa`) | **0.72–0.74 s** |
+
+**−28%.** The `format!("{name}(*)")` + re-intern it removes ran *per variadic call*.
+
+Two things this exposes, both bigger than the cut:
+
+1. **Variadic dispatch never refills the IC.** The refill at `dispatch.rs:857` is on
+   the exact-hit branch only; a variadic hit dispatches without caching. So every
+   variadic call re-walks: IC miss → full exact-probe hierarchy walk → variadic
+   probe → *second* full hierarchy walk. Change 2 removed the string work from that
+   path and left both walks. **Caching the variadic resolution in the IC is the
+   larger remaining win on this path** — and it is U-IC's natural follow-on, not a
+   new unit.
+2. **A benchmark suite with a hole reports a win as noise.** The suite had no
+   variadic coverage at all, so the path was unmeasurable by construction. `wash`
+   and `never executed` are indistinguishable to a harness that only reports time —
+   which is the same lesson as F9 (attribution ≠ mechanism), one level up: before
+   concluding "no effect", confirm the code ran.
+
+`init_selector_cache` **is** still dead code (`intern` needs `&mut`, `lookup_method`
+has `&VM`) — that part of the original criticism stands, and it is a separate,
+smaller cleanup.
 
 ## Change 3 (reorder `Value::class` arms) — dropped
 
