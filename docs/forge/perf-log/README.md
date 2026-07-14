@@ -21,6 +21,7 @@ recorded as a finding, not shipped.
 | [003](003-vm-trace-feature-gate.md) | U-TRACE / Tier 1 | `vm-trace` feature compiles the dispatch loop's per-opcode span + `debug!`s out by default | arith_send (5M, whole-process) −16.7%; Skynet ≈−1% on `user`, unresolvable on `real` | none | `1ef999b` |
 | [004](004-hotpath-rc-callable.md) | U-HOTPATH / Tier 2 | Share block-literal `Callable` via `Rc` instead of deep-cloning its `Chunk` per evaluation | Skynet −30% `user`, **−63% RSS** (3.73 → 1.37 GB), `sys` −94%; fiber_churn −16%. **Costs +5–7% on send-heavy programs** (`Rc` hop per instruction) — Change 1 (chunk hoist) is what repays it | none | `1531070` |
 | [004](004-hotpath-rc-callable.md) | U-HOTPATH / Tier 2 | Memoize the `Invoke` variadic probe's derived `name(*)` selector (kills a `format!` + re-intern per variadic call) | **variadic_send −28%** (1.00 → 0.72 s). Invisible to every other benchmark — the probe sits behind two misses and no other program reaches it | none | `debadfa` |
+| [005](../perf-log/SCOREBOARD.md#5--timeline--best-result-after-each-change) | F12 / Tier 3 | Per-callsite `(module, slot)` cache for `GetGlobal`/`SetGlobal` in `Chunk.gcaches`, guarded by `ModuleObject.globals_version` (bumped only when `declare` allocates a **new** slot) | **bare_send −17.9%**, arith_send −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, skynet −7.7% `user` (**2.9× Wren**), fiber_churn −21.4%, `for` −3.6%. RSS unchanged | none | `39d9042` |
 
 ## Investigated, not landed
 
@@ -147,11 +148,11 @@ below is measured on a prototype, not hypothesized:
    process** and removes a compiler-hang hazard reachable from ordinary source. The
    cheapest large win on the list, and the only one that is also a correctness/DoS
    issue.
-2. **Slot-resolve module globals (F12).** **−15% `bare_send`, −14% `arith_send`, −5%
-   `for`** on a ~40-line prototype. The top non-loop send cost now that the IC
-   covers method lookup. Open language question: late-binding/shadowing (a
-   `GetGlobal` resolving to `core` that a later `define` shadows) — needs a ruling,
-   not a silent choice.
+2. ~~**Slot-resolve module globals (F12).**~~ **Landed `39d9042`** — version-guarded
+   per-callsite cache, **bare_send −17.9%**, fiber_spawn −20.1%, fiber_churn −21.4%,
+   skynet −7.7% (**2.9× Wren**). The late-binding/shadowing question needed **no
+   ruling**: the guard preserves current semantics exactly, and the shadowing it
+   guards against is reachable in **0 of 672** `.ph` files. See [F12](findings.md#f12--module-globals-are-a-siphash-probe-per-access-the-ic-does-not-cover-them).
 3. **Yield-adaptive GC threshold (F11).** **−10% skynet user, −10% fiber_churn, RSS
    better on both**, ~15 lines. Skynet is GC-bound and its collections free nothing.
 4. **U-HOTPATH Change 1 — hoist the chunk pointer out of the dispatch loop.** Not

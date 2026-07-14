@@ -166,6 +166,35 @@ compiled code from depth-linear source.
 
 ## F12 — module globals are a SipHash probe per access; the IC does not cover them
 
+> **LANDED `39d9042`** (2026-07-14) — version-guarded per-callsite cache. Shipped
+> better than the prototype predicted: **bare_send −17.9%**, arith_send −14.4%,
+> **fiber_spawn −20.1%** (unpredicted), variadic_send −8.3% (unpredicted), skynet
+> −7.7% `user`, fiber_churn −21.4%, `for` −3.6%. That is the prototype's measured
+> ceiling (≈−18% net of F13), so **the version guard costs ~nothing**.
+>
+> **The open language question below was resolved by probe, not by ruling — no
+> ruling was needed.** The guard preserves current semantics exactly, so "make
+> shadowing illegal" would have been a semantics change bought for one integer
+> compare. Measured at `2997d0b`, all 672 `.ph` files scanned:
+>
+> - **`var X = …` shadowing a core name is the only stale case**, and it occurs in
+>   **0 real files**. All 4 core-name collisions in the tree (`class Bool` ×2,
+>   `class Option`, `class ArgumentError`) are **reopenings** — `before == after`
+>   is `true`, same object — not shadowings.
+> - **A forward global read *before* its define is a hard error** (`Undefined
+>   variable 'later'.`), so no stale entry can ever be recorded against one. This
+>   **corrects the handoff's claim (3)**: forward references do *not* share the
+>   shadowing machinery. They work only when read *after* the define, at which point
+>   the callsite's first successful resolution is already main-module.
+> - **`set_global` needs no invalidation and `define` on an existing name reuses its
+>   slot** (`declare` returns it). Only a `declare` that allocates a **new** slot can
+>   invalidate — a narrower bump condition than the handoff proposed.
+> - `SetGlobal` has **no** core fallback (`List = 42` with no local `List` errors),
+>   so its cache can only ever name the accessing module's own slot.
+>
+> Compile-time `GetGlobalSlot(u16)` remains available later *if* Q4's import unit
+> ever declares module scope closed; this does not pre-empt that ruling.
+
 Now that U-IC (`f5e41f1`) caches method lookup, **the top non-loop cost on
 send-heavy code is not dispatch — it is reading a variable.** `Bytecode::GetGlobal`
 / `SetGlobal` (`vm/dispatch.rs:494-536`) resolve the name through

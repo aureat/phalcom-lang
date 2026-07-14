@@ -22,7 +22,13 @@
   drifted two commits reported the wrong *sign* once (HANDOFF §Traps).
 - A `~` prefix means derived (e.g. ns/send = mean ÷ send count), not directly timed.
 
-Current HEAD when last updated: **`2997d0b`** (2026-07-14).
+Current HEAD when last updated: **`39d9042`** (2026-07-14).
+
+> **§1's suite table and §3b are one commit behind** (`2997d0b`, pre-F12); §2, §3a,
+> §3c and §5 are at `39d9042`. F12 moved `for` 0.729 → 0.69 s and `method_call`
+> 0.535 → 0.519 s in the post-landing verification run, but that run was not
+> best-of-5 — the table is re-run at the next cut rather than mixing instruments.
+> Skynet's §1 row **is** updated (best-of-3, `user`).
 
 ---
 
@@ -46,7 +52,7 @@ exits non-zero on any stdout mismatch). Measured at **`2997d0b` (HEAD)**, 2026-0
 | `map_string` | ~193k-key string map | 0.099 s | 0.691 s | **7.0×** | 6.9× | 46× |
 | `string_equals` | 10M compares | 0.109 s | 1.107 s | **10.1×** | 10.0× | 17× |
 | `for` | 1M list build + sum | 0.053 s | 0.729 s | **13.7×** | 13.6× | ~144× |
-| **`skynet`** | **1.11M fibers, depth-6 ×10 fan-out** | **0.61 s `user`** | **1.94 s `user`** | **3.2×** | — | **~19–20×** |
+| **`skynet`** | **1.11M fibers, depth-6 ×10 fan-out** | **0.61 s `user`** | **1.79 s `user`** | **2.9×** | — | **~19–20×** |
 
 All 9 suite rows `ok` (stdout byte-identical to Wren's). \* `binary_trees_gc`'s Wren
 time includes `System.gc()` calls that Phalcom's port drops — not apples-to-apples.
@@ -71,10 +77,10 @@ where allocation/paging effects hide, RSS is co-equal with time.
 
 | Workload | `real` | `user` | `sys` | **Peak RSS** |
 |---|---|---|---|---|
-| `skynet` — Phalcom | 2.20–2.34 s | **1.94–1.98 s** | 0.22–0.27 s | **1.322 GB** |
+| `skynet` — Phalcom | 2.01–2.72 s | **1.79–1.86 s** | 0.21–0.30 s | **1.322 GB** |
 | `skynet` — Wren | 0.72–0.75 s | **0.61–0.62 s** | 0.10–0.12 s | **0.667 GB** |
-| **`skynet` — ratio** | ~3.1× | **~3.2×** | ~2.3× | **~2.0×** |
-| `fiber_churn` (500k spawn→drop) — Phalcom | 0.32–0.33 s | **0.28 s** | 0.03–0.04 s | **264 MB** |
+| **`skynet` — ratio** | ~2.8× | **~2.9×** | ~2.1× | **~2.0×** |
+| `fiber_churn` (500k spawn→drop) — Phalcom | 0.26–0.27 s | **0.22 s** | 0.03 s | **264 MB** |
 | `fiber_churn` — Wren | *not ported* (hole H4) | — | — | — |
 | `bootstrap` (`System.print(1)`) — Phalcom | 0.00 s | **0.00 s** (~5 ms) | 0.00 s | **6.8 MB** |
 
@@ -112,17 +118,18 @@ budget per op, not a cycle-accurate figure.
 
 ### 3a. Criterion micro-benches (`phalcom-core/benches/vm_bench.rs`)
 
-**At `2997d0b` (HEAD)**, `cargo bench -p phalcom-core --bench vm_bench`:
+**At `39d9042` (HEAD, F12 landed)**, `cargo bench -p phalcom-core --bench vm_bench`:
 
-| Benchmark | Program | Ops | Mean (HEAD) | **Per-op (HEAD)** | Criterion CI | Origin | **Δ vs origin** |
-|---|---|---|---|---|---|---|---|
-| `bare_send` | static, arg-free send to a user method (full `CallFrame` push + `return 0`) | 200,000 sends | **42.27 ms** | **~211 ns/send** | [42.19, 42.36] ms | 65.7 ms / ~329 ns | **−35.7%** |
-| `arith_send` | primitive `1 + 2` send (`number_add`, no frame push, per-call arg `Vec`) | 200,000 sends | **35.35 ms** | **~177 ns/send** | [35.29, 35.41] ms | 72.1 ms / ~361 ns | **−51.0%** |
-| `fiber_spawn` | `Fiber.new{}` + `.call()` + `Fiber.yield` | 20,000 spawns | **15.40 ms** | **~770 ns/spawn** | [15.32, 15.51] ms | 24.2 ms / ~1.21 µs | **−36.4%** |
-| `variadic_send` | variadic `name(*)` dispatch (added `8ba87ec`) | 2,000,000 sends | **742.65 ms** | **~371 ns/send** | [739.5, 746.8] ms | *(post-dates origin)* | — |
+| Benchmark | Program | Ops | Mean | **Per-op** | Criterion CI | `2997d0b` | Origin | **Δ vs origin** |
+|---|---|---|---|---|---|---|---|---|
+| `bare_send` | static, arg-free send to a user method (full `CallFrame` push + `return 0`) | 200,000 sends | **34.70 ms** | **~174 ns/send** | [34.65, 34.75] ms | 42.27 ms / ~211 ns | 65.7 ms / ~329 ns | **−47.2%** |
+| `arith_send` | primitive `1 + 2` send (`number_add`, no frame push, per-call arg `Vec`) | 200,000 sends | **30.25 ms** | **~151 ns/send** | [30.17, 30.36] ms | 35.35 ms / ~177 ns | 72.1 ms / ~361 ns | **−58.0%** |
+| `fiber_spawn` | `Fiber.new{}` + `.call()` + `Fiber.yield` | 20,000 spawns | **12.31 ms** | **~615 ns/spawn** | [12.03, 12.70] ms | 15.40 ms / ~770 ns | 24.2 ms / ~1.21 µs | **−49.1%** |
+| `variadic_send` | variadic `name(*)` dispatch (added `8ba87ec`) | 2,000,000 sends | **681.03 ms** | **~341 ns/send** | [677.7, 685.0] ms | 742.65 ms / ~371 ns | *(post-dates origin)* | — |
 
-**The headline per-op numbers: a user-method send costs ~211 ns; a primitive
-arithmetic send ~177 ns; a fiber spawn+call+yield ~770 ns.**
+**The headline per-op numbers: a user-method send costs ~174 ns; a primitive
+arithmetic send ~151 ns; a fiber spawn+call+yield ~615 ns.** Every one is now
+better than half its origin cost.
 
 Note the **inversion since origin**: arith_send was *slower* than bare_send at origin
 (361 vs 329 ns) and is now *faster* (177 vs 211 ns). Cut 001 killed the per-send arg
@@ -280,6 +287,9 @@ same-session A/B unless noted.
 | `4f2eed8` | **Yield-adaptive GC (F11)** — grow `next_gc` 4× when yield <10%, else 1.5× | **skynet −11.7% `user`**; **fiber_churn −7.4%** | skynet **−8%**; fiber_churn **−15%** (450 → 420 MB) | none |
 | | | `cargo test --workspace` **fully green** — first time; was red since ≥`bd3f492` | | |
 | `2997d0b` | Handoff doc | — | — | — |
+| `2c775ac` | SCOREBOARD + HEAD re-measure; F12 probe | *(docs only)* — closed holes H1/H2, unblocked F12 | — | — |
+| **`39d9042`** | **F12 — per-callsite global-resolution cache, guarded by `ModuleObject.globals_version`** | **bare_send −17.9%**, arith_send −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, **skynet −7.7% `user`**, **fiber_churn −21.4%**, `for` −3.6% | unchanged (1.322 GB skynet, 264 MB fiber_churn) | none |
+| | | ⇒ per-send **~211 → ~174 ns**; skynet **2.9× Wren** — under 3× for the first time | | |
 
 **Investigated, not landed** (do not re-litigate):
 
