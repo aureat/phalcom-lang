@@ -259,11 +259,10 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
         Expr::SetProperty(s) => {
             nested_block_in_expr(&s.object, offset).or_else(|| nested_block_in_expr(&s.value, offset))
         }
-        Expr::Index(i) => {
-            nested_block_in_expr(&i.object, offset).or_else(|| nested_block_in_expr(&i.index, offset))
-        }
+        Expr::Index(i) => nested_block_in_expr(&i.object, offset)
+            .or_else(|| i.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
         Expr::SetIndex(si) => nested_block_in_expr(&si.object, offset)
-            .or_else(|| nested_block_in_expr(&si.index, offset))
+            .or_else(|| si.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset)))
             .or_else(|| nested_block_in_expr(&si.value, offset)),
         Expr::MethodRef(mr) => nested_block_in_expr(&mr.receiver, offset),
         Expr::Number { .. }

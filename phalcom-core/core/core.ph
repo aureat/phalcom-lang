@@ -401,6 +401,14 @@ class List {
     return self
   }
 
+  // U-INDEX (ADR-0060): `[]` is its own dedicated, user-overridable
+  // selector — not `at`'s call-site sugar — so `List` must opt in
+  // explicitly with a thin delegation, same as any other collection
+  // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_,put]`.
+  [i] { return self.at(i) }
+
+  [i, put:] { return self.at(i, put: put) }
+
   // U-CORE-5 (decisions.md Q5, R-INV-5.3 E1-E5): structural equality —
   // element-wise, order-sensitive, via each element's own `==`. Guarded by
   // `isA(List)` so a non-List `other` is simply unequal (E2), never a dNU.
@@ -459,6 +467,13 @@ class Map {
     self.put_(k, put)
     return self
   }
+
+  // U-INDEX (ADR-0060): `[]` is its own dedicated, user-overridable
+  // selector — a thin delegation to `at`, same shape as `List`'s.
+  // `m[k]` sends `[_]`; `m[k] = v` sends `[_,put]`.
+  [k] { return self.at(k) }
+
+  [k, put:] { return self.at(k, put: put) }
 
   includes(k) => self.has_(k)
 
@@ -588,7 +603,10 @@ class Tuple {
 
   at(i) => self.at_(i)
 
-
+  // U-INDEX (ADR-0060): read-only — `tup[i]` sends `[_]`. No `[_,put]`
+  // wrapper: `Tuple` is immutable (no `at(_,put:)` either), so `tup[i] = v`
+  // correctly `doesNotUnderstand` rather than raising a bespoke error.
+  [i] { return self.at(i) }
 
   iteratorValue(cursor) => self.at_(cursor)
 

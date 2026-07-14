@@ -78,6 +78,13 @@ pub enum Target {
     /// (`annotations-legality-grammar.md`'s legality table: "`@variant` |
     /// Class-nested variant decl | plain method").
     Variant,
+    /// A declared [`phalcom_ast::ast::ClassMember::Index`] (U-INDEX,
+    /// ADR-0060's bracket subscript method, `[idx] { ... }`). No expander
+    /// currently lists this as a legal target — an attribute attached to a
+    /// bracket subscript method is `attr.illegal_target` by construction
+    /// (out of this unit's scope; contracts on `[]`/`[]=` are not specified
+    /// by ADR-0060).
+    Index,
 }
 
 pub trait AttributeExpander {
@@ -108,7 +115,7 @@ fn is_pure_expr(expr: &Expr) -> bool {
             is_pure_expr(&m.object) && m.args.iter().all(|a| is_pure_expr(&a.expr))
         }
         Expr::GetProperty(g) => is_pure_expr(&g.object),
-        Expr::Index(i) => is_pure_expr(&i.object) && is_pure_expr(&i.index),
+        Expr::Index(i) => is_pure_expr(&i.object) && i.args.iter().all(|a| is_pure_expr(&a.expr)),
         Expr::Block(b) => b.body.iter().all(|s| {
             match s {
                 Statement::Expr { expr, .. } => is_pure_expr(expr),
@@ -145,7 +152,7 @@ fn contains_old_call(expr: &Expr) -> bool {
         }
         Expr::Unary(u) => contains_old_call(&u.expr),
         Expr::Binary(b) => contains_old_call(&b.left) || contains_old_call(&b.right),
-        Expr::Index(i) => contains_old_call(&i.object) || contains_old_call(&i.index),
+        Expr::Index(i) => contains_old_call(&i.object) || i.args.iter().any(|a| contains_old_call(&a.expr)),
         Expr::GetProperty(g) => contains_old_call(&g.object),
         _ => false,
     }
@@ -366,7 +373,9 @@ fn rewrite_old_calls(
         }
         Expr::Index(i) => {
             rewrite_old_calls(&mut i.object, old_lets, new_args, ctx)?;
-            rewrite_old_calls(&mut i.index, old_lets, new_args, ctx)?;
+            for arg in &mut i.args {
+                rewrite_old_calls(&mut arg.expr, old_lets, new_args, ctx)?;
+            }
         }
         Expr::GetProperty(g) => rewrite_old_calls(&mut g.object, old_lets, new_args, ctx)?,
         _ => {}
@@ -777,6 +786,10 @@ fn member_selector(m: &ClassMember) -> Option<String> {
         }
         ClassMember::Getter(g) => Some(encode_selector(&g.name, &[], SignatureKind::Getter)),
         ClassMember::Setter(s) => Some(encode_selector(&s.name, &[], SignatureKind::Setter)),
+        ClassMember::Index(ix) => {
+            let labels: Vec<Option<String>> = ix.params.iter().map(|p| p.label.clone()).collect();
+            Some(encode_selector("", &labels, SignatureKind::Subscript(ix.params.len() as u8)))
+        }
         ClassMember::Field(_) | ClassMember::Construct(_) | ClassMember::Variant(_) => None,
     }
 }
@@ -1597,6 +1610,7 @@ pub fn expand_class_attributes(
             // strips every `Variant` member before this loop runs. Kept for
             // match exhaustiveness over `ClassMember`'s full variant set.
             ClassMember::Variant(_) => Target::Variant,
+            ClassMember::Index(_) => Target::Index,
         };
 
         let attrs = match member {
@@ -1606,6 +1620,7 @@ pub fn expand_class_attributes(
             ClassMember::Construct(_) => Vec::new(),
             ClassMember::Field(f) => std::mem::take(&mut f.attributes),
             ClassMember::Variant(v) => std::mem::take(&mut v.attributes),
+            ClassMember::Index(ix) => std::mem::take(&mut ix.attributes),
         };
 
         for attr in &attrs {
@@ -1634,6 +1649,7 @@ pub fn expand_class_attributes(
             ClassMember::Construct(_) => {}
             ClassMember::Field(f) => f.attributes = attrs,
             ClassMember::Variant(v) => v.attributes = attrs,
+            ClassMember::Index(ix) => ix.attributes = attrs,
         }
     }
 

@@ -97,7 +97,7 @@ order is non-numeric — `U-CORE-2` shipped before `U-CORE-1` (see commits below
 
 ## 8. Indexing / subscript
 
-- [ ] **U-INDEX** *(stale-marked, correcting)* — [plan](units/U-INDEX/plan.md) — `47b0b22` landed the **original, since-superseded** ADR-0055 draft: `xs[i]`/`xs[i]=v` desugar straight to `.at(i)`/`.at(i,put:)`, single-expr only. ADR-0060 (docs-only, `1767463`) revised the design: `[]` becomes its own dedicated, user-definable operator-selector (`[](_)`/`[](_,put:)`, joining `==`/`+`/`<`), `[...]` is arg-list-shaped (`xs[i,j]`, empty `xs[]` cleanly dNUs) via `parse_arg_list()`, `core.ph` needs explicit `[](...)` wrapper methods. That revision was never implemented — `parse_method_name` has no `[`/`]` arm, so `class C { [](i) {...} }` is a parse error, and the old single-expr `[...]` doesn't short-circuit on empty brackets. `indexing`/`indexing_negative` golden lanes are red on exactly these two gaps. Not gate-clean; do not re-mark done until the plan's build order actually lands.
+- [x] **U-INDEX** — [plan](units/U-INDEX/plan.md) — landed 2026-07-14, superseding `47b0b22`'s original ADR-0055 draft (`xs[i]` desugared straight to `.at(i)`). Now implements ADR-0060's ratified design: `[idx] {}`/`[idx, put:] {}` is a dedicated bracket-subscript class member — no separate name token, params live inside the brackets (`Parser::parse_index_member`, dispatched from `parse_class_member`, not `parse_method_name`) — compiling to a direct `SignatureKind::Subscript` send (`[_]`/`[_,put]`/`[]`/`[put]`), never `at`/`at(_,put:)` lowering. `[...]` at the call site is arg-list-shaped (`xs[i,j]`, empty `xs[]` cleanly short-circuits) via `parse_arg_list()`. Collapsed the pre-existing, unwired `SignatureKind::SubscriptGet`/`SubscriptSet` (a third, incompatible spelling) into one `Subscript(u8)` matching ADR-0060. `List`/`Map` get `[i] {}`/`[i,put:] {}` wrappers in `core.ph`, `Tuple` gets `[i] {}` only (immutable). `indexing`/`indexing_negative` golden lanes both green. `./scripts/verify.sh` all-green, `cargo clippy`/`cargo doc` unchanged vs. baseline. Plan doc corrected in the same pass — its own Design section had picked the spelling ADR-0060 later rejected; see plan.md's top-of-file correction note. Perf-delta re-measurement (`phalcom-perf --bench-only`) not run this pass — follow-up, don't assume unchanged.
 
 ## 9. Annotations, contracts & layout
 
@@ -129,8 +129,8 @@ everything else in this group; the rest can reorder based on what the baseline s
 
 ## Suggested next dispatch (given current state)
 
-1. **Fix the `indexing`/`indexing_negative` bracket-selector gap** — `./scripts/verify.sh` is red on these two: bracket-selector method-definition syntax (`[i] { ... }`) and empty-bracket calls (`xs[]`) don't parse at all; predates `U-ITERABLE`, unrelated to Route B. Not yet assigned a unit.
-2. **Close out `U-GC`** (§11) — steps 0–4 landed, step 5 done as a second null result (stashed, not shipped); still needs `DEFERRED.md` M-RUNTIME note, perf numbers, miri lane, and `phalcom-reviewer` sign-off (spine files).
-3. **`U-FUTURE` Slice B** (§6) — fully unblocked now, highest-value concurrency work left.
-4. **`U-SEQ`** (§5) — unblocked, `U-ITERABLE`'s golden-suite regression is fixed.
+1. **Close out `U-GC`** (§11) — steps 0–4 landed, step 5 done as a second null result (stashed, not shipped); still needs `DEFERRED.md` M-RUNTIME note, perf numbers, miri lane, and `phalcom-reviewer` sign-off (spine files).
+2. **`U-FUTURE` Slice B** (§6) — fully unblocked now, highest-value concurrency work left.
+3. **`U-SEQ`** (§5) — unblocked, `U-ITERABLE`'s golden-suite regression is fixed.
+4. **`U-INDEX` perf re-measurement** — `phalcom-perf --bench-only` wasn't run after landing; record the expected small `[]`-vs-`.at` overhead delta (§8, plan.md Perf section) rather than assuming unchanged.
 5. Walk the remaining perf tiers (§11) as time allows — lowest urgency, gated on wanting perf work at all.

@@ -421,6 +421,10 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<(SourceRange, Se
             collect_decl_names(&construct_def.body, out);
         }
         ClassMember::Field(_) | ClassMember::Variant(_) => {}
+        ClassMember::Index(index_def) => {
+            out.push((index_def.name_range, SemanticTokenKind::Method));
+            collect_decl_names(&index_def.body, out);
+        }
     }
 }
 

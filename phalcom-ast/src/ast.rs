@@ -204,6 +204,43 @@ pub enum ClassMember {
     /// sibling top-level [`Statement::Class`] by `phalcom-core`'s
     /// `compiler::attributes::expand_class_attributes`.
     Variant(VariantDef),
+    /// A bracket-delimited subscript method — `[idx] { ... }` (read) or
+    /// `[idx, put:] { ... }` (write), U-INDEX,
+    /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md).
+    /// See [`IndexMethodDef`].
+    Index(IndexMethodDef),
+}
+
+/// A bracket-delimited subscript method definition — `[idx] { ... }` /
+/// `[idx, put:] { ... }` / `[] { ... }` / `[put:] { ... }` (U-INDEX,
+/// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
+///
+/// Unlike every other [`ClassMember`], this selector carries no separate name
+/// token at all — the brackets themselves are the whole of the member's
+/// grammar, and `params` (parsed by the ordinary `Parser::parse_param_list`,
+/// substituting `[`/`]` for `(`/`)`) live *inside* them rather than in a
+/// following `(...)` slot.
+/// Identity is arity + labels alone: `phalcom-core`'s
+/// `SignatureKind::Subscript` encodes this to `[_]`, `[_,put]`, `[]`,
+/// `[put]`, etc., mirroring `comma_form_slots` but bracket-delimited instead
+/// of `name(...)`-delimited.
+#[derive(Debug, Clone)]
+pub struct IndexMethodDef {
+    /// The bracketed parameter list — positional and/or `label:` parameters,
+    /// in source order (e.g. `[idx, put:]`'s `idx` positional, `put`
+    /// labeled).
+    pub params: Vec<ParameterDef>,
+    /// The method body.
+    pub body: Vec<Statement>,
+    /// `@name(args…)` attributes attached to this member, in declaration
+    /// order. See [`MethodDef::attributes`].
+    pub attributes: Vec<Attribute>,
+    /// The source span of the whole declaration.
+    pub range: SourceRange,
+    /// The source span of just the `[...]` bracket-and-params portion,
+    /// distinct from [`Self::range`]'s whole-declaration span. See
+    /// [`ClassDef::name_range`]'s doc for why this exists as its own field.
+    pub name_range: SourceRange,
 }
 
 /// A single `@variant Name(label1:, label2:, ...)` arm declared inside a
@@ -572,34 +609,50 @@ pub struct SetPropertyExpr {
     pub range: SourceRange,
 }
 
-/// A postfix subscript read — `object[index]` (U-INDEX).
+/// A postfix subscript read — `object[args...]` (U-INDEX,
+/// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
 ///
-/// Sugar over `object.at(index)` (collection-protocol.md §2, ADR-0055).
-/// Kept as a distinct node (rather than an immediate `MethodCall` desugar)
-/// so `parse_assignment` can distinguish the read form from the write form
-/// — the same reason `GetProperty`/`SetProperty` are distinct from `MethodCall`.
+/// `args` is a full call-shaped argument list (positional + `label:`,
+/// identical grammar to a call's `(...)` — produced by the same
+/// `Parser::parse_arg_list` call-arg parses use), not a single expression:
+/// `xs[i, j]` sends the distinct selector `[_,_]`,
+/// `cache[key, default: fallback]` sends `[_,default]`, and empty `xs[]`
+/// sends the zero-arity `[]`. Compiles to a direct send against the bracket
+/// selector the args' arity/labels encode (`phalcom-core`'s
+/// `SignatureKind::Subscript`) — **no** `at`/`at(_,put:)` lowering (ADR-0060
+/// supersedes ADR-0055's sugar-over-`at` draft).
+///
+/// Kept as a distinct node (rather than an immediate `MethodCall` desugar) so
+/// `parse_assignment` can distinguish the read form from the write form —
+/// the same reason `GetProperty`/`SetProperty` are distinct from
+/// `MethodCall`.
 #[derive(Debug, Clone)]
 pub struct IndexExpr {
     /// The collection being indexed.
     pub object: Expr,
-    /// The index expression.
-    pub index: Expr,
+    /// The bracketed argument list — positional and/or `label:` arguments,
+    /// in source order.
+    pub args: Vec<Argument>,
     /// Source span from `object` start through `]`.
     pub range: SourceRange,
 }
 
-/// A postfix subscript write — `object[index] = value` (U-INDEX).
+/// A postfix subscript write — `object[args...] = value` (U-INDEX,
+/// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
 ///
-/// Sugar over `object.at(index, put: value)` (collection-protocol.md §3,
-/// ADR-0055). Produced by `parse_assignment` when it sees an `Expr::Index`
-/// on the left of `=`, parallel to `SetProperty`'s production from
-/// `GetProperty`.
+/// Sends the bracket-write selector `args`' arity/labels encode with `put:
+/// value` appended (e.g. `xs[i] = v` sends `[_,put]`, `xs[] = v` sends
+/// `[put]`) — **no** `at(_,put:)` lowering (ADR-0060 supersedes ADR-0055).
+/// Produced by `parse_assignment` when it sees an `Expr::Index` on the left
+/// of `=`, parallel to `SetProperty`'s production from `GetProperty`.
 #[derive(Debug, Clone)]
 pub struct SetIndexExpr {
     /// The collection being mutated.
     pub object: Expr,
-    /// The index expression.
-    pub index: Expr,
+    /// The bracketed argument list — positional and/or `label:` arguments,
+    /// in source order (the index/key side only; `value` is appended as the
+    /// selector's trailing `put:` argument by the compiler, not stored here).
+    pub args: Vec<Argument>,
     /// The new value.
     pub value: Expr,
     /// Source span from `object` start through the RHS.

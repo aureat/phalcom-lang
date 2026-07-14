@@ -23,10 +23,15 @@ pub enum SignatureKind {
     Getter,
     /// A one-argument setter, `foo=(_)`.
     Setter,
-    /// A subscript getter, `[_]`, of the given arity.
-    SubscriptGet(u8),
-    /// A subscript setter, `[_]=(_)`, of the given arity.
-    SubscriptSet(u8),
+    /// A bracket subscript method, `[idx]` / `[idx, put:]` / `[]` / `[put:]`
+    /// (U-INDEX, [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
+    /// The payload is the *total* slot count (positional + labeled, same
+    /// counting convention as [`SignatureKind::Method`]) — unlike
+    /// `Method`/`Initializer`, there is no separate name; both the read
+    /// shape (`[_]`) and the write shape (`[_,put]`) are this one kind, told
+    /// apart purely by which labels the selector string carries (a trailing
+    /// `put` label, by ADR-0060 convention, not a distinct `Kind`).
+    Subscript(u8),
     /// A variadic method, `foo(*rest)`, whose payload is the *fixed/minimum*
     /// positional arity `F` preceding the rest parameter (0 for `sum(*numbers)`,
     /// 1 for `format(fmt, *args)`).
@@ -62,8 +67,7 @@ impl Signature {
             SignatureKind::Method(n) => n,
             SignatureKind::Getter => 0,
             SignatureKind::Setter => 1,
-            SignatureKind::SubscriptGet(n) => n,
-            SignatureKind::SubscriptSet(n) => n + 1,
+            SignatureKind::Subscript(n) => n,
             SignatureKind::Variadic(f) => f,
         };
         Signature {
@@ -89,6 +93,12 @@ impl Signature {
 /// `name`/`labels`/`kind` (ADR-0012, amended 2026-07-11: `move(_,to,duration)`
 /// spelling — a positional argument renders as `_`, a keyword argument as
 /// its label, slots joined by `,`).
+///
+/// [`SignatureKind::Subscript`] ignores `name` entirely (U-INDEX,
+/// ADR-0060) — the bracket delimiter itself carries the selector's whole
+/// identity, so `[_]`/`[_,put]`/`[]`/`[put]` are spelled with the same
+/// `comma_form_slots` every keyword method uses, just bracket- rather than
+/// paren-delimited and with no leading name.
 pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKind) -> String {
     match kind {
         SignatureKind::Initializer(0) => format!("init {name}()"),
@@ -97,8 +107,7 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
         SignatureKind::Method(_) => format!("{name}({})", comma_form_slots(labels)),
         SignatureKind::Getter => name.to_string(),
         SignatureKind::Setter => format!("{name}=(_)"),
-        SignatureKind::SubscriptGet(n) => format!("[{}]", comma_form_positional(n)),
-        SignatureKind::SubscriptSet(n) => format!("[{}]=(_)", comma_form_positional(n)),
+        SignatureKind::Subscript(_) => format!("[{}]", comma_form_slots(labels)),
         // The fixed/minimum arity payload is never spelled into the
         // selector — `sum(*numbers)` and `format(fmt, *args)` both intern as
         // `sum(*)` / `format(*)` (U9 corrections §0 point 3). Only
@@ -112,12 +121,6 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
 /// argument, the label text for a keyword argument.
 fn comma_form_slots(labels: &[Option<String>]) -> String {
     labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",")
-}
-
-/// Joins `n` positional `_` placeholders with `,` (used by the subscript
-/// kinds, which carry no labels).
-fn comma_form_positional(n: u8) -> String {
-    vec!["_"; n as usize].join(",")
 }
 
 /// Decomposes an encoded selector string back into `(name, labels, kind)` —
@@ -139,26 +142,25 @@ fn comma_form_positional(n: u8) -> String {
 ///
 /// # Round-trip note
 ///
-/// The subscript kinds ([`SignatureKind::SubscriptGet`] /
-/// [`SignatureKind::SubscriptSet`]) carry no name in their encoding, so this
-/// returns the conventional placeholder name `"[]"` / `"[]="` for them; feeding
-/// that back through [`encode_selector`] reproduces the original string (the
-/// encoder ignores the name for subscripts).
+/// [`SignatureKind::Subscript`] carries no name in its encoding (U-INDEX,
+/// ADR-0060), so this returns the conventional placeholder name `"[]"` for
+/// it, with the real labels recovered (`[_,put]` decodes to
+/// `[None, Some("put")]`); feeding that back through [`encode_selector`]
+/// reproduces the original string (the encoder ignores the name for
+/// subscripts).
 ///
 /// [`SignatureKind::Variadic`] round-trips its *name* but not its fixed
 /// arity: the selector text never carries `F` (U9 corrections §0 point 3), so
 /// this always decodes to `Variadic(0)` regardless of the original method's
 /// real fixed-prefix count.
 pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, SignatureKind) {
-    // Subscript forms start with `[`.
+    // Subscript forms start with `[` and end with `]` (no `at`/setter-suffix
+    // lowering — ADR-0060 supersedes ADR-0055's sugar-over-`at` draft).
     if let Some(rest) = selector.strip_prefix('[') {
-        if let Some(index_part) = rest.strip_suffix("]=(_)") {
-            let n = count_args(index_part);
-            return ("[]=".to_string(), vec![None; n as usize], SignatureKind::SubscriptSet(n));
-        }
-        if let Some(index_part) = rest.strip_suffix(']') {
-            let n = count_args(index_part);
-            return ("[]".to_string(), vec![None; n as usize], SignatureKind::SubscriptGet(n));
+        if let Some(inner) = rest.strip_suffix(']') {
+            let labels = parse_labels(inner);
+            let n = labels.len() as u8;
+            return ("[]".to_string(), labels, SignatureKind::Subscript(n));
         }
         // Malformed subscript-like string: fall through to the getter default.
     }
@@ -204,16 +206,6 @@ pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, Signatur
     (name, labels, kind)
 }
 
-/// Counts the comma-separated `_` argument slots in a subscript index list
-/// (`"_,_"` -> 2).
-fn count_args(inner: &str) -> u8 {
-    if inner.is_empty() {
-        0
-    } else {
-        inner.split(',').count() as u8
-    }
-}
-
 /// Parses a method/initializer paren body (`"to,duration"`, `"_,_"`, `""`)
 /// into its per-argument labels: `Some(label)` for a keyword, `None` for the
 /// positional placeholder `_`.
@@ -243,8 +235,7 @@ pub fn make_signature(base: &str, kind: SignatureKind) -> String {
         SignatureKind::Method(n) => n,
         SignatureKind::Getter => 0,
         SignatureKind::Setter => 0, // Setter has 1 arg but the label list is empty in the AST.
-        SignatureKind::SubscriptGet(n) => n,
-        SignatureKind::SubscriptSet(n) => n,
+        SignatureKind::Subscript(n) => n,
         SignatureKind::Variadic(f) => f,
     };
     let labels = vec![None; arity as usize];
@@ -316,18 +307,44 @@ mod tests {
         assert_eq!(kind, SignatureKind::Getter);
     }
 
-    /// Subscript kinds decode with their placeholder names and round-trip.
+    /// [`SignatureKind::Subscript`] (U-INDEX, ADR-0060) decodes with its
+    /// placeholder name and round-trips, for every bracket shape ADR-0060
+    /// specifies: bare read (`[_]`), labeled write (`[_,put]`), zero-arity
+    /// (`[]`), and label-only (`[put]`).
     #[test]
     fn decode_subscripts() {
-        let get = encode_selector("", &[], SignatureKind::SubscriptGet(1));
-        let (name, _, kind) = decode_selector(&get);
+        // `[idx] { ... }` — read, one positional arg.
+        let get = encode_selector("", &[None], SignatureKind::Subscript(1));
+        assert_eq!(get, "[_]");
+        let (name, labels, kind) = decode_selector(&get);
         assert_eq!(name, "[]");
-        assert_eq!(kind, SignatureKind::SubscriptGet(1));
-        assert_eq!(encode_selector(&name, &[None], kind), get);
+        assert_eq!(labels, vec![None]);
+        assert_eq!(kind, SignatureKind::Subscript(1));
+        assert_eq!(encode_selector(&name, &labels, kind), get);
 
-        let set = encode_selector("", &[], SignatureKind::SubscriptSet(1));
-        let (sname, _, skind) = decode_selector(&set);
-        assert_eq!(sname, "[]=");
-        assert_eq!(skind, SignatureKind::SubscriptSet(1));
+        // `[idx, put:] { ... }` — write, positional index + labeled value.
+        let set = encode_selector("", &[None, Some("put".to_string())], SignatureKind::Subscript(2));
+        assert_eq!(set, "[_,put]");
+        let (sname, slabels, skind) = decode_selector(&set);
+        assert_eq!(sname, "[]");
+        assert_eq!(slabels, vec![None, Some("put".to_string())]);
+        assert_eq!(skind, SignatureKind::Subscript(2));
+        assert_eq!(encode_selector(&sname, &slabels, skind), set);
+
+        // `[] { ... }` — zero-arity read.
+        let empty = encode_selector("", &[], SignatureKind::Subscript(0));
+        assert_eq!(empty, "[]");
+        let (ename, elabels, ekind) = decode_selector(&empty);
+        assert_eq!(ename, "[]");
+        assert!(elabels.is_empty());
+        assert_eq!(ekind, SignatureKind::Subscript(0));
+
+        // `[put:] { ... }` — zero-arity write.
+        let put_only = encode_selector("", &[Some("put".to_string())], SignatureKind::Subscript(1));
+        assert_eq!(put_only, "[put]");
+        let (pname, plabels, pkind) = decode_selector(&put_only);
+        assert_eq!(pname, "[]");
+        assert_eq!(plabels, vec![Some("put".to_string())]);
+        assert_eq!(pkind, SignatureKind::Subscript(1));
     }
 }

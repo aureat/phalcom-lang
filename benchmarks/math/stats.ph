@@ -8,7 +8,7 @@
 // selector names below may shift. Assumed list API:
 //   [a, b, c]           list literal
 //   xs.size             element count
-//   xs[i]               indexing (returns element; see U-INDEX and ADR-0055)
+//   xs[i]               indexing (returns element; see U-INDEX and ADR-0060)
 //   for (x in xs) {..}  === xs.each { x => .. }
 //   xs.reduce(init) { acc, x => .. }   left fold
 // Verifies via identities (independent of hardcoded results):

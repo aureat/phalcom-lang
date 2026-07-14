@@ -121,9 +121,33 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                 // compile time into a sibling top-level class this raw-AST
                 // harvest never sees — nothing to harvest here either.
                 ClassMember::Variant(_) => {}
+                // A bracket subscript method (U-INDEX, ADR-0060: `[idx] {
+                // ... }` / `[idx, put:] { ... }`) — harvested in the same
+                // bracket-delimited, no-name comma-form spelling
+                // `phalcom-lsp`'s `selectors::index_selector` uses (`[_]`,
+                // `[_,put]`, `[]`, `[put]`).
+                ClassMember::Index(ix) => {
+                    entries.push(SelectorEntry {
+                        selector: bracket_form(&ix.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>()),
+                        kind: "method",
+                        source: "core.ph",
+                    });
+                }
             }
         }
     }
+}
+
+/// Builds the bracket-form selector string for a subscript method (U-INDEX,
+/// ADR-0060): `[_]`, `[_,put]`, `[]`, `[put]`, ... . Mirrors [`comma_form`]'s
+/// label-joining, just bracket- rather than paren-delimited and with no
+/// leading name (a bracket method carries no name token at all).
+fn bracket_form(labels: &[Option<String>]) -> String {
+    if labels.is_empty() {
+        return "[]".to_string();
+    }
+    let inner = labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
+    format!("[{inner}]")
 }
 
 /// Builds the comma-form selector string: `name(_,label,...)`, or `name()`

@@ -411,6 +411,10 @@ fn member_kind(member: &ClassMember) -> MemberKind {
         ClassMember::Setter(s) if s.is_static => MemberKind::StaticMethod,
         ClassMember::Setter(_) => MemberKind::Setter,
         ClassMember::Field(_) | ClassMember::Variant(_) => MemberKind::Getter,
+        // A bracket subscript method (U-INDEX, ADR-0060: `[idx] { ... }`) is
+        // an ordinary dispatchable instance method, just with no name token
+        // — closest existing completion shape is `MemberKind::Method`.
+        ClassMember::Index(_) => MemberKind::Method,
     }
 }
 
@@ -566,11 +570,15 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
         }
         Expr::Index(i) => {
             collect_var_occurrences_in_expr(&i.object, names, out);
-            collect_var_occurrences_in_expr(&i.index, names, out);
+            for arg in &i.args {
+                collect_var_occurrences_in_expr(&arg.expr, names, out);
+            }
         }
         Expr::SetIndex(si) => {
             collect_var_occurrences_in_expr(&si.object, names, out);
-            collect_var_occurrences_in_expr(&si.index, names, out);
+            for arg in &si.args {
+                collect_var_occurrences_in_expr(&arg.expr, names, out);
+            }
             collect_var_occurrences_in_expr(&si.value, names, out);
         }
         Expr::Block(b) => {
@@ -691,6 +699,12 @@ impl Collector {
                 ClassMember::Variant(v) => {
                     self.definitions.push((selector, v.range, class, kind));
                 }
+                ClassMember::Index(ix) => {
+                    self.definitions.push((selector, ix.range, class, kind));
+                    for statement in &ix.body {
+                        self.walk_statement(statement);
+                    }
+                }
             }
         }
         for (expr, _range) in &class_def.invariants {
@@ -746,11 +760,11 @@ impl Collector {
             }
             Expr::Index(i) => {
                 self.walk_expr(&i.object);
-                self.walk_expr(&i.index);
+                self.walk_args(&i.args);
             }
             Expr::SetIndex(si) => {
                 self.walk_expr(&si.object);
-                self.walk_expr(&si.index);
+                self.walk_args(&si.args);
                 self.walk_expr(&si.value);
             }
             Expr::Block(b) => {

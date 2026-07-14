@@ -14,7 +14,7 @@
 //! source of selector spelling here, deliberately independent.
 
 use phalcom_ast::ast::{
-    ClassMember, ConstructDef, FieldDef, GetterDef, MethodDef, ParameterDef, SetterDef,
+    ClassMember, ConstructDef, FieldDef, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef,
 };
 
 /// Builds the comma-form selector string from a method/constructor name and
@@ -96,6 +96,28 @@ pub fn field_selector(f: &FieldDef) -> String {
     f.name.clone()
 }
 
+/// The bracket-form selector a bracket subscript method declaration defines
+/// (U-INDEX, ADR-0060) — `[_]`, `[_,put]`, `[]`, `[put]`, ... . Mirrors
+/// [`comma_form`]'s label-joining exactly, just bracket- rather than
+/// paren-delimited and with no leading name (a bracket method carries no
+/// name token at all — see [`IndexMethodDef`]'s doc).
+///
+/// **Do not confuse with `phalcom-core`'s `SignatureKind::Subscript`
+/// encoding** — same spelling, independently reimplemented here per this
+/// module's top-level doc (`phalcom-lsp` never links `phalcom-core`).
+pub fn index_selector(ix: &IndexMethodDef) -> String {
+    if ix.params.is_empty() {
+        return "[]".to_string();
+    }
+    let inner = ix
+        .params
+        .iter()
+        .map(|p| p.label.as_deref().unwrap_or("_"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("[{inner}]")
+}
+
 /// The comma-form selector any [`ClassMember`] declaration defines.
 ///
 /// The single dispatch point every definition-side index entry goes
@@ -115,6 +137,7 @@ pub fn class_member_selector(member: &ClassMember) -> String {
         // no `phalcom-core` link), so there is no generated selector to spell
         // here; the variant's own name is the closest stand-in.
         ClassMember::Variant(v) => v.name.clone(),
+        ClassMember::Index(ix) => index_selector(ix),
     }
 }
 

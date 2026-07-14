@@ -617,6 +617,48 @@ impl<'vm> Compiler<'vm> {
                 // every `Variant` member before returning; kept for match
                 // exhaustiveness over `ClassMember`'s full variant set.
                 ClassMember::Variant(_) => {}
+                // A bracket subscript method (U-INDEX, ADR-0060: `[idx] {
+                // ... }` / `[idx, put:] { ... }`) — same codegen shape as an
+                // ordinary `Method`, just with no name token and a
+                // `SignatureKind::Subscript` selector (`[_]`, `[_,put]`,
+                // `[]`, `[put]`, ...) instead of `name(...)`. Always an
+                // instance method — the grammar has no `static [idx] {}`
+                // form.
+                ClassMember::Index(index_def) => {
+                    let range = index_def.range;
+                    let arity = index_def.params.len();
+                    let labels: Vec<Option<String>> = index_def.params.iter().map(|p| p.label.clone()).collect();
+                    let sig_kind = SignatureKind::Subscript(arity as u8);
+                    let selector = encode_selector("", &labels, sig_kind);
+                    let selector_sym = self.vm.interner.intern(&selector);
+
+                    let param_names: Vec<String> = index_def.params.iter().map(|p| p.name.clone()).collect();
+                    self.is_static_context = false;
+                    let closure = self.compile_block(index_def.body, selector_sym, param_names, true, false)?;
+
+                    tracing::debug!("[Compiler] Compiling subscript method: {}", selector);
+
+                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                        selector_sym,
+                        sig_kind,
+                        MethodKind::Closure(closure),
+                    ))));
+
+                    if !strip_metadata {
+                        let contracts = self.build_contracts_metadata(&index_def.attributes)?;
+                        if !contracts.is_empty() {
+                            self.vm.heap.method_mut(method_obj).contracts = Some(contracts);
+                        }
+                    }
+
+                    let method_obj_idx = self.add_constant(Value::Obj(method_obj));
+                    self.emit(Bytecode::Constant(method_obj_idx), range);
+
+                    let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                    self.emit(Bytecode::Method(selector_idx, false), range);
+
+                    self.emit_member_attribute_attaches(&index_def.attributes, method_obj_idx, range)?;
+                }
             }
         }
 
@@ -886,11 +928,15 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut
         }
         Expr::Index(ix) => {
             collect_assigned_fields(&ix.object, fields, interner);
-            collect_assigned_fields(&ix.index, fields, interner);
+            for arg in &ix.args {
+                collect_assigned_fields(&arg.expr, fields, interner);
+            }
         }
         Expr::SetIndex(six) => {
             collect_assigned_fields(&six.object, fields, interner);
-            collect_assigned_fields(&six.index, fields, interner);
+            for arg in &six.args {
+                collect_assigned_fields(&arg.expr, fields, interner);
+            }
             collect_assigned_fields(&six.value, fields, interner);
         }
         Expr::Block(block) => {

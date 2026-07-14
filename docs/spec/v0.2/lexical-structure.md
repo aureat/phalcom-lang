@@ -186,10 +186,48 @@ overlap with `#` (symbols) or `::` (method references).
 
 ## 14. Subscript indexing syntax: `[]` / `[]=`
 
-Full semantics in [ADR-0055](../../adr/0055-index-syntax-sugar-over-at-selectors.md).
+Full semantics in [ADR-0060](../../adr/accepted/0060-index-operator-as-real-selector.md)
+(supersedes the retired [ADR-0055](../../adr/retired/0055-index-syntax-sugar-over-at-selectors.md),
+which lowered `[]` straight to `at`/`at(_,put:)` — that lowering no longer
+occurs).
 
-`expr[idx]` is syntactic sugar for `expr.at(idx)` (collection-protocol.md §2).
-`expr[idx] = value` is syntactic sugar for `expr.at(idx, put: value)` (collection-protocol.md §3).
+**Call site.** `expr[args...]` and `expr[args...] = value` are **not** sugar
+for an `at`/`at(_,put:)` send — they compile to a direct send against a
+dedicated bracket selector, exactly the way `expr == other` compiles to a
+`==(_)` send. `args` is a full call-shaped argument list — positional and/or
+`label:` — identical grammar to a call's `(...)`, so it generalizes past a
+single index for free:
 
-The `[` is recognized as a postfix operator only when it immediately follows a completed primary/postfix chain on the **same line**. A `[` at the start of a new line is always parsed as a fresh list literal, not an index (avoiding JavaScript-style ASI hazard).
+| Source | Selector sent |
+|---|---|
+| `expr[idx]` | `[_]` |
+| `expr[idx] = value` | `[_,put]` |
+| `expr[i, j]` | `[_,_]` |
+| `expr[key, default: fallback]` | `[_,default]` |
+| `expr[]` | `[]` |
+| `expr[] = value` | `[put]` |
+
+A collection opts into `[]`/`[]=` explicitly — implementing `at(_)` does not
+automatically make a class indexable (collection-protocol.md §2 governs
+`at`; this is a separate, independently-overridable selector).
+
+**Definition site.** `[]` joins the operator-selector name set already
+occupied by `==`, `+`, `<`, etc. — a class defines a bracket method with the
+params living *inside* the brackets, substituting `[`/`]` for a method's
+ordinary `(`/`)`:
+
+```
+class Example {
+  [idx] { ... }           // read, one positional arg — selector [_]
+  [idx, put:] { ... }     // write — selector [_,put]
+  [] { ... }              // zero-arity read — selector []
+  [put:] { ... }          // zero-arity write — selector [put]
+}
+```
+
+**Postfix newline boundary.** The `[` is recognized as a postfix operator
+only when it immediately follows a completed primary/postfix chain on the
+**same line** — the same newline-termination rule `.`/`(`/`::`/`{` already
+follow. A `[` at the start of a new line is always parsed as a fresh list
+literal, not an index (avoiding a JavaScript-style ASI hazard).
 </content>

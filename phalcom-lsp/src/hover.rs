@@ -366,6 +366,7 @@ fn member_range(member: &ClassMember) -> phalcom_common::range::SourceRange {
         // See `selectors::class_member_selector`'s doc for why a `@variant`
         // arm is handled uniformly alongside the other member kinds here.
         ClassMember::Variant(v) => v.range,
+        ClassMember::Index(ix) => ix.range,
     }
 }
 

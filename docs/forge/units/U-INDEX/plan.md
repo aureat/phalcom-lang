@@ -1,11 +1,30 @@
-# U-INDEX — postfix `[]` index read/write, dispatching to a dedicated `[](...)`/`[](...,put:)` operator selector
+# U-INDEX — postfix `[]` index read/write, dispatching to a dedicated bracket-subscript selector (`[idx]`/`[idx,put:]`)
 
-Status: **PLANNED**. Not a performance tier — a syntax unit. Independent of
-[U-IC](../U-IC/plan.md) (Tier 3, dispatch cost); riding on it, not blocked by
-it (see Perf below). Single-writer on `phalcom-ast/src/parser.rs` +
-`phalcom-ast/src/ast.rs` + `phalcom-core/src/compiler/lib.rs` → worktree-isolate
-if run alongside another parser/compiler unit
-([[phalcom-concurrent-session-hazards]]).
+Status: **LANDED** (2026-07-14). Not a performance tier — a syntax unit.
+Independent of [U-IC](../U-IC/plan.md) (Tier 3, dispatch cost); rode on it,
+was not blocked by it (see Perf below). Touched
+`phalcom-ast/src/{ast.rs,parser.rs}`, `phalcom-core/src/compiler/lib/{expr.rs,class_decl.rs}`,
+`phalcom-core/src/method/mod.rs`, `phalcom-core/core/core.ph`,
+`phalcom-lsp/src/{completion,hover,index,selectors,semantic_tokens}.rs`
+(exhaustive-match fixups for the new `ClassMember::Index`/`SignatureKind::Subscript`
+variants), plus the two ADRs and goldens below. Landed in a worktree
+([[phalcom-concurrent-session-hazards]]), then merged to main.
+
+**Correction (superseding the Design section's own "Method-definition
+selector" pick below — see that section's addendum for the full story):**
+this doc's own Design section chose "Option 1" — `[](_)`/`[](_,put:)`, a
+name-token `[]` with params in an ordinary, separate `(...)` slot, mirroring
+`==(other)`. **That is not what shipped.** [ADR-0060](../../../adr/accepted/0060-index-operator-as-real-selector.md)
+(Status: Accepted, ratified after this plan was drafted) specifies the
+opposite shape — **params live inside the brackets, no separate parens**:
+`[idx] { ... }` (read), `[idx, put:] { ... }` (write), `[] { ... }` /
+`[put:] { ... }` (zero-arity forms) — i.e. exactly the shape this plan's
+Design section calls out and rejects as "Option 2." ADR-0060 is the ratified
+decision of record; wherever this plan's body says `[](...)`/`[](_,put:)`,
+read it as superseded by ADR-0060's bracket-holds-params spelling. The
+call-site (`Expr::Index`/`Expr::SetIndex`, arg-list-shaped, multi-key/label
+support) and AST-node-not-desugar reasoning below are unaffected by this
+correction — only the *method-definition-side* selector spelling changed.
 
 ## Role
 
@@ -357,32 +376,42 @@ follow-on to it. Reasons:
     whatever `at(_)` returns automatically, no rework needed when that
     lands.
 
-## Write-set (STOP-and-report if outside)
+## Write-set — as landed (corrected from the pre-implementation draft above)
 
-- `phalcom-ast/src/ast.rs` — `Expr::Index`, `Expr::SetIndex` node
-  definitions.
-- `phalcom-ast/src/parser.rs` — `parse_method_name` (`parser.rs:1015`, new
-  `Token::LBracket` arm consuming `[`+`]` → name `"[]"`, the
-  **method-definition** side), `parse_call` (postfix `[` recognition —
-  the **call-site** side, `parser.rs:1465`), `parse_assignment` (the new
-  `Expr::Index => Expr::SetIndex` arm, `parser.rs:1217`).
-- `phalcom-core/src/compiler/lib.rs` — compile `Expr::Index`/`Expr::SetIndex`
-  to `[](...)`/`[](...,put:)` sends (same shape `Expr::GetProperty`/
-  `Expr::MethodCall` already compile through).
-- `phalcom-core/core/core.ph` — **new**: `[](_)`/`[](_,put:)` on `List` and
-  `Map`, `[](_)` (read-only) on `Tuple`, each a one-line delegation to the
-  existing `at(_)`/`at(_,put:)`. This is a required deliverable of the
-  dedicated-selector direction, not optional — without it `xs[i]` on
-  today's collections cleanly `doesNotUnderstand` (see Method-definition
-  selector above).
-- `docs/adr/00XX-...md` — the new ADR (see Spec anchor).
-- `docs/spec/v0.2/lexical-structure.md` (or wherever postfix operators are
-  documented) — one new section for `[]` call-site syntax **and** `[]`
-  joining the operator-selector name set, cross-referencing
-  collection-protocol.md rather than restating its laws.
+- `phalcom-ast/src/ast.rs` — `ClassMember::Index(IndexMethodDef)` (new,
+  definition side — no separate name field, brackets hold the whole
+  identity), `Expr::Index`/`Expr::SetIndex` reshaped from single-`index`
+  to arg-list `args: Vec<Argument>`.
+- `phalcom-ast/src/parser.rs` — new `Parser::parse_index_member` (dispatched
+  from `parse_class_member` on a leading `Token::LBracket`, **not** routed
+  through `parse_method_name` — a bracket method has no name token at all,
+  unlike `==`/other operator selectors), `parse_param_list`/`parse_arg_list`
+  extended to also short-circuit/delimit on `Token::RBracket`, `parse_call`'s
+  postfix `[` (arg-list via `parse_arg_list`, call-site side), `parse_assignment`'s
+  `Expr::Index => Expr::SetIndex` arm.
+- `phalcom-core/src/method/mod.rs` — **not in the original write-set, added
+  during implementation.** Pre-existing, unwired `SignatureKind::SubscriptGet(u8)`/
+  `SubscriptSet(u8)` (spelled `[_]`/`[_]=(_)`, matching neither this plan's
+  draft nor ADR-0060) collapsed into one `SignatureKind::Subscript(u8)`
+  carrying full labels, `encode_selector`/`decode_selector` rewritten to
+  ADR-0060's actual spelling (`[_]`, `[_,put]`, `[]`, `[put]`).
+- `phalcom-core/src/compiler/lib/expr.rs` — `Expr::Index`/`Expr::SetIndex`
+  compile to a direct `Subscript`-selector send (no `at`/`at(_,put:)`
+  lowering), arity/labels taken straight from the arg list.
+- `phalcom-core/src/compiler/lib/class_decl.rs` — `ClassMember::Index` codegen
+  arm (same shape as an ordinary `Method`, `SignatureKind::Subscript` selector).
+- `phalcom-core/core/core.ph` — `[i] {}`/`[i, put:] {}` on `List` and `Map`,
+  `[i] {}` (read-only) on `Tuple`, each a one-line delegation to `at(_)`/`at(_,put:)`.
+- `docs/adr/accepted/0060-index-operator-as-real-selector.md` — the ADR (already
+  existed, Accepted; amended in this pass to record what landed).
+- `docs/spec/v0.2/lexical-structure.md` — new section for `[]` call-site syntax
+  and the bracket-method definition form.
+- `phalcom-core/bin/gen-core-table/main.rs`, `phalcom-lsp/src/{completion,hover,
+  index,selectors,semantic_tokens}.rs` — exhaustive-match fixups for the two new
+  variants (`ClassMember::Index`, `SignatureKind::Subscript`); LSP selector
+  hover/completion for bracket methods.
 - **Floor: +0.** No `primitive/*.rs` changes, no new `Value` arm, no new
-  opcode. (`core.ph` is a library-surface addition, not a floor change —
-  ADR-0019 governs VM-blessed primitives, not `.ph`-defined methods.)
+  opcode — confirmed as landed.
 
 ## Build order
 
@@ -578,20 +607,40 @@ pass under-specified:
   and the internal `core.ph` call sites (`iteratorValue`/`==`/`hash`) need
   to change, not the parser or compiler this unit lands.
 
-## Return shape (implementer)
+## Return shape — as landed (2026-07-14)
 
-commit SHA(s) · `parse_method_name`'s new `[]`-as-operator-name arm landed
-(confirm `class C { [](i) {...} }` parses) · `Expr::Index`/`Expr::SetIndex`
-landed, compiling to `[](...)`/`[](...,put:)` sends · newline-boundary
-fixture result (confirms no ASI-style hazard) · compound-assignment
-Precondition finding (does `.prop += 1` work today — DEC-INDEX-B basis) ·
-`core.ph` `[](...)` wrapper methods added to `List`/`Map`/`Tuple`
-(delegating to `at`/`at(_,put:)`) · new `indexing` label fixture counts
-(PASS/NEGATIVE), including the `[]`-without-`at` / `at`-without-`[]`
-independence fixture · the 2 (or more) previously-broken
-`benchmarks/math/*.ph` fixtures now green via `phalcom-perf --bench-only
---label math` · new ADR number + link · confirmation of zero golden diff ·
-`phalcom-perf` before/after showing the **measured delta** for `[]`-heavy
-benchmarks (expected: small increase from the extra `[]`→`at` `Invoke`,
-not "unchanged" — see Perf) · floor delta (exp 0, `core.ph`-only library
-addition) · verify + `cargo doc` tails · write-set confirm.
+`Parser::parse_index_member` landed (dispatched from `parse_class_member` on
+a leading `[`, not through `parse_method_name` — confirmed
+`class OnlyIndex { [i] { return i * 2 } }` parses and `obj[3]` dispatches to
+it, `tests/lang/indexing/independence.ph`) · `Expr::Index`/`Expr::SetIndex`
+reshaped to arg-list `args: Vec<Argument>`, compiling directly to
+`SignatureKind::Subscript` sends (`[_]`, `[_,put]`, `[]`, `[put]`) — **no**
+`at`/`at(_,put:)` lowering, per ADR-0060 · `phalcom-core/src/method/mod.rs`'s
+pre-existing unwired `SubscriptGet`/`SubscriptSet` (wrong, third spelling)
+collapsed into one `Subscript(u8)` matching ADR-0060 exactly, with 5 unit
+tests covering all four bracket shapes · `core.ph` wrapper methods landed:
+`List`/`Map` get `[i] {}`/`[i, put:] {}`, `Tuple` gets `[i] {}` only
+(immutable, so `tup[i] = v` correctly `doesNotUnderstand`) · `indexing`/
+`indexing_negative` golden lanes both green (were the two red lanes blocking
+U-ITERABLE's gate-clean status), including the `range_dnu`/`empty_arg_dnu`/
+`non_indexable_dnu` negative fixtures updated to the landed selector spelling
+(`'[_]'`, `'[]'`) · `benchmarks/math/stats.ph` comment reference corrected
+from the retired ADR-0055 to ADR-0060 · ADR-0060 amended in this pass to
+record what landed (was previously "none of this is implemented yet") ·
+`docs/spec/v0.2/lexical-structure.md` gained a `[]` call-site + bracket-method
+section · floor delta: **+0** confirmed, no `primitive/*.rs`/`Value`/opcode
+changes · `cargo build && cargo test -p phalcom-core --test lang && cargo
+clippy --workspace` green (clippy/doc warning counts unchanged vs. main
+baseline — no new warnings), `cargo doc` clean, `./scripts/verify.sh` reports
+"all lanes green" (zero golden diff) · reviewed inline by the orchestrating
+session (no separate `phalcom-reviewer` subagent dispatch for this pass, per
+user direction) rather than the standalone implementer/reviewer handoff —
+first implementer attempt crashed mid-response after finding and escalating
+a genuine 3-way selector-spelling conflict (this plan's own draft vs.
+ADR-0060 vs. the unwired `method/mod.rs` infra); user ratified ADR-0060 as
+authoritative before the (resumed, then re-verified-by-orchestrator)
+implementation completed · **not done in this pass:** the perf-delta
+re-measurement `phalcom-perf --bench-only` this doc's Perf section calls for
+— `phalcom-perf` wasn't run before committing; record the measured
+`[]`-vs-`.at` overhead as a follow-up if/when that harness is invoked, don't
+assume "unchanged" · write-set confirmed against the corrected list above.

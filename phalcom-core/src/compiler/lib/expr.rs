@@ -155,22 +155,42 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::Invoke(1, selector_idx), set_prop.range);
             }
             Expr::Index(ix) => {
-                self.compile_expr(ix.object.clone())?;
-                self.compile_expr(ix.index.clone())?;
-                let selector = encode_selector("at", &[None], SignatureKind::Method(1));
+                // U-INDEX (ADR-0060): `xs[a, b, ...]` sends directly to the
+                // bracket selector the args' arity/labels encode (`[_]`,
+                // `[_,_]`, `[default]`, ...) — no `at`/`at(_,put:)` lowering.
+                // `args` is a full call-shaped argument list (reusing
+                // `parse_arg_list`), so this rides the ordinary generic-send
+                // path for any arity/label combination without further
+                // compiler changes.
+                let ix = *ix;
+                self.compile_expr(ix.object)?;
+                let argc = ix.args.len();
+                let labels: Vec<Option<String>> = ix.args.iter().map(|a| a.label.clone()).collect();
+                for arg in ix.args {
+                    self.compile_expr(arg.expr)?;
+                }
+                let selector = encode_selector("", &labels, SignatureKind::Subscript(argc as u8));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::Symbol(sym));
-                self.emit(Bytecode::Invoke(1, idx), ix.range);
+                self.emit(Bytecode::Invoke(argc as u8, idx), ix.range);
             }
             Expr::SetIndex(six) => {
-                self.compile_expr(six.object.clone())?;
-                self.compile_expr(six.index.clone())?;
-                self.compile_expr(six.value.clone())?;
-                let labels: Vec<Option<String>> = vec![None, Some("put".to_string())];
-                let selector = encode_selector("at", &labels, SignatureKind::Method(2));
+                // U-INDEX (ADR-0060): `xs[a, b, ...] = value` appends `value`
+                // as the selector's trailing `put:` argument — `xs[i] = v`
+                // sends `[_,put]`, `xs[] = v` sends `[put]` — never `at`.
+                let six = *six;
+                self.compile_expr(six.object)?;
+                let mut labels: Vec<Option<String>> = six.args.iter().map(|a| a.label.clone()).collect();
+                for arg in six.args {
+                    self.compile_expr(arg.expr)?;
+                }
+                self.compile_expr(six.value)?;
+                labels.push(Some("put".to_string()));
+                let argc = labels.len();
+                let selector = encode_selector("", &labels, SignatureKind::Subscript(argc as u8));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::Symbol(sym));
-                self.emit(Bytecode::Invoke(2, idx), six.range);
+                self.emit(Bytecode::Invoke(argc as u8, idx), six.range);
             }
             Expr::Number { value, range } => {
                 let idx = self.add_constant(Value::Number(value));

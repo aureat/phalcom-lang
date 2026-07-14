@@ -1106,6 +1106,7 @@ impl<'source> Parser<'source> {
             // `@variant` in source, which the grammar does not currently
             // support attaching, would land here rather than panicking).
             ClassMember::Variant(v) => v.attributes = attrs,
+            ClassMember::Index(ix) => ix.attributes = attrs,
             ClassMember::Construct(c) => {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message(
@@ -1235,6 +1236,15 @@ impl<'source> Parser<'source> {
         if matches!(self.peek(), Token::Let | Token::Var) {
             return self.parse_field_decl(start);
         }
+        // U-INDEX (ADR-0060): a bracket subscript method (`[idx] { ... }` /
+        // `[idx, put:] { ... }`) is a distinct grammar production, not
+        // routed through `parse_method_name` — there is no separate name
+        // token at all, the brackets themselves are the whole of this
+        // member's identity. Must be checked before the `Construct`/name
+        // branches below, which never expect a leading `[`.
+        if matches!(self.peek(), Token::LBracket) {
+            return self.parse_index_member(start);
+        }
         if self.eat(&Token::Construct) {
             let name_start = self.cur_start();
             let name = self.parse_method_name()?;
@@ -1320,6 +1330,39 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parses a bracket subscript method — `[idx] { ... }` / `[idx, put:] {
+    /// ... }` / `[] { ... }` / `[put:] { ... }` (U-INDEX,
+    /// [ADR-0060](../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
+    ///
+    /// `start` is the position of the already-peeked `[` (captured by the
+    /// caller before dispatching here, matching the sibling member-parsing
+    /// methods' convention). Reuses [`Parser::parse_param_list`] verbatim for
+    /// the bracketed parameter list — the *only* structural difference from
+    /// an ordinary `(params)` method is the delimiter, so `[idx, put:]`
+    /// parses exactly like `(idx, put:)` would, just bracket-closed instead
+    /// of paren-closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the parameter list or body is malformed, or the
+    /// closing `]` is missing.
+    fn parse_index_member(&mut self, start: usize) -> ParserResult<ClassMember> {
+        let name_start = self.cur_start();
+        self.expect(&Token::LBracket, &["\"[\""])?;
+        let params = self.parse_param_list()?;
+        self.expect(&Token::RBracket, &["\"]\""])?;
+        let name_range = (name_start..self.prev_end).into();
+        let body = self.parse_method_block()?;
+        let range = (start..self.prev_end).into();
+        Ok(ClassMember::Index(IndexMethodDef {
+            params,
+            body,
+            attributes: Vec::new(),
+            range,
+            name_range,
+        }))
+    }
+
     /// Parses a method name: an identifier or an overloadable operator token.
     ///
     /// # Errors
@@ -1354,10 +1397,11 @@ impl<'source> Parser<'source> {
     /// as the final entry, a rest parameter (`*name`, U9,
     /// `messages-and-selectors.md` §4).
     ///
-    /// Shared by method and constructor parameter lists (block-literal
-    /// parameters are parsed by a separate ad hoc scanner in
-    /// [`Parser::parse_primary`] and never reach this function, so no
-    /// block-literal guard is needed here).
+    /// Shared by method and constructor parameter lists, and — since
+    /// U-INDEX/ADR-0060 substitutes `[`/`]` for `(`/`)` — bracket subscript
+    /// method parameter lists too (block-literal parameters are parsed by a
+    /// separate ad hoc scanner in [`Parser::parse_primary`] and never reach
+    /// this function, so no block-literal guard is needed here).
     ///
     /// # Errors
     ///
@@ -1368,7 +1412,7 @@ impl<'source> Parser<'source> {
     /// exactly match, since [`crate`]-side selector encoding for a variadic
     /// method ignores labels entirely — U9 corrections §0 point 3).
     fn parse_param_list(&mut self) -> ParserResult<Vec<ParameterDef>> {
-        if matches!(self.peek(), Token::RParen) {
+        if matches!(self.peek(), Token::RParen | Token::RBracket) {
             return Ok(Vec::new());
         }
         let mut params: Vec<ParameterDef> = Vec::new();
@@ -1544,7 +1588,7 @@ impl<'source> Parser<'source> {
                 })),
                 Expr::Index(ix) => Expr::SetIndex(Box::new(SetIndexExpr {
                     object: ix.object,
-                    index: ix.index,
+                    args: ix.args,
                     value,
                     range,
                 })),
@@ -1943,12 +1987,19 @@ impl<'source> Parser<'source> {
                     range,
                 }));
             } else if self.eat(&Token::LBracket) {
-                let index = self.parse_assignment()?;
+                // U-INDEX (ADR-0060): the bracket's contents are a full
+                // call-shaped argument list — positional + `label:`,
+                // identical grammar to `(...)` call args (`xs[i, j]`,
+                // `cache[key, default: fallback]`), not a single expression.
+                // Reuses `parse_arg_list` verbatim, which already
+                // short-circuits on an immediately-closing delimiter
+                // (`xs[]`, zero-arity).
+                let args = self.parse_arg_list()?;
                 self.expect(&Token::RBracket, &["\"]\""])?;
                 let range = (start..self.prev_end).into();
                 expr = Expr::Index(Box::new(IndexExpr {
                     object: expr,
-                    index,
+                    args,
                     range,
                 }));
             } else if matches!(self.peek(), Token::LBrace) {
@@ -2665,8 +2716,15 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Parses a comma-separated, optionally `label:`-prefixed argument list.
+    ///
+    /// Shared by every call-shaped grammar: `(...)` call args and — since
+    /// U-INDEX/ADR-0060 reuses this verbatim — `[...]` subscript args too.
+    /// The short-circuit below checks for either closing delimiter so a
+    /// zero-arg list (`f()`, `xs[]`) parses to an empty `Vec` regardless of
+    /// which one the caller is about to [`Parser::expect`].
     fn parse_arg_list(&mut self) -> ParserResult<Vec<Argument>> {
-        if matches!(self.peek(), Token::RParen) {
+        if matches!(self.peek(), Token::RParen | Token::RBracket) {
             return Ok(Vec::new());
         }
         let mut args = Vec::new();

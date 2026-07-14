@@ -47,8 +47,20 @@ No `at`/`at(_,put:)` lowering occurs.
   removed, not kept as a fallback.
 - User classes are free to define `[]`/`[]=` today since no core class has
   claimed the selector yet.
-- Parser must gain a bracket arm in method-name/class-member parsing
-  (`parse_method_name`/`parse_class_member`, `phalcom-ast/src/parser.rs`);
-  compiler must emit sends to `[_]`/`[_,put]`/`[]`/`[put]` instead of `at`;
-  core collection classes need explicit `[]` primitives or DNU implementations
-  to preserve current indexing behavior. None of this is implemented yet.
+- Parser gains a dedicated `[...]` class-member production
+  (`Parser::parse_index_member`, dispatched from `parse_class_member` —
+  *not* `parse_method_name`, since a bracket method carries no separate name
+  token at all, unlike `==`/`+`/other operator selectors); compiler emits
+  sends to `[_]`/`[_,put]`/`[]`/`[put]` instead of `at`
+  (`phalcom-core::method::SignatureKind::Subscript`); core collection classes
+  define explicit `[]` `.ph` wrapper methods (delegating to `at`) or accept
+  the DNU implementations preserve current indexing behavior.
+- **Landed** (U-INDEX, `docs/forge/units/U-INDEX/plan.md`): call-site
+  `expr[args...]`/`expr[args...] = value` is arg-list-shaped, not
+  single-index — `xs[i, j]` sends `[_,_]`, `cache[key, default: fallback]`
+  sends `[_,default]`, generalizing this ADR's single-index examples above to
+  any arity/label combination a collection author opts into, with zero
+  further parser/compiler changes. `List`/`Map` define `[_]`/`[_,put]`;
+  `Tuple` defines `[_]` only (immutable, no `[_,put]`, so `tup[i] = v`
+  correctly `doesNotUnderstand`); `Set`/`Range` define neither (no `at`
+  either, per collection-protocol.md §2).

@@ -87,7 +87,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0057 | Decorator vs proxy granularity split | Accepted | | ? |
 | 0058 | Reactive tracking-context needs a native module | Accepted | | ? |
 | 0059 | Amend ADR-0058/0033 — reactive tracking context bound to native-frame switch guard | Proposed (needs user ratification) | | — (row missing pre-edit; added 2026-07-14, not yet code-checked) |
-| 0060 | `[]` is a real, overridable selector — no `at` lowering | Accepted | | ❌ not built — parser has no bracket arm in `parse_method_name`/`parse_class_member` (`phalcom-ast/src/parser.rs`), compiler still lowers to `at` |
+| 0060 | `[]` is a real, overridable selector — no `at` lowering | Accepted | | ✅ built 2026-07-14 (U-INDEX) — `Parser::parse_index_member` (`phalcom-ast/src/parser.rs`) is a dedicated bracket-subscript class-member production (params inside `[...]`, not `parse_method_name`); compiler (`compiler/lib/expr.rs`) sends directly to `SignatureKind::Subscript` (`[_]`/`[_,put]`/`[]`/`[put]`), no `at` lowering; `List`/`Map`/`Tuple` opt in via `core.ph` wrapper methods |
 
 ## Known status/reality gaps not yet reconciled
 
