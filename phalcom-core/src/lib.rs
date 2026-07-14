@@ -13,6 +13,8 @@ pub mod heap;
 pub mod interner;
 pub mod interpret;
 pub mod method;
+#[cfg(feature = "opcode-histogram")]
+pub mod opcode_stats;
 pub mod primitive;
 pub mod universe;
 pub mod value;

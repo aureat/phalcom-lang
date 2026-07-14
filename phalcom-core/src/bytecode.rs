@@ -1,3 +1,46 @@
+/// Every [`Bytecode`] variant's name, indexed by [`Bytecode::index`].
+///
+/// Kept adjacent to the enum so the two move together; [`Bytecode::index`]'s
+/// exhaustive `match` is what forces this array to stay in sync when a variant is
+/// added (a new variant fails to compile there, not here — see its doc).
+pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
+    "Constant",
+    "Nil",
+    "True",
+    "False",
+    "Pop",
+    "GetLocal",
+    "SetLocal",
+    "DefineGlobal",
+    "GetGlobal",
+    "SetGlobal",
+    "GetField",
+    "SetField",
+    "GetSelf",
+    "Invoke",
+    "SuperSend",
+    "Class",
+    "Method",
+    "Return",
+    "ReturnNonLocal",
+    "Closure",
+    "GetUpvalue",
+    "SetUpvalue",
+    "CloseUpvalue",
+    "Jump",
+    "JumpIfFalse",
+    "JumpIfNone",
+    "Loop",
+    "GuardBool",
+    "GuardBlock",
+    "NewInstance",
+    "Dup",
+    "WrapSome",
+    "Import",
+    "MakeFamily",
+    "FinalizeClass",
+];
+
 // The set of instructions for our VM. This is the language the compiler "speaks".
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Bytecode {
@@ -283,4 +326,62 @@ pub enum Bytecode {
     /// body) are finalized once directly in `VM::install_core`, mirroring
     /// this same rebuild.
     FinalizeClass,
+}
+
+impl Bytecode {
+    /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
+    /// histogram in [`opcode_stats`](crate::opcode_stats).
+    pub const VARIANTS: usize = 35;
+
+    /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
+    ///
+    /// The `match` is exhaustive and deliberately not a catch-all: adding a
+    /// [`Bytecode`] variant must fail to compile *here*, which is the prompt to
+    /// extend [`BYTECODE_NAMES`] and bump [`Self::VARIANTS`] with it. A default arm
+    /// would silently alias a new opcode onto an existing bucket and quietly
+    /// corrupt every histogram that followed.
+    pub fn index(&self) -> usize {
+        match self {
+            Bytecode::Constant(..) => 0,
+            Bytecode::Nil => 1,
+            Bytecode::True => 2,
+            Bytecode::False => 3,
+            Bytecode::Pop => 4,
+            Bytecode::GetLocal(..) => 5,
+            Bytecode::SetLocal(..) => 6,
+            Bytecode::DefineGlobal(..) => 7,
+            Bytecode::GetGlobal(..) => 8,
+            Bytecode::SetGlobal(..) => 9,
+            Bytecode::GetField(..) => 10,
+            Bytecode::SetField(..) => 11,
+            Bytecode::GetSelf => 12,
+            Bytecode::Invoke(..) => 13,
+            Bytecode::SuperSend(..) => 14,
+            Bytecode::Class(..) => 15,
+            Bytecode::Method(..) => 16,
+            Bytecode::Return => 17,
+            Bytecode::ReturnNonLocal => 18,
+            Bytecode::Closure(..) => 19,
+            Bytecode::GetUpvalue(..) => 20,
+            Bytecode::SetUpvalue(..) => 21,
+            Bytecode::CloseUpvalue(..) => 22,
+            Bytecode::Jump(..) => 23,
+            Bytecode::JumpIfFalse(..) => 24,
+            Bytecode::JumpIfNone(..) => 25,
+            Bytecode::Loop(..) => 26,
+            Bytecode::GuardBool(..) => 27,
+            Bytecode::GuardBlock(..) => 28,
+            Bytecode::NewInstance => 29,
+            Bytecode::Dup => 30,
+            Bytecode::WrapSome => 31,
+            Bytecode::Import(..) => 32,
+            Bytecode::MakeFamily(..) => 33,
+            Bytecode::FinalizeClass => 34,
+        }
+    }
+
+    /// This opcode's name, as it appears in a histogram dump.
+    pub fn name(&self) -> &'static str {
+        BYTECODE_NAMES[self.index()]
+    }
 }

@@ -427,6 +427,13 @@ impl VM {
                 entered
             };
 
+            // Counts only — never read a timing from a build with this on; the
+            // increment is exactly the per-opcode cost `vm-trace` was gated for.
+            // Counts are deterministic, so the protocol is two runs: counts here,
+            // wall-clock from a default build (`benchmarks/vm/opcode-cost.py`).
+            #[cfg(feature = "opcode-histogram")]
+            crate::opcode_stats::record(&opcode);
+
             self.frames.last_mut().unwrap().ip += 1;
 
             match opcode {

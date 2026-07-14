@@ -30,6 +30,20 @@ vm-trace = []
 # as a flag only so the experiment can be re-run/re-measured later without
 # reconstructing it from the stash.
 fiber-pool = []
+# Per-opcode execution counters in the VM dispatch loop (`opcode_stats`), dumped
+# to stderr at process exit.
+#
+# Off by default: it is an increment per instruction, which is exactly the kind of
+# per-opcode cost `vm-trace` was gated for (perf-log 003). It exists to answer
+# "what does one instruction cost", which nothing else in the harness can — `sample`
+# collapses every opcode arm into `run_until_inner`, so profiling attributes the
+# whole dispatch loop to one frame and prices no opcode.
+#
+# **Counts are deterministic, so do not read timings from a build with this on.**
+# The measurement protocol is two runs: counts from a `--features opcode-histogram`
+# build, wall-clock from a default build, divided. That keeps the counter's own cost
+# out of the number it produces. `benchmarks/vm/opcode-cost.py` does exactly this.
+opcode-histogram = []
 
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
