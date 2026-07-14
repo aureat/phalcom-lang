@@ -276,7 +276,8 @@ class String {
     })
 
     var i = 0
-    while (i < self.rawByteCount) {
+    var stop = false
+    while ((i < self.rawByteCount).and({ not stop })) {
       let cp = self.codePointAt(i)
       var found = false
       var j = 0
@@ -288,7 +289,7 @@ class String {
       (found).ifTrue({
         i = i + self.leadByteLen_(i)
       }, ifFalse: {
-        i = self.rawByteCount  // exit loop
+        stop = true  // exit loop, keeping i at the first non-trimmed byte
       })
     }
     return self.rawSlice(i, self.rawByteCount)
@@ -301,7 +302,8 @@ class String {
     })
 
     var i = self.rawByteCount
-    while (i > 0) {
+    var stop = false
+    while ((i > 0).and({ not stop })) {
       // Scan backward one byte at a time to find the previous lead byte
       i = i - 1
       var cp = self.codePointAt(i)
@@ -316,16 +318,13 @@ class String {
           let len = chars.leadByteLen_(j)
           (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
         }
-        (found).ifTrue({
-          // It's in the set; scan to the next trimmed position
-          i = i - (self.leadByteLen_(i) - 1)
-        }, ifFalse: {
-          // Not in the set; stop scanning
-          i = self.rawByteCount + 1  // exit loop cleanly
+        (found).ifTrue({}, ifFalse: {
+          // Not in the set; keep this whole character and stop scanning
+          i = i + self.leadByteLen_(i)
+          stop = true
         })
       })
     }
-    (i < 0).ifTrue({ i = 0 })
     return self.rawSlice(0, i)
   }
 
