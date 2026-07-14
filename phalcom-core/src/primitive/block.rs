@@ -250,27 +250,33 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
 
     match outcome {
         Ok(v) => Ok(v),
-        Err(err) => match &err {
-            PhError::Runtime(RuntimeError::Raise { error, .. }) => {
-                let error = *error;
-                // `isA(_)` is an ordinary 1-arg `.ph` `Method` (`core.ph`'s
-                // `Object#isA`), so its dispatch selector is the *encoded*
-                // form `isA(_:)`, not the bare name — mirror the ordinary
-                // `.ph` call-site encoding rather than hand-rolling the walk
-                // in Rust (error-handling.md §2: "`on` catches typed by
-                // `isA`", U-ERR plan §2.3).
-                let isa_sig = crate::method::encode_selector("isA", &[None], crate::method::SignatureKind::Method(1));
-                let isa_sym = vm.get_or_intern(&isa_sig);
-                let matched = vm.send_dynamic(error, isa_sym, &[class_arg])?;
-                if matches!(matched, Value::Bool(true)) {
-                    vm.unwind_to(stack_len, frames_len);
-                    block_call(vm, &handler, &[error])
-                } else {
-                    Err(err)
+        Err(err) => {
+            let error = match &err {
+                PhError::Runtime(RuntimeError::Raise { error, .. }) => *error,
+                _ => {
+                    let error_class = vm.universe.classes.error_class;
+                    let field_count = vm.heap.class(error_class).field_count;
+                    let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
+                    inst.slots[0] = vm.alloc_string_value(err.to_string());
+                    Value::Obj(vm.heap.alloc(crate::heap::Object::Instance(inst)))
                 }
+            };
+            // `isA(_)` is an ordinary 1-arg `.ph` `Method` (`core.ph`'s
+            // `Object#isA`), so its dispatch selector is the *encoded*
+            // form `isA(_:)`, not the bare name — mirror the ordinary
+            // `.ph` call-site encoding rather than hand-rolling the walk
+            // in Rust (error-handling.md §2: "`on` catches typed by
+            // `isA`", U-ERR plan §2.3).
+            let isa_sig = crate::method::encode_selector("isA", &[None], crate::method::SignatureKind::Method(1));
+            let isa_sym = vm.get_or_intern(&isa_sig);
+            let matched = vm.send_dynamic(error, isa_sym, &[class_arg])?;
+            if matches!(matched, Value::Bool(true)) {
+                vm.unwind_to(stack_len, frames_len);
+                block_call(vm, &handler, &[error])
+            } else {
+                Err(err)
             }
-            _ => Err(err),
-        },
+        }
     }
 }
 

@@ -778,6 +778,13 @@ class System {
 // B's pending→settle drain is an additive change to this same layout, not a
 // field-layout break).
 class Future {
+  // Builds a pending future (U-FUTURE Slice B).
+  construct new() {
+    _state = "pending"
+    _value = None
+    _waiters = List.new()
+  }
+
   // Builds an already-`fulfilled` future wrapping `v` (concurrency.md §2
   // `construct value(_)`). Goes through the pending→`settleValue` path
   // rather than setting `_state`/`_value` directly so construction and
@@ -800,8 +807,7 @@ class Future {
   }
 
   // `true` once `self` has settled (`fulfilled` or `rejected`); `false`
-  // while `pending`. Never suspends (C-FUT-8) — Slice A has no suspension
-  // mechanism to trigger in the first place.
+  // while `pending`.
   isReady => _state != "pending"
 
   // Settles `self` as `fulfilled` with `v`, unless already settled (settle-
@@ -814,6 +820,7 @@ class Future {
     } else {
       _state = "fulfilled"
       _value = v
+      self.drain()
       return self
     }
   }
@@ -827,25 +834,69 @@ class Future {
     } else {
       _state = "rejected"
       _value = e
+      self.drain()
       return self
     }
   }
 
+  // Reschedules all waiters once settled.
+  drain() {
+    _waiters.each { w =>
+      System.schedule(w)
+    }
+    _waiters = List.new()
+  }
+
   // The settled value as an `Option` (concurrency.md §2): `Some(v)` once
   // `fulfilled`, `None` while `pending` or once `rejected` (the rejection
-  // reason is reached via `catch(_)`/`then(_)`, not `value`). Never
-  // suspends (C-FUT-8) — a plain field read, no `Fiber` involved.
+  // reason is reached via `catch(_)`/`then(_)`, not `value`).
   value => (_state == "fulfilled").ifTrue({ Some.new(_value) }, ifFalse: { None })
 
+  // Suspends the current fiber until settled (U-FUTURE Slice B).
+  // If called on the root fiber, degrades to "pump until settled" (pumps
+  // System.runScheduled) because the root fiber cannot yield.
+  await {
+    if (not self.isReady) {
+      _waiters.add(Fiber.current)
+      let res = { Fiber.yield(None) }.attempt()
+      if (res.isErr) {
+        let err = res.unwrapErr
+        if (err.isA(CannotYieldAcrossNativeFrame)) {
+          return err.raise()
+        }
+        // Yield failed because we are on the root fiber!
+        _waiters = _waiters.filter { w => w != Fiber.current }
+        while (not self.isReady) {
+          System.runScheduled()
+        }
+      }
+    }
+    if (_state == "rejected") {
+      return _value.raise()
+    }
+    return _value
+  }
+
+  // Runs `action` on a fresh fiber and settles the returned future with its
+  // result (or captured error if it fails).
+  static async(action) {
+    let f = Future.new()
+    let driver = Fiber.new {
+      let fib = Fiber.new(action)
+      let res = fib.try()
+      if (fib.error.isSome) {
+        f.settleError(fib.error.unwrapOr(None))
+      } else {
+        f.settleValue(res)
+      }
+    }
+    System.schedule(driver)
+    return f
+  }
+
   // Registers a continuation on the settled/fulfilled path (concurrency.md
-  // §2 `then(_)`). Slice A receivers are always already settled, so this
-  // fires synchronously: on `fulfilled`, calls `f` with the value and wraps
-  // its result in a fresh fulfilled future (`Future.value(f.call(_value))`,
-  // plan §6.2); on `rejected`, the rejection propagates unchanged (`self`)
-  // without invoking `f`. A `pending` receiver can only occur under Slice
-  // B's scheduler (no Slice-A constructor ever produces one) — raises
-  // rather than silently hanging, since Slice A has no drain to fire the
-  // continuation later.
+  // §2 `then(_)`). If pending, registers a continuation that will settle
+  // the returned future when this receiver settles.
   then(f) {
     if (self.isReady) {
       if (_state == "fulfilled") {
@@ -854,15 +905,25 @@ class Future {
         return self
       }
     } else {
-      return Error.new().raise()
+      let f_next = Future.new()
+      _waiters.add({
+        if (_state == "fulfilled") {
+          let fib = Fiber.new({ f.call(_value) })
+          let res = fib.try()
+          if (fib.error.isSome) {
+            f_next.settleError(fib.error.unwrapOr(None))
+          } else {
+            f_next.settleValue(res)
+          }
+        } else {
+          f_next.settleError(_value)
+        }
+      })
+      return f_next
     }
   }
 
-  // `then(_)` restricted to the fulfilled path (concurrency.md §2 `map(_)`):
-  // identical settled-synchronous behavior to `then(_)` in Slice A
-  // — both fire `f` only on `fulfilled` and propagate `rejected` unchanged —
-  // kept as a distinct selector because the spec keeps them distinct (§4:
-  // "do not introduce aliases") and Slice B's suspending forms diverge.
+  // `then(_)` restricted to the fulfilled path (concurrency.md §2 `map(_)`).
   map(f) {
     if (self.isReady) {
       if (_state == "fulfilled") {
@@ -871,17 +932,26 @@ class Future {
         return self
       }
     } else {
-      return Error.new().raise()
+      let f_next = Future.new()
+      _waiters.add({
+        if (_state == "fulfilled") {
+          let fib = Fiber.new({ f.call(_value) })
+          let res = fib.try()
+          if (fib.error.isSome) {
+            f_next.settleError(fib.error.unwrapOr(None))
+          } else {
+            f_next.settleValue(res)
+          }
+        } else {
+          f_next.settleError(_value)
+        }
+      })
+      return f_next
     }
   }
 
   // Registers an error handler on the rejected path (concurrency.md §2
-  // `catch(_)`): on `rejected`, calls `f` with the captured `Error` and
-  // wraps its result in a fresh **fulfilled** future — `catch` recovers, it
-  // does not re-reject (`Future.value(f.call(_value))`, plan §6.2); on
-  // `fulfilled`, passes through unchanged (`self`) without invoking `f`. A
-  // `pending` receiver is Slice B territory; see `then(_)` for why
-  // this raises rather than hangs.
+  // `catch(_)`).
   catch(f) {
     if (self.isReady) {
       if (_state == "rejected") {
@@ -890,7 +960,21 @@ class Future {
         return self
       }
     } else {
-      return Error.new().raise()
+      let f_next = Future.new()
+      _waiters.add({
+        if (_state == "rejected") {
+          let fib = Fiber.new({ f.call(_value) })
+          let res = fib.try()
+          if (fib.error.isSome) {
+            f_next.settleError(fib.error.unwrapOr(None))
+          } else {
+            f_next.settleValue(res)
+          }
+        } else {
+          f_next.settleValue(_value)
+        }
+      })
+      return f_next
     }
   }
 }

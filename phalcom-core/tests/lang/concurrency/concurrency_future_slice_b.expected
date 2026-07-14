@@ -1,0 +1,12 @@
+ok
+caught: rejected
+async running
+async result
+then run: settled
+map run: settled
+then result
+map result
+settled
+catch run error: failed
+catch recovered
+caught yield across native frame: cannot switch fibers across a native call frame (e.g. inside .each { })
