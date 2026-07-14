@@ -1,6 +1,6 @@
 # 001 — U-PRIM-ABI: on-stack argument buffer (Tier 2 allocation cut)
 
-Status: **landed** · Unit: U-PRIM-ABI (Tier 2) · Spec: [performance.md §4 Tier 2](../../spec/v0.2/performance.md), [ADR-0051](../../adr/0051-performance-strategy-measure-first-tiered-optimization.md) · Behavior-invariant (no ADR, no floor change)
+Status: **landed** · Unit: U-PRIM-ABI (Tier 2) · Spec: [performance.md §4 Tier 2](../../spec/v0.2/performance.md), [ADR-0051](../../adr/proposed/0051-performance-strategy-measure-first-tiered-optimization.md) · Behavior-invariant (no ADR, no floor change)
 
 ## The cost
 

@@ -5,12 +5,23 @@ Phalcom VM. One entry per landed cut; findings that reshape the plan live in
 [`findings.md`](findings.md).
 
 Governed by [`performance.md`](../../spec/v0.2/performance.md) +
-[ADR-0051](../../adr/0051-performance-strategy-measure-first-tiered-optimization.md)
+[ADR-0051](../../adr/proposed/0051-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant). Every entry cites a **before/after
 number from the U-BENCH harness** (`benchmarks/vm/`, criterion target
 `phalcom-core/benches/vm_bench.rs`) — no oral numbers (law P1). A cut lands only on
 a measured win + zero golden diff; an unproven optimization is reverted and
 recorded as a finding, not shipped.
+
+## Where things live
+
+| File | Holds |
+|---|---|
+| **`README.md`** (this) | **why** a cut landed; the ranked lever list; instrument *selection* |
+| [`SCOREBOARD.md`](SCOREBOARD.md) | **the numbers** — ×-vs-Wren (§1), RSS (§2), ns/op (§3), attribution (§4), timeline (§5), open holes (§6) |
+| [`findings.md`](findings.md) | **what was learned** — F1…F18, incl. refuted premises |
+| [`instruments.md`](instruments.md) | **what measures what, at symbol level** — the bootstrap tripwire, the opcode histogram + pair counter, and the standing traps |
+| `00N-*.md` | one per landed cut: the cost, the code, the A/B, the caveats |
+| [`negative-presize-fiber-vecs.md`](negative-presize-fiber-vecs.md) | a **negative** result at cut-level detail, incl. the reverted diff verbatim (F5 lost its implementation by not doing this) |
 
 ## Cuts (landed)
 
@@ -21,16 +32,16 @@ recorded as a finding, not shipped.
 | [003](003-vm-trace-feature-gate.md) | U-TRACE / Tier 1 | `vm-trace` feature compiles the dispatch loop's per-opcode span + `debug!`s out by default | arith_send (5M, whole-process) −16.7%; Skynet ≈−1% on `user`, unresolvable on `real` | none | `1ef999b` |
 | [004](004-hotpath-rc-callable.md) | U-HOTPATH / Tier 2 | Share block-literal `Callable` via `Rc` instead of deep-cloning its `Chunk` per evaluation | Skynet −30% `user`, **−63% RSS** (3.73 → 1.37 GB), `sys` −94%; fiber_churn −16%. **Costs +5–7% on send-heavy programs** (`Rc` hop per instruction) — Change 1 (chunk hoist) is what repays it | none | `1531070` |
 | [004](004-hotpath-rc-callable.md) | U-HOTPATH / Tier 2 | Memoize the `Invoke` variadic probe's derived `name(*)` selector (kills a `format!` + re-intern per variadic call) | **variadic_send −28%** (1.00 → 0.72 s). Invisible to every other benchmark — the probe sits behind two misses and no other program reaches it | none | `debadfa` |
-| [005](../perf-log/SCOREBOARD.md#5--timeline--best-result-after-each-change) | F12 / Tier 3 | Per-callsite `(module, slot)` cache for `GetGlobal`/`SetGlobal` in `Chunk.gcaches`, guarded by `ModuleObject.globals_version` (bumped only when `declare` allocates a **new** slot) | **bare_send −17.9%**, arith_send −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, skynet −7.7% `user` (**2.9× Wren**), fiber_churn −21.4%, `for` −3.6%. RSS unchanged | none | `39d9042` |
-| [006](../perf-log/SCOREBOARD.md#5--timeline--best-result-after-each-change) | F14 S2 / Tier 2 | Drop `spans[ip]` from the dispatch loop's read-decode — the span is discarded on the happy path. Re-read in `Invoke` (inside the borrow the IC probe already takes, so the send path pays nothing) and in `SuperSend`, its only two consumers | **`for` −6.8%**, method_call −5.6%, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, skynet −2.8% `user`. RSS unchanged | none | `916be0a` |
-| [007](../perf-log/SCOREBOARD.md#5--timeline--best-result-after-each-change) | F14 S1a / Tier 2 | Hoist the executing frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard — replaces a per-opcode SlotMap lookup + `Rc` deref, and the 19 per-arm re-derivations of the same chunk. No `unsafe`: the `Rc` lives in a local, so the arms keep `&mut self`. **`ip` deliberately NOT hoisted** — the `closure_id` guard cannot tell two fibers suspended in the same closure apart | **arith_send −22.3%**, bare_send −16.7%, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, skynet −6.9% `user` (**2.7× Wren**), fiber_churn −4.8%. Suite band 1.5–13.7× → **1.1–10.7×**. RSS −6.9% skynet, unattributed (H14) | none | `5254586` |
+| [005](SCOREBOARD.md#5-timeline--best-result-after-each-change) | F12 / Tier 3 | Per-callsite `(module, slot)` cache for `GetGlobal`/`SetGlobal` in `Chunk.gcaches`, guarded by `ModuleObject.globals_version` (bumped only when `declare` allocates a **new** slot) | **bare_send −17.9%**, arith_send −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, skynet −7.7% `user` (**2.9× Wren**), fiber_churn −21.4%, `for` −3.6%. RSS unchanged | none | `39d9042` |
+| [006](006-dispatch-drop-spans.md) | F14 S2 / Tier 2 | Drop `spans[ip]` from the dispatch loop's read-decode — the span is discarded on the happy path. Re-read in `Invoke` (inside the borrow the IC probe already takes, so the send path pays nothing) and in `SuperSend`, its only two consumers | **`for` −6.8%**, method_call −5.6%, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, skynet −2.8% `user`. RSS unchanged | none | `916be0a` |
+| [007](007-hoist-rc-callable.md) | F14 S1a / Tier 2 | Hoist the executing frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard — replaces a per-opcode SlotMap lookup + `Rc` deref, and the 19 per-arm re-derivations of the same chunk. No `unsafe`: the `Rc` lives in a local, so the arms keep `&mut self`. **`ip` deliberately NOT hoisted** — the `closure_id` guard cannot tell two fibers suspended in the same closure apart | **arith_send −22.3%**, bare_send −16.7%, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, skynet −6.9% `user` (**2.7× Wren**), fiber_churn −4.8%. Suite band 1.5–13.7× → **1.1–10.7×**. RSS −6.9% skynet, unattributed (H14) | none | `5254586` |
 
 ## Investigated, not landed
 
 | Candidate | Result | Why | Ref |
 |-----------|--------|-----|-----|
 | Fiber-stack pool (U-GC "Win B") | **negative — flag kept, stays OFF, do not use** | Rebuilt behind the off-by-default `fiber-pool` feature after F5's revert. Re-measured against the high-turnover workload F5 asked for (`fiber_churn.ph`): **+72–86% peak RSS**, linear at ~450 B/fiber, and +37% `user` at 1M fibers. Worse, not neutral. Owner ruled the flag stays for reconstructability; reviving it needs a new mechanism, not a re-run | [findings F10](findings.md#f10--the-fiber-pool-is-not-neutral-it-is-negative--and-f5-measured-the-wrong-workload), [F5](findings.md#f5--fiber-stack-pool-implemented-measured-reverted-null-result), `ad4a215` |
-| **Presize the fiber `stack`/`frames` `Vec`s (F3/H9 "Win B"-adjacent)** | **negative — built, measured, reverted** | Was ranked *est* −10–15% skynet and "highest gain-per-effort item on the whole list". The re-profile H9 asked for shows `memmove` at **3.0%**, not origin's 20.6% — the estimate was four cuts stale. Built anyway: **skynet +2.4% `user`**, **fiber_churn +20% `user` / +121% RSS**, fibers +12.5% / +23.2%. Same mechanism as the fiber pool (F10) from the other direction — eager per-fiber capacity retained on a shell that outlives its run | [findings F18](findings.md#f18--presizing-the-fiber-vecs-is-negative-and-f3h9s-memmove-lever-is-spent-206--30) |
+| **Presize the fiber `stack`/`frames` `Vec`s (F3/H9 "Win B"-adjacent)** | **negative — built, measured, reverted** | Was ranked *est* −10–15% skynet and "highest gain-per-effort item on the whole list". The re-profile H9 asked for shows `memmove` at **3.0%**, not origin's 20.6% — the estimate was four cuts stale. Built anyway: **skynet +2.4% `user`**, **fiber_churn +20% `user` / +121% RSS**, fibers +12.5% / +23.2%. Same mechanism as the fiber pool (F10) from the other direction — eager per-fiber capacity retained on a shell that outlives its run | [negative-presize-fiber-vecs.md](negative-presize-fiber-vecs.md), [findings F18](findings.md#f18--presizing-the-fiber-vecs-is-negative-and-f3h9s-memmove-lever-is-spent-206--30) |
 | U-HOTPATH Change 3 (reorder `Value::class` arms) | dropped pre-landing | No measurable change; LLVM was already ordering the match | [004](004-hotpath-rc-callable.md) |
 | Escape-analysis of `Option` (`Some`) | not built — premise falsified | `List/Map.at` already zero-alloc (`None` singleton); discarded `Some` already elided | [findings F2](findings.md#f2--option-escape-optimization-premise-falsified) |
 

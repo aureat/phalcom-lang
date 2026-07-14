@@ -1,6 +1,6 @@
 # 004 — U-HOTPATH: share block-literal `Callable` via `Rc` (Tier 2)
 
-Status: **landed** · Unit: [U-HOTPATH](../units/U-HOTPATH/implementation-spec.md) (Tier 2) · Spec: [performance.md §4 Tier 2](../../spec/v0.2/performance.md), [ADR-0051](../../adr/0051-performance-strategy-measure-first-tiered-optimization.md) · Behavior-invariant (no ADR, no floor change)
+Status: **landed** · Unit: [U-HOTPATH](../units/U-HOTPATH/implementation-spec.md) (Tier 2) · Spec: [performance.md §4 Tier 2](../../spec/v0.2/performance.md), [ADR-0051](../../adr/proposed/0051-performance-strategy-measure-first-tiered-optimization.md) · Behavior-invariant (no ADR, no floor change)
 
 Two of the unit's four changes landed (`1531070`, `debadfa`). **The unit's win is
 Change 4 alone**; Change 2 is a wash and Change 3 was dropped before landing. This
