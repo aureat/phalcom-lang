@@ -1,0 +1,31 @@
+class TestGrid {
+  construct new() {
+    System.print("[TestGrid construct] running")
+    _cells = Map.new()
+    _minCol = -1
+  }
+
+  minCol => _minCol
+  cells => _cells
+
+  set(ref, cell) {
+    System.print("[TestGrid.set] called")
+    _cells.at(ref, put: cell)
+    System.print("[TestGrid.set] done")
+  }
+}
+
+class Main {
+  static main {
+    System.print("Test inline Grid")
+    let g = TestGrid.new()
+    System.print("Grid created, minCol = " + g.minCol.toString)
+    System.print("About to call set()")
+    let r = "key"
+    let c = "cell"
+    g.set(r, c)
+    System.print("set() done")
+  }
+}
+
+Main.main
