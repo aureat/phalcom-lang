@@ -55,7 +55,7 @@ One folder per implementation unit. A landed unit holds `as-built.md` (moved her
 | Unit | Spec | Status |
 |---|---|---|
 | U-BENCH | [plan](U-BENCH/plan.md) | landed — Tier 0 Wren-suite reference programs; gates the rest of this track |
-| U-GC | [plan](U-GC/plan.md) · [impl spec steps 3–5](U-GC/IMPL-SPEC-steps-3-5.md) | steps 0–4 done, uncommitted; step 5 (fiber-stack pool re-measure) open |
+| U-GC | [plan](U-GC/plan.md) · [impl spec steps 3–5](U-GC/IMPL-SPEC-steps-3-5.md) | steps 0–4 landed `94b6bbf`; step 5 (fiber-stack pool) done — second null result, no measurable win, kept in `git stash@{0}`, not shipped |
 | U-PRIM-ABI | [plan](U-PRIM-ABI/plan.md) | not started |
 | U-IC | [plan](U-IC/plan.md) | not started |
 | U-HOTPATH | [plan](U-HOTPATH/plan.md) | not started |

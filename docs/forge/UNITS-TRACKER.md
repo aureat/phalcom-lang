@@ -116,7 +116,7 @@ everything else in this group; the rest can reorder based on what the baseline s
 - [ ] **U-PRIM-ABI** — [plan](units/U-PRIM-ABI/plan.md) — Tier 2: in-place primitive stack ABI + arithmetic fast path, cuts per-send allocation.
 - [ ] **U-IC** — [plan](units/U-IC/plan.md) — Tier 3: selector-only interner + monomorphic inline cache + superinstructions, populates ADR-0012's reserved IC seam.
 - [ ] **U-HOTPATH** — [plan](units/U-HOTPATH/plan.md) — dispatch-loop hot-path optimizations (register-hoisted interpreter state, behavior-invariant); natural follow-on to `U-IC`'s dispatch-loop work.
-- [x] **U-GC** *(uncommitted)* — [plan](units/U-GC/plan.md) · [impl spec steps 3–5](units/U-GC/IMPL-SPEC-steps-3-5.md) — non-moving mark-sweep collector (ADR-0050). Steps 0–4 done: roots/edge table, Win A (`Box` fat variants, 280B→40B), `trace_object`/`collect`/`force_gc`, `System.gc`, safepoint latch (Invariant L) — 14 GC tests green, **not yet committed**. Step 5 (fiber-stack pool re-measure) still open; `DEFERRED.md` M-RUNTIME temp-root note, perf numbers, miri lane, and reviewer gate (`heap/`/`vm/` spine files) not yet done.
+- [x] **U-GC** — [plan](units/U-GC/plan.md) · [impl spec steps 3–5](units/U-GC/IMPL-SPEC-steps-3-5.md) — non-moving mark-sweep collector (ADR-0050). Steps 0–4 landed `94b6bbf`: roots/edge table, Win A (`Box` fat variants, 280B→40B), `trace_object`/`collect`/`force_gc`, `System.gc`, safepoint latch (Invariant L) — 14 GC tests green. **Step 5 (fiber-stack pool re-measure) done, second null result** — rebuilt per the F5 design, A/B'd post-collector, **no measurable win** (post-sweep the pool competes against malloc, not a leak); reverted and kept in `git stash@{0}` (`U-GC-pool-implementation-null-result`), not landed. `DEFERRED.md` M-RUNTIME temp-root note, perf numbers, miri lane, and reviewer gate (`heap/`/`vm/` spine files) still open before the unit is fully closed.
 - [ ] **U-COMPILE** — [plan](units/U-COMPILE/plan.md) — Tier 5: compile-time/startup optimization (constant dedup, cache `core.ph` compile). Last — needs the dispatch/heap shape from the tiers above settled first.
 
 ## 12. Naming conventions (opportunistic, no urgency)
@@ -128,7 +128,7 @@ everything else in this group; the rest can reorder based on what the baseline s
 ## Suggested next dispatch (given current state)
 
 1. **Commit `U-ANNOT-CONTRACTS`** (§9) — already implemented, sitting uncommitted; land it before anything else touches `compiler/`.
-2. **Finish + commit `U-GC`** (§11) — steps 0–4 done and green, uncommitted; needs step 5 measurement (or a second null result), `DEFERRED.md` M-RUNTIME note, perf numbers, miri lane, and `phalcom-reviewer` sign-off (spine files) before landing.
+2. **Close out `U-GC`** (§11) — steps 0–4 landed, step 5 done as a second null result (stashed, not shipped); still needs `DEFERRED.md` M-RUNTIME note, perf numbers, miri lane, and `phalcom-reviewer` sign-off (spine files).
 3. **`U-FUTURE` Slice B** (§6) — fully unblocked now, highest-value concurrency work left.
 4. **`U-ITERABLE` → `U-SEQ`** (§5) — unblocks the collections track's remaining breadth.
 5. Walk the remaining perf tiers (§11) as time allows — lowest urgency, gated on wanting perf work at all.
