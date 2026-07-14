@@ -10,6 +10,8 @@ use crate::heap::Object;
 use crate::value::Value;
 use crate::vm::VM;
 
+// TODO: Change mentions non-heap value, a different heap object to the specific type name of the found value
+
 /// Signature: `Object#__attach(_)` — appends `args[0]` (an `Attribute`
 /// instance) to the receiver's attribute-retention store.
 ///
@@ -21,13 +23,23 @@ use crate::vm::VM;
 pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let attr = args[0];
     let Value::Obj(id) = *receiver else {
-        return Err(RuntimeError::Type { expected: "Class, Method, or Module", found: "a non-heap value" }.into());
+        return Err(RuntimeError::Type {
+            expected: "Class, Method, or Module",
+            found: "a non-heap value",
+        }
+        .into());
     };
     let result = match vm.heap.get_mut(id) {
         Object::Class(c) => c.attach_attribute(attr),
         Object::Method(m) => m.attach_attribute(attr),
         Object::Module(m) => m.attach_attribute(attr),
-        _ => return Err(RuntimeError::Type { expected: "Class, Method, or Module", found: "a different heap object" }.into()),
+        _ => {
+            return Err(RuntimeError::Type {
+                expected: "Class, Method, or Module",
+                found: "a different heap object",
+            }
+            .into());
+        }
     };
     result.map_err(|()| PhError::from(RuntimeError::NotAllowed("attr.frozen: attribute store is frozen".to_string())))?;
     Ok(vm.none_value())
@@ -42,13 +54,24 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 /// module object.
 pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Value::Obj(id) = *receiver else {
-        return Err(RuntimeError::Type { expected: "Class, Method, or Module", found: "a non-heap value" }.into());
+        return Err(RuntimeError::Type {
+            expected: "Class, Method, or Module",
+            found: "a non-heap value",
+        }
+        .into());
     };
+    // TODO: is cloning here necessary? anything cheaper?
     let attrs: Vec<Value> = match vm.heap.get(id) {
         Object::Class(c) => c.attributes.clone(),
         Object::Method(m) => m.attributes.clone(),
         Object::Module(m) => m.attributes.clone(),
-        _ => return Err(RuntimeError::Type { expected: "Class, Method, or Module", found: "a different heap object" }.into()),
+        _ => {
+            return Err(RuntimeError::Type {
+                expected: "Class, Method, or Module",
+                found: "a different heap object",
+            }
+            .into());
+        }
     };
     Ok(Value::Obj(vm.heap.alloc(Object::List(crate::heap::ListObject::new(attrs)))))
 }
@@ -62,13 +85,23 @@ pub fn attribute_attributes(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
 /// module object.
 pub fn attribute_freeze(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let Value::Obj(id) = *receiver else {
-        return Err(RuntimeError::Type { expected: "Class, Method, or Module", found: "a non-heap value" }.into());
+        return Err(RuntimeError::Type {
+            expected: "Class, Method, or Module",
+            found: "a non-heap value",
+        }
+        .into());
     };
     match vm.heap.get_mut(id) {
         Object::Class(c) => c.attributes_frozen = true,
         Object::Method(m) => m.attributes_frozen = true,
         Object::Module(m) => m.attributes_frozen = true,
-        _ => return Err(RuntimeError::Type { expected: "Class, Method, or Module", found: "a different heap object" }.into()),
+        _ => {
+            return Err(RuntimeError::Type {
+                expected: "Class, Method, or Module",
+                found: "a different heap object",
+            }
+            .into());
+        }
     }
     Ok(vm.none_value())
 }
