@@ -11,6 +11,7 @@
 mod api;
 mod bootstrap;
 mod dispatch;
+mod gc;
 mod send;
 
 use crate::frame::CallFrame;

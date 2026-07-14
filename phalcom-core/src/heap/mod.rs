@@ -40,6 +40,7 @@ mod module;
 mod object;
 mod range;
 mod string;
+mod trace;
 mod tuple;
 mod upvalue;
 
@@ -54,10 +55,11 @@ pub use module::{next_module_id, ModuleObject, ModuleId, CORE_MODULE_NAME, MAIN_
 pub use object::{BoundMethodObject, FamilyObject, Object};
 pub use range::RangeObject;
 pub use string::StringObject;
+pub use trace::{trace_frame, trace_object};
 pub use tuple::TupleObject;
 pub use upvalue::Upvalue;
 
-use slotmap::{new_key_type, SlotMap};
+use slotmap::{new_key_type, SecondaryMap, SlotMap};
 
 new_key_type! {
     /// A `Copy` generational handle to an [`Object`] stored in the [`Heap`].
@@ -153,5 +155,120 @@ impl Heap {
     /// Panics if `id` is stale or was never allocated in this heap.
     pub fn get_mut(&mut self, id: ObjRef) -> &mut Object {
         self.objects.get_mut(id).unwrap_or_else(|| panic!("dangling ObjRef {id:?}"))
+    }
+
+    /// Borrows the [`Object`] behind `id`, or `None` if `id` is **stale** —
+    /// i.e. its object has been swept.
+    ///
+    /// The non-panicking counterpart to [`Self::get`], and the observable behind
+    /// Invariant M6 (*defined staleness*): after a collection a handle to a swept
+    /// object resolves here to `None`, never to a live object and never to
+    /// undefined behaviour. The `SlotMap`'s generation bump is what makes this
+    /// sound — a recycled slot never answers to the old handle.
+    pub fn try_get(&self, id: ObjRef) -> Option<&Object> {
+        self.objects.get(id)
+    }
+
+    /// Every live handle — **test scaffolding** for GC probes.
+    #[doc(hidden)]
+    pub fn iter_handles_for_test(&self) -> Vec<ObjRef> {
+        self.objects.keys().collect()
+    }
+
+    /// Debug-renders the object behind `id` — **test scaffolding**.
+    #[doc(hidden)]
+    pub fn kind_of_for_test(&self, id: ObjRef) -> &'static str {
+        match self.objects.get(id) {
+            Some(Object::Instance(_)) => "Instance",
+            Some(Object::Class(_)) => "Class",
+            Some(Object::Method(_)) => "Method",
+            Some(Object::Module(_)) => "Module",
+            Some(Object::Closure(_)) => "Closure",
+            Some(Object::Str(_)) => "Str",
+            Some(Object::Block(_)) => "Block",
+            Some(Object::BoundMethod(_)) => "BoundMethod",
+            Some(Object::Upvalue(_)) => "Upvalue",
+            Some(Object::List(_)) => "List",
+            Some(Object::Fiber(_)) => "Fiber",
+            Some(Object::Map(_)) => "Map",
+            Some(Object::Set(_)) => "Set",
+            Some(Object::Tuple(_)) => "Tuple",
+            Some(Object::Range(_)) => "Range",
+            Some(Object::Family(_)) => "Family",
+            None => "<stale>",
+        }
+    }
+
+    /// Number of live objects currently in the arena.
+    ///
+    /// The collection trigger keys on this (DEC-GC-B option A: count-based, not
+    /// byte-based — post-`Box` the slot size is uniform at 40 B). Also the
+    /// observable a GC test asserts against.
+    pub fn live_count(&self) -> usize {
+        self.objects.len()
+    }
+
+    /// Runs one full **non-moving, precise, stop-the-world mark-sweep**, freeing
+    /// every object not reachable from `roots`. Returns the number of objects swept.
+    ///
+    /// Realises [memory-management.md §3](../../../docs/spec/v0.2/memory-management.md)
+    /// per [ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md).
+    ///
+    /// `roots` is the **complete** root set of
+    /// [memory-management.md §2.1](../../../docs/spec/v0.2/memory-management.md),
+    /// enumerated by the VM (which alone knows it) — see
+    /// [`VM::collect_roots`](crate::vm::VM::collect_roots). A *missed* root frees a
+    /// live object (Invariant M3); an *extra* non-root over-retains, which is safe.
+    /// Passing roots as a slice rather than a callback is deliberate: the VM must
+    /// finish reading itself before it hands `&mut Heap` over, so there is no way
+    /// to hold a `&VM` across the sweep.
+    ///
+    /// **Non-moving** (Invariant M1): a surviving object keeps its `ObjRef` for
+    /// life, so inline-cache tags ([ADR-0012](../../../docs/adr/0012-selector-signature-encoding-and-dispatch.md)),
+    /// `==` identity (`Value::value_eq`), and the `Value`s parked in suspended
+    /// fiber stacks all stay valid across a collection. A swept handle becomes
+    /// stale and resolves to the `dangling ObjRef` diagnostic in [`Self::get`],
+    /// never to a live object (Invariant M6) — the `SlotMap` generation bump is
+    /// what guarantees that.
+    ///
+    /// Marking uses an **explicit worklist**, never Rust recursion: a 100k-deep
+    /// `List`/`Instance` chain must not overflow the native stack. Cycles — including
+    /// the kernel's own (`Metaclass` is an instance of itself) — terminate because
+    /// an already-marked object is never re-pushed (Invariant M5); this is why
+    /// mark-sweep and not reference counting (ADR-0050 §Alternatives).
+    ///
+    /// Runs **no finalizers** and resurrects nothing: there is zero `impl Drop` on
+    /// the object graph (Invariant M4).
+    pub fn collect(&mut self, roots: &[ObjRef]) -> usize {
+        // DEC-GC-D option B: a per-collection local, not a persistent field — no
+        // stale-marks invariant to hold between cycles.
+        let mut marked: SecondaryMap<ObjRef, ()> = SecondaryMap::new();
+        let mut gray: Vec<ObjRef> = Vec::new();
+
+        for root in roots {
+            // A root may be stale only if the VM's own bookkeeping is corrupt;
+            // `contains_key` keeps `collect` total rather than panicking mid-sweep.
+            if self.objects.contains_key(*root) && marked.insert(*root, ()).is_none() {
+                gray.push(*root);
+            }
+        }
+
+        let objects = &self.objects;
+        while let Some(id) = gray.pop() {
+            let Some(object) = objects.get(id) else { continue };
+            // Push children straight onto the worklist. `objects` is reborrowed
+            // immutably inside the closure alongside `object`'s own borrow (both
+            // shared, so they coexist); `marked`/`gray` are locals, disjoint from
+            // the arena. This is what keeps marking allocation-free per object.
+            trace_object(object, &mut |child| {
+                if objects.contains_key(child) && marked.insert(child, ()).is_none() {
+                    gray.push(child);
+                }
+            });
+        }
+
+        let before = self.objects.len();
+        self.objects.retain(|id, _| marked.contains_key(id));
+        before - self.objects.len()
     }
 }

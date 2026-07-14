@@ -51,6 +51,27 @@ pub enum Value {
 }
 
 impl Value {
+    /// Returns the [`ObjRef`] this value points at, or `None` for an immediate.
+    ///
+    /// **The garbage collector's sole seam onto `Value`.** The tracer
+    /// ([`crate::heap::trace_object`]) reaches a value's heap child *only*
+    /// through this accessor and never by matching `Value`'s arms, so a future
+    /// `Value` representation change — NaN-boxing, per
+    /// [ADR-0010](../../../docs/adr/0010-tagged-value-enum.md) — rewrites this one
+    /// function and leaves the mark/sweep untouched
+    /// ([ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md) §3,
+    /// [memory-management.md §2.3](../../../docs/spec/v0.2/memory-management.md)).
+    ///
+    /// Immediates (`nil`, `Bool`, `Number`, `Symbol`) hold no handle: symbols live
+    /// in the interner rather than the heap and are never collected
+    /// ([memory-management.md §2.2](../../../docs/spec/v0.2/memory-management.md)).
+    pub fn as_obj(&self) -> Option<ObjRef> {
+        match self {
+            Value::Obj(id) => Some(*id),
+            Value::Nil | Value::Bool(_) | Value::Number(_) | Value::Symbol(_) => None,
+        }
+    }
+
     /// Returns the interned [`Symbol`] this value carries.
     ///
     /// # Errors

@@ -347,3 +347,92 @@ pub struct CoreClasses {
     /// Backed by [`crate::heap::Object::Family`] — no `Value::Family` arm.
     pub family_class: ClassId,
 }
+
+impl CoreClasses {
+    /// Calls `push` once for every handle the kernel pins — the `universe` row of
+    /// [memory-management.md §2.1](../../../docs/spec/v0.2/memory-management.md).
+    ///
+    /// The kernel is **pinned**: it survives every collection (Invariant M5), and
+    /// it is a cycle by construction (`Metaclass` is an instance of itself), which
+    /// mark-sweep handles and reference counting could not
+    /// ([ADR-0050](../../../docs/adr/0050-non-moving-mark-sweep-collector.md)
+    /// §Alternatives).
+    ///
+    /// **Written as an exhaustive destructure on purpose.** Adding a field to
+    /// [`CoreClasses`] then fails to compile here rather than silently going
+    /// unrooted — a missed root frees a live object (Invariant M3). This is forge
+    /// finding F6's lesson applied: the tracer's exhaustive `match` catches a new
+    /// `Object` *variant*, but nothing catches a new *field* except a destructure
+    /// like this one. Do not replace it with field accesses.
+    pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
+        let CoreClasses {
+            object_class,
+            behavior_class,
+            class_class,
+            metaclass_class,
+            number_class,
+            string_class,
+            nil_class,
+            bool_class,
+            true_class,
+            false_class,
+            method_class,
+            function_class,
+            block_class,
+            symbol_class,
+            module_class,
+            system_class,
+            option_class,
+            some_class,
+            none_class,
+            none_singleton,
+            list_class,
+            map_class,
+            set_class,
+            tuple_class,
+            range_class,
+            message_class,
+            error_class,
+            message_not_understood_class,
+            fiber_class,
+            cannot_yield_across_native_frame_class,
+            family_class,
+        } = self;
+
+        for handle in [
+            object_class,
+            behavior_class,
+            class_class,
+            metaclass_class,
+            number_class,
+            string_class,
+            nil_class,
+            bool_class,
+            true_class,
+            false_class,
+            method_class,
+            function_class,
+            block_class,
+            symbol_class,
+            module_class,
+            system_class,
+            option_class,
+            some_class,
+            none_class,
+            none_singleton,
+            list_class,
+            map_class,
+            set_class,
+            tuple_class,
+            range_class,
+            message_class,
+            error_class,
+            message_not_understood_class,
+            fiber_class,
+            cannot_yield_across_native_frame_class,
+            family_class,
+        ] {
+            push(*handle);
+        }
+    }
+}

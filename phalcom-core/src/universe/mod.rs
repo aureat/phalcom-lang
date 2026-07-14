@@ -64,6 +64,26 @@ pub struct Universe {
 }
 
 impl Universe {
+    /// Calls `push` once for every handle the kernel holds — [`CoreClasses`]'
+    /// pinned tower plus the import [`Universe::module_registry`].
+    ///
+    /// The `universe` row of
+    /// [memory-management.md §2.1](../../../docs/spec/v0.2/memory-management.md).
+    /// Exhaustively destructured for the same reason as
+    /// [`CoreClasses::each_handle`]: a new handle-bearing field must fail to
+    /// compile rather than silently go unrooted (forge finding F6).
+    ///
+    /// `bool_sacred_pristine`/`block_sacred_pristine` are `bool` override-epoch
+    /// flags ([ADR-0018](../../../docs/adr/0018-sacred-selector-inliner-and-override-guard.md)),
+    /// not handles.
+    pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
+        let Universe { classes, bool_sacred_pristine: _, block_sacred_pristine: _, module_registry } = self;
+        classes.each_handle(push);
+        for module in module_registry.values() {
+            push(*module);
+        }
+    }
+
     /// Bootstraps the core class tower into `heap` and returns the [`Universe`].
     pub fn new(heap: &mut Heap) -> Self {
         Universe {
