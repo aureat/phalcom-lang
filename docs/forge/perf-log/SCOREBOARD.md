@@ -22,7 +22,7 @@
   drifted two commits reported the wrong *sign* once (HANDOFF §Traps).
 - A `~` prefix means derived (e.g. ns/send = mean ÷ send count), not directly timed.
 
-Current HEAD when last updated: **`39d9042`** (2026-07-14).
+Current HEAD when last updated: **`45ffe76`** (2026-07-14).
 
 > **§1's suite table and §3b are one commit behind** (`2997d0b`, pre-F12); §2, §3a,
 > §3c and §5 are at `39d9042`. F12 moved `for` 0.729 → 0.69 s and `method_call`
@@ -175,6 +175,57 @@ named mechanism: its inner loop pays **four SipHash global probes per iteration*
 (`i` read ×2, `list` read, `i` write) — F12. `fiber_churn`'s ~560 ns/fiber vs
 `fiber_spawn`'s ~770 ns/spawn differ by the `Fiber.yield` the latter adds.
 
+### 3bb. Per-**instruction** cost (H3) — `45ffe76`, 2026-07-14
+
+**What one Phalcom instruction costs: ~10–13 ns on hot loops (~75–96 Minstr/s).**
+
+Instrument: `benchmarks/vm/opcode-cost.py`. **Two builds on purpose** — counts from
+a `--features opcode-histogram` build, wall-clock from a **default** build, divided.
+Counting costs an increment per instruction (the same per-opcode work `vm-trace`'s
+span cost 18.2% of arith wall — 003), so a timing from a counting build is wrong.
+Counts are deterministic, so this keeps the counter out of the number it produces.
+Do not collapse it into one run.
+
+| Benchmark | Wall | Instructions retired | **ns/instr** | Minstr/s | Top opcodes |
+|---|---|---|---|---|---|
+| `method_call` | 0.512 s | 49,334,099 | **10.4** | 96.3 | GetSelf 23%, Invoke 15%, GetField 12% |
+| `for` | 0.712 s | 68,000,706 | **10.5** | 95.5 | Invoke 20%, GetLocal 19%, GetGlobal 8% |
+| `string_equals` | 1.095 s | 99,000,674 | **11.1** | 90.4 | Constant 25%, Invoke 15%, Pop 11% |
+| `arith_send` | 0.035 s | 3,000,674 | **11.6** | 86.4 | Constant 26%, Invoke 19%, GetGlobal 13% |
+| `bare_send` | 0.039 s | 3,200,683 | **12.2** | 82.2 | Constant 18%, GetGlobal 18%, Invoke 18% |
+| `fib` | 0.883 s | 69,421,572 | **12.7** | 78.6 | Invoke 25%, GetLocal 18%, Constant 14% |
+| `binary_trees` | 0.798 s | 61,541,242 | **13.0** | 77.1 | Invoke 13%, GetLocal 13%, GetSelf 12% |
+| `variadic_send` | 0.668 s | 50,000,686 | **13.4** | 74.9 | Invoke 23%, Constant 20%, GetGlobal 15% |
+| `fibers` | 0.115 s | 4,800,676 | **24.0** | 41.7 | Invoke 22%, GetGlobal 14%, Constant 8% |
+| `fiber_churn` | 0.276 s | 11,000,674 | **25.1** | 39.9 | GetGlobal 22%, Invoke 22%, Constant 9% |
+| `map_numeric` | 3.696 s | 126,000,699 | **29.3** | 34.1 | GetGlobal 22%, Invoke 20%, Pop 12% |
+| `bootstrap` | 0.007 s | 662 | *(11,241)* | 0.1 | Constant 31%, Method 26%, GetGlobal 9% |
+
+**Spread (execution-bound rows): 10.4 → 29.3 ns/instr, 2.8×.**
+
+**This is a new attribution axis**, and the reason it matters: it separates *"runs
+more instructions"* from *"each instruction does more work"* — which wall-clock
+against Wren cannot distinguish. `map_numeric`, `fiber_churn` and `fibers` cost
+**2.3–2.8× more per instruction** than the tight-loop rows. Their instructions are
+not more numerous; they are individually heavier (allocation, GC, hashing). Any
+future cut aimed at them should target per-instruction work, not instruction count.
+
+`bootstrap` is reported but **excluded from the spread**: at ~660 instructions its
+ns/instr prices the *compiler* (~5 ms compiling `core.ph`), not the dispatch loop.
+That it lands 1000× off the others is the tell that the row measures something else.
+
+**Independent corroboration.** `bare_send` retires **16 instructions per send**
+(3,200,683 ÷ 200,000). Net of the ~5 ms bootstrap, that derives **170 ns/send** —
+against criterion's separately measured **~174 ns/send** (§3a). Two unrelated
+instruments, 2.3% apart. This is the only cross-check in the harness where an
+error in either would show up as disagreement.
+
+**What the mean does not buy.** `wall / total` is a true mean over each program's
+*executed mix*, not a price per opcode — a `Loop` and an `Invoke` land in the same
+average. Pricing one opcode needs a differential (two programs differing by a known
+count of a single opcode). The histogram makes that constructible; it does not
+perform it. **Do not quote a row below as "the cost of `Invoke`".**
+
 ### 3c. Fixed costs
 
 | Cost | Value | Measured at | Note |
@@ -308,7 +359,8 @@ Ranked by how much they distort the numbers above.
 |---|---|---|---|
 | ~~**H1**~~ | ~~§1/§2 measured at `debadfa`, not HEAD~~ | **CLOSED `2997d0b`.** And the hole's own premise was **wrong**: `debadfa` predates F13's regression, so no row was inflated. HEAD ≈ `debadfa`, verified on all 9 rows | — |
 | ~~**H2**~~ | ~~§3a per-send ns are the ORIGIN baseline~~ | **CLOSED `2997d0b`.** ~211 ns/send (bare), ~177 ns (arith), ~770 ns (spawn). Surfaced the bare/arith **inversion** vs origin | — |
-| **H3** | **No per-opcode / per-instruction cost anywhere.** The finest granularity in the repo is per-*send* | The 33.5% `run_until_inner` share cannot be attributed to any opcode. Per-instruction cost was explicitly asked for and does not exist | (a) a `bytecode-histogram` feature that counts opcode executions → ns/opcode = wall ÷ count, per benchmark; or (b) `sample` with `-C force-frame-pointers`. **(a) is the honest one** — switch dispatch collapses every arm into one frame, so (b) attributes everything to `run_until_inner` and would answer nothing |
+| ~~**H3**~~ | ~~No per-opcode / per-instruction cost anywhere~~ | **CLOSED `45ffe76`** — `opcode-histogram` feature + `benchmarks/vm/opcode-cost.py`. **~10–13 ns/instruction**, spread 2.8× (§3bb). Option (a) as predicted; (b) would indeed have answered nothing | — |
+| **H13** | **No per-opcode *price*.** §3bb gives a mean over each program's mix, not the cost of `Invoke` vs `GetLocal` | The histogram says `Invoke` is 13–25% of every hot program's mix but not what it costs. Sizing DEC-PRIM-B or the variadic-IC refill wants a price, not a share | Build a **differential**: two programs whose instruction counts differ by a known quantity of exactly one opcode, timed on a default build. The histogram makes the "known quantity" verifiable, which is what makes the subtraction sound. Least-squares over the 11 execution-bound rows is the cheaper alternative but is underdetermined at 35 opcodes — do not fit it and report the coefficients as prices |
 | **H4** | **No fiber-churn ÷ Wren row.** `fiber_churn.ph` has no `.wren` twin | It is the *only* Phalcom fiber row with no Wren ratio, and high-turnover is the workload F5/F10 turned on. §3b's ~560 ns/fiber has nothing to divide by | Port `fiber_churn.ph` → `fiber_churn.wren` (12 lines; `Fiber.new{}`/`.call()` exist in both). Then per-spawn ns = wall ÷ 500,000 both sides |
 | **H5** | **RSS is missing on all 9 wren-suite rows.** Only skynet/fiber_churn/bootstrap have it | Law: "a row without RSS is half a row." Cut 002 was nearly abandoned because RSS effects were invisible to the chosen instrument | `compare-wren.py` should shell `/usr/bin/time -l` and add peak-RSS + `sys` columns per row for both runtimes. **Partially closed**: skynet/fiber_churn/bootstrap now carry all four columns (§2) |
 | **H12** | **fiber_churn's −37% RSS (420 → 264 MB) is unattributed** | It is a large memory win nobody claimed. F13's constant explains its −39% `user`, but **not** the RSS | A/B `0274f10` vs `4f2eed8` on fiber_churn RSS. Suspect adaptive GC (F11 measured −15% there); if it is bigger than that, something else moved |

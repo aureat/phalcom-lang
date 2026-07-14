@@ -114,6 +114,49 @@ Indistinguishable. `fiber_spawn` criterion likewise flat (p = 0.65). **Why:**
   6203 objects). Only the design above survives — ~1h to rebuild from it. Nothing is
   gained by hunting for the diff.
 
+## F14 — an instruction costs ~10–13 ns, and the 2.8× spread is per-instruction *work*, not instruction count
+
+Closes H3 (`45ffe76`). Measured with `benchmarks/vm/opcode-cost.py` — counts from an
+`opcode-histogram` build, wall-clock from a **default** build, divided (counts are
+deterministic; the counter never touches the number it produces).
+
+**The headline: ~10–13 ns per instruction on hot loops, ~75–96 Minstr/s.**
+
+| | ns/instr | |
+|---|---|---|
+| `method_call`, `for` | **10.4–10.5** | tight loops — the floor |
+| `bare_send`, `arith_send`, `fib`, `binary_trees`, `string_equals`, `variadic_send` | 11.1–13.4 | |
+| `fibers`, `fiber_churn` | **24.0–25.1** | |
+| `map_numeric` | **29.3** | the ceiling |
+
+**The spread is the finding, not the mean.** 2.8× separates the cheapest instruction
+from the dearest — and it is a *new attribution axis*, because wall-clock against
+Wren cannot distinguish "this program runs more instructions" from "this program's
+instructions are individually heavier". `map_numeric`/`fiber_churn`/`fibers` are the
+latter: their instructions do allocation, GC and hashing work that `method_call`'s do
+not. **A cut aimed at those workloads should target per-instruction work; a cut aimed
+at the fast rows can only come from retiring fewer instructions.** Nothing in the
+harness could state that before.
+
+**Independently corroborated.** `bare_send` retires **16 instructions per send**;
+net of bootstrap that derives **170 ns/send** against criterion's separately
+measured **~174 ns/send** — two unrelated instruments 2.3% apart. It is the harness's
+only genuine cross-check: an error in either instrument surfaces as disagreement.
+
+**Consequences:**
+- **Profiling was never going to answer this.** The dispatch loop is one `match` in
+  one function, so `sample` books every opcode arm to `run_until_inner` — 27–35% of
+  ticks, unattributed (§4). The counter is the only instrument that can price the
+  loop, and it must be off by default for the same reason `vm-trace` is (003).
+- **`bootstrap.ph` is compile-bound, and the histogram proves it**: ~660 instructions
+  against ~5 ms of wall. Its ns/instr is 1000× the others because it prices the
+  *compiler*. Excluded from the spread — and a standing reminder that a whole-process
+  row is not automatically an execution measurement.
+- **A mean over a mix is not a price (H13).** `Invoke` is 13–25% of every hot
+  program's mix; the histogram does not say what it *costs*. Sizing DEC-PRIM-B or the
+  variadic-IC refill needs a differential, not a share. Do not quote a row as "the
+  cost of `Invoke`".
+
 ## F13 — bootstrap went 5 ms → 180 ms: the `ifTrue` inliner is exponential in nest depth
 
 Every Phalcom process pays a **fixed +175 ms** at `debadfa` → `3b2dd97`

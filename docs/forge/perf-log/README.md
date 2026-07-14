@@ -61,6 +61,12 @@ Full write-ups in [`findings.md`](findings.md):
 - **F8** — a freshly bootstrapped `VM` is **not garbage-free**: `core.ph`'s top-level
   `Closure` is unreachable the moment bootstrap returns, so the first collection on any
   VM legitimately sweeps one object. Surfaced by U-GC's step-2 tests.
+- **F14** — **an instruction costs ~10–13 ns** (~75–96 Minstr/s), and the **2.8× spread**
+  (10.4 `method_call` → 29.3 `map_numeric`) is per-instruction *work*, not instruction
+  count — a distinction wall-clock-vs-Wren cannot make. Closes H3 via an off-by-default
+  `opcode-histogram` feature + `benchmarks/vm/opcode-cost.py` (two builds: counts from
+  the counting build, time from the default one). Corroborated: `bare_send` retires 16
+  instructions/send → 170 ns/send vs criterion's ~174.
 - **F13** — **bootstrap regressed 5 ms → 180 ms** (`debadfa` → `3b2dd97`), a fixed tax on
   every process. Not a throughput regression: the `ifTrue` inliner is **exponential in
   nest depth**, and `core.ph`'s new 14-deep `codePointAt` costs ~200 ms to compile *by
@@ -117,6 +123,13 @@ micro-benches showed a regression.
   installs **no subscriber**, so callsite interest caches as `never`: a cheaper path
   than the real binary, which installs a registry. Criterion is *blind* to per-opcode
   tracing cost and showed ~no win where whole-process showed −16.7%.
+- **"What does one instruction cost" → `benchmarks/vm/opcode-cost.py`, never `sample`**
+  (F14). The dispatch loop is one `match` in one function, so the profiler books every
+  opcode arm to `run_until_inner` and prices none of them. The script is **two builds
+  on purpose** — counts from `--features opcode-histogram`, wall-clock from a default
+  build — because counting costs an increment per instruction, i.e. the same per-opcode
+  work 003 gated `vm-trace` for. Counts are deterministic, which is what makes the split
+  sound. Never read a timing from a histogram build.
 - **Skynet: read `user`, not `real`** (003). Its `real` spread was 5.4 s **within one
   binary** (13.98–19.40) — it cannot resolve a single-digit-percent effect. The
   variance lives in `sys` (page faults, allocation); `user` held to ±0.4 s across the
