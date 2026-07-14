@@ -341,7 +341,7 @@ same-session A/B unless noted.
 | `2c775ac` | SCOREBOARD + HEAD re-measure; F12 probe | *(docs only)* — closed holes H1/H2, unblocked F12 | — | — |
 | **`39d9042`** | **F12 — per-callsite global-resolution cache, guarded by `ModuleObject.globals_version`** | **bare_send −17.9%**, arith_send −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, **skynet −7.7% `user`**, **fiber_churn −21.4%**, `for` −3.6% | unchanged (1.322 GB skynet, 264 MB fiber_churn) | none |
 | | | ⇒ per-send **~211 → ~174 ns**; skynet **2.9× Wren** — under 3× for the first time | | |
-| **`cut 006` *(SHA stamped next commit)*** | **Cut 006 — F14 S2: drop `spans[ip]` from the dispatch loop's read-decode** | **`for` −6.8%**, **method_call −5.6%**, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, **skynet −2.8% `user`** (1.80 → 1.75 s) | unchanged (skynet 1.304 → 1.316 GB, within noise) | none |
+| **`916be0a`** | **Cut 006 — F14 S2: drop `spans[ip]` from the dispatch loop's read-decode** | **`for` −6.8%**, **method_call −5.6%**, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, **skynet −2.8% `user`** (1.80 → 1.75 s) | unchanged (skynet 1.304 → 1.316 GB, within noise) | none |
 
 **Cut 006's variance discipline** (H11's ask, recorded per-row): alternating
 same-session A/B, `REPS=5` per benchmark (3 for skynet), best-of-N on `user`, both

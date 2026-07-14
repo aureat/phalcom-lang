@@ -586,7 +586,7 @@ not a measurement** (law P1) — none may enter SCOREBOARD without an A/B:
   `Rc<Callable>` **once per frame** and holding it as a local — the `Rc` keeps the
   chunk alive independently of `self.heap`. Cut 004 already made that share cheap, so
   S1 is the payoff for work already paid for.
-- **S2 — drop `spans[ip]` from the hot path.** ~~*Est −3–8%.*~~ **LANDED `cut 006` *(SHA stamped next commit)* as
+- **S2 — drop `spans[ip]` from the hot path.** ~~*Est −3–8%.*~~ **LANDED `916be0a` as
   cut 006 — measured `for` −6.8%, method_call −5.6%, variadic_send −5.2%, skynet
   −2.8% `user`, RSS unchanged.** The estimate held (measured band sits inside
   −3–8%), and the advice to land it *first, as an isolated A/B* was right: it is now
