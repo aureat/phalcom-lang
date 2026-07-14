@@ -41,6 +41,17 @@ Full write-ups in [`findings.md`](findings.md):
   `world_version` yet.
 - **F5** — fiber-stack pool built, measured, **reverted** (null result). Redirects
   the Skynet memory win to the **U-GC collector** (freeing shells), not pooling.
+  The reverted code never entered the git object DB — design survives in F5, ~1h
+  to rebuild.
+- **F6** — U-GC's normative tables had **two free-a-live-object bugs**
+  (`Block.closure` absent; `Upvalue::Open.fiber` wrongly assumed root-traced), two
+  missed roots (`sealed_classes`, `checking`), and five edges added by the
+  annotation work. §2.3 regenerated field-level over all 16 variants. The
+  exhaustive `match` catches a new *variant*, never a new *field* — the table is
+  the only defence.
+- **F7** — `size_of::<Object>()` **grew 256 → 280 B** (`ClassObject.attributes`).
+  Win A is **six** boxed variants, not "the driver"; **do not box `Instance`**
+  (24 B, most-allocated). Target 280 → ~40 B, a 7× arena density win.
 
 ## Next measured levers
 

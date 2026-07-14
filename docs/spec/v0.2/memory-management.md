@@ -43,6 +43,9 @@ An object is **live** iff it is reachable by a directed path of handles from a
 
 The root set is exactly:
 
+> **Verified against HEAD 2026-07-14.** `ClassId` is a type alias for `ObjRef`
+> (`heap/mod.rs`), so every row below names the same handle type.
+
 | Root | Type | Note |
 |---|---|---|
 | the running fiber's operand stack | `VM::stack: Vec<Value>` | every operand |
@@ -51,7 +54,9 @@ The root set is exactly:
 | the current fiber | `VM::current: ObjRef` | |
 | loaded modules | `VM::modules`, `main_module`, `last_imported_module` | module handles |
 | named classes | `VM::classes: HashMap<Symbol, ClassId>` | class handles |
-| the kernel | `VM::universe` (`CoreClasses`) | **pinned** — every `ClassId`/singleton handle it holds; never swept (§6) |
+| sealed-class registry | `VM::sealed_classes: HashMap<Symbol, ObjRef>` | the sealing class-object handles (U-ANNOT-LAYOUT, `@sealed`/`@variant`) |
+| contract re-entrancy guard | `VM::checking: HashSet<ObjRef>` | receivers currently under `@invariant` checking — the live mirror of `FiberObject::checking` (U-ANNOT-CONTRACTS) |
+| the kernel | `VM::universe` (`Universe`) | **pinned** — every handle it holds: `CoreClasses`' 31 `ClassId`s + the `none_singleton` `ObjRef`, **and** `Universe::module_registry: HashMap<String, ObjRef>`. Never swept (§6) |
 | native temp roots | `VM::temp_roots: Vec<ObjRef>` | the §4 escape hatch |
 
 Everything else is reached **transitively**, not rooted directly. In particular a
@@ -66,7 +71,13 @@ its saved stack alone kept alive die with it.
   never collected and require no root.
 - **`ClassLayout`** (`VM::field_layouts`), `constructor_aliases`,
   `has_new_construct`, `class_parents`. These hold only `Symbol`s and integers —
-  **no handles** — so they contribute no roots.
+  **no handles** — so they contribute no roots. (Re-verified on HEAD 2026-07-14:
+  `ClassLayout { name: Symbol, field_slots: IndexMap<Symbol, u16>, field_count: u16,
+  static_field_slots: IndexMap<Symbol, u16>, static_field_count: u16 }`;
+  `class_parents: HashMap<Symbol, Symbol>`;
+  `constructor_aliases: HashMap<(Symbol, Symbol), Symbol>`;
+  `has_new_construct: HashSet<Symbol>`. Note the near-miss: `VM::sealed_classes`
+  *looks* like a peer of these but holds `ObjRef` values — it **is** a root, §2.1.)
 - **Heap string content.** Strings are ordinary collectible objects. There is no
   strong content-addressed string table; "interned by content" denotes
   value-equality (`Value::value_eq` compares string content), not handle dedup.
@@ -74,32 +85,52 @@ its saved stack alone kept alive die with it.
 
 ### 2.3 Outgoing edges (what tracing must visit)
 
-Tracing visits, per `Object` variant, every handle and every `Value` it stores:
+Tracing visits, per `Object` variant, every handle and every `Value` it stores.
 
-- **Instance** — its class, and each field slot `Value`.
-- **Class** — superclass, metaclass, the name string, and every method handle in
-  the method dictionary (methods are heap objects) and static-field `Value`s.
-- **Closure** — each captured upvalue, and every object-bearing `Value` in the
-  chunk's constant pool (`Chunk::constants: Vec<Value>` — string literals, etc.).
-- **Method** — a bytecode method's chunk constants (as above); a primitive holds
-  no Phalcom handles.
-- **BoundMethod** — its receiver and its method.
-- **Upvalue** — a `Closed` cell's captured `Value` (an `Open` cell aliases a live
-  stack slot already traced as a root).
-- **List / Tuple** — each element `Value`.
-- **Map / Set** — each key and value `Value`.
-- **Range** — its `start`, `end` bound `Value`s.
-- **Fiber** — its saved `stack`, each saved frame (as under `VM::frames`), its
-  `open_upvalues` values, and its `resumer` / `result` / `entry` handles. **While
-  a fiber is `current`, its authoritative state is the `VM` mirror**, and its own
-  `FiberObject` buffers are stale — the tracer roots the mirror and does not
-  re-trace the current fiber's internal buffers.
-- **Family** — its bound receiver `Value`.
-- **Module** — each global-slot `Value`.
+> **Regenerated from HEAD 2026-07-14** against all **16** `Object` variants and
+> every field of each payload struct. This table is normative and exhaustive: a
+> field absent here is asserted to hold **no handle**. The collector's `match` over
+> `Object` must likewise be exhaustive (§3), so a new variant cannot compile without
+> declaring its edges — but a new *field* on an existing variant can, which is why
+> this table lists fields, not just variants.
+
+| Variant | Edges to trace | Explicitly **not** edges |
+|---|---|---|
+| **Instance** | `class`, each `slots` `Value` | — |
+| **Class** | `class` (metaclass), `superclass`, each `methods` value (`IndexMap<Symbol, ObjRef>` — methods are heap objects), each `static_slots` `Value`, each `attributes` `Value` | `name: String` (a **Rust** `String`, not a heap object), `field_slots`, `base_names`, `field_count`, `attributes_frozen` — `Symbol`s/ints/bool |
+| **Method** | `kind` when `MethodKind::Closure(ObjRef)`, `holder`, each `contracts` entry's `.1` `Value`, each `attributes` `Value` | `kind` when `MethodKind::Primitive(fn)` (a Rust fn pointer — no Phalcom handle), `signature`, each `contracts` entry's `.0` `Symbol`, `attributes_frozen` |
+| **Module** | `closure`, each `globals` `Value`, each `attributes` `Value` | `name_sym`, `name`, `path`, `source` (`Arc<String>`), `name_to_slot`, `attributes_frozen` |
+| **Closure** | `module`, each `upvalues` handle, each `callable.chunk.constants` `Value` (string literals, selector symbols) | `callable.upvalues` (`UpvalueDescriptor` — `is_local`/`index`), `max_slots`, `num_upvalues`, `arity`, `name_sym` |
+| **Str** | **none** — a leaf | `value: String`, `hash: u32` |
+| **Block** | `closure` | `home_frame_token: FrameToken` (index+generation, not a handle) |
+| **BoundMethod** | `method`, `receiver` | — |
+| **Upvalue** | `Open { fiber, .. }` → the **`fiber` handle**; `Closed(Value)` → the `Value` | `Open { slot }` — a stack index |
+| **List** | each `elements` `Value` | — |
+| **Fiber** | each saved `stack` `Value`, each saved `frames` `CallFrame` (as under `VM::frames`, §2.1), each `open_upvalues` value, `resumer`, `result`, `entry`, each `checking` handle | `status`, `started`, `resume_slot`, `floor_depth`, `resume_mode` |
+| **Map** / **Set** | per `entries` tuple `(Value, Value, i64)`: `.0` (key) and `.1` (value) | `.2` (the cached hash), `index: HashMap<i64, Vec<usize>>` |
+| **Tuple** | each `elements` `Value` | — |
+| **Range** | `start`, `end` | `inclusive: bool` |
+| **Family** | `recv` | `selector: Symbol`, `open: bool` |
+
+Two edges are easy to miss and each would free a live object:
+
+- **`Upvalue::Open` carries a `fiber: ObjRef`**, not merely a stack index. The
+  aliased slot lives on *that* fiber's stack, which is the `VM` mirror **only while
+  that fiber is current** — otherwise it is parked inside the `FiberObject`. So an
+  `Open` cell is *not* "already traced as a root"; tracing its `fiber` handle is
+  what reaches the parked stack holding the slot.
+- **`Block` holds a `closure`**, and a `Block` is the only thing retaining it in a
+  `[…]`-value-passed-around program.
 
 The tracer visits `Value` children through a single `Value` object accessor, not
 by pattern-matching `Value`'s tags, so a future `Value` representation change
 (NaN-boxing) does not touch the collector.
+
+**While a fiber is `current`, its authoritative state is the `VM` mirror** and its
+own `FiberObject` `stack`/`frames`/`open_upvalues`/`checking` buffers are stale
+(emptied by `store_live_into`/`load_live_from`) — the tracer roots the mirror
+(§2.1) and does not re-trace the current fiber's internal buffers. Tracing them
+anyway is harmless (they are empty), but the mirror is the truth.
 
 ## 3. The collector
 
@@ -198,8 +229,35 @@ loop), so pinning is a liveness guarantee, not a cycle workaround.
 ## 7. Representation discipline & what stays open
 
 - **Object slot size.** `size_of::<Object>()` is bounded by discipline: fat
-  variants (`Class`, `Fiber`, `Map`/`Set`, `Instance`, `Method`) are boxed so the
-  enum stays small and the arena stays cache-dense. (Measured pre-boxing: 256 B.)
+  variants are boxed so the enum stays small and the arena stays cache-dense. The
+  `SlotMap` sizes every slot to the fattest variant, so an unboxed fat variant taxes
+  *every* string, range, and instance on the hot `heap.get` path threaded through
+  all dispatch.
+
+  **Measured pre-boxing on HEAD 2026-07-14: 280 B** — up from the 256 B ADR-0050
+  recorded, because `ClassObject` gained `attributes: Vec<Value>` (+24 B) and
+  `attributes_frozen` (U-ANNOT). `ClassObject` alone *is* the 280 B. The descending
+  ladder, which decides how many variants must be boxed to hit a given bound:
+
+  | Variant | `size_of` payload |
+  |---|---|
+  | `ClassObject` | 280 |
+  | `FiberObject` | 176 |
+  | `ModuleObject` | 168 |
+  | `ClosureObject` | 160 |
+  | `MethodObject` | 88 |
+  | `MapObject` (`Map`/`Set`) | 72 |
+  | `RangeObject` | 40 |
+  | `StringObject` | 32 |
+  | `Instance`/`Block`/`List`/`BoundMethod`/`Upvalue`/`Family` | ≤24 |
+  | `TupleObject` | 16 |
+
+  Boxing must therefore cover **`Class`, `Fiber`, `Module`, `Closure`, `Method`,
+  `Map`/`Set`** — six variants — for `Range` (40 B) to become the cap. Boxing
+  `Instance` is *counterproductive*: at 24 B it is already below the floor and is
+  the most-allocated variant, so a `Box` would add an indirection and an allocation
+  for no size win. (ADR-0050 §9's variant list predates this measurement; this table
+  supersedes it.)
 - **`Value` size.** `Value` is a 16-byte tagged enum today. NaN-boxing to a single
   8-byte word is deferred behind the `Value` API
   ([ADR-0010](../../adr/0010-tagged-value-enum.md)); §2.3's object accessor is the
@@ -207,6 +265,12 @@ loop), so pinning is a liveness guarantee, not a cycle workaround.
 - **Fiber-stack pooling.** Fiber operand/frame `Vec`s may be pooled and reused
   across fiber deaths to cut allocation churn; this is a memory-management
   optimization orthogonal to reclamation and changes no observable semantics.
+  **Measured null pre-collector** (forge finding F5, `docs/forge/perf-log/findings.md`):
+  built and A/B'd against Skynet, indistinguishable, because RSS there is dominated
+  by ~1M immortal `FiberObject` shells that only reclamation can free — pooling
+  their buffers cannot move it. Orthogonal to the collector in *mechanism*, but not
+  in *sequence*: it is only measurable once sweeping frees the shells. Re-measure
+  after the collector against a high-fiber-turnover workload; do not land it before.
 
 The following remain deliberately **open**, each implementable behind the handle
 surface without a semantic change:

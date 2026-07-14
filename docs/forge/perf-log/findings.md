@@ -109,3 +109,70 @@ Indistinguishable. `fiber_spawn` criterion likewise flat (p = 0.65). **Why:**
 - A fiber-stack pool would only pay off under **high fiber turnover** (rapid
   spawn→Done→respawn). No current benchmark exercises that; revisit only with such
   a benchmark on a quiet machine.
+- **The reverted code is unrecoverable.** It was never staged, so it never entered
+  the git object DB (`git fsck --lost-found` shows no matching dangling blob across
+  6203 objects). Only the design above survives — ~1h to rebuild from it. Nothing is
+  gained by hunting for the diff.
+
+## F6 — U-GC's normative tables had two free-a-live-object bugs
+
+Step 0 of U-GC regenerated `memory-management.md` §2.1 (roots) and §2.3 (outgoing
+edges) against HEAD 2026-07-14. Both were written 2026-07-13 and had drifted. The
+collector would have been built on them.
+
+**Two missed edges, each of which frees a reachable object:**
+
+- **`Object::Block` was absent from §2.3 entirely.** `BlockObject.closure: ObjRef` is
+  a real edge — and a `Block` is the *only* retainer of its closure in a program that
+  passes a `[…]` around. (Its `home_frame_token` is an index+generation, not a handle.)
+- **`Upvalue::Open` carries a `fiber: ObjRef`.** §2.3 asserted an `Open` cell "aliases a
+  live stack slot already traced as a root" — false on HEAD. The slot lives on *that*
+  fiber's stack, which is the `VM` mirror **only while that fiber is current**;
+  otherwise it is parked inside the `FiberObject`. A cross-fiber open upvalue was
+  therefore untraced.
+
+**Two claimed edges that do not exist** (harmless over-retention, but they signalled
+the table was not written from the code): `ClassObject.name` is a Rust `String`, not a
+heap object; `MethodObject` owns no chunk — its `MethodKind::Closure(ObjRef)` does, and
+the constants live in `ClosureObject.callable.chunk`.
+
+**Two missed roots** — `VM::sealed_classes: HashMap<Symbol, ObjRef>` (U-ANNOT-LAYOUT)
+and `VM::checking: HashSet<ObjRef>` (U-ANNOT-CONTRACTS). `sealed_classes` is the nastier
+one: it sits among four *genuine* non-roots (`field_layouts`, `class_parents`,
+`constructor_aliases`, `has_new_construct`) that hold only `Symbol`s, and reads like a
+peer of them — but its values are handles.
+
+**Five edges that landed after the table was written**, all from the annotation work:
+`Class.attributes`, `Method.attributes`, `Method.contracts`, `Module.attributes`,
+`Fiber.checking`.
+
+**Consequences:**
+- §2.3 is now **field-level and exhaustive** over all 16 variants, and states what is
+  *not* an edge — so the next drift is visible rather than silent.
+- The exhaustive `match` (ADR-0050 §3) catches a new **variant** at compile time but
+  **not a new field on an existing variant** — which is exactly how all five annotation
+  edges got in. The field-level table is the only defence; keep regenerating it.
+- Generalises past GC: a spec table written from a design rather than from the code
+  drifts silently under concurrent unit work. Cheap to re-derive, expensive to trust.
+
+## F7 — `size_of::<Object>()` grew to 280 B; Win A is six variants, not "the driver"
+
+ADR-0050 measured 256 B. HEAD 2026-07-14 measures **280 B**
+(`cargo +nightly rustc -p phalcom-core --lib -- -Zprint-type-sizes`), because
+`ClassObject` gained `attributes: Vec<Value>` (+24 B) + `attributes_frozen` under
+U-ANNOT. `ClassObject` alone *is* the 280 B, and the `SlotMap` sizes every slot to it —
+so every 32 B string and 16 B tuple pays 280 B on the hot `heap.get` path.
+
+Ladder: Class 280 · Fiber 176 · Module 168 · Closure 160 · Method 88 · Map/Set 72 ·
+Range 40 · Str 32 · {Instance, Block, List, BoundMethod, Upvalue, Family} ≤24 · Tuple 16.
+
+Two consequences for U-GC Win A:
+- **Six variants must be boxed** (Class, Fiber, Module, Closure, Method, Map/Set) for
+  `Range` (40 B) to cap the enum and the plan's pinned `<= 48` bound to hold. ADR-0050
+  §9's list predates the measurement.
+- **Do not box `Instance`.** At 24 B it is already under the floor, and it is the
+  most-allocated variant — boxing it adds an indirection plus an allocation for zero
+  size win. The obvious-looking move is the wrong one.
+
+Post-boxing target: 280 → ~40 B, a **7×** arena density win, independent of the
+collector and landable first.
