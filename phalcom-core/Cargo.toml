@@ -24,3 +24,14 @@ clap = { version = "4.5.41", features = ["derive"] }
 anyhow = "1.0.98"
 color-print = "0.3.7"
 slotmap = "1"
+
+[dev-dependencies]
+# Tier 0 instrumentation (U-BENCH, performance.md §4). Micro-benches only —
+# whole-process Skynet is measured by benchmarks/vm/run.sh instead, since
+# criterion's iteration/warmup model would mask whole-process cost
+# (performance.md §2, "whole-process lifetime is the unit of measurement").
+criterion = "0.5"
+
+[[bench]]
+name = "vm_bench"
+harness = false
