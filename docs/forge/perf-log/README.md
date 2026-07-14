@@ -61,7 +61,7 @@ Full write-ups in [`findings.md`](findings.md):
 - **F8** — a freshly bootstrapped `VM` is **not garbage-free**: `core.ph`'s top-level
   `Closure` is unreachable the moment bootstrap returns, so the first collection on any
   VM legitimately sweeps one object. Surfaced by U-GC's step-2 tests.
-- **F14** — **an instruction costs ~10–13 ns** (~75–96 Minstr/s), and the **2.8× spread**
+- **F17** — **an instruction costs ~10–13 ns** (~75–96 Minstr/s), and the **2.8× spread**
   (10.4 `method_call` → 29.3 `map_numeric`) is per-instruction *work*, not instruction
   count — a distinction wall-clock-vs-Wren cannot make. Closes H3 via an off-by-default
   `opcode-histogram` feature + `benchmarks/vm/opcode-cost.py` (two builds: counts from
@@ -100,8 +100,11 @@ Full write-ups in [`findings.md`](findings.md):
   key first is a correctness review (version-wraparound), likely more work than the
   boxing. `CallFrame` is 96 B against Wren's 24 B.
 - **F16** — **superinstructions: no, defer.** They would amortize F14's re-derivation
-  rather than fix it; H3 (no opcode histogram exists) makes the fusion pairs
-  unchoosable; and the F13 inliner already covers the classic arithmetic win.
+  rather than fix it; and the F13 inliner already covers the classic arithmetic win.
+  Its second reason is **narrowed but not retired** by F17: H3 is closed, so a histogram
+  now exists — but it counts **single opcodes, not adjacent pairs**, and fusion
+  selection needs pair frequencies. Extend `opcode_stats::record` to `(prev, cur)`
+  (~10 lines) before re-asking. Reason 1 (do F14's S1 first) is load-bearing regardless.
 - **F9** — Tier 1's size held (18.2% measured vs 18.3% predicted) but **both**
   mechanisms were wrong: not a subscriber misconfiguration (−0.4%), and not the span
   (half the cost — the three `debug!`s are the other half). A fix dispatched from the
@@ -124,7 +127,7 @@ micro-benches showed a regression.
   than the real binary, which installs a registry. Criterion is *blind* to per-opcode
   tracing cost and showed ~no win where whole-process showed −16.7%.
 - **"What does one instruction cost" → `benchmarks/vm/opcode-cost.py`, never `sample`**
-  (F14). The dispatch loop is one `match` in one function, so the profiler books every
+  (F17). The dispatch loop is one `match` in one function, so the profiler books every
   opcode arm to `run_until_inner` and prices none of them. The script is **two builds
   on purpose** — counts from `--features opcode-histogram`, wall-clock from a default
   build — because counting costs an increment per instruction, i.e. the same per-opcode

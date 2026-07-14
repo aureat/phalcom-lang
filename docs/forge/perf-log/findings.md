@@ -114,7 +114,7 @@ Indistinguishable. `fiber_spawn` criterion likewise flat (p = 0.65). **Why:**
   6203 objects). Only the design above survives — ~1h to rebuild from it. Nothing is
   gained by hunting for the diff.
 
-## F14 — an instruction costs ~10–13 ns, and the 2.8× spread is per-instruction *work*, not instruction count
+## F17 — an instruction costs ~10–13 ns, and the 2.8× spread is per-instruction *work*, not instruction count
 
 Closes H3 (`45ffe76`). Measured with `benchmarks/vm/opcode-cost.py` — counts from an
 `opcode-histogram` build, wall-clock from a **default** build, divided (counts are
@@ -667,12 +667,20 @@ order of force:
    re-derivation, not because dispatch is inherently expensive. Fusing opcodes to
    amortize an artificially costly fetch buys a workaround for something S1 deletes.
    **Do S1, then re-ask; the case may evaporate.**
-2. **The pairs cannot be chosen.** [H3](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)
-   is open: there is **no per-opcode histogram anywhere in the repo**, and H3's own
-   note says the honest instrument is a `bytecode-histogram` feature counting
-   executions (`sample` cannot do it — switch dispatch collapses every arm into one
-   frame). Picking fusions without one is guessing. **H3 is a prerequisite for the
-   question being answerable at all.**
+2. **The pairs cannot be chosen.** ~~[H3](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)
+   is open: there is **no per-opcode histogram anywhere in the repo**~~ — **H3 closed
+   `45ffe76`** ([F17](#f17--an-instruction-costs-1013-ns-and-the-28-spread-is-per-instruction-work-not-instruction-count)),
+   exactly the `opcode-histogram` feature this reason called for, and it confirms the
+   parenthetical (`sample` cannot do it — switch dispatch collapses every arm into
+   one frame).
+
+   **But this reason survives, narrowed.** F17's histogram counts **single opcodes,
+   not adjacent pairs** — it reports that `Invoke` is 13–25% of every hot program's
+   mix, which does not say what `Invoke` *follows* or *precedes*. Superinstruction
+   selection needs **pair frequencies**, and picking fusions from a single-opcode
+   histogram is still guessing. The extension is small (record `(prev, cur)` instead
+   of `cur` in `opcode_stats::record`, ~10 lines) — do that before re-asking, not a
+   full re-derivation. Reason 1 is unaffected and remains the load-bearing one.
 3. **Partly redundant already.** The sacred-selector inliner
    ([F13](#f13--bootstrap-went-5-ms--180-ms-the-iftrue-inliner-is-exponential-in-nest-depth),
    `0274f10`) is a stronger form of the same idea and is already in the tree. For

@@ -175,7 +175,7 @@ named mechanism: its inner loop pays **four SipHash global probes per iteration*
 (`i` read ×2, `list` read, `i` write) — F12. `fiber_churn`'s ~560 ns/fiber vs
 `fiber_spawn`'s ~770 ns/spawn differ by the `Fiber.yield` the latter adds.
 
-### 3bb. Per-**instruction** cost (H3) — `45ffe76`, 2026-07-14
+### 3bb. Per-**instruction** cost (H3, F17) — `45ffe76`, 2026-07-14
 
 **What one Phalcom instruction costs: ~10–13 ns on hot loops (~75–96 Minstr/s).**
 
