@@ -69,3 +69,43 @@ creation, returned on `Finished`/`Failed`). Next measured lever after 001.
   the IC guard must read that bit **alongside** the `(class_id, SelectorId)`
   compare. Mutation-site enumeration for epoch bumps (esp. `superclass=`) is still
   open.
+
+## F5 — fiber-stack pool: implemented, measured, reverted (null result)
+
+The [F3](#f3--memmove-206-skynet-is-vec-growth-not-memtake) memmove finding
+pointed at a fiber-stack pool (U-GC "Win B"). It was **built and measured**, then
+**reverted** — it shows no reliable win.
+
+Implementation (correct, behavior-invariant, all fiber/concurrency tests green): a
+bounded free-list of `Vec<Value>`/`Vec<CallFrame>` on the VM; a spawned fiber
+(`new_fiber_ref`) takes recycled capacity-retained buffers; a fiber reaching
+`FiberStatus::Done` returns its buffers before the resumer's `load_live_from` drops
+them. Only the `Done` path recycles (park/`yield` keeps its buffers; the rare
+`Failed` cascade is left as-is).
+
+Same-machine A/B on Skynet (release; cleanest run-3-WITH vs two WITHOUT, each right
+after a rebuild):
+
+| | wall | peak RSS |
+|---|------|----------|
+| without pool | 15.23 s, 15.29 s | 5.66 GB, 5.95 GB |
+| with pool | 15.48 s | 5.78 GB |
+
+Indistinguishable. `fiber_spawn` criterion likewise flat (p = 0.65). **Why:**
+
+1. **Skynet RSS is dominated by the ~1M immortal `FiberObject` shells** in the
+   heap slotmap (never freed — no GC), not the stack/frames buffers. Pooling
+   buffers cannot move that; only the real collector (**U-GC**) reclaiming dead
+   fiber objects will. That is the actual Tier-4 RSS lever.
+2. The memmove was 20.6% of *CPU ticks*, but removing it does not move wall-clock
+   out of run-to-run noise on this workload.
+
+**Consequences:**
+- Per measure-first (P2/P3), an unproven optimization does not land in the
+  contention-prone fiber cascade. Reverted.
+- **Redirects U-GC:** the Skynet memory win is *freeing fiber shells* (the
+  collector), not buffer pooling. Do not split "Win B" out ahead of the collector —
+  it does not stand alone on the evidence.
+- A fiber-stack pool would only pay off under **high fiber turnover** (rapid
+  spawn→Done→respawn). No current benchmark exercises that; revisit only with such
+  a benchmark on a quiet machine.
