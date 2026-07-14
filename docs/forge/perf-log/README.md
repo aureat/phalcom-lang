@@ -17,6 +17,7 @@ recorded as a finding, not shipped.
 | # | Unit / tier | Cut | Measured | Golden diff | Commit |
 |---|-------------|-----|----------|-------------|--------|
 | [001](001-prim-abi-inline-args.md) | U-PRIM-ABI / Tier 2 | On-stack arg buffer replaces the per-send heap `Vec` in the primitive dispatch path | arith_send −41.5%, bare_send −33.8% | none | `37f31c9` |
+| [002](002-gc-win-a-box-fat-variants.md) | U-GC Win A / Tier 4 | Box the six fat `Object` variants — `size_of::<Object>()` 280 B → 40 B | `for.ph` −43% wall, `skynet` −34% wall (`sys` 2–4× less); RSS a wash; `bare_send` +5% | none | `7480d75` |
 
 ## Investigated, not landed
 
@@ -52,6 +53,27 @@ Full write-ups in [`findings.md`](findings.md):
 - **F7** — `size_of::<Object>()` **grew 256 → 280 B** (`ClassObject.attributes`).
   Win A is **six** boxed variants, not "the driver"; **do not box `Instance`**
   (24 B, most-allocated). Target 280 → ~40 B, a 7× arena density win.
+
+## Method — instrument selection (learned the hard way in 002)
+
+**Match the instrument to where the effect lives.** Cut 002 was nearly abandoned
+because criterion micro-benches were used to judge a representation change: they
+measure the per-send pointer chase it *costs* and are blind to the per-allocation
+arena growth it *removes*. The real workloads showed −34%/−43% where the
+micro-benches showed a regression.
+
+- **Representation / allocation changes** → `for.ph`, `skynet`, `/usr/bin/time -l`.
+  Watch `sys` time, not just wall.
+- **Dispatch / send-path changes** → criterion (`benchmarks/vm/`).
+- **Criterion's p-value covers within-run variance only.** On this hardware it
+  certified noise as `p = 0.00` significance twice; the *same binary* against the
+  *same saved baseline* reported +8.8% and then +1.3%. For effects under ~10%, use
+  alternating same-session A/B and read the sign across pairs, not the p-value.
+- **Never run `cargo build` inside a measurement loop** — it contends with the bench
+  (two runs of 002's A/B came back at 2× normal).
+- **A hypothesis fitted to one noisy run will appear to confirm.** 002 built one,
+  tested it, "confirmed" it, and had to discard it. Reproduce the *baseline
+  observation* before explaining it.
 
 ## Next measured levers
 

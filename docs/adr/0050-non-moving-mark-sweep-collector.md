@@ -1,6 +1,7 @@
 # 50. Reclamation is a non-moving precise mark-sweep collector
 
-- Status: Proposed
+- Status: **Accepted** (ratified 2026-07-14, DEC-GC-A option A — collection ships
+  **on by default**; no `gc_enabled` soak flag)
 - Date: 2026-07-13
 - Related: [ADR-0009](0009-handle-arena-heap.md) (handle/arena heap — this ADR
   lands the collector it deferred); [ADR-0010](0010-tagged-value-enum.md)
@@ -48,10 +49,12 @@ collector must honour — these are measured/confirmed facts, not assumptions:
 - **Roots are fully reified.** `VM::stack` and `VM::frames` are owned `Vec`s, not
   values stranded in Rust call-frame locals, so root enumeration is *precise* —
   no conservative stack scanning, no false retention, no `unsafe`.
-- **`size_of::<Object>()` = 256 bytes (measured).** The `SlotMap` slot is sized
-  to the fattest variant (`ClassObject`/`FiberObject`), so every string, range,
-  or instance also costs 256 B — a cache-density tax on the hot `heap.get` path
-  threaded through all dispatch.
+- **`size_of::<Object>()` = 256 bytes (measured 2026-07-13; **280 B on
+  2026-07-14** after `ClassObject` gained `attributes`).** The `SlotMap` slot is
+  sized to the fattest variant (`ClassObject`), so every string, range, or
+  instance also costs that — an arena-growth tax (see §Decision 9 for the
+  measured mechanism, which is `sys` time rather than the cache density
+  hypothesised here).
 
 ## Decision
 
@@ -93,9 +96,29 @@ built directly on the existing `SlotMap`, in safe Rust, behind the current
    **does not** change any handle. Deterministic and safe to call at any
    safepoint.
 9. **Companion representation win (same unit).** `Box` the fat `Object` variants
-   so `size_of::<Object>()` drops from the measured 256 B toward ~24–32 B,
-   shrinking the arena and improving `heap.get` cache density. This is behind the
+   so `size_of::<Object>()` drops, shrinking the arena. This is behind the
    `Object` enum and independent of the collector; it ships first.
+
+   **Landed 2026-07-14 (`7480d75`), and the numbers here are superseded by
+   measurement** — see [memory-management.md §7](../spec/v0.2/memory-management.md)
+   for the authoritative ladder and `docs/forge/perf-log/002-gc-win-a-box-fat-variants.md`
+   for the cut. Three corrections to this clause as originally written:
+   - The starting size was **280 B, not 256 B** — `ClassObject` gained
+     `attributes: Vec<Value>` under U-ANNOT after this ADR was authored.
+   - The floor is **40 B, not ~24–32 B** — `RangeObject` (40 B) caps the enum once
+     the six fat variants are boxed. Reaching 24 B would mean boxing `Range` too,
+     which is not worth an indirection.
+   - **Six** variants must be boxed (`Class`, `Fiber`, `Module`, `Closure`,
+     `Method`, `Map`/`Set`), and `Instance` must **not** be — at 24 B it is already
+     under the floor and is the most-allocated variant.
+
+   The stated mechanism ("improving `heap.get` cache density") was also wrong. The
+   measured win is **`sys` time**: the `SlotMap` backing array grows at 40 B/slot
+   instead of 280 B/slot, so a million objects cost 40 MB of arena growth instead of
+   280 MB, with a memmove of the whole array on every realloc. `for.ph` −43% wall,
+   `skynet` −34% wall, `sys` time down 2–4×. Peak RSS is a **wash** — boxing
+   relocates bytes from the arena to malloc rather than deleting them; the ADR
+   should not be read as promising an RSS win from this clause.
 
 The self-tuning threshold is Wren's: after a collection, `next_gc = live * grow`
 (grow ≈ 1.5, floored). See `docs/spec/v0.2/memory-management.md` for the
