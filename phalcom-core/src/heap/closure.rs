@@ -5,6 +5,8 @@
 //! [`Object`](crate::heap::Object); its module link is a handle
 //! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
 
+use std::rc::Rc;
+
 use crate::callable::Callable;
 use crate::heap::ObjRef;
 
@@ -20,8 +22,10 @@ use crate::heap::ObjRef;
 /// [`Bytecode::Closure`](crate::bytecode::Bytecode::Closure).
 #[derive(Debug, Clone)]
 pub struct ClosureObject {
-    /// The compiled bytecode and metadata this closure runs.
-    pub callable: Callable,
+    /// The compiled bytecode and metadata this closure runs. Shared across
+    /// multiple closure instances to avoid allocating/cloning the `Chunk` on
+    /// every block literal materialization (U-HOTPATH).
+    pub callable: Rc<Callable>,
     /// Handle to the [`ModuleObject`](crate::heap::ModuleObject) this closure
     /// was compiled in.
     pub module: ObjRef,

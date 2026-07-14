@@ -11,6 +11,7 @@ use crate::heap::CORE_MODULE_NAME;
 use crate::heap::Upvalue;
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
+use std::rc::Rc;
 #[cfg(feature = "vm-trace")]
 use tracing::{debug, span, Level};
 
@@ -446,7 +447,7 @@ impl VM {
                         return Err(RuntimeError::Internal("Closure constant is not a closure".to_string()).into());
                     };
                     let descriptors = self.heap.closure(template_id).callable.upvalues.clone();
-                    let callable = self.heap.closure(template_id).callable.clone();
+                    let callable = Rc::clone(&self.heap.closure(template_id).callable);
                     let module = self.heap.closure(template_id).module;
 
                     let mut upvalues = Vec::with_capacity(descriptors.len());

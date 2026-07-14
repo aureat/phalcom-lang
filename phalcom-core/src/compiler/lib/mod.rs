@@ -32,6 +32,7 @@ use phalcom_common::range::EmptySourceRange;
 use state::FunctionState;
 use state::LoopContext;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 pub(crate) struct Compiler<'vm> {
     pub(crate) vm: &'vm mut VM,
@@ -162,14 +163,14 @@ impl<'vm> Compiler<'vm> {
         }
 
         let func = self.functions.pop().unwrap();
-        let callable = Callable {
+        let callable = Rc::new(Callable {
             chunk: func.chunk,
             max_slots,
             num_upvalues: func.upvalues.len(),
             upvalues: func.upvalues,
             arity: params.len(),
             name_sym,
-        };
+        });
 
         let closure = self.vm.heap.alloc(Object::Closure(Box::new(ClosureObject {
             callable,
@@ -199,14 +200,14 @@ impl<'vm> Compiler<'vm> {
 
         let name_sym = self.vm.heap.module(self.module).name_sym;
         let func = self.functions.pop().unwrap();
-        let callable = Callable {
+        let callable = Rc::new(Callable {
             chunk: func.chunk,
             max_slots: func.max_slots,
             num_upvalues: 0,
             upvalues: Vec::new(),
             arity: 0,
             name_sym,
-        };
+        });
 
         let closure = self.vm.heap.alloc(Object::Closure(Box::new(ClosureObject {
             callable,
