@@ -8,16 +8,56 @@ Governed by [`performance.md`](../../spec/v0.2/performance.md) +
 [ADR-0051](../../adr/0051-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant). Every entry cites a **before/after
 number from the U-BENCH harness** (`benchmarks/vm/`, criterion target
-`phalcom-core/benches/vm_bench.rs`) — no oral numbers (law P1).
+`phalcom-core/benches/vm_bench.rs`) — no oral numbers (law P1). A cut lands only on
+a measured win + zero golden diff; an unproven optimization is reverted and
+recorded as a finding, not shipped.
 
-## Cuts
+## Cuts (landed)
 
-| # | Unit / tier | Cut | Measured | Golden diff |
-|---|-------------|-----|----------|-------------|
-| [001](001-prim-abi-inline-args.md) | U-PRIM-ABI / Tier 2 | On-stack arg buffer replaces per-send `Vec` in the primitive path | arith_send −41.5%, bare_send −33.8% | none |
+| # | Unit / tier | Cut | Measured | Golden diff | Commit |
+|---|-------------|-----|----------|-------------|--------|
+| [001](001-prim-abi-inline-args.md) | U-PRIM-ABI / Tier 2 | On-stack arg buffer replaces the per-send heap `Vec` in the primitive dispatch path | arith_send −41.5%, bare_send −33.8% | none | `37f31c9` |
+
+## Investigated, not landed
+
+| Candidate | Result | Why | Ref |
+|-----------|--------|-----|-----|
+| Fiber-stack pool (U-GC "Win B") | **reverted — null result** | Skynet RSS is dominated by ~1M immortal `FiberObject` shells (no GC), not stack/frames buffers; A/B indistinguishable | [findings F5](findings.md#f5--fiber-stack-pool-implemented-measured-reverted-null-result), `ad4a215` |
+| Escape-analysis of `Option` (`Some`) | not built — premise falsified | `List/Map.at` already zero-alloc (`None` singleton); discarded `Some` already elided | [findings F2](findings.md#f2--option-escape-optimization-premise-falsified) |
 
 ## Findings
 
-See [`findings.md`](findings.md) — measured baseline (Skynet ~19–20× Wren, not
-the oral 29×), the malloc-is-#1 re-rank, the falsified `Option`-escape premise,
-the memmove mechanism correction, and U-IC preconditions.
+Full write-ups in [`findings.md`](findings.md):
+
+- **F1** — measured baseline supersedes the oral 29×: Skynet **~19–20× Wren**,
+  ~7–9× RSS. Attribution re-ranks perf.md §2 — **malloc/free is the #1 mechanism**
+  (arith 19.7%, Skynet 28.2%), above tracing span and dispatch lookup.
+- **F2** — `Option`-escape optimization premise falsified (lookups already
+  zero-alloc). No unit.
+- **F3** — memmove (20.6% Skynet) is per-fiber `Vec` growth-realloc, **not**
+  `mem::take` (which is O(1)). Zero fiber pooling today.
+- **F4** — U-IC preconditions: `Symbol` is one mixed namespace (needs selector-only
+  interner first); IC seam is a comment only; no `ClassObject` epoch / global
+  `world_version` yet.
+- **F5** — fiber-stack pool built, measured, **reverted** (null result). Redirects
+  the Skynet memory win to the **U-GC collector** (freeing shells), not pooling.
+
+## Next measured levers
+
+Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
+
+1. **Tier 1 — tracing span (~18.3% arith).** The dispatch loop pays a
+   `tracing` span / `mach_absolute_time` per opcode even with logging off. A
+   behavior-invariant gate/removal is the cheapest remaining win. **Next candidate.**
+2. **Tier 4 — U-GC collector (malloc 28.2% Skynet).** The dominant Skynet cost is
+   allocating + retaining ~1M `FiberObject` shells. This is the real RSS lever
+   (F5), a large unit (non-moving mark-sweep, ADR-0050).
+3. **Tier 3 — U-IC (dispatch lookup 13.9% arith).** Monomorphic inline cache;
+   needs the selector-only interner first (F4). Also carries the arithmetic
+   fast-path deferred from U-PRIM-ABI (DEC-PRIM-B).
+
+## Session ledger (2026-07-14)
+
+- `757d88a` — U-BENCH Tier 0 harness (criterion + BASELINE), concurrent session.
+- `37f31c9` — **U-PRIM-ABI cut 001** (arith −41.5%). Real win.
+- `ad4a215` — F5 fiber-pool null result (code reverted, finding kept).
