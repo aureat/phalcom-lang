@@ -209,6 +209,12 @@ pub struct VM {
     /// (plan §3.6's table) — never coupled to [`Self::compile_mode`] beyond
     /// this one opt-in-to-stripping override.
     pub strip_contract_metadata: bool,
+    /// Bounded free-list for recycling fiber stacks/frames to avoid
+    /// allocations (U-GC step 5, `fiber-pool` feature). Measured net
+    /// negative in whole-process A/B benchmarking (perf-log, 2026-07-14);
+    /// gated off by default, kept for future re-measurement.
+    #[cfg(feature = "fiber-pool")]
+    pub(crate) fiber_pool: Vec<(Vec<Value>, Vec<CallFrame>)>,
 }
 
 impl Default for VM {

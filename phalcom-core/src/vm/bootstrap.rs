@@ -46,6 +46,8 @@ impl VM {
             checking: std::collections::HashSet::new(),
             compile_mode: crate::compiler::attributes::CompileMode::Debug,
             strip_contract_metadata: false,
+            #[cfg(feature = "fiber-pool")]
+            fiber_pool: Vec::new(),
         };
 
         // Bootstrap core module and primitive methods

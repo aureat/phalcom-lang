@@ -24,6 +24,12 @@ default = []
 # This gates only the dispatch loop. `tracing` stays a hard dependency: the compiler
 # and `vm/api.rs` instrument cold paths, where the same cost does not arise.
 vm-trace = []
+# Fiber stack/frame-buffer recycling pool (U-GC step 5). Measured net
+# negative in A/B whole-process benchmarking (perf-log, 2026-07-14): pool
+# bookkeeping cost exceeds the allocations it avoids. Off by default; kept
+# as a flag only so the experiment can be re-run/re-measured later without
+# reconstructing it from the stash.
+fiber-pool = []
 
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }

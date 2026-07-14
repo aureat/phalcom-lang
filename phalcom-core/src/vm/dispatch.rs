@@ -269,6 +269,19 @@ impl VM {
                     // `try` expression and switch back to it.
                     self.heap.fiber_mut(finished).status = crate::heap::FiberStatus::Done;
                     self.heap.fiber_mut(finished).result = value;
+                    // Recycle the finished fiber's buffers into the pool to
+                    // avoid allocations (U-GC step 5, `fiber-pool` feature —
+                    // off by default; measured net negative, perf-log 2026-07-14).
+                    #[cfg(feature = "fiber-pool")]
+                    {
+                        let mut frames = std::mem::take(&mut self.frames);
+                        let mut stack = std::mem::take(&mut self.stack);
+                        frames.clear();
+                        stack.clear();
+                        if self.fiber_pool.len() < 100 {
+                            self.fiber_pool.push((stack, frames));
+                        }
+                    }
                     self.switch_to_fiber_and_deliver(resumer, value);
                     // Loop again: keep draining, now as `resumer`.
                 }

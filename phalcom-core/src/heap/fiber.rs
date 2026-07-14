@@ -122,9 +122,34 @@ impl FiberObject {
     /// [`super::Object::Block`]/[`super::Object::Closure`] entry), status
     /// [`FiberStatus::Suspended`] (ADR-0030 §2).
     pub fn new_entry(entry: ObjRef) -> Self {
+        #[cfg(feature = "fiber-pool")]
+        return Self::new_entry_with_buffers(entry, Vec::new(), Vec::new());
+        #[cfg(not(feature = "fiber-pool"))]
         Self {
             stack: Vec::new(),
             frames: Vec::new(),
+            open_upvalues: BTreeMap::new(),
+            status: FiberStatus::Suspended,
+            resumer: None,
+            result: Value::Nil,
+            entry: Some(entry),
+            started: false,
+            resume_slot: 0,
+            floor_depth: 0,
+            resume_mode: FiberResumeMode::Call,
+            checking: HashSet::new(),
+        }
+    }
+
+    /// Builds a fresh, not-yet-started fiber like [`Self::new_entry`], but
+    /// reusing pre-allocated `stack`/`frames` buffers drawn from
+    /// [`crate::vm::VM::fiber_pool`] (U-GC step 5, `fiber-pool` feature)
+    /// instead of allocating new ones.
+    #[cfg(feature = "fiber-pool")]
+    pub fn new_entry_with_buffers(entry: ObjRef, stack: Vec<Value>, frames: Vec<CallFrame>) -> Self {
+        Self {
+            stack,
+            frames,
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::Suspended,
             resumer: None,

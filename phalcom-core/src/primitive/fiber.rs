@@ -129,10 +129,17 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
         },
         other => return Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
     }
-    let fiber = crate::heap::FiberObject::new_entry(match entry {
+    let entry_id = match entry {
         Value::Obj(id) => id,
         _ => unreachable!("checked above"),
-    });
+    };
+    #[cfg(feature = "fiber-pool")]
+    let fiber = {
+        let (stack, frames) = vm.fiber_pool.pop().unwrap_or_else(|| (Vec::new(), Vec::new()));
+        crate::heap::FiberObject::new_entry_with_buffers(entry_id, stack, frames)
+    };
+    #[cfg(not(feature = "fiber-pool"))]
+    let fiber = crate::heap::FiberObject::new_entry(entry_id);
     Ok(vm.heap.alloc(Object::Fiber(Box::new(fiber))))
 }
 

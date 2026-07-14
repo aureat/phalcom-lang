@@ -81,6 +81,8 @@ impl VM {
             start_time: _,
             compile_mode: _,
             strip_contract_metadata: _,
+            #[cfg(feature = "fiber-pool")]
+                fiber_pool: _,
         } = self;
 
         for frame in frames {
