@@ -587,7 +587,7 @@ not a measurement** (law P1) — none may enter SCOREBOARD without an A/B:
   chunk alive independently of `self.heap`. Cut 004 already made that share cheap, so
   S1 is the payoff for work already paid for.
 
-  **S1a — the callable half — LANDED `cut 007` *(SHA stamped next commit)* as cut 007.** Measured **arith_send
+  **S1a — the callable half — LANDED `5254586` as cut 007.** Measured **arith_send
   −22.3%, bare_send −16.7%, `for` −12.9%, variadic_send −11.6%, method_call −10.5%,
   skynet −6.9% `user`, fiber_churn −4.8%**; 25/25 pairs negative; all 9 wren-suite
   outputs still byte-identical to Wren's. The borrow resolution was exactly the

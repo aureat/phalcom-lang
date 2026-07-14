@@ -22,9 +22,9 @@
   drifted two commits reported the wrong *sign* once (HANDOFF §Traps).
 - A `~` prefix means derived (e.g. ns/send = mean ÷ send count), not directly timed.
 
-Current HEAD when last updated: **`cut 007` *(SHA stamped next commit)*** (2026-07-14).
+Current HEAD when last updated: **`5254586`** (2026-07-14).
 
-> **§1 is current** — re-measured best-of-5 at `cut 007` *(SHA stamped next commit)* (post cuts 006 + 007), closing
+> **§1 is current** — re-measured best-of-5 at `5254586` (post cuts 006 + 007), closing
 > hole H1's successor; it had been pinned at `2997d0b` (pre-F12) for three cuts. §2's
 > skynet/fiber_churn rows carry a second, post-007 line (`user` + RSS only — `sys` and
 > `real` were not captured on that run, and a cell nobody measured says so).
@@ -44,7 +44,7 @@ row is output-verified (Phalcom stdout diffed byte-for-byte against Wren's) —
 a row that computes the wrong answer is not a measurement and is not reported.
 
 Instrument: `REPS=5 benchmarks/vm/compare-wren.py` (best-of-5, output-verified,
-exits non-zero on any stdout mismatch). Measured at **`cut 007` *(SHA stamped next commit)* (HEAD)**, 2026-07-14 —
+exits non-zero on any stdout mismatch). Measured at **`5254586` (HEAD)**, 2026-07-14 —
 post cuts 006 + 007. Skynet is not in `compare-wren.py`; its row is best-of-3 `user`
 under `/usr/bin/time -l`, same session.
 
@@ -96,10 +96,10 @@ where allocation/paging effects hide, RSS is co-equal with time.
 | Workload | `real` | `user` | `sys` | **Peak RSS** |
 |---|---|---|---|---|
 | `skynet` — Phalcom | 2.01–2.72 s | **1.79–1.86 s** | 0.21–0.30 s | **1.322 GB** |
-| `skynet` — Phalcom, **post cuts 006+007** (`cut 007` *(SHA stamped next commit)*, best-of-3) | *not recorded* | **1.62 s** | *not recorded* | **1.192 GB** |
+| `skynet` — Phalcom, **post cuts 006+007** (`5254586`, best-of-3) | *not recorded* | **1.62 s** | *not recorded* | **1.192 GB** |
 | `skynet` — Wren | 0.72–0.75 s | **0.61–0.62 s** | 0.10–0.12 s | **0.667 GB** |
 | **`skynet` — ratio** (at `2997d0b`) | ~2.8× | **~2.9×** | ~2.1× | **~2.0×** |
-| **`skynet` — ratio** (at `cut 007` *(SHA stamped next commit)*) | — | **~2.7×** | — | **~1.8×** |
+| **`skynet` — ratio** (at `5254586`) | — | **~2.7×** | — | **~1.8×** |
 | `fiber_churn` (500k spawn→drop) — Phalcom | 0.26–0.27 s | **0.22 s** | 0.03 s | **264 MB** |
 | `fiber_churn` — Phalcom, post cuts 006+007 | — | **0.20 s** | — | **264 MB** |
 | `fiber_churn` — Wren | *not ported* (hole H4) | — | — | — |
@@ -377,7 +377,7 @@ same-session A/B unless noted.
 | **`916be0a`** | **Cut 006 — F14 S2: drop `spans[ip]` from the dispatch loop's read-decode** | **`for` −6.8%**, **method_call −5.6%**, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, **skynet −2.8% `user`** (1.80 → 1.75 s) | unchanged (skynet 1.304 → 1.316 GB, within noise) | none |
 | `2679032` | H7 — bootstrap ceiling asserted in `run.sh` (fails >20 ms; measures **7.7 ms**) | *(harness only)* — closes H7 | — | none |
 | `5516504` | Pair histogram — statically-adjacent `(prev, cur)` counts | *(instrument only)* — retires F16 reason 2. `for`'s top fusion candidate `GetLocal -> Invoke` = **8.8%** of instructions retired | — | none |
-| **`cut 007` *(SHA stamped next commit)*** | **Cut 007 — F14 S1a: hoist the frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard** | **arith_send −22.3%**, **bare_send −16.7%**, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, **skynet −6.9% `user`** (1.74 → 1.62 s ⇒ **2.7× Wren**), fiber_churn −4.8% | **skynet 1.280 → 1.192 GB (−6.9%)** — unpredicted, unattributed (see below); fiber_churn unchanged | none |
+| **`5254586`** | **Cut 007 — F14 S1a: hoist the frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard** | **arith_send −22.3%**, **bare_send −16.7%**, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, **skynet −6.9% `user`** (1.74 → 1.62 s ⇒ **2.7× Wren**), fiber_churn −4.8% | **skynet 1.280 → 1.192 GB (−6.9%)** — unpredicted, unattributed (see below); fiber_churn unchanged | none |
 | | | ⇒ suite band **1.5–13.7× → 1.1–10.7×**, centre ~5× → **~4×**; `for` out of the teens (13.7× → 10.7×) | | |
 
 **Cut 007's RSS is not claimed as a memory win.** A dispatch hoist allocates nothing

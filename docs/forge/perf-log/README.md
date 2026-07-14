@@ -23,7 +23,7 @@ recorded as a finding, not shipped.
 | [004](004-hotpath-rc-callable.md) | U-HOTPATH / Tier 2 | Memoize the `Invoke` variadic probe's derived `name(*)` selector (kills a `format!` + re-intern per variadic call) | **variadic_send −28%** (1.00 → 0.72 s). Invisible to every other benchmark — the probe sits behind two misses and no other program reaches it | none | `debadfa` |
 | [005](../perf-log/SCOREBOARD.md#5--timeline--best-result-after-each-change) | F12 / Tier 3 | Per-callsite `(module, slot)` cache for `GetGlobal`/`SetGlobal` in `Chunk.gcaches`, guarded by `ModuleObject.globals_version` (bumped only when `declare` allocates a **new** slot) | **bare_send −17.9%**, arith_send −14.4%, **fiber_spawn −20.1%**, variadic_send −8.3%, skynet −7.7% `user` (**2.9× Wren**), fiber_churn −21.4%, `for` −3.6%. RSS unchanged | none | `39d9042` |
 | [006](../perf-log/SCOREBOARD.md#5--timeline--best-result-after-each-change) | F14 S2 / Tier 2 | Drop `spans[ip]` from the dispatch loop's read-decode — the span is discarded on the happy path. Re-read in `Invoke` (inside the borrow the IC probe already takes, so the send path pays nothing) and in `SuperSend`, its only two consumers | **`for` −6.8%**, method_call −5.6%, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, skynet −2.8% `user`. RSS unchanged | none | `916be0a` |
-| [007](../perf-log/SCOREBOARD.md#5--timeline--best-result-after-each-change) | F14 S1a / Tier 2 | Hoist the executing frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard — replaces a per-opcode SlotMap lookup + `Rc` deref, and the 19 per-arm re-derivations of the same chunk. No `unsafe`: the `Rc` lives in a local, so the arms keep `&mut self`. **`ip` deliberately NOT hoisted** — the `closure_id` guard cannot tell two fibers suspended in the same closure apart | **arith_send −22.3%**, bare_send −16.7%, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, skynet −6.9% `user` (**2.7× Wren**), fiber_churn −4.8%. Suite band 1.5–13.7× → **1.1–10.7×**. RSS −6.9% skynet, unattributed (H14) | none | `cut 007` *(SHA stamped next commit)* |
+| [007](../perf-log/SCOREBOARD.md#5--timeline--best-result-after-each-change) | F14 S1a / Tier 2 | Hoist the executing frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard — replaces a per-opcode SlotMap lookup + `Rc` deref, and the 19 per-arm re-derivations of the same chunk. No `unsafe`: the `Rc` lives in a local, so the arms keep `&mut self`. **`ip` deliberately NOT hoisted** — the `closure_id` guard cannot tell two fibers suspended in the same closure apart | **arith_send −22.3%**, bare_send −16.7%, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, skynet −6.9% `user` (**2.7× Wren**), fiber_churn −4.8%. Suite band 1.5–13.7× → **1.1–10.7×**. RSS −6.9% skynet, unattributed (H14) | none | `5254586` |
 
 ## Investigated, not landed
 
@@ -200,7 +200,7 @@ below is measured on a prototype, not hypothesized:
    **first** as an isolated A/B before S1 makes it unmeasurable. Estimates, not
    measurements — law P1.
 
-   **Largely paid — cuts [006](#) `916be0a` (S2) and [007](#) `cut 007` *(SHA stamped next commit)* (S1a).** Both
+   **Largely paid — cuts [006](#) `916be0a` (S2) and [007](#) `5254586` (S1a).** Both
    landed, both measured, and together they took the suite from 1.5–13.7× to
    **1.1–10.7×** vs Wren and skynet to **2.7×**. Cut 004's +5–7% send-path debt is
    repaid several times over: arith_send −22.3%, bare_send −16.7% on 007 alone.
