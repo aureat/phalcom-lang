@@ -39,6 +39,8 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "Import",
     "MakeFamily",
     "FinalizeClass",
+    "InvokeLocal",
+    "InvokeConst",
 ];
 
 // The set of instructions for our VM. This is the language the compiler "speaks".
@@ -326,12 +328,36 @@ pub enum Bytecode {
     /// body) are finalized once directly in `VM::install_core`, mirroring
     /// this same rebuild.
     FinalizeClass,
+
+    /// Fused [`Bytecode::GetLocal`] + [`Bytecode::Invoke`] — pushes local `0` and
+    /// performs the send in one dispatch (perf-log cut 008).
+    ///
+    /// 0: local slot index. 1: number of arguments. 2: selector constant index.
+    ///
+    /// Emitted only by [`Chunk::fuse_superinstructions`](crate::chunk::Chunk::fuse_superinstructions), which rewrites the
+    /// `GetLocal` **in place** and leaves the original `Invoke` at `ip + 1` as
+    /// dead code, so every `ip`-indexed parallel array (`spans`, `caches`,
+    /// `gcaches`) and every jump offset in the chunk stays valid without a
+    /// re-layout pass. This opcode therefore advances `ip` by **2**, and reads
+    /// its inline cache and span at `ip + 1` — the dead `Invoke`'s slots — so an
+    /// error raised here is indistinguishable from the unfused form's.
+    InvokeLocal(u16, u8, u16),
+
+    /// Fused [`Bytecode::Constant`] + [`Bytecode::Invoke`] — pushes a constant and
+    /// performs the send in one dispatch (perf-log cut 008).
+    ///
+    /// 0: constant-pool index of the pushed value. 1: number of arguments.
+    /// 2: selector constant index.
+    ///
+    /// Same in-place rewrite, `ip += 2` advance and `ip + 1` cache/span
+    /// convention as [`Bytecode::InvokeLocal`].
+    InvokeConst(u16, u8, u16),
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 35;
+    pub const VARIANTS: usize = 37;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -377,6 +403,8 @@ impl Bytecode {
             Bytecode::Import(..) => 32,
             Bytecode::MakeFamily(..) => 33,
             Bytecode::FinalizeClass => 34,
+            Bytecode::InvokeLocal(..) => 35,
+            Bytecode::InvokeConst(..) => 36,
         }
     }
 

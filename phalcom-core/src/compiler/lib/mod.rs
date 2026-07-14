@@ -203,7 +203,8 @@ impl<'vm> Compiler<'vm> {
             self.emit(Bytecode::Return, EmptySourceRange);
         }
 
-        let func = self.functions.pop().unwrap();
+        let mut func = self.functions.pop().unwrap();
+        func.chunk.fuse_superinstructions();
         let callable = Rc::new(Callable {
             chunk: func.chunk,
             max_slots,
@@ -240,7 +241,8 @@ impl<'vm> Compiler<'vm> {
         }
 
         let name_sym = self.vm.heap.module(self.module).name_sym;
-        let func = self.functions.pop().unwrap();
+        let mut func = self.functions.pop().unwrap();
+        func.chunk.fuse_superinstructions();
         let callable = Rc::new(Callable {
             chunk: func.chunk,
             max_slots: func.max_slots,

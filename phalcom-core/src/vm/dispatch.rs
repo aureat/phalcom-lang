@@ -378,6 +378,92 @@ impl VM {
         Value::Obj(self.heap.alloc(Object::Instance(inst)))
     }
 
+    /// Executes one `Invoke`-shaped send: IC probe, exact-selector lookup + refill,
+    /// variadic probe, then `doesNotUnderstand(_)` forward — method-lookup.md §1's
+    /// miss order, in order.
+    ///
+    /// `cache_ip` is the index whose `caches`/`spans` slots this send owns. For a
+    /// plain [`Bytecode::Invoke`] that is the instruction's own `ip`; for the fused
+    /// [`Bytecode::InvokeLocal`]/[`Bytecode::InvokeConst`] it is `ip + 1` — the dead
+    /// `Invoke` the fusion left behind (`Chunk::fuse_superinstructions`) — so a fused
+    /// send probes the same cache slot and reports the same span as the pair it
+    /// replaced.
+    ///
+    /// `callable` is the caller's hoisted [`Callable`] (F14 S1a). It is borrowed from a
+    /// local `Rc`, not from `self.heap`, which is what lets this take `&mut self`.
+    ///
+    /// # Errors
+    ///
+    /// Propagates any [`RuntimeError`] the dispatched method raises.
+    fn invoke_at(&mut self, callable: &Callable, cache_ip: usize, arity: u8, selector_idx: u16) -> PhResult<()> {
+        let arity = arity as usize;
+        let receiver_idx = self.stack.len() - 1 - arity;
+        let receiver = self.stack[receiver_idx];
+        let receiver_class = receiver.class(self);
+
+        // Cache probe. `chunk` is a shared borrow; the `Cell` is what lets us
+        // write back through it (U-IC §2.1). `spans[cache_ip]` rides along in the
+        // same borrow (S2): the loop head no longer reads it, and this arm
+        // needs it for whichever `call_method` / dNU forward it reaches.
+        let (cached, source_range) = {
+            let chunk = &callable.chunk;
+            let cached = chunk.caches[cache_ip].get().filter(|slot| {
+                slot.class == receiver_class && slot.version == self.world_version
+            }).map(|slot| slot.method);
+            (cached, chunk.spans[cache_ip])
+        };
+
+        if let Some(method) = cached {
+            self.call_method(&receiver, method, arity, source_range)?;
+        } else {
+            let selector_val = callable.chunk.constants[selector_idx as usize];
+            let selector_sym = selector_val.as_symbol().unwrap();
+
+            if let Some(method) = receiver.lookup_method(self, selector_sym) {
+                // Refill. Both `receiver_class` and `world_version` are read
+                // AFTER the lookup on purpose — see U-IC §2.3 hazard 2.
+                let entry = crate::chunk::InlineCache { class: receiver_class, method, version: self.world_version };
+                callable.chunk.caches[cache_ip].set(Some(entry));
+                self.call_method(&receiver, method, arity, source_range)?;
+            } else {
+                // Exact-selector probe missed. The method-lookup.md §1
+                // miss order is:
+                //   IC -> exact-probe -> variadic probe -> doesNotUnderstand(_).
+                //
+                // Only an all-positional `Method` selector may probe for a
+                // variadic candidate (never a labelled, getter, setter, or
+                // subscript selector) — derive the bare name, build the
+                // canonical `name(*)` selector, and do one ordinary
+                // `lookup_method` walk. A hit dispatches only if the call
+                // supplied at least the fixed prefix (`arity >=
+                // positional_arity`); otherwise, same as a miss, this falls
+                // through to the dNU forward (U9-implementation-spec.md §2
+                // "Runtime dispatch rule", ADR-0012, method-lookup.md §1-2).
+                let variadic_selector_opt = if let Some(&cached_opt) = self.variadic_selector_cache.get(&selector_sym) {
+                    cached_opt
+                } else {
+                    let (name, labels, kind) = decode_selector(self.resolve_symbol(selector_sym));
+                    let eligible = matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none);
+                    let derived = eligible.then(|| self.interner.intern(&format!("{name}(*)")));
+                    self.variadic_selector_cache.insert(selector_sym, derived);
+                    derived
+                };
+                let variadic_hit = variadic_selector_opt
+                    .and_then(|variadic_selector| receiver.lookup_method(self, variadic_selector))
+                    .and_then(|m| {
+                        let sig = &self.heap.method(m).signature;
+                        (arity >= sig.positional_arity as usize).then_some(m)
+                    });
+                if let Some(method) = variadic_hit {
+                    self.call_method(&receiver, method, arity, source_range)?;
+                } else {
+                    self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The inner dispatch loop, unaware of fibers: drains bytecode until
     /// [`Self::frames`] shrinks to `base_frames`, or a [`RuntimeError`]
     /// propagates out. [`Self::run_until`] wraps this with the fiber-floor
@@ -935,71 +1021,32 @@ impl VM {
                     self.stack.push(wrapped);
                 }
                 Bytecode::Invoke(arity, selector_idx) => {
-                    let arity = arity as usize;
-                    let receiver_idx = self.stack.len() - 1 - arity;
-                    let receiver = self.stack[receiver_idx];
-                    let receiver_class = receiver.class(self);
-
-                    // Cache probe. `chunk` is a shared borrow; the `Cell` is what lets us
-                    // write back through it (U-IC §2.1). `spans[ip]` rides along in the
-                    // same borrow (S2): the loop head no longer reads it, and this arm
-                    // needs it for whichever `call_method` / dNU forward it reaches.
-                    let (cached, source_range) = {
-                        let chunk = &callable.chunk;
-                        let cached = chunk.caches[ip].get().filter(|slot| {
-                            slot.class == receiver_class && slot.version == self.world_version
-                        }).map(|slot| slot.method);
-                        (cached, chunk.spans[ip])
-                    };
-
-                    if let Some(method) = cached {
-                        self.call_method(&receiver, method, arity, source_range)?;
-                    } else {
-                        let selector_val = callable.chunk.constants[selector_idx as usize];
-                        let selector_sym = selector_val.as_symbol().unwrap();
-
-                        if let Some(method) = receiver.lookup_method(self, selector_sym) {
-                            // Refill. Both `receiver_class` and `world_version` are read
-                            // AFTER the lookup on purpose — see U-IC §2.3 hazard 2.
-                            let entry = crate::chunk::InlineCache { class: receiver_class, method, version: self.world_version };
-                            callable.chunk.caches[ip].set(Some(entry));
-                            self.call_method(&receiver, method, arity, source_range)?;
-                        } else {
-                            // Exact-selector probe missed. The method-lookup.md §1
-                            // miss order is:
-                            //   IC -> exact-probe -> variadic probe -> doesNotUnderstand(_).
-                            //
-                            // Only an all-positional `Method` selector may probe for a
-                            // variadic candidate (never a labelled, getter, setter, or
-                            // subscript selector) — derive the bare name, build the
-                            // canonical `name(*)` selector, and do one ordinary
-                            // `lookup_method` walk. A hit dispatches only if the call
-                            // supplied at least the fixed prefix (`arity >=
-                            // positional_arity`); otherwise, same as a miss, this falls
-                            // through to the dNU forward (U9-implementation-spec.md §2
-                            // "Runtime dispatch rule", ADR-0012, method-lookup.md §1-2).
-                            let variadic_selector_opt = if let Some(&cached_opt) = self.variadic_selector_cache.get(&selector_sym) {
-                                cached_opt
-                            } else {
-                                let (name, labels, kind) = decode_selector(self.resolve_symbol(selector_sym));
-                                let eligible = matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none);
-                                let derived = eligible.then(|| self.interner.intern(&format!("{name}(*)")));
-                                self.variadic_selector_cache.insert(selector_sym, derived);
-                                derived
-                            };
-                            let variadic_hit = variadic_selector_opt
-                                .and_then(|variadic_selector| receiver.lookup_method(self, variadic_selector))
-                                .and_then(|m| {
-                                    let sig = &self.heap.method(m).signature;
-                                    (arity >= sig.positional_arity as usize).then_some(m)
-                                });
-                            if let Some(method) = variadic_hit {
-                                self.call_method(&receiver, method, arity, source_range)?;
-                            } else {
-                                self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
-                            }
-                        }
+                    self.invoke_at(callable, ip, arity, selector_idx)?;
+                }
+                // The fused pairs (cut 008). Each does its first half's work inline,
+                // then steps `ip` past the dead `Invoke` the fusion left at `ip + 1`
+                // and runs the identical send through `invoke_at`, keyed on that
+                // dead instruction's cache/span slots — so the only difference from
+                // the unfused pair is one dispatch not taken.
+                //
+                // The extra `ip` bump must happen BEFORE the send: `call_method`
+                // pushes a frame, after which `frames.last_mut()` is the callee's,
+                // and this frame's `ip` is the return address.
+                Bytecode::InvokeLocal(slot, arity, selector_idx) => {
+                    let local_idx = stack_offset + slot as usize;
+                    if local_idx >= self.stack.len() {
+                        return Err(RuntimeError::Internal(format!("Local variable slot {slot} out of bounds")).into());
                     }
+                    let value = self.surface_absence(self.stack[local_idx]);
+                    self.stack.push(value);
+                    self.frames.last_mut().unwrap().ip += 1;
+                    self.invoke_at(callable, ip + 1, arity, selector_idx)?;
+                }
+                Bytecode::InvokeConst(idx, arity, selector_idx) => {
+                    let constant = callable.chunk.constants[idx as usize];
+                    self.stack.push(constant);
+                    self.frames.last_mut().unwrap().ip += 1;
+                    self.invoke_at(callable, ip + 1, arity, selector_idx)?;
                 }
                 Bytecode::GetUpvalue(idx) => {
                     let cell = self.heap.closure(closure_id).upvalues[idx as usize];

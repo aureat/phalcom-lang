@@ -763,7 +763,85 @@ the GC schedule shifts (cf. **H14**).
   (~2 minutes) predicted it before any code was written. F14's S1–S4 estimates are
   the same species of number and none of them has been re-derived at HEAD either.
 
+## F19 — a dispatch costs ~3.3 ns, and that is what a fusion buys (H13)
+
+**Answers [H13](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it) for the
+question it was blocking**, and is what overturned [F16](#f16--superinstructions-are-premature-no-opcode-histogram-and-the-inliner-already-covers-the-classic-win).
+Landed as [cut 008](008-fuse-invoke-pairs.md).
+
+**A share is not a price.** The pair counter says `GetLocal -> Invoke` is 8.8% of
+`for`'s instructions; that is a **count**. A fusion removes one *dispatch*, not an
+opcode's work, so sizing one needs the price of a dispatch — which §3bb cannot give
+(it is a mean over each program's executed mix; a `Loop` and an `Invoke` land in the
+same average).
+
+**Measured two ways, at HEAD, agreeing:**
+
+| instrument | what it prices | result |
+|---|---|---|
+| **Differential** — two programs differing by a histogram-verified **6,000,000** instructions of near-zero body (`x = i` ⇒ exactly +2M `GetLocal`, +2M `SetLocal`, +2M `Pop`, every other opcode identical to the digit) | `dispatch + body` ⇒ an **upper bound** | **3.56–3.68 ns**, linear at 4× (measured **4.14** vs ideal 4.00) |
+| **Cut 008, read backwards** — Δwall ÷ dispatches removed, over the unanimous rows | the **dispatch alone** (a fusion preserves bodies) | **3.05–3.86 ns** |
+
+⇒ **a dispatch costs ~3.3 ns**, and a cheap opcode's body is only ~0.3 ns of its
+~3.6 ns marginal cost. The dispatch *is* the instruction, for cheap opcodes.
+
+**What this prices, and what it does not.** This is the **fixed per-opcode overhead**
+— safepoint, the 96 B `CallFrame` copy, the `closure_id` guard, the bounds-checked
+`code[ip]`, the `ip` re-index, the jump-table branch. It is shared by every opcode,
+which is exactly why a fusion (which deletes one instance of it) is sizable from it.
+**It does not price `Invoke`'s body vs `GetLocal`'s** — H13's original framing — so
+H13 is **narrowed, not closed**: sizing DEC-PRIM-B or the variadic-IC refill still
+wants a body price this does not supply.
+
+**The prediction held, which is the point.** `removed × 3.6 ns ÷ wall` was computed
+*before* any code was written and bracketed every shipped row, including the two that
+did not move: it predicted 1.2% for `map_numeric`, and `map_numeric` measured −0.2%
+after having **18.0M dispatches removed — the most of any row**. Cf.
+[F18](#f18--presizing-the-fiber-vecs-is-negative-and-f3h9s-memmove-lever-is-spent-206--30),
+where an un-re-derived estimate produced a **sign error**. The difference was ~20
+minutes of measurement before the first line of code.
+
+**Consequences:**
+- **The ceiling formula is now reusable.** Any future fusion is worth
+  `pairs_removed × ~3.3 ns ÷ wall` — computable from the pair counter alone, before
+  writing anything. `GetSelf -> GetField` (12.8% of `method_call`) is the next one.
+- **It also prices the *competition*.** S1b (hoist `ip`) makes each dispatch cheaper;
+  fusion deletes dispatches outright. **They overlap**: every dispatch cut 008
+  removed is one S1b can no longer speed up, so their gains do not add. S1b's
+  *est* must be re-derived at cut 008's commit.
+- **Only dispatch-bound workloads can spend it.** At ~3.3 ns, a fusion is ~37% of a
+  cheap instruction (8.9 ns on `for`) and ~12% of a heavy one (27.6 ns on
+  `map_numeric`). This is [F17](#f17--an-instruction-costs-1013-ns-and-the-28-spread-is-per-instruction-work-not-instruction-count)'s
+  2.8× spread deciding which rows a loop cut is even allowed to move.
+
 ## F16 — superinstructions are premature: no opcode histogram, and the inliner already covers the classic win
+
+> **VERDICT OVERTURNED (cut [008](008-fuse-invoke-pairs.md)).** The re-ask this
+> finding demanded ("do S1, then re-ask; the case may evaporate") has been run. **The
+> case did not evaporate.** All three reasons below are now gone, and reason 3 was not
+> merely superseded — **it was false, and had never been checked**:
+>
+> 1. **Retired by cut 007 (S1a) — but not the way this finding expected.** S1a deleted
+>    the per-opcode *re-derivation* superinstructions would have amortized. What it
+>    left is the per-opcode **fixed cost** (safepoint, 96 B frame copy, guard compare,
+>    bounds-checked `code[ip]`, `ip` re-index, jump-table branch) — measured at
+>    **~3.3 ns** ([F19](#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)),
+>    which is what a fusion deletes and what this finding had no number for.
+> 2. **Retired `5516504`** — the statically-adjacent pair counter.
+> 3. **FALSE.** "The sacred-selector inliner … for arithmetic — the classic
+>    superinstruction win — it likely covers the ground." It does not, and never did.
+>    `compiler/inliner.rs`'s `recognize` accepts exactly `ifTrue(_)`, `ifFalse(_)`,
+>    `ifTrue(_:ifFalse:)`, `and(_)`, `or(_)`, `whileTrue(_)` — **control flow only**.
+>    `1 + 2` compiles `Constant, Constant, Invoke` today; `arith_send` retires
+>    `Invoke` at 19% and `Constant -> Invoke` at 20%. The word "likely" is doing all
+>    the work in that sentence, and one read of the recognizer refutes it.
+>
+> **Measured result: `string_equals` −8.1%, `for` −5.1%, `variadic_send` −4.7%,
+> `bare_send` −4.2%, `fib` −3.9%.** The lesson is reason 3's: a deferral resting on a
+> *guess about existing code* ("likely covers") outlived two rounds of re-asking
+> because nobody read the 40-line recognizer that settles it. The two reasons that
+> were *measurable* got retired on schedule; the one that was merely plausible is the
+> one that survived — and it was the wrong one.
 
 Asked directly whether superinstructions would help. **No — defer**, three reasons in
 order of force:

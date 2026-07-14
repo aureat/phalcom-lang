@@ -3,6 +3,7 @@ use crate::heap::ClassId;
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 use std::cell::Cell;
+use std::collections::HashSet;
 
 /// One monomorphic inline-cache slot, owned by a single `Bytecode::Invoke` site.
 #[derive(Debug, Clone, Copy)]
@@ -84,5 +85,122 @@ impl Chunk {
     pub fn add_constant(&mut self, value: Value) -> u16 {
         self.constants.push(value);
         (self.constants.len() - 1) as u16
+    }
+
+    /// Rewrites statically-adjacent `(GetLocal | Constant) -> Invoke` pairs into the
+    /// fused [`Bytecode::InvokeLocal`] / [`Bytecode::InvokeConst`], each of which
+    /// retires the pair's work in **one** dispatch instead of two (perf-log cut 008).
+    ///
+    /// Run once per chunk, after compilation, before the [`crate::callable::Callable`]
+    /// is frozen.
+    ///
+    /// # The in-place rewrite, and why there is no re-layout
+    ///
+    /// The fused opcode replaces the *first* instruction of the pair and the original
+    /// `Invoke` is left in place at `p + 1` as dead code, so `code.len()` never
+    /// changes. That is what keeps this pass cheap and safe: every jump offset in the
+    /// chunk stays correct, and the `ip`-indexed parallel arrays (`spans`, `caches`,
+    /// `gcaches`) stay aligned with `code`. The alternative — compacting the array —
+    /// would mean rewriting every branch offset and re-indexing three side tables, for
+    /// the same number of saved dispatches.
+    ///
+    /// The dead `Invoke` costs 8 bytes of `code` and is never executed, because
+    /// [`Bytecode::InvokeLocal`]/[`Bytecode::InvokeConst`] advance `ip` past it.
+    ///
+    /// # Why a jump target forbids the fusion
+    ///
+    /// The rewrite is sound only if `p + 1` is unreachable. If any branch targets the
+    /// `Invoke` directly, that entry point must keep finding a real `Invoke` there —
+    /// so such a pair is skipped. The fallback is simply the unfused pair, which is
+    /// correct, just not fast.
+    pub fn fuse_superinstructions(&mut self) {
+        let targets = self.branch_targets();
+        for p in 0..self.code.len().saturating_sub(1) {
+            if targets.contains(&(p + 1)) {
+                continue;
+            }
+            let Bytecode::Invoke(arity, selector) = self.code[p + 1] else { continue };
+            self.code[p] = match self.code[p] {
+                Bytecode::GetLocal(slot) => Bytecode::InvokeLocal(slot, arity, selector),
+                Bytecode::Constant(idx) => Bytecode::InvokeConst(idx, arity, selector),
+                _ => continue,
+            };
+        }
+    }
+
+    /// Every instruction index some branch in this chunk can jump to.
+    ///
+    /// A branch's offset is applied to the `ip` *already advanced past the branch
+    /// itself* (`VM::apply_jump_offset`), so a branch at `b` with offset `o` targets
+    /// `b + 1 + o`. Conditional branches contribute their target whether or not it is
+    /// taken at runtime — this is a static, conservative set.
+    fn branch_targets(&self) -> HashSet<usize> {
+        self.code
+            .iter()
+            .enumerate()
+            .filter_map(|(b, op)| {
+                let offset = match *op {
+                    Bytecode::Jump(o)
+                    | Bytecode::JumpIfFalse(o)
+                    | Bytecode::JumpIfNone(o)
+                    | Bytecode::Loop(o)
+                    | Bytecode::GuardBool(o)
+                    | Bytecode::GuardBlock(o) => o,
+                    _ => return None,
+                };
+                usize::try_from(b as i64 + 1 + offset as i64).ok()
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phalcom_common::range::EmptySourceRange;
+
+    fn chunk_of(code: &[Bytecode]) -> Chunk {
+        let mut chunk = Chunk::new();
+        for op in code {
+            chunk.add_instruction(*op, EmptySourceRange);
+        }
+        chunk
+    }
+
+    #[test]
+    fn fuses_both_pair_shapes_in_place() {
+        let mut chunk = chunk_of(&[Bytecode::GetLocal(3), Bytecode::Invoke(1, 7), Bytecode::Constant(4), Bytecode::Invoke(0, 9)]);
+        chunk.fuse_superinstructions();
+
+        // The pair's head is rewritten and the `Invoke` stays put as dead code:
+        // `code.len()` is unchanged, which is what keeps every jump offset and every
+        // `ip`-indexed side table valid without a re-layout.
+        assert_eq!(chunk.code.len(), 4);
+        assert_eq!(chunk.code[0], Bytecode::InvokeLocal(3, 1, 7));
+        assert_eq!(chunk.code[1], Bytecode::Invoke(1, 7));
+        assert_eq!(chunk.code[2], Bytecode::InvokeConst(4, 0, 9));
+        assert_eq!(chunk.code[3], Bytecode::Invoke(0, 9));
+    }
+
+    #[test]
+    fn refuses_to_fuse_a_pair_whose_invoke_is_a_jump_target() {
+        // `Jump(1)` at 0 lands on index 2 — the `Invoke`. Fusing would rewrite the
+        // `GetLocal` at 1 and leave that entry point executing a *dead* instruction
+        // with no receiver pushed. The pass must leave this pair alone.
+        let mut chunk = chunk_of(&[Bytecode::Jump(1), Bytecode::GetLocal(0), Bytecode::Invoke(0, 5)]);
+        chunk.fuse_superinstructions();
+
+        assert_eq!(chunk.code[1], Bytecode::GetLocal(0), "fused a pair reachable by a jump into its Invoke");
+        assert_eq!(chunk.code[2], Bytecode::Invoke(0, 5));
+    }
+
+    #[test]
+    fn a_backward_loop_edge_also_pins_its_target() {
+        // `Loop(-3)` at 3 targets index 1, not the `Invoke` at 2 — so this pair is
+        // fusible, and the guard must not be so conservative it refuses it.
+        let mut chunk = chunk_of(&[Bytecode::Pop, Bytecode::GetLocal(0), Bytecode::Invoke(0, 5), Bytecode::Loop(-3)]);
+        chunk.fuse_superinstructions();
+
+        assert_eq!(chunk.code[1], Bytecode::InvokeLocal(0, 0, 5));
     }
 }

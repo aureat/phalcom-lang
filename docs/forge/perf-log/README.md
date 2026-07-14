@@ -36,6 +36,8 @@ recorded as a finding, not shipped.
 | [006](006-dispatch-drop-spans.md) | F14 S2 / Tier 2 | Drop `spans[ip]` from the dispatch loop's read-decode — the span is discarded on the happy path. Re-read in `Invoke` (inside the borrow the IC probe already takes, so the send path pays nothing) and in `SuperSend`, its only two consumers | **`for` −6.8%**, method_call −5.6%, variadic_send −5.2%, arith_send −3.0%, bare_send −2.8%, skynet −2.8% `user`. RSS unchanged | none | `916be0a` |
 | [007](007-hoist-rc-callable.md) | F14 S1a / Tier 2 | Hoist the executing frame's `Rc<Callable>` into a loop local behind a one-compare `closure_id` guard — replaces a per-opcode SlotMap lookup + `Rc` deref, and the 19 per-arm re-derivations of the same chunk. No `unsafe`: the `Rc` lives in a local, so the arms keep `&mut self`. **`ip` deliberately NOT hoisted** — the `closure_id` guard cannot tell two fibers suspended in the same closure apart | **arith_send −22.3%**, bare_send −16.7%, **`for` −12.9%**, variadic_send −11.6%, method_call −10.5%, skynet −6.9% `user` (**2.7× Wren**), fiber_churn −4.8%. Suite band 1.5–13.7× → **1.1–10.7×**. RSS −6.9% skynet, unattributed (H14) | none | `5254586` |
 
+| [008](008-fuse-invoke-pairs.md) | U-IC / Tier 3 | **Superinstructions** — fuse statically-adjacent `(GetLocal \| Constant) -> Invoke` **in place** (rewrite the pair's head, leave the `Invoke` dead at `ip+1`, advance `ip` by 2), so no jump offset and no `ip`-indexed side table (`spans`/`caches`/`gcaches`) needs re-layout. **Overturns [F16](findings.md#f16--superinstructions-are-premature-no-opcode-histogram-and-the-inliner-already-covers-the-classic-win)**, whose reason 3 ("the inliner already covers arithmetic") was **false** — the sacred set is control-flow-only | **`string_equals` −8.1%**, **`for` −5.1%**, variadic_send −4.7%, bare_send −4.2%, fib −3.9%, binary_trees −3.0%, skynet −1.8% `user`. **`map_numeric` −0.2%** after removing 18.0M dispatches — the most of any row; its instructions cost 27.6 ns, so a 3.3 ns dispatch is noise (F17). RSS unchanged | none | *this commit* |
+
 ## Investigated, not landed
 
 | Candidate | Result | Why | Ref |
@@ -113,12 +115,23 @@ Full write-ups in [`findings.md`](findings.md):
   bits and `ObjRef` is a full 64 (`slotmap` `u32` index + `u32` version). Shrinking the
   key first is a correctness review (version-wraparound), likely more work than the
   boxing. `CallFrame` is 96 B against Wren's 24 B.
-- **F16** — **superinstructions: no, defer.** They would amortize F14's re-derivation
-  rather than fix it; and the F13 inliner already covers the classic arithmetic win.
-  Its second reason is **narrowed but not retired** by F17: H3 is closed, so a histogram
-  now exists — but it counts **single opcodes, not adjacent pairs**, and fusion
-  selection needs pair frequencies. Extend `opcode_stats::record` to `(prev, cur)`
-  (~10 lines) before re-asking. Reason 1 (do F14's S1 first) is load-bearing regardless.
+- **F19** — **a dispatch costs ~3.3 ns**, measured two ways that agree: a differential
+  over a histogram-verified 6,000,000 near-zero-body instructions (3.56–3.68 ns, an
+  upper bound since it includes the body; linear at 4.14× vs ideal 4.00) and cut 008
+  read backwards (3.05–3.86 ns, the dispatch alone). **Narrows H13** — the *fixed
+  per-opcode overhead* is now priced, opcode *bodies* still are not. The ceiling
+  formula `pairs_removed × ~3.3 ns ÷ wall` was computed **before** any code and
+  bracketed every row cut 008 shipped, including the two that did not move.
+- **F16** — ~~**superinstructions: no, defer.**~~ **VERDICT OVERTURNED — [cut 008](008-fuse-invoke-pairs.md)
+  landed them** (`string_equals` −8.1%, `for` −5.1%, variadic_send −4.7%, bare_send
+  −4.2%). All three deferral reasons are gone: reason 1 retired by cut 007 (S1a
+  deleted the *re-derivation*, but left the ~3.3 ns per-opcode **fixed cost** a fusion
+  deletes), reason 2 retired by the pair counter (`5516504`), and **reason 3 was
+  false** — the sacred-selector inliner has never inlined arithmetic (its set is
+  `ifTrue`/`ifFalse`/`and`/`or`/`whileTrue`, control flow only), so "the classic
+  arithmetic win" was never covered. The lesson: the two *measurable* reasons got
+  retired on schedule; the one that rested on a guess about existing code ("likely
+  covers the ground") survived two re-asks and was the wrong one.
 - **F18** — **presizing the fiber `Vec`s is negative, and F3/H9's memmove lever is
   spent.** Closes H9: `memmove` is **3.0%** of skynet leaf ticks at HEAD, down from
   20.6% at origin — mechanism intact (`_realloc` → `Vec` growth), share gone, so the

@@ -11,8 +11,9 @@ answer.
 | Wren suite compare | `benchmarks/vm/compare-wren.py` | ×-vs-Wren, **output-verified** (§1) | RSS, `sys` (**H5**) |
 | Whole-process time+RSS | `/usr/bin/time -l`, `benchmarks/vm/run.sh` | `user`/`sys`/`real`/peak RSS (§2) | attribution |
 | **Bootstrap tripwire** | `benchmarks/vm/run.sh:65-90` | *did `VM::new` blow up* (**H7**) | why |
-| Opcode histogram | `phalcom-core/src/opcode_stats.rs` | instructions retired, per-opcode mix (§3bb) | **per-opcode price** (**H13**) |
-| **Opcode pair counts** | same, `PAIRS` | superinstruction candidates (F16 r2) | whether a fusion pays |
+| Opcode histogram | `phalcom-core/src/opcode_stats.rs` | instructions retired, per-opcode mix (§3bb) | per-opcode **body** price (**H13**, narrowed) |
+| **Opcode pair counts** | same, `PAIRS` | superinstruction candidates (F16 r2) | ~~whether a fusion pays~~ — **it does now**, combined with F19's ~3.3 ns dispatch price: `pairs_removed × 3.3 ns ÷ wall` |
+| **Dispatch-price differential** | ad hoc; recipe in [F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13) | **what one dispatch costs (~3.3 ns)** | an opcode *body*'s cost |
 | `sample <pid>` | macOS, ad hoc | leaf-tick attribution (§4) | anything inside the dispatch `match` (F17) |
 
 ---
@@ -118,9 +119,17 @@ pair shares are reported against `total`, not against `paired`.
 | `GetSelf -> GetLocal` | 3,000,000 | 4.4% |
 | `GetGlobal -> Invoke` | 2,000,050 | 2.9% |
 
-**The verdict did not change: still defer.** F16 reason 1 is load-bearing (S1 may
-delete the motive). What changed is that the ceiling is now *measured* — the best
-single fusion removes 8.8% of dispatches on `for` — rather than guessed.
+~~**The verdict did not change: still defer.**~~ **The verdict changed — [cut 008](008-fuse-invoke-pairs.md)
+landed the top two pair shapes** (`string_equals` −8.1%, `for` −5.1%). S1a did **not**
+delete the motive: it removed the per-opcode *re-derivation*, leaving the ~3.3 ns
+*fixed* dispatch cost a fusion deletes ([F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)).
+
+**This table's counts predicted the result exactly.** `for` retired
+68,000,706 → 59,000,705 instructions, **−9,000,001** = the 6,000,000 `GetLocal ->
+Invoke` + 3,000,001 `Constant -> Invoke` counted above, to the digit. **A share is
+still not a price**, though — 8.8% of instructions bought 5.1% of wall, because a
+fusion removes a *dispatch*, not an opcode's *work*. Multiply by ~3.3 ns, never by the
+§3bb mean.
 
 ### What it still cannot do (H13)
 
