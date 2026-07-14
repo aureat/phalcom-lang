@@ -219,8 +219,12 @@ fn alloc_latches_but_never_collects() {
     let unrooted = alloc_instance(&mut vm, vec![]);
     assert_eq!(vm.heap.live_count(), before + 1);
     
-    // Allocate > 4096 objects to cross the latch without running bytecode.
-    for _ in 0..4100 {
+    // Allocate past the collector's ACTUAL threshold to cross the latch without
+    // running bytecode. Do not hard-code the count: the threshold is tuned (it
+    // now scales by reclamation yield, F11) and a baked-in 4100 tests the
+    // constant, not Invariant L.
+    let target = vm.heap.next_gc_for_test() + 1;
+    while vm.heap.live_count() < target {
         alloc_instance(&mut vm, vec![]);
     }
     
@@ -249,8 +253,21 @@ fn automatic_safepoint_fires() {
     )
     .expect("interpret_source failed");
 
-    // The automatic collections should have run, bounding live count.
-    assert!(vm.heap.live_count() < before + 2000, "live count should be bounded by GC");
+    // At least one automatic collection must have run: 5,000 `Trash` instances
+    // were allocated and every one of them is garbage, so if the safepoint never
+    // fired they would all still be live.
+    //
+    // Do NOT assert a tight residual bound here (this asserted `before + 2000`
+    // and was red on main for exactly that reason). How much garbage is left at
+    // the *instant the loop exits* is a function of where the last collection
+    // landed relative to the last allocation — a tuning artifact, not an
+    // invariant. Changing `GC_UNPRODUCTIVE_GROW_FACTOR` moved the final live
+    // count from 3857 to 2073 without changing whether the safepoint works;
+    // under the old assertion that difference alone flipped the test from red to
+    // green, which is the definition of a test measuring the wrong thing.
+    let live = vm.heap.live_count();
+    assert!(live < before + 5000, "no automatic collection ran: {live} live vs {before} baseline + 5000 allocated");
+    assert!(live <= vm.heap.next_gc_for_test(), "live count should be bounded by the collector's threshold");
     assert!(!vm.heap.gc_pending(), "gc_pending should be reset after safepoint collection");
 }
 

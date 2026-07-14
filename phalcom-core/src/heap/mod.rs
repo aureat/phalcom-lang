@@ -97,7 +97,22 @@ pub struct Heap {
 }
 
 const INITIAL_GC_THRESHOLD: usize = 4096;
+/// Threshold growth after a **productive** collection — one that reclaimed at
+/// least [`GC_LOW_YIELD`] of the heap.
 const GC_GROW_FACTOR: f64 = 1.5;
+/// Threshold growth after an **unproductive** collection (see
+/// [`GC_LOW_YIELD`]): back off harder, because tracing cost scales with the
+/// *live* set while the benefit scales with the *garbage*, and a heap that is
+/// nearly all-live pays the former to get none of the latter.
+///
+/// Skynet is the pathological case the flat 1.5× was never chosen for: its
+/// ~1.1M fibers are all live until the program ends, so every collection traced
+/// the entire heap, freed ~nothing, and re-triggered 1.5× later. `trace_object`
+/// alone was ~20% of its samples ([perf-log F11](../../../docs/forge/perf-log/findings.md)).
+const GC_UNPRODUCTIVE_GROW_FACTOR: f64 = 4.0;
+/// Reclaimed fraction below which a collection is judged unproductive and the
+/// next threshold grows by [`GC_UNPRODUCTIVE_GROW_FACTOR`] instead.
+const GC_LOW_YIELD: f64 = 0.10;
 
 impl Heap {
     /// Creates an empty heap.
@@ -229,6 +244,17 @@ impl Heap {
     /// The collection trigger keys on this (DEC-GC-B option A: count-based, not
     /// byte-based — post-`Box` the slot size is uniform at 40 B). Also the
     /// observable a GC test asserts against.
+    /// The live-object count at which the next `alloc` will latch `gc_pending`.
+    ///
+    /// Test-only. Exists so the GC tests can assert Invariant L against the
+    /// collector's *actual* threshold instead of hard-coding a constant: the
+    /// threshold is a tuning decision (see `GC_UNPRODUCTIVE_GROW_FACTOR`) and a
+    /// test that bakes in today's number fails the next time it is tuned, which
+    /// says nothing about the invariant under test.
+    pub fn next_gc_for_test(&self) -> usize {
+        self.next_gc
+    }
+
     pub fn live_count(&self) -> usize {
         self.objects.len()
     }
@@ -295,7 +321,18 @@ impl Heap {
         let before = self.objects.len();
         self.objects.retain(|id, _| marked.contains_key(id));
         let live = self.objects.len();
-        self.next_gc = std::cmp::max(INITIAL_GC_THRESHOLD, (live as f64 * GC_GROW_FACTOR) as usize);
+        // Scale the next threshold by how much this cycle actually reclaimed.
+        // A collection that frees almost nothing has just traced the whole live
+        // set for no benefit, and growing by a flat 1.5× schedules the same
+        // wasted trace again almost immediately (F11).
+        let reclaimed_fraction =
+            if before > 0 { (before - live) as f64 / before as f64 } else { 1.0 };
+        let factor = if reclaimed_fraction < GC_LOW_YIELD {
+            GC_UNPRODUCTIVE_GROW_FACTOR
+        } else {
+            GC_GROW_FACTOR
+        };
+        self.next_gc = std::cmp::max(INITIAL_GC_THRESHOLD, (live as f64 * factor) as usize);
         self.gc_pending = false;
         before - live
     }
