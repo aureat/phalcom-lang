@@ -216,6 +216,15 @@ pub struct VM {
     /// (plan §3.6's table) — never coupled to [`Self::compile_mode`] beyond
     /// this one opt-in-to-stripping override.
     pub strip_contract_metadata: bool,
+    /// `sel` → the interned `init <sel>` selector; memoizes the class-side
+    /// constructor-fallback probe (`Value::lookup_method`) so a miss costs a
+    /// hash lookup, not a `format!` + re-intern (U-HOTPATH).
+    pub(crate) init_selector_cache: HashMap<Symbol, Option<Symbol>>,
+    /// `sel` → the interned `<name>(*)` variadic selector, or `None` when `sel`
+    /// is not variadic-probe-eligible (labelled/getter/setter/subscript)
+    /// (U-HOTPATH). Memoizes the eligibility decision and derived selector
+    /// construction to save `decode_selector` allocations.
+    pub(crate) variadic_selector_cache: HashMap<Symbol, Option<Symbol>>,
     /// Bounded free-list for recycling fiber stacks/frames to avoid
     /// allocations (U-GC step 5, `fiber-pool` feature). Measured net
     /// negative in whole-process A/B benchmarking (perf-log, 2026-07-14);

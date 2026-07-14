@@ -47,6 +47,8 @@ impl VM {
             checking: std::collections::HashSet::new(),
             compile_mode: crate::compiler::attributes::CompileMode::Debug,
             strip_contract_metadata: false,
+            init_selector_cache: HashMap::new(),
+            variadic_selector_cache: HashMap::new(),
             #[cfg(feature = "fiber-pool")]
             fiber_pool: Vec::new(),
         };

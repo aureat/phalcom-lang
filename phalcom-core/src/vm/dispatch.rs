@@ -870,10 +870,16 @@ impl VM {
                             // positional_arity`); otherwise, same as a miss, this falls
                             // through to the dNU forward (U9-implementation-spec.md §2
                             // "Runtime dispatch rule", ADR-0012, method-lookup.md §1-2).
-                            let (name, labels, kind) = decode_selector(self.resolve_symbol(selector_sym));
-                            let eligible = matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none);
-                            let variadic_hit = eligible
-                                .then(|| self.interner.intern(&format!("{name}(*)")))
+                            let variadic_selector_opt = if let Some(&cached_opt) = self.variadic_selector_cache.get(&selector_sym) {
+                                cached_opt
+                            } else {
+                                let (name, labels, kind) = decode_selector(self.resolve_symbol(selector_sym));
+                                let eligible = matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none);
+                                let derived = eligible.then(|| self.interner.intern(&format!("{name}(*)")));
+                                self.variadic_selector_cache.insert(selector_sym, derived);
+                                derived
+                            };
+                            let variadic_hit = variadic_selector_opt
                                 .and_then(|variadic_selector| receiver.lookup_method(self, variadic_selector))
                                 .and_then(|m| {
                                     let sig = &self.heap.method(m).signature;
