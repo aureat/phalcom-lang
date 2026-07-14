@@ -72,6 +72,13 @@ class PostconditionError extends Error {}
 
 class InvariantError extends Error {}
 
+// Boundary-guard exception (error-handling.md §1, U-STRING). Raised by library
+// code to indicate invalid argument values or arities. Zero fields — the
+// inherited `Error.construct new(msg)` gives `ArgumentError.new(msg)` a working
+// constructor for `throw ArgumentError.new("msg")` sites (U-INH inherited-ctor
+// resolution).
+class ArgumentError extends Error {}
+
 class Number {}
 
 class String {
