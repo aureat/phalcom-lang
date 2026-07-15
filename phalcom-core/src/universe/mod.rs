@@ -43,6 +43,43 @@ pub struct Universe {
     /// (`whileTrue(_)`), mirroring [`Universe::bool_sacred_pristine`] for the
     /// kernel `Block` class.
     pub block_sacred_pristine: bool,
+    /// Override-epoch flag for `Number`'s `toString` getter.
+    ///
+    /// `true` once bootstrap (`core.ph`) has finished loading, `false` if any
+    /// `.ph` or native (re)install of `toString` lands directly on the
+    /// kernel `Number` class afterward — mirroring
+    /// [`Universe::bool_sacred_pristine`]'s pattern
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md))
+    /// but guarding [`crate::value::Value::to_display_string`]'s leaf fast
+    /// path instead of the inliner.
+    ///
+    /// Unlike the `Bool`/`Block` sacred flags, this one must **not** start
+    /// `true` in [`Universe::new`]: `core.ph` legitimately (re)installs
+    /// `toString` on some leaf classes during bootstrap (e.g. `String`'s
+    /// `toString => self`), which would immediately (and correctly) flip a
+    /// flag seeded `true`. Instead it starts `false` and is snapshotted to
+    /// `true` once by [`crate::vm::VM::new`] right after `core.ph` finishes
+    /// running, so only a *post-bootstrap* (user-code) reinstall ever clears
+    /// it again. Getting this backwards either kills the fast path forever
+    /// (seeded `false`, never snapshotted) or reintroduces CB-6 (seeded
+    /// `true`, so a legitimate bootstrap install of a container's
+    /// `toString` never widens past the leaf types this flag was meant to
+    /// cover — see [`crate::value::Value::to_display_string`]'s doc for why containers
+    /// must never use this fast path at all).
+    pub number_tostring_pristine: bool,
+    /// Override-epoch flag for `Symbol`'s `toString` getter.
+    ///
+    /// Same rules as [`Universe::number_tostring_pristine`], watching the
+    /// kernel `Symbol` class instead.
+    pub symbol_tostring_pristine: bool,
+    /// Override-epoch flag for `String`'s `toString` getter.
+    ///
+    /// Same rules as [`Universe::number_tostring_pristine`], watching the
+    /// kernel `String` class instead. `core.ph` itself installs `String`'s
+    /// `toString => self` during bootstrap — exactly the transient,
+    /// bootstrap-only flip this flag's `false`-then-snapshot ordering exists
+    /// to absorb.
+    pub str_tostring_pristine: bool,
     /// Loaded **imported** modules keyed by canonical absolute filesystem
     /// path (U15, DEC-U15 A+A), distinct from [`VM::modules`](crate::vm::VM::modules)
     /// (which keys the singleton `core`/`main` modules by logical name).
@@ -73,11 +110,21 @@ impl Universe {
     /// [`CoreClasses::each_handle`]: a new handle-bearing field must fail to
     /// compile rather than silently go unrooted (forge finding F6).
     ///
-    /// `bool_sacred_pristine`/`block_sacred_pristine` are `bool` override-epoch
-    /// flags ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)),
+    /// `bool_sacred_pristine`/`block_sacred_pristine`/`number_tostring_pristine`/
+    /// `symbol_tostring_pristine`/`str_tostring_pristine` are `bool`
+    /// override-epoch flags
+    /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)),
     /// not handles.
     pub fn each_handle(&self, push: &mut impl FnMut(ObjRef)) {
-        let Universe { classes, bool_sacred_pristine: _, block_sacred_pristine: _, module_registry } = self;
+        let Universe {
+            classes,
+            bool_sacred_pristine: _,
+            block_sacred_pristine: _,
+            number_tostring_pristine: _,
+            symbol_tostring_pristine: _,
+            str_tostring_pristine: _,
+            module_registry,
+        } = self;
         classes.each_handle(push);
         for module in module_registry.values() {
             push(*module);
@@ -90,6 +137,15 @@ impl Universe {
             classes: Self::create_core_classes(heap),
             bool_sacred_pristine: true,
             block_sacred_pristine: true,
+            // Seeded `false`, not `true` — see
+            // [`Universe::number_tostring_pristine`]'s doc: `core.ph` itself
+            // installs some of these during bootstrap, so a flag seeded
+            // `true` here would be flipped by a *legitimate* install before
+            // bootstrap even finishes. [`VM::new`](crate::vm::VM::new)
+            // snapshots all three to `true` once bootstrap completes.
+            number_tostring_pristine: false,
+            symbol_tostring_pristine: false,
+            str_tostring_pristine: false,
             module_registry: HashMap::new(),
         }
     }
@@ -104,6 +160,15 @@ impl Universe {
     /// [`Universe::block_sacred_pristine`]
     /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     pub const BLOCK_SACRED_SELECTORS: &'static [&'static str] = &["whileTrue(_)"];
+
+    /// The `toString` getter selector watched by
+    /// [`Universe::number_tostring_pristine`]/
+    /// [`Universe::symbol_tostring_pristine`]/
+    /// [`Universe::str_tostring_pristine`] on their respective kernel
+    /// classes. A getter encodes to its bare name
+    /// ([`crate::method::encode_selector`]'s `SignatureKind::Getter` arm),
+    /// so this is `"toString"`, not `"toString()"`.
+    pub const LEAF_TOSTRING_SELECTORS: &'static [&'static str] = &["toString"];
 
     /// Flags a (re)definition of `selector` directly on `class_id`, flipping
     /// the relevant override-epoch flag if it is a sacred selector on the
@@ -128,5 +193,34 @@ impl Universe {
         if class_id == self.classes.block_class && Self::BLOCK_SACRED_SELECTORS.contains(&name) {
             self.block_sacred_pristine = false;
         }
+        if class_id == self.classes.number_class && Self::LEAF_TOSTRING_SELECTORS.contains(&name) {
+            self.number_tostring_pristine = false;
+        }
+        if class_id == self.classes.symbol_class && Self::LEAF_TOSTRING_SELECTORS.contains(&name) {
+            self.symbol_tostring_pristine = false;
+        }
+        if class_id == self.classes.string_class && Self::LEAF_TOSTRING_SELECTORS.contains(&name) {
+            self.str_tostring_pristine = false;
+        }
+    }
+
+    /// Snapshots the leaf `toString` override-epoch flags
+    /// ([`Universe::number_tostring_pristine`]/
+    /// [`Universe::symbol_tostring_pristine`]/
+    /// [`Universe::str_tostring_pristine`]) to `true`.
+    ///
+    /// Called exactly once, by [`crate::vm::VM::new`] immediately after
+    /// `core.ph` finishes running. Bootstrap's own `.ph` reopens (e.g.
+    /// `String`'s `toString => self`) may have already flipped one or more
+    /// of these flags `false` via [`Universe::note_method_installed`] — that
+    /// is expected and this call unconditionally clears it back to `true`,
+    /// since bootstrap-time installs are the *baseline*, not an override.
+    /// Only a (re)install of `toString` on `Number`/`Symbol`/`String` that
+    /// happens after this call — i.e. from user code — is meant to clear a
+    /// flag again.
+    pub fn mark_leaf_tostring_pristine(&mut self) {
+        self.number_tostring_pristine = true;
+        self.symbol_tostring_pristine = true;
+        self.str_tostring_pristine = true;
     }
 }

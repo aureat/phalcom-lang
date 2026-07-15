@@ -127,6 +127,14 @@ impl VM {
         // reopen taking effect, which surfaced the gap.
         vm.run_core_module().expect("core module (core.ph) must compile and run cleanly");
 
+        // Snapshot the leaf `toString` override-epoch flags now that
+        // `core.ph`'s own reopens (e.g. `String`'s `toString => self`) have
+        // already run and legitimately flipped some of them — see
+        // `Universe::mark_leaf_tostring_pristine`'s doc for why this must
+        // happen exactly here (after bootstrap, before any user code) and
+        // not in `Universe::new`.
+        vm.universe.mark_leaf_tostring_pristine();
+
         // R-INV-0.3 (global half) — the `None` **global** resolves to the shared
         // singleton *value*, not the `None` class object (ADR-0007/0010). This
         // half needs the core module (its globals table), so it lives here rather

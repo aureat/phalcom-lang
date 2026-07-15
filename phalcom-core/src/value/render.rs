@@ -77,11 +77,49 @@ impl Value {
     /// dispatch and disagreed with `\(…)` string interpolation on the same
     /// value (CB-6). Sending unconditionally is what dispatch requires.
     ///
+    /// # Leaf fast path
+    ///
+    /// `Number`/`Symbol`/`Str` are the exception, and only while their
+    /// override-epoch flag ([`crate::universe::Universe::number_tostring_pristine`]/
+    /// [`crate::universe::Universe::symbol_tostring_pristine`]/
+    /// [`crate::universe::Universe::str_tostring_pristine`]) reads `true`: for these three
+    /// leaf types [`Value::to_string`]'s native formatting is *provably*
+    /// identical to their real `toString` body, because none of the three
+    /// recurses into another value's `toString` — there is nothing for a
+    /// nested override to bypass. This lets `System.print` on a `Number`/
+    /// `Symbol`/`Str` (and, transitively, each element a container's
+    /// `toString` sends this method for) skip the `toString` send and its
+    /// throwaway `Str` allocation entirely.
+    ///
+    /// This is deliberately **not** widened to any other type. `Bool`/`Nil`
+    /// have no override-epoch flag of their own here and always send
+    /// (`Bool` has a `.ph` `toString` in `core.ph`, watched flags for it
+    /// would also need to track `Object#toString` reopens transitively,
+    /// which is unnecessary complexity for two receivers). Containers
+    /// (`List`/`Map`/`Set`/`Tuple`/`Range`) and plain instances must
+    /// *always* send: their real `toString` recurses per element/slot via
+    /// this exact method, so a nested override several levels deep is only
+    /// honored if every level actually sends — fast-pathing a container
+    /// would silently reintroduce CB-6.
+    ///
     /// # Errors
     ///
     /// Propagates any error the `toString` send itself raises (e.g. a user
     /// override that throws).
     pub fn to_display_string(&self, vm: &mut VM) -> PhResult<String> {
+        if let Value::Number(_) = self {
+            if vm.universe.number_tostring_pristine {
+                return Ok(self.to_string(vm));
+            }
+        } else if let Value::Symbol(_) = self {
+            if vm.universe.symbol_tostring_pristine {
+                return Ok(self.to_string(vm));
+            }
+        } else if let Value::Obj(id) = self {
+            if vm.universe.str_tostring_pristine && matches!(vm.heap.get(*id), Object::Str(_)) {
+                return Ok(self.to_string(vm));
+            }
+        }
         let selector = vm.get_or_intern("toString");
         let rendered = vm.send_dynamic(*self, selector, &[])?;
         Ok(rendered.to_string(vm))
