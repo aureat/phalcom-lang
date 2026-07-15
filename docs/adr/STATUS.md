@@ -70,7 +70,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0040 | `SuperSend` dispatch opcode | Accepted | | ✅ (verified against tree 2026-07-14: `bytecode.rs:93`, `vm/dispatch.rs:643`) |
 | 0041 | Hierarchy-stability policy — sealed reparent, single inheritance | Accepted | | ✅ |
 | 0042 | Flat `Number`, defer split | Retired | ADR-0024 (ruled 2026-07-14) | — moot, superseded before build |
-| 0043 | No default arguments | Accepted | | ✅ |
+| 0043 | No default arguments | Accepted (prose amended 2026-07-15 — decision unchanged; records that open-Q12 *fixed* the if-ever mechanism: call-site fold permanently forbidden, definition-time trailing-only expansion) | | ✅ |
 | 0044 | `Option` bootstrap formalization; defer niche-encoding | Accepted | | ✅ (correctness half only — niche-encoding itself deferred; `8d401f4` Track 2 sealed `Option`/`Some`/`None` against user subclassing, answering this ADR's open subclass-compatibility question by ruling it moot) |
 | 0045 | `import` relative-path, whole-module binding | Accepted | | ✅ |
 | 0046 | Destructuring `let`/`var` — tuple + list/`*rest` | Accepted | | ✅ |

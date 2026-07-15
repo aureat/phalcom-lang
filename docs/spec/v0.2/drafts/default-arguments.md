@@ -12,10 +12,11 @@
   [ADR-0012](../../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md) (selector identity = the dispatch key) ·
   [ADR-0025](../../../adr/accepted/0025-external-internal-parameter-names.md) (labels vs internal names) ·
   [open-questions.md](../open-questions.md) Q12 (the *mechanism* ruling — narrower and more specific than ADR-0043)
-- Reconciles: [experimental/default-arguments.md](../experimental/default-arguments.md).
-  That doc is **partially superseded and internally contradicted** by the Q12
-  ruling; see [§8](#8-reconciliation-with-experimentaldefault-argumentsmd). Read
-  this doc's §5 in place of that doc's "Decision" section.
+- Supersedes: `experimental/default-arguments.md`, **retired 2026-07-15** (DEFERRED CB-4).
+  That doc was 40 lines, `Status: Proposed`, and advocated in its body the exact
+  mechanism its own banner declared permanently forbidden. This doc absorbs it; see
+  [§8](#8-supersedes-experimentaldefault-argumentsmd-retired). Read §5 for the mechanism
+  question it tried to answer.
 
 ## 1. The status of default arguments in Phalcom
 
@@ -353,38 +354,51 @@ Design (a) precludes none of the *dispatch* invariants — that is its whole
 appeal. Its preclusions are all in the reflection surface, which is exactly where
 a superseding ADR would have to do its work.
 
-## 8. Reconciliation with `experimental/default-arguments.md`
+## 8. Supersedes `experimental/default-arguments.md` (retired)
 
-That document exists and **this one does not replace it**. It is 40 lines,
-Proposed, and **contradicts itself**:
+**Resolved 2026-07-15 (DEFERRED CB-4). That document is deleted; this section is its
+epitaph.** An earlier revision of this doc said "this one does not replace it" and left the
+reconciliation owed (DA-1). The reconciliation is now done — by retirement rather than by
+edit, since the two docs answered the same question and only one of them was right.
 
-- Its **Decision** section specifies "*No runtime defaults. Defaults are
-  caller-side desugar, statically-known callees only*" — i.e. design **(c)**.
-- Its own **superseding note** (added 2026-07-12) says caller-side / static-callee
-  resolution is "**permanently forbidden**" and the ratified if-ever mechanism is
-  design **(a)**, trailing-only.
+**What was wrong with it.** 40 lines, `Status: Proposed`, and self-contradictory:
 
-So the body advocates precisely the design the banner forbids. The banner wins
-(it is the later, ratified position — [open-questions.md item 12](../open-questions.md)),
-but a reader who skips the banner gets the wrong answer.
-[deferred-work.md:163](../deferred-work.md) already logs this as an outstanding
-chore: *"reconcile its reserved mechanism with the ratified
-'desugar-to-overloads-if-ever'"*. **This doc does not perform that reconciliation
-— it only records that it is still owed** (see [DA-1](#9-open-questions)).
+- its **Decision** section specified "*No runtime defaults. Defaults are caller-side
+  desugar, statically-known callees only*" — i.e. design **(c)**;
+- its own **superseding banner** (added 2026-07-12) declared caller-side / static-callee
+  resolution "**permanently forbidden**" and named design **(a)**, trailing-only, as the
+  ratified-if-ever mechanism.
 
-One further tension, not previously recorded: **ADR-0043 and the experimental doc
-both call arity-family expansion "combinatorial" and reject it on that ground.**
-Q12 then ratifies arity-family expansion, restricted to trailing params, where it
-is *linear*. These are consistent — different scopes — but the ADR's prose reads
-as a rejection of the very mechanism the ruling adopts, and nothing in ADR-0043
-mentions the trailing-only refinement.
+The body advocated precisely the design the banner forbade. The banner was right — it is
+the later, ratified position ([open-questions.md item 12](../open-questions.md)) — but the
+banner is the part readers skip, so the doc's most likely reading was its wrong one. It was
+retired rather than reconciled because this doc already carried everything it had, correctly:
+§2 for the hazard, §5(a) for the ruled mechanism, §7 for what re-adding precludes.
 
-What this doc adds beyond the experimental one: the status record and its
-verification, the in-tree evidence (the `trim`/`join` forwarders, the 3× `" \t\n\r"`
-duplication, `Behavior::methods`, the variadic two-probe precedent), the
-steelmanned benefit case, the five-design evaluation against the ADR's stated
-bar, precedent-with-consequence, and the preclusion list. The experimental doc
-has none of these; it states a problem and a (now-superseded) decision in 40 lines.
+**What it uniquely held: nothing.** It stated a problem and a superseded decision. This doc
+adds the status record and its verification, the in-tree evidence (the `trim`/`join`
+forwarders, the 3× `" \t\n\r"` duplication, `Behavior::methods`, the variadic two-probe
+precedent), the steelmanned benefit case, the five-design evaluation against the ADR's
+stated bar, precedent-with-consequence, and the preclusion list.
+
+**The ADR-0043 prose tension — resolved 2026-07-15 (CB-4), but not as filed.** An earlier
+revision of this section, and DEFERRED CB-4 after it, claimed **ADR-0043 rejects
+arity-family expansion as "combinatorial"**, putting it in tension with Q12's ratification
+of that mechanism where it is linear. **That claim is false.** The word appears nowhere in
+ADR-0043; it was the *retired* `experimental/default-arguments.md` that rejected
+arity-family expansion as combinatorial ("*The alternative (arity-family expansion) is
+rejected as combinatorial*"), and both this section and CB-4 read that doc as speaking for
+the ADR. Retiring it removed the only source of the contradiction. Recording the correction
+rather than quietly dropping it — a claim about an ADR that no one checked against the ADR
+is the failure mode this tier exists to catch.
+
+**The real gap, now closed.** ADR-0043's Decision told a future ADR to choose between
+"aliasing vs **call-site fold**" — but Q12 **permanently forbids** call-site resolution and
+fixes the mechanism to definition-time trailing-only expansion. The ADR left open a door the
+ruling had nailed shut and never mentioned trailing-only at all, so a reader following the
+ADR alone would design against a forbidden mechanism. ADR-0043 now carries an
+[§Amendment](../../../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md)
+saying so. The ADR itself **stands**: no default arguments.
 
 ## 9. Open questions
 
@@ -393,8 +407,8 @@ proposal.**
 
 | # | Question | Bearing |
 |---|---|---|
-| DA-1 | `experimental/default-arguments.md` still advocates design (c) in its body while its banner forbids (c). Who edits it, and does it become a stub pointing at Q12? | [deferred-work.md:163](../deferred-work.md) already owns this chore; it is documentation debt with a live contradiction. |
-| DA-2 | ADR-0043's bar is "no single-probe regression", which design (a) **meets**. Should the ADR be amended to name its real second bar (linear expansion + reflection distinguishability)? | Otherwise a future ADR can clear the stated bar while doing the thing 0043 meant to prevent. |
+| ~~DA-1~~ | ~~`experimental/default-arguments.md` still advocates design (c) in its body while its banner forbids (c). Who edits it, and does it become a stub pointing at Q12?~~ | **CLOSED 2026-07-15 (CB-4).** Neither — the doc is **retired**, not stubbed. It held nothing this doc lacks (§8). `deferred-work.md`'s chore is discharged. |
+| DA-2 | ADR-0043's bar is "no single-probe regression", which design (a) **meets**. Should the ADR be amended to name its real second bar (linear expansion + reflection distinguishability)? | **Still open.** 2026-07-15 (CB-4) amended ADR-0043 to record that Q12 *fixed* the mechanism (call-site fold forbidden, trailing-only definition-time expansion) — but the **bar** itself is unchanged: 0043 still states only the single-probe bar, which the ruled mechanism already meets, so a future ADR can clear the stated bar while doing what 0043 meant to prevent. The ADR's §Amendment now says this explicitly instead of leaving it implied. |
 | DA-3 | The variadic miss-arm ([dispatch.rs:437-456](../../../../phalcom-core/src/vm/dispatch.rs)) already spends a second probe. Is "single probe" a literal invariant or a steady-state (post-IC) one? The two readings judge design (b) differently. | Affects how ADR-0012's invariant is cited going forward, independent of defaults. |
 | DA-4 | Under design (a), should synthesized selectors be distinguishable through reflection (a flag on `MethodObject`, or omission from `Behavior::methods`)? | Determines whether (a)'s cost is a real preclusion or a solved detail. Also bears on `Family` candidate lists (ADR-0047). |
 | DA-5 | The 3× `" \t\n\r"` duplication ([core.ph:261,264,267](../../../../phalcom-core/core/core.ph)) is the benefit case in miniature. Is a shared `String.defaultTrimChars` constant the cheap answer, making DA-2..DA-4 moot for the core library? | If the convention's real cost is *duplicated constants* rather than *duplicated methods*, it is fixable without touching the language. |

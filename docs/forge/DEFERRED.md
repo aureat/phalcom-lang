@@ -200,9 +200,28 @@ bootstrap-sealed classes) so the two representations cannot diverge; add the mis
 user-class `extends` fixture; spec `@sealed`/`@variant` where a reader would look for them.
 Owning unit: unassigned.
 
-### CB-4 · `experimental/default-arguments.md` specifies the mechanism its own banner forbids
+### CB-4 · `experimental/default-arguments.md` specifies the mechanism its own banner forbids — **FIXED 2026-07-15**
 
 _Verified 2026-07-15._
+_**Fixed 2026-07-15** (docs-only). The doc is **retired/deleted**, not reconciled — user-ruled,
+and the right call: `drafts/default-arguments.md` already carried everything it had, correctly
+(§2 hazard, §5(a) ruled mechanism, §7 preclusions), so reconciling would have maintained two
+answers to one question. Inbound links repointed (`deferred-work.md:50`/`:163`,
+`experimental/README.md:9`); `deferred-work.md`'s standing chore is discharged; the draft's
+DA-1 is closed and its §8 rewritten as the epitaph._
+
+_**One half of this entry was wrong, and the error is instructive.** CB-4 claimed ADR-0043
+"rejects arity-family expansion as *combinatorial*", in tension with Q12's ratification of
+that mechanism where it is linear. **ADR-0043 never says that** — the word appears nowhere in
+it (`grep -c combinatorial` → 0). The claim belonged to the retired `experimental/` doc, which
+CB-4 read as speaking for the ADR. So the "general vs trailing-only" contradiction this entry
+was filed to fix **did not exist**; retiring the doc removed its only source. **The real
+defect, found by reading the ADR:** its Decision told a future ADR to choose "aliasing vs
+**call-site fold**" — a door Q12 **permanently forbids** — and never mentioned trailing-only.
+A reader following ADR-0043 alone would design against a forbidden mechanism. ADR-0043 now
+carries a prose-only §Amendment recording that; the decision (no default arguments) is
+untouched. Second Confirmed-Backlog entry to be partly refuted on contact (see CB-3) —
+verify against the tree, never against the entry._
 
 `docs/spec/v0.2/experimental/default-arguments.md` is 40 lines and self-contradictory:
 

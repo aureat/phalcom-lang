@@ -6,7 +6,7 @@ flags. Promote to `docs/adr/` + `docs/spec/` on ratification.
 
 | Draft | Resolves | Status |
 |-------|----------|--------|
-| [default-arguments.md](default-arguments.md) | open-Q12 — defaults ⊗ selector identity | Proposed |
+| ~~default-arguments.md~~ → [drafts/default-arguments.md](../drafts/default-arguments.md) | open-Q12 — defaults ⊗ selector identity | **RETIRED 2026-07-15** (DEFERRED CB-4). open-Q12 is RULED (no defaults, [ADR-0043](../../../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md)); the doc advocated in its body the caller-side desugar its own banner permanently forbade. The draft supersedes it. |
 | [concurrency-adr.md](concurrency-adr.md) | Fiber/Future ADR + GC-root rule | Proposed |
 | [scheduler-unit.md](scheduler-unit.md) | scheduler ownership + bootstrap order | Proposed |
 | [bound-callable-unification.md](bound-callable-unification.md) | `Family` vs `Method.bind` (open-Q14) | Proposed |
