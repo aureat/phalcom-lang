@@ -866,6 +866,26 @@ class List {
 class Map {
   size => self.size_
 
+  // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
+  // native `Map` rendering exactly — `{k: v, k2: v2}`, `{}` when empty — so the
+  // `.toString` message and the native render agree. Derived over the floor
+  // (`size_`/`keyAt_`/`valueAt_`), not a primitive: ADR-0019's default answer to
+  // "add a primitive" is no, and this is expressible.
+  //
+  // Each key and value renders via its OWN `toString` — which the native path
+  // cannot do. That is the point of CB-1: once `\(…)` sends `toString`, this is
+  // the path it takes.
+  toString {
+    var s = "{"
+    var i = 0
+    while (i < self.size_) {
+      s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
+      s = s + self.keyAt_(i).toString + ": " + self.valueAt_(i).toString
+      i = i + 1
+    }
+    return s + "}"
+  }
+
   // Total lookup: Some-shaped by convention (raw value on hit, the None
   // singleton on miss — mirrors List#at's at_ shape, U-CORE-2/ADR-0021).
   at(k) => self.get_(k)
@@ -955,6 +975,20 @@ class Map {
 class Set {
   size => self.size_
 
+  // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
+  // native `Set` rendering exactly — `Set(a, b)`, `Set()` when empty. Derived
+  // over `size_`/`at_`; each element renders via its OWN `toString`.
+  toString {
+    var s = "Set("
+    var i = 0
+    while (i < self.size_) {
+      s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
+      s = s + self.at_(i).toString
+      i = i + 1
+    }
+    return s + ")"
+  }
+
   add(v) {
     self.add_(v)
     return self
@@ -1008,6 +1042,20 @@ class Set {
 
 class Tuple {
   size => self.size_
+
+  // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
+  // native `Tuple` rendering exactly — `(a, b)`, `()` when empty. Derived over
+  // `size_`/`at_`; each element renders via its OWN `toString`.
+  toString {
+    var s = "("
+    var i = 0
+    while (i < self.size_) {
+      s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
+      s = s + self.at_(i).toString
+      i = i + 1
+    }
+    return s + ")"
+  }
 
   at(i) => self.at_(i)
 
@@ -1068,6 +1116,17 @@ class Tuple {
 
 class Range {
   first => self.start_
+
+  // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
+  // native `Range` rendering exactly. Note the separator is NOT the intuitive
+  // one: `..` is the INCLUSIVE range and `...` the exclusive (Ruby's spelling,
+  // not Rust's) — `value/render.rs` reads
+  // `if range.inclusive() { ".." } else { "..." }`, and this must not drift
+  // from it.
+  toString {
+    var sep = self.inclusive_.ifTrue({ ".." }, ifFalse: { "..." })
+    return self.start_.toString + sep + self.end_.toString
+  }
 
   last {
     return self.inclusive_.ifTrue({ self.end_ }, ifFalse: { self.end_ - 1 })
