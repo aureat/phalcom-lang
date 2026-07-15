@@ -21,9 +21,37 @@ This section is different: each entry here has been **verified against the tree 
 date given**, with the evidence inline. An entry leaves this section only by being fixed
 or by being disproved at a cited file:line — never by assumption.
 
-### CB-1 · String interpolation bypasses `toString` overrides
+### CB-1 · String interpolation bypasses `toString` overrides — **FIXED 2026-07-15**
 
 _Verified 2026-07-15 by reading the tree. Supersedes and sharpens [#30](#numbered-backlog-merged-from-phase-next), filed 2026-07-12._
+
+_**Fixed 2026-07-15** — option **C**, user-ruled. Reproduced live first
+(`System.print(p)` → `<redacted>`, `"\(p)"` → `<Secret instance>`, same object), then:_
+
+1. _**`Map`/`Set`/`Tuple`/`Range` gained derived `toString`s** (`22cc756`). They were the
+   **only** classes with none — so they, and only they, would have regressed to
+   `<Cls>` the moment the desugar started sending. Derived in `core.ph` over the existing
+   floor, **not** admitted to it: the floor stays at 136 and no amendment was needed. Each
+   mirrors `Value::to_string`'s native format exactly (verified both populated and empty),
+   including `Range`'s counterintuitive `..` = inclusive / `...` = exclusive._
+2. _**The desugar now emits `expr.toString`** — `Expr::GetProperty`, a **getter** send, not
+   a zero-arg `MethodCall` (`toString` is bound `SignatureKind::Getter`; `toString()` is a
+   different selector that would miss)._
+3. _**ADR-0022 amended** — prose only, sigil untouched. The ADR had *pre-authorised* this
+   exact revisit ("when U-CORE-4 lands a real content `toString`, the desugar target can be
+   revisited"); U-CORE-4 landed in `2061795`, so the trigger had already fired. Guard:
+   `tests/lang/strings/string_interp_sends_tostring.ph`._
+
+_**This entry's own stated blocker was wrong.** It said "the signature difference is real
+work, not a one-liner: `to_string(&self, vm: &VM)` is infallible; `to_display_string(&self,
+vm: &mut VM) -> PhResult<String>` needs `&mut VM` and can raise." But `string_class_new`
+**already** had `&mut VM` and **already** returned `PhResult` — every primitive does. At
+that site it was a one-liner. The framing also missed that `to_display_string` is a
+*hybrid* (native for the collections, sending only for what `to_string` botches), not a
+"send `toString` to everything" path. Fourth CB entry whose analysis did not survive
+contact._
+
+_Residue: **CB-6** below — the same defect one level down._
 
 **The defect.** [ADR-0022](../adr/accepted/0022-string-interpolation-backslash-paren-sigil.md) desugars
 `"\(x)"` to `String.new(x)`. `string_class_new` (`phalcom-core/src/primitive/string.rs:58`)
@@ -367,6 +395,51 @@ and "the floor is closed" is false while an 11-binding hole exists. But **(b) is
 if fiber primitives are still churning**; that is a question about ADR-0030's roadmap, not
 about the census. Owning unit: unassigned. **Do not quote "the floor is 125" as the whole
 native boundary until this is ruled** — it is the audited floor, not the installed one.
+
+### CB-6 · `Value::to_string`'s recursion never sends — `List` bypasses nested `toString`
+
+_Found and verified 2026-07-15 while fixing CB-1, by testing an override nested one level
+down. Exposed, not caused, by CB-1's fix._
+
+**The defect.** [CB-1](#cb-1--string-interpolation-bypasses-tostring-overrides--fixed-2026-07-15)
+fixed the top level: `"\(p)"` now sends `toString`. But `Value::to_string`
+(`value/render.rs:19`) is a native recursive renderer that **never sends a message at any
+depth**. `List#toString` is a native primitive (`list_to_string`) that recurses through it,
+so an override nested inside a `List` is still bypassed — while the four `toString`s
+derived in `core.ph` for CB-1 recurse by *sending*. `List` is now the odd one out:
+
+```phalcom
+class Secret { toString => "<redacted>" }
+let p = Secret.new()
+"\(p)"           // <redacted>            top level: fixed
+"\(m)"  (Map)    // {k: <redacted>}       Map#toString is .ph  -> sends
+"\([p])" (List)  // [<Secret instance>]   List#toString is native -> does not
+```
+
+Pinned by `tests/lang/strings/string_interp_sends_tostring.ph`, which asserts the **wrong**
+output on purpose so the day it changes is loud.
+
+**Why it matters.** Same shape as CB-1, same security dimension: ADR-0015's redaction-safe
+default does not survive `"\([secret])"`. Bounded today only because `to_debug` prints no
+field contents — the exact contingency CB-1 was fixed ahead of. And it is now an
+*inconsistency*, which is worse than a uniform gap: two collections in the same expression
+render the same object two different ways.
+
+**Two ways out, neither free.**
+- **(a) Rewrite `List#toString` in `.ph`**, like the other four. Uniform, sends at every
+  depth. But it strands the `list_to_string` floor binding — dead native code, and removing
+  it is a floor amendment (136 → 135, ADR + census + test constant).
+- **(b) Make the native renderer's recursion send** — `list_to_string` (or `to_string`
+  itself) renders elements via `to_display_string`. Keeps the floor intact, but
+  `to_string(&self, vm: &VM) -> String` is infallible and `&VM`; sending needs `&mut VM` and
+  can raise, so this is the signature change CB-1 wrongly claimed for *its* site — here it
+  is real. It also puts a message send inside every native render.
+
+Note (b) does not fully close it either: `to_display_string` treats a nested `List` as
+"handled natively" and drops back into `to_string`, so a doubly-nested instance still
+bypasses. A complete fix means every container renders by sending, all the way down —
+i.e. option (a) for every collection, and `to_string` demoted to a debug-only path. Owning
+unit: unassigned. Wants a ruling before code.
 
 ## Open entries
 

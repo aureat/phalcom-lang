@@ -1667,17 +1667,25 @@ impl<'source> Parser<'source> {
                 StringSegment::Literal(value) => Expr::String { value, range },
                 StringSegment::Expr { source, start } => {
                     let inner = self.parse_interp_expr(&source, start, range)?;
-                    Expr::MethodCall(Box::new(MethodCallExpr {
-                        object: Expr::Var {
-                            value: "String".to_string(),
-                            range,
-                        },
-                        method: "new".to_string(),
-                        args: vec![Argument {
-                            label: None,
-                            expr: inner,
-                            range,
-                        }],
+                    // Each interpolated expression becomes an ordinary
+                    // `expr.toString` **getter send** (DEFERRED CB-1, amending
+                    // [ADR-0022]'s "Stringification target").
+                    //
+                    // It used to wrap as `String.new(expr)`, which renders via
+                    // the native `Value::to_string` and therefore **bypassed a
+                    // user's `toString` override**: `System.print(p)` gave
+                    // `<redacted>` while `"\(p)"` gave `<Secret instance>` for
+                    // the same object. ADR-0022 chose `String.new` deliberately
+                    // — at the time `toString` was only `Object`'s class-name
+                    // default — and pre-authorised this revisit "when U-CORE-4
+                    // lands a real content `toString`". It has.
+                    //
+                    // `GetProperty`, not a zero-arg `MethodCall`: `toString` is
+                    // bound as `SignatureKind::Getter`, and `toString()` would
+                    // encode a *different* selector that misses it.
+                    Expr::GetProperty(Box::new(GetPropertyExpr {
+                        object: inner,
+                        property: "toString".to_string(),
                         range,
                     }))
                 }

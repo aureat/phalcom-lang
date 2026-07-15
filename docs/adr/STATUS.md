@@ -49,7 +49,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0019 | Freeze the VM-blessed primitive floor | Accepted | | ✅ |
 | 0020 | Kernel `List` — native-array-backed protocol | Accepted | | ✅ |
 | 0021 | No-truthiness enforcement | Accepted | | ✅ |
-| 0022 | String interpolation `\(expr)` sigil | Accepted | | ✅ |
+| 0022 | String interpolation `\(expr)` sigil | Accepted (amended 2026-07-15 — sigil unchanged; desugar target moved `String.new(expr)` → `expr.toString`, the revisit the ADR itself pre-authorised once U-CORE-4 landed) | | ✅ |
 | 0023 | Amend floor — `hash`, kernel reflection, `Number#toString`, `Error#message`/`raise` (omnibus pre-clearance) | Accepted | | partial — pre-clears 0028/0036/0037, see those rows |
 | 0024 | Split `Number` → `Int` (bignum) + `Float` | Accepted | | ❌ **not built** — code is still flat (`core.ph:75`); committed design, zero implementation |
 | 0025 | External labels vs internal param names | Accepted | | ✅ |
