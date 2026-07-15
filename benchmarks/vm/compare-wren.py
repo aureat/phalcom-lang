@@ -32,8 +32,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 SUITE = os.path.join(REPO, "benchmarks", "wren-suite")
 PH = os.environ.get("PH_BIN", os.path.join(REPO, "target", "release", "phalcom"))
-WREN = os.environ.get("WREN_TEST", os.path.expanduser("~/dev/repos/wren/bin/wren_test"))
 REPS = int(os.environ.get("REPS", "3"))
+
+# The in-repo Wren lives at `resources/wren` (moved there by `ec3b6af`). Prefer it,
+# then the pre-`ec3b6af` external checkout, so an older working copy still resolves.
+WREN_CANDIDATES = [
+    os.path.join(REPO, "resources", "wren", "bin", "wren_test"),
+    os.path.expanduser("~/dev/repos/wren/bin/wren_test"),
+]
+WREN = os.environ.get("WREN_TEST") or next(
+    (p for p in WREN_CANDIDATES if os.path.exists(p)), WREN_CANDIDATES[0]
+)
 
 
 def normalize(text):
@@ -58,8 +67,18 @@ def main():
     if not os.path.exists(PH):
         sys.exit(f"no phalcom binary at {PH} — run `cargo build -r -p phalcom-core --bin phalcom`")
     have_wren = os.path.exists(WREN)
+    if not have_wren and not os.environ.get("ALLOW_NO_WREN"):
+        sys.exit(
+            f"no wren_test at {WREN} — refusing to run.\n"
+            "This script's whole job is the comparison; without a Wren binary it can only\n"
+            "time Phalcom, and a run that compares nothing must not look like a passing one\n"
+            "(hole H15: it used to mark every row `ok` and exit 0, which silently froze the\n"
+            "suite's x-vs-Wren column at `5254586` across cuts 008 and 009).\n"
+            "Set WREN_TEST=/path/to/wren_test, or ALLOW_NO_WREN=1 to time Phalcom alone."
+        )
     if not have_wren:
-        print(f"note: no wren_test at {WREN} — timing Phalcom only, no comparison.\n")
+        print(f"note: no wren_test at {WREN} — timing Phalcom only, NO COMPARISON.")
+        print("      ratios below are `n/a`; this run cannot refresh SCOREBOARD §1.\n")
 
     names = sorted(f[:-3] for f in os.listdir(SUITE) if f.endswith(".ph"))
     if len(sys.argv) > 1:
