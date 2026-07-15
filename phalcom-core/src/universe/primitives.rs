@@ -133,9 +133,9 @@ impl Universe {
         // native floor for string slicing/indexing — byte length, raw byte read,
         // and UTF-8-aware substring extraction. Not derivable in `.ph` (buffer
         // not observable, allocation not expressible).
-        primitive!(vm, string_cls, "rawByteCount", SignatureKind::Getter, string_raw_byte_count);
-        primitive!(vm, string_cls, "rawByteAt", SignatureKind::Method(1), string_raw_byte_at);
-        primitive!(vm, string_cls, "rawSlice", SignatureKind::Method(2), string_raw_slice);
+        primitive!(vm, string_cls, "byteCount_", SignatureKind::Getter, string_raw_byte_count);
+        primitive!(vm, string_cls, "byteAt_", SignatureKind::Method(1), string_raw_byte_at);
+        primitive!(vm, string_cls, "slice_", SignatureKind::Method(2), string_raw_slice);
 
         let bool_cls = vm.universe.classes.bool_class;
         primitive_static!(vm, bool_cls, "new", SignatureKind::Method(0), bool_class_new);
@@ -260,7 +260,7 @@ impl Universe {
         // U-STRING raw I/O seam (ADR-0019 amendment, ADR-0049): raw stdout write of
         // an already-formed `String`, no newline, no formatting — the irreducible
         // literal I/O act that `System.write`/`writeObject_` funnel over.
-        primitive_static!(vm, system_cls, "rawWrite", SignatureKind::Method(1), system_raw_write);
+        primitive_static!(vm, system_cls, "write_", SignatureKind::Method(1), system_raw_write);
 
         let module_cls = vm.universe.classes.module_class;
         primitive_static!(vm, module_cls, "new", SignatureKind::Method(0), module_class_new);

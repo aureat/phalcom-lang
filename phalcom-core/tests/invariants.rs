@@ -685,8 +685,8 @@ fn floor_census_matches_installed_bindings() {
     const NEW_GC: usize = 1;
     // U-STRING (ADR-0049 amendment): raw byte-level string accessors +
     // raw stdout write = +4 (121 -> 125):
-    // `String#rawByteCount`, `String#rawByteAt(_)`, `String#rawSlice(_,_)`,
-    // `System.rawWrite(_)` — all `primitive/string.rs`/`primitive/system.rs`.
+    // `String#byteCount_`, `String#byteAt_(_)`, `String#slice_(_,_)`,
+    // `System.write_(_)` — all `primitive/string.rs`/`primitive/system.rs`.
     const NEW_STRING: usize = 4;
 
     let mut vm = VM::new();
@@ -744,9 +744,9 @@ fn floor_census_matches_installed_bindings() {
         (c.string_class, true, "new()"),
         (c.string_class, true, "new(_)"),
         // U-STRING raw byte accessors (ADR-0049 amendment)
-        (c.string_class, false, "rawByteCount"), // NEW (ADR-0049)
-        (c.string_class, false, "rawByteAt(_)"), // NEW (ADR-0049)
-        (c.string_class, false, "rawSlice(_,_)"), // NEW (ADR-0049)
+        (c.string_class, false, "byteCount_"), // NEW (ADR-0049)
+        (c.string_class, false, "byteAt_(_)"), // NEW (ADR-0049)
+        (c.string_class, false, "slice_(_,_)"), // NEW (ADR-0049)
         // §2.6 Bool
         (c.bool_class, true, "new()"),
         (c.bool_class, true, "new(_)"),
@@ -800,7 +800,7 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "nextScheduled"),
         (c.system_class, true, "gc"),
         // U-STRING raw I/O seam (ADR-0049 amendment)
-        (c.system_class, true, "rawWrite(_)"), // NEW (ADR-0049)
+        (c.system_class, true, "write_(_)"), // NEW (ADR-0049)
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
         (c.module_class, false, "doesNotUnderstand(_)"),

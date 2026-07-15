@@ -9,7 +9,7 @@
 // permanently out of scope, `docs/forge/units/U-STRING/plan.md` §0: "Wren's
 // `this[a...b]` / `this[i]` sugar has no Phalcom equivalent and adding one is
 // out of scope") and today has no `bytes`/`codePoints` accessors, no
-// `rawByteAt`/`codePointAt` at all. Rather than mechanically porting every
+// `byteAt_`/`codePointAt` at all. Rather than mechanically porting every
 // per-selector Wren file (`iterate`, `iterator_value`, `subscript`, and their
 // four OOB/wrong-type variants, times two sequence types), this single
 // fixture folds the *meaningful* behavior — unicode-aware codepoint
@@ -23,7 +23,7 @@
 // are read as UTF-8 already (confirmed working today via non-ASCII content,
 // string_equality.ph's "vålue" case).
 // The raw byte-sequence half (`.bytes`) is not ported separately — it is a
-// dense `0..rawByteCount` walk with no unicode subtlety, adequately covered
+// dense `0..byteCount_` walk with no unicode subtlety, adequately covered
 // by U-STRING's own corpus once it lands.
 let cps = "a€🎉".codePoints
 System.print(cps.size)

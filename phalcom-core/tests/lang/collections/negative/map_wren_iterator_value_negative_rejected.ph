@@ -8,7 +8,7 @@
 // negative index is rejected as a Type error before any bounds check runs.
 // (A too-large *positive* index is a distinct, total case — see
 // `map_wren_cursor_roundtrip.ph`'s past-the-end coverage via the cursor
-// protocol; `rawKeyAt`/`rawValueAt` return the `None` singleton rather than
+// protocol; `keyAt_`/`valueAt_` return the `None` singleton rather than
 // erroring, so there is no NEGATIVE analog for Wren's
 // `iterator_value_iterator_too_large.wren`.)
 

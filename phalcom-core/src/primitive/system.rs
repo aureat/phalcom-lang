@@ -94,7 +94,7 @@ pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Va
     Ok(vm.none_value())
 }
 
-/// Signature: `System.rawWrite(_)` — raw stdout write of an already-formed `String`.
+/// Signature: `System.write_(_)` — raw stdout write of an already-formed `String`.
 ///
 /// Writes the string with no newline, no formatting, no message dispatch — the
 /// literal I/O act. Derives from ADR-0019 (System I/O primitives are native; the

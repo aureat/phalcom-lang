@@ -1,23 +1,13 @@
 # 49. Amend the floor: admit String byte/slice accessors + raw stdout write
 
-- Status: Accepted (selector names superseded — see note below)
+- Status: **Accepted — authoritative on naming again** (2026-07-15; ADR-0062, which had superseded the names below with `raw*`, is **Retired**)
 - Date: 2026-07-13
-- **Naming note (added post-implementation):** this ADR specified the
-  U-NATIVE-MARKER trailing-`_` convention (`byteCount_`/`byteAt_(_)`/`slice_(_,_)`/
-  `write_(_)`). The U-STRING unit that realized this amendment shipped `raw*`-prefixed
-  names instead (`rawByteCount`/`rawByteAt(_)`/`rawSlice(_,_)`/`rawWrite(_)`) — see
-  [ADR-0062](0062-amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md),
-  which is the accurate record of the bindings as bound. This ADR's *decision to admit
-  four bindings* stands; only the selector spelling in §Decision below is stale.
-- Amends: [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (the frozen floor) — the
-  fifth such amendment, after [0023](0023-amend-floor-admit-hash-and-kernel-reflection.md),
-  [0036](0036-amend-floor-admit-number-tostring.md), [0037](0037-amend-floor-admit-error-root.md),
-  [0038](0038-amend-floor-admit-block-on-ensure.md), [0039](0039-amend-floor-admit-collection-container-primitives.md),
-  [0047](0047-amend-floor-admit-family-call-router.md).
-- Related: [`docs/spec/v0.2/system.md`](../spec/v0.2/system.md);
-  [`docs/spec/v0.2/core/core-classes.md`](../spec/v0.2/core/core-classes.md) §String/§System;
-  [`docs/spec/v0.2/core/floor-census.md`](../spec/v0.2/core/floor-census.md).
-- Realized by: **U-STRING** ([`docs/forge/units/U-STRING/plan.md`](../forge/units/U-STRING/plan.md)).
+- **Naming note (2026-07-15, resolved):** this ADR specified the U-NATIVE-MARKER
+  trailing-`_` convention (`byteCount_`/`byteAt_(_)`/`slice_(_,_)`/`write_(_)`). The
+  U-STRING unit shipped `raw*`-prefixed names instead, and ADR-0062 was written to
+  bless that deviation. **The user re-ruled trailing-`_` on 2026-07-15; the rename is
+  applied and ADR-0062 is Retired.** The names in this ADR are the ones in the tree —
+  verified green (26/26 test binaries, `R-INV-0.1` floor census included).
 
 ## Context
 

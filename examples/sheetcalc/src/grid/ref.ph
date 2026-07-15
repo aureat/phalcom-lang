@@ -92,7 +92,7 @@ class Ref {
     while (i < text.size and Ref.isUpper_(text.codePointAt(i))) {
       i = i + 1
     }
-    var colNum = Ref.decodeCol_(text.rawSlice(colStart, i))
+    var colNum = Ref.decodeCol_(text.slice_(colStart, i))
 
     if (i < text.size and Ref.isDollar_(text.codePointAt(i))) {
       rowAbs = true
@@ -103,7 +103,7 @@ class Ref {
     while (i < text.size and Ref.isDigit_(text.codePointAt(i))) {
       i = i + 1
     }
-    var rowNum = Ref.parseDigits_(text.rawSlice(rowStart, i))
+    var rowNum = Ref.parseDigits_(text.slice_(rowStart, i))
 
     return Ref.full(colNum, rowNum, colAbs, rowAbs)
   }

@@ -1,7 +1,7 @@
 // area: collections
 // spec: map-and-set.md §2; ADR-0039
 // status: PENDING
-// Ported from wren/test/core/map/clear.wren. There is no `rawClear`
+// Ported from wren/test/core/map/clear.wren. There is no `clear_`
 // primitive (primitive/map.rs) and no `.ph` `clear` wrapper — `Map` has no
 // bulk-empty operation today. Pinning the intended surface: `clear()`
 // empties the map in place and returns the receiver (chainable, mirroring

@@ -1,6 +1,26 @@
 # ADR-0062: Amend floor — admit `String` raw byte accessors + `System.rawWrite(_)`
 
-**Status:** Accepted
+**Status:** **Retired 2026-07-15 — the user re-ruled the trailing-`_` convention; `raw*` is removed.**
+
+> This ADR existed for exactly one purpose: to bless the `raw*` names U-STRING shipped
+> in place of the trailing-`_` convention [ADR-0049](../accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)
+> had specified. That deviation is now reverted — `rawByteCount`/`rawByteAt(_)`/
+> `rawSlice(_,_)`/`rawWrite(_)` are renamed to **`byteCount_`/`byteAt_(_)`/`slice_(_,_)`/
+> `write_(_)`**, exactly as ADR-0049 asked. **ADR-0049 is authoritative again**; nothing
+> in this document survives except its history.
+>
+> The floor amendment itself (4 bindings: byte-level `String` access + raw stdout
+> write) was never in question and is unaffected — it is ADR-0049's decision, not this
+> one's. This ADR only ever changed spellings.
+>
+> **Why it happened, worth recording:** the user ruled trailing-`_` on 2026-07-13
+> (see [U-NATIVE-MARKER](../../forge/units/U-NATIVE-MARKER/plan.md)); U-STRING shipped
+> `raw*` anyway; this ADR was then written on 2026-07-14 to make the record match the
+> code. That is backwards — a ruling should move the code, not the other way round. The
+> collections half of the same rename (`length_`, `at_`, `keyAt_`, `size_` …) had
+> *already* landed correctly, so the tree carried both conventions at once for a day.
+
+Accepted (original text below, kept for history)
 
 **Supersedes:** [ADR-0049](0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)'s
 selector names. Both ADRs approve the same 4-binding amendment (byte-level `String`

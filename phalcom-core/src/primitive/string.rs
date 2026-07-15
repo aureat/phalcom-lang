@@ -62,7 +62,7 @@ pub fn string_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
     }
 }
 
-/// Signature: `String::rawByteCount` — the byte length of the underlying UTF-8 buffer.
+/// Signature: `String::byteCount_` — the byte length of the underlying UTF-8 buffer.
 ///
 /// Derives from ADR-0019 (minimal native floor); the byte length is not derivable
 /// in `.ph` code since no `.ph` code can observe the buffer. Returns a `Number`.
@@ -78,7 +78,7 @@ pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
     Ok(Value::Number(s.len() as f64))
 }
 
-/// Signature: `String::rawByteAt(_)` — read a single raw byte from the buffer.
+/// Signature: `String::byteAt_(_)` — read a single raw byte from the buffer.
 ///
 /// Derives from ADR-0019 (minimal native floor); byte-level access is not derivable
 /// in `.ph` code. Returns a `Number` (0–255) on hit; returns the `None` singleton
@@ -110,7 +110,7 @@ pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     }
 }
 
-/// Signature: `String::rawSlice(_,_)` — extract a substring by byte range `[start, end)`.
+/// Signature: `String::slice_(_,_)` — extract a substring by byte range `[start, end)`.
 ///
 /// Derives from ADR-0019 (minimal native floor); string allocation from computed byte
 /// offsets is not derivable in `.ph` (no way to construct a String from raw bytes).

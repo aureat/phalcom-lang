@@ -88,14 +88,14 @@ class String {
   toString => self
 
   // Byte count. UTF-8 buffer length in bytes (not codepoints).
-  size => self.rawByteCount
-  isEmpty => self.rawByteCount == 0
+  size => self.byteCount_
+  isEmpty => self.byteCount_ == 0
 
   // Number of leading bytes in the UTF-8 sequence starting at byte offset `i`.
   // Read purely from the lead byte's numeric range: 1/2/3/4-byte sequences are
   // encoded by the lead byte's numeric value (no bitmask needed).
   leadByteLen_(i) {
-    let b = self.rawByteAt(i)
+    let b = self.byteAt_(i)
     return (b == None).ifTrue({ None }, ifFalse: {
       (b < 128).ifTrue({ 1 }, ifFalse: {
         (b < 224).ifTrue({ 2 }, ifFalse: {
@@ -106,7 +106,7 @@ class String {
   // The Unicode scalar value at byte offset `i`, or `None` if out-of-range
   // or mid-sequence. UTF-8 decode via division/modulo (no bitwise ops).
   codePointAt(i) {
-    let b0 = self.rawByteAt(i)
+    let b0 = self.byteAt_(i)
     return (b0 == None).ifTrue({ None }, ifFalse: {
       (b0 < 128).ifTrue({
         // ASCII single byte (0xxxxxxx)
@@ -118,7 +118,7 @@ class String {
         }, ifFalse: {
           (b0 < 224).ifTrue({
             // 2-byte sequence (110xxxxx 10xxxxxx)
-            let b1 = self.rawByteAt(i + 1)
+            let b1 = self.byteAt_(i + 1)
             (b1 == None).ifTrue({ None }, ifFalse: {
               (b1 < 128).ifTrue({ None }, ifFalse: {
                 (b1 >= 192).ifTrue({ None }, ifFalse: {
@@ -129,8 +129,8 @@ class String {
           }, ifFalse: {
             (b0 < 240).ifTrue({
               // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-              let b1 = self.rawByteAt(i + 1)
-              let b2 = self.rawByteAt(i + 2)
+              let b1 = self.byteAt_(i + 1)
+              let b2 = self.byteAt_(i + 2)
               (b1 == None).ifTrue({ None }, ifFalse: {
                 (b2 == None).ifTrue({ None }, ifFalse: {
                   (b1 < 128).ifTrue({ None }, ifFalse: {
@@ -147,9 +147,9 @@ class String {
             }, ifFalse: {
               (b0 < 248).ifTrue({
                 // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-                let b1 = self.rawByteAt(i + 1)
-                let b2 = self.rawByteAt(i + 2)
-                let b3 = self.rawByteAt(i + 3)
+                let b1 = self.byteAt_(i + 1)
+                let b2 = self.byteAt_(i + 2)
+                let b3 = self.byteAt_(i + 3)
                 (b1 == None).ifTrue({ None }, ifFalse: {
                   (b2 == None).ifTrue({ None }, ifFalse: {
                     (b3 == None).ifTrue({ None }, ifFalse: {
@@ -191,14 +191,14 @@ class String {
     })
 
     var i = 0
-    while (i <= self.rawByteCount - needle.rawByteCount) {
+    while (i <= self.byteCount_ - needle.byteCount_) {
       var match = true
       var j = 0
-      while (j < needle.rawByteCount) {
-        (self.rawByteAt(i + j) == needle.rawByteAt(j)).ifTrue({}, ifFalse: {
+      while (j < needle.byteCount_) {
+        (self.byteAt_(i + j) == needle.byteAt_(j)).ifTrue({}, ifFalse: {
           match = false
         })
-        (match).ifTrue({ j = j + 1 }, ifFalse: { j = needle.rawByteCount })
+        (match).ifTrue({ j = j + 1 }, ifFalse: { j = needle.byteCount_ })
       }
       (match).ifTrue({ return i })
       i = i + 1
@@ -219,14 +219,14 @@ class String {
     var prev = 0
     var i = self.indexOf(delimiter)
     while (i != -1) {
-      result.add(self.rawSlice(prev, i))
-      prev = i + delimiter.rawByteCount
+      result.add(self.slice_(prev, i))
+      prev = i + delimiter.byteCount_
       // Search for next occurrence after this delimiter
-      var rest = self.rawSlice(prev, self.rawByteCount)
+      var rest = self.slice_(prev, self.byteCount_)
       var nextIdx = rest.indexOf(delimiter)
       (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
     }
-    result.add(self.rawSlice(prev, self.rawByteCount))
+    result.add(self.slice_(prev, self.byteCount_))
     return result
   }
 
@@ -246,13 +246,13 @@ class String {
     var prev = 0
     var i = self.indexOf(from)
     while (i != -1) {
-      result = result + self.rawSlice(prev, i) + to
-      prev = i + from.rawByteCount
-      var rest = self.rawSlice(prev, self.rawByteCount)
+      result = result + self.slice_(prev, i) + to
+      prev = i + from.byteCount_
+      var rest = self.slice_(prev, self.byteCount_)
       var nextIdx = rest.indexOf(from)
       (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
     }
-    result = result + self.rawSlice(prev, self.rawByteCount)
+    result = result + self.slice_(prev, self.byteCount_)
     return result
   }
 
@@ -277,11 +277,11 @@ class String {
 
     var i = 0
     var stop = false
-    while ((i < self.rawByteCount).and({ not stop })) {
+    while ((i < self.byteCount_).and({ not stop })) {
       let cp = self.codePointAt(i)
       var found = false
       var j = 0
-      while (j < chars.rawByteCount) {
+      while (j < chars.byteCount_) {
         (chars.codePointAt(j) == cp).ifTrue({ found = true })
         let len = chars.leadByteLen_(j)
         (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
@@ -292,7 +292,7 @@ class String {
         stop = true  // exit loop, keeping i at the first non-trimmed byte
       })
     }
-    return self.rawSlice(i, self.rawByteCount)
+    return self.slice_(i, self.byteCount_)
   }
 
   // Trim from the end using the given charset.
@@ -301,7 +301,7 @@ class String {
       throw ArgumentError.new("trimEnd: chars must be a String")
     })
 
-    var i = self.rawByteCount
+    var i = self.byteCount_
     var stop = false
     while ((i > 0).and({ not stop })) {
       // Scan backward one byte at a time to find the previous lead byte
@@ -313,7 +313,7 @@ class String {
         // Found a lead byte; check if it's in the trim set
         var found = false
         var j = 0
-        while (j < chars.rawByteCount) {
+        while (j < chars.byteCount_) {
           (chars.codePointAt(j) == cp).ifTrue({ found = true })
           let len = chars.leadByteLen_(j)
           (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
@@ -325,7 +325,7 @@ class String {
         })
       })
     }
-    return self.rawSlice(0, i)
+    return self.slice_(0, i)
   }
 
   // Repeat the string `count` times.
@@ -363,9 +363,9 @@ class String {
 class StringByteSequence {
   construct new(s) { _string = s }
 
-  size => _string.rawByteCount
+  size => _string.byteCount_
 
-  at(i) => _string.rawByteAt(i)
+  at(i) => _string.byteAt_(i)
 
   each(f) {
     var i = 0
@@ -380,7 +380,7 @@ class StringByteSequence {
     let next = (cursor == None).ifTrue({ 0 }, ifFalse: {
       cursor + 1
     })
-    return (next < _string.rawByteCount).ifTrue({ next }, ifFalse: { None })
+    return (next < _string.byteCount_).ifTrue({ next }, ifFalse: { None })
   }
 }
 
@@ -414,7 +414,7 @@ class StringCodePointSequence {
     let next = (cursor == None).ifTrue({ 0 }, ifFalse: {
       cursor + _string.leadByteLen_(cursor)
     })
-    return (next < _string.rawByteCount).ifTrue({ next }, ifFalse: { None })
+    return (next < _string.byteCount_).ifTrue({ next }, ifFalse: { None })
   }
 }
 
@@ -1224,7 +1224,7 @@ class TakeView extends Iterable {
 
 class System {
   // U-STRING write funnel (ADR-0049 amendment): pure `.ph` control flow over
-  // native `rawWrite(_)` and the `toString` message. Additive-only: does not
+  // native `write_(_)` and the `toString` message. Additive-only: does not
   // touch the native `print(_)` pathway (pre-existing divergence between
   // `Value::to_string` and the `.toString` message is out of scope).
   static write(obj) {
@@ -1235,9 +1235,9 @@ class System {
   static writeObject_(obj) {
     let s = obj.toString
     (s.isA(String)).ifTrue({
-      System.rawWrite(s)
+      System.write_(s)
     }, ifFalse: {
-      System.rawWrite("invalid toString")
+      System.write_("invalid toString")
     })
     return obj
   }

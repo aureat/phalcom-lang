@@ -1,5 +1,26 @@
 # U-NATIVE-MARKER — Work order: native/private primitive marker `raw*` → trailing `_`
 
+> **LANDED 2026-07-15.** Both halves are now done and the tree carries exactly one
+> convention. **Collections had already landed** (`length_`/`at_`/`set_`/`push_`,
+> `size_`/`get_`/`put_`/`has_`/`remove_`/`keyAt_`/`valueAt_`, `add_`,
+> `start_`/`end_`/`inclusive_`). **String + System landed today** —
+> `rawByteCount`→`byteCount_`, `rawByteAt`→`byteAt_`, `rawSlice`→`slice_`,
+> `rawWrite`→`write_` (70 sites, 11 files; 26/26 test binaries green, `R-INV-0.1`
+> floor census included).
+>
+> **Why String/System lagged:** U-STRING shipped them under `raw*` *after* the
+> 2026-07-13 ruling, and [ADR-0062](../../../adr/retired/0062-amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md)
+> was then written to bless the deviation — making the record match the code rather
+> than the ruling. For a day the tree carried both conventions at once. The user
+> re-ruled trailing-`_` on 2026-07-15; **ADR-0062 is Retired** and
+> [ADR-0049](../../../adr/accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)
+> — which specified these exact names all along — is authoritative again.
+>
+> Rust *fn* names (`string_raw_byte_count`, `list_raw_at`) keep their `raw_` infix by
+> design: this unit renames **selectors**, not internal Rust identifiers.
+> Floor counts unchanged — a rename, not an amendment.
+
+
 _Self-contained mechanical rename unit for **one** implementer. Adopts the Wren convention
 (`wren_core.wren`: a trailing `_` on a selector marks a native/private primitive —
 `byteCount_`, `codePointAt_`, `iterateByte_`) in place of Phalcom's current `raw`-**prefix**.

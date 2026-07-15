@@ -185,7 +185,7 @@ fn list_satisfies_sequence_contract() {
 /// Builds a `Map` keyed `0 -> elems[0], 1 -> elems[1], …` through the surface
 /// protocol (`Map.new()` + `.at(_,put)`) — the numeric index doubles as the
 /// key, so the generic `at(i)` sequence-protocol check (as-built.md §3.3(a))
-/// exercises `Map#at(_)`'s real keyed-lookup path (`rawGet`, re-entering the
+/// exercises `Map#at(_)`'s real keyed-lookup path (`get_`, re-entering the
 /// VM to send `hash`/`==` on the `Number` key) rather than a synthetic index
 /// read (U-COLLTYPES plan.md §7).
 fn build_map(vm: &mut VM, elems: &[Value]) -> Value {
@@ -223,7 +223,7 @@ fn build_set(vm: &mut VM, elems: &[Value]) -> Value {
 
 /// `Set` satisfies the sequence-protocol contract (as-built.md §3.3(a)):
 /// `mutable: true` (Set has a real `add(_)` that grows by 1, insertion-order
-/// indexed by `at(_)`/`rawAt`); `hashable: false` (Q5: `Set` is mutable ⇒
+/// indexed by `at(_)`/`at_`); `hashable: false` (Q5: `Set` is mutable ⇒
 /// identity `hash`).
 #[test]
 fn set_satisfies_sequence_contract() {

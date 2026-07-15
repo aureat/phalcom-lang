@@ -293,9 +293,9 @@ Ordered as `install_primitives` installs them
 | `+(_)` | instance | `string_add` | concatenation |
 | `hash` | instance | `string_hash` | cached djb2 **content** hash — equal content ⇒ equal hash (ADR-0023) |
 | `new()` , `new(_)` | static | `string_class_new` | |
-| `rawByteCount` | instance | `string_raw_byte_count` | UTF-8 buffer length in bytes (ADR-0049, U-STRING) |
-| `rawByteAt(_)` | instance | `string_raw_byte_at` | raw byte at a byte offset, or `None` out of bounds (ADR-0049, U-STRING) |
-| `rawSlice(_,_)` | instance | `string_raw_slice` | substring by byte range `[start, end)`, validates UTF-8 char boundaries, never panics (ADR-0049, U-STRING) |
+| `byteCount_` | instance | `string_raw_byte_count` | UTF-8 buffer length in bytes (ADR-0049, U-STRING; renamed from `rawByteCount` 2026-07-15 — U-NATIVE-MARKER) |
+| `byteAt_(_)` | instance | `string_raw_byte_at` | raw byte at a byte offset, or `None` out of bounds (ADR-0049, U-STRING; renamed from `rawByteAt` 2026-07-15) |
+| `slice_(_,_)` | instance | `string_raw_slice` | substring by byte range `[start, end)`, validates UTF-8 char boundaries, never panics (ADR-0049, U-STRING; renamed from `rawSlice` 2026-07-15) |
 
 The rest of the `String` protocol (`split`, `replace`, `trim`/`trimStart`/`trimEnd`,
 `*(count)`, `indexOf`, `codePointAt`, `bytes`/`codePoints`) is `.ph`-derived over these
@@ -403,7 +403,7 @@ construction (R-INV-3.3).
 |---|---|---|---|
 | `print(_)` | static | `system_class_print` | the sole I/O primitive |
 | `new()` | static | `system_class_new` | |
-| `rawWrite(_)` | static | `system_raw_write` | raw stdout write, no newline; `write(_)`/`writeObject_(_)` are `.ph`-derived over it (ADR-0049, U-STRING) |
+| `write_(_)` | static | `system_raw_write` | raw stdout write, no newline; `write(_)`/`writeObject_(_)` are `.ph`-derived over it (ADR-0049, U-STRING; renamed from `rawWrite` 2026-07-15) |
 
 > Also present but not yet catalogued in this table: `schedule(_)`/`system_schedule`,
 > `nextScheduled`/`system_next_scheduled` (U-SCHED), `gc()`/`system_gc` (U-GC step 3).

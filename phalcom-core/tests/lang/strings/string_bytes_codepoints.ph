@@ -6,7 +6,7 @@
 // codepoint-level iteration sees one entry per Unicode scalar value.
 
 let s = "a€🎉"
-System.print(s.rawByteCount)
+System.print(s.byteCount_)
 System.print(s.bytes.size)
 System.print(s.codePoints.size)
 

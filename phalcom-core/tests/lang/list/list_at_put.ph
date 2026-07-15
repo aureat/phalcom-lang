@@ -1,8 +1,8 @@
 // area: list
 // spec: catalog-delta.md §2.4; ADR-0020; U-STD §2.6; DEFERRED.md #18
 // status: PASS
-// U-STD: `at(_, put:)` is the public wrapper over the `rawSet(_,_)` floor
-// primitive — selector `at(_:put:)`, matching `rawSet`'s arity — writing
+// U-STD: `at(_, put:)` is the public wrapper over the `set_(_,_)` floor
+// primitive — selector `at(_:put:)`, matching `set_`'s arity — writing
 // `put` at index `i` and returning `self` so writes chain.
 
 let l = List.new()

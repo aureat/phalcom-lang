@@ -38,7 +38,7 @@ class Str {
     if (prefix.size > str.size) {
       return false
     }
-    let check = str.rawSlice(0, prefix.size)
+    let check = str.slice_(0, prefix.size)
     return check == prefix
   }
 
@@ -48,7 +48,7 @@ class Str {
       return false
     }
     let start = str.size - suffix.size
-    let check = str.rawSlice(start, str.size)
+    let check = str.slice_(start, str.size)
     return check == suffix
   }
 }
