@@ -27,7 +27,7 @@ abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../../adr/0004-boolea
 4. **Message send is the only computational primitive.** The compiler may
    *inline* some sends (`if`, `+`, `and`) but the semantics are method sends.
 5. **Single inheritance.** One `superclass` per class; `Object` is the root.
-6. **Uniform tower.** Class-side (`static`, `construct`) methods obey the same
+6. **Uniform tower.** Class-side (`@static`, `@constructor`) methods obey the same
    inheritance rules as instance-side methods, via the parallel metaclass
    hierarchy (§5, [ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md)). No class is special-cased to lack a metaclass.
 
@@ -102,7 +102,7 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 > `Behavior` is an object-model refinement ratified by [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md);
 > the top-level spec is silent on it and neither requires nor forbids it. It exists
-> to give `Class` and `Metaclass` a shared home for `new`/`construct`/reflection
+> to give `Class` and `Metaclass` a shared home for `new_`/`new`/reflection
 > and to keep the tower uniform.
 
 ### Primitives & singletons
@@ -207,9 +207,25 @@ Let `X class` denote the metaclass of class `X`.
    (Metaclass class).class == Metaclass        // closes the loop
    ```
 
-Rule 4 is what makes `static`/`construct` methods inherit. The current tree wires
+Rule 4 is what makes `@static`/`@constructor` methods inherit. The current tree wires
 every metaclass's superclass to `Class`, breaking it (see
 [Implementation Status](implementation-status.md)).
+
+Rule 4 is also the whole of constructor dispatch. A constructor is an ordinary
+class-side method ([Classes §1](classes.md),
+[ADR-0063](../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md)),
+so `Foo.new(1)` is an ordinary send resolved by walking `Foo class` and its
+superclass chain — from any receiver expression, with no constructor-specific
+namespace, table, or call-site rewriting. The bare allocator `Class >> new()` sits at
+the root of that chain as an ordinary default, shadowed by ordinary lookup.
+
+> **Historical note.** Until 2026-07-15 user constructors opted *out* of this rule,
+> installing under a prefixed selector (`init new(_)`) that no call site encodes and
+> relying on a compile-time rewrite that only fired for bare-identifier receivers.
+> Every other receiver shape walked past the constructor to the bare allocator and
+> silently produced an uninitialized instance. The kernel's own `List.new()` /
+> `Map.new()` never had the bug because they always registered as ordinary selectors
+> and let this rule do the work. See ADR-0063's Context.
 
 ### Diagram
 
@@ -314,7 +330,8 @@ Defined on `Object`, overridable everywhere:
 | `doesNotUnderstand(_)` | hook on failed lookup, given a `Message` |
 
 `Behavior` adds (inherited by `Class` and `Metaclass`): `name`, `superclass`,
-`methods`, allocation, and the machinery behind `construct` ([classes](classes.md)).
+`methods`, and allocation — `new_`, over which the `new()` default and every
+constructor are ordinary methods ([classes](classes.md)).
 
 ---
 

@@ -29,7 +29,8 @@ Python's `__iter__`/`__next__`, but cursor-based rather than object-based. They 
 
 ```phalcom
 class Countdown {
-  construct from(n:) { _n = n }
+  @constructor
+  from(n:) { _n = n }
   iterate(cursor) {
     let next = cursor.map { c => c - 1 }.unwrapOr(_n)
     return (next >= 0).ifTrue { Some(next) }.ifFalse { None }

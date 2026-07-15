@@ -222,25 +222,36 @@ ordinary hierarchy lookup for that one selector
 
 `@` is **reserved for attributes/decorators**. Attributes compile to ordinary method-table entries — they are macros over the method table, not new machinery.
 
-Planned (not yet specified in detail):
-
-| Attribute | Effect |
-| --- | --- |
-| `@construct` | Derives the initializer from the declared fields. |
-| `@get` | Derives an accessor method for a field. |
-| `@set` | Derives a mutator method for a field. |
+| Attribute | Target | Effect |
+| --- | --- | --- |
+| `@constructor` | class header | Derives a constructor from the declared fields. |
+| `@constructor` | method member | Marks the method a constructor ([Classes §1](classes.md)). |
+| `@static` | method / getter / setter | Declares the member on the metaclass. |
+| `@get` | field | Derives an accessor method for a field. |
+| `@set` | field | Derives a mutator method for a field. |
 
 ```
-@construct
+@constructor
 class Point {
-  var x
-  var y
-  @get var label          // derives label()
-  @get @set var color     // derives color() and color(_)
+  var _x
+  var _y
+  @get var _label          // derives label()
+  @get @set var _color     // derives color() and color(_)
 }
 ```
 
 Per-field escape hatches (e.g. `@get(priv)`) fit without a grammar change.
+
+`@constructor` is **target-polymorphic** on purpose. On a class header it derives a
+constructor from the declared fields, in declaration order, with labels stripped of the
+leading underscore (`_x` → `x:`); fields carrying a `default` are omitted from the
+parameter list and evaluated per instance at construct time. It does **not** chain
+`super.new(...)` — own fields only.
+
+Both targets share one mechanism: the header form emits a `@constructor` **method
+member** into the AST, which then expands exactly as a hand-written one does. There is
+no second code path, and no separate `@construct` attribute — one name for one concept
+([ADR-0063](../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md) §2).
 
 ---
 

@@ -29,11 +29,10 @@ import_decl    := "import" IDENT
                  | "import" IDENT "as" IDENT
 
 class_decl     := "class" IDENT [ "extends" IDENT ] "{" { member } "}"
-member         := { attribute } [ "static" ] member_body
+member         := { attribute } member_body
 attribute      := "@" IDENT [ "(" [ arg { "," arg } ] ")" ]
-member_body    := construct_def | setter_def | method_def | getter_def | field_init
+member_body    := setter_def | method_def | getter_def | field_init
 
-construct_def  := "construct" IDENT param_list block
 setter_def     := IDENT "=" param_list method_body
 method_def     := method_name param_list method_body
 getter_def     := IDENT method_body
@@ -158,7 +157,7 @@ block_comment  := "/*" { any_char } "*/"
    property name (e.g. `.self`, `.and`); "extends", "try", "catch", "on",
    "ensure" are contextual keywords, only reserved in class/try position;
    "fn" is reserved-inactive, not currently a keyword *)
-keyword        := "let" | "var" | "class" | "construct" | "static"
+keyword        := "let" | "var" | "class"
                  | "self" | "super" | "if" | "else" | "while" | "for" | "in"
                  | "break" | "continue" | "return" | "and" | "or" | "not" | "is"
                  | "true" | "false" | "import" | "as" | "throw"

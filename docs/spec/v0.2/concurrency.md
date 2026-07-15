@@ -40,7 +40,7 @@ fiber runs.
 
 | Signature | Side | Meaning |
 |-----------|------|---------|
-| `construct new(_)` | class | wrap a `Function` as a not-yet-started fiber |
+| `@constructor new(_)` | class | wrap a `Function` as a not-yet-started fiber |
 | `call` / `call(_)` | instance | resume; the argument becomes the value of the suspended `yield` (or the entry's parameter on first resume). Returns the next yielded/returned value |
 | `try` / `try(_)` | instance | like `call`, but a failure yields `None`/an `Error` value instead of propagating |
 | `isDone` | instance | `true` once `done` or `failed` |
@@ -181,8 +181,8 @@ Option 1).
 
 | Signature | Side | Status | Meaning |
 |-----------|------|--------|---------|
-| `construct value(_)` | class | **A** | an already-`fulfilled` future |
-| `construct error(_)` | class | **A** | an already-`rejected` future |
+| `@constructor value(_)` | class | **A** | an already-`fulfilled` future |
+| `@constructor error(_)` | class | **A** | an already-`rejected` future |
 | `async(_)` | class | **B** | run a `Function` on a fresh fiber, returning a future for its result |
 | `await` | instance | **B** | suspend the current fiber until settled; return the value or re-raise the error |
 | `then(_)` | instance | **A** (settled-only); pending continuation is **B** | register a continuation; returns a future for the continuation's result |

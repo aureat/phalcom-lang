@@ -3,44 +3,113 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0011](../../adr/0011-static-instance-slot-layout.md) (static per-class slot layout) ·
-[ADR-0014](../../adr/0014-let-and-var-bindings.md) (let and var bindings)
+[ADR-0063](../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md) (**Proposed** — constructors as ordinary class-side methods; `@constructor`/`@static`; `new_`) ·
+[ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md) (static per-class slot layout) ·
+[ADR-0014](../../adr/accepted/0014-let-and-var-bindings.md) (let and var bindings) ·
+[ADR-0002](../../adr/accepted/0002-metaclass-tower-parallel-rule.md) (the parallel tower that resolves them)
 
 ## 1. Constructors
 
 ```phalcom
 class Person {
-  construct new(name:, age:) {
+  @constructor
+  new(name:, age:) {
     _name = name
     _age = age
   }
 
-  construct new(name:) { _name = name }
+  @constructor
+  new(name:) { _name = name }
 
-  construct anonymous() { _name = "Anonymous" }
+  @constructor
+  anonymous() { _name = "Anonymous" }
 }
 ```
 
-`construct` is a keyword. The compiler:
+**A constructor is an ordinary class-side method.** `@constructor` is a decorator,
+not a keyword — it declares a method on the **metaclass** ([Object Model
+§5](object-model.md)), which is why constructors inherit and why they resolve from
+*any* receiver expression:
 
-1. Emits allocation of a fresh instance.
+```phalcom
+Person.new(name: "Ada", age: 36)      // literal class
+var C = Person   C.new(name: "Ada")   // variable
+M.Person.new(name: "Ada")             // module member
+```
+
+All three encode the same selector `new(name)` and go through the same ordinary
+lookup. There is no separate constructor namespace and no call-site rewriting.
+
+What the decorator buys over a hand-written class-side method is sugar. It expands to
+two ordinary methods: a class-side one that allocates and returns, and an instance-side
+initializer holding the body.
+
+1. Allocates a fresh instance via `new_` (§1.2).
 2. Runs the body with `self` bound to it.
-3. Returns `self` implicitly.
+3. Returns the instance implicitly.
 
-Users **never** write `let i = self.new(); i.init(...)`. There is no user-visible
-allocator, no implicit zero-arg `new`, and no arity-shadowing magic. A `construct`
-declares a method on the **metaclass** ([Object Model §5](object-model.md)).
+Multiple constructors are distinguished by **selector**, not arity hacks:
+`new(name:, age:)` and `new(name:)` are simply two different selectors.
 
-`new` is not special — `construct anonymous()` is equally legitimate. Multiple
-constructors are distinguished by selector, not arity hacks: `new(name,age)` and
-`new(name)` are simply two different selectors.
+### 1.1 `new` is a convention, not a rule
 
-**Relationship to `@construct`.** [Selectors, Symbols & References §4](selectors.md#4-attributes-)
-proposes a `@construct` attribute that derives an initializer from declared
-fields. Planned — relationship to the `construct` keyword above TBD: whether
-`@construct` is sugar that expands to a `construct new(...)` like the ones
-above, a distinct mechanism, or eventually subsumes hand-written constructors
-for the common case.
+`@constructor anonymous()` is equally legitimate, and named constructors are the
+ordinary case — `Future.value(_)`, `Future.error(_)`, `Ref.at(_,_)`, `Cell.of(_)` all
+ship today. They carry no special machinery: nothing named `at()` sits at the tower
+root, so `Ref.at(1, 2)` either finds the constructor or raises `doesNotUnderstand`.
+
+`new` is the **one** name the language treats specially, and only because
+`Class >> new()` occupies it as a default (§1.2). See ADR-0063 §7 for the tombstone
+rule that keeps a wrong-arity `new` from silently reaching that default.
+
+### 1.2 The allocator: `new_`
+
+`Class >> new_()` is the sole primitive allocator — arity 0, uninitialized instance,
+reserved (declaring `new_` in a user class is an error). Every class object reaches it
+through the tower.
+
+`Class >> new()` is **ordinary Phalcom**, a default at the tower root:
+
+```phalcom
+class Class {
+  new() => self.new_()
+}
+```
+
+It is shadowed by ordinary lookup like any other method — which is all a class
+declaring its own `new` does. A class with no constructor inherits it, which is why
+`Point.new()` works on a constructor-less class.
+
+Because `new_` is public, a constructor can be written by hand, with no decorator, as
+an ordinary pair of methods — this is exactly what `@constructor` desugars to:
+
+```phalcom
+class Point {
+  @static
+  new(x, y) {
+    let instance = self.new_()
+    instance.init(x, y)
+    return instance
+  }
+
+  init(x, y) {
+    _x = x
+    _y = y
+    return self
+  }
+}
+```
+
+`init` here is an ordinary instance method with no special status; the name is the
+author's choice. This is the Smalltalk pattern (`Point class >> new` calling
+`basicNew`), and `@constructor` exists to make the common case a one-liner — not
+because the long form is forbidden.
+
+**Relationship to `@constructor` on a class header.** [Selectors, Symbols &
+References §4](selectors.md#4-attributes-) specifies `@constructor` as a class-header
+attribute that *derives* a constructor from the declared fields. Same name, same
+mechanism: the header form emits a `@constructor` method member, which then expands
+exactly as a hand-written one does.
 
 ## 2. Fields
 
@@ -80,7 +149,8 @@ class Person {
 
   ==(other) => self.name == other.name and self.age == other.age
 
-  static species => "Homo sapiens"
+  @static
+  species => "Homo sapiens"
 }
 ```
 
@@ -89,7 +159,20 @@ class Person {
 - A getter is a method with no parameter list. `name` and `name()` are different
   selectors.
 - Operators are ordinary methods.
-- `static` declares on the metaclass.
+- `@static` declares on the metaclass. It is a decorator, not a keyword — a pure
+  modifier that sets one bit on the member, adding no machinery of its own. Legal on
+  methods, getters, and setters.
+
+`@static` and `@constructor` are both decorators but are different *kinds* of
+attribute, and the difference is visible in what they produce:
+
+| | `@static` | `@constructor` |
+|---|---|---|
+| Kind | modifier | derive |
+| Effect | sets one bit in place | rewrites one member into two |
+| Members in → out | 1 → 1 | 1 → 2 |
+
+`@static @constructor` on one member is an error: a constructor is already class-side.
 
 **Relationship to `@get`/`@set`.** The getter/setter pair above (`name =>
 _name` / `name=(value) { ... }`) is hand-written. [Selectors, Symbols &
@@ -97,6 +180,28 @@ References §4](selectors.md#4-attributes-) proposes `@get`/`@set` field
 attributes that derive the same accessor methods automatically. Planned — not
 yet specified whether hand-written accessors and derived ones can coexist on
 the same field or are mutually exclusive.
+
+## 3.1 Duplicate selectors
+
+Two members of one class body may not install the same selector on the same side
+(instance or class-side), regardless of decorators:
+
+```phalcom
+class Foo {
+  @constructor
+  new(x) { _x = x }
+
+  @static
+  new(x) { return 42 }        // error: both define class-side `new(_)`
+}
+```
+
+This is a **duplicate definition**, the same species as declaring `foo()` twice — not
+a rule about constructors. Within one body there is no lookup order to appeal to.
+
+Across a hierarchy there is, so a **subclass** `@static new()` shadowing a parent's
+`@constructor new()` is legal and silent. That is an override, and overriding is what
+a class hierarchy is for.
 
 ## 4. Implicit return
 

@@ -66,13 +66,12 @@ extra statement-level syntax.
 ```
 class_decl  := "class" IDENT [ "extends" IDENT ] "{" { member } "}"
 
-member      := { attribute } [ "static" ] member_body
+member      := { attribute } member_body
 attribute   := "@" IDENT [ "(" [ arg_list_body ] ")" ]
 
-member_body := construct_decl | method_decl | getter_decl | setter_decl
+member_body := method_decl | getter_decl | setter_decl
              | field_init
 
-construct_decl := "construct" IDENT param_list block
 method_decl    := method_name param_list method_body
 getter_decl    := IDENT method_body
 setter_decl    := IDENT "=" param_list method_body
@@ -88,14 +87,16 @@ method_body    := "=>" expr | block
 
 ```phalcom
 class Point extends Shape {
-  construct new(x:, y:) { _x = x; _y = y }
+  @constructor
+  new(x:, y:) { _x = x; _y = y }
 
   x => _x                    // getter — selector `x`, distinct from `x()`
   y=(value) { _y = value }   // setter — selector `y=(_)`
 
   +(other) => Point.new(x: _x + other.x, y: _y + other.y)
 
-  static origin => Point.new(x: 0, y: 0)
+  @static
+  origin => Point.new(x: 0, y: 0)
 }
 ```
 
@@ -106,14 +107,18 @@ naming itself or a supertype ancestor (a cycle) as its own superclass is
 rejected. See [Classes](../classes.md) and [Object Model](../object-model.md)
 for the semantics.
 
-- `attribute` covers the planned `@construct` / `@get` / `@set` forms
-  ([Selectors, Symbols & References §4](../selectors.md#4-attributes-)) — not
-  yet load-bearing in any production above beyond the surface slot.
-- `static` puts the member on the metaclass rather than the instance side.
-- **Constructor**: `construct` allocates a fresh instance, runs the body with
-  `self` bound to it, and returns `self` implicitly. Multiple constructors on
-  one class are distinguished by **selector**, not arity
-  ([Classes §1](../classes.md#1-constructors), [ADR-0011]).
+- `attribute` covers `@constructor` / `@static` / `@get` / `@set` and the contract
+  forms ([Selectors, Symbols & References §4](../selectors.md#4-attributes-)).
+  **It is load-bearing**: `member` has no `static` or `construct` slot of its own —
+  class-side placement and constructor-ness are carried by `@static` and
+  `@constructor`, which desugar into ordinary `method_decl`s before the rest of
+  compilation
+  ([ADR-0063](../../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md)).
+- `@static` puts the member on the metaclass rather than the instance side.
+- **Constructor**: `@constructor` on a `method_decl` allocates a fresh instance via
+  `new_`, runs the body with `self` bound to it, and returns the instance implicitly.
+  Multiple constructors on one class are distinguished by **selector**, not arity, and
+  the name need not be `new` ([Classes §1](../classes.md#1-constructors)).
 - **Method**: `method_name` may be an ordinary identifier or one of the
   operator spellings above — operators are ordinary methods with ordinary
   dispatch.
@@ -141,7 +146,7 @@ rest       := "*" IDENT
 ```
 
 ```phalcom
-construct new(name:, age:) { ... }        // labeled: label == binding
+@constructor new(name:, age:) { ... }     // labeled: label == binding
 method move(to target:) { ... }           // labeled: external `to:`, body sees `target`
 method sum(*values) { ... }               // rest: collects trailing positionals into a List
 ```
