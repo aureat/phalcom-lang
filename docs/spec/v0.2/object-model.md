@@ -27,7 +27,7 @@ abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../../adr/0004-boolea
 4. **Message send is the only computational primitive.** The compiler may
    *inline* some sends (`if`, `+`, `and`) but the semantics are method sends.
 5. **Single inheritance.** One `superclass` per class; `Object` is the root.
-6. **Uniform tower.** Class-side (`@static`, `@constructor`) methods obey the same
+6. **Uniform tower.** Class-side (`@class`, `@constructor`) methods obey the same
    inheritance rules as instance-side methods, via the parallel metaclass
    hierarchy (§5, [ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md)). No class is special-cased to lack a metaclass.
 
@@ -207,7 +207,7 @@ Let `X class` denote the metaclass of class `X`.
    (Metaclass class).class == Metaclass        // closes the loop
    ```
 
-Rule 4 is what makes `@static`/`@constructor` methods inherit. The current tree wires
+Rule 4 is what makes `@class`/`@constructor` methods inherit. The current tree wires
 every metaclass's superclass to `Class`, breaking it (see
 [Implementation Status](implementation-status.md)).
 

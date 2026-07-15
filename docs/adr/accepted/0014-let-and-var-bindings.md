@@ -1,6 +1,14 @@
 # 14. Variable bindings are `let` (immutable) and `var` (mutable)
 
-- Status: Accepted
+- Status: **Superseded by [ADR-0064](0064-let-const-bindings-and-field-mutability.md)** (2026-07-15)
+
+> **Superseded on spelling, not semantics.** ADR-0064 renames `var` → `let` and
+> `let` → `const`; every rule below carries over unchanged, including "an uninitialized
+> mutable binding reads `None`" and "an immutable binding requires an initializer".
+> If you are here chasing a citation about *behavior*, this document is still correct —
+> substitute the new keywords. ADR-0064 additionally rules field mutability, which this
+> ADR never covered (and which was silently unenforced: a `let` field was writable from
+> any method).
 - Date: 2026-07-11
 - Related: [open question Q1](../spec/v0.2/open-questions.md); `docs/spec/v0.2/values-and-absence.md` §3; [ADR-0007](0007-option-as-abstract-with-some-none.md)
 

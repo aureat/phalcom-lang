@@ -1,13 +1,29 @@
-# 63. Constructors are ordinary class-side methods: `@constructor`/`@static` decorators, `new_` allocator
+# 63. Constructors are ordinary class-side methods: `@constructor`/`@class` decorators, `new_` allocator
 
 - Status: **Accepted** (ratified by the user 2026-07-15, DEC-CTOR-B "ratify in full")
 - Date: 2026-07-15
-- Rulings folded in: **DEC-CTOR-A** — `@static` does *not* extend to fields; static
-  fields get their own decorator, **`@classField`** (§2.1, DEC-CTOR-A1) ·
-  **DEC-CTOR-A2** — per-class static-field storage is working-as-designed; fixture it ·
-  **DEC-CTOR-C** — the §5 desugar is measurement-gated, not ratified here ·
-  **DEC-CTOR-E** — `@construct` unifies into `@constructor` ·
-  **DEC-CTOR-D** — one-shot codemod, no deprecation window
+- **Amended 2026-07-15, same day, before any implementation** (DEC-CTOR-F/G/H/I). Amended
+  in place rather than superseded because nothing was built against the original text —
+  there is no implementation to strand, and a second document would only need
+  reconciling. What changed:
+  - **§2 — `@static` is replaced by `@class`, covering methods *and* fields.**
+    Supersedes DEC-CTOR-A/A1 and **deletes `@classField`** (which this ADR proposed
+    earlier the same day). `@class` names *placement*, which is what methods and fields
+    share; `@static`'s Java/C# "one shared slot" connotation was the entire reason
+    fields had needed a separate name, and it evaporates.
+  - **§7 — the tombstone is deleted.** `new()` is an ordinary inherited method
+    (DEC-CTOR-H). The compile-time arity guard goes with it. **This ADR no longer
+    closes `DEFERRED.md:29`** — see §7.
+  - **§6 — a bare-allocation category is added** (`native_repr`, DEC-CTOR-H2), and
+    `new_`'s naming rationale is corrected: it follows the existing house convention,
+    not a novel one.
+  - **§10 — the `class` keyword-variable is added** (DEC-CTOR-G/G2).
+  - **Field grammar moves to [ADR-0064](0064-let-const-bindings-and-field-mutability.md)**
+    (`let`/`const`, superseding ADR-0014). U-BINDINGS lands **before** U-CTOR.
+- Rulings folded in: **DEC-CTOR-A2** — per-class class-field storage is
+  working-as-designed; fixture it · **DEC-CTOR-C** — the §5 desugar is
+  measurement-gated, not ratified here · **DEC-CTOR-D** — one-shot codemod, no
+  deprecation window · **DEC-CTOR-E** — `@construct` unifies into `@constructor`
 - Related: [ADR-0002](../accepted/0002-metaclass-tower-parallel-rule.md) (the parallel
   tower is the mechanism this ADR stops opting out of) ·
   [ADR-0012](../accepted/0012-selector-signature-encoding-and-dispatch.md)
@@ -15,7 +31,7 @@
   [ADR-0019](../accepted/0019-freeze-vm-blessed-primitive-floor.md) (**this is a floor
   amendment** — see §7) · [ADR-0043](../accepted/0043-no-default-arguments-keep-selector-identity-pristine.md)
   (selector identity stays pristine; nothing here varies effective arity) ·
-  [ADR-0061](0061-underscore-prefix-reservation-fields-internals-reserved.md)
+  [ADR-0061](../proposed/0061-underscore-prefix-reservation-fields-internals-reserved.md)
   (Proposed — reserves *leading* `_`; `new_` is trailing and disjoint, see
   Consequences) · [ADR-0011](../accepted/0011-static-instance-slot-layout.md)
   (**miscited** by the current constructor code — see Context)
@@ -133,15 +149,21 @@ token raises
 
 > `member.legacy_keyword: 'construct new(x)' is no longer valid syntax; use the '@constructor' decorator on the member`
 
-### 2. `@constructor` and `@static` are the surface
+### 2. `@constructor` and `@class` are the surface
 
 ```phalcom
-class Point {
-  @constructor
-  new(x, y) { _x = x  _y = y }
+class Factory {
+  @class _total = 0        // class-side field
+  _n                       // instance field
 
-  @static
-  origin() { return Point.new(0, 0) }
+  @constructor
+  new(n) {
+    _n = n
+    self.class.update(n)
+  }
+
+  @class
+  update(n) { _total = _total + n }
 }
 ```
 
@@ -157,66 +179,82 @@ deliberate: `@construct` (class-header derive) and `@constructor` (member marker
 two names one character apart, with unrelated meanings, is a trap. `Target::Construct`
 is deleted with `ConstructDef`.
 
-`@static` is legal on `Method`/`Getter`/`Setter` only. `@static @constructor` together
-is an error, not a redundant no-op.
+`@class @constructor` together is an error, not a redundant no-op — a constructor is
+already class-side.
 
-### 2.1 `@classField` — static fields are a different concept, not a `@static` target
+### 2.1 `@class` is one decorator for both members and fields (supersedes §2.1's `@classField`)
 
-**DEC-CTOR-A/A1.** `static _count = 0` is not a method; it is per-class *storage*
-(ADR-0017's `static_slots`). It gets its own decorator:
+**DEC-CTOR-F.** `@class` marks **placement**: this member lives on the class side.
 
-```phalcom
-class Counter {
-  @classField var _count = 0
+| Form | Installs |
+|---|---|
+| `@class update(n)` | method in the **metaclass's** `methods` map |
+| `@class _total = 0` | field in the **metaclass's** field table; storage in the **class object's** `static_slots` |
 
-  @static
-  bump() { _count = _count + 1 }
+This ADR originally split these — `@static` for methods, `@classField` for fields —
+because `@static` *misnames* storage: it carries the Java/C# "one shared slot"
+connotation, and Phalcom shares nothing across a hierarchy (see below). `@class`
+carries no such connotation, so the split dissolves. **`@classField` is deleted.**
 
-  @static
-  count => _count
-}
+`@class` is legal on `Method`/`Getter`/`Setter`/`Field`. There is no other class-side
+marker; `static` is not a keyword and not a decorator.
+
+#### Why one decorator is honest here — the tower does both
+
+The two cases are the same mechanism at one tower level, which is why one word fits.
+[`vm/api.rs:70-73`](../../../phalcom-core/src/vm/api.rs):
+
+```rust
+self.heap.class_mut(metaclass).field_slots = layout.static_field_slots;  // metaclass: the TABLE
+self.heap.class_mut(metaclass).field_count = layout.static_field_count;
+self.heap.class_mut(class).static_slots    = vec![Nil; layout.static_field_count];  // class: the VALUES
 ```
 
-`@classField` is legal on `Field` only; `@static` is not legal on `Field`.
+`@class _total` **is** an instance variable of the metaclass `Factory class`, stored in
+that metaclass's sole instance — the class object `Factory`. That is Smalltalk's
+`Factory class instanceVariableNames: 'total'`, exactly. One `ClassObject` struct serves
+both classes and metaclasses; `GetField`/`SetField` are receiver-polymorphic (instance →
+`instance.slots[n]`, class → `class.static_slots[n]`). `@class` is therefore not a
+special category — it is a placement flag over machinery the tower already has.
 
-The split is not bureaucratic — **`@static` would teach the wrong model.** Measured
-behavior:
+#### Storage is per declaring class — measured
 
 ```phalcom
-class Base { @classField var _count = 0
-             @static bump() { _count = _count + 1 }
-             @static count => _count }
+class Base { @class _total = 0
+             @class bump() { _total = _total + 1 }
+             @class total => _total }
 class Derived extends Base {}
 
-Base.bump()   Base.bump()
-Base.count      // 2
-Derived.count   // None   <- its own slot, not Base's
+Base.bump()  Base.bump()
+Base.total      // 2
+Derived.total   // None   <- its own slot, not Base's
 ```
 
-A subclass gets a **fresh, unset slot**, exactly as ADR-0011 specifies for instance
-fields ("a subclass that writes `_name` gets its own new slot; it does not touch the
-superclass's") — ADR-0017 is that rule shifted one tower level up, and it means what
-it says. In Smalltalk terms this is a **class-instance variable**, *not* a class
-variable.
+A subclass gets a **fresh, unset slot**, exactly as ADR-0011 rules for instance fields
+("a subclass that writes `_name` gets its own new slot") — ADR-0017 is that rule one
+tower level up. Slot *numbering* inherits ([`class_decl.rs:411`](../../../phalcom-core/src/compiler/lib/class_decl.rs):
+`sc_meta_field_count + i`) while *storage* does not: Base and Derived agree `_total` is
+slot 0 and disagree about whose vector that indexes. In Smalltalk terms this is a
+**class-instance variable**, not a class variable.
 
-So the two obvious names are both wrong: `@shared` asserts hierarchy-wide sharing that
-does not exist, and `@classvar` names Smalltalk's *class variable*, which **is**
-hierarchy-shared. `static` carries the same false connotation from Java/C#. `@classField`
-says what it is — a field, obeying the field rule, on the class side.
+So `static`/`@shared`/`@classvar` would all misname it — each connotes hierarchy-wide
+sharing that does not exist. `@class` names placement and stays true.
 
-**DEC-CTOR-A2 — the sharp edge is working as designed.** An inherited `@static` method
-touching a `@classField` reads `None` in the subclass:
+**DEC-CTOR-A2 — the sharp edge is working as designed.** An inherited `@class` method
+touching an unset subclass `@class` field reads `None`:
 
 ```phalcom
 Derived.bump()   // None does not understand '+(_)'
 ```
 
-This follows from per-class storage and is **ratified as correct**, not patched. It is
-untested today (`inheritance_static_*.ph` all cover static *methods*) and unruled by
-ADR-0017, whose DEC-D settled only storage. This unit locks it with a golden fixture
-and documents it in `classes.md`. Re-running the declaration's initializer per subclass
-was considered and rejected: it would diverge from instance fields, which read `None`
-until written, and buy a new per-class initializer-evaluation path.
+**Ratified as correct**, not patched. Untested today (`inheritance_static_*.ph` cover
+static *methods* only) and unruled by ADR-0017, whose DEC-D settled storage alone. This
+unit locks it with a golden fixture. Re-running the declaration's initializer per
+subclass was considered and rejected: it would diverge from instance fields, which read
+`None` until written, and buy a new per-class initializer-evaluation path.
+
+This edge is load-bearing, not academic — it fires through §10's `class` variable in an
+inherited constructor. See §10.
 
 ### 3. The two decorators are different *kinds* of attribute
 
@@ -225,12 +263,16 @@ This is structural, forced by a constraint already in the code:
 cannot append siblings — which is exactly why `ConstructExpander`/`GetExpander` are
 deliberate no-ops whose real derive runs from `expand_class_attributes`.
 
-| | `@static` | `@constructor` |
+| | `@class` | `@constructor` |
 |---|---|---|
 | Kind | **modifier** | **derive** |
-| Real work | `expand()`, in place: `is_static = true` | `derive_constructor` from `expand_class_attributes` |
+| Real work | `expand()`, in place: `is_class_side = true` | `derive_constructor` from `expand_class_attributes` |
 | Registry row exists for | doing the work | `attr.unknown`/`attr.illegal_target` only |
 | Members in → out | 1 → 1 | 1 → **2** |
+
+`@class` is one modifier over two member kinds: on a method it flips the installation
+target to the metaclass, on a field it flips the storage target to the class object's
+`static_slots`. Both are the same bit at different member kinds — no second mechanism.
 
 ### 4. `ConstructDef` collapses into `MethodDef`
 
@@ -242,7 +284,7 @@ pub struct MethodDef {
     pub name: String,
     pub params: Vec<ParameterDef>,
     pub body: Vec<Statement>,
-    pub is_static: bool,       // set by @static / @constructor, never the parser
+    pub is_class_side: bool,   // set by @class / @constructor, never the parser
     pub is_constructor: bool,  // set by @constructor
     pub attributes: Vec<Attribute>,
     …
@@ -319,50 +361,105 @@ class Class {
 A **default at the tower root**, shadowed by ordinary lookup like anything else. No
 VM special case.
 
-Naming: trailing `_` marks the primitive floor version of a selector, unoverridable.
-`new_` is *public API* — user-written constructors call it — which is why it is not
-`_$new` under ADR-0061's internals prefix. See Consequences.
+**Naming follows the existing house convention, not a new one.** `U-NATIVE-MARKER`'s
+plan establishes a trailing `_` as the native/private primitive marker — Wren's
+convention (`byteCount_`, `iterateByte_`) — grounded in a **user ruling of
+2026-07-13**. `new_` is exactly that: the raw primitive sitting under the public
+`new`. It is *not* `_$new` under ADR-0061's internals prefix, because it is public
+API that user-written constructors call, and `_$` would additionally grant it
+implicit-`self` sugar that an explicit-receiver allocator does not want.
 
-### 7. The arity hole closes with a tombstone, not a guard
+> **Unreconciled, flagged not resolved:** ADR-0062 (Accepted, **built**) ships the
+> `raw*` **prefix** (`rawByteCount`, `rawSlice`) — dated 2026-07-14, *after* the
+> 2026-07-13 trailing-`_` ruling that U-NATIVE-MARKER records. Those two conventions
+> contradict. `new_` follows the *ruling*. Reconciling `raw*` vs `*_` is
+> U-NATIVE-MARKER's business, not this ADR's; do not read this section as settling it.
 
-> **Rule.** A class declaring **any** class-side `new` of any arity tombstones the
-> inherited arity-0 `new()`, unless it declares `new()` itself.
+### 6.1 Only instance-backed classes may bare-allocate (`native_repr`)
 
-The tombstone is a **real method** installed on the metaclass at class-definition
-time, so ordinary lookup finds it before the root default **from any receiver shape**:
+**DEC-CTOR-H2.** `new_` builds `InstanceObject::new(class_id, field_count)`. That is
+meaningful **only** for classes whose instances *are* `Object::Instance`. For any other
+kernel row it manufactures a type-confused object — an `InstanceObject` claiming to be
+a `Number` while every arithmetic primitive expects the immediate `Value::Number`.
+
+> **Rule.** A class inherits `new_`/`new()` only if its instances are
+> `Object::Instance`. Otherwise `new_` raises.
+
+| Group | Members | `new_` |
+|---|---|---|
+| Immediate-backed | `Number`, `Bool`, `Symbol`, `None` | ✗ type confusion |
+| Native-heap-backed | `Str`, `List`, `Map`, `Set`, `Tuple`, `Range`, `Fiber`, `Method`, `Module`, `Block`/`Closure`, `BoundMethod`, `Upvalue`, `Family`, `Class` | ✗ no native payload |
+| Instance-backed | user classes, `Error` | ✓ |
+
+Most native rows already register their own `new` where it means something — `List.new()`
+→ empty list, `Number.new()` → `0` (verified: `Number.new()` then `+ 1` → `1`), so they
+never reach the generic allocator today. The **exposed** ones are those registering no
+`new` at all: `Tuple`, `Block`/`Closure`, `BoundMethod`, `Upvalue`, `Family`. Those
+would inherit the allocator and hand back broken objects.
+
+**No such marker exists.** `ClassObject` carries no native-representation flag, so this
+unit adds `native_repr: bool`, set at bootstrap for the kernel rows above, checked by
+`class_new_` on a cold path. This is new machinery, named here so it is not mistaken
+for free.
+
+### 7. `new()` is an ordinary inherited method — no tombstone, no arity guard
+
+**DEC-CTOR-H. This section reverses the original ADR text, which specified a
+tombstone.**
+
+> **Rule.** `new()` is a method like any other in the inheritance chain. A class need
+> not define it, may override it, and may define other `new` overloads alongside it.
+> Nothing is dropped, tombstoned, or specially cased.
+
+`Factory.new()` on a class whose only constructor is `new(n)` therefore returns an
+object with every field `None`. **That is specified behavior, not a bug.** It is
+consistent with `classes.md` §2 (a field never assigned reads `None`) and with
+Smalltalk, where defining `new: x` never removes the inherited `new`.
+
+**The compile-time arity guard is deleted** ([`expr.rs:103`](../../../phalcom-core/src/compiler/lib/expr.rs)).
+It was name-keyed by construction — it needs `receiver_class_sym`, which exists only
+when the receiver is a bare identifier naming a known class — and so produced the same
+call answering two ways:
 
 ```
-Error: Point.new() requires arguments. Candidates: new(_, _), new(_)
+Factory.new()              → Error: No constructor `Factory.new(...)` matches this call
+var C = Factory; C.new()   → <Factory>, n = None
 ```
 
-Zero dispatch cost, zero runtime chain-walk, and it lists candidates. This is
-Smalltalk's `self shouldNotImplement` on `new`. The rule is keyed on `new` and
-**should be** — it is a rule about one root default, not about constructors. Named
-constructors need no tombstone because nothing shadows them.
+That asymmetry was not an oversight but an *incompletable* defense: a compile-time
+check cannot know a variable's runtime class in a dynamically-typed language. Under
+this rule it does not need to — both spellings return an empty object, and the
+asymmetry has nothing left to be asymmetric about. The guard is now *wrong*, not
+merely partial: it rejects a legal send.
 
-The existing compile-time name-keyed guard stays **on top**: a compile error beats a
-runtime error when the receiver is statically a class. The guard becomes an
-optimization over a structurally sound runtime rather than the only defense.
+**Consequence, accepted knowingly:** the wrong-arity typo (`Factory.new()` when you
+meant `new(5)`) becomes silent. This ADR therefore **does not close**
+[`DEFERRED.md:29`](../../forge/DEFERRED.md) — it **dissolves** it by ruling that the
+behavior is correct. That row must be rewritten to say so, not deleted.
+
+The safety this gives up is bounded by §6.1: `new_` still refuses on any class whose
+instances are not `Object::Instance`, so the one case that produced a genuinely
+*unsound* value (a type-confused `Number`) stays blocked.
 
 ### 8. `class.duplicate_selector` replaces the construct/static collision error
 
 > Two members of one class body may not install the same selector on the same side
 > (instance or class-side), regardless of decorators.
 
-`@constructor new(x)` + `@static new(x)` both install class-side `new(_)` after
+`@constructor new(x)` + `@class new(x)` both install class-side `new(_)` after
 expansion, so the error **falls out of the desugar** with no constructor-specific rule.
 It is a duplicate definition — the same species as `foo(){} foo(){}` — not a shadowing
-rule. This also catches `@static new(x)` declared twice, which nothing catches today.
+rule. This also catches `@class new(x)` declared twice, which nothing catches today.
 
 Runs on the **post-expansion** member list. Derived members must carry provenance back
 to their source member, or the message points at compiler-generated AST instead of:
 
 ```
-Error: `@constructor new(x)` and `@static new(x)` in class 'Foo' both define
+Error: `@constructor new(x)` and `@class new(x)` in class 'Foo' both define
        the class-side selector `new(_)`; rename one.
 ```
 
-Intra-class only. A **subclass** `@static new()` shadowing a parent's
+Intra-class only. A **subclass** `@class new()` shadowing a parent's
 `@constructor new()` stays legal and silent — that is an override, and overriding is
 the point of a hierarchy (Smalltalk's `Point class >> new` does exactly this).
 
@@ -379,6 +476,63 @@ which `init ` has no meaning in selector-land and the string decodes as a plain
 `Method`. Safe: `attributes.rs` uses `Initializer` only for a self-consistent
 derived-vs-handwritten comparison, and `gen-core-table`'s `kind:"construct"` output
 has no live consumer.
+
+### 10. The `class` keyword-variable
+
+**DEC-CTOR-G/G2.** A `class` variable, alongside `self` and `super`:
+
+> **Rule.** `class` ≡ `self.class`. **Dynamic**, evaluated at send time.
+
+| Written in | `self` is | `class` is |
+|---|---|---|
+| instance-side method | the instance | its class |
+| `@class` method | the class | its **metaclass** |
+
+Uniform: `class` is always one tower level above `self`. It is a value, so it composes
+(`class.update(n)`, `class.name`), and it cannot be shadowed — it is a keyword.
+
+Sugar only: `self.class.update(n)` already works and means exactly the same thing.
+It earns its place by pairing with `@class` as vocabulary — `@class update(n)`
+declares, `class.update(n)` calls — making the level-crossing legible, which is the
+point of "a metaclass is just a class."
+
+**Dynamic, not lexical — and the distinction is not cosmetic.** "The enclosing class"
+is a *different* thing: for an inherited method with a `Derived` receiver, `self.class`
+is `Derived`, while the enclosing class is `Base`. Dynamic was chosen because it is
+Smalltalk's `self class` and preserves override polymorphism (a `Derived` override of
+`update` *is* called). Lexical would resolve to the defining class, silently skipping
+subclass overrides — precisely PHP's `self::`/`static::` split, a known wart.
+
+**Two consequences, both accepted:**
+
+1. **It inherits §2.1's per-class-storage edge, and makes it easier to hit.** Measured:
+
+   ```phalcom
+   class Base {
+     @class _total = 0
+     @class update(n) { _total = _total + n }
+     @constructor new(n) { class.update(n) }   // class == self.class == Derived!
+   }
+   class Derived extends Base {}
+   Base.new(5)      // Base.total == 5     ✓
+   Derived.new(7)   // None does not understand '+(_)'
+   ```
+
+   `class.update(n)` in an *inherited* constructor resolves to `Derived.update(n)`,
+   touching Derived's own unset slot. This is A2 working exactly as ratified; the
+   keyword does not cause it (`self.class.update(n)` does the same today) but it does
+   make the crash a one-word idiom. **Fixture it** alongside the A2 goldens so the
+   behavior is pinned rather than discovered.
+
+2. **`class` in a `@class` method means the metaclass** — a silent level shift, since
+   the same word denotes different tower rows by context. Accepted for uniformity
+   (one rule, no exceptions). Metaclasses have no declarable fields (§2.1), so `class`
+   is rarely useful there; it is legal, not recommended.
+
+**Parser cost:** `class` is already `Token::Class`. Primary position needs LL(2)
+disambiguation — `class` + IDENT is a declaration, `class` + `.` is the variable.
+Precedent exists: `parse_property_name` already accepts `.class`/`.try` as ordinary
+selector text despite both being reserved.
 
 ## Consequences
 
@@ -429,6 +583,12 @@ The near-miss is conceptual: `_$` is the established marker for "not user-defina
 `Object#perform` is public reflection. It is public floor API, so `_$new` would be the
 wrong prefix and would additionally grant it implicit-`self` sugar it does not want.
 
+The **trailing** `_` is separately established: `U-NATIVE-MARKER` adopts it as the
+native/private primitive marker per a user ruling of 2026-07-13 (§6). So the two
+underscore conventions are orthogonal by design — leading `_` is about *who may
+define*, trailing `_` is about *what tier a selector sits in* — and `new_` sits
+squarely in the second.
+
 Consequence: making `new_` non-definable needs a **name-keyed** ban, since ADR-0061's
 is prefix-keyed. That is a new, small check — recorded here so it is not mistaken for
 free.
@@ -470,14 +630,19 @@ and a dual-syntax window doubles parser surface to buy nothing. The codemod cann
 
 - **Niche/NaN-boxing (ADR-0044/0010).** Untouched — no new `Value` arm, no tag.
 - **Inline caches (U-IC).** Improved: constructors become ordinary monomorphic sends
-  at ordinary call sites. The tombstone installs pre-instance (ADR-0053's condition),
-  so no epoch bump is needed.
-- **ADR-0043 (no default args).** Nothing here varies effective arity; the tombstone is
-  arity-0-keyed and adds no arity family.
-- **ADR-0026/0041 (sealed reparenting).** The tombstone is computed at class-definition
-  time and would need recomputation under reparenting — already sealed, so moot.
+  at ordinary call sites. Nothing is installed after class definition, so ADR-0053's
+  no-epoch-needed condition holds.
+- **ADR-0043 (no default args).** Nothing here varies effective arity, and no arity
+  family is introduced. The *identity-dispatch ⊗ optional arity* hazard does not fire.
+- **ADR-0026/0041 (sealed reparenting).** §6.1's `native_repr` is set once at bootstrap
+  and is a property of a class's *representation*, not its position in the hierarchy —
+  so reparenting could not invalidate it even if it were readmitted.
 - **A future real capability boundary.** Retiring `Initializer` removes a *kind*, not a
   hook; a dispatch-level boundary (ADR-0061's deferred idea) stays open.
+- **A future arity diagnostic.** §7 gives up the wrong-arity error by *ruling*, not by
+  inability. A later lint — "receiver is statically a known class, selector matches
+  nothing on it" — could return it as a warning without reintroducing the Foo/C
+  asymmetry, because it would cover *every* static send, not just `new`.
 
 ## Alternatives considered
 

@@ -3,9 +3,9 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) (**Accepted** — constructors as ordinary class-side methods; `@constructor`/`@static`; `new_`) ·
+[ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) (**Accepted** — constructors as ordinary class-side methods; `@constructor`/`@class`; `new_`) ·
 [ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md) (static per-class slot layout) ·
-[ADR-0014](../../adr/accepted/0014-let-and-var-bindings.md) (let and var bindings) ·
+[ADR-0064](../../adr/accepted/0064-let-const-bindings-and-field-mutability.md) (**Accepted** — `let`/`const`; unkeyworded mutable fields; supersedes ADR-0014) ·
 [ADR-0002](../../adr/accepted/0002-metaclass-tower-parallel-rule.md) (the parallel tower that resolves them)
 
 ## 1. Constructors
@@ -33,7 +33,7 @@ not a keyword — it declares a method on the **metaclass** ([Object Model
 
 ```phalcom
 Person.new(name: "Ada", age: 36)      // literal class
-var C = Person   C.new(name: "Ada")   // variable
+let C = Person   C.new(name: "Ada")   // variable
 M.Person.new(name: "Ada")             // module member
 ```
 
@@ -59,8 +59,8 @@ ship today. They carry no special machinery: nothing named `at()` sits at the to
 root, so `Ref.at(1, 2)` either finds the constructor or raises `doesNotUnderstand`.
 
 `new` is the **one** name the language treats specially, and only because
-`Class >> new()` occupies it as a default (§1.2). See ADR-0063 §7 for the tombstone
-rule that keeps a wrong-arity `new` from silently reaching that default.
+`Class >> new()` occupies it as a default (§1.2) — and even that is ordinary
+inheritance, not a rule (ADR-0063 §7).
 
 ### 1.2 The allocator: `new_`
 
@@ -85,7 +85,7 @@ an ordinary pair of methods — this is exactly what `@constructor` desugars to:
 
 ```phalcom
 class Point {
-  @static
+  @class
   new(x, y) {
     let instance = self.new_()
     instance.init(x, y)
@@ -131,19 +131,37 @@ layout at class-definition time.
   fields are always private, with no visibility syntax; every external access
   is a message send through a derived or hand-written accessor.
 
-### 2.1 Class-side fields — `@classField`
+**Mutability** ([ADR-0064](../../adr/accepted/0064-let-const-bindings-and-field-mutability.md)):
 
-`@classField` declares storage on the **class object** rather than on instances
+| Form | Meaning |
+|---|---|
+| `_x` / `_x = e` | mutable — **no keyword**; `= e` supplies a declaration default |
+| `const _x = e` | immutable, defined at the declaration |
+| `const _id` | immutable, assignable **only inside a `@constructor`** |
+
+Mutable is the unkeyworded case because a field is already `_`-prefixed, already
+private, and already declarable by assignment — a keyword would add nothing. `let _x`
+at field position is rejected.
+
+`const` enforcement is **syntactic**: a write from any member other than a constructor
+is a compile error. It is deliberately not flow-sensitive (Phalcom has no flow
+analysis), so two writes *within* one constructor are not caught, and a `const` field
+that no constructor assigns reads `None` forever — reachable via `Point.new()` (§1.2),
+and specified rather than repaired.
+
+### 2.1 Class-side fields — `@class`
+
+`@class` on a field declares storage on the **class object** rather than on instances
 ([ADR-0017](../../adr/accepted/0017-class-side-stored-static-fields.md)):
 
 ```phalcom
 class Counter {
-  @classField var _count = 0
+  @class _count = 0
 
   @constructor
   new() { _count = _count + 1 }
 
-  @static
+  @class
   count => _count
 }
 
@@ -155,9 +173,9 @@ Counter.count                 // 3 — one slot, shared by every instance
 `None` until written — it does not share the superclass's:
 
 ```phalcom
-class Base { @classField var _count = 0
-             @static bump() { _count = _count + 1 }
-             @static count => _count }
+class Base { @class _count = 0
+             @class bump() { _count = _count + 1 }
+             @class count => _count }
 class Derived extends Base {}
 
 Base.bump()  Base.bump()
@@ -167,13 +185,14 @@ Derived.count   // None — its own slot
 
 This is §2's field rule exactly, one tower level up: ADR-0017 is
 [ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md)'s slot vector
-shifted onto the metaclass. In Smalltalk terms `@classField` is a **class-instance
+shifted onto the metaclass. In Smalltalk terms a `@class` field is a **class-instance
 variable**, *not* a class variable — nothing is shared across a hierarchy, which is
-why it is not spelled `@static` (dispatch placement is a different concept from
-storage) and not `@shared`.
+why it is not spelled `@shared` or `@classvar` — each would assert a sharing that does
+not exist. `@class` names **placement**, which is exactly what a class-side method and a
+class-side field have in common, so one decorator covers both.
 
-**Consequence, by design:** an inherited `@static` method touching an unset subclass
-`@classField` reads `None`.
+**Consequence, by design:** an inherited `@class` method touching an unset subclass
+`@class` field reads `None`.
 
 ```phalcom
 Derived.bump()   // None does not understand '+(_)'
@@ -181,7 +200,7 @@ Derived.bump()   // None does not understand '+(_)'
 
 The subclass genuinely has its own slot; the declaration's initializer is **not**
 re-run per subclass, matching instance fields, which likewise read `None` until
-written. A subclass that wants its own counter declares its own `@classField`.
+written. A subclass that wants its own counter declares its own `@class` field.
 
 ## 3. Methods, accessors, operators
 
@@ -201,7 +220,7 @@ class Person {
 
   ==(other) => self.name == other.name and self.age == other.age
 
-  @static
+  @class
   species => "Homo sapiens"
 }
 ```
@@ -211,20 +230,20 @@ class Person {
 - A getter is a method with no parameter list. `name` and `name()` are different
   selectors.
 - Operators are ordinary methods.
-- `@static` declares on the metaclass. It is a decorator, not a keyword — a pure
+- `@class` declares on the metaclass. It is a decorator, not a keyword — a pure
   modifier that sets one bit on the member, adding no machinery of its own. Legal on
   methods, getters, and setters.
 
-`@static` and `@constructor` are both decorators but are different *kinds* of
+`@class` and `@constructor` are both decorators but are different *kinds* of
 attribute, and the difference is visible in what they produce:
 
-| | `@static` | `@constructor` |
+| | `@class` | `@constructor` |
 |---|---|---|
 | Kind | modifier | derive |
 | Effect | sets one bit in place | rewrites one member into two |
 | Members in → out | 1 → 1 | 1 → 2 |
 
-`@static @constructor` on one member is an error: a constructor is already class-side.
+`@class @constructor` on one member is an error: a constructor is already class-side.
 
 **Relationship to `@get`/`@set`.** The getter/setter pair above (`name =>
 _name` / `name=(value) { ... }`) is hand-written. [Selectors, Symbols &
@@ -243,7 +262,7 @@ class Foo {
   @constructor
   new(x) { _x = x }
 
-  @static
+  @class
   new(x) { return 42 }        // error: both define class-side `new(_)`
 }
 ```
@@ -251,7 +270,7 @@ class Foo {
 This is a **duplicate definition**, the same species as declaring `foo()` twice — not
 a rule about constructors. Within one body there is no lookup order to appeal to.
 
-Across a hierarchy there is, so a **subclass** `@static new()` shadowing a parent's
+Across a hierarchy there is, so a **subclass** `@class new()` shadowing a parent's
 `@constructor new()` is legal and silent. That is an override, and overriding is what
 a class hierarchy is for.
 

@@ -22,22 +22,25 @@ A `{` at statement-start is a parse error: it reads as a (no-op) block
 literal, not a compound statement opener, so `class`/`if`/`while`/`for` bodies
 always require their own keyword to introduce the block.
 
-## 2. Bindings — `let` / `var` ([ADR-0014])
+## 2. Bindings — `let` / `const` ([ADR-0064], supersedes [ADR-0014])
 
 ```
-binding := ("let" | "var") IDENT [ "=" expr ]
+binding := ("let" | "const") IDENT [ "=" expr ]
 ```
 
 ```phalcom
-let name = "Ada"   // immutable — reassigning name is a compile error
-var count = 0      // mutable
-var seen           // None ([ADR-0007]) — no initializer required for var
+const name = "Ada"   // immutable — reassigning name is a compile error
+let count = 0        // mutable
+let seen             // None ([ADR-0007]) — no initializer required for let
 ```
 
-`let` bindings are immutable; reassignment is an error. `var` bindings are
-mutable. `var x` with no initializer reads as `None` ([ADR-0007]); `let x`
-with no initializer is rejected — a `let` must be given its one value up
+`const` bindings are immutable; reassignment is an error. `let` bindings are
+mutable. `let x` with no initializer reads as `None` ([ADR-0007]); `const x`
+with no initializer is rejected — a `const` must be given its one value up
 front.
+
+`var` is **not** a keyword. ADR-0064 renamed ADR-0014's pair — old `var` → `let`,
+old `let` → `const` — keeping every rule; only the spellings moved.
 
 ## 3. `return`
 
@@ -70,12 +73,12 @@ member      := { attribute } member_body
 attribute   := "@" IDENT [ "(" [ arg_list_body ] ")" ]
 
 member_body := method_decl | getter_decl | setter_decl
-             | field_init
+             | field_decl
 
 method_decl    := method_name param_list method_body
 getter_decl    := IDENT method_body
 setter_decl    := IDENT "=" param_list method_body
-field_init     := FIELD "=" expr
+field_decl     := [ "const" ] FIELD [ "=" expr ]
 
 method_name    := IDENT | operator
 operator       := "+" | "-" | "*" | "/" | "%"
@@ -95,7 +98,7 @@ class Point extends Shape {
 
   +(other) => Point.new(x: _x + other.x, y: _y + other.y)
 
-  @static
+  @class
   origin => Point.new(x: 0, y: 0)
 }
 ```
@@ -107,14 +110,14 @@ naming itself or a supertype ancestor (a cycle) as its own superclass is
 rejected. See [Classes](../classes.md) and [Object Model](../object-model.md)
 for the semantics.
 
-- `attribute` covers `@constructor` / `@static` / `@get` / `@set` and the contract
+- `attribute` covers `@constructor` / `@class` / `@get` / `@set` and the contract
   forms ([Selectors, Symbols & References §4](../selectors.md#4-attributes-)).
   **It is load-bearing**: `member` has no `static` or `construct` slot of its own —
-  class-side placement and constructor-ness are carried by `@static` and
+  class-side placement and constructor-ness are carried by `@class` and
   `@constructor`, which desugar into ordinary `method_decl`s before the rest of
   compilation
   ([ADR-0063](../../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)).
-- `@static` puts the member on the metaclass rather than the instance side.
+- `@class` puts the member on the metaclass rather than the instance side (methods) or on the class object (fields).
 - **Constructor**: `@constructor` on a `method_decl` allocates a fresh instance via
   `new_`, runs the body with `self` bound to it, and returns the instance implicitly.
   Multiple constructors on one class are distinguished by **selector**, not arity, and
@@ -125,13 +128,16 @@ for the semantics.
 - **Getter**: no parameter list. `name` and `name()` are different selectors.
 - **Setter**: `IDENT "=" param_list method_body` — selector `name=(_)`. If the
   parameter list is empty the parameter defaults to `value`.
-- **Field initializer**: `FIELD "=" expr`, a `_`-prefixed field init. Carrying
-  `@classField` puts the storage on the class object rather than on instances, per
-  declaring class ([Classes §2.1](../classes.md)) — the `static` keyword that once
-  marked this is gone. Instance fields carry no declaration syntax at all — they are
-  implicitly declared by assignment inside a method, and reading a field never
-  assigned anywhere in the class is a compile error
-  ([Classes §2](../classes.md#2-fields)).
+- **Field declaration**: `[ "const" ] FIELD [ "=" expr ]` ([ADR-0064]). A mutable
+  field takes **no keyword** (`_x`, or `_x = e` for a declaration default); `const _x = e`
+  is immutable and defined at the declaration; `const _id` defers its one value to a
+  constructor and is a compile error to write from anywhere else. `let _x` at field
+  position is rejected — mutable is the unkeyworded case. Carrying `@class` puts the
+  storage on the class object rather than on instances, per declaring class
+  ([Classes §2.1](../classes.md)) — the `static` keyword that once marked this is gone.
+  Instance fields need no declaration at all: they are also implicitly declared by
+  assignment inside a method, and reading a field never assigned anywhere in the class
+  is a compile error ([Classes §2](../classes.md#2-fields)).
 - `method_body := "=>" expr | block` — `=>` is general expression-body sugar,
   not limited to getters ([Classes §3](../classes.md#3-methods-accessors-operators)).
 

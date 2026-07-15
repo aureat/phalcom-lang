@@ -226,8 +226,7 @@ ordinary hierarchy lookup for that one selector
 | --- | --- | --- |
 | `@constructor` | class header | Derives a constructor from the declared fields. |
 | `@constructor` | method member | Marks the method a constructor ([Classes §1](classes.md)). |
-| `@static` | method / getter / setter | Declares the member on the metaclass. |
-| `@classField` | field | Stores the field on the class object, not on instances ([Classes §2.1](classes.md)). |
+| `@class` | method / getter / setter / field | Declares the member on the **class side**: a method installs on the metaclass, a field stores on the class object ([Classes §2.1](classes.md)). |
 | `@get` | field | Derives an accessor method for a field. |
 | `@set` | field | Derives a mutator method for a field. |
 

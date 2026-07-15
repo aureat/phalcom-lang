@@ -1,10 +1,18 @@
-# U-CTOR — constructors become ordinary class-side methods: `@constructor`/`@static` decorators, `new_` allocator
+# U-CTOR — constructors become ordinary class-side methods: `@constructor`/`@class` decorators, `new_` allocator
 
-Status: **READY** (2026-07-15).
+> **Revised 2026-07-15** for the DEC-CTOR-F/G/H/I rulings (ADR-0063's same-day
+> amendment). Three changes to this plan: `@static` + `@classField` collapse into a
+> single **`@class`**; U-CTOR-4's **tombstone and arity guard are deleted** (so this
+> unit **no longer closes `DEFERRED.md:29`** — it is dissolved by ruling) and gains a
+> **`native_repr`** category instead; a **`class` keyword-variable** is added.
+> **[U-BINDINGS](../U-BINDINGS/plan.md) now lands first** — its field grammar is the
+> ground this unit's `@class` fields stand on.
+
+Status: **READY** (2026-07-15), **sequenced after [U-BINDINGS](../U-BINDINGS/plan.md)**.
 [ADR-0063](../../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)
-**Accepted**; all seven DEC-CTOR questions ruled (see Decisions). Five sub-units,
-landing independently; **U-CTOR-5 is separately gated on a perf measurement**
-(DEC-CTOR-C) and may be declined without affecting 1–4. No open blockers.
+**Accepted** (amended same day); all DEC-CTOR questions ruled (see Decisions). Five
+sub-units, landing independently; **U-CTOR-5 is separately gated on a perf
+measurement** (DEC-CTOR-C) and may be declined without affecting 1–4.
 
 Not a performance tier — a surface + object-model unit that *removes* machinery.
 Net effect on the primitive floor is **−1 fn, −1 binding** (a duplicate dies).
@@ -26,9 +34,12 @@ symptoms already patched.
 The 2026-07-15 partial fix made constructors install under their ordinary selector.
 It left standing: the `construct`/`static` keywords, `ConstructDef` (the only
 attribute-less `ClassMember`), the `parse_attribute` keyword hack, the
-`SignatureKind::Initializer` gate on the super-construct metaclass hop, a duplicated
-floor allocator, and — unfixed — the wrong-arity-through-dynamic-receiver hole at
-[`DEFERRED.md:29`](../../DEFERRED.md).
+`SignatureKind::Initializer` gate on the super-construct metaclass hop, and a
+duplicated floor allocator.
+
+[`DEFERRED.md:29`](../../DEFERRED.md) (wrong arity through a dynamic receiver) is
+**not** fixed by this unit — DEC-CTOR-H rules the behavior correct. That row is
+dissolved, not closed; rewrite it to say so.
 
 ---
 
@@ -75,7 +86,7 @@ extend instead of a stringly `else if` chain.
 
 ```rust
 // phalcom-core/src/compiler/attributes.rs
-pub enum BuiltinAttr { Constructor, Static, Get, Set, Data, Sealed, Variant, Invariant, Requires, Ensures, On }
+pub enum BuiltinAttr { Constructor, Class, Get, Set, Data, Sealed, Variant, Invariant, Requires, Ensures, On }
 pub enum AttrKind { Builtin(BuiltinAttr), User(String) }
 pub struct Attribute { pub kind: AttrKind, pub args: Vec<Expr>, pub range: SourceRange }
 ```
@@ -91,37 +102,44 @@ builtin is a compile error.
 > exhaustiveness and deleting stringly-typed dispatch — **not** by speed. Do not
 > benchmark it and do not claim a win.
 
-### U-CTOR-2 — `@static` modifier; drop `Token::Static`
+### U-CTOR-2 — `@class` modifier; drop `Token::Static`
 
-`@static` is a **modifier**: `expand()` sets `is_static = true` in place. One member in,
-one out. No codegen change — the bit already exists and already means this.
+`@class` is a **modifier**: `expand()` sets `is_class_side = true` in place. One member
+in, one out. No codegen change — the bit already exists and already means this.
 
-Parser stops setting `is_static` (`parser.rs:1265`); always `false` until expansion.
-`Token::Static` and its lexer row are deleted.
+Parser stops setting the class-side bit (`parser.rs:1265`); always `false` until
+expansion. `Token::Static` and its lexer row are deleted.
 
 Recovery diagnostic in `parse_class_member`, keyed on identifier `static` followed by a
 name token:
 
-> `member.legacy_keyword: 'static foo()' is no longer valid syntax; use the '@static' decorator on the member`
+> `member.legacy_keyword: 'static foo()' is no longer valid syntax; use the '@class' decorator on the member`
 
-**Static fields.** `static _count = 0` (`class_static_field_shared_state.ph:9`) is a
-*field* declaration, not a method — ADR-0017's `static_slots`. `@static` is **not**
-**not** legal on `Field` — **ruled** (DEC-CTOR-A). Static fields are per-class
-*storage*, not dispatch placement, and get their own decorator:
+**`@class` covers fields too** — **ruled** (DEC-CTOR-F, superseding DEC-CTOR-A/A1;
+`@classField` is deleted). One decorator, legal on `Method`/`Getter`/`Setter`/`Field`:
 
 ```phalcom
-@classField var _count = 0
+@class _total = 0        // class-side field (unkeyworded mutable — ADR-0064)
+@class update(n) { _total = _total + n }
 ```
 
-`@classField` is a **modifier** too (sets the existing static-field bit in place), and
-is legal on `Field` only. This sub-unit introduces it, and the codemod must split by
-member kind: `static foo()` / `static foo => …` → `@static`, but `static _x = …` →
-`@classField var _x = …`. Field declarations are `field_init := FIELD "=" expr` in the
-grammar — a distinct production from `method_decl`, so the split is mechanical.
+Both are the same bit at different member kinds: on a method it flips the installation
+target to the metaclass, on a field it flips storage to the class object's
+`static_slots`. `@class` names **placement**, which is what they share — where `@static`
+would have implied Java/C# "one shared slot", and Phalcom shares nothing across a
+hierarchy (`Derived.count` reads `None`, not Base's `2`).
 
-Why the two are different concepts, in one measurement (see DEC-CTOR-A below):
-`Derived.count` reads **`None`**, not `Base`'s `2` — storage is per declaring class,
-so nothing is "shared" and `@static` would misname it.
+**Codemod splits by member kind**, mechanical because `field_init` is a distinct
+grammar production from `method_decl`:
+
+| Old | New |
+|---|---|
+| `static foo()` / `static foo => …` | `@class foo()` / `@class foo => …` |
+| `static _x = …` | `@class _x = …` |
+
+> **Depends on U-BINDINGS.** The field spelling above (`@class _total = 0`, no `var`)
+> is ADR-0064's grammar. U-BINDINGS must land first, or this sub-unit has to emit
+> `@class var _total = 0` and then migrate the same lines again.
 
 ### U-CTOR-3 — collapse `ConstructDef`; `@constructor`; drop `Token::Construct`
 
@@ -151,7 +169,7 @@ Deleted for free: `parse_attribute`'s `Token::Construct` hack (`parser.rs:1046`)
 
 `attributes.rs:729` changes `SignatureKind::Initializer(arity)` → `Method(arity)`.
 
-### U-CTOR-4 — `new_`; re-home `Class >> new()`; tombstone; `duplicate_selector`
+### U-CTOR-4 — `new_`; re-home `Class >> new()`; `native_repr`; `duplicate_selector`
 
 **The floor change.** `object_class_new` is deleted as a byte-identical duplicate of
 `class_new` (P6). `class_new` → `class_new_`, registered **once**:
@@ -180,16 +198,37 @@ class Class {
 
 **Reserved name.** Declaring `new_` in a user class is `selector.reserved_name`.
 ADR-0061's ban is *prefix*-keyed and does not cover a trailing underscore, so this is a
-new name-keyed check in `parse_method_name`.
+new name-keyed check in `parse_method_name`. Note the trailing `_` itself is **not** a
+new convention — `U-NATIVE-MARKER` establishes it as the native-primitive marker per a
+user ruling of 2026-07-13; `new_` follows the house rule.
 
-**Tombstone.** A class declaring any class-side `new` of arity > 0 and no `new()` gets
-a real `new()` method installed on its metaclass at class-definition time, whose body
-raises with candidates listed. Ordinary lookup finds it before the root default from
-**any** receiver shape. Closes [`DEFERRED.md:29`](../../DEFERRED.md).
+**No tombstone, no arity guard** — **ruled** (DEC-CTOR-H). `new()` is an ordinary
+inherited method: a class need not define it, may override it, and may declare other
+`new` overloads alongside it. **Delete** the compile-time guard at `expr.rs:103`; it is
+now *wrong*, not merely partial, because it rejects a legal send. `Factory.new()` on a
+class whose only constructor is `new(n)` returns an object with every field `None`, and
+that is **specified**.
 
-Keep the existing compile-time guard (`expr.rs:103`) on top — a compile error beats a
-runtime error when the receiver is statically a class. The guard becomes an
-optimization over a sound runtime rather than the only defense.
+> **This unit no longer closes [`DEFERRED.md:29`](../../DEFERRED.md).** That row is
+> **dissolved by ruling** — the behavior it describes is now correct. Rewrite the row
+> to say so; do not silently delete it.
+
+**`native_repr` — the one thing that still refuses.** `new_` builds
+`InstanceObject::new(class_id, field_count)`, which is meaningful only where instances
+*are* `Object::Instance`. Add `native_repr: bool` to `ClassObject`, set at bootstrap;
+`class_new_` raises when it is true.
+
+| Group | Members | `new_` |
+|---|---|---|
+| Immediate-backed | `Number`, `Bool`, `Symbol`, `None` | ✗ type confusion |
+| Native-heap-backed | `Str`, `List`, `Map`, `Set`, `Tuple`, `Range`, `Fiber`, `Method`, `Module`, `Block`/`Closure`, `BoundMethod`, `Upvalue`, `Family`, `Class` | ✗ no native payload |
+| Instance-backed | user classes, `Error` | ✓ |
+
+Most native rows already register their own `new` and never reach the generic allocator
+(verified: `Number.new()` → `0`, `0 + 1` → `1`). The **exposed** ones register no `new`
+at all — `Tuple`, `Block`/`Closure`, `BoundMethod`, `Upvalue`, `Family` — and would
+otherwise inherit the allocator and hand back broken objects. **New machinery: no such
+flag exists today.**
 
 **`class.duplicate_selector`** replaces `ConstructStaticCollision`: two members of one
 class body may not install the same selector on the same side, regardless of
@@ -204,7 +243,7 @@ new(x, y) { _x = x  _y = y }
 ```
 →
 ```phalcom
-@static
+@class
 new(x, y) { let instance = self.new_()  instance.«init new»(x, y)  return instance }
 
 «init new»(x, y) { _x = x  _y = y  return self }
@@ -244,13 +283,14 @@ ordinary instance-side super-send.
 | `phalcom-ast/src/ast.rs` | 3 | delete `ClassMember::Construct` (`:197`), `ConstructDef` (`:321`); `MethodDef.is_constructor` |
 | `phalcom-ast/src/parser.rs` | 2, 3, 4 | `parse_class_member` (`:1234`) legacy diagnostics + no `is_static`; `parse_attribute` hack out (`:1046`); `attach_attributes` arm out (`:1113`); `parse_method_name` reserved-name check |
 | `phalcom-core/src/compiler/attributes.rs` | 1, 2, 3 | `BuiltinAttr`/`AttrKind` (incl. `ClassField`); array registry (`:635`); exhaustive match (`:1550`); `derive_constructor`; `Initializer`→`Method` (`:729`) |
-| `phalcom-core/src/compiler/lib/class_decl.rs` | 3, 4, 5 | `Construct` arm → `MethodDef` path (`:615-650`); tombstone install; `duplicate_selector` pre-pass (`:82`+) |
-| `phalcom-core/src/compiler/lib/expr.rs` | 4 | keep arity guard (`:103`), re-anchor on the new tables |
+| `phalcom-core/src/compiler/lib/class_decl.rs` | 3, 4, 5 | `Construct` arm → `MethodDef` path (`:615-650`); `duplicate_selector` pre-pass (`:82`+) |
+| `phalcom-core/src/compiler/lib/expr.rs` | 4 | **delete** the arity guard (`:103`) — DEC-CTOR-H |
 | `phalcom-core/src/compiler/lib/error.rs` | 4 | `ConstructStaticCollision` → `DuplicateSelector`; `ReservedName` |
 | `phalcom-core/src/method/mod.rs` | 5 | delete `Initializer` arms of `encode_selector`/`decode_selector` |
 | `phalcom-core/src/vm/dispatch.rs` | 5 | delete super-construct metaclass hop + `Initializer` gate |
 | `phalcom-core/src/primitive/object.rs` | 4 | **delete** `object_class_new` (`:105`) |
-| `phalcom-core/src/primitive/class.rs` | 4 | `class_new` → `class_new_` (`:107`) |
+| `phalcom-core/src/primitive/class.rs` | 4 | `class_new` → `class_new_` (`:107`); `native_repr` refusal |
+| `phalcom-core/src/heap/class.rs` | 4 | **new** `ClassObject.native_repr: bool` |
 | `phalcom-core/src/universe/primitives.rs` | 4 | delete `:47`; `:100` → `new_` |
 | `phalcom-core/core/core.ph` | 4 | `class Class { new() => self.new_() }`; codemod 28 sites |
 | `phalcom-lsp/src/*` | 3 | 4 `Construct` refs — exhaustive-match fixups |
@@ -263,9 +303,9 @@ ordinary instance-side super-send.
 ## Build order
 
 1. **U-CTOR-1** — enum + registry. Green, no behavior change.
-2. **U-CTOR-2** — `@static` + `@classField`, codemod 152 sites split by member kind. **Unblocked** (DEC-CTOR-A ruled).
+2. **U-CTOR-2** — `@class` (methods + fields), codemod 152 sites split by member kind. **Requires U-BINDINGS landed.**
 3. **U-CTOR-3** — collapse `ConstructDef`, `@constructor`, codemod 148 sites.
-4. **U-CTOR-4** — floor: `new_`, delete the duplicate, re-home `new()`, tombstone, `duplicate_selector`. **Gate: bootstrap + `verify_invariants()` + R-INV-0.1 green.**
+4. **U-CTOR-4** — floor: `new_`, delete the duplicate, re-home `new()`, `native_repr`, `duplicate_selector`; **delete** the `expr.rs:103` arity guard. **Gate: bootstrap + `verify_invariants()` + R-INV-0.1 green.**
 5. **U-CTOR-5** — desugar. **Gate: construction benchmark.** Decline if red.
 
 Each step commits green ([[commit-frequently]]). Verify each commit from a **clean
@@ -290,8 +330,8 @@ Main has live concurrent sessions — branch, commit narrow paths, never `git ad
   today (`inheritance_static_*.ph` all cover static *methods*)
 
 **Negative lane** — `tests/lang/compile-errors/`:
-- `ctor_duplicate_selector.ph` — `@constructor new(x)` + `@static new(x)`
-- `ctor_duplicate_static.ph` — `@static new(x)` twice (**catches nothing today**)
+- `ctor_duplicate_selector.ph` — `@constructor new(x)` + `@class new(x)`
+- `ctor_duplicate_static.ph` — `@class new(x)` twice (**catches nothing today**)
 - `ctor_reserved_new_underscore.ph` — user declares `new_`
 - `ctor_legacy_keyword.ph` — `construct new()` → recovery diagnostic
 - `ctor_static_on_field.ph` — `@static` illegal target (pending DEC-CTOR-A)
@@ -317,41 +357,66 @@ confirm the suite reddens, restore ([[phalcom-golden-test-lanes]]).
 
 | # | Question | Ruling |
 |---|---|---|
-| **A** | Does `@static` cover static fields? | **No — a distinct decorator.** *(against the plan's own recommendation; see below)* |
-| **A1** | Its name | **`@classField`** |
-| **A2** | Inherited `@static` method reading a subclass's unset `@classField` → `None` | **Working as designed — fixture it** |
+| ~~**A**~~ | ~~Does `@static` cover static fields?~~ | ~~No — a distinct decorator~~ **superseded by F** |
+| ~~**A1**~~ | ~~Its name~~ | ~~`@classField`~~ **superseded by F** |
+| **A2** | Inherited `@class` method reading a subclass's unset `@class` field → `None` | **Working as designed — fixture it** |
 | **B** | Ratify ADR-0063 (reverses `classes.md` §1)? | **Ratify in full** — ADR-0063 is **Accepted** |
 | **C** | U-CTOR-5 desugar vs +1 send/construction | **Measure, then decide** — gate stands |
 | **D** | Codemod one-shot vs deprecation window | **One-shot**, no window |
 | **E** | `@construct` vs `@constructor` for the header derive | **Unify on `@constructor`** |
+| **F** | `@static` + `@classField` → one decorator? | **`@class` for both** — supersedes A/A1 |
+| **G/G2** | A `class` keyword-variable? | **Yes — dynamic ≡ `self.class`**, legal everywhere |
+| **H** | Does declaring `new(n)` drop the inherited `new()`? | **No** — `new()` is an ordinary inherited method; **tombstone + arity guard deleted** |
+| **H2** | May any class bare-allocate? | **Only `Object::Instance`-backed** — via a new `native_repr` flag |
+| **I/I2** | `let` on fields unenforced | **`let`/`const` rework → [ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md), [U-BINDINGS](../U-BINDINGS/plan.md), lands first** |
 
-**A is the interesting one, and the plan was wrong.** This doc recommended `@static` on
-`Field` — "one decorator for both sides." Measurement says that would have taught the
-wrong model:
+### The A → F reversal, and why the measurement mattered twice
+
+This plan first recommended `@static` on `Field` ("one decorator for both sides"). That
+was **wrong**, and a measurement proved it:
 
 ```phalcom
-class Base { @classField var _count = 0
-             @static bump() { _count = _count + 1 }
-             @static count => _count }
+class Base { @class _count = 0
+             @class bump() { _count = _count + 1 }
+             @class count => _count }
 class Derived extends Base {}
 Base.bump()  Base.bump()
 Base.count      // 2
 Derived.count   // None   <- own slot, not Base's
 ```
 
-Storage is **per declaring class**, exactly as ADR-0011 rules for instance fields —
-ADR-0017 is that rule one tower level up. That is a Smalltalk **class-instance
-variable**, not a class variable. `static`/`@shared`/`@classvar` all connote
-hierarchy-wide sharing that does not exist. `@classField` names it correctly: a field,
-obeying the field rule, on the class side.
+Storage is **per declaring class** — ADR-0011's field rule one tower level up, exactly
+as ADR-0017 says. A Smalltalk **class-instance variable**, not a class variable. So
+`static`/`@shared`/`@classvar` all connote hierarchy-wide sharing that does not exist.
+
+That killed A's *premise* (`@static` misnames storage) but not its *conclusion*, and
+DEC-CTOR-A split the decorators. **F then dissolved the split**: `@class` names
+**placement**, not sharing, so one decorator covers both without misnaming anything.
+The lesson is that the split was a workaround for a bad name, not a real distinction —
+one word that tells the truth beats two that route around a lie.
 
 **A2** ratifies the consequence rather than patching it: `Derived.bump()` raises
 `None does not understand '+(_)'`. Untested today — `inheritance_static_*.ph` cover
 static *methods* only — and unruled by ADR-0017 (DEC-D settled storage alone). Lock it
-with a fixture; do not add a per-class initializer re-run.
+with a fixture; do not add a per-class initializer re-run. **G makes this edge easier
+to hit** — `class.update(n)` in an inherited constructor is a one-word idiom for it.
 
-**U-CTOR-2 is unblocked**, with scope grown: it now also introduces `@classField` and
-must codemod `static _x = …` field declarations separately from `static foo()` methods.
+### U-CTOR-6 — the `class` keyword-variable (DEC-CTOR-G/G2)
+
+`class` ≡ `self.class`, **dynamic**, a value like `self`/`super`. In an instance method
+it is the receiver's class; in a `@class` method it is the metaclass (one rule: always
+one tower level above `self`).
+
+- Lexer/parser: `class` is already `Token::Class`. Primary position needs **LL(2)** —
+  `class` + IDENT is a declaration, `class` + `.` is the variable. Precedent:
+  `parse_property_name` already accepts `.class`/`.try` as selector text.
+- Lowers to exactly what `self.class` lowers to. **No new opcode, no dispatch change.**
+- Fixtures: `class_var_instance_side.ph`, `class_var_metaclass_in_class_method.ph`, and
+  `class_var_inherited_ctor_hits_a2.ph` (pins the crash above as intended).
+
+Sugar only — `self.class.update(n)` already works. It earns its place by pairing with
+`@class` as vocabulary. **Lexical binding was rejected**: it would resolve to the
+defining class and silently skip subclass overrides — PHP's `self::`/`static::` wart.
 
 ---
 

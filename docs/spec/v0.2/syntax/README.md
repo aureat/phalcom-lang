@@ -68,7 +68,7 @@ consult it once you already know which production you're looking for.
 |---|---|
 | [ADR-0016] | Hand-written lexer + recursive-descent parser; governs precedence climbing and error recovery shape |
 | [ADR-0012] | Selector signature encoding — labels are part of selector identity, driving `#symbol` and method-reference grammar |
-| [ADR-0014] | `let` (immutable) / `var` (mutable) binding forms |
+| [ADR-0064] | `let` (mutable) / `const` (immutable) binding forms; unkeyworded mutable fields — supersedes [ADR-0014] |
 | [ADR-0021] | No truthiness enforcement — condition positions require `Boolean`, no implicit coercion |
 | [ADR-0022] | String interpolation: `\(expr)` sigil, backslash-paren form |
 | [ADR-0024] | Numeric surface split: `Int` vs `Float` literal forms, `~/` integer division |

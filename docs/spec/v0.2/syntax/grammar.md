@@ -57,7 +57,7 @@ param          := "*" IDENT              (* variadic *)
 statement      := binding | return_stmt | if_stmt | while_stmt | for_stmt
                  | break_stmt | continue_stmt | throw_stmt | try_stmt | expr_stmt
 
-binding        := ( "let" | "var" ) IDENT [ "=" expr ]
+binding        := ( "let" | "const" ) IDENT [ "=" expr ]
 return_stmt    := "return" [ expr ]
 break_stmt     := "break"
 continue_stmt  := "continue"
@@ -157,7 +157,7 @@ block_comment  := "/*" { any_char } "*/"
    property name (e.g. `.self`, `.and`); "extends", "try", "catch", "on",
    "ensure" are contextual keywords, only reserved in class/try position;
    "fn" is reserved-inactive, not currently a keyword *)
-keyword        := "let" | "var" | "class"
+keyword        := "let" | "const" | "class"
                  | "self" | "super" | "if" | "else" | "while" | "for" | "in"
                  | "break" | "continue" | "return" | "and" | "or" | "not" | "is"
                  | "true" | "false" | "import" | "as" | "throw"

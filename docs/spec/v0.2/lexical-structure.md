@@ -163,13 +163,13 @@ else is the Open form. No backtracking, no cover grammar.
 Full semantics in [Selectors, Symbols & References §4](selectors.md#4-attributes-).
 
 `@` prefixes a class, member, or field declaration to mark an attribute
-(`@constructor`, `@static`, `@get`, `@set`, `@requires`, …). Attributes desugar to
+(`@constructor`, `@class`, `@get`, `@set`, `@requires`, …). Attributes desugar to
 ordinary method-table entries at compile time — no new dispatch machinery. `@` is
 reserved for this role only and does not overlap with `#` (symbols) or `::` (method
 references).
 
 Member metadata lives here rather than in the keyword space. `@constructor` and
-`@static` replace what were once the `construct` and `static` keywords
+`@class` replace what were once the `construct` and `static` keywords
 ([ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) §1):
 neither changed the grammar — `construct new(x) {}` and `new(x) {}` parse identically
 after the prefix, and `static` was a pure modifier bit — so neither earned a reserved

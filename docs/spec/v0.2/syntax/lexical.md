@@ -86,7 +86,7 @@ convention enforced by style, not a distinct token class — `Person` and
 
 ```
 KEYWORD :=
-    "let" | "var" | "class" | "self" | "super"
+    "let" | "const" | "class" | "self" | "super"
   | "if" | "else" | "while" | "for" | "in" | "break" | "continue" | "return"
   | "and" | "or" | "not" | "is" | "true" | "false" | "import" | "as" | "throw"
 ```
@@ -298,7 +298,7 @@ IDENT := ALPHA { ALPHA | DIGIT }
 FIELD := "_" { ALPHA | DIGIT }
 
 KEYWORD :=
-    "let" | "var" | "class" | "self" | "super"
+    "let" | "const" | "class" | "self" | "super"
   | "if" | "else" | "while" | "for" | "in" | "break" | "continue" | "return"
   | "and" | "or" | "not" | "is" | "true" | "false" | "import" | "as" | "throw"
 

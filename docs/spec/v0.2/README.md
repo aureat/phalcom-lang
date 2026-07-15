@@ -21,7 +21,7 @@ silently invented.
 | [Functions, Blocks & Methods](functions.md) | The callable tower: abstract `Function`, `Block`, `Method`, one closure representation |
 | [Messages & Selectors](messages-and-selectors.md) | Selector identity, labels, spread & rest |
 | [Selectors, Symbols & References](selectors.md) | Selector identity, # symbols, :: method references, @ attributes, field visibility |
-| [Classes](classes.md) | `@constructor`, `@static`, fields, methods, accessors, operators |
+| [Classes](classes.md) | `@constructor`, `@class`, fields, methods, accessors, operators |
 | [Method Lookup](method-lookup.md) | Resolution order, `doesNotUnderstand`, `Message` |
 | [Control Flow](control-flow.md) | `if`/`while`/`for` sugar, `and`/`or`, the inliner |
 | [Iteration](iteration.md) | The cursor protocol (`iterate`/`iteratorValue`), `for` desugar, `break`/`continue` |
