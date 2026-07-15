@@ -70,12 +70,13 @@ an ADR"* (§Known documentation defects item 4).
 | floor-census.md §1.1 "Baseline" note (post-U15) | 112 | 97 |
 | floor-census.md §7.2 (live `VM::new()` audit, R-INV-0.1) | **117** | — |
 
-§7's 117 is the only number a test asserts
-(`floor_census_matches_installed_bindings`, `phalcom-core/tests/invariants.rs`)
-and it accounts for U-ANNOT-CONTRACTS's `__invariantEnter`/`__invariantExit`
-(+2, ADR-0052), which §1.1's table does not. **Treat the floor as ~113–117, and
-treat the spread itself as a finding** (F-9). Nothing here turns on the exact
-value; the argument is about magnitude.
+**Resolved 2026-07-15 (DEFERRED CB-2): the floor is 125.** This section previously read
+"treat the floor as ~113–117, and treat the spread itself as a finding (F-9)" — the census
+said 113 in §1.1 and 117 in §7 while the test asserted 125. The census is now reconciled and
+carries a §1.3 naming `floor_census_matches_installed_bindings`
+(`phalcom-core/tests/invariants.rs`) as the source of record. **F-9 is closed** — not by a
+ruling, but because the spread was doc drift, not a real ambiguity. Nothing here turned on
+the exact value; the argument is about magnitude.
 
 **The math.** A *minimum* crypto suite — not a competitive one — costs roughly
 this many bindings. **Estimate, not a tree measurement**; offered as an
@@ -94,8 +95,8 @@ the unit (F-1):
 | Ed25519 / X25519 (keygen, sign, verify, agree) | 6–10 | |
 | **Total** | **~32–48** | |
 
-Against a floor of ~113–117, a single capability domain proposes a **~28–42%
-floor expansion**. Sockets, filesystem, clock, and process each carry a
+Against the audited floor of **125**, a single capability domain proposes a
+**~26–38% floor expansion**. Sockets, filesystem, clock, and process each carry a
 comparable bill. ADR-0019 froze the floor precisely to stop this: its Context
 names the *native-vs-library boundary-creep hazard* and observes that "no single
 commit is ever the one to blame."

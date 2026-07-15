@@ -33,10 +33,46 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings | **113** |
-| Distinct native Rust functions | **98** |
-| Classes carrying floor primitives | **22** (of 28 named kernel classes) |
+| Installed `(class, selector)` bindings — **audited** (§1.3) | **125** |
+| Distinct native Rust functions — audited | **110** |
+| Classes carrying floor primitives | **22** (of 28 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
+
+### 1.3 The source of record is the test, not this file
+
+**Never quote a floor count from prose — including this file's.** The authority is
+[`phalcom-core/tests/invariants.rs`](../../../../phalcom-core/tests/invariants.rs)
+`floor_census_matches_installed_bindings` (R-INV-0.1): it reconstructs the installed
+`(class, selector)` set from a live `VM::new()`, asserts it equals the enumeration in §2,
+and asserts the total equals the sum of its own per-amendment constants. It is
+machine-checked and green; the numbers above are a *rendering* of it, and drift the moment
+an amendment lands without editing this file. If the two disagree, **the test is right**.
+
+An amendment must bump the test's constant in the same change that edits §2 — that is what
+turns floor drift into a red test rather than silent prose rot.
+
+> **Reconciled 2026-07-15 (CB-2).** §1.1 read **113** and §7 read **117** while the test
+> asserted **125** — three numbers, no two alike, in the one document every ADR is told to
+> cite instead of quoting its own figure. The 12-binding gap was exactly the five
+> amendments that landed without updating §1.1 (`NEW_SCHED` 2, `NEW_INVARIANT_GUARD` 2,
+> `NEW_ATTR_ROOT` 3, `NEW_GC` 1, `NEW_STRING` 4); §7 had been carried forward two of those
+> five and then abandoned. "Distinct native Rust functions" was likewise stale at **98**
+> (actual **110**). See [`docs/forge/DEFERRED.md`](../../../forge/DEFERRED.md) CB-2.
+
+### 1.4 Audited ≠ installed: `Fiber` is outside this census
+
+The counts above are the **audited** floor. `VM::new()` installs **136** native bindings;
+**125** of them are enumerated here and guarded by R-INV-0.1. The other **11** are
+`Fiber`'s (`Fiber.new(_)`, `#call`/`#call(_)`, `#try`/`#try(_)`, `Fiber.yield`/`yield(_)`,
+`Fiber.current`, `Fiber.abort(_)`, `#isDone`, `#error` — `primitive/fiber.rs`, bound at
+`universe/primitives.rs` L362-374).
+
+`Fiber` is a real kernel class (`universe/core_classes.rs:152`) carrying real primitives,
+but it is **absent from `core_class_rows`** in the test and appears nowhere in this
+document. So the ADR-0019 freeze does **not** currently bind `Fiber`: a primitive added to,
+or dropped from, `Fiber` changes the floor and **no test goes red**. Tracked as
+[`docs/forge/DEFERRED.md`](../../../forge/DEFERRED.md) CB-5; do not treat the 125 as "the
+whole native boundary" until that closes.
 
 > **U-CORE-1 amendment ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).**
 > Kernel reflection admits **+7** bindings (73 → 80) and **+7** distinct fns
@@ -237,7 +273,7 @@ primitives are installed on the class's **metaclass** via `primitive_static!`.
 ## 2. Census by class
 
 Ordered as `install_primitives` installs them
-([`universe.rs`](../../../../phalcom-core/src/universe.rs) L213–358).
+([`universe/primitives.rs`](../../../../phalcom-core/src/universe/primitives.rs) L38–376).
 
 ### 2.1 `Object` — root protocol
 
@@ -258,6 +294,9 @@ Ordered as `install_primitives` installs them
 | `methodFor(_)` | instance | `object_method_for` | reifies the resolved `Method` for a selector; `None` on a miss; pure probe, never fires dNU (U-CORE-3, ADR-0028) |
 | `__invariantEnter()` | instance | `object_invariant_enter` | `@invariant` re-entrancy guard entry (U-ANNOT-CONTRACTS, [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1); returns whether this call owns the receiver's `checking` entry |
 | `__invariantExit()` | instance | `object_invariant_exit` | `@invariant` re-entrancy guard exit; unconditionally removes the receiver from `checking` |
+| `__attributes` | instance | `attribute_attributes` | attribute-retention read (M-ATTR-ROOT); `Object` carries it because every class/method row is an `Object` |
+| `__attach(_)` | instance | `attribute_attach` | attribute-retention write; called by the compiler's `@Name(args)` desugar (`compiler::attributes`, `compiler::lib::class_decl`), never `.ph`-authored |
+| `__freezeAttributes()` | instance | `attribute_freeze` | seals the retention store once the declaring unit finishes |
 
 ### 2.2 `Behavior` — class-side reflection
 
@@ -317,8 +356,8 @@ three plus `Number` arithmetic — see `core.ph`'s `String` reopen.
 ★ = sacred selector (§5). No-truthiness ([ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)):
 these dispatch on real `True`/`False` receivers; there is no implicit coercion.
 
-> **U11 landed** (`true_class`/`false_class`, [`universe.rs`](../../../../phalcom-core/src/universe.rs)
-> L550/L555): `True`/`False` are now concrete singleton subclasses of `Bool`,
+> **U11 landed** (`true_class`/`false_class`, [`universe/core_classes.rs`](../../../../phalcom-core/src/universe/core_classes.rs)
+> L67/L68): `True`/`False` are now concrete singleton subclasses of `Bool`,
 > not just a documented design intent. Neither carries any *own* floor
 > primitive — both selectors and sacred inlining stay on `Bool`, reached by
 > ordinary inheritance, so this unit added **0** rows to this table. It did
@@ -662,20 +701,37 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    [`tests/invariants.rs`](../../../../phalcom-core/tests/invariants.rs)
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
-   the census here (count = 117, after U-ANNOT-CONTRACTS's `__invariantEnter`/
-   `__invariantExit` +2, ADR-0052 Fix 1). This turns silent floor drift into a
-   red test; §1.1 is no longer a manual checksum.
+   the census here. **The test is the source of record for the count (§1.3); do
+   not restate the number here.** As of 2026-07-15 it is **125**, the sum of its
+   own per-amendment constants — but read the constants, not this sentence.
+   This turns silent floor drift into a red test; §1.1 is no longer a manual
+   checksum.
+
+   **Coverage caveat.** The hook audits only the classes in the test's
+   `core_class_rows`. `Fiber`'s 11 bindings are installed but unaudited and
+   unlisted (§1.4) — an amendment there is invisible to this protocol.
 
 ## 8. Traceability
 
-| Section | Source lines |
-|---|---|
-| §2 all | `universe.rs::install_primitives` L225–388 |
-| §2.1 Object reflective surface (U8) | `universe.rs` L240–243 |
-| §2.6 encoded `ifTrue(_:ifFalse:)` | `universe.rs` L302–308 |
-| §2.8 encoded `match` | `universe.rs` L328–335 |
-| §2.8 `Some` field layout | `vm.rs::new` (stamped alongside `Message`) |
-| §2.10 `MAX_CALL_ARITY` | `universe.rs` L345 |
-| §2.14 `Message` | `universe.rs` create L173, primitives L249–253 |
-| §3 `List` protocol | `core.ph` L53–72 |
-| §5 sacred set | `universe.rs` L73–79, L214–222 |
+**Cite the symbol, not the line.** Every row below is keyed by a named symbol; the line
+numbers are a 2026-07-15 convenience and rot on contact. `universe.rs` is no longer a
+file — it is the `universe/` directory (`mod.rs`, `core_classes.rs`, `primitives.rs`,
+`invariants.rs`), and every ref in this table pointed at the dead path until this pass.
+
+| Section | Symbol | Line (2026-07-15) |
+|---|---|---|
+| §2 all | `universe/primitives.rs::install_primitives` | L38–376 |
+| §2.1 Object reflective surface (U8) | `perform`/`respondsTo`/`doesNotUnderstand`/`methodFor` | L56–63 |
+| §2.6 encoded `ifTrue(_:ifFalse:)` | hand-rolled `encode_selector` + `new_primitive` (not the `primitive!` macro) | L158–165 |
+| §2.8 encoded `match(some:none:)` | hand-rolled, installed on `Option` so `Some`/`None` inherit | L191–198 |
+| §2.8 `Some` field layout | `universe/core_classes.rs` (stamped alongside `Message`) | — |
+| §2.10 `MAX_CALL_ARITY` | `const MAX_CALL_ARITY: u8 = 4` → `call` at 5 arities × 2 classes = 10 bindings | L215 |
+| §2.14 `Message` | `universe/primitives.rs` (`message_cls` block) | L81–85 |
+| §3 `List` protocol | `core.ph::class List` | L779+ |
+| §5 sacred set | `universe/mod.rs::{BOOL,BLOCK}_SACRED_SELECTORS` (6 + 1 = 7) | L100–106 |
+| §1.4 `Fiber` (installed, **unaudited**) | `universe/primitives.rs` (`fiber_cls` block) | L362–374 |
+
+Two bindings are **not** installed via the `primitive!`/`primitive_static!` macros —
+`Bool#ifTrue(_:ifFalse:)` and `Option#match(some:none:)` are hand-rolled because both carry
+labeled arguments that the label-free `make_signature` cannot encode. A grep for the macro
+therefore undercounts the floor by two; the test does not.

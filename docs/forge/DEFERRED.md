@@ -63,9 +63,15 @@ so it needs `&mut VM` and can raise (a user `toString` that throws). Owning unit
 unassigned — touches `phalcom-ast/src/parser.rs::desugar_string_interp` (or the
 `String.new` primitive itself; decide which).
 
-### CB-2 · The floor census contradicts itself *and* the test that guards it
+### CB-2 · The floor census contradicts itself *and* the test that guards it — **FIXED 2026-07-15**
 
 _Verified 2026-07-15 by running the invariant test and summing its constants._
+_**Fixed 2026-07-15** (docs-only, no code change). `floor-census.md` §1.1 now reads **125**
+bindings / **110** distinct fns, with a new **§1.3** naming
+`invariants.rs::floor_census_matches_installed_bindings` as the source of record and the
+standing rule "never quote a floor count from prose — including this file's". §7's
+hardcoded 117 is gone. Kept below for the audit trail; see **CB-5** for the gap this fix
+uncovered._
 
 **Three numbers, no two alike.** The census is the document every ADR is explicitly told
 to cite *instead of* quoting its own figure — and it is the one that is wrong:
@@ -103,6 +109,28 @@ naming `invariants.rs::floor_census_matches_installed_bindings` as the machine-c
 source of record — so the next drift is caught by the test rather than propagated by the
 prose. Owning unit: unassigned. Cheap; do it before the next floor amendment adds a
 sixteenth constant.
+
+**Done.** All of the above, plus three findings the fix turned up:
+
+1. **113 was not a typo — it was the terminus of an abandoned chain.** The census's
+   per-amendment banners run 73 → 80 → … → 113 and *stop at U16-Open*. The five later
+   amendments (`NEW_SCHED` 2, `NEW_INVARIANT_GUARD` 2, `NEW_ATTR_ROOT` 3, `NEW_GC` 1,
+   `NEW_STRING` 4 = the missing 12) never got a banner. §1.1 was internally consistent
+   with the chain; the chain was simply five amendments behind. §1.3's reconciliation note
+   records the deltas; **the five banners themselves are still unwritten** (residue, filed
+   as [#34](#34-write-the-five-missing-floor-census-amendment-banners)).
+2. **§2's enumeration was near-complete** — only M-ATTR-ROOT's three (`__attributes`,
+   `__attach(_)`, `__freezeAttributes()`) were absent. Added to §2.1. Note §2 is prose the
+   test does **not** read: R-INV-0.1 compares its own 125-entry vec against a live VM, so a
+   §2 omission is invisible to it. §2 completeness is still a manual property.
+3. **§8's traceability table was 100% dead** — every row pointed at `universe.rs`, which is
+   now the `universe/` directory, and `core.ph`'s List protocol had moved L53 → L779.
+   Rewritten to lead with symbols; line numbers demoted to dated hints.
+
+Distinct-fn count independently derived (126 macro lines − 2 loop lines + 10 loop
+expansions + 2 hand-rolled = 136 installed; − 11 Fiber = **125**, matching the test
+exactly — which is what validates the method). "Classes carrying floor primitives = 22"
+and "Sacred selectors = 7" were both already correct and left alone.
 
 ### CB-3 · Sealing is one property with two representations that can disagree
 
@@ -201,6 +229,53 @@ a draft's authority.
 **Fix.** Reconcile the `## Decision` section to the banner's ruling, and amend ADR-0043's
 prose to distinguish general (combinatorial, rejected) from trailing-only (linear,
 ratified by Q12). Owning unit: unassigned.
+
+### CB-5 · `Fiber`'s 11 primitives are installed but outside the frozen floor
+
+_Found and verified 2026-07-15 while fixing CB-2, by reconciling the install site against
+the test's audit set._
+
+**The defect.** `VM::new()` installs **136** native `(class, selector)` bindings. R-INV-0.1
+(`floor_census_matches_installed_bindings`) audits **125** of them. The other **11** are
+`Fiber`'s — and the gap is not a rounding error, it is a whole kernel class:
+
+| | |
+|---|---|
+| Bound at | `universe/primitives.rs` L362-374 (`fiber_cls` block) |
+| Class created at | `universe/core_classes.rs:152` — `make_core_class(heap, "Fiber", object_class, metaclass_class)` |
+| Selectors | `Fiber.new(_)`, `#call`, `#call(_)`, `#try`, `#try(_)`, `Fiber.yield`, `Fiber.yield(_)`, `Fiber.current`, `Fiber.abort(_)`, `#isDone`, `#error` |
+| In `core_class_rows` (the test's audit set, 28 rows)? | **No** |
+| Mentioned in `floor-census.md`? | **Zero hits** before this pass |
+
+**Consequence: the ADR-0019 freeze does not bind `Fiber`.** Add a primitive to `Fiber`, or
+drop one, and the floor changes with **no red test and no doc edit** — the exact silent
+drift R-INV-0.1 exists to prevent, for a class that ADR-0030 shipped as core concurrency.
+`Fiber` is not exotic: it is a real kernel class carrying 11 real primitives, 8 distinct
+native fns (`primitive/fiber.rs`).
+
+**Why this went unseen.** The census and the test agree with each other perfectly (125 =
+125, green), so every consistency check between *those two* passes. Nothing compares either
+against the actual install site. CB-2's fix made §1.1 agree with the test — which is
+correct but would have quietly cemented "the floor is 125" as settled truth. Documented as
+`floor-census.md` §1.4 rather than silently reconciled.
+
+**Two candidate fixes, needs a ruling.**
+
+- **(a) Admit `Fiber` to the floor.** Add `("Fiber", c.fiber_class)` to `core_class_rows`,
+  add a `NEW_FIBER: usize = 11` constant, write §2.17 enumerating the 11, write the
+  amendment banner. Makes the freeze mean what it says. Cost: `Fiber`'s surface is then
+  frozen under ADR-0019 — every future fiber primitive needs an ADR amendment. Given
+  ADR-0030's scheduler work is live, that may be a real tax, and `Fiber` may not be settled
+  enough to freeze.
+- **(b) Declare `Fiber` deliberately out of scope** and say so in both the census and the
+  test, so the omission is a recorded decision rather than an oversight. Cheaper, honest,
+  but leaves a native surface nothing guards.
+
+Leaning (a) — an unfrozen native class is precisely what ADR-0019 was written to prevent,
+and "the floor is closed" is false while an 11-binding hole exists. But **(b) is defensible
+if fiber primitives are still churning**; that is a question about ADR-0030's roadmap, not
+about the census. Owning unit: unassigned. **Do not quote "the floor is 125" as the whole
+native boundary until this is ruled** — it is the audited floor, not the installed one.
 
 ## Open entries
 
@@ -322,6 +397,7 @@ against the tree since. Unverified ≠ live. Do not act on one without re-ground
 | 31 | **Interpolation `\(…)` scanning is balanced-paren only — it does not understand a string literal nested inside the expression.** `lexer.rs::scan_string` counts `(`/`)` depth to find the end of a `\(expr)` body, so a `)` inside a nested string literal (`"\(f(")"))"`) mis-terminates the expression. Accepted for v1; a full fix would re-enter string-scanning recursively inside the interpolation body. | `phalcom-ast/src/lexer.rs` (`scan_string`) | ADR-0022 | low |
 | 32 | **Nested block comments + lone-`?` ternary still deferred (already #12).** U-LEX shipped flat (non-nesting) `/* … */`; nesting and the reserved lone-`?` remain. Not a separate item — noted only so U-LEX's tail is traceable. | `phalcom-ast/src/lexer.rs` (`skip_trivia`) | DEFERRED #12; ADR-0016 | low |
 | 33 | ~~Pre-existing rustdoc warnings in `primitive/nil.rs` (`some_new` links to private `wrap_some`).~~ **RESOLVED (U-ERR pass)** — dup of #26. | `phalcom-core/src/primitive/nil.rs:64` | doc-clean | done |
+| 34 | **Write the five missing floor-census amendment banners.** The census's per-amendment chain (73 → 80 → … → 113) *stops at U16-Open*; U-SCHED (+2), U-ANNOT-CONTRACTS (+2, ADR-0052), M-ATTR-ROOT (+3), U-GC (+1) and U-STRING (+4, ADR-0049) — the 12 bindings that take it to 125 — never got one. [CB-2](#cb-2--the-floor-census-contradicts-itself-and-the-test-that-guards-it--fixed-2026-07-15) reconciled the *counts* and recorded the deltas in §1.3, so nothing is now wrong; the banners are the remaining prose debt, and their absence is what let §1.1 sit five amendments stale without looking wrong. Fold into whichever unit lands the next floor amendment. | `docs/spec/v0.2/core/floor-census.md` §1.3 | ADR-0019 | low |
 
 _Closed pre-merge:_ #(ex-LALRPOP) — done in U1: dead `CompilerError::ParseError` variant +
 `From<lalrpop_util::ParseError>` impl deleted (slice 3), `lalrpop-util` dropped from

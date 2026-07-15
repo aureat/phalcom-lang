@@ -110,14 +110,17 @@ new numeric tower row, to buy a range check that `at_`/`set_` already enforce.
 its constants sum to **125** bindings post-U-STRING (`invariants.rs:632-690`). Run green
 this session.
 
-> **Tree contradiction — reported, not resolved here.** `docs/spec/v0.2/core/floor-census.md`
-> is stale in two places at once: §1.1's table says **113** bindings / 98 fns, and §7's
-> audit-hook prose says **count = 117**. The machine-checked figure is **125**. The census
-> is *declared normative and authoritative* (its own §1 banner), so this is exactly the
-> defect class the overlay's *Known documentation defects* #4 warns about — it is now
-> mis-citable in the other direction. §8 of the census also points at `universe.rs`, which
-> is now a directory (`phalcom-core/src/universe/`). Fixing the census is out of scope for
-> a draft; flagged for whoever owns the next floor amendment.
+> **Tree contradiction — REPORTED HERE, FIXED 2026-07-15 (DEFERRED CB-2).** This draft
+> flagged that `docs/spec/v0.2/core/floor-census.md` was stale in two places at once
+> (§1.1's table said **113** bindings / 98 fns, §7's audit-hook prose said **count = 117**,
+> machine-checked was **125**) and that §8 pointed at `universe.rs`, now a directory
+> (`phalcom-core/src/universe/`). All of it is now reconciled: §1.1 reads 125/110, §7 no
+> longer hardcodes a number, §8 is rewritten to lead with symbols, and a new §1.3 names
+> `invariants.rs::floor_census_matches_installed_bindings` as the source of record. The
+> draft's 125 above was right all along. **New, from that pass:** the 125 is the *audited*
+> floor — `VM::new()` installs 136, and `Fiber`'s 11 are outside the census entirely
+> (§1.4, DEFERRED CB-5). Budget any bytes amendment against 125, but know the freeze has a
+> hole in it.
 
 Admission is ADR-0019's rule: proof the capability **cannot be expressed in `.ph` at all**.
 Speed is explicitly never sufficient. Applying it honestly kills four of the seven
