@@ -7,8 +7,10 @@
   [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md));
   split into per-decorator as-built files 2026-07-15
 - Evidence: `phalcom-core/src/compiler/attributes.rs` — `AttributeRegistry::new`
-  (L660) registers exactly ten expander rows (L662-671);
-  `expand_class_attributes` (L1548) is the pass. Fixtures under `phalcom-core/tests/lang/decorators/`,
+  registers twelve expander rows, including `NativeExpander`/`IgnoreExpander`;
+  `expand_class_attributes` is the pass, whose `@native`/`@ignore`
+  legality-check-then-drop pass runs before `derive_accessors`/`expand_variants`.
+  Fixtures under `phalcom-core/tests/lang/decorators/`,
   `tests/lang/classes/`, `tests/lang/errors/`, `tests/lang/compile-errors/`.
 - Depends on: [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism, registry, phase pipeline)
 - Related:
@@ -39,21 +41,22 @@ description of HEAD.
 | [data.md](data.md) | `@data` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
 | [sealed.md](sealed.md) | `@sealed`, `@variant` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
 | [on.md](on.md) | `@On` + the `Attribute` reflection layer | class-side declaration + retention | **Implemented** (M-ATTR-ROOT) |
-| [native.md](native.md) | `@native` | Compile / generate (subtractive) | **Not built** — specified 2026-07-16 |
-| [ignore.md](ignore.md) | `@ignore` | Compile / generate (subtractive) | **Not built** — specified 2026-07-16 |
+| [native.md](native.md) | `@native` | Compile / generate (subtractive) | **Implemented** (provisional drop, borrows `@ignore`'s mechanism) |
+| [ignore.md](ignore.md) | `@ignore` | Compile / generate (subtractive) | **Implemented** |
 
-Ten registered names, eight as-built files: `@get`/`@set` share
+Twelve registered names, ten as-built files: `@get`/`@set` share
 [accessors.md](accessors.md) (they are a pair), and `@variant` **requires**
 `@sealed` so both live in [sealed.md](sealed.md).
 
-`@native` and `@ignore` are **not registered** — they raise `attr.unknown` on HEAD.
-Their two files are specifications, and they are the first **subtractive**
-decorators: every built decorator adds members or wraps bodies, while these remove
-one. That exceeds what the `AttributeExpander` trait can express (`expand` takes
-`&mut ClassMember` and cannot remove itself from `ClassDef::members`), so their
-effect must live in `expand_class_attributes` — the same registered-no-op-plus-
-driver-special-case shape `@invariant` already uses. Building them makes it twelve
-names and ten files.
+`@native` and `@ignore` are registered and are the first **subtractive**
+decorators: every other built decorator adds members or wraps bodies, while these
+remove one. That exceeds what the `AttributeExpander` trait can express (`expand`
+takes `&mut ClassMember` and cannot remove itself from `ClassDef::members`), so
+their effect lives in `expand_class_attributes`'s own legality-check-then-drop
+pass — the same registered-no-op-plus-driver-special-case shape `@invariant`
+already uses. Legality is checked *before* the drop (not folded into the removal
+itself), so an illegal target (e.g. `@ignore` on a `Field`) still raises
+`attr.illegal_target` instead of silently vanishing.
 
 ## What is built, by tier — read this before the model below
 

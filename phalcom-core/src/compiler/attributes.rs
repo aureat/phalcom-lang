@@ -652,6 +652,62 @@ impl AttributeExpander for OnExpander {
     }
 }
 
+/// Registry entry for `@native` (`docs/spec/v0.2/decorators/native.md`). Its
+/// [`AttributeExpander::expand`] is a deliberate no-op — the member this
+/// attribute marks is removed wholesale by [`expand_class_attributes`]'s
+/// native/ignore drop pass, the only code that owns the [`ClassDef`] and can
+/// therefore remove from it (`AttributeExpander::expand` takes `&mut
+/// ClassMember`, which cannot shrink `ClassDef::members`). This row exists so
+/// `@native` is a legal name and its target is checked — `attr.unknown`
+/// otherwise fires for every `@native` member, and an illegal target (e.g. a
+/// `Field`) would go unchecked without a `legal_targets()` to consult.
+///
+/// `Getter` is load-bearing, not incidental: `toString` is a
+/// `SignatureKind::Getter` (ADR-0022's CB-1 amendment), so the motivating case
+/// — anchoring `List#toString` to `list_to_string` (`universe/primitives.rs`)
+/// — targets `Target::Getter`, not `Target::Method`.
+pub struct NativeExpander;
+impl AttributeExpander for NativeExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method, Target::Getter, Target::Setter, Target::Construct]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
+/// Registry entry for `@ignore` (`docs/spec/v0.2/decorators/ignore.md`) — the
+/// sanctioned drop. Same deliberate-no-op shape as [`NativeExpander`]: the
+/// marked member is removed wholesale by [`expand_class_attributes`]'s
+/// native/ignore drop pass, not through this trait method. This row exists so
+/// `@ignore` is a legal name and its target is checked.
+///
+/// Unlike `@native`, `@ignore` asserts nothing about a Rust binding — it is
+/// the one attribute whose entire meaning is "the compiler does not compile
+/// this member". `@native`'s drop is a provisional borrow of this mechanism
+/// (native.md §"Relationship to `@ignore`", N-2).
+pub struct IgnoreExpander;
+impl AttributeExpander for IgnoreExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method, Target::Getter, Target::Setter, Target::Construct]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
 pub struct AttributeRegistry {
     expanders: HashMap<String, Box<dyn AttributeExpander + Send + Sync>>,
 }
@@ -669,6 +725,8 @@ impl AttributeRegistry {
         expanders.insert("sealed".to_string(), Box::new(SealedExpander));
         expanders.insert("variant".to_string(), Box::new(VariantExpander));
         expanders.insert("On".to_string(), Box::new(OnExpander));
+        expanders.insert("native".to_string(), Box::new(NativeExpander));
+        expanders.insert("ignore".to_string(), Box::new(IgnoreExpander));
         Self { expanders }
     }
 
@@ -1510,6 +1568,48 @@ fn validate_attribute_class(class: &ClassDef, class_attrs: &[phalcom_ast::ast::A
     Ok(())
 }
 
+/// Maps `member` to the [`Target`] variant that attribute legality checks
+/// consult (`AttributeExpander::legal_targets`).
+///
+/// Called both by [`expand_class_attributes`]'s `@native`/`@ignore`
+/// legality-check-then-drop pass (which runs *before* `expand_variants`, so a
+/// [`ClassMember::Variant`] arm is genuinely reachable there) and by its
+/// member-attribute loop (which runs *after* `expand_variants` has already
+/// stripped every `Variant` arm, so that call site never actually observes
+/// `Target::Variant` — see the loop's own comment).
+fn member_target(member: &ClassMember) -> Target {
+    match member {
+        ClassMember::Method(_) => Target::Method,
+        ClassMember::Getter(_) => Target::Getter,
+        ClassMember::Setter(_) => Target::Setter,
+        ClassMember::Construct(_) => Target::Construct,
+        ClassMember::Field(_) => Target::Field,
+        ClassMember::Variant(_) => Target::Variant,
+        ClassMember::Index(_) => Target::Index,
+    }
+}
+
+/// Returns whether `member` carries an attribute named `name` in its own
+/// `attributes` list.
+///
+/// Every [`ClassMember`] variant except [`ClassMember::Construct`] carries an
+/// `attributes` field (see `Parser::attach_attrs`'s doc), so there is no
+/// uniform accessor — this is the small match that stands in for one. Used by
+/// the `@native`/`@ignore` legality-check-then-drop pass in
+/// [`expand_class_attributes`].
+fn member_has_attr(member: &ClassMember, name: &str) -> bool {
+    let attrs: &[Attribute] = match member {
+        ClassMember::Method(m) => &m.attributes,
+        ClassMember::Getter(g) => &g.attributes,
+        ClassMember::Setter(s) => &s.attributes,
+        ClassMember::Construct(_) => return false,
+        ClassMember::Field(f) => &f.attributes,
+        ClassMember::Variant(v) => &v.attributes,
+        ClassMember::Index(ix) => &ix.attributes,
+    };
+    attrs.iter().any(|a| a.name == name)
+}
+
 /// Expands every `@name(args…)` attribute attached to `class` or one of its
 /// members (U-ANNOT-CONTRACTS's core pass, grown by U-ANNOT-LAYOUT's `@get`/
 /// `@set`/`@construct`/`@data`/`@sealed`/`@variant` rows) into ordinary AST,
@@ -1628,6 +1728,42 @@ pub fn expand_class_attributes(
         }
     }
 
+    // 1.4. `@native`/`@ignore`: legality-check-then-drop, before any
+    // member-attribute expansion or derive (native.md §"Ordering is
+    // load-bearing", ignore.md §"Implementation"). Both are registered
+    // no-ops (`NativeExpander`/`IgnoreExpander`) whose real effect — removing
+    // the marked member wholesale — can only happen here, the only code that
+    // owns `ClassDef` by value.
+    //
+    // Legality is checked *before* removal, not folded into a single
+    // `retain`: a `retain` closure cannot return `Result`, so an illegal
+    // target (e.g. `@ignore` on a `Field`) would be silently dropped instead
+    // of raising `attr.illegal_target`. Each marked member's target is
+    // checked against the attribute's own `legal_targets()` first; only once
+    // every marked member has passed does the drop run.
+    for member in &class.members {
+        for attr_name in ["native", "ignore"] {
+            if !member_has_attr(member, attr_name) {
+                continue;
+            }
+            // Both names are always registered (`AttributeRegistry::new`),
+            // so this `get` cannot miss.
+            let expander = registry.get(attr_name).expect("native/ignore always registered");
+            let target = member_target(member);
+            if !expander.legal_targets().contains(&target) {
+                return Err(CompilerError::Message(format!(
+                    "attr.illegal_target: attribute `@{}` is not legal on this target",
+                    attr_name
+                )));
+            }
+        }
+    }
+    // Drop *after* every marked member has cleared the legality check above.
+    // Runs before `derive_accessors`/`expand_variants`/the member-attribute
+    // loop/the `@invariant` weave, so no derive or contract weave ever sees a
+    // member that is about to vanish.
+    class.members.retain(|m| !member_has_attr(m, "native") && !member_has_attr(m, "ignore"));
+
     // 1.5. Derive @get/@set accessors from declared fields, before the
     // member-level loop below consumes each Field's attributes.
     derive_accessors(&mut class, ctx)?;
@@ -1640,18 +1776,7 @@ pub fn expand_class_attributes(
 
     // 2. Expand member-level attributes
     for member in &mut class.members {
-        let member_target = match member {
-            ClassMember::Method(_) => Target::Method,
-            ClassMember::Getter(_) => Target::Getter,
-            ClassMember::Setter(_) => Target::Setter,
-            ClassMember::Construct(_) => Target::Construct,
-            ClassMember::Field(_) => Target::Field,
-            // Unreachable in practice — `expand_variants` above (1.6) always
-            // strips every `Variant` member before this loop runs. Kept for
-            // match exhaustiveness over `ClassMember`'s full variant set.
-            ClassMember::Variant(_) => Target::Variant,
-            ClassMember::Index(_) => Target::Index,
-        };
+        let member_target = member_target(member);
 
         let attrs = match member {
             ClassMember::Method(m) => std::mem::take(&mut m.attributes),

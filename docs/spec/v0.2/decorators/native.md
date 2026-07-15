@@ -1,12 +1,20 @@
 # `@native` — a `.ph` source anchor for a Rust primitive
 
-- Status: **Specified — not built.** No `native` row exists in
-  `AttributeRegistry::new`; `@native` today raises `attr.unknown`.
+- Status: **Implemented.** `native` is registered in `AttributeRegistry::new`
+  (`NativeExpander`); the drop is provisional (see "The dropping is
+  provisional" below) — a borrow of `@ignore`'s mechanism, standing in until
+  `@native`'s own mechanics are decided (N-2, still open).
 - Date: 2026-07-16
-- Evidence: none in `phalcom-core/src` — this file specifies work, it does not
-  record it. The mechanism it mirrors is real: `InvariantExpander`
-  (`compiler/attributes.rs` L456-478) is a registered no-op, and `@invariant`'s
-  actual effect lives in `expand_class_attributes` (L1548), not in its expander.
+- Evidence: `phalcom-core/src/compiler/attributes.rs` — `NativeExpander`
+  (registered no-op, `legal_targets() = [Method, Getter, Setter, Construct]`)
+  and `expand_class_attributes`'s `@native`/`@ignore` legality-check-then-drop
+  pass, which runs before `derive_accessors`/`expand_variants`. Fixtures:
+  `phalcom-core/tests/lang/decorators/decorators_native_drops_member.ph`,
+  `decorators_native_getter_dropped.ph`; negative:
+  `phalcom-core/tests/lang/compile-errors/decorators_native_illegal_on_class.ph`.
+  The `@native`-anchors ⊆ installed-native-bindings invariant test
+  (`phalcom-core/tests/invariants.rs`) is **not yet built** — a deliberate
+  follow-up unit; see "The invariant test" below.
 - Depends on: [README.md](README.md) (the tier model) ·
   [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism,
   registry, phase pipeline)
@@ -72,15 +80,32 @@ mechanism, standing in until `@native`'s own mechanics are decided (see N-2).
 
 | | |
 |---|---|
-| Legal targets | `Method`, `Getter`, `Setter`, `Construct` |
-| Illegal targets | `Class`, `Field` (`attr.illegal_target`) |
-| Arguments | none — `@native`, never `@native(...)` |
+| Legal targets | `Method`, `Getter`, `Setter`, `Construct` (`Construct` unreachable — see below) |
+| Illegal targets | `Class`, `Field`, `Variant`, `Index` (`attr.illegal_target`) |
+| Arguments | none by convention; **not enforced** — see below |
 
 **`Getter` is load-bearing, not an afterthought.** `toString` is a
 `SignatureKind::Getter`, so the motivating case targets `Target::Getter`. A
 `legal_targets()` of `[Target::Method]` alone would reject the exact member this
 attribute exists for. (`toString` and `toString()` are *different selectors* — see
 ADR-0022's CB-1 amendment.)
+
+**`Construct` is listed but unreachable, and this table would otherwise lie about
+it.** `ConstructDef` carries no `attributes` field at all (`phalcom-ast/src/ast.rs`
+L321-331), and `Parser::attach_attrs` raises `attr.dangling: attributes cannot be
+attached to a constructor` (`phalcom-ast/src/parser.rs` L1113) before the compiler
+runs. So `@native construct init(…)` fails at *parse* time and never reaches
+`legal_targets()` — the row is unreachable, not merely untested. It is kept because
+it mirrors `@requires`/`@ensures`'s lists and becomes live for free if
+`ConstructDef` ever grows attributes; it is **not** a claim that the form works
+today. No fixture attempts it, because it is not expressible.
+
+**Argument rejection is not enforced.** `@native(foo)` compiles today with the
+argument silently discarded. This is not a `@native` decision — *no* expander in
+`attributes.rs` validates arity (`@sealed(foo)`, `@data(foo)` behave identically;
+every `expand` takes `_args: &[Expr]` and ignores it). Enforcing it here would mean
+inventing a mechanism rather than reusing one, so it is recorded as a
+registry-wide gap rather than patched for one name.
 
 A `@native` member whose class+selector has **no** installed native binding is
 **not** a compile error. The compiler has no view of the binding table, which is
@@ -91,8 +116,8 @@ compiler — and that is the correct division, not a gap.
 
 ### 1. Registration
 
-`compiler/attributes.rs`, `AttributeRegistry::new` (the registry block currently
-holding ten rows):
+`compiler/attributes.rs`, `AttributeRegistry::new` (landed as the eleventh of
+twelve rows, alongside `ignore`):
 
 ```rust
 expanders.insert("native".to_string(), Box::new(NativeExpander));
@@ -142,14 +167,36 @@ whose real work is a driver special-case (`if attr.name == "invariant" {
 validate_purity(…); class_invariants.push(…) }`). `@native` follows the same
 shape.
 
+**As landed, this is not a bare `retain`.** A `retain` closure cannot return
+`Result`, so it cannot raise `attr.illegal_target` — an illegal target (e.g.
+`@ignore` on a `Field`) would be silently dropped instead of rejected. The real
+pass, in `expand_class_attributes` BEFORE any member-attribute expansion or
+derive, checks legality first and only then drops:
+
 ```rust
-// In `expand_class_attributes`, BEFORE any member-attribute expansion:
+// 1. Legality check over every marked member — fallible, runs first.
+for member in &class.members {
+    for attr_name in ["native", "ignore"] {
+        if !member_has_attr(member, attr_name) { continue; }
+        let expander = registry.get(attr_name).expect("native/ignore always registered");
+        if !expander.legal_targets().contains(&member_target(member)) {
+            return Err(CompilerError::Message(format!(
+                "attr.illegal_target: attribute `@{}` is not legal on this target",
+                attr_name
+            )));
+        }
+    }
+}
+// 2. Only once every marked member has passed does the drop run.
 class.members.retain(|m| !member_has_attr(m, "native") && !member_has_attr(m, "ignore"));
 ```
 
-`member_has_attr` must read the attribute list of each `ClassMember` variant
-(`Method`/`Getter`/`Setter`/`Construct` each carry their own `*Def`), so it needs
-a small match — there is no uniform accessor today.
+`member_has_attr` reads the attribute list of each `ClassMember` variant
+(`Method`/`Getter`/`Setter`/`Field`/`Variant`/`Index` each carry their own
+`*Def`; `Construct` carries none and always reports `false`), so it needs a
+small match — there is no uniform accessor today. `member_target` is the same
+mapping the member-attribute loop below already used, factored out so both call
+sites share it.
 
 ### 3. Ordering is load-bearing
 
@@ -234,26 +281,32 @@ is exactly what the Compile tier is. It does require acknowledging that the
 
 ## Test strategy
 
-Positive lane (stdout-exact):
+Positive lane (stdout-exact), landed in `phalcom-core/tests/lang/decorators/`:
 
-- A `@native` member is **not** installed: the native still answers, and the
-  anchor body's text never appears in output.
-- An anchor body whose text differs visibly from the native's output proves the
-  drop (if the anchor ran, the test fails loudly).
+- `decorators_native_drops_member.ph` — a `@native` `Method` is **not**
+  installed (no real binding exists for the made-up selector, so the observable
+  behavior is `doesNotUnderstand`); a sibling member still compiles and works.
+- `decorators_native_getter_dropped.ph` — same, on a `Getter` (the motivating
+  target: `toString` is `SignatureKind::Getter`).
 
-Negative lane (`compile-errors/`, substring match):
+Negative lane (`compile-errors/`, substring match), landed:
 
-- `@native class Foo` → `attr.illegal_target`.
-- `@native` on a field → `attr.illegal_target`.
-- A `@native` body with a syntax error → a parse error (proving the body is still
-  parsed, not skipped).
+- `decorators_native_illegal_on_class.ph` — `@native class Foo` →
+  `attr.illegal_target`.
+- (The `@native`-on-a-field and body-syntax-error cases are covered by
+  `@ignore`'s identical fixtures — `decorators_ignore_illegal_on_field.ph` /
+  `decorators_ignore_body_still_parsed.ph` — since both attributes share one
+  legality-check-then-drop pass; not duplicated per-attribute.)
 
-Rust:
+Rust — **not yet built, deliberate follow-up unit**:
 
 - The `@native`-anchors ⊆ installed-native-bindings invariant, in
-  `phalcom-core/tests/invariants.rs`.
+  `phalcom-core/tests/invariants.rs`. This unit shipped zero `@native` anchors in
+  `core.ph` (by design — see "Which members can legally carry `@native` today"),
+  so there is nothing yet for that invariant to check; landing the first anchor
+  and this test together is the next unit.
 
-Every fixture must be **mutation-tested** — corrupt its `.expected`, confirm the
+Every fixture above was **mutation-tested** — corrupt its `.expected`, confirm the
 suite reddens *and names that fixture*, restore. The harness bails at the first
 mismatch, so mutate one at a time. A silently-skipped fixture is indistinguishable
 from a passing one.

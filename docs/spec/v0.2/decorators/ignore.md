@@ -1,12 +1,17 @@
 # `@ignore` — the compiler does not compile this member
 
-- Status: **Specified — not built.** No `ignore` row exists in
-  `AttributeRegistry::new`; `@ignore` today raises `attr.unknown`.
+- Status: **Implemented.** `ignore` is registered in `AttributeRegistry::new`
+  (`IgnoreExpander`); this is the sanctioned, permanent drop (contrast
+  `@native`'s provisional one — see "Relationship to `@native`" below).
 - Date: 2026-07-16
-- Evidence: none in `phalcom-core/src` — this file specifies work, it does not
-  record it. The mechanism it uses is real: `InvariantExpander`
-  (`compiler/attributes.rs` L456-478) is a registered no-op whose actual effect
-  lives in `expand_class_attributes` (L1548).
+- Evidence: `phalcom-core/src/compiler/attributes.rs` — `IgnoreExpander`
+  (registered no-op, `legal_targets() = [Method, Getter, Setter, Construct]`)
+  and `expand_class_attributes`'s `@native`/`@ignore` legality-check-then-drop
+  pass, which runs before `derive_accessors`/`expand_variants`. Fixtures:
+  `phalcom-core/tests/lang/decorators/decorators_ignore_drops_member.ph`,
+  `decorators_ignore_getter_dropped.ph`; negative:
+  `phalcom-core/tests/lang/compile-errors/decorators_ignore_illegal_on_field.ph`,
+  `decorators_ignore_body_still_parsed.ph`.
 - Depends on: [README.md](README.md) (the tier model) ·
   [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism,
   registry, phase pipeline)
@@ -67,9 +72,9 @@ else.
 
 | | |
 |---|---|
-| Legal targets | `Method`, `Getter`, `Setter`, `Construct` |
-| Illegal targets | `Class`, `Field` (`attr.illegal_target`) |
-| Arguments | none — `@ignore`, never `@ignore(...)` |
+| Legal targets | `Method`, `Getter`, `Setter`, `Construct` (`Construct` unreachable — see below) |
+| Illegal targets | `Class`, `Field`, `Variant`, `Index` (`attr.illegal_target`) |
+| Arguments | none by convention; **not enforced** — see below |
 
 `Getter` and `Setter` are included for the same reason as in
 [native.md](native.md): `toString` is a `SignatureKind::Getter`, and a member kind
@@ -77,6 +82,20 @@ that can be written can be ignored.
 
 `Field` is excluded because dropping a field changes the instance layout
 (ADR-0011), which is a materially different act from dropping a method — see I-2.
+This is the target the trap fixture pins: legality is checked *before* the drop, so
+`@ignore var hidden` raises `attr.illegal_target` rather than silently vanishing.
+
+**`Construct` is listed but unreachable.** `ConstructDef` carries no `attributes`
+field (`phalcom-ast/src/ast.rs` L321-331), and `Parser::attach_attrs` raises
+`attr.dangling: attributes cannot be attached to a constructor`
+(`phalcom-ast/src/parser.rs` L1113) before the compiler runs — so `@ignore construct
+init(…)` fails at *parse* time and never reaches `legal_targets()`. Kept for the
+same reason as in [native.md](native.md): it mirrors the existing lists and costs
+nothing, but it is not a claim that the form works today.
+
+**Argument rejection is not enforced.** `@ignore(foo)` compiles with the argument
+discarded. Registry-wide: no expander in `attributes.rs` validates arity. See
+[native.md](native.md) §Legality.
 
 ## Implementation
 
@@ -117,15 +136,17 @@ impl AttributeExpander for IgnoreExpander {
 cannot remove it from `ClassDef::members`. The removal therefore happens in
 `expand_class_attributes`, which owns the `ClassDef`:
 
-```rust
-// BEFORE any member-attribute expansion:
-class.members.retain(|m| !member_has_attr(m, "native") && !member_has_attr(m, "ignore"));
-```
+**As landed, the drop is not a bare `retain`** — legality must be checked first,
+or a `retain` closure (which cannot return `Result`) would silently drop an
+illegal target (e.g. `@ignore` on a `Field`) instead of raising
+`attr.illegal_target`. See [native.md](native.md) §"Suppression lives in the
+driver, not the expander" for the actual landed shape: a fallible legality-check
+loop over every marked member, then one `retain` that serves both attributes
+once every marked member has passed.
 
-One `retain` serves both attributes. Ordering is load-bearing — see
-[native.md](native.md) §3: drop before expansion, so contracts are never woven
-into a body that is about to vanish and the `@invariant` weave (which runs last,
-across every member) never sees a corpse.
+Ordering is load-bearing — see [native.md](native.md) §3: drop before expansion,
+so contracts are never woven into a body that is about to vanish and the
+`@invariant` weave (which runs last, across every member) never sees a corpse.
 
 ## Tier placement
 
@@ -135,20 +156,25 @@ Compile tier, `runtime: false`. Subtractive — see [native.md](native.md)
 
 ## Test strategy
 
-Positive lane (stdout-exact):
+Positive lane (stdout-exact), landed in `phalcom-core/tests/lang/decorators/`:
 
-- An `@ignore` member is not installed — sending its selector raises
-  `doesNotUnderstand`, proving absence rather than merely not-observing presence.
-- An `@ignore` member whose body would fail at runtime if it ran (or would print)
-  proves the drop rather than a coincidence.
-- Sibling members of an ignored one still compile and work.
+- `decorators_ignore_drops_member.ph` — an `@ignore` `Method` is not installed
+  (sending its selector raises `doesNotUnderstand`, proving absence rather than
+  merely not-observing presence); the body would print/fail if it ran, proving
+  the drop rather than a coincidence; a sibling member still compiles and works.
+- `decorators_ignore_getter_dropped.ph` — same, on a `Getter`.
 
-Negative lane (`compile-errors/`, substring match):
+Negative lane (`compile-errors/`, substring match), landed:
 
-- `@ignore class Foo` → `attr.illegal_target`.
-- `@ignore` on a field → `attr.illegal_target`.
-- An `@ignore` body with a **syntax error** → a parse error. This is the fixture
-  that pins "`@ignore` is not a comment", and it is the most valuable one here.
+- `decorators_native_illegal_on_class.ph` — a class-level `@native`/`@ignore` →
+  `attr.illegal_target` (one fixture proves the shared class-level check; the
+  other name would raise identically).
+- `decorators_ignore_illegal_on_field.ph` — `@ignore` on a field →
+  `attr.illegal_target`. This is the trap fixture: it fails if the drop were a
+  bare `retain` with no prior legality check.
+- `decorators_ignore_body_still_parsed.ph` — an `@ignore` body with a **syntax
+  error** → a parse error. This is the fixture that pins "`@ignore` is not a
+  comment", and it is the most valuable one here.
 
 Every fixture must be **mutation-tested** — corrupt its `.expected`, confirm the
 suite reddens *and names that fixture*, restore. The harness bails at the first
