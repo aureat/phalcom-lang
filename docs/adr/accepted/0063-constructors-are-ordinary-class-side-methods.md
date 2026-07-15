@@ -1,7 +1,13 @@
 # 63. Constructors are ordinary class-side methods: `@constructor`/`@static` decorators, `new_` allocator
 
-- Status: Proposed (needs user ratification)
+- Status: **Accepted** (ratified by the user 2026-07-15, DEC-CTOR-B "ratify in full")
 - Date: 2026-07-15
+- Rulings folded in: **DEC-CTOR-A** — `@static` does *not* extend to fields; static
+  fields get their own decorator, **`@classField`** (§2.1, DEC-CTOR-A1) ·
+  **DEC-CTOR-A2** — per-class static-field storage is working-as-designed; fixture it ·
+  **DEC-CTOR-C** — the §5 desugar is measurement-gated, not ratified here ·
+  **DEC-CTOR-E** — `@construct` unifies into `@constructor` ·
+  **DEC-CTOR-D** — one-shot codemod, no deprecation window
 - Related: [ADR-0002](../accepted/0002-metaclass-tower-parallel-rule.md) (the parallel
   tower is the mechanism this ADR stops opting out of) ·
   [ADR-0012](../accepted/0012-selector-signature-encoding-and-dispatch.md)
@@ -153,6 +159,64 @@ is deleted with `ConstructDef`.
 
 `@static` is legal on `Method`/`Getter`/`Setter` only. `@static @constructor` together
 is an error, not a redundant no-op.
+
+### 2.1 `@classField` — static fields are a different concept, not a `@static` target
+
+**DEC-CTOR-A/A1.** `static _count = 0` is not a method; it is per-class *storage*
+(ADR-0017's `static_slots`). It gets its own decorator:
+
+```phalcom
+class Counter {
+  @classField var _count = 0
+
+  @static
+  bump() { _count = _count + 1 }
+
+  @static
+  count => _count
+}
+```
+
+`@classField` is legal on `Field` only; `@static` is not legal on `Field`.
+
+The split is not bureaucratic — **`@static` would teach the wrong model.** Measured
+behavior:
+
+```phalcom
+class Base { @classField var _count = 0
+             @static bump() { _count = _count + 1 }
+             @static count => _count }
+class Derived extends Base {}
+
+Base.bump()   Base.bump()
+Base.count      // 2
+Derived.count   // None   <- its own slot, not Base's
+```
+
+A subclass gets a **fresh, unset slot**, exactly as ADR-0011 specifies for instance
+fields ("a subclass that writes `_name` gets its own new slot; it does not touch the
+superclass's") — ADR-0017 is that rule shifted one tower level up, and it means what
+it says. In Smalltalk terms this is a **class-instance variable**, *not* a class
+variable.
+
+So the two obvious names are both wrong: `@shared` asserts hierarchy-wide sharing that
+does not exist, and `@classvar` names Smalltalk's *class variable*, which **is**
+hierarchy-shared. `static` carries the same false connotation from Java/C#. `@classField`
+says what it is — a field, obeying the field rule, on the class side.
+
+**DEC-CTOR-A2 — the sharp edge is working as designed.** An inherited `@static` method
+touching a `@classField` reads `None` in the subclass:
+
+```phalcom
+Derived.bump()   // None does not understand '+(_)'
+```
+
+This follows from per-class storage and is **ratified as correct**, not patched. It is
+untested today (`inheritance_static_*.ph` all cover static *methods*) and unruled by
+ADR-0017, whose DEC-D settled only storage. This unit locks it with a golden fixture
+and documents it in `classes.md`. Re-running the declaration's initializer per subclass
+was considered and rejected: it would diverge from instance fields, which read `None`
+until written, and buy a new per-class initializer-evaluation path.
 
 ### 3. The two decorators are different *kinds* of attribute
 

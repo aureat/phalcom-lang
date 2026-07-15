@@ -3,7 +3,7 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0063](../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md) (**Proposed** — constructors as ordinary class-side methods; `@constructor`/`@static`; `new_`) ·
+[ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) (**Accepted** — constructors as ordinary class-side methods; `@constructor`/`@static`; `new_`) ·
 [ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md) (static per-class slot layout) ·
 [ADR-0014](../../adr/accepted/0014-let-and-var-bindings.md) (let and var bindings) ·
 [ADR-0002](../../adr/accepted/0002-metaclass-tower-parallel-rule.md) (the parallel tower that resolves them)
@@ -130,6 +130,58 @@ layout at class-definition time.
   This is the same privacy rule as [Selectors, Symbols & References §5](selectors.md#5-field-visibility):
   fields are always private, with no visibility syntax; every external access
   is a message send through a derived or hand-written accessor.
+
+### 2.1 Class-side fields — `@classField`
+
+`@classField` declares storage on the **class object** rather than on instances
+([ADR-0017](../../adr/accepted/0017-class-side-stored-static-fields.md)):
+
+```phalcom
+class Counter {
+  @classField var _count = 0
+
+  @constructor
+  new() { _count = _count + 1 }
+
+  @static
+  count => _count
+}
+
+Counter.new()  Counter.new()  Counter.new()
+Counter.count                 // 3 — one slot, shared by every instance
+```
+
+**Storage is per declaring class.** A subclass gets its **own fresh slot**, reading
+`None` until written — it does not share the superclass's:
+
+```phalcom
+class Base { @classField var _count = 0
+             @static bump() { _count = _count + 1 }
+             @static count => _count }
+class Derived extends Base {}
+
+Base.bump()  Base.bump()
+Base.count      // 2
+Derived.count   // None — its own slot
+```
+
+This is §2's field rule exactly, one tower level up: ADR-0017 is
+[ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md)'s slot vector
+shifted onto the metaclass. In Smalltalk terms `@classField` is a **class-instance
+variable**, *not* a class variable — nothing is shared across a hierarchy, which is
+why it is not spelled `@static` (dispatch placement is a different concept from
+storage) and not `@shared`.
+
+**Consequence, by design:** an inherited `@static` method touching an unset subclass
+`@classField` reads `None`.
+
+```phalcom
+Derived.bump()   // None does not understand '+(_)'
+```
+
+The subclass genuinely has its own slot; the declaration's initializer is **not**
+re-run per subclass, matching instance fields, which likewise read `None` until
+written. A subclass that wants its own counter declares its own `@classField`.
 
 ## 3. Methods, accessors, operators
 

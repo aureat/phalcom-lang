@@ -170,7 +170,7 @@ references).
 
 Member metadata lives here rather than in the keyword space. `@constructor` and
 `@static` replace what were once the `construct` and `static` keywords
-([ADR-0063](../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md) §1):
+([ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) §1):
 neither changed the grammar — `construct new(x) {}` and `new(x) {}` parse identically
 after the prefix, and `static` was a pure modifier bit — so neither earned a reserved
 word. `construct` and `static` are now ordinary identifiers, usable as method and

@@ -113,7 +113,7 @@ for the semantics.
   class-side placement and constructor-ness are carried by `@static` and
   `@constructor`, which desugar into ordinary `method_decl`s before the rest of
   compilation
-  ([ADR-0063](../../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md)).
+  ([ADR-0063](../../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)).
 - `@static` puts the member on the metaclass rather than the instance side.
 - **Constructor**: `@constructor` on a `method_decl` allocates a fresh instance via
   `new_`, runs the body with `self` bound to it, and returns the instance implicitly.
@@ -125,10 +125,12 @@ for the semantics.
 - **Getter**: no parameter list. `name` and `name()` are different selectors.
 - **Setter**: `IDENT "=" param_list method_body` — selector `name=(_)`. If the
   parameter list is empty the parameter defaults to `value`.
-- **Field initializer**: `FIELD "=" expr`, a `_`-prefixed *static* field init.
-  Instance fields carry no declaration syntax at all — they are implicitly
-  declared by assignment inside a method, and reading a field never assigned
-  anywhere in the class is a compile error
+- **Field initializer**: `FIELD "=" expr`, a `_`-prefixed field init. Carrying
+  `@classField` puts the storage on the class object rather than on instances, per
+  declaring class ([Classes §2.1](../classes.md)) — the `static` keyword that once
+  marked this is gone. Instance fields carry no declaration syntax at all — they are
+  implicitly declared by assignment inside a method, and reading a field never
+  assigned anywhere in the class is a compile error
   ([Classes §2](../classes.md#2-fields)).
 - `method_body := "=>" expr | block` — `=>` is general expression-body sugar,
   not limited to getters ([Classes §3](../classes.md#3-methods-accessors-operators)).

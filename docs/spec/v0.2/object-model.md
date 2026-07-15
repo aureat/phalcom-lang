@@ -213,7 +213,7 @@ every metaclass's superclass to `Class`, breaking it (see
 
 Rule 4 is also the whole of constructor dispatch. A constructor is an ordinary
 class-side method ([Classes §1](classes.md),
-[ADR-0063](../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md)),
+[ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)),
 so `Foo.new(1)` is an ordinary send resolved by walking `Foo class` and its
 superclass chain — from any receiver expression, with no constructor-specific
 namespace, table, or call-site rewriting. The bare allocator `Class >> new()` sits at

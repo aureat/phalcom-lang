@@ -227,6 +227,7 @@ ordinary hierarchy lookup for that one selector
 | `@constructor` | class header | Derives a constructor from the declared fields. |
 | `@constructor` | method member | Marks the method a constructor ([Classes §1](classes.md)). |
 | `@static` | method / getter / setter | Declares the member on the metaclass. |
+| `@classField` | field | Stores the field on the class object, not on instances ([Classes §2.1](classes.md)). |
 | `@get` | field | Derives an accessor method for a field. |
 | `@set` | field | Derives a mutator method for a field. |
 
@@ -251,7 +252,7 @@ parameter list and evaluated per instance at construct time. It does **not** cha
 Both targets share one mechanism: the header form emits a `@constructor` **method
 member** into the AST, which then expands exactly as a hand-written one does. There is
 no second code path, and no separate `@construct` attribute — one name for one concept
-([ADR-0063](../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md) §2).
+([ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) §2).
 
 ---
 

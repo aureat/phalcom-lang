@@ -1,9 +1,10 @@
 # U-CTOR — constructors become ordinary class-side methods: `@constructor`/`@static` decorators, `new_` allocator
 
-Status: **PLANNED** (2026-07-15). Gated on user ratification of
-[ADR-0063](../../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md)
-(Proposed). Five sub-units, landing independently; **U-CTOR-5 is separately gated on a
-perf measurement** and may be declined without affecting 1–4.
+Status: **READY** (2026-07-15).
+[ADR-0063](../../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)
+**Accepted**; all seven DEC-CTOR questions ruled (see Decisions). Five sub-units,
+landing independently; **U-CTOR-5 is separately gated on a perf measurement**
+(DEC-CTOR-C) and may be declined without affecting 1–4. No open blockers.
 
 Not a performance tier — a surface + object-model unit that *removes* machinery.
 Net effect on the primitive floor is **−1 fn, −1 binding** (a duplicate dies).
@@ -33,7 +34,7 @@ floor allocator, and — unfixed — the wrong-arity-through-dynamic-receiver ho
 
 ## Spec anchor
 
-- **[ADR-0063](../../../adr/proposed/0063-constructors-are-ordinary-class-side-methods.md)** — the whole unit. **Proposed; ratify before starting.**
+- **[ADR-0063](../../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)** — the whole unit. **Accepted** (ratified 2026-07-15). Note U-CTOR-5's desugar is *not* covered by that ratification — DEC-CTOR-C gates it on measurement.
 - [ADR-0002](../../../adr/accepted/0002-metaclass-tower-parallel-rule.md) — the parallel tower is the mechanism this stops opting out of.
 - [ADR-0012](../../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md) — `SignatureKind::Initializer` retired (§9).
 - [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md) — **floor amendment**; census is normative.
@@ -105,10 +106,22 @@ name token:
 
 **Static fields.** `static _count = 0` (`class_static_field_shared_state.ph:9`) is a
 *field* declaration, not a method — ADR-0017's `static_slots`. `@static` is **not**
-legal on `Field` in this unit. The codemod must route `static _x = …` to
-`@static`-on-field **only if** that is separately ruled; otherwise this unit keeps a
-`static`-field surface it just de-keyworded. **This is DEC-CTOR-A — resolve before
-U-CTOR-2 starts.**
+**not** legal on `Field` — **ruled** (DEC-CTOR-A). Static fields are per-class
+*storage*, not dispatch placement, and get their own decorator:
+
+```phalcom
+@classField var _count = 0
+```
+
+`@classField` is a **modifier** too (sets the existing static-field bit in place), and
+is legal on `Field` only. This sub-unit introduces it, and the codemod must split by
+member kind: `static foo()` / `static foo => …` → `@static`, but `static _x = …` →
+`@classField var _x = …`. Field declarations are `field_init := FIELD "=" expr` in the
+grammar — a distinct production from `method_decl`, so the split is mechanical.
+
+Why the two are different concepts, in one measurement (see DEC-CTOR-A below):
+`Derived.count` reads **`None`**, not `Base`'s `2` — storage is per declaring class,
+so nothing is "shared" and `@static` would misname it.
 
 ### U-CTOR-3 — collapse `ConstructDef`; `@constructor`; drop `Token::Construct`
 
@@ -230,7 +243,7 @@ ordinary instance-side super-send.
 | `phalcom-ast/src/token.rs` | 2, 3 | delete `Token::Static`, `Token::Construct` (`:80,82`) |
 | `phalcom-ast/src/ast.rs` | 3 | delete `ClassMember::Construct` (`:197`), `ConstructDef` (`:321`); `MethodDef.is_constructor` |
 | `phalcom-ast/src/parser.rs` | 2, 3, 4 | `parse_class_member` (`:1234`) legacy diagnostics + no `is_static`; `parse_attribute` hack out (`:1046`); `attach_attributes` arm out (`:1113`); `parse_method_name` reserved-name check |
-| `phalcom-core/src/compiler/attributes.rs` | 1, 2, 3 | `BuiltinAttr`/`AttrKind`; array registry (`:635`); exhaustive match (`:1550`); `derive_constructor`; `Initializer`→`Method` (`:729`) |
+| `phalcom-core/src/compiler/attributes.rs` | 1, 2, 3 | `BuiltinAttr`/`AttrKind` (incl. `ClassField`); array registry (`:635`); exhaustive match (`:1550`); `derive_constructor`; `Initializer`→`Method` (`:729`) |
 | `phalcom-core/src/compiler/lib/class_decl.rs` | 3, 4, 5 | `Construct` arm → `MethodDef` path (`:615-650`); tombstone install; `duplicate_selector` pre-pass (`:82`+) |
 | `phalcom-core/src/compiler/lib/expr.rs` | 4 | keep arity guard (`:103`), re-anchor on the new tables |
 | `phalcom-core/src/compiler/lib/error.rs` | 4 | `ConstructStaticCollision` → `DuplicateSelector`; `ReservedName` |
@@ -250,7 +263,7 @@ ordinary instance-side super-send.
 ## Build order
 
 1. **U-CTOR-1** — enum + registry. Green, no behavior change.
-2. **U-CTOR-2** — `@static`, codemod 152 sites. **Blocked on DEC-CTOR-A** (static fields).
+2. **U-CTOR-2** — `@static` + `@classField`, codemod 152 sites split by member kind. **Unblocked** (DEC-CTOR-A ruled).
 3. **U-CTOR-3** — collapse `ConstructDef`, `@constructor`, codemod 148 sites.
 4. **U-CTOR-4** — floor: `new_`, delete the duplicate, re-home `new()`, tombstone, `duplicate_selector`. **Gate: bootstrap + `verify_invariants()` + R-INV-0.1 green.**
 5. **U-CTOR-5** — desugar. **Gate: construction benchmark.** Decline if red.
@@ -272,6 +285,9 @@ Main has live concurrent sessions — branch, commit narrow paths, never `git ad
 - `ctor_contracts.ph` — **`@requires` on a constructor** (impossible before U-CTOR-3)
 - `ctor_handwritten_smalltalk.ph` — the `person3.ph` pattern with `new_`, working
 - `ctor_bare_allocator_still_works.ph` — ctor-less class, both receiver shapes
+- `classfield_per_class_storage.ph` — **DEC-CTOR-A2**: `Base.count` → `2`,
+  `Derived.count` → `None`. Locks per-declaring-class storage, which nothing tests
+  today (`inheritance_static_*.ph` all cover static *methods*)
 
 **Negative lane** — `tests/lang/compile-errors/`:
 - `ctor_duplicate_selector.ph` — `@constructor new(x)` + `@static new(x)`
@@ -282,6 +298,10 @@ Main has live concurrent sessions — branch, commit narrow paths, never `git ad
 
 **Runtime lane** — `tests/lang/runtime-errors/`:
 - `ctor_tombstone_arity.ph` — `var C = Point; C.new()` where only `new(_,_)` exists → tombstone raises with candidates. **This is `DEFERRED.md:29`.**
+- `classfield_inherited_static_unset.ph` — **DEC-CTOR-A2**: `Derived.bump()` on an
+  inherited `@static` method touching an unset subclass `@classField` raises
+  `None does not understand '+(_)'`. Ratified as correct, so it is pinned here rather
+  than fixed.
 
 **Fixtures must be proven wired**, not assumed: the harness runs one test per *lane*
 iterating the directory, so a new file can be silently skipped. Corrupt each `.expected`,
@@ -293,23 +313,45 @@ confirm the suite reddens, restore ([[phalcom-golden-test-lanes]]).
 
 ---
 
-## Decisions to flag (DEC-CTOR)
+## Decisions (DEC-CTOR) — **all ruled 2026-07-15**
 
-- **DEC-CTOR-A — `static` fields.** `static _count = 0` is a *field*, not a method
-  (ADR-0017 `static_slots`). Does it become `@static var _count = 0`, keep a `static`
-  field keyword, or something else? **Blocks U-CTOR-2.** Recommendation: `@static` on
-  `Field`, one decorator for both sides, no keyword survives.
-- **DEC-CTOR-B — ratify ADR-0063?** It **reverses `classes.md` §1's** "no user-visible
-  allocator / users never write `let i = self.new(); i.init(…)`" direction. That
-  direction was never implemented and the corpus votes against it (`person3.ph`
-  hand-writes exactly the forbidden pattern and gets infinite recursion). Reversal is
-  deliberate and needs a ruling, not a doc edit.
-- **DEC-CTOR-C — U-CTOR-5 desugar vs the +1 send.** Ruled by measurement, not taste.
-- **DEC-CTOR-D — codemod one-shot vs deprecation window.** Recommendation: one-shot;
-  Phalcom owns 100% of its corpus.
-- **DEC-CTOR-E — `@constructor` vs `@construct` for the class-header derive.** ADR-0063
-  unifies both onto `@constructor`. Alternative: keep `@construct` for the header.
-  Recommendation: unify — two names one character apart with unrelated meanings is a trap.
+| # | Question | Ruling |
+|---|---|---|
+| **A** | Does `@static` cover static fields? | **No — a distinct decorator.** *(against the plan's own recommendation; see below)* |
+| **A1** | Its name | **`@classField`** |
+| **A2** | Inherited `@static` method reading a subclass's unset `@classField` → `None` | **Working as designed — fixture it** |
+| **B** | Ratify ADR-0063 (reverses `classes.md` §1)? | **Ratify in full** — ADR-0063 is **Accepted** |
+| **C** | U-CTOR-5 desugar vs +1 send/construction | **Measure, then decide** — gate stands |
+| **D** | Codemod one-shot vs deprecation window | **One-shot**, no window |
+| **E** | `@construct` vs `@constructor` for the header derive | **Unify on `@constructor`** |
+
+**A is the interesting one, and the plan was wrong.** This doc recommended `@static` on
+`Field` — "one decorator for both sides." Measurement says that would have taught the
+wrong model:
+
+```phalcom
+class Base { @classField var _count = 0
+             @static bump() { _count = _count + 1 }
+             @static count => _count }
+class Derived extends Base {}
+Base.bump()  Base.bump()
+Base.count      // 2
+Derived.count   // None   <- own slot, not Base's
+```
+
+Storage is **per declaring class**, exactly as ADR-0011 rules for instance fields —
+ADR-0017 is that rule one tower level up. That is a Smalltalk **class-instance
+variable**, not a class variable. `static`/`@shared`/`@classvar` all connote
+hierarchy-wide sharing that does not exist. `@classField` names it correctly: a field,
+obeying the field rule, on the class side.
+
+**A2** ratifies the consequence rather than patching it: `Derived.bump()` raises
+`None does not understand '+(_)'`. Untested today — `inheritance_static_*.ph` cover
+static *methods* only — and unruled by ADR-0017 (DEC-D settled storage alone). Lock it
+with a fixture; do not add a per-class initializer re-run.
+
+**U-CTOR-2 is unblocked**, with scope grown: it now also introduces `@classField` and
+must codemod `static _x = …` field declarations separately from `static foo()` methods.
 
 ---
 
