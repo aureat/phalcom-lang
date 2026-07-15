@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 28] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 29] {
     let c = &vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -81,6 +81,15 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 28] {
         // `Family` (U16-Open, ADR-0047): the `::` method-reference call
         // router joins the audited census.
         ("Family", c.family_class),
+        // `Fiber` (ADR-0030) joins the audited census 2026-07-15 (DEFERRED
+        // CB-5). It shipped with 11 primitives but was never listed here, so
+        // `install_primitives` bound a whole kernel class that R-INV-0.1 did
+        // not audit and `floor-census.md` did not mention: the ADR-0019 freeze
+        // did not bind `Fiber`, and adding or dropping a fiber primitive
+        // changed the floor with no red test. The census and the test agreed
+        // with each other (125 = 125, green), which is exactly why nothing
+        // caught it — neither was ever compared against the install site.
+        ("Fiber", c.fiber_class),
     ]
 }
 
@@ -688,6 +697,17 @@ fn floor_census_matches_installed_bindings() {
     // `String#byteCount_`, `String#byteAt_(_)`, `String#slice_(_,_)`,
     // `System.write_(_)` — all `primitive/string.rs`/`primitive/system.rs`.
     const NEW_STRING: usize = 4;
+    // `Fiber` (ADR-0030) — admitted to the census 2026-07-15 (DEFERRED CB-5).
+    // NOT a floor amendment: these 11 bindings have been installed since the
+    // fiber work landed. What changes is that they are now *audited*. Before
+    // this, `Fiber` was absent from `core_class_rows` and from
+    // `floor-census.md` entirely, so the ADR-0019 freeze did not bind it
+    // (125 -> 136): `Fiber.new(_)`, `#call()`/`#call(_)`, `#try()`/`#try(_)`,
+    // `Fiber.yield()`/`Fiber.yield(_)`, `Fiber.current`, `Fiber.abort(_)`,
+    // `#isDone`, `#error` — all `primitive/fiber.rs`, bound at
+    // `universe/primitives.rs` L362-374. 8 distinct native fns (110 -> 118);
+    // `call`/`try`/`yield` are each shared across two arities.
+    const NEW_FIBER: usize = 11;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -845,6 +865,20 @@ fn floor_census_matches_installed_bindings() {
         (c.range_class, false, "inclusive_"),
         // Family (U16-Open, ADR-0047) — NEW_FAMILY
         (c.family_class, false, "doesNotUnderstand(_)"),
+        // Fiber (ADR-0030) — NEW_FIBER. Installed since the fiber work landed;
+        // audited only from 2026-07-15 (DEFERRED CB-5). `universe/primitives.rs`
+        // L362-374, `primitive/fiber.rs`.
+        (c.fiber_class, true, "new(_)"),
+        (c.fiber_class, false, "call()"),
+        (c.fiber_class, false, "call(_)"),
+        (c.fiber_class, false, "try()"),
+        (c.fiber_class, false, "try(_)"),
+        (c.fiber_class, true, "yield()"),
+        (c.fiber_class, true, "yield(_)"),
+        (c.fiber_class, true, "current"),
+        (c.fiber_class, true, "abort(_)"),
+        (c.fiber_class, false, "isDone"),
+        (c.fiber_class, false, "error"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -919,8 +953,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_INVARIANT_GUARD
             + NEW_ATTR_ROOT
             + NEW_GC
-            + NEW_STRING,
-        "census must enumerate exactly 125 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 U-GC + 4 U-STRING/ADR-0049)"
+            + NEW_STRING
+            + NEW_FIBER,
+        "census must enumerate exactly 136 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 U-GC + 4 U-STRING/ADR-0049 + 11 Fiber/ADR-0030)"
     );
     assert_eq!(
         live.len(),
@@ -939,8 +974,9 @@ fn floor_census_matches_installed_bindings() {
             + NEW_INVARIANT_GUARD
             + NEW_ATTR_ROOT
             + NEW_GC
-            + NEW_STRING,
-        "the live floor must be exactly 125 bindings"
+            + NEW_STRING
+            + NEW_FIBER,
+        "the live floor must be exactly 136 bindings"
     );
 }
 

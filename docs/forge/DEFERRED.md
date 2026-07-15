@@ -249,10 +249,31 @@ a draft's authority.
 prose to distinguish general (combinatorial, rejected) from trailing-only (linear,
 ratified by Q12). Owning unit: unassigned.
 
-### CB-5 · `Fiber`'s 11 primitives are installed but outside the frozen floor
+### CB-5 · `Fiber`'s 11 primitives are installed but outside the frozen floor — **FIXED 2026-07-15**
 
 _Found and verified 2026-07-15 while fixing CB-2, by reconciling the install site against
 the test's audit set._
+_**Fixed 2026-07-15** — option **(a)**, user-ruled: `Fiber` is admitted to the floor.
+`("Fiber", c.fiber_class)` added to `core_class_rows` (28 → 29 rows), `NEW_FIBER = 11`
+added with the 11 binding entries, **both** count assertions bumped 125 → **136** (the
+second, on `live.len()`, is easy to miss — the first failure named it). Census gains
+**§2.17** enumerating all 11 with sides and semantics read from `primitive/fiber.rs`, a
+chain row, and §1.4 rewritten from "the defect" to "how the hole survived". Docs updated:
+§1.1 (136/118/23, installed = audited), §7's coverage caveat, §8, `core/README.md`'s pin.
+Test green — the set-difference check passing means the 11 enumerated selectors match the
+installed set exactly._
+
+_**Not a floor amendment, and no ADR opened.** No primitive was added: these bindings
+shipped under ADR-0030. What changed is that they are now audited. The native boundary did
+not move; the census's account of it did. §7's "open an ADR amending 0019" governs
+**adding/removing** a primitive, which this is not._
+
+_**The durable lesson, recorded in §1.4 and §7.** `core_class_rows` is the audit's real
+boundary, and **nothing audits it** — a kernel class missing from that list is unfrozen in
+fact, whatever ADR-0019 says. The census and the test agreed with each other (125 = 125,
+green) because they were coupled, not because they were right; neither was ever compared
+against the install site. A future kernel class added without its row reopens this hole
+silently and identically. **Add the `core_class_rows` row in the same change.**_
 
 **The defect.** `VM::new()` installs **136** native `(class, selector)` bindings. R-INV-0.1
 (`floor_census_matches_installed_bindings`) audits **125** of them. The other **11** are

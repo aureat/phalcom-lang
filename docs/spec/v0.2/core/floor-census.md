@@ -33,10 +33,14 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **audited** (§1.3) | **125** |
-| Distinct native Rust functions — audited | **110** |
-| Classes carrying floor primitives | **22** (of 28 audited kernel classes) |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **136** |
+| Distinct native Rust functions | **118** |
+| Classes carrying floor primitives | **23** (of 29 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
+
+**Installed = audited, as of 2026-07-15.** Every native binding `VM::new()` installs is
+enumerated in §2 and guarded by R-INV-0.1. That is a new property, not a standing one —
+until CB-5 closed, `Fiber`'s 11 were installed but audited by nothing (§1.4).
 
 ### 1.3 The source of record is the test, not this file
 
@@ -59,20 +63,32 @@ turns floor drift into a red test rather than silent prose rot.
 > five and then abandoned. "Distinct native Rust functions" was likewise stale at **98**
 > (actual **110**). See [`docs/forge/DEFERRED.md`](../../../forge/DEFERRED.md) CB-2.
 
-### 1.4 Audited ≠ installed: `Fiber` is outside this census
+### 1.4 `Fiber` was outside this census until 2026-07-15 — how, and why it matters
 
-The counts above are the **audited** floor. `VM::new()` installs **136** native bindings;
-**125** of them are enumerated here and guarded by R-INV-0.1. The other **11** are
-`Fiber`'s (`Fiber.new(_)`, `#call`/`#call(_)`, `#try`/`#try(_)`, `Fiber.yield`/`yield(_)`,
-`Fiber.current`, `Fiber.abort(_)`, `#isDone`, `#error` — `primitive/fiber.rs`, bound at
-`universe/primitives.rs` L362-374).
+**Closed (DEFERRED CB-5): `Fiber` is now audited (§2.17).** Kept as a record because the
+*shape* of this hole is the one to watch for, and the fix is only one class deep.
 
-`Fiber` is a real kernel class (`universe/core_classes.rs:152`) carrying real primitives,
-but it is **absent from `core_class_rows`** in the test and appears nowhere in this
-document. So the ADR-0019 freeze does **not** currently bind `Fiber`: a primitive added to,
-or dropped from, `Fiber` changes the floor and **no test goes red**. Tracked as
-[`docs/forge/DEFERRED.md`](../../../forge/DEFERRED.md) CB-5; do not treat the 125 as "the
-whole native boundary" until that closes.
+For as long as fibers had shipped, `VM::new()` installed **136** native bindings while the
+census enumerated **125** and R-INV-0.1 audited those same 125. The missing 11 were
+`Fiber`'s — a real kernel class (`universe/core_classes.rs:152`) carrying real primitives
+(`universe/primitives.rs` L362-374), **absent from the test's `core_class_rows` and from
+this document entirely**. So ADR-0019's freeze did not bind `Fiber`: a primitive added to,
+or dropped from, it changed the floor and **no test went red**.
+
+**Why nothing caught it.** The census and the test agreed with each other perfectly
+(125 = 125, green), so every consistency check *between those two* passed. Neither was ever
+compared against the install site — and a class that appears in neither cannot be missed by
+either. The gap was found by reconciling `install_primitives` against the audit set by hand
+while fixing CB-2, and it surfaced as an unexplained 11-binding discrepancy, not as any
+failure.
+
+**The generalisable lesson.** Two artifacts agreeing is not evidence that either is right;
+it is evidence that they are *coupled*. R-INV-0.1's authority comes from comparing prose to
+a **live `VM::new()`** — but only over the classes it is told to look at. `core_class_rows`
+is the audit's true boundary, and nothing audits *it*. If a future kernel class is created
+without a row there, this hole reopens silently and identically. **When adding a kernel
+class that carries primitives, add its `core_class_rows` row in the same change** — that
+row, not the count, is what makes the freeze real.
 
 > **U-CORE-1 amendment ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).**
 > Kernel reflection admits **+7** bindings (73 → 80) and **+7** distinct fns
@@ -271,17 +287,28 @@ whole native boundary" until that closes.
 > Floor-carrying classes stay **22** — `String` and `System` both already carried
 > bindings. See §2.5 / §2.11.
 >
-> **Baseline:** post-U-STRING — the figures above (**125 / 110 / 22 / 7** =
+> **`Fiber` admission — NOT an amendment ([ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md)).**
+> **No primitive was added.** `Fiber`'s **11** bindings and **8** distinct fns have been
+> installed since the fiber work landed under ADR-0030; what changed on **2026-07-15** is
+> that they became *audited* (125 → **136**, fns 110 → **118**, floor-carrying classes
+> 22 → **23**, audited kernel classes 28 → **29**). Listed here for chain continuity, but it
+> is a **bookkeeping correction, not a floor widening** — the native boundary did not move;
+> the census's account of it did. See §1.4 for how the hole survived, and §2.17 for the
+> enumeration. This is the one row in the chain where the delta is the *census* catching up
+> to the code rather than the code being extended.
+>
+> **Baseline:** post-U-STRING, + `Fiber` admitted — the figures above (**136 / 118 / 23 / 7** =
 > bindings / distinct fns / floor-carrying classes / sacred selectors) are the current
 > **audited** floor (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
 > post-M-ATTR-ROOT, **117 / 102 / 22 / 7** post-U-ANNOT-CONTRACTS,
 > **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-U16-Open,
 > **112 / 97 / 21 / 7** post-U15, **111 / 96 / 21 / 7** post-U-ERR,
 > **109 / 94 / 21 / 7** post-U-COLLTYPES-Phase-3, **105 / 90 / 20 / 7** post-Phase-2,
-> **102 / 87 / 19 / 7** post-Phase-1, **88 / 73 / 17 / 7** post-U-CORE-6). **Do not quote
-> this line** — it is a dated rendering of `invariants.rs` (§1.3), and it sat five
-> amendments stale (at post-U15 / 112) until 2026-07-15. `VM::new()` installs **136**;
-> the other 11 are `Fiber`'s, which nothing audits (§1.4).
+> **102 / 87 / 19 / 7** post-Phase-1, **88 / 73 / 17 / 7** post-U-CORE-6; and
+> **125 / 110 / 22 / 7** for the ~24h in 2026-07-15 between CB-2 reconciling the count and
+> CB-5 admitting `Fiber`). **Do not quote this line** — it is a dated rendering of
+> `invariants.rs` (§1.3), and it sat five amendments stale (at post-U15 / 112) until
+> 2026-07-15. Installed now equals audited: all **136** (§1.1).
 > This census is the ground-truth *enumeration*; the count's authority is the test. The
 > landing history + drift policy live in [`README.md`](./README.md) §"Baseline & drift
 > policy" (itself re-baselined 2026-07-15 — it had been frozen at U-ERR/111).
@@ -295,7 +322,9 @@ whole native boundary" until that closes.
 > U15 added +1 (111 → 112, ADR-0045), U16-Open added +1 (112 → 113, ADR-0047),
 > U-SCHED added +2 (113 → 115, ADR-0030), U-ANNOT-CONTRACTS added +2
 > (115 → 117, ADR-0052), M-ATTR-ROOT added +3 (117 → 120, no ADR), U-GC added
-> +1 (120 → 121, ADR-0050), and U-STRING added +4 (121 → 125, ADR-0049)** — every other unit either landed
+> +1 (120 → 121, ADR-0050), and U-STRING added +4 (121 → 125, ADR-0049)**. **U-FIBER
+> (ADR-0030) added 11 too** — but they went uncounted until 2026-07-15 (125 → **136**),
+> which is why this list read as complete while it was not (§1.4). Every other unit either landed
 > `.ph`/compiler surface or added zero bindings. U8's reflective surface and
 > the `Message` class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/
 > U-STD were `.ph`/compiler-only; U11 added `True`/`False` as kernel classes
@@ -655,6 +684,42 @@ reflective surface (Q14 ruling, `open-questions.md`).
 |---|---|---|---|
 | `doesNotUnderstand(_)` | instance | `family_does_not_understand` | overrides `Object`'s default miss handler; the uniform call router |
 
+### 2.17 `Fiber` — cooperative coroutine (U-FIBER / U-FIBER-REFLECT, [ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md))
+
+> **Audited only since 2026-07-15** (DEFERRED CB-5). These 11 bindings shipped with the
+> fiber work but were enumerated nowhere and audited by nothing; the class was missing from
+> the test's `core_class_rows`. **No primitive was added to admit them** — see §1.4.
+
+A native `Object::Fiber` heap variant (no `Value::Fiber` arm — reached through `Value::Obj`,
+as `Object::List` is), sitting directly under `Object`. The whole class is floor by
+necessity: a fiber *is* a suspended native call stack, so nothing in `.ph` can build,
+resume, or inspect one. Note the split — `call`/`try`/`isDone`/`error` are **instance**-side
+(they act on a particular fiber), while `yield`/`current`/`abort` are **class**-side (they
+act on whatever fiber is running *now*, which the receiver cannot name).
+
+`call` vs `try` is the whole error contract: both resume the receiver, and they differ only
+in what an uncaught failure does — `call` re-raises it into the resumer
+(`FiberResumeMode::Call`); `try` captures it at the fiber floor and delivers it as an
+`Error` value (`FiberResumeMode::Try`). Each is bound at arity 0 and 1 (resume with no
+value, or with one), which is why 11 bindings need only 8 native fns.
+
+| Selector | Side | Native fn | Notes |
+|---|---|---|---|
+| `new(_)` | static | `fiber_new` | builds a suspended fiber over a `Block`/`Closure`; `RuntimeError::Type` if the argument is neither |
+| `call()` | instance | `fiber_call` | resume, no value passed; uncaught failure **re-raises into the resumer** |
+| `call(_)` | instance | `fiber_call` | resume, passing one value |
+| `try()` | instance | `fiber_try` | resume; uncaught failure is **captured at the fiber floor** and delivered as an `Error` |
+| `try(_)` | instance | `fiber_try` | as `try()`, passing one value |
+| `yield()` | static | `fiber_yield` | suspend the running fiber back to its resumer |
+| `yield(_)` | static | `fiber_yield` | suspend, yielding one value. Raises `CannotYieldAcrossNativeFrame` if `native_reentry_depth` has grown past the fiber's recorded `floor_depth` since it was last resumed (ADR-0030 §4); `RuntimeError::NotAllowed` from the root fiber, which has no resumer |
+| `current` | static | `fiber_current` | the running fiber (`VM::current`) |
+| `abort(_)` | static | `fiber_abort` | fails the running fiber with the given value (`RuntimeError::Raise`); `RuntimeError::NotAllowed` from the root fiber — it has nowhere to propagate a floor capture to (spec §2 rule 7, §6) |
+| `isDone` | instance | `fiber_is_done` | pure read over `FiberObject::status`; no scheduler dependency (U-FIBER-REFLECT) |
+| `error` | instance | `fiber_error` | pure read over `FiberObject::result`; `RuntimeError::Type` if the receiver is not a `Fiber` |
+
+The scheduler seam (`System.schedule(_)` / `System.nextScheduled`) is **not** here — it is
+class-side on `System` (§2.11), and is what the `.ph` scheduler is written over.
+
 ## 3. The floor ↔ `core.ph` boundary
 
 Two classes now carry `.ph` surface protocol self-hosted over the floor
@@ -775,14 +840,18 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
    the census here. **The test is the source of record for the count (§1.3); do
-   not restate the number here.** As of 2026-07-15 it is **125**, the sum of its
+   not restate the number here.** As of 2026-07-15 it is **136**, the sum of its
    own per-amendment constants — but read the constants, not this sentence.
    This turns silent floor drift into a red test; §1.1 is no longer a manual
    checksum.
 
    **Coverage caveat.** The hook audits only the classes in the test's
-   `core_class_rows`. `Fiber`'s 11 bindings are installed but unaudited and
-   unlisted (§1.4) — an amendment there is invisible to this protocol.
+   `core_class_rows`. That list is the audit's real boundary and **nothing audits
+   it** — a kernel class missing from it is unfrozen in fact, whatever ADR-0019
+   says. This is not hypothetical: `Fiber` sat outside it, unlisted and unaudited,
+   for the whole life of the fiber work (§1.4, closed 2026-07-15). **A new kernel
+   class carrying primitives must gain its `core_class_rows` row in the same
+   change** — that row, not this protocol's prose, is what binds it.
 
 ## 8. Traceability
 
@@ -802,7 +871,8 @@ file — it is the `universe/` directory (`mod.rs`, `core_classes.rs`, `primitiv
 | §2.14 `Message` | `universe/primitives.rs` (`message_cls` block) | L81–85 |
 | §3 `List` protocol | `core.ph::class List` | L779+ |
 | §5 sacred set | `universe/mod.rs::{BOOL,BLOCK}_SACRED_SELECTORS` (6 + 1 = 7) | L100–106 |
-| §1.4 `Fiber` (installed, **unaudited**) | `universe/primitives.rs` (`fiber_cls` block) | L362–374 |
+| §2.17 `Fiber` | `universe/primitives.rs` (`fiber_cls` block) · `primitive/fiber.rs` | L362–374 |
+| The audit's own boundary (§1.4) | `tests/invariants.rs::core_class_rows` — 29 rows; a kernel class absent here is unaudited, and nothing audits *this* list | L48+ |
 
 Two bindings are **not** installed via the `primitive!`/`primitive_static!` macros —
 `Bool#ifTrue(_:ifFalse:)` and `Option#match(some:none:)` are hand-rolled because both carry
