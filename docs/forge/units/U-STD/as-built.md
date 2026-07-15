@@ -49,9 +49,9 @@ Single file — `phalcom-core/core/core.ph`:
 
 ## Deviations & deferrals
 
-- **Option (B) scope, not the literal plan:** the plan's broad Object/Number/String/Symbol/System surface was already-landed or re-carved to the `docs/spec/core/` U-CORE-N track — the forge-index vs. `docs/spec/core` scope-taxonomy divergence is [DEFERRED #29](../../phase-next/DEFERRED.md) (resolved for this unit via Option B).
-- **No element stringification** in any combinator — a general user-callable content `toString` does not exist yet (blocked on U-CORE-4); see [DEFERRED #19](../../phase-next/DEFERRED.md).
-- **List-literal syntax `[a, b, c]` still deferred** (needs a new ADR + parser work) — [DEFERRED #6/#28](../../phase-next/DEFERRED.md).
+- **Option (B) scope, not the literal plan:** the plan's broad Object/Number/String/Symbol/System surface was already-landed or re-carved to the `docs/spec/core/` U-CORE-N track — the forge-index vs. `docs/spec/core` scope-taxonomy divergence is [DEFERRED #29](../../DEFERRED.md) (resolved for this unit via Option B).
+- **No element stringification** in any combinator — a general user-callable content `toString` does not exist yet (blocked on U-CORE-4); see [DEFERRED #19](../../DEFERRED.md).
+- **List-literal syntax `[a, b, c]` still deferred** (needs a new ADR + parser work) — [DEFERRED #6/#28](../../DEFERRED.md).
 - The `absence` label was **not** un-ignored (its `#[ignore]` reason is unrelated drift); `system()`/`system_pending()` untouched.
 - See also [deferred-work.md](../../../spec/v0.2/deferred-work.md).
 
@@ -61,4 +61,4 @@ Single file — `phalcom-core/core/core.ph`:
 - Spec: [values-and-absence.md](../../../spec/v0.2/values-and-absence.md) §3.3; [catalog-delta.md](../../../spec/v0.2/core/catalog-delta.md) §2.2 / §2.4.
 - Code: `phalcom-core/core/core.ph` (`Option` block L70–124, `List` block L142–212); tests `phalcom-core/tests/lang/option/*`, `phalcom-core/tests/lang/list/*`, `phalcom-core/tests/lang/blocks/blocks_argument_to_method.ph`.
 - Forge: [STATE.md](../../archive/phase2/STATE.md) §"U-STD — LANDED". Per-unit planning record (`U-STD-implementation-spec.md`, `U-STD-plan.md`) folded into this spec; see git history.
-- Deferred: [deferred-work.md](../../../spec/v0.2/deferred-work.md); [DEFERRED.md](../../phase-next/DEFERRED.md) #6/#18/#19/#25/#28/#29.
+- Deferred: [deferred-work.md](../../../spec/v0.2/deferred-work.md); [DEFERRED.md](../../DEFERRED.md) #6/#18/#19/#25/#28/#29.

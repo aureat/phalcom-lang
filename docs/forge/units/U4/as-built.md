@@ -54,7 +54,7 @@ Apply protocol (`primitive/block.rs`, wired in `universe.rs`): `arity` and `name
 ## Deviations & deferrals
 - **No non-local return.** U4 ships the frame-token *infrastructure only* — no `ReturnNonLocal` opcode, no unwind logic, no non-local-return test. A `return` in a block compiled to an ordinary `Bytecode::Return` (a latent single-frame-only semantic, corrected by U10). That work is [U10 — Non-local return](../U10/as-built.md).
 - **`call` protocol, not Smalltalk `value:`.** The apply selectors are `call`/`call(_:)`/`call(_:_:)`/`callWith(_:)`/`arity`/`name` per functions.md §1–2, overriding an upstream brief that assumed `value:`.
-- **`callWith(_:)` stubbed** pending kernel `List` (landed later in U-LIST); tracked in [`docs/forge/phase-next/DEFERRED.md`](../../phase-next/DEFERRED.md).
+- **`callWith(_:)` stubbed** pending kernel `List` (landed later in U-LIST); tracked in [`docs/forge/DEFERRED.md`](../../DEFERRED.md).
 - **`call` arity capped at 4** (`MAX_CALL_ARITY`); higher-arity blocks are out of the pre-registered set.
 - Unbraced arrow blocks are expression-only by construction, so they cannot carry `return` (blocks.md §2) — a property U10 relies on.
 - See [deferred-work.md](../../../spec/v0.2/deferred-work.md) for the running deferral ledger.

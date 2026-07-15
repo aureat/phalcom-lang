@@ -2,7 +2,7 @@
 
 - Status: **Proposed** (experimental; not ratified)
 - Date: 2026-07-11
-- Depends on: [annotations-core.md](annotations-core.md), [annotations-legality-grammar.md](annotations-legality-grammar.md), [decorators.md](../next/decorators.md) (five-tier model — adds Install/Dispatch/Runtime failure modes below), [attribute-classes.md](../next/attribute-classes.md) (attribute-as-class — adds tier-inference and `@AttributeUsage` failure modes below)
+- Depends on: [annotations-core.md](annotations-core.md), [annotations-legality-grammar.md](annotations-legality-grammar.md), [decorators.md](../decorators/README.md) (five-tier model — adds Install/Dispatch/Runtime failure modes below), [attribute-classes.md](../decorators/on.md) (attribute-as-class — adds tier-inference and `@AttributeUsage` failure modes below)
 - Resolves: process gaps — no test plan, no diagnostics catalog (repo conventions)
 - Related: docs/forge/test-corpus-plan.md, `Universe::verify_invariants`, ADR-0016 (multi-error diagnostics), [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) (invariant re-entrancy fix — adds the `contracts_invariant_cross_receiver.ph` case below)
 
@@ -75,7 +75,7 @@ Each failure is a named diagnostic carrying the offending span (D3):
 | `contract.old_on_mutable` | `old(...)` on a mutable, non-`@data` operand | the `old(...)` |
 | `construct.super_ambiguous` | `@construct` subclass whose superclass has more than one constructor selector (no single signature to infer) | the class name |
 | `attr.tier_ambiguous` | `Attribute` subclass implements more than one hook selector (`wrap`/`onMiss`/`aroundSend`/…) without an explicit `@tier` | the class name |
-| `attr.compile_tier_forbidden` | user `Attribute` subclass's only hook is `expand(_)`/`finalizeLayout(_)` — Compile/Layout are builtin-owned ([attribute-classes.md](../next/attribute-classes.md) "What this precludes") | the class name |
+| `attr.compile_tier_forbidden` | user `Attribute` subclass's only hook is `expand(_)`/`finalizeLayout(_)` — Compile/Layout are builtin-owned ([attribute-classes.md](../decorators/on.md) "What this precludes") | the class name |
 | `attr.usage_violation` | attribute applied to a target outside its declared `@AttributeUsage(...)` set | the `@name` at the use site |
 | `attr.receiver_keyed_install_state` | (lint, not a hard error — golden-test only, per [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)) an Install-tier `wrap(_)` closes over a collection keyed by the receiver it decorates | the `wrap(_)` body |
 

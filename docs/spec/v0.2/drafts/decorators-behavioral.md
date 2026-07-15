@@ -1,23 +1,23 @@
 # Behavioral decorators — `@memoize`/`@lazy`/`@synchronized`/`@retry`
 
-- Status: **Accepted** (ratified 2026-07-13 under [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md);
-  B-1/B-2 open questions resolved the same day).
+- Status: **Draft** (exploration only — not implemented; see [decorators/](../decorators/) for the built surface)
+- Ratification note: the *design* was ratified 2026-07-13 under [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md) (B-1/B-2 resolved the same day). **None of it is built** — `@memoize`/`@lazy`/`@synchronized`/`@retry` are unregistered names that raise `attr.unknown`, and the Install/Layout hooks they need are never dispatched. `Backoff` is the one shipped piece (core.ph), and `Backoff.fixed`/`.exponential` raise until `System.sleep(_)` lands.
 - Date: 2026-07-13
 - Depends on:
-  [attribute-classes.md](attribute-classes.md) (the `Attribute` root, `@On(target…, tier:)`
+  [decorators/on.md](../decorators/on.md) (the `Attribute` root, `@On(target…, tier:)`
   declaration, the `wrap(_)`/`finalizeLayout(_)` hook protocol, the Install/Layout
   state-scope table — this doc fills in four named members of that library) ·
-  [decorators.md](decorators.md) (the five-tier axis, the fixed phase order, the
+  [decorators/README.md](../decorators/README.md) (the five-tier axis, the fixed phase order, the
   `runtime` flag) ·
   [concurrency.md](../concurrency.md) (cooperative single-threaded fibers — the model
   that decides what `@synchronized` can and cannot mean)
 - Related:
-  [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+  [ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
   (per-receiver decorator state is Layout-confined — the rule that places `@lazy`
   and per-receiver `@memoize`) ·
-  [ADR-0053](../../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
+  [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
   (Runtime interceptor guard) ·
-  [ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)
+  [ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md)
   (the decorator-vs-proxy granularity split — why `@retry` the decorator and
   `Retry` the proxy coexist) ·
   [proxy.md](proxy.md) (`Lazy`/`Retry` proxies — the *object*-granularity siblings
@@ -27,8 +27,8 @@
 
 ## Context
 
-Four behavioral decorators are named in [decorators.md](decorators.md)'s tier table
-and sketched, inconsistently, across [attribute-classes.md](attribute-classes.md)'s
+Four behavioral decorators are named in [decorators/README.md](../decorators/README.md)'s tier table
+and sketched, inconsistently, across [decorators/on.md](../decorators/on.md)'s
 worked examples and [decorators-stdlib.md](decorators-stdlib.md)'s library. They
 share one theme — **wrap a method with a runtime policy** (a cache, a compute-once
 gate, a critical section, a retry loop) — and they compose heavily with one
@@ -37,9 +37,9 @@ another, so they are specified together here at ratification depth.
 The four sketches carry three unresolved problems this doc closes:
 
 1. **Surface drift.** [decorators-stdlib.md](decorators-stdlib.md) uses the
-   pre-[A-1](attribute-classes.md) surface (`@install class memoize { wrap(method) { … } }`,
+   pre-[A-1](../decorators/on.md) surface (`@install class memoize { wrap(method) { … } }`,
    lower-case class names, `{ recv, args => … }` blocks). The ratified surface
-   ([attribute-classes.md A-1](attribute-classes.md)) is `@On(Method, tier: Install)`
+   ([attribute-classes.md A-1](../decorators/on.md)) is `@On(Method, tier: Install)`
    on a capitalized `Attribute` subclass whose `wrap(m)` returns a
    `Method.fromBlock`. This doc uses the ratified surface throughout; the stdlib
    subsections are marked superseded.
@@ -55,7 +55,7 @@ The four sketches carry three unresolved problems this doc closes:
 
 3. **`@retry`/`@lazy` collide by name with the `Retry`/`Lazy` proxies**
    ([proxy.md](proxy.md)). Resolved per
-   [ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md):
+   [ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md):
    the decorator is method-granularity and author-applied; the proxy is
    whole-object and third-party-applied. The two do *not* merge — see each
    decorator's "Relationship to the proxy" note.
@@ -68,7 +68,7 @@ The four sketches carry three unresolved problems this doc closes:
 cached value instead of recomputing. It is a pure Install-tier user decorator: the
 cache lives in the attribute instance (created once at class-definition time,
 shared by every receiver), which is the **per-method / per-class** state row of
-[attribute-classes.md](attribute-classes.md)'s scope table — no reserved receiver
+[decorators/on.md](../decorators/on.md)'s scope table — no reserved receiver
 slot, so no Layout, so user-authorable.
 
 ```phalcom
@@ -104,7 +104,7 @@ cache lines (conservative; never returns another object's cached answer).
 **unbounded**, matching memoize's contract ("same key → same result, forever").
 The unbounded cache retains every `(receiver, args)` pair it has ever seen for the
 life of the attribute instance (= the life of the program), holding each receiver
-*strongly* — the documented retention cost [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+*strongly* — the documented retention cost [ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
 priced (a `@memoize`d method on a long-lived, high-cardinality receiver set is a
 leak by construction, not a bug to silently fix). `@memoize(max: n)` bounds the
 cache to `n` entries under **LRU** eviction, capping retention for exactly that
@@ -119,7 +119,7 @@ receiver mutates such that the method's result *would* change, the cache is
 silently stale. This is the caller's responsibility, exactly as retry-safety is
 (below) — the decorator states the contract; it cannot enforce it (Phalcom has no
 purity analysis, the same floor-not-proof limit as the truthiness ban,
-[ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)). Memoize a method only
+[ADR-0021](../../../adr/accepted/0021-no-truthiness-enforcement.md)). Memoize a method only
 when its result is a pure function of receiver identity + args.
 
 **Fiber-safety.** In the cooperative model, a memoized method that runs to
@@ -136,10 +136,10 @@ Memoize synchronous, pure methods.
 receiver* for every later access. The cache is per-receiver, so it must live in a
 reserved slot on the object — the **per-receiver** row of the scope table — which
 crosses from user Install into **builtin Layout**
-([attribute-classes.md](attribute-classes.md) already reserves `@lazy` here;
-[ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+([decorators/on.md](../decorators/on.md) already reserves `@lazy` here;
+[ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
 confirms per-receiver state is Layout-only). `tier: Layout` is compiler-reserved
-([attribute-classes.md A-3](attribute-classes.md)); a user attempt to author
+([attribute-classes.md A-3](../decorators/on.md)); a user attempt to author
 `@lazy` hits `attr.compile_tier_reserved`.
 
 ```phalcom
@@ -181,7 +181,7 @@ idempotent double-compute.
 
 **Relationship to the `Lazy` proxy ([proxy.md](proxy.md)).** Genuinely different
 mechanisms, not a collision to merge
-([ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)):
+([ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md)):
 
 | | `@lazy` (this doc) | `Lazy` proxy ([proxy.md](proxy.md)) |
 |---|---|---|
@@ -210,7 +210,7 @@ an OS mutex (there is no OS thread to exclude).
 The monitor is **per-receiver** (Java-`synchronized(this)` semantics — each object
 serializes its own synchronized methods), so its state (owning fiber + reentrancy
 depth) lives in a reserved slot on the receiver → **Layout, builtin**, same
-placement as `@lazy` and per-[ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
+placement as `@lazy` and per-[ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
 
 ```phalcom
 // BUILTIN — Layout. Per-receiver cooperative monitor.
@@ -236,7 +236,7 @@ class Synchronized extends Attribute {
   runs the block; on entry by a **different** fiber it appends the caller to the
   monitor's wait-queue and `Fiber.yield`s to the scheduler, resuming when the owner
   releases; release is wired through the unwind primitive (`ensure`,
-  [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)) so a throw out of
+  [ADR-0008](../../../adr/accepted/0008-layered-exceptions-and-result.md)) so a throw out of
   the body still releases.
 - **Reentrancy — yes.** The monitor records the owning fiber and a depth counter; a
   synchronized method calling *another* synchronized method **on the same receiver,
@@ -250,7 +250,7 @@ class Synchronized extends Attribute {
 genuinely want *every* receiver of a class to serialize on one shared monitor (rare
 — usually a design smell), that state is per-*class* (the attribute instance), so it
 is Install-tier and user-writable, matching
-[attribute-classes.md](attribute-classes.md)'s existing `@synchronized` worked
+[decorators/on.md](../decorators/on.md)'s existing `@synchronized` worked
 example (which is the class-wide form under its old name):
 
 ```phalcom
@@ -264,7 +264,7 @@ class SynchronizedClassWide extends Attribute {
 
 The default `@synchronized` is the **per-receiver monitor**; `@synchronizedClassWide`
 is the class-wide form. They are two decorators because a class declares at most one
-tier ([A-1](attribute-classes.md)).
+tier ([A-1](../decorators/on.md)).
 
 ### `@retry` — Install, per-method, configurable backoff and error filter
 
@@ -329,13 +329,13 @@ retry-safety is a per-method property: the author opts in method by method. The
 `Retry` proxy is retained only for the black-box case (retrying a third-party object
 you cannot annotate), with an explicit whole-object-idempotence caveat added to
 [proxy.md](proxy.md). Per
-[ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md):
+[ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md):
 decorator = method granularity (author-applied), proxy = object granularity
 (third-party-applied).
 
 ## Composition
 
-The [decorators.md](decorators.md) phase order is total —
+The [decorators/README.md](../decorators/README.md) phase order is total —
 `generate → weave → finalize (Layout) → install (Install) → dispatch → runtime` — so
 these four never fight; each acts in its own phase on the artifact the previous
 handed it. Concrete rules for the pairs that co-occur:
@@ -350,7 +350,7 @@ handed it. Concrete rules for the pairs that co-occur:
   and `@retry @synchronized` produce the same nesting here, because the tiers, not
   source order, fix Layout-inside-Install.
 - **`@memoize` (Install) ⊗ `@retry` (Install)** — same tier, so **source order,
-  innermost-last** ([decorators.md](decorators.md)). `@memoize @retry method`:
+  innermost-last** ([decorators/README.md](../decorators/README.md)). `@memoize @retry method`:
   memoize outermost — a cached hit skips retry entirely (retry only runs on a
   miss); a miss retries, and only a *successful* result is cached (a thrown,
   exhausted retry is never cached — the `wrap` stores only on the success path).
@@ -387,11 +387,11 @@ handed it. Concrete rules for the pairs that co-occur:
   to a method that suspends) — deferred, noted.
 - **`@memoize` retention leak (documented, not fixed).** The default unbounded cache
   holds every receiver it has computed for, strongly, for the program's life
-  ([ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)).
+  ([ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)).
   `@memoize(max: n)` is the escape. A golden test asserts the leak shape is
   *documented* behavior (the cache grows monotonically without `max:`), not a
   regression to silently patch — the fix, if ever, is weak keys, which Phalcom's
-  non-moving mark-sweep collector ([ADR-0050](../../../adr/0050-non-moving-mark-sweep-collector.md))
+  non-moving mark-sweep collector ([ADR-0050](../../../adr/accepted/0050-non-moving-mark-sweep-collector.md))
   does not yet provide (ADR-0052's revisit trigger).
 - **Backoff waits are cooperative yields, not blocks.** `@retry(backoff:)` on a
   method that runs on the root fiber will `Fiber.yield` during the wait, which
@@ -445,7 +445,7 @@ a composition lane:
 ## What this precludes
 
 - **A user-authorable per-receiver `@memoize` or `@synchronized`.** Per-receiver
-  state is Layout/builtin ([ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md));
+  state is Layout/builtin ([ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md));
   the user-writable forms are class-wide (memoize's `(recv,args)`-keyed shared cache;
   the `SynchronizedClassWide` shared monitor). A leak-free per-receiver-lifetime
   memoize is a future Layout builtin, not shippable as user code — noted, not built.

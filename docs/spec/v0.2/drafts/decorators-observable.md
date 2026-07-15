@@ -1,7 +1,7 @@
 # `@observable` — one reactive-field decorator, three sketches unified
 
 - Status: **Accepted** (decorator design ratified 2026-07-13 under
-  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md);
+  [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md);
   no open questions of its own). **Implementation remains blocked**, transitively,
   on [reactivity.md](reactivity.md)'s own Signal/Computed/Effect runtime, which is
   still `Status: Proposed` with its R-1–R-5 open questions unresolved — see
@@ -16,7 +16,7 @@
   [decorators.md](decorators.md) (the tier axis; `@observable` is its named Layout
   example)
 - Related:
-  [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+  [ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
   (per-receiver state is Layout — the rule that fixes `@observable`'s tier and
   corrects the earlier "Layout + Install" label) ·
   [decorators-stdlib.md](decorators-stdlib.md) (`@observable var _x` sketch —
@@ -55,7 +55,7 @@ consumer. The one **correction** folded in: the earlier "Layout + Install" tier 
 (reactivity.md line 167, decorators-stdlib.md) is tightened to **Layout (builtin) with
 a Compile/generate accessor derivation** — the setter is a *generated member*, not an
 Install-tier `wrap`, and per-receiver `Signal` storage is Layout by
-[ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
+[ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
 
 ## Decision
 
@@ -118,7 +118,7 @@ Layout+generate shim onto the ratified runtime.
 
 `@computed` (a getter → a reactive `Computed`) is `@observable`'s read-derived sibling.
 It was reclassified from Install to **Layout** by
-[ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+[ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
 (the `Computed` cache is per-receiver, so it needs a reserved slot, not a receiver-keyed
 side table). It is specified where ADR-0052 placed it; this doc only notes the pairing:
 `@observable` for reactive *fields*, `@computed` for reactive *derived getters*, both

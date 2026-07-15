@@ -29,7 +29,7 @@ after ADR-0048 on HEAD) — the floor amendment for `String::rawByteCount`/`rawB
 > **Unit-name note.** Reserved and pointed at by
 > [`deferred-work.md`](../../../spec/v0.2/deferred-work.md) row "**U-STRING** string protocol"
 > — this plan is that row's realization. `U-STRING` verified free at plan time (no prior
-> `docs/forge/units/U-STRING/` content). Does **not** edit `docs/forge/phase-next/INDEX.md` /
+> `docs/forge/units/U-STRING/` content). Does **not** edit `docs/forge/INDEX.md` /
 > `STATE.md` (shared coordination docs, concurrent editors) beyond what's explicitly listed below.
 
 ---
@@ -389,7 +389,7 @@ wanted).
 - **`phalcom-core/src/universe.rs`** — **live, uncommitted edits present at plan time** (see
   header). This unit's registration edit **must** land after that session commits. Re-run
   `git status`/`git diff --stat` immediately before dispatch to reconfirm.
-- **`phalcom-core/core/core.ph`** — the standing "never two editors" rule (`docs/forge/phase-next/INDEX.md`
+- **`phalcom-core/core/core.ph`** — the standing "never two editors" rule (`docs/forge/INDEX.md`
   §2). Currently clean at plan time; reconfirm before dispatch — any concurrent `core.ph` editor
   blocks this unit's protocol slice (though the floor-primitive slices in `primitive/string.rs`/
   `system.rs` are free of this and can land first).

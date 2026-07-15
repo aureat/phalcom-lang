@@ -9,7 +9,7 @@
   in the expansion semantics the grammar note left open)
 - Related: [annotation-paradigm-bridges.md](annotation-paradigm-bridges.md)
   (Bridge A — the origin of this design, extracted into its own doc so it does
-  not depend on the still-gated [decorators.md](../next/decorators.md)),
+  not depend on the still-gated [decorators.md](../decorators/README.md)),
   object-model.md §8 (value types override `==`), [ADR-0011](../../../adr/0011-static-instance-slot-layout.md)
   (fixed slot layout — what makes `with(...)` cheap)
 
@@ -18,7 +18,7 @@
 `annotation-paradigm-bridges.md`'s Bridge A sketches `@data`/`@sealed`/
 `@variant` as the algebraic/functional bridge, and `decorators-stdlib.md`
 gives a concrete `@data` expansion example — but both live in documents that
-depend on [decorators.md](../next/decorators.md), which remains gated
+depend on [decorators.md](../decorators/README.md), which remains gated
 ([ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)).
 `@data`/`@sealed`/`@variant` need no runtime hook — they are pure Compile-tier
 derives, same shape as `@get`/`@set`/`@construct` — so they are extracted here

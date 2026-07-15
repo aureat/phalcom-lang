@@ -23,7 +23,7 @@ admitting them is a **floor amendment**, not an ordinary commit.
 [ADR-0037](0037-amend-floor-admit-error-root.md) admits the **raise** side
 (`Error#message`/`raise`) for U-CORE-6's minimal reification. This ADR admits the
 **catch** side for the **U-ERR** unit — the later error-surface unit
-[decisions.md Q2](../spec/v0.2/core/decisions.md) reserved. `U-ERR/plan.md` DEC-ERR-A
+[decisions.md Q2](../../spec/v0.2/core/decisions.md) reserved. `U-ERR/plan.md` DEC-ERR-A
 flags it as the one gate that must clear before the primitives merge.
 
 ## Decision

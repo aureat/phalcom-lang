@@ -74,12 +74,12 @@ Proxy.new().greet()          // prints "intercepted: greet"
 ## Deviations & deferrals
 - **No `Bytecode::SendDynamic` opcode this unit** — a dead opcode with a guessed operand
   layout would be untestable and pre-empt U9's design; only the `send_dynamic` *helper*
-  shipped. Opcode + call-site spread (`f(*args)`) → [forge/phase-next/DEFERRED.md](../../phase-next/DEFERRED.md) #21
+  shipped. Opcode + call-site spread (`f(*args)`) → [forge/DEFERRED.md](../../DEFERRED.md) #21
   (later superseded — spread stays a future unit's job, not U9's).
 - **Per-class dNU handler cache** not built (miss path is slow-by-design) →
-  [forge/phase-next/DEFERRED.md](../../phase-next/DEFERRED.md) #22.
+  [forge/DEFERRED.md](../../DEFERRED.md) #22.
 - **`perform(_:_:)` selector/arity not pre-validated** — a mismatch surfaces via ordinary
-  lookup (miss → dNU), not an eager `ArgumentError` → [forge/phase-next/DEFERRED.md](../../phase-next/DEFERRED.md) #23.
+  lookup (miss → dNU), not an eager `ArgumentError` → [forge/DEFERRED.md](../../DEFERRED.md) #23.
 - dNU render format fixed as `"{receiver} does not understand '{selector}'"` (implementer's call).
 
 ## Sources

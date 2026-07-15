@@ -102,7 +102,7 @@ pattern is an ordinary message send in a class body and needs no sigil.
 
 > **Amended by [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md).**
 > This foreclosure is scoped to the Compile/Layout tier described in this
-> document. `docs/spec/v0.2/next/decorators.md`'s Install/Dispatch/Runtime
+> document. `docs/spec/v0.2/decorators/README.md`'s Install/Dispatch/Runtime
 > tiers are the admitted second mechanism, gated on
 > [ADR-0053](../../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
 > (satisfied) and `attribute-classes.md`'s open questions A-1–A-6 (not yet

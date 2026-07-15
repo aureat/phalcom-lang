@@ -5,13 +5,13 @@ Status: **PLANNED** (dispatch-ready). Prerequisite/sibling of **U-IS**. Contends
 (both touch parser.rs and core.ph). Fire U-NEG **before** U-IS.
 
 ## Role
-Make `not` the single boolean-negation surface, per [is-tests.md](../../../spec/v0.2/next/is-tests.md)
+Make `not` the single boolean-negation surface, per [is-tests.md](../../../spec/v0.2/is-tests.md)
 §"Negation surface" and its "precludes prefix `!`". Two mechanical changes + one migration:
 1. Wire the already-reserved `Token::Not` as a prefix unary operator (`not x`).
 2. Retire prefix `!` (`Token::Bang`) as an expression operator. `!=` (`BangEqual`) is untouched.
 3. Migrate existing `!x` sites in `core.ph` to `not x`.
 
-## Spec anchor — [is-tests.md](../../../spec/v0.2/next/is-tests.md) (Status: Proposed; Fork A ratified in-note)
+## Spec anchor — [is-tests.md](../../../spec/v0.2/is-tests.md) (Status: Proposed; Fork A ratified in-note)
 > "There is **no prefix `!`**. General boolean negation is `not x`; inequality stays `!=`."
 > "Prefix `!` … Retired in favour of `not x`. `!=` survives as its own token."
 
@@ -47,7 +47,7 @@ lowering target — unchanged; only the *surface trigger* moves from `!` to `not
   `Bang` variant** — `scan_operator` (lexer.rs:594–595) still needs it to disambiguate `!=`.
 - `phalcom-core/core/core.ph` — the 5 `!` sites + the 383–384 comment.
 - `phalcom-core/tests/` — goldens.
-- `docs/spec/v0.2/next/is-tests.md` — strike the implementation-note caveat "not yet wired /
+- `docs/spec/v0.2/is-tests.md` — strike the implementation-note caveat "not yet wired /
   presently spelled `!`" once landed.
 - **Floor: +0** (pure parse-surface swap; `Bool#not` already exists).
 

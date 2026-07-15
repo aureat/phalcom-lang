@@ -677,8 +677,8 @@ follow immediately after under whichever form is chosen.
 | Claim / requirement | Source |
 |---|---|
 | U-CORE-4 owns per-type `toString`; keep print-path separate but agreeing | [`decisions.md`](../../../spec/v0.2/core/decisions.md) §4.4; [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md) §4.4 |
-| Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../phase-next/DEFERRED.md) #4; [ADR-0015](../../../adr/0015-object-default-tostring.md) |
-| Unblocks DEFERRED #30 (interpolation desugar's `String.new(_)` stand-in) — desugar-target switch is a `phalcom-ast` follow-up, out of this unit's write-set | [`DEFERRED.md`](../../phase-next/DEFERRED.md) #30; ADR-0022 |
+| Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../DEFERRED.md) #4; [ADR-0015](../../../adr/0015-object-default-tostring.md) |
+| Unblocks DEFERRED #30 (interpolation desugar's `String.new(_)` stand-in) — desugar-target switch is a `phalcom-ast` follow-up, out of this unit's write-set | [`DEFERRED.md`](../../DEFERRED.md) #30; ADR-0022 |
 | `"<ClassName>"` instance default; class `toString` = own name | [ADR-0015](../../../adr/0015-object-default-tostring.md) |
 | `Object#toString` aliases `object_name` today (the divergence) | `universe.rs` L250 (confirmed stable post-U-CORE-3); `primitive/object.rs` L23 |
 | Print path = native `Value::to_string`; renders `None`/`Some`/`List` via `to_debug` | `primitive/system.rs` L15; `value.rs` L153–164 (confirmed post-U-CORE-3) |
@@ -691,5 +691,5 @@ follow immediately after under whichever form is chosen.
 | Green fixtures pinning `<None instance>`/`<Some instance>` to re-pin | corpus audit (§4.3), fixture headers ("pins today's substrate output") |
 | R-INV-4.1–4.4 (all corpus) | [`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) §4 |
 | int/float-safe `toString`; names → core module | [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §4, §3, §5 |
-| `List#toString` → `.ph` is a later move (unblocked, not done here) | [`DEFERRED.md`](../../phase-next/DEFERRED.md) #19; catalog-delta §2.4 (U-STD) |
+| `List#toString` → `.ph` is a later move (unblocked, not done here) | [`DEFERRED.md`](../../DEFERRED.md) #19; catalog-delta §2.4 (U-STD) |
 | Universal `toString` on `Object`, overridable everywhere | [`object-model.md`](../../../spec/v0.2/object-model.md) §4, §8 |

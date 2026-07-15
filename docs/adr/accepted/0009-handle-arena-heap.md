@@ -2,12 +2,12 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: `docs/spec/v0.2/object-model.md` §6; `docs/spec/v0.2/system.md` (gc); [open question Q4](../spec/v0.2/open-questions.md); forge finding F5; [ADR-0002](0002-metaclass-tower-parallel-rule.md)
+- Related: `docs/spec/v0.2/object-model.md` §6; `docs/spec/v0.2/system.md` (gc); [open question Q4](../../spec/v0.2/open-questions.md); forge finding F5; [ADR-0002](0002-metaclass-tower-parallel-rule.md)
 
 ## Context
 
 The kernel is a cyclic object graph: `Metaclass` is an instance of itself, and
-the metaclass tower closes at the top ([Object Model §5–6](../spec/v0.2/object-model.md)).
+the metaclass tower closes at the top ([Object Model §5–6](../../spec/v0.2/object-model.md)).
 The current tree owns objects with `Rc<RefCell<T>>` and a `MaybeWeak` cycle-breaker
 meant to keep the kernel from leaking. The forge audit found this model fights the
 design on two fronts:
@@ -20,8 +20,8 @@ design on two fronts:
   class of latent hazard as F1.
 
 Beyond correctness, the spec's Smalltalk semantics ultimately need a real
-collector: object cycles are normal, `System.gc` is specified ([System §Runtime](../spec/v0.2/system.md)),
-and runtime `superclass=` ([open question Q4](../spec/v0.2/open-questions.md)) means the
+collector: object cycles are normal, `System.gc` is specified ([System §Runtime](../../spec/v0.2/system.md)),
+and runtime `superclass=` ([open question Q4](../../spec/v0.2/open-questions.md)) means the
 graph mutates after construction. `Rc<RefCell>` cannot host any of that cleanly.
 
 ## Decision
@@ -32,7 +32,7 @@ index into the heap arena, not a pointer; dereferencing goes through the `Heap`.
 
 - No `Rc`, no `RefCell`, no `MaybeWeak`. The kernel cycle is expressed as handles
   that refer to each other with no ownership paradox.
-- The bootstrap allocate-then-wire ordering ([Object Model §6](../spec/v0.2/object-model.md),
+- The bootstrap allocate-then-wire ordering ([Object Model §6](../../spec/v0.2/object-model.md),
   [ADR-0002](0002-metaclass-tower-parallel-rule.md)) becomes "allocate handles,
   then patch their fields" — the circular `Metaclass`/apex wiring is a set of
   handle assignments, not a `new_cyclic` dance.
@@ -46,10 +46,10 @@ index into the heap arena, not a pointer; dereferencing goes through the `Heap`.
   by construction, not patched.
 - **Inline-cache- and GC-ready.** Handles are stable keys, so they double as inline
   cache tags ([ADR-0012](0012-selector-signature-encoding-and-dispatch.md)); the
-  arena is the natural home for a future tracing GC ([System §gc](../spec/v0.2/system.md)),
+  arena is the natural home for a future tracing GC ([System §gc](../../spec/v0.2/system.md)),
   which can compact and relocate without invalidating handles.
 - **Runtime hierarchy mutability stays open.** Because links are handles patched in
-  place, `superclass=` ([open question Q4](../spec/v0.2/open-questions.md)) remains
+  place, `superclass=` ([open question Q4](../../spec/v0.2/open-questions.md)) remains
   implementable without unwinding an ownership model.
 - Every dereference goes through the `Heap`, so hot paths thread a heap reference;
   this is the deliberate cost of removing pointer aliasing and it keeps object

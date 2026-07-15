@@ -3,7 +3,7 @@
 - Status: **Accepted** (ratified 2026-07-13; R-1–R-5 resolved the same day,
   see `## Ties to the model & open questions`). **Implementation still
   blocked** on a new native module for `Reactive`'s ambient tracking-context
-  and effect scheduler ([ADR-0058](../../../adr/0058-reactive-tracking-context-needs-a-native-module.md)) —
+  and effect scheduler ([ADR-0058](../../../adr/accepted/0058-reactive-tracking-context-needs-a-native-module.md)) —
   not yet built.
 - Date: 2026-07-12
 - Depends on:
@@ -180,7 +180,7 @@ section is the runtime they layer onto. `@observable` makes a field signal-backe
 > accessor derivation**, *not* "Layout + Install" as earlier drafts (and
 > [decorators-stdlib.md](decorators-stdlib.md)) labelled it: the notifying setter is a
 > *generated member*, not an Install-tier `wrap`, and per-receiver `Signal` storage is
-> Layout by [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
+> Layout by [ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md).
 > `@computed` was likewise reclassified Install → Layout by ADR-0052. See
 > [decorators-observable.md](decorators-observable.md).
 
@@ -246,7 +246,7 @@ open question remains here.
 | # | Decision |
 |---|----------|
 | R-1 | **(a) — boolean stale-flag propagation (the over-eager skeleton shown above), not three-color.** Three-color (clean/check/dirty) is a pure correctness-preserving optimization — same recompute *results*, fewer redundant ones — deferrable to v0.3 per [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)'s measure-first strategy. Ship the simpler algorithm now. |
-| R-2 | **(a) — a native `Reactive` module**, not class-side `.ph` state (which does not exist as a language feature — `concurrency.md:234`) and not general VM support for class-side mutable slots. See [ADR-0058](../../../adr/0058-reactive-tracking-context-needs-a-native-module.md): reuses `System.schedule`'s precedent. Implementation is a new forge unit (`U-REACTIVE-NATIVE`), not yet built — this is the actual blocker on `R-REACTIVITY`/`D-OBSERVABLE`, now design-decided rather than open. |
+| R-2 | **(a) — a native `Reactive` module**, not class-side `.ph` state (which does not exist as a language feature — `concurrency.md:234`) and not general VM support for class-side mutable slots. See [ADR-0058](../../../adr/accepted/0058-reactive-tracking-context-needs-a-native-module.md): reuses `System.schedule`'s precedent. Implementation is a new forge unit (`U-REACTIVE-NATIVE`), not yet built — this is the actual blocker on `R-REACTIVITY`/`D-OBSERVABLE`, now design-decided rather than open. |
 | R-3 | **(a) — shallow (reference) tracking by default**, opt-in reactive collections deferred. Deep-by-default would import a dependency on the [`Proxy`](proxy.md) library, itself still unratified — shallow has no such dependency and is this doc's own stated preference. |
 | R-4 | **(a) — synchronous flush only.** Microtask/animation-frame batching solves a UI-event-loop problem Phalcom doesn't have (cooperative fiber scheduler, no browser runtime). `Reactive.flush` stays the extension seam per-scope configurability would hook into, if ever needed. |
 | R-5 | **(a) — manual `Effect#dispose` only**, no `Reactive.root { }` owner tree. The owner-tree design explicitly wants to unify with the `Capability` membrane's `Revoker` (`proxy.md`), itself unratified — same dependency problem as R-3. Manual dispose is already fully specified above and sufficient for v1. |

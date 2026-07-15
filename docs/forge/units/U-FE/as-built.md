@@ -47,11 +47,11 @@ Front end, all in `phalcom-ast/src` (`phalcom-core` compiler and every AST snaps
 - **Not independently reviewed** — session ended before the reviewer pass; see reviewer-gate note above.
 - **Out-of-write-set edit:** U-FE touched `phalcom-core/bin/phalcom/cli.rs` (one line, migrating off the deleted `ProgramParser` to `parse_source`) as the sole build blocker; reported for spot-check in `../../archive/phase2/STATE.md`.
 - **Residual LALRPOP in `phalcom-core`:** a dead `CompilerError::ParseError` variant + `From` impl referencing `lalrpop_util::ParseError`, plus `lalrpop-util`/`lalrpop` entries in `phalcom-core/Cargo.toml`, still compile and keep LALRPOP in the workspace dependency graph. Removing them is out of this unit's write-set — tracked as a follow-up (ADR-0016 §Consequences).
-- **Greenfield syntax deferred to later units** that *extend* this parser: blocks/closures (U4), `let`/`var` (U6), `construct` (U7), and the U-LEX surface delta (block comments, digit separators, newline suppression, `\(expr)` interpolation — see [lex-lexical-delta.md](../U-LEX/as-built.md)). Nested block comments / lone-`?` remain [DEFERRED #12/#32](../../phase-next/DEFERRED.md).
+- **Greenfield syntax deferred to later units** that *extend* this parser: blocks/closures (U4), `let`/`var` (U6), `construct` (U7), and the U-LEX surface delta (block comments, digit separators, newline suppression, `\(expr)` interpolation — see [lex-lexical-delta.md](../U-LEX/as-built.md)). Nested block comments / lone-`?` remain [DEFERRED #12/#32](../../DEFERRED.md).
 
 ## Sources
 
 - ADR: [0016-hand-written-lexer-and-recursive-descent-parser.md](../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md)
 - Code: `phalcom-ast/src/lexer.rs`, `phalcom-ast/src/token.rs`, `phalcom-ast/src/parser.rs`, `phalcom-ast/src/ast.rs`, `phalcom-ast/src/error.rs`; tests `phalcom-ast/tests/lexer.rs`, `phalcom-ast/tests/parser.rs`.
 - Forge: [STATE.md](../../archive/phase2/STATE.md) (Phase log; "U-FE follow-ups"); [PHASE2-INDEX.md](../../archive/phase2/PHASE2-INDEX.md).
-- Deferred: [deferred-work.md](../../../spec/v0.2/deferred-work.md); [DEFERRED.md](../../phase-next/DEFERRED.md) #12/#32.
+- Deferred: [deferred-work.md](../../../spec/v0.2/deferred-work.md); [DEFERRED.md](../../DEFERRED.md) #12/#32.

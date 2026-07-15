@@ -7,7 +7,7 @@
 ## Context
 
 `toString` is universal `Object` protocol — a display representation, overridable
-everywhere ([Object Model §8](../spec/v0.2/object-model.md)). The spec pins that `name`
+everywhere ([Object Model §8](../../spec/v0.2/object-model.md)). The spec pins that `name`
 is `Behavior`-side (a class's own name) but leaves the *instance* display string
 open. The forge audit found the current implementation actively wrong here:
 

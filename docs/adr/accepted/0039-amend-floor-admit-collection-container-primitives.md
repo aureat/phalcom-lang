@@ -7,7 +7,7 @@
   [ADR-0032](0032-collections-representation-and-literals.md) (native-arm representation);
   [ADR-0020](0020-kernel-list-native-array-protocol.md) (the `List` native-array precedent);
   [ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md) (amendment precedent + `hash`);
-  [`collection-protocol.md`](../spec/v0.2/core/collection-protocol.md);
+  [`collection-protocol.md`](../../spec/v0.2/core/collection-protocol.md);
   [`docs/forge/units/U-COLLTYPES/plan.md`](../forge/units/U-COLLTYPES/plan.md) (DEC-CT-A)
 
 ## Context

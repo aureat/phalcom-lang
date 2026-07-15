@@ -33,7 +33,7 @@ family (the point). Downstream of [annotations-construct.md](annotations-constru
 > **Fully specified in [annotations-data.md](annotations-data.md)** (2026-07-13,
 > ratified [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)),
 > extracted from this sketch into a standalone Compile-tier draft independent
-> of the gated [decorators.md](../next/decorators.md). One correction from the
+> of the gated [decorators.md](../decorators/README.md). One correction from the
 > sketch above: the visitor is dispatched via an ordinary keyword-argument
 > selector (`shape.match(circle: {...}, rect: {...})`), not `match { Pattern => ... }`
 > syntax — real pattern-matching grammar remains open-Q7, unbuilt.

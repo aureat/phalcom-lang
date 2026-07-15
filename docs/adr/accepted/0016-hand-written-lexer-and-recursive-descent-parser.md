@@ -16,8 +16,8 @@ language the spec describes:
 - **The grammar has to grow, incrementally and with good diagnostics.** The spec
   roadmap adds blocks, `construct`, labeled/keyword selectors, string
   interpolation, and `let`/`var` and literal syntax
-  ([Lexical Structure](../spec/v0.2/lexical-structure.md),
-  [Messages & Selectors](../spec/v0.2/messages-and-selectors.md)). Several of these
+  ([Lexical Structure](../../spec/v0.2/lexical-structure.md),
+  [Messages & Selectors](../../spec/v0.2/messages-and-selectors.md)). Several of these
   are context-sensitive (brace disambiguation, interpolation, newline
   suppression) and awkward or impossible to express cleanly in an LALR grammar.
 - **Error quality and recovery were weak.** A LALR parser reports a single error

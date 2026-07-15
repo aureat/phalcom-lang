@@ -10,14 +10,14 @@
 > ADR never covered (and which was silently unenforced: a `let` field was writable from
 > any method).
 - Date: 2026-07-11
-- Related: [open question Q1](../spec/v0.2/open-questions.md); `docs/spec/v0.2/values-and-absence.md` §3; [ADR-0007](0007-option-as-abstract-with-some-none.md)
+- Related: [open question Q1](../../spec/v0.2/open-questions.md); `docs/spec/v0.2/values-and-absence.md` §3; [ADR-0007](0007-option-as-abstract-with-some-none.md)
 
 ## Context
 
-[Open question Q1](../spec/v0.2/open-questions.md) left the binding forms unresolved: the
+[Open question Q1](../../spec/v0.2/open-questions.md) left the binding forms unresolved: the
 lexer today has only `let`, with no way to declare a rebindable variable and no
 stated rule for a binding introduced without an initializer. The absence-as-`Option`
-model ([Values & Absence](../spec/v0.2/values-and-absence.md), [ADR-0007](0007-option-as-abstract-with-some-none.md))
+model ([Values & Absence](../../spec/v0.2/values-and-absence.md), [ADR-0007](0007-option-as-abstract-with-some-none.md))
 already fixes what "no value yet" must mean — there is no surface `nil` to fall back
 on — so the initializer-less case needs an answer consistent with it.
 
@@ -29,7 +29,7 @@ Two binding forms, resolving Q1:
   initialization.
 - **`var`** introduces a **mutable** binding — it can be reassigned.
 - **`var x` without an initializer reads as absence: `None`** ([ADR-0007](0007-option-as-abstract-with-some-none.md)),
-  consistent with a declared-but-unassigned field ([Classes §2](../spec/v0.2/classes.md)).
+  consistent with a declared-but-unassigned field ([Classes §2](../../spec/v0.2/classes.md)).
   The private `Nil` sentinel ([ADR-0010](0010-tagged-value-enum.md)) backs the
   uninitialized slot internally and is surfaced as `None`, never leaked to user code
   (Invariant 4). `let x` with no initializer is not meaningful (an immutable binding
@@ -56,5 +56,5 @@ Two binding forms, resolving Q1:
   cleanly; the absence model already gives an unambiguous value for the empty slot.
   Rejected in favor of reading `None`.
 - **A surface uninitialized/`nil` value for the empty case.** Reintroduces the null
-  coercion the object model exists to remove ([Values & Absence §2](../spec/v0.2/values-and-absence.md)).
+  coercion the object model exists to remove ([Values & Absence §2](../../spec/v0.2/values-and-absence.md)).
   Rejected.

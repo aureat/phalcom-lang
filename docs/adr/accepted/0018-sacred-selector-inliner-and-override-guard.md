@@ -9,11 +9,11 @@
 Control flow in Phalcom is not built into the grammar — `if`/`while` desugar to
 ordinary message sends (`ifTrue(_:ifFalse:)`, `whileTrue(_:)`) over block literals,
 and boolean `and`/`or` are lazy sends over a block argument
-([control-flow.md §2](../spec/v0.2/control-flow.md)). This keeps the object model
+([control-flow.md §2](../../spec/v0.2/control-flow.md)). This keeps the object model
 uniform (Bool and Block are real classes with overridable methods) but makes the
 *hot path of every program* a closure allocation plus a call frame per branch and
 per loop iteration. The spec is explicit that the inliner is **load-bearing**
-([control-flow.md §3](../spec/v0.2/control-flow.md), Invariant 5): "If blocks are slow,
+([control-flow.md §3](../../spec/v0.2/control-flow.md), Invariant 5): "If blocks are slow,
 users learn to avoid them and every other decision in the spec unravels."
 
 This is the canonical **speculative inlining ⊗ late binding** hazard. Splicing the
@@ -71,9 +71,9 @@ each is intentional and, where the spec is affected, the spec should be reconcil
 match (or an open question resolved) rather than the code changed back.
 
 1. **Selector spelling `ifTrue(_:ifFalse:)` vs spec's `ifTrue(_)ifFalse(_)`.**
-   [control-flow.md §3](../spec/v0.2/control-flow.md) lists the paired conditional as the
+   [control-flow.md §3](../../spec/v0.2/control-flow.md) lists the paired conditional as the
    comma/positional form `ifTrue(_)ifFalse(_)` (two block-typed positional slots),
-   flagged against an [open question](../spec/v0.2/open-questions.md). The implementation
+   flagged against an [open question](../../spec/v0.2/open-questions.md). The implementation
    uses the keyword-labelled selector `ifTrue(_:ifFalse:)` because that is what the
    surface desugaring of `if/else` and the existing selector encoder
    ([ADR-0012](0012-selector-signature-encoding-and-dispatch.md)) naturally produce.

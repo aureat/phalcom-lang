@@ -1,20 +1,20 @@
 # Dispatch & observability decorators — `@delegate`/`@traced`/`@featureFlag`
 
-- Status: **Accepted** (ratified 2026-07-13 under [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md);
-  D-1/D-2/D-3 open questions resolved the same day).
+- Status: **Draft** (exploration only — not implemented; see [decorators/](../decorators/) for the built surface)
+- Ratification note: the *design* was ratified 2026-07-13 under [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md) (D-1/D-2/D-3 resolved the same day; DEFERRED.md cites those IDs against this file — do not renumber). **None of it is built** — `@delegate`/`@traced`/`@featureFlag` are unregistered names that raise `attr.unknown`; the Compile-tier `@delegate` derive does not exist and no Runtime interceptor is ever consulted. `Tracer`/`Tracer.stdout` and `OffBehavior` **are** shipped in core.ph (D-2/D-3's helper classes, ahead of the decorators that would use them).
 - Date: 2026-07-13
 - Depends on:
-  [attribute-classes.md](attribute-classes.md) (the `Attribute` root, `@On(target…, tier:)`,
+  [decorators/on.md](../decorators/on.md) (the `Attribute` root, `@On(target…, tier:)`,
   the `expand(_)`/`resolveMissing(_)`/`aroundSend(_)` hook protocol) ·
-  [decorators.md](decorators.md) (the five-tier axis, phase order, the `runtime`
+  [decorators/README.md](../decorators/README.md) (the five-tier axis, phase order, the `runtime`
   flag; **D-4** dispatch-collision resolution) ·
   [method-lookup.md](../method-lookup.md) (`doesNotUnderstand`, `Message`, `perform`
   — the substrate `@delegate`/`@traced` interception stands on) ·
   [system.md](../system.md) (`System.print` — the default trace sink)
 - Related:
-  [ADR-0053](../../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
+  [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
   (Runtime interceptor guard bit — the cost model for `@traced`/`@featureFlag`) ·
-  [ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)
+  [ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md)
   (decorator-vs-proxy granularity — why `@traced` the decorator and `Trace` the
   proxy coexist) ·
   [proxy.md](proxy.md) (`Trace` proxy — the object-granularity sibling of `@traced`;
@@ -44,7 +44,7 @@ Two resolutions frame the doc:
 
 2. **`@traced` decorator and `Trace` proxy are the same feature at two
    granularities, both retained.** Per
-   [ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md):
+   [ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md):
    `@traced` is per-declaration, author-applied observability; `Trace`
    ([proxy.md](proxy.md)) wraps any black-box object from outside. Non-conflicting
    split — argued below, not merged.
@@ -57,8 +57,8 @@ Two resolutions frame the doc:
 method per named selector, each forwarding to that field (composition over
 inheritance). It is a **Compile**-tier derive — pure AST→AST, the same class as
 `@get`/`@set`/`@data` — so it is builtin-owned
-([decorators.md](decorators.md)'s user/compiler tier line; `tier: Compile` is
-compiler-reserved, [attribute-classes.md A-3](attribute-classes.md)).
+([decorators/README.md](../decorators/README.md)'s user/compiler tier line; `tier: Compile` is
+compiler-reserved, [attribute-classes.md A-3](../decorators/on.md)).
 
 ```phalcom
 class Car {
@@ -78,7 +78,7 @@ strictly better for the common case (delegate a *known* sub-protocol) on four ax
 
 - **No runtime indirection.** The generated methods are ordinary `Method` objects
   in the class dictionary — monomorphic, inline-cacheable
-  ([ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md)),
+  ([ADR-0012](../../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md)),
   no lookup-miss round-trip, no `Message` reification per call. The Dispatch form
   pays a full DNU miss + `perform` on every forwarded send.
 - **Statically shadow-checkable.** Because the forwards are real generated members,
@@ -92,7 +92,7 @@ strictly better for the common case (delegate a *known* sub-protocol) on four ax
   everything at runtime — invisible to tooling, docs, and `respondsTo`.
 - **No DNU-collision hazard.** The Compile form never touches the DNU chain, so it
   cannot collide with a hand-written `doesNotUnderstand`
-  ([decorators.md D-4](decorators.md)'s `attr.dispatch_collision`). The Dispatch
+  ([decorators.md D-4](../decorators/README.md)'s `attr.dispatch_collision`). The Dispatch
   form must reserve the DNU slot and conflict-check it.
 
 The cost is that the delegated selectors must be **enumerated** — you cannot say
@@ -117,7 +117,7 @@ deliberately does **not** duplicate it (see Open question D-1).
 `selectors:` entries are **selector literals** (`#rpm`, `#start(_)`) so arity and
 kind are pinned — `#start` (getter) and `#start(_)` (unary) are distinct forwards,
 consistent with Phalcom's selector-identity model
-([ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md)).
+([ADR-0012](../../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md)).
 
 ### `@traced` — Runtime (user), configurable observability around a send
 
@@ -126,7 +126,7 @@ timing and exceptions. It is a **Runtime**-tier user decorator: an `aroundSend`
 interceptor consulted per send, which is what lets it observe *every* send to the
 receiver (including inherited and dynamically-dispatched ones), not just one
 statically-known method body. Runtime, not Install, because whole-object tracing is
-the headline use, and [ADR-0053](../../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
+the headline use, and [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
 already priced the exact guard bit a Runtime interceptor needs (an undecorated
 class pays nothing).
 
@@ -172,13 +172,13 @@ class Traced extends Attribute {
 
 **Relationship to the `Trace` proxy ([proxy.md](proxy.md)) — two granularities,
 both kept.** Argued *for* the split
-([ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)):
+([ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md)):
 
 | | `@traced` (this doc) | `Trace` proxy ([proxy.md](proxy.md)) |
 |---|---|---|
 | Applied by | the **author** of the class, at a declaration | a **third party**, wrapping any object |
 | Scope | one method / one class you own | the whole protocol of a black-box object |
-| Cost model | Runtime interceptor bit ([ADR-0053](../../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)) | DNU miss + `perform` per crossing |
+| Cost model | Runtime interceptor bit ([ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)) | DNU miss + `perform` per crossing |
 | Identity | the real object (interception before lookup) | leaks `==`/`class`/`hash` (proxy caveat P-1) |
 
 The split is non-conflicting because the two answer different questions: "instrument
@@ -196,7 +196,7 @@ flag is on, the method runs; if off, the configured off-behavior applies. It is
 an Install-tier wrapper would bake the flag state in at class-definition time, which
 is wrong (the flag would be frozen at boot). Runtime consultation + ADR-0053's guard
 bit + the "interceptor-declared bypass" optimization
-([decorators.md Future optimizations](decorators.md)) make an *off* flag cheap.
+([decorators.md Future optimizations](../decorators/README.md)) make an *off* flag cheap.
 
 ```phalcom
 @On(Method, tier: Runtime)
@@ -246,7 +246,7 @@ they never fight:
   hand-written method (a forwarder is an ordinary `Method`). So `@traced rpm` on a
   class that `@delegate`s `#rpm` traces the forwarding call — expected and useful.
 - **`@traced` (Runtime) ⊗ `@featureFlag` (Runtime)** — same tier, **source order,
-  innermost-last**, and Runtime hooks **chain** ([decorators.md D-3](decorators.md)):
+  innermost-last**, and Runtime hooks **chain** ([decorators.md D-3](../decorators/README.md)):
   the outer interceptor's `proceed` runs the inner one. `@traced @featureFlag method`:
   trace outermost — you see the entry log, then the flag check; if the flag is off
   and `whenOff` raises, `@traced`'s error branch logs the `FeatureDisabled` and
@@ -261,7 +261,7 @@ they never fight:
   monitor is entered — a flag-off `@featureFlag` never enters the critical section,
   and `@traced` logs entry before the (possibly suspending) monitor acquire. Correct.
 - **`@featureFlag` ⊗ `@traced` on a Runtime-decorated `Bool`/`Block`
-  ([ADR-0053](../../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)).**
+  ([ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)).**
   Decorating a sacred-selector family flips the family's `*_sacred_pristine` flag and
   deopts the inliner — vanishingly rare and already covered by ADR-0053; noted so an
   implementer knows `@traced`/`@featureFlag` on `Bool` is not free.
@@ -277,10 +277,10 @@ they never fight:
   Open question D-1.
 - **`@traced`/`@featureFlag` per-send cost.** Both are Runtime interceptors — a
   genuine per-call branch on the decorated receiver
-  ([decorators.md](decorators.md)'s "Inline-cache invalidation" hazard,
+  ([decorators/README.md](../decorators/README.md)'s "Inline-cache invalidation" hazard,
   guarded by ADR-0053). Undecorated classes pay one bit-check; decorated ones route
   through the interceptor. `@featureFlag`'s off case can expose the "would I do
-  anything" bypass probe ([decorators.md Future optimizations](decorators.md)) so a
+  anything" bypass probe ([decorators.md Future optimizations](../decorators/README.md)) so a
   hot, usually-off flag skips the full `aroundSend` body.
 - **`@featureFlag(whenOff: fallback(#sel))` fallback-signature mismatch.** The
   fallback method must accept the same args as the gated method; a mismatch is caught

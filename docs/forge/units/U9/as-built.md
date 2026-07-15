@@ -36,7 +36,7 @@ Math.new().sum(1, 2, 3)   // rest = List[1,2,3] → 6
   parses an optional leading `*` and rejects a rest param that isn't last or that
   carries/follows a label. Block-literal params are parsed by a separate scanner in
   `parse_primary` and never reach `parse_param_list`, so block variadics still don't parse
-  ([forge/phase-next/DEFERRED.md](../../phase-next/DEFERRED.md) #9, confirmed still open).
+  ([forge/DEFERRED.md](../../DEFERRED.md) #9, confirmed still open).
 - **`method.rs`** — new **`SignatureKind::Variadic(u8)`**; the payload is the fixed/minimum
   positional arity `F`. The selector spelling is always the bare `<name>(*)`, independent of
   `F` — `sum(*numbers)` and `format(fmt, *args)` both intern as `sum(*)`/`format(*)`; only
@@ -70,7 +70,7 @@ Math.new().sum(1, 2, 3)   // rest = List[1,2,3] → 6
 ## Deviations & deferrals
 - **No new "variadic table"** — reuses `ClassObject.methods: IndexMap<Symbol, ObjRef>` under
   the `(*)` selector; a same-name duplicate variadic silently overwins, same as any
-  duplicate-selector redefinition → [forge/phase-next/DEFERRED.md](../../phase-next/DEFERRED.md) #24.
+  duplicate-selector redefinition → [forge/DEFERRED.md](../../DEFERRED.md) #24.
 - **No `callable.rs`/`closure.rs` changes** — the variadic flag is read from
   `MethodObject.signature` directly in `call_method`.
 - **No `Bytecode::SendDynamic` / call-site spread (`f(*args)`)** — U8's DEFERRED #21

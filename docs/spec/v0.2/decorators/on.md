@@ -1,14 +1,25 @@
-# Attribute classes — the decorator descriptor as an object
+# `@On` and the `Attribute` reflection layer
 
-- Status: **Accepted** (ratified 2026-07-14 — banner was stale; A-1–A-5 were
-  resolved inline 2026-07-13 per
-  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)
-  §2(b), A-6 deferred to v0.3 non-blocking). A-1–A-5 below
-  were resolved in a 2026-07-13 design session (recorded inline); A-6 stays open,
-  deferred to v0.3.
+- Status: **Implemented** — the `Attribute` root, `@On`, tier/hook validation, and
+  retention+reflection are built. **The hooks are validated but never dispatched**;
+  see "Not built" below.
+- Unit: M-ATTR-ROOT (ratified 2026-07-14 per
+  [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md)
+  §2(b); A-1–A-5 resolved inline 2026-07-13, A-6 deferred to v0.3 non-blocking)
+- Evidence: `phalcom-core/src/compiler/attributes.rs` — `OnExpander` (L607-632),
+  registered at L650; `validate_attribute_class` (L1433-1490); `RESERVED_HOOKS`
+  (L1405-1406); `TIER_NAMES` (L1413); `resolves_to_attribute_class` (L1386).
+  Retention: `phalcom-core/src/primitive/attribute.rs`
+  (`Object#__attach`/`__attributes`/`__freezeAttributes`);
+  `phalcom-core/src/compiler/lib/class_decl.rs` `emit_attribute_attach` (L818),
+  `emit_member_attribute_attaches` (L788), `is_attribute_class` (L64).
+  Reflection: `phalcom-core/core/core.ph` L1605-1620
+  (`Behavior#attributes`/`attributesOfType(_)`, `Method#attributes`/`attributesOfType(_)`).
+  Fixtures: `phalcom-core/tests/lang/decorators/decorators_attribute_retention.ph`
+  (PASS), `tests/lang/runtime-errors/runtime_attribute_store_frozen.ph`.
 - Date: 2026-07-12 (A-1–A-5 resolved 2026-07-13)
 - Depends on:
-  [decorators.md](decorators.md) (the five-tier model; this note reifies its descriptor) ·
+  [README.md](README.md) (the five-tier model; this note reifies its descriptor) ·
   [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism, registry, phase pipeline) ·
   [annotations-legality-grammar.md](../experimental/annotations-legality-grammar.md) (`Target`, the legality table)
 - Related:
@@ -16,9 +27,47 @@
   [method-lookup.md](../method-lookup.md) (`doesNotUnderstand`, `perform`) ·
   [typing.md](../experimental/typing.md) (erasure invariant `E`, §5.2/§9)
 
+## Not built — read this first
+
+The mechanism below is specified at ratification depth. What actually runs on HEAD:
+
+**Built.** The `Attribute` root; `@On` as a registered `Class`-target attribute;
+`validate_attribute_class`'s three errors (`attr.compile_tier_reserved`,
+`attr.missing_hook`, `attr.undeclared_hook`); silent retention of any name that
+resolves to an `Attribute` subclass (`resolves_to_attribute_class`, a `class_parents`
+chain-walk); `Name.new(args)` + `__attach(_)` codegen at class-definition time for
+both class-level and member-level attributes; the frozen store (A-5) enforced at
+runtime as `attr.frozen`; and `Behavior#attributes`/`Method#attributes`/
+`attributesOfType(_)` reflection. Fixture `decorators_attribute_retention.ph` passes.
+
+**Not built — four divergences from the surface specified below:**
+
+1. **`tier:` is not a labeled argument.** The parser's attribute-arg-list grammar has
+   no label form (see `docs/forge/DEFERRED.md`), so `@On(Method, tier: Install)` —
+   the surface this whole note specifies — **does not parse**. As built, tier is a
+   **bare positional** argument matched by name against `TIER_NAMES` (L1413, L1435-1440):
+   `@On(Method, Install)`. Every `@On(..., tier: X)` example below is aspirational.
+2. **No hook is ever dispatched.** `wrap(_)`, `resolveMissing(_)`, `aroundSend(_)`,
+   `expand(_)` and `finalizeLayout(_)` appear **only** in `RESERVED_HOOKS` — as names
+   to validate, never as selectors to send. A class declaring `@On(Method, Install)`
+   with a `wrap(m)` compiles and its instance is retained, but `wrap` is never called
+   and nothing is wrapped. The tier declaration is a *validated claim*, not behavior.
+   Consequently `Method.fromBlock`, `Method.invokeOn`, `Behavior.defineMethod`,
+   `reserveSlot`/`slotAt`/`setSlotAt` and the `Invocation` object do not exist.
+3. **`inherited:` (A-2) is unimplemented.** `validate_attribute_class` reads only the
+   tier name from `@On`'s args; `attributesOfType(cls)` in `core.ph` (L1612) is a flat
+   `self.__attributes.filter { a => a.isA(cls) }` with **no superclass chain-walk**.
+   `inherited: true` has no effect.
+4. **Validation only reaches *direct* subclasses.** `is_attribute_class` is
+   `superclass.name == "Attribute"` (class_decl.rs L64) — a *direct* `extends
+   Attribute` only. A transitive subclass (`class B extends A`, where `A extends
+   Attribute`) is retained correctly (retention walks the full chain via
+   `resolves_to_attribute_class`) but is **never validated** — it can declare a
+   reserved tier or implement a bare hook with no diagnostic.
+
 ## Context
 
-[decorators.md](decorators.md) models `@` as a five-tier spectrum and gives the
+[README.md](README.md) models `@` as a five-tier spectrum and gives the
 descriptor as a **Rust-side registry row**:
 
 ```rust
@@ -40,14 +89,14 @@ This note reifies the descriptor: an attribute *is* a class extending a core
 This is the .NET model (`class FooAttribute : Attribute` + `[Foo("x")]`) rendered
 in Phalcom's object model, and it subsumes two spec features at once:
 
-- the **five active tiers** of [decorators.md](decorators.md) (the hook methods), and
+- the **five active tiers** of [README.md](README.md) (the hook methods), and
 - the **passive-metadata** model of Java/C# annotations (an attribute class with
   *no* hook method is inert, retained, and reflectable) — the case
-  [decorators.md](decorators.md) "What this precludes" steers away from as a
+  [README.md](README.md) "What this precludes" steers away from as a
   *blanket* rule, admitted here as a *declared, honest* case.
 
 The design does not widen what user code may do: it lands exactly on the
-user/compiler tier line [decorators.md](decorators.md) already draws (users own
+user/compiler tier line [README.md](README.md) already draws (users own
 Install/Dispatch/Runtime; the compiler owns Compile/Layout).
 
 ## Decision
@@ -175,7 +224,7 @@ Engine.attributesOfType(Author).first.name    // => "Ada"
 Because it declares no hook, its `runtime` flag is `false` in the behavioral
 sense: stripping it leaves the class's method bodies bytecode-identical (only the
 retained instance disappears). It satisfies the erasure golden of
-[decorators.md](decorators.md) §"two rules" the same way any other
+[README.md](README.md) §"two rules" the same way any other
 `runtime: false` decorator does.
 
 ### `@On` — legality and tier as one class-side declaration (renamed, A-1)
@@ -217,10 +266,10 @@ exist**:
   Instantiating a user attribute there (`Name.new().expand(…)`) requires **staged
   compile-time evaluation** — running user VM code during compilation, the
   CLOS-MOP end-state [annotations-core.md](../experimental/annotations-core.md)
-  and [decorators.md](decorators.md) explicitly defer.
+  and [README.md](README.md) explicitly defer.
 
 This boundary is not new policy: it *coincides* with the user/compiler tier line
-[decorators.md](decorators.md) already fixed ("user-defined decorators are
+[README.md](README.md) already fixed ("user-defined decorators are
 Install/Runtime only; the static tiers stay compiler-owned"). So the two static
 tiers remain **Rust-owned builtins** with `expand(_)`/`finalizeLayout(_)` hooks the
 compiler calls directly (no instantiation of a user class); the `Attribute`-class
@@ -335,7 +384,7 @@ Consequences for attributes:
 - **Per-instance behavior is out of scope for v0.2 — but not foreclosed.** Giving a
   single `aPoint` its own method needs a *different* mechanism — a per-instance
   method dictionary (prototype model) or `doesNotUnderstand` delegation (the
-  Dispatch tier, [decorators.md](decorators.md)). Phalcom's v0.2 floor gives
+  Dispatch tier, [README.md](README.md)). Phalcom's v0.2 floor gives
   instances no dictionary, so `Behavior.defineMethod` deliberately does not span
   instances; an attribute that wants per-receiver *state* (not behavior) takes the
   Layout-slot route instead (see `@lazy` below), which is builtin-owned.
@@ -367,7 +416,7 @@ dict). Until that floor exists:
   implicit consequence of this note.
 
 This defers alongside the other v0.3 items (e.g. the `?:` operator,
-[iteration Route B ADR-0048](../../../adr/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md));
+[iteration Route B ADR-0048](../../../adr/accepted/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md));
 it is recorded here so the v0.2 `Behavior`-only line is understood as a floor
 limitation, not a design rejection.
 
@@ -459,7 +508,7 @@ decorates*, it crosses from user Install into builtin Layout.
 | Core `Attribute` root | the class every attribute extends; usage fixed in Rust at the root. |
 | `@On(target…, tier:, inherited:)` | builtin attribute carrying legality **and** tier (A-1) in one declaration; drives the `Target` table and the tier/inheritance floor. |
 | Annotation store | a `Vec<Value>` (retained instances) on the class object, `Method`, and `ModuleObject` — small next to the existing method dictionaries / `name_to_slot`. **Frozen after class-definition (A-5)** — no post-definition attach/detach; attempting to mutate it is an error. |
-| Reflection surface | `Behavior.attributes`, `Method.attributes` / `Method.attributesOfType(_)`, mirrored on modules — message-sends returning the stored instances. Gated on the [object-model.md §8](../object-model.md) metaobject surface (`Behavior.defineMethod`, `Method.invokeOn`, `Method.bind`), the same gate as [decorators.md](decorators.md) D-2. |
+| Reflection surface | `Behavior.attributes`, `Method.attributes` / `Method.attributesOfType(_)`, mirrored on modules — message-sends returning the stored instances. Gated on the [object-model.md §8](../object-model.md) metaobject surface (`Behavior.defineMethod`, `Method.invokeOn`, `Method.bind`), the same gate as [README.md](README.md) D-2. |
 | Tier declaration | explicit only (A-1) — `tier:` on `@On`, no inference from hook shape. Declared tier without the matching hook ⇒ `attr.missing_hook`; a reserved hook selector present without a matching declared tier ⇒ `attr.undeclared_hook`. A class may declare at most one tier in v0.2 (multi-tier deferred to v0.3). |
 | Dedup | two applications of the same attribute class on one member are legal and compose normally (A-4) — same source-order, innermost-last rule as any two distinct attributes; no enforced uniqueness. |
 
@@ -475,7 +524,7 @@ decorates*, it crosses from user Install into builtin Layout.
 - **Frozen retention — resolved (A-5).** The retained-attribute store is
   immutable once the class is defined; there is no reflective attach/detach
   after that point (no monkey-patching a decorator on later). Attempting to
-  mutate it is an error. This keeps [ADR-0053](../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
+  mutate it is an error. This keeps [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
   `has_runtime_interceptor` bit valid as a one-time, never-invalidated flag —
   admitting mutation would force it into a full epoch counter, a real VM cost
   ADR-0053 explicitly priced but did not build. Deferred to v0.3 alongside
@@ -486,12 +535,12 @@ decorates*, it crosses from user Install into builtin Layout.
   un-annotated artifacts) so the common case is a null pointer, not a map.
 - **`runtime` honesty, again.** An attribute that implements `wrap(_)` but returns
   the method *unchanged* while recording state is behaviorally inert yet claims the
-  Install tier. The erasure golden ([decorators.md](decorators.md) §"two rules")
+  Install tier. The erasure golden ([README.md](README.md) §"two rules")
   is still the regression guard: stripping every `runtime: false` attribute must
   leave method bodies bytecode-identical. An attribute lies iff that golden breaks.
 - **Instantiation order at one site.** Two attributes on one member instantiate
   and compose in **source order, innermost-last** — the same Python-stacking rule
-  [decorators.md](decorators.md) fixes for `install`/`runtime`. `Name.new` side
+  [README.md](README.md) fixes for `install`/`runtime`. `Name.new` side
   effects (a constructor that registers globally) therefore run in written order;
   document it at the call site.
 - **Bootstrap of `Attribute` itself.** The root class and `@On` must
@@ -508,7 +557,7 @@ decorates*, it crosses from user Install into builtin Layout.
 - **A tier with no hook and no metadata role.** An attribute either implements a
   hook selector (active, one of five tiers) or is pure retained metadata. There is
   no third thing — no "runs at some unphased time" escape, preserving the
-  [decorators.md](decorators.md) "no sixth tier" guarantee.
+  [README.md](README.md) "no sixth tier" guarantee.
 - **Reflection without the metaobject surface.** `attributesOfType(_)` and friends
   do not ship before [object-model.md §8](../object-model.md) is ratified; until
   then attribute *hooks* can fire (compiler-driven at definition time) but the
@@ -529,5 +578,5 @@ decorates*, it crosses from user Install into builtin Layout.
 | ~~A-2~~ | **RESOLVED** (2026-07-13): per-attribute-class `inherited:` labeled arg on `@On`, default `false` (matches C#/Java's opt-in-false convention). Chain-walk is single-inheritance-simple, no diamond case. |
 | ~~A-3~~ | **RESOLVED** (2026-07-13): **arbitrary code allowed** — no literal/const restriction. Install/Dispatch/Runtime already fire at ordinary class-definition-time (the object world is up); restricting would break this note's own worked examples for no matching hazard. Compile/Layout tiers stay compiler-owned, now enforced as an immediate `attr.compile_tier_reserved` compile error at the attribute class's own definition site (cheap, thanks to A-1's explicit tier). |
 | ~~A-4~~ | **RESOLVED** (2026-07-13): **allowed, compose normally** — two `@Memoize` on one member is legal (double-wraps, wasteful not wrong), reusing the existing source-order-innermost-last composition rule rather than adding a dedup/`@Repeatable` mechanism. Stricter enforcement is addable later as a lint without breaking existing code. |
-| ~~A-5~~ | **RESOLVED** (2026-07-13): **frozen** after class-definition; mutating the retained store is an error. Keeps [ADR-0053](../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s one-time `has_runtime_interceptor` bit valid without a redesign. Deferred to v0.3, grouped with class-hierarchy mutation (open-Q4). |
+| ~~A-5~~ | **RESOLVED** (2026-07-13): **frozen** after class-definition; mutating the retained store is an error. Keeps [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s one-time `has_runtime_interceptor` bit valid without a redesign. Deferred to v0.3, grouped with class-hierarchy mutation (open-Q4). |
 | A-6 | **(v0.3, still open)** When per-instance behavior lands (`anObject.defineMethod`, per-object dict / implicit metaclass), does an Install hook gain an `aReceiver`-scoped variant, and does `_attributes` retention hang off arbitrary objects — or does the `Behavior`-only surface stay even then? Requires its own v0.3 floor ADR. Grouped with A-5's mutability deferral and open-Q4 — likely one v0.3 design session, not three. |

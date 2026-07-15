@@ -7,16 +7,16 @@
 ## Context
 
 Blocks are the keystone construct — a block, a lambda, a method body, and a getter
-body share one closure representation ([Blocks](../spec/v0.2/blocks.md), [ADR-0006](0006-function-as-abstract-callable-root.md)).
+body share one closure representation ([Blocks](../../spec/v0.2/blocks.md), [ADR-0006](0006-function-as-abstract-callable-root.md)).
 Two behaviors in the spec constrain how closures capture and return:
 
 - **Escaping blocks.** A block may outlive the frame in which it was created
-  ([Blocks §5](../spec/v0.2/blocks.md)); captured variables must remain live and, where
+  ([Blocks §5](../../spec/v0.2/blocks.md)); captured variables must remain live and, where
   mutated, must stay **shared** between the block and its home scope.
 - **Non-local return.** `return` inside a block unwinds to its *home method* frame,
   not the block, and returns from that method. A block invoked after its home frame
   is gone must fail cleanly, not corrupt memory — the spec calls for `DeadFrameError`
-  ([Blocks §5](../spec/v0.2/blocks.md), [Object Model §4](../spec/v0.2/object-model.md)).
+  ([Blocks §5](../../spec/v0.2/blocks.md), [Object Model §4](../../spec/v0.2/object-model.md)).
 
 ## Decision
 
@@ -40,13 +40,13 @@ token**:
 ## Consequences
 
 - Escaping blocks and shared mutation of captured variables both work, matching
-  [Blocks §5](../spec/v0.2/blocks.md); an inner block that mutates a captured `var` is
+  [Blocks §5](../../spec/v0.2/blocks.md); an inner block that mutates a captured `var` is
   seen by the outer scope while the frame is live.
 - Non-local return is safe by construction: the generation check converts "return to
   a dead frame" from undefined behavior into `DeadFrameError`. (The unbraced arrow
-  form is expression-only and cannot carry `return` ([Blocks §2](../spec/v0.2/blocks.md)),
+  form is expression-only and cannot carry `return` ([Blocks §2](../../spec/v0.2/blocks.md)),
   which keeps the safe cases the common cases.)
-- One closure representation means `Fiber`/`Future` ([Concurrency](../spec/v0.2/concurrency.md))
+- One closure representation means `Fiber`/`Future` ([Concurrency](../../spec/v0.2/concurrency.md))
   take any `Function` as their unit of work without caring block-vs-method.
 - Open→closed promotion must interact correctly with the heap ownership model
   ([ADR-0009](0009-handle-arena-heap.md)): the upvalue cell's lifetime is the

@@ -8,12 +8,12 @@
 
 Fields in Phalcom are `_`-prefixed and **implicitly declared by assignment**: the
 compiler collects the fields assigned anywhere in a class body and the spec fixes
-the layout at class-definition time ([Classes §2](../spec/v0.2/classes.md)). The spec
+the layout at class-definition time ([Classes §2](../../spec/v0.2/classes.md)). The spec
 also pins three properties that a field model must honor:
 
 - **Read-before-write is a compile error** — reading a field never assigned in any
   method is rejected at compile time, catching the `_naem = name` typo class.
-- **A declared-but-unassigned field reads `None`** ([Values & Absence](../spec/v0.2/values-and-absence.md)).
+- **A declared-but-unassigned field reads `None`** ([Values & Absence](../../spec/v0.2/values-and-absence.md)).
 - **Fields are private and not inheritance-visible** — a subclass writing `_name`
   gets its own slot, so offsets stay stable and the fragile-base-class problem is
   eliminated.
@@ -31,7 +31,7 @@ An instance carries a **fixed slot vector**, not a map:
   defined.
 - Field reads/writes compile to `GetField(slot)` / `SetField(slot)` — a direct
   index into the `Box<[Value]>`, no symbol lookup.
-- Because fields are private and non-inherited ([Classes §2](../spec/v0.2/classes.md)),
+- Because fields are private and non-inherited ([Classes §2](../../spec/v0.2/classes.md)),
   a subclass's fields occupy fresh slots and never renumber the parent's — offsets
   are permanently stable.
 - An unassigned slot reads `None`; the private `Nil` sentinel ([ADR-0010](0010-tagged-value-enum.md))
@@ -50,7 +50,7 @@ An instance carries a **fixed slot vector**, not a map:
   shape per class.
 - Slot layout is intentionally **not** inheritance-visible; cross-hierarchy field
   access must go through accessors, matching the spec and keeping offsets static
-  even under a future runtime `superclass=` ([open question Q4](../spec/v0.2/open-questions.md)).
+  even under a future runtime `superclass=` ([open question Q4](../../spec/v0.2/open-questions.md)).
 - The dynamic `IndexMap<Symbol, Value>` per instance is removed.
 
 ## Alternatives considered

@@ -2,9 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-07-12
-- Related: [`docs/spec/v0.2/iteration.md`](../spec/v0.2/iteration.md) (the promoted
-  spec); [`docs/spec/v0.2/control-flow.md`](../spec/v0.2/control-flow.md) (`for` sugar,
-  the inliner); [`docs/spec/v0.2/core/collection-protocol.md`](../spec/v0.2/core/collection-protocol.md);
+- Related: [`docs/spec/v0.2/iteration.md`](../../spec/v0.2/iteration.md) (the promoted
+  spec); [`docs/spec/v0.2/control-flow.md`](../../spec/v0.2/control-flow.md) (`for` sugar,
+  the inliner); [`docs/spec/v0.2/core/collection-protocol.md`](../../spec/v0.2/core/collection-protocol.md);
   [ADR-0007](0007-option-as-abstract-with-some-none.md) (`Option` cursor);
   [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md) (inliner);
   [ADR-0020](0020-kernel-list-native-array-protocol.md) (`List`);
@@ -42,7 +42,7 @@ built on them.
 ### 2. `for` lowers to the cursor loop (not to `.each`)
 
 `for (x in coll) { body }` lowers to the cursor **`while` loop**
-([iteration.md](../spec/v0.2/iteration.md) §2), **superseding** control-flow.md's
+([iteration.md](../../spec/v0.2/iteration.md) §2), **superseding** control-flow.md's
 earlier `for ≡ coll.each{…}` sketch. `for` lowers to the cursor loop *rather than*
 `.each` precisely so that **`break` and `continue` work**: they are loop-control
 jumps in the desugared `while`, which a block passed to `.each` could not express

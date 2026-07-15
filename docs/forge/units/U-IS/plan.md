@@ -15,7 +15,7 @@ methods:
 Only **two magic methods** (`is(_)`, `isExactly(_)`); negation is a compile-time `.not` wrap, not
 a selector. `isA(_)` (landed U-CORE-1) becomes an alias over `is(_)` for back-compat.
 
-## Spec anchor — [is-tests.md](../../../spec/v0.2/next/is-tests.md) (Status: Proposed; Fork A ratified in-note)
+## Spec anchor — [is-tests.md](../../../spec/v0.2/is-tests.md) (Status: Proposed; Fork A ratified in-note)
 AUTHORITATIVE for the surface table, the magic-method bodies, the `is not` compound-operator
 disambiguation, the proxy P-2 policy, and the precludes list. Grounds on:
 [object-model.md §8](../../../spec/v0.2/object-model.md) (`isA`, metaclass tower),
@@ -86,7 +86,7 @@ class Object {
   only if a field is genuinely missing.
 - `phalcom-core/core/core.ph` — `is`/`isExactly` added, `isA` → alias.
 - `phalcom-core/tests/` — goldens + graduate any pending is-test fixture.
-- `docs/spec/v0.2/next/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
+- `docs/spec/v0.2/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
   DEFERRED/STATE as the index requires.
 - **Floor: +0** (pure parser desugar + `.ph` methods over the floor; no native primitive). If a
   primitive turns out needed → STOP-and-report per ADR-0019.

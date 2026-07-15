@@ -161,7 +161,7 @@ ever disagree, trust disk and fix this line.
 > ADR-0052 amends two unratified annotation/decorator drafts found during spec
 > review: `experimental/annotations-contract-semantics.md`'s `@invariant`
 > re-entrancy guard (fiber-global counter → receiver-scoped, unwind-safe
-> identity set) and `next/decorators-stdlib.md`'s `@computed` (Install-tier
+> identity set) and `drafts/decorators-stdlib.md`'s `@computed` (Install-tier
 > receiver-keyed cache, which leaked every receiver forever → reclassified to
 > Layout tier per `attribute-classes.md`'s own `@lazy` pattern). Not yet
 > ratified by the user.

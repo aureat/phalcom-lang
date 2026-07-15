@@ -15,7 +15,7 @@
 
 ## Context
 
-[selectors.md §3](../spec/v0.2/selectors.md#3-method-references-) specifies `::` producing a
+[selectors.md §3](../../spec/v0.2/selectors.md#3-method-references-) specifies `::` producing a
 callable **Family** value in two forms — **Open** (`obj::name`, selector built at call time)
 and **Pinned** (`obj::#sel(...)`, selector fixed at compile time) — each either bound or
 unbound. The `::` token (`Token::ColonColon`) already lexed; nothing else existed: no

@@ -6,17 +6,17 @@
 
 ## Context
 
-[Open Question §9](../spec/v0.2/open-questions.md) asked whether Phalcom should use
+[Open Question §9](../../spec/v0.2/open-questions.md) asked whether Phalcom should use
 `throw`/`try`/`catch` exceptions or `Result` as a sibling of `Option`. The two are
 usually framed as a choice, but the existing spec already constrains it:
 
 - The VM **must** raise. `doesNotUnderstand`, arity mismatch, and `DeadFrameError`
   arise deep in the runtime and cannot be surfaced as a `Result`
-  ([Object Model §Errors](../spec/v0.2/object-model.md), [Blocks §5](../spec/v0.2/blocks.md)).
+  ([Object Model §Errors](../../spec/v0.2/object-model.md), [Blocks §5](../../spec/v0.2/blocks.md)).
 - `Result` is already reserved as `Option`'s sibling ([ADR-0007](0007-option-as-abstract-with-some-none.md)).
 - Non-local `return` is already implemented as a frame-token stack unwind
-  ([Functions §3](../spec/v0.2/functions.md)); fibers already `abort`/propagate/capture
-  ([Fibers & Futures](../spec/v0.2/concurrency.md)).
+  ([Functions §3](../../spec/v0.2/functions.md)); fibers already `abort`/propagate/capture
+  ([Fibers & Futures](../../spec/v0.2/concurrency.md)).
 
 So exceptions exist whether or not we bless them, and `Result` exists as a value.
 The open question is really how they compose — and whether exceptions are

@@ -69,7 +69,7 @@ lookup. This is tracked as [open question P-1](#open-questions).
 
 ### `Lazy` — virtual proxy
 
-> **Granularity split ([ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
+> **Granularity split ([ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
 > This `Lazy` proxy defers building a **whole object**. It is a *different mechanism*
 > from the `@lazy` **decorator** ([decorators-behavioral.md](decorators-behavioral.md)),
 > which caches one **method result** in a per-receiver slot. Wrap a foreign object you
@@ -93,7 +93,7 @@ class Lazy : Proxy {
 
 ### `Trace` — observability
 
-> **Granularity split ([ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
+> **Granularity split ([ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
 > This `Trace` proxy observes a **black-box object** from outside (whole protocol,
 > with the identity leak of [P-1](#open-questions)). To instrument **your own**
 > declaration, use the `@traced` **decorator**
@@ -117,7 +117,7 @@ class Trace : Proxy {
 
 ### `Retry` — resilience
 
-> **Granularity split ([ADR-0057](../../../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
+> **Granularity split ([ADR-0057](../../../adr/accepted/0057-decorator-granularity-vs-proxy-granularity-split.md)).**
 > This `Retry` proxy retries **every** method of a wrapped object indiscriminately —
 > **unsafe unless every method is idempotent**, which rarely holds for a whole object.
 > The **recommended** surface is the `@retry` **decorator**

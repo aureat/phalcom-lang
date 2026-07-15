@@ -6,8 +6,8 @@
   (sacred-selector inliner + override-epoch deopt guard — the mechanism this
   generalizes), [ADR-0012](0012-selector-signature-encoding-and-dispatch.md)
   (selector dispatch, inline-cache-ready design, IC population deferred),
-  `docs/spec/v0.2/next/decorators.md` (five-tier model — Runtime tier, the
-  "Inline-cache invalidation" hazard this resolves), `docs/spec/v0.2/next/attribute-classes.md`
+  `docs/spec/v0.2/decorators/README.md` (five-tier model — Runtime tier, the
+  "Inline-cache invalidation" hazard this resolves), `docs/spec/v0.2/decorators/on.md`
   (`aroundSend(_)` hook)
 
 ## Context

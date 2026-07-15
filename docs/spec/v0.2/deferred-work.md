@@ -23,7 +23,7 @@ is the index over them.
 |---|---|---|
 | **This file** | the map + deferred *design decisions* + genuinely-open decisions | `docs/spec/deferred-work.md` |
 | Open questions | the 14 resolved language questions (decision record) | [`open-questions.md`](open-questions.md) |
-| Forge backlog | ranked implementation nits / DX / bug items surfaced by forge | [`forge/phase-next/DEFERRED.md`](../../forge/phase-next/DEFERRED.md) |
+| Forge backlog | ranked implementation nits / DX / bug items surfaced by forge | [`forge/DEFERRED.md`](../../forge/DEFERRED.md) |
 | Forward-compat | "must not preclude" hazards for the 4 unbuilt subsystems | [`core/forward-compat.md`](core/forward-compat.md) |
 | Pending fixtures | ignored test fixtures → blocker/owner unit (executable view) | [`core/pending-retirement.md`](core/pending-retirement.md) |
 | Catalog delta | per-class reserved-but-unbuilt class names (`Map`/`Range`/`Fiber`/…) | [`core/catalog-delta.md`](core/catalog-delta.md) |
@@ -104,7 +104,7 @@ Reserved-but-unbuilt class names sit in `primitive/mod.rs::ClassName` (`Range`, 
 | **U-CORE-6** errors | `Error` root + `MessageNotUnderstood` raise; reserve `Result`/`Ok`/`Err` | dispatch-ready; error surface **ratified** ([ADR-0031](../../adr/0031-error-handling-surface-syntax.md)) | [core/U-CORE-6](../../forge/units/U-CORE-6/as-built.md) |
 | **`Int`/`Float` substrate** | build the ADR-0024 split: `Value::Int(i64)`/`Float(f64)`, heap `LargeInt` bignum, `checked_*` promotion, `~/` opcode, cross-repr `==`/`hash` | **decided** (ADR-0024); code unbuilt; see §4 hash flag | [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md) |
 | **Collections classes** `Map`/`Set`/`Tuple`/`Range` | whole classes + storage + literals | `Object#hash` landed; representation + literals **ratified** ([ADR-0032](../../adr/0032-collections-representation-and-literals.md)); code unbuilt (U-STD) | [core/catalog-delta.md](core/catalog-delta.md) |
-| **Collection literal syntax** | `[a,b,c]` / `{k:v}` / `(a,b)` → constructor desugar (set `#{…}` / range `..` reserved) | **ratified** ([ADR-0032](../../adr/0032-collections-representation-and-literals.md)); lexer/parser → U-LEX | forge/phase-next/DEFERRED.md #28 |
+| **Collection literal syntax** | `[a,b,c]` / `{k:v}` / `(a,b)` → constructor desugar (set `#{…}` / range `..` reserved) | **ratified** ([ADR-0032](../../adr/0032-collections-representation-and-literals.md)); lexer/parser → U-LEX | forge/DEFERRED.md #28 |
 | **Module / import unit** | `import` semantics per ADR-0027 (qualified/selective/aliased), namespace protocol | token exists, semantics unbuilt | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) |
 | **System unit** | `System.args`/`clock`/`gc`/scheduler surface | pending `system_*` fixtures | [core/pending-retirement.md](core/pending-retirement.md) |
 | **Concurrency** `Fiber`/`Future` | cooperative coroutines + async layer | surface + execution model **ratified** ([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md), Option A); code unbuilt | [concurrency.md](concurrency.md); experimental/ |
@@ -125,24 +125,24 @@ they aren't lost:
   above 2⁵³ would collide, and a bignum `Int` must still hash equal to the `Float` of the
   same value. **Revisit when the ADR-0024 substrate (§3) is implemented.** (core/forward-compat.md §4)
 - **Interpolation desugar target.** `\(expr)` currently desugars to `String.new(_)`, not a
-  content `toString` — blocked on U-CORE-4's value `toString`. (forge/phase-next/DEFERRED.md #30)
+  content `toString` — blocked on U-CORE-4's value `toString`. (forge/DEFERRED.md #30)
 - **`None`-reopen clobber.** `Statement::Class` unconditionally emits `DefineGlobal`, which
   would clobber the `None` singleton if `None` is reopened — fix before real `None` members
-  land. (forge/phase-next/DEFERRED.md #17)
+  land. (forge/DEFERRED.md #17)
 - **`SendDynamic` opcode + spread `f(*args)`.** The opcode and call-site spread syntax are
-  not built; no spread syntax exists yet. (forge/phase-next/DEFERRED.md #21)
+  not built; no spread syntax exists yet. (forge/DEFERRED.md #21)
 - **Captured-`let` reassignment** via an upvalue compiles to `SetUpvalue` with no diagnostic
-  (U6's check is syntactic, current-fn + module only). (forge/phase-next/DEFERRED.md #13)
+  (U6's check is syntactic, current-fn + module only). (forge/DEFERRED.md #13)
 - **Runtime-tier interceptor-chain caching.** Once Install/Dispatch/Runtime decorators
-  (`next/decorators.md`, `next/attribute-classes.md`) are built: pre-compose a class's
+  (`decorators/README.md`, `decorators/on.md`) are built: pre-compose a class's
   chained `aroundSend` interceptors into one fused closure at class-definition time
   (not a per-send list walk), cache it behind ADR-0053's `has_runtime_interceptor`
   guard bit, and specialize the common single-interceptor case. Safe with no
   invalidation logic because the retained-attribute store is frozen post-definition
-  (attribute-classes.md A-5) — pure work-hoisting, not speculation. (`next/decorators.md`
+  (attribute-classes.md A-5) — pure work-hoisting, not speculation. (`decorators/README.md`
   "Future optimizations")
 
-The full ranked list of ~33 such items is [`forge/phase-next/DEFERRED.md`](../../forge/phase-next/DEFERRED.md).
+The full ranked list of ~33 such items is [`forge/DEFERRED.md`](../../forge/DEFERRED.md).
 
 ---
 

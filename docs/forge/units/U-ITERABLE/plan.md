@@ -76,7 +76,7 @@ the returned cursor against `None` **by identity** via one new opcode, and intro
   `universe.rs`/`compiler/lib.rs` mid-edit by other sessions as recently as this same day (U16
   work); by plan time they are committed and clean again (verified via `git status --porcelain`
   at plan time — only doc files dirty: `deferred-work.md`, `iteration.md`,
-  `values-and-absence.md`, plus the new ADR-0048 and three `docs/spec/v0.2/next/*` files,
+  `values-and-absence.md`, plus the new ADR-0048 and three `docs/spec/v0.2/drafts/*` files,
   untracked). **Re-run `git status`/`graphify affected` on all five write-set Rust files
   immediately before dispatch** — do not trust these line numbers blindly; they are exact as of
   this read, but `main` moves.

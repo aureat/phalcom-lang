@@ -1,10 +1,15 @@
-# Decorators (`@`) — the five-tier model
+# Decorators (`@`) — the tier model and the built surface
 
-- Status: **Accepted** (ratified 2026-07-14 — banner was stale; the Install/
-  Dispatch/Runtime mechanism this doc introduces was already ratified under
-  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)
-  on 2026-07-13, this file's status line was simply never updated)
-- Date: 2026-07-12
+- Status: **Partially implemented** — the Compile-tier expanders and the
+  `Attribute` retention layer are built and green; the Install/Dispatch/Runtime
+  tiers are **specified but not built** (see "What is built, by tier" below).
+- Date: 2026-07-12 (five-tier model ratified 2026-07-14 under
+  [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md));
+  split into per-decorator as-built files 2026-07-15
+- Evidence: `phalcom-core/src/compiler/attributes.rs` — `AttributeRegistry::new`
+  (L640-651) registers exactly ten expander rows; `expand_class_attributes`
+  (L1527) is the pass. Fixtures under `phalcom-core/tests/lang/decorators/`,
+  `tests/lang/classes/`, `tests/lang/errors/`, `tests/lang/compile-errors/`.
 - Depends on: [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism, registry, phase pipeline)
 - Related:
   [annotation-paradigm-bridges.md](../experimental/annotation-paradigm-bridges.md) (the method-table / layout tier line) ·
@@ -13,6 +18,59 @@
   [typing.md](../experimental/typing.md) (erasure invariant E, §5.2/§9) ·
   [method-lookup.md](../method-lookup.md) (`doesNotUnderstand`, `perform`) ·
   [object-model.md](../object-model.md) (metaclass tower, `Behavior`)
+
+## The per-decorator files
+
+Every decorator built into the compiler has its own **as-built** file. Those files
+are authoritative for what the implementation does; this file is authoritative for
+the tier model they sit in.
+
+| File | Decorators | Tier | Status |
+|---|---|---|---|
+| [requires.md](requires.md) | `@requires` | Compile / weave | **Implemented** (U-ANNOT-CONTRACTS) |
+| [ensures.md](ensures.md) | `@ensures` | Compile / weave | **Implemented** (U-ANNOT-CONTRACTS) |
+| [invariant.md](invariant.md) | `@invariant` | Compile / weave | **Implemented** (U-ANNOT-CONTRACTS, + [ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)) |
+| [construct.md](construct.md) | `@construct` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
+| [accessors.md](accessors.md) | `@get`, `@set` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
+| [data.md](data.md) | `@data` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
+| [sealed.md](sealed.md) | `@sealed`, `@variant` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
+| [on.md](on.md) | `@On` + the `Attribute` reflection layer | class-side declaration + retention | **Implemented** (M-ATTR-ROOT) |
+
+Ten registered names, eight files: `@get`/`@set` share
+[accessors.md](accessors.md) (they are a pair), and `@variant` **requires**
+`@sealed` so both live in [sealed.md](sealed.md).
+
+## What is built, by tier — read this before the model below
+
+The five-tier model is the **ratified design**. The implementation has landed the
+Compile tier and the retention/reflection layer, and nothing else:
+
+| Tier | Built? | What exists on HEAD |
+|---|---|---|
+| **Compile / derive** | ✅ **built** | `@requires`/`@ensures`/`@invariant` (weave) and `@get`/`@set`/`@construct`/`@data`/`@sealed`/`@variant` (generate), all as AST→AST expanders in `attributes.rs`. |
+| **Layout / slot** | ⚠️ **no distinct tier** | Nothing reserves a slot. `@construct` is classified Layout by the spec but is implemented as an ordinary generate-phase derive. No `finalizeLayout` hook, no `reserveSlot`/`slotAt`/`setSlotAt`. |
+| **Install / metaobject** | ❌ **not built** | The `wrap(_)` selector is *reserved and validated* (`RESERVED_HOOKS`, attributes.rs L1405-1406) but **never dispatched**. No `Method.fromBlock`, no `Method.invokeOn`, no `Behavior.defineMethod`. |
+| **Dispatch / DNU** | ❌ **not built** | `resolveMissing(_)` reserved and validated; never dispatched. |
+| **Runtime / per-send** | ❌ **not built** | `aroundSend(_)` reserved and validated; never dispatched. No `Invocation` object, no `has_runtime_interceptor` guard bit ([ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md) is ratified but unimplemented). |
+
+**The load-bearing consequence.** A user `Attribute` subclass declaring
+`@On(Method, Install)` and implementing `wrap(m)` **compiles, and its instance is
+constructed and retained** — but `wrap` is never called and the decorated method is
+never wrapped. A tier declaration is today a *validated claim*, not an executed
+hook. [on.md](on.md) §"Not built" documents exactly which enforcement does run.
+
+Re-verified against the tree 2026-07-15: `Method.fromBlock`, `defineMethod`,
+`reserveSlot`, `slotAt`, `setSlotAt`, `Invocation`, `has_runtime_interceptor`,
+`Signal`, `Computed`, `Effect`, `Reactive`, `Monitor` return **zero** hits across
+`phalcom-core/src`, `phalcom-core/core`, and `phalcom-ast/src`. `wrap`,
+`resolveMissing`, `aroundSend` and `finalizeLayout` appear **only** in
+`RESERVED_HOOKS` (attributes.rs L1405-1406) — i.e. as names to validate, never as
+selectors to send.
+
+The unbuilt library that would sit on the three runtime tiers now lives in
+[drafts/decorators-behavioral.md](../drafts/decorators-behavioral.md),
+[drafts/decorators-dispatch-observability.md](../drafts/decorators-dispatch-observability.md),
+and [drafts/decorators-stdlib.md](../drafts/decorators-stdlib.md).
 
 ## Context
 
@@ -27,27 +85,25 @@ runtime-decorator and metaobject models explicitly foreclosed:
 The paradigm-bridges note already cracks that commitment open by drawing **two**
 tiers (method-table macro vs. layout derive) rather than one, and observing that
 reactive `@observable` state wants "the same `Map<Symbol,…>` shape a
-`doesNotUnderstand`-delegation prototype object uses." Under a **dynamically-typed
-Phalcom** (types checked at runtime, per the working assumption for this note),
-the erasure invariant `E` ([typing.md §5.2](../experimental/typing.md)) no longer
-holds for typed members anyway — a type annotation *is* a per-call runtime check.
-That removes the sole argument against runtime hooks and lets `@` span its whole
-natural range.
+`doesNotUnderstand`-delegation prototype object uses."
 
-> **Superseded justification, per [ADR-0054](../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md).**
-> The `typing.md` erasure-invariant argument above is no longer the live
-> justification for reopening annotations-core.md's foreclosure — it leaned on
-> a third, unrelated, equally unratified draft. The actual justification is
-> [ADR-0053](../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md),
+> **Superseded justification, per [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md).**
+> Earlier drafts justified reopening that foreclosure via
+> [typing.md §5.2](../experimental/typing.md)'s erasure invariant `E` — arguing
+> that under a dynamically-typed Phalcom `E` no longer holds for typed members
+> anyway, which removes the sole argument against runtime hooks. That is **no
+> longer the live justification**: it leaned on a third, unrelated, equally
+> unratified draft. The actual justification is
+> [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md),
 > which gives the Runtime tier's interception cost an explicit, implementable
-> guard. This paragraph is kept as historical context for why this draft was
+> guard. The erasure argument is kept as historical context for why this note was
 > originally written, not as a standing argument.
 
 This note unifies every decorator kind — compile-time, layout, dispatch, install,
 runtime — under **one grammar and one registry**, distinguished by a declared
 **tier** that says *when the decoration takes effect*.
 
-## Decision
+## The tier model (design)
 
 `@` is a **single sigil over a spectrum**, not one mechanism. Every decorator name
 resolves through the [annotations-core](../experimental/annotations-core.md)
@@ -81,6 +137,14 @@ struct Decorator {
 
 enum Tier { Compile, Layout, Install, Dispatch, Runtime }
 ```
+
+> **As built, this struct does not exist.** The real registry row is the
+> `AttributeExpander` trait (attributes.rs L90-98): `legal_targets()` plus
+> `expand(&mut ExpandCtx, &mut ClassMember, &[Expr])`. There is no `tier` field,
+> no `runtime` flag, and no `TierHook` enum — every registered expander *is*
+> Compile-tier by construction. "Tier" exists in the implementation only as five
+> bare names `validate_attribute_class` matches inside an `@On(...)` argument list
+> (`TIER_NAMES`, attributes.rs L1413). See [on.md](on.md).
 
 - **Compile / Layout** hooks are the existing `AttributeExpander`:
   `expand(&ClassDef, Target) -> Vec<ClassMember>` — pure AST, run in the compiler
@@ -147,6 +211,19 @@ Resolution for `withdraw`:
 The tiers never fight because each acts in its own phase on the artifact the
 previous phase handed it.
 
+> **The example does not compile on HEAD.** Only `@invariant` is registered.
+> `@observable`, `@synchronized` and `@traced` raise `attr.unknown` unless a user
+> `Attribute` subclass of that exact name is in scope (fixture:
+> `tests/lang/compile-errors/annotation_unknown_error.ph`), and a parameter type
+> annotation installs nothing. **The real as-built order** inside
+> `expand_class_attributes` (attributes.rs L1527) is: class-level attributes
+> (`@invariant` collects predicates; `@construct`/`@data` derive) → attribute-class
+> validation → `derive_accessors` (`@get`/`@set`, L1593) → `expand_variants`
+> (`@variant`, L1599) → member-level attributes (`@requires`/`@ensures` weave,
+> L1602) → the `@invariant` weave across every member (L1661). The invariant weave
+> running **last**, over already-woven bodies, is what produces the Eiffel
+> `invariant → post → pre` nesting.
+
 ## The two rules that keep it coherent
 
 1. **Phase order is fixed and total** (the pipeline above). A later tier wraps only
@@ -168,6 +245,14 @@ Rule 2 is the whole trick: purity is no longer all-or-nothing for the sigil, it 
 declared per name, so static and dynamic decorators coexist without either
 poisoning the other's optimization story.
 
+> **Rule 2 is not implemented.** No registry row carries a `runtime` flag, and
+> there is no erasure golden test over a `runtime: false` subset. Every built
+> decorator is `runtime: false` by construction, so the rule is currently vacuous
+> rather than violated — but the regression guard it describes does not exist. The
+> one stripping axis that *does* exist is `CompileMode`
+> (`Debug`/`Release`/`Unchecked`, attributes.rs L26-36), which is unrelated: it
+> strips **contract guards** specifically. See [requires.md](requires.md).
+
 ## Interaction with dynamic typing
 
 Under runtime-checked types, a binding/parameter annotation is an **Install-tier
@@ -186,6 +271,8 @@ entry and raises `TypeError` on violation. Consequences:
   Install-tier runtime checks (this note); the descriptor's `runtime` flag is the
   switch.
 
+None of this is built: Phalcom performs no type-annotation checking at any tier.
+
 ## Hazards
 
 - **Inline-cache invalidation.** Install/Dispatch/Runtime tiers make a method
@@ -200,7 +287,8 @@ entry and raises `TypeError` on violation. Consequences:
 - **User-defined decorators are Install/Runtime only.** Letting user code emit at
   the Compile/Layout tiers would reintroduce the "attributes are compile-time
   metaobjects (CLOS-MOP)" end state annotations-core explicitly defers. Keep the
-  static tiers compiler-owned until that ADR is taken.
+  static tiers compiler-owned until that ADR is taken. **This one is enforced** —
+  `attr.compile_tier_reserved`, see [on.md](on.md).
 - **Ordering surprises across `install` vs `runtime`.** Two decorators in the same
   later phase on one member compose in **source order, innermost-last** (the
   Python stacking convention). This is a genuine ordering the user controls (unlike
@@ -209,22 +297,21 @@ entry and raises `TypeError` on violation. Consequences:
   A class declaring both a Dispatch-tier attribute (e.g. `@Delegate`) and its own
   `doesNotUnderstand(_)` is `attr.dispatch_collision` at compile time — not
   last-wins (the Ruby `method_missing`-redefinition footgun this house style
-  rejects everywhere else it recurs).
+  rejects everywhere else it recurs). Not built: there is no Dispatch tier.
 
 ## Future optimizations (not built now)
 
 Recorded so a future implementer doesn't have to rediscover them; none of this
 changes the semantics above, all of it is enabled by **D-3's resolution being
-"frozen after class-definition"** ([attribute-classes.md A-5](attribute-classes.md)) —
-a chain that can never change post-freeze needs no invalidation logic, so every
-item below is pure work-hoisting (per-send cost moved to per-definition cost),
-not speculation:
+"frozen after class-definition"** ([on.md A-5](on.md)) — a chain that can never
+change post-freeze needs no invalidation logic, so every item below is pure
+work-hoisting (per-send cost moved to per-definition cost), not speculation:
 
 - **Pre-compose the chain once, at class-definition time.** Instead of storing
   `Vec<Interceptor>` and looping it per send, build one fused closure
   (`traced.wrap(rateLimited.wrap(realMethod))`) exactly once when the class is
   defined, and cache *that*, not the list.
-- **Cache the composed chain behind [ADR-0053](../../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
+- **Cache the composed chain behind [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
   `has_runtime_interceptor` guard bit.** A monomorphic call site can hold a
   direct pointer to the pre-composed chain alongside the existing `ClassId`
   check — a warm decorated call site then costs one bit-check + one direct
@@ -255,8 +342,8 @@ not speculation:
 
 | # | Question |
 |---|---|
-| D-1 | **DEFERRED** (2026-07-13): not decided now. A per-module `--decorators=static` flag would be the same *shape* of decision as `CompileMode` (`Debug`/`Release`/`Unchecked`, U-ANNOT-CONTRACTS) — revisit once that axis ships rather than bolting on a second, unrelated build-mode dimension speculatively. |
-| D-2 | Install-tier wrapping needs `Method.invokeOn(recv, *args)` and `Behavior.defineMethod(sel, block)` — ratify these as object-model surface, or keep them behind a reflection unit? |
+| D-1 | **DEFERRED** (2026-07-13): not decided now. A per-module `--decorators=static` flag would be the same *shape* of decision as `CompileMode` (`Debug`/`Release`/`Unchecked`, U-ANNOT-CONTRACTS) — revisit once that axis ships rather than bolting on a second, unrelated build-mode dimension speculatively. **Note (2026-07-15): `CompileMode` has since shipped** (attributes.rs L26-36), so this deferral's own revisit trigger has fired. |
+| D-2 | Install-tier wrapping needs `Method.invokeOn(recv, *args)` and `Behavior.defineMethod(sel, block)` — ratify these as object-model surface, or keep them behind a reflection unit? **Still open; neither surface exists on HEAD.** |
 | ~~D-3~~ | **RESOLVED** (2026-07-13, design-session ruling): Runtime around-send hooks **chain** (multiple `@traced`-like hooks compose), reusing the same source-order-innermost-last rule as Install. See "Future optimizations" above for the composed-chain-caching consequence. |
 | ~~D-4~~ | **RESOLVED** (2026-07-13): a class that both hand-writes `doesNotUnderstand(_)` and carries a Dispatch-tier attribute is a compile error (`attr.dispatch_collision`), not silent last-wins — matches the `attr.accessor_collision` house style used throughout this spec family (`@get`/`@set`/`@construct`/`@data`) rather than Ruby's `method_missing` last-definition-wins footgun. A delegate-then-fallback proxy is still expressible — hand-write one `doesNotUnderstand` that runs the delegation logic itself — just not auto-composed. |
 | ~~D-5~~ | **RESOLVED** (2026-07-13): the erasure golden test ("strip `runtime: false` → identical bytecode") is checked **per-member**, not whole-program — matches the receiver-scoped granularity already used elsewhere in this design (`@invariant`'s guard, the contract test-strategy's stripping checks). Localizes failures to the specific member whose stripping broke, and is cheaper to compute than a whole-file double-compile diff. |

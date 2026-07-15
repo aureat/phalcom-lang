@@ -14,11 +14,11 @@ Install/Dispatch/Runtime decorator work ratified this session under ADR-0054).
   state) — new, Accepted.
 - ADR-0054 fully ratified (Install/Dispatch/Runtime tier unblocked; both gate
   conditions in Decision §2 satisfied).
-- `docs/spec/v0.2/next/decorators-behavioral.md`, `decorators-dispatch-observability.md`,
+- `docs/spec/v0.2/drafts/decorators-behavioral.md`, `decorators-dispatch-observability.md`,
   `decorators-observable.md` — new, ratified, all open questions (B-1/B-2/D-1/D-2/D-3/R-1..R-5)
   resolved to option (a) in every case, deferred alternatives filed in `docs/forge/DEFERRED.md`.
-- `docs/spec/v0.2/next/reactivity.md` — ratified (R-1..R-5 resolved).
-- `docs/spec/v0.2/next/attribute-classes.md` — mechanism spec, A-1–A-5 resolved inline
+- `docs/spec/v0.2/drafts/reactivity.md` — ratified (R-1..R-5 resolved).
+- `docs/spec/v0.2/decorators/on.md` — mechanism spec, A-1–A-5 resolved inline
   (A-6 explicitly deferred to v0.3, not a blocker).
 - `docs/forge/PLAN-DECORATORS.md` — the full unit-dependency plan (commit `df259f3`),
   updated after the M-ATTR-ROOT blocker below (write-set expanded).

@@ -1,11 +1,10 @@
 # Decorator library — definitions, by tier and owner
 
-- Status: **Accepted** (ratified 2026-07-14 — banner was stale; ratified under
-  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)'s
-  broad Install/Dispatch/Runtime ratification, 2026-07-13)
+- Status: **Draft** (exploration only — not implemented; see [decorators/](../decorators/) for the built surface)
+- Ratification note: ratified 2026-07-14 under [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md)'s broad Install/Dispatch/Runtime ratification (2026-07-13). **None of it is built**, and this file additionally uses a superseded surface — see the relocation table below. `@data`/`@get`/`@set`/`@construct`/`@requires`/`@ensures`/`@invariant` **are** built; their as-built specs are in [decorators/](../decorators/), and the sketches of them below are historical.
 - Date: 2026-07-12
 - Depends on:
-  [decorators.md](decorators.md) (the five-tier model, descriptor, phase order) ·
+  [decorators/README.md](../decorators/README.md) (the five-tier model, descriptor, phase order) ·
   [functions.md](../functions.md) (`invokeOn`, `signature`, `bind`) ·
   [method-lookup.md](../method-lookup.md) (Dispatch tier: `doesNotUnderstand`, `perform`) ·
   [error-handling.md](../error-handling.md) (`try`/`catch`, `throw`, `raise`)
@@ -15,11 +14,11 @@
   [reactivity.md](reactivity.md) (`@observable`, `@computed` are its ergonomic layer) ·
   [proxy.md](proxy.md) (an Install decorator is a method-granularity proxy)
 
-> **Superseded surface + relocations (2026-07-13).** This doc uses the pre-[A-1](attribute-classes.md)
+> **Superseded surface + relocations (2026-07-13).** This doc uses the pre-[A-1](../decorators/on.md)
 > registration surface (`@install`/`@dispatch`/`@runtime` markers, lower-case class
 > names, `wrap(method) → { recv, args => … }`). The ratified surface is
 > `@On(target…, tier: …)` on a capitalized `Attribute` subclass whose hook returns a
-> `Method.fromBlock` ([attribute-classes.md A-1](attribute-classes.md)). The following
+> `Method.fromBlock` ([attribute-classes.md A-1](../decorators/on.md)). The following
 > decorators now have **authoritative dedicated specs** at ratification depth; treat the
 > subsections below as historical sketches, superseded on both surface and semantics:
 >
@@ -29,11 +28,11 @@
 > | `@traced`, `@featureFlag`, `@delegate` | [decorators-dispatch-observability.md](decorators-dispatch-observability.md) | `@delegate` is **Compile** (explicit selectors), not Dispatch; `@featureFlag` off-default is **raise**, not silent `None` |
 > | `@observable` | [decorators-observable.md](decorators-observable.md) | tier is **Layout + generate**, not "Layout + Install" |
 >
-> `@computed` (Install → **Layout** per [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md))
+> `@computed` (Install → **Layout** per [ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md))
 > and `@timed`/`@authorize`/`@transactional`/`@rateLimit` remain sketched here pending
 > their own dedicated specs.
 
-This is the concrete standard library implied by [decorators.md](decorators.md). It
+This is the concrete standard library implied by [decorators/README.md](../decorators/README.md). It
 defines every core decorator, split by **owner**: the two static tiers are
 compiler-owned (given as descriptor + expansion, since they are not user-writable
 per decorators.md); Install / Dispatch / Runtime are user-definable and given in
@@ -64,85 +63,32 @@ the hook closes over them. Inside a hook `self` is the decorator instance and
 > tier determines the `runtime` flag; no separate declaration is needed.
 
 Composition is the one fixed total order from
-[decorators.md §Composition](decorators.md): generate → weave → finalize → install
+[decorators.md §Composition](../decorators/README.md): generate → weave → finalize → install
 → dispatch → runtime. On a member wearing several, weave bakes into the body,
 Install wrappers nest source-order (innermost-last), Dispatch fills the miss path,
 and the Runtime around-hook fires first per send and `proceed`s inward.
 
-## Compile / Layout tier (compiler builtins, `runtime: false`)
+## Compile / Layout tier — moved
 
-Not writable in surface Phalcom (they run in the compiler pass), so given as
-descriptor + expansion.
+This section previously sketched `@data`, `@get`/`@set`, `@construct`,
+`@requires`/`@ensures`, `@invariant` and `@observable`. **All of those except
+`@observable` are now built**, and their as-built specs live in
+[decorators/](../decorators/) — one file each:
 
-### `@data` — Compile
+| Decorator | As-built spec |
+|---|---|
+| `@data` | [decorators/data.md](../decorators/data.md) |
+| `@get` / `@set` | [decorators/accessors.md](../decorators/accessors.md) |
+| `@construct` | [decorators/construct.md](../decorators/construct.md) |
+| `@requires` | [decorators/requires.md](../decorators/requires.md) |
+| `@ensures` | [decorators/ensures.md](../decorators/ensures.md) |
+| `@invariant` | [decorators/invariant.md](../decorators/invariant.md) |
+| `@sealed` / `@variant` | [decorators/sealed.md](../decorators/sealed.md) |
 
-Derives the record protocol over `var` fields.
-
-```phalcom
-@data class Money { var _cents; var _currency }
-// expands to:
-class Money {
-  construct new(cents:, currency:) { _cents = cents; _currency = currency }
-  cents    => _cents
-  currency => _currency
-  ==(other) { return _cents == other.cents and _currency == other.currency }
-  hash     => _cents.hash.combine(_currency.hash)
-  toString => "Money(\(_cents), \(_currency))"
-}
-```
-
-### `@get` / `@set` — Compile
-
-Generate one accessor for a field.
-
-```phalcom
-@get var _name          // -> name => _name
-@set var _name          // -> name=(v) { _name = v }
-```
-
-### `@construct` — Layout
-
-Sugar for a `construct new(...)` that binds declared fields, fixing slot layout
-(decorators.md: "@construct is sugar that expands to a construct new(...)").
-
-```phalcom
-@construct class Point { var _x; var _y }   // -> construct new(x:, y:) { _x = x; _y = y }
-```
-
-### `@requires(pred)` / `@ensures(pred)` — Weave (Compile)
-
-Inject checks at method entry/exit; `@ensures` binds `result`.
-
-```phalcom
-@requires(qty > 0)
-@ensures(result.isConfirmed)
-place(qty) { <body> }
-// weaves to:
-place(qty) {
-  Contract.require(qty > 0)                    // entry
-  let result = <body>                          // original body's value
-  Contract.ensure(result.isConfirmed)          // exit, `result` bound
-  return result
-}
-```
-
-### `@invariant(pred)` — Weave (Compile), class-level
-
-Wraps *every* public method with an entry+exit check of `pred`; the **outermost**
-weave (Eiffel order: invariant → post → pre).
-
-### `@observable var _x` — Layout + Install
-
-The bridge from decorators to [reactivity.md](reactivity.md): Layout reboxes the
-slot as a `Signal`; Install generates a tracked getter and a notifying setter.
-
-```phalcom
-@observable var _x
-// slot:  _x = Signal.new(value: <init>)
-// generates:
-x   => _x.value            // tracked read  (registers a dependency)
-x=(v) { _x.value = v }     // notifying write (marks dependents stale)
-```
+The sketches are not reproduced here — several of them diverged from what shipped
+(notably `@data`'s `hash`/`toString`/`with` pseudocode and `@ensures`'s `result`
+binding), and the as-built files are authoritative. `@observable` remains unbuilt;
+see [decorators-observable.md](decorators-observable.md).
 
 ## Install tier (`wrap(method)` → callable)
 

@@ -1,7 +1,7 @@
 # Units tracker — by feature, oldest → newest
 
 Cross-cutting index over [`units/`](units/), grouped by feature area instead of by unit
-number. Complements, doesn't replace, the status of record (`phase-next/STATE.md` +
+number. Complements, doesn't replace, the status of record (`STATE.md` +
 as-built specs). Within each group, units are ordered by actual landing sequence
 (oldest first); unchecked items are proposed dispatch order for future work, not fact.
 

@@ -1,8 +1,50 @@
-# Forge session state — dispatching the U12–U20 / U-COLL batch
+# Forge session state
+
+_**Merged 2026-07-15.** This file absorbed the former `phase-next/STATE.md`, and the
+`phase-next/` folder is deleted (its `INDEX.md` moved up to [`INDEX.md`](INDEX.md); its
+`HANDOFF.md` was stale and dropped). The standing conventions below came from it and are
+the durable half; its "Current position" section was stale (dated 2026-07-12, describing
+the U-CORE track as in-flight when U-CORE-1..6 have all landed) and was dropped rather
+than carried forward. Chronological landing detail continues below, oldest section first.
+Deferral ledger → [`DEFERRED.md`](DEFERRED.md), which absorbed the former
+`phase-next/DEFERRED.md` the same way._
+
+## Green gate
+`./scripts/verify.sh` green (build + test + clippy; golden `.ph` corpus + invariant harness up).
+Re-check before starting new work.
+
+## Standing conventions (durable — carried in from the former `phase-next/STATE.md`)
+
+**Review policy.** Independent reviewer ON only for load-bearing units (can corrupt the object
+model): historically U1, U2, U3, U4, U6. Everything else self-verifies on the green gate + `cargo
+doc` clean. Apply the same load-bearing test to new units.
+
+**Worktree seeding hazard — DO NOT worktree-isolate subagents on this tree (2026-07-12).**
+Beyond the branch-from-HEAD staleness: a worktree-isolated implementer was handed a worktree at an
+*ancient* base (predating `docs/forge/` and the test corpus), couldn't build, and while
+investigating ran `git stash push -u` in the SHARED main checkout — silently yanking every
+concurrently-running agent's uncommitted work into `stash@{0}`. Recovered via
+`git show 'stash@{0}^3:PATH'` (untracked) / `git show 'stash@{0}:PATH'` (tracked). Rule: run the
+tail IN-TREE, one active writer at a time, commit each unit the instant it is green (a committed
+diff cannot be stashed away); parallelize only by DISJOINT write-set (docs vs `tests/lang/**` vs
+`src/`), never by worktree. The `verify.sh` green gate is the backstop that catches a mid-flight
+clobber (a half-reverted tree won't compile).
+
+**Design mandate (user, 2026-07-11).** "Build the architecture. You don't have to preserve the
+current implementation. Architecture and design should be built on best practices." — spec is the
+design source of truth; redesign-first, not preserve-and-patch.
+
+**`core.ph` / `phalcom-ast` collision rules.** `phalcom-ast` (parser/AST) is a serialization point
+— a unit that edits it must run alone in it. `core.ph` is a single shared file edited additively —
+never co-schedule two `core.ph` editors. Full collision matrix: [`INDEX.md`](INDEX.md) §2.
+
+---
+
+## Session log — U12–U20 / U-COLL batch
 
 Three-worktree consolidation (U-INH + U-ITER + U-FIBER) landed `main` at `0de7496`,
 green. Now dispatching the in-flight planning batch (U12–U20, U-COLL, U-COLLTYPES,
-U-ERR, U-FUTURE) per `phase-next/INDEX.md` §build-order.
+U-ERR, U-FUTURE) per `INDEX.md` §build-order.
 
 ## Landed (do not redispatch)
 Spine U0–U11 + U-FE/U-LEX/U-LIST/U-STD. Core track U-CORE-1..6 (floor → 88).

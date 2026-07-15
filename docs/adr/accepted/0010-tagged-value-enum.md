@@ -11,14 +11,14 @@
 
 ## Context
 
-Every surface value maps onto a class ([Object Model §3](../spec/v0.2/object-model.md)),
+Every surface value maps onto a class ([Object Model §3](../../spec/v0.2/object-model.md)),
 but the VM needs one in-register representation for all of them. [ADR-0005](../retired/0005-number-as-flat-f64.md)
 settled the numeric arm (`Number` = flat `f64`) but not the whole value type. Two
 constraints frame the rest:
 
 - **`nil` is private (Invariant 4).** The VM keeps a `nil` for uninitialized slots
   and internal sentinels, but it has no surface class, no literal, and cannot be
-  produced by user code ([Values & Absence §2](../spec/v0.2/values-and-absence.md)).
+  produced by user code ([Values & Absence §2](../../spec/v0.2/values-and-absence.md)).
   Absence is `Option`.
 - Heap objects are now handles, not pointers ([ADR-0009](0009-handle-arena-heap.md)),
   so the value type must carry an `ObjRef`, not an `Rc`.
@@ -34,7 +34,7 @@ constraints frame the rest:
   handle into the `Heap` ([ADR-0009](0009-handle-arena-heap.md)).
 - `Symbol(...)` — interned identifiers/selectors.
 - `Nil` — a **private** sentinel for uninitialized slots. It is not surface-visible:
-  it has no class row ([Object Model §3](../spec/v0.2/object-model.md)), the compiler
+  it has no class row ([Object Model §3](../../spec/v0.2/object-model.md)), the compiler
   never emits a literal for it, and it must never leak into a `Some` or reach user
   code (Invariant 4).
 
@@ -58,7 +58,7 @@ against.
 ## Alternatives considered
 
 - **A surface `nil` value** (JavaScript/Wren style). Rejected: it reintroduces the
-  null coercion the object model exists to remove ([Values & Absence §2](../spec/v0.2/values-and-absence.md),
+  null coercion the object model exists to remove ([Values & Absence §2](../../spec/v0.2/values-and-absence.md),
   Invariant 4); absence is `Option` ([ADR-0007](0007-option-as-abstract-with-some-none.md)).
 - **NaN-boxing from the start.** Fewer bytes per value and better cache behavior,
   but it obscures the representation, complicates debugging, and buys speed before

@@ -4,13 +4,211 @@ Out-of-scope optimizations / DX / speed / security observations noticed while
 landing a forge unit, but deliberately not implemented in that unit. Each
 entry: file:line, category, one-line rationale.
 
+_**Merged 2026-07-15.** This file absorbed the former `phase-next/DEFERRED.md`, which is deleted.
+Its numbered entries (#1–#33) are carried forward **verbatim and with their numbers
+intact** under [Numbered backlog](#numbered-backlog-merged-from-phase-next) —
+~18 docs across `units/` cite them by number (`DEFERRED #30`, `#19`, `#9`, …) and
+renumbering would silently break every one of those citations._
+
+## Confirmed Backlog
+
+**Read this section first.** Everything else in this file is a ledger of things noticed
+in passing; entries age, and some are stale (several below are known-resolved and are
+marked as such, but the file has never had a full triage pass — treat an unmarked entry
+as *unverified*, not as *live*).
+
+This section is different: each entry here has been **verified against the tree on the
+date given**, with the evidence inline. An entry leaves this section only by being fixed
+or by being disproved at a cited file:line — never by assumption.
+
+### CB-1 · String interpolation bypasses `toString` overrides
+
+_Verified 2026-07-15 by reading the tree. Supersedes and sharpens [#30](#numbered-backlog-merged-from-phase-next), filed 2026-07-12._
+
+**The defect.** [ADR-0022](../adr/accepted/0022-string-interpolation-backslash-paren-sigil.md) desugars
+`"\(x)"` to `String.new(x)`. `string_class_new` (`phalcom-core/src/primitive/string.rs:58`)
+calls `Value::to_string` — **not** `Value::to_display_string`. Only
+`to_display_string` (`phalcom-core/src/value/render.rs:78`) sends the `toString`
+message; `to_string` (`render.rs:19`) hardcodes native rendering for
+`Str`/`List`/`Map`/`Set`/`Tuple`/`Range`/`None`/`Some` and falls through to `to_debug`
+(`render.rs:98`) for everything else — including a plain user instance, a class, a
+metaclass.
+
+**Consequence: a user's `toString` override is silently bypassed by interpolation.**
+`System.print(p)` and `"\(p)"` disagree for exactly the objects
+[ADR-0015](../adr/accepted/0015-object-default-tostring.md) governs. This is the
+un-fixed half of U-ERR-FIX's BUG-PRINT-TOSTRING (`dd2e178`), which routed
+`system_class_print` through `to_display_string` and left the interpolation path alone —
+even though interpolation is by far the more common stringify site.
+
+**Why #30's stated precondition no longer applies.** #30 deferred this on "blocked on
+U-CORE-4 landing a real content `toString`". **U-CORE-4 landed** (`2061795`, per
+[STATE.md](STATE.md) and `docs/adr/STATUS.md`'s ADR-0036 row). The blocker is gone; the
+work was never done. This is ripe, not blocked.
+
+**Security dimension (why it is in this section and not just #30).** ADR-0015's default
+`toString` (`<ClassName>`) is a redaction-safe default — a `SecretKey` renders as
+`<SecretKey>`, not its contents. That property **does not hold through interpolation**,
+so a class that overrides `toString` to redact is still un-redacted by `"key: \(k)"`.
+Today the leak is *bounded*: `to_debug` renders an instance as `<ClassName instance>`
+with no field contents, so nothing sensitive escapes yet. The risk is latent —
+enriching `to_debug` to dump slots (an ordinary debug convenience someone will
+eventually want) silently converts every interpolation site into a field-disclosure
+bug. Fix the routing before that temptation arrives, not after.
+
+**Fix.** Point the `\(…)` desugar at the `toString`-sending path. Note the signature
+difference is real work, not a one-liner: `to_string(&self, vm: &VM) -> String` is
+infallible; `to_display_string(&self, vm: &mut VM) -> PhResult<String>` sends a message,
+so it needs `&mut VM` and can raise (a user `toString` that throws). Owning unit:
+unassigned — touches `phalcom-ast/src/parser.rs::desugar_string_interp` (or the
+`String.new` primitive itself; decide which).
+
+### CB-2 · The floor census contradicts itself *and* the test that guards it
+
+_Verified 2026-07-15 by running the invariant test and summing its constants._
+
+**Three numbers, no two alike.** The census is the document every ADR is explicitly told
+to cite *instead of* quoting its own figure — and it is the one that is wrong:
+
+| Source | Count |
+|---|---|
+| `docs/spec/v0.2/core/floor-census.md:36` §1.1 "Installed `(class, selector)` bindings" | **113** |
+| `docs/spec/v0.2/core/floor-census.md:665` §7 (audit-hook prose) | **117** |
+| `phalcom-core/tests/invariants.rs:631+` `floor_census_matches_installed_bindings` — **machine-checked, green** | **125** |
+
+**The test is authoritative and it passes.** Its constants sum to exactly 125: `BASELINE`
+73 + `NEW` 7 + `NEW_METHOD_REFLECTION` 5 + `NEW_VALUE_TOSTRING` 1 + `NEW_ERROR` 2 +
+`NEW_MAP_SET` 14 + `NEW_TUPLE` 3 + `NEW_RANGE` 4 + `NEW_ON_ENSURE` 2 + `NEW_IMPORTS` 1 +
+`NEW_FAMILY` 1 + `NEW_SCHED` 2 + `NEW_INVARIANT_GUARD` 2 + `NEW_ATTR_ROOT` 3 + `NEW_GC` 1 +
+`NEW_STRING` 4 = **125**.
+
+**The drift is precisely attributable**, which is what makes this fixable rather than
+archaeology. 125 − 113 = 12 = `NEW_SCHED`(2) + `NEW_INVARIANT_GUARD`(2) +
+`NEW_ATTR_ROOT`(3) + `NEW_GC`(1) + `NEW_STRING`(4) — the five amendments that landed
+without updating §1.1. §7's 117 is 113 + `NEW_SCHED` + `NEW_INVARIANT_GUARD`, i.e. §7 was
+brought forward two amendments and then abandoned. Also stale: §1.1's "distinct native
+Rust functions = 98", and §8 points at `universe.rs`, which is now a directory.
+
+**Why this is worse than an ordinary doc-drift row.** The overlay's *Known documentation
+defects* #4 already recorded "floor census numbers don't chain" and concluded **"never
+quote a floor number from an ADR — `floor-census.md` is authoritative."** That conclusion
+is now itself wrong: the census is *also* not authoritative. The only authority is the
+test. Until §1.1 is reconciled, the correct instruction is **"never quote a floor number
+from any document — read `invariants.rs`."** Two independent agents this session were
+sent to the census as the source of truth and both came back with different wrong
+numbers.
+
+**Fix.** Reconcile §1.1 and §7 to 125/N-fns from the test, and add a line to the census
+naming `invariants.rs::floor_census_matches_installed_bindings` as the machine-checked
+source of record — so the next drift is caught by the test rather than propagated by the
+prose. Owning unit: unassigned. Cheap; do it before the next floor amendment adds a
+sixteenth constant.
+
+### CB-3 · Sealing is one property with two representations that can disagree
+
+_Verified 2026-07-15 by reading the tree. **This entry originally claimed Phalcom had "two
+independent sealing mechanisms that do not know about each other." That was wrong** — an
+adversarial check refuted it and the entry is rewritten to the defect that is actually
+there. Recording the correction rather than quietly deleting it: the wrong version is the
+kind of plausible-sounding finding this section exists to filter out._
+
+**What is actually true: `extends` enforcement IS unified.** Both paths write and read one
+table, `VM::sealed_classes: HashMap<Symbol, ObjRef>` (`phalcom-core/src/vm/mod.rs:194`,
+symbol → owning module):
+
+- the `@sealed` decorator writes it from the attribute (`compiler/lib/class_decl.rs:751-754`);
+- bootstrap writes the *same* table directly for `Option`/`Some`/`None`
+  (`vm/bootstrap.rs:215,220,261`), and says so in its own comment (`:209`): registered
+  "directly in `self.sealed_classes` here (rather than via the `@sealed` decorator)
+  because `None` has no `.ph` class reopen to carry the annotation";
+- one check reads it (`class_decl.rs:364-371`), raising `attr.sealed_violation` when a
+  subclass's module ≠ the sealed class's module.
+
+So sealing is **sealed-to-the-compilation-unit**, uniformly, for kernel and user classes
+alike. My "two mechanisms" framing was simply false.
+
+**The real defect, one level down: the `@variant` gate reads a different source of truth
+than the `extends` check.** `expand_class_attributes` computes
+`let has_sealed = class_attrs.iter().any(|a| a.name == "sealed")`
+(`compiler/attributes.rs:1540`) — from the **attribute list**, not from
+`VM::sealed_classes`. `expand_variants` (`attributes.rs:1265`) then rejects `@variant`
+without `@sealed`.
+
+**Consequence.** `Option` is sealed-against-`extends` but does **not carry the `@sealed`
+attribute** — bootstrap deliberately bypasses the decorator. So a `@variant` declared
+inside an `Option` reopen would be rejected with
+*"`@variant` requires its enclosing class `Option` to also carry `@sealed`"* — **a false
+diagnostic about a class that is, in fact, sealed.** One property, two representations,
+and they can disagree. Narrow and currently untested, but it is a real seam and the
+cheapest moment to close it is before anything else reads either representation.
+
+**The larger prize, and a genuine surprise: exhaustiveness is already enforced — by
+dispatch, not by a checker.** `expand_variants` synthesizes one sibling class per variant
+(each implicitly `@data`, `_`-prefixed mutable fields, superclass = the enclosing class),
+each overriding a positional `__matchArm`, and generates `match(k1:, k2:, …)` on the
+parent. Because selector identity is label-encoded
+([ADR-0012](../adr/accepted/0012-selector-signature-encoding-and-dispatch.md)) and there are no
+default arguments ([ADR-0043](../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md)),
+**a missing arm is a different selector** — so an inexhaustive match cannot dispatch. Two
+committed decisions that were made for unrelated reasons combine to give totality for
+free. Green fixture: `tests/lang/errors/annotation_variant_visitor_exhaustive.ph`.
+
+This sharpens what a future `match` construct would actually buy: **diagnosis** (naming
+the missing arm) and **compile-time rather than dispatch-time** failure — not soundness.
+`match` remains **OPEN** (open-Q7 residue;
+[ADR-0046](../adr/accepted/0046-destructuring-bindings.md) shipped only irrefutable
+destructuring). See [`drafts/sealed-classes.md`](../spec/v0.2/drafts/sealed-classes.md) §S-1.
+
+**Spec-side divergences found in the same pass** (each its own small chore):
+`@sealed`/`@variant` are **absent from** `decorators-stdlib.md` and `attribute-classes.md`
+— their only spec is `experimental/annotations-data.md`, which *does* match the code;
+U-ANNOT-LAYOUT's plan §3.4 specifies a finalize-phase end-of-unit post-pass while as-built
+is an immediate subclass-site check (the code argues the equivalence; the plan was never
+updated); and **no fixture tests cross-unit `extends` of a *user* `@sealed` class** — the
+decorator's headline enforcement is exercised only through bootstrap-sealed core classes.
+
+**Fix.** Make the `@variant` gate consult `VM::sealed_classes` (or record `@sealed` for the
+bootstrap-sealed classes) so the two representations cannot diverge; add the missing
+user-class `extends` fixture; spec `@sealed`/`@variant` where a reader would look for them.
+Owning unit: unassigned.
+
+### CB-4 · `experimental/default-arguments.md` specifies the mechanism its own banner forbids
+
+_Verified 2026-07-15._
+
+`docs/spec/v0.2/experimental/default-arguments.md` is 40 lines and self-contradictory:
+
+- its **`## Decision`** section specifies **caller-side desugar with statically-known callees**;
+- its own **2026-07-12 supersede banner** declares caller-side / static-callee resolution
+  **"permanently forbidden"**, and names definition-time trailing-only overload desugar as
+  the ratified-if-ever mechanism instead.
+
+**A reader who skips the banner gets the forbidden answer** — and the banner is the part
+readers skip. `docs/spec/v0.2/deferred-work.md:163` already logs this reconciliation as an
+outstanding chore; it was never done.
+
+**Related finding, worth an ADR amendment independent of the fix.**
+[ADR-0043](../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md)
+and this doc both reject arity-family expansion as *"combinatorial"* — while open-Q12
+ratifies **that same mechanism** restricted to *trailing* params, where it is **linear**,
+not combinatorial. The two are consistent on inspection (different scopes) but ADR-0043's
+prose reads as a blanket rejection of the mechanism the ruling actually adopts, and it
+never mentions the trailing-only refinement. See
+[`drafts/default-arguments.md`](../spec/v0.2/drafts/default-arguments.md) §8 (DA-1/DA-2),
+which records the contradiction rather than fixing it — editing a Proposed doc is outside
+a draft's authority.
+
+**Fix.** Reconcile the `## Decision` section to the banner's ruling, and amend ADR-0043's
+prose to distinguish general (combinatorial, rejected) from trailing-only (linear,
+ratified by Q12). Owning unit: unassigned.
+
 ## Open entries
 
 | file:line | Category | Rationale |
 |---|---|---|
-| `docs/spec/v0.2/next/decorators-dispatch-observability.md` D-1 (decision recorded 2026-07-13) | feature scope — deferred to v0.3 | A separate Dispatch-tier `@forwardMissing(to:)` decorator (forward *every* missed selector on a field via `doesNotUnderstand`) was considered and rejected for v0.2 in favor of Compile-tier `@delegate`'s explicit-selector-list-only surface. Revisit only if whole-interface delegation proves common enough in practice to earn a second decorator; until then the hand-written `Proxy`/DNU library ([proxy.md](../spec/v0.2/next/proxy.md)) covers the open case. |
-| `docs/spec/v0.2/next/decorators-dispatch-observability.md` D-2 (decision recorded 2026-07-13) | feature scope — deferred to v0.3 | `@traced`'s `sink:` argument was specified as a pluggable duck-typed `Tracer` protocol (`enter`/`exit`/`threw`) with a `Tracer.stdout` builtin default, rather than three raw configuration blocks (`onEnter:`/`onExit:`/`onThrow:`). The raw-blocks form remains available as a fallback design if the `Tracer` protocol proves over-engineered once implemented. |
-| `docs/spec/v0.2/next/decorators-dispatch-observability.md` D-3 (decision recorded 2026-07-13) | feature scope — deferred to v0.3 | `@featureFlag` was specified against a ratified ambient `Flags` core module (global registry, `Flags.enabled(name)`), not an injected/per-scope `FeatureFlags` service. Revisit once dependency injection (`@inject`, [decorators-stdlib.md](../spec/v0.2/next/decorators-stdlib.md)) is specified — the injected-service form is the natural upgrade path and does not require an `@featureFlag` grammar change, only a resolution-strategy change inside the decorator. |
+| `docs/spec/v0.2/drafts/decorators-dispatch-observability.md` D-1 (decision recorded 2026-07-13) | feature scope — deferred to v0.3 | A separate Dispatch-tier `@forwardMissing(to:)` decorator (forward *every* missed selector on a field via `doesNotUnderstand`) was considered and rejected for v0.2 in favor of Compile-tier `@delegate`'s explicit-selector-list-only surface. Revisit only if whole-interface delegation proves common enough in practice to earn a second decorator; until then the hand-written `Proxy`/DNU library ([proxy.md](../spec/v0.2/drafts/proxy.md)) covers the open case. |
+| `docs/spec/v0.2/drafts/decorators-dispatch-observability.md` D-2 (decision recorded 2026-07-13) | feature scope — deferred to v0.3 | `@traced`'s `sink:` argument was specified as a pluggable duck-typed `Tracer` protocol (`enter`/`exit`/`threw`) with a `Tracer.stdout` builtin default, rather than three raw configuration blocks (`onEnter:`/`onExit:`/`onThrow:`). The raw-blocks form remains available as a fallback design if the `Tracer` protocol proves over-engineered once implemented. |
+| `docs/spec/v0.2/drafts/decorators-dispatch-observability.md` D-3 (decision recorded 2026-07-13) | feature scope — deferred to v0.3 | `@featureFlag` was specified against a ratified ambient `Flags` core module (global registry, `Flags.enabled(name)`), not an injected/per-scope `FeatureFlags` service. Revisit once dependency injection (`@inject`, [decorators-stdlib.md](../spec/v0.2/drafts/decorators-stdlib.md)) is specified — the injected-service form is the natural upgrade path and does not require an `@featureFlag` grammar change, only a resolution-strategy change inside the decorator. |
 | `phalcom-core/src/primitive/boolean.rs:34` `bool_class_new` (found porting Wren `test/core/bool/no_constructor.wren`) | correctness — panic, not a controlled error | `Bool.new()` (zero-arg) indexes `args[0]` unconditionally and panics (`index out of bounds: the len is 0 but the index is 0`) instead of raising a catchable `RuntimeError` — every send should fail loud-but-controlled, never a raw Rust panic. Also carries two pre-existing debug `println!`s (already flagged, U1/DEFERRED) that fire before the panic. Could not be ported as a `runtime-errors`/negative golden because the harness's `assert_no_panic` forbids exit-101/`panicked at` output; skipped in the Wren-porting sweep pending a real fix (bounds-check `args`, return `RuntimeError::Arity` on empty). |
 | `phalcom-core/src/primitive/class.rs` `class_class_new`/metaclass `new()` (found porting Wren `test/core/class/no_constructor.wren`) | design divergence, not a bug | `Class.new()` succeeds silently (no error, exit 0) rather than rejecting instantiation the way `Bool.new()`/`Object.new()`/`System.new()` all reject theirs (`RuntimeError::NotAllowed`) — `Class` is the one metaclass-tower root left instantiable. Unclear if intentional (a raw `Class` instance may be meaningless) or an oversight; flagged rather than silently ported as a positive/negative case either way. |
 | ~~`phalcom-lsp/src/semantic_tokens.rs` (U-LSP Stage 5)~~ | ~~feature scope~~ | **RESOLVED 2026-07-14:** `ClassDef`/`MethodDef`/`GetterDef`/`SetterDef`/`ConstructDef` grew an additive `name_range: SourceRange` field (`phalcom-ast/src/ast.rs`, populated in `parser.rs`) keying the declaration name's own span independent of the whole-declaration `range`. `semantic_tokens.rs` now runs an AST-assisted `apply_decl_name_overrides` pass on top of the flat lexer pass, upgrading declaration-name tokens to `class`/`method` (never downgrading references). No heuristic text re-scan needed — the rejected approach this entry originally flagged.
@@ -77,6 +275,57 @@ entry: file:line, category, one-line rationale.
 | ~~`phalcom-lsp/src/backend.rs` `hover_at` selector branch~~ **RESOLVED** | UX — no `Hover.range` for selector hovers | `index::selector_at_offset` now returns `(String, SourceRange)` instead of just `String`, so `Backend::selector_at_position` converts that span through the document's `LineIndex` and `hover_at`'s selector branch sets `Hover.range` from it, matching the keyword branch. `goto_definition`/`references` (the other two `selector_at_position` callers) simply discard the span. Test: `stage4_hover.rs`'s `selector_hover_sets_range_to_the_resolved_selector_span`. |
 
 | `phalcom-ast/src/parser.rs:1047-1065` `parse_attribute_arg_list` (M-ATTR-ROOT) | feature scope, forced deviation | **Attribute-arg lists are positional-only — no labeled args.** `parse_attribute_arg_list` calls `parse_expr()` per argument (`Attribute::args: Vec<Expr>`, not `Vec<Argument>`), so `attribute-classes.md`'s spec examples (`@On(Method, tier: Install)`, `@Author(name: "Ada")`) cannot parse as written. M-ATTR-ROOT's own `On` class and goldens use the positional form instead (`On.new(target)` / `On.new(target, tier)`; tier detected at compile time in `compiler::attributes::validate_attribute_class` by matching a bare `Var` argument's name against the five tier names, not a labeled `tier:` argument). Fix: extend `parse_attribute_arg_list` to accept `name: expr` labeled entries (mirroring ordinary call-site argument grammar) once a unit owns the parser change; then `On`'s constructors and any attribute-class consumer can move to the labeled form the spec actually describes, and `inherited:` (dropped entirely for now) can be added back. |
+
+## Numbered backlog (merged from phase-next)
+
+_Merged verbatim 2026-07-15 from the former `docs/forge/phase-next/DEFERRED.md` (deleted in
+the same pass). **Numbers are frozen** — ~18 docs under `units/` cite them (`DEFERRED #30`, `#19`,
+`#9`, …). Never renumber; never reuse a number. Append new numbered entries at #34+._
+
+_**Partial triage, 2026-07-15.** Entries marked **RESOLVED** below were confirmed against
+[STATE.md](STATE.md)'s landing record or `docs/adr/STATUS.md` and carry their evidence.
+Every other entry is **unverified** — it was filed 2026-07-11/12 and has not been re-checked
+against the tree since. Unverified ≠ live. Do not act on one without re-grounding it first._
+
+| # | Idea | Source | Spec/ADR | Rank |
+|---|------|--------|----------|------|
+| 1 | `SyntaxErrorKind::InvalidInteger`/`InvalidFloat` lower to a zero-width `0..0` range, losing the offending literal's span in diagnostics. Carry the real span through `LexicalError` instead. | `phalcom-ast/src/parser.rs` (`lex_error_to_syntax`) | ADR-0016 | low |
+| 2 | The hand-written parser accepts a few malformed assignment targets (e.g. `a+b = c`, `(a+b) = c`) that LALRPOP rejected at parse time; they are still caught by the compiler as invalid assignment targets, but could be rejected earlier with a precise diagnostic. | `phalcom-ast/src/parser.rs` (`parse_assignment`) | ADR-0016 | low |
+| 3 | Pre-existing `clippy::extra_unused_lifetimes` warning: `format_num_arguments<'a>` declares an unused lifetime. Drop the `<'a>`. | `phalcom-core/src/error.rs:30` | — | low |
+| 4 | ~~**F4 (`object_name` / instance `toString`, ADR-0015) needs a home unit.**~~ **RESOLVED — U-CORE-4 (`2061795`)** landed per-type `toString` + the unified native print path (ADR-0036 Accepted, code-confirmed `primitive/number.rs:88`). | U2 architect | ADR-0015 | done |
+| 5 | ~~**Kernel `List` + collections.**~~ **RESOLVED** — `List` half landed as U-LIST (ADR-0019/0020 both Accepted); `Map`/`Set`/`Tuple`/`Range` landed as U-COLLTYPES (see #27). DEC-A closed. | U8/U9/U-STD | ADR-0020 | done |
+| 6 | ~~Collection-literal lowering `(a,b)`/`[…]`/`{a:1}`.~~ **RESOLVED — U-COLL** (`1274504` list / `5bc31e8` tuple / `dc9eab0` map), ADR-0029 + ADR-0032 Accepted. Folds #28. | U-LEX | ADR-0029/0032 | done |
+| 7 | ~~Reflection surface: `Method.bind(_)`/`invokeOn(_,_)`/`methodFor(_)`, `Function`/`Block`/`Method` reflection.~~ **RESOLVED — U-CORE-3 (`10ebd06`)**, ADR-0028 Accepted + code-confirmed (`primitive/method.rs`, `primitive/block.rs`). | U4/U-STD | functions.md §3 | done |
+| 8 | Per-class dNU handler cache (keyed on `ClassId`, gated by open-Q4); spread call sites `f(*args)`. **Split**: the dNU-cache half duplicates #22; the spread half duplicates #21. Both still open. | U8 | open-Q4 | med |
+| 9 | **Block variadics `{ *xs => }` — confirmed still out of scope (U9, 2026-07-12).** No `{ *xs => }` grammar exists; `parse_param_list` (shared by method/constructor lists but *not* block-literal params, which use a separate ad hoc scanner in `Parser::parse_primary`) never reaches block-literal parsing, so this doesn't even parse today — no silent-misbehavior risk, nothing to explicitly reject. Block variadics would need zero extra VM plumbing once the grammar exists (the same call-prologue collapse handles any closure); the grammar itself is unbuilt. `callWith(_:List)` remains unimplemented; no-op. | U4/U9 | functions.md §2 | low |
+| 10 | ~~`for (x in xs)` runtime; derived control selectors in `core.ph`.~~ **RESOLVED — U-ITER** (for/break/continue + cursor protocol, ADR-0035 amended by ADR-0048, both Accepted). Per-call-site polymorphic IC remains open → see the `MethodsMap`/`Invoke` entry in [Open entries](#open-entries). | U5 | control-flow.md | done |
+| 11 | ~~Concurrency runtime: `Fiber`/`Future`/`Error` classes.~~ **RESOLVED** — `Error` root U-CORE-6 (`85c4e1d`, ADR-0037); `Fiber` U-FIBER (ADR-0030 Accepted); `Future` Slice A U-FUTURE-A (`f0d128a`). Slice B (`async`/`await`) landed as U-SCHED (`34246a8`). | U-STD | concurrency.md | done |
+| 12 | Lexer polish: nested block comments; lone-`?` ternary; carry real span through `LexicalError` (dup of #1). Block comments shipped flat (non-nesting) per U-LEX; nesting + lone-`?` still open. Folds #32. | U-LEX | ADR-0016 | low |
+| 13 | **Reassignment of a *captured* immutable binding is not rejected.** An outer binding reached through an upvalue from inside a block: the compiler only enforces immutability for a current-function local and a module global. An inner-block `count = count + 1` over an outer immutable `count` compiles to `SetUpvalue` with **no diagnostic**. Extend the assignment path to walk enclosing function-states. **NB:** filed against ADR-0014's `let`(immutable)/`var`(mutable) spelling; [ADR-0064](../adr/accepted/0064-let-const-bindings-and-field-mutability.md) supersedes that spelling (`let`=mutable, `const`=immutable) but keeps every rule, so the hole is unchanged — it is now a hole in `const`. Re-verify against U-BINDINGS when it lands. | `phalcom-core/src/compiler/lib.rs` (`Expr::Assignment`, upvalue branch) | ADR-0014 → ADR-0064 | med |
+| 14 | The `if(opt)` truthiness compile check (`CompilerError::OptionTruthiness`) is literal-only: it catches `None` and `Some.new(...)` as a condition, but not an Option-typed *variable* (that stays a runtime type error via the branch opcode's `Bool` requirement). No span attached. **This is the knowingly-accepted gap in [ADR-0021](../adr/accepted/0021-no-truthiness-enforcement.md), not a bug** — closing it needs flow analysis Phalcom does not have. Keep as a record. | `phalcom-core/src/compiler/lib.rs` (`is_option_literal`) | ADR-0007/0021 | low |
+| 15 | Fixed slot layout + private-non-inherited fields (ADR-0011) forecloses (a) adding a field to a *live* class / `become:`-style reshape (offsets frozen at class-definition time) and (b) shared *protected* inherited fields (a subclass must go through accessors). Both deliberate per ADR-0011 — good for a future inline cache (stable offsets) — but flag if either is ever wanted; a cross-cutting reshape, not a local change. **Informational, not actionable.** | U7-plan §3 (rubric preclusion) | ADR-0011 | low |
+| 16 | ~~The `Counter.new()` → `construct` selector redirect is a compile-time, same-compilation-unit, literal-receiver heuristic; an indirect receiver (`let C = Counter; C.new()`) silently reaches the bare allocator.~~ **DISSOLVED BY RULING, not fixed** — [ADR-0063](../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) §7 rules that `new()` is an ordinary inherited method, so the "fall through to the bare allocator" this entry treats as a bug is **specified behavior**. See the `has_new_construct` row in [Open entries](#open-entries) for the full ruling and what survives it (ADR-0063 §6.1's `native_repr` gate). | `phalcom-core/src/compiler/lib.rs` (`Expr::MethodCall`) | ADR-0011 → ADR-0063 | done |
+| 17 | **`Statement::Class` unconditionally emits `DefineGlobal` at the end of every class body, reopen or not.** Harmless for every core class whose global already points at that class object, but `None`'s global is deliberately bound to the shared singleton *instance*, not the class (`VM::install_core`) — so a `class None { ... }` reopen silently clobbers that binding back to the class the moment `core.ph` runs, breaking every `x == None` downstream. U-LIST worked around it by dropping the empty `class None {}` skeleton from `core.ph`. **Whoever next needs real members on `None` must fix this compiler special case first** — e.g. skip `DefineGlobal` when reopening a class whose current global binding is not that same class object. **Unverified since 2026-07-11; U-REOPEN-FIX (`e85f31a`) reworked `Bytecode::Class` reopen handling and may have changed the surrounding code — re-ground before acting.** | `phalcom-core/src/compiler/lib.rs` (`Statement::Class`, ~L862) | — | high |
+| 18 | `List::rawSet` (indexed write) is wired as a primitive but has no `.ph` wrapper — no `at(_,put:)` selector. **Still open, and the obvious resolution is the wrong one.** ADR-0055 (`xs[i] = v` desugars to `at(_, put:)`) would have entailed the selector — but **ADR-0055 is Retired**, reversed by **[ADR-0060](../adr/accepted/0060-index-operator-as-real-selector.md) (Accepted, shipped as U-INDEX)**: `[]` is its own dedicated, user-overridable selector and **does not lower to `at`** (`core.ph:812,879`). So indexed write is served by `[]`, and whether a *separate* `at(_,put:)` should also exist is now an open design question, not a bookkeeping gap. `Tuple` deliberately has neither (`core.ph:1015`). | U-LIST-plan §3/§4 | ADR-0020; ADR-0055 **retired** → ADR-0060 | low |
+| 19 | **`List.toString` is a native primitive (`primitive/list.rs::list_to_string`), not `.ph`-defined over `each(_)`** — because when filed, no kernel value type had a general user-callable `toString`, so a `.ph` `List.toString` would render every non-`String` element wrong. **Precondition now met** — U-CORE-4 (`2061795`) landed real content `toString` — so the `.ph` move is unblocked but was never done. Same root cause as CB-1/#30. | U-LIST return contract | ADR-0019/0020 | med |
+| 20 | ~~`map`/`reduce`/`filter`/`inject` and other collection combinators not defined on `List`.~~ **RESOLVED** — U-STD landed the pure-`.ph` combinator layer; U-ITERABLE then rehomed `each`/`map`/`filter`/`reduce` onto the kernel `Iterable` root (`core.ph:309`), driven by `iterate(_)`/`iteratorValue(_)` per ADR-0048. | U-LIST-plan §3/§8 | ADR-0020/0048 | done |
+| 21 | **`Bytecode::SendDynamic` opcode not built.** U8 delivered `VM::send_dynamic` (the Rust helper) behind `perform`/dNU, but not the opcode — no call-site spread syntax exists to emit it. U9 explicitly scoped both the opcode and `f(*args)` out. Spread-call syntax remains a future unit's job. Folds the spread half of #8. See also the `parse_comma_exprs` leading-`*` row in [Open entries](#open-entries). | `phalcom-core/src/bytecode.rs`; `vm.rs::send_dynamic` | messages-and-selectors.md §5; ADR-0012 | med |
+| 22 | **Per-class dNU handler cache** (method-lookup.md §2, optional; folds prior #8). Deliberately not built — correctness-first, the miss path is slow-by-design. If ever added: key on stable `ClassId`, keep **separate** from the call-site IC, invalidate on hierarchy mutation. **NB:** ADR-0026/0041 have since *sealed* superclass reparenting, so the invalidation story is narrower than when this was filed — only method redefinition (ADR-0018's override epoch) applies. The `dispatch_dnu_preserves_dispatch` golden guards a future IC against regression. | `phalcom-core/src/value.rs::lookup_method`; `vm.rs` Invoke arm | method-lookup.md §2 | low |
+| 23 | **`perform(_,_)` selector/arity match is not pre-validated.** `Object.perform(selector, argsList)` trusts the selector symbol's encoded arity to agree with `argsList.size`; a mismatch surfaces only through ordinary lookup (likely a miss → dNU) rather than an eager, targeted `ArgumentError`. **NB:** filed as "once `#` selector literals land (U-LEX) a clearer diagnostic would improve DX" — **U-LEX-HASH landed** (`fac45ae`), so that precondition is met. | `phalcom-core/src/primitive/object.rs::object_perform_with` | messages-and-selectors.md §5 | low |
+| 24 | **Duplicate variadic selector per class silently overwins in the method map.** Two variadic methods with the same bare name in one class body collide on the identical `<name>(*)` selector symbol; the second silently replaces the first — same as any duplicate-selector redefinition today, not new. A clean "duplicate method" diagnostic (for this or the general case) would improve DX. | `phalcom-core/src/class.rs` (`ClassObject.methods`) | messages-and-selectors.md §4 | low |
+| 25 | ~~`blocks/pending/blocks_argument_to_method.ph` blocked on `List.reduce(_)`.~~ **RESOLVED (U-STD, 2026-07-12)** — `reduce` landed; fixture rewritten and promoted out of `pending/`. | `phalcom-core/tests/lang/blocks/blocks_argument_to_method.ph` | blocks.md | done |
+| 26 | ~~Pre-existing `cargo doc` warning: `nil.rs` `some_new` links to private `wrap_some`.~~ **RESOLVED (U-ERR pass)** — repointed off the intra-doc link, `cargo doc` clean. Dup of #33. | `phalcom-core/src/primitive/nil.rs:64` | docs guidelines | done |
+| 27 | ~~Collection classes `Map`/`Set`/`Tuple`/`Range` deferred; `Map`/`Set` block on `Object#hash`.~~ **RESOLVED** — `Object#hash` landed U-CORE-1 (`03764e3`, ADR-0023); the four classes landed as U-COLLTYPES (`be8426e` Map+Set / `2d140f0` Tuple / `f934cf1` Range) as native arena arms under ADR-0032/0039. | `phalcom-core/core/core.ph`; `phalcom-core/src/universe.rs` | ADR-0020/0032/0039 | done |
+| 28 | ~~List-literal syntax `[a, b, c]` (and map/set/tuple literals) not built.~~ **RESOLVED — U-COLL** (ADR-0029/0032). `[a,b,c]` and `{k: v}` are active; `#{…}` (Set) and `..`/`...` (Range) remain **reserved-but-inactive by decision**, not deferred — see the `#{`/`..` lexer row in [Open entries](#open-entries). Folds #6/#20. | `phalcom-ast/src/{lexer,parser}.rs` | ADR-0029/0032 | done |
+| 29 | ~~Scope-taxonomy divergence between the forge scheduling docs and `docs/spec/core/` on U-STD's ownership.~~ **RESOLVED (2026-07-12)** — U-STD scope settled via Option (B); the roster reconciliation landed as PHASE2-INDEX §7 pointing at `docs/spec/v0.2/core/README.md` as index of record rather than forking it. | `docs/forge/PHASE2-INDEX.md` §7 | — | done |
+| 30 | **String-interpolation desugar targets `String.new(_)`, not content `toString`.** → **SUPERSEDED by [CB-1](#cb-1--string-interpolation-bypasses-tostring-overrides)**, which verified it against the tree on 2026-07-15, established that this entry's stated blocker (U-CORE-4) has landed, and added the security dimension. **Entry kept for its number only** — ~4 docs cite `DEFERRED #30`. Read CB-1, not this row. | `phalcom-ast/src/parser.rs` (`desugar_string_interp`) | ADR-0022 | **see CB-1** |
+| 31 | **Interpolation `\(…)` scanning is balanced-paren only — it does not understand a string literal nested inside the expression.** `lexer.rs::scan_string` counts `(`/`)` depth to find the end of a `\(expr)` body, so a `)` inside a nested string literal (`"\(f(")"))"`) mis-terminates the expression. Accepted for v1; a full fix would re-enter string-scanning recursively inside the interpolation body. | `phalcom-ast/src/lexer.rs` (`scan_string`) | ADR-0022 | low |
+| 32 | **Nested block comments + lone-`?` ternary still deferred (already #12).** U-LEX shipped flat (non-nesting) `/* … */`; nesting and the reserved lone-`?` remain. Not a separate item — noted only so U-LEX's tail is traceable. | `phalcom-ast/src/lexer.rs` (`skip_trivia`) | DEFERRED #12; ADR-0016 | low |
+| 33 | ~~Pre-existing rustdoc warnings in `primitive/nil.rs` (`some_new` links to private `wrap_some`).~~ **RESOLVED (U-ERR pass)** — dup of #26. | `phalcom-core/src/primitive/nil.rs:64` | doc-clean | done |
+
+_Closed pre-merge:_ #(ex-LALRPOP) — done in U1: dead `CompilerError::ParseError` variant +
+`From<lalrpop_util::ParseError>` impl deleted (slice 3), `lalrpop-util` dropped from
+`phalcom-core/Cargo.toml` + `Cargo.lock`.
 
 ## Homed entries
 

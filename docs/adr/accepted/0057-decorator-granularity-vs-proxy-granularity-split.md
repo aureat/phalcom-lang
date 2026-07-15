@@ -2,13 +2,13 @@
 
 - Status: Accepted
 - Date: 2026-07-13
-- Related: `docs/spec/v0.2/next/decorators.md` (the five-tier decorator axis;
+- Related: `docs/spec/v0.2/decorators/README.md` (the five-tier decorator axis;
   already states "a decorator is a method-granularity proxy"),
-  `docs/spec/v0.2/next/proxy.md` (the `Proxy`/`Lazy`/`Trace`/`Retry`/`Capability`
-  object-granularity library), `docs/spec/v0.2/next/attribute-classes.md`
+  `docs/spec/v0.2/drafts/proxy.md` (the `Proxy`/`Lazy`/`Trace`/`Retry`/`Capability`
+  object-granularity library), `docs/spec/v0.2/decorators/on.md`
   (the `Attribute`/`@On` decorator descriptor),
-  `docs/spec/v0.2/next/decorators-behavioral.md` +
-  `docs/spec/v0.2/next/decorators-dispatch-observability.md` (the dedicated decorator
+  `docs/spec/v0.2/drafts/decorators-behavioral.md` +
+  `docs/spec/v0.2/drafts/decorators-dispatch-observability.md` (the dedicated decorator
   specs whose name-overlaps with the proxy library this ADR resolves),
   [ADR-0052](0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
   (Layout-confined per-receiver decorator state),

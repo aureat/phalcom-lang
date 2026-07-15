@@ -1,7 +1,7 @@
 # Persistence / ORM decorators — `@entity`, `@column`, associations
 
 - Status: **Accepted** (ratified 2026-07-14 — banner was stale; ratified under
-  [ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)'s
+  [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md)'s
   broad Install/Dispatch/Runtime ratification, 2026-07-13)
 - Date: 2026-07-12
 - Depends on:
