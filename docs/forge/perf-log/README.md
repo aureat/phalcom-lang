@@ -18,7 +18,7 @@ recorded as a finding, not shipped.
 |---|---|
 | **`README.md`** (this) | **why** a cut landed; the ranked lever list; instrument *selection* |
 | [`SCOREBOARD.md`](SCOREBOARD.md) | **the numbers** — ×-vs-Wren (§1), RSS (§2), ns/op (§3), attribution (§4), timeline (§5), open holes (§6) |
-| [`findings.md`](findings.md) | **what was learned** — F1…F21, incl. refuted premises, one **overturned verdict** (F16), and one **ceiling that was right and still insufficient** (F21) |
+| [`findings.md`](findings.md) | **what was learned** — F1…F23, incl. refuted premises, one **overturned verdict** (F16), one **ceiling that was right and still insufficient** (F21), and one **seam no cut has worked** (F23, `core.ph` call chains) |
 | [`instruments.md`](instruments.md) | **what measures what, at symbol level** — the bootstrap tripwire, the opcode histogram + pair counter, and the standing traps |
 | `00N-*.md` | one per landed cut: the cost, the code, the A/B, the caveats |
 | [`negative-presize-fiber-vecs.md`](negative-presize-fiber-vecs.md) | a **negative** result at cut-level detail, incl. the reverted diff verbatim (F5 lost its implementation by not doing this) |
@@ -51,6 +51,20 @@ recorded as a finding, not shipped.
 
 Full write-ups in [`findings.md`](findings.md):
 
+- **F23** — **`for`'s cost is a `.ph` call chain, and a `core.ph` cut is immune to
+  F21's arm tax.** `for (x in list)` pushes **four `.ph` frames per element** — two of
+  them pure forwarding wrappers (`Iterable.iterate` → `self.size` → `length_`;
+  `List.iteratorValue` → `self.at(_)` → `at_`) — where Wren's `iterate`/`iteratorValue`
+  are **both primitives**. A `core.ph`-only probe deletes **−6,000,001 instructions
+  (−10.2%)** and **−2,000,001 frames** from `for.ph` (exactly 2/element, prediction met
+  to the digit), stdout byte-identical, `--test lang` green. **Wall-clock not measured**
+  — `ab-guarded.py` refused the box (**H17**). Two structural notes: **cuts 001–009 are
+  every one of them Rust/VM cuts**, so this seam is unexplored *and* exempt from
+  [F21](findings.md#f21--an-arms-code-is-paid-by-every-program-not-the-ones-that-execute-it)
+  (the dispatch loop is byte-identical, so H16 does not gate it); and **`List` is the
+  outlier** — `Map`/`Set`/`Tuple`/`Range` already call their primitive directly in
+  `iteratorValue`. Blocked on behavior-invariance: methods are open (ADR-0026), so it
+  needs kernel-collection sealing (the `8d401f4` `Option` precedent) or its own ADR.
 - **F1** — measured baseline supersedes the oral 29×: Skynet **~19–20× Wren**,
   ~7–9× RSS. Attribution re-ranks perf.md §2 — **malloc/free is the #1 mechanism**
   (arith 19.7%, Skynet 28.2%), above tracing span and dispatch lookup.

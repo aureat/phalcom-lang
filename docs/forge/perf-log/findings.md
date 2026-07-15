@@ -763,6 +763,92 @@ the GC schedule shifts (cf. **H14**).
   (~2 minutes) predicted it before any code was written. F14's S1–S4 estimates are
   the same species of number and none of them has been re-derived at HEAD either.
 
+## F23 — `for`'s cost is a `.ph` call chain, and a `core.ph` cut is immune to F21's arm tax
+
+**Counts measured at `e66af34` (cut 008). Wall-clock NOT measured** — `ab-guarded.py`
+refused (`load1=5.30`, max 1.5, exit 3) and no number was taken. Counts are
+deterministic, so they stand independently of machine load; the timing is owed
+(**hole H17**).
+
+### The chain
+
+`for (x in list)` lowers to `Invoke`-only `iterate`/`iteratorValue` sends
+([ADR-0035](../../adr/accepted/0035-iteration-protocol-cursor.md) §1,
+[ADR-0048](../../adr/accepted/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)).
+`List` defines neither `iterate` nor `size`'s caller, so per element:
+
+| step | `.ph` frames |
+|---|---|
+| `Iterable.iterate(cursor)` (`core.ph:649`) — inherited, generic | 1, **plus `self.size` → `List.size => self.length_` (`core.ph:780`)** = 2 |
+| `List.iteratorValue(cursor) => self.at(cursor)` (`core.ph:801`) | 1, **plus `List.at(i) { return self.at_(i) }` (`core.ph:782`)** = 2 |
+
+**Four `.ph` frames per element**, two of which are pure forwarding wrappers over a
+floor primitive. Wren's `List.iterate`/`iteratorValue` are **both primitives** — zero
+frames. `for` is the suite's worst row at **10.7×** (SCOREBOARD §1).
+
+### The probe, and that its prediction was met exactly
+
+Give `List` its own cursor protocol that skips both wrappers (`self.length_` inside
+`iterate`, `self.at_` in `iteratorValue`) — **`core.ph` only, no Rust touched**:
+
+| | base `e66af34` | probe | Δ |
+|---|---|---|---|
+| `for.ph` instructions retired | 59,000,705 | **53,000,704** | **−6,000,001 (−10.2%)** |
+| `Return` (i.e. `.ph` frames pushed) | 5,000,004 | **3,000,003** | **−2,000,001** |
+| stdout | `499999500000` | `499999500000` | identical |
+| `cargo test -p phalcom-core --test lang` | — | 46 passed, 0 failed | green |
+
+**−2,000,001 frames is exactly 2 per element over 1M elements** — the predicted number
+to the digit, the third instrument in this log to hit its own forecast
+([F19](#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)'s pair counter
+being the other). Unlike a fusion, this deletes **`CallFrame` pushes** (96 B each,
+[F15](#f15--value-is-2-wrens-and-objref-blocks-nan-boxing)), not just dispatches, so
+[F19](#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13)'s 3.3 ns
+dispatch price does **not** size it. Do not derive a wall-clock estimate from it —
+that is [F18](#f18--presizing-the-fiber-vecs-is-negative-and-f3h9s-memmove-lever-is-spent-206--30)'s
+sign error waiting to happen.
+
+### Why this matters beyond `for` — the seam nobody has worked
+
+**Cuts 001–009 are every one of them Rust/VM cuts.** Not one has touched `core.ph`'s
+call chains. That seam is both unexplored *and* structurally exempt from the effect
+that stalled the VM work list:
+[F21](#f21--an-arms-code-is-paid-by-every-program-not-the-ones-that-execute-it)'s ~5%
+tax is paid for adding **code to `run_until_inner`**, and a `core.ph` change leaves the
+dispatch loop **byte-identical**. [H16](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)
+gates every remaining fusion; **it does not gate this.** The work list was declared
+blocked on H16 — that is true of fusions, and was over-generalised to "perf work".
+
+**`List` is the outlier, not the pattern.** Every other collection already calls its
+primitive directly in `iteratorValue`:
+
+| class | `iteratorValue` |
+|---|---|
+| `Map` (`core.ph:928`) | `=> self.keyAt_(cursor)` |
+| `Set` (`core.ph:978`) | `=> self.at_(cursor)` |
+| `Tuple` (`core.ph:1019`) | `=> self.at_(cursor)` |
+| `Range` (`core.ph:1110`) | `=> self.start_ + cursor` |
+| **`List` (`core.ph:801`)** | **`=> self.at(cursor)`** ← the only `.ph` hop |
+
+So that half is a **consistency fix with four precedents in the same file**, not a new
+design position. The `iterate` half is the wider one: `Iterable.iterate` calls
+`self.size` **per element**, and `size` is a `.ph` wrapper over a native on every
+collection — so that frame is paid by *all* iteration in the language, not just `List`.
+
+### What blocks it, and the resolution already in tree
+
+**The probe as written is NOT behavior-invariant** (P2). Methods are open
+([ADR-0026](../../adr/accepted/0026-class-hierarchy-mutability.md)), so a user
+reopening `List` to override `size` or `at` would no longer see `for` honor it. The
+golden corpus does not cover that, and a green corpus is therefore **not** evidence of
+invariance here — it is evidence the corpus does not reopen `List`.
+
+The clean resolution exists already: `VM::sealed_classes` sealed `Option`/`Some`/`None`
+at `8d401f4`. **Sealing the kernel collections converts this whole family of
+forwarding-wrapper collapses from spec changes into behavior-invariant ones**, and
+licenses more than this one cut. Absent sealing, this needs its own ADR — it is a
+semantic change, and P2 forbids smuggling it in as a perf edit.
+
 ## F22 — `CALL_0..16`'s "one live thread" is dead: the opcodes were never its mechanism
 
 Closes the single item [F20](#f20--wrens-load_local_08--call_016-fix-a-cost-phalcom-does-not-have)
