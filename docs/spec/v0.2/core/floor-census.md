@@ -210,19 +210,92 @@ whole native boundary" until that closes.
 > ruling, `open-questions.md`). Floor-carrying classes go **21 → 22** (`Family`
 > is new). R-INV-0.1 audits this set.
 >
-> **Baseline:** post-U15 — the figures above (**112 / 97 / 21 / 7**) are the
-> current floor (was **111 / 96 / 21 / 7** post-U-ERR, **109 / 94 / 21 / 7**
-> post-U-COLLTYPES-Phase-3, **105 / 90 / 20 / 7** post-Phase-2,
-> **102 / 87 / 19 / 7** post-Phase-1, **88 / 73 / 17 / 7** post-U-CORE-6). The
-> authoritative pin + full landing history live in [`README.md`](./README.md)
-> §"Baseline & drift policy"; this census is the ground-truth enumeration
-> behind that count. One census-specific caution: of the post-U-CORE-0
+> ---
+>
+> _The five banners below were **written 2026-07-15** (DEFERRED #34), long after their
+> amendments landed. The chain above stopped at U16-Open/113 while the code went to 125;
+> §1.1 stayed consistent with the chain, which is exactly why it never looked wrong. All
+> five are reconstructed from the test's constants and the install site — see §1.3._
+>
+> **U-SCHED amendment ([ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §Consequences).**
+> The native ready-queue scheduler seam admits **+2** bindings (113 → 115) and **+2**
+> distinct fns (98 → 100), both class-side on `System` and both `primitive/system.rs`:
+> `System.schedule(_)` (`system_schedule`) enqueues a block on the ready queue, and
+> `System.nextScheduled` (`system_next_scheduled`, a getter) pops the next one. They are
+> the floor under the `.ph` scheduler: the queue itself is native because it outlives any
+> one fiber and must be reachable from the collector's roots. Floor-carrying classes stay
+> **22** — `System` already carried `print(_)`/`new()`.
+>
+> **U-ANNOT-CONTRACTS amendment ([ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1).**
+> The `@invariant` re-entrancy guard admits **+2** bindings (115 → 117) and **+2** distinct
+> fns (100 → 102), both instance-side on `Object` and both `primitive/object.rs`:
+> `Object#__invariantEnter()` (`object_invariant_enter`) and `Object#__invariantExit()`
+> (`object_invariant_exit`). The woven prologue/epilogue call them; they are never
+> `.ph`-authored and are not part of any public protocol. They sit on `Object` because any
+> receiver can carry an `@invariant`. Floor-carrying classes stay **22**. See §2.1.
+>
+> **M-ATTR-ROOT amendment** (no ADR — the unit's own amendment).
+> The attribute-retention store admits **+3** bindings (117 → 120) and **+3** distinct fns
+> (102 → 105), all instance-side on `Object`, all `primitive/attribute.rs`:
+> `Object#__attributes` (`attribute_attributes`), `Object#__attach(_)`
+> (`attribute_attach`), `Object#__freezeAttributes()` (`attribute_freeze`). The compiler's
+> `@Name(args)` desugar (`compiler::attributes`, `compiler::lib::class_decl`) calls them;
+> never `.ph`-authored. On `Object` because every class and method row *is* an `Object`.
+> Floor-carrying classes stay **22**. See §2.1.
+>
+> > **Dangling citation.** Both this amendment and the test's `NEW_ATTR_ROOT` comment cite
+> > **`attribute-classes.md`** as their spec. **That file does not exist** anywhere under
+> > `docs/`. These three bindings have no spec outside this census and the code. Not fixed
+> > here — recorded so the next reader does not go looking. (DEFERRED CB-3 also lists
+> > `attribute-classes.md` as a doc that omits `@sealed`/`@variant`; it cannot omit
+> > anything, being absent.)
+>
+> **U-GC amendment ([ADR-0050](../../../adr/accepted/0050-non-moving-mark-sweep-collector.md), Step 3).**
+> The collector's manual entry point admits **+1** binding (120 → 121) and **+1** distinct
+> fn (105 → 106): `System.gc` (`system_gc`, `primitive/system.rs`), class-side, a getter —
+> it forces a full mark-sweep cycle at a safepoint and answers the receiver. Native by
+> necessity: nothing expressible in `.ph` can trace the heap. Floor-carrying classes stay
+> **22**.
+>
+> **U-STRING amendment ([ADR-0049](../../../adr/accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)).**
+> Raw byte-level string access plus raw stdout write admit **+4** bindings (121 → 125) and
+> **+4** distinct fns (106 → 110) — the amendment that takes the floor to its current
+> figure. Instance-side on `String` (`primitive/string.rs`): `String#byteCount_`
+> (`string_raw_byte_count`, getter), `String#byteAt_(_)` (`string_raw_byte_at`), and
+> `String#slice_(_,_)` (`string_raw_slice`). Class-side on `System`
+> (`primitive/system.rs`): `System.write_(_)` (`system_raw_write`), stdout with no newline
+> and no `toString` send. All four are floor because they touch the UTF-8 representation or
+> the I/O boundary directly; the `.ph` `String` surface (`trim`, `split`, `startsWith`, …)
+> is derived over them. The trailing `_` marks them native-raw and not-for-surface-use
+> (U-NATIVE-MARKER renamed these from `rawByteAt`-style spellings, 2026-07-15).
+> Floor-carrying classes stay **22** — `String` and `System` both already carried
+> bindings. See §2.5 / §2.11.
+>
+> **Baseline:** post-U-STRING — the figures above (**125 / 110 / 22 / 7** =
+> bindings / distinct fns / floor-carrying classes / sacred selectors) are the current
+> **audited** floor (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
+> post-M-ATTR-ROOT, **117 / 102 / 22 / 7** post-U-ANNOT-CONTRACTS,
+> **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-U16-Open,
+> **112 / 97 / 21 / 7** post-U15, **111 / 96 / 21 / 7** post-U-ERR,
+> **109 / 94 / 21 / 7** post-U-COLLTYPES-Phase-3, **105 / 90 / 20 / 7** post-Phase-2,
+> **102 / 87 / 19 / 7** post-Phase-1, **88 / 73 / 17 / 7** post-U-CORE-6). **Do not quote
+> this line** — it is a dated rendering of `invariants.rs` (§1.3), and it sat five
+> amendments stale (at post-U15 / 112) until 2026-07-15. `VM::new()` installs **136**;
+> the other 11 are `Fiber`'s, which nothing audits (§1.4).
+> This census is the ground-truth *enumeration*; the count's authority is the test. The
+> landing history + drift policy live in [`README.md`](./README.md) §"Baseline & drift
+> policy" (itself re-baselined 2026-07-15 — it had been frozen at U-ERR/111).
+>
+> One census-specific caution: of the post-U-CORE-0
 > landings, **U-CORE-1 added +7 (73 → 80, ADR-0023), U-CORE-3 added +5
 > (80 → 85, ADR-0028), U-CORE-4 added +1 (85 → 86, ADR-0036), U-CORE-6 added
 > +2 (86 → 88, ADR-0037), U-COLLTYPES Phase 1 added +14 (88 → 102, ADR-0039),
 > U-COLLTYPES Phase 2 added +3 (102 → 105, ADR-0039), U-COLLTYPES Phase 3
-> added +4 (105 → 109, ADR-0039), U-ERR added +2 (109 → 111, ADR-0038), and
-> U15 added +1 (111 → 112, ADR-0045)** — every other unit either landed
+> added +4 (105 → 109, ADR-0039), U-ERR added +2 (109 → 111, ADR-0038),
+> U15 added +1 (111 → 112, ADR-0045), U16-Open added +1 (112 → 113, ADR-0047),
+> U-SCHED added +2 (113 → 115, ADR-0030), U-ANNOT-CONTRACTS added +2
+> (115 → 117, ADR-0052), M-ATTR-ROOT added +3 (117 → 120, no ADR), U-GC added
+> +1 (120 → 121, ADR-0050), and U-STRING added +4 (121 → 125, ADR-0049)** — every other unit either landed
 > `.ph`/compiler surface or added zero bindings. U8's reflective surface and
 > the `Message` class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/
 > U-STD were `.ph`/compiler-only; U11 added `True`/`False` as kernel classes

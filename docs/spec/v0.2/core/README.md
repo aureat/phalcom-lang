@@ -38,12 +38,21 @@ Every table here is derived from ground-truth source, not aspiration:
 
 These docs reconcile against a **live tree**, so staleness is kept explicit
 rather than silent. **This section is the single source of truth for the
-baseline pin.** Every other doc in this directory inherits it and carries only a
-one-line back-reference here, rather than restating the landing history — so the
-pin is updated in exactly one place.
+baseline *pin* — but not for the *count*.** Every other doc in this directory
+inherits the pin and carries only a one-line back-reference here, rather than
+restating the landing history, so the pin is updated in exactly one place. The
+**count** has exactly one authority, and it is not prose:
+`invariants.rs::floor_census_matches_installed_bindings`
+([floor-census.md §1.3](./floor-census.md)).
 
-**Current baseline — post-U-ERR (core-library track U-CORE-1..6 complete, plus
-the post-U-CORE floor amendments U-COLLTYPES and U-ERR).**
+> **This section did not honour its own policy.** It sat pinned at post-U-ERR/111
+> through five floor amendments (2026-07-15, DEFERRED CB-2). "Updated in exactly one
+> place" only helps if that place is actually updated; the test is what makes drift
+> *fail* rather than *accumulate*. Re-derive; do not quote.
+
+**Current baseline — post-U-STRING** (core-library track U-CORE-1..6 complete, plus the
+post-U-CORE floor amendments U-COLLTYPES, U-ERR, U15, U16-Open, U-SCHED,
+U-ANNOT-CONTRACTS, M-ATTR-ROOT, U-GC and U-STRING).
 
 | Fact | Value |
 |---|---|
