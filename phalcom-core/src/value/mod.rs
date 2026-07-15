@@ -161,23 +161,15 @@ impl Value {
     ///
     /// Returns the resolved [`MethodObject`](crate::method::MethodObject) handle,
     /// or `None` if no class in the chain defines it.
+    ///
+    /// A class receiver needs no constructor-specific fallback here:
+    /// constructors install on the metaclass under the ordinary selector their
+    /// call sites encode, so the plain hierarchy walk resolves `Foo.new()` to
+    /// `Foo`'s constructor — shadowing the bare allocator `Class >> new()` at
+    /// the tower root — exactly as it resolves any other class-side method.
     pub fn lookup_method(&self, vm: &VM, selector: Symbol) -> Option<ObjRef> {
         let class = self.class(vm);
-        if let Some(method) = lookup_method_in_hierarchy(&vm.heap, class, selector) {
-            return Some(method);
-        }
-        if let Value::Obj(obj_ref) = *self {
-            if vm.heap.as_class(obj_ref).is_some() {
-                let selector_str = vm.resolve_symbol(selector);
-                let mapped_selector_str = format!("init {}", selector_str);
-                if let Some(mapped_sym) = vm.interner.find(&mapped_selector_str) {
-                    if let Some(method) = lookup_method_in_hierarchy(&vm.heap, class, mapped_sym) {
-                        return Some(method);
-                    }
-                }
-            }
-        }
-        None
+        lookup_method_in_hierarchy(&vm.heap, class, selector)
     }
 
     /// Builds the [`CallContext`] a closure-backed method call against `self`

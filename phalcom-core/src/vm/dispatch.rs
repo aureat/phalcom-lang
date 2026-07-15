@@ -887,24 +887,25 @@ impl VM {
                     let mut method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, selector_sym));
 
                     // Super-construct fallback (U-INH §3.5): constructors are
-                    // installed on the *metaclass* under a `SignatureKind::
-                    // Initializer` selector. A positional `super.new(args)` /
-                    // `super.construct(args)` (encoded as a `Method` selector)
-                    // that misses the instance side re-encodes to its
-                    // `Initializer` form and walks the superclass's metaclass
-                    // chain, keeping the original instance as the receiver so the
-                    // parent initializer fills the inherited slots in place.
+                    // installed on the *metaclass*, under the same ordinary
+                    // selector their call sites encode. A positional
+                    // `super.new(args)` / `super.construct(args)` that misses
+                    // the instance side therefore retries the *same* selector
+                    // against the superclass's metaclass chain, keeping the
+                    // original instance as the receiver so the parent
+                    // initializer fills the inherited slots in place.
+                    //
+                    // Gated on the resolved method's `Initializer` kind: only a
+                    // real constructor may be reached this way. Without the
+                    // gate a parent *static* method sharing the selector would
+                    // capture the send and run with an instance receiver it was
+                    // never written for.
                     if method.is_none()
                         && let Some(p) = parent
                     {
-                        let sel_str = self.resolve_symbol(selector_sym).to_string();
-                        let (name, labels, kind) = decode_selector(&sel_str);
-                        if let SignatureKind::Method(a) = kind {
-                            let init_selector = crate::method::encode_selector(&name, &labels, SignatureKind::Initializer(a));
-                            let init_sym = self.interner.intern(&init_selector);
-                            let parent_meta = self.heap.class(p).class;
-                            method = crate::heap::lookup_method_in_hierarchy(&self.heap, parent_meta, init_sym);
-                        }
+                        let parent_meta = self.heap.class(p).class;
+                        method = crate::heap::lookup_method_in_hierarchy(&self.heap, parent_meta, selector_sym)
+                            .filter(|&m| matches!(self.heap.method(m).signature.kind, SignatureKind::Initializer(_)));
                     }
 
                     if let Some(method) = method {

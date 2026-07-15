@@ -89,6 +89,36 @@ impl<'vm> Compiler<'vm> {
         let name_sym = self.vm.interner.intern(&class_def.name);
         let name_idx = self.add_constant(Value::Symbol(name_sym));
 
+        // Pass 0: class-side selector collision check. A `construct` and a
+        // `static` method of the same name/arity encode to one selector and
+        // both install on the metaclass, so the later would silently clobber
+        // the earlier. Reject the pair rather than let declaration order pick a
+        // winner (ruled: compile error; cf. `derive_data`'s sibling
+        // `attr.accessor_collision` check for a derived-vs-hand-written
+        // `@construct`).
+        let construct_selectors: Vec<String> = class_def
+            .members
+            .iter()
+            .filter_map(|m| match m {
+                ClassMember::Construct(c) => {
+                    let labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
+                    Some(encode_selector(&c.name, &labels, SignatureKind::Method(c.params.len() as u8)))
+                }
+                _ => None,
+            })
+            .collect();
+        for member in &class_def.members {
+            if let ClassMember::Method(m) = member
+                && m.is_static
+            {
+                let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
+                let selector = encode_selector(&m.name, &labels, SignatureKind::Method(m.params.len() as u8));
+                if construct_selectors.contains(&selector) {
+                    return Err(CompilerError::ConstructStaticCollision(class_def.name.clone(), selector, m.name_range));
+                }
+            }
+        }
+
         // 1. Whole-class field collection pass
         let mut own_instance_fields = Vec::new();
         let mut own_static_fields = Vec::new();
@@ -568,21 +598,34 @@ impl<'vm> Compiler<'vm> {
 
                     let arity = construct_def.params.len();
                     let labels: Vec<Option<String>> = construct_def.params.iter().map(|p| p.label.clone()).collect();
-                    let selector = encode_selector(&construct_def.name, &labels, SignatureKind::Initializer(arity as u8));
+                    // A constructor installs under the *ordinary* selector its
+                    // call sites already encode (`Counter.new()` -> `new()`),
+                    // on the metaclass (`Bytecode::Method(_, is_static: true)`
+                    // below). The parallel metaclass tower (ADR-0002,
+                    // object-model §5) then resolves it exactly as it already
+                    // resolves the kernel's own class-side `new` primitives
+                    // (`List.new()` et al, `universe/primitives.rs`): this
+                    // class's metaclass entry shadows the bare allocator
+                    // `Class >> new()` inherited from the tower root, by
+                    // ordinary lookup, for **any** receiver expression.
+                    //
+                    // The `Signature`'s *kind* stays `Initializer` — it no
+                    // longer picks the selector, and survives purely as the
+                    // "this is a constructor" marker that `Bytecode::SuperSend`
+                    // gates its super-construct metaclass hop on (U-INH §3.5).
+                    let selector = encode_selector(&construct_def.name, &labels, SignatureKind::Method(arity as u8));
                     let selector_sym = self.vm.interner.intern(&selector);
 
-                    // Register the call-site alias (ADR-0011): user
-                    // source calls a constructor as an ordinary send
-                    // (`Counter.new()`), which encodes to the
-                    // `SignatureKind::Method` selector below, not the
-                    // `Initializer` selector installed above. Without
-                    // this alias the call would silently resolve to
-                    // the inherited `Object::new` bare-allocation
-                    // primitive instead of this constructor.
-                    let call_site_selector = encode_selector(&construct_def.name, &labels, SignatureKind::Method(arity as u8));
-                    let call_site_sym = self.vm.interner.intern(&call_site_selector);
+                    // Record the declared constructor selector. Dispatch no
+                    // longer consults this — it exists only so the *arity*
+                    // guard in `expr.rs` stays a compile-time diagnostic:
+                    // `has_new_construct` answers "does a `new` constructor
+                    // exist in this chain at all", `constructor_aliases`
+                    // answers "does one match this exact selector", and a
+                    // yes/no pair is what proves a `Foo.new(...)` call would
+                    // otherwise fall through to the bare allocator.
                     let class_name_sym = self.current_class.expect("construct is only compiled within a class body");
-                    self.vm.constructor_aliases.insert((class_name_sym, call_site_sym), selector_sym);
+                    self.vm.constructor_aliases.insert((class_name_sym, selector_sym), selector_sym);
                     if construct_def.name == "new" {
                         self.vm.has_new_construct.insert(class_name_sym);
                     }
@@ -869,13 +912,22 @@ impl<'vm> Compiler<'vm> {
         false
     }
 
-    /// Resolves the `construct` call-site alias for `selector_sym` sent to
-    /// `class_sym`, walking the compile-time superclass chain
-    /// ([`crate::vm::VM::class_parents`]) so an *inherited*
-    /// constructor — declared only on an ancestor — is redirected to its
-    /// installed `Initializer` selector at the subclass call site, exactly as
-    /// a locally declared one is (ADR-0011). Returns `None` if no class in the
-    /// chain declares a `construct` matching `selector_sym`.
+    /// Reports whether `class_sym` — or any ancestor, walking the compile-time
+    /// superclass chain ([`crate::vm::VM::class_parents`]) — declares a
+    /// `construct` whose selector is exactly `selector_sym`, returning that
+    /// selector if so and `None` otherwise.
+    ///
+    /// Dispatch does **not** consult this: a constructor installs under the
+    /// very selector its call sites encode, so the metaclass tower resolves it
+    /// by ordinary lookup with no call-site rewrite. This survives only to keep
+    /// the *arity* guard in [`Compiler::compile_expr`]'s `new(...)` arm a
+    /// compile-time diagnostic wherever the receiver names a statically known
+    /// class: paired with [`Self::inherits_new_construct`] ("does a `new`
+    /// constructor exist in this chain at all"), a yes/no answer here proves a
+    /// `Foo.new(...)` call matches no declared `construct` and would otherwise
+    /// fall through to the bare allocator `Class >> new()`.
+    ///
+    /// [`Compiler::compile_expr`]: crate::compiler::Compiler
     pub(super) fn lookup_constructor_alias(&self, mut class_sym: Symbol, selector_sym: Symbol) -> Option<Symbol> {
         // Nearest-declared wins: the walk checks each class before its parent, so
         // a subclass `construct` shadows an ancestor's of the same selector. The

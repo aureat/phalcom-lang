@@ -74,12 +74,16 @@ impl<'vm> Compiler<'vm> {
                         return self.compile_sacred_call_want(sacred, range, want_value);
                     }
                     Err(method_call) => {
-                        // A literal `ClassName.method(...)` receiver may name
-                        // a `construct` (ADR-0011): redirect the call-site
-                        // selector to the `Initializer` selector it was
-                        // actually installed under, so `Counter.new()` reaches
-                        // the constructor instead of the inherited
-                        // `Object::new` bare-allocation primitive.
+                        // A constructor now installs under the very selector
+                        // this call site encodes (`class_decl.rs`'s
+                        // `ClassMember::Construct` arm), so `Counter.new()`
+                        // resolves to it by ordinary metaclass-tower lookup and
+                        // needs no call-site rewrite — from any receiver
+                        // expression, not just a literal class name.
+                        //
+                        // A literal `ClassName` receiver is still recognised,
+                        // purely to keep the *arity* guard below a compile-time
+                        // diagnostic where the class is statically known.
                         let receiver_class_sym = match &method_call.object {
                             Expr::Var { value, .. } => Some(self.vm.interner.intern(value)),
                             _ => None,
@@ -89,16 +93,16 @@ impl<'vm> Compiler<'vm> {
                         let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
                         let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
                         let selector_sym = self.vm.interner.intern(&selector);
-                        let alias = receiver_class_sym.and_then(|class_sym| self.lookup_constructor_alias(class_sym, selector_sym));
 
                         // U7-plan §6 negative: a class with a `new`
                         // constructor has no user-visible bare allocator —
                         // a `new(...)` call whose arity/labels match no
                         // declared `construct` must not silently fall
-                        // through to the inherited `Object::new` primitive.
-                        if alias.is_none()
-                            && method_call.method == "new"
+                        // through to the bare allocator `Class >> new()` and
+                        // hand back an uninitialized instance.
+                        if method_call.method == "new"
                             && let Some(class_sym) = receiver_class_sym
+                            && self.lookup_constructor_alias(class_sym, selector_sym).is_none()
                             && self.inherits_new_construct(class_sym)
                         {
                             return Err(CompilerError::Message(format!(
@@ -111,7 +115,6 @@ impl<'vm> Compiler<'vm> {
                         for arg in &method_call.args {
                             self.compile_expr(arg.expr.clone())?;
                         }
-                        let selector_sym = alias.unwrap_or(selector_sym);
                         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                         self.emit(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
                     }

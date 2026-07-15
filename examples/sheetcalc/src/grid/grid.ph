@@ -14,6 +14,11 @@ class Grid {
     _maxCol = -1
     _minRow = -1
     _maxRow = -1
+    if (_minCol == -1) {
+      System.print("[Grid construct OK] _minCol initialized to -1")
+    } else {
+      System.print("[Grid construct ERROR] _minCol is " + _minCol.toString + " not -1")
+    }
   }
 
   /// Check whether a Ref is in bounds (col >= 1, row >= 1).

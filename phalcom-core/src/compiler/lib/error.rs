@@ -76,6 +76,21 @@ pub enum CompilerError {
     #[error("Cannot return a value from an initializer.")]
     ReturnValueFromInitializer,
 
+    /// A `construct` and a `static` method in one class body that encode to the
+    /// same class-side selector.
+    ///
+    /// A constructor installs on the metaclass under the *ordinary* selector
+    /// its call sites already encode, so that `Foo.new()` reaches it by
+    /// ordinary lookup through the parallel metaclass tower from **any**
+    /// receiver expression (ADR-0002, object-model §5) rather than only from a
+    /// literal class name. That makes `construct new()` and `static new()` two
+    /// definitions of one metaclass selector, where whichever compiled last
+    /// would silently win; the pair is rejected instead of letting declaration
+    /// order decide. The carried values are the class name, the colliding
+    /// selector, and the offending `static` member's name span.
+    #[error("`construct {1}` and `static {1}` in class '{0}' define the same class-side selector; rename one.")]
+    ConstructStaticCollision(String, String, SourceRange),
+
     /// A `super.sel(…)` send written where there is no enclosing class body to
     /// anchor the walk (top level, or a free function).
     ///
