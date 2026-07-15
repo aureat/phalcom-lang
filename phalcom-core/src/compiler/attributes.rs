@@ -59,6 +59,27 @@ pub struct ExpandCtx<'a> {
     /// instead of raising `attr.unknown` (see `resolves_to_attribute_class`
     /// in this module).
     pub class_parents: &'a HashMap<Symbol, Symbol>,
+    /// The compile-unit-scoped sealed-class table
+    /// ([`crate::vm::VM::sealed_classes`]), read-only here — the **second**
+    /// source of "is this class sealed?", and the only one that knows about a
+    /// class sealed by a path other than its own `@sealed` attribute.
+    ///
+    /// Needed because the two sealing paths populate different things and
+    /// neither is complete on its own (DEFERRED CB-3 / `drafts/sealed-classes.md`
+    /// S-1):
+    ///
+    /// - a **user** `@sealed class Shape` is not in this table yet when its body
+    ///   is expanded — `class_decl.rs` inserts it only *after* the body compiles
+    ///   and the class's global is defined — so the attribute list is the only
+    ///   evidence available here;
+    /// - **bootstrap-sealed** `Option`/`Some`/`None` are in this table but carry
+    ///   no `@sealed` attribute at all (`vm/bootstrap.rs` writes it directly,
+    ///   because `None` has no `.ph` class reopen to hang an annotation on), so
+    ///   the table is the only evidence.
+    ///
+    /// A gate that consults either source alone is wrong for the other case, so
+    /// [`expand_class_attributes`] takes the union. See `has_sealed` there.
+    pub sealed_classes: &'a HashMap<Symbol, crate::heap::ObjRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1533,11 +1554,30 @@ pub fn expand_class_attributes(
     // 1. Expand class-level attributes
     let class_attrs = std::mem::take(&mut class.attributes);
     let mut class_invariants = std::mem::take(&mut class.invariants);
-    // U-ANNOT-LAYOUT §3.4: whether `class` itself carries `@sealed` — read
-    // before `class_attrs` is moved back into `class.attributes` below, and
-    // threaded into `expand_variants` (a `@variant` arm with no enclosing
-    // `@sealed` is a compile error, not a silent open hierarchy).
-    let has_sealed = class_attrs.iter().any(|a| a.name == "sealed");
+    // U-ANNOT-LAYOUT §3.4: whether `class` is sealed — read before
+    // `class_attrs` is moved back into `class.attributes` below, and threaded
+    // into `expand_variants` (a `@variant` arm with no enclosing `@sealed` is a
+    // compile error, not a silent open hierarchy).
+    //
+    // The **union** of the two sealing sources, neither of which is complete
+    // (DEFERRED CB-3, `drafts/sealed-classes.md` S-1 — see `ExpandCtx::sealed_classes`):
+    //
+    // - the **attribute list** carries a user's own `@sealed class Shape`. Its
+    //   `VM::sealed_classes` row does not exist yet at this point —
+    //   `class_decl.rs` inserts it only after the body compiles — so reading the
+    //   table alone would reject every user `@variant`, inverting the bug this
+    //   fixes.
+    // - the **table** carries bootstrap-sealed `Option`/`Some`/`None`, which
+    //   have no `@sealed` attribute to find (`vm/bootstrap.rs` seals them
+    //   directly). Reading the attribute list alone rejected a `@variant` inside
+    //   an `Option` reopen with "`Option` must also carry `@sealed`" — a false
+    //   diagnostic about a class that *is* sealed.
+    let sealed_by_attr = class_attrs.iter().any(|a| a.name == "sealed");
+    let sealed_by_table = {
+        let name_sym = ctx.interner.intern(&class.name);
+        ctx.sealed_classes.contains_key(&name_sym)
+    };
+    let has_sealed = sealed_by_attr || sealed_by_table;
     for attr in &class_attrs {
         if let Some(expander) = registry.get(&attr.name) {
             let legal = expander.legal_targets().contains(&Target::Class);

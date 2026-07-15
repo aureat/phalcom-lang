@@ -67,6 +67,7 @@ impl<'vm> Compiler<'vm> {
             compile_mode: self.vm.compile_mode,
             strip_metadata,
             class_parents: &self.vm.class_parents,
+            sealed_classes: &self.vm.sealed_classes,
         };
         let registry = AttributeRegistry::new();
         // DEC-ANNOT-G (U-ANNOT-LAYOUT §3.4): `expand_class_attributes`

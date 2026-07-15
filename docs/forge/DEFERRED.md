@@ -132,7 +132,58 @@ expansions + 2 hand-rolled = 136 installed; − 11 Fiber = **125**, matching the
 exactly — which is what validates the method). "Classes carrying floor primitives = 22"
 and "Sacred selectors = 7" were both already correct and left alone.
 
-### CB-3 · Sealing is one property with two representations that can disagree
+### CB-3 · Sealing is one property with two representations that can disagree — **FIXED 2026-07-15**
+
+_**Fixed 2026-07-15** — S-1 option **A**, user-ruled ("A now, B as a spike"). The `@variant`
+gate now takes the **union** of the two sources: `sealed_by_attr || sealed_by_table`
+(`compiler/attributes.rs`), with `VM::sealed_classes` threaded in via a new
+`ExpandCtx::sealed_classes` field mirroring the existing `class_parents` borrow. Verified
+before/after: the false diagnostic is gone and the **true** one takes its place —_
+`attr.sealed_violation: `Foo` extends `@sealed` class `Option`, but was not declared in the same compilation unit`_._
+
+_**CB-3's own prescription ("make the `@variant` gate consult `VM::sealed_classes`") would
+have inverted the bug.** A user's own `@sealed class Shape` is **not** in that table while
+its body is expanded — `class_decl.rs` inserts it only after the body compiles and the
+global is defined — so a table-only gate rejects every user `@variant`. The attribute list is
+the only evidence for the same-unit case; the table is the only evidence for the bootstrap
+case. Neither source is complete; the union is required. Third CB entry whose stated fix
+did not survive contact._
+
+_**S-2 dissolved: the fixture it asks for cannot be written.** CB-3 called the missing
+cross-unit `extends` of a **user** `@sealed` class a coverage gap. It is not — the scenario
+is **unreachable**, on two independent grounds, both verified in the tree:_
+
+1. _**Ordering.** `extends` resolves its superclass at **compile** time; `import` binds the
+   module at **runtime**. Proof: give the imported lib a `System.print` side effect and it
+   **never runs** — the "Unknown superclass" error fires first. An imported class cannot be
+   a superclass at all, sealed or not._
+2. _**Naming.** `extends S.Shape` does not parse (`extends` takes a bare identifier, not a
+   member access), and ADR-0045's whole-module binding leaks no globals._
+
+_So **`attr.sealed_violation` is dead code for user classes** — module structure already
+supplies the protection `@sealed` advertises, and the check is reachable only for classes in
+every unit's globals at compile time, i.e. the bootstrap-sealed kernel. **`@sealed`'s only
+live effect on a user class today is gating `@variant`.** That is a real finding about the
+decorator's value, not a test gap; recorded in `decorators/sealed.md` and
+`drafts/sealed-classes.md` S-2._
+
+_**Three fixtures added** (all verified to actually execute via a deliberate-corruption
+mutation check — a silently-skipped fixture is indistinguishable from a passing one):
+`compile-errors/annotation_variant_in_bootstrap_sealed_class.ph` (the CB-3 regression guard —
+the exact case that raised the false diagnostic),
+`decorators/decorators_sealed_same_unit_subclass_allowed.ph` (the positive half),
+`compile-errors/decorators_sealed_cross_unit_needs_isolation.ph` (pins the unreachability,
+and **must change** the day cross-module class references land). Also stale in this entry:
+"`@sealed`/`@variant` are absent from `decorators-stdlib.md` and `attribute-classes.md`" —
+`decorators/sealed.md` now specs both, and `attribute-classes.md` does not exist
+([#34](#numbered-backlog-merged-from-phase-next))._
+
+_**B (unification) is filed as [#35](#numbered-backlog-merged-from-phase-next)**, per the
+ruling._
+
+---
+
+_Original entry follows._
 
 _Verified 2026-07-15 by reading the tree. **This entry originally claimed Phalcom had "two
 independent sealing mechanisms that do not know about each other." That was wrong** — an
@@ -437,6 +488,7 @@ against the tree since. Unverified ≠ live. Do not act on one without re-ground
 | 31 | **Interpolation `\(…)` scanning is balanced-paren only — it does not understand a string literal nested inside the expression.** `lexer.rs::scan_string` counts `(`/`)` depth to find the end of a `\(expr)` body, so a `)` inside a nested string literal (`"\(f(")"))"`) mis-terminates the expression. Accepted for v1; a full fix would re-enter string-scanning recursively inside the interpolation body. | `phalcom-ast/src/lexer.rs` (`scan_string`) | ADR-0022 | low |
 | 32 | **Nested block comments + lone-`?` ternary still deferred (already #12).** U-LEX shipped flat (non-nesting) `/* … */`; nesting and the reserved lone-`?` remain. Not a separate item — noted only so U-LEX's tail is traceable. | `phalcom-ast/src/lexer.rs` (`skip_trivia`) | DEFERRED #12; ADR-0016 | low |
 | 33 | ~~Pre-existing rustdoc warnings in `primitive/nil.rs` (`some_new` links to private `wrap_some`).~~ **RESOLVED (U-ERR pass)** — dup of #26. | `phalcom-core/src/primitive/nil.rs:64` | doc-clean | done |
+| 35 | **Spike: unify the sealing representation (S-1 option B).** User-ruled 2026-07-15 as the follow-up to [CB-3](#cb-3--sealing-is-one-property-with-two-representations-that-can-disagree--fixed-2026-07-15)'s option-A fix. Goal: make the **attribute list the single source** and `VM::sealed_classes` derived from it, so the union-read in `attributes.rs` can collapse back to one source. Two unknowns to answer **before** any code: **(1)** `Option` (`core.ph:474`) and `Some` (`core.ph:544`) already have `.ph` reopens and could carry `@sealed` today — **`None` has no reopen**, which is the blocker `vm/bootstrap.rs:209` actually names. Can `None` get a reopen, or a native attach, without disturbing ADR-0044's `Option` bootstrap (`Nil`→`None` surfacing runs *during* bootstrap, before `.ph` decorators)? **(2)** Ownership: bootstrap writes `sealed_classes[Option] = bootstrap module`; a `@sealed` on core.ph's reopen writes core.ph's module. Same key, different value, last-writer-wins — and the `extends` check compares `sealed_in_module != self.module`, so this changes who may subclass. Answer both, then decide. **Not** B-wide (`@sealed class Option { @variant Some(v); @variant None }`) — that needs its own ADR: `@variant` generates `@data` classes with mutable fields, but `None` must stay a **zero-allocation singleton** (ADR-0044), and `Option#match(some:none:)` is already hand-rolled native (`universe/primitives.rs:191-198`) precisely because it is the eliminator `@variant` would generate. Note the perf motive routes elsewhere: `None` already allocates nothing; `Some`'s allocation is removed by **niche encoding**, deferred by ADR-0044 DEC-U17, orthogonal to sealing. | `compiler/attributes.rs` (`ExpandCtx::sealed_classes`) · `vm/bootstrap.rs:209-261` · `core.ph:474,544` | ADR-0044 · ADR-0007 | med |
 | 34 | ~~**Write the five missing floor-census amendment banners.**~~ **DONE 2026-07-15** — all five written (U-SCHED +2/ADR-0030, U-ANNOT-CONTRACTS +2/ADR-0052, M-ATTR-ROOT +3/no ADR, U-GC +1/ADR-0050, U-STRING +4/ADR-0049), each naming its selectors, native fns, side, and fn-count delta; the chain now runs 73 → … → **125** and its fn chain 57 → … → **110**, both closing on the test's constants. The stale `Baseline:` line (frozen at post-U15/112) and the landing-history list were re-derived, and `core/README.md`'s "single source of truth for the baseline pin" section — which had sat at post-U-ERR/111 through all five — now distinguishes the *pin* (its job) from the *count* (the test's). **Found while writing:** M-ATTR-ROOT's three bindings cite `attribute-classes.md` as their spec, in both the banner and the test's `NEW_ATTR_ROOT` comment — **that file does not exist**, so those three have no spec outside the census and the code. Recorded in §1.3's M-ATTR-ROOT banner; not fixed. | `docs/spec/v0.2/core/floor-census.md` §1.1 | ADR-0019 | done |
 
 _Closed pre-merge:_ #(ex-LALRPOP) — done in U1: dead `CompilerError::ParseError` variant +

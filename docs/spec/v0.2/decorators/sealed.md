@@ -49,12 +49,45 @@ As built:
   diagnostic. Variant names lower-case their first letter to form the label
   (`Circle` → `circle:`, `lower_first`, L1231).
 - **`@sealed` is enforced across compilation units** via `VM::sealed_classes`,
-  checked at the *subclass's* compile time (class_decl.rs L357-364).
+  checked at the *subclass's* compile time (class_decl.rs L357-364) — **but see
+  "Not built": for a *user* class that check is currently unreachable.**
+- **The `@variant` gate reads the union of two sources** (2026-07-15, DEFERRED CB-3):
+  `sealed_by_attr || sealed_by_table`. Neither is complete on its own — a user's own
+  `@sealed class` is not yet in `VM::sealed_classes` while its body expands
+  (`class_decl.rs` inserts it *after* the body compiles), and bootstrap-sealed
+  `Option`/`Some`/`None` carry no `@sealed` attribute at all. Reading either alone is
+  wrong for the other case. Fixture:
+  `compile-errors/annotation_variant_in_bootstrap_sealed_class.ph`.
 
 ## Not built
 
+- **The headline cross-unit enforcement is unreachable for a *user* class.** This is the
+  decorator's advertised purpose, and today it does nothing for user code — verified
+  2026-07-15 (DEFERRED CB-3 / [drafts/sealed-classes.md](../drafts/sealed-classes.md) S-2).
+  `attr.sealed_violation` cannot fire for a user class on two independent grounds:
+  1. **Ordering.** `extends` resolves its superclass at *compile* time; `import` binds the
+     module at *runtime*. Give an imported module a `System.print` side effect and it never
+     runs — the `Unknown superclass` error fires first. An imported class cannot be a
+     superclass at all, sealed or not.
+  2. **Naming.** `extends S.Shape` does not parse (`extends` takes a bare identifier, not a
+     member access), and [ADR-0045](../../../adr/accepted/0045-module-import-relative-path-whole-module-binding.md)'s
+     whole-module binding leaks no globals.
+
+  So module structure already supplies the protection `@sealed` advertises, and the check
+  is live only for classes present in every unit's globals at compile time — the
+  bootstrap-sealed kernel (`Option`/`Some`/`None`). **`@sealed`'s only live effect on a user
+  class today is gating `@variant`.** The decorator is not useless — it is future-proofing
+  for the day cross-module class references land — but do not describe it as enforcing
+  anything for user code yet. Fixture pinning this:
+  `compile-errors/decorators_sealed_cross_unit_needs_isolation.ph`, which **must change** if
+  that day comes.
 - **A dedicated `@variant`-without-`@sealed` diagnostic.** The error is raised as
   **`attr.illegal_target`** with a bespoke message (L1278-1281), reusing the legality
   code rather than a purpose-named one. Fixture:
   `annotation_variant_requires_sealed.ph`.
+- **One property, still two representations.** The union-read above makes the *gate* correct
+  without unifying the underlying sources. Collapsing them (bootstrap carries `@sealed` too,
+  attributes become the single source) is filed as DEFERRED #35; the blocker is that `None`
+  has no `.ph` reopen to carry an annotation, plus a seal-ownership question when both paths
+  write the table. See [drafts/sealed-classes.md](../drafts/sealed-classes.md) S-1.
 - Everything [drafts/sealed-classes.md](../drafts/sealed-classes.md) marks as draft.
