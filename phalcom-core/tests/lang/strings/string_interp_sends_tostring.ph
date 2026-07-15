@@ -49,16 +49,10 @@ let m2 = Map.new()
 m2.at("k", put: p)
 System.print("\(m2)")
 
-// **Known gap, pinned deliberately — DEFERRED CB-6.** `List#toString` is a
-// NATIVE primitive (`list_to_string`) and recurses through `Value::to_string`,
-// which never sends a message. So an override nested in a `List` is still
-// bypassed, and `List` is now the odd one out among the collections:
-//
-//     in a Map  -> {k: <redacted>}        (.ph toString, sends)
-//     in a List -> [<Secret instance>]    (native, does not send)
-//
-// This is CB-1's own bug one level down. The line below asserts the WRONG
-// output on purpose: it documents the gap and will fail loudly the day
-// `list_to_string` (or `Value::to_string`'s recursion) starts sending, which is
-// exactly when this expectation should be updated to `[<redacted>]`.
+// **DEFERRED CB-6, fixed.** `List#toString` (`list_to_string`) is a NATIVE
+// primitive; it used to recurse through `Value::to_string`, which never sends
+// a message, so an override nested in a `List` was bypassed while the same
+// value nested in a `Map` (a `.ph` toString, which does send) rendered
+// correctly. `list_to_string` now sends `toString` per element
+// (`Value::to_display_string`), so both agree.
 System.print("\([p])")

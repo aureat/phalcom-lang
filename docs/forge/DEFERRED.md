@@ -396,50 +396,47 @@ if fiber primitives are still churning**; that is a question about ADR-0030's ro
 about the census. Owning unit: unassigned. **Do not quote "the floor is 125" as the whole
 native boundary until this is ruled** — it is the audited floor, not the installed one.
 
-### CB-6 · `Value::to_string`'s recursion never sends — `List` bypasses nested `toString`
+### CB-6 · `to_display_string` bypasses every container, not just `List` — FIXED 2026-07-16
 
 _Found and verified 2026-07-15 while fixing CB-1, by testing an override nested one level
-down. Exposed, not caused, by CB-1's fix._
+down. Exposed, not caused, by CB-1's fix. **Correction:** the entry as originally filed
+framed this as "`List` is the odd one out among the collections" — that framing was wrong.
+The repro that grounded the actual fix showed `System.print(m)` (a bare `Map`) *also*
+disagreeing with `"\(m)"` on the same value; `List` was never uniquely broken, it was just
+the first case found._
 
-**The defect.** [CB-1](#cb-1--string-interpolation-bypasses-tostring-overrides--fixed-2026-07-15)
-fixed the top level: `"\(p)"` now sends `toString`. But `Value::to_string`
-(`value/render.rs:19`) is a native recursive renderer that **never sends a message at any
-depth**. `List#toString` is a native primitive (`list_to_string`) that recurses through it,
-so an override nested inside a `List` is still bypassed — while the four `toString`s
-derived in `core.ph` for CB-1 recurse by *sending*. `List` is now the odd one out:
+**The defect, correctly scoped.** Two independent sites, both bypassing dispatch:
+- **Site A — `Value::to_display_string`** (`value/render.rs`, what `System.print` calls)
+  hardcoded `Str`/`List`/`Map`/`Set`/`Tuple`/`Range` as "already handled natively" and
+  skipped the `toString` send for all of them, falling back to the non-sending
+  `Value::to_string`. That was true before those types grew `.ph` `toString` overrides;
+  once they did, the special case silently disagreed with `"\(…)"` interpolation (which
+  always sends) on the exact same value — e.g. `System.print(m)` rendered
+  `{k: <Secret instance>}` while `"\(m)"` correctly rendered `{k: <redacted>}`.
+- **Site B — `list_to_string`** (`primitive/list.rs`) rendered elements via the
+  non-sending `Value::to_string`, so an override nested inside a `List` was bypassed
+  regardless of Site A.
 
 ```phalcom
 class Secret { toString => "<redacted>" }
-let p = Secret.new()
-"\(p)"           // <redacted>            top level: fixed
-"\(m)"  (Map)    // {k: <redacted>}       Map#toString is .ph  -> sends
-"\([p])" (List)  // [<Secret instance>]   List#toString is native -> does not
+let s = Secret.new()
+System.print([s])   // was [<Secret instance>], now [<redacted>]
+System.print(m)      // was {k: <Secret instance>}, now {k: <redacted>}  (Map, not just List!)
 ```
 
-Pinned by `tests/lang/strings/string_interp_sends_tostring.ph`, which asserts the **wrong**
-output on purpose so the day it changes is loud.
+**The fix.** `to_display_string` now sends `toString` unconditionally — the
+`handled_natively` special case is gone. `list_to_string` now renders each element via
+`to_display_string` (a real send) instead of `Value::to_string`. `Value::to_string` itself
+is untouched (still the non-sending renderer used by `to_debug`/diagnostics). Depth closes
+by ordinary recursion through dispatch: a container's native `toString` renders its
+elements by sending, so a nested container's own native `toString` sends again.
+`list_to_string` stays a native primitive; floor stays 136 — no primitive added or removed.
 
-**Why it matters.** Same shape as CB-1, same security dimension: ADR-0015's redaction-safe
-default does not survive `"\([secret])"`. Bounded today only because `to_debug` prints no
-field contents — the exact contingency CB-1 was fixed ahead of. And it is now an
-*inconsistency*, which is worse than a uniform gap: two collections in the same expression
-render the same object two different ways.
-
-**Two ways out, neither free.**
-- **(a) Rewrite `List#toString` in `.ph`**, like the other four. Uniform, sends at every
-  depth. But it strands the `list_to_string` floor binding — dead native code, and removing
-  it is a floor amendment (136 → 135, ADR + census + test constant).
-- **(b) Make the native renderer's recursion send** — `list_to_string` (or `to_string`
-  itself) renders elements via `to_display_string`. Keeps the floor intact, but
-  `to_string(&self, vm: &VM) -> String` is infallible and `&VM`; sending needs `&mut VM` and
-  can raise, so this is the signature change CB-1 wrongly claimed for *its* site — here it
-  is real. It also puts a message send inside every native render.
-
-Note (b) does not fully close it either: `to_display_string` treats a nested `List` as
-"handled natively" and drops back into `to_string`, so a doubly-nested instance still
-bypasses. A complete fix means every container renders by sending, all the way down —
-i.e. option (a) for every collection, and `to_string` demoted to a debug-only path. Owning
-unit: unassigned. Wants a ruling before code.
+Pinned by `tests/lang/strings/string_interp_sends_tostring.ph` (its former "wrong on
+purpose" line now asserts the correct `[<redacted>]`), plus two new fixtures:
+`tests/lang/strings/tostring_dispatch_depth.ph` (nesting `List`/`Map` inside each other)
+and `tests/lang/strings/print_interp_agree_containers.ph` (the Site A regression guard —
+`System.print(x)` and `"\(x)"` must agree for the same container value).
 
 ## Open entries
 

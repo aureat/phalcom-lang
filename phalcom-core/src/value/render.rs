@@ -53,42 +53,38 @@ impl Value {
         }
     }
 
-    /// Renders this value for display (`System.print`), sending `toString`
-    /// to any heap object [`Value::to_string`] has no bespoke native
-    /// renderer for.
+    /// Renders this value for display (`System.print`) by sending it a
+    /// `toString` message, unconditionally.
     ///
-    /// [`Value::to_string`] hardcodes formatting for `Str`/`List`/`Map`/
-    /// `Set`/`Tuple`/`Range` and the shared `None`/`Some` singletons/wrapper
-    /// — all cases where the native rendering already agrees with what a
-    /// `.ph` `toString` override would produce. Every other heap object
-    /// (a plain instance, a class, a metaclass, …) instead falls through
-    /// [`Value::to_string`] to [`Value::to_debug`], which disagrees with the
-    /// object's own `Object#toString` message
-    /// ([ADR-0015](../../../docs/adr/accepted/0015-object-default-tostring.md)) — e.g.
-    /// a bare `Point` instance printed `<Point instance>` via
-    /// `System.print` but `<Point>` via `.toString`. This method closes that
-    /// gap by sending `toString` for exactly those cases, so `System.print`
-    /// and an explicit `.toString` send always agree (U-ERR-FIX
-    /// PRINT-TOSTRING).
+    /// Every value — immediates and heap objects alike — gets a real
+    /// `toString` message send: `Str` resolves to `self` (core.ph), `Number`
+    /// to [`crate::primitive::number::number_to_string`], `List` to
+    /// [`crate::primitive::list::list_to_string`], `Map`/`Set`/`Tuple`/
+    /// `Range` to their `.ph` `toString` overrides, a plain instance to
+    /// `Object#toString`
+    /// ([ADR-0015](../../../docs/adr/accepted/0015-object-default-tostring.md)),
+    /// and a user class that overrides `toString` to that override. This is
+    /// what makes `System.print` and an explicit `.toString` send agree at
+    /// every depth: a container's native renderer (e.g. `list_to_string`)
+    /// itself calls this method per element, so a user `toString` override
+    /// on a nested value is honored no matter how deep it's nested.
+    ///
+    /// Earlier versions of this method special-cased `Str`/`List`/`Map`/
+    /// `Set`/`Tuple`/`Range` as "already handled by [`Value::to_string`]'s
+    /// native formatting" and skipped the send for them. That was wrong:
+    /// once those types grew `.ph` `toString` overrides (or could be
+    /// re-opened by user code), the special case silently bypassed
+    /// dispatch and disagreed with `\(…)` string interpolation on the same
+    /// value (CB-6). Sending unconditionally is what dispatch requires.
     ///
     /// # Errors
     ///
     /// Propagates any error the `toString` send itself raises (e.g. a user
     /// override that throws).
     pub fn to_display_string(&self, vm: &mut VM) -> PhResult<String> {
-        if let Value::Obj(id) = *self {
-            let handled_natively = match vm.heap.get(id) {
-                Object::Str(_) | Object::List(_) | Object::Map(_) | Object::Set(_) | Object::Tuple(_) | Object::Range(_) => true,
-                Object::Instance(inst) => inst.class == vm.universe.classes.none_class || inst.class == vm.universe.classes.some_class,
-                _ => false,
-            };
-            if !handled_natively {
-                let selector = vm.get_or_intern("toString");
-                let rendered = vm.send_dynamic(*self, selector, &[])?;
-                return Ok(rendered.to_string(vm));
-            }
-        }
-        Ok(self.to_string(vm))
+        let selector = vm.get_or_intern("toString");
+        let rendered = vm.send_dynamic(*self, selector, &[])?;
+        Ok(rendered.to_string(vm))
     }
 
     /// Renders this value's debug form (used by error messages and diagnostics).

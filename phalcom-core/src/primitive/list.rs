@@ -123,18 +123,22 @@ pub fn list_raw_push(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
 ///
 /// A public native primitive rather than a `.ph` method wrapping `each(_:)`
 /// (see the return contract): rendering an element correctly requires
-/// [`Value::to_string`], which is not itself reachable as a `.ph`-callable
-/// message (e.g. `Number` has no user-facing `toString` primitive yet), so
-/// building this via `.ph` `each` + per-element `.toString` would render
-/// every non-`String` element as its `Object` default (`"<ClassName>"`)
-/// instead of its value.
+/// sending each element `toString` ([`Value::to_display_string`]), so that
+/// a user `toString` override on an element (or a nested container) is
+/// honored recursively; building this via `.ph` `each` + string
+/// interpolation would work too but pays an extra `.ph` call-frame per
+/// element for no benefit over doing the send natively here.
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if the receiver is not a `List`.
+/// Propagates any error an element's `toString` send raises.
 pub fn list_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
     let elements: Vec<Value> = vm.heap.list(id).elements().to_vec();
-    let rendered: Vec<String> = elements.iter().map(|v| v.to_string(vm)).collect();
-    Ok(vm.alloc_string_value(format!("[{}]", rendered.join(", "))))
+    let mut parts: Vec<String> = Vec::with_capacity(elements.len());
+    for v in &elements {
+        parts.push(v.to_display_string(vm)?);
+    }
+    Ok(vm.alloc_string_value(format!("[{}]", parts.join(", "))))
 }
