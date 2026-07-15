@@ -126,6 +126,21 @@ Full write-ups in [`findings.md`](findings.md):
   cut 008 beat its *own* ceiling (−8.1% vs 5.5% allowed), so it cannot have paid this
   tax — one of the two numbers is not what it looks like. **A ceiling bounds the gain
   and is silent on the cost of the arm.**
+- **F22** — **`CALL_0..16`'s "one live thread" is dead; the opcodes were never its
+  mechanism.** Closes F20's last open item, **without a benchmark**. The thread claimed
+  17 arms would make arity a compile-time constant and let LLVM specialize
+  `call_method`'s arg-buffer build. But `invoke_at`/`call_method` take arity as a
+  **runtime parameter**, and `invoke_at` has **no inline attribute with 3 callers** — 17
+  arms never make LLVM clone it, so the constant cannot reach the buffer. Getting the
+  effect needs `const ARITY` generics, which **do not need the opcodes** (a `match arity`
+  yields the same bodies for zero bytecode change). And **F21's footprint law taxes both
+  routes** — monomorphizing `call_method` 17× is the same mechanism as 17 arms, ~5% per
+  duplication event, measured. **Negative on the cost side before the gain is priced.**
+  The gain is *unmeasured*: an `INLINE_ARGS` A/B was built and **voided by machine load**
+  (see F22's own record and the standing traps) — no number from it is quoted, and legs
+  1–2 do not need it. *Lesson: the thread survived because it named a benchmark as the
+  blocker, so nobody read the two signatures that settle it — F16 reason 3's shape,
+  again.*
 - **F20** — **Wren's `LOAD_LOCAL_0..8` / `CALL_0..16` fix a cost Phalcom does not have.**
   They delete a `READ_BYTE()` from Wren's **byte-stream** operand fetch
   (`wren_vm.c:846,925`); Phalcom's `Bytecode` is a fixed 8 B enum, so the operand

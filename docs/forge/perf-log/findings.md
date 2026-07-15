@@ -763,6 +763,116 @@ the GC schedule shifts (cf. **H14**).
   (~2 minutes) predicted it before any code was written. F14's S1–S4 estimates are
   the same species of number and none of them has been re-derived at HEAD either.
 
+## F22 — `CALL_0..16`'s "one live thread" is dead: the opcodes were never its mechanism
+
+Closes the single item [F20](#f20--wrens-load_local_08--call_016-fix-a-cost-phalcom-does-not-have)
+left open. **No benchmark was needed, and the one attempted was void** (see the
+machine-load hazard below, and [instruments §Standing traps](instruments.md#standing-traps-each-cost-real-time)).
+
+### What was claimed
+
+F20's closing paragraph, verbatim:
+
+> `CALL_0..16` would make arity a **compile-time constant per arm**, which could let
+> LLVM specialize/unroll `call_method`'s arg-buffer build (~14% of `bare_send` ticks,
+> §4a). That is a **body** effect, not a dispatch or fetch effect — so **F19 cannot
+> size it**.
+
+True as far as it goes, and it is why the thread survived. But it was never checked
+against the code it is about. **It does not survive that reading.**
+
+### Leg 1 — the constant does not arrive (read the signatures)
+
+For arity to be a compile-time constant *where the buffer is built*, it must travel:
+
+| Hop | Signature | Arity is |
+|---|---|---|
+| dispatch arm | `Bytecode::Invoke(arity, ..)` | a constant **only under `CALL_n`** |
+| [`VM::invoke_at`](../../../phalcom-core/src/vm/dispatch.rs) | `fn invoke_at(&mut self, callable: &Callable, cache_ip: usize, arity: u8, selector_idx: u16)` | a **runtime `u8` parameter** |
+| [`VM::call_method`](../../../phalcom-core/src/vm/send.rs) | `fn call_method(&mut self, callee: &Value, method: ObjRef, arity: usize, source_range: SourceRange)` | a **runtime `usize` parameter** |
+
+Neither hop is const-generic, and `invoke_at` carries **no inline attribute** with
+**3 call sites** (`Invoke`, `InvokeLocal`, `InvokeConst`). Seventeen arms passing
+seventeen distinct constants into one large shared function does not make LLVM clone
+it seventeen times — function specialization does not fire on that shape. **`CALL_0..16`
+on its own delivers none of the claimed effect.**
+
+To actually get it you must write `invoke_at<const ARITY: usize>` +
+`call_method<const ARITY: usize>`. **And once those exist the opcodes are redundant**:
+
+```rust
+match arity { 0 => self.call_method::<0>(..), 1 => self.call_method::<1>(..), _ => self.call_method_dyn(..) }
+```
+
+yields the identical specialized bodies for **zero new opcodes, zero bytecode change,
+zero compiler change, zero interaction with the fusion guard**. The opcode set was
+never the mechanism — it is one predictable branch, and F19 already prices a branch
+as noise against 3.3 ns.
+
+### Leg 2 — [F21](#f21--an-arms-code-is-paid-by-every-program-not-the-ones-that-execute-it) taxes **both** routes, before any payoff is priced
+
+This is what settles it, and it is already measured:
+
+- **Via opcodes**: 17 new arms in `run_until_inner`. F21 measured **one** arm with a
+  real body at **+4.4% `for` / +4.8% `fib` / +5.9% `string_equals`**, on rows retiring
+  identical instruction counts and executing the new opcode **zero** times. 17× that
+  mechanism, against a payoff bounded by a fraction of 14% of `bare_send` — whose
+  0.033 s wall is ~28% bootstrap and the noisiest sign on the board.
+- **Via const generics**: 17 monomorphized copies of `call_method`. **F21's law is
+  about code footprint, not about opcodes** — "an arm's code footprint is paid by
+  every program, not only the ones that execute it" applies verbatim to
+  monomorphization. The opcode-free route is taxed too.
+
+**Both routes to const-arity are negative on the cost side before the gain side is
+even measured.** [H16](SCOREBOARD.md#6-open-holes--what-is-empty-and-how-to-fill-it)
+generalizes this: layout is worth ~5% and exceeds every candidate's ceiling.
+
+### What is NOT established — the arg-buffer init's price (open)
+
+The third leg would have been *"and the payoff is zero anyway."* **It is unmeasured.**
+The premise is real and still true at HEAD ([send.rs](../../../phalcom-core/src/vm/send.rs)):
+
+```rust
+const INLINE_ARGS: usize = 8;
+let mut args = [Value::Nil; INLINE_ARGS];          // 8 x 16 B = 128 B per primitive send
+args[..arity].copy_from_slice(&self.stack[receiver_idx + 1..]);
+```
+
+`Value` is 16 B ([F15](#f15--value-is-2-wrens-and-objref-blocks-nan-boxing)), and
+`arity` is unknown so LLVM cannot dead-store-eliminate the `args[arity..8]` tail.
+Whether that 128 B costs anything is exactly what const-arity would collect.
+
+**An A/B was built and is void.** Four binaries (`INLINE_ARGS` ∈ {8 base, 16, 4, 2},
+all built from a detached worktree at `e66af34` before any timing, distinct md5s,
+stdout byte-identical) were timed at **load average 7.1–10.4 on an 8-core box** while
+a concurrent session ran `rustc` and edited `dispatch.rs` mid-run. Symptoms, recorded
+so the void run is not repeated as if it were new:
+
+- the **baseline** binary drifted **~4%** across passes (`map_numeric` min 3.3299 →
+  3.3865 → 3.4757 → 3.4338) — the unchanged arm moving as much as any claimed effect;
+- 7-rep signals **evaporated at 15 reps** (`fib` +2.91% → −0.08%; `map_numeric` 6/7
+  sign → 7/15);
+- `min` improved while `median` did not (`map_numeric` −2.49% min / −0.19% med, 13/21)
+  — the fingerprint of *rare uncontended runs*, not of an effect.
+
+**No number from that round is quoted here, in either direction**, and none should be
+resurrected. The harness is committed (`benchmarks/vm/ab-guarded.py`) and now
+**refuses to run** rather than degrade. Re-run on a quiet machine if anyone wants the
+leg; **it is not needed to close F20**, since legs 1 and 2 are sufficient and neither
+depends on timing.
+
+### The transferable point
+
+**F20's live thread survived for the same reason [F16](#f16--superinstructions-are-premature-no-opcode-histogram-and-the-inliner-already-covers-the-classic-win)'s
+reason 3 survived: it was a plausible claim about existing code that nobody read the
+code to check.** F16 reason 3 ("the inliner already covers arithmetic") was false —
+the sacred set is control-flow only. F20's live thread was not false, but it was
+*inert*: the mechanism it named cannot reach the code it names, and the two signatures
+that prove it are one `grep` apart. Both times the deferral rested on a guess about
+existing code, and both times the guess outlived two re-asks. **Read the code that
+settles it** — and when a finding says "this needs a benchmark", check first whether
+it needs a benchmark *at all*.
+
 ## F21 — an arm's code is paid by every program, not the ones that execute it
 
 **A new opcode arm with a real body cost ~5% on rows that never execute it.** Measured
@@ -869,12 +979,24 @@ of instructions here affects the order of the dispatch table in the VM's interpr
 loop. That in turn affects caching which affects overall performance. Take care to run
 benchmarks if you change the order here"* (`wren_opcodes.h:10-13`).
 
-**The one live thread, and it is a different mechanism.** `CALL_0..16` would make arity
+**The one live thread, and it is a different mechanism.** ~~`CALL_0..16` would make arity
 a **compile-time constant per arm**, which could let LLVM specialize/unroll
 `call_method`'s arg-buffer build (~14% of `bare_send` ticks, §4a). That is a **body**
 effect, not a dispatch or fetch effect — so **F19 cannot size it** and H13's open half
 (body prices) is exactly what it needs. If anyone wants it, it is an experiment about
-`call_method`, and it should be argued as DEC-PRIM-B, **not** as a superinstruction.
+`call_method`, and it should be argued as DEC-PRIM-B, **not** as a superinstruction.~~
+
+> **DEAD — closed by [F22](#f22--call_016s-one-live-thread-is-dead-the-opcodes-were-never-its-mechanism).**
+> Struck, not deleted (numbers and claims are marked stale, never removed). The thread
+> was *inert*, not merely unsized: `invoke_at`/`call_method` take arity as a **runtime
+> parameter**, `invoke_at` has no inline attribute and 3 callers, so 17 arms never make
+> LLVM clone it — the constant cannot reach the buffer build. Getting the effect needs
+> const generics, which **do not need the opcodes**; and
+> [F21](#f21--an-arms-code-is-paid-by-every-program-not-the-ones-that-execute-it)'s
+> footprint law taxes **both** routes (~5% per duplication event, measured) before the
+> payoff is priced. **This paragraph is why it survived**: it named a benchmark as the
+> blocker, so nobody read the two signatures that settle it. DEC-PRIM-B does not
+> inherit the thread.
 
 **The transferable point.** *Do not port an optimization; port its mechanism.* Wren's
 opcode list is the output of a byte-stream design, and half of it is scaffolding

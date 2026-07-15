@@ -14,6 +14,7 @@ answer.
 | Opcode histogram | `phalcom-core/src/opcode_stats.rs` | instructions retired, per-opcode mix (§3bb) | per-opcode **body** price (**H13**, narrowed) |
 | **Opcode pair counts** | same, `PAIRS` | superinstruction candidates (F16 r2) | ~~whether a fusion pays~~ — **it does now**, combined with F19's ~3.3 ns dispatch price: `pairs_removed × 3.3 ns ÷ wall` |
 | **Dispatch-price differential** | ad hoc; recipe in [F19](findings.md#f19--a-dispatch-costs-33-ns-and-that-is-what-a-fusion-buys-h13) | **what one dispatch costs (~3.3 ns)** | an opcode *body*'s cost |
+| **Load-guarded A/B** | `benchmarks/vm/ab-guarded.py` | alternating same-session A/B; **exits 3 rather than time a busy box** (F22) | anything, while another session builds — *by design*, that is the point |
 | `sample <pid>` | macOS, ad hoc | leaf-tick attribution (§4) | anything inside the dispatch `match` (F17) |
 
 ---
@@ -197,5 +198,18 @@ do not fit it and report coefficients as prices.
 - **The Bash tool runs `fish`**, which does not word-split `for n in $LIST`. Use
   `python3` for any loop over a computed list. (`run.sh` itself is `bash` — unaffected.)
 - **Never `cargo build` inside a measurement loop** — it contends with the bench.
+- **This box is shared, and a *concurrent session* building contends exactly the same
+  way** (F22, and it cost a full measurement round). The trap above says "not inside
+  *your* loop"; that is not enough. Live `.claude/worktrees/agent-*` sessions and other
+  Claude windows run `cargo build` whenever they like, and `git worktree list` showed
+  **8** other checkouts. A probe timed at **load 7.1–10.4 on 8 cores** produced: the
+  **baseline** binary drifting **~4%** between passes, 7-rep signs evaporating at 15
+  reps, and `min` improving while `median` did not (the tell: contention is one-sided,
+  so `min` catches the rare quiet window and `median` reports the truth).
+  **`getloadavg()` lags ~1 min and will not see a short `rustc` burst** — scan for the
+  process. Use `benchmarks/vm/ab-guarded.py`, which refuses (exit 3) rather than
+  degrade; check `uptime` before believing any A/B, and re-run anything measured under
+  load. **Alternation does not repair a contended run** — it defends against slow drift,
+  not against a burst landing on one arm.
 - **A hypothesis fitted to one noisy run will appear to confirm.** Reproduce the
   *baseline observation* before explaining it (002; F13's first table).
