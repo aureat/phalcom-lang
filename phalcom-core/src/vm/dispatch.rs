@@ -125,14 +125,23 @@ impl VM {
             let module_id = closure.module;
             let name_sym = closure.callable.name_sym;
             let span = closure.callable.chunk.spans[frame.ip - 1];
+            // Resolve the span against the text *this* chunk was compiled from,
+            // not the module's most recent source: one module accumulates one
+            // entry per compiled unit, so a REPL cell's span would otherwise be
+            // rendered against a later cell's text (U-REPL §D2, precondition 6).
+            let source_id = closure.callable.chunk.source_id;
 
             let module = self.heap.module(module_id);
             let module_name = module.name.clone();
-            let module_source = module.source.clone();
+            // `None` for a chunk the compiler never stamped (a hand-built chunk
+            // defaults to source id 0) on a module that recorded no source at
+            // all. Degrades to a frame without a code excerpt rather than
+            // panicking, which is what the previous `.unwrap()` did here.
+            let module_source = module.source_at(source_id).cloned();
             let method_name = self.resolve_symbol(name_sym).to_string();
 
             frames.push(SourceLoc {
-                source: module_source.unwrap(),
+                source: module_source,
                 module_name,
                 method_name,
                 span,

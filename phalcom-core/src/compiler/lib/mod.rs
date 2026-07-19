@@ -108,10 +108,17 @@ pub(crate) struct Compiler<'vm> {
     /// under [`Self::add_local`]'s same-scope redeclaration check. Each call
     /// to a scratch-naming helper draws the next value and never reuses one.
     scratch_counter: u32,
+    /// Index into [`ModuleObject::sources`](crate::heap::ModuleObject) of the
+    /// text being compiled, stamped into every [`Chunk`](crate::chunk::Chunk)
+    /// this compiler finalizes so diagnostics resolve a span against the source
+    /// it came from (U-REPL §D2).
+    source_id: u32,
 }
 
 impl<'vm> Compiler<'vm> {
-    pub(crate) fn new(vm: &'vm mut VM, module: ObjRef) -> Self {
+    /// Creates a compiler targeting `module`, whose chunks carry `source_id`
+    /// as their [`Chunk::source_id`](crate::chunk::Chunk::source_id).
+    pub(crate) fn new(vm: &'vm mut VM, module: ObjRef, source_id: u32) -> Self {
         Compiler {
             vm,
             module,
@@ -123,6 +130,7 @@ impl<'vm> Compiler<'vm> {
             deopt_fallback_depth: 0,
             in_constructor: false,
             scratch_counter: 0,
+            source_id,
         }
     }
 
@@ -244,6 +252,7 @@ impl<'vm> Compiler<'vm> {
 
         let mut func = self.functions.pop().unwrap();
         func.chunk.fuse_superinstructions();
+        func.chunk.source_id = self.source_id;
         let callable = Rc::new(Callable {
             chunk: func.chunk,
             max_slots,
@@ -282,6 +291,7 @@ impl<'vm> Compiler<'vm> {
         let name_sym = self.vm.heap.module(self.module).name_sym;
         let mut func = self.functions.pop().unwrap();
         func.chunk.fuse_superinstructions();
+        func.chunk.source_id = self.source_id;
         let callable = Rc::new(Callable {
             chunk: func.chunk,
             max_slots: func.max_slots,
