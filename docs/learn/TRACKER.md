@@ -50,7 +50,9 @@ it quotes `store_live_into`'s four-field `mem::take` and ADR-0030 §6's invarian
 this exists the VM docs cannot explain their own guards** — why Doc 1's hoist keys on `closure_id`
 rather than `ip`, why `Upvalue::Open` names a fiber, why `frames` is a mirror at all.
 
-Big enough to be a track, not a doc. Proposed split and grounding: [§ below](#proposed-concurrency-track).
+Big enough to be a track, not a doc. **Planned:** [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md) —
+four docs (C1 restricted loop → C2 parked fiber → C3 fiber failure, C4 futures decided last).
+Sketch and grounding notes below; the plan supersedes them where they differ.
 
 ### 2. Sacred-selector inliner — 2 pointers
 
