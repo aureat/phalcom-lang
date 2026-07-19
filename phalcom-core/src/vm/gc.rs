@@ -47,6 +47,11 @@ impl VM {
             // from nowhere else until the pump drains them.
             ready_queue,
 
+            // Handles a native primitive is holding in a Rust local across a
+            // re-entrant call. Reachable from nowhere else for the duration —
+            // missing this frees a live object under its holder (Invariant M3).
+            temp_roots,
+
             // Module handles.
             modules,
             main_module,
@@ -100,6 +105,7 @@ impl VM {
         out.push(*current);
         out.extend(open_upvalues.values().copied());
         out.extend(ready_queue.iter().copied());
+        out.extend(temp_roots.iter().copied());
         out.extend(modules.values().copied());
         out.extend(main_module.iter().copied());
         out.extend(last_imported_module.iter().copied());
@@ -116,22 +122,60 @@ impl VM {
     /// truth — i.e. at a dispatch-loop safepoint, never part-way through a native
     /// primitive holding a fresh handle in a Rust local
     /// ([memory-management.md §4](../../../docs/spec/v0.2/memory-management.md)).
-    /// Automatic safepoint-latched triggering and the `temp_roots` escape hatch
-    /// that makes the native side safe are U-GC step 4; until then this is driven
-    /// only by tests.
+    /// Safepoint-latched triggering ([`service_gc_safepoint`](Self::service_gc_safepoint))
+    /// and the [`push_temp_root`](Self::push_temp_root) escape hatch that makes
+    /// the native side safe are both live.
     pub fn force_gc(&mut self) -> usize {
         let mut roots = Vec::new();
         self.collect_roots(&mut roots);
         self.heap.collect(&roots)
     }
 
+    /// Roots `value` for the collector until the matching
+    /// [`truncate_temp_roots`](Self::truncate_temp_roots)
+    /// ([ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) §7).
+    /// Immediates are ignored — they are not heap handles.
+    ///
+    /// Use when a native primitive holds a handle in a Rust local **across a
+    /// re-entrant call** — `block_call`, `send_dynamic`, `invoke_method_object`,
+    /// or anything else that re-enters `run_until`. The safepoint inside that
+    /// call collects, and [`VM::stack`]/[`VM::frames`] do not describe a value
+    /// that lives only in Rust.
+    ///
+    /// Holding a handle across a mere *allocation* needs no temp root: Invariant
+    /// L makes `Heap::alloc` latch rather than collect. The re-entrant case is
+    /// the one this exists for.
+    pub(crate) fn push_temp_root(&mut self, value: crate::value::Value) {
+        if let Some(id) = value.as_obj() {
+            self.temp_roots.push(id);
+        }
+    }
+
+    /// The current temp-root depth, to be restored by
+    /// [`truncate_temp_roots`](Self::truncate_temp_roots).
+    ///
+    /// Depth-and-truncate rather than push-and-pop because a primitive's
+    /// re-entrant call can return through several paths (`Ok`, a raised `Err`, a
+    /// non-local return) and truncation is correct on all of them without the
+    /// caller counting its own pushes.
+    pub(crate) fn temp_root_depth(&self) -> usize {
+        self.temp_roots.len()
+    }
+
+    /// Releases every temp root pushed since `depth`.
+    ///
+    /// Idempotent and safe if the stack is already shorter — [`Vec::truncate`]
+    /// is a no-op then.
+    pub(crate) fn truncate_temp_roots(&mut self, depth: usize) {
+        self.temp_roots.truncate(depth);
+    }
+
     /// Pushes `value` onto the operand stack to root it — **test scaffolding.**
     ///
     /// `VM::stack` is `pub(crate)`, so an integration test cannot root an object
     /// the way real code does (by having it on the stack). This exposes exactly
-    /// that and nothing more. Not a temp-root: the §4 `push_temp_root` escape
-    /// hatch for native code holding fresh handles across a re-entrant send is
-    /// U-GC step 4.
+    /// that and nothing more. Not a temp root — for native code holding a fresh
+    /// handle across a re-entrant send, use [`push_temp_root`](Self::push_temp_root).
     #[doc(hidden)]
     pub fn push_root_for_test(&mut self, value: crate::value::Value) {
         self.stack.push(value);

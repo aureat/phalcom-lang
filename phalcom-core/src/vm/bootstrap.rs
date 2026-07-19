@@ -39,6 +39,7 @@ impl VM {
             world_version: 0,
             open_upvalues: BTreeMap::new(),
             ready_queue: std::collections::VecDeque::new(),
+            temp_roots: Vec::new(),
             field_layouts: HashMap::new(),
             constructor_aliases: HashMap::new(),
             has_new_construct: std::collections::HashSet::new(),

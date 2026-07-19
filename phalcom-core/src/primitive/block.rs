@@ -304,8 +304,26 @@ pub fn block_ensure(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     let cleanup = args[0];
     let outcome = block_call(vm, receiver, &[]);
 
+    // The pending outcome lives only in this Rust local while the cleanup block
+    // runs, and that block re-enters the interpreter — so its back-edge
+    // safepoint can collect. Neither `vm.stack` nor `vm.frames` describes
+    // `outcome`, so without a temp root the collector frees it and `ensure`
+    // returns a dangling handle (ADR-0050 §7; memory-management.md §4).
+    //
+    // Both arms carry a handle: `Ok` is the protected block's value, and a
+    // `Raise` error is the surface `Error` instance an enclosing `on` will
+    // receive.
+    let roots = vm.temp_root_depth();
+    match &outcome {
+        Ok(value) => vm.push_temp_root(*value),
+        Err(PhError::Runtime(RuntimeError::Raise { error, .. })) => vm.push_temp_root(*error),
+        Err(_) => {}
+    }
+
     let frames_before_cleanup = vm.frames.len();
     let cleanup_outcome = block_call(vm, &cleanup, &[]);
+    vm.truncate_temp_roots(roots);
+
     match cleanup_outcome {
         // The cleanup block itself diverged (raised) — supersedes.
         Err(cleanup_err) => Err(cleanup_err),
