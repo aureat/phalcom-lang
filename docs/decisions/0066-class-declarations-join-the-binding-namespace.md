@@ -5,6 +5,10 @@
 - Amends: [decision 0065](0065-classes-are-closed.md) — narrows ruling 8 (its import half is
   already shipped) and fixes the mechanism and diagnostic shape behind ruling 2. Does not
   reverse anything in 0065.
+- Self-amended 2026-07-19 (in place, status unchanged): **Decision 2's rendering mechanism.**
+  "Two miette labels" named a renderer that does not exist — compile-error spans are not rendered
+  at all today. Both spans still live in the error value and both locations still reach the user,
+  now via the message text. See the amendment note under Decision 2.
 - Related: `docs/forge/units/U-BINDINGS/implementation-spec.md` (L-3/L-5, §12C),
   [ADR-0064](../adr/accepted/0064-let-const-bindings-and-field-mutability.md),
   [`U-CLASSCLOSE`](../forge/units/U-CLASSCLOSE/plan.md)
@@ -93,8 +97,35 @@ silent-clobber class of defect 0065 exists to eliminate, and `a3` above shows it
 unrelated runtime error.
 
 **2. Build the two-span diagnostic.** `class.already_defined` carries the original declaration's
-span and the duplicate's, rendered as two miette labels. First of its kind in the codebase; the
-span comes from `ClassLayout`, where U-CLASSNS §3.4 stores it.
+span and the duplicate's. First of its kind in the codebase; the span comes from `ClassLayout`,
+where U-CLASSNS §3.4 stores it.
+
+> **Amended 2026-07-19, mechanism only** — while writing
+> [`U-CLASSCLOSE`'s implementation spec](../forge/units/U-CLASSCLOSE/implementation-spec.md) §1.2.
+> This decision said "rendered as two miette labels." **That renderer does not exist, and neither
+> does any other.** `use miette` / `miette::` appears in **zero** `.rs` files in the repo, despite
+> miette being a declared workspace dependency and named in `CLAUDE.md`'s conventions;
+> `CompilerError` derives `thiserror::Error` only. Worse, compile-error spans are not rendered
+> *at all* today: `cmd_run` (`bin/phalcom/cli.rs:160`) `?`-propagates the error through
+> `anyhow::Result` to `main`, which prints its `Display` text and nothing else — so the
+> `SourceRange` on the five existing single-span variants is carried and dropped. The hand-rolled
+> `color_print` renderer in `diagnostics.rs` is reachable only for *parse* errors, via
+> `compile_closure`'s `map_err` (`interpret.rs:145`). Same shape as the standing
+> "traceback exists but unwired" finding, in a different corner.
+>
+> **Ruled: both spans live in the error value; both locations appear in the message text.**
+> `ClassAlreadyDefined(String, SourceRange, SourceRange)`, with the first declaration's
+> line/column resolved from its span (e.g. *"class 'Point' is already defined in this module
+> (first declared at 3:1)"*). §4's cost finding stands — this **is** new machinery — but the
+> machinery is a variant plus a line/column helper, not a diagnostics-infrastructure change.
+>
+> **This is not the single-span fallback below.** Ruling 2's intent is fully delivered: both spans
+> are carried, both locations reach the user, and the negative fixture asserts text only the
+> two-location form can produce. Because the variant already carries both `SourceRange`s, literal
+> two-label rendering later is a pure rendering change with no re-derivation. Wiring a
+> compile-error renderer is **out of scope for U-CLASSCLOSE and wants its own unit** — it would
+> change how every compile error prints, with blast radius across the negative corpus, and would
+> incidentally revive the five dead spans.
 
 Rejected — **matching `BindingRedeclared`'s span-less style**: that regresses below the file's
 own existing standard, where five variants already carry one span. Rejected — **single span on

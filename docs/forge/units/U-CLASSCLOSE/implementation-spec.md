@@ -4,8 +4,10 @@ Companion to [`plan.md`](plan.md). Governed by
 [decision 0065](../../../decisions/0065-classes-are-closed.md) (**Accepted**), as amended by
 [decision 0066](../../../decisions/0066-class-declarations-join-the-binding-namespace.md).
 
-**Status: READY to dispatch, with one decision required** — see [§3](#3-the-diagnostic--one-decision-required)
-and [§14](#14-decisions-required). Unit **B** of two. **Blocked on
+**Status: READY to dispatch. No open decisions** — both were ruled 2026-07-19, see
+[§14](#14-decisions--ruled-2026-07-19): `Bytecode::Class` keeps its single operand, and the
+duplicate diagnostic carries both spans in the error value with both locations in the message
+([§3](#3-the-diagnostic--ruled-option-a) option A). Unit **B** of two. **Blocked on
 [`U-CLASSNS`](../U-CLASSNS/implementation-spec.md)**: the redefinition error is undecidable until
 class identity is `(module, name)`-keyed.
 
@@ -325,7 +327,13 @@ this unit.
 
 ---
 
-## 3. The diagnostic — one decision required
+## 3. The diagnostic — ruled, option A
+
+> **RULED 2026-07-19: option A.** Both spans in the error value, both locations in the message
+> text. No compile-error renderer is built in this unit; decision 0066's mechanism is amended
+> accordingly. §14.2 records the ruling. The three options and their costs are kept below because
+> the fixture design (§11.3) and the must-not-preclude check (§13) both depend on knowing which
+> was chosen and why.
 
 Ruling 2 (0065) and decision 2 (0066) both specify: `X is already defined`, carrying **both**
 spans. §1.2 establishes that nothing renders a compile-error span today. Three shapes, in
@@ -358,7 +366,7 @@ sidecar asserts compile-error text.
 **Option C — single span on the duplicate.** Amend decision 0066. Cheapest; explicitly named by
 0066 as the sanctioned fallback.
 
-**Recommendation: A.** It satisfies ruling 2's *user-visible intent* — the user's question is
+**Ruled: A.** It satisfies ruling 2's *user-visible intent* — the user's question is
 "where is the other one," and A answers it — without pulling a diagnostics-infrastructure change
 into a namespace-semantics unit. It is also forward-compatible: the variant already carries both
 `SourceRange`s, so B becomes a pure rendering change later, with no re-derivation. B's renderer is
@@ -369,7 +377,7 @@ Under A, 0066 needs a **one-line amendment**: "rendered as two miette labels" be
 both spans in the error value; both locations appear in the message text. Literal two-label
 rendering awaits a compile-error renderer, which does not exist." That is a mechanism correction,
 not a reversal of ruling 2 — both spans are still carried and both locations still reach the user.
-**Do not proceed on A without recording that amendment** (§14.1).
+**That amendment is recorded in decision 0066's Decision §2** (2026-07-19); see §14.2.
 
 The first declaration's span comes from `ClassLayout.declared_at`, which U-CLASSNS §7 adds and
 this unit is the first to read.
@@ -668,28 +676,48 @@ reason 0065 flagged it.
 
 ---
 
-## 14. Decisions required
+## 14. Decisions — ruled 2026-07-19
 
-Two, both surfaced rather than silently resolved. Neither blocks the other steps.
+Two were surfaced to the user before dispatch and **both are now ruled**. An implementer may not
+reopen them.
 
-**14.1 The `Class` opcode shape, and the 0066 mechanism amendment.**
+**14.1 `Bytecode::Class` keeps its single operand. RULED — no bool.**
 
-- §1.1 shows the ruled `Class(u16, bool)` operand is redundant — the compiler already emits
-  `Constant` for stub completion, and the bool would only mean something if bootstrap were
-  rewritten to stop doing that. **Recommendation: no operand.** The ruling chose between two
-  shapes on a premise (`Class` is ambiguous to the compiler) that is false.
-- §3 shows the ruled two-span *rendering* has no renderer to hang on. **Recommendation: option A**
-  — both spans in the value, both locations in the message — plus a one-line amendment to decision
-  0066 recording the mechanism change. 0066's own escape clause anticipates this
-  ("if the cost proves higher than expected… amend this decision — do not under-deliver ruling 2
-  silently"). Under A, ruling 2's intent is fully delivered; only "miette labels" changes.
+`Class(u16)` is unchanged; `bytecode.rs`'s enum is not edited. §1.1 is the evidence: the compiler
+already emits `Constant` for stub completion and `Class` only for allocate-fresh, so decision 0065
+ruling 4's "distinct opcode" requirement is satisfied on the emit side today. What this unit
+implements from ruling 4 is the **core gate** (§5.1) and the **deletion** of `dispatch.rs:768-788`
+(§5.2).
 
-**14.2 The IC-fixture home.** §1.5: `world_version` is `pub(crate)`, so the ruled "Rust-level
-tests driving `add_method` + `world_version`" cannot be integration tests.
-**Recommendation: in-crate `#[cfg(test)]` tests in `chunk.rs`**, which needs no API change. The
-alternative — making `world_version` `pub` or adding a `VM::install_method` — previews ruling 7's
-reflection layer for a test seam's convenience, and should not be done casually. This is the
-conditional trigger the dispatch handoff named.
+The prior "a bool operand, not a second opcode" ruling chose between two shapes on the premise
+that `Class` was ambiguous *to the compiler*. That premise is false, and the third option — no
+operand — was not on the table when it was made. **Decision 0065 ruling 4 is not amended**: its
+text requires a distinct opcode for stub completion, which `Constant` is.
+
+**14.2 The diagnostic: both spans in the value, both locations in the message. RULED — §3 option A.**
+
+Add `ClassAlreadyDefined(String, SourceRange, SourceRange)`; resolve the first declaration's
+line/column from its span and name it in the message text. **No compile-error renderer is built in
+this unit.** The negative fixture asserts text that only the two-location form can produce (§11.3).
+
+**Decision 0066 is amended** to record the mechanism change — "rendered as two miette labels"
+becomes "carries both spans in the error value; both locations appear in the message text."
+Ruling 2's intent is fully delivered; only the rendering mechanism changes, and the variant already
+carries both spans so literal two-label rendering later is a pure rendering change.
+
+Building the renderer (§3 option B) is **out of scope and wants its own unit**, where its blast
+radius across every negative sidecar can be gated properly. It would incidentally revive the five
+existing dead spans, which is worth doing — just not here.
+
+**14.3 The IC-fixture home — recommendation standing, not user-ruled.**
+
+§1.5: `world_version` is `pub(crate)`, so the ruled "Rust-level tests driving `add_method` +
+`world_version`" cannot be integration tests. **This spec proceeds on in-crate `#[cfg(test)]`
+tests in `chunk.rs`**, which needs no API change. The alternative — making `world_version` `pub`
+or adding a `VM::install_method` — previews ruling 7's reflection layer for a test seam's
+convenience and should not be done casually. This was the conditional trigger the dispatch handoff
+named; it is surfaced here rather than silently resolved. **If an implementer finds the in-crate
+home unworkable, stop and flag — do not open the API.**
 
 ---
 
