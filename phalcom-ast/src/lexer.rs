@@ -260,6 +260,7 @@ impl<'input> Lexer<'input> {
         let slice = &self.input[start..self.pos];
         match slice {
             "let" => Token::Let,
+            "const" => Token::Const,
             "var" => Token::Var,
             "fn" => Token::Fn,
             "class" => Token::Class,

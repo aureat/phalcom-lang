@@ -1,11 +1,13 @@
 // area: compile-errors
-// spec: values-and-absence.md; ADR-0014
+// spec: ADR-0064
 // status: NEGATIVE
-// U6/ADR-0014: `let` is immutable — reassigning it is a compile error. Declare
-// the binding with `var` to allow mutation. (Was a PASS fixture before U6, when
-// all bindings were mutable; U6 legalizes the distinction.)
+// ADR-0064: `const` is immutable — reassigning it is a compile error. Declare
+// the binding with `let` to allow mutation. (Filename kept as the
+// pre-registered golden exception across the U-BINDINGS codemod — see
+// implementation-spec.md §1.3 — even though the fixture body now uses
+// `const`.)
 
-let x = 1
+const x = 1
 System.print(x)
 x = 2
 System.print(x)

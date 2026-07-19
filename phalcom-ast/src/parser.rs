@@ -399,7 +399,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Let | Token::Var | Token::Return | Token::Import => return,
+                Token::Class | Token::Let | Token::Const | Token::Var | Token::Return | Token::Import => return,
                 _ => {
                     self.advance();
                 }
@@ -416,7 +416,10 @@ impl<'source> Parser<'source> {
     fn parse_small_statement(&mut self) -> ParserResult<Statement> {
         match self.peek() {
             Token::Let => self.parse_binding(BindingKind::Let),
-            Token::Var => self.parse_binding(BindingKind::Var),
+            Token::Const => self.parse_binding(BindingKind::Const),
+            // Step-1 transient alias (L-1): `var` still parses as mutable,
+            // deleted at the end of U-BINDINGS step 2.
+            Token::Var => self.parse_binding(BindingKind::Let),
             Token::Return => self.parse_return(),
             Token::For => self.parse_for(),
             Token::Throw => self.parse_throw(),
@@ -2852,7 +2855,7 @@ mod tests {
     }
 
     #[test]
-    fn let_binding_records_immutable_kind() {
+    fn let_binding_records_mutable_kind() {
         let Statement::Let(binding) = only_statement("let x = 1") else {
             panic!("expected a let binding");
         };
@@ -2862,14 +2865,13 @@ mod tests {
     }
 
     #[test]
-    fn var_binding_records_mutable_kind() {
-        let Statement::Let(binding) = only_statement("var x") else {
-            panic!("expected a var binding");
+    fn const_binding_records_immutable_kind() {
+        let Statement::Let(binding) = only_statement("const x = 1") else {
+            panic!("expected a const binding");
         };
-        assert_eq!(binding.kind, BindingKind::Var);
+        assert_eq!(binding.kind, BindingKind::Const);
         assert!(matches!(&binding.pattern, Pattern::Name { name, .. } if name == "x"));
-        // `var x` has no initializer; the compiler surfaces this as `None`.
-        assert!(binding.value.is_none());
+        assert!(binding.value.is_some());
     }
 
     #[test]

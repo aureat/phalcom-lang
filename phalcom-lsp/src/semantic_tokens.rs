@@ -155,6 +155,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
     use SemanticTokenKind::{Keyword, Number, Operator, Selector, Variable};
     match token {
         Token::Let
+        | Token::Const
         | Token::Var
         | Token::Fn
         | Token::Class

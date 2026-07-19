@@ -31,7 +31,6 @@ use phalcom_ast::ast::{BindingKind, Expr, MethodCallExpr, Pattern, Program, Stat
 use phalcom_common::range::EmptySourceRange;
 use state::FunctionState;
 use state::LoopContext;
-use std::collections::HashSet;
 use std::rc::Rc;
 
 pub(crate) struct Compiler<'vm> {
@@ -41,14 +40,26 @@ pub(crate) struct Compiler<'vm> {
     /// literal pushes a new state, compiles into it, and pops it; upvalue
     /// resolution indexes into this stack rather than following raw pointers.
     pub(crate) functions: Vec<FunctionState>,
-    /// Names bound by an immutable module-level `let`.
+    /// Every module-level `let`/`const` binding declared so far, keyed by
+    /// name, recording its mutability.
     ///
     /// Module-level bindings become globals rather than stack locals
     /// ([`Bytecode::DefineGlobal`]), so [`Self::functions`] never sees them and
-    /// cannot record their mutability. This set lets the assignment path reject
-    /// a store to a `let` global at compile time
-    /// ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)).
-    immutable_globals: HashSet<Symbol>,
+    /// cannot record their mutability. This map lets the assignment path
+    /// reject a store to a `const` global at compile time, and lets
+    /// [`Self::declare_global`] reject a same-scope redeclaration of either
+    /// kind (`binding.redeclared`) — a `const` may never be released by a
+    /// later `let` of the same name
+    /// ([ADR-0064](../../../docs/adr/accepted/0064-let-const-bindings-and-field-mutability.md),
+    /// rulings L-3/L-5). There is deliberately no `remove`: a name, once
+    /// declared, keeps its declared kind for the rest of compilation.
+    ///
+    /// **Class names are not tracked here.** `Statement::Class` emits its own
+    /// `DefineGlobal` directly (`class_decl.rs`) without going through
+    /// [`Self::declare_global`], so class (re)declaration — including a
+    /// kernel stub completion reopen, `core.ph`'s bootstrap path — never
+    /// interacts with this map (§12C of the U-BINDINGS spec).
+    global_bindings: std::collections::HashMap<Symbol, bool>,
     /// The class name Symbol currently being compiled, if any (ADR-0011).
     current_class: Option<Symbol>,
     /// Whether the current method/scope context is static (metaclass-side) (ADR-0017).
@@ -78,6 +89,25 @@ pub(crate) struct Compiler<'vm> {
     /// trade only if that path is hot; it is a message send into a user-defined
     /// `ifTrue`, so it is not.
     deopt_fallback_depth: usize,
+    /// Whether the member currently being compiled is a `construct` body.
+    ///
+    /// Gates `const`-field writes (ADR-0064 §3, L-3) — a write to a `const`
+    /// field is legal only while this is `true`. Set/cleared around all
+    /// three `ClassMember::Construct` compile sites (`class_decl.rs`); no
+    /// flow analysis is performed, so a `const` field write anywhere else in
+    /// a constructor's own nested blocks still counts (no attempt is made to
+    /// track "inside a block passed to something else").
+    in_constructor: bool,
+    /// Monotonic counter minting unique names for compiler-synthesized
+    /// destructuring scratch locals (`$destructure…`, ruling L-9).
+    ///
+    /// A nested pattern (`let ((a, b), c) = …`) claims more than one scratch
+    /// local within the *same* lexical scope — the `Pattern::Tuple`/
+    /// `Pattern::List` arm in `patterns.rs` re-enters itself while the outer
+    /// scratch is still live — so a fixed name per statement would collide
+    /// under [`Self::add_local`]'s same-scope redeclaration check. Each call
+    /// to a scratch-naming helper draws the next value and never reuses one.
+    scratch_counter: u32,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -86,11 +116,13 @@ impl<'vm> Compiler<'vm> {
             vm,
             module,
             functions: vec![FunctionState::new(false, false)],
-            immutable_globals: HashSet::new(),
+            global_bindings: std::collections::HashMap::new(),
             current_class: None,
             is_static_context: false,
             loop_contexts: Vec::new(),
             deopt_fallback_depth: 0,
+            in_constructor: false,
+            scratch_counter: 0,
         }
     }
 
@@ -153,12 +185,17 @@ impl<'vm> Compiler<'vm> {
         self.begin_scope();
 
         if is_method {
-            // Slot 0 holds the receiver `self`.
-            self.add_local(self_sym, true);
+            // Slot 0 holds the receiver `self`. Never reachable through
+            // `Expr::Var`/`Expr::Assignment` (`self` is `Expr::SelfVar`, a
+            // distinct AST node — see `ast.rs`), so `is_mutable` is purely
+            // documentary here; the constructor's own `SetLocal(0)` below
+            // writes this slot directly, bypassing the immutability check
+            // entirely (L-6).
+            self.add_local(self_sym, false).expect("receiver slot is the first local in a fresh function state");
         } else {
             // Slot 0 holds the block object itself (blocks reach `self` via an
             // upvalue, functions.md §2), so we reserve it with a dummy local.
-            self.add_local(dummy_sym, true);
+            self.add_local(dummy_sym, false).expect("block-receiver slot is the first local in a fresh function state");
         }
 
         if is_constructor {
@@ -169,7 +206,9 @@ impl<'vm> Compiler<'vm> {
         }
 
         for param_sym in param_symbols {
-            self.add_local(param_sym, true);
+            // L-6: every implicit binding (parameters, block parameters) is
+            // immutable. To vary a parameter, declare a local from it.
+            self.add_local(param_sym, false)?;
         }
 
         let len = statements.len();
@@ -276,13 +315,13 @@ impl<'vm> Compiler<'vm> {
             }
             Statement::Let(binding) => {
                 let range = binding.range;
-                // `var` is mutable and may be left uninitialized; `let` is
-                // immutable and *requires* an initializer (ADR-0014). A
+                // `let` is mutable and may be left uninitialized; `const` is
+                // immutable and *requires* an initializer (ADR-0064). A
                 // destructuring pattern (`Pattern::Tuple`/`Pattern::List`)
-                // always requires an initializer regardless of `let`/`var`
+                // always requires an initializer regardless of `let`/`const`
                 // (U14, open-questions.md Q7, ADR-0046 §2) — there is nothing
                 // to unpack from an absent value.
-                let mutable = matches!(binding.kind, BindingKind::Var);
+                let mutable = matches!(binding.kind, BindingKind::Let);
 
                 match binding.value {
                     Some(expr) => self.compile_expr(expr)?,
@@ -291,10 +330,10 @@ impl<'vm> Compiler<'vm> {
                             return Err(CompilerError::DestructuringWithoutInitializer(binding.pattern.range()));
                         };
                         if !mutable {
-                            // `let x` with no initializer is a compile error.
-                            return Err(CompilerError::LetWithoutInitializer(name.clone()));
+                            // `const x` with no initializer is a compile error.
+                            return Err(CompilerError::ConstWithoutInitializer(name.clone()));
                         }
-                        // `var x` with no initializer is backed by the private
+                        // `let x` with no initializer is backed by the private
                         // `nil` sentinel; the VM surfaces every read of that
                         // slot as the surface `None` value (ADR-0007/ADR-0010).
                         self.emit(Bytecode::Nil, range);
@@ -304,9 +343,10 @@ impl<'vm> Compiler<'vm> {
                 // The initializer's single evaluated value is sitting on top
                 // of the operand stack; bind it — positionally, through the
                 // sub-patterns' `at(_)` reads, for a destructuring pattern —
-                // as a local or a module global depending on where this `let`
-                // appears (ADR-0014's existing local-vs-global rule, threaded
-                // through every leaf of the pattern).
+                // as a local or a module global depending on where this
+                // binding appears (ADR-0064's local-vs-global rule, threaded
+                // through every leaf of the pattern). Also rejects a
+                // same-scope redeclaration of either kind (L-3/L-5).
                 let as_global = self.functions.last().unwrap().scope_depth == 0;
                 self.compile_pattern_bind_top_of_stack(&binding.pattern, mutable, as_global)?;
             }
@@ -388,10 +428,10 @@ impl<'vm> Compiler<'vm> {
 
     /// Lowers `import "path" as Name` (U15, DEC-U15 A+A) to a
     /// [`Bytecode::Import`] carrying the raw path, immediately followed by
-    /// the same [`Bytecode::DefineGlobal`] a module-level `let Name = …`
+    /// the same [`Bytecode::DefineGlobal`] a module-level `const Name = …`
     /// would emit — the `as Name` binding is an ordinary immutable global
-    /// ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)), not a new
-    /// binding kind.
+    /// ([ADR-0064](../../../docs/adr/accepted/0064-let-const-bindings-and-field-mutability.md)),
+    /// not a new binding kind.
     ///
     /// Restricted to a compilation unit's own top level (`self.functions`
     /// has exactly the module body's [`FunctionState`] and its scope depth
@@ -414,10 +454,10 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Import(path_idx), range);
 
         // `as Name` is always an immutable module-level global — the whole
-        // binding is `let`-shaped (ADR-0014), never a local (import is
+        // binding is `const`-shaped (ADR-0064), never a local (import is
         // top-level-only, see the guard above).
         let name_sym = self.vm.interner.intern(&import_stmt.binding);
-        self.immutable_globals.insert(name_sym);
+        self.declare_global(name_sym, false)?;
         let name_idx = self.add_constant(Value::Symbol(name_sym));
         self.emit(Bytecode::DefineGlobal(name_idx), range);
         Ok(())

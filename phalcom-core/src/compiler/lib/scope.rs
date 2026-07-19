@@ -107,11 +107,35 @@ impl<'vm> Compiler<'vm> {
 
     /// Declares a new local named `name` in the current function.
     ///
-    /// `is_mutable` records whether the binding may later be reassigned: `var`
-    /// locals (and the synthetic receiver/parameter slots) pass `true`, while
-    /// `let` locals pass `false` so the assignment path can reject stores to
-    /// them ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)).
-    pub(super) fn add_local(&mut self, name: Symbol, is_mutable: bool) {
+    /// `is_mutable` records whether the binding may later be reassigned:
+    /// `let` locals pass `true`, `const` locals pass `false`
+    /// ([ADR-0064](../../../docs/adr/accepted/0064-let-const-bindings-and-field-mutability.md)).
+    /// The receiver slot and every implicit parameter binding always pass
+    /// `false` (L-6) — the receiver's own `is_mutable` is purely documentary
+    /// since `self` is never reachable through the ordinary assignment path
+    /// (see `mod.rs::compile_function`'s call site).
+    ///
+    /// Rejects a same-scope redeclaration of `name` — one name, one
+    /// declaration per scope, for both `let` and `const` (L-3/L-5). Locals
+    /// with `depth` strictly greater than the current scope are always
+    /// already popped by [`Self::end_scope`] before control returns here, so
+    /// every local currently recorded at the current `scope_depth` forms a
+    /// contiguous suffix of `func.locals`; nested-scope shadowing (a deeper
+    /// `depth`) is unaffected. Compiler-synthesized scratch locals
+    /// (`$destructure…`) never collide because each draws a fresh,
+    /// counter-suffixed name (L-9) — see [`super::Compiler::scratch_counter`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompilerError::BindingRedeclared`] if `name` is already
+    /// declared at the current scope depth.
+    pub(super) fn add_local(&mut self, name: Symbol, is_mutable: bool) -> Result<(), CompilerError> {
+        let func = self.functions.last_mut().unwrap();
+        let depth = func.scope_depth;
+        let is_throwaway = self.vm.resolve_symbol(name) == "_";
+        if !is_throwaway && func.locals.iter().rev().take_while(|local| local.depth == depth).any(|local| local.name == name) {
+            return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));
+        }
         let func = self.functions.last_mut().unwrap();
         tracing::debug!("[Compiler] Adding local at depth {}", func.scope_depth);
         func.locals.push(Local { name, depth: func.scope_depth, is_captured: false, is_mutable });
@@ -119,6 +143,46 @@ impl<'vm> Compiler<'vm> {
         if func.num_locals > func.max_slots {
             func.max_slots = func.num_locals;
         }
+        Ok(())
+    }
+
+    /// Mints a fresh, guaranteed-unique interned symbol for a
+    /// compiler-synthesized destructuring scratch local, suffixed with
+    /// [`super::Compiler::scratch_counter`]'s next value (L-9).
+    ///
+    /// `base` is a display prefix only (e.g. `"$destructure"`); the returned
+    /// symbol is never resolved back to source, since every scratch local is
+    /// write-only (`patterns.rs` claims it via `SetLocal` and reads it back
+    /// only through its numeric slot, never by name).
+    pub(super) fn fresh_scratch_symbol(&mut self, base: &str) -> Symbol {
+        let n = self.scratch_counter;
+        self.scratch_counter += 1;
+        self.vm.interner.intern(&format!("{base}#{n}"))
+    }
+
+    /// Declares a module-level global binding named `name`, recording its
+    /// mutability in [`super::Compiler::global_bindings`].
+    ///
+    /// The shared entry point behind every source-level `let`/`const`
+    /// binding at module scope ([`super::patterns`]) and `import … as Name`
+    /// (`mod.rs::compile_import`) — anywhere a name is declared as a global
+    /// rather than emitted directly by `class_decl.rs` (see that field's own
+    /// doc for why class declarations are exempt). Rejects a same-scope
+    /// redeclaration exactly as [`Self::add_local`] does for locals
+    /// (L-3/L-5); a `const` may never be reacquired as mutable by a later
+    /// `let` of the same name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CompilerError::BindingRedeclared`] if `name` is already
+    /// declared as a global.
+    pub(super) fn declare_global(&mut self, name: Symbol, is_mutable: bool) -> Result<(), CompilerError> {
+        let is_throwaway = self.vm.resolve_symbol(name) == "_";
+        if !is_throwaway && self.global_bindings.contains_key(&name) {
+            return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));
+        }
+        self.global_bindings.insert(name, is_mutable);
+        Ok(())
     }
 
     /// Resolves `name` as a local in the current function, returning its slot.
@@ -164,6 +228,27 @@ impl<'vm> Compiler<'vm> {
             return Some(self.add_upvalue(func_idx, upvalue_idx, false));
         }
 
+        None
+    }
+
+    /// Reports whether a name captured from an enclosing function is mutable,
+    /// without mutating any capture flags — a read-only mirror of
+    /// [`Self::resolve_upvalue_in`]'s local-then-recurse search.
+    ///
+    /// Closes DEFERRED #13 / L-3's captured-write hole: a block that writes a
+    /// `const` local from an enclosing scope through `Bytecode::SetUpvalue`
+    /// was not previously checked at all (only direct `SetLocal`/`SetGlobal`
+    /// were). Returns `None` if `name` is not found as a local in any
+    /// enclosing function (the caller only invokes this once
+    /// [`Self::resolve_upvalue`] has already confirmed `name` resolves as an
+    /// upvalue at all, so `None` here is unreachable in practice, but the
+    /// search is independent so it stays total).
+    pub(super) fn resolve_captured_mutable(&self, name: Symbol) -> Option<bool> {
+        for func_idx in (0..self.functions.len().saturating_sub(1)).rev() {
+            if let Some(slot) = self.resolve_local_in(func_idx, name) {
+                return Some(self.functions[func_idx].locals[slot].is_mutable);
+            }
+        }
         None
     }
 

@@ -17,36 +17,65 @@ pub enum CompilerError {
     #[error("Invalid assignment target.")]
     InvalidAssignmentTarget,
 
-    /// A reassignment of a `let`-bound name (local, upvalue or global).
+    /// A reassignment of a `const`-bound name (local, upvalue or global), or
+    /// a captured write to a `const` through a closure (L-3).
     ///
-    /// `let` bindings are immutable per
-    /// [ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md); only `var`
-    /// bindings may be reassigned. The offending name is carried for the
-    /// diagnostic.
-    #[error("Cannot reassign immutable `let` binding '{0}'; declare it with `var` to allow mutation.")]
+    /// `const` bindings are immutable per
+    /// [ADR-0064](../../../docs/adr/accepted/0064-let-const-bindings-and-field-mutability.md);
+    /// only `let` bindings may be reassigned. The offending name is carried
+    /// for the diagnostic.
+    #[error("Cannot reassign immutable `const` binding '{0}'; declare it with `let` to allow mutation.")]
     AssignToImmutable(String),
 
-    /// A `let` binding written without an initializer.
+    /// A `const` binding written without an initializer.
     ///
-    /// `let x` with no `= expr` is rejected at compile time
-    /// ([ADR-0014](../../../docs/adr/accepted/0014-let-var-bindings.md)); an
-    /// uninitialized binding must use `var x`, which reads the surface `None`
-    /// value ([ADR-0007](../../../docs/adr/accepted/0007-option-type.md)). The offending
-    /// name is carried for the diagnostic.
-    #[error("`let` binding '{0}' requires an initializer; use `var {0}` for an uninitialized binding.")]
-    LetWithoutInitializer(String),
+    /// `const x` with no `= expr` is rejected at compile time
+    /// ([ADR-0064](../../../docs/adr/accepted/0064-let-const-bindings-and-field-mutability.md));
+    /// an uninitialized binding must use `let x`, which reads the surface
+    /// `None` value ([ADR-0007](../../../docs/adr/accepted/0007-option-type.md)).
+    /// The offending name is carried for the diagnostic
+    /// (`binding.const_requires_initializer`).
+    #[error("`const` binding '{0}' requires an initializer; use `let {0}` for an uninitialized binding.")]
+    ConstWithoutInitializer(String),
 
-    /// A destructuring `let`/`var` pattern written without an initializer.
+    /// A destructuring `let`/`const` pattern written without an initializer.
     ///
     /// A tuple or list [`Pattern`](phalcom_ast::ast::Pattern) has nothing to unpack from an absent
-    /// value, so `let (a, b)` / `var [a, b]` with no `= expr` is rejected
-    /// regardless of `let`/`var` (U14, open-questions.md Q7,
+    /// value, so `let (a, b)` / `const [a, b]` with no `= expr` is rejected
+    /// regardless of `let`/`const` (U14, open-questions.md Q7,
     /// [ADR-0046](../../../docs/adr/accepted/0046-destructuring-bindings.md)) — unlike
-    /// a bare-name `var x`, which is allowed and reads `None`
-    /// ([`CompilerError::LetWithoutInitializer`]'s counterpart for the
+    /// a bare-name `let x`, which is allowed and reads `None`
+    /// ([`CompilerError::ConstWithoutInitializer`]'s counterpart for the
     /// non-destructuring case). The [`SourceRange`] is the pattern's span.
-    #[error("a destructuring `let`/`var` pattern requires an initializer to unpack.")]
+    #[error("a destructuring `let`/`const` pattern requires an initializer to unpack.")]
     DestructuringWithoutInitializer(SourceRange),
+
+    /// A field declared with the `let` keyword (`let _x`).
+    ///
+    /// Fields have exactly two spellings (L-2, ADR-0064 §3): bare `_x`
+    /// (mutable) or `const _x` (immutable) — there is no third, keyworded
+    /// mutable form. The offending field name is carried for the diagnostic
+    /// (`field.no_mutable_keyword`).
+    #[error("mutable fields take no keyword; write `{0}` instead of `let {0}`.")]
+    FieldNoMutableKeyword(String),
+
+    /// A write to a `const` field outside its class's constructor body.
+    ///
+    /// `const` field writes are legal only inside `construct` (ADR-0064 §3,
+    /// L-3) — no flow analysis is performed, so this is keyed purely on which
+    /// member the write syntactically appears in. The offending field name is
+    /// carried for the diagnostic (`field.const_write`).
+    #[error("cannot assign to `const` field '{0}' outside a constructor.")]
+    ConstFieldWrite(String),
+
+    /// A same-scope redeclaration of a `let` or `const` binding (L-3/L-5).
+    ///
+    /// One name, one declaration, per scope — for both binding kinds; a
+    /// redeclaration cannot release a `const`'s immutability. Nested-scope
+    /// shadowing is unaffected (`binding.redeclared`). The offending name is
+    /// carried for the diagnostic.
+    #[error("'{0}' is already declared in this scope; use assignment, or declare it in a nested scope to shadow.")]
+    BindingRedeclared(String),
 
     /// A branch condition that is a syntactically detectable `Option` literal.
     ///

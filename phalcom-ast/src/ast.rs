@@ -279,8 +279,8 @@ pub struct VariantDef {
 /// class-body position (`docs/spec/v0.2/experimental/annotations-construct.md`
 /// "Prerequisite 1", U-ANNOT-LAYOUT §3.1).
 ///
-/// Distinct from [`LetBinding`] (the statement-position form of the same
-/// `let`/`var` keywords, ADR-0014) purely by parse *position* — the parser
+/// Distinct from [`LetBinding`] (the statement-position form of `let`/`const`,
+/// ADR-0064) purely by parse *position* — the parser
 /// disambiguates in [`crate::parser`]'s `parse_class_member`, which only ever
 /// runs inside a class body, so no lookahead ambiguity exists.
 ///
@@ -297,9 +297,10 @@ pub struct FieldDef {
     /// The field's name, as written (conventionally leading-underscore,
     /// e.g. `"_x"`, though the grammar does not enforce this).
     pub name: String,
-    /// Whether the field was declared `var` (`true`, mutable) or `let`
-    /// (`false`, immutable) — ADR-0014's mutability distinction, carried
-    /// over unchanged from [`LetBinding::kind`]'s two-way split.
+    /// Whether the field was declared *without* `const` (`true`, mutable) or
+    /// with `const` (`false`, immutable) — ADR-0064's field mutability
+    /// distinction (L-2). Mutable fields take no keyword at all (`_x`, not
+    /// `let _x`); only `const _x` spells the immutable form.
     pub mutable: bool,
     /// The field's default-value expression (`= expr`), or `None` if the
     /// field was declared with no initializer. A layout-derive attribute
@@ -404,27 +405,30 @@ pub struct SetterDef {
     pub name_range: SourceRange,
 }
 
-/// Whether a binding is immutable (`let`) or mutable (`var`).
+/// Whether a binding is mutable (`let`) or immutable (`const`).
 ///
-/// Per ADR-0014: a `let` binding cannot be reassigned (reassignment is a
-/// compile error) and requires an initializer, whereas a `var` binding is
-/// mutable and may be declared without one — an uninitialized `var` reads the
-/// surface `None` value (ADR-0007). Enforcement of these rules lives in the
-/// compiler; the AST only records which form was written.
+/// Per [ADR-0064](../../../docs/adr/accepted/0064-let-const-bindings-and-field-mutability.md):
+/// a `let` binding is mutable and may be declared without an initializer — an
+/// uninitialized `let` reads the surface `None` value (ADR-0007) — whereas a
+/// `const` binding cannot be reassigned (reassignment is a compile error,
+/// `AssignToImmutable`) and requires an initializer. Same-scope redeclaration
+/// is rejected for both kinds (`binding.redeclared`, ruling L-3/L-5); nested
+/// shadowing stays legal. Enforcement of these rules lives in the compiler;
+/// the AST only records which form was written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingKind {
-    /// An immutable `let` binding.
+    /// A mutable `let` binding.
     Let,
-    /// A mutable `var` binding.
-    Var,
+    /// An immutable `const` binding.
+    Const,
 }
 
-/// A `let`/`var` binding, optionally with an initializer.
+/// A `let`/`const` binding, optionally with an initializer.
 ///
-/// The [`kind`](LetBinding::kind) distinguishes the immutable `let` form from
-/// the mutable `var` form (ADR-0014). A missing [`value`](LetBinding::value)
-/// means no initializer was written; the compiler rejects that for `let` and
-/// surfaces `None` for `var`. The [`pattern`](LetBinding::pattern) is either a
+/// The [`kind`](LetBinding::kind) distinguishes the mutable `let` form from
+/// the immutable `const` form (ADR-0064). A missing [`value`](LetBinding::value)
+/// means no initializer was written; the compiler surfaces `None` for `let`
+/// and rejects it for `const`. The [`pattern`](LetBinding::pattern) is either a
 /// bare name (the pre-U14 case) or a destructuring [`Pattern`] — a tuple or
 /// list pattern that positionally unpacks the initializer (open-questions.md
 /// Q7, [ADR-0046](../../../docs/adr/accepted/0046-destructuring-bindings.md)). A
@@ -432,7 +436,7 @@ pub enum BindingKind {
 /// `kind` — there is nothing to unpack from an absent value.
 #[derive(Debug, Clone)]
 pub struct LetBinding {
-    /// Whether this is an immutable `let` or a mutable `var` binding.
+    /// Whether this is a mutable `let` or an immutable `const` binding.
     pub kind: BindingKind,
     /// The bound name or destructuring pattern.
     pub pattern: Pattern,

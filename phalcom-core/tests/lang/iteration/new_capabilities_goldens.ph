@@ -35,7 +35,7 @@ System.print(t_map.at(0)) // "hello!"
 System.print(t_map.at(1)) // "world!"
 
 // Range capabilities
-let r = Range.new(1, 4, true) // 1, 2, 3, 4 (Wait, is inclusive true start and end inclusive? Let's check: 1,2,3,4, size 4. Yes, range_inclusive_exclusive_and_laziness.ph has: let inc = Range.new(1, 5, true) inc.size is 5. So let's write: let r = Range.new(1, 3, true) to get 1, 2, 3)
+// Range.new(1, 3, true) is inclusive on both ends: 1, 2, 3 (size 3).
 let r = Range.new(1, 3, true)
 System.print(r.isEmpty) // false
 let r_map = r.map { x => x * 2 }.toList

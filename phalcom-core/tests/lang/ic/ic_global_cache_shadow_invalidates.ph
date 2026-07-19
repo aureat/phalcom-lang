@@ -29,7 +29,8 @@ System.print(C.get)
 List = 99
 System.print(C.get)
 
-// Re-declaration returns the existing slot (declare is idempotent), so this is
-// a plain write, not a new binding.
-var List = 7
-System.print(C.get)
+// Same-scope re-declaration is now a compile error (L-3/L-5) — the
+// idempotent-declare case this fixture used to exercise moved to
+// binding_const_redeclared_same_scope.ph / binding_var_is_not_a_keyword.ph's
+// sibling negative fixtures. Only the fresh-slot declare and plain-assignment
+// cases above remain here.

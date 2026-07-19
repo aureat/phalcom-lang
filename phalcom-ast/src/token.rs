@@ -28,14 +28,18 @@ use std::ops::Range;
 /// snapshots.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token {
-    /// The `let` keyword introducing an immutable binding (ADR-0014).
-    Let,
-    /// The `var` keyword introducing a mutable binding (ADR-0014).
+    /// The `let` keyword introducing a mutable binding (ADR-0064).
     ///
-    /// Distinct from [`Token::Let`] only in mutability: `var x` with no
-    /// initializer reads the surface `None` value, whereas `let x` with no
+    /// Distinct from [`Token::Const`] only in mutability: `let x` with no
+    /// initializer reads the surface `None` value, whereas `const x` with no
     /// initializer is rejected at compile time. See
     /// `docs/spec/values-and-absence.md` §3.1.
+    Let,
+    /// The `const` keyword introducing an immutable binding (ADR-0064).
+    Const,
+    /// The `var` keyword — transient step-1 alias for [`Token::Let`], deleted
+    /// by the end of U-BINDINGS step 2 (L-1). Not part of the final grammar;
+    /// exists only to keep the tree buildable mid-migration.
     Var,
     /// The `fn` keyword.
     Fn,

@@ -6,7 +6,7 @@ use phalcom_common::range::SourceRange;
 use super::error::CompilerError;
 use super::Compiler;
 
-// ── Destructuring `let`/`var` bindings (U14, open-questions.md Q7) ───────
+// ── Destructuring `let`/`const` bindings (U14, open-questions.md Q7) ───────
 //
 // A destructuring pattern desugars to a **single** evaluation of the
 // initializer, then positional reads through the ordinary `at(_)` selector
@@ -16,50 +16,49 @@ use super::Compiler;
 
 impl<'vm> Compiler<'vm> {
     /// Binds `pattern` against the value currently sitting on top of the
-    /// operand stack — the single, shared entry point for every `let`/`var`
+    /// operand stack — the single, shared entry point for every `let`/`const`
     /// binding (U14): a bare [`Pattern::Name`] claims the value directly
     /// (identical to the pre-U14 binding path); a [`Pattern::Tuple`]/
     /// [`Pattern::List`] first claims it into a synthetic scratch local (so
     /// its sub-patterns can read it positionally more than once) and then
     /// recurses through [`Self::compile_pattern_bind_from_slot`].
     ///
-    /// `as_global` mirrors ADR-0014's existing local-vs-global split (module
-    /// top level binds a global; anywhere else binds a local) and is threaded
-    /// unchanged through every leaf of the pattern, so `let (a, b) = point`
-    /// at module scope defines two globals exactly as two sequential
-    /// `let a = …`/`let b = …` statements would.
+    /// `as_global` mirrors ADR-0064's local-vs-global split (module top level
+    /// binds a global; anywhere else binds a local) and is threaded unchanged
+    /// through every leaf of the pattern, so `let (a, b) = point` at module
+    /// scope defines two globals exactly as two sequential `let a = …`/
+    /// `let b = …` statements would.
     ///
     /// # Errors
     ///
-    /// Propagates any error from a nested pattern (there are currently none —
-    /// the pattern was already validated by the parser — but the signature
-    /// stays fallible so a future refutable pattern can plug in here without
-    /// reshaping the call sites, ADR-0046 §4).
+    /// Returns [`CompilerError::BindingRedeclared`] if a leaf name is already
+    /// declared in the same scope (L-3/L-5); otherwise propagates any error
+    /// from a nested pattern.
     pub(super) fn compile_pattern_bind_top_of_stack(&mut self, pattern: &Pattern, mutable: bool, as_global: bool) -> Result<(), CompilerError> {
         match pattern {
             Pattern::Name { name, range } => {
                 let name_sym = self.vm.interner.intern(name);
                 if as_global {
                     // Module-level (global) variable. Globals never appear in
-                    // `functions`, so an immutable `let` is tracked in a side
-                    // set the assignment path consults (ADR-0014).
-                    if !mutable {
-                        self.immutable_globals.insert(name_sym);
-                    }
+                    // `functions`, so mutability is tracked in a side map the
+                    // assignment path consults (ADR-0064); the same call
+                    // rejects a same-scope redeclaration (L-3/L-5).
+                    self.declare_global(name_sym, mutable)?;
                     let name_idx = self.add_constant(Value::Symbol(name_sym));
                     self.emit(Bytecode::DefineGlobal(name_idx), *range);
                 } else {
                     // Local variable — record its mutability for the
-                    // assignment path (ADR-0014).
-                    self.add_local(name_sym, mutable);
+                    // assignment path (ADR-0064); rejects a same-scope
+                    // redeclaration (L-3/L-5).
+                    self.add_local(name_sym, mutable)?;
                     let slot = self.functions.last().unwrap().num_locals - 1;
                     self.emit(Bytecode::SetLocal(slot as u16), *range);
                 }
                 Ok(())
             }
             Pattern::Tuple { range, .. } | Pattern::List { range, .. } => {
-                let scratch_sym = self.vm.interner.intern("$destructure");
-                self.add_local(scratch_sym, true);
+                let scratch_sym = self.fresh_scratch_symbol("$destructure");
+                self.add_local(scratch_sym, true)?;
                 let slot = (self.functions.last().unwrap().num_locals - 1) as u16;
                 self.emit(Bytecode::SetLocal(slot), *range);
                 self.compile_pattern_bind_from_slot(pattern, slot, mutable, as_global)
@@ -197,8 +196,8 @@ impl<'vm> Compiler<'vm> {
         let list_idx = self.add_constant(Value::Symbol(list_sym));
         self.emit(Bytecode::GetGlobal(list_idx), range);
         self.emit_operator_send("new", 0, range);
-        let rest_sym = self.vm.interner.intern("$destructure_rest");
-        self.add_local(rest_sym, true);
+        let rest_sym = self.fresh_scratch_symbol("$destructure_rest");
+        self.add_local(rest_sym, true)?;
         let rest_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
         self.emit(Bytecode::SetLocal(rest_slot), range);
 
@@ -206,8 +205,8 @@ impl<'vm> Compiler<'vm> {
         self.begin_scope();
         let count_idx = self.add_constant(Value::Number(fixed_count as f64));
         self.emit(Bytecode::Constant(count_idx), range);
-        let i_sym = self.vm.interner.intern("$destructure_i");
-        self.add_local(i_sym, true);
+        let i_sym = self.fresh_scratch_symbol("$destructure_i");
+        self.add_local(i_sym, true)?;
         let i_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
         self.emit(Bytecode::SetLocal(i_slot), range);
 

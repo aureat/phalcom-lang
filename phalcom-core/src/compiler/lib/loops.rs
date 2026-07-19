@@ -75,10 +75,10 @@ impl<'vm> Compiler<'vm> {
     /// a per-iteration `let`, iteration.md §2) — the compiler still rebinds it
     /// each step through a direct [`Bytecode::SetLocal`], which bypasses the
     /// user-facing immutability check.
-    fn declare_loop_local(&mut self, name: &str, mutable: bool) -> usize {
+    fn declare_loop_local(&mut self, name: &str, mutable: bool) -> Result<usize, CompilerError> {
         let sym = self.vm.interner.intern(name);
-        self.add_local(sym, mutable);
-        self.functions.last().unwrap().num_locals - 1
+        self.add_local(sym, mutable)?;
+        Ok(self.functions.last().unwrap().num_locals - 1)
     }
 
     /// Lowers `for (binding in iter) { body }` to an inlined cursor `while`
@@ -125,7 +125,7 @@ impl<'vm> Compiler<'vm> {
 
         // 1. Evaluate the iterable exactly once into `$coll`.
         self.compile_expr(for_stmt.iter)?;
-        let coll_slot = self.declare_loop_local("$for_coll", true);
+        let coll_slot = self.declare_loop_local("$for_coll", true)?;
         self.emit(Bytecode::SetLocal(coll_slot as u16), range);
 
         // 2. `$cursor = $coll.iterate(None)` — `Bytecode::Nil` pushes the
@@ -133,12 +133,12 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::GetLocal(coll_slot as u16), range);
         self.emit(Bytecode::Nil, range);
         self.emit_operator_send("iterate", 1, range);
-        let cursor_slot = self.declare_loop_local("$for_cursor", true);
+        let cursor_slot = self.declare_loop_local("$for_cursor", true)?;
         self.emit(Bytecode::SetLocal(cursor_slot as u16), range);
 
         // 3. Declare the loop variable once (rebound each step); placeholder.
         self.emit(Bytecode::Nil, range);
-        let binding_slot = self.declare_loop_local(&for_stmt.binding, false);
+        let binding_slot = self.declare_loop_local(&for_stmt.binding, false)?;
 
         // 4. Enter the loop context so body `break`/`continue` resolve here.
         self.push_loop_context();

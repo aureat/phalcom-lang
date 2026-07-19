@@ -280,7 +280,7 @@ impl<'vm> Compiler<'vm> {
                 match *assign_expr.name {
                     Expr::Var { value, range } => {
                         let name_sym = self.vm.interner.intern(&value);
-                        // Enforce `let` immutability (ADR-0014) before
+                        // Enforce `const` immutability (ADR-0064, L-3) before
                         // evaluating the RHS. Resolution order mirrors the
                         // emit order below: current-function local, then an
                         // enclosing captured local (upvalue), then a global.
@@ -291,15 +291,16 @@ impl<'vm> Compiler<'vm> {
                             self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetLocal(slot as u16), range);
                         } else if let Some(upvalue) = self.resolve_upvalue(name_sym) {
-                            // NOTE: reassignment of a *captured* `let` (an outer
-                            // binding reached through an upvalue) is not yet
-                            // rejected here — U6's stated scope is the
-                            // current-function local and the module global.
-                            // Tracked in DEFERRED.md.
+                            // L-3 closes DEFERRED #13: a captured write to an
+                            // outer `const` (reached through an upvalue) is
+                            // rejected exactly like a direct write.
+                            if self.resolve_captured_mutable(name_sym) == Some(false) {
+                                return Err(CompilerError::AssignToImmutable(value));
+                            }
                             self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetUpvalue(upvalue as u16), range);
                         } else {
-                            if self.immutable_globals.contains(&name_sym) {
+                            if self.global_bindings.get(&name_sym) == Some(&false) {
                                 return Err(CompilerError::AssignToImmutable(value));
                             }
                             self.compile_expr(assign_expr.value)?;

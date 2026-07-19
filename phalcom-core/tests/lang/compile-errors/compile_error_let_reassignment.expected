@@ -1,1 +1,1 @@
-Cannot reassign immutable `let` binding
+Cannot reassign immutable `const` binding
