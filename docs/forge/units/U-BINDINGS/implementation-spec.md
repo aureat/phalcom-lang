@@ -766,9 +766,20 @@ Diagnostics to add: `binding.redeclared`, plus reusing
 
 **This unit no longer fixes #17.** It was folded in on 2026-07-19 and pulled back out the
 same day, once [decision 0065](../../../decisions/0065-classes-are-closed.md) (*Classes are
-closed: remove class reopening*, Accepted 2026-07-19) surfaced. Without reopening the global
-clobber is unreachable, so a fix here would be dead code. 0065 lists `DEFERRED.md` #17 under
-its own Related set.
+closed: remove class reopening*, Accepted 2026-07-19) surfaced. 0065 lists `DEFERRED.md` #17
+under its own Related set.
+
+> **Correction 2026-07-19** (this paragraph previously read "the clobber is unreachable, so a
+> fix here would be dead code"). The fix is **not** dead code, and #17 does not close. Under
+> 0065 the defect dissolves only as a *user-reachable* bug — ruling 3 reserves kernel names, so
+> nobody outside core can write `class None`. It **survives as a bootstrap task**:
+> `vm/bootstrap.rs:262-265` inserts the `None` class row expressly so `core.ph` **can** complete
+> that stub, and ruling 4 sanctions exactly that. The guard is the prerequisite for `None` ever
+> carrying members or `@sealed` (`DEFERRED` #35). Ownership is now explicit:
+> [`U-CLASSCLOSE`](../U-CLASSCLOSE/plan.md) §3.5 lands it, because that unit already edits the
+> `Statement::Class` lowering path. Giving `None` a body is separately deferred —
+> [`docs/deferred/class-sealing-followups.md`](../../../deferred/class-sealing-followups.md)
+> item 3.
 
 **Carried forward for whoever implements 0065**, because it is easy to mis-test:
 
