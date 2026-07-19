@@ -9,6 +9,6 @@
 /// Used by both the completer (to seed identifier suggestions) and the
 /// highlighter (to build the keyword-matching regex at startup).
 pub const KEYWORDS: &[&str] = &[
-    "class", "import", "for", "while", "if", "else", "return", "break", "continue", "true", "false", "nil", "let", "and", "or", "not", "self", "super", "in",
-    "is", "as",
+    "class", "import", "for", "while", "if", "else", "return", "break", "continue", "true", "false", "nil", "let", "const", "and", "or", "not", "self",
+    "super", "in", "is", "as",
 ];

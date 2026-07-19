@@ -110,8 +110,8 @@ enum Cx<'a> {
 #[allow(dead_code)] // public API; not yet called from the active binary path
 pub fn builtin_keywords() -> &'static [&'static str] {
     &[
-        "class", "import", "for", "while", "if", "else", "return", "break", "continue", "true", "false", "nil", "let", "and", "or", "not", "self", "super",
-        "in", "is", "as",
+        "class", "import", "for", "while", "if", "else", "return", "break", "continue", "true", "false", "nil", "let", "const", "and", "or", "not", "self",
+        "super", "in", "is", "as",
     ]
 }
 
