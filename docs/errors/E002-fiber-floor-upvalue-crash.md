@@ -1,0 +1,46 @@
+# E002 · Fiber-floor failure capture drops the live stack without closing open upvalues
+
+- **Status:** OPEN — confirmed 2026-07-19 (reproduced under `target/debug/phalcom`)
+- **Severity:** blocker — deterministic crash (`index out of bounds` panic)
+- **Subsystem:** fibers / upvalue lifecycle
+- **Related:** [E001](E001-gc-ensure-temp-root-uaf.md) (same family — value held live across a boundary the scan misses); seam DEC-FIB-A (U-FIBER owns fiber-floor capture)
+
+## Defect
+
+When a fiber fails uncaught, the fiber-floor `Err` arm of `run_until`
+(`phalcom-core/src/vm/dispatch.rs` ~L290-338) discards the failed fiber's live
+`frames` / `stack` / `open_upvalues` — via `load_live_from`
+(`phalcom-core/src/primitive/fiber.rs:55-57`) — **without closing the open
+upvalues first**.
+
+A block that captured a fiber local and escaped (e.g. to a module global) is left
+with an `Upvalue::Open { fiber, slot }` pointing at the now-empty parked stack.
+Calling that block later hits `GetUpvalue` → `heap.fiber(fiber).stack[slot]` at
+`dispatch.rs:1062` → `index out of bounds: the len is 0 but the index is 1`.
+
+## Reproduction
+
+Panics under `target/debug/phalcom`:
+
+```phalcom
+var leak = { 0 }
+let b = Fiber.new {
+  var x = 42
+  leak = { x }             // block capturing x escapes to a module global
+  Fiber.abort(Error.new()) // uncaught failure -> fiber-floor capture, no unwind
+}
+b.try()                    // b marked Failed; its live stack dropped, upvalue left Open
+System.print(leak.call())  // GetUpvalue -> Open{fiber:b, slot} -> b.stack[slot] -> panic
+```
+
+## Fix direction (NOT implemented / NOT verified)
+
+The fiber-floor `Err` arm must `close_upvalues_from(0)` on the failing fiber's
+live mirror before the switch, and close each cascaded resumer's parked
+`open_upvalues` before `.clear()`.
+
+This matches the VM's **own** documented unwind invariant at `dispatch.rs:96-103`
+("close upvalues first, then truncate … so a closure that escaped the throwing
+block still observes its captured locals rather than a use-after-free") — the
+failure path simply skips it. Re-derive + full suite + repro before trusting;
+commit narrow on `main`.
