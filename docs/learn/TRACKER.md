@@ -36,7 +36,7 @@ Plan: [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md). Order C1 → C2 → C3, C4 d
 
 | # | Doc | Grip | Commit |
 |---|---|---|---|
-| C1 | [`concurrency/restricted-loop.md`](concurrency/restricted-loop.md) | a switch is `mem::take` on four VM fields and the loop is never told — which is why it is O(1) *and* why it is illegal under a native frame | *(this pass)* |
+| C1 | [`concurrency/restricted-loop.md`](concurrency/restricted-loop.md) | a switch is `mem::take` on four VM fields and the loop is never told — which is why it is O(1) *and* why it is illegal under a native frame | `a457904` |
 
 **C1 corrected two things its own plan asserted**, both recorded in
 [`restricted-loop/recon.md`](restricted-loop/recon.md) and the doc:
