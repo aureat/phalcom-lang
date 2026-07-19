@@ -1,8 +1,25 @@
 # U-CLASSCLOSE — Work order: classes are closed after definition
 
-_Unit **B** of two implementing [decision 0065](../../../decisions/0065-classes-are-closed.md).
+_Unit **B** of two implementing [decision 0065](../../../decisions/0065-classes-are-closed.md),
+as amended by [decision 0066](../../../decisions/0066-class-declarations-join-the-binding-namespace.md).
 **Blocked on [`U-CLASSNS`](../U-CLASSNS/plan.md)** — the redefinition error below is
 undecidable until class identity is `(module, name)`-keyed._
+
+> **Re-grounded 2026-07-19 after U-BINDINGS landed** (`b843fe2`, `42aafce`; tree green).
+> Three deltas, all from decision 0066 — read it before this plan:
+>
+> 1. **Ruling 8's import half is already shipped.** `import "a" as P` twice now errors via
+>    `declare_global` (`compiler/lib/scope.rs:181-182`). This unit inherits a **confirming
+>    test**, not an implementation.
+> 2. **A class declaration must register its name in `global_bindings`** (§3.6 below). Classes
+>    are currently exempt (`compiler/lib/mod.rs:57-61`) *solely* so reopening and stub
+>    completion survive L-5 — a reason this unit deletes. The exemption leaves a live
+>    cross-kind hole, verified: `class Point {}` + `import "m1" as Point` silently clobber
+>    either way round, the class-then-import direction surfacing as a **runtime** error
+>    (`<module m1> does not understand 'new()'`) far from the offending line.
+> 3. **The two-span diagnostic is new machinery, not a copy.** `CompilerError` has 14 variants;
+>    five carry one `SourceRange`, **none carries two**, and `BindingRedeclared` carries zero.
+>    Budget for it.
 
 > Retires ADR-0026 **Axis 1** ("methods are open"). Axis 2 (superclass reparenting sealed) is
 > kept and strengthened. ADR-0026 is already flipped to Retired in both trackers.
@@ -71,6 +88,12 @@ Five changes. Each maps to a numbered ruling in decision 0065.
 
 `field_layouts` hit under the *same module key* → error. Also: duplicate **members** inside one
 body — a field or a method — no silent last-writer-wins at any granularity.
+
+> **U-BINDINGS L-4 was withdrawn in favour of this unit** (`81c8dc2`, 2026-07-19). Both units
+> had independently ruled duplicate-member-is-an-error on the same day with conflicting
+> diagnostic names; U-BINDINGS struck its rule rather than delete it, and **does not implement
+> a duplicate-field check**. This unit owns fields *and* methods. Their corpus scan found
+> **zero** duplicate field declarations, so the deferral costs nothing.
 
 Diagnostic is **`X is already defined`** carrying **both spans** (original declaration and
 duplicate), house miette style. The first declaration's span is read from `ClassLayout`, where
@@ -179,6 +202,28 @@ attempt `DEFERRED` #35's sealing unification. Both are
 drags ADR-0044's bootstrap ordering (`Nil`→`None` surfacing runs during bootstrap, before `.ph`
 decorators) into a unit that otherwise does not touch it.
 
+### 3.6 Class names register in `global_bindings` (decision 0066, ruling 1)
+
+A class declaration calls into the same map `declare_global` maintains
+(`compiler/lib/scope.rs:179`), so a class and an `import … as Name` can no longer both claim one
+name in silence.
+
+**Registration only — the class keeps its own check and its own diagnostic.** Do *not* route
+`Statement::Class` through `declare_global` itself: that would inherit `BindingRedeclared`'s
+guidance, *"use assignment, or declare it in a nested scope to shadow,"* which misinstructs
+twice for a class — you cannot assign one, and §3.4 bans nested declarations outright.
+
+Resulting behavior:
+
+| collision | reported as |
+|---|---|
+| class then class | `class.already_defined`, both spans |
+| import then class | `class.already_defined`, both spans |
+| class then import | `binding.redeclared` (from the import side, no work here) |
+
+⚠️ **`compiler/lib/mod.rs:57-61`'s doc comment documents the exemption this removes.** Update it
+in the same pass — it currently states class declarations "never interact with this map."
+
 ### Rubric — hazards & preclusion (mandatory)
 
 | Hazard | Mitigation |
@@ -266,8 +311,17 @@ This is arguably the more honest home anyway — the invariant under test is VM-
 
 New negative-lane fixtures: duplicate class in one module; duplicate method in one body;
 duplicate field in one body; `class List` in a user module; class declaration inside a method
-body; `class None` in a user module. Positive lane: `@variant` still expands; bootstrap runs;
+body; `class None` in a user module; **and both cross-kind orderings** (`import … as Point` then
+`class Point`, and the reverse — §3.6). Positive lane: `@variant` still expands; bootstrap runs;
 `x == None` holds after a `None`-adjacent compile.
+
+**Confirming test, not new work** (decision 0066): `import "a" as P` twice already errors via
+U-BINDINGS' `declare_global`. Add the fixture so the behavior is pinned by this unit's lane
+rather than left implicit in another unit's.
+
+**The both-spans assertion is the fixture to get right.** Since this is the codebase's first
+two-span diagnostic, the negative fixture must assert that *both* labels render — a single-span
+regression would otherwise pass a substring check silently.
 
 Error fixtures go in the **negative** subdir or the suite reddens.
 

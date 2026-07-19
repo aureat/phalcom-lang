@@ -17,6 +17,7 @@ they move here.
 | # | Title | Status | Supersedes | Superseded by | Shipped |
 |---|---|---|---|---|---|
 | [0065](0065-classes-are-closed.md) | Classes are closed: remove class reopening | Accepted | ADR-0026 (Axis 1) | | ❌ ruled 2026-07-19, unimplemented |
+| [0066](0066-class-declarations-join-the-binding-namespace.md) | Class declarations join the binding namespace; duplicate diagnostic carries both spans | Accepted | *amends* 0065 (rulings 2, 8) | | ⚠️ partial — 0065 ruling 8's import half shipped with U-BINDINGS (`b843fe2`), verified live; the rest unimplemented |
 
 ## Cross-tracker obligations
 

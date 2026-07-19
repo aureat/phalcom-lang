@@ -5,6 +5,12 @@
 - Supersedes: [ADR-0026](../adr/accepted/0026-class-hierarchy-mutability.md) — reverses its
   **Axis 1** ("methods are open"). Axis 2 (superclass reparenting is sealed) is kept
   unchanged and strengthened.
+- Amended by: [decision 0066](0066-class-declarations-join-the-binding-namespace.md)
+  (2026-07-19) — after U-BINDINGS landed. Narrows **ruling 8** (its `import … as Name` half is
+  already shipped and verified live) and fixes the mechanism and diagnostic shape behind
+  **ruling 2** (classes register in `global_bindings` to close a cross-kind collision hole; the
+  duplicate diagnostic is the codebase's first two-span error, which this decision had assumed
+  was a copy of an existing one — it is not). No ruling here is reversed.
 - Related: [ADR-0011](../adr/accepted/0011-static-instance-slot-layout.md) (frozen slot
   offsets), [ADR-0018](../adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)
   (override-epoch guard — **retained**, see §Consequences),
