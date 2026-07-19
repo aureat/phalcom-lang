@@ -30,7 +30,7 @@ A deliberate spiral. Ordering rationale: loop first (it supplies the grip), arti
 | 5 | [`vm/caches-and-fusion.md`](vm/caches-and-fusion.md) | resolve once per call **site**, not per call | `79e5a3e` |
 | 6 | [`vm/frame-identity.md`](vm/frame-identity.md) | a `FrameToken` is a pointer split in two: *where to look* vs *who it was* | `603ff18` |
 
-### Track: Concurrency — "Fibers & the restricted loop" — **in progress, 2/4**
+### Track: Concurrency — "Fibers & the restricted loop" — **in progress, 3/4**
 
 Plan: [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md). Order C1 → C2 → C3, C4 decided last.
 
@@ -38,6 +38,7 @@ Plan: [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md). Order C1 → C2 → C3, C4 d
 |---|---|---|---|
 | C1 | [`concurrency/restricted-loop.md`](concurrency/restricted-loop.md) | a switch is `mem::take` on four VM fields and the loop is never told — which is why it is O(1) *and* why it is illegal under a native frame | `a457904` |
 | C2 | [`concurrency/parked-fiber.md`](concurrency/parked-fiber.md) | a `FiberObject` is the set of buffers a fiber is *not* using; four of twelve fields move, and because they **move** rather than swap, every bug here is a move that did not finish | `66c1db5` |
+| C3 | [`concurrency/fiber-failure.md`](concurrency/fiber-failure.md) | an error leaves a fiber twice over and the two exits are different machines — inside, a Rust `Err` that closes escaped capture cells before reclaiming their slots; at the floor, a value in a slot with the frames dropped in bulk. Containment is implemented as **deletion** | `9ebd67e` |
 
 **C2 was the first run of the experimental [`AUTHORING-LEAN.md`](AUTHORING-LEAN.md)** — three phases,
 one agent, scratch in [`parked-fiber/`](parked-fiber/) (`recon.md` + `source-map.md`, no
@@ -67,16 +68,25 @@ one agent, scratch in [`parked-fiber/`](parked-fiber/) (`recon.md` + `source-map
 Ranked by how many shipped docs point at the gap. A forward pointer is a promise; these are the
 unpaid ones.
 
-### 1. Concurrency / fibers — **started; 2 docs left.** *(was 5 pointers, the largest debt)*
+### 1. Concurrency / fibers — **started; 1 doc left.** *(was 5 pointers, the largest debt)*
 
 C1 is shipped (above) and paid Doc 4's Lie #2 — the `switch_pending` branch. C2 is shipped and paid
 Doc 3's Lie #2 (`VM::frames` as "live mirror") and Doc 6's borrowed `next_frame_generation`
-invariant. Still owed:
+invariant. C3 is shipped and paid C1's `CannotYieldAcrossNativeFrame`-as-a-value pointer and C2's
+two-scars handoff. Still owed:
 
-- **C3 — when a fiber fails.** Needs C1 and C2 in the reader's head first; both are now there.
-  C2 hands it one open item: the fiber-failure cascade clears three of the four parked fields and
-  never `checking` (`vm/dispatch.rs::run_until`) — unreachable at HEAD, described-not-prescribed.
 - **C4 — futures.** Decide at write time; may fold into another doc (plan §3).
+
+Two items C3 raised and did not own, neither assigned to a unit:
+
+- **The `call`-mode cascade has no test coverage past its first hop.** Sixteen concurrency fixtures
+  combine `Fiber.new` with `.call()`; none makes a fiber fail while resumed by a fiber that was
+  itself resumed. The cascade loop's second-and-later iterations are untested at HEAD.
+- **[E002](../errors/E002-fiber-floor-upvalue-crash.md) is open with an unverified fix direction**,
+  and C3's finding is that the direction is larger than it looks: the failure path has no unwind to
+  hook a per-cell step onto, so a fix must *introduce* the walk. C1's open question (narrowing the
+  resume-side over-restriction) now carries this as a second cost — the guard is what keeps E002's
+  family mostly unreachable.
 
 One qualification C1 raised and did not own: [`upvalues.md`](vm/upvalues.md) owns the
 `GetUpvalue`/`SetUpvalue` fiber-aware branch, which makes Doc 1's "the inner loop is fiber-unaware"

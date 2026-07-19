@@ -269,6 +269,7 @@ result is recorded in `AUTHORING.md` §10 so nobody retries it blind.
 | Doc | Kind | A ran? | Wall | Agent tokens | Recon rows | Gate fails | Verdict |
 |---|---|---|---|---|---|---|---|
 | [C2 — the parked fiber](concurrency/parked-fiber.md) | mechanism | no (see below) | ~50 min | 170k / 44 calls (one agent) | 4 | 2, both fixed | **keep the variant; fix the gate wording** |
+| [C3 — when a fiber fails](concurrency/fiber-failure.md) | tension | **yes** | ~25 min | 243k / 91 calls (A 75k/12, B 168k/79) | 6 | 0 | **keep; A earned its place** |
 
 **Cost, against C1.** C1: five phases, two agents, Agent B alone 216k tokens / 57 tool calls,
 ~25 min. C2: three phases, one agent, B 170k / 44 calls — **~21% fewer agent tokens.** But wall-clock
@@ -315,3 +316,57 @@ thesis is a correction to three shipped artifacts, which is the opposite of flat
 **Disposition: do not delete this file.** Run the next doc (C3) on it as well. C3 is a *tension*
 doc, so it is also the first real test of the part C2 could not exercise — whether Agent A is worth
 running when the procedure says it must.
+
+---
+
+### C3 — the four-phase run (tension; A ran)
+
+**Cost.** Four phases, two agents, 243k agent tokens — *more* than C1's 216k, as expected for a doc
+that runs A. Wall-clock ~25 min, the best of the three, because both agents were launched in one
+message and run **synchronously**, which is C2's finding 3 applied. Neither died.
+
+**The A/B split paid, and here is the evidence rather than the assertion.** A was briefed blind and
+redacted (no `recon.md`, no findings, no proper nouns from the tree) and asked, among other things,
+to name *the specific bug it would expect a real implementation of its recommended branch to have*.
+It answered: skipping upvalue-closing on a failing fiber's last frames because "it's dying anyway",
+manifesting only when a closure captured from that frame had already escaped. **That is E002,
+predicted from theory alone, before A had seen a line of Phalcom.** A doc-kind gate that had called
+this a mechanism and skipped A would have lost the single strongest piece of evidence that the defect
+is structural rather than a local slip.
+
+**Quality, against §8's table.**
+
+| Signal | C1 baseline | C2 (lean, no A) | C3 (lean, A ran) |
+|---|---|---|---|
+| Findings that contradicted the plan or priors | 2 | 4 | **6** — (i) E001, one of the two scars the plan and C2 both handed to this doc, was fixed three commits before writing; (ii) E002's recorded repro no longer compiles; (iii) the three `clear()`s are a **no-op for the failing fiber** — its state dies by drop-on-reassignment elsewhere, which refines C2's own framing; (iv) `unwind_to` has exactly one caller, so the two paths share nothing; (v) the cascade has zero test coverage past its first hop; (vi) A's blind prediction matched the shipped defect |
+| Adversarial checks that changed a claim | 1 | 2 | **3** — all three REFUTE-asks resolved: `close_upvalues_from` unreachable from the failure arm VERIFIED-TRUE (with an independent repro in a different mode/API to show it is not API-specific); E001 VERIFIED-FIXED (which *inverted* a planned section); cascade-vs-cleanup unobservable VERIFIED-TRUE |
+| ADR-vs-HEAD gaps found and stated | 3 | 2 new | **1 new** — §6's "the unwind … stops at the fiber floor" implies unwinding *to* the floor; the implementation abandons *at* it, and nothing records that as a decision |
+| Claims labelled unverified rather than smuggled | 3 | 3 | **3** — Lua's `resume`/`wrap` split (recalled, no implementation checked); the `block_on` unrooted-`error` lead (surfaced, not reproduced, explicitly "not a claim"); E002's fix direction (marked a hypothesis) |
+| Predict-then-check moments | 1 | 1 | **1, with the productive wrong answer built in** — two programs one wrapper apart; the natural prediction is that the *contained* one is safer, and it is the one that panics |
+| Gate items failed on first pass | 0 | 2 | **0** |
+
+**Two procedure findings.**
+
+1. **C2's finding 1 (the gate wording) was followed and worked.** Recon concluded *tension* from §1
+   and F5 — two shipped features colliding at one `Err` arm — not from the plan's guess, and A was
+   dispatched once, without hedging. No "run A to be safe" state occurred.
+2. **C2's finding 2 (read the siblings first) is now load-bearing twice over.** Reading C1's headings
+   and C2's forbidden list *before* writing recon is what kept the comparison cast from repeating
+   Go-on-stacks and Wren-as-port, and it is what turned "the two confirmed scars" into a check rather
+   than a copy — which is how the E001 inversion was found at all.
+
+**Verdict across three runs: the lean variant holds, including the branch where it costs more.** The
+mechanism exemption saved an agent on C2 without flattening the doc; the tension gate spent one on C3
+and got the doc's structural claim underwritten by an independent blind prediction.
+
+**The promotion condition stated at the top of §8 is now met, and promoting it is not done here** —
+it is one decision with two edits attached, and it should be taken deliberately rather than as a side
+effect of shipping a doc:
+
+1. flip this file's Status header from *experimental, under test* and make it the phase structure
+   `AUTHORING.md` points at;
+2. add `AUTHORING.md` §10's **error 8, about ceremony** — the concrete form is *"`REQUIREMENTS.md`
+   was ~80% a restatement of `recon.md`, and a second artifact whose only load-bearing content is a
+   forbidden list and an open-risks table is ceremony; fold both into recon."*
+
+Until someone does both, this file stays experimental and `AUTHORING.md` stays authoritative.
