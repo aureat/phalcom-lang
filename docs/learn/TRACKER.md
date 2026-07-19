@@ -30,7 +30,7 @@ A deliberate spiral. Ordering rationale: loop first (it supplies the grip), arti
 | 5 | [`vm/caches-and-fusion.md`](vm/caches-and-fusion.md) | resolve once per call **site**, not per call | `79e5a3e` |
 | 6 | [`vm/frame-identity.md`](vm/frame-identity.md) | a `FrameToken` is a pointer split in two: *where to look* vs *who it was* | `603ff18` |
 
-### Track: Concurrency — "Fibers & the restricted loop" — **in progress, 3/4**
+### Track: Concurrency — "Fibers & the restricted loop" — **COMPLETE, 4/4**
 
 Plan: [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md). Order C1 → C2 → C3, C4 decided last.
 
@@ -39,6 +39,17 @@ Plan: [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md). Order C1 → C2 → C3, C4 d
 | C1 | [`concurrency/restricted-loop.md`](concurrency/restricted-loop.md) | a switch is `mem::take` on four VM fields and the loop is never told — which is why it is O(1) *and* why it is illegal under a native frame | `a457904` |
 | C2 | [`concurrency/parked-fiber.md`](concurrency/parked-fiber.md) | a `FiberObject` is the set of buffers a fiber is *not* using; four of twelve fields move, and because they **move** rather than swap, every bug here is a move that did not finish | `66c1db5` |
 | C3 | [`concurrency/fiber-failure.md`](concurrency/fiber-failure.md) | an error leaves a fiber twice over and the two exits are different machines — inside, a Rust `Err` that closes escaped capture cells before reclaiming their slots; at the floor, a value in a slot with the frames dropped in bulk. Containment is implemented as **deletion** | `9ebd67e` |
+| C4 | [`concurrency/future-await.md`](concurrency/future-await.md) | `Future#await` is the only method in the core library that makes its own precondition fail — it probes "may I yield?" inside `.attempt()`, which is two native re-entrant frames, so the probe *is* the obstruction. It never parks a fiber on any path | `8bee47a` |
+
+**C4 found its own plan wrong in the largest way yet.** The plan (and `CONCURRENCY-PLAN.md` §3, and
+the doc's own candidate grip) assumed `async`/`await` were **unbuilt** Slice B. They landed
+2026-07-14 in `06432bd`. Three records still say otherwise — `concurrency.md:187`,
+`U-FUTURE/plan.md:109-110`, and `core.ph:1335-1338`, the last being a class doc comment asserting
+the methods are "deliberately NOT built here" eleven lines above their implementations. The doc
+became the opposite of what was planned: not a doc about a feature that was not built, but about one
+that was built, is green in CI, and cannot run. Filed as
+[E004](../errors/E004-await-cannot-suspend.md). Recon in [`future-await/`](future-await/).
+Doc-kind gate: **knot** ⇒ Agent A skipped, B alone.
 
 **C2 was the first run of the experimental [`AUTHORING-LEAN.md`](AUTHORING-LEAN.md)** — three phases,
 one agent, scratch in [`parked-fiber/`](parked-fiber/) (`recon.md` + `source-map.md`, no
@@ -68,16 +79,15 @@ one agent, scratch in [`parked-fiber/`](parked-fiber/) (`recon.md` + `source-map
 Ranked by how many shipped docs point at the gap. A forward pointer is a promise; these are the
 unpaid ones.
 
-### 1. Concurrency / fibers — **started; 1 doc left.** *(was 5 pointers, the largest debt)*
+### 1. Concurrency / fibers — **PAID IN FULL, 4/4.** *(was 5 pointers, the largest debt)*
 
-C1 is shipped (above) and paid Doc 4's Lie #2 — the `switch_pending` branch. C2 is shipped and paid
-Doc 3's Lie #2 (`VM::frames` as "live mirror") and Doc 6's borrowed `next_frame_generation`
-invariant. C3 is shipped and paid C1's `CannotYieldAcrossNativeFrame`-as-a-value pointer and C2's
-two-scars handoff. Still owed:
+C1 paid Doc 4's Lie #2 — the `switch_pending` branch. C2 paid Doc 3's Lie #2 (`VM::frames` as "live
+mirror") and Doc 6's borrowed `next_frame_generation` invariant. C3 paid C1's
+`CannotYieldAcrossNativeFrame`-as-a-value pointer and C2's two-scars handoff. C4 paid C1's
+`System.schedule`/ready-queue pointer and C3's "how a scheduled fiber's failure reaches the host."
+No forward pointer into this track is now unpaid.
 
-- **C4 — futures.** Decide at write time; may fold into another doc (plan §3).
-
-Two items C3 raised and did not own, neither assigned to a unit:
+Three items the track raised and did not own, none assigned to a unit:
 
 - **The `call`-mode cascade has no test coverage past its first hop.** Sixteen concurrency fixtures
   combine `Fiber.new` with `.call()`; none makes a fiber fail while resumed by a fiber that was
@@ -87,6 +97,12 @@ Two items C3 raised and did not own, neither assigned to a unit:
   hook a per-cell step onto, so a fix must *introduce* the walk. C1's open question (narrowing the
   resume-side over-restriction) now carries this as a second cost — the guard is what keeps E002's
   family mostly unreachable.
+- **[E004](../errors/E004-await-cannot-suspend.md) is open, and it is three independent defects**
+  wearing one name: `await`'s self-defeating probe, a pump loop with no quiescence check, and a
+  waiter unregistered on one exit branch only. (b) and (c) survive any repair of (a). C4's separate
+  finding is that **no test in the corpus has a fiber await a pending future and later resume** — the
+  suite's coverage of the feature's central operation is zero cases, hidden by a fallback path good
+  enough to make every root-fiber demo pass.
 
 One qualification C1 raised and did not own: [`upvalues.md`](vm/upvalues.md) owns the
 `GetUpvalue`/`SetUpvalue` fiber-aware branch, which makes Doc 1's "the inner loop is fiber-unaware"

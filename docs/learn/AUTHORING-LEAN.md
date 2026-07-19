@@ -370,3 +370,51 @@ effect of shipping a doc:
    forbidden list and an open-risks table is ceremony; fold both into recon."*
 
 Until someone does both, this file stays experimental and `AUTHORING.md` stays authoritative.
+
+---
+
+### Run 4 — C4 `concurrency/future-await.md` (knot, A skipped)
+
+| | |
+|---|---|
+| Doc kind | **knot** — two independently correct decisions (the restricted-yield guard; implementing `await` in `.ph` with an attempt-and-inspect probe) combining into a feature that cannot run |
+| Agent A | **skipped**, per the gate |
+| Agent B | 1, synchronous, 6 questions, 2 REFUTE-asks — 129k tokens / 39 tool calls |
+| Wall clock | ~35 min |
+| Recon | 7 sections, 6 findings |
+| Gate | 0 failures |
+
+**Quality, against §8's table.**
+
+| Signal | C1 baseline | C2 (no A) | C3 (A ran) | C4 (no A) |
+|---|---|---|---|---|
+| Findings that contradicted the plan or priors | 2 | 4 | 6 | **6, one of them total** — the plan's entire premise (`async`/`await` unbuilt, doc may be too thin to exist) was false; they shipped in `06432bd`. Plus: the probe fails unconditionally for *every* fiber; the root branch is selected by an *absence* of type, not a test; the dead waiter is never unregistered; `then` is conditionally synchronous with divergent error semantics; the acceptance test's coverage of the central operation is zero cases |
+| Adversarial checks that changed a claim | 1 | 2 | 3 | **2** — both REFUTE-asks confirmed by B running its own programs, one of which independently reproduced the waiter-corruption crash I had found from a different starting program |
+| ADR-vs-HEAD gaps found and stated | 3 | 2 new | 1 new | **3 new** — and the third is a new *kind*: not a spec drifting from code, but a **class doc comment contradicting the class eleven lines below it** |
+| Claims labelled unverified rather than smuggled | 3 | 3 | 3 | **2** — that the `.attempt()` wrapper was chosen to *detect* the root case (the code's shape says so; no record does); DEC-FUT-SCHED having no `docs/decisions/` entry, so the ruling lives only in `plan.md` §9 |
+| Predict-then-check moments | 1 | 1 | 1 | **1** — two programs differing only in *who* awaits; the natural prediction (the worker parks) is wrong in a direction the method's name actively licenses |
+| Gate items failed on first pass | 0 | 2 | 0 | **0** |
+
+**Three procedure findings.**
+
+1. **Recon question #1 was, again, the whole doc.** "Is `.attempt()` native or `.ph`?" — one grep,
+   and every other finding is downstream of the answer. This is now four for four: the phase-1
+   instruction to *read exactly one thing, the core definition* keeps being the read that decides
+   the document. On C4 the "core definition" was not the subject's type but the type of the
+   **helper the subject calls**.
+2. **The knot exemption paid.** No fork was available to give A — there is no branch anyone chose
+   here — and A's value on C3 came specifically from predicting a bug in a *chosen* branch. Skipping
+   it cost nothing and the doc's structural claim is underwritten by a control program instead
+   (bare yield parks, wrapped yield dies), which is stronger evidence than a prediction.
+3. **New finding: run the feature's own acceptance test through the honesty pass, not just the
+   code.** The doc's sharpest section came from reading `concurrency_future_slice_b.ph` and noticing
+   that its one non-root case *asserts the bug as expected behaviour* — correctly, on its own terms,
+   while attributing the symptom to a cause that is not the only cause. Recon's phase-1 checklist
+   says to run the spec's example programs; it should also say **read the fixtures that claim to
+   cover the subject and ask which case each one actually exercises.** Two of C4's four fixtures
+   describe an operation they do not perform, and one carries a stale `PENDING` header while running
+   green.
+
+**Verdict across four runs, spanning all three doc kinds the gate distinguishes: the lean variant
+holds.** Both exemption branches (C2, C4) produced full-weight docs; the one spend (C3) earned it.
+The promotion condition remains met and remains untaken, for the same reason as above.
