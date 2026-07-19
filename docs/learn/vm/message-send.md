@@ -235,7 +235,7 @@ $ phalcom -i 'System.print(1 + 2)'
 <a id="lie-2"></a>**Lie #2:** the primitive arm is drawn as "call, place result." Its real return
 handling branches three ways — `switch_pending` (a fiber switch fired inside the primitive → the
 **concurrency doc**), the ordinary case, and `frames.len() < frames_before` (a non-local `return`
-unwound through the primitive → **Doc 6 (frame identity)**). Both edge branches are frame-identity /
+unwound through the primitive → **[Doc 6 (frame identity)](frame-identity.md)**). Both edge branches are frame-identity /
 fiber territory; treat the primitive here as "runs native, returns a value."
 
 ## The hard case: a send that resolves to nothing
@@ -454,7 +454,7 @@ the rest is what dictionary dispatch is.
 - **Doc 5 (caches & fusion)** — destroys Lie #1: the inline cache, `world_version` invalidation (the
   Ruby-open-class bill paid), the variadic cache, and the `InvokeLocal`/`InvokeConst`
   superinstructions that fuse a load into the send.
-- **Doc 6 (frame identity)** — destroys Lie #2's non-local-return branch: what `generation` and the
+- **[Doc 6 (frame identity)](frame-identity.md)** — destroys Lie #2's non-local-return branch: what `generation` and the
   frame token do when a `return` unwinds through a primitive.
 - **SuperSend** (`Bytecode::SuperSend`, ADR-0040) — its own opcode: the walk starts *above* a
   statically-named defining class, not the receiver's class. Mechanism deferred.

@@ -195,7 +195,7 @@ holds every activation's locals and temporaries, back to back. A frame's `stack_
   into the frame. Treat `generation` and `home_frame_token` as *just fields* for now. Their real
   job — giving a popped-and-reused slot a distinguishable identity so a non-local `return` can find
   its home activation or fail cleanly with `DeadFrameError` — is the identity mechanism branch (b)
-  owes, and it is the entire subject of **Doc 6 (frame identity)**. That is the generation counter
+  owes, and it is the entire subject of **[Doc 6 (frame identity)](frame-identity.md)**. That is the generation counter
   the fork warned this branch would need.
 
 - **Return (`Bytecode::Return`, ~L1099).** `let popped = self.frames.pop().unwrap();` then
@@ -355,6 +355,6 @@ frame decision — it fell out of the handle arena.
 
 - **Doc 4 (message send)** — what a call site *does* to push a frame: method lookup, argument
   layout, and the `new_call_frame`-then-push the four call sites share.
-- **Doc 6 (frame identity)** — destroys Lie #1: what `generation` and `home_frame_token` are for,
+- **[Doc 6 (frame identity)](frame-identity.md)** — destroys Lie #1: what `generation` and `home_frame_token` are for,
   how non-local return and `DeadFrameError` use the token, and why a raw frame pointer without a
   generation would be a memory-safety bug.

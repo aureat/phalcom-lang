@@ -423,7 +423,7 @@ no epoch — the coarse-but-correct floor that the planned machinery was going t
 
 ## Forward pointers
 
-- **Doc 6 (frame identity)** — the last VM-track doc: `FrameToken`, `generation`, and how a stale
+- **[Doc 6 (frame identity)](frame-identity.md)** — the last VM-track doc: `FrameToken`, `generation`, and how a stale
   non-local `return` is *detected* rather than corrupting memory.
 - **Per-class epoch, PIC, selector-only interner** — the `U-IC` plan's fine-grained cache: none built
   at HEAD (Lie #1's single slot and Lie #2's global counter are what run). Cited as intent, not truth.

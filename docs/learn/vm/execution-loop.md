@@ -445,7 +445,7 @@ track — when a later doc says "the `SuperSend` arm," this is where you find ou
 | `GetField(slot)` / `SetField(slot)` | 945/962 | read/write an instance or class field | *Frames* (Doc 3) |
 | `NewInstance` | 990 | allocate an instance | *Frames* (Doc 3) |
 | `Return` | 1093 | pop the frame, close upvalues, yield or continue | *Frames* (Doc 3) |
-| `ReturnNonLocal` | 1110 | unwind eagerly to a block's home frame | *Frames* (Doc 3) / *Frame Identity* (Doc 6) |
+| `ReturnNonLocal` | 1110 | unwind eagerly to a block's home frame | *Frames* (Doc 3) / *[Frame Identity](frame-identity.md)* (Doc 6) |
 | `Invoke(arity, sel)` | 1024 | dynamic send: IC probe → lookup → `doesNotUnderstand` | *Message Send* (Doc 4); cache: Doc 5 |
 | `InvokeLocal` / `InvokeConst` | 1036/1046 | fused `GetLocal`/`Constant` + `Invoke`, one dispatch | Doc 4; fusion: Doc 5 |
 | `SuperSend(argc, sel, defining)` | 863 | send starting above a statically-known class | *Message Send* (Doc 4) |
@@ -520,7 +520,7 @@ reached with a matching `closure_id` is entitled to the same code array — even
 to a different fiber — while `ip` and the frame base are re-read from the live frame every
 iteration regardless. Guarding on `closure_id` stays correct across a switch; hoisting `ip`
 would not, and the source comment flags that as a named bug the guard exists to avoid. That
-is the whole fiber content of this doc; *Frame Identity* (Doc 6) and the fibers doc carry the
+is the whole fiber content of this doc; *[Frame Identity](frame-identity.md)* (Doc 6) and the fibers doc carry the
 rest.
 
 ---

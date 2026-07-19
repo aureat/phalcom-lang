@@ -360,7 +360,7 @@ to it), and Phalcom's realization of it is **ADR-0013**.
 > a `(home-frame, generation-counter)` pair, and the generation counter is what turns "this block
 > outlived its home frame" from silent memory corruption into a clean `DeadFrameError`. ADR-0013
 > rejected the naive alternative (a raw frame pointer, no generation) for exactly that reason. What a
-> `FrameToken` is, how it is generated, and how a stale one is caught is **Doc 6 (frame identity)**.
+> `FrameToken` is, how it is generated, and how a stale one is caught is **[Doc 6 (frame identity)](frame-identity.md)**.
 
 The object-model framing behind all this is **ADR-0006**: `Function` is an abstract root, and `Block`
 and `Method` are **siblings** — neither a subtype of the other — precisely because a method carries a
