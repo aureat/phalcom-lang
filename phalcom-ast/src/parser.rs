@@ -295,14 +295,28 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Builds an [`SyntaxErrorKind::UnrecognizedToken`] at the current token.
+    /// Builds the syntax error for the current token, carrying `expected`.
+    ///
+    /// At [`Token::Eof`] this is [`SyntaxErrorKind::UnrecognizedEof`]; at any
+    /// other token it is [`SyntaxErrorKind::UnrecognizedToken`].
+    ///
+    /// Routing the two apart is what makes "the input is truncated" a named,
+    /// testable signal instead of a check for an empty token text (U-REPL §D7).
+    /// It also reads better: `class Foo {` reported `Expected "}"`, which says
+    /// nothing about *where* the parser ran out; it now reports `Unexpected end
+    /// of file. Expected "}"`.
     fn error_here(&self, expected: Vec<String>) -> SyntaxError {
         let lexeme = &self.tokens[self.pos];
-        SyntaxError {
-            kind: SyntaxErrorKind::UnrecognizedToken {
+        let kind = if matches!(self.peek(), Token::Eof) {
+            SyntaxErrorKind::UnrecognizedEof { expected }
+        } else {
+            SyntaxErrorKind::UnrecognizedToken {
                 token: self.cur_text(),
                 expected,
-            },
+            }
+        };
+        SyntaxError {
+            kind,
             range: lexeme.start..lexeme.end,
         }
     }

@@ -235,9 +235,14 @@ pub enum Token {
     /// The synthetic end-of-file marker injected once after the last real
     /// token.
     ///
-    /// The parser treats this as a normal token: an unexpected `Eof` surfaces as
-    /// a [`crate::error::SyntaxErrorKind::UnrecognizedToken`] whose text is the
-    /// empty string, matching the historical LALRPOP behaviour.
+    /// The parser treats this as a normal token for positioning, but reports it
+    /// distinctly: an unexpected `Eof` surfaces as
+    /// [`crate::error::SyntaxErrorKind::UnrecognizedEof`], not as an
+    /// `UnrecognizedToken` whose text happens to be empty (U-REPL §D7).
+    ///
+    /// That distinction is what lets a caller tell *truncated* input apart from
+    /// *wrong* input — the REPL's multi-line continuation check reads exactly
+    /// this signal rather than sniffing for an empty token string.
     Eof,
 }
 

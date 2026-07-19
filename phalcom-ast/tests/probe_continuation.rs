@@ -1,46 +1,114 @@
-//! Probe: which error kinds does truncated input actually produce?
+//! U-REPL §D7 — truncated input is classified apart from wrong input.
 //!
-//! **This asserts nothing yet.** It prints a classification table; run with
-//! `--nocapture` to read it. It exists as the recorded evidence behind U-REPL
-//! D7 (`docs/forge/units/U-REPL/plan.md`), which establishes that the parser
-//! never emits `UnrecognizedEof` — every truncation surfaces as
+//! A REPL must decide, per line, whether to evaluate or to keep reading. That
+//! decision needs the parser to distinguish *ran out of input* from *found the
+//! wrong token*. Before §D7 it could not: every truncation surfaced as
 //! `UnrecognizedToken { token: "", .. }`, EOF being modelled as a zero-length
-//! token.
+//! token, so the only available check was sniffing for an empty token string —
+//! a load-bearing implementation detail rather than a named signal.
 //!
-//! U-REPL stage 5 promotes this into real assertions over that table
-//! (complete / incomplete / error per input), once EOF is routed to
-//! `UnrecognizedEof`. Until then it is a probe, not a guard — do not read a
-//! green result here as coverage.
+//! EOF is now routed to [`SyntaxErrorKind::UnrecognizedEof`], and this file
+//! asserts the three-way classification §D7 specifies. It began life as a probe
+//! that printed a table and asserted nothing; it is a guard now.
+//!
+//! The REPL half of §D7 (the reedline `Validator`, trailing `\`, blank-line
+//! submit) consumes this signal and is specified separately.
 
+use phalcom_ast::error::SyntaxErrorKind;
 use phalcom_ast::parser::parse;
 
+/// How a REPL should treat a given input.
+#[derive(Debug, PartialEq, Eq)]
+enum Verdict {
+    /// Parsed with no errors — evaluate it.
+    Complete,
+    /// Ran out of input — keep reading.
+    Incomplete,
+    /// Genuinely malformed — report it now; more input will not help.
+    Error,
+}
+
+/// Classifies `src` the way the REPL's validator will.
+///
+/// `Incomplete` is precisely "some error was an `UnrecognizedEof`". Note the
+/// unterminated-string cases report an `UnterminatedString` *as well*; they
+/// still count as incomplete because strings legitimately span lines
+/// (precondition 8), and the trailing EOF error is what says so.
+fn classify(src: &str) -> Verdict {
+    let parsed = parse(src, 0);
+    if parsed.errors.is_empty() {
+        return Verdict::Complete;
+    }
+    if parsed.errors.iter().any(|e| matches!(e.kind, SyntaxErrorKind::UnrecognizedEof { .. })) {
+        return Verdict::Incomplete;
+    }
+    Verdict::Error
+}
+
 #[test]
-fn probe() {
+fn classifies_truncated_wrong_and_finished_input() {
     let cases = [
-        ("complete: let x = 1", "let x = 1"),
-        ("complete: expr", "1 + 1"),
-        ("open brace", "class Foo {"),
-        ("open brace + member", "class Foo {\n  bar() { 1 }"),
-        ("trailing operator", "let x = 1 +"),
-        ("trailing equals", "let x ="),
-        ("open paren", "foo(1,"),
-        ("open bracket", "[1, 2,"),
-        ("unterminated string", "let s = \"abc"),
-        ("genuine error", "let x = )"),
-        ("genuine error 2", "1 +* 2"),
-        ("empty", ""),
-        ("block open", "if (x) {"),
-        ("string across newline", "let s = \"abc\ndef\""),
-        ("string open across newline", "let s = \"abc\ndef"),
+        // Complete.
+        ("let x = 1", Verdict::Complete),
+        ("1 + 1", Verdict::Complete),
+        ("", Verdict::Complete),
+        ("let s = \"abc\ndef\"", Verdict::Complete),
+        // Incomplete — the parser reached EOF still wanting more.
+        ("class Foo {", Verdict::Incomplete),
+        ("class Foo {\n  bar() { 1 }", Verdict::Incomplete),
+        ("let x = 1 +", Verdict::Incomplete),
+        ("let x =", Verdict::Incomplete),
+        ("foo(1,", Verdict::Incomplete),
+        ("[1, 2,", Verdict::Incomplete),
+        ("if (x) {", Verdict::Incomplete),
+        ("let s = \"abc", Verdict::Incomplete),
+        ("let s = \"abc\ndef", Verdict::Incomplete),
+        // Error — a real token in the wrong place. More input cannot fix these,
+        // so a REPL must not sit waiting for it.
+        ("let x = )", Verdict::Error),
+        ("1 +* 2", Verdict::Error),
     ];
 
-    for (label, src) in cases {
-        let p = parse(src, 0);
-        let kinds: Vec<String> = p.errors.iter().map(|e| format!("{:?}", e.kind).chars().take(60).collect()).collect();
-        println!("--- {label:24} | src={src:?}");
-        println!("    stmts={} errors={}", p.program.statements.len(), p.errors.len());
-        for k in &kinds {
-            println!("      {k}");
+    for (src, want) in cases {
+        assert_eq!(classify(src), want, "misclassified {src:?}");
+    }
+}
+
+/// The EOF error names what was expected, which is the readability half of the
+/// change: `Expected "}"` alone never said the input had simply run out.
+#[test]
+fn eof_error_reports_end_of_file_and_what_was_expected() {
+    let parsed = parse("class Foo {", 0);
+    let err = parsed.errors.first().expect("truncated class body is an error");
+
+    match &err.kind {
+        SyntaxErrorKind::UnrecognizedEof { expected } => {
+            assert!(
+                expected.iter().any(|e| e.contains('}')),
+                "expected set should still name the missing brace, got {expected:?}"
+            );
         }
+        other => panic!("truncation must be UnrecognizedEof, got {other:?}"),
+    }
+
+    let rendered = err.kind.to_string();
+    assert!(
+        rendered.contains("Unexpected end of file"),
+        "message should say the input ended, got {rendered:?}"
+    );
+}
+
+/// A wrong token keeps carrying its text — `UnrecognizedEof` must not swallow
+/// the ordinary case.
+#[test]
+fn wrong_token_still_reports_the_offending_text() {
+    let parsed = parse("let x = )", 0);
+    let err = parsed.errors.first().expect("`)` is not an expression");
+
+    match &err.kind {
+        SyntaxErrorKind::UnrecognizedToken { token, .. } => {
+            assert_eq!(token, ")", "the offending token's text must survive");
+        }
+        other => panic!("a real token in the wrong place stays UnrecognizedToken, got {other:?}"),
     }
 }
