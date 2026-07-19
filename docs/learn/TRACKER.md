@@ -30,13 +30,20 @@ A deliberate spiral. Ordering rationale: loop first (it supplies the grip), arti
 | 5 | [`vm/caches-and-fusion.md`](vm/caches-and-fusion.md) | resolve once per call **site**, not per call | `79e5a3e` |
 | 6 | [`vm/frame-identity.md`](vm/frame-identity.md) | a `FrameToken` is a pointer split in two: *where to look* vs *who it was* | `603ff18` |
 
-### Track: Concurrency — "Fibers & the restricted loop" — **in progress, 1/4**
+### Track: Concurrency — "Fibers & the restricted loop" — **in progress, 2/4**
 
 Plan: [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md). Order C1 → C2 → C3, C4 decided last.
 
 | # | Doc | Grip | Commit |
 |---|---|---|---|
 | C1 | [`concurrency/restricted-loop.md`](concurrency/restricted-loop.md) | a switch is `mem::take` on four VM fields and the loop is never told — which is why it is O(1) *and* why it is illegal under a native frame | `a457904` |
+| C2 | [`concurrency/parked-fiber.md`](concurrency/parked-fiber.md) | a `FiberObject` is the set of buffers a fiber is *not* using; four of twelve fields move, and because they **move** rather than swap, every bug here is a move that did not finish | `66c1db5` |
+
+**C2 was the first run of the experimental [`AUTHORING-LEAN.md`](AUTHORING-LEAN.md)** — three phases,
+one agent, scratch in [`parked-fiber/`](parked-fiber/) (`recon.md` + `source-map.md`, no
+`REQUIREMENTS.md`, no `draft-concept.md`). Outcome logged in `AUTHORING-LEAN.md` §8. It also
+**corrected two things it inherited**: C1/Doc 3/ADR-0030 all call the switch a "swap" when it is a
+`mem::take` move, and recon's own retention finding was cut down by the source map (see §4.1 there).
 
 **C1 corrected two things its own plan asserted**, both recorded in
 [`restricted-loop/recon.md`](restricted-loop/recon.md) and the doc:
@@ -60,15 +67,15 @@ Plan: [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md). Order C1 → C2 → C3, C4 d
 Ranked by how many shipped docs point at the gap. A forward pointer is a promise; these are the
 unpaid ones.
 
-### 1. Concurrency / fibers — **started; 3 docs left.** *(was 5 pointers, the largest debt)*
+### 1. Concurrency / fibers — **started; 2 docs left.** *(was 5 pointers, the largest debt)*
 
-C1 is shipped (above) and paid Doc 4's Lie #2 — the `switch_pending` branch. Still owed:
+C1 is shipped (above) and paid Doc 4's Lie #2 — the `switch_pending` branch. C2 is shipped and paid
+Doc 3's Lie #2 (`VM::frames` as "live mirror") and Doc 6's borrowed `next_frame_generation`
+invariant. Still owed:
 
-- **C2 — the parked fiber.** The largest remaining debt-payer: Doc 6 quotes `store_live_into`'s
-  four-field `mem::take` and ADR-0030 §6's `next_frame_generation` invariant *as given*, and Doc 3
-  declared `VM::frames` a "live mirror" as its Lie #2. C1 used the swap as a one-line fact and
-  explicitly deferred the mechanism here.
-- **C3 — when a fiber fails.** Needs C1 and C2 in the reader's head first.
+- **C3 — when a fiber fails.** Needs C1 and C2 in the reader's head first; both are now there.
+  C2 hands it one open item: the fiber-failure cascade clears three of the four parked fields and
+  never `checking` (`vm/dispatch.rs::run_until`) — unreachable at HEAD, described-not-prescribed.
 - **C4 — futures.** Decide at write time; may fold into another doc (plan §3).
 
 One qualification C1 raised and did not own: [`upvalues.md`](vm/upvalues.md) owns the
