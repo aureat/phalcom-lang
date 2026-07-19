@@ -30,6 +30,23 @@ A deliberate spiral. Ordering rationale: loop first (it supplies the grip), arti
 | 5 | [`vm/caches-and-fusion.md`](vm/caches-and-fusion.md) | resolve once per call **site**, not per call | `79e5a3e` |
 | 6 | [`vm/frame-identity.md`](vm/frame-identity.md) | a `FrameToken` is a pointer split in two: *where to look* vs *who it was* | `603ff18` |
 
+### Track: Concurrency — "Fibers & the restricted loop" — **in progress, 1/4**
+
+Plan: [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md). Order C1 → C2 → C3, C4 decided last.
+
+| # | Doc | Grip | Commit |
+|---|---|---|---|
+| C1 | [`concurrency/restricted-loop.md`](concurrency/restricted-loop.md) | a switch is `mem::take` on four VM fields and the loop is never told — which is why it is O(1) *and* why it is illegal under a native frame | *(this pass)* |
+
+**C1 corrected two things its own plan asserted**, both recorded in
+[`restricted-loop/recon.md`](restricted-loop/recon.md) and the doc:
+- The plan attributed the `each`-vs-`while` restriction to ADR-0018's inliner. Wrong as the general
+  rule — `each` is **written in Phalcom** (`core.ph::Iterable#each`), and its `for` is the
+  compiler's own frameless lowering, not the inliner. The line is drawn at **block invocation**
+  (`Block#call` → `block_call`), not at native-vs-Phalcom code.
+- Plan §6's headline question is answered: the typed switch signal **shipped**, so C1 is a fork
+  doc — but as a `bool` field, not the ADR's `ControlFlow` return (deliberate; D-FIB-5).
+
 ### Track: Object model — **1 doc, no declared plan**
 
 | Doc | Grip | Note |
@@ -43,16 +60,20 @@ A deliberate spiral. Ordering rationale: loop first (it supplies the grip), arti
 Ranked by how many shipped docs point at the gap. A forward pointer is a promise; these are the
 unpaid ones.
 
-### 1. Concurrency / fibers — **5 pointers. The largest debt by far.**
+### 1. Concurrency / fibers — **started; 3 docs left.** *(was 5 pointers, the largest debt)*
 
-Docs 1, 2, 3, 4 and 6 all lean on the per-fiber mirror without explaining it. Doc 6 leans hardest:
-it quotes `store_live_into`'s four-field `mem::take` and ADR-0030 §6's invariant as given. **Until
-this exists the VM docs cannot explain their own guards** — why Doc 1's hoist keys on `closure_id`
-rather than `ip`, why `Upvalue::Open` names a fiber, why `frames` is a mirror at all.
+C1 is shipped (above) and paid Doc 4's Lie #2 — the `switch_pending` branch. Still owed:
 
-Big enough to be a track, not a doc. **Planned:** [`CONCURRENCY-PLAN.md`](CONCURRENCY-PLAN.md) —
-four docs (C1 restricted loop → C2 parked fiber → C3 fiber failure, C4 futures decided last).
-Sketch and grounding notes below; the plan supersedes them where they differ.
+- **C2 — the parked fiber.** The largest remaining debt-payer: Doc 6 quotes `store_live_into`'s
+  four-field `mem::take` and ADR-0030 §6's `next_frame_generation` invariant *as given*, and Doc 3
+  declared `VM::frames` a "live mirror" as its Lie #2. C1 used the swap as a one-line fact and
+  explicitly deferred the mechanism here.
+- **C3 — when a fiber fails.** Needs C1 and C2 in the reader's head first.
+- **C4 — futures.** Decide at write time; may fold into another doc (plan §3).
+
+One qualification C1 raised and did not own: [`upvalues.md`](vm/upvalues.md) owns the
+`GetUpvalue`/`SetUpvalue` fiber-aware branch, which makes Doc 1's "the inner loop is fiber-unaware"
+true of the loop's *structure* but not of two of its arms.
 
 ### 2. Sacred-selector inliner — 2 pointers
 
