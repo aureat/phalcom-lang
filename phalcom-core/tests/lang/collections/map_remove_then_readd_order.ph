@@ -5,7 +5,7 @@
 // the backing store actually produces afterward (swap-remove reshuffles the
 // probe sequence; this is a corner the thin corpus never exercised).
 
-let m = Map.new()
+const m = Map.new()
 m.at(1, put: "a")
 m.at(2, put: "b")
 m.at(3, put: "c")

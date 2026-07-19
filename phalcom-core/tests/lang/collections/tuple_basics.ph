@@ -5,8 +5,8 @@
 // across independently-built tuples, value-hash equality, immutability (no
 // mutation selector — dNU).
 
-let a = Tuple.fromList(List.new().add(1).add(2))
-let b = Tuple.fromList(List.new().add(1).add(2))
+const a = Tuple.fromList(List.new().add(1).add(2))
+const b = Tuple.fromList(List.new().add(1).add(2))
 System.print(a.size)
 System.print(a.at(0))
 System.print(a.at(1))

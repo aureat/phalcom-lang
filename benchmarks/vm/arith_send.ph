@@ -14,8 +14,8 @@
 // `acc` holds `1 + 2` and `i` the loop count; the bench reads both back after
 // the run and fails on a wrong answer, so a build whose arithmetic fast path
 // is wrong cannot post a number.
-var i = 0
-var acc = 0
+let i = 0
+let acc = 0
 while (i < 200000) {
   acc = 1 + 2
   i = i + 1

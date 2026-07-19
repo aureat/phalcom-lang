@@ -10,9 +10,9 @@
 class Point {
   construct new(x) { _x = x }
 }
-let a = Point.new(1)
-let b = Point.new(1)
-let c = a
+const a = Point.new(1)
+const b = Point.new(1)
+const c = a
 System.print(a == b)
 System.print(a == c)
 System.print(a == a)

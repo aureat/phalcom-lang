@@ -15,6 +15,6 @@ class Dog extends Animal {
   }
   breed => _breed
 }
-let d = Dog.new("Rex", "Collie")
+const d = Dog.new("Rex", "Collie")
 System.print(d.name)
 System.print(d.breed)

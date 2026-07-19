@@ -10,5 +10,5 @@
 class Adder {
   move(a, b) { return a + b }
 }
-let f = Adder.new()::move
+const f = Adder.new()::move
 System.print(f(3, 4))

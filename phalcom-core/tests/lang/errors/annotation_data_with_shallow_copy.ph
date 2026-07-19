@@ -9,15 +9,15 @@
 
 @data
 class Basket {
-  var _items
-  var _owner
+  _items
+  _owner
 }
 
-let items = List.new()
+const items = List.new()
 items.add("apple")
 
-let source = Basket.new(items: items, owner: "alice")
-let copy = source.with(items: None, owner: "bob")
+const source = Basket.new(items: items, owner: "alice")
+const copy = source.with(items: None, owner: "bob")
 
 copy.items.add("banana")
 

@@ -11,5 +11,5 @@ class SecondErr extends Error {
   construct new(msg) { super.new(msg) }
 }
 
-let r = { { throw FirstErr.new("first") }.ensure { throw SecondErr.new("second") } }.on(Error) { e => e.message }
+const r = { { throw FirstErr.new("first") }.ensure { throw SecondErr.new("second") } }.on(Error) { e => e.message }
 System.print(r)

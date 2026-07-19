@@ -5,7 +5,7 @@
 // Tuple whose elements are a Range and a Set — every combinator composes
 // with every other native collection with no special-casing.
 
-let pairs = List.new()
+const pairs = List.new()
 pairs.add(Tuple.fromList(List.new().add(1).add(2)))
 pairs.add(Tuple.fromList(List.new().add(3).add(4)))
 System.print(pairs.size)
@@ -13,13 +13,13 @@ System.print(pairs.at(0).at(0))
 System.print(pairs.at(1).at(1))
 System.print(pairs)
 
-let byGroup = Map.new()
+const byGroup = Map.new()
 byGroup.at("evens", put: List.new().add(2).add(4))
 byGroup.at("odds", put: List.new().add(1).add(3))
 System.print(byGroup.at("evens"))
 System.print(byGroup.at("odds").size)
 
-let mixed = Tuple.fromList(List.new().add(Range.new(1, 3, true)).add(Set.new().add(1).add(2)))
+const mixed = Tuple.fromList(List.new().add(Range.new(1, 3, true)).add(Set.new().add(1).add(2)))
 System.print(mixed.size)
 System.print(mixed.at(0).toList)
 System.print(mixed.at(1).size)

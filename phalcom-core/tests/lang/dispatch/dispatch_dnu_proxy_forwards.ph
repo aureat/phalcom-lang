@@ -20,6 +20,6 @@ class Proxy {
     return _target.perform(msg.selector, msg.args)
   }
 }
-let p = Proxy.new(Target.new())
+const p = Proxy.new(Target.new())
 System.print(p.greet)
 System.print(p.add(2, 3))

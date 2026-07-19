@@ -7,15 +7,15 @@
 // `first`/`at(0)` never materialize the sequence, so this stays instant
 // rather than allocating a million-element List.
 
-let inc = Range.new(1, 5, true)
-let exc = Range.new(1, 5, false)
+const inc = Range.new(1, 5, true)
+const exc = Range.new(1, 5, false)
 System.print(inc.size)
 System.print(exc.size)
 System.print(inc.size - exc.size)
 System.print(inc.includes(5))
 System.print(exc.includes(5))
 
-let huge = Range.new(1, 1000000, true)
+const huge = Range.new(1, 1000000, true)
 System.print(huge.size)
 System.print(huge.first)
 System.print(huge.at(0))

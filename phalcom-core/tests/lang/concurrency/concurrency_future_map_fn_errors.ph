@@ -8,14 +8,14 @@
 // not wrapped into a rejected future. Driven through a fiber so the
 // otherwise-uncaught raise is captured via `try()` instead of escaping to
 // the top level.
-let f = Fiber.new {
+const f = Fiber.new {
   Future.value(1).map { v => v.frobnicate() }
 }
-let r = f.try()
+const r = f.try()
 System.print(r.class.name)
 
-let g = Fiber.new {
+const g = Fiber.new {
   Future.value(1).then { v => v.frobnicate() }
 }
-let r2 = g.try()
+const r2 = g.try()
 System.print(r2.class.name)

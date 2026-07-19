@@ -15,7 +15,7 @@ class Object {
   // `Behavior`, which is not bootstrapped in this codebase (ADR-0003 designs
   // it; core.ph has only `Object`/`Class`/`Metaclass`).
   is(cls) {
-    var c = self.class
+    let c = self.class
     while (c != None) {
       (c == cls).ifTrue { return true }
       c = c.superclass
@@ -95,7 +95,7 @@ class String {
   // Read purely from the lead byte's numeric range: 1/2/3/4-byte sequences are
   // encoded by the lead byte's numeric value (no bitmask needed).
   leadByteLen_(i) {
-    let b = self.byteAt_(i)
+    const b = self.byteAt_(i)
     return (b == None).ifTrue({ None }, ifFalse: {
       (b < 128).ifTrue({ 1 }, ifFalse: {
         (b < 224).ifTrue({ 2 }, ifFalse: {
@@ -106,7 +106,7 @@ class String {
   // The Unicode scalar value at byte offset `i`, or `None` if out-of-range
   // or mid-sequence. UTF-8 decode via division/modulo (no bitwise ops).
   codePointAt(i) {
-    let b0 = self.byteAt_(i)
+    const b0 = self.byteAt_(i)
     return (b0 == None).ifTrue({ None }, ifFalse: {
       (b0 < 128).ifTrue({
         // ASCII single byte (0xxxxxxx)
@@ -118,7 +118,7 @@ class String {
         }, ifFalse: {
           (b0 < 224).ifTrue({
             // 2-byte sequence (110xxxxx 10xxxxxx)
-            let b1 = self.byteAt_(i + 1)
+            const b1 = self.byteAt_(i + 1)
             (b1 == None).ifTrue({ None }, ifFalse: {
               (b1 < 128).ifTrue({ None }, ifFalse: {
                 (b1 >= 192).ifTrue({ None }, ifFalse: {
@@ -129,8 +129,8 @@ class String {
           }, ifFalse: {
             (b0 < 240).ifTrue({
               // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-              let b1 = self.byteAt_(i + 1)
-              let b2 = self.byteAt_(i + 2)
+              const b1 = self.byteAt_(i + 1)
+              const b2 = self.byteAt_(i + 2)
               (b1 == None).ifTrue({ None }, ifFalse: {
                 (b2 == None).ifTrue({ None }, ifFalse: {
                   (b1 < 128).ifTrue({ None }, ifFalse: {
@@ -147,9 +147,9 @@ class String {
             }, ifFalse: {
               (b0 < 248).ifTrue({
                 // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-                let b1 = self.byteAt_(i + 1)
-                let b2 = self.byteAt_(i + 2)
-                let b3 = self.byteAt_(i + 3)
+                const b1 = self.byteAt_(i + 1)
+                const b2 = self.byteAt_(i + 2)
+                const b3 = self.byteAt_(i + 3)
                 (b1 == None).ifTrue({ None }, ifFalse: {
                   (b2 == None).ifTrue({ None }, ifFalse: {
                     (b3 == None).ifTrue({ None }, ifFalse: {
@@ -190,10 +190,10 @@ class String {
       throw ArgumentError.new("indexOf: needle must be non-empty")
     })
 
-    var i = 0
+    let i = 0
     while (i <= self.byteCount_ - needle.byteCount_) {
-      var match = true
-      var j = 0
+      let match = true
+      let j = 0
       while (j < needle.byteCount_) {
         (self.byteAt_(i + j) == needle.byteAt_(j)).ifTrue({}, ifFalse: {
           match = false
@@ -215,15 +215,15 @@ class String {
       throw ArgumentError.new("split: delimiter must be non-empty")
     })
 
-    var result = List.new()
-    var prev = 0
-    var i = self.indexOf(delimiter)
+    let result = List.new()
+    let prev = 0
+    let i = self.indexOf(delimiter)
     while (i != -1) {
       result.add(self.slice_(prev, i))
       prev = i + delimiter.byteCount_
       // Search for next occurrence after this delimiter
-      var rest = self.slice_(prev, self.byteCount_)
-      var nextIdx = rest.indexOf(delimiter)
+      let rest = self.slice_(prev, self.byteCount_)
+      let nextIdx = rest.indexOf(delimiter)
       (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
     }
     result.add(self.slice_(prev, self.byteCount_))
@@ -242,14 +242,14 @@ class String {
       throw ArgumentError.new("replace: from must be non-empty")
     })
 
-    var result = ""
-    var prev = 0
-    var i = self.indexOf(from)
+    let result = ""
+    let prev = 0
+    let i = self.indexOf(from)
     while (i != -1) {
       result = result + self.slice_(prev, i) + to
       prev = i + from.byteCount_
-      var rest = self.slice_(prev, self.byteCount_)
-      var nextIdx = rest.indexOf(from)
+      let rest = self.slice_(prev, self.byteCount_)
+      let nextIdx = rest.indexOf(from)
       (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
     }
     result = result + self.slice_(prev, self.byteCount_)
@@ -275,15 +275,15 @@ class String {
       throw ArgumentError.new("trimStart: chars must be a String")
     })
 
-    var i = 0
-    var stop = false
+    let i = 0
+    let stop = false
     while ((i < self.byteCount_).and({ not stop })) {
-      let cp = self.codePointAt(i)
-      var found = false
-      var j = 0
+      const cp = self.codePointAt(i)
+      let found = false
+      let j = 0
       while (j < chars.byteCount_) {
         (chars.codePointAt(j) == cp).ifTrue({ found = true })
-        let len = chars.leadByteLen_(j)
+        const len = chars.leadByteLen_(j)
         (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
       }
       (found).ifTrue({
@@ -301,21 +301,21 @@ class String {
       throw ArgumentError.new("trimEnd: chars must be a String")
     })
 
-    var i = self.byteCount_
-    var stop = false
+    let i = self.byteCount_
+    let stop = false
     while ((i > 0).and({ not stop })) {
       // Scan backward one byte at a time to find the previous lead byte
       i = i - 1
-      var cp = self.codePointAt(i)
+      let cp = self.codePointAt(i)
       (cp == None).ifTrue({
         // Not a lead byte, keep scanning back
       }, ifFalse: {
         // Found a lead byte; check if it's in the trim set
-        var found = false
-        var j = 0
+        let found = false
+        let j = 0
         while (j < chars.byteCount_) {
           (chars.codePointAt(j) == cp).ifTrue({ found = true })
-          let len = chars.leadByteLen_(j)
+          const len = chars.leadByteLen_(j)
           (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
         }
         (found).ifTrue({}, ifFalse: {
@@ -343,8 +343,8 @@ class String {
     (count == 0).ifTrue({ return "" })
     (count == 1).ifTrue({ return self })
 
-    var result = ""
-    var i = 0
+    let result = ""
+    let i = 0
     while (i < count) {
       result = result + self
       i = i + 1
@@ -368,7 +368,7 @@ class StringByteSequence {
   at(i) => _string.byteAt_(i)
 
   each(f) {
-    var i = 0
+    let i = 0
     while (i < self.size) {
       f.call(self.at(i))
       i = i + 1
@@ -377,7 +377,7 @@ class StringByteSequence {
 
   // Iterate over byte offsets: cursor steps to next lead byte.
   nextCursor_(cursor) {
-    let next = (cursor == None).ifTrue({ 0 }, ifFalse: {
+    const next = (cursor == None).ifTrue({ 0 }, ifFalse: {
       cursor + 1
     })
     return (next < _string.byteCount_).ifTrue({ next }, ifFalse: { None })
@@ -390,8 +390,8 @@ class StringCodePointSequence {
 
   // Codepoint count: full scan (no native "codepoint length").
   size {
-    var n = 0
-    var i = self.nextCursor_(None)
+    let n = 0
+    let i = self.nextCursor_(None)
     while (i != None) {
       n = n + 1
       i = self.nextCursor_(i)
@@ -402,7 +402,7 @@ class StringCodePointSequence {
   at(byteOffset) => _string.codePointAt(byteOffset)
 
   each(f) {
-    var i = self.nextCursor_(None)
+    let i = self.nextCursor_(None)
     while (i != None) {
       f.call(self.at(i))
       i = self.nextCursor_(i)
@@ -411,7 +411,7 @@ class StringCodePointSequence {
 
   // Iterate over byte offsets: cursor steps by UTF-8 char boundary.
   nextCursor_(cursor) {
-    let next = (cursor == None).ifTrue({ 0 }, ifFalse: {
+    const next = (cursor == None).ifTrue({ 0 }, ifFalse: {
       cursor + _string.leadByteLen_(cursor)
     })
     return (next < _string.byteCount_).ifTrue({ next }, ifFalse: { None })
@@ -647,7 +647,7 @@ class Iterable {
   // Generic index-cursor walk over `self.size` (ADR-0048 §1/§3). A subclass whose
   // cursor is not a 0..size index (none in-kernel today) overrides this.
   iterate(cursor) {
-    let next = (cursor == None).ifTrue({ 0 }, ifFalse: { cursor + 1 })
+    const next = (cursor == None).ifTrue({ 0 }, ifFalse: { cursor + 1 })
     return (next < self.size).ifTrue({ next }, ifFalse: { None })
   }
 
@@ -671,10 +671,10 @@ class Iterable {
   }
 
   filter(pred) {
-    var result = List.new()
-    var c = self.iterate(None)
+    let result = List.new()
+    let c = self.iterate(None)
     while (c != None) {
-      var x = self.iteratorValue(c)
+      let x = self.iteratorValue(c)
       pred.call(x).ifTrue({ result.add(x) }, ifFalse: { None })
       c = self.iterate(c)
     }
@@ -682,8 +682,8 @@ class Iterable {
   }
 
   reduce(init, f) {
-    var acc = init
-    var c = self.iterate(None)
+    let acc = init
+    let c = self.iterate(None)
     while (c != None) {
       acc = f.call(acc, self.iteratorValue(c))
       c = self.iterate(c)
@@ -692,8 +692,8 @@ class Iterable {
   }
 
   includes(x) {
-    var found = false
-    var c = self.iterate(None)
+    let found = false
+    let c = self.iterate(None)
     while (c != None) {
       (self.iteratorValue(c) == x).ifTrue({ found = true }, ifFalse: { None })
       c = self.iterate(c)
@@ -722,13 +722,13 @@ class Iterable {
   }
 
   count {
-    var n = 0
+    let n = 0
     for (x in self) { n = n + 1 }
     return n
   }
 
   count(f) {
-    var n = 0
+    let n = 0
     for (x in self) { f.call(x).ifTrue { n = n + 1 } }
     return n
   }
@@ -747,8 +747,8 @@ class Iterable {
     // allocates a new string and copies all prior content. For N elements, total work is ~N²/2.
     // This is acceptable for Phalcom's interpreter domain (collections stay small) but users
     // joining large collections should be aware of this limitation.
-    var first = true
-    var result = ""
+    let first = true
+    let result = ""
     for (x in self) {
       first.ifFalse { result = result + sep }
       first = false
@@ -758,7 +758,7 @@ class Iterable {
   }
 
   toList {
-    var result = List.new()
+    let result = List.new()
     for (x in self) { result.add(x) }
     return result
   }
@@ -827,8 +827,8 @@ class List {
   // reserved words and cannot follow `.` as a bare identifier).
   ==(other) {
     if (other.isA(List)) {
-      var same = (self.size == other.size)
-      var i = 0
+      let same = (self.size == other.size)
+      let i = 0
       // `and` is lazy (short-circuits); once `same` is false the loop
       // condition is false without evaluating `i < self.size`, so the loop
       // exits before `at(i)` can run out of bounds.
@@ -876,8 +876,8 @@ class Map {
   // cannot do. That is the point of CB-1: once `\(…)` sends `toString`, this is
   // the path it takes.
   toString {
-    var s = "{"
-    var i = 0
+    let s = "{"
+    let i = 0
     while (i < self.size_) {
       s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
       s = s + self.keyAt_(i).toString + ": " + self.valueAt_(i).toString
@@ -913,8 +913,8 @@ class Map {
 
   // A fresh List of keys, in iteration (insertion) order.
   keys {
-    var result = List.new()
-    var i = 0
+    let result = List.new()
+    let i = 0
     while (i < self.size) {
       result.add(self.keyAt_(i))
       i = i + 1
@@ -924,8 +924,8 @@ class Map {
 
   // A fresh List of values, in iteration (insertion) order.
   values {
-    var result = List.new()
-    var i = 0
+    let result = List.new()
+    let i = 0
     while (i < self.size) {
       result.add(self.valueAt_(i))
       i = i + 1
@@ -935,7 +935,7 @@ class Map {
 
   // 2-arg block `{ k, v => ... }` per entry, in iteration order.
   each(f) {
-    var i = 0
+    let i = 0
     while (i < self.size) {
       f.call(self.keyAt_(i), self.valueAt_(i))
       i = i + 1
@@ -952,10 +952,10 @@ class Map {
   // index comparison). Guarded by `isA(Map)` so a non-Map is simply unequal.
   ==(other) {
     if (other.isA(Map)) {
-      var same = (self.size == other.size)
-      var i = 0
+      let same = (self.size == other.size)
+      let i = 0
       while (same and (i < self.size)) {
-        var k = self.keyAt_(i)
+        let k = self.keyAt_(i)
         same = other.includes(k) and (self.valueAt_(i) == other.at(k))
         i = i + 1
       }
@@ -979,8 +979,8 @@ class Set {
   // native `Set` rendering exactly — `Set(a, b)`, `Set()` when empty. Derived
   // over `size_`/`at_`; each element renders via its OWN `toString`.
   toString {
-    var s = "Set("
-    var i = 0
+    let s = "Set("
+    let i = 0
     while (i < self.size_) {
       s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
       s = s + self.at_(i).toString
@@ -1016,8 +1016,8 @@ class Set {
   // holds duplicates (add_ is idempotent).
   ==(other) {
     if (other.isA(Set)) {
-      var same = (self.size == other.size)
-      var i = 0
+      let same = (self.size == other.size)
+      let i = 0
       while (same and (i < self.size)) {
         same = other.includes(self.at_(i))
         i = i + 1
@@ -1047,8 +1047,8 @@ class Tuple {
   // native `Tuple` rendering exactly — `(a, b)`, `()` when empty. Derived over
   // `size_`/`at_`; each element renders via its OWN `toString`.
   toString {
-    var s = "("
-    var i = 0
+    let s = "("
+    let i = 0
     while (i < self.size_) {
       s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
       s = s + self.at_(i).toString
@@ -1070,8 +1070,8 @@ class Tuple {
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
   ==(other) {
     if (other.isA(Tuple)) {
-      var same = (self.size == other.size)
-      var i = 0
+      let same = (self.size == other.size)
+      let i = 0
       while (same and (i < self.size)) {
         same = (self.at(i) == other.at(i))
         i = i + 1
@@ -1094,8 +1094,8 @@ class Tuple {
   // Bounded by a large prime modulus so the accumulator stays a stable,
   // comparable Number regardless of tuple length.
   hash {
-    var acc = 17
-    var i = 0
+    let acc = 17
+    let i = 0
     while (i < self.size) {
       acc = (acc * 31 + self.at(i).hash) % 999999937
       i = i + 1
@@ -1124,7 +1124,7 @@ class Range {
   // `if range.inclusive() { ".." } else { "..." }`, and this must not drift
   // from it.
   toString {
-    var sep = self.inclusive_.ifTrue({ ".." }, ifFalse: { "..." })
+    let sep = self.inclusive_.ifTrue({ ".." }, ifFalse: { "..." })
     return self.start_.toString + sep + self.end_.toString
   }
 
@@ -1133,12 +1133,12 @@ class Range {
   }
 
   size {
-    var n = self.inclusive_.ifTrue({ self.end_ - self.start_ + 1 }, ifFalse: { self.end_ - self.start_ })
+    let n = self.inclusive_.ifTrue({ self.end_ - self.start_ + 1 }, ifFalse: { self.end_ - self.start_ })
     return (n < 0).ifTrue({ 0 }, ifFalse: { n })
   }
 
   includes(n) {
-    var upper = self.inclusive_.ifTrue({ n <= self.end_ }, ifFalse: { n < self.end_ })
+    let upper = self.inclusive_.ifTrue({ n <= self.end_ }, ifFalse: { n < self.end_ })
     return (self.start_ <= n) and upper
   }
 
@@ -1156,7 +1156,7 @@ class Range {
 
   // The explicit materialization escape hatch (RG-2).
   toList {
-    var result = List.new()
+    let result = List.new()
     self.each { x => result.add(x) }
     return result
   }
@@ -1173,9 +1173,9 @@ class Range {
   // a large range. Guarded by isA(Range).
   ==(other) {
     if (other.isA(Range)) {
-      var sameStart = (self.start_ == other.start_)
-      var sameEnd = (self.end_ == other.end_)
-      var sameBound = (self.inclusive_ == other.inclusive_)
+      let sameStart = (self.start_ == other.start_)
+      let sameEnd = (self.end_ == other.end_)
+      let sameBound = (self.inclusive_ == other.inclusive_)
       return sameStart and sameEnd and sameBound
     } else {
       return false
@@ -1189,7 +1189,7 @@ class Range {
   // Value hash (immutable ⇒ hashable, Q5): a .ph fold over the three bound
   // fields' own `hash` — zero new floor, consistent with == by construction.
   hash {
-    var acc = 17
+    let acc = 17
     acc = (acc * 31 + self.start_.hash) % 999999937
     acc = (acc * 31 + self.end_.hash) % 999999937
     acc = (acc * 31 + self.inclusive_.hash) % 999999937
@@ -1227,7 +1227,7 @@ class WhereView extends Iterable {
     // compounds: [1..1M].where(x > 999900).take(10) requires ~999k inner iterations.
     // This is the correct tradeoff of lazy evaluation (no intermediate collection) for
     // CPU (scan through non-matches). For eager filtering, use filter() instead.
-    var cur = cursor
+    let cur = cursor
     while (true) {
       cur = _source.iterate(cur)
       (cur == None).ifTrue { return None }
@@ -1247,8 +1247,8 @@ class SkipView extends Iterable {
   }
   iterate(cursor) {
     (cursor != None).ifTrue { return _source.iterate(cursor) }
-    var cur = _source.iterate(None)
-    var n = _count
+    let cur = _source.iterate(None)
+    let n = _count
     while ((n > 0) and (cur != None)) {
       cur = _source.iterate(cur)
       n = n - 1
@@ -1267,14 +1267,14 @@ class TakeView extends Iterable {
     _count = count
   }
   iterate(cursor) {
-    var srcCursor = None
-    var taken = 0
+    let srcCursor = None
+    let taken = 0
     (cursor != None).ifTrue {
       srcCursor = cursor.at(0)
       taken = cursor.at(1)
     }
     ((taken + 1) > _count).ifTrue { return None }
-    var next = _source.iterate(srcCursor)
+    let next = _source.iterate(srcCursor)
     (next == None).ifTrue { return None }
     return (next, taken + 1)
   }
@@ -1292,7 +1292,7 @@ class System {
   }
 
   static writeObject_(obj) {
-    let s = obj.toString
+    const s = obj.toString
     (s.isA(String)).ifTrue({
       System.write_(s)
     }, ifFalse: {
@@ -1315,9 +1315,9 @@ class System {
   // `unwrapOr(_)` into a plain local first, and `try()` sent as its own
   // statement.
   static runScheduled() {
-    var next = System.nextScheduled
+    let next = System.nextScheduled
     while (next.isSome) {
-      var f = next.unwrapOr(None)
+      let f = next.unwrapOr(None)
       f.try()
       next = System.nextScheduled
     }
@@ -1424,9 +1424,9 @@ class Future {
   await {
     if (not self.isReady) {
       _waiters.add(Fiber.current)
-      let res = { Fiber.yield(None) }.attempt()
+      const res = { Fiber.yield(None) }.attempt()
       if (res.isErr) {
-        let err = res.unwrapErr
+        const err = res.unwrapErr
         if (err.isA(CannotYieldAcrossNativeFrame)) {
           return err.raise()
         }
@@ -1446,10 +1446,10 @@ class Future {
   // Runs `action` on a fresh fiber and settles the returned future with its
   // result (or captured error if it fails).
   static async(action) {
-    let f = Future.new()
-    let driver = Fiber.new {
-      let fib = Fiber.new(action)
-      let res = fib.try()
+    const f = Future.new()
+    const driver = Fiber.new {
+      const fib = Fiber.new(action)
+      const res = fib.try()
       if (fib.error.isSome) {
         f.settleError(fib.error.unwrapOr(None))
       } else {
@@ -1471,11 +1471,11 @@ class Future {
         return self
       }
     } else {
-      let f_next = Future.new()
+      const f_next = Future.new()
       _waiters.add({
         if (_state == "fulfilled") {
-          let fib = Fiber.new({ f.call(_value) })
-          let res = fib.try()
+          const fib = Fiber.new({ f.call(_value) })
+          const res = fib.try()
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
@@ -1498,11 +1498,11 @@ class Future {
         return self
       }
     } else {
-      let f_next = Future.new()
+      const f_next = Future.new()
       _waiters.add({
         if (_state == "fulfilled") {
-          let fib = Fiber.new({ f.call(_value) })
-          let res = fib.try()
+          const fib = Fiber.new({ f.call(_value) })
+          const res = fib.try()
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
@@ -1526,11 +1526,11 @@ class Future {
         return self
       }
     } else {
-      let f_next = Future.new()
+      const f_next = Future.new()
       _waiters.add({
         if (_state == "rejected") {
-          let fib = Fiber.new({ f.call(_value) })
-          let res = fib.try()
+          const fib = Fiber.new({ f.call(_value) })
+          const res = fib.try()
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
@@ -1638,8 +1638,8 @@ class Attribute {}
 // below (`Install`/`Dispatch`/`Runtime` — `Compile`/`Layout` are reserved for
 // compiler-native hooks only, `attr.compile_tier_reserved`).
 class On extends Attribute {
-  var _targets
-  var _tier
+  _targets
+  _tier
 
   construct new(target) { _targets = target; _tier = None }
   construct new(target, tier) { _targets = target; _tier = tier }

@@ -5,6 +5,6 @@
 // operand of `+` — since it returns R directly (not an Option), it composes
 // into an ordinary arithmetic expression with no extraction step at all.
 
-let a = 3
-let b = 4
+const a = 3
+const b = 4
 System.print((a > b).ifTrue({ a }, ifFalse: { b }) + 10)

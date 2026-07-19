@@ -8,5 +8,5 @@
 // bespoke "Iterator must be a number" diagnostic (Wren has no `Option`,
 // hence its own type-check message).
 
-let r = Range.new(1, 3, true)
+const r = Range.new(1, 3, true)
 r.iterate("")

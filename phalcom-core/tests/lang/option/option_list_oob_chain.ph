@@ -7,7 +7,7 @@
 // in-range read returns the raw element value directly (NOT `Some`-wrapped),
 // so it is printed as-is and does not itself support `.map`/`.isNone`.
 
-let xs = List.new()
+const xs = List.new()
 xs.add(10)
 xs.add(20)
 System.print(xs.at(0))

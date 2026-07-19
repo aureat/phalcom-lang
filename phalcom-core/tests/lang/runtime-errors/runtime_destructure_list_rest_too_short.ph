@@ -4,5 +4,5 @@
 // U14: `[first, *rest]` requires the scrutinee to have AT LEAST the fixed
 // element count — a 0-element List is one short.
 
-let [first, *rest] = []
+const [first, *rest] = []
 System.print(first)

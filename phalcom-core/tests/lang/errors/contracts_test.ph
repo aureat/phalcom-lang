@@ -25,7 +25,7 @@ class Counter {
   }
 }
 
-let c = Counter.new(10)
+const c = Counter.new(10)
 System.print(c.val)
 
 c.increment(5)

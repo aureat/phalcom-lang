@@ -5,4 +5,4 @@
 // (no whitespace) to lex as a symbol. A lone `#` followed by whitespace never
 // forms a symbol and fails to lex.
 
-let a = # move
+const a = # move

@@ -16,8 +16,8 @@ class Point {
     return "positional: " + a.toString + " " + b.toString
   }
 }
-let p = Point.new(0, 0)
-let labeled = p::#move(to,duration)
-let positional = p::#move(_,_)
+const p = Point.new(0, 0)
+const labeled = p::#move(to,duration)
+const positional = p::#move(_,_)
 System.print(labeled(5, 2))
 System.print(positional(5, 2))

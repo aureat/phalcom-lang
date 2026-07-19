@@ -7,10 +7,10 @@
 // `Option#toString`'s `"Some(" + v.toString + ")"` picks up the list's own
 // bracketed rendering for its inner value.
 
-let inner = List.new()
+const inner = List.new()
 inner.add(1)
 inner.add(2)
-let outer = List.new()
+const outer = List.new()
 outer.add(inner)
 outer.add(3)
 System.print(outer.toString)

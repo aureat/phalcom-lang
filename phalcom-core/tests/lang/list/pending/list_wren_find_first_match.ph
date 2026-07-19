@@ -8,7 +8,7 @@
 // match, never a sentinel `-1`, ADR-0007/Invariant 4). Not yet landed
 // (`List` has no `find` selector).
 
-let list = List.new()
+const list = List.new()
 list.add(0)
 list.add(1)
 list.add(2)

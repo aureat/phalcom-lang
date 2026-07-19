@@ -14,6 +14,6 @@ class Base {
 class Sub extends Base {
   foo => "Sub.foo"
 }
-let s = Sub.new()
+const s = Sub.new()
 System.print(s.foo)
 System.print(s.foo(5))

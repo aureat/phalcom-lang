@@ -16,19 +16,19 @@
 System.print(Map.new())
 
 // Does not quote strings.
-let m1 = Map.new()
+const m1 = Map.new()
 m1.at("1", put: "2")
 System.print(m1)
 
 // Nested maps.
-let inner = Map.new()
-let outer = Map.new()
+const inner = Map.new()
+const outer = Map.new()
 outer.at(1, put: inner)
 inner.at(2, put: Map.new())
 System.print(outer)
 
 // Insertion order is deterministic (unlike Wren's unspecified hash order).
-let m2 = Map.new()
+const m2 = Map.new()
 m2.at(1, put: 2)
 m2.at(3, put: 4)
 m2.at(5, put: 6)

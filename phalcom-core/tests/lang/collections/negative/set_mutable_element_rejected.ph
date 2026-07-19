@@ -6,6 +6,6 @@
 // catchable Error, never silently identity-key it (the `Set` twin of
 // `map_mutable_key_rejected.ph`).
 
-let s = Set.new()
-let elem = List.new()
+const s = Set.new()
+const elem = List.new()
 s.add(elem)

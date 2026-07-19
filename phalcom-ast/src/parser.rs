@@ -399,7 +399,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Let | Token::Const | Token::Var | Token::Return | Token::Import => return,
+                Token::Class | Token::Let | Token::Const | Token::Return | Token::Import => return,
                 _ => {
                     self.advance();
                 }
@@ -417,9 +417,6 @@ impl<'source> Parser<'source> {
         match self.peek() {
             Token::Let => self.parse_binding(BindingKind::Let),
             Token::Const => self.parse_binding(BindingKind::Const),
-            // Step-1 transient alias (L-1): `var` still parses as mutable,
-            // deleted at the end of U-BINDINGS step 2.
-            Token::Var => self.parse_binding(BindingKind::Let),
             Token::Return => self.parse_return(),
             Token::For => self.parse_for(),
             Token::Throw => self.parse_throw(),
@@ -1153,10 +1150,35 @@ impl<'source> Parser<'source> {
     /// Returns an error if the field name is missing, the initializer
     /// expression is malformed, or the declaration is not followed by a
     /// newline, `}`, or end-of-file.
-    fn parse_field_decl(&mut self, start: usize) -> ParserResult<ClassMember> {
-        let mutable = matches!(self.peek(), Token::Var);
-        self.advance(); // 'let' or 'var'
+    /// Parses a field declaration: `const`-prefixed (immutable) or bare
+    /// (mutable) — ADR-0064 §3, L-2. `is_const` records whether the caller
+    /// already consumed a leading `Token::Const`; a bare field has no keyword
+    /// to consume at all, so [`Self::parse_class_member`] dispatches here
+    /// without advancing past anything first.
+    ///
+    /// L-8: the field name must start with `_` followed by a letter — this is
+    /// enforced here, not in the lexer or `parse_primary`, so the rule stays
+    /// scoped to field-declaration position (bare `_` remains a legal binding
+    /// name elsewhere).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the field name is missing, does not start with
+    /// `_` + a letter, the initializer expression is malformed, or the
+    /// declaration is not followed by a newline, `}`, or end-of-file.
+    fn parse_field_decl(&mut self, start: usize, is_const: bool) -> ParserResult<ClassMember> {
+        let name_start = self.cur_start();
         let name = self.expect_identifier(&["field name"])?;
+        let mut chars = name.chars();
+        let ok = chars.next() == Some('_') && chars.next().is_some_and(|c| c.is_alphabetic());
+        if !ok {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(format!(
+                    "field name '{name}' must start with `_` followed by a letter"
+                )),
+                range: name_start..self.prev_end,
+            });
+        }
         let default = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
         match self.peek() {
@@ -1168,7 +1190,7 @@ impl<'source> Parser<'source> {
         }
         Ok(ClassMember::Field(FieldDef {
             name,
-            mutable,
+            mutable: !is_const,
             default,
             attributes: Vec::new(),
             range,
@@ -1236,8 +1258,32 @@ impl<'source> Parser<'source> {
     /// malformed.
     fn parse_class_member(&mut self) -> ParserResult<ClassMember> {
         let start = self.cur_start();
-        if matches!(self.peek(), Token::Let | Token::Var) {
-            return self.parse_field_decl(start);
+        // Field grammar (ADR-0064 §4, U-BINDINGS §4.1), in dispatch order:
+        // `const` unambiguously starts a field; `let` at field position is a
+        // hard error (L-2 — there is no mutable-with-keyword field form);
+        // a leading-`_` identifier not followed by `(`, `=>`, or `{` is the
+        // bare mutable field form. Everything else falls through to the
+        // ordinary method/getter/setter path below.
+        if matches!(self.peek(), Token::Const) {
+            self.advance();
+            return self.parse_field_decl(start, true);
+        }
+        if matches!(self.peek(), Token::Let) {
+            self.advance();
+            let range = (start..self.prev_end).into();
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(
+                    "mutable fields take no keyword; write `_name` instead of `let _name`".to_string(),
+                ),
+                range,
+            });
+        }
+        if let Token::Identifier(name) = self.peek() {
+            if name.starts_with('_')
+                && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal)
+            {
+                return self.parse_field_decl(start, false);
+            }
         }
         // U-INDEX (ADR-0060): a bracket subscript method (`[idx] { ... }` /
         // `[idx, put:] { ... }`) is a distinct grammar production, not

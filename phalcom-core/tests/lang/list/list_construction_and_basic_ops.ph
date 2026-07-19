@@ -4,7 +4,7 @@
 // `List.new()` allocates empty, `add(_:)` pushes and returns self for
 // chaining, `size` and `at(_:)` round-trip the pushed values.
 
-let l = List.new()
+const l = List.new()
 l.add(10)
 l.add(20)
 l.add(30)

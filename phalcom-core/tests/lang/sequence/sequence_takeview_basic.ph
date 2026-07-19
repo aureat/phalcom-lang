@@ -3,9 +3,9 @@
 // status: PASS
 // TakeView takes first n elements
 
-var source = [1, 2, 3, 4, 5]
-var view = TakeView.new(source, 3)
-var result = []
+let source = [1, 2, 3, 4, 5]
+let view = TakeView.new(source, 3)
+let result = []
 for (x in view) {
   result.add(x)
 }

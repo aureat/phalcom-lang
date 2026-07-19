@@ -6,19 +6,19 @@
 // compare `==` (and `!=` correctly negates), while a same-elements arity
 // mismatch is unequal.
 
-let t0 = Tuple.fromList(List.new())
+const t0 = Tuple.fromList(List.new())
 System.print(t0.size)
 
-let t1 = Tuple.fromList(List.new().add(9))
+const t1 = Tuple.fromList(List.new().add(9))
 System.print(t1.size)
 System.print(t1.at(0))
 
-let t2a = Tuple.fromList(List.new().add(1).add(2))
-let t2b = Tuple.fromList(List.new().add(1).add(2))
+const t2a = Tuple.fromList(List.new().add(1).add(2))
+const t2b = Tuple.fromList(List.new().add(1).add(2))
 System.print(t2a == t2b)
 System.print(t2a != t2b)
 
-let t3 = Tuple.fromList(List.new().add(1).add(2).add(3))
+const t3 = Tuple.fromList(List.new().add(1).add(2).add(3))
 System.print(t3.size)
 System.print(t3 == t2a)
 System.print(t3 != t2a)

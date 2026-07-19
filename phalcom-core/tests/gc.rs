@@ -180,7 +180,7 @@ fn system_gc_collects_garbage_from_source() {
         module,
         r#"
         class UnusedClass {}
-        var i = 0
+        let i = 0
         while (i < 10) {
             UnusedClass.new()
             i = i + 1
@@ -244,7 +244,7 @@ fn automatic_safepoint_fires() {
         module,
         r#"
         class Trash {}
-        var i = 0
+        let i = 0
         while (i < 5000) {
             Trash.new()
             i = i + 1
@@ -281,7 +281,7 @@ fn bounded_churn_real_workload() {
     vm.interpret_source(
         module,
         r#"
-        var i = 0
+        let i = 0
         while (i < 6000) {
             i = i + 1
         }
@@ -300,7 +300,7 @@ fn suspended_fiber_roots_its_stack() {
 
     vm.interpret_source(
         module,
-        "class RootItem {}\nvar fiber = Fiber.new {\nvar item = RootItem.new()\nFiber.yield(item)\n}\nfiber.call()\n",
+        "class RootItem {}\nlet fiber = Fiber.new {\nlet item = RootItem.new()\nFiber.yield(item)\n}\nfiber.call()\n",
     )
     .expect("interpret_source failed");
 
@@ -359,7 +359,7 @@ fn verify_invariants_post_automatic_gc() {
     vm.interpret_source(
         module,
         r#"
-        var i = 0
+        let i = 0
         while (i < 5000) {
             i = i + 1
         }
@@ -370,6 +370,89 @@ fn verify_invariants_post_automatic_gc() {
     vm.universe
         .verify_invariants(&vm.heap)
         .expect("kernel invariants must hold after automatic GC");
+}
+
+/// **A pending `ensure` outcome survives a collecting cleanup block (ADR-0050 §7).**
+///
+/// `block_ensure` holds the protected block's result in a Rust local while it
+/// runs the cleanup block. That block re-enters the interpreter, so its
+/// back-edge safepoint collects — and `vm.stack`/`vm.frames` do not describe a
+/// value living only in Rust. Without the temp root this panicked with
+/// `dangling ObjRef` at `heap/mod.rs`, *after* the cleanup block had already
+/// completed, which is what made it hard to attribute.
+///
+/// The cleanup loop must allocate past `INITIAL_GC_THRESHOLD` (4096) for the
+/// safepoint to fire at all; 6000 clears it from the ~694-object settled
+/// baseline with margin.
+#[test]
+fn ensure_outcome_survives_collecting_cleanup() {
+    let mut vm = VM::new();
+    let module = vm.create_module("test_ensure_root", "ensure_root_test");
+
+    vm.interpret_source(
+        module,
+        r#"
+        let result = {
+          let protectedList = List.new()
+          protectedList.add(7)
+          protectedList
+        }.ensure({
+          let i = 0
+          while (i < 6000) {
+            List.new()
+            i = i + 1
+          }
+        })
+
+        System.print(result.size)
+        System.print(result.at(0))
+        "#,
+    )
+    .expect("the pending ensure outcome must survive the cleanup block's collection");
+
+    vm.universe
+        .verify_invariants(&vm.heap)
+        .expect("kernel invariants must hold after the rooted-ensure collection");
+}
+
+/// **A raised error survives a collecting `ensure` cleanup block (ADR-0050 §7).**
+///
+/// The sibling of [`ensure_outcome_survives_collecting_cleanup`] on the error
+/// path: `outcome` is `Err(Raise { error, .. })` and that `error` is the surface
+/// `Error` instance an enclosing `on` receives. It is held across the same
+/// re-entrant cleanup call and rooted the same way.
+///
+/// Unlike the `Ok` path this did **not** reproduce a crash before the fix — the
+/// raised instance happened to stay reachable. It is rooted because the hazard
+/// is structural, not because a failing case was observed.
+#[test]
+fn ensure_raised_error_survives_collecting_cleanup() {
+    let mut vm = VM::new();
+    let module = vm.create_module("test_ensure_raise_root", "ensure_raise_root_test");
+
+    vm.interpret_source(
+        module,
+        r#"
+        let caught = {
+          {
+            Error.new("boom").raise()
+          }.ensure({
+            let i = 0
+            while (i < 6000) {
+              List.new()
+              i = i + 1
+            }
+          })
+        }.on(Error, { e => e.message })
+
+        System.print(caught)
+        "#,
+    )
+    .expect("the raised error must survive the cleanup block's collection");
+
+    vm.universe
+        .verify_invariants(&vm.heap)
+        .expect("kernel invariants must hold after the rooted-raise collection");
 }
 
 

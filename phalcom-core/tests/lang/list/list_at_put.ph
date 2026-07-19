@@ -5,7 +5,7 @@
 // primitive — selector `at(_:put:)`, matching `set_`'s arity — writing
 // `put` at index `i` and returning `self` so writes chain.
 
-let l = List.new()
+const l = List.new()
 l.add(10)
 l.add(20)
 l.add(30)

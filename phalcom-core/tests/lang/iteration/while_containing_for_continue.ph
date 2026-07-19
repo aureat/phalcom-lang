@@ -3,7 +3,7 @@
 // the outer `while` is unaffected and keeps counting. Over outer w=[0,1]:
 // each pass prints "outer", then the nested `for` over [10,20,30] skips 20
 // via `continue` and prints the rest.
-var w = 0
+let w = 0
 while (w < 2) {
   System.print("outer")
   for (n in List.new().add(10).add(20).add(30)) {

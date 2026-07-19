@@ -3,4 +3,4 @@
 // returns the same (partially-built) Module instead of looping or
 // recompiling (U15 plan §4/§5).
 import "./cycle_a" as A
-var marker = 2
+let marker = 2

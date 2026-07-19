@@ -4,7 +4,7 @@
 // Ported from Wren `test/core/fiber/abort_not_string.wren`: `Fiber.abort(_)`
 // accepts any value, not only strings — `try()` hands back the raw `123`.
 
-let fiber = Fiber.new {
+const fiber = Fiber.new {
   Fiber.abort(123)
 }
 

@@ -14,6 +14,6 @@ class B extends A {
 }
 class C extends B {
 }
-let c = C.new()
+const c = C.new()
 System.print(c.respondsTo(Symbol.new("greet")))
 System.print(c.respondsTo(Symbol.new("missing")))

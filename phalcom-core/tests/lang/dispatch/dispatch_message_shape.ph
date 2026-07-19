@@ -16,5 +16,5 @@ class Recorder {
     return None
   }
 }
-let r = Recorder.new()
+const r = Recorder.new()
 r.move(to: 1, duration: 2)

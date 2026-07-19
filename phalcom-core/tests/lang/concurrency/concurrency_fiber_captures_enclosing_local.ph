@@ -5,8 +5,8 @@
 // `gen`'s frame is parked while `f` is resumed, so `x` is reached across fibers.
 class Gen {
   static run() {
-    var x = 7
-    let f = Fiber.new {
+    let x = 7
+    const f = Fiber.new {
       Fiber.yield(x)   // read x across the fiber boundary (gen's frame parked)
       x = 99           // write x back into gen's parked stack
     }

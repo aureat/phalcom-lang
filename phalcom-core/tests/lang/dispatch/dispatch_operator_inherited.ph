@@ -17,8 +17,8 @@ class Box {
 class LoudBox extends Box {
   construct new(v) { super.new(v) }
 }
-let a = LoudBox.new(2)
-let b = LoudBox.new(3)
-let c = a + b
+const a = LoudBox.new(2)
+const b = LoudBox.new(3)
+const c = a + b
 System.print(c.value)
 System.print(c.class.name)

@@ -3,9 +3,9 @@
 // status: PASS
 // MapView iterates with function applied to each element
 
-var source = [1, 2, 3]
-var view = MapView.new(source, { x => x * 2 })
-var result = []
+let source = [1, 2, 3]
+let view = MapView.new(source, { x => x * 2 })
+let result = []
 for (x in view) {
   result.add(x)
 }

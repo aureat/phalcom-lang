@@ -23,8 +23,8 @@ class RefRange extends Iterable {
   /// Row-major iteration. Inherited Iterable.iterate walks 0..size; we map
   /// each cursor to a Ref via iteratorValue.
   iteratorValue(cursor) {
-    var dc = cursor % _width
-    var dr = (cursor - dc) / _width
+    let dc = cursor % _width
+    let dr = (cursor - dc) / _width
     return RefModule.Ref.at(_minCol + dc, _minRow + dr)
   }
 
@@ -39,7 +39,7 @@ class RefRange extends Iterable {
 
   /// Parse A1:B7 notation into a RefRange.
   static fromA1(text) {
-    var parts = text.split(":")
+    let parts = text.split(":")
     return RefRange.fromTo(RefModule.Ref.fromA1(parts.at(0)), RefModule.Ref.fromA1(parts.at(1)))
   }
 }

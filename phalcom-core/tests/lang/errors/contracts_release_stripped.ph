@@ -27,7 +27,7 @@ class Box {
   }
 }
 
-let b = Box.new(5)
+const b = Box.new(5)
 System.print(b.val)
 
 // @ensures(false) would always raise PostconditionError in Debug mode —

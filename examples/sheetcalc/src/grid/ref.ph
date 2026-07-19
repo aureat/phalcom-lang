@@ -37,7 +37,7 @@ class Ref {
 
   /// Fold-hash over col and row, matching core.ph's Range#hash (REQ-REF-3).
   hash {
-    var acc = 17
+    let acc = 17
     acc = (acc * 31 + _col.hash) % 999999937
     acc = (acc * 31 + _row.hash) % 999999937
     return acc
@@ -52,8 +52,8 @@ class Ref {
 
   /// Decode bijective base-26 letters to column number. 'A'=1, 'Z'=26, 'AA'=27.
   static decodeCol_(letters) {
-    var n = 0
-    var i = 0
+    let n = 0
+    let i = 0
     while (i < letters.size) {
       n = (n * 26) + (letters.codePointAt(i) - 64)
       i = i + 1
@@ -63,10 +63,10 @@ class Ref {
 
   /// Encode column number to bijective base-26 letters. REQ-REF-5: handle n%26==0.
   static encodeCol(n) {
-    var col = n
-    var out = ""
+    let col = n
+    let out = ""
     while (col > 0) {
-      var rem = col % 26
+      let rem = col % 26
       if (rem == 0) {
         rem = 26
       }
@@ -79,39 +79,39 @@ class Ref {
   /// Parse A1 notation into a Ref. Supports A1, AA10, $A$1, $A1, A$1.
   /// Does not validate row >= 1 (Grid's job, REQ-GRID-2).
   static fromA1(text) {
-    var i = 0
-    var colAbs = false
-    var rowAbs = false
+    let i = 0
+    let colAbs = false
+    let rowAbs = false
 
     if (i < text.size and Ref.isDollar_(text.codePointAt(i))) {
       colAbs = true
       i = i + 1
     }
 
-    var colStart = i
+    let colStart = i
     while (i < text.size and Ref.isUpper_(text.codePointAt(i))) {
       i = i + 1
     }
-    var colNum = Ref.decodeCol_(text.slice_(colStart, i))
+    let colNum = Ref.decodeCol_(text.slice_(colStart, i))
 
     if (i < text.size and Ref.isDollar_(text.codePointAt(i))) {
       rowAbs = true
       i = i + 1
     }
 
-    var rowStart = i
+    let rowStart = i
     while (i < text.size and Ref.isDigit_(text.codePointAt(i))) {
       i = i + 1
     }
-    var rowNum = Ref.parseDigits_(text.slice_(rowStart, i))
+    let rowNum = Ref.parseDigits_(text.slice_(rowStart, i))
 
     return Ref.full(colNum, rowNum, colAbs, rowAbs)
   }
 
   /// Parse a string of decimal digits into a number.
   static parseDigits_(digits) {
-    var n = 0
-    var i = 0
+    let n = 0
+    let i = 0
     while (i < digits.size) {
       n = (n * 10) + (digits.codePointAt(i) - 48)
       i = i + 1
@@ -126,7 +126,7 @@ class Ref {
 
   /// Render Ref back to A1 notation. Preserves $ flags.
   toA1 {
-    var out = ""
+    let out = ""
     if (_colAbs) {
       out = out + "$"
     }
@@ -141,8 +141,8 @@ class Ref {
   /// Offset this Ref by (dCol, dRow). Relative axes shift; absolute axes frozen.
   /// Never mutates self (REQ-REF-2, REQ-REF-8). Performs no bounds check (REQ-REF-9).
   offset(dCol, dRow) {
-    var newCol = if (_colAbs) { _col } else { _col + dCol }
-    var newRow = if (_rowAbs) { _row } else { _row + dRow }
+    let newCol = if (_colAbs) { _col } else { _col + dCol }
+    let newRow = if (_rowAbs) { _row } else { _row + dRow }
     return Ref.full(newCol, newRow, _colAbs, _rowAbs)
   }
 }

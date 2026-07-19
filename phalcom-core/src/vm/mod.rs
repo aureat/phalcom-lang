@@ -31,6 +31,12 @@ pub struct ClassLayout {
     pub field_count: u16,
     pub static_field_slots: IndexMap<Symbol, u16>,
     pub static_field_count: u16,
+    /// Names of this class's own fields (instance or static) declared with
+    /// `const` (ADR-0064 §3, U-BINDINGS §5). A write to one of these outside
+    /// a constructor body is `field.const_write`. Fields are non-inherited
+    /// (ADR-0011), so this set holds only this class's own declarations —
+    /// no superclass merge.
+    pub const_fields: std::collections::HashSet<Symbol>,
 }
 
 /// The bytecode virtual machine: owns the [`Heap`], the operand stack, and the
@@ -132,6 +138,21 @@ pub struct VM {
     /// entry call, exactly like `Fiber#call`'s first-resume path
     /// (`primitive/fiber.rs` `fiber_resume`).
     pub(crate) ready_queue: VecDeque<ObjRef>,
+    /// Handles a native primitive holds in a Rust local across a **re-entrant
+    /// call**, kept reachable for the collector ([ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) §7).
+    ///
+    /// The `wrenPushRoot`/`luaL_ref` escape hatch. [`VM::stack`] and
+    /// [`VM::frames`] are the complete root truth only for values the
+    /// *interpreter* holds; a value living solely in a Rust local of a native
+    /// primitive is reachable from nothing. That is safe while the primitive
+    /// merely allocates (Invariant L: `Heap::alloc` latches, never collects),
+    /// but **not** while it re-enters the interpreter — the back-edge safepoint
+    /// inside that re-entrant call collects, and a value held only in Rust is
+    /// swept out from under its holder.
+    ///
+    /// Push before the re-entrant call, pop after it returns, on every path.
+    /// See [`VM::push_temp_root`].
+    pub(crate) temp_roots: Vec<ObjRef>,
     /// Registered class layouts for slot mapping.
     pub field_layouts: HashMap<Symbol, ClassLayout>,
     /// Maps a `construct`'s ordinary call-site selector (as an

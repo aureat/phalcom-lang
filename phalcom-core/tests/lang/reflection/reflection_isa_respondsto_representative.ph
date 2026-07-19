@@ -10,7 +10,7 @@
 class Widget {
   render => "drawn"
 }
-let w = Widget.new()
+const w = Widget.new()
 System.print(w.isA(Widget))
 System.print(w.isA(Object))
 System.print(w.isA(String))

@@ -15,7 +15,7 @@ class Box {
     return _block
   }
 }
-let box = Box.new()
+const box = Box.new()
 box.store({ 6 * 7 })
-let retrieved = box.fetch()
+const retrieved = box.fetch()
 System.print(retrieved.call())

@@ -9,14 +9,14 @@
 
 class Summer {
   sum(*numbers) {
-    var total = 0
+    let total = 0
     numbers.each({ n => total = total + n })
     return total
   }
 }
-let s = Summer.new()
-var i = 0
-var last = 0
+const s = Summer.new()
+let i = 0
+let last = 0
 while (i < 200) {
   last = s.sum(1, 2, 3, 4, 5)
   i = i + 1

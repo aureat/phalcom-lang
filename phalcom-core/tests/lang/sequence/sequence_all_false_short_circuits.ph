@@ -3,8 +3,8 @@
 // status: PASS
 // all(f) short-circuits when predicate fails, proven by counter
 
-var counter = 0
-var pred = { x =>
+let counter = 0
+let pred = { x =>
   counter = counter + 1
   x < 3
 }

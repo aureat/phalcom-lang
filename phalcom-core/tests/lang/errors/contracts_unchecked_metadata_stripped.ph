@@ -31,7 +31,7 @@ class Box {
   }
 }
 
-let b = Box.new(5)
+const b = Box.new(5)
 System.print(b.val)
 
 // @requires(amount > 0) is stripped under --unchecked — an invalid argument

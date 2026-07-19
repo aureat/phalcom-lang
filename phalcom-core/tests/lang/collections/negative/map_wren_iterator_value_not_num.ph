@@ -5,6 +5,6 @@
 // `String` index hits the same `expect_index` guard as a fractional
 // `Number` (see `map_wren_iterator_value_not_int.ph`).
 
-let m = Map.new()
+const m = Map.new()
 m.at(1, put: "one")
 m.iteratorValue("2")

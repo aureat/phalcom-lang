@@ -10,7 +10,7 @@ class TestObj {
 
 class Main {
   static main {
-    let obj = TestObj.new()
+    const obj = TestObj.new()
     System.print("obj.x = " + obj.x.toString)
     System.print("obj.m = " + obj.m.toString)
   }

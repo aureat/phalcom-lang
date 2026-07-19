@@ -6,7 +6,7 @@
 // identical-instance) element is deduped by structural `==`/`hash`, not
 // reference identity.
 
-let s = Set.new()
+const s = Set.new()
 System.print(s.size)
 System.print(s.includes(1))
 s.remove(1)
@@ -18,7 +18,7 @@ System.print(s.includes(1))
 
 // Value-equal strings built independently — dedup must key on structural
 // equality, not object identity.
-let a = "dup"
-let b = "d" + "up"
+const a = "dup"
+const b = "d" + "up"
 s.add(a).add(b)
 System.print(s.size)

@@ -5,7 +5,7 @@
 // reference implementation: `size`/`at(_:)`/`add(_:)` round-trip and `add`
 // returns `self` for chaining.
 
-let l = List.new()
+const l = List.new()
 System.print(l.size)
 l.add(1).add(2).add(3)
 System.print(l.size)

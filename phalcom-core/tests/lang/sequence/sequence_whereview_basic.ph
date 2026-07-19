@@ -3,9 +3,9 @@
 // status: PASS
 // WhereView iterates only elements matching predicate
 
-var source = [1, 2, 3, 4, 5]
-var view = WhereView.new(source, { x => x > 2 })
-var result = []
+let source = [1, 2, 3, 4, 5]
+let view = WhereView.new(source, { x => x > 2 })
+let result = []
 for (x in view) {
   result.add(x)
 }

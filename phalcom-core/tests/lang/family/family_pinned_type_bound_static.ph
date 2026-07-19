@@ -8,5 +8,5 @@
 class Point {
   static square() { return "Point.square" }
 }
-let f = Point::#square()
+const f = Point::#square()
 System.print(f())

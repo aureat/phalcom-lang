@@ -5,5 +5,5 @@
 // the same rule U9 enforces for a variadic parameter — a clean parser
 // diagnostic, not a panic.
 
-let [*rest, last] = [1, 2, 3]
+const [*rest, last] = [1, 2, 3]
 System.print(last)

@@ -62,7 +62,7 @@ class Grid {
     if (not Grid.isInBounds_(ref)) {
       return Value.ErrorVal.nameError
     }
-    let cell = _cells.at(ref)
+    const cell = _cells.at(ref)
     if (cell == nil) {
       return CellModule.LiteralCell.of(Value.CellEmpty.of())
     }
@@ -75,7 +75,7 @@ class Grid {
     if (not Grid.isInBounds_(ref)) {
       return Value.ErrorVal.nameError
     }
-    let cell = _cells.at(ref)
+    const cell = _cells.at(ref)
     if (cell == nil) {
       return Value.CellEmpty.of()
     }

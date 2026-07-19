@@ -10,13 +10,13 @@
 class Secret {
   toString => "<redacted>"
 }
-let s = Secret.new()
+const s = Secret.new()
 
-let list = [s]
+const list = [s]
 System.print(list)
 System.print("\(list)")
 
-let m = Map.new()
+const m = Map.new()
 m.at("k", put: s)
 System.print(m)
 System.print("\(m)")

@@ -11,7 +11,7 @@ class Mover {
     return p + " to " + to + " in " + duration.toString
   }
 }
-let m = Mover.new()
-let method = m.methodFor(#move(_,to,duration))
+const m = Mover.new()
+const method = m.methodFor(#move(_,to,duration))
 System.print(method.selector.toString)
 System.print(method.invokeOn(m, List.new().add("A").add("B").add(3)))

@@ -1,4 +1,7 @@
 class Test {
+  _name
+  _age
+
   @construct
   init(name, age) {
     _name = name

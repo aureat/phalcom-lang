@@ -8,8 +8,8 @@
 // is the one that called `inner.call()` — not to `outer`'s own resumer (the
 // top-level script). So the top level only ever observes `outer`'s single
 // `call()` return, never sees `inner`'s intermediate yield.
-var outer = None
-var inner = None
+let outer = None
+let inner = None
 outer = Fiber.new {
   System.print(Fiber.current == outer)
   inner = Fiber.new {

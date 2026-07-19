@@ -5,7 +5,7 @@
 // directly to it — proving the desugaring produces a genuine kernel `List`,
 // not an inert AST shape.
 
-let doubled = [1, 2, 3].map { x => x + 1 }.toList
+const doubled = [1, 2, 3].map { x => x + 1 }.toList
 System.print(doubled.size)
 System.print(doubled.at(0))
 System.print(doubled.at(2))

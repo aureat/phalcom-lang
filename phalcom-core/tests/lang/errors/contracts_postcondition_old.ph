@@ -16,6 +16,6 @@ class Box {
   }
 }
 
-let b = Box.new(7)
+const b = Box.new(7)
 b.double()
 System.print(b.val)

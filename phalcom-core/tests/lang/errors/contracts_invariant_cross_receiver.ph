@@ -27,8 +27,8 @@ class A {
   }
 }
 
-let b = B.new(10)
-let a = A.new(b)
+const b = B.new(10)
+const a = A.new(b)
 
 a.poke(3)
 System.print(b.val)

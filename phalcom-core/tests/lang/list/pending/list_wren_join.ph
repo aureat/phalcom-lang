@@ -10,7 +10,7 @@
 
 System.print(List.new().join(",") == "")
 
-let a = List.new()
+const a = List.new()
 a.add(1)
 a.add(2)
 a.add(3)

@@ -11,6 +11,6 @@ class Multi {
   foo(a:) { return "a=" + a.toString }
   foo(b:) { return "b=" + b.toString }
 }
-let m = Multi.new()
+const m = Multi.new()
 System.print(m.foo(a: 1))
 System.print(m.foo(b: 2))

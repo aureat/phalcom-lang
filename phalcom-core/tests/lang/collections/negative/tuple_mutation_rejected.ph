@@ -5,5 +5,5 @@
 // Tuple twin) — attempting `at(_, put:)` (List's mutator shape) is a plain
 // dNU, never a silent mutation.
 
-let t = Tuple.fromList(List.new().add(1).add(2))
+const t = Tuple.fromList(List.new().add(1).add(2))
 t.at(0, put: 9)

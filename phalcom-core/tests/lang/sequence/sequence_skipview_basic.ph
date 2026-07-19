@@ -3,9 +3,9 @@
 // status: PASS
 // SkipView skips first n elements
 
-var source = [1, 2, 3, 4, 5]
-var view = SkipView.new(source, 2)
-var result = []
+let source = [1, 2, 3, 4, 5]
+let view = SkipView.new(source, 2)
+let result = []
 for (x in view) {
   result.add(x)
 }

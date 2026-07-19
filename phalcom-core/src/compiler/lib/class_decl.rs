@@ -194,6 +194,17 @@ impl<'vm> Compiler<'vm> {
                 _ => None,
             })
             .collect();
+        // Own `const`-declared field names (ADR-0064 §3, U-BINDINGS §5) —
+        // only an explicit `FieldDef` can be `const`; an implicitly-inferred
+        // field (bare assignment, no declaration) is always mutable.
+        let const_field_names: std::collections::HashSet<Symbol> = class_def
+            .members
+            .iter()
+            .filter_map(|m| match m {
+                ClassMember::Field(f) if !f.mutable => Some(self.vm.interner.intern(&f.name)),
+                _ => None,
+            })
+            .collect();
         let has_declared_fields = !declared_fields.is_empty();
         if has_declared_fields {
             own_instance_fields = declared_fields;
@@ -419,6 +430,7 @@ impl<'vm> Compiler<'vm> {
                 field_count,
                 static_field_slots,
                 static_field_count,
+                const_fields: const_field_names,
             }
         };
         self.vm.field_layouts.insert(name_sym, layout);
@@ -634,7 +646,14 @@ impl<'vm> Compiler<'vm> {
                     let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();
 
                     self.is_static_context = false;
+                    // `const` fields are only assignable within a constructor
+                    // body (ADR-0064 §3, U-BINDINGS §5) — gate the
+                    // `field.const_write` check in `expr.rs` on this flag,
+                    // restored unconditionally after the body compiles (a
+                    // constructor never nests another constructor).
+                    self.in_constructor = true;
                     let closure = self.compile_block(construct_def.body, selector_sym, param_names, true, true)?;
+                    self.in_constructor = false;
 
                     tracing::debug!("[Compiler] Compiling constructor: {}", selector);
 

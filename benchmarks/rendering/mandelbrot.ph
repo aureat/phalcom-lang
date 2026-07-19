@@ -20,28 +20,28 @@
 //     parse_list_literal, never to a postfix-index production).
 // ============================================================
 
-var chars = List.new().add(" ").add(".").add(":").add(";").add("+").add("=").add("x").add("X").add("$").add("&")
+let chars = List.new().add(" ").add(".").add(":").add(";").add("+").add("=").add("x").add("X").add("$").add("&")
 
-var yMin = 0 - 0.2
-var yMax = 0.1
-var xMin = 0 - 1.5
-var xMax = 0 - 1.1
+let yMin = 0 - 0.2
+let yMax = 0.1
+let xMin = 0 - 1.5
+let xMax = 0 - 1.1
 
-var yPixel = 0
+let yPixel = 0
 while (yPixel < 24) {
-  var y = (yPixel / 24) * (yMax - yMin) + yMin
-  var row = ""
-  var xPixel = 0
+  let y = (yPixel / 24) * (yMax - yMin) + yMin
+  let row = ""
+  let xPixel = 0
   while (xPixel < 80) {
-    var x = (xPixel / 79) * (xMax - xMin) + xMin
-    var pixel = " "
-    var x0 = x
-    var y0 = y
-    var iter = 0
-    var escaped = false
+    let x = (xPixel / 79) * (xMax - xMin) + xMin
+    let pixel = " "
+    let x0 = x
+    let y0 = y
+    let iter = 0
+    let escaped = false
     while (iter < 80 and (escaped == false)) {
-      var x1 = (x0 * x0) - (y0 * y0)
-      var y1 = 2 * x0 * y0
+      let x1 = (x0 * x0) - (y0 * y0)
+      let y1 = 2 * x0 * y0
 
       x1 = x1 + x
       y1 = y1 + y
@@ -49,9 +49,9 @@ while (yPixel < 24) {
       x0 = x1
       y0 = y1
 
-      var d = (x0 * x0) + (y0 * y0)
+      let d = (x0 * x0) + (y0 * y0)
       if (d > 4) {
-        var idx = (iter - (iter % 8)) / 8
+        let idx = (iter - (iter % 8)) / 8
         pixel = chars.at(idx)
         escaped = true
       }

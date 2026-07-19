@@ -15,6 +15,6 @@ class Shape {
   }
 }
 
-var s = Shape.new()
+let s = Shape.new()
 System.print(s is Drawable)
 System.print(s is not Drawable)

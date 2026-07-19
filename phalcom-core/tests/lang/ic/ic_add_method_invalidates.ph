@@ -2,12 +2,12 @@ class A {
   val => 1
 }
 
-let a = A.new()
+const a = A.new()
 
 // Cache multiple times
-let _ = a.val
-let _ = a.val
-let _ = a.val
+const _ = a.val
+const _ = a.val
+const _ = a.val
 
 // Reopen and change the method
 class A {

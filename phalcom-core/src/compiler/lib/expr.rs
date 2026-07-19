@@ -318,6 +318,9 @@ impl<'vm> Compiler<'vm> {
                         })?;
 
                         if let Some(&slot) = layout.static_field_slots.get(&name_sym) {
+                            if !self.in_constructor && layout.const_fields.contains(&name_sym) {
+                                return Err(CompilerError::ConstFieldWrite(value));
+                            }
                             if self.is_static_context {
                                 self.emit_self(range);
                             } else {
@@ -329,6 +332,9 @@ impl<'vm> Compiler<'vm> {
                             self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetField(slot), range);
                         } else if let Some(&slot) = layout.field_slots.get(&name_sym) {
+                            if !self.in_constructor && layout.const_fields.contains(&name_sym) {
+                                return Err(CompilerError::ConstFieldWrite(value));
+                            }
                             self.emit_self(range);
                             self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetField(slot), range);

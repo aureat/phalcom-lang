@@ -13,6 +13,6 @@ class Point {
     return Point.new(to, at)
   }
 }
-let p = Point.new(0, 0).move(to: 3, at: 4)
+const p = Point.new(0, 0).move(to: 3, at: 4)
 System.print(p.x)
 System.print(p.y)

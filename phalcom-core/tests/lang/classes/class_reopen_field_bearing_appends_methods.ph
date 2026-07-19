@@ -13,7 +13,7 @@
 //
 // Block 1 declares the field (`_x`, via `construct new(x)`) and a getter;
 // block 2 is method-only (adds `greet`, touches no fields) — exactly the
-// shape the field-adding-reopen guard is supposed to let through
+// shape the field-adding-reopen guard is supposed to const through
 // unchanged. Both the inherited field read (`getX`) and the appended
 // method (`greet`) must work on one instance.
 class Widget {
@@ -25,6 +25,6 @@ class Widget {
     greet => "hi"
 }
 
-var w = Widget.new(42)
+let w = Widget.new(42)
 System.print(w.getX)
 System.print(w.greet)

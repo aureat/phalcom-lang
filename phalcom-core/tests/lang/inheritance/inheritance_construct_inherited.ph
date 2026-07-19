@@ -14,7 +14,7 @@ class Point2 {
 }
 class Point3 extends Point2 {
 }
-let a = Point3.new(11)
+const a = Point3.new(11)
 System.print(a.v)
-let b = Point3.named(22)
+const b = Point3.named(22)
 System.print(b.v)

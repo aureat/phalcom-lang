@@ -10,5 +10,5 @@ class Widget {
   construct new(label:) { _label = label }
   label => _label
 }
-let w = Widget.new()
+const w = Widget.new()
 System.print(w)

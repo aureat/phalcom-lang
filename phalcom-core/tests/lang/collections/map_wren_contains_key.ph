@@ -4,7 +4,7 @@
 // Ported from wren/test/core/map/contains_key.wren (Wren's `containsKey` is
 // Phalcom's `includes(_)`, the shared collection-protocol membership test).
 
-let m = Map.new()
+const m = Map.new()
 m.at("one", put: 1)
 m.at("two", put: 2)
 m.at("three", put: 3)

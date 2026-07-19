@@ -4,6 +4,6 @@
 // Ported from wren/test/core/map/empty_string_key.wren — the empty string is
 // a well-formed hashable key like any other `String`.
 
-let m = Map.new()
+const m = Map.new()
 m.at("", put: "empty string")
 System.print(m.at(""))

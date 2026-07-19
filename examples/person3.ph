@@ -1,6 +1,6 @@
 class Person {
   static new(name, age) {
-    let instance = self.new(); // super.new()
+    const instance = self.new(); // super.new()
     instance.init(name, age);
     return instance;
   }
@@ -31,7 +31,7 @@ class Person {
   }
 }
 
-let person3 = Person.new("Bob", 30);
+const person3 = Person.new("Bob", 30);
 // person3.age = 31;
 // System.print(person3.name); // Bob
 System.print(person3.age); // 30

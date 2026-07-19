@@ -6,7 +6,7 @@
 // (or become visible as) this file's own `shared` global — it is reached
 // only through the `Iso.shared` member send.
 
-var shared = 1
+let shared = 1
 import "./lib/isolated" as Iso
 System.print(shared)
 System.print(Iso.shared)

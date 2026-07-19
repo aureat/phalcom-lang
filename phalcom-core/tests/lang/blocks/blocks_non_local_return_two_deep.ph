@@ -15,7 +15,7 @@ class Finder {
     return None
   }
 }
-let numbers = List.new()
+const numbers = List.new()
 numbers.add(-4)
 numbers.add(3)
 numbers.add(7)

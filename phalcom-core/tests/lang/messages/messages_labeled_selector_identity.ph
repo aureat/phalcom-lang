@@ -10,6 +10,6 @@ class Point {
     return "labeled";
   }
 }
-let p = Point.new()
+const p = Point.new()
 System.print(p.move(1, 2))
 System.print(p.move(to: 1, duration: 2))

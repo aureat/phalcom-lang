@@ -1,3 +1,3 @@
-let xs = [1, 2, 3]
+const xs = [1, 2, 3]
 [10, 20]
 System.print(xs[0])

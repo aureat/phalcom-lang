@@ -19,7 +19,7 @@ class Check {
   /// @param b — second Number
   /// @returns a `Bool`: `true` iff `|a - b| < 1e-6`
   static approx(a, b) {
-    let d = a - b
+    const d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.000001
   }
@@ -41,8 +41,8 @@ class Math {
   /// System.print(Check.approx(Math.sqrt(2) * Math.sqrt(2), 2))   // true
   static sqrt(a) {
     if (a == 0) { return 0 }
-    let g = a
-    let i = 0
+    const g = a
+    const i = 0
     while (i < 40) {
       g = (g + a / g) / 2
       i = i + 1
@@ -61,8 +61,8 @@ class Math {
   }
 
   static factIter(n) {
-    let acc = 1
-    let k = 2
+    const acc = 1
+    const k = 2
     while (k <= n) {
       acc = acc * k
       k = k + 1
@@ -78,8 +78,8 @@ class Math {
   // Exponentiation by squaring: O(log e) multiplications.
   static ipow(base, e) {
     if (e == 0) { return 1 }
-    let half = Math.ipow(base, (e - (e % 2)) / 2)
-    let sq = half * half
+    const half = Math.ipow(base, (e - (e % 2)) / 2)
+    const sq = half * half
     if (e % 2 == 1) { return sq * base }
     return sq
   }
@@ -87,7 +87,7 @@ class Math {
   // Trial division; O(sqrt n).
   static isPrime(n) {
     if (n < 2) { return false }
-    let d = 2
+    const d = 2
     while (d * d <= n) {
       if (n % d == 0) { return false }
       d = d + 1

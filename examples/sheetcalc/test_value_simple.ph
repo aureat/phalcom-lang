@@ -3,11 +3,11 @@ import "./src/value/cell_value" as Value
 class Main {
   static main {
     System.print("Testing CellNum")
-    let n1 = Value.CellNum.of(5)
+    const n1 = Value.CellNum.of(5)
     System.print("Created CellNum(5)")
-    let n2 = Value.CellNum.of(3)
+    const n2 = Value.CellNum.of(3)
     System.print("Created CellNum(3)")
-    let result = n1.plus(n2)
+    const result = n1.plus(n2)
     System.print("Called plus: " + result.toString)
   }
 }

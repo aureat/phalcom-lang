@@ -6,7 +6,7 @@
 // whole body, since there is no `Fiber.yield`) before control returns to
 // the caller.
 
-let fiber = Fiber.new {
+const fiber = Fiber.new {
   System.print("fiber")
 }
 

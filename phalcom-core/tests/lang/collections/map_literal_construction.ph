@@ -15,7 +15,7 @@
 // DEFERRED.md). `keys`/`values`/`each(_)` read the map's own stored keys
 // back directly (no re-comparison needed) and are exercised instead.
 
-let m = {a: 1, b: 2}
+const m = {a: 1, b: 2}
 System.print(m)
 System.print(m.size)
 System.print(m.keys)

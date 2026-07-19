@@ -1570,7 +1570,7 @@ fn on_catch_restore_survives_a_deep_throw_and_the_vm_stays_healthy() {
     // `close_upvalues_from`-then-truncated back to the pre-`on` snapshot
     // (`VM::unwind_to`) — not merely leave the *value* right, but leave the
     // frame/stack machinery healthy enough that (a) the handler can allocate
-    // a fresh local (`var y = ...`) after the restore and (b) the VM can keep
+    // a fresh local (`let y = ...`) after the restore and (b) the VM can keep
     // running further, wholly independent top-level code afterward. A missed
     // upvalue-close or a botched truncate would very likely corrupt one of
     // these, not just the handler's own return value.
@@ -1592,7 +1592,7 @@ class M {
   }
 }
 let r = { M.new().deep(30) }.on(Error) { e =>
-  var y = "handled:" + e.message
+  let y = "handled:" + e.message
   y
 }
 let after = 1 + 2

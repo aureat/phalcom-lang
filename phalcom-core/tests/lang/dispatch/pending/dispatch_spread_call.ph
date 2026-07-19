@@ -7,5 +7,5 @@ class Adder {
     return a + b + c;
   }
 }
-let args = [1, 2, 3]
+const args = [1, 2, 3]
 System.print(Adder.new().add(*args))

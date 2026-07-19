@@ -5,7 +5,7 @@
 // is total (None, never a panic/error), `includes` false, `remove` on an
 // absent key is a no-op that still returns the receiver.
 
-let m = Map.new()
+const m = Map.new()
 System.print(m.size)
 System.print(m.at(1))
 System.print(m.at(1) == None)

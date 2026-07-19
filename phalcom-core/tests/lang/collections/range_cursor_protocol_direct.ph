@@ -9,18 +9,18 @@
 // it round-trips a raw out-of-range cursor too — same "doesn't bother to
 // check" contract Wren pins).
 
-let r = Range.new(1, 3, true)
+const r = Range.new(1, 3, true)
 System.print(r.iterate(None))
 System.print(r.iterate(0))
 System.print(r.iterate(1))
 System.print(r.iterate(2))
 
-let e = Range.new(1, 3, false)
+const e = Range.new(1, 3, false)
 System.print(e.iterate(None))
 System.print(e.iterate(0))
 System.print(e.iterate(1))
 
-let empty = Range.new(1, 1, false)
+const empty = Range.new(1, 1, false)
 System.print(empty.iterate(None))
 
 System.print(r.iteratorValue(0))
@@ -28,7 +28,7 @@ System.print(r.iteratorValue(2))
 System.print(r.iteratorValue(-2))
 System.print(r.iteratorValue(5))
 
-var c = r.iterate(None)
+let c = r.iterate(None)
 while (c != None) {
   System.print(r.iteratorValue(c))
   c = r.iterate(c)

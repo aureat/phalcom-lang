@@ -8,5 +8,5 @@
 class MathUtil {
   static square(n) { return n * n }
 }
-let f = MathUtil::square
+const f = MathUtil::square
 System.print(f(6))

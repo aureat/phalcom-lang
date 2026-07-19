@@ -7,10 +7,10 @@
 // `value` is `None`; the original rejection reason is only reachable via
 // `catch(_)`, confirmed here by feeding the *same* rejected future through
 // both `then` and `catch` and observing the identical captured `Error`.
-let boom = Error.new()
-let rejected = Future.error(boom)
-let skipped = rejected.then { v => v + 1 }
+const boom = Error.new()
+const rejected = Future.error(boom)
+const skipped = rejected.then { v => v + 1 }
 System.print(skipped.isReady)
 System.print(skipped.value)
-let recovered = rejected.catch { e => (e == boom) }
+const recovered = rejected.catch { e => (e == boom) }
 System.print(recovered.value)

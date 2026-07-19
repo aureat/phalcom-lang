@@ -31,14 +31,14 @@ class Skynet {
       if (size == 1) {
         Fiber.yield(num)
       } else {
-        var fibers = List.new()
-        var i = 0
+        let fibers = List.new()
+        let i = 0
         while (i < div) {
-          var subNum = num + i * (size / div)
+          let subNum = num + i * (size / div)
           fibers.add(Skynet.makeFiber(subNum, size / div, div))
           i = i + 1
         }
-        var sum = 0
+        let sum = 0
         for (task in fibers) {
           sum = sum + task.call()
         }
@@ -48,5 +48,5 @@ class Skynet {
   }
 }
 
-var result = Skynet.makeFiber(0, 1000000, 10).call()
+let result = Skynet.makeFiber(0, 1000000, 10).call()
 System.print("Result: \(result)")

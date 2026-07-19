@@ -1,21 +1,21 @@
 class Person {
   // Named Constructor 1: Anonymous
   static anonymous() {
-    let instance = self.new();
+    const instance = self.new();
     instance.init("Anonymous", -1);
     return instance;
   }
 
   // Named Constructor 2: With name
   static new(name) {
-    let instance = self.new();
+    const instance = self.new();
     instance.init(name);
     return instance;
   }
 
   // Named Constructor 3: With name and age
   static new(name, age) {
-    let instance = self.new();
+    const instance = self.new();
     instance.init(name, age);
     return instance;
   }
@@ -55,5 +55,5 @@ class Person {
   }
 }
 
-let person0 = Person.new();
+const person0 = Person.new();
 System.print(person0.name);

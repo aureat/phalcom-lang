@@ -5,11 +5,11 @@
 // panic — mirroring List/Map's absence boundary. Includes the arity-0 tuple
 // (every index is out of range).
 
-let t = Tuple.fromList(List.new().add(1).add(2))
+const t = Tuple.fromList(List.new().add(1).add(2))
 System.print(t.at(2))
 System.print(t.at(2) == None)
 System.print(t.at(99))
 
-let e = Tuple.fromList(List.new())
+const e = Tuple.fromList(List.new())
 System.print(e.at(0))
 System.print(e.at(0) == None)

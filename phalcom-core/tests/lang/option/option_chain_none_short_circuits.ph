@@ -6,7 +6,7 @@
 // untouched, so none of them ever run. A shared `calls` counter proves
 // zero invocations, not just that the final value is `None`.
 
-var calls = 0
-let result = None.map { v => calls = calls + 1; v + 1 }.flatMap { v => calls = calls + 1; Some.new(v * 2) }.filter { v => calls = calls + 1; v > 0 }.unwrapOr(-1)
+let calls = 0
+const result = None.map { v => calls = calls + 1; v + 1 }.flatMap { v => calls = calls + 1; Some.new(v * 2) }.filter { v => calls = calls + 1; v > 0 }.unwrapOr(-1)
 System.print(result)
 System.print(calls)

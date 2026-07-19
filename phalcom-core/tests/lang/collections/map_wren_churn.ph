@@ -7,8 +7,8 @@
 // Wren drove the 0...100 span with a `for`/range; Phalcom has no `for`-over-
 // numeric-range sugar, so this uses an equivalent `while` counter.
 
-let m = Map.new()
-var i = 0
+const m = Map.new()
+let i = 0
 while (i < 100) {
   m.at(i, put: i)
   (i >= 10).ifTrue { m.remove(i - 10) }

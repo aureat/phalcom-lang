@@ -11,6 +11,6 @@ class Point {
     return "moved to " + to.toString + " over " + duration.toString
   }
 }
-let p = Point.new(0, 0)
-let f = p::move
+const p = Point.new(0, 0)
+const f = p::move
 System.print(f(to: 5, duration: 2))

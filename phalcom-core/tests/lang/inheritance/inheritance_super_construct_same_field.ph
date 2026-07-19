@@ -16,6 +16,6 @@ class B extends A {
   }
   bValue => _slot
 }
-let b = B.new()
+const b = B.new()
 System.print(b.aValue)
 System.print(b.bValue)

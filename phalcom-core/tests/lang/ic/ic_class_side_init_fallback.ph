@@ -3,11 +3,11 @@ class C {
   x => 42
 }
 
-let c1 = C.new()
-let c2 = C.new()
-let c3 = C.new()
-let c4 = C.new()
-let c5 = C.new()
+const c1 = C.new()
+const c2 = C.new()
+const c3 = C.new()
+const c4 = C.new()
+const c5 = C.new()
 
 System.print(c1.x)
 System.print(c2.x)

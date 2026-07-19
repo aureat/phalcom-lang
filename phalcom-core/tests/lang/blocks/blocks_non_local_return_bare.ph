@@ -14,7 +14,7 @@ class Finder {
     return 99
   }
 }
-let numbers = List.new()
+const numbers = List.new()
 numbers.add(1)
 numbers.add(-2)
 System.print(Finder.new().firstNeg(numbers))

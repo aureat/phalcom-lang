@@ -100,7 +100,7 @@ class CellNum extends CellValue {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
-    let on = other.value
+    const on = other.value
     if (on == 0) {
       return ErrorVal.divByZero
     }
@@ -114,7 +114,7 @@ class CellNum extends CellValue {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
-    let on = other.value
+    const on = other.value
     if (on == 0) {
       return ErrorVal.divByZero
     }
@@ -154,7 +154,7 @@ class CellNum extends CellValue {
   }
 
   toString {
-    let s = _n.toString
+    const s = _n.toString
     return s
   }
 
@@ -354,7 +354,7 @@ class CellEmpty extends CellValue {
     if (other is CellEmpty) {
       return ErrorVal.divByZero
     }
-    let on = other.asNumber
+    const on = other.asNumber
     if (on == nil) {
       return ErrorVal.typeError
     }

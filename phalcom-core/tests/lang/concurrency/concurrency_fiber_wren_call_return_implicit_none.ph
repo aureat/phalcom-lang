@@ -6,7 +6,7 @@
 // its first `call()`, delivering the last statement's value — `None`, since
 // `System.print` answers `None` — as the call's result.
 
-let fiber = Fiber.new {
+const fiber = Fiber.new {
   System.print("fiber")
 }
 

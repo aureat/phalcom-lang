@@ -6,7 +6,7 @@
 // argument. This is the exact accumulator shape `blocks_argument_to_method`
 // was waiting on.
 
-let l = List.new()
+const l = List.new()
 l.add(1)
 l.add(2)
 l.add(3)

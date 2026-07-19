@@ -9,17 +9,17 @@
 class Secret {
   toString => "<redacted>"
 }
-let s = Secret.new()
+const s = Secret.new()
 
 // A `List` nested inside a `List`.
 System.print([[s]])
 
 // A `Map` nested inside a `List`.
-let m = Map.new()
+const m = Map.new()
 m.at("k", put: s)
 System.print([m])
 
 // A `List` nested inside a `Map`.
-let m2 = Map.new()
+const m2 = Map.new()
 m2.at("k", put: [s])
 System.print(m2)

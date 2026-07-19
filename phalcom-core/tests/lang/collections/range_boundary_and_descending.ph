@@ -7,22 +7,22 @@
 // the runtime actually does (clamped to empty, per the `size` formula's
 // max-with-0), never a negative size or an infinite/backwards walk.
 
-let empty = Range.new(1, 1, false)
+const empty = Range.new(1, 1, false)
 System.print(empty.size)
 System.print(empty.toList)
 System.print(empty.includes(1))
 
-let single = Range.new(1, 1, true)
+const single = Range.new(1, 1, true)
 System.print(single.size)
 System.print(single.first)
 System.print(single.last)
 System.print(single.toList)
 
-let desc = Range.new(5, 1, true)
+const desc = Range.new(5, 1, true)
 System.print(desc.size)
 System.print(desc.toList)
 System.print(desc.includes(3))
 
-let descExclusive = Range.new(5, 1, false)
+const descExclusive = Range.new(5, 1, false)
 System.print(descExclusive.size)
 System.print(descExclusive.toList)

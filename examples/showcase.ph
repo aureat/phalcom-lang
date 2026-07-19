@@ -43,7 +43,7 @@ class Stack {
 
   // Operator overloading: `+` concatenates two stacks.
   +(other) {
-    var out = List.new()
+    let out = List.new()
     _items.each { x => out.add(x) }
     other.eachItem { x => out.add(x) }
     return Stack.new(items: out)
@@ -55,8 +55,8 @@ class Stack {
   // Structural equality via operator overload.
   ==(other) {
     if (self.size != other.size) { return false }
-    var eq = true
-    var i = 0
+    let eq = true
+    let i = 0
     while (i < self.size) {
       if (_items.at(i) != other.itemAt(i)) { eq = false }
       i = i + 1
@@ -70,7 +70,7 @@ class Stack {
 
 // ---- Driver: numbers, blocks, control flow, Option, interpolation ----
 
-let s = Stack.empty
+const s = Stack.empty
 s.push(10).push(20).push(30)
 
 System.print(s.toString)                 // Stack(size: 3)
@@ -81,16 +81,16 @@ s.top.ifSome { v => System.print("top is \(v)") }        // top is 30
 Stack.empty.top.ifNone { System.print("nothing to peek") } // nothing to peek
 
 // Higher-order fold with a two-argument block.
-let sum = s.fold(0) { acc, x => acc + x }
+const sum = s.fold(0) { acc, x => acc + x }
 System.print("sum = \(sum)")             // sum = 60
 
 // Operator overloading: concatenation.
-let t = Stack.empty.push(40).push(50)
+const t = Stack.empty.push(40).push(50)
 System.print("combined \((s + t).size)") // combined 5
 
 // Structural equality.
-let a = Stack.empty.push(1).push(2)
-let b = Stack.empty.push(1).push(2)
+const a = Stack.empty.push(1).push(2)
+const b = Stack.empty.push(1).push(2)
 System.print("a == b: \(a == b)")        // a == b: true
 
 // Introspection over the object model.

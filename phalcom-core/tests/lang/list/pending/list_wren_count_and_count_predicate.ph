@@ -12,7 +12,7 @@
 System.print(List.new().count)
 System.print(List.new().add(1).count)
 
-let a = List.new()
+const a = List.new()
 a.add(1)
 a.add(2)
 a.add(3)

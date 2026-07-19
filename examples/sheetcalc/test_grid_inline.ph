@@ -18,11 +18,11 @@ class TestGrid {
 class Main {
   static main {
     System.print("Test inline Grid")
-    let g = TestGrid.new()
+    const g = TestGrid.new()
     System.print("Grid created, minCol = " + g.minCol.toString)
     System.print("About to call set()")
-    let r = "key"
-    let c = "cell"
+    const r = "key"
+    const c = "cell"
     g.set(r, c)
     System.print("set() done")
   }

@@ -26,9 +26,9 @@ class Guard {
   }
 }
 
-let x = Guard.new(1)
+const x = Guard.new(1)
 
-let fiberA = Fiber.new {
+const fiberA = Fiber.new {
   x.bump(true)
 }
 

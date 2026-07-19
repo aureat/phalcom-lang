@@ -6,5 +6,5 @@
 // eliminator that leaves Option-world with a value; here it takes the `some:`
 // branch and yields the wrapped value.
 
-let o = Some.new(42)
+const o = Some.new(42)
 System.print(o.match(some: { v => v }, none: { 0 }))

@@ -1,8 +1,8 @@
 // Ported from wren/test/benchmark/string_equals.wren. `1..1000000` range-in-for
 // replaced with a while-counter. Everything else ports directly (string `==`,
 // cross-type compare).
-var count = 0
-var i = 1
+let count = 0
+let i = 1
 while (i <= 1000000) {
   if ("abc" == "abc") { count = count + 1 }
   if ("a slightly longer string" ==

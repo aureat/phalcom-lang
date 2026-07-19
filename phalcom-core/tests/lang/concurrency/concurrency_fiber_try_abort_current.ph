@@ -5,13 +5,13 @@
 // `Error` value rather than propagating past the fiber boundary; `Fiber.current`
 // answers the fiber it is sent from.
 
-let failing = Fiber.new {
+const failing = Fiber.new {
   Fiber.abort(Error.new())
 }
-let result = failing.try()
+const result = failing.try()
 System.print(result.class.name)
 
-let g = Fiber.new {
+const g = Fiber.new {
   System.print(Fiber.current == g)
 }
 g.call()

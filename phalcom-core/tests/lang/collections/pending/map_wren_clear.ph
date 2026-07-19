@@ -8,7 +8,7 @@
 // `remove(_)`/`at(_, put:)`'s self-return convention rather than Wren's
 // `null`).
 
-let a = Map.new()
+const a = Map.new()
 a.at(1, put: 1)
 a.at(2, put: 2)
 a.at(3, put: 3)

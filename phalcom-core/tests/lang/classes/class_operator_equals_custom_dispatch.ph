@@ -11,8 +11,8 @@ class Pt {
     return _x == other.x
   }
 }
-let a = Pt.new(1)
-let b = Pt.new(1)
-let c = Pt.new(2)
+const a = Pt.new(1)
+const b = Pt.new(1)
+const c = Pt.new(2)
 System.print(a == b)
 System.print(a == c)

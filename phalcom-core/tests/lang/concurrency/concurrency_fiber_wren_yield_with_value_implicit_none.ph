@@ -8,7 +8,7 @@
 // statement's value; see `concurrency_fiber_call_resume_value` for the same
 // implicit-completion shape).
 
-let fiber = Fiber.new {
+const fiber = Fiber.new {
   System.print("fiber 1")
   Fiber.yield("yield 1")
   System.print("fiber 2")

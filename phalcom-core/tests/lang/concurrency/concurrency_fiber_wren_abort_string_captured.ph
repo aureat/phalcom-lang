@@ -8,7 +8,7 @@
 // it and hands back the exact value passed to `abort`, unwrapped, not
 // wrapped in an `Error` instance.
 
-let fiber = Fiber.new {
+const fiber = Fiber.new {
   Fiber.abort("Error message.")
 }
 

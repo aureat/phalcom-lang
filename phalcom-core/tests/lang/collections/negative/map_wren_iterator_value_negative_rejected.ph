@@ -12,6 +12,6 @@
 // erroring, so there is no NEGATIVE analog for Wren's
 // `iterator_value_iterator_too_large.wren`.)
 
-let m = Map.new()
+const m = Map.new()
 m.at(1, put: "one")
 m.iteratorValue(-9999)

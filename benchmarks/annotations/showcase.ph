@@ -31,7 +31,7 @@ class BankAccount {
   /// only says *why* the method exists. Note the absence of a prose
   /// "amount must be positive" — that fact lives solely in `@requires`.
   /// @example
-  /// let a = BankAccount.opened(100)
+  /// const a = BankAccount.opened(100)
   /// a.deposit(50)                 // ok
   /// a.deposit(0 - 1)              // raises PreconditionError
   @requires(amount > 0)
@@ -66,16 +66,16 @@ class BankAccount {
 class Point {
   /// The horizontal coordinate. This `///` flows to both the `x` getter and the
   /// `x=(_)` setter that `@get`/`@set` derive.
-  @get @set var _x
+  @get @set _x
   /// The vertical coordinate.
-  @get @set var _y
+  @get @set _y
 
   /// Euclidean distance to another point.
   /// @param o — the other `Point`
   /// @returns the distance as a `Number`
   distanceTo(o) {
-    let dx = _x - o.x
-    let dy = _y - o.y
+    const dx = _x - o.x
+    const dy = _y - o.y
     return Math.sqrt(dx * dx + dy * dy)
   }
 }
@@ -111,7 +111,7 @@ class Shape {
 /// A shopping cart whose `total` recomputes reactively as items change.
 class Cart {
   /// The line items. `@observable` makes writes notify subscribers.
-  @observable var _items
+  @observable _items
   /// The running total. `@computed` memoizes and recomputes when `_items` goes
   /// dirty; the glitch policy (recompute once after inputs settle) is a
   /// documented semantic, not an accident.

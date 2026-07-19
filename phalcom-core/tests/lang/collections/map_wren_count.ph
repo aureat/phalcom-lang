@@ -5,7 +5,7 @@
 // `size`): grows as new keys land, stays put when an existing key is
 // overwritten with a new value.
 
-let m = Map.new()
+const m = Map.new()
 System.print(m.size)
 m.at("one", put: "value")
 System.print(m.size)

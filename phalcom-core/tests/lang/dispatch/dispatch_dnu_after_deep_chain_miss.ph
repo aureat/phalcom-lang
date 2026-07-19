@@ -22,6 +22,6 @@ class C extends B {
   construct new() { }
   greet => "hi"
 }
-let c = C.new()
+const c = C.new()
 System.print(c.greet)
 c.mystery()

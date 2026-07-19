@@ -6,6 +6,6 @@
 
 @On(Method, Install)
 class Memoize extends Attribute {
-  var _cache
+  _cache
   construct new() { _cache = None }
 }

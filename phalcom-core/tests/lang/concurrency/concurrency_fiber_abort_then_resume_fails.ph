@@ -8,15 +8,15 @@
 // top level) raises the identical `NotAllowed` ("cannot resume a finished
 // fiber") as resuming a completed fiber, confirming `Failed` and `Done` share
 // one "cannot resume a finished fiber" guard (fiber.rs `fiber_resume`).
-let f = Fiber.new {
+const f = Fiber.new {
   Fiber.abort(Error.new())
 }
-let r1 = f.try()
+const r1 = f.try()
 System.print(r1.class.name)
 
-let driver = Fiber.new {
+const driver = Fiber.new {
   f.call()
 }
-let r2 = driver.try()
+const r2 = driver.try()
 System.print(r2.class.name)
 System.print(r2.message)

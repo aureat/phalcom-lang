@@ -13,6 +13,6 @@ class Greeter {
     farewell => "bye"
 }
 
-var g = Greeter.new()
+let g = Greeter.new()
 System.print(g.greet)
 System.print(g.farewell)

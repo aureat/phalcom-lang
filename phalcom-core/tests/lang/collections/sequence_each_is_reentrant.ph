@@ -4,13 +4,13 @@
 // `each(_:)` holds its cursor locally, never on the collection, so nested
 // (self-)iteration composes with no shared/global cursor (concurrency.md §1).
 
-let outer = List.new()
+const outer = List.new()
 outer.add(1)
 outer.add(2)
-let inner = List.new()
+const inner = List.new()
 inner.add(10)
 inner.add(20)
-var total = 0
+let total = 0
 outer.each { x =>
   inner.each { y =>
     total = total + (x * y)

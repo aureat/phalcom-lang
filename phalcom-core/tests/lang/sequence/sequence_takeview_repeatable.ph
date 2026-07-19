@@ -3,15 +3,15 @@
 // status: PASS
 // TakeView can be traversed repeatedly with identical results (law-2 compliance)
 
-var source = [1, 2, 3, 4, 5]
-var view = TakeView.new(source, 3)
+let source = [1, 2, 3, 4, 5]
+let view = TakeView.new(source, 3)
 
-var result1 = []
+let result1 = []
 for (x in view) {
   result1.add(x)
 }
 
-var result2 = []
+let result2 = []
 for (x in view) {
   result2.add(x)
 }

@@ -32,35 +32,35 @@ class Account extends Object {
     // currently fails to parse (return + \(expr) interaction) — assigning
     // to a local first is a workaround, unrelated to this fixture's own
     // purpose (see the spawned follow-up task on this bug).
-    var s = "Account(\(self._owner), balance=\(self._balance))"   // \(expr) interpolation
+    let s = "Account(\(self._owner), balance=\(self._balance))"   // \(expr) interpolation
     return s
   }
 
   // Symbol literals
   describeSelector {
-    var sel = #deposit           // name symbol
-    var full = #deposit(_)       // selector symbol, contiguous with (
-    var op = #==                 // operator selector
+    let sel = #deposit           // name symbol
+    let full = #deposit(_)       // selector symbol, contiguous with (
+    let op = #==                 // operator selector
     return sel
   }
 
   // Method reference `::`
   boundDeposit {
-    var ref = self::deposit
-    var pinned = self::#deposit(_)
+    let ref = self::deposit
+    let pinned = self::#deposit(_)
     return ref
   }
 
   // Option operators
   maybeOwner(opt) {
-    var name = opt?.name
-    var fallback = opt ?? "unknown"
+    let name = opt?.name
+    let fallback = opt ?? "unknown"
     return name ?? fallback
   }
 
   // Index sugar
   firstTransaction(list) {
-    var first = list[0]
+    let first = list[0]
     list[0] = "replaced"
     return first
   }
@@ -85,12 +85,12 @@ class Account extends Object {
 }
 
 // Keyword coverage: class extends super self static try catch on ensure
-// throw break continue match return while for var
+// throw break continue match return while for let
 class Savings extends Account {
   static rate { return 0.05 }
 
   applyInterest() {
-    var i = 0
+    let i = 0
     while (i < 3) {
       i = i + 1
       (i == 2).ifTrue { continue }

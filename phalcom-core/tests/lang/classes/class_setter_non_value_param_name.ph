@@ -11,6 +11,6 @@ class Person {
     _name = v
   }
 }
-let p = Person.new("Ada")
+const p = Person.new("Ada")
 p.name = "Bob"
 System.print(p.name)

@@ -5,9 +5,9 @@
 // the outer block's own frame, two capture-levels removed from `main`. The
 // inner closure keeps working correctly after the outer block's frame is
 // gone (chained open->closed upvalue promotion), and is reusable.
-let makeAdder = { base =>
+const makeAdder = { base =>
   { n => n + base }
 }
-let addTen = makeAdder.call(10)
+const addTen = makeAdder.call(10)
 System.print(addTen.call(5))
 System.print(addTen.call(32))

@@ -11,6 +11,6 @@ class Pt {
     return true
   }
 }
-let a = Pt.new(1)
+const a = Pt.new(1)
 System.print(a == a)
 System.print(a == Pt.new(1))

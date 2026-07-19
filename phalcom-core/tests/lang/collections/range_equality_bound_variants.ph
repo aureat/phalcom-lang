@@ -8,13 +8,13 @@
 // with identical start/end but opposite inclusivity are unequal, and `!=`
 // agrees.
 
-let a = Range.new(2, 5, true)
+const a = Range.new(2, 5, true)
 System.print(a == Range.new(2, 5, true))
 System.print(a == Range.new(2, 6, true))
 System.print(a == Range.new(2, 5, false))
 System.print(a != Range.new(2, 5, false))
 
-let c = Range.new(2, 5, false)
+const c = Range.new(2, 5, false)
 System.print(c == Range.new(2, 5, false))
 System.print(c == Range.new(2, 6, false))
 System.print(c != Range.new(2, 6, false))

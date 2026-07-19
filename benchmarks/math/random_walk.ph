@@ -13,15 +13,15 @@
 
 class Check {
   static within(a, b, tol) {
-    let d = a - b
+    const d = a - b
     if (d < 0) { d = 0 - d }
     return d < tol
   }
   // relative tolerance for quantities that scale with n
   static withinRel(a, b, rel) {
-    let d = a - b
+    const d = a - b
     if (d < 0) { d = 0 - d }
-    let scale = b
+    const scale = b
     if (scale < 0) { scale = 0 - scale }
     return d < rel * scale
   }
@@ -29,7 +29,7 @@ class Check {
 
 class Rng {
   static seed(s) {
-    let r = self.new()
+    const r = self.new()
     r.setState(s)
     return r
   }
@@ -46,8 +46,8 @@ class Rng {
 class Walk {
   // Fraction of heads over n fair coin flips.
   static headRate(rng, n) {
-    let heads = 0
-    let i = 0
+    const heads = 0
+    const i = 0
     while (i < n) {
       if (rng.step == 1) { heads = heads + 1 }
       i = i + 1
@@ -57,11 +57,11 @@ class Walk {
 
   // Average final position over `trials` 1D walks of `steps` each. -> 0.
   static meanEndpoint(rng, trials, steps) {
-    let total = 0
-    let t = 0
+    const total = 0
+    const t = 0
     while (t < trials) {
-      let pos = 0
-      let s = 0
+      const pos = 0
+      const s = 0
       while (s < steps) { pos = pos + rng.step; s = s + 1 }
       total = total + pos
       t = t + 1
@@ -71,11 +71,11 @@ class Walk {
 
   // Mean of S_n^2 over `trials` 1D walks of `steps` each. -> steps.
   static meanSquare1D(rng, trials, steps) {
-    let total = 0
-    let t = 0
+    const total = 0
+    const t = 0
     while (t < trials) {
-      let pos = 0
-      let s = 0
+      const pos = 0
+      const s = 0
       while (s < steps) { pos = pos + rng.step; s = s + 1 }
       total = total + pos * pos
       t = t + 1
@@ -85,12 +85,12 @@ class Walk {
 
   // Mean squared displacement of a 2D walk (independent x,y steps). -> 2*steps.
   static meanSquare2D(rng, trials, steps) {
-    let total = 0
-    let t = 0
+    const total = 0
+    const t = 0
     while (t < trials) {
-      let x = 0
-      let y = 0
-      let s = 0
+      const x = 0
+      const y = 0
+      const s = 0
       while (s < steps) {
         x = x + rng.step
         y = y + rng.step
@@ -104,17 +104,17 @@ class Walk {
 }
 
 // --- fair coin: P[heads] -> 1/2 -------------------------------------------
-let g0 = Rng.seed(42)
+const g0 = Rng.seed(42)
 System.print(Check.within(Walk.headRate(g0, 200000), 0.5, 0.01))              // true
 
 // --- 1D walk is unbiased: E[S_n] -> 0 -------------------------------------
-let g1 = Rng.seed(2024)
+const g1 = Rng.seed(2024)
 System.print(Check.within(Walk.meanEndpoint(g1, 40000, 100), 0, 0.5))         // true
 
 // --- 1D diffusion: E[S_n^2] -> n (variance grows linearly with step count) -
-let g2 = Rng.seed(99)
+const g2 = Rng.seed(99)
 System.print(Check.withinRel(Walk.meanSquare1D(g2, 40000, 100), 100, 0.05))   // true
 
 // --- 2D diffusion: E[|R_n|^2] -> 2n ---------------------------------------
-let g3 = Rng.seed(555)
+const g3 = Rng.seed(555)
 System.print(Check.withinRel(Walk.meanSquare2D(g3, 40000, 100), 200, 0.05))   // true

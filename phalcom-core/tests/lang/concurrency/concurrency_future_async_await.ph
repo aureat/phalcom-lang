@@ -2,5 +2,5 @@
 // spec: concurrency.md
 // status: PENDING
 
-let f = Future.async { 42 }
+const f = Future.async { 42 }
 System.print(f.await)

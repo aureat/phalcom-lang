@@ -5,7 +5,7 @@
 class Point {
   x => _x
   static new(x) {
-    let p = self.new();
+    const p = self.new();
     p.init(x);
     return p;
   }
@@ -16,6 +16,6 @@ class Point {
     return Point.new(_x + to);
   }
 }
-let p = Point.new(1)
-let f = p::move
+const p = Point.new(1)
+const f = p::move
 System.print(f(4).x)

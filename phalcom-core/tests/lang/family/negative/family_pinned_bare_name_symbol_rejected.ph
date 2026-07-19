@@ -9,6 +9,6 @@
 class Foo {
   bar() { return 1 }
 }
-let f = Foo.new()
-let g = f::#bar
+const f = Foo.new()
+const g = f::#bar
 System.print(g)

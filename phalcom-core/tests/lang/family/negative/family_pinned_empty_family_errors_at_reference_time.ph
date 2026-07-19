@@ -8,6 +8,6 @@
 // against the exact pinned selector (not just the base name).
 
 class Foo {}
-let f = Foo.new()
-let g = f::#typo(_)
+const f = Foo.new()
+const g = f::#typo(_)
 System.print(g)

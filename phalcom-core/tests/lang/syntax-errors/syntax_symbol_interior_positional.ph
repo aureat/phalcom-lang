@@ -6,4 +6,4 @@
 // a precise span (selectors.md §2 "Malformed contents ... are a lex-time
 // error").
 
-let a = #move(to,_)
+const a = #move(to,_)

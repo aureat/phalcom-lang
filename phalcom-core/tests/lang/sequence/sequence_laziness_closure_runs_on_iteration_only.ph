@@ -3,9 +3,9 @@
 // status: PASS
 // Lazy map: closure does NOT run at .map call time, only when iterated
 
-var counter = 0
-var f = { x => counter = counter + 1; x * 2 }
-var view = [1, 2, 3].map(f)
+let counter = 0
+let f = { x => counter = counter + 1; x * 2 }
+let view = [1, 2, 3].map(f)
 System.print(counter)
 for (x in view) {
 }

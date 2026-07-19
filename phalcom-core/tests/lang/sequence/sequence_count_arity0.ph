@@ -3,8 +3,8 @@
 // status: PASS
 // count traverses via iterate, not size, proving generic length derivation works on List and WhereView
 
-var list = [10, 20, 30, 40]
+let list = [10, 20, 30, 40]
 System.print(list.count)
 
-var view = WhereView.new(list, { x => x > 15 })
+let view = WhereView.new(list, { x => x > 15 })
 System.print(view.count)

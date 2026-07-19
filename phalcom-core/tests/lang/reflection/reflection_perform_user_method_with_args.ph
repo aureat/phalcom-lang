@@ -11,8 +11,8 @@ class Adder {
   add(a, b) => a + b
   zero() => 0
 }
-let obj = Adder.new()
-let args = List.new()
+const obj = Adder.new()
+const args = List.new()
 args.add(3)
 args.add(4)
 System.print(obj.perform(Symbol.new("add(_,_)"), args))

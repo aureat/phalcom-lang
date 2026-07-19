@@ -7,7 +7,7 @@
 // taken path) composes with fiber suspension instead of yielding across a
 // native frame.
 
-let f = Fiber.new {
+const f = Fiber.new {
   for (x in [1, 2, 3]) { Fiber.yield(x) }
 }
 System.print(f.call())

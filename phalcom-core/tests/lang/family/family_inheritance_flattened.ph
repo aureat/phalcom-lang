@@ -9,6 +9,6 @@ class Animal {
 }
 class Dog extends Animal {
 }
-let d = Dog.new()
-let f = d::speak
+const d = Dog.new()
+const f = d::speak
 System.print(f())

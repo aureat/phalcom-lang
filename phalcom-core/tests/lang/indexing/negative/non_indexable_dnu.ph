@@ -1,5 +1,5 @@
 class A {
   construct new() {}
 }
-let a = A.new()
+const a = A.new()
 a[0]

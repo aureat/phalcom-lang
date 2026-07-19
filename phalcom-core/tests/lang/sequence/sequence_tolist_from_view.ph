@@ -3,8 +3,8 @@
 // status: PASS
 // toList materializes a view into List
 
-var view = WhereView.new([1, 2, 3, 4], { x => x > 2 })
-var list = view.toList
+let view = WhereView.new([1, 2, 3, 4], { x => x > 2 })
+let list = view.toList
 System.print(list.class.name)
 System.print(list.size)
 System.print(list.at(0))

@@ -5,7 +5,7 @@
 // construction chain (zero new primitives). Round-trips size/at and renders
 // via the landed `List.toString`; `[]` is the bare `List.new()`.
 
-let l = [1, 2, 3]
+const l = [1, 2, 3]
 System.print(l.size)
 System.print(l.at(0))
 System.print(l.at(2))

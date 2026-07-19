@@ -21,7 +21,7 @@ System.print(C.get)
 
 // Shadow the kernel name in this module. `declare` allocates a NEW slot, which
 // bumps globals_version and must invalidate the cached core resolution above.
-var List = 42
+let List = 42
 System.print(C.get)
 
 // Assignment rewrites the slot's value without moving it, so the cache stays

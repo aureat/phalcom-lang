@@ -7,5 +7,5 @@
 // any arity mismatch, including too many arguments, raises
 // `RuntimeError::Arity` rather than truncating.
 
-let f0 = { System.print("zero") }
+const f0 = { System.print("zero") }
 f0.call("a")

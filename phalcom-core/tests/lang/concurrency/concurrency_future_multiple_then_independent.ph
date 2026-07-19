@@ -5,9 +5,9 @@
 // registering two independent continuations on the *same* settled fulfilled
 // future produces two independent derived futures, each seeing the base's
 // original value, and the base itself is left unchanged after both fire.
-let base = Future.value(5)
-let a = base.then { v => v + 1 }
-let b = base.then { v => v * 10 }
+const base = Future.value(5)
+const a = base.then { v => v + 1 }
+const b = base.then { v => v * 10 }
 System.print(a.value)
 System.print(b.value)
 System.print(base.value)

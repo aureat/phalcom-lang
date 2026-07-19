@@ -7,8 +7,8 @@
 // guard `for` gets, since it dispatches through the ordinary
 // `Function#call` native frame.
 
-let f = Fiber.new {
+const f = Fiber.new {
   [1, 2, 3].each { x => Fiber.yield(x) }
 }
-let result = f.try()
+const result = f.try()
 System.print(result.class.name)

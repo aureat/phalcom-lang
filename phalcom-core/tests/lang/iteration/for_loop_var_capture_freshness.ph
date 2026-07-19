@@ -2,11 +2,11 @@
 // every iteration. A closure captured over it inside the body must see the
 // per-step value it closed over, not whatever the slot held on the loop's
 // *final* iteration — matches the inlined-`while` capture behavior
-// (blocks_shared_mutation.ph's `var` capture, applied per-iteration here
+// (blocks_shared_mutation.ph's `let` capture, applied per-iteration here
 // instead of shared across calls). Before this fix all three closures shared
 // one open upvalue cell and printed [3, 3, 3]; each iteration now closes its
 // own cell before rebinding, so calling them afterward prints [0, 1, 2].
-var closures = List.new()
+let closures = List.new()
 for (x in List.new().add(0).add(1).add(2)) {
   closures.add({ x })
 }

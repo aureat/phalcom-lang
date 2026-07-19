@@ -15,5 +15,5 @@ class Base {
 }
 class Sub extends Base {
 }
-let s = Sub.new()
+const s = Sub.new()
 System.print(s)

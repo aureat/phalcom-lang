@@ -156,7 +156,6 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
     match token {
         Token::Let
         | Token::Const
-        | Token::Var
         | Token::Fn
         | Token::Class
         | Token::Return

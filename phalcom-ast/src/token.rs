@@ -37,10 +37,6 @@ pub enum Token {
     Let,
     /// The `const` keyword introducing an immutable binding (ADR-0064).
     Const,
-    /// The `var` keyword — transient step-1 alias for [`Token::Let`], deleted
-    /// by the end of U-BINDINGS step 2 (L-1). Not part of the final grammar;
-    /// exists only to keep the tree buildable mid-migration.
-    Var,
     /// The `fn` keyword.
     Fn,
     /// The `class` keyword introducing a class declaration.

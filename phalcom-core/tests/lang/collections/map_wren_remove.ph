@@ -7,7 +7,7 @@
 // `at(_)` immediately beforehand instead — `remove(_)` itself stays
 // idempotent (removing an absent key is a no-op).
 
-let m = Map.new()
+const m = Map.new()
 m.at("one", put: 1)
 m.at("two", put: 2)
 m.at("three", put: 3)

@@ -4,7 +4,7 @@
 // Boundary: re-putting the same key overwrites the value in place — size
 // does not grow, and the key's iteration slot is not duplicated.
 
-let m = Map.new()
+const m = Map.new()
 m.at(1, put: "a")
 System.print(m.size)
 m.at(1, put: "b")

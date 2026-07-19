@@ -15,7 +15,7 @@
 // file (empty-delimiter guards, custom trim charsets, negative/fractional
 // counts) — those become U-STRING's own `strings` corpus once it lands
 // (see plan.md §6); this is the single "does the shape work" smoke case.
-let parts = "a,b,,c".split(",")
+const parts = "a,b,,c".split(",")
 System.print(parts.size)
 System.print(parts.at(0))
 System.print(parts.at(1))

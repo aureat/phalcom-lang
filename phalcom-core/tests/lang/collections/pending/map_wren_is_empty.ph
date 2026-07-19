@@ -7,6 +7,6 @@
 // surface (a `Map#isEmpty` sibling to `List#isEmpty`).
 
 System.print(Map.new().isEmpty)
-let m = Map.new()
+const m = Map.new()
 m.at(1, put: 1)
 System.print(m.isEmpty)

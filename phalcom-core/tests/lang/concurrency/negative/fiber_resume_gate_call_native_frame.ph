@@ -7,5 +7,5 @@
 // (a resume, not a yield) instead of reusing the yield-specific wording
 // `Fiber.yield` gets for the same underlying restriction.
 
-let f = Fiber.new { 1 }
+const f = Fiber.new { 1 }
 [1].each { x => f.call() }

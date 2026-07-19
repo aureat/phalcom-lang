@@ -261,7 +261,6 @@ impl<'input> Lexer<'input> {
         match slice {
             "let" => Token::Let,
             "const" => Token::Const,
-            "var" => Token::Var,
             "fn" => Token::Fn,
             "class" => Token::Class,
             "return" => Token::Return,

@@ -7,10 +7,10 @@
 // `None` once `rejected` (the rejection reason is reached via `catch`/`then`,
 // not `value`).
 
-let ok = Future.value(42)
+const ok = Future.value(42)
 System.print(ok.isReady)
 System.print(ok.value)
 
-let bad = Future.error(Error.new())
+const bad = Future.error(Error.new())
 System.print(bad.isReady)
 System.print(bad.value)

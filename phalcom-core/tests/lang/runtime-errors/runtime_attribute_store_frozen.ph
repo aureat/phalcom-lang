@@ -7,7 +7,7 @@
 
 @On(Class)
 class Author extends Attribute {
-  var _name
+  _name
   construct new(name) { _name = name }
   name => _name
 }

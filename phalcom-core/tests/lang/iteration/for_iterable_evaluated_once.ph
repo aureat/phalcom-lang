@@ -10,6 +10,6 @@ class Source {
   }
   calls => _calls
 }
-let s = Source.new()
+const s = Source.new()
 for (x in s.makeList) { System.print(x) }
 System.print(s.calls)

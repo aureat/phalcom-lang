@@ -18,11 +18,11 @@
 
 class Bool { and(other) { return false } }
 
-var n = 3
+let n = 3
 // 4-deep nest, the shape `String.codePointAt` has: each level's `ifFalse` arm
 // carries the next conditional, so only the innermost taken arm produces a
 // value.
-var r = (n < 1).ifTrue({ "one" }, ifFalse: {
+let r = (n < 1).ifTrue({ "one" }, ifFalse: {
   (n < 2).ifTrue({ "two" }, ifFalse: {
     (n < 3).ifTrue({ "three" }, ifFalse: {
       (n < 4).ifTrue({ "four" }, ifFalse: { "big" })

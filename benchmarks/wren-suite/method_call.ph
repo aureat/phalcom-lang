@@ -34,11 +34,11 @@ class NthToggle extends Toggle {
   }
 }
 
-var n = 100000
-var val = true
-var toggle = Toggle.new(val)
+let n = 100000
+let val = true
+let toggle = Toggle.new(val)
 
-var i = 0
+let i = 0
 while (i < n) {
   val = toggle.activate.value
   val = toggle.activate.value
@@ -56,7 +56,7 @@ while (i < n) {
 System.print(toggle.value)
 
 val = true
-var ntoggle = NthToggle.new(val, 3)
+let ntoggle = NthToggle.new(val, 3)
 
 i = 0
 while (i < n) {

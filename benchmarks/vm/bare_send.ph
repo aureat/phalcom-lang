@@ -19,8 +19,8 @@ class Empty {
   static noop { return 0 }
 }
 
-var i = 0
-var acc = 0
+let i = 0
+let acc = 0
 while (i < 200000) {
   acc = Empty.noop
   i = i + 1

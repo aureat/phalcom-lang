@@ -11,6 +11,6 @@ class Proxy {
     return "caught " + msg.name
   }
 }
-let p = Proxy.new()
-let f = p::typo
+const p = Proxy.new()
+const f = p::typo
 System.print(f())

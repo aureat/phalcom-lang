@@ -6,9 +6,9 @@
 // raises `CannotYieldAcrossNativeFrame` instead of corrupting the fiber's
 // suspended position.
 
-let f = Fiber.new {
-  let inner = { Fiber.yield(1) }
+const f = Fiber.new {
+  const inner = { Fiber.yield(1) }
   inner.call()
 }
-let result = f.try()
+const result = f.try()
 System.print(result.class.name)

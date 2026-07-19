@@ -14,5 +14,5 @@
 
 import "./lib/shape" as M
 
-var s = M.Shape.new(3)
+let s = M.Shape.new(3)
 System.print(s.sides)

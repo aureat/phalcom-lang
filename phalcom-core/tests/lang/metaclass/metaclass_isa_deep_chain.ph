@@ -11,6 +11,6 @@ class B extends A {
 }
 class C extends B {
 }
-let c = C.new()
+const c = C.new()
 System.print(c.isA(A))
 System.print(c.isA(String))

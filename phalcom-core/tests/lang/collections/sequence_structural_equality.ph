@@ -5,15 +5,15 @@
 // routes through it rather than staying identity-based (the `==`/`!=`
 // decoupling hazard).
 
-let a = List.new()
+const a = List.new()
 a.add(1)
 a.add(2)
 a.add(3)
-let b = List.new()
+const b = List.new()
 b.add(1)
 b.add(2)
 b.add(3)
-let c = List.new()
+const c = List.new()
 c.add(1)
 c.add(9)
 c.add(3)

@@ -5,6 +5,6 @@
 // `None` singleton — never a panic, never the raw `nil` sentinel — reusing
 // U6's absence-surfacing boundary (Invariant 4).
 
-let l = List.new()
+const l = List.new()
 System.print(l.at(0))
 System.print(l.at(0) == None)

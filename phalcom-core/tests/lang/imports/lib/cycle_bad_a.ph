@@ -4,4 +4,4 @@
 // top level reaches the statement that defines it — the documented
 // partial-init hazard (U15 plan §4) must fail cleanly, not hang or panic.
 import "./cycle_bad_b" as B
-var late = 10
+let late = 10

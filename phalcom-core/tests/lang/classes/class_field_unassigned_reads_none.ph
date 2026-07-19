@@ -8,5 +8,5 @@ class Person {
   age => _age
   age=(v) { _age = v }
 }
-let p = Person.new(name: "Ada")
+const p = Person.new(name: "Ada")
 System.print(p.age)

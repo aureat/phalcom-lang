@@ -13,11 +13,11 @@ class Adder {
     return -1
   }
   sum(*numbers) {
-    var total = 0
+    let total = 0
     numbers.each({ n => total = total + n })
     return total
   }
 }
-let a = Adder.new()
+const a = Adder.new()
 System.print(a.sum(1, 2))
 System.print(a.sum(1, 2, 3))

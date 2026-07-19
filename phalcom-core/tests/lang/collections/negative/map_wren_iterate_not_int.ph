@@ -10,7 +10,7 @@
 // number` (a bare `Number` like `1.5` no longer errors here: `1.5 + 1`
 // succeeds and just walks off the end into `None`).
 
-let m = Map.new()
+const m = Map.new()
 m.at(1, put: 2)
 m.at(3, put: 4)
 m.iterate("")

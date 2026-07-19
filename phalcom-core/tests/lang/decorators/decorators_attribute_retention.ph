@@ -9,14 +9,14 @@
 
 @On(Class)
 class Author extends Attribute {
-  var _name
+  _name
   construct new(name) { _name = name }
   name => _name
 }
 
 @On(Method)
 class Tag extends Attribute {
-  var _label
+  _label
   construct new(label) { _label = label }
   label => _label
 }
@@ -30,5 +30,5 @@ class Engine {
 System.print(Engine.attributesOfType(Author).at(0).name)
 System.print(Engine.attributes.size)
 
-let e = Engine.new()
+const e = Engine.new()
 System.print(e.methodFor(Symbol.new("run()")).attributesOfType(Tag).at(0).label)

@@ -6,7 +6,7 @@
 // (safe path — element values via `list_to_string`), never the `toString`
 // *message* on an individual element (the class-name trap, DEFERRED.md #19).
 
-let l = List.new()
+const l = List.new()
 l.add(1)
 l.add(2)
 l.add(3)

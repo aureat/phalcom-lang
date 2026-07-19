@@ -8,6 +8,6 @@
 // still fail to retrieve). Proves the intended surface: bare-identifier keys
 // are symbols (`{a: 1}` ≡ key `#a`), retrieved via `at(#a)`.
 
-let m = {a: 1, b: 2}
+const m = {a: 1, b: 2}
 System.print(m.at(#a))
 System.print(m.at(#b))

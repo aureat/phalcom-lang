@@ -13,8 +13,8 @@ class Vec {
     return Vec.new(_x + other.x, _y + other.y)
   }
 }
-let a = Vec.new(1, 2)
-let b = Vec.new(3, 4)
-let c = a + b
+const a = Vec.new(1, 2)
+const b = Vec.new(3, 4)
+const c = a + b
 System.print(c.x)
 System.print(c.y)

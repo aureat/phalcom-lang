@@ -4,10 +4,10 @@
 // C-FIB-2: the argument passed to a resuming `call(_)` is delivered as the
 // value `Fiber.yield(_)` returns inside the fiber.
 
-let echo = Fiber.new {
-  let a = Fiber.yield("ready")
+const echo = Fiber.new {
+  const a = Fiber.yield("ready")
   System.print(a)
-  let b = Fiber.yield("ready again")
+  const b = Fiber.yield("ready again")
   System.print(b)
 }
 System.print(echo.call())

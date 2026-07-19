@@ -9,11 +9,11 @@
 //   { }            empty block
 //   { expr }       zero-parameter block
 
-let two = { x, y => x + y }
+const two = { x, y => x + y }
 System.print(two.call(3, 4))
-let one = { x => x }
+const one = { x => x }
 System.print(one.call(5))
-let empty = {}
+const empty = {}
 System.print(empty.class)
-let zero = { 1 + 1 }
+const zero = { 1 + 1 }
 System.print(zero.call())

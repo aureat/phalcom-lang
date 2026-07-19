@@ -5,7 +5,7 @@
 // (Tuple, Map, Set) — `at(_, put:)` overwriting one slot's element type
 // leaves neighboring elements/kinds untouched.
 
-let l = List.new()
+const l = List.new()
 l.add(Tuple.fromList(List.new().add(1).add(2)))
 l.add(Map.new().at("k", put: 1))
 l.add(Set.new().add(1).add(2))

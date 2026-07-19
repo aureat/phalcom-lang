@@ -24,7 +24,7 @@ class C extends B {
   }
   c => _c
 }
-let x = C.new()
+const x = C.new()
 System.print(x.a)
 System.print(x.b)
 System.print(x.c)

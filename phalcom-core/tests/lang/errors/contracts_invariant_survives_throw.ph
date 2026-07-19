@@ -20,7 +20,7 @@ class Vault {
   }
 }
 
-let v = Vault.new(10)
+const v = Vault.new(10)
 
 try {
   v.withdraw(999)

@@ -11,10 +11,10 @@ class Vec {
 }
 class Vec3 extends Vec {
   +(other) {
-    let r = super.+(other);
+    const r = super.+(other);
     return r.x;
   }
 }
-let a = Vec3.new(2)
-let b = Vec3.new(3)
+const a = Vec3.new(2)
+const b = Vec3.new(3)
 System.print(a.+(b))

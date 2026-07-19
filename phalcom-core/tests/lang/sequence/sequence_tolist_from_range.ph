@@ -3,7 +3,7 @@
 // status: PASS
 // toList materializes Range into List
 
-var list = Range.new(1, 4, false).toList
+let list = Range.new(1, 4, false).toList
 System.print(list.class.name)
 System.print(list.size)
 System.print(list.at(0))

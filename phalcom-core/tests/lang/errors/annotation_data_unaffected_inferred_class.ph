@@ -19,7 +19,7 @@ class Counter {
   count => _count
 }
 
-let c = Counter.new(10)
+const c = Counter.new(10)
 c.increment()
 c.increment()
 System.print(c.count)

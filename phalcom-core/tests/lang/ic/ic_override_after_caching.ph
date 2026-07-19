@@ -2,19 +2,19 @@ class A {
   get => 1
 }
 
-let a = A.new()
+const a = A.new()
 
 // Cache by repeated calls
-let _ = a.get
-let _ = a.get
-let _ = a.get
-let _ = a.get
-let _ = a.get
-let _ = a.get
-let _ = a.get
-let _ = a.get
-let _ = a.get
-let _ = a.get
+const _ = a.get
+const _ = a.get
+const _ = a.get
+const _ = a.get
+const _ = a.get
+const _ = a.get
+const _ = a.get
+const _ = a.get
+const _ = a.get
+const _ = a.get
 
 // Reopen and override
 class A {

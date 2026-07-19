@@ -8,7 +8,7 @@
 class Animal {}
 class Dog extends Animal {}
 
-var d = Dog.new()
+let d = Dog.new()
 System.print(d is Animal)
 System.print(d is! Animal)
 System.print(d is not Animal)

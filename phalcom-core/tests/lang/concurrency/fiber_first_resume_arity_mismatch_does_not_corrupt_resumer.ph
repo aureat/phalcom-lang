@@ -13,12 +13,12 @@
 // (which resumed `outer` via `try()`) recovers the captured `Error` and
 // keeps running, and the message correctly says "try" as the signature.
 
-let inner = Fiber.new { x => x }
-let outer = Fiber.new {
+const inner = Fiber.new { x => x }
+const outer = Fiber.new {
   inner.call()
   System.print("unreachable: outer body continues past inner.call")
 }
-let r = outer.try()
+const r = outer.try()
 System.print(r.class.name)
 System.print(r.message)
 System.print("root continues")

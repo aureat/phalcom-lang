@@ -6,7 +6,7 @@
 
 @data
 class Money {
-  var _cents
+  _cents
 
   ==(other) {
     return _cents == other.cents

@@ -11,5 +11,5 @@ class Block {
     return "overridden-loop"
   }
 }
-var i = 0
+let i = 0
 System.print({ i < 3 }.whileTrue { i = i + 1 })

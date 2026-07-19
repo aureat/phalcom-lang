@@ -9,7 +9,7 @@
 // `primitive/fiber.rs`, registered in `universe/primitives.rs` alongside the
 // U-FIBER floor's `call`/`try`/`yield`/`current`/`abort`).
 
-let ok = Fiber.new {
+const ok = Fiber.new {
   System.print("1")
   Fiber.yield()
   System.print("2")
@@ -21,11 +21,11 @@ System.print(ok.isDone)
 ok.call()
 System.print(ok.isDone)
 
-let failing = Fiber.new {
+const failing = Fiber.new {
   "s".unknown
 }
 
 System.print(failing.error)
-let result = failing.try()
+const result = failing.try()
 System.print(result.message)
 System.print(failing.error.match(some: { e => e.message }, none: { "none" }))

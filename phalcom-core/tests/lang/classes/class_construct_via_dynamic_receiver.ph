@@ -23,9 +23,9 @@ class Counter {
 System.print(Counter.new(1).n)
 
 // Variable receiver.
-var C = Counter
+let C = Counter
 System.print(C.new(2).n)
 
 // Collection-element receiver.
-var classes = [Counter]
+let classes = [Counter]
 System.print(classes[0].new(3).n)

@@ -1,7 +1,7 @@
 class Countdown extends Iterable {
   construct from(n:) { _n = n }
   iterate(cursor) {
-    let next = (cursor == None).ifTrue({ _n }, ifFalse: { cursor - 1 })
+    const next = (cursor == None).ifTrue({ _n }, ifFalse: { cursor - 1 })
     return (next >= 0).ifTrue({ next }, ifFalse: { None })
   }
   iteratorValue(cursor) => cursor

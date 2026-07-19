@@ -16,5 +16,5 @@ class B extends A {
   construct new() { super.new() }
   label => "B"
 }
-let b = B.new()
+const b = B.new()
 System.print(b.report)

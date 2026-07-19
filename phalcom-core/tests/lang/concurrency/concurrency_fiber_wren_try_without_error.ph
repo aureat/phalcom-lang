@@ -6,7 +6,7 @@
 // only the failure path that differs (captured `Error` value instead of
 // propagation).
 
-let fiber = Fiber.new {
+const fiber = Fiber.new {
   System.print("fiber")
 }
 

@@ -8,6 +8,6 @@
 // call), naming the class.
 
 class Foo {}
-let f = Foo.new()
-let g = f::typo
+const f = Foo.new()
+const g = f::typo
 System.print(g)

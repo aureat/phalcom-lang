@@ -4,7 +4,7 @@
 // U-STD: `includes(_)` is `true` iff some element is `== x`; `isEmpty` is
 // `self.size == 0`. Both conditions are well-formed `Bool`s (ADR-0021).
 
-let l = List.new()
+const l = List.new()
 l.add(1)
 l.add(2)
 l.add(3)

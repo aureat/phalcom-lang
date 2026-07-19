@@ -12,11 +12,11 @@
 // trailing comma to work around it — parse_comma_exprs likely skips
 // newlines only after a comma, not before checking for the closing
 // bracket.
-var adverbs = [
+let adverbs = [
   "moderately", "really", "slightly", "very",
 ]
 
-var adjectives = [
+let adjectives = [
   "abandoned", "able", "absolute", "academic", "acceptable", "acclaimed",
   "accomplished", "accurate", "aching", "acidic", "acrobatic", "active",
   "actual", "adept", "admirable", "admired", "adolescent", "adorable", "adored",
@@ -50,7 +50,7 @@ var adjectives = [
   "crafty",
 ]
 
-var animals = [
+let animals = [
   "aardvark", "african buffalo", "albatross", "alligator", "alpaca", "ant",
   "anteater", "antelope", "ape", "armadillo", "baboon", "badger", "barracuda",
   "bat", "bear", "beaver", "bee", "bison", "black panther", "blue jay", "boar",
@@ -82,7 +82,7 @@ var animals = [
   "wallaby", "wildebeest",
 ]
 
-var keys = List.new()
+let keys = List.new()
 for (animal in animals) {
   for (adjective in adjectives) {
     for (adverb in adverbs) {
@@ -91,15 +91,15 @@ for (animal in animals) {
   }
 }
 
-var map = Map.new()
+let map = Map.new()
 
-var i = 0
+let i = 0
 for (key in keys) {
   map.at(key, put: i)
   i = i + 1
 }
 
-var sum = 0
+let sum = 0
 for (key in keys) {
   sum = sum + map.at(key)
 }

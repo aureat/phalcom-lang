@@ -122,12 +122,12 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
         "Iterates a collection via the cursor protocol: `for (x in coll) { ... }` desugars to a `while` loop calling `iterate(_)`/`iteratorValue(_)`, so `break`/`continue` work as loop-control.",
     ),
     (
-        "var",
-        "Introduces a mutable binding; can be reassigned. `var x` with no initializer reads as `None` (there is no uninitialized-variable error).",
+        "let",
+        "Introduces a mutable binding; can be reassigned. `let x` with no initializer reads as `None` (there is no uninitialized-variable error).",
     ),
     (
-        "let",
-        "Introduces an immutable binding; must be initialized (unlike `var`), and cannot be reassigned (ADR-0014, values-and-absence.md §3.1).",
+        "const",
+        "Introduces an immutable binding; must be initialized (unlike `let`), and cannot be reassigned (ADR-0064).",
     ),
     (
         "fn",
@@ -183,7 +183,7 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
 fn keyword_spelling(token: &Token) -> Option<&'static str> {
     match token {
         Token::Let => Some("let"),
-        Token::Var => Some("var"),
+        Token::Const => Some("const"),
         Token::Fn => Some("fn"),
         Token::Class => Some("class"),
         Token::Return => Some("return"),
@@ -602,7 +602,7 @@ mod tests {
     #[test]
     fn keyword_blurb_covers_every_token_keyword_and_contextual_word() {
         let all = [
-            "let", "var", "fn", "class", "return", "true", "false", "if", "else", "while", "for",
+            "let", "const", "fn", "class", "return", "true", "false", "if", "else", "while", "for",
             "break", "continue", "import", "self", "super", "in", "as", "is", "and", "or", "not",
             "static", "construct", "throw", "try", "extends", "on", "catch", "ensure", "match",
         ];
@@ -701,12 +701,12 @@ mod tests {
     }
 
     #[test]
-    fn phaldoc_attaches_to_a_top_level_var_binding() {
-        let src = "/// A mutable running total.\nvar total = 0;\n";
+    fn phaldoc_attaches_to_a_top_level_const_binding() {
+        let src = "/// A fixed running total.\nconst total = 0;\n";
         let (program, line_index) = parsed(src);
         let doc = harvest_doc_for_selector(src, &program, &line_index, "total")
-            .expect("doc above a top-level var must attach to its bound name");
-        assert_eq!(doc.summary, "A mutable running total.");
+            .expect("doc above a top-level const must attach to its bound name");
+        assert_eq!(doc.summary, "A fixed running total.");
     }
 
     #[test]

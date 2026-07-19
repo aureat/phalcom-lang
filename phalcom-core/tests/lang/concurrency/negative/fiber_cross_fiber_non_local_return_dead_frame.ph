@@ -11,6 +11,6 @@
 class Maker {
   make() { return { return 1 } }
 }
-let escaped = Maker.new().make()
-let f = Fiber.new(escaped)
+const escaped = Maker.new().make()
+const f = Fiber.new(escaped)
 f.call()

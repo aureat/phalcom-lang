@@ -13,6 +13,6 @@ class Dog extends Animal {
   construct new() { }
   describe => "a dog"
 }
-let d = Dog.new()
+const d = Dog.new()
 System.print(d.legs)
 System.print(d.describe)

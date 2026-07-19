@@ -6,4 +6,4 @@
 // spread, so a spread element is rejected with a precise diagnostic rather
 // than silently mis-parsed — pinning the reserved slot's behaviour.
 
-let l = [*xs, 1]
+const l = [*xs, 1]

@@ -17,9 +17,9 @@
 class V {
   sum(*args) { return args.size }
 }
-let v = V.new()
-var i = 0
-var acc = 0
+const v = V.new()
+let i = 0
+let acc = 0
 while (i < 2000000) {
   acc = acc + v.sum(1, 2, 3)
   i = i + 1

@@ -4,7 +4,7 @@ class Num {
   /// Floor of n, rounded down toward negative infinity.
   /// n - (n % 1) truncates toward zero, so negative numbers need correction.
   static floor(n) {
-    let t = n - (n % 1)
+    const t = n - (n % 1)
     if (n < 0 and (n % 1) != 0) {
       return t - 1
     }
@@ -13,7 +13,7 @@ class Num {
 
   /// Ceiling of n, rounded up toward positive infinity.
   static ceil(n) {
-    let t = n - (n % 1)
+    const t = n - (n % 1)
     if (n > 0 and (n % 1) != 0) {
       return t + 1
     }
@@ -41,7 +41,7 @@ class Num {
     if (nums.isEmpty) {
       return nil
     }
-    var m = nums.at(0)
+    let m = nums.at(0)
     for (n in nums) {
       if (n < m) {
         m = n
@@ -55,7 +55,7 @@ class Num {
     if (nums.isEmpty) {
       return nil
     }
-    var m = nums.at(0)
+    let m = nums.at(0)
     for (n in nums) {
       if (n > m) {
         m = n

@@ -9,22 +9,22 @@
 // `max`/`sum` `Fn` objects (stored here as blocks instead, `Fn`'s Phalcom
 // analog).
 
-let a = List.new()
+const a = List.new()
 a.add(1)
 a.add(4)
 a.add(2)
 a.add(1)
 a.add(5)
 
-let max = { x, y => (x > y).ifTrue({ x }, ifFalse: { y }) }
-let sum = { x, y => x + y }
+const max = { x, y => (x > y).ifTrue({ x }, ifFalse: { y }) }
+const sum = { x, y => x + y }
 
 System.print(a.reduce(0) { acc, x => max.call(acc, x) })
 System.print(a.reduce(10) { acc, x => max.call(acc, x) })
 System.print(a.reduce(0) { acc, x => sum.call(acc, x) })
 System.print(a.reduce(-1) { acc, x => sum.call(acc, x) })
 
-let b = List.new()
+const b = List.new()
 b.add("W")
 b.add("o")
 b.add("r")

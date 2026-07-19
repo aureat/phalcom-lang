@@ -2,7 +2,7 @@
 // the loop, exactly as it does inside `for`. Before this fix, a bare `while`
 // pushed no `LoopContext`, so `break` here raised the out-of-loop compile
 // error (C-ITER-7). Over i = 0..4: prints 0, 1, breaks at i == 2.
-var i = 0
+let i = 0
 while (i < 4) {
   if (i == 2) { break }
   System.print(i)

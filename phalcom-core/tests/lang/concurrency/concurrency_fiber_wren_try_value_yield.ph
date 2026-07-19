@@ -6,17 +6,17 @@
 // `Fiber.yield`; a second `try(_)` delivers its argument as the `yield`'s
 // return value and then captures the subsequent uncaught failure.
 
-let fiber = Fiber.new { v =>
+const fiber = Fiber.new { v =>
   System.print("before")
   System.print(v)
-  var w = Fiber.yield()
+  let w = Fiber.yield()
   System.print(w)
   true.unknownMethod
   System.print("after")
 }
 
 fiber.try("value1")
-let result = fiber.try("value2")
+const result = fiber.try("value2")
 System.print(result.class.name)
 System.print(result.message)
 System.print("after try")

@@ -25,7 +25,7 @@ class Calculator {
 
 }
 
-let calc = Calculator.new(0);
+const calc = Calculator.new(0);
 
 System.print(calc.add(5, 3));         // 8
 System.print(calc.subtract(10, 4));   // 6
