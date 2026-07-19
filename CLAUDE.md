@@ -57,9 +57,11 @@ Cargo workspace (edition 2024, resolver 2). Members:
 Bootstrap core library written in Phalcom, loaded at startup to define base classes.
 
 ### `phalcom-repl/src`
-REPL built on `rustyline`/`reedline`: `repl.rs`, `editor.rs`, `helper.rs`, `completer.rs`,
-`highlighter.rs`, `common.rs`, `main.rs`. A parallel `rustyline/` subdirectory holds an
-alternate/experimental editor stack — treat `src/*.rs` as the active path unless verifying otherwise.
+REPL built on `reedline`. The whole crate is one binary rooted at `main.rs`, which declares
+exactly four modules: `common.rs` (shared keyword table), `completer.rs`, `highlighter.rs`,
+`repl.rs`. There is no `lib.rs` and no second editor stack — the former `rustyline/`
+subdirectory and the orphaned `editor.rs`/`helper.rs` were deleted per U-REPL §S8 once they
+were found to be declared by nothing and therefore never compiled.
 
 ## Build / run / test
 

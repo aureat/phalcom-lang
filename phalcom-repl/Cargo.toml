@@ -4,11 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rustyline.workspace = true
 unicode-segmentation = "1.12.0"
 once_cell = "1.21.3"
 regex = "1.11.1"
-fancy-regex = "0.16.1"
-anyhow = "1.0.98"
 reedline = "0.41.0"
 nu-ansi-term = "0.50.1"
