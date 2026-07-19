@@ -45,6 +45,18 @@ pub struct Chunk {
     pub code: Vec<Bytecode>,
     pub constants: Vec<Value>,
     pub spans: Vec<SourceRange>,
+    /// Index into [`ModuleObject::sources`](crate::heap::ModuleObject) of the
+    /// source text [`Self::spans`] point into.
+    ///
+    /// A module accumulates one source entry per compiled unit — one per REPL
+    /// cell — so a span baked into *this* chunk must be rendered against the
+    /// text that chunk was compiled from, not against whatever the module was
+    /// most recently fed (U-REPL §D2, precondition 6). Debug data: read only on
+    /// the error path, never in the interpreter loop.
+    ///
+    /// Stamped by the compiler when it finalizes a [`Callable`](crate::callable::Callable);
+    /// a hand-built [`Chunk`] keeps the default `0`.
+    pub source_id: u32,
     /// Parallel to `code`; only `Bytecode::Invoke` indices are ever non-`None`.
     /// Cell enables interior mutability for cache refill through a shared `&Chunk` borrow.
     pub caches: Vec<Cell<Option<InlineCache>>>,
@@ -68,6 +80,7 @@ impl Chunk {
             code: Vec::new(),
             constants: Vec::new(),
             spans: Vec::new(),
+            source_id: 0,
             caches: Vec::new(),
             gcaches: Vec::new(),
         }

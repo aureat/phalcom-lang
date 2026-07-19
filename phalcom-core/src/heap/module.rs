@@ -41,8 +41,14 @@ pub struct ModuleObject {
     pub name: String,
     /// Absolute filesystem path (or an internal placeholder for the core module).
     pub path: String,
-    /// The module's source text, shared for diagnostics.
-    pub source: Option<Arc<String>>,
+    /// Every source text compiled into this module, in compilation order and
+    /// indexed by [`Chunk::source_id`](crate::chunk::Chunk::source_id).
+    ///
+    /// A file-backed module accumulates exactly one entry; the REPL feeds one
+    /// module many cells and so accumulates one per cell. Diagnostics resolve a
+    /// chunk's span against *its own* entry rather than against the module's
+    /// latest text (U-REPL §D2, precondition 6).
+    pub sources: Vec<Arc<String>>,
     /// Handle to the module's top-level [`ClosureObject`](crate::heap::ClosureObject), once compiled.
     pub closure: Option<ObjRef>,
     /// Global variable slots, indexed by slot number.
@@ -71,6 +77,10 @@ pub struct ModuleObject {
 impl ModuleObject {
     /// Creates an empty module. The caller must register it in the VM to keep it
     /// reachable.
+    ///
+    /// `source`, when `Some`, seeds [`Self::sources`] as entry `0`; modules that
+    /// are compiled through [`VM::compile_closure`](crate::vm::VM::compile_closure)
+    /// pass `None` and let that call append their text instead.
     pub fn new(name: String, name_sym: Symbol, path: String, source: Option<Arc<String>>) -> Self {
         Self {
             name,
@@ -80,10 +90,28 @@ impl ModuleObject {
             globals: Vec::new(),
             name_to_slot: HashMap::new(),
             globals_version: 0,
-            source,
+            sources: source.into_iter().collect(),
             attributes: Vec::new(),
             attributes_frozen: false,
         }
+    }
+
+    /// Appends `source` to [`Self::sources`] and returns its index, to be
+    /// stamped into every [`Chunk`](crate::chunk::Chunk) compiled from that text
+    /// (U-REPL §D2).
+    pub fn push_source(&mut self, source: Arc<String>) -> u32 {
+        self.sources.push(source);
+        (self.sources.len() - 1) as u32
+    }
+
+    /// Returns the source text a [`Chunk::source_id`](crate::chunk::Chunk::source_id)
+    /// refers to, or `None` if this module never recorded that entry.
+    ///
+    /// `None` is reachable for a chunk the compiler never stamped (a hand-built
+    /// [`Chunk`](crate::chunk::Chunk) defaults to `0`) on a module with no
+    /// recorded source at all, so callers must degrade rather than index.
+    pub fn source_at(&self, source_id: u32) -> Option<&Arc<String>> {
+        self.sources.get(source_id as usize)
     }
 
     /// Appends `attr` to this module's attribute-retention store.

@@ -135,6 +135,12 @@ impl VM {
     /// Parses and compiles `source` for `module`, returning the top-level
     /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
     ///
+    /// `source` is appended to
+    /// [`ModuleObject::sources`](crate::heap::ModuleObject::sources) and the
+    /// resulting index stamped into every [`Chunk`](crate::chunk::Chunk)
+    /// produced here, so each compiled unit — each REPL cell — keeps its own
+    /// text for diagnostics (U-REPL §D2).
+    ///
     /// # Errors
     ///
     /// Returns [`PhError::Compile`] if `source` fails to parse or compile; the
@@ -146,7 +152,8 @@ impl VM {
             PhError::Compile(CompilerError::Parse(e))
         })?;
 
-        let compiler = Compiler::new(self, module);
+        let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
+        let compiler = Compiler::new(self, module, source_id);
         let closure = compiler.compile(program)?;
         Ok(closure)
     }
@@ -184,9 +191,9 @@ impl VM {
     /// compiler diagnostic) or [`PhError::Runtime`] on an uncaught runtime
     /// error (after printing a runtime diagnostic).
     pub fn interpret_source(&mut self, module: ObjRef, source: &str) -> PhResult<()> {
-        let source_arc = std::sync::Arc::new(source.to_string());
-        self.heap.module_mut(module).source = Some(source_arc);
-
+        // No source registration here: `compile_closure` records the text and
+        // stamps its index into the chunks it builds, so source is registered
+        // exactly where it is compiled (U-REPL §D2).
         let closure = self.compile_closure(module, source).inspect_err(|err| {
             self.compiler_error(err.clone());
         })?;
@@ -252,7 +259,8 @@ impl VM {
         self.universe.module_registry.insert(canonical.clone(), module_id);
 
         let source = fs::read_to_string(&canonical).map_err(|e| IoError::Message(format!("Failed to read file {canonical}: {e}")))?;
-        self.heap.module_mut(module_id).source = Some(Arc::new(source.clone()));
+        // `compile_closure` below records this text in the module and stamps
+        // its index into every chunk it produces (U-REPL §D2).
         self.register_source(&logical_name, &source);
 
         let closure = self.compile_closure(module_id, &source)?;

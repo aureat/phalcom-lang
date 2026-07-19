@@ -16,7 +16,13 @@ pub struct SourceLoc {
     pub module_name: String,
     pub method_name: String,
     pub span: SourceRange,
-    pub source: Arc<String>,
+    /// The text [`Self::span`] indexes into, resolved through the frame's
+    /// [`Chunk::source_id`](crate::chunk::Chunk::source_id).
+    ///
+    /// `None` when the frame's chunk carries an id the module never recorded —
+    /// a synthesized chunk on a source-less module. Such a frame still appears
+    /// in the traceback, just without a code excerpt (U-REPL §D2).
+    pub source: Option<Arc<String>>,
 }
 
 // use std::ops::Range;
@@ -96,7 +102,11 @@ fn print_frame(loc: &SourceLoc) {
     //         eprintln!("    {}", line.trim_end());
     //     }
     // }
-    print_line_information(&loc.source, loc.span.start..loc.span.end);
+    // A frame whose source could not be resolved still belongs in the
+    // traceback — it just cannot show the offending line.
+    if let Some(source) = &loc.source {
+        print_line_information(source, loc.span.start..loc.span.end);
+    }
 }
 
 // /// Fetch `n`-th (1-based) line from `src`.
