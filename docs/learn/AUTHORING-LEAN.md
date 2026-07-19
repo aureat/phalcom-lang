@@ -268,4 +268,50 @@ result is recorded in `AUTHORING.md` §10 so nobody retries it blind.
 
 | Doc | Kind | A ran? | Wall | Agent tokens | Recon rows | Gate fails | Verdict |
 |---|---|---|---|---|---|---|---|
-| *(C2 — fill in)* | | | | | | | |
+| [C2 — the parked fiber](concurrency/parked-fiber.md) | mechanism | no (see below) | ~50 min | 170k / 44 calls (one agent) | 4 | 2, both fixed | **keep the variant; fix the gate wording** |
+
+**Cost, against C1.** C1: five phases, two agents, Agent B alone 216k tokens / 57 tool calls,
+~25 min. C2: three phases, one agent, B 170k / 44 calls — **~21% fewer agent tokens.** But wall-clock
+was *worse*, ~50 min, and none of that is the procedure's fault: the first two background agents died
+without writing output and B had to be relaunched synchronously. Discount the wall number; the token
+number is the real comparison and it favours lean.
+
+**Quality, against §8's table.**
+
+| Signal | C1 baseline | C2 (lean) |
+|---|---|---|
+| Findings that contradicted the plan or priors | 2 | **4** — (i) C1 already owned most of C2's *planned* content, which the track plan did not know; (ii) the fourth swapped field is unexercisable at HEAD; (iii) "swap" is wrong in ADR-0030 §3, Doc 3, and C1 alike; (iv) recon's own retention finding was cut down by the source map |
+| Adversarial checks that changed a claim | 1 | **2** — both REFUTE-asks landed: the `checking` retention came back PARTIAL (traced *edge*, not root; unreachable in any program), and the GC-reachability claim came back REFINED (resumer chain is one path of several) |
+| ADR-vs-HEAD gaps found and stated | 3 | **2 new** — §3's "pointer swap" is a `mem::take` move; §7's "fibers are GC roots" is satisfied by transitive reachability, with no fiber registry. (§5's typed-signal gap is C1's, not re-counted) |
+| Claims labelled unverified rather than smuggled | 3 | **3** — the general GC invariant (INFERRED beyond the one tested shape); the regression golden's non-observability, from its own header; "no other writer of `checking`" as inferred-not-proven |
+| Predict-then-check moments | 1, productive wrong answer | **1, productive wrong answer** — two `f.call(x)` in a row; the natural prediction is that both deliver the same way, and the correction (parameter vs. `yield`'s return value) *is* the two-path asymmetry |
+| Gate items failed on first pass | 0 | **2** — comparison filter (no cut list named; zero languages is defensible but must be *stated*), and one claim stated more strongly than its evidence. Both fixed before shipping |
+
+**Verdict: the cuts held.** §8's stated kill-switch — *"zero rows in the 4.1 reconciliation table"* —
+did not fire; the table had four rows and two came from the adversarial asks, which are the cheap
+part. The specific regression to watch for (*accurate but flat*) did not appear either: the doc's
+thesis is a correction to three shipped artifacts, which is the opposite of flat.
+
+**Three procedure findings, recorded rather than smoothed over.**
+
+1. **The doc-kind gate was answered twice, and that is a wording bug in this file.** §2 says
+   "when in doubt, run A"; §5's extra checkbox says an A-skip that proves wrong is a finding, not a
+   failure. On this run both were followed at once — recon concluded *mechanism* and A was dispatched
+   anyway "to be safe" — which is not a permitted state. It was caught and reverted before any of A's
+   output was read (in the event, A died having written nothing, so the discard cost nothing).
+   **Fix §2:** the escape hatch should read *"if you cannot name the doc's kind, you have not finished
+   recon — go back to phase 1"*, not *"run A."* Hedging between the two answers costs a whole agent
+   and, worse, makes the run useless as a measurement of the variant.
+2. **Add a phase-1 step: read the sibling docs that claim to hand off to this one.** The single most
+   consequential recon finding was that C1 had already spent the four-`mem::take` block, the
+   no-rebasing note, *and* the entire execution-model design space — so the plan's content list for
+   C2 was ~40% already-shipped. That came from reading C1, which the phase-1 list does not mention.
+   `recon.md` §5 (forbidden list) cannot be written honestly without it.
+3. **The B budget worked and should not be relaxed.** Six questions, two of them explicit
+   REFUTE-asks, produced both claim-changing results; §3's "do not ask for a full fixture census"
+   held. What the brief got wrong was operational, not methodological — background agents that die
+   silently. **Run B synchronously.**
+
+**Disposition: do not delete this file.** Run the next doc (C3) on it as well. C3 is a *tension*
+doc, so it is also the first real test of the part C2 could not exercise — whether Agent A is worth
+running when the procedure says it must.
