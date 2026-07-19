@@ -23,15 +23,22 @@ Calling that block later hits `GetUpvalue` → `heap.fiber(fiber).stack[slot]` a
 Panics under `target/debug/phalcom`:
 
 ```phalcom
-var leak = { 0 }
+let leak = { 0 }
 let b = Fiber.new {
-  var x = 42
+  let x = 42
   leak = { x }             // block capturing x escapes to a module global
   Fiber.abort(Error.new()) // uncaught failure -> fiber-floor capture, no unwind
 }
 b.try()                    // b marked Failed; its live stack dropped, upvalue left Open
 System.print(leak.call())  // GetUpvalue -> Open{fiber:b, slot} -> b.stack[slot] -> panic
 ```
+
+> **Repro updated 2026-07-19.** As first recorded this used `var`, which stopped lexing when
+> U-BINDINGS removed `Token::Var` (`42aafce`) — the file failed with `Expected one of ";", newline`
+> before reaching the crash. With `let` it panics exactly as recorded.
+
+The defect is neither mode- nor API-specific: the same panic reproduces with
+`throw` + `try()` in place of `Fiber.abort` + `try()`, and with `call()`.
 
 ## Fix direction (NOT implemented / NOT verified)
 

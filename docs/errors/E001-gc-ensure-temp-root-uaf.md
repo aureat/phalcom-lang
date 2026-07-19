@@ -1,6 +1,15 @@
 # E001 · `block_ensure` frees the protected block's pending result if the cleanup collects
 
-- **Status:** OPEN — confirmed 2026-07-19 (reproduced under `target/debug/phalcom`, isolated by control)
+- **Status:** **FIXED** at `cdd2117` (*"fix(vm): commit temp_roots GC escape-hatch"*) — verified
+  2026-07-19: `VM::push_temp_root` (`phalcom-core/src/vm/gc.rs:148`) exists, `collect_roots`
+  enumerates `temp_roots`, and `block_ensure` roots both the value and the `Raise` error before the
+  cleanup call (`phalcom-core/src/primitive/block.rs:318-319`). Repros A and C and the control now
+  run clean, as does the error-carrying path §Defect flagged as ungated. The mechanism is
+  depth-and-truncate, not push/pop, so a caller need not count its own pushes; no leak or over-pop
+  was constructible under nesting. **The §Defect text below is preserved as written on 2026-07-19
+  and its "there is no `temp_roots`" claim is false at HEAD** — read it as the record of the bug,
+  not of the tree.
+- *Originally:* OPEN — confirmed 2026-07-19 (reproduced under `target/debug/phalcom`, isolated by control)
 - **Severity:** blocker — hard crash of a valid program (`dangling ObjRef` panic, defined, not UB)
 - **Subsystem:** garbage collector / native-window rooting
 - **Related:** [E002](E002-fiber-floor-upvalue-crash.md) (same family — value held live across a boundary the root scan misses)
@@ -71,7 +80,7 @@ other chaining primitives (`.on(_)`, `whileTrue`) may share it.
 - `phalcom-core/src/vm/gc.rs:119-121` — claims automatic safepoint triggering is off until step 4. **False at HEAD** — repro C fires it; `tests/gc.rs:238` `automatic_safepoint_fires` already passes. Half of step 4 shipped; the doc says neither did.
 - `docs/spec/v0.2/memory-management.md` §2.1 line 70 — lists a `VM::temp_roots` root that does not exist.
 
-## Fix direction (NOT implemented / NOT verified)
+## Fix direction (as recorded before the fix landed — superseded, kept for the record)
 
 Root `outcome` (and the `Raise` error Value) for the cleanup call's duration —
 push onto `vm.stack` around the second `block_call` and pop after, **or** land

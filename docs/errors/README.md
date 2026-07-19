@@ -23,12 +23,21 @@ fix. The auditor's word confirms nothing; the machine does.
 
 | ID | Title | Severity | Confirmed |
 |----|-------|----------|-----------|
-| [E001](E001-gc-ensure-temp-root-uaf.md) | `block_ensure` frees the protected block's pending result if the cleanup collects | **blocker** (crash) | 2026-07-19 |
 | [E002](E002-fiber-floor-upvalue-crash.md) | Fiber-floor failure capture drops the live stack without closing open upvalues | **blocker** (crash) | 2026-07-19 |
 | [E003](E003-schedule-pump-arity.md) | `System.schedule` pump resumes an arity-1 entry with zero args, failing the run | minor | 2026-07-19 |
 
 E001 and E002 are the **same family**: a value held live across a re-entrant /
-parked interpreter boundary that the root/unwind scan does not cover.
+parked interpreter boundary that the root/unwind scan does not cover. E001 is
+fixed and E002 is not, and the difference is instructive: E001's recovery path
+had a root enumeration to extend, while the fiber-failure path has no unwind at
+all to hook a per-cell step onto (see
+[`docs/learn/concurrency/fiber-failure.md`](../learn/concurrency/fiber-failure.md)).
+
+## Fixed
+
+| ID | Title | Fixed at | Verified |
+|----|-------|----------|----------|
+| [E001](E001-gc-ensure-temp-root-uaf.md) | `block_ensure` frees the protected block's pending result if the cleanup collects | `cdd2117` — `VM::push_temp_root` + `collect_roots` enumeration | 2026-07-19 (all repros + control + the error-carrying path) |
 
 ## Refuted (documented non-errors)
 
