@@ -1,0 +1,142 @@
+# E004 · `Future#await` can never suspend a fiber; its own wrapper trips the restricted-yield guard
+
+- **Status:** OPEN — confirmed 2026-07-19 (reproduced under `target/debug/phalcom`, isolated by control)
+- **Severity:** blocker — the feature's central operation cannot execute; two secondary failure modes (silent hang, cross-waiter corruption)
+- **Subsystem:** core library (`Future`) × fibers / restricted-yield guard
+- **Related:** [E002](E002-fiber-floor-upvalue-crash.md), [E001](E001-gc-ensure-temp-root-uaf.md) — same recurring shape: a participant removed from the machinery on one exit path and not the other. Narrative: [`docs/learn/concurrency/future-await.md`](../learn/concurrency/future-await.md).
+
+## Defect
+
+`Future#await` (`phalcom-core/core/core.ph:1424-1444`) probes whether it may suspend by running
+
+```phalcom
+const res = { Fiber.yield(None) }.attempt()
+```
+
+`.attempt()` is **not** native — it is a Phalcom method (`core.ph:627-629`) expanding to
+`{ Ok.new(self.call()) }.on(Error) { e => Err.new(e) }`. Both `.on(_)(_)` (`block_on`) and
+`self.call()` (`block_call`) re-enter the interpreter through `phalcom-core/src/primitive/block.rs:158-160`,
+each incrementing `native_reentry_depth`.
+
+The guard (`phalcom-core/src/primitive/fiber.rs:338`) refuses a yield when
+`native_reentry_depth != fiber.floor_depth`, where `floor_depth` is recorded at resume
+(`fiber.rs:317`). The probe therefore runs at `floor_depth + 2` and **fails unconditionally**, for
+every fiber, in every program. There is no depth at which `floor_depth + 2 == floor_depth`.
+
+Three consequences:
+
+**(a) Non-root `await` kills the awaiting fiber.** The guard error is typed, so `await` takes its
+`isA(CannotYieldAcrossNativeFrame)` branch (`core.ph:1430-1432`) and re-raises. Per the fiber-floor
+capture, the fiber ends `Failed`.
+
+**(b) Root `await` busy-spins with no diagnosis.** `fiber_yield` checks root-ness *first*
+(`fiber.rs:336`) and returns an **untyped** `RuntimeError::NotAllowed`, so `isA(…)` is false and
+control reaches `while (not self.isReady) { System.runScheduled() }` (`core.ph:1435-1437`). If nothing
+in the ready queue will settle the future, this loops forever over an empty queue — no error, no
+quiescence check. Note this branch is selected by the *ordering* of two guard clauses in `fiber_yield`,
+not by any positive test for root-ness.
+
+**(c) The dead fiber stays registered as a waiter.** Only the root branch filters `Fiber.current` out
+of `_waiters` (`core.ph:1434`); branch (a) re-raises without unregistering. A later `settleValue`
+drains the failed fiber into `System.schedule` (`core.ph:1410-1411`), and the pump then attempts to
+resume it — killing the whole run, including healthy waiters registered on the same future.
+
+## Reproduction
+
+All three under `target/debug/phalcom`.
+
+```phalcom
+// (a) non-root await on a pending future — fiber fails instead of parking
+const f = Future.new()
+const w = Fiber.new { f.await }
+System.schedule(w)
+System.runScheduled()
+System.print("w isDone = " + w.isDone.toString)   // -> true
+System.print("w error  = " + w.error.toString)    // -> Some(<CannotYieldAcrossNativeFrame>)
+```
+
+```phalcom
+// (b) root await on a future nothing will settle — hangs, no output, no error
+const f = Future.new()
+System.print("about to await a future with no settler")
+System.print(f.await.toString)                    // never reached; spins at 100% CPU
+```
+
+```phalcom
+// (c) the corpse in the waiter list takes down an unrelated waiter
+const f = Future.new()
+const w = Fiber.new { f.await }
+System.schedule(w)
+System.runScheduled()                             // w fails, stays in _waiters
+f.then { v => System.print("block waiter ran with " + v.toString) }
+System.print("waiters registered; settling now")
+f.settleValue(9)
+System.runScheduled()
+// -> waiters registered; settling now
+// -> cannot resume a finished fiber          (the block waiter never runs)
+```
+
+**Controls** (isolate the wrapper, not the yield, as the cause):
+
+```phalcom
+// bare yield in the same position parks correctly
+const w = Fiber.new { Fiber.yield(None); System.print("resumed") }
+System.schedule(w)
+System.runScheduled()
+System.print(w.isDone.toString)                   // -> false   (parked, healthy)
+```
+
+```phalcom
+// the same yield under .attempt() does not
+const w = Fiber.new { System.print({ Fiber.yield(None) }.attempt().toString) }
+System.schedule(w)
+System.runScheduled()                             // -> Err(<CannotYieldAcrossNativeFrame>)
+```
+
+```phalcom
+// the root refusal is untyped — the sole basis for branch (b)
+System.print({ Fiber.yield(None) }.attempt().toString)   // root -> Err(<Error>)
+```
+
+## Why the suite is green
+
+`phalcom-core/tests/lang/concurrency/concurrency_future_slice_b.ph` is the feature's acceptance test
+and calls `await` twelve times. Every call is on the **root** fiber (branch (b), with a queue that does
+settle the future) except one, which is deliberately inside an `ensure` block and *asserts*
+`CannotYieldAcrossNativeFrame` as the expected result (C-FUT-7). That assertion is correct on its own
+terms — an `await` inside `ensure` really does cross a native frame — but it fixes the observation to a
+cause that is not the only cause, so the identical failure with no user-supplied native frame reads as
+already-specified behaviour.
+
+The case labelled `C-FUT-2: async/await suspending` awaits at root and suspends nothing.
+**No test in the corpus has a fiber await a pending future and later resume.**
+
+Also stale, found in the same pass:
+`phalcom-core/tests/lang/concurrency/concurrency_future_async_await.ph` carries a `status: PENDING`
+header while living in the passing directory, so it runs as a green test.
+
+## Doc debt (fix in the same change, per the ADR/STATUS two-way-sync rule)
+
+Slice B landed in `06432bd` (2026-07-14). Three records still describe it as unbuilt:
+
+- `docs/spec/v0.2/concurrency.md:187` — `await` status `B`, not landed.
+- `docs/forge/units/U-FUTURE/plan.md:109-110` — `async(_)`/`await` "**B (DEFERRED → DEC-FUT-SCHED)**".
+- `phalcom-core/core/core.ph:1335-1338` — the `Future` class doc comment says `async(_)`/`await` are
+  "deliberately NOT built here", eleven lines above their implementations.
+
+## Fix direction (NOT implemented / NOT verified)
+
+Recorded as a sketch of the space, not a prescription — in this codebase a reproduced diagnosis is not
+a verified fix (see [README](README.md)); re-derive from code before acting.
+
+The three consequences are **independent** and (b) and (c) survive any repair of (a):
+
+- **(a)** needs the yield out from under a re-entrant frame, or a way to ask the VM "may I yield?"
+  without attempting it. Attempt-and-inspect cannot work when the attempt changes the answer.
+- **(b)** needs a quiescence check in the pump loop — the information is present (empty queue plus
+  still-pending receiver implies no progress is possible) and is not consulted. Independent of (a).
+- **(c)** needs the `_waiters` unregistration on *both* exit paths, not just the root one. Independent
+  of (a).
+
+Whatever lands: add a non-root park-and-resume fixture, since the corpus has none, and correct the
+three stale records above in the same change.

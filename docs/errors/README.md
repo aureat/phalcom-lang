@@ -25,13 +25,20 @@ fix. The auditor's word confirms nothing; the machine does.
 |----|-------|----------|-----------|
 | [E002](E002-fiber-floor-upvalue-crash.md) | Fiber-floor failure capture drops the live stack without closing open upvalues | **blocker** (crash) | 2026-07-19 |
 | [E003](E003-schedule-pump-arity.md) | `System.schedule` pump resumes an arity-1 entry with zero args, failing the run | minor | 2026-07-19 |
+| [E004](E004-await-cannot-suspend.md) | `Future#await` can never suspend a fiber; its own `.attempt()` wrapper trips the restricted-yield guard | **blocker** (feature inoperable) | 2026-07-19 |
 
-E001 and E002 are the **same family**: a value held live across a re-entrant /
+E001, E002 and E004(c) are the **same family**: a value held live across a re-entrant /
 parked interpreter boundary that the root/unwind scan does not cover. E001 is
 fixed and E002 is not, and the difference is instructive: E001's recovery path
 had a root enumeration to extend, while the fiber-failure path has no unwind at
 all to hook a per-cell step onto (see
 [`docs/learn/concurrency/fiber-failure.md`](../learn/concurrency/fiber-failure.md)).
+The family's shape, stated once: **a participant is removed from the machinery on
+one exit path and not the other** — cells closed by `unwind_to` but not by the
+fiber floor (E002), a handle rooted for one re-entrant call but not the next
+(E001), a waiter unregistered on `await`'s root branch but not its raising branch
+(E004(c)). Each was found by asking which arm of a conditional the cleanup lives
+inside.
 
 ## Fixed
 
