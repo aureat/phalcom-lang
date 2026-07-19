@@ -330,11 +330,18 @@ Carrying weight that would otherwise sit in an ADR (D5):
   nothing migrates); the old class becomes unreachable by name. No live object is
   ever silently patched. Ruling 6 answers this with the diagnosis recorded above
   and confirms it needs no machinery beyond §D1/§D2. **Do not re-decide.**
-- **DEC-REPL-B — snippet insertion.** The LSP emits tab-stop snippets; reedline has
-  no tab-stop engine. Degrade to `name(` + cursor placement, or build one? **Open.**
-- **DEC-REPL-C — dead editor stack.** `phalcom-repl/src/rustyline/` is a parallel
-  unused stack and both `rustyline` and `reedline` are dependencies. Delete before
-  building on reedline. **Open, but mechanical.**
+- **DEC-REPL-B — snippet insertion. CLOSED** by [`surface.md`](surface.md) §S7:
+  insert `name(` with the cursor inside; arity-0 selectors insert the bare name. A
+  tab-stop engine is its own unit — it needs a placeholder state machine and a rule
+  for Tab, which §S4 has already bound to ghost text. **Do not re-decide.**
+- **DEC-REPL-C — dead editor stack. CLOSED** by [`surface.md`](surface.md) §S8:
+  delete `phalcom-repl/src/rustyline/` and drop the `rustyline` dependency as the
+  **first** implementation step, before §S4/§S5 rewrite the hinter, highlighter, and
+  completer — so those rewrites have one target instead of two. **Do not re-decide.**
+
+Nothing under DEC-REPL is open. The surface's command namespace
+([`surface.md`](surface.md) §S9 — `:reload`, `:reset`, `:help`, only `:reload` built)
+is ruled there and carries no §D-series dependency.
 
 ## What must this not preclude (P4)
 

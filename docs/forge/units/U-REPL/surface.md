@@ -2,7 +2,7 @@
 
 Companion to [`plan.md`](plan.md), at the same grain. `plan.md` specs the evaluation
 substrate (§D1–§D10); this specs what the user actually sees. Decisions here are
-lettered §S1–§S6 to stay distinct from the plan's §D-series.
+lettered §S1–§S9 to stay distinct from the plan's §D-series. Nothing is open.
 
 Prerequisite: §D8 (live oracle from the start) and §D9 (structured selectors).
 
@@ -140,19 +140,104 @@ Consequences:
 - The snapshot is built **once per cell**, off the keystroke path entirely, so its
   cost is invisible regardless of size.
 
-## Open
+## §S7 — DEC-REPL-B: completion inserts a call opening, not a snippet
 
-- **DEC-REPL-B — snippet tab-stops.** reedline has no tab-stop engine; the LSP emits
-  snippet-format items. Degrade to `name(` + cursor placement. A real tab-stop
-  implementation is its own unit. *(Recommended resolution, not yet ruled.)*
-- **DEC-REPL-C — dead editor stack.** `phalcom-repl/src/rustyline/` is unused and both
-  `rustyline` and `reedline` are dependencies. Delete before building on reedline.
-- **REPL command namespace.** `:reload` (re-run accumulated cells — the replay model
-  rejected as the *persistence* mechanism in §D1, but sound as an explicit escape
-  hatch), `:reset`, `:help`. Namespace specced; only `:reload` implemented.
+**RULED.** Accepting a completion inserts `name(` and places the cursor between the
+parens. Selectors of arity 0 insert the bare name with no parens and no cursor move —
+§D9's structured selectors already carry arity, so this is a read, not a guess.
+
+reedline has no tab-stop engine, and `phalcom-lsp` emits LSP snippet-format items
+(`at(${1:index})`). Something has to give. Inserting the snippet text verbatim is the
+one unacceptable option: it puts literal `${1:...}` garbage in the buffer. So the
+choice is between stripping the placeholders and building a tab-stop engine.
+
+Stripping wins for now because a real implementation is not a polish pass. Tab-stops
+need a placeholder state machine owned by the line editor, a rule for what Tab means
+when stops are pending versus when ghost text is pending (§S4 already binds Tab), and
+an escape path for nested and abandoned stops. That is its own unit with its own
+interaction surface against §S6's debounce. It is not smuggled in here.
+
+The degraded form is not a placeholder for the real one — `name(` with the cursor
+inside is what most consoles do, and it is correct on its own terms.
+
+## §S8 — DEC-REPL-C: the rustyline stack is deleted, not ported
+
+**RULED.** The first step of implementation — before any of §S4's or §S5's rewrites —
+is to delete `phalcom-repl/src/rustyline/` and drop the `rustyline` dependency from
+`phalcom-repl/Cargo.toml`. Both `rustyline` and `reedline` are dependencies today;
+`src/*.rs` is the live reedline path.
+
+Ordering is the whole point. §S4 rewrites the `Hinter`, §S5 replaces the highlighter
+and deletes `completer::guess_type_from_name`. Against two editor stacks each of those
+is either done twice or done once and left inconsistent, and the copy that is not
+exercised is the one that rots. Deleting first collapses the rewrite to a single
+target.
+
+This also settles a documented hedge rather than leaving it: `CLAUDE.md` currently
+describes the parallel stack as "alternate/experimental" and tells the reader to
+"treat `src/*.rs` as the active path unless verifying otherwise." After this deletion
+there is nothing to verify against, and that sentence is updated to say so.
+
+Rejected — **keeping it as a fallback**: a fallback that is never entered is not a
+fallback, it is a second thing to break. §S6's two-tier latency model, §S1's snapshot
+lifetime, and §D10's cell boundary are all specced against the reedline path
+specifically; a rustyline copy would drift from all three the moment it stopped being
+compiled against them.
+
+## §S9 — Command namespace: `:reload`, `:reset`, `:help`; only `:reload` built
+
+**RULED.** REPL commands take a leading `:` at the start of a line. Three are specced;
+one is implemented in this unit.
+
+| command | specced | implemented here | meaning |
+|---|---|---|---|
+| `:reload` | yes | **yes** | discard session state, re-run accumulated cells in order |
+| `:reset` | yes | no | discard session state, keep nothing |
+| `:help` | yes | no | list commands |
+
+The `:` prefix is safe by grammar, not by convention: every `Colon` in the parser is
+medial — argument labels and annotations, always preceded by an identifier
+(`parser.rs:1479`, `:2467`, `:2790`). No Phalcom expression can begin with `:`, so the
+command namespace cannot shadow a legal input, now or after the namespace grows.
+
+**`:reload` re-runs; it does not replay-as-persistence.** §D1 rejected replay as the
+*mechanism* for session state and specced a persistent session module instead. That
+rejection stands. `:reload` is an explicit, user-invoked escape hatch for the case
+§D1's model cannot serve — a cell was edited in the user's head and the session should
+be rebuilt from the corrected sequence. The distinction is that replay here is
+requested and visible, not silent and load-bearing.
+
+> Hazard — `:reload` must build a **fresh `Compiler` and a fresh session module**, not
+> re-feed cells to the existing one. Three separate rulings key off per-`Compiler`
+> state: §D4's two-set immutability, U-BINDINGS' same-scope redeclaration ban
+> (`scope.rs:181`), and decision 0066's registration of class declarations in the same
+> `global_bindings` map. Re-running `let x = 1` or `class Foo {}` through the surviving
+> `Compiler` trips the redeclaration ban and `class.already_defined` respectively —
+> `:reload` would fail on any session that declared anything. A fresh `Compiler` is
+> what makes the replay legal, and it is the same reason the cross-cell regression test
+> in `plan.md` must not be weakened: it is the only guard on this interaction.
+
+`:reset` and `:help` are specced now and unimplemented on purpose. Specifying the
+namespace up front is what keeps the *next* command from being invented ad hoc with a
+different prefix or a different state discipline; building all three is scope this unit
+does not need.
+
+Rejected — **bare-word commands** (`reload`): they collide with identifiers, so a user
+with a `reload` binding either loses it or shadows the command, and which one wins
+becomes a rule nobody can remember. Rejected — **`/reload`**: no grammar conflict, but
+`/` reads as a path or a division and every REPL precedent for `/` is a chat client,
+not a language console.
 
 ## Write-set delta
 
 Beyond `plan.md`'s: `phalcom-repl/src/{completer,highlighter,helper,editor}.rs`
-rewritten; `phalcom-repl/src/rustyline/` deleted; `phalcom-lsp` consumed as a library,
-never modified.
+rewritten; `phalcom-repl/src/rustyline/` deleted (§S8); `phalcom-repl/Cargo.toml`
+loses the `rustyline` dependency (§S8); `CLAUDE.md`'s "alternate/experimental editor
+stack" sentence updated (§S8); `phalcom-lsp` consumed as a library, never modified.
+
+> Concurrent-edit note. At the time of writing, another session held an uncommitted
+> 2-line change to `phalcom-repl/src/completer.rs`, confined to `builtin_keywords()`.
+> It does not overlap §S5's deletion target (the regex battery and
+> `guess_type_from_name`), so there is no conflict to resolve — but `completer.rs` is
+> in this unit's write-set and is rewritten wholesale. Whoever implements §S5 lands
+> after that change, not over it.
