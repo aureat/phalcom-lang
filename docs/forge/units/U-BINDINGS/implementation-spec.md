@@ -260,7 +260,6 @@ Both existing messages are rewritten (see §1.3). Two new ones are added:
 | `field.no_mutable_keyword` | ``` mutable fields take no keyword; write `{0}` instead of `let {0}`. ``` |
 | `field.const_write` | ``` cannot assign to `const` field '{0}' outside a constructor. ``` |
 | `binding.redeclared` | ``` '{0}' is already declared in this scope; use assignment, or declare it in a nested scope to shadow. ``` (**L-3**) |
-| `field.duplicate_declaration` | ``` field '{0}' is declared more than once in class '{1}'. ``` (**L-4**) |
 
 Rewritten:
 
@@ -320,7 +319,6 @@ field_decl := { attribute } [ "const" ] IDENT_leading_underscore [ "=" expr ]
 | `const _x` | immutable, assignable **only inside a constructor body** |
 | `let _x` | error: `field.no_mutable_keyword` (**L-2** — there is no third field form) |
 | `var _x` | error — `var` does not exist (**L-1**) |
-| the same field declared twice in one class body | error: `field.duplicate_declaration` (**L-4**) |
 
 ### 4.1 How to disambiguate without a `FIELD` token
 
@@ -557,7 +555,6 @@ Do **not** write a `_x => 5`-is-still-a-getter fixture — that form is broken a
 - `binding_const_redeclared_same_scope.ph` — `const x = 1` · `const x = 2` → `binding.redeclared` (**L-3**)
 - `binding_const_redeclare_as_let_rejected.ph` — `const x = 1` · `let x = 2` → `binding.redeclared`; immutability is not releasable (**L-3**)
 - `binding_const_captured_write_rejected.ph` — the §12B.4 upvalue hole: a block writing a captured `const` → `AssignToImmutable`. **Closes DEFERRED #13** — strike that entry when this goes green
-- `field_duplicate_declaration.ph` — `class D { _x  _x }` → `field.duplicate_declaration` (**L-4**)
 
 **Must stay green (shadowing is legal and specified):**
 
@@ -622,7 +619,7 @@ enforcement it does not currently specify. An implementer may not reopen them.
 | **L-1** | **`var` does not exist after this unit.** Not deprecated, not an alias — removed from the token set, the keyword table, and every keyword list in the tree. The step-1 alias in §8 is a transient build device that must be gone by the end of step 2. |
 | **L-2** | **Fields are `_x` or `const _x`. Nothing else.** No `let _x`, no `var _x`, no third form. `let _x` is a hard error (`field.no_mutable_keyword`). |
 | **L-3** | **`const` is enforced on every path**, not just direct assignment: assignment, reassignment through a captured upvalue, and same-scope redeclaration are all errors. See §12B for the four paths and which are currently unguarded. |
-| **L-4** | **Duplicate field declarations are an error.** `class D { _x  _x }` must not compile. New diagnostic `field.duplicate_declaration`. **Corpus cost: zero** — a brace-depth scan finds 0 duplicate field declarations across all `.ph` files, so this ban breaks nothing. |
+| ~~**L-4**~~ | ~~Duplicate field declarations are an error.~~ **WITHDRAWN 2026-07-19 — owned by [decision 0065](../../../decisions/0065-classes-are-closed.md) instead.** Its decision item 2 already rules redefinition within a module a compile error, explicitly covering "a duplicate member within one body — a field or a method", with the diagnostic `X is already defined` carrying both spans. Two units had independently ruled the same thing on the same day with conflicting diagnostic names. **U-BINDINGS does not implement this**; do not add a duplicate-field check here. Corpus cost is zero either way (a brace-depth scan finds 0 duplicate field declarations), so nothing is lost by deferring it to 0065's unit. |
 | **L-6** | **All implicit bindings are immutable.** Method parameters, block parameters, and the `for` loop variable may not be reassigned. Today params are mutable and the loop variable is not, with nothing declaring or documenting the split. **Corpus cost: zero** — an AST-shaped scan finds **0** methods that assign to their own parameter. Fills the gap ADR-0064 §167-168 explicitly left open (`const` on parameters "not spent on any other position"). To vary a parameter, declare a local from it. `add_local`'s synthetic receiver/parameter slots (`scope.rs:114`) must stop passing `is_mutable: true`. |
 | **L-7** | **The ~30 stale spec files are in scope** (resolves the former §12.5). The same single-pass rewrite covers `.md` and `.ph`. Includes the three contradictions below, which are *not* mere spelling drift: `open-questions.md` Q1 (`:28-33`, `:202`) still states the pre-ADR-0064 mapping as RESOLVED with **zero** references to ADR-0064 — a reader following Q1 alone writes both keywords wrong; `deferred-work.md` frames its live re-opening concern in `var` terms; `values-and-absence.md:8` cites ADR-0014 as governing **via a broken relative path** (`../../adr/0014-…`, missing `accepted/`) with no supersession note. |
 | **L-8** | **Field names must begin with `_` + a letter.** `class Z { var foo = 1 }` is accepted today and declares an **unreachable slot** — verified: `foo` in a method body resolves as a variable, giving `Undefined variable 'foo'`, while the declaration silently consumes a slot. The new grammar (§4.1 rule 5) closes this by construction, but only if the leading-`_` requirement is *enforced* rather than conventional. This is ADR-0061's field-name tightening, ratified 2026-07-19 **scoped to field position** — bare `_` remains a legal *binding* name, so the 13 corpus `let _ = …` throwaway reads are untouched. Enforce the rule in `parse_field_decl`, **not** in the lexer or `parse_primary`, or the scoping is lost. |
@@ -748,7 +745,7 @@ So DEFERRED #13 is not a stale entry; it is a correctly-parked precondition, and
 thing that closes it. Fixing it means walking the enclosing function-states in the
 assignment path instead of stopping at the current function.
 
-### 12B.5 Work implied by L-3 and L-4
+### 12B.5 Work implied by L-3 and L-5
 
 Four changes, all in the compiler, none in the codemod:
 
@@ -761,10 +758,8 @@ Four changes, all in the compiler, none in the codemod:
    specified and covered by `binding_let_shadow_inner_block.ph` and
    `binding_let_shadow_in_loop_body.ph`, both of which pass today and must keep passing.
 3. **Guard the upvalue path** (`expr.rs:293-298`), closing DEFERRED #13.
-4. **Reject duplicate field declarations** (L-4), at the same place `class_decl.rs` already
-   diagnoses construct/static collisions.
 
-Diagnostics to add: `binding.redeclared`, `field.duplicate_declaration`, plus reusing
+Diagnostics to add: `binding.redeclared`, plus reusing
 `AssignToImmutable` for the upvalue path.
 
 ## 12C. Removed from scope: DEFERRED #17 — `class None` reopen clobbers its global
