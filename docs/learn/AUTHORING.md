@@ -108,7 +108,8 @@ Spawn both in parallel, sonnet, `run_in_background: false`. Their briefs are the
 - **Agent A (theory) is given no source access and is told nothing about which branch Phalcom
   took.** This is structural, not stylistic. An agent that does not know the answer cannot
   flatter it, so the design space stays honest. Recon steers A's *emphasis* (go deep here, one
-  sentence there) but never hands A the conclusion.
+  sentence there) but never hands A the conclusion. **A's brief is inlined and redacted — never
+  a pointer to `REQUIREMENTS.md`, which names the branch. See §7's note; this is error 7 in §10.**
 - **Agent B (source map) leads with the architecture-vs-representation question and must answer
   it first, with the line that settles it.** B runs `.ph` fixtures live rather than reading
   behaviour off code, because observed output is the strongest evidence and it is cheap.
@@ -236,6 +237,28 @@ from source — do not guess. Guessing is the error the whole procedure exists t
 Fill the `<<slots>>`. Inject recon's emphasis notes at `<<EMPHASIS>>`. **Do not tell A which
 branch Phalcom took.**
 
+> **Never point A at `REQUIREMENTS.md`.** This template used to say "first read
+> `REQUIREMENTS.md`," which contradicted the constraint directly above it. Once recon has done
+> its job, `REQUIREMENTS.md` *is* the answer: it states the grip, and its design-space table
+> names occupants (*"Lua 5.1, **Phalcom**"*). A that reads it can flatter the branch, which is
+> the one thing A exists to make impossible.
+>
+> **Instead, inline a redacted brief** in A's prompt — the slots below are that brief. Copy from
+> `REQUIREMENTS.md` everything that steers *weight* (the branches themselves, the comparison
+> cast, the tensions, recon's emphasis notes) and strip everything that reveals *the branch*:
+> occupant names tying a branch to Phalcom, the grip, the recon findings, the forbidden list.
+> Describe branches by their mechanics, never by who took them.
+>
+> Do not fix this by softening `REQUIREMENTS.md` — it is *supposed* to be fully grounded. The
+> redaction is A's brief's job, not the requirements doc's.
+
+**Evidence it works.** On C1 ([`concurrency/restricted-loop.md`](concurrency/restricted-loop.md))
+A was kept blind this way and independently re-derived ADR-0030's own GC-based rejection of
+stackful coroutines — an argument it had no access to. It also assumed, wrongly, that the
+collection combinator was native. That error was *useful*: it is exactly the reader's error, and
+it became the doc's predict-then-check moment. **An uncontaminated A is worth more than a
+correct A.**
+
 ```
 Write a deep conceptual/theoretical document on <<CONCEPT>> in programming-language
 implementation.
@@ -248,9 +271,8 @@ HARD CONSTRAINTS:
   "Phalcom" does — stop, that is out of scope. Write the theory as it applies to ANY runtime.
 - You will NOT be told which design branch Phalcom took, deliberately. Do not guess it, do not
   optimize the writing toward any particular answer. Write the design space honestly, as a space.
-- First read docs/learn/<<CONCEPT>>/REQUIREMENTS.md. It defines the target: the obligation, the
-  grip, the design space, the comparison filter, the structural rules. You are judged against
-  its checklist.
+- Do NOT go looking for a requirements/spec file for this doc. Everything you are meant to have
+  is in this prompt. If you find such a file, you are outside your brief — it names the answer.
 - NO fixed skeleton (no Overview/Background/Conclusion). Structure follows the theory; it bottoms
   out where the theory bottoms out.
 - NO checkbox comparative table of N languages, one line each. That is the anti-pattern.
@@ -263,20 +285,29 @@ mine. Be exact where I would otherwise have to guess.
 Cover, at the depth the theory demands:
 1. The problem from first principles. Name it (<<THE NAMED PROBLEM, e.g. upward funarg>>). Get
    the history right.
-2. Walk EVERY branch of the design space in REQUIREMENTS §<<N>>. Make each GENUINELY TEMPTING
+2. Walk EVERY branch of this design space: <<THE BRANCHES, transcribed from REQUIREMENTS §5 and
+   REDACTED — describe each by its MECHANICS, never by an occupant list that includes Phalcom.
+   "Restricted: suspension's domain is the frames the loop owns; attempting it under a re-entrant
+   native frame raises." NOT "Restricted (Lua 5.1, Phalcom).">> Make each GENUINELY TEMPTING
    before you kill it: who took it, what it buys, what it costs, what it forecloses. A strawman
    is a failure.
 3. <<THE DISTINGUISHING PROGRAM: the exact small program that separates the two semantics a
    reader might conflate. Make it concrete and language-specific.>>
-4. <<THE MECHANISM the branch-under-study uses, in full mechanical detail — every sub-part
-   REQUIREMENTS lists.>>
+4. <<THE MECHANISM in full mechanical detail — every sub-part, transcribed from REQUIREMENTS.
+   Phrase it as a mechanism ANY runtime could use. Do not write "the branch Phalcom took"; that
+   is the reveal.>>
 5. <<EMPHASIS: from recon — "go deep on branches X and Y; keep Z to a sentence." This steers
    weight WITHOUT revealing Phalcom's answer.>>
-6. The comparative deep dives that earn their place (REQUIREMENTS §<<N>>'s cast). For each:
+6. The comparative deep dives that earn their place: <<THE CAST, from REQUIREMENTS §6 — names
+   only, WITHOUT the "why it is in this doc" column, which usually leaks the branch.>> For each:
    who/what/bill/scar. Include the famous bug the reader has personally hit, if one exists.
+   Name the ones you CUT and why — <<CANDIDATE CUTS>> are worth considering and rejecting.
 7. Vocabulary import: the terms of art the reader lacks. Introduce each where it does work; make
    them visually findable; do not ghettoize into a glossary.
-8. Tensions (REQUIREMENTS §<<N>>), at the depth each deserves.
+8. <<THE TENSIONS, from REQUIREMENTS §7, redacted to the ones that pose a general question rather
+   than describing Phalcom's situation. Phrase each as a question about runtimes, not a report:
+   "when is a sound-but-wider-than-necessary restriction the right call?" NOT "HEAD restricts
+   more than the ADR does.">> At the depth each deserves.
 
 QUALITY BAR: assume the reader knows what <<CONCEPT>> IS; do not explain that. Every paragraph
 carries information. Where you are uncertain of a historical fact or language detail, SAY SO with
@@ -379,9 +410,10 @@ thread is lost. The deliverable is a **grip**, not completeness.
 
 ---
 
-## 10. The errors this procedure exists to prevent (concrete, from the upvalue doc)
+## 10. The errors this procedure exists to prevent (concrete)
 
-Keep these visible; abstract rules do not bite, instances do.
+Keep these visible; abstract rules do not bite, instances do. 1–6 are from the upvalue doc;
+7 is from C1 and is an error in **this file**, not in a doc.
 
 1. **Grip from an assumption.** Wrote "read path never branches" (Lua's design) before reading
    Phalcom's type. Contaminated Agent A's brief. → **Recon, phase 1.**
@@ -394,6 +426,12 @@ Keep these visible; abstract rules do not bite, instances do.
    **§5.5.**
 6. **Rebuilt the survey I rejected.** Six equal-weight design branches in prose. → **weight,
    §5.5.**
+7. **The procedure contradicted itself.** §7's template promised A would not be told Phalcom's
+   branch, then told A to read `REQUIREMENTS.md` — which, after recon, states the grip and names
+   Phalcom in its design-space table. Following §7 literally would destroy the isolation §7
+   exists to create. → **§7's redaction note.** Caught only because C1's orchestrator noticed the
+   contradiction while filling the template and deviated deliberately.
 
 Every one was caught only on a second, adversarial read. The gate (§6) is that second read, made
-mandatory and up front.
+mandatory and up front. **Error 7 is the reminder that the gate applies to this file too** — a
+procedure is not exempt from the adversarial read it demands of everything else.
