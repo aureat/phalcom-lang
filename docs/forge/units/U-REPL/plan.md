@@ -120,6 +120,15 @@ dispatch.rs  chunk.source_id → module.sources[id]
 
 Fixes precondition 6 for the REPL and removes the `.unwrap()` panic generally.
 
+**Ownership vs U-TRACE (ruled: split).** `docs/deferred/tracing.md` step 2 targets the
+same function for the same defect — *"store module_id and resolve source lazily so
+defect 1's unwrap has nowhere to live."* These are different changes that happen to
+meet in one place: U-REPL owns **where source lives** (`source_id` on the artifact);
+U-TRACE owns **when it is resolved** (lazy resolution, compact capture at raise).
+`source_id` is a precondition for U-TRACE's compact-capture record, so this ordering
+serves both. U-REPL must not implement lazy resolution; U-TRACE must not re-litigate
+where source is stored.
+
 Prior art: CPython names REPL input `"<stdin>"` and cannot show source in tracebacks
 through REPL-defined functions; IPython registers each cell in `linecache` and can.
 This is IPython's fix applied at the compiled artifact instead of bolted on, and it
@@ -136,10 +145,35 @@ with retry (double-compiles, misreports spans on the retry path).
 
 ### D4 — Immutability stays strong; the REPL gets a named exemption
 
+> **Rewritten 2026-07-19 against U-BINDINGS.** This section originally specced
+> `Compiler::immutable_globals`, a `HashSet<Symbol>`. `42aafce` replaced it with
+> `Compiler::global_bindings: HashMap<Symbol, bool>` (name → is_mutable,
+> `compiler/lib/mod.rs:62`) and added a **same-scope redeclaration ban**
+> (`scope.rs:179-185`). The design below survives that change; the field name and
+> shape did not.
+
 ```
-Compiler.immutable_globals      // const-globals from THIS unit  → assignment always errors
-ModuleObject.immutable_globals  // const-globals from PRIOR units → errors unless CompileMode::Repl
+Compiler.global_bindings      // bindings from THIS unit
+                              //   → assignment to a `false` (const) entry errors (expr.rs:303)
+                              //   → redeclaring any entry errors     (scope.rs:181)
+
+ModuleObject.global_bindings  // bindings from PRIOR units, same shape
+                              //   → both checks above apply, UNLESS CompileMode::Repl
 ```
+
+The REPL exemption must relax **both** checks for prior-unit entries, not just the
+const one: without lifting the redeclaration ban, `const x = 1` in cell 1 followed
+by `const x = 2` in cell 2 errors, which is precisely Wren's behavior this unit
+exists to avoid.
+
+**One lifetime accident now carries three rulings.** `Compiler` being constructed
+per-cell is currently what makes cross-cell rebinding work — and since U-BINDINGS
+and decision 0065 landed, it is *also* what makes the redeclaration ban not fire
+across cells, and what lets 0065 ruling 6's class shadowing work (class
+declarations register in `global_bindings` per decision 0066, and that registry is
+per-`Compiler` too). Three independent rulings, one undocumented lifetime. The
+regression test below is the only thing that would catch a refactor breaking any of
+them.
 
 | case | result |
 |---|---|
@@ -289,11 +323,13 @@ Carrying weight that would otherwise sit in an ADR (D5):
 
 ## Decisions to flag (DEC-REPL)
 
-- **DEC-REPL-A — class redefinition.** `class Foo` emits `DefineGlobal`, so a cell
-  can rebind a class name while `vm.field_layouts` still keys a layout to that
-  symbol and live instances still point at the old class. Redefining classes
-  mid-session is the classic Smalltalk workflow and is worth wanting, but it is
-  substantially larger than rebinding a number. **Open — scoped out of this unit.**
+- **DEC-REPL-A — class redefinition. CLOSED** by
+  [decision 0065](../../../decisions/0065-classes-are-closed.md) ruling 6: *REPL
+  cells shadow; they do not reopen.* A later cell's `class Foo` binds a **new**
+  class; instances made under the old definition keep it (they hold a `ClassId`,
+  nothing migrates); the old class becomes unreachable by name. No live object is
+  ever silently patched. Ruling 6 answers this with the diagnosis recorded above
+  and confirms it needs no machinery beyond §D1/§D2. **Do not re-decide.**
 - **DEC-REPL-B — snippet insertion.** The LSP emits tab-stop snippets; reedline has
   no tab-stop engine. Degrade to `name(` + cursor placement, or build one? **Open.**
 - **DEC-REPL-C — dead editor stack.** `phalcom-repl/src/rustyline/` is a parallel
