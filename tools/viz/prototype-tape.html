@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phalcom viz — D1: the tape, and where slot numbers come from</title>
+<style>
+  :root {
+    --bg:#fbfaf8; --panel:#fff; --ink:#1a1a1a; --ink-mute:#6b6b6b; --ink-faint:#a8a8a8;
+    --rule:#e2ded8; --rule-strong:#cfc9c0;
+    --accent:#b8632a; --accent-soft:#f7e9dd;
+    --fiber-1:#2f6f8f; --fiber-1-soft:#dceaf1;
+    --link:#6b3fa0; --link-soft:#ece3f6;
+    --error:#a32b2b; --slot-empty:#f4f2ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#16171a; --panel:#1d1f23; --ink:#eceae6; --ink-mute:#9a9793; --ink-faint:#62605d;
+      --rule:#32353a; --rule-strong:#464a50;
+      --accent:#e0904f; --accent-soft:#3a2a1c;
+      --fiber-1:#6fb2d2; --fiber-1-soft:#1f333d;
+      --link:#b48ee0; --link-soft:#2b2136;
+      --error:#e07070; --slot-empty:#222429;
+    }
+  }
+  :root[data-theme="dark"]{--bg:#16171a;--panel:#1d1f23;--ink:#eceae6;--ink-mute:#9a9793;--ink-faint:#62605d;--rule:#32353a;--rule-strong:#464a50;--accent:#e0904f;--accent-soft:#3a2a1c;--fiber-1:#6fb2d2;--fiber-1-soft:#1f333d;--link:#b48ee0;--link-soft:#2b2136;--error:#e07070;--slot-empty:#222429;}
+  :root[data-theme="light"]{--bg:#fbfaf8;--panel:#fff;--ink:#1a1a1a;--ink-mute:#6b6b6b;--ink-faint:#a8a8a8;--rule:#e2ded8;--rule-strong:#cfc9c0;--accent:#b8632a;--accent-soft:#f7e9dd;--fiber-1:#2f6f8f;--fiber-1-soft:#dceaf1;--link:#6b3fa0;--link-soft:#ece3f6;--error:#a32b2b;--slot-empty:#f4f2ef;}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace}
+  .wrap{max-width:1200px;margin:0 auto;padding:28px 24px 64px}
+
+  header h1{font-size:19px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+  header p{margin:0;color:var(--ink-mute);font-size:13.5px}
+
+  .fixture-warn{margin:18px 0 22px;padding:9px 13px;border-radius:6px;background:var(--accent-soft);
+    border:1px solid var(--accent);font-size:12.5px}
+  .fixture-warn b{font-weight:600}
+  .banner{margin:0 0 20px;padding:10px 14px;border-radius:6px;display:none;
+    background:color-mix(in srgb,var(--error) 12%,transparent);border:1px solid var(--error);
+    color:var(--error);font-size:13px}
+  .banner.on{display:block}
+
+  .top{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
+  @media (max-width:960px){.top{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:15px 17px}
+  .panel h2{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-faint);margin:0 0 11px;display:flex;justify-content:space-between;align-items:baseline}
+  .panel h2 .sub{text-transform:none;letter-spacing:0;font-weight:400;font-size:11px}
+
+  .src{font-size:13px;line-height:1.7}
+  .src .line{display:block;padding:1px 8px;border-radius:4px;white-space:pre;color:var(--ink-mute)}
+  .src .line.on{background:var(--fiber-1-soft);color:var(--ink);font-weight:500}
+
+  .bc{font-size:12.5px;line-height:1.7}
+  .bc .op{display:grid;grid-template-columns:44px 1fr;padding:1px 8px;border-radius:4px;
+    color:var(--ink-mute);white-space:pre}
+  .bc .op.on{background:var(--fiber-1-soft);color:var(--ink);font-weight:500}
+  .bc .op .ad{color:var(--ink-faint)}
+  .bc .operand{padding:0 3px;border-radius:3px}
+  .bc .op.on .operand.lit{background:var(--link-soft);color:var(--link);font-weight:700;
+    box-shadow:inset 0 0 0 1px var(--link)}
+
+  /* resolution strip — the one addition, spelled out */
+  .resolve{margin:14px 0 0;padding:10px 13px;border-radius:6px;border:1px dashed var(--link);
+    background:var(--link-soft);font-size:13px;display:none;align-items:center;gap:9px;flex-wrap:wrap}
+  .resolve.on{display:flex}
+  .resolve .chip{padding:2px 7px;border-radius:4px;background:var(--panel);
+    border:1px solid var(--link);color:var(--link);font-weight:600}
+  .resolve .eq{color:var(--ink-mute)}
+  .resolve .why{width:100%;color:var(--ink-mute);font-size:12px;margin-top:2px}
+
+  .tape-area{position:relative}
+  .lanes{position:relative;margin-bottom:6px}
+  .lane{position:relative;height:26px}
+  .bracket{position:absolute;top:3px;height:20px;border:1px solid var(--fiber-1);border-bottom:none;
+    border-radius:5px 5px 0 0;background:color-mix(in srgb,var(--fiber-1) 8%,transparent);
+    display:flex;align-items:center;gap:8px;padding:0 8px;font-size:10.5px;color:var(--fiber-1);
+    white-space:nowrap;overflow:hidden}
+  .bracket .nm{font-weight:600}
+  .bracket .meta{color:var(--ink-faint)}
+  .bracket .meta .hot{color:var(--link);font-weight:700;padding:0 3px;border-radius:3px;
+    background:var(--link-soft);box-shadow:inset 0 0 0 1px var(--link)}
+
+  .slots{display:grid}
+  .slot{height:46px;border:1px solid var(--rule);border-left:none;display:flex;align-items:center;
+    justify-content:center;font-size:12.5px;background:var(--panel);position:relative;
+    transition:background 140ms ease,border-color 140ms ease}
+  .slot:first-child{border-left:1px solid var(--rule);border-radius:5px 0 0 5px}
+  .slot:last-child{border-radius:0 5px 5px 0}
+  .slot.beyond{background:var(--slot-empty);color:var(--ink-faint)}
+  .slot.nilv{color:var(--ink-faint)}
+  .slot.chg-0{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);
+    background:var(--accent-soft);z-index:2}
+  .slot.chg-1{border-color:color-mix(in srgb,var(--accent) 55%,var(--rule));z-index:1}
+  .slot.chg-2{border-color:color-mix(in srgb,var(--accent) 28%,var(--rule))}
+  .slot.readfrom{box-shadow:inset 0 0 0 2px var(--link);background:var(--link-soft);z-index:3}
+  .slot.readfrom::after{content:"read";position:absolute;bottom:-1px;font-size:8.5px;
+    letter-spacing:.06em;color:var(--link);text-transform:uppercase}
+
+  .idx{display:grid;margin-top:5px}
+  .idx div{text-align:center;font-size:10px;color:var(--ink-faint)}
+  .idx div.named{color:var(--fiber-1);font-weight:600}
+  .idx div.hot{color:var(--link);font-weight:700}
+
+  .fiberband{position:absolute;left:-9px;top:0;bottom:0;width:3px;background:var(--fiber-1);border-radius:2px}
+
+  .callout{margin-top:15px;min-height:38px;display:flex;gap:10px;align-items:flex-start}
+  .callout .leader{width:3px;align-self:stretch;background:var(--accent);border-radius:2px;flex:none}
+  .callout .txt{font-size:13.5px;padding-top:1px}
+  .callout.empty{opacity:0}
+
+  .transport{margin-top:20px;display:flex;align-items:center;gap:14px;background:var(--panel);
+    border:1px solid var(--rule);border-radius:8px;padding:11px 16px}
+  button{font:inherit;font-size:13px;padding:5px 11px;border-radius:5px;border:1px solid var(--rule-strong);
+    background:transparent;color:var(--ink);cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--ink-mute)}
+  button:disabled{opacity:.35;cursor:default}
+  input[type=range]{flex:1;accent-color:var(--fiber-1)}
+  .counter{font-size:12px;color:var(--ink-mute);min-width:96px;text-align:right}
+  .hint{margin-top:10px;font-size:12px;color:var(--ink-faint)}
+
+  .verdict{margin-top:38px;padding-top:22px;border-top:1px solid var(--rule)}
+  .verdict h2{font-size:13px;font-weight:600;margin:0 0 10px}
+  .verdict ol{margin:0;padding-left:20px;font-size:13.5px;color:var(--ink-mute)}
+  .verdict li{margin-bottom:6px}
+  .verdict li b{color:var(--ink);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>The tape — and where slot numbers come from</h1>
+  <p>A local access is one addition: a number the compiler baked into the instruction, plus the frame’s base. Three panes, one fact.</p>
+</header>
+
+<div class="fixture-warn">
+  <b>Reconstructed fixture — two things are not verified against the tree.</b>
+  (1) The <b>bytecode is reconstructed, not disassembled</b> — opcode names and operand shapes follow
+  <span class="mono">bytecode.rs</span>, but the exact emission sequence was written by hand.
+  (2) The claim that <span class="mono">let total = c.tick(3)</span> lands its result <i>in</i> the slot that becomes
+  <span class="mono">total</span> (rather than pre-pushing an empty slot) is inferred from the Lua/Wren lineage.
+  Confirm both with <span class="mono">phalcom disasm</span> on a module-level hoist before this becomes a real fixture.
+  <b>The arithmetic itself is verified:</b> <span class="mono">dispatch.rs:721</span> is
+  <span class="mono">stack_offset + slot</span>.
+</div>
+
+<div class="banner" id="banner"></div>
+
+<div class="top">
+  <div class="panel">
+    <h2>Source</h2>
+    <div class="src mono" id="src"></div>
+  </div>
+  <div class="panel">
+    <h2>Bytecode <span class="sub mono" id="chunkname">—</span></h2>
+    <div class="bc mono" id="bc"></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>The tape <span class="sub">one <span class="mono">Vec&lt;Value&gt;</span> — frames are brackets over regions of it</span></h2>
+  <div class="tape-area">
+    <div class="fiberband"></div>
+    <div class="lanes" id="lanes"></div>
+    <div class="slots" id="slots"></div>
+    <div class="idx" id="idx"></div>
+  </div>
+  <div class="resolve" id="resolve"></div>
+  <div class="callout" id="callout"><div class="leader"></div><div class="txt"></div></div>
+</div>
+
+<div class="transport">
+  <button id="first">⏮</button><button id="prev">◀</button>
+  <button id="next">▶</button><button id="last">⏭</button>
+  <input type="range" id="scrub" min="0" value="0">
+  <div class="counter mono" id="counter"></div>
+</div>
+<div class="hint">← → step · Home/End jump · T toggles theme</div>
+
+<div class="verdict">
+  <h2>What to judge</h2>
+  <ol>
+    <li><b>The link.</b> Step to <b>event 7</b>. Does <span class="mono">GetLocal 1</span> → <span class="mono">offset 2</span> → <span class="mono">slot 3</span> read as <i>one</i> fact across three panes, or as three separate things you have to assemble?</li>
+    <li><b>Where the number came from.</b> Is it now clear that <span class="mono">1</span> in <span class="mono">GetLocal 1</span> was decided at <i>compile</i> time, and that the name <span class="mono">n</span> does not exist at runtime?</li>
+    <li><b>Windows.</b> At event 6, does <span class="mono">tick</span>’s window visibly open <i>on the receiver its caller pushed</i>, with no copy?</li>
+    <li><b>Return.</b> Step <b>9 → 10</b>. Does truncate-then-push read as one motion?</li>
+    <li><b>The absence test.</b> Does the picture ever tempt you toward “each frame owns its own little stack”?</li>
+  </ol>
+</div>
+
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+//   class Counter { tick(n) { return n + 1 } }
+//   let c = Counter.new()
+//   let total = c.tick(3)
+// ---------------------------------------------------------------------------
+const SRC = [
+  'class Counter {',
+  '  tick(n) { return n + 1 }',
+  '}',
+  '',
+  'let c = Counter.new()',
+  'let total = c.tick(3)',
+];
+
+const SLOT_COUNT = 8;
+
+// Reconstructed. `lit` marks the operand that becomes a tape offset.
+const CHUNKS = {
+  '<module>': { locals: ['self', 'c', 'total'], code: [
+    { t:'GetGlobal',  a:'Counter' },
+    { t:'Invoke',     a:'new() 0' },
+    { t:'GetLocal',   a:'1', lit:true },
+    { t:'Constant',   a:'3' },
+    { t:'Invoke',     a:'tick(_) 1' },
+    { t:'Return',     a:'' },
+  ]},
+  'Counter#tick(_)': { locals: ['self', 'n'], code: [
+    { t:'GetLocal',   a:'1', lit:true },
+    { t:'Constant',   a:'1' },
+    { t:'Invoke',     a:'+(_) 1' },
+    { t:'Return',     a:'' },
+  ]},
+};
+
+const EVENTS = [
+  { line:4, ip:0, framePush:{ name:'<module>', offset:0, gen:1, locals:CHUNKS['<module>'].locals },
+    push:'<module>',
+    note:'The module frame opens at slot 0. Its receiver sits at the window base — same shape as every other frame.' },
+
+  { line:4, ip:0, push:'Counter',
+    note:'<span class="mono">GetGlobal</span> pushes the class. It lands at slot 1 — and slot 1 is about to be named <b>c</b>.' },
+
+  { line:4, ip:1, pop:1, push:'<Counter>',
+    note:'<span class="mono">Invoke new()</span> replaces the receiver with the instance, in place. <b>No store instruction follows.</b> The local <span class="mono">c</span> <i>is</i> slot 1 — the compiler simply records that the next free slot now has a name.' },
+
+  { line:5, ip:2, push:'<Counter>', readfrom:1,
+    note:'<span class="mono">GetLocal 1</span> in the <i>module</i> frame: base 0 + 1 = slot 1. Pushes a copy as the receiver for the call.' },
+
+  { line:5, ip:3, push:'3',
+    note:'The argument. Still the caller’s scratch space — nothing has been entered yet.' },
+
+  { line:1, ip:0, framePush:{ name:'Counter#tick(_)', offset:2, gen:2, locals:CHUNKS['Counter#tick(_)'].locals },
+    note:'The frame opens at <span class="mono">stack_offset = 2</span> — <b>pointing at the receiver the caller already pushed</b>. No copy, no separate stack. The brackets share a boundary.' },
+
+  { line:1, ip:0, push:'3', readfrom:3,
+    note:'<b>The whole mechanism, in one step.</b> The compiler saw <span class="mono">self</span> then <span class="mono">n</span> and handed <span class="mono">n</span> index 1. That 1 is frozen into the instruction. At runtime: base 2 + 1 = slot 3.' },
+
+  { line:1, ip:1, push:'1',
+    note:'A literal. Temporaries pile up above the named locals — same array, no separate operand stack.' },
+
+  { line:1, ip:2, pop:2, push:'4',
+    note:'<span class="mono">Invoke +(_)</span> pops two, pushes one. Arithmetic happens on the tape.' },
+
+  { line:1, ip:3, framePop:true, push:'4',
+    note:'Return: the window is <b>truncated back to <span class="mono">stack_offset</span></b> and the result pushed. Receiver and argument vanish in the same motion that delivers the value — and the result lands at slot 2.' },
+
+  { line:5, ip:5,
+    note:'Slot 2 is now <b>total</b>. It was never reserved and never stored into — the call’s result simply landed where the local’s slot was always going to be.' },
+];
+
+// ---------------------------------------------------------------------------
+// FOLD — state is a pure function of (trace, cursor)
+// ---------------------------------------------------------------------------
+const initial = () => ({ tape:[], frames:[], line:0, ip:0, changed:[], readfrom:null });
+
+function apply(prev, ev) {
+  const s = { tape:prev.tape.slice(), frames:prev.frames.map(f=>({...f})),
+              line:ev.line, ip:ev.ip, changed:[], readfrom:ev.readfrom ?? null };
+  if (ev.framePush) s.frames.push({ ...ev.framePush });
+  if (ev.pop) for (let i=0;i<ev.pop;i++) s.tape.pop();
+  if (ev.framePop) { const f = s.frames.pop(); s.tape.length = f.offset; }
+  if (ev.push !== undefined) { s.tape.push(ev.push); s.changed.push(s.tape.length-1); }
+  if (ev.set) { s.tape[ev.set.slot] = ev.set.val; s.changed.push(ev.set.slot); }
+  return s;
+}
+
+const STATES = (() => {
+  const out = [initial()];
+  for (const ev of EVENTS) out.push(apply(out[out.length-1], ev));
+  return out;
+})();
+
+// ---------------------------------------------------------------------------
+// INVARIANTS — failure mode #1 is a hand-authored trace that lies plausibly
+// ---------------------------------------------------------------------------
+function checkInvariants() {
+  const p = [];
+  STATES.forEach((s,i) => {
+    if (s.tape.length > SLOT_COUNT) p.push(`event ${i}: tape (${s.tape.length}) exceeds rendered slots (${SLOT_COUNT})`);
+    if (s.readfrom !== null && s.readfrom >= s.tape.length) p.push(`event ${i}: reads slot ${s.readfrom}, past tape top ${s.tape.length}`);
+    s.frames.forEach((f,j) => {
+      if (f.offset > s.tape.length) p.push(`event ${i}: frame ${j} (${f.name}) offset ${f.offset} past tape top ${s.tape.length}`);
+      const nx = s.frames[j+1];
+      if (nx && nx.offset < f.offset) p.push(`event ${i}: frame ${j+1} opens below its caller`);
+    });
+  });
+  let d = 0;
+  EVENTS.forEach((e,i) => { if (e.framePush) d++; if (e.framePop) { d--; if (d<0) p.push(`event ${i+1}: frame_pop without a matching push`); } });
+  return p;
+}
+
+// ---------------------------------------------------------------------------
+// RENDER
+// ---------------------------------------------------------------------------
+let cursor = 0;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function decayFor(n) {
+  for (let b=0;b<=2;b++) { const i = cursor-b; if (i>=1 && STATES[i].changed.includes(n)) return b; }
+  return -1;
+}
+
+function render() {
+  const st = STATES[cursor];
+  const top = st.frames.length ? st.frames[st.frames.length-1] : null;
+  const chunk = top ? CHUNKS[top.name] : null;
+
+  $('src').innerHTML = SRC.map((l,i) =>
+    `<span class="line${i===st.line && cursor>0 ? ' on':''}">${esc(l)||' '}</span>`).join('');
+
+  $('chunkname').textContent = top ? top.name : '—';
+  $('bc').innerHTML = !chunk ? '<span style="color:var(--ink-faint)">no frame yet</span>' :
+    chunk.code.map((o,i) => {
+      const on = cursor>0 && i===st.ip;
+      const operand = o.a ? `<span class="operand${o.lit?' lit':''}">${esc(o.a)}</span>` : '';
+      return `<span class="op${on?' on':''}"><span class="ad">${String(i).padStart(4,'0')}</span><span>${o.t.padEnd(10,' ')}${operand}</span></span>`;
+    }).join('');
+
+  // bracket lanes, deepest on top
+  const lanes = $('lanes'); lanes.innerHTML = '';
+  for (let d = Math.max(st.frames.length,1)-1; d>=0; d--) {
+    const lane = document.createElement('div'); lane.className='lane';
+    const f = st.frames[d];
+    if (f) {
+      const span = Math.max(1, st.tape.length - f.offset);
+      const b = document.createElement('div'); b.className='bracket';
+      b.style.left  = `calc(${f.offset} * (100% / ${SLOT_COUNT}))`;
+      b.style.width = `calc(${span} * (100% / ${SLOT_COUNT}))`;
+      const hot = st.readfrom!==null && d===st.frames.length-1;
+      const meta = span>=3
+        ? `<span class="meta mono">offset=<span class="${hot?'hot':''}">${f.offset}</span> · gen=${f.gen}</span>` : '';
+      b.title = `${f.name} — stack_offset=${f.offset}, generation=${f.gen}`;
+      b.innerHTML = `<span class="nm mono">${esc(f.name)}</span>${meta}`;
+      lane.appendChild(b);
+    }
+    lanes.appendChild(lane);
+  }
+
+  // slots
+  const slots = $('slots');
+  slots.style.gridTemplateColumns = `repeat(${SLOT_COUNT},1fr)`;
+  slots.innerHTML = '';
+  for (let n=0;n<SLOT_COUNT;n++) {
+    const el = document.createElement('div');
+    const val = st.tape[n], beyond = n>=st.tape.length;
+    el.className = 'slot' + (beyond?' beyond':'') + (val==='·'?' nilv':'');
+    const d = decayFor(n); if (d>=0 && !beyond) el.classList.add('chg-'+d);
+    if (st.readfrom===n) el.classList.add('readfrom');
+    el.innerHTML = beyond ? '' : `<span class="mono">${esc(val)}</span>`;
+    if (top && !beyond) {
+      const rel = n - top.offset;
+      if (rel>=0 && top.locals?.[rel]) el.title = `${top.locals[rel]} — ${top.name} local ${rel} (absolute slot ${n})`;
+    }
+    slots.appendChild(el);
+  }
+
+  // index row: absolute number, or the innermost frame's local name
+  const idx = $('idx');
+  idx.style.gridTemplateColumns = `repeat(${SLOT_COUNT},1fr)`;
+  idx.innerHTML = '';
+  for (let n=0;n<SLOT_COUNT;n++) {
+    const d = document.createElement('div'); d.className='mono';
+    let label = String(n), named=false;
+    if (top) { const rel = n-top.offset; if (rel>=0 && top.locals?.[rel]) { label = top.locals[rel]; named=true; } }
+    if (named) d.classList.add('named');
+    if (st.readfrom===n) d.classList.add('hot');
+    d.textContent = label;
+    idx.appendChild(d);
+  }
+
+  // resolution strip — the one addition, spelled out
+  const rz = $('resolve');
+  if (st.readfrom!==null && top) {
+    const rel = st.readfrom - top.offset;
+    rz.className = 'resolve on';
+    rz.innerHTML =
+      `<span class="mono chip">GetLocal ${rel}</span><span class="eq">compile-time constant, baked into the instruction</span>` +
+      `<span class="eq">→</span><span class="mono chip">stack_offset ${top.offset}</span><span class="eq">+</span>` +
+      `<span class="mono chip">${rel}</span><span class="eq">=</span>` +
+      `<span class="mono chip">absolute slot ${st.readfrom}</span>` +
+      `<span class="why">One addition — <span class="mono">dispatch.rs:721</span>. No name lookup, no hash, no map. ` +
+      `The name <span class="mono">${esc(top.locals?.[rel] ?? '?')}</span> does not exist at runtime.</span>`;
+  } else rz.className = 'resolve';
+
+  const co = $('callout');
+  const note = cursor>0 ? EVENTS[cursor-1].note : null;
+  co.className = 'callout' + (note?'':' empty');
+  co.querySelector('.txt').innerHTML = note || '';
+
+  $('counter').textContent = `event ${cursor} / ${EVENTS.length}`;
+  $('scrub').value = cursor;
+  $('prev').disabled = $('first').disabled = cursor===0;
+  $('next').disabled = $('last').disabled  = cursor===EVENTS.length;
+}
+
+const go = n => { cursor = Math.max(0, Math.min(EVENTS.length, n)); render(); };
+
+$('scrub').max = EVENTS.length;
+$('prev').onclick=()=>go(cursor-1); $('next').onclick=()=>go(cursor+1);
+$('first').onclick=()=>go(0);       $('last').onclick=()=>go(EVENTS.length);
+$('scrub').oninput=e=>go(+e.target.value);
+
+addEventListener('keydown', e => {
+  if (e.key==='ArrowRight'){go(cursor+1);e.preventDefault()}
+  if (e.key==='ArrowLeft'){go(cursor-1);e.preventDefault()}
+  if (e.key==='Home'){go(0);e.preventDefault()}
+  if (e.key==='End'){go(EVENTS.length);e.preventDefault()}
+  if (e.key.toLowerCase()==='t'){
+    const cur=document.documentElement.getAttribute('data-theme');
+    const dark=cur?cur==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.setAttribute('data-theme',dark?'light':'dark');
+  }
+});
+
+const problems = checkInvariants();
+if (problems.length) {
+  $('banner').classList.add('on');
+  $('banner').innerHTML = '<b>Invariant violation — this trace draws an impossible machine:</b><br>' +
+    problems.map(p=>'· '+p).join('<br>');
+}
+render();
+</script>
+</body>
+</html>
