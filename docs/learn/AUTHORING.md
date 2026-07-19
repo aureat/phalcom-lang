@@ -7,7 +7,7 @@ matters of taste.
 
 The method behind it (why these docs exist, what shape they take) lives in the project's
 `docs-learn-method` memory and is restated compactly, self-contained, in
-[§9](#9-reference-the-standing-method). This file is the *how*. Read §9 first if you have never
+[§9](#9-reference-the-standing-method-self-contained). This file is the *how*. Read §9 first if you have never
 written one of these.
 
 ---
