@@ -365,6 +365,12 @@ relitigated. New to this record:
 | **Q-5** | Should `expect_index`'s transitional `Float` arm carry a machine-checkable tripwire rather than only a doc comment (ruling 23)? | A doc comment naming the follow-on is probably enough; a tripwire is cheap insurance against the arm becoming permanent. |
 | **Q-6** | `phalcom-core`'s dependency pinning is split between workspace and crate-literal, with `thiserror` in both (ruling 4). Normalize? | Separately — unrelated to the tower, and bundling it hides a real cleanup inside a semantics change. |
 
+> **Q-1 and Q-2 are discharged by [PDR-0025](0025-numeric-tower-residue-rulings.md)** (Proposed
+> 2026-07-20, same day): `~/` is total over the tower and returns `Int` (the stated exception to
+> §A A6); `Int.new` never narrows (any `Float` argument raises); and the re-homing of ruling 18
+> drops `number_class_new`'s undocumented `Bool` arm. Q-3 was discharged by this record's own
+> ratification. Q-4/Q-5 remain implementation-time checks; Q-6 remains parked.
+
 ## Verified vs assumed
 
 **Verified at `8b4465c`, with `file:line`:** the single `Value::Number` arm; `core.ph:82`'s flat
