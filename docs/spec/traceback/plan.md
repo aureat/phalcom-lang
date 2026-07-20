@@ -15,17 +15,20 @@ only from `docs/forge/perf-log/SCOREBOARD.md`.
 
 ## Gates (before any U-TRACE implementation)
 
-### G1 — Ratify PDR-0010 *(user decision — escalated)*
+### G1 — Ratify PDR-0010  ✅ RESOLVED (ratified 2026-07-20)
 
-IS §4/§8 are written against PDR-0010 §2–§5 (Proposed). The decisions-folder rule forbids
-building on it. **Recommendation: ratify.** Its refutation of capture-at-raise is priced
-(`attempt()` pays a frame walk per `Err`) and its two verified-against-code corrections are the
-kind that would otherwise be found during implementation. On ratification, flip STATUS.md the
-same pass. Units T3, T6 block on this; T1, T2, T5, T7 do not.
+Ratified as-is; the normative `kind` table + isA-vs-`kind` rule live in IS §8.1 per the
+ratification ruling. STATUS.md flipped the same pass. T3 and T6 are unblocked (T3 still waits
+on G2).
 
-### G2 — Fix E002 (fiber-floor upvalue close) *(blocker, U-FIBER territory)*
+### G2 — Fix E002 (fiber-floor upvalue close) *(blocker — RULED: standalone unit, dispatch
+now, before T3)*
 
-OPEN, confirmed 2026-07-20 (`docs/errors/E002-fiber-floor-upvalue-crash.md`). The cascade loop
+Ruled 2026-07-20: fixed standalone, not folded into T3 (which would chain a live crash to
+governance latency) and not left to the unscheduled U-FIBER track. Re-derive the fix from code,
+not from E002's recorded prescription (house rule). Confirm no concurrent session holds fiber
+dispatch before dispatching. OPEN, confirmed 2026-07-20
+(`docs/errors/E002-fiber-floor-upvalue-crash.md`). The cascade loop
 T3 instruments is the code that must close upvalues before clearing
 (`dispatch.rs:341-370`, `primitive/fiber.rs:55-57`). Landing T3 first would put the traceback
 walk on a path that can hold dangling `ObjRef`s — converting a clean error into a panic at
@@ -37,9 +40,16 @@ escaped-block-after-fiber-failure fixture. E001 is already fixed (`cdd2117`) —
 
 Reproduced 2026-07-20, both modes; the panic mode is an uncatchable `.expect()` process abort
 (`primitive/map.rs:80`). Not in U-TRACE; scheduled first as its own unit
-(write-set: `primitive/map.rs`, `primitive/set.rs`, `heap/map.rs`). Direction decision (slot
-re-validation vs fallible accessors vs mutation detection) still owed — see
-`error-handling-followups.md` §1 with the verification's severity correction.
+(write-set: `primitive/map.rs`, `primitive/set.rs`, `heap/map.rs`). **Direction RULED
+2026-07-20: reentrancy lock.** The collection is flagged for the duration of `locate()`'s
+reentrant `hash`/`==` sends; any structural mutation of it while flagged raises a catchable
+`Error` with `kind: #concurrentMutation` **at the mutation site** — the traceback then points
+at the culprit line inside the user's `==`, with the outer operation as the frame above.
+Fallible raw accessors (`set_value_at`/`remove_at` → `Option`) land underneath as
+defense-in-depth. Scope: `locate()` only; iteration-during-mutation is a separate, known
+question. Rejected: re-locate-after-mutation (order-dependent semantics + livelock bound),
+version-counter-at-outer-op (blame one frame removed), fallible-accessors-alone (leaves silent
+corruption).
 
 ---
 
@@ -69,7 +79,7 @@ re-validation vs fallible accessors vs mutation detection) still owed — see
 - **Tests:** IS §11's caret unit battery (tabs, CJK, combining, windowing, two labels, ASCII);
   color-off invariance harness.
 
-### T3 — Capture record + surface error structure  ⛔ G1, G2  *(IS §4; PDR-0010 §1-§4)*
+### T3 — Capture record + surface error structure  ⛔ G2  *(IS §4; PDR-0010 §1-§4 — ratified; G1 resolved)*
 
 - **Delivers:** boundary capture in `block_on`, per-hop cascade capture, record beside
   `Raise.rendered`, `Error#kind`/`#cause`/`#displaced` (`.ph` fields + `capture_error_value`
@@ -116,7 +126,7 @@ re-validation vs fallible accessors vs mutation detection) still owed — see
   run-vs-check same-bytes syntax diagnostic (strip-SGR compare); negative-lane migration for
   restyled parse errors.
 
-### T6 — Message hygiene + did-you-mean  ⛔ G1 (kind values)  *(IS §8, §9)*
+### T6 — Message hygiene + did-you-mean  *(IS §8, §9; G1 resolved — kind table normative at IS §8.1)*
 
 - **Delivers:** style-guide enforcement pass over live messages; dead variants deleted
   (`UndefinedVar`, `UnsupportedOperation`, `BinaryNotSupported`, `UnaryNotSupported`,
@@ -127,8 +137,8 @@ re-validation vs fallible accessors vs mutation detection) still owed — see
   + NewInstance/field sites), `phalcom-core/src/primitive/object.rs`,
   `phalcom-core/src/primitive/number.rs` (doc only), `phalcom-core/src/diagnostics/suggest.rs`
   (new), compiler unknown-class site (`phalcom-core/src/compiler/`).
-- **Deps:** T2; G1 for `kind` assignment (the message rewrites minus `kind` could proceed, but
-  splitting is not worth it — hold for G1).
+- **Deps:** T2. (`kind` values assigned per IS §8.1; T3 lands the `kind` field itself — T6
+  after T3, or T6's `kind` assignments ride T3 if scheduled together.)
 - **Tests:** pure suggest-engine table tests (metric, threshold, tie-suppression,
   determinism); one fixture per rewritten message; negative-control that the old `{:?}` leak
   strings no longer appear.
@@ -164,13 +174,16 @@ re-validation vs fallible accessors vs mutation detection) still owed — see
 - `docs/adr/README.md` still lists ADR-0014 as Accepted though the file says Superseded — fix
   the row (two-way sync rule).
 
-### Governance ruling: no new ADR, no new PDR required
+### Governance: resolved
 
-The ADR folder is frozen; design decisions live in `docs/decisions/`. This unit's only
-*architectural* commitment is PDR-0010 (G1). The renderer ruling (IS §1) and rendering rules are
-recorded normatively in this spec folder; they change no VM architecture and need no separate
-record. If a ratification artifact is wanted for the renderer choice, it is a short PDR-0014
-citing IS §1 — offered, not required.
+The ADR folder is frozen; design decisions live in `docs/decisions/`. Both records this track
+needed now exist and are Accepted:
+[PDR-0010](../../decisions/0010-errors-carry-structure-and-cheap-origin.md) (ratified
+2026-07-20; G1) and
+[PDR-0014](../../decisions/0014-diagnostics-renderer-is-in-house.md) (renderer is in-house,
+miette leaves the workspace — written because the phantom-miette convention already produced
+one wrong decision, 0066/`bb4f365`). No new ADR. `docs/adr/README.md`'s stale ADR-0014 row is
+fixed in S1.
 
 ---
 

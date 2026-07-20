@@ -16,12 +16,14 @@ syntax diagnostics, execution tracing, and disassembly.
 - [`../../deferred/error-handling-followups.md`](../../deferred/error-handling-followups.md) —
   unowned error-handling defects found alongside.
 
-**Status:** specified — implementation not started. §3.1 (renderer) is **ruled** in
-[`implementation-spec.md`](implementation-spec.md) §1; the capture row in §2 below is
-**superseded by [PDR-0010](../../decisions/0010-errors-carry-structure-and-cheap-origin.md) §3**
-(Proposed — implementation of the capture/kind sections gates on its ratification). Parts of
-`tracing.md` went stale when PDR-0008 landed; trust
-[`verification-2026-07-20.md`](verification-2026-07-20.md) over it where they disagree.
+**Status:** specified — implementation not started. §3.1 (renderer) is **ruled** —
+[PDR-0014](../../decisions/0014-diagnostics-renderer-is-in-house.md), Accepted. The capture row
+in §2 below is **superseded by
+[PDR-0010](../../decisions/0010-errors-carry-structure-and-cheap-origin.md) §3, ratified
+2026-07-20**; the normative `kind` table is
+[`implementation-spec.md`](implementation-spec.md) §8.1. Parts of `tracing.md` went stale when
+PDR-0008 landed; trust [`verification-2026-07-20.md`](verification-2026-07-20.md) over it where
+they disagree.
 
 ---
 
@@ -57,7 +59,7 @@ Carried from the U-TRACE design session. Do not re-litigate.
 | Core frames | Elided by default with a count; `--trace-core` expands |
 | Fiber boundary | Traceback **chains** across the floor with a spawn-site link; does not stop |
 | Primitive shape | Walkable live stack object; formatter is a consumer |
-| Capture timing | ~~Compact record at **raise**~~ **Superseded by PDR-0010 §3** (Proposed): capture at the first `on` boundary / per-hop in the fiber cascade; record holds Symbols + line, never `ObjRef`s (PDR-0010 §4) |
+| Capture timing | ~~Compact record at **raise**~~ **Superseded by PDR-0010 §3 (ratified 2026-07-20)**: capture at the first `on` boundary / per-hop in the fiber cascade; record holds Symbols + line, never `ObjRef`s (PDR-0010 §4) |
 | Frame granularity | **Logical** frames, 1:many expansion from day one |
 | Trace stability | Golden fixtures assert fields via JSON stream; human layout explicitly unstable |
 | Fiber switch log | No `cfg` gate — cold path |

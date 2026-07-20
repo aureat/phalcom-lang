@@ -58,10 +58,18 @@ m.at(k1, put: 99)   // locate(k1) -> == side-effects remove k2 -> stale slot
 `List`/`Map`/`Set` as *keys*, and does nothing about a key's `==`/`hash` mutating a
 collection as a side effect.
 
-**Direction (not a ruling):** re-validate or re-`locate` the slot after the reentrant send
-returns, and/or make `set_value_at`/`remove_at` fallible (`Option`) rather than
-indexing-panic. Detecting same-object structural mutation across a reentrant `hash`/`==`
-would be the stronger fix. Needs a decision on which.
+**RULED 2026-07-20 — reentrancy lock, raise at the mutation site.** The collection is flagged
+for the duration of `locate()`'s reentrant `hash`/`==` sends; structural mutation of it while
+flagged raises a catchable `Error` with `kind: #concurrentMutation` **at the mutation call**
+inside the user's `==`/`hash` — precise blame, both failure modes eliminated. Fallible raw
+accessors (`set_value_at`/`remove_at` → `Option`) land underneath as defense-in-depth. The
+language rule this states: *a key's `hash`/`==` may not structurally mutate the collection
+being operated on* — an extension of the existing key/collection contract
+(`is_mutable_collection_key`, collection law 4). Rejected: re-locate (order-dependent
+semantics, livelock bound), version-counter-at-outer-op (blame one frame removed),
+fallible-accessors-alone (leaves silent corruption). Unit scheduling:
+[`../spec/traceback/plan.md`](../spec/traceback/plan.md) §G0 — ranked above the traceback
+track. Scope: `locate()` only; iteration-during-mutation stays a separate question.
 
 ---
 
@@ -93,6 +101,11 @@ spec doc was never marked to match, so it currently reads as ground truth.
 **Do now:** annotate those three examples as aspirational/unimplemented so the spec stops
 lying. **Defer:** the reification itself, which is U-ERR's territory and wants an ADR.
 
+**DONE 2026-07-20:** examples annotated in `error-handling.md` §6 with the ruled `e.kind`
+replacement form. The reification question itself is **closed by PDR-0010 §2** (ratified
+2026-07-20): `kind` Symbol on `Error`, no kernel classes minted; lands with traceback plan
+units T3/T6. This item is resolved.
+
 ---
 
 ## 3. `block_on` rustdoc contradicts `block_on`'s behavior
@@ -111,6 +124,10 @@ subclass … catchable"). It's the rustdoc that is wrong, and it is wrong in the
 misleads anyone reading the source as ground truth for what `on` catches.
 
 **Do now:** fix the comment. Cheap, no behavior change.
+
+**DONE 2026-07-20:** rustdoc rewritten to match the wrap-and-probe behavior — including the
+second stale bullet (non-matching `Raise` "frames untouched", false since PDR-0007 moved the
+unwind before the probe). This item is resolved.
 
 ---
 

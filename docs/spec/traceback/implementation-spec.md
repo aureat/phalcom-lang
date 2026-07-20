@@ -7,20 +7,20 @@ HEAD after PDR-0007/PDR-0008 landed; every `file:line` verified 2026-07-20 (see
 by example), [`color.md`](color.md) (roles + palette), [`plan.md`](plan.md) (unit order,
 write-sets, edges).
 
-**Governance gate:** §4 (capture) and §8 (kind/messages) are written against
-[PDR-0010](../../decisions/0010-errors-carry-structure-and-cheap-origin.md) §2–§5, which is
-**Proposed**. Per the decisions-folder rule, no implementation of those sections may start until
-PDR-0010 is ratified (or amended-and-ratified). Every other section stands on Accepted records
-and may proceed. If PDR-0010 is *rejected*, §4 falls back to the original capture-at-raise
-ruling in `tracing.md` — and its `attempt()` cost must then be re-priced, because PDR-0010's
-refutation of that ruling is priced and specific.
+**Governance:** §4 (capture) and §8 (kind/messages) are written against
+[PDR-0010](../../decisions/0010-errors-carry-structure-and-cheap-origin.md) §2–§5 —
+**ratified 2026-07-20**; the former gate is discharged. The ratification ruled that the
+normative `kind` table and the isA-vs-`kind` usage rule live in §8.1 of this document. The
+renderer ruling in §1 is recorded as
+[PDR-0014](../../decisions/0014-diagnostics-renderer-is-in-house.md) (Accepted).
 
 ---
 
 ## 1. Ruling: the renderer is ours — extend, don't adopt miette
 
 **README §3.1 is hereby ruled: option (b), extended with a named style layer. miette is dropped
-from the workspace.**
+from the workspace.** Recorded as
+[PDR-0014](../../decisions/0014-diagnostics-renderer-is-in-house.md) (Accepted 2026-07-20).
 
 Grounds, in decreasing weight:
 
@@ -208,7 +208,7 @@ misplacement on multi-line spans — visible in the §verification empirical out
 
 ---
 
-## 4. Capture — PDR-0010 §3/§4, applied  ⛔ *gated on PDR-0010 ratification*
+## 4. Capture — PDR-0010 §3/§4, applied  *(PDR-0010 ratified 2026-07-20)*
 
 What the traceback renders for a *caught-then-rethrown* or *fiber-crossing* error is the capture
 record; for an uncaught error it is the live walk. Both produce `FrameView`s.
@@ -367,7 +367,36 @@ compile and runtime failures; the CLI stops owning reporting logic entirely.
   body) and the `SOURCE_MAP` lazy-static are superseded by `ModuleObject::sources` everywhere;
   the one live reader migrates to `source_at`.
 
-## 8. Message style guide (README §4.7, ruled)  ⛔ *`kind` values gated on PDR-0010*
+## 8. Message style guide (README §4.7, ruled)
+
+### 8.1 The `kind` table — normative (per PDR-0010's ratification ruling)
+
+Initial closed set of `Error#kind` Symbols. Additions are a data change **recorded in this
+table in the same commit** — an unrecorded `kind` is a review-blockable defect, because the
+moment one ships, user code matches on it and it is API.
+
+| `kind` | Raised by | Replaces |
+|---|---|---|
+| `#type` | native type guards (`expect_*`), NewInstance/field-access on non-class/non-instance | `RuntimeError::Type`, the five `Internal`-leak sites |
+| `#range` | index/bounds failures in native collections | `RuntimeError` range paths |
+| `#deadFrame` | calling an escaped block whose home frame is gone | `DeadFrameError` |
+| `#depthExceeded` | PDR-0007's two counters | `RuntimeError::DepthExceeded` |
+| `#notFound` | lookup misses that raise (fs paths later, PDR-0013) | — |
+| `#permissionDenied` | filesystem/reactor surfaces (PDR-0005/0013) | — |
+| `#wouldBlock` | reactor surfaces (PDR-0004) | — |
+| `#useAfterClose` | closed-handle use (PDR-0005 §4) | — |
+| `#contractViolation` | woven `@requires`/`@ensures`/`@invariant` guards (§5.6) | — |
+| `#concurrentMutation` | structural mutation of a collection during its own reentrant `hash`/`==` (the Map/Set G0 ruling) | the uncatchable `.expect` abort |
+
+**isA vs `kind` — the usage rule:** conditions that have real kernel classes and are raised as
+genuine `Raise` instances are matched with `isA` — `Error`, `MessageNotUnderstood`,
+`CannotYieldAcrossNativeFrame`, and user subclasses. Conditions the VM detects natively (the
+table above) are matched with `kind` on a caught base `Error`. Handlers therefore write
+`on(MessageNotUnderstood)` but `on(Error) { e => e.kind == #range … }`. If sealed types later
+land, the Symbol domain becomes a sealed enum with no call-site change (PDR-0010's stated
+convergence path).
+
+### 8.2 Message rules
 
 The rule set — enforced by review and by one fixture per rule class:
 
