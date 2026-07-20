@@ -76,6 +76,25 @@ for (const [key, ex] of Object.entries(m.EXAMPLES)) {
         bad.push(`event ${i + 1}: hole but the resuming fiber "${to?.name}" has already run and is not parked`);
     });
 
+    // ---- a framePush must start the callee at its own first instruction -----
+    // `ip` is a CallFrame field. Authoring the *caller's* ip on a framePush puts
+    // a stale address in the callee's chunk — silently in-bounds when the callee
+    // is longer. This has bitten three times; it is a rule now, not vigilance.
+    sub.events.forEach((e, i) => {
+      if (e.framePush && e.ip !== undefined && e.ip !== 0)
+        bad.push(`event ${i + 1}: framePush "${e.framePush.name}" carries ip ${e.ip} — a callee starts at 0 (that ip belongs to the caller)`);
+    });
+
+    // ---- semantic: a home token must actually go stale ----------------------
+    // Same shape as TWO-FULL-CARDS: if E4 stops producing a dead home, the
+    // example still runs and still looks right, but teaches nothing.
+    const usesHome = sub.events.some(e => e.framePush?.home);
+    if (usesHome) {
+      const everDead = states.some(st => st.frames.some(f =>
+        f.home && (!st.frames[f.home.index] || st.frames[f.home.index].gen !== f.home.gen)));
+      if (!everDead) bad.push(`DEAD-HOME: a home_frame_token is captured but never goes stale — the dead-frame lesson is not being shown`);
+    }
+
     // ---- semantic: switch legality -----------------------------------------
     sub.events.forEach((e, i) => {
       if (e.switch && e.switch.phase === 'take' && states[i].hostDepth > 1)

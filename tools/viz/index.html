@@ -102,6 +102,10 @@
   .bracket .meta .hot{color:var(--link);font-weight:700;padding:0 3px;border-radius:3px;
     background:var(--link-soft);box-shadow:inset 0 0 0 1px var(--link)}
   .bracket.blk{border-style:dashed}
+  .bracket .home{color:var(--ink-faint);padding:0 3px;border-radius:3px}
+  .bracket .home.dead{color:var(--error);font-weight:700;
+    background:color-mix(in srgb,var(--error) 15%,transparent);
+    box-shadow:inset 0 0 0 1px var(--error)}
 
   .slots{display:grid}
   .slot{height:42px;border:1px solid var(--rule);border-left:none;display:flex;align-items:center;
@@ -160,6 +164,15 @@
   .chain .e{font-weight:600}
   .chain .try{border-bottom:2px double var(--ink-mute)}
   .hopper{font-size:10.5px;color:var(--ink-faint)}
+  .fres{margin-top:5px;font-size:10px;color:var(--ink-mute)}
+  .fres.err{color:var(--error);font-weight:600}
+  .chain .e.try{border-bottom:2px double currentColor}
+  .chain .e.hot{color:var(--error)}
+  .chain .halt{color:var(--f2);font-size:10px;margin:3px 0 0;font-weight:600}
+  .chain .cross{color:var(--error);font-size:10px;margin:3px 0 0;font-weight:600}
+  .pinned{font-size:10.5px;color:var(--ink-mute);padding:5px 7px;border-radius:5px;
+    border:1px dashed var(--rule-strong);background:color-mix(in srgb,var(--ink-faint) 6%,transparent)}
+  .pinned b{color:var(--ink);font-size:12px}
 
   .resolve{margin-top:12px;padding:9px 12px;border-radius:6px;border:1px dashed var(--link);
     background:var(--link-soft);font-size:12.5px;display:none;align-items:center;gap:8px;flex-wrap:wrap}
@@ -620,11 +633,178 @@ EXAMPLES.e3 = {
   ],
 };
 
+/* ------------------------------- E4 -------------------------------------- */
+EXAMPLES.e4 = {
+  tab: 'E4 · Dead frame',
+  title: 'A return that has nowhere to return to',
+  lede: 'A block escapes the method that made it, then tries to return through it. Watch the generation counter — it is the only reason this is an error instead of memory corruption.',
+  source: [
+    'class Box {',
+    '  make() {',
+    '    return { return 99 }',
+    '  }',
+    '}',
+    '',
+    'let b   = Box.new()',
+    'let blk = b.make()',
+    'blk.call',
+  ],
+  chunks: {
+    '<module>': { locals:['self'], code:[
+      {t:'GetGlobal',a:'Box'},{t:'Invoke',a:'0 new'},{t:'DefineGlobal',a:'b'},
+      {t:'GetGlobal',a:'b'},{t:'Invoke',a:'0 make'},{t:'DefineGlobal',a:'blk'},
+      {t:'GetGlobal',a:'blk'},{t:'Invoke',a:'0 call'},{t:'Pop'},{t:'Return'},
+    ]},
+    'Box#make': { locals:['self'], code:[
+      {t:'Closure',a:'0'},
+      {t:'Return'},
+    ]},
+    'escaping block': { locals:['self'], code:[
+      {t:'Constant',a:'99'},
+      {t:'ReturnNonLocal'},
+    ]},
+  },
+  gate: {
+    q: '<span class="mono">make</span> has already returned. The block it built is about to run <span class="mono">return 99</span>. What happens?',
+    opts: [
+      { t:'It returns 99 to whoever called the block — the block is just a function.', ok:false },
+      { t:'It raises <span class="mono">DeadFrameError</span>: the home frame is gone, and the token’s generation no longer matches what sits at that index.', ok:true },
+      { t:'Undefined behaviour — it writes into whatever now occupies that stack slot.', ok:false },
+    ],
+    because: 'The third answer is what you get if a block stores a <b>pointer</b> to its home frame, which is why C-family languages forbid the construct outright. Phalcom stamps the block with a <b>FrameToken = (index, generation)</b>. The index is reused constantly — here the escaping block lands at the very same index <span class="mono">make</span> occupied — but <span class="mono">next_frame_generation</span> is <b>pinned and monotonic</b>, so the generation never repeats. The check is one integer comparison, and it turns a dangling-pointer class of bug into a catchable error.',
+  },
+  events: [
+    { line:6, ip:0, chunk:'<module>', hostDepth:1,
+      framePush:{name:'<module>',offset:0,kind:'m',locals:['self']}, push:'<module>',
+      note:'Module frame. Watch <b>next_frame_generation</b> in the rail — it is the pinned counter, and it is about to do all the work.' },
+    { line:6, ip:0, push:'<Box>', note:'<span class="mono">GetGlobal Box</span>.' },
+    { line:6, ip:1, pop:1, push:'<Box inst>', note:'<span class="mono">Invoke new</span>.' },
+    { line:6, ip:2, pop:1, note:'<span class="mono">DefineGlobal b</span>.' },
+    { line:7, ip:3, push:'<Box inst>', note:'Receiver for <span class="mono">make</span>.' },
+    { line:1, ip:0, framePush:{name:'Box#make',offset:1,kind:'m',locals:['self']},
+      note:'<b><span class="mono">make</span>’s frame opens — note its <span class="mono">gen</span>.</b> This is the frame the escaping block will later try to return through. It is frame <b>index 1</b>.' },
+    { line:2, ip:0, captureHome:'h0', push:'<blk>',
+      note:'<span class="mono">Closure 0</span> builds the block <b>and stamps it with a home_frame_token</b> — <span class="mono">(index 1, gen 2)</span>. Not a pointer. A pointer here is a dangling pointer three lines from now.' },
+    { line:2, ip:1, framePop:true, push:'<blk>',
+      note:'<b><span class="mono">make</span> returns and its frame is gone.</b> The counter does not rewind — nothing will ever be <span class="mono">(index 1, gen 2)</span> again. That is the entire trick.' },
+    { line:7, ip:5, pop:1, note:'<span class="mono">DefineGlobal blk</span>. The block outlived its home.' },
+    { line:8, ip:6, push:'<blk>', note:'<span class="mono">GetGlobal blk</span>.' },
+    { line:2, ip:0, framePush:{name:'escaping block',offset:1,kind:'blk',locals:['self'],home:'h0'},
+      note:'<b>Look at the bracket.</b> The block’s frame lands at <b>index 1 — the very slot <span class="mono">make</span> had</b> — but with a fresh generation. Its home token still says <span class="mono">gen 2</span>. The mismatch is already visible, before anything has gone wrong.' },
+    { line:2, ip:0, push:'99', note:'<span class="mono">Constant 99</span>. The value is fine. The destination is not.' },
+    { line:2, ip:1, error:{kind:'DeadFrameError', msg:'home frame (index 1, generation 2) is gone; index 1 now holds generation 3'},
+      note:'<span class="mono">ReturnNonLocal</span> reads the token, compares one integer, and refuses. <b>An index alone would have matched</b> and written into a live, unrelated frame. The generation is what makes reuse detectable.' },
+  ],
+  takeawayGrip: 'A <span class="mono">FrameToken</span> is a pointer split in two: <i>where to look</i>, and <i>who it was</i>. The second half is what survives reuse.',
+  takeaway: [
+    'The moment a block can outlive its defining frame — stored, returned, or sent to another fiber — a <span class="mono">return</span> through the dead home must <b>trap</b>, not corrupt. This has to be designed when blocks gain the ability to escape, not when <span class="mono">return</span> is added.',
+    'Indices get reused immediately; here the escaping block took the exact index its own home had. Only the generation distinguishes them, and only because <span class="mono">next_frame_generation</span> is <b>pinned</b> — it never travels on a fiber switch, so a token minted in one fiber cannot collide with one minted in another.',
+    'Smalltalk makes the home context a first-class object that stays alive, which costs an allocation per activation. Phalcom keeps frames as flat <span class="mono">Copy</span> values in a <span class="mono">Vec</span> and pays one integer compare instead. Same safety, different bill.',
+  ],
+  fwd: 'Deeper: <span class="mono">docs/learn/vm/frame-identity.md</span> · ADR-0013',
+};
+
+/* ------------------------------- E5 -------------------------------------- */
+EXAMPLES.e5 = {
+  tab: 'E5 · call vs try',
+  title: 'Where an unwind is allowed to stop',
+  lede: 'The same failing fiber, resumed two ways. One re-raises into its resumer; the other captures at the boundary. The difference is a property of the edge, not of the fiber.',
+  variants: ['A · f.call — re-raises', 'B · f.try — captured'],
+  gate: {
+    q: 'A fiber raises an uncaught error. What decides whether the host survives it?',
+    opts: [
+      { t:'Nothing — an uncaught error in any fiber terminates the program.', ok:false },
+      { t:'How it was resumed. <span class="mono">call</span> re-raises into the resumer; <span class="mono">try</span> captures at the floor and the fiber goes <span class="mono">Failed</span> with the error in its result slot.', ok:true },
+      { t:'Whether the fiber installed a handler before raising.', ok:false },
+    ],
+    because: '<span class="mono">FiberResumeMode</span> (<span class="mono">heap/fiber.rs:37</span>) is stored on the fiber but set <b>by the resume call</b> — so it is really a property of the <i>edge</i> in the resumer chain. That makes containment a caller’s decision, which is the same shape as <span class="mono">Result</span> vs <span class="mono">throw</span>: the person who knows whether failure is expected is the caller, not the callee. Watch the chain edge in the rail: solid for <span class="mono">call</span>, doubled for <span class="mono">try</span>.',
+  },
+  takeawayGrip: 'A fiber’s failure is contained by design — the unwind stops at its floor and the error lands in its result slot. Whether it stops is chosen by the resumer.',
+  takeaway: [
+    'Phalcom’s unwind is <b>terminating</b>, not resumable (ADR-0008) — it rejects Smalltalk’s <span class="mono">resume:</span>. That choice is not retrofittable: a resumable unwind has to preserve the frames it passes, which changes the entire stack discipline.',
+    'The fiber floor is where <i>errors</i> ⊗ <i>concurrency</i> meet. A fiber boundary is already a natural containment edge, so the error model gets one for free — but only because the boundary was there for scheduling reasons first.',
+    'Still open (overlay): <b>structured concurrency</b>. ADR-0030 gives a single-fiber <span class="mono">abort</span>, not cascading cancellation of children. Nothing here propagates <i>down</i> the chain, only up.',
+  ],
+  fwd: 'Deeper: ADR-0008 · ADR-0030 §6 · <span class="mono">docs/learn/concurrency/</span> C3',
+  sub: (function(){
+    const source = [
+      'let f = Fiber.new {',
+      '  Error.new("boom").raise()',
+      '}',
+      '',
+      'f.call     // A',
+      'f.try      // B',
+    ];
+    const chunks = {
+      '<module>': { locals:['self'], code:[
+        {t:'GetGlobal',a:'Fiber'},{t:'Closure',a:'0'},{t:'Invoke',a:'1 new(_)'},
+        {t:'DefineGlobal',a:'f'},{t:'GetGlobal',a:'f'},{t:'Invoke',a:'0 call'},
+        {t:'Pop'},{t:'Return'},
+      ]},
+      'F1 entry block': { locals:['self'], code:[
+        {t:'GetGlobal',a:'Error'},{t:'Constant',a:'"boom"'},{t:'Invoke',a:'1 new(_)'},
+        {t:'Invoke',a:'0 raise'},{t:'Return'},
+      ]},
+    };
+    const lead = mode => ([
+      { line:0, ip:0, chunk:'<module>', hostDepth:1,
+        framePush:{name:'<module>',offset:0,kind:'m',locals:['self']}, push:'<module>',
+        note:'Module frame.' },
+      { line:0, ip:0, push:'<Fiber>', note:'Receiver.' },
+      { line:0, ip:1, push:'<blk>', note:'The body block.' },
+      { line:0, ip:2, pop:2, push:'<Fiber F1>', fiberNew:{id:1,name:'F1'},
+        resumer:{id:1,to:0,mode},
+        note:`<span class="mono">Fiber.new(_)</span>. The chain edge is <b>${mode}</b> — set by how we are about to resume it, not by the fiber itself.` },
+      { line:0, ip:3, pop:1, note:'<span class="mono">DefineGlobal f</span>.' },
+      { line:mode==='call'?4:5, ip:4, push:'<Fiber F1>', note:'Receiver for the resume.' },
+      { line:mode==='call'?4:5, ip:5, pop:1, note:`<span class="mono">Invoke ${mode}</span>.` },
+      { line:mode==='call'?4:5, ip:5, switch:{from:0,to:1,phase:'take'}, rootStatus:'suspended', note:'Take.' },
+      { line:mode==='call'?4:5, ip:5, switch:{from:0,to:1,phase:'hole'}, note:'The hole.' },
+      { line:0, ip:0, switch:{from:0,to:1,phase:'install'}, current:1, fiberStatus:{id:1,s:'running'},
+        framePush:{name:'F1 entry block',offset:0,kind:'blk',locals:['self']}, push:'<blk>',
+        note:'Install — first resume, so the entry frame is pushed.' },
+      { line:1, ip:0, push:'<Error>', note:'<span class="mono">GetGlobal Error</span>.' },
+      { line:1, ip:1, push:'"boom"', note:'The message.' },
+      { line:1, ip:2, pop:2, push:'<Error boom>', note:'<span class="mono">Error.new(_)</span> — still an ordinary value. Nothing has gone wrong yet.' },
+    ]);
+    return [
+      { source, chunks, events: [...lead('call'),
+        { line:1, ip:3, unwind:{}, fiberStatus:{id:1,s:'failed'}, fiberResult:{id:1,v:'<Error boom>'},
+          error:{kind:'Error', msg:'boom'},
+          note:'<span class="mono">raise</span>. F1 goes <b>failed</b> and the error lands in its result slot. The unwind begins — <b>watch the chain edge.</b>' },
+        { line:1, ip:3, framePopN:1, unwind:{},
+          note:'F1’s frames unwind to the <b>fiber floor</b> — the bottom of what this fiber owns. Every fiber has one; the question is only what happens at it.' },
+        { line:4, ip:5, switch:{from:1,to:0,phase:'take'}, note:'Take.' },
+        { line:4, ip:5, switch:{from:1,to:0,phase:'hole'}, note:'The hole. Even a failing fiber parks by the same three beats.' },
+        { line:4, ip:5, switch:{from:1,to:0,phase:'install'}, current:0, fiberStatus:{id:0,s:'running'},
+          unwind:{}, error:{kind:'Error', msg:'boom'},
+          note:'<b>Install — and the error comes with it.</b> The edge was <span class="mono">call</span>, so the floor <b>re-raises into the resumer</b>. The root is now unwinding for a failure that happened in another fiber. Containment did not happen because nobody asked for it.' },
+      ]},
+      { source, chunks, events: [...lead('try'),
+        { line:1, ip:3, unwind:{}, fiberStatus:{id:1,s:'failed'}, fiberResult:{id:1,v:'<Error boom>'},
+          error:{kind:'Error', msg:'boom'},
+          note:'Identical raise. F1 goes <b>failed</b>, error in the result slot. So far nothing distinguishes this from A.' },
+        { line:1, ip:3, framePopN:1, unwind:{},
+          note:'Same unwind to the same floor. <b>The chain edge is doubled here</b> — and that is the only difference in the entire program.' },
+        { line:5, ip:5, switch:{from:1,to:0,phase:'take'}, note:'Take.' },
+        { line:5, ip:5, switch:{from:1,to:0,phase:'hole'}, note:'The hole.' },
+        { line:5, ip:5, switch:{from:1,to:0,phase:'install'}, current:0, fiberStatus:{id:0,s:'running'},
+          push:'<Error boom>',
+          note:'<b>Install — and the root gets an ordinary value.</b> The edge was <span class="mono">try</span>, so the unwind <b>stopped at the floor</b>. The error crossed the boundary as <i>data</i>, not as an exception. F1 stays <span class="mono">failed</span> with its result readable via <span class="mono">f.error</span>.' },
+      ]},
+    ];
+  })(),
+};
+
 /* =========================== engine ====================================== */
 function blankState(){ return {
-  tape:[], frames:[], fibers:{0:{id:0,name:'F0 root',status:'running',parked:null,resumer:null}},
+  tape:[], frames:[], fibers:{0:{id:0,name:'F0 root',status:'running',parked:null,resumer:null,mode:null,result:null}},
   current:0, cells:[], hostDepth:0, hole:false, ip:0, line:-1, chunk:null,
   changed:[], readfrom:null, error:null, hopper:[],
+  // `next_frame_generation` is PINNED — it never travels on a switch. That is
+  // what makes a FrameToken unique across every fiber, not just within one, and
+  // it is the counter a dead-frame check reads.
+  gen:1, tokens:{}, unwind:null,
 };}
 
 function cloneState(s){ return {
@@ -632,6 +812,7 @@ function cloneState(s){ return {
   fibers:Object.fromEntries(Object.entries(s.fibers).map(([k,v])=>[k,{...v,parked:v.parked?{tape:v.parked.tape.slice(),frames:v.parked.frames.map(f=>({...f}))}:null}])),
   current:s.current, cells:s.cells.map(c=>({...c})), hostDepth:s.hostDepth, hole:s.hole,
   ip:s.ip, line:s.line, chunk:s.chunk, changed:[], readfrom:null, error:null, hopper:s.hopper.slice(),
+  gen:s.gen, tokens:{...s.tokens}, unwind:null,
 };}
 
 function apply(prev, ev){
@@ -641,7 +822,15 @@ function apply(prev, ev){
   if (ev.hostDepth !== undefined) s.hostDepth = ev.hostDepth;
 
   if (ev.fiberNew) s.fibers[ev.fiberNew.id] = {id:ev.fiberNew.id,name:ev.fiberNew.name,status:'suspended',parked:null,resumer:null};
-  if (ev.resumer) s.fibers[ev.resumer.id].resumer = ev.resumer.to;
+  if (ev.resumer){
+    s.fibers[ev.resumer.id].resumer = ev.resumer.to;
+    // FiberResumeMode (heap/fiber.rs:37) is an EDGE property: `call` re-raises an
+    // uncaught failure into the resumer, `try` captures it at this link. That is
+    // the fiber floor, and it is a property of how you resumed, not of the fiber.
+    s.fibers[ev.resumer.id].mode = ev.resumer.mode || 'call';
+  }
+  if (ev.fiberResult) s.fibers[ev.fiberResult.id].result = ev.fiberResult.v;
+  if (ev.unwind) s.unwind = ev.unwind;
   if (ev.fiberStatus) s.fibers[ev.fiberStatus.id].status = ev.fiberStatus.s;
   // asymmetric coroutines: a resumer is suspended for as long as its child runs
   if (ev.rootStatus) s.fibers[0].status = ev.rootStatus;
@@ -669,9 +858,22 @@ function apply(prev, ev){
   }
   if (ev.current !== undefined) s.current = ev.current;
 
-  if (ev.framePush) s.frames.push({ip:0, ...ev.framePush});
+  // Generations are MINTED BY THE ENGINE from the pinned counter, never authored.
+  // A FrameToken is (index, generation); a frame is dead when its index has been
+  // reused by a later activation, which is only detectable if the counter is the
+  // single source. Hand-written gen values would make E4's check theatre.
+  if (ev.framePush){
+    const f = {ip:0, ...ev.framePush, gen:s.gen++};
+    if (ev.framePush.home) f.home = s.tokens[ev.framePush.home];
+    s.frames.push(f);
+  }
+  if (ev.captureHome){
+    const i = s.frames.length-1;
+    s.tokens[ev.captureHome] = { index:i, gen:s.frames[i].gen, name:s.frames[i].name };
+  }
   if (ev.pop) for (let i=0;i<ev.pop;i++) s.tape.pop();
   if (ev.framePop){ const f = s.frames.pop(); if (f) s.tape.length = f.offset; }
+  if (ev.framePopN) for(let i=0;i<ev.framePopN;i++){ const f=s.frames.pop(); if(f) s.tape.length=f.offset; }
   if (ev.push !== undefined){ s.tape.push(ev.push); s.changed.push(s.tape.length-1); }
   if (ev.set){ s.tape[ev.set.slot]=ev.set.val; s.changed.push(ev.set.slot); }
   if (ev.readfrom !== undefined) s.readfrom = ev.readfrom;
@@ -861,9 +1063,23 @@ function render(){
         b.style.left=`calc(${f.offset} * (100% / ${SLOTS}))`;
         b.style.width=`calc(${span} * (100% / ${SLOTS}))`;
         const isTop = d===st.frames.length-1;
-        const meta = span>=3 ? `<span class="meta mono">offset=<span class="${st.readfrom!==null&&isTop?'hot':''}">${f.offset}</span> · gen=${f.gen}</span>`:'';
-        b.title=`${f.name} — stack_offset=${f.offset}, generation=${f.gen}`;
-        b.innerHTML=`<span class="nm mono">${esc(f.name)}</span>${meta}`;
+        // Metadata degrades to a compact form rather than vanishing. A narrow
+        // bracket is exactly when generations matter most (E4's tape is 2 slots
+        // wide), so suppressing them by width hides the lesson.
+        const wide = span>=3;
+        const meta = wide
+          ? `<span class="meta mono">offset=<span class="${st.readfrom!==null&&isTop?'hot':''}">${f.offset}</span> · gen=${f.gen}</span>`
+          : `<span class="meta mono">gen=${f.gen}</span>`;
+        // A block frame carries a home_frame_token; a method frame does not, and
+        // that difference IS non-local return. Deadness is DERIVED, not scripted:
+        // the token's index has been reused by a later activation.
+        const hd = f.home && (!st.frames[f.home.index] || st.frames[f.home.index].gen !== f.home.gen);
+        const home = f.home
+          ? `<span class="home mono${hd?' dead':''}">${wide?`home ▸ f${f.home.index} gen${f.home.gen}`:`▸f${f.home.index}g${f.home.gen}`}${hd?' ✗ DEAD':''}</span>`
+          : '';
+        b.title=`${f.name} — stack_offset=${f.offset}, generation=${f.gen}`
+          + (f.home?`, home_frame_token = (index ${f.home.index}, generation ${f.home.gen})${hd?' — DEAD':''}`:'');
+        b.innerHTML=`<span class="nm mono">${esc(f.name)}</span>${meta}${home}`;
         lane.appendChild(b);
       }
       lanes.appendChild(lane);
@@ -912,15 +1128,27 @@ function render(){
     // fiber's card is empty, because its buffers are in the VM.
     const comp = ['frames','stack','upvals','chk'].map(l=>
       `<div class="${f.parked?'full':''}">${l}</div>`).join('');
+    const res = f.result!=null
+      ? `<div class="fres mono${f.status==='failed'?' err':''}">result: ${esc(f.result)}</div>` : '';
     return `<div class="fcard ${running?'running':''} ${f.status==='failed'?'failed':''}" style="--fc:${hueOf(id)}">
       <div class="hd"><span>${esc(f.name)}</span><span class="st">${f.status}</span></div>
-      <div class="comp">${comp}</div></div>`;
+      <div class="comp">${comp}</div>${res}</div>`;
   }).join('')
   + `<div class="railh">resumer chain</div><div class="chain mono">`
-  + ids.filter(i=>st.fibers[i].resumer!==null).map(i=>
-      `${esc(st.fibers[st.fibers[i].resumer].name)} <span class="e">─call─▶</span> ${esc(st.fibers[i].name)}`).join('<br>')
-  + (ids.every(i=>st.fibers[i].resumer===null)?'<span style="color:var(--ink-faint)">—</span>':'')
-  + `</div><div class="railh">spawn hopper</div><div class="hopper mono">${st.hopper.length?st.hopper.join(' '):'empty'}</div>`;
+  + (ids.every(i=>st.fibers[i].resumer===null)
+     ? '<span style="color:var(--ink-faint)">—</span>'
+     : ids.filter(i=>st.fibers[i].resumer!==null).map(i=>{
+         const f=st.fibers[i], mode=f.mode||'call';
+         const halting = st.unwind && mode==='try';
+         return `${esc(st.fibers[f.resumer].name)} <span class="e ${mode}${st.unwind?' hot':''}">─${mode}─▶</span> ${esc(f.name)}`
+           + (halting?`<div class="halt">unwind stops here — the fiber floor</div>`:'')
+           + (st.unwind&&mode==='call'?`<div class="cross">unwind crosses into the resumer</div>`:'');
+       }).join('<br>'))
+  + `</div><div class="railh">spawn hopper</div><div class="hopper mono">${st.hopper.length?st.hopper.join(' '):'empty'}</div>`
+  // The pinned half of the partition, made visible. This readout must NOT move
+  // when the tape does — that is the entire claim "movable is position, pinned
+  // is identity", and E4 reads this counter to detect a dead frame.
+  + `<div class="railh">vm · pinned</div><div class="pinned mono">next_frame_generation = <b>${st.gen}</b></div>`;
 
   // resolution strip
   const rz=$('resolve');
