@@ -350,8 +350,12 @@ beat 2; it is the cleanest available proof that Phalcom's switch is not the ance
 The same three beats side by side in one frozen figure for `docs/learn` embeds — before / hole / after,
 with the current beat marked. Same trace data, different renderer, no extra authoring.
 
-**Not built.** Deferred until a `docs/learn` doc actually needs an embed; the live renderer already
-satisfies R-STATIC on its own, since each beat is a cursor position and screenshots cleanly.
+**Built 2026-07-20** as `tools/viz/triptych.html`, a second renderer over the same `EXAMPLES` data —
+`trace-data.js` was split out of `index.html`'s inline script (byte-identical move, diffed before
+editing) so both pages, and `check.mjs`, load the identical trace/engine code with no re-authoring.
+`?ex=&var=&switch=` picks the trace and which take/hole/install triple to freeze; `&mark=1|2|3` applies
+`.beat.current` for prose that wants to point at one beat. Built ahead of an actual `docs/learn` need,
+by explicit request — the gate this section states was not met at build time.
 
 ### During the hole there is no current instruction
 
@@ -528,7 +532,7 @@ class that turns out to be cheapest.
 | 5 | Cell strip — the stretch-into-locker moment | **done**, text + drawn connector (§6) |
 | 6 | Page shell, gates, prose, E1 → E2 → E3 | **done** |
 | 7 | E4 dead frame, E5 call vs try, semantic checks | **done** |
-| — | Triptych renderer (C3) | deferred until a `docs/learn` embed needs it |
+| 11 | Triptych renderer (C3) | **done**, `tools/viz/triptych.html` |
 | 8 | Transport lock (R-GATE) | **done** |
 | 9 | Tape tween on park/unpark (C1 spatial slide) | **done** |
 | 10 | Drawn connector for upvalue cells | **done** |

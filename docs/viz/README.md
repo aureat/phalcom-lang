@@ -11,6 +11,8 @@ not at tutorial level.
 | [`REQUIREMENTS.md`](REQUIREMENTS.md) | The operating manual. Tests T1–T5, prohibitions N1–N7, requirements R-*, ranked tiebreakers. **Read first** — every design decision resolves against it. |
 | [`UI-SPEC.md`](UI-SPEC.md) | The visual design, with the justification and the rejected alternative for each choice. |
 | [`../../tools/viz/index.html`](../../tools/viz/index.html) | The player. Open it directly — no build step. |
+| [`../../tools/viz/trace-data.js`](../../tools/viz/trace-data.js) | `EXAMPLES` and the trace-application engine — DOM-independent, shared verbatim by `index.html`, `triptych.html`, and `check.mjs`. |
+| [`../../tools/viz/triptych.html`](../../tools/viz/triptych.html) | Frozen before/hole/after figure for a `docs/learn` embed. `?ex=&var=&switch=&mark=`; same trace data, no build step. |
 | [`../../tools/viz/check.mjs`](../../tools/viz/check.mjs) | Trace validator. `node tools/viz/check.mjs` |
 | [`../../tools/viz/prototype-tape.html`](../../tools/viz/prototype-tape.html) | The D1 go/no-go prototype. Kept as the record of why the tape reads the way it does. |
 
@@ -76,8 +78,6 @@ rather than a v1 compromise: dispatch and selector identity, inline caches and `
 invalidation, sacred-selector deopt, GC and parked-fibers-as-roots, the metaclass tower (structural —
 wrong renderer), compilation (needs an AST pane).
 
-Smaller deferrals, all additive and none of which change state: the **triptych renderer** for
-`docs/learn` stills (the live player already screenshots cleanly, so this waits until an embed needs
-it); a **drawn connector** for upvalue cells, which today say `cell n → slot 1 of F1 (parked)` in text
-rather than reaching into the card; a **tape tween** on park/unpark, currently cursor stops with no
-motion; and **locking the transport** until a gate is answered.
+The four smaller, additive deferrals this section used to list — the triptych renderer, a drawn
+connector for upvalue cells, a tape tween on park/unpark, and locking the transport until a gate is
+answered — are all built now (see the build-order table in [`UI-SPEC.md`](UI-SPEC.md#12--build-order)).
