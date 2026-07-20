@@ -55,6 +55,14 @@ pub struct Cli {
     #[arg(long)]
     pub(crate) plain: bool,
 
+    /// Show core library frames in tracebacks
+    #[arg(long)]
+    pub(crate) trace_core: bool,
+
+    /// Trace format: `text` or `json`
+    #[arg(long, default_value = "text")]
+    pub(crate) trace_format: String,
+
     /// Sub-command to execute
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,
@@ -186,6 +194,8 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     let mut vm = VM::new();
     vm.compile_mode = compile_mode;
     vm.strip_contract_metadata = strip_contract_metadata;
+    vm.trace_core = cli.trace_core;
+    vm.trace_format_json = cli.trace_format == "json";
     let module = vm.create_module("main", &abs_path);
     if let Err(err) = vm.interpret_source(module, &source) {
         match err {

@@ -22,6 +22,18 @@ impl VM {
             MethodKind::Primitive(native_fn) => {
                 let receiver_idx = self.stack.len() - 1 - arity;
                 let receiver = self.stack[receiver_idx];
+
+                let method_obj = self.heap.method(method);
+                let selector_sym = method_obj.signature.selector;
+                let class_name_str = if let Some(holder_id) = method_obj.holder {
+                    self.heap.class(holder_id).name.clone()
+                } else {
+                    let class_id = callee.class(self);
+                    self.heap.class(class_id).name.clone()
+                };
+                let class_sym = self.interner.intern(&class_name_str);
+                self.native_selector = Some(selector_sym);
+                self.native_class = Some(class_sym);
                 // Flat-entry fork for `f.call(...)` sent from bytecode on a
                 // `Block`/`Closure` receiver: enter the closure's frame in
                 // THIS dispatch loop instead of running `block_call`'s
@@ -87,6 +99,10 @@ impl VM {
                     let args: Vec<Value> = self.stack[receiver_idx + 1..].to_vec();
                     native_fn(self, &receiver, &args)
                 };
+                if result.is_ok() {
+                    self.native_selector = None;
+                    self.native_class = None;
+                }
                 result.map(|result| {
                     if self.switch_pending {
                         // A fiber switch (ADR-0030 §5, D5) — `self.frames`/

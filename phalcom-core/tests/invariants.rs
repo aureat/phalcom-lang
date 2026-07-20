@@ -1287,10 +1287,14 @@ fn cross_fiber_non_local_return_raises_dead_frame_error() {
         .expect("class + escaping block should compile and run");
 
     let result = vm.interpret_source(module, "let f = Fiber.new(escaped)\nf.call()\n");
-    assert!(
-        matches!(result, Err(PhError::Runtime(RuntimeError::DeadFrameError))),
-        "invoking, via a fresh fiber, a block whose home frame is a dead prior activation should raise DeadFrameError, got {result:?}"
-    );
+    match result {
+        Err(PhError::Runtime(RuntimeError::Raise { error, .. })) => {
+            let msg_sym = vm.get_or_intern("message");
+            let msg = vm.send_dynamic(error, msg_sym, &[]).unwrap().to_string(&vm);
+            assert!(msg.contains("DeadFrameError"), "expected message to contain DeadFrameError, got {msg}");
+        }
+        other => panic!("expected RuntimeError::Raise, got {other:?}"),
+    }
 }
 
 #[test]

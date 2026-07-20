@@ -334,6 +334,14 @@ pub struct VM {
     /// (U-HOTPATH). Memoizes the eligibility decision and derived selector
     /// construction to save `decode_selector` allocations.
     pub(crate) variadic_selector_cache: HashMap<Symbol, Option<Symbol>>,
+    /// Show core library frames in tracebacks.
+    pub trace_core: bool,
+    /// Whether tracebacks should render as JSON.
+    pub trace_format_json: bool,
+    /// In-flight native selector for error context.
+    pub native_selector: Option<Symbol>,
+    /// In-flight native receiver class symbol for error context.
+    pub native_class: Option<Symbol>,
     /// Bounded free-list for recycling fiber stacks/frames to avoid
     /// allocations (U-GC step 5, `fiber-pool` feature). Measured net
     /// negative in whole-process A/B benchmarking (perf-log, 2026-07-14);

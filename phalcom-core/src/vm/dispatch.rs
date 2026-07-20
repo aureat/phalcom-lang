@@ -384,25 +384,6 @@ impl VM {
                     // Loop again: keep draining, now as `resumer`.
                 }
                 Err(mut e) => {
-                    if !matches!(e, PhError::Runtime(RuntimeError::Raise { .. })) {
-                        let error_class = self.universe.classes.error_class;
-                        let field_count = self.heap.class(error_class).field_count;
-                        let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
-                        inst.slots[0] = self.alloc_string_value(e.to_string());
-                        if let PhError::Runtime(runtime_err) = &e {
-                            if let Some(kind_val) = self.error_kind_symbol(runtime_err) {
-                                inst.slots[1] = kind_val;
-                            }
-                        }
-                        let error = Value::Obj(self.heap.alloc(Object::Instance(inst)));
-                        let rendered = e.to_string();
-                        e = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback: None });
-                    }
-                    if let PhError::Runtime(RuntimeError::Raise { traceback, .. }) = &mut e {
-                        if traceback.is_none() {
-                            *traceback = Some(self.capture_frames(0));
-                        }
-                    }
                     // Fiber-floor capture, failure path (spec §3.2, the
                     // DEC-FIB-A fix): the U-CORE-6 unwind reached the top of
                     // the current fiber's own activation uncaught. Capture it
@@ -451,6 +432,26 @@ impl VM {
                         let Some(resumer) = self.heap.fiber(failed).resumer else {
                             return Err(e);
                         };
+
+                        if !matches!(e, PhError::Runtime(RuntimeError::Raise { .. })) {
+                            let error_class = self.universe.classes.error_class;
+                            let field_count = self.heap.class(error_class).field_count;
+                            let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
+                            inst.slots[0] = self.alloc_string_value(e.to_string());
+                            if let PhError::Runtime(runtime_err) = &e {
+                                if let Some(kind_val) = self.error_kind_symbol(runtime_err) {
+                                    inst.slots[1] = kind_val;
+                                }
+                            }
+                            let error = Value::Obj(self.heap.alloc(Object::Instance(inst)));
+                            let rendered = e.to_string();
+                            let tb = if failed == self.current {
+                                self.capture_frames(0)
+                            } else {
+                                self.capture_parked_frames(failed)
+                            };
+                            e = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback: Some(tb) });
+                        }
 
                         if let PhError::Runtime(RuntimeError::Raise { traceback: Some(tb), .. }) = &mut e {
                             let failed_fiber = self.heap.fiber(failed);

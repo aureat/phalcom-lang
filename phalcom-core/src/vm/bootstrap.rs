@@ -54,6 +54,10 @@ impl VM {
             strip_contract_metadata: false,
             unit_kind: crate::compiler::lib::UnitKind::File,
             variadic_selector_cache: HashMap::new(),
+            trace_core: false,
+            trace_format_json: false,
+            native_selector: None,
+            native_class: None,
 
             #[cfg(feature = "fiber-pool")]
             fiber_pool: Vec::new(),

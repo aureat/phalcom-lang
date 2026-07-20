@@ -94,6 +94,10 @@ impl VM {
             compile_mode: _,
             strip_contract_metadata: _,
             unit_kind: _,
+            trace_core: _,
+            native_selector: _,
+            native_class: _,
+            trace_format_json: _,
             #[cfg(feature = "fiber-pool")]
                 fiber_pool: _,
         } = self;
