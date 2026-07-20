@@ -576,6 +576,8 @@ Every other deferral has been homed in its owning unit's plan — each carries a
 | Debt | Owning unit |
 |---|---|
 | `primitive/number.rs:~34` — type-error message hardcodes `"value"` | [U12](units/U12/plan.md) §3 |
+| `phalcom-core/src/diagnostics/caret.rs:~9` (module doc) — real terminal column-count detection (TTY ioctl/`terminal_size`-style crate) not implemented; `RenderConfig::width` always falls back to 80, on and off a TTY, per IS §3.4's documented fallback | T4 (traceback renderer, wired) — first unit that actually needs a non-80 window in practice |
+| `phalcom-core/src/diagnostics/mod.rs` — `RENDER_CONFIG` `OnceLock` is an interim bridge; `print_compile`/`print_parse`/`print_rt` should take an explicit `&RenderConfig` parameter instead of reading process-global state, but their callers (`vm/dispatch.rs`, `interpret.rs`, `phalcom-repl`) are outside T2's write-set | T4/T5 (own those call sites) |
 
 **Landed this pass (U-ERR):** `primitive/nil.rs:~64` broken rustdoc link →
 private `wrap_some` (repointed off the intra-doc link, `cargo doc` clean) and
