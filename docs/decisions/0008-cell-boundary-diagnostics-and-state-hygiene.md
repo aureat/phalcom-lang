@@ -113,6 +113,11 @@ the file-run path is worth more today than embeddability nobody has asked for.
 That change is additive and cheap when wanted — rustc's `DiagCtxt` is the shape — so this
 forecloses nothing permanently. It does mean the first embedder pays for it.
 
+That cost, the span-less compile diagnostic §1 settles for, and the two now-duplicated
+reporting paths (`cmd_run` does not go through `interpret_source`) are recorded as items 6, 4
+and 5 of
+[`docs/deferred/repl-diagnostics-and-limits-followups.md`](../deferred/repl-diagnostics-and-limits-followups.md).
+
 ## Alternatives rejected
 
 - **Return the diagnostic as data (`Failed(Diagnostic)`) and print in the loop.** Cleanest

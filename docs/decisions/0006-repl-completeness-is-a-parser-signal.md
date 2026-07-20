@@ -97,7 +97,10 @@ commit that adds the mode.
 - **The cost, named plainly:** this is a standing obligation with no compiler enforcement. It
   is a rule in a document, and the failure mode is silent — a future heredoc simply stops
   continuing, and nobody notices until a user types one into the REPL. §3's per-mode test is
-  the only real defence.
+  the only real defence. Recorded as item 7 of
+  [`docs/deferred/repl-diagnostics-and-limits-followups.md`](../deferred/repl-diagnostics-and-limits-followups.md),
+  which also notes the structural improvement: make co-emission a property of the mode's
+  definition rather than a `match` arm a new variant can silently miss.
 
 **What this precludes.** Committing to a single parser-signal oracle forecloses a
 mode-stack-aware validator of the Ruby `irb` kind. If Phalcom ever grows enough lexer modes

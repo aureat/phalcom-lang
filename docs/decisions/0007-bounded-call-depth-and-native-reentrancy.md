@@ -126,6 +126,12 @@ allocation limit:
 Both are real, both are separate axes (`security.md` Axis 6), and conflating them with depth
 would produce a limit that satisfies nobody. They need their own record if they are ever wanted.
 
+Both, plus the fact that §1's native ceiling is a *proxy* for a resource whose size varies by
+thread, are recorded in
+[`docs/deferred/repl-diagnostics-and-limits-followups.md`](../deferred/repl-diagnostics-and-limits-followups.md)
+items 2 and 3, along with the `Block#on` unwind-ordering change this implementation forced
+(item 1) — which is a semantics change to the error-handling core and owes an independent review.
+
 ## Alternatives rejected
 
 - **One shared counter.** Simplest, and wrong: any ceiling safe for the Rust stack (~200) makes
