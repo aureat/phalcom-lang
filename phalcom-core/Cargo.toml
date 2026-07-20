@@ -58,6 +58,7 @@ clap = { version = "4.5.41", features = ["derive"] }
 anyhow = "1.0.98"
 color-print = "0.3.7"
 slotmap = "1"
+unicode-width = { workspace = true }
 
 [dev-dependencies]
 # Tier 0 instrumentation (U-BENCH, performance.md §4). Micro-benches only —

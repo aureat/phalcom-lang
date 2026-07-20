@@ -1017,6 +1017,7 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
+ "unicode-width",
 ]
 
 [[package]]
