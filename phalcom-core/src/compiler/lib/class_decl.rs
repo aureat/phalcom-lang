@@ -94,6 +94,71 @@ impl<'vm> Compiler<'vm> {
         let name_sym = self.vm.interner.intern(&class_def.name);
         let name_idx = self.add_constant(Value::Symbol(name_sym));
 
+        // Pass -1: duplicate-member scan (U-CLASSCLOSE §2.2). A repeated
+        // field or method name inside one body is `class.duplicate_member` —
+        // no silent last-writer-wins at any granularity (`add_method` is
+        // `IndexMap::insert`, `heap/class.rs`, so today `bar => 1` then
+        // `bar => 2` would silently yield `2`). Runs over `class_def.members`
+        // before any member compiles, on the member's *encoded identity*
+        // (the same `encode_selector`/`SignatureKind` machinery the runtime
+        // dispatch table itself uses to tell two same-named members apart:
+        // arity, labels, kind, and static-vs-instance side all distinguish
+        // them) — not a new collision rule. `Construct` is excluded:
+        // `ConstructStaticCollision` above already owns the construct-vs-
+        // static case, and `Variant` never appears here (`expand_variants`
+        // already stripped it).
+        {
+            #[derive(PartialEq, Eq, Hash)]
+            enum MemberKey {
+                Field(String),
+                Selector(bool, String),
+            }
+            let mut seen: std::collections::HashMap<MemberKey, (String, SourceRange)> = std::collections::HashMap::new();
+            for member in &class_def.members {
+                let (key, display, member_name_range) = match member {
+                    ClassMember::Field(f) => (MemberKey::Field(f.name.clone()), f.name.clone(), f.range),
+                    ClassMember::Method(m) => {
+                        let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
+                        let kind = if m.params.last().is_some_and(|p| p.is_rest) {
+                            SignatureKind::Variadic((m.params.len() - 1) as u8)
+                        } else {
+                            SignatureKind::Method(m.params.len() as u8)
+                        };
+                        let sel = encode_selector(&m.name, &labels, kind);
+                        (MemberKey::Selector(m.is_static, sel.clone()), sel, m.name_range)
+                    }
+                    ClassMember::Getter(g) => {
+                        let sel = encode_selector(&g.name, &[], SignatureKind::Getter);
+                        (MemberKey::Selector(g.is_static, sel.clone()), sel, g.name_range)
+                    }
+                    ClassMember::Setter(s) => {
+                        let sel = encode_selector(&s.name, &[], SignatureKind::Setter);
+                        (MemberKey::Selector(s.is_static, sel.clone()), sel, s.name_range)
+                    }
+                    ClassMember::Index(idx) => {
+                        let labels: Vec<Option<String>> = idx.params.iter().map(|p| p.label.clone()).collect();
+                        let sel = encode_selector("", &labels, SignatureKind::Subscript(idx.params.len() as u8));
+                        (MemberKey::Selector(false, sel.clone()), sel, idx.name_range)
+                    }
+                    ClassMember::Construct(_) | ClassMember::Variant(_) => continue,
+                };
+                if let Some((_, first_range)) = seen.get(&key) {
+                    let first_range = *first_range;
+                    let source = self.source_text();
+                    let (line, col) = crate::diagnostics::line_col(&source, first_range.start);
+                    return Err(CompilerError::ClassDuplicateMember(
+                        class_def.name.clone(),
+                        display,
+                        member_name_range,
+                        first_range,
+                        line,
+                        col,
+                    ));
+                }
+                seen.insert(key, (display, member_name_range));
+            }
+        }
+
         // Pass 0: class-side selector collision check. A `construct` and a
         // `static` method of the same name/arity encode to one selector and
         // both install on the metaclass, so the later would silently clobber
@@ -270,92 +335,103 @@ impl<'vm> Compiler<'vm> {
             }
         }
 
-        // 1b. Reopen-conflict guard (U-REOPEN-FIX, ADR-0018 "attaches
-        // methods, not shadows"). `self.vm.field_layouts` is keyed by
-        // class name and persists for the VM's whole lifetime — a
-        // second `class A { ... }` block for a name already present
-        // there is reopening `A`, whether that earlier block was
-        // compiled earlier in *this* unit or in a prior REPL/compile
-        // call. (A bootstrap Rust stub does NOT insert into
-        // `field_layouts` itself, so a `.ph` class's *first* body is
-        // never mistaken for a reopen.)
-        //
-        // Two reopen shapes are out of scope and rejected here rather
-        // than silently mishandled:
-        //   - adding fields: the runtime reopen path (`vm.rs`
-        //     `Bytecode::Class`) reuses the already-allocated
-        //     `ClassId` and does not relayout its instances, so a
-        //     later block's new fields would never get real storage.
-        //   - changing the superclass: U13 sealed inheritance forbids
-        //     it, and reusing the original `ClassId` with a different
-        //     superclass would silently keep the old one.
+        // 1b. Classes are closed (decision 0065, U-CLASSCLOSE §2.1/§4). A
+        // class is defined exactly once, by exactly one module; there is no
+        // reopening. "The class being declared" is looked up by an
+        // own-module-only key — **no core-module fallback** — per
+        // U-CLASSNS §4.1's ruling for this site: falling back here would
+        // let a non-core module's `class List {}` silently resolve onto the
+        // kernel `List`'s `ClassId` (the exact hazard that ruling names).
         let name_key = self.class_key(name_sym);
-        if self.vm.field_layouts.contains_key(&name_key) {
-            if !own_instance_fields.is_empty() || !own_static_fields.is_empty() {
-                return Err(CompilerError::Message(format!(
-                    "Cannot reopen class `{}`: adding fields to an already-defined class is not supported. Declare all fields in the class's first `class {}` block.",
-                    class_def.name, class_def.name
-                )));
-            }
-            let prev_superclass_key = self.vm.class_parents.get(&name_key).copied();
-            let new_superclass_key = class_def.superclass.as_ref().map(|sc_ref| {
-                let sc_sym = self.vm.interner.intern(&sc_ref.name);
-                self.resolve_superclass_key(sc_sym)
-                    .map(|k| k)
-                    .unwrap_or_else(|| ClassKey { module: self.module, name: sc_sym })
-            });
-            if prev_superclass_key != new_superclass_key {
-                return Err(CompilerError::Message(format!(
-                    "Cannot reopen class `{}` with a different superclass: it was already defined with a different (or no) `extends` clause.",
-                    class_def.name
-                )));
-            }
+        let is_core_module = {
+            let core_sym = self.vm.interner.find(crate::heap::CORE_MODULE_NAME);
+            core_sym.and_then(|s| self.vm.modules.get(&s).copied()) == Some(self.module)
+        };
+
+        // Reserved kernel names (ruling 3): exactly `VM::kernel_class_names`
+        // — the primitives `add_class!` binds (`Object`, `List`, `Number`,
+        // `Error`, …), not every class `core.ph` itself goes on to declare.
+        // A core-library class like `ArgumentError` (`extends Error {}` in
+        // `.ph`) is module-scoped like any other (ruling 1) and carries no
+        // literal-bound `ClassId`, so redeclaring or subclassing *that* name
+        // from a non-core module is not the trap this ruling guards
+        // against — only the primitives are.
+        if !is_core_module && self.vm.kernel_class_names.contains(&name_sym) {
+            return Err(CompilerError::ClassReservedName(class_def.name.clone(), class_def.name_range));
         }
+
+        let classes_hit = self.vm.classes.contains_key(&name_key);
+        let field_layouts_hit = self.vm.field_layouts.contains_key(&name_key);
+        // `field_layouts` alone is the redefinition signal — NOT
+        // `classes_hit && field_layouts_hit`. `field_layouts` is written at
+        // COMPILE time (synchronously, right below); `classes` is written at
+        // RUNTIME, when `Bytecode::Class`/`Bytecode::Constant` actually
+        // executes (`create_class`). A same-unit duplicate (`class Point {}`
+        // twice in one file) compiles both blocks into *one* closure before
+        // either ever runs, so at the second block's compile time
+        // `field_layouts_hit` is already `true` but `classes_hit` is still
+        // `false` — requiring both would silently let same-unit duplicates
+        // through, which is precisely the bug this check exists to catch.
+        if self.unit_kind != UnitKind::Repl && field_layouts_hit {
+            // Exempt for a REPL cell (decision 0065 ruling 6): a later
+            // cell's `class Foo {}` shadows rather than reopens — it binds
+            // a brand-new class and the global rebinds to it; an instance
+            // made under the old definition keeps pointing at the old
+            // `ClassId` (nothing migrates), and the old class simply
+            // becomes unreachable by name. That is the allocate-fresh path
+            // below, unconditionally, for a REPL unit — `classes_hit`
+            // itself already special-cases REPL out of the stub-completion
+            // fork just past this block.
+            let first_range = self.vm.field_layouts[&name_key].declared_at;
+            let source = self.source_text();
+            let (line, col) = crate::diagnostics::line_col(&source, first_range.start);
+            return Err(CompilerError::ClassAlreadyDefined(class_def.name.clone(), class_def.name_range, first_range, line, col));
+        }
+        // `classes_hit && !field_layouts_hit` is stub completion — reachable
+        // only in the core module (`add_class!`/the `None` row both key to
+        // the core module handle; any `.ph` declaration writes both tables
+        // together) outside of a REPL cell. Assert it explicitly: an
+        // assertion that can never fire is the cheapest documentation of the
+        // invariant ruling 4 asks for.
+        debug_assert!(!classes_hit || field_layouts_hit || is_core_module, "stub completion reachable only in the core module");
+
+        // A class name colliding with an `import … as Name` already bound
+        // in this compilation unit is also `class.already_defined`
+        // (decision 0066 ruling 8) — the reverse ordering (`class` then
+        // `import`) is caught by `declare_global`'s own `binding.redeclared`
+        // once this class registers below, so no work is needed there.
+        if let Some(&import_range) = self.import_bindings.get(&name_sym) {
+            let source = self.source_text();
+            let (line, col) = crate::diagnostics::line_col(&source, import_range.start);
+            return Err(CompilerError::ClassAlreadyDefined(class_def.name.clone(), class_def.name_range, import_range, line, col));
+        }
+
+        // Register in `global_bindings` (decision 0066 ruling 8) — insertion
+        // only, never through `declare_global` (see that field's own doc):
+        // this class's own checks above are already this unit's sole source
+        // of `class.already_defined`, so a later `import … as` Name` of the
+        // same name is left to `declare_global`'s ordinary
+        // `binding.redeclared` path, unmodified.
+        self.global_bindings.insert(name_sym, false);
 
         // 2. Build the ClassLayout and store it in VM.
         //
         // A subclass's own fields stack on top of the superclass's fields
         // (ADR-0011, U-INH §3.5): own instance/static slots begin at the
         // superclass's field count, so inherited slots keep their offsets
-        // and are never aliased. The superclass's counts are resolved at
-        // COMPILE time — from a reopened class already in `vm.classes`
-        // (the bootstrap case: a Rust stub pre-registers the class before
-        // its `.ph` body compiles, so `field_layouts` has no entry for it
-        // yet and the reopen branch below does not fire), from the
+        // and are never aliased. `field_layouts_hit` is `false` here
+        // unconditionally — §1b above already rejected the one case where it
+        // could be `true` (a real redefinition) — so the superclass's counts
+        // always come fresh: either from a Rust-installed stub already in
+        // `vm.classes` under this exact own-module key (`classes_hit`, the
+        // core-module stub-completion case, §1b's core gate), from the
         // `extends` clause (looked up in the accumulating
-        // `field_layouts`/`classes` metadata, since a *user* superclass
-        // has not been created at runtime yet), or the implicit `Object`
-        // root.
-        let resolved_class_key = self.resolve_superclass_key(name_sym);
-        let layout = if let Some(existing_layout) = self.vm.field_layouts.get(&name_key).cloned() {
-            // U-REOPEN-FIX (field-layout preservation): a genuine
-            // same-unit reopen is detected here by
-            // `field_layouts.contains_key` — the same
-            // compile-time-synchronous signal the field-adding guard
-            // above already used, NOT the RUNTIME-populated
-            // `self.vm.classes` (still empty for a same-unit reopen at
-            // this point, since the whole unit compiles to one closure
-            // before any `Bytecode::Class` executes). That guard already
-            // rejected any reopen that declares new fields, so
-            // `own_instance_fields`/`own_static_fields` are guaranteed
-            // empty here — the existing layout (including its
-            // `field_slots`/`static_field_slots` name maps, not just its
-            // counts) is reused completely unchanged rather than
-            // recomputed from a superclass or rebuilt with an empty
-            // `field_slots`. Recomputing here was the root cause of a
-            // reviewer-found regression: a method-only reopen of a
-            // *field-bearing* class fell through to the "implicit Object
-            // root" branch below (`sc_field_count = 0`), silently
-            // overwriting block 1's real layout with an empty one before
-            // any bytecode ran (`create_class`, vm.rs, then read the
-            // zeroed layout and produced an out-of-bounds field slot).
-            existing_layout
-        } else {
-            let (sc_field_count, sc_meta_field_count) = if self.unit_kind != UnitKind::Repl
-                && resolved_class_key.map_or(false, |k| self.vm.classes.contains_key(&k))
-            {
-                let existing_class = self.vm.classes[&resolved_class_key.unwrap()];
-                // Bootstrap reopen: keep the Rust stub's established superclass.
+        // `field_layouts`/`classes` metadata, since a *user* superclass has
+        // not been created at runtime yet), or the implicit `Object` root.
+        let layout = {
+            let (sc_field_count, sc_meta_field_count) = if self.unit_kind != UnitKind::Repl && classes_hit {
+                let existing_class = self.vm.classes[&name_key];
+                // Stub completion: keep the Rust stub's established superclass.
                 match self.vm.heap.class(existing_class).superclass {
                     Some(sc_id) => {
                         let meta = self.vm.heap.class(sc_id).class;
@@ -462,10 +538,14 @@ impl<'vm> Compiler<'vm> {
 
         self.current_class = Some(name_key);
 
-        if self.unit_kind != UnitKind::Repl
-            && resolved_class_key.map_or(false, |k| self.vm.classes.contains_key(&k))
-        {
-            let existing_class = self.vm.classes[&resolved_class_key.unwrap()];
+        if self.unit_kind != UnitKind::Repl && classes_hit {
+            // Stub completion (§5.1's core gate — `classes_hit` without a
+            // `field_layouts` hit is unreachable outside the core module,
+            // asserted above): the compiler already knows this is not an
+            // allocate-fresh, so it emits `Constant` rather than `Class`,
+            // and the runtime's `Bytecode::Class` arm never needs to probe
+            // `vm.classes` by name at all (§5.2 deletes that probe).
+            let existing_class = self.vm.classes[&name_key];
             let class_idx = self.add_constant(Value::Obj(existing_class));
             self.emit(Bytecode::Constant(class_idx), range);
         } else {
@@ -763,8 +843,20 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::FinalizeClass, range);
 
         // After defining all methods, the class is still on the stack.
-        // Define it as a global variable.
-        self.emit(Bytecode::DefineGlobal(name_idx), range);
+        // Define it as a global variable — except `None` (`DEFERRED` #17,
+        // U-CLASSCLOSE §7): `None`'s global is bound to the shared
+        // *singleton value*, not the class object (`vm/bootstrap.rs`), so
+        // rebinding it here would silently break every `x == None`. `None`
+        // is reserved (ruling 3) so no non-core module ever reaches this —
+        // the guard exists for when `core.ph` itself gains a `class None {}`
+        // skeleton (not yet true today; `#17` stays open, this is only its
+        // prerequisite). `Pop` keeps the stack balanced in its place.
+        let is_none_in_core = is_core_module && self.vm.interner.find("None") == Some(name_sym);
+        if is_none_in_core {
+            self.emit(Bytecode::Pop, range);
+        } else {
+            self.emit(Bytecode::DefineGlobal(name_idx), range);
+        }
 
         // M-ATTR-ROOT: class-level `@Name(args)` runtime instantiate+attach
         // codegen (`attribute-classes.md` §"What the compiler lowers").
@@ -777,22 +869,29 @@ impl<'vm> Compiler<'vm> {
         // (`COMPILER_ONLY_ATTRS`) are woven directly into method bodies
         // above and carry no runtime `Attribute` instance, so they are
         // skipped here.
-        let has_runtime_attrs = class_level_attrs.iter().any(|a| !COMPILER_ONLY_ATTRS.contains(&a.name.as_str()));
-        if has_runtime_attrs {
-            for attr in &class_level_attrs {
-                if COMPILER_ONLY_ATTRS.contains(&attr.name.as_str()) {
-                    continue;
+        // `None`'s global holds the singleton value, not the class (see the
+        // `DefineGlobal` guard above) — a `GetGlobal` re-fetch here would
+        // attach/freeze attributes on the wrong object, so skip this whole
+        // block for the same reason.
+        if !is_none_in_core {
+            let has_runtime_attrs = class_level_attrs.iter().any(|a| !COMPILER_ONLY_ATTRS.contains(&a.name.as_str()));
+            if has_runtime_attrs {
+                for attr in &class_level_attrs {
+                    if COMPILER_ONLY_ATTRS.contains(&attr.name.as_str()) {
+                        continue;
+                    }
+                    self.emit(Bytecode::GetGlobal(name_idx), range);
+                    self.emit_attribute_attach(attr)?;
                 }
-                self.emit(Bytecode::GetGlobal(name_idx), range);
-                self.emit_attribute_attach(attr)?;
             }
+            // The retention store is frozen once, at the end of class
+            // definition (A-5, `attribute-classes.md`'s hazards table) —
+            // further `__attach` calls raise `attr.frozen`. Always emitted,
+            // even for a class with no attributes at all, so the invariant
+            // holds uniformly.
+            self.emit(Bytecode::GetGlobal(name_idx), range);
+            self.emit_freeze_attributes(range);
         }
-        // The retention store is frozen once, at the end of class
-        // definition (A-5, `attribute-classes.md`'s hazards table) — further
-        // `__attach` calls raise `attr.frozen`. Always emitted, even for a
-        // class with no attributes at all, so the invariant holds uniformly.
-        self.emit(Bytecode::GetGlobal(name_idx), range);
-        self.emit_freeze_attributes(range);
 
         // U-ANNOT-LAYOUT §3.4: record `@sealed`'s compile-unit-scoped
         // bookkeeping now that `class_def.name`'s global is fully defined —

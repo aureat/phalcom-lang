@@ -498,7 +498,7 @@ fn walking_metaclass_superclass_chain_terminates() {
 fn subclass_field_offset_stability() {
     let mut vm = VM::new();
     let module = vm.create_module("main", "subclass_field_offset_stability");
-    
+
     // 1. Compile and define Base
     let base_code = "
         class Base {
@@ -509,50 +509,39 @@ fn subclass_field_offset_stability() {
         }
     ";
     vm.interpret_source(module, base_code).expect("Base definition should succeed");
-    
-    // 2. Retrieve base_cls and define Subclass inheriting from Base
-    let base_sym = vm.get_or_intern("Base");
-    let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
-    let _sub_cls = vm.create_class(module, "Subclass", Some(base_cls));
-    
-    // 3. Compile Subclass closure without running it yet
+
+    // 2. Compile and run Subclass, declaring `extends Base` directly rather
+    // than pre-registering a class object via `create_class` (U-CLASSCLOSE:
+    // classes are closed, so there is no "reopen keeps the Rust stub's
+    // established superclass" path outside the core module — see decision
+    // 0065 ruling 4 — and `create_class` itself already wires field layout
+    // from `vm.field_layouts` once it exists, so no manual copy is needed
+    // either; `Bytecode::Class`'s own `create_class` call does it).
     let sub_code = "
-        class Subclass {
+        class Subclass extends Base {
             construct new() {
                 _name = \"Subclass\"
             }
         }
     ";
     let closure = vm.compile_closure(module, sub_code).expect("Subclass compilation should succeed");
-    
-    // 4. Update Subclass class object in the heap with the compiled layout
-    let sub_sym = vm.get_or_intern("Subclass");
-    let layout = vm.field_layouts.get(&ClassKey { module, name: sub_sym }).unwrap().clone();
-    let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
-    let sub_meta = vm.heap.class(sub_cls).class;
-    
-    vm.heap.class_mut(sub_cls).field_slots = layout.field_slots;
-    vm.heap.class_mut(sub_cls).field_count = layout.field_count;
-    vm.heap.class_mut(sub_meta).field_slots = layout.static_field_slots;
-    vm.heap.class_mut(sub_meta).field_count = layout.static_field_count;
-    vm.heap.class_mut(sub_cls).static_slots = vec![Value::Nil; layout.static_field_count as usize].into_boxed_slice();
-    
-    // 5. Run Subclass definition closure
     vm.run_in_module(module, closure).expect("Subclass execution should succeed");
-    
+
     let name_sym = vm.get_or_intern("_name");
     let other_sym = vm.get_or_intern("_other");
-    
+    let base_sym = vm.get_or_intern("Base");
+    let sub_sym = vm.get_or_intern("Subclass");
+
     let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
     let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
-    
+
     let base_layout = vm.heap.class(base_cls);
     let sub_layout = vm.heap.class(sub_cls);
-    
+
     assert_eq!(base_layout.field_slots.get(&name_sym).copied(), Some(0));
     assert_eq!(base_layout.field_slots.get(&other_sym).copied(), Some(1));
     assert_eq!(base_layout.field_count, 2);
-    
+
     assert_eq!(sub_layout.field_slots.get(&name_sym).copied(), Some(2));
     assert_eq!(sub_layout.field_count, 3);
 }
@@ -569,37 +558,26 @@ fn subclass_static_field_offset_stability() {
         }
     ";
     vm.interpret_source(module, base_code).expect("Base definition should succeed");
-    
-    // 2. Retrieve base_cls and define Subclass inheriting from Base
-    let base_sym = vm.get_or_intern("Base");
-    let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
-    let _sub_cls = vm.create_class(module, "Subclass", Some(base_cls));
-    
-    // 3. Compile Subclass closure without running it yet
+
+    // 2. Compile and run Subclass, declaring `extends Base` directly rather
+    // than pre-registering a class object via `create_class` (U-CLASSCLOSE:
+    // classes are closed, so there is no "reopen keeps the Rust stub's
+    // established superclass" path outside the core module — see decision
+    // 0065 ruling 4 — and `create_class` itself already wires field layout
+    // from `vm.field_layouts` once it exists, so no manual copy is needed
+    // either; `Bytecode::Class`'s own `create_class` call does it).
     let sub_code = "
-        class Subclass {
+        class Subclass extends Base {
             static _count = 20
         }
     ";
     let closure = vm.compile_closure(module, sub_code).expect("Subclass compilation should succeed");
-    
-    // 4. Update Subclass class object in the heap with the compiled layout
-    let sub_sym = vm.get_or_intern("Subclass");
-    let layout = vm.field_layouts.get(&ClassKey { module, name: sub_sym }).unwrap().clone();
-    let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
-    let sub_meta = vm.heap.class(sub_cls).class;
-    
-    vm.heap.class_mut(sub_cls).field_slots = layout.field_slots;
-    vm.heap.class_mut(sub_cls).field_count = layout.field_count;
-    vm.heap.class_mut(sub_meta).field_slots = layout.static_field_slots;
-    vm.heap.class_mut(sub_meta).field_count = layout.static_field_count;
-    vm.heap.class_mut(sub_cls).static_slots = vec![Value::Nil; layout.static_field_count as usize].into_boxed_slice();
-    
-    // 5. Run Subclass definition closure (which runs static field initializers)
     vm.run_in_module(module, closure).expect("Subclass execution should succeed");
-    
+
     let count_sym = vm.get_or_intern("_count");
-    
+    let base_sym = vm.get_or_intern("Base");
+    let sub_sym = vm.get_or_intern("Subclass");
+
     let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
     let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
     

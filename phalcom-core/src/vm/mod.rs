@@ -132,6 +132,21 @@ pub struct VM {
 
     /// Named classes by identity [`ClassKey`], each a [`ClassId`] handle.
     pub classes: HashMap<ClassKey, ClassId>,
+    /// Kernel class names reserved to the core module (decision 0065 ruling
+    /// 3, U-CLASSCLOSE §4): exactly the names `VM::install_core`'s
+    /// `add_class!` macro binds — the Rust-installed primitives (`Object`,
+    /// `List`, `Number`, `Error`, …), **not** every class `core.ph` itself
+    /// goes on to declare in `.ph` (`ArgumentError`, `PreconditionError`,
+    /// and friends are ordinary core-library classes, module-scoped like
+    /// any other — subclassing or shadowing them from a non-core module is
+    /// not the trap this ruling guards against, since they carry no
+    /// literal-bound [`ClassId`] the way the primitives do).
+    ///
+    /// Populated by `add_class!` itself as each primitive installs, so this
+    /// can never drift from what bootstrap actually binds — no hand-copied
+    /// list, and no need to touch this comment when a primitive is added or
+    /// removed.
+    pub kernel_class_names: std::collections::HashSet<Symbol>,
     /// The symbol interner backing selectors, names and string identity.
     pub interner: Interner,
     /// VM start time, used for `System` timing primitives.

@@ -137,7 +137,12 @@ pub enum Bytecode {
     /// receiver-polymorphic one; this first cut is uncached (DEC-INH-F).
     SuperSend(u8, u16, u16),
 
-    /// Creates a new class.
+    /// Creates a new class. This is the *whole* truth (U-CLASSCLOSE §5.3,
+    /// decision 0065 ruling 4) — classes are closed, so there is no second
+    /// meaning to discriminate at runtime. Stub completion (installing
+    /// `.ph` methods onto a Rust-installed kernel class, `core.ph` only) is
+    /// a compile-time-resolved case the compiler emits [`Bytecode::Constant`]
+    /// for instead; every `Class` the runtime ever executes allocates fresh.
     /// 0: index of class name in constant pool.
     Class(u16),
 
@@ -321,12 +326,15 @@ pub enum Bytecode {
     /// No operand: it **peeks** (does not pop) the class object left on top
     /// of the stack by the class-body compile — the same value the following
     /// [`Bytecode::DefineGlobal`] binds. Emitted once at the tail of every
-    /// class-body compile (`compiler/lib.rs`'s `Statement::Class` lowering,
-    /// after the member loop, before `DefineGlobal`), so a reopened class is
-    /// re-finalized (rebuilt from scratch, not accumulated) every time its
-    /// body compiles again. The kernel's native-only rows (no `.ph` class
-    /// body) are finalized once directly in `VM::install_core`, mirroring
-    /// this same rebuild.
+    /// class-body compile (`compiler/lib/class_decl.rs`'s `Statement::Class`
+    /// lowering, after the member loop, before `DefineGlobal`). Classes are
+    /// closed (U-CLASSCLOSE, decision 0065): this always rebuilds a
+    /// brand-new class's index from its own directly-defined methods merged
+    /// with its superclass's — there is no reopen case to distinguish it
+    /// from. The kernel's native-only rows (no `.ph` class body) are
+    /// finalized once directly in `VM::install_core`, mirroring this same
+    /// rebuild; `core.ph`'s own stub-completion classes (`Constant`, not
+    /// `Class`) still emit this too, once, when their `.ph` body compiles.
     FinalizeClass,
 
     /// Fused [`Bytecode::GetLocal`] + [`Bytecode::Invoke`] — pushes local `0` and

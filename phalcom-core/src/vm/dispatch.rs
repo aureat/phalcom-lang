@@ -753,67 +753,27 @@ impl VM {
                         let superclass = self.stack.pop().unwrap();
                         match superclass {
                             Value::Obj(sc_id) if self.heap.as_class(sc_id).is_some() => {
-                                // Reopening (ADR-0018: "attaches methods, not
-                                // shadows"). A second `class A { ... }` block for
-                                // a name already registered in `self.classes`
-                                // must APPEND its methods to the existing
-                                // `ClassId` rather than allocate a fresh one —
-                                // a fresh class would orphan every method the
-                                // earlier block installed (U-REOPEN-FIX).
-                                //
-                                // The compiler's own compile-time reuse guard
-                                // (`compiler/lib.rs` `Statement::Class`, keyed
-                                // on `self.vm.classes`) cannot see this case: a
-                                // whole compile unit lowers to one closure
-                                // before any `Bytecode::Class` executes, so
-                                // `self.classes` is still empty for both blocks
-                                // at compile time. This runtime check is the
-                                // real reopen seam for same-unit reopens; it
-                                // also covers the bootstrap case (a Rust stub
-                                // pre-registers the class before its `.ph` body
-                                // compiles) as a no-op fallthrough, since that
-                                // case already resolves at compile time and
-                                // never reaches here.
-                                 let closure_module = self.heap.closure(closure_id).module;
-                                 let name_key = crate::vm::ClassKey { module: closure_module, name: name_sym };
-                                 let existing_class_opt = if self.unit_kind != crate::compiler::lib::UnitKind::Repl {
-                                     if let Some(&cls) = self.classes.get(&name_key) {
-                                         Some(cls)
-                                     } else if let Some(core_sym) = self.interner.find(crate::heap::CORE_MODULE_NAME) {
-                                         if let Some(&core_mod) = self.modules.get(&core_sym) {
-                                             let core_key = crate::vm::ClassKey { module: core_mod, name: name_sym };
-                                             self.classes.get(&core_key).copied()
-                                         } else {
-                                             None
-                                         }
-                                     } else {
-                                         None
-                                     }
-                                 } else {
-                                     None
-                                 };
-                                 if let Some(existing) = existing_class_opt {
-                                    // A reopen must not change the superclass
-                                    // (U13 sealed inheritance): the compiler's
-                                    // `Statement::Class` handler rejects this
-                                    // earlier via `class_parents`, but that
-                                    // check only sees explicit `extends`
-                                    // clauses recorded in the *same* compile
-                                    // unit — mirror it here so a mismatch can
-                                    // never silently reuse the wrong class.
-                                    let existing_superclass = self.heap.class(existing).superclass;
-                                    if existing_superclass != Some(sc_id) {
-                                        return Err(RuntimeError::Message(format!(
-                                            "Cannot reopen class '{name}': its superclass cannot be changed by a later `class {name}` block."
-                                        ))
-                                        .into());
-                                    }
-                                    self.stack.push(Value::Obj(existing));
-                                } else {
-                                    let closure_module = self.heap.closure(closure_id).module;
-                                    let new_class = self.create_class(closure_module, &name, Some(sc_id));
-                                    self.stack.push(Value::Obj(new_class));
-                                }
+                                // Allocate-fresh, unconditionally (U-CLASSCLOSE
+                                // §5.2, decision 0065 ruling 4). Classes are
+                                // closed: there is no reopening, so
+                                // `Bytecode::Class` never needs to probe
+                                // `self.classes` by name — the compiler already
+                                // discriminates the one case that *isn't*
+                                // allocate-fresh (a core-module stub
+                                // completion) at compile time and emits
+                                // `Bytecode::Constant` for it instead
+                                // (`compiler/lib/class_decl.rs`'s
+                                // `classes_hit` fork), so every `Bytecode::Class`
+                                // that reaches here is a brand-new class by
+                                // construction. This is what closes the
+                                // nested-runtime-patch hole structurally: if
+                                // allocate-fresh never consults `self.classes`,
+                                // a re-executing method body has no path to any
+                                // existing class, whatever compile-time check
+                                // might have been bypassed.
+                                let closure_module = self.heap.closure(closure_id).module;
+                                let new_class = self.create_class(closure_module, &name, Some(sc_id));
+                                self.stack.push(Value::Obj(new_class));
                             }
                             _ => return Err(RuntimeError::InvalidSuperClass(format!("{superclass}")).into()),
                         }

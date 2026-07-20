@@ -177,4 +177,48 @@ pub enum CompilerError {
     /// is rejected here rather than silently compiling a per-call reload.
     #[error("`import` is only allowed at a compilation unit's own top level, not inside a method, block, or class body.")]
     ImportNotAtTopLevel,
+
+    /// A second `class X` declaration in the same module, or a `class`
+    /// whose name collides with an `import … as Name` already bound in this
+    /// unit (decision 0065 ruling 2, decision 0066, U-CLASSCLOSE §2.1/§8).
+    ///
+    /// Classes are closed after definition (decision 0065): there is no
+    /// reopening, so a second declaration of the same name in one module is
+    /// always an error, never a merge. Carries **both** spans — this
+    /// declaration's own and the original's — plus the original's
+    /// pre-resolved 1-based `(line, column)`, since no compile-error
+    /// renderer exists to resolve a span against source at print time
+    /// (U-CLASSCLOSE §1.2/§3, ruled option A). The message states both
+    /// locations directly rather than leaving the second span to be found by
+    /// a future renderer.
+    #[error("class.already_defined: class '{0}' is already defined in this module (first declared at {3}:{4}).")]
+    ClassAlreadyDefined(String, SourceRange, SourceRange, usize, usize),
+
+    /// A repeated field or method name inside one class body (U-CLASSCLOSE
+    /// §2.2).
+    ///
+    /// No silent last-writer-wins at any granularity — `bar => 1` then
+    /// `bar => 2` in one body no longer lets the second definition quietly
+    /// win. "Repeated" is judged by the same encoded-selector identity the
+    /// runtime dispatch table already uses (arity, labels, kind, and
+    /// static-vs-instance side all distinguish two same-named members), not
+    /// a new collision rule; a declared field's own name is its whole
+    /// identity, since a field has no arity. Same both-spans shape as
+    /// [`Self::ClassAlreadyDefined`], for the same reason.
+    #[error("class.duplicate_member: '{1}' is already defined in class '{0}' (first declared at {4}:{5}).")]
+    ClassDuplicateMember(String, String, SourceRange, SourceRange, usize, usize),
+
+    /// A kernel class name (e.g. `List`, `Object`, `Number` — the exact set
+    /// `VM::install_core`'s `add_class!` binds) declared by a non-core
+    /// module (decision 0065 ruling 3, U-CLASSCLOSE §4).
+    ///
+    /// Module-scoped class identity alone would already make a user's own
+    /// `List` a distinct, harmless local class — literals bind
+    /// `universe.classes.list_class` by [`crate::heap::ClassId`], not by
+    /// name — but "`class List` is silently not `List`" is a trap users
+    /// would only discover at a confusing call site. Reserving the name
+    /// makes the closed kernel a stateable rule instead of an emergent
+    /// consequence of two other mechanisms.
+    #[error("class.reserved_name: '{0}' is a kernel class name, reserved to the core module; declare a differently-named class instead.")]
+    ClassReservedName(String, SourceRange),
 }

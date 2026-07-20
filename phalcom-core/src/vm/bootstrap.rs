@@ -34,6 +34,7 @@ impl VM {
             main_module: None,
             last_imported_module: None,
             classes: HashMap::new(),
+            kernel_class_names: std::collections::HashSet::new(),
             universe,
             next_frame_generation: 0,
             world_version: 0,
@@ -188,6 +189,7 @@ impl VM {
                 self.define_global(core_sym, name_sym, Value::Obj(class_id)).ok();
                 let key = crate::vm::ClassKey { module: m, name: name_sym };
                 self.classes.insert(key, class_id);
+                self.kernel_class_names.insert(name_sym);
             };
         }
 
@@ -270,6 +272,10 @@ impl VM {
         let none_class_sym = self.interner.intern(&none_class_name);
         let none_class_key = crate::vm::ClassKey { module: m, name: none_class_sym };
         self.classes.insert(none_class_key, none_class);
+        // `None` bypasses `add_class!` (its global binds the singleton
+        // value, not the class), so it must be reserved (ruling 3) here
+        // explicitly rather than falling out of that macro.
+        self.kernel_class_names.insert(none_class_sym);
         // Seal `None` to the core module too (see the sealing note above the
         // `Option`/`Some` rows): `class MyNone extends None {}` in user code
         // must raise `attr.sealed_violation` the same as the other two.

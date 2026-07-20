@@ -27,24 +27,35 @@ pub struct SourceLoc {
 
 // use std::ops::Range;
 
-pub fn print_line_information(source: &str, range: Range<usize>) {
+/// Resolves a byte `offset` into `source` to a 1-based `(line, column)` pair.
+///
+/// Extracted from the line/column arithmetic [`print_line_information`]
+/// already performed inline (U-CLASSCLOSE §3 option A), so a compile error
+/// that has no renderer to hang a caret span on can still put a real
+/// `line:col` into its message text — e.g. `class 'Point' is already defined
+/// in this module (first declared at 3:1)`.
+///
+/// Clamps to `(last_line, 1)` for an `offset` past every line the source
+/// actually has (e.g. a synthesized end-of-file span); never panics.
+pub fn line_col(source: &str, offset: usize) -> (usize, usize) {
     let mut line_start = 0;
-    let mut line_number = 1;
-
-    // Identify which line the range starts in
     for (idx, line) in source.lines().enumerate() {
         let line_end = line_start + line.len();
-        if range.start >= line_start && range.start <= line_end {
-            line_number = idx + 1;
-            break;
+        if offset >= line_start && offset <= line_end {
+            return (idx + 1, offset - line_start + 1);
         }
         line_start = line_end + 1; // +1 for '\n'
     }
+    (source.lines().count().max(1), 1)
+}
+
+pub fn print_line_information(source: &str, range: Range<usize>) {
+    let (line_number, col_start_1based) = line_col(source, range.start);
+    let col_start = col_start_1based - 1;
 
     let lines: Vec<&str> = source.lines().collect();
     let current = line_number - 1;
 
-    let col_start = range.start - lines[..current].iter().map(|l| l.len() + 1).sum::<usize>();
     let col_end = range.end - lines[..current].iter().map(|l| l.len() + 1).sum::<usize>();
 
     ceprintln!("   <s,r!>--></> Error at {}:{}", line_number, col_start);

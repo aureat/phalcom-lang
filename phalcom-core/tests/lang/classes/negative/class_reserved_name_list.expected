@@ -1,0 +1,1 @@
+class.reserved_name: 'List' is a kernel class name, reserved to the core module; declare a differently-named class instead.

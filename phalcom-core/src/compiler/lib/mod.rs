@@ -43,7 +43,7 @@ use crate::interner::Symbol;
 use crate::value::Value;
 use crate::vm::{ClassKey, VM};
 use phalcom_ast::ast::{BindingKind, Expr, MethodCallExpr, Pattern, Program, Statement};
-use phalcom_common::range::EmptySourceRange;
+use phalcom_common::range::{EmptySourceRange, SourceRange};
 use state::FunctionState;
 use state::LoopContext;
 use std::rc::Rc;
@@ -69,12 +69,40 @@ pub(crate) struct Compiler<'vm> {
     /// rulings L-3/L-5). There is deliberately no `remove`: a name, once
     /// declared, keeps its declared kind for the rest of compilation.
     ///
-    /// **Class names are not tracked here.** `Statement::Class` emits its own
-    /// `DefineGlobal` directly (`class_decl.rs`) without going through
-    /// [`Self::declare_global`], so class (re)declaration — including a
-    /// kernel stub completion reopen, `core.ph`'s bootstrap path — never
-    /// interacts with this map (§12C of the U-BINDINGS spec).
+    /// **Class names register here too, as of U-CLASSCLOSE (decision 0066
+    /// ruling 8) — but only by insertion, never through [`Self::declare_global`]
+    /// itself.** `Statement::Class` still emits its own `DefineGlobal`
+    /// directly (`class_decl.rs`) and keeps its own diagnostic
+    /// (`class.already_defined`, not `binding.redeclared` — a class can be
+    /// neither assigned nor nested, so `BindingRedeclared`'s guidance would
+    /// misinstruct twice). Routing a class through `declare_global` was
+    /// previously unnecessary because reopening was legal and this map's
+    /// only consumer was the redeclaration check; now that classes are
+    /// closed (decision 0065), an `import … as Name` and a `class Name` in
+    /// the same unit must collide, so `class_decl.rs` inserts directly into
+    /// this map once its own `class.already_defined` check has passed —
+    /// which is also what lets `declare_global` (unmodified) catch the
+    /// reverse ordering, `class Name` then `import … as Name`, as an
+    /// ordinary `binding.redeclared`. U-BINDINGS §12C's stub-completion
+    /// carve-out stands: a same-module class (re)declaration bypasses this
+    /// map's *redeclaration check* entirely (`class_decl.rs` never calls
+    /// `declare_global`), it only ever gains an entry.
     global_bindings: std::collections::HashMap<Symbol, bool>,
+    /// `import … as Name` bindings declared so far in this compilation
+    /// unit, keyed by the bound name, carrying the `import` statement's own
+    /// span (U-CLASSCLOSE §8). Consulted by `class_decl.rs`'s redefinition
+    /// check so `import "m" as Point` then `class Point` reports
+    /// `class.already_defined` — pointing at the import — rather than
+    /// silently succeeding (the reverse ordering needs no such map: it is
+    /// caught by [`Self::declare_global`] via `global_bindings` once the
+    /// class has registered there).
+    ///
+    /// Scoped to this compilation unit only, like [`Self::global_bindings`]
+    /// itself — an import from an *earlier* REPL cell colliding with a class
+    /// in a later one is not checked here (U-CLASSCLOSE's own scope is one
+    /// compile unit; cross-cell import/class collision is not one of its
+    /// required fixtures).
+    import_bindings: std::collections::HashMap<Symbol, SourceRange>,
     /// The class identity [`ClassKey`] currently being compiled, if any (ADR-0011, U-CLASSNS).
     current_class: Option<ClassKey>,
     /// Whether the current method/scope context is static (metaclass-side) (ADR-0017).
@@ -141,6 +169,7 @@ impl<'vm> Compiler<'vm> {
             module,
             functions: vec![FunctionState::new(false, false)],
             global_bindings: std::collections::HashMap::new(),
+            import_bindings: std::collections::HashMap::new(),
             current_class: None,
             is_static_context: false,
             loop_contexts: Vec::new(),
@@ -162,6 +191,18 @@ impl<'vm> Compiler<'vm> {
     /// The [`ClassKey`] for `name` in the module currently being compiled.
     pub(crate) fn class_key(&self, name: Symbol) -> ClassKey {
         ClassKey { module: self.module, name }
+    }
+
+    /// The source text of the unit currently being compiled.
+    ///
+    /// Resolved through [`ModuleObject::sources`](crate::heap::ModuleObject::sources)
+    /// at [`Self::source_id`] — the same text [`compile_closure_as`](crate::VM::compile_closure_as)
+    /// stamped there before constructing this compiler — so a diagnostic
+    /// raised mid-compile can resolve a byte offset to a `line:col` pair
+    /// (`diagnostics::line_col`, U-CLASSCLOSE §3 option A) without threading
+    /// a second copy of the source string through every call site.
+    pub(crate) fn source_text(&self) -> std::sync::Arc<String> {
+        self.vm.heap.module(self.module).sources[self.source_id as usize].clone()
     }
 
     /// Resolve a superclass name to the [`ClassKey`] that actually owns it.
@@ -527,6 +568,12 @@ impl<'vm> Compiler<'vm> {
         // top-level-only, see the guard above).
         let name_sym = self.vm.interner.intern(&import_stmt.binding);
         self.declare_global(name_sym, false)?;
+        // Recorded for `class_decl.rs`'s redefinition check (U-CLASSCLOSE
+        // §8): `import "m" as Point` then `class Point` must report
+        // `class.already_defined` pointing at this import, not silently
+        // succeed. `declare_global` above already rejects a second `import`
+        // of the same name, so this insert never overwrites an earlier span.
+        self.import_bindings.insert(name_sym, range);
         let name_idx = self.add_constant(Value::Symbol(name_sym));
         self.emit(Bytecode::DefineGlobal(name_idx), range);
         Ok(())
