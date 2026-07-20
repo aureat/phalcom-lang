@@ -15,6 +15,22 @@ It is the executable-facing companion to the design specs one level up
 Where those describe the *target* model, the documents here fix the **as-built
 baseline** and the **rules any future core-library change must obey**.
 
+**Charter amendment (2026-07-20).** This directory now holds **two genres**, and each
+document says which it is in its own header:
+
+- **As-built baselines & rules** — [`floor-census.md`](./floor-census.md),
+  [`core-classes.md`](./core-classes.md), [`catalog-delta.md`](./catalog-delta.md),
+  [`collection-protocol.md`](./collection-protocol.md), and the rest. These reconcile
+  against the live tree; the drift policy below governs them.
+- **Forward implementation specs** — a design contract *and* its implementation detail in
+  one document, for work that is ruled but unbuilt. These supersede the older
+  `docs/forge/units/<UNIT>/plan.md` + `IMPL-SPEC-*.md` two-document convention for new
+  work. Current: [`numeric-tower.md`](./numeric-tower.md) (the `Int`/`Float` split,
+  ADR-0024).
+
+A forward spec's baseline pin is its own, stated in its header, and does **not** ride the
+directory-wide pin below.
+
 **Start here for a class-by-class view:** [`core-classes.md`](./core-classes.md)
 is the consolidated reference — for each kernel class, its role, structure,
 interface (floor + `.ph` methods), governing ADR, and landed/pending status. It
