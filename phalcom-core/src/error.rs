@@ -172,9 +172,9 @@ pub enum RuntimeError {
     DeadFrameError,
 
     /// A `Map`/`Set` key's `hash`/`==` tried to structurally mutate (insert or
-    /// remove an entry of) the very collection [`crate::primitive::map::locate`]/
-    /// [`crate::primitive::set::locate`] is currently disambiguating a candidate
-    /// for.
+    /// remove an entry of) the very collection `crate::primitive::map`'s/
+    /// `crate::primitive::set`'s module-private `locate` is currently
+    /// disambiguating a candidate for.
     ///
     /// Raised **at the mutation call site** inside the user's `hash`/`==`
     /// method — not back in `locate`'s caller — so the traceback blames the
@@ -202,8 +202,8 @@ pub enum RuntimeError {
 /// Realizes the G0 reentrancy lock
 /// (`docs/deferred/error-handling-followups.md` §1, RULED 2026-07-20): a
 /// key's `hash`/`==` may not structurally mutate the collection currently
-/// disambiguating it via [`crate::primitive::map::locate`]/
-/// [`crate::primitive::set::locate`]. Lives in `error` rather than `heap::map`
+/// disambiguating it via `crate::primitive::map`'s/`crate::primitive::set`'s
+/// module-private `locate`. Lives in `error` rather than `heap::map`
 /// so both the heap layer and the `primitive::map`/`primitive::set` layer can
 /// name it without a cross-module visibility widening.
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]

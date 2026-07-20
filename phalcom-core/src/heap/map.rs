@@ -204,8 +204,8 @@ impl MapObject {
     }
 
     /// Marks the start of a reentrant `hash`/`==` send window
-    /// ([`crate::primitive::map::locate`]/[`crate::primitive::set::locate`]),
-    /// incrementing the reentrancy depth counter. Must be paired with
+    /// (`crate::primitive::map`'s/`crate::primitive::set`'s module-private
+    /// `locate`), incrementing the reentrancy depth counter. Must be paired with
     /// [`Self::exit_reentrant_send`] on **every** exit path of the send,
     /// including an `Err` return — callers use a guard pattern or an
     /// explicit clear-before-`?` to guarantee this (never leave the
