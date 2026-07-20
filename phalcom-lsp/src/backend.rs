@@ -633,7 +633,7 @@ impl LanguageServer for Backend {
         let items: Option<Vec<CompletionItem>> = self.documents.with_document(&uri, |doc| {
             let resolved = ConstructResolver.resolve(doc, position);
             let resolved = resolved.as_ref().map(|(class, kind)| (class.as_str(), *kind));
-            completion::completions(resolved, &self.index, CoreTable::bundled())
+            completion::completions(resolved, &uri, &self.index, CoreTable::bundled())
         });
 
         Ok(items.map(CompletionResponse::Array))

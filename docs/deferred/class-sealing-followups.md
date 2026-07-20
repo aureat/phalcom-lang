@@ -9,9 +9,10 @@ PDR-0001's two units and currently have no owning unit.
 > [`docs/logs/2026-07-20-u-classclose-two-issues-and-five-restored-tests.md`](../logs/2026-07-20-u-classclose-two-issues-and-five-restored-tests.md).
 > Items 1–3 predate that and are unchanged by it. **Items 4–6 are new, added 2026-07-20**: they
 > are gaps the implementation left open or created, not design leftovers. **Item 7 was added
-> later the same day** and is different in kind from all of them — it is not a leftover but a
-> *piece of U-CLASSNS's own spec that never shipped*. Nothing here blocks anything; all seven
-> are unowned.
+> later the same day** and is different in kind from all of them — it was not a leftover but a
+> *piece of U-CLASSNS's own spec that never shipped*. **Item 7 is now CLOSED** (fixed the same
+> day it was filed); **item 8 is new**, an open question its fix deliberately did not answer.
+> Nothing here blocks anything; items 1–6 and 8 are unowned.
 
 Items 1–2 are **performance** items *unlocked by* sealing rather than required by it. Neither
 is measured. Do not fold either into a correctness unit — a dispatch-path change inside a
@@ -287,7 +288,15 @@ does not exist today. Worth scoping before anyone assumes kernel override is cov
 
 ---
 
-## 7. U-CLASSNS shipped only its VM half — the LSP still merges same-named classes
+## 7. ~~U-CLASSNS shipped only its VM half — the LSP still merges same-named classes~~ — **CLOSED 2026-07-20**
+
+> **DONE.** `ClassMap` collapsed to `DashMap<(Url, String), ClassEntry>`; the three accessors and
+> the completion walk are file-scoped. Six fixtures added, all six verified to fail against the
+> old semantics before the change. Write-up, including a regression the fixtures caught and the
+> deliberate loss of cross-file inheritance completion:
+> [`docs/logs/2026-07-20-u-classns-lsp-classmap-collapse.md`](../logs/2026-07-20-u-classns-lsp-classmap-collapse.md).
+> **U-CLASSNS is now complete.** One thing that item deliberately did *not* cover survives as a
+> question — see the note at the end of this item.
 
 **Created by:** U-CLASSNS landing `d3b6cd2` / `8b4465c` / `14cdfb9` without its §8. Verified
 2026-07-20 against `main` (`e33e8e5`), during a citation sweep of
@@ -327,3 +336,28 @@ Roughly 25–30 sites, confined to `index.rs` + `completion.rs`. `core_table.rs`
 language; its LSP half is only observable through an editor session, and no test covers it. That
 asymmetry — one half self-demonstrating, the other silent — is the reason a unit can land
 "complete" with a third of its spec unbuilt.
+
+---
+
+## 8. `hover` may still answer with the wrong file's class — unaudited
+
+**Created by:** item 7's fix, which scoped `ClassMap` but deliberately did not touch the *other*
+name-keyed structure next to it. Filed 2026-07-20 as an open question, not a confirmed defect.
+
+`DefinitionMetaMap` is keyed by **selector alone** (`by_selector: DashMap<String,
+Vec<DefinitionInfo>>`, `phalcom-lsp/src/index.rs`), and each `DefinitionInfo` carries a bare
+`class: String`. `hover.rs` reads that to render "`move(_,to)` — method on `Point`".
+
+Two files each declaring a `Point` with a `move(_,to)` therefore contribute two `DefinitionInfo`s
+under one selector key, distinguished only by their `uri` field. Whether hover picks the right one
+depends on how it filters, and **that was not audited** — item 7's change touched neither
+`hover.rs` nor this map, and no test covers the two-file case.
+
+This is *not* the same bug item 7 fixed. `ClassMap` merged entries on read; this map keeps them
+separate and may simply select wrongly among them. It may already be correct — `Occurrence`-shaped
+consumers filter by `uri` elsewhere in the file. **Read `hover.rs`'s selection logic before
+assuming either way**, and write the two-file fixture regardless, since its absence is why nobody
+knows.
+
+Cheap to settle: one test with two files, same selector, different classes, asserting hover in
+each file names that file's class.

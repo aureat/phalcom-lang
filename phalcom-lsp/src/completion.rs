@@ -21,7 +21,7 @@
 //! [`crate::selectors`] / `core-table.json`), so a method's argument slots and
 //! labels are read straight off the selector spelling — no re-derivation.
 
-use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position};
+use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
 use phalcom_ast::ast::{ClassMember, Expr, Pattern, Program, Statement};
 
@@ -375,12 +375,13 @@ fn class_of_construct(expr: &Expr) -> Option<String> {
 /// Items are returned sorted by label for a deterministic order.
 pub fn completions(
     resolved: Option<(&str, ReceiverKind)>,
+    uri: &Url,
     index: &WorkspaceIndex,
     table: &CoreTable,
 ) -> Vec<CompletionItem> {
     let members = match resolved {
         Some((class, kind)) => {
-            let collected = collect_class_members(class, index, table);
+            let collected = collect_class_members(class, uri, index, table);
             if collected.is_empty() {
                 table_members(table)
             } else {
@@ -446,8 +447,23 @@ const IMPLICIT_ROOT_CLASS: &str = "Object";
 /// the walk defensively against a malformed (self-inheriting) chain, and also
 /// prevents `Object` from being visited twice if a chain already reaches it
 /// explicitly.
+///
+/// # The whole walk stays inside `uri`
+///
+/// Every user-class hop resolves against `uri` — the file the completion was
+/// requested in. That is not a simplification, it is the semantics: a class is
+/// identified by `(module, name)` (PDR-0001), a file is a module (ADR-0045),
+/// and this crate never resolves `import`. A superclass declared in *another*
+/// file is therefore not nameable from here, so the walk falls through to
+/// [`CoreTable`] and terminates rather than guessing.
+///
+/// This is a deliberate behavior change. The previous name-keyed index would
+/// happily answer with some *other* file's class of the same name — which is
+/// how `class Dog extends Animal` in one file used to pick up an unrelated
+/// `Animal` from another. Losing that is the fix, not a regression.
 fn collect_class_members(
     class: &str,
+    uri: &Url,
     index: &WorkspaceIndex,
     table: &CoreTable,
 ) -> Vec<ClassMemberInfo> {
@@ -455,20 +471,27 @@ fn collect_class_members(
     let mut seen = std::collections::HashSet::new();
     let mut guard = std::collections::HashSet::new();
     let mut current = Some(class.to_string());
+    // Whether the walk ever resolved a user class in `uri`. Distinguishes
+    // "this receiver's class is unknown entirely" (return empty, so
+    // `completions` falls back to the *full* builtin surface) from "we are
+    // mid-chain and hit an unresolvable parent" (fall back to `Object`).
+    // Collapsing the two costs the unknown-receiver case its full surface.
+    let mut walked_user_class = false;
 
     while let Some(name) = current {
         if !guard.insert(name.clone()) {
             break;
         }
-        if index.has_class(&name) {
-            for member in index.class_members(&name) {
+        if index.has_class(uri, &name) {
+            walked_user_class = true;
+            for member in index.class_members(uri, &name) {
                 if seen.insert(member.selector.clone()) {
                     out.push(member);
                 }
             }
             current = Some(
                 index
-                    .class_parent(&name)
+                    .class_parent(uri, &name)
                     .unwrap_or_else(|| IMPLICIT_ROOT_CLASS.to_string()),
             );
         } else if let Some(members) = table.class_members(&name) {
@@ -481,6 +504,28 @@ fn collect_class_members(
                 }
             }
             current = None;
+        } else if walked_user_class && name != IMPLICIT_ROOT_CLASS {
+            // A *parent* that resolves to neither a class declared in this
+            // file nor a builtin. Two ways to get here: a superclass declared
+            // in another file (not nameable from here — this crate never
+            // resolves `import`), or a plain typo.
+            //
+            // `walked_user_class` is what keeps this from swallowing the
+            // unknown-receiver case: if the *starting* class resolved to
+            // nothing we must return empty, so `completions` serves the full
+            // builtin surface rather than just `Object`'s handful.
+            //
+            // Fall back to the implicit root rather than terminating, so this
+            // function's stated contract — `Object`'s selectors are *always*
+            // eventually walked — survives an unresolvable parent. Without
+            // this, file-scoping the index (PDR-0001) would silently drop the
+            // whole builtin surface for every class whose `extends` names
+            // something outside its own file, which is a strictly worse
+            // completion than before the fix.
+            //
+            // `guard` makes this terminate: if the chain already visited
+            // `Object`, the next iteration breaks immediately.
+            current = Some(IMPLICIT_ROOT_CLASS.to_string());
         } else {
             current = None;
         }
@@ -574,6 +619,13 @@ mod tests {
         let index = WorkspaceIndex::new();
         index.update_file(Url::parse(uri).unwrap(), &phalcom_ast::parser::parse(src, 0).program);
         index
+    }
+
+    /// The file every single-file completion test indexes into and queries
+    /// from. Completion is now file-scoped, so the query URI must match the
+    /// one `index_with` was given or the class resolves to nothing.
+    fn a_uri() -> Url {
+        Url::parse("file:///a.ph").unwrap()
     }
 
     #[test]
@@ -722,7 +774,7 @@ mod tests {
             "file:///a.ph",
             "class Point {\n  move(x, to:) { }\n  size { }\n}\n",
         );
-        let items = completions(Some(("Point", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let items = completions(Some(("Point", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"move(_,to)"));
         assert!(labels.contains(&"size"));
@@ -736,7 +788,7 @@ mod tests {
             "file:///a.ph",
             "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n",
         );
-        let items = completions(Some(("Dog", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let items = completions(Some(("Dog", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
         assert!(labels.contains(&"eat()"));
@@ -747,7 +799,7 @@ mod tests {
         // `Point` writes no `extends` clause; its implicit parent is `Object`,
         // whose own members (`hash`, `toString`, …) must be offered too.
         let index = index_with("file:///a.ph", "class Point {\n  size { }\n}\n");
-        let items = completions(Some(("Point", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let items = completions(Some(("Point", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"size"));
         assert!(labels.contains(&"hash"), "{labels:#?}");
@@ -765,7 +817,7 @@ mod tests {
             "file:///a.ph",
             "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n",
         );
-        let items = completions(Some(("Dog", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let items = completions(Some(("Dog", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
         assert!(labels.contains(&"eat()"));
@@ -775,7 +827,7 @@ mod tests {
     #[test]
     fn completions_for_builtin_class() {
         let index = WorkspaceIndex::new();
-        let items = completions(Some(("Bool", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let items = completions(Some(("Bool", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         assert!(!items.is_empty());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"ifTrue(_)"));
@@ -787,7 +839,7 @@ mod tests {
         // members (`new()` static, per `core-table.json`); an instance
         // receiver must drop the class-side ones.
         let index = WorkspaceIndex::new();
-        let items = completions(Some(("Object", ReceiverKind::Instance)), &index, CoreTable::bundled());
+        let items = completions(Some(("Object", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"name"), "{labels:#?}");
         assert!(!labels.contains(&"new()"), "{labels:#?}");
@@ -796,7 +848,7 @@ mod tests {
     #[test]
     fn completions_class_object_receiver_offers_only_static_and_construct_members() {
         let index = WorkspaceIndex::new();
-        let items = completions(Some(("Object", ReceiverKind::ClassObject)), &index, CoreTable::bundled());
+        let items = completions(Some(("Object", ReceiverKind::ClassObject)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"new()"), "{labels:#?}");
         // Instance-side members must not leak onto the class-object side.
@@ -814,6 +866,7 @@ mod tests {
         );
         let items = completions(
             Some(("Counter", ReceiverKind::ClassObject)),
+            &a_uri(),
             &index,
             CoreTable::bundled(),
         );
@@ -822,14 +875,70 @@ mod tests {
         assert!(!labels.contains(&"next()"), "{labels:#?}");
     }
 
+    /// Completion for `Point` in `a.ph` must not offer `b.ph`'s same-named
+    /// class's members.
+    ///
+    /// **Negative control:** fails on the pre-collapse index, which merged both
+    /// files' entries under the bare name `"Point"`.
+    #[test]
+    fn completions_do_not_leak_a_same_named_class_from_another_file() {
+        let index = WorkspaceIndex::new();
+        let a = Url::parse("file:///a.ph").unwrap();
+        let b = Url::parse("file:///b.ph").unwrap();
+        index.update_file(
+            a.clone(),
+            &phalcom_ast::parser::parse("class Point {\n  aye() { }\n}\n", 0).program,
+        );
+        index.update_file(
+            b.clone(),
+            &phalcom_ast::parser::parse("class Point {\n  bee() { }\n}\n", 0).program,
+        );
+
+        let items = completions(Some(("Point", ReceiverKind::Instance)), &a, &index, CoreTable::bundled());
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"aye()"), "{labels:#?}");
+        assert!(!labels.contains(&"bee()"), "b.ph's member leaked: {labels:#?}");
+    }
+
+    /// A superclass declared in *another* file is not nameable from here, so
+    /// the walk stops rather than guessing. Deliberate behavior change: the
+    /// old name-keyed index would resolve it and offer the wrong members.
+    #[test]
+    fn inheritance_walk_does_not_cross_files() {
+        let index = WorkspaceIndex::new();
+        let a = Url::parse("file:///a.ph").unwrap();
+        let b = Url::parse("file:///b.ph").unwrap();
+        index.update_file(
+            a.clone(),
+            &phalcom_ast::parser::parse("class Dog extends Animal {\n  bark() { }\n}\n", 0).program,
+        );
+        index.update_file(
+            b.clone(),
+            &phalcom_ast::parser::parse("class Animal {\n  eat() { }\n}\n", 0).program,
+        );
+
+        let items = completions(Some(("Dog", ReceiverKind::Instance)), &a, &index, CoreTable::bundled());
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"bark()"), "{labels:#?}");
+        assert!(
+            !labels.contains(&"eat()"),
+            "b.ph's Animal is a different class and must not be walked: {labels:#?}"
+        );
+        // The walk still terminates through the implicit Object root, so the
+        // builtin surface is present — this is a scoping fix, not a regression
+        // to "no completions".
+        assert!(labels.contains(&"hash"), "implicit Object walk still runs: {labels:#?}");
+    }
+
     #[test]
     fn completions_unknown_receiver_falls_back_to_full_builtin_surface() {
         let index = WorkspaceIndex::new();
-        let none = completions(None, &index, CoreTable::bundled());
+        let none = completions(None, &a_uri(), &index, CoreTable::bundled());
         assert!(!none.is_empty());
         // Unresolvable class name also falls back rather than returning empty.
         let unknown = completions(
             Some(("Nonexistent", ReceiverKind::Instance)),
+            &a_uri(),
             &index,
             CoreTable::bundled(),
         );
@@ -839,7 +948,7 @@ mod tests {
     #[test]
     fn completions_are_sorted_by_label() {
         let index = WorkspaceIndex::new();
-        let items = completions(None, &index, CoreTable::bundled());
+        let items = completions(None, &a_uri(), &index, CoreTable::bundled());
         for pair in items.windows(2) {
             assert!(pair[0].label <= pair[1].label);
         }

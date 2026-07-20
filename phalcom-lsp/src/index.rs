@@ -125,15 +125,13 @@ impl SelectorMap {
     }
 }
 
-/// One class declaration's contribution from a single file: its declared
-/// members and its `extends` parent (if any).
+/// One class declaration: its declared members and its `extends` parent (if
+/// any).
 ///
-/// Multiple files (or repeated declarations) can contribute to the same class
-/// name; [`ClassMap`] keeps every contribution and merges them on read.
+/// There is exactly one entry per `(file, class name)` pair. The declaring
+/// file is not stored here — it is half of [`ClassMap`]'s key.
 #[derive(Debug, Clone)]
 struct ClassEntry {
-    /// The file this class declaration was found in.
-    uri: Url,
     /// The `extends` superclass name, or `None` for an implicit `Object`
     /// parent (see [`phalcom_ast::ast::ClassDef::superclass`]).
     parent: Option<String>,
@@ -141,55 +139,71 @@ struct ClassEntry {
     members: Vec<ClassMemberInfo>,
 }
 
-/// A `class name -> declarations` map, keyed by the bare class name (not a
-/// selector), backing receiver-aware completion (Stage 3).
+/// A `(file, class name) -> declaration` map backing receiver-aware
+/// completion (Stage 3).
+///
+/// # Why the key carries the file
+///
+/// Class identity in Phalcom is `(module, name)`, not `name`
+/// ([PDR-0001](../../../docs/decisions/0001-classes-are-closed.md); the VM
+/// side is `ClassKey` in `phalcom-core/src/vm/mod.rs`). A file *is* a module
+/// (ADR-0045), and this crate never resolves `import` — `Statement::Import` is
+/// a no-op in every walker — so the document [`Url`] is the correct and only
+/// module proxy available here.
+///
+/// This map previously held `DashMap<String, Vec<ClassEntry>>`, a shape whose
+/// `Vec` existed solely to model *one* class reopened across several files.
+/// Class reopening was removed by U-CLASSCLOSE, so that `Vec` no longer models
+/// anything real — it only merged genuinely-distinct classes that happened to
+/// share a name, producing two live wrong answers (see
+/// `docs/logs/2026-07-20-u-classns-lsp-classmap-collapse.md`). Collapsing to
+/// one entry per key is what makes those answers correct, not merely faster.
 #[derive(Default)]
 struct ClassMap {
-    by_class: DashMap<String, Vec<ClassEntry>>,
+    by_class: DashMap<(Url, String), ClassEntry>,
 }
 
 impl ClassMap {
-    fn insert(&self, class: String, entry: ClassEntry) {
-        self.by_class.entry(class).or_default().push(entry);
+    /// Records `class` as declared in `uri`.
+    ///
+    /// A second declaration of the same name in the same file overwrites the
+    /// first. That is not a merge: intra-module redefinition is a *compile
+    /// error* under PDR-0001 (`class.already_defined`), so the only file that
+    /// can reach this path is already invalid, and last-wins keeps the index
+    /// shaped like the code the user is editing toward.
+    fn insert(&self, uri: Url, class: String, entry: ClassEntry) {
+        self.by_class.insert((uri, class), entry);
     }
 
     fn remove_uri(&self, uri: &Url, classes: &[String]) {
         for class in classes {
-            if let Some(mut entries) = self.by_class.get_mut(class) {
-                entries.retain(|entry| &entry.uri != uri);
-            }
+            self.by_class.remove(&(uri.clone(), class.clone()));
         }
     }
 
-    /// Every own member of `class`, merged across all contributing files and
-    /// de-duplicated by selector (first-seen wins).
-    fn members(&self, class: &str) -> Vec<ClassMemberInfo> {
-        let mut seen = std::collections::HashSet::new();
-        let mut out = Vec::new();
-        if let Some(entries) = self.by_class.get(class) {
-            for entry in entries.iter() {
-                for member in &entry.members {
-                    if seen.insert(member.selector.clone()) {
-                        out.push(member.clone());
-                    }
-                }
-            }
-        }
-        out
+    /// The own members of `class` **as declared in `uri`**, in declaration
+    /// order. Empty if that file declares no such class.
+    ///
+    /// No cross-file merge and no de-duplication: there is one declaration, so
+    /// there is nothing to merge and no selector can collide with itself.
+    fn members(&self, uri: &Url, class: &str) -> Vec<ClassMemberInfo> {
+        self.by_class
+            .get(&(uri.clone(), class.to_string()))
+            .map(|entry| entry.members.clone())
+            .unwrap_or_default()
     }
 
-    /// The `extends` parent of `class`, if any declaration named one.
-    fn parent(&self, class: &str) -> Option<String> {
+    /// The `extends` parent of `class` **as declared in `uri`**, if it named
+    /// one.
+    fn parent(&self, uri: &Url, class: &str) -> Option<String> {
         self.by_class
-            .get(class)
-            .and_then(|entries| entries.iter().find_map(|e| e.parent.clone()))
+            .get(&(uri.clone(), class.to_string()))
+            .and_then(|entry| entry.parent.clone())
     }
 
-    /// Whether any file declares a class named `class`.
-    fn contains(&self, class: &str) -> bool {
-        self.by_class
-            .get(class)
-            .is_some_and(|entries| !entries.is_empty())
+    /// Whether `uri` declares a class named `class`.
+    fn contains(&self, uri: &Url, class: &str) -> bool {
+        self.by_class.contains_key(&(uri.clone(), class.to_string()))
     }
 }
 
@@ -244,9 +258,9 @@ impl WorkspaceIndex {
         for collected in collector.classes {
             let class = collected.name.clone();
             self.classes.insert(
+                uri.clone(),
                 class.clone(),
                 ClassEntry {
-                    uri: uri.clone(),
                     parent: collected.parent,
                     members: collected.members,
                 },
@@ -343,33 +357,35 @@ impl WorkspaceIndex {
             .collect()
     }
 
-    /// The own declared members of the user class named `class` (its selectors
-    /// and kinds), merged across every file that declares it and de-duplicated
-    /// by selector.
+    /// The own declared members of the user class named `class` **as declared
+    /// in `uri`** (its selectors and kinds), in declaration order.
     ///
     /// Does **not** include inherited members — the completion path
     /// ([`crate::completion`]) walks [`Self::class_parent`] itself, so it can
     /// stop the walk when a parent is a builtin (whose members live in
-    /// [`crate::core_table`], not here). Empty if no user class of that name
-    /// is indexed.
-    pub fn class_members(&self, class: &str) -> Vec<ClassMemberInfo> {
-        self.classes.members(class)
+    /// [`crate::core_table`], not here). Empty if `uri` declares no such class.
+    ///
+    /// `uri` is not an optimization. A class named `Point` in one file and a
+    /// class named `Point` in another are *different classes* (PDR-0001), so a
+    /// name alone does not identify one — see [`ClassMap`].
+    pub fn class_members(&self, uri: &Url, class: &str) -> Vec<ClassMemberInfo> {
+        self.classes.members(uri, class)
     }
 
-    /// The `extends` superclass name of the user class named `class`, or
-    /// `None` if the class named no explicit superclass (implicit `Object`) or
-    /// is not indexed.
-    pub fn class_parent(&self, class: &str) -> Option<String> {
-        self.classes.parent(class)
+    /// The `extends` superclass name of the user class named `class` **as
+    /// declared in `uri`**, or `None` if it named no explicit superclass
+    /// (implicit `Object`) or `uri` declares no such class.
+    pub fn class_parent(&self, uri: &Url, class: &str) -> Option<String> {
+        self.classes.parent(uri, class)
     }
 
-    /// Whether a user class named `class` is indexed in the workspace.
+    /// Whether `uri` declares a user class named `class`.
     ///
     /// Used by the completion path to decide whether a resolved receiver type
     /// is a user class (walk [`Self::class_members`]) or should fall through
     /// to the builtin [`crate::core_table`].
-    pub fn has_class(&self, class: &str) -> bool {
-        self.classes.contains(class)
+    pub fn has_class(&self, uri: &Url, class: &str) -> bool {
+        self.classes.contains(uri, class)
     }
 }
 
@@ -942,7 +958,8 @@ mod tests {
         let src = "class Point {\n  move(x, to:) { }\n  size { }\n  size=(v) { }\n}\n";
         index.update_file(uri("file:///a.ph"), &parse(src, 0).program);
 
-        let members = index.class_members("Point");
+        let a = uri("file:///a.ph");
+        let members = index.class_members(&a, "Point");
         assert!(members.iter().any(|m| m.selector == "move(_,to)"
             && m.kind == MemberKind::Method));
         assert!(members
@@ -951,8 +968,8 @@ mod tests {
         assert!(members
             .iter()
             .any(|m| m.selector == "size=(_)" && m.kind == MemberKind::Setter));
-        assert!(index.has_class("Point"));
-        assert!(!index.has_class("Nope"));
+        assert!(index.has_class(&a, "Point"));
+        assert!(!index.has_class(&a, "Nope"));
     }
 
     #[test]
@@ -960,11 +977,89 @@ mod tests {
         let index = WorkspaceIndex::new();
         let src = "class Dog extends Animal {\n  bark() { }\n}\n";
         index.update_file(uri("file:///a.ph"), &parse(src, 0).program);
-        assert_eq!(index.class_parent("Dog").as_deref(), Some("Animal"));
+        assert_eq!(index.class_parent(&uri("file:///a.ph"), "Dog").as_deref(), Some("Animal"));
 
         let src2 = "class Animal {\n  eat() { }\n}\n";
         index.update_file(uri("file:///b.ph"), &parse(src2, 0).program);
-        assert_eq!(index.class_parent("Animal"), None);
+        assert_eq!(index.class_parent(&uri("file:///b.ph"), "Animal"), None);
+    }
+
+    /// Two files, same class name, different members. Each file's `Point` must
+    /// answer with *only its own* members.
+    ///
+    /// **Negative control:** this fails on the pre-collapse index, whose
+    /// `members()` unioned every contributing file's entry — `a.ph`'s `Point`
+    /// would offer `bee()`. Class identity is `(module, name)` (PDR-0001) and a
+    /// file is a module (ADR-0045), so these are two unrelated classes.
+    #[test]
+    fn same_class_name_in_two_files_does_not_merge_members() {
+        let index = WorkspaceIndex::new();
+        let a = uri("file:///a.ph");
+        let b = uri("file:///b.ph");
+        index.update_file(a.clone(), &parse("class Point {\n  aye() { }\n}\n", 0).program);
+        index.update_file(b.clone(), &parse("class Point {\n  bee() { }\n}\n", 0).program);
+
+        let from_a: Vec<String> = index.class_members(&a, "Point").into_iter().map(|m| m.selector).collect();
+        let from_b: Vec<String> = index.class_members(&b, "Point").into_iter().map(|m| m.selector).collect();
+
+        assert_eq!(from_a, vec!["aye()".to_string()], "a.ph's Point must not see b.ph's members");
+        assert_eq!(from_b, vec!["bee()".to_string()], "b.ph's Point must not see a.ph's members");
+    }
+
+    /// Same name, but only *one* file's declaration has an `extends`. The file
+    /// without one must report no parent.
+    ///
+    /// **Negative control:** this fails on the pre-collapse index, whose
+    /// `parent()` was `entries.iter().find_map(|e| e.parent.clone())` — the
+    /// first entry that named *any* superclass answered for every file, so
+    /// `a.ph`'s parentless `Point` inherited `b.ph`'s `Shape`.
+    #[test]
+    fn same_class_name_in_two_files_does_not_share_a_parent() {
+        let index = WorkspaceIndex::new();
+        let a = uri("file:///a.ph");
+        let b = uri("file:///b.ph");
+        index.update_file(a.clone(), &parse("class Point {\n  aye() { }\n}\n", 0).program);
+        index.update_file(b.clone(), &parse("class Point extends Shape {\n  bee() { }\n}\n", 0).program);
+
+        assert_eq!(index.class_parent(&a, "Point"), None, "a.ph's Point declared no extends");
+        assert_eq!(index.class_parent(&b, "Point").as_deref(), Some("Shape"));
+    }
+
+    /// A class declared in one file is not "present" when asked about another.
+    ///
+    /// **Negative control:** `contains()` took only a name before, so this
+    /// returned `true` for every open file in the workspace.
+    #[test]
+    fn has_class_is_scoped_to_the_declaring_file() {
+        let index = WorkspaceIndex::new();
+        let a = uri("file:///a.ph");
+        let b = uri("file:///b.ph");
+        index.update_file(a.clone(), &parse("class Point {\n  aye() { }\n}\n", 0).program);
+        index.update_file(b.clone(), &parse("class Other {\n  bee() { }\n}\n", 0).program);
+
+        assert!(index.has_class(&a, "Point"));
+        assert!(!index.has_class(&b, "Point"), "b.ph does not declare Point");
+        assert!(index.has_class(&b, "Other"));
+        assert!(!index.has_class(&a, "Other"), "a.ph does not declare Other");
+    }
+
+    /// Removing one file's declaration leaves the other file's same-named class
+    /// intact — the invalidation path is keyed too, not just the reads.
+    #[test]
+    fn removing_one_files_class_leaves_the_same_name_in_another_file() {
+        let index = WorkspaceIndex::new();
+        let a = uri("file:///a.ph");
+        let b = uri("file:///b.ph");
+        index.update_file(a.clone(), &parse("class Point {\n  aye() { }\n}\n", 0).program);
+        index.update_file(b.clone(), &parse("class Point {\n  bee() { }\n}\n", 0).program);
+
+        // a.ph is edited to drop the class entirely.
+        index.update_file(a.clone(), &parse("let x = 1\n", 0).program);
+
+        assert!(!index.has_class(&a, "Point"));
+        assert!(index.has_class(&b, "Point"), "b.ph's Point must survive a.ph's edit");
+        let from_b: Vec<String> = index.class_members(&b, "Point").into_iter().map(|m| m.selector).collect();
+        assert_eq!(from_b, vec!["bee()".to_string()]);
     }
 
     #[test]
@@ -973,12 +1068,12 @@ mod tests {
         let a = uri("file:///a.ph");
         index.update_file(a.clone(), &parse("class A {\n  one() { }\n}\n", 0).program);
         assert!(index
-            .class_members("A")
+            .class_members(&a, "A")
             .iter()
             .any(|m| m.selector == "one()"));
 
         index.update_file(a.clone(), &parse("class A {\n  two() { }\n}\n", 0).program);
-        let members = index.class_members("A");
+        let members = index.class_members(&a, "A");
         assert!(members.iter().any(|m| m.selector == "two()"));
         assert!(!members.iter().any(|m| m.selector == "one()"));
     }
