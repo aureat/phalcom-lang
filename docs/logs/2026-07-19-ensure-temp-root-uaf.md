@@ -88,16 +88,29 @@ next implementer will read "dead scaffolding, do not build" and delete this.
 ## 5. Verification
 
 - Both `.ph` repros: panic before, correct output after.
-- `cargo test -p phalcom-core --test gc` — 16/16, including
-  `ensure_outcome_survives_collecting_cleanup` and
-  `ensure_raised_error_survives_collecting_cleanup`.
-- Negative control established by the pre-fix CLI panic on the identical program; the in-tree
-  `cargo` negative control could not be run because a concurrent U-BINDINGS session was rewriting
-  `phalcom-ast` at the time.
+- `cargo test -p phalcom-core` — 137 passed, 0 failed across `gc`, `golden`, `invariants`, `lang`,
+  `collections_contract`, `contracts_metadata`, `disasm_super`.
+- **Negative control run** (fix reverted in a detached worktree at `293e923`, main tree untouched):
 
-## 6. Known gap
+  ```
+  test ensure_outcome_survives_collecting_cleanup ... FAILED
+  thread '...' panicked at phalcom-core/src/heap/mod.rs:188:48:
+  dangling ObjRef ObjRef(1540v1)
+  test result: FAILED. 15 passed; 1 failed
+  ```
 
-The error-path test does **not** reproduce a failure before the fix — the raised instance happened
-to stay reachable. It is rooted because the hazard is structural (a `Value` in a Rust local across
-a re-entrant call), not because a failing case was observed. Recorded rather than dressed up as a
-confirmed second crash.
+  Same panic, same site as the original CLI repro. The test is non-vacuous and pins this
+  regression.
+
+## 6. Known gap — the error-path test is a guard, not a regression test
+
+The negative control settles what §5 previously left open:
+`ensure_raised_error_survives_collecting_cleanup` **passes with the fix disabled.** The raised
+`Error` instance stays reachable by some other path, so this test would not catch a re-introduced
+bug on the `Raise` arm.
+
+The arm is still rooted, because the hazard is structural — a `Value` in a Rust local across a
+re-entrant call — and the two arms are one code path. But the test earns no more credit than
+"documents the intent." Anyone hardening this should find what keeps the raised instance alive and
+either build a case that defeats it, or delete the arm's rooting as provably unnecessary. Do not
+read the green as coverage.
