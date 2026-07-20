@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phalcom — switch triptych</title>
+<style>
+  /* Design tokens copied verbatim from index.html — same visual language,
+     not shared trace data, so duplication here is fine (UI-SPEC §8). */
+  :root{
+    --bg:#fbfaf8;--panel:#fff;--ink:#1a1a1a;--ink-mute:#6b6b6b;--ink-faint:#a8a8a8;
+    --rule:#e2ded8;--rule-strong:#cfc9c0;
+    --accent:#b8632a;--accent-soft:#f7e9dd;
+    --link:#6b3fa0;--link-soft:#ece3f6;
+    --f1:#2f6f8f;--f1-soft:#dceaf1;
+    --f2:#4a7c46;--f2-soft:#dfeddc;
+    --f0:#7a7268;--f0-soft:#eeeae5;
+    --warn:#a8721b;--warn-soft:#f8eed8;
+    --error:#a32b2b;--error-soft:#f7e0e0;
+    --slot-empty:#f4f2ef;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#16171a;--panel:#1d1f23;--ink:#eceae6;--ink-mute:#9a9793;--ink-faint:#62605d;
+    --rule:#32353a;--rule-strong:#464a50;
+    --accent:#e0904f;--accent-soft:#3a2a1c;
+    --link:#b48ee0;--link-soft:#2b2136;
+    --f1:#6fb2d2;--f1-soft:#1f333d;
+    --f2:#87c07f;--f2-soft:#1e2b1c;
+    --f0:#a89e92;--f0-soft:#2a2724;
+    --warn:#d9a441;--warn-soft:#33280f;
+    --error:#e07070;--error-soft:#3a1f1f;
+    --slot-empty:#222429;
+  }}
+  :root[data-theme="dark"]{--bg:#16171a;--panel:#1d1f23;--ink:#eceae6;--ink-mute:#9a9793;--ink-faint:#62605d;--rule:#32353a;--rule-strong:#464a50;--accent:#e0904f;--accent-soft:#3a2a1c;--link:#b48ee0;--link-soft:#2b2136;--f1:#6fb2d2;--f1-soft:#1f333d;--f2:#87c07f;--f2-soft:#1e2b1c;--f0:#a89e92;--f0-soft:#2a2724;--warn:#d9a441;--warn-soft:#33280f;--error:#e07070;--error-soft:#3a1f1f;--slot-empty:#222429;}
+  :root[data-theme="light"]{--bg:#fbfaf8;--panel:#fff;--ink:#1a1a1a;--ink-mute:#6b6b6b;--ink-faint:#a8a8a8;--rule:#e2ded8;--rule-strong:#cfc9c0;--accent:#b8632a;--accent-soft:#f7e9dd;--link:#6b3fa0;--link-soft:#ece3f6;--f1:#2f6f8f;--f1-soft:#dceaf1;--f2:#4a7c46;--f2-soft:#dfeddc;--f0:#7a7268;--f0-soft:#eeeae5;--warn:#a8721b;--warn-soft:#f8eed8;--error:#a32b2b;--error-soft:#f7e0e0;--slot-empty:#f4f2ef;}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:28px 32px 40px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{color:var(--ink-mute);font-size:13px;margin:0 0 22px}
+
+  .triptych{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:1180px}
+  .beat{background:var(--panel);border:1px solid var(--rule);border-radius:8px;padding:14px}
+  .beat.current{border-color:var(--accent);box-shadow:0 0 0 1.5px var(--accent)}
+  .beat h2{margin:0 0 3px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-faint)}
+  .beat .label{font-size:14px;font-weight:700;margin:0 0 12px}
+
+  .slots{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;margin-bottom:10px}
+  .slot{height:38px;border:1px solid var(--rule);border-left:none;display:flex;align-items:center;
+    justify-content:center;font-size:12px;background:var(--panel)}
+  .slot:first-child{border-left:1px solid var(--rule);border-radius:5px 0 0 5px}
+  .slot:last-child{border-radius:0 5px 5px 0}
+  .slot.beyond{background:var(--slot-empty);color:var(--ink-faint)}
+  .slot.nilv{color:var(--ink-faint)}
+
+  .hole{border:1.5px dashed var(--ink-faint);border-radius:6px;height:38px;display:flex;
+    align-items:center;justify-content:center;color:var(--ink-mute);font-size:11.5px;
+    letter-spacing:.02em;margin-bottom:10px;
+    background:repeating-linear-gradient(90deg,transparent 0 8px,color-mix(in srgb,var(--ink-faint) 8%,transparent) 8px 9px)}
+
+  .cards{display:flex;gap:8px;margin-bottom:10px}
+  .fcard{flex:1;border:1px solid var(--fc);border-radius:6px;padding:6px 8px;font-size:10.5px}
+  .fcard .hd{display:flex;justify-content:space-between;font-weight:700;color:var(--fc);margin-bottom:4px}
+  .comp{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
+  .comp div{height:13px;border:1px solid color-mix(in srgb,var(--fc) 45%,transparent);border-radius:2px;
+    font-size:6.5px;display:flex;align-items:center;justify-content:center;color:var(--ink-faint);
+    text-transform:uppercase}
+  .comp div.full{background:color-mix(in srgb,var(--fc) 30%,transparent);color:var(--fc);font-weight:700}
+
+  .beat .note{font-size:12px;color:var(--ink-mute)}
+  .beat .note b{color:var(--ink)}
+
+  .hint{margin-top:20px;font-size:11.5px;color:var(--ink-faint);max-width:640px}
+  .hint code{font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+
+<h1 id="title">—</h1>
+<p class="sub" id="subtitle">—</p>
+<div class="triptych" id="triptych"></div>
+<p class="hint">Same trace data as the live player (<code>tools/viz/index.html</code>), frozen for a docs/learn
+embed. Pick a different switch with <code>?ex=e1&amp;switch=2</code> (1-indexed) or a sub-variant with
+<code>&amp;var=1</code>.</p>
+
+<script src="trace-data.js"></script>
+<script>
+"use strict";
+// SLOTS and esc come from trace-data.js, loaded above — redeclaring a const
+// across sequential <script> tags throws (unlike var), so don't shadow them.
+const $ = id => document.getElementById(id);
+const HUE = { 0:'--f0', 1:'--f1', 2:'--f2' };
+const hueOf = id => `var(${HUE[id] ?? '--f1'})`;
+
+function findBeats(events, n){
+  // Returns the cursor indices of the n-th take/hole/install triple (1-indexed).
+  let seen = 0;
+  for (let i = 0; i < events.length; i++){
+    if (events[i].switch && events[i].switch.phase === 'take'){
+      seen++;
+      if (seen === n){
+        // events are 0-indexed; STATES[cursor] is the state *after* event
+        // cursor-1, so the cursor for event i is i+1.
+        const take = i + 1;
+        const hole = events.slice(i+1).findIndex(e => e.switch && e.switch.phase === 'hole') + i + 2;
+        const install = events.slice(i+1).findIndex(e => e.switch && e.switch.phase === 'install') + i + 2;
+        return { take, hole, install };
+      }
+    }
+  }
+  return null;
+}
+
+function renderTape(st){
+  if (st.hole) return `<div class="hole">VM holds nothing — both fibers' state is in their objects</div>`;
+  const n = Math.max(SLOTS, st.tape.length);
+  let html = `<div class="slots" style="grid-template-columns:repeat(${SLOTS},1fr)">`;
+  for (let i = 0; i < SLOTS; i++){
+    const val = st.tape[i], beyond = i >= st.tape.length;
+    html += `<div class="slot${beyond?' beyond':''}${val==='·'?' nilv':''}">${beyond?'':esc(val)}</div>`;
+  }
+  return html + '</div>';
+}
+
+function renderCards(st){
+  const ids = Object.keys(st.fibers).map(Number).sort();
+  return `<div class="cards">` + ids.map(id => {
+    const f = st.fibers[id];
+    const comp = ['frames','stack','upvals','chk'].map(l =>
+      `<div class="${f.parked?'full':''}">${l}</div>`).join('');
+    return `<div class="fcard" style="--fc:${hueOf(id)}">
+      <div class="hd"><span>${esc(f.name)}</span><span>${f.status}</span></div>
+      <div class="comp">${comp}</div></div>`;
+  }).join('') + '</div>';
+}
+
+function render(){
+  const params = new URLSearchParams(location.search);
+  const exKey = params.get('ex') || 'e1';
+  const varIdx = +(params.get('var') || 0);
+  const switchN = +(params.get('switch') || 1);
+
+  const ex = EXAMPLES[exKey];
+  if (!ex){ $('title').textContent = `Unknown example "${exKey}"`; return; }
+  const sub = ex.sub ? ex.sub[varIdx] : ex;
+  const events = sub.events;
+  const states = buildStates(events);
+
+  const beats = findBeats(events, switchN);
+  if (!beats){ $('title').textContent = `${ex.tab}: no switch #${switchN} in this trace`; return; }
+
+  $('title').textContent = ex.title;
+  $('subtitle').innerHTML = `${esc(ex.tab)}${ex.sub ? ' — ' + esc(ex.variants[varIdx]) : ''} · switch ${switchN} · three beats, one trace, frozen (UI-SPEC §8)`;
+
+  const labels = [['Before · take','beat.take'],['Hole','beat.hole'],['After · install','beat.install']];
+  const cursors = [beats.take, beats.hole, beats.install];
+  $('triptych').innerHTML = cursors.map((c, i) => {
+    const st = states[c];
+    const note = events[c-1]?.note || '';
+    return `<div class="beat">
+      <h2>${labels[i][0]}</h2>
+      <div class="label">event ${c}</div>
+      ${renderTape(st)}
+      ${renderCards(st)}
+      <div class="note">${note}</div>
+    </div>`;
+  }).join('');
+}
+
+render();
+</script>
+</body>
+</html>

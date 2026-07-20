@@ -6,8 +6,10 @@
 //! worse than no picture at all (REQUIREMENTS.md §8, failure mode 1). This script
 //! is the only defence.
 //!
-//! It extracts the engine out of the page (everything above the render section,
-//! which is DOM-dependent) and replays every trace, applying two kinds of check:
+//! It loads the trace data and the trace-application engine straight from
+//! `trace-data.js` — the DOM-independent module `index.html` and
+//! `triptych.html` both include — and replays every trace, applying two
+//! kinds of check:
 //!
 //!   structural — the invariants the player itself runs (frame bounds, switch
 //!                phase ordering, pop/push balance, cell targets)
@@ -25,9 +27,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const html = readFileSync(join(here, 'index.html'), 'utf8');
-const body = html.split('<script>')[1].split('</script>')[0];
-const logic = body.split('/* =========================== render')[0];
+const logic = readFileSync(join(here, 'trace-data.js'), 'utf8');
 const mod = logic + '\nexport { EXAMPLES, buildStates, invariants, SLOTS };\n';
 const m = await import('data:text/javascript;base64,' + Buffer.from(mod).toString('base64'));
 
