@@ -754,7 +754,7 @@ impl VM {
                         match superclass {
                             Value::Obj(sc_id) if self.heap.as_class(sc_id).is_some() => {
                                 // Allocate-fresh, unconditionally (U-CLASSCLOSE
-                                // §5.2, decision 0065 ruling 4). Classes are
+                                // §5.2, PDR-0001 ruling 4). Classes are
                                 // closed: there is no reopening, so
                                 // `Bytecode::Class` never needs to probe
                                 // `self.classes` by name — the compiler already

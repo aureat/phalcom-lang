@@ -1,6 +1,6 @@
 # U-CLASSNS — Work order: class identity becomes module-scoped
 
-_Unit **A** of two implementing [decision 0065](../../../decisions/0065-classes-are-closed.md)
+_Unit **A** of two implementing [PDR-0001](../../../decisions/0001-classes-are-closed.md)
 (ruling 1). Unit B is [`U-CLASSCLOSE`](../U-CLASSCLOSE/plan.md) and **must land after this
 one** — its redefinition error is undecidable without module-scoped identity._
 
@@ -80,7 +80,7 @@ the value says *who may subclass it*. Do not collapse the two.
 that loop — the `Import` arm reads `self.heap.closure(closure_id).module` the same way.
 
 **Do not optimize this here.** The site's comment justifies the name lookup by a future
-`superclass=` mutation that decision 0065 makes impossible, so the probe could in principle be
+`superclass=` mutation that PDR-0001 makes impossible, so the probe could in principle be
 replaced by a stamped `ClassId`. That is deliberately deferred —
 [`docs/deferred/class-sealing-followups.md`](../../../deferred/class-sealing-followups.md) item
 1 — because it is an unmeasured dispatch-path change and this is a correctness gate. Re-key
@@ -206,7 +206,7 @@ Error fixtures go in the **negative** subdir or the suite reddens.
 
 ## 8. Decisions flagged (flag, don't pick)
 
-**None open.** All eight rulings are settled in decision 0065, and `DEC-CLASSNS-A` was ruled
+**None open.** All eight rulings are settled in PDR-0001, and `DEC-CLASSNS-A` was ruled
 2026-07-19 — see §3.4, the span lives on `ClassLayout` and this unit adds it.
 
 Two things are ruled *out* of this unit and must not be quietly pulled in: `SuperSend`

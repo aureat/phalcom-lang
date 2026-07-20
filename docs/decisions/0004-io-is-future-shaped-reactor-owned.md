@@ -1,8 +1,8 @@
-# 68. IO is `Future`-shaped and reactor-owned; the reactor is built before the IO surface
+# PDR-0004 — IO is `Future`-shaped and reactor-owned; the reactor is built before the IO surface
 
 - Status: Accepted
 - Date: 2026-07-20
-- Related: [decision 0067](0067-no-user-visible-threads-fibers-and-isolates.md) (no user-visible
+- Related: [PDR-0003](0003-no-user-visible-threads-fibers-and-isolates.md) (no user-visible
   threads — constrains how the filesystem half may be implemented),
   [ADR-0030](../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) (`Fiber` +
   `Future`, the parking mechanism this rests on),
@@ -48,7 +48,7 @@ consequences that have already come up, so they are stated rather than left to i
 
 - `File#path` returns `Path`, not `Future` — it is cached at open and cannot block.
 - **`Resource#close` returns `Result` synchronously**
-  ([decision 0069](0069-resources-are-disposable-handles-not-finalized.md) §3b). Over an unbuffered
+  ([PDR-0005](0005-resources-are-disposable-handles-not-finalized.md) §3b). Over an unbuffered
   `File` (0069 §3c) close has nothing to flush and `close(2)` on a local descriptor is fast, so it
   is not a blocking operation and this rule never applied to it. Operations that genuinely block —
   `File#sync`, `TlsStream#shutdown`, `BufferedWriter#flush` — are separate `Future`-returning
@@ -78,7 +78,7 @@ that already works.
 - **The filesystem** — a bounded worker pool running blocking syscalls, because §Context's second
   fact leaves no alternative.
 
-### 4. The worker pool obeys decision 0067 §3 absolutely
+### 4. The worker pool obeys PDR-0003 §3 absolutely
 
 Workers receive owned plain data (`PathBuf`, `Vec<u8>`, scalars) and return owned plain data. They
 never see a `Value`, an `ObjRef`, or the heap.

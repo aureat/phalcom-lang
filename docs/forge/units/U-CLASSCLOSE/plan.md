@@ -1,12 +1,12 @@
 # U-CLASSCLOSE — Work order: classes are closed after definition
 
-_Unit **B** of two implementing [decision 0065](../../../decisions/0065-classes-are-closed.md),
-as amended by [decision 0066](../../../decisions/0066-class-declarations-join-the-binding-namespace.md).
+_Unit **B** of two implementing [PDR-0001](../../../decisions/0001-classes-are-closed.md),
+as amended by [PDR-0002](../../../decisions/0002-class-declarations-join-the-binding-namespace.md).
 **Blocked on [`U-CLASSNS`](../U-CLASSNS/plan.md)** — the redefinition error below is
 undecidable until class identity is `(module, name)`-keyed._
 
 > **Re-grounded 2026-07-19 after U-BINDINGS landed** (`b843fe2`, `42aafce`; tree green).
-> Three deltas, all from decision 0066 — read it before this plan:
+> Three deltas, all from PDR-0002 — read it before this plan:
 >
 > 1. **Ruling 8's import half is already shipped.** `import "a" as P` twice now errors via
 >    `declare_global` (`compiler/lib/scope.rs:181-182`). This unit inherits a **confirming
@@ -82,7 +82,7 @@ All verified 2026-07-19 against `main`. **U-CLASSNS must be landed and green fir
 
 ## 3. Design
 
-Five changes. Each maps to a numbered ruling in decision 0065.
+Five changes. Each maps to a numbered ruling in PDR-0001.
 
 ### 3.1 Redefinition within a module is a compile error (rulings 2 + 7)
 
@@ -202,7 +202,7 @@ attempt `DEFERRED` #35's sealing unification. Both are
 drags ADR-0044's bootstrap ordering (`Nil`→`None` surfacing runs during bootstrap, before `.ph`
 decorators) into a unit that otherwise does not touch it.
 
-### 3.6 Class names register in `global_bindings` (decision 0066, ruling 1)
+### 3.6 Class names register in `global_bindings` (PDR-0002, ruling 1)
 
 A class declaration calls into the same map `declare_global` maintains
 (`compiler/lib/scope.rs:179`), so a class and an `import … as Name` can no longer both claim one
@@ -315,7 +315,7 @@ body; `class None` in a user module; **and both cross-kind orderings** (`import 
 `class Point`, and the reverse — §3.6). Positive lane: `@variant` still expands; bootstrap runs;
 `x == None` holds after a `None`-adjacent compile.
 
-**Confirming test, not new work** (decision 0066): `import "a" as P` twice already errors via
+**Confirming test, not new work** (PDR-0002): `import "a" as P` twice already errors via
 U-BINDINGS' `declare_global`. Add the fixture so the behavior is pinned by this unit's lane
 rather than left implicit in another unit's.
 
@@ -329,7 +329,7 @@ Error fixtures go in the **negative** subdir or the suite reddens.
 
 ## 8. Decisions flagged (flag, don't pick)
 
-None open. Settled: decision 0065's eight rulings, the (b) scope ruling on #17,
+None open. Settled: PDR-0001's eight rulings, the (b) scope ruling on #17,
 `DEC-CLASSNS-A` (span on `ClassLayout`, unit A), the IC-fixture swap to Rust-level tests (§7),
 and the four `class.*` error codes (§3.1) — all ruled 2026-07-19.
 

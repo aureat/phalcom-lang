@@ -1,8 +1,8 @@
 # U-CLASSCLOSE — Implementation spec
 
 Companion to [`plan.md`](plan.md). Governed by
-[decision 0065](../../../decisions/0065-classes-are-closed.md) (**Accepted**), as amended by
-[decision 0066](../../../decisions/0066-class-declarations-join-the-binding-namespace.md).
+[PDR-0001](../../../decisions/0001-classes-are-closed.md) (**Accepted**), as amended by
+[PDR-0002](../../../decisions/0002-class-declarations-join-the-binding-namespace.md).
 
 **Status: READY to dispatch. No open decisions** — both were ruled 2026-07-19, see
 [§14](#14-decisions--ruled-2026-07-19): `Bytecode::Class` keeps its single operand, and the
@@ -44,7 +44,7 @@ calls "the single most likely way to break the build" — is **not a hazard at a
 
 ### 1.1 The bool operand is unnecessary: stub completion already emits a different instruction
 
-`plan.md` §3.3 and decision 0065 ruling 4 both reason from "`Bytecode::Class(u16)` means two
+`plan.md` §3.3 and PDR-0001 ruling 4 both reason from "`Bytecode::Class(u16)` means two
 things, and the runtime guesses which by probing `classes` by name." That is true of the
 **runtime arm**. It is **false of the compiler**, which has discriminated the two cases since
 before this decision:
@@ -100,7 +100,7 @@ table when it was made.
 
 ### 1.2 The two-span diagnostic has nowhere to render — compile-error spans are dead today
 
-Decision 0066 §4 correctly says the two-span diagnostic is new machinery. It is newer than that.
+PDR-0002 §4 correctly says the two-span diagnostic is new machinery. It is newer than that.
 
 - **Miette is not used anywhere in this repo.** It is declared in the root `Cargo.toml` and
   `CLAUDE.md` names it as the convention, but `use miette` / `miette::` appears in **zero** `.rs`
@@ -227,7 +227,7 @@ and inside the crate `pub(crate) world_version` is reachable with no public API 
 them there.
 
 Rejected: **making `world_version` `pub`** or adding a `VM::install_method` accessor. Either is a
-public-API commitment that previews decision 0065 ruling 7's reflection layer — the exact thing
+public-API commitment that previews PDR-0001 ruling 7's reflection layer — the exact thing
 the ruling defers and bounds. A test seam is not a reason to open it. See §14.2; this is the
 conditional trigger the dispatch handoff named, surfaced rather than silently resolved.
 
@@ -330,7 +330,7 @@ this unit.
 ## 3. The diagnostic — ruled, option A
 
 > **RULED 2026-07-19: option A.** Both spans in the error value, both locations in the message
-> text. No compile-error renderer is built in this unit; decision 0066's mechanism is amended
+> text. No compile-error renderer is built in this unit; PDR-0002's mechanism is amended
 > accordingly. §14.2 records the ruling. The three options and their costs are kept below because
 > the fixture design (§11.3) and the must-not-preclude check (§13) both depend on knowing which
 > was chosen and why.
@@ -363,7 +363,7 @@ prints — it would incidentally light up the five existing dead spans, which is
 improvement and a genuine scope expansion, with a blast radius across every negative fixture whose
 sidecar asserts compile-error text.
 
-**Option C — single span on the duplicate.** Amend decision 0066. Cheapest; explicitly named by
+**Option C — single span on the duplicate.** Amend PDR-0002. Cheapest; explicitly named by
 0066 as the sanctioned fallback.
 
 **Ruled: A.** It satisfies ruling 2's *user-visible intent* — the user's question is
@@ -377,7 +377,7 @@ Under A, 0066 needs a **one-line amendment**: "rendered as two miette labels" be
 both spans in the error value; both locations appear in the message text. Literal two-label
 rendering awaits a compile-error renderer, which does not exist." That is a mechanism correction,
 not a reversal of ruling 2 — both spans are still carried and both locations still reach the user.
-**That amendment is recorded in decision 0066's Decision §2** (2026-07-19); see §14.2.
+**That amendment is recorded in PDR-0002's Decision §2** (2026-07-19); see §14.2.
 
 The first declaration's span comes from `ClassLayout.declared_at`, which U-CLASSNS §7 adds and
 this unit is the first to read.
@@ -495,7 +495,7 @@ the guard is its prerequisite, and the entry is rewritten, not struck.
 
 ---
 
-## 8. Class names register in `global_bindings` (decision 0066, ruling 1)
+## 8. Class names register in `global_bindings` (PDR-0002, ruling 1)
 
 A class declaration registers its name in the map `declare_global` maintains
 (`compiler/lib/scope.rs:179`), so a class and an `import … as Name` can no longer both claim one
@@ -684,14 +684,14 @@ reopen them.
 **14.1 `Bytecode::Class` keeps its single operand. RULED — no bool.**
 
 `Class(u16)` is unchanged; `bytecode.rs`'s enum is not edited. §1.1 is the evidence: the compiler
-already emits `Constant` for stub completion and `Class` only for allocate-fresh, so decision 0065
+already emits `Constant` for stub completion and `Class` only for allocate-fresh, so PDR-0001
 ruling 4's "distinct opcode" requirement is satisfied on the emit side today. What this unit
 implements from ruling 4 is the **core gate** (§5.1) and the **deletion** of `dispatch.rs:768-788`
 (§5.2).
 
 The prior "a bool operand, not a second opcode" ruling chose between two shapes on the premise
 that `Class` was ambiguous *to the compiler*. That premise is false, and the third option — no
-operand — was not on the table when it was made. **Decision 0065 ruling 4 is not amended**: its
+operand — was not on the table when it was made. **PDR-0001 ruling 4 is not amended**: its
 text requires a distinct opcode for stub completion, which `Constant` is.
 
 **14.2 The diagnostic: both spans in the value, both locations in the message. RULED — §3 option A.**
@@ -700,7 +700,7 @@ Add `ClassAlreadyDefined(String, SourceRange, SourceRange)`; resolve the first d
 line/column from its span and name it in the message text. **No compile-error renderer is built in
 this unit.** The negative fixture asserts text that only the two-location form can produce (§11.3).
 
-**Decision 0066 is amended** to record the mechanism change — "rendered as two miette labels"
+**PDR-0002 is amended** to record the mechanism change — "rendered as two miette labels"
 becomes "carries both spans in the error value; both locations appear in the message text."
 Ruling 2's intent is fully delivered; only the rendering mechanism changes, and the variant already
 carries both spans so literal two-label rendering later is a pure rendering change.

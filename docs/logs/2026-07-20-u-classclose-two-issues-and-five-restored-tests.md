@@ -3,8 +3,8 @@
 - Date: 2026-07-20
 - Commits: `14cdfb9` (U-CLASSNS follow-up fix), `c346200` (parser nested-class ban),
   `7c2cfab` (U-CLASSCLOSE landed), this session's follow-up (in-crate kernel-reopen tests)
-- Realizes: [decision 0065](../decisions/0065-classes-are-closed.md), as amended by
-  [decision 0066](../decisions/0066-class-declarations-join-the-binding-namespace.md), per
+- Realizes: [PDR-0001](../decisions/0001-classes-are-closed.md), as amended by
+  [PDR-0002](../decisions/0002-class-declarations-join-the-binding-namespace.md), per
   `docs/forge/units/U-CLASSCLOSE/implementation-spec.md`
 - Related: [U-CLASSNS implementation-spec.md](../forge/units/U-CLASSNS/implementation-spec.md) —
   the module-scoped `ClassKey` re-key this unit builds on
@@ -55,12 +55,12 @@ not a contrived case) — `ArgumentError` is declared in `core.ph` (`extends Err
 `.ph` library class), not by `add_class!`. Under §4's literal instruction it becomes
 `class.reserved_name`, which is wrong: `ArgumentError` carries no literal-bound `ClassId` the way
 `List`/`Object`/`Number` do (nothing indexes it by name at a hot path), so redeclaring or
-shadowing it from a non-core module is not the trap [decision 0065 ruling
-3](../decisions/0065-classes-are-closed.md) exists to close.
+shadowing it from a non-core module is not the trap [PDR-0001 ruling
+3](../decisions/0001-classes-are-closed.md) exists to close.
 
 Fix: a new `VM::kernel_class_names: HashSet<Symbol>`, populated by `add_class!` itself as each
 primitive installs (plus one explicit `insert` for `None`, which bypasses `add_class!` entirely
-since its global binds the singleton value, not the class). This is decision 0065 ruling 3's own
+since its global binds the singleton value, not the class). This is PDR-0001 ruling 3's own
 literal wording ("the name set is the one enumerated in `add_class!`") — the spec's §4 elaboration
 overreached past the ruling it was supposed to implement.
 
@@ -123,7 +123,7 @@ The in-crate tests assert the mechanism (flag flips, deopt branch taken, overrid
 through) using values fabricated in Rust (`Value::Bool(false)`, a sentinel `Value::Number(-999.0)`,
 a native `toString` returning `"N"`). They do **not** exercise the compiler's own
 `.ph`-syntax-to-override path — that half is now structurally untestable from surface Phalcom, by
-design (decision 0065). If the *install call site itself* (`Bytecode::Method`'s handler) ever stops
+design (PDR-0001). If the *install call site itself* (`Bytecode::Method`'s handler) ever stops
 calling `add_method`/bumping `world_version`/calling `note_method_installed` in this exact order,
 these tests would not catch it via a `.ph` regression — only via the two `chunk.rs` tests (which
 exercise a **user** class through the real `.ph` compile path) or a future test that compiles a

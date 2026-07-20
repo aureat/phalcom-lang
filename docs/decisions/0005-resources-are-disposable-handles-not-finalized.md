@@ -1,4 +1,4 @@
-# 69. Native resources are closeable handles with a generation-tagged table; no finalizers
+# PDR-0005 — Native resources are closeable handles with a generation-tagged table; no finalizers
 
 - Status: Accepted
 - Date: 2026-07-20
@@ -17,7 +17,7 @@
   true**), [ADR-0013](../adr/accepted/0013-closure-upvalues-and-frame-token-return.md)
   (frame tokens — the generation-tag precedent),
   [ADR-0008](../adr/accepted/0008-layered-exceptions-and-result.md) §4 (unified unwind — what
-  makes `ensure`-scoping sound), [decision 0068](0068-io-is-future-shaped-reactor-owned.md)
+  makes `ensure`-scoping sound), [PDR-0004](0004-io-is-future-shaped-reactor-owned.md)
   (the resources this governs), [ffi.md](../spec/v0.2/drafts/ffi.md) §8 **F-3** (this closes it),
   `docs/logs/2026-07-19-ensure-temp-root-uaf.md`
 
@@ -113,7 +113,7 @@ languages; **explicit** cleanup can. Phalcom has no safety net by §1, so async 
 nothing — but all four made synchronous scoped cleanup the *primary* mechanism, and async variants
 are additions bolted alongside.
 
-**This does not carve an exception into [decision 0068](0068-io-is-future-shaped-reactor-owned.md)
+**This does not carve an exception into [PDR-0004](0004-io-is-future-shaped-reactor-owned.md)
 §1.** That rule governs operations that *can block*. Given §3c's unbuffered `File`, `close` has
 nothing to flush and `close(2)` on a local descriptor is fast — so it is not a blocking operation
 and never was. The earlier `Future` spelling came from assuming it was.
@@ -245,7 +245,7 @@ governs operations that *can* block, not every member.
   its fd limit — the leak report is the intended way to find that, and it must be built with the
   table rather than after it.
 - The resource table must be drained on VM shutdown, and on isolate teardown if
-  [decision 0067](0067-no-user-visible-threads-fibers-and-isolates.md) §2 is ever built.
+  [PDR-0003](0003-no-user-visible-threads-fibers-and-isolates.md) §2 is ever built.
 - `using`'s desugaring makes `ensure` load-bearing for resource safety, so `ensure`'s own
   correctness is now a resource-safety property. Its GC-rooting regression test
   (`ensure_outcome_survives_collecting_cleanup`) should be read as guarding this decision too.

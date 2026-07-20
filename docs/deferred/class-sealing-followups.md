@@ -1,6 +1,6 @@
 # Deferred: class-sealing follow-ups (unowned)
 
-Split out of the [decision 0065](../decisions/0065-classes-are-closed.md) design work
+Split out of the [PDR-0001](../decisions/0001-classes-are-closed.md) design work
 (2026-07-19). These are items that work surfaced which are **not** in scope for either of
 0065's two units and currently have no owning unit.
 

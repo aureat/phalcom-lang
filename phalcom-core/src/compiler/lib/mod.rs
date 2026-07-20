@@ -69,7 +69,7 @@ pub(crate) struct Compiler<'vm> {
     /// rulings L-3/L-5). There is deliberately no `remove`: a name, once
     /// declared, keeps its declared kind for the rest of compilation.
     ///
-    /// **Class names register here too, as of U-CLASSCLOSE (decision 0066
+    /// **Class names register here too, as of U-CLASSCLOSE (PDR-0002
     /// ruling 8) — but only by insertion, never through [`Self::declare_global`]
     /// itself.** `Statement::Class` still emits its own `DefineGlobal`
     /// directly (`class_decl.rs`) and keeps its own diagnostic
@@ -78,7 +78,7 @@ pub(crate) struct Compiler<'vm> {
     /// misinstruct twice). Routing a class through `declare_global` was
     /// previously unnecessary because reopening was legal and this map's
     /// only consumer was the redeclaration check; now that classes are
-    /// closed (decision 0065), an `import … as Name` and a `class Name` in
+    /// closed (PDR-0001), an `import … as Name` and a `class Name` in
     /// the same unit must collide, so `class_decl.rs` inserts directly into
     /// this map once its own `class.already_defined` check has passed —
     /// which is also what lets `declare_global` (unmodified) catch the

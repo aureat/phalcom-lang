@@ -1699,7 +1699,7 @@ pub fn expand_class_attributes(
         // The class **being declared** (§4.1 of the U-CLASSNS implementation
         // spec): own-module key only, no core-module fallback. A user
         // module's own class of the same name as a kernel class is a
-        // distinct class (decision 0065 — classes are closed) and must not
+        // distinct class (PDR-0001 — classes are closed) and must not
         // inherit the kernel class's sealed status by name collision.
         let name_sym = ctx.interner.intern(&class.name);
         let key = ClassKey { module: ctx.module, name: name_sym };

@@ -64,7 +64,7 @@ to move. Blockers listed are the ones that must be *resolved*, not merely noted.
 |---|---|:--:|:--:|---|---|
 | **1** | **Numeric tower** — `Number` abstract, `Int` (exact, unbounded) / `Float`, bitwise ops, `/` vs `~/` | **5** | **XL** | ADR-0024 (ratified, unbuilt). Nothing else. | `01-numeric-tower.md` |
 | **2** | **`BigInt` surface + `Decimal`** — radix conversion, `modPow`/`gcd`; `Decimal` scale + rounding modes | 4 | L | 1 | `02-bigint-decimal.md` |
-| **3** | **Sealed types / enums** — exhaustiveness checking over `match` | **4** | **M** | Decision 0065 (classes are closed) | `03-sealed-enums.md` |
+| **3** | **Sealed types / enums** — exhaustiveness checking over `match` | **4** | **M** | PDR-0001 (classes are closed) | `03-sealed-enums.md` |
 | **4** | **`Comparable` / `Hashable` / `sort`** — ordering contract, total-order law, stable sort | 2 | M | 1 (`Float` NaN ordering); protocols prototype-only (S-12); **ffi.md F-12** | `04-ordering-hashing.md` |
 | **5** | **`Bytes`** — mutable octet buffer, new heap arm | 3 | M | 1, 4 | `05-bytes.md` |
 | **6** | **`Path`** — opaque, not `String` | 3 | M | 5; **S-4** ruling | `06-path.md` |

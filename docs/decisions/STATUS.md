@@ -1,8 +1,8 @@
-# Decision status tracker
+# PDR status tracker
 
-One row per decision in this folder. Binding maintenance rules are in
-[`README.md`](README.md) — the short version: status lives here **and** in the decision
-file's own header, never anywhere else, and the two are changed in the same edit.
+One row per Phalcom Design Record in this folder. Binding maintenance rules are in
+[`README.md`](README.md) — the short version: status lives here **and** in the PDR's own
+header, never anywhere else, and the two are changed in the same edit.
 
 **Status** is Proposed / Accepted / Retired (Retired covers superseded and deferred).
 **Shipped** is whether the design is implemented in the tree, independent of paper status —
@@ -10,35 +10,29 @@ the two drift apart in both directions in this repo. `✅` = code-verified this 
 evidence named; `❌` = verified absent; `—` = nothing to ship; `?` = not checked, do not
 assume either way.
 
-Numbering continues the ADR sequence (last ADR is 0064) so migration is a `git mv` with no
-renumbering. ADR-0001…0064 remain tracked in [`../adr/STATUS.md`](../adr/STATUS.md) until
-they move here.
+PDR numbering is independent of the ADR sequence and starts at 0001. ADR-0001…0064 are frozen
+and remain tracked in [`../adr/STATUS.md`](../adr/STATUS.md); the pairing table for any ADR a
+PDR supersedes lives in [`README.md`](README.md#adr--pdr-mapping).
 
 | # | Title | Status | Supersedes | Superseded by | Shipped |
 |---|---|---|---|---|---|
-| [0065](0065-classes-are-closed.md) | Classes are closed: remove class reopening | Accepted | ADR-0026 (Axis 1) | | ❌ ruled 2026-07-19, unimplemented |
-| [0066](0066-class-declarations-join-the-binding-namespace.md) | Class declarations join the binding namespace; duplicate diagnostic carries both spans | Accepted | *amends* 0065 (rulings 2, 8) | | ⚠️ partial — 0065 ruling 8's import half shipped with U-BINDINGS (`b843fe2`), verified live; the rest unimplemented |
-| [0067](0067-no-user-visible-threads-fibers-and-isolates.md) | No user-visible shared-memory threads: fibers now, isolates if ever | Accepted | | | — mostly a *constraint*, not code. Its live half is already true (single-threaded VM, `VecDeque` ready-queue); §3's worker-thread boundary binds 0068 and is unimplemented |
-| [0068](0068-io-is-future-shaped-reactor-owned.md) | IO is `Future`-shaped and reactor-owned; reactor built before the IO surface | Accepted | | | ❌ ruled 2026-07-20, unimplemented. Precondition met: E004 fixed (`f479189`), fibers genuinely park. Closes system.md's open `System.sleep(_)` question |
-| [0069](0069-resources-are-disposable-handles-not-finalized.md) | Native resources are closeable handles with a generation-tagged table; no finalizers | Accepted (**revised twice, same day 2026-07-20** — `close` not `dispose`; **synchronous `Result`**, reversing an interim `Future` spelling; `File` unbuffered; `Resource` root class; `using` withdrawn. See its header) | | | ❌ ruled 2026-07-20, unimplemented. Selector surface ratified in §7; **§7a `BufferedWriter#close` is explicitly unruled** and must be settled before that class is built. Closes ffi.md F-3; defers the multi-axis protocol problem to [`docs/deferred/io-protocol-axes-need-stateless-interfaces.md`](../deferred/io-protocol-axes-need-stateless-interfaces.md) |
+| [0001](0001-classes-are-closed.md) | Classes are closed: remove class reopening | Accepted | ADR-0026 (Axis 1) | | ❌ ruled 2026-07-19, unimplemented |
+| [0002](0002-class-declarations-join-the-binding-namespace.md) | Class declarations join the binding namespace; duplicate diagnostic carries both spans | Accepted | *amends* 0001 (rulings 2, 8) | | ⚠️ partial — 0001 ruling 8's import half shipped with U-BINDINGS (`b843fe2`), verified live; the rest unimplemented |
+| [0003](0003-no-user-visible-threads-fibers-and-isolates.md) | No user-visible shared-memory threads: fibers now, isolates if ever | Accepted | | | — mostly a *constraint*, not code. Its live half is already true (single-threaded VM, `VecDeque` ready-queue); §3's worker-thread boundary binds 0004 and is unimplemented |
+| [0004](0004-io-is-future-shaped-reactor-owned.md) | IO is `Future`-shaped and reactor-owned; reactor built before the IO surface | Accepted | | | ❌ ruled 2026-07-20, unimplemented. Precondition met: E004 fixed (`f479189`), fibers genuinely park. Closes system.md's open `System.sleep(_)` question |
+| [0005](0005-resources-are-disposable-handles-not-finalized.md) | Native resources are closeable handles with a generation-tagged table; no finalizers | Accepted (**revised twice, same day 2026-07-20** — `close` not `dispose`; **synchronous `Result`**, reversing an interim `Future` spelling; `File` unbuffered; `Resource` root class; `using` withdrawn. See its header) | | | ❌ ruled 2026-07-20, unimplemented. Selector surface ratified in §7; **§7a `BufferedWriter#close` is explicitly unruled** and must be settled before that class is built. Closes ffi.md F-3; defers the multi-axis protocol problem to [`docs/deferred/io-protocol-axes-need-stateless-interfaces.md`](../deferred/io-protocol-axes-need-stateless-interfaces.md) |
+| [0006](0006-repl-completeness-is-a-parser-signal.md) | REPL completeness is a parser signal; the lexer reports unterminated modes | Accepted | | | ❌ ruled 2026-07-20, unimplemented |
+| [0007](0007-bounded-call-depth-and-native-reentrancy.md) | Bounded call depth and native re-entrancy: two counters, one error | Accepted | | | ❌ ruled 2026-07-20, unimplemented. Closes the overlay's "resource limits unspecified" gap |
+| [0008](0008-cell-boundary-diagnostics-and-state-hygiene.md) | Every failed cell reports, and reporting happens before unwinding | Accepted | | | ❌ ruled 2026-07-20, unimplemented. Three live defects named with `file:line` |
+| [0009](0009-defer-lsp-backed-repl-surface.md) | The LSP-backed REPL surface waits for ADR-0056 to be ratified | Accepted | | | — a deferral. Its obligations (DEFERRED entry, doc-comment fix, tracker correction) are unimplemented |
 
 ## Cross-tracker obligations
 
-A decision here that supersedes an ADR must update the ADR in **both** places — the ADR
-file's own status line, and its row in `../adr/STATUS.md`.
+A PDR that supersedes an ADR must update the ADR in **both** places — the ADR file's own
+status line, and its row in `../adr/STATUS.md` — and add a row to the mapping table in
+[`README.md`](README.md#adr--pdr-mapping).
 
-- **0065 → ADR-0026**: done 2026-07-19. ADR-0026 flipped to Retired in
+- **PDR-0001 → ADR-0026**: done 2026-07-19. ADR-0026 flipped to Retired in
   `../adr/accepted/0026-class-hierarchy-mutability.md` and in `../adr/STATUS.md`. The file
-  stays in `accepted/` pending migration — its own status line is authoritative, not its
-  path, which is precisely the ADR-layout defect this folder exists to remove.
-
-## Known defects in the ADR records (fix during migration, not before)
-
-Found while writing 0065. Recorded so migration does not have to rediscover them:
-
-- `../adr/README.md` carries a row with a literal `n` for its number, linking
-  `accepted/n-class-hierarchy-mutability.md` — a file that does not exist. The real file is
-  `0026-class-hierarchy-mutability.md`.
-- ADR-0014 is marked Superseded in its own body but listed Accepted in `../adr/README.md`.
-- `../adr/README.md` and `../adr/STATUS.md` are two indexes over the same set and disagree.
-  One should not survive migration.
+  stays in `accepted/` — its own status line is authoritative, not its path, which is
+  precisely the ADR-layout defect this folder exists to remove.

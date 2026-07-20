@@ -1,8 +1,8 @@
 # U-CLASSNS — Implementation spec
 
 Companion to [`plan.md`](plan.md). Governed by
-[decision 0065](../../../decisions/0065-classes-are-closed.md) ruling 1 (**Accepted**), as
-amended by [decision 0066](../../../decisions/0066-class-declarations-join-the-binding-namespace.md).
+[PDR-0001](../../../decisions/0001-classes-are-closed.md) ruling 1 (**Accepted**), as
+amended by [PDR-0002](../../../decisions/0002-class-declarations-join-the-binding-namespace.md).
 
 **Status: READY to dispatch.** Unit **A** of two. Unit **B**
 ([`U-CLASSCLOSE`](../U-CLASSCLOSE/implementation-spec.md)) must land after this one — its
@@ -14,7 +14,7 @@ census found **two more tables and one compiler field** that `plan.md` does not 
 cannot be left behind. Both changes are in [§1](#1-corrections-to-planmd--read-this-first).
 **Read §1 before §2.**
 
-> **Tree state.** Written against `77b7030`. `d14599b` (decision 0066) plus two `docs(learn)`
+> **Tree state.** Written against `77b7030`. `d14599b` (PDR-0002) plus two `docs(learn)`
 > commits sit between it and the SHA `plan.md` cites; all three are documentation-only, so every
 > code anchor below is against live source, re-read at `77b7030`. Main has **live concurrent
 > sessions** — re-verify before starting, commit narrow paths on `main` itself, never
@@ -107,7 +107,7 @@ today, seven after this unit, and the precedent for adding compile-metadata to i
 
 ### 1.5 The sole `field_layouts` insert moved: `:424` → `:436`
 
-`plan.md`, decision 0065, and the U-CLASSCLOSE plan all cite `class_decl.rs:424` as the sole
+`plan.md`, PDR-0001, and the U-CLASSCLOSE plan all cite `class_decl.rs:424` as the sole
 `field_layouts.insert`. U-BINDINGS moved it. Current anchors:
 
 | What | Line |
@@ -212,7 +212,7 @@ is the ruling; §11's slot-aliasing fixture is the gate. **Read §4 before writi
 /// writes into the module object's own globals), but class *identity* was
 /// keyed by bare name VM-wide, so two modules declaring the same class name
 /// silently collapsed into one class
-/// ([decision 0065](../../../docs/decisions/0065-classes-are-closed.md)
+/// ([PDR-0001](../../../docs/decisions/0001-classes-are-closed.md)
 /// ruling 1). This key restores the symmetry: since file = module
 /// (ADR-0045), "same module" and "same file" are the same check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -443,7 +443,7 @@ Add a seventh field:
 ///
 /// Stored by this unit, consumed by
 /// [`U-CLASSCLOSE`](../../../docs/forge/units/U-CLASSCLOSE/implementation-spec.md):
-/// decision 0065 ruling 2's `X is already defined` diagnostic carries **both**
+/// PDR-0001 ruling 2's `X is already defined` diagnostic carries **both**
 /// spans, and the *first* declaration's location is otherwise unrecoverable —
 /// no sibling map records it. Dead until unit B lands; that is intentional,
 /// so the struct rewrite happens once.
@@ -453,10 +453,10 @@ pub declared_at: SourceRange,
 Populated at the sole construction site (`class_decl.rs:427`) from `class_def.range`, already in
 scope there. **No diagnostic work in this unit.** Unit B reads it.
 
-Rejected alternatives, per `plan.md` §3.4 and decision 0066: a separate `ClassKey → SourceRange`
+Rejected alternatives, per `plan.md` §3.4 and PDR-0002: a separate `ClassKey → SourceRange`
 map owned by unit B (the same key twice, no separation of concerns, and B would be editing a
 struct A just rewrote), and degrading to a single-span diagnostic (contradicts a ruling — and if
-that becomes necessary it is an amendment to decision 0066, not a quiet under-delivery).
+that becomes necessary it is an amendment to PDR-0002, not a quiet under-delivery).
 
 Note the field is `SourceRange`, not `Option<SourceRange>`: there is one construction site and it
 always has a range, so an `Option` would add a `None` case no code can produce.

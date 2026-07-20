@@ -1,4 +1,4 @@
-# 67. No user-visible shared-memory threads: fibers now, isolates if ever
+# PDR-0003 — No user-visible shared-memory threads: fibers now, isolates if ever
 
 - Status: Accepted
 - Date: 2026-07-20
@@ -7,7 +7,7 @@
   [ADR-0030](../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) (fibers as the
   sole concurrency primitive),
   [ADR-0050](../adr/accepted/0050-non-moving-mark-sweep-collector.md) (precise root enumeration
-  from per-VM state), [decision 0068](0068-io-is-future-shaped-reactor-owned.md) (the IO shape
+  from per-VM state), [PDR-0004](0004-io-is-future-shaped-reactor-owned.md) (the IO shape
   this ruling makes possible)
 
 ## Context
@@ -50,7 +50,7 @@ only that isolates are the *door*, so nobody builds a shared-memory door by acci
 ### 3. Internal worker threads are permitted, under one condition
 
 The VM being single-threaded does not forbid the *runtime* from using threads invisibly — see
-[decision 0068](0068-io-is-future-shaped-reactor-owned.md), which needs a filesystem thread pool.
+[PDR-0004](0004-io-is-future-shaped-reactor-owned.md), which needs a filesystem thread pool.
 The condition is absolute:
 
 > **A worker thread must never touch `Value`, `ObjRef`, the heap, or any VM state.** It receives

@@ -220,7 +220,7 @@ mod tests {
     // U-CLASSCLOSE §11.2: the two `ic_add_method_invalidates`/
     // `ic_override_after_caching` golden fixtures used to prove inline-cache
     // invalidation by *reopening* a class — no longer expressible from `.ph`
-    // source now that classes are closed (decision 0065). Rewritten here as
+    // source now that classes are closed (PDR-0001). Rewritten here as
     // in-crate tests driving the install path directly (`add_method` +
     // `world_version`), which needs `VM::world_version` (`pub(crate)`) —
     // unreachable from an integration test, reachable from inside the crate

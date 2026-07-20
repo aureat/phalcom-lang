@@ -63,9 +63,9 @@ not-yet-executed line.**
 `phalcom-lsp` is fed **only the line being typed**, never an accumulated buffer of prior
 cells.
 
-The reason is decision 0065 ruling 6. Cells *shadow*: a later `class Foo` binds a new
+The reason is PDR-0001 ruling 6. Cells *shadow*: a later `class Foo` binds a new
 class. Replaying all cells as one synthetic document would present two `class Foo`
-declarations to the index — and under decision 0066 that is `class.already_defined`, a
+declarations to the index — and under PDR-0002 that is `class.already_defined`, a
 hard error. Reconstructing shadowing inside the static layer would reimplement cell
 semantics in a second place, with a second chance to get it wrong.
 

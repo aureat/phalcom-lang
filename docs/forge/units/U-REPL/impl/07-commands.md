@@ -56,7 +56,7 @@ Three separate rulings key off per-`Compiler` state:
 
 1. §D4's two-set immutability ([§03](03-immutability.md)),
 2. U-BINDINGS' same-scope redeclaration ban (`compiler/lib/scope.rs:118`, `:170`),
-3. decision 0066's registration of class declarations in the same `global_bindings` map.
+3. PDR-0002's registration of class declarations in the same `global_bindings` map.
 
 Re-running `let x = 1` through the surviving `Compiler` trips the redeclaration ban;
 re-running `class Foo {}` trips `class.already_defined`. **`:reload` would fail on any

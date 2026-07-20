@@ -63,7 +63,7 @@ pub enum CellOutcome {
 
 ### 1.4 Class redefinition — settled, write against the post-CLASSCLOSE premise
 
-Decision 0065 ruling 6: **cells shadow; they do not reopen.** A later `class Foo` binds
+PDR-0001 ruling 6: **cells shadow; they do not reopen.** A later `class Foo` binds
 a new class; instances made under the old definition keep it (they hold a `ClassId`);
 the old class becomes unreachable by name. No live object is silently patched.
 

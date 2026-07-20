@@ -1,11 +1,11 @@
-# 65. Classes are closed: remove class reopening
+# PDR-0001 — Classes are closed: remove class reopening
 
 - Status: Accepted
 - Date: 2026-07-19
 - Supersedes: [ADR-0026](../adr/accepted/0026-class-hierarchy-mutability.md) — reverses its
   **Axis 1** ("methods are open"). Axis 2 (superclass reparenting is sealed) is kept
   unchanged and strengthened.
-- Amended by: [decision 0066](0066-class-declarations-join-the-binding-namespace.md)
+- Amended by: [PDR-0002](0002-class-declarations-join-the-binding-namespace.md)
   (2026-07-19) — after U-BINDINGS landed. Narrows **ruling 8** (its `import … as Name` half is
   already shipped and verified live) and fixes the mechanism and diagnostic shape behind
   **ruling 2** (classes register in `global_bindings` to close a cross-kind collision hole; the

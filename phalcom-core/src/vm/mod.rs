@@ -30,7 +30,7 @@ use phalcom_common::range::SourceRange;
 /// writes into the module object's own globals), but class *identity* was
 /// keyed by bare name VM-wide, so two modules declaring the same class name
 /// silently collapsed into one class
-/// ([decision 0065](../../../docs/decisions/0065-classes-are-closed.md)
+/// ([PDR-0001](../../../docs/decisions/0001-classes-are-closed.md)
 /// ruling 1). This key restores the symmetry: since file = module
 /// (ADR-0045), "same module" and "same file" are the same check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -59,7 +59,7 @@ pub struct ClassLayout {
     ///
     /// Stored by U-CLASSNS, consumed by
     /// [`U-CLASSCLOSE`](../../../docs/forge/units/U-CLASSCLOSE/implementation-spec.md):
-    /// decision 0065 ruling 2's `X is already defined` diagnostic carries **both**
+    /// PDR-0001 ruling 2's `X is already defined` diagnostic carries **both**
     /// spans, and the *first* declaration's location is otherwise unrecoverable —
     /// no sibling map records it. Dead until unit B lands; that is intentional,
     /// so the struct rewrite happens once.
@@ -132,7 +132,7 @@ pub struct VM {
 
     /// Named classes by identity [`ClassKey`], each a [`ClassId`] handle.
     pub classes: HashMap<ClassKey, ClassId>,
-    /// Kernel class names reserved to the core module (decision 0065 ruling
+    /// Kernel class names reserved to the core module (PDR-0001 ruling
     /// 3, U-CLASSCLOSE §4): exactly the names `VM::install_core`'s
     /// `add_class!` macro binds — the Rust-installed primitives (`Object`,
     /// `List`, `Number`, `Error`, …), **not** every class `core.ph` itself

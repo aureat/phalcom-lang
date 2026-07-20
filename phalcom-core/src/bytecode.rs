@@ -138,7 +138,7 @@ pub enum Bytecode {
     SuperSend(u8, u16, u16),
 
     /// Creates a new class. This is the *whole* truth (U-CLASSCLOSE §5.3,
-    /// decision 0065 ruling 4) — classes are closed, so there is no second
+    /// PDR-0001 ruling 4) — classes are closed, so there is no second
     /// meaning to discriminate at runtime. Stub completion (installing
     /// `.ph` methods onto a Rust-installed kernel class, `core.ph` only) is
     /// a compile-time-resolved case the compiler emits [`Bytecode::Constant`]
@@ -328,7 +328,7 @@ pub enum Bytecode {
     /// [`Bytecode::DefineGlobal`] binds. Emitted once at the tail of every
     /// class-body compile (`compiler/lib/class_decl.rs`'s `Statement::Class`
     /// lowering, after the member loop, before `DefineGlobal`). Classes are
-    /// closed (U-CLASSCLOSE, decision 0065): this always rebuilds a
+    /// closed (U-CLASSCLOSE, PDR-0001): this always rebuilds a
     /// brand-new class's index from its own directly-defined methods merged
     /// with its superclass's — there is no reopen case to distinguish it
     /// from. The kernel's native-only rows (no `.ph` class body) are

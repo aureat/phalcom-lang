@@ -171,9 +171,9 @@ exists to avoid.
 
 **One lifetime accident now carries three rulings.** `Compiler` being constructed
 per-cell is currently what makes cross-cell rebinding work — and since U-BINDINGS
-and decision 0065 landed, it is *also* what makes the redeclaration ban not fire
+and PDR-0001 landed, it is *also* what makes the redeclaration ban not fire
 across cells, and what lets 0065 ruling 6's class shadowing work (class
-declarations register in `global_bindings` per decision 0066, and that registry is
+declarations register in `global_bindings` per PDR-0002, and that registry is
 per-`Compiler` too). Three independent rulings, one undocumented lifetime. The
 regression test below is the only thing that would catch a refactor breaking any of
 them.
@@ -327,7 +327,7 @@ Carrying weight that would otherwise sit in an ADR (D5):
 ## Decisions to flag (DEC-REPL)
 
 - **DEC-REPL-A — class redefinition. CLOSED** by
-  [decision 0065](../../../decisions/0065-classes-are-closed.md) ruling 6: *REPL
+  [PDR-0001](../../../decisions/0001-classes-are-closed.md) ruling 6: *REPL
   cells shadow; they do not reopen.* A later cell's `class Foo` binds a **new**
   class; instances made under the old definition keep it (they hold a `ClassId`,
   nothing migrates); the old class becomes unreachable by name. No live object is

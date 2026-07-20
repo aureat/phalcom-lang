@@ -61,7 +61,7 @@ U-CLASSCLOSE removes the class-reopen seam DEC-REPL-A reasoned about; its spec s
 "whichever lands second rebases onto a changed premise. Flag at integration."
 
 **This is flagged, and it is already handled.** [§02 §1.4](02-session-and-cells.md)
-writes the cell loop against decision 0065 ruling 6 (cells shadow, never reopen) — the
+writes the cell loop against PDR-0001 ruling 6 (cells shadow, never reopen) — the
 post-CLASSCLOSE world — from the start. Whichever unit lands second, U-REPL's behavior
 is identical and nothing rebases.
 

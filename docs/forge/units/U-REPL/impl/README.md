@@ -93,7 +93,7 @@ stages 0–2, which are small.
 ## Decisions
 
 **Nothing is open.** DEC-REPL-A/B/C are all CLOSED (plan.md §"Decisions to flag"), and
-decision 0065 ruling 6 settles class redefinition. An implementer may not reopen them.
+PDR-0001 ruling 6 settles class redefinition. An implementer may not reopen them.
 
 Two new questions surfaced while grounding this spec. Both are **ruled here**, not
 deferred, because leaving them open would block stage 0:
@@ -107,7 +107,7 @@ deferred, because leaving them open would block stage 0:
 
 Three independent rulings key off `Compiler` being constructed **per cell**: §D4's
 two-set immutability, U-BINDINGS' same-scope redeclaration ban
-(`compiler/lib/scope.rs:118`, `:170`), and decision 0066's registration of class
+(`compiler/lib/scope.rs:118`, `:170`), and PDR-0002's registration of class
 declarations in the same `global_bindings` map. One undocumented lifetime carries all
 three. The cross-cell regression test in [§03](03-immutability.md) is the only guard.
 Do not weaken it, and do not make `Compiler` session-lived as an "optimization".

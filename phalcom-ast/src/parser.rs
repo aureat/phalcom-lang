@@ -1553,7 +1553,7 @@ impl<'source> Parser<'source> {
     ///
     /// Small statements are separated by `;` and each group is terminated by a
     /// newline (matching the LALRPOP `BlockStatements` rule); blank lines are
-    /// ignored. Class declarations are module top-level only (decision 0065
+    /// ignored. Class declarations are module top-level only (PDR-0001
     /// ruling 5, U-CLASSCLOSE §6) — a nested `class` still *parses* (so the
     /// error carries a real span and the surrounding block otherwise reads
     /// normally) but is rejected right after with `class.nested_declaration`.

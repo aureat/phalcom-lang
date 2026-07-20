@@ -58,7 +58,7 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0023 | Amend floor — `hash`, kernel reflection, `Number#toString`, `Error#message`/`raise` (omnibus pre-clearance) | Accepted | | partial — pre-clears 0028/0036/0037, see those rows |
 | 0024 | Split `Number` → `Int` (bignum) + `Float` | Accepted | | ❌ **not built** — code is still flat (`core.ph:75`); committed design, zero implementation |
 | 0025 | External labels vs internal param names | Accepted | | ✅ |
-| 0026 | Methods open; superclass reparenting sealed | Retired | [decision 0065](../decisions/0065-classes-are-closed.md) (Axis 1 only; Axis 2 kept) | ✅ shipped, being removed |
+| 0026 | Methods open; superclass reparenting sealed | Retired | [PDR-0001](../decisions/0001-classes-are-closed.md) (Axis 1 only; Axis 2 kept) | ✅ shipped, being removed |
 | 0027 | Module = file, public-by-default exports | Retired | ADR-0045 (partial — resolver + import-form grammar only) | partial |
 | 0028 | Amend floor — admit `Method` reflection | Accepted | | ✅ (code-confirmed 2026-07-14: `primitive/block.rs`, `primitive/method.rs`) |
 | 0029 | List literals `[a,b,c]` | Accepted (ratified w/ 0032) | | ✅ |

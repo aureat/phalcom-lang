@@ -180,9 +180,9 @@ pub enum CompilerError {
 
     /// A second `class X` declaration in the same module, or a `class`
     /// whose name collides with an `import … as Name` already bound in this
-    /// unit (decision 0065 ruling 2, decision 0066, U-CLASSCLOSE §2.1/§8).
+    /// unit (PDR-0001 ruling 2, PDR-0002, U-CLASSCLOSE §2.1/§8).
     ///
-    /// Classes are closed after definition (decision 0065): there is no
+    /// Classes are closed after definition (PDR-0001): there is no
     /// reopening, so a second declaration of the same name in one module is
     /// always an error, never a merge. Carries **both** spans — this
     /// declaration's own and the original's — plus the original's
@@ -210,7 +210,7 @@ pub enum CompilerError {
 
     /// A kernel class name (e.g. `List`, `Object`, `Number` — the exact set
     /// `VM::install_core`'s `add_class!` binds) declared by a non-core
-    /// module (decision 0065 ruling 3, U-CLASSCLOSE §4).
+    /// module (PDR-0001 ruling 3, U-CLASSCLOSE §4).
     ///
     /// Module-scoped class identity alone would already make a user's own
     /// `List` a distinct, harmless local class — literals bind

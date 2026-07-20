@@ -22,7 +22,7 @@ accident.
   `if self.global_bindings.get(&name_sym) == Some(&false)` → error.
 - **same-scope redeclaration** — `compiler/lib/scope.rs`, documented at `:118`
   (locals) and `:170` (globals): "Rejects a same-scope redeclaration exactly as
-  `add_local` does for locals". Class declarations are exempt (decision 0066 registers
+  `add_local` does for locals". Class declarations are exempt (PDR-0002 registers
   them in the same map).
 
 A `Compiler` lives for exactly one `compile_closure` call. So cross-cell rebinding
@@ -73,7 +73,7 @@ confined to a named `UnitKind`, not a global weakening.
 
 1. §D4's two-set immutability (this stage),
 2. U-BINDINGS' same-scope redeclaration ban (`scope.rs:118`, `:170`),
-3. decision 0066's registration of class declarations in the same `global_bindings` map
+3. PDR-0002's registration of class declarations in the same `global_bindings` map
    (which is what makes 0065 ruling 6's class shadowing work).
 
 All three depend on `Compiler` being constructed **per cell**. A refactor that makes

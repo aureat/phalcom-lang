@@ -1,6 +1,6 @@
 # 26. Methods are open; superclass reparenting is sealed
 
-> **RETIRED 2026-07-19 by [decision 0065](../../decisions/0065-classes-are-closed.md).**
+> **RETIRED 2026-07-19 by [PDR-0001](../../decisions/0001-classes-are-closed.md).**
 > **Axis 1 is reversed** — classes are closed after definition; class reopening is removed
 > from the language. **Axis 2 is unchanged and strengthened** — the superclass link stays
 > sealed. This ADR's own rejection of "fully sealed (Wren)" reasoned that *"Axis 1 is free
@@ -13,7 +13,7 @@
 > This file stays in `accepted/` pending the `docs/adr` → `docs/decisions` migration; its
 > status line above is authoritative, not its path.
 
-- Status: Retired (superseded by decision 0065, 2026-07-19)
+- Status: Retired (superseded by PDR-0001, 2026-07-19)
 - Date: 2026-07-12
 - Related: [ADR-0011](0011-static-instance-slot-layout.md) (static per-class slot layout),
   [ADR-0017](0017-class-side-stored-static-fields.md) (class-side field offsets up the tower),

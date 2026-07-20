@@ -93,9 +93,9 @@ Every row below was checked against the tree at `8b4465c` during authoring. Rows
 `core.ph`-derived numeric protocol has somewhere to live. It gains **zero** floor bindings
 (§6) and **zero** instances.
 
-### 2.2 Interaction with decision 0065 (classes are closed)
+### 2.2 Interaction with PDR-0001 (classes are closed)
 
-[Decision 0065](../../decisions/0065-classes-are-closed.md) is Accepted and **unimplemented**
+[PDR-0001](../../decisions/0001-classes-are-closed.md) is Accepted and **unimplemented**
 (verified: `docs/decisions/STATUS.md` row 0065, `❌ ruled 2026-07-19, unimplemented`). Two of
 its rulings touch this spec:
 
@@ -1004,7 +1004,7 @@ in §9.1; `send_hash`'s `Value::Number`-only match; `hash_code`'s 53-bit mask an
 reason; `Map`/`Set` hashing keys via the `hash` **send**, not the Rust `Hash` impl; the
 `number_tostring_pristine` flag and its `ClassId` equality test; `patterns.rs`'s four minted
 constants; `expect_index`; `expect_value!`'s `Number` arm (and its unreachable `String` arm);
-U12's adopted-debt `TODO` still present at `number.rs:34`; decision 0065's rulings 3 and 4 and
+U12's adopted-debt `TODO` still present at `number.rs:34`; PDR-0001's rulings 3 and 4 and
 its unimplemented status; the `add_class!` name set; `core_class_rows`'s 29 rows;
 `phalcom-core`'s existing dependency list; DEC-PRIM-B's deferral to U-IC **and U-IC's
 subsequent drop of it**; that the working tree did not compile at authoring time and why.

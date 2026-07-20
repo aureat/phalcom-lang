@@ -1,8 +1,8 @@
-# 66. Class declarations join the binding namespace; the duplicate diagnostic carries both spans
+# PDR-0002 — Class declarations join the binding namespace; the duplicate diagnostic carries both spans
 
 - Status: Accepted
 - Date: 2026-07-19
-- Amends: [decision 0065](0065-classes-are-closed.md) — narrows ruling 8 (its import half is
+- Amends: [PDR-0001](0001-classes-are-closed.md) — narrows ruling 8 (its import half is
   already shipped) and fixes the mechanism and diagnostic shape behind ruling 2. Does not
   reverse anything in 0065.
 - Self-amended 2026-07-19 (in place, status unchanged): **Decision 2's rendering mechanism.**

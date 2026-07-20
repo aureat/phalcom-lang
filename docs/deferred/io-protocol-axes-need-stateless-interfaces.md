@@ -1,13 +1,13 @@
 # The IO protocol axes want stateless interface declarations; single inheritance gives them one slot
 
 - Deferred: 2026-07-20
-- Raised by: [decision 0069](../decisions/0069-resources-are-disposable-handles-not-finalized.md) §3
+- Raised by: [PDR-0005](../decisions/0005-resources-are-disposable-handles-not-finalized.md) §3
 - Blocks: nothing today. Becomes load-bearing the first time a generic IO algorithm exists.
 - Related: [ADR-0048](../adr/accepted/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)
   (`Iterable` as a kernel root — the precedent 0069 §3 followed for one axis),
   [ADR-0011](../adr/accepted/0011-static-instance-slot-layout.md) (frozen slot offsets — the reason
   the stateless/stateful distinction below is the whole ballgame), U-INH (single inheritance),
-  [decision 0068](../decisions/0068-io-is-future-shaped-reactor-owned.md)
+  [PDR-0004](../decisions/0004-io-is-future-shaped-reactor-owned.md)
 
 > **Scope note.** An earlier draft of this file was titled "…need mixins" and framed the deferral as
 > a traits/mixins feature. That was a mis-transcription of the ruling. What is deferred is
@@ -20,7 +20,7 @@
 closeable but **not** seekable. `BytesReader` is readable and seekable but neither writable nor
 closeable. Four independent axes; a class has one `extends` slot.
 
-Decision 0069 §3 resolved this for now by reifying **only** closeability (`Resource` as a kernel
+PDR-0005 §3 resolved this for now by reifying **only** closeability (`Resource` as a kernel
 root class) and leaving Reader / Writer / Seekable as informal respond-to protocols. That is right
 for the current surface: the only mechanisms that need to *ask the type* are leak reporting and
 generic cleanup, and both ask about closeability. Nothing needs to ask "is this a Reader?" — it
@@ -61,7 +61,7 @@ Why this shape specifically, and why it is much cheaper than mixins:
 Open sub-questions, none answered here: whether satisfaction is *declared* or *inferred
 structurally*; whether an unsatisfied declaration is a compile error or a runtime one; whether a
 declaration can require a full selector *signature* (arity + labels, ADR-0012's encoded form) or
-only a bare name; and how this interacts with [decision 0065](../decisions/0065-classes-are-closed.md)'s
+only a bare name; and how this interacts with [PDR-0001](../decisions/0001-classes-are-closed.md)'s
 closed classes, since a declaration is a second thing that can be said about a class after it is
 defined.
 

@@ -225,7 +225,7 @@ impl Universe {
     }
 }
 
-// U-CLASSCLOSE (decision 0065): five golden fixtures used to prove
+// U-CLASSCLOSE (PDR-0001): five golden fixtures used to prove
 // override-epoch/inline-cache invalidation by *reopening* a kernel class
 // from `.ph` source (`Number#toString`, `Bool#and`, `Block#whileTrue`,
 // `Option#match`) — no longer expressible now that classes are closed.

@@ -16,7 +16,7 @@ Three units want the same five files.
 | `diagnostics.rs` | *(done — §D2)* | — | `line_col` extraction |
 
 `dispatch.rs` is the sharp one: CLASSNS edits lines that CLASSCLOSE then deletes. Those
-two are already strictly ordered by decision 0065 and must stay that way. U-REPL merging
+two are already strictly ordered by PDR-0001 and must stay that way. U-REPL merging
 into the middle of that sequence would rebase onto code in the act of being deleted.
 
 There is also a **premise** collision, not just a textual one. U-CLASSCLOSE removes the

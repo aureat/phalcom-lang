@@ -335,7 +335,7 @@ impl<'vm> Compiler<'vm> {
             }
         }
 
-        // 1b. Classes are closed (decision 0065, U-CLASSCLOSE §2.1/§4). A
+        // 1b. Classes are closed (PDR-0001, U-CLASSCLOSE §2.1/§4). A
         // class is defined exactly once, by exactly one module; there is no
         // reopening. "The class being declared" is looked up by an
         // own-module-only key — **no core-module fallback** — per
@@ -373,7 +373,7 @@ impl<'vm> Compiler<'vm> {
         // `false` — requiring both would silently let same-unit duplicates
         // through, which is precisely the bug this check exists to catch.
         if self.unit_kind != UnitKind::Repl && field_layouts_hit {
-            // Exempt for a REPL cell (decision 0065 ruling 6): a later
+            // Exempt for a REPL cell (PDR-0001 ruling 6): a later
             // cell's `class Foo {}` shadows rather than reopens — it binds
             // a brand-new class and the global rebinds to it; an instance
             // made under the old definition keeps pointing at the old
@@ -397,7 +397,7 @@ impl<'vm> Compiler<'vm> {
 
         // A class name colliding with an `import … as Name` already bound
         // in this compilation unit is also `class.already_defined`
-        // (decision 0066 ruling 8) — the reverse ordering (`class` then
+        // (PDR-0002 ruling 8) — the reverse ordering (`class` then
         // `import`) is caught by `declare_global`'s own `binding.redeclared`
         // once this class registers below, so no work is needed there.
         if let Some(&import_range) = self.import_bindings.get(&name_sym) {
@@ -406,7 +406,7 @@ impl<'vm> Compiler<'vm> {
             return Err(CompilerError::ClassAlreadyDefined(class_def.name.clone(), class_def.name_range, import_range, line, col));
         }
 
-        // Register in `global_bindings` (decision 0066 ruling 8) — insertion
+        // Register in `global_bindings` (PDR-0002 ruling 8) — insertion
         // only, never through `declare_global` (see that field's own doc):
         // this class's own checks above are already this unit's sole source
         // of `class.already_defined`, so a later `import … as` Name` of the

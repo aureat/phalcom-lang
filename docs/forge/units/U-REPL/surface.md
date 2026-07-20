@@ -35,9 +35,9 @@ snapshot taken at the boundary is exact for the whole editing session that follo
 `phalcom-lsp` is fed **only the line being typed**, never an accumulated buffer of
 prior cells.
 
-Rationale is decision 0065 ruling 6. Cells *shadow*: a later `class Foo` binds a new
+Rationale is PDR-0001 ruling 6. Cells *shadow*: a later `class Foo` binds a new
 class. Replaying all cells as one synthetic document would therefore present two
-`class Foo` declarations to the index — and under decision 0066 that is
+`class Foo` declarations to the index — and under PDR-0002 that is
 `class.already_defined`, a hard error. Reconstructing shadowing inside the static
 layer would reimplement cell semantics in a second place, with a second chance to get
 it wrong.
@@ -210,7 +210,7 @@ requested and visible, not silent and load-bearing.
 > Hazard — `:reload` must build a **fresh `Compiler` and a fresh session module**, not
 > re-feed cells to the existing one. Three separate rulings key off per-`Compiler`
 > state: §D4's two-set immutability, U-BINDINGS' same-scope redeclaration ban
-> (`scope.rs:181`), and decision 0066's registration of class declarations in the same
+> (`scope.rs:181`), and PDR-0002's registration of class declarations in the same
 > `global_bindings` map. Re-running `let x = 1` or `class Foo {}` through the surviving
 > `Compiler` trips the redeclaration ban and `class.already_defined` respectively —
 > `:reload` would fail on any session that declared anything. A fresh `Compiler` is
