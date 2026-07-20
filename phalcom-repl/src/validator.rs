@@ -19,6 +19,24 @@ pub enum Verdict {
     Invalid,
 }
 
+/// Strips an explicit trailing-backslash line continuation (U-REPL §04).
+///
+/// Returns `Some(prefix)` — the line with the backslash replaced by a space —
+/// when the author asked for continuation, and `None` otherwise.
+///
+/// Trailing whitespace after the backslash is tolerated: `"x + \\"`, `"x + \\ "`,
+/// and `"x + \\   "` all continue. The earlier inline form in `main.rs` matched
+/// only the first two spellings, so a line with two trailing spaces silently
+/// submitted instead of continuing.
+///
+/// This lives here, not in the binary, so it can be tested — the previous test
+/// for this feature could not reach the binary and exercised nothing.
+pub fn explicit_continuation(line: &str) -> Option<String> {
+    line.trim_end()
+        .strip_suffix('\\')
+        .map(|prefix| format!("{prefix} "))
+}
+
 /// Classifies `src` according to U-REPL §D7 rules.
 ///
 /// Ensures statement-terminating newline normalization before classification.

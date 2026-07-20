@@ -19,30 +19,43 @@ pub enum CellOutcome {
 
 /// Helper trait for error-guarded string rendering of REPL cell evaluation results.
 pub trait ValueExt {
-    /// Renders `self` as a string, falling back to class display name if `toString` panics or fails.
-    fn to_string_guarded(&self, vm: &VM) -> String;
+    /// Renders `self` for value echo by **sending `toString`**, degrading to the
+    /// receiver's class name if that send raises (U-REPL §S4,
+    /// [PDR-0008](../../../docs/decisions/0008-cell-boundary-diagnostics-and-state-hygiene.md) §4).
+    ///
+    /// This must send: `Value::to_string` is the *native* renderer and never
+    /// dispatches for a plain instance, so a user `toString` override would be
+    /// invisible. [`Value::to_display_string`] is the only path that performs the
+    /// send.
+    ///
+    /// A raising `toString` degrades here and never fails the cell — the caller
+    /// has already decided the outcome by the time echo runs.
+    fn to_string_guarded(&self, vm: &mut VM) -> String;
 }
 
 impl ValueExt for Value {
-    fn to_string_guarded(&self, vm: &VM) -> String {
-        match self {
-            Value::Nil | Value::Bool(_) | Value::Number(_) | Value::Symbol(_) => self.to_string(vm),
-            Value::Obj(id) => {
-                let obj = vm.heap.get(*id);
-                match obj {
-                    Object::Str(_) => self.to_string(vm),
-                    Object::Class(c) => c.name_copy(),
-                    Object::Instance(inst) => {
-                        let class_name = vm.heap.class(inst.class).name_copy();
-                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            self.to_string(vm)
-                        }))
-                        .unwrap_or_else(|_| format!("<instance of {class_name}>"))
-                    }
-                    _ => self.to_string(vm),
-                }
+    fn to_string_guarded(&self, vm: &mut VM) -> String {
+        match self.to_display_string(vm) {
+            Ok(rendered) => rendered,
+            Err(_) => {
+                // The failed send left frames and operands behind; drop them so the
+                // next cell does not run on a dirty stack (PDR-0008 §4).
+                vm.unwind_cell();
+                degraded_render(*self, vm)
             }
         }
+    }
+}
+
+/// Renders `value` without dispatching, for use when `toString` itself raised.
+fn degraded_render(value: Value, vm: &VM) -> String {
+    match value {
+        Value::Obj(id) => match vm.heap.get(id) {
+            Object::Instance(inst) => format!("<instance of {}>", vm.heap.class(inst.class).name_copy()),
+            Object::Class(c) => c.name_copy(),
+            _ => value.to_string(vm),
+        },
+        _ => value.to_string(vm),
     }
 }
 
@@ -82,9 +95,17 @@ impl ReplSession {
         self.history.push(src_norm.clone());
         self.next_cell += 1;
 
+        // This pre-parse exists only to classify the cell as expression-or-statement;
+        // `compile_closure_as` parses again and prints its own diagnostic. On the error
+        // path we never reach it, so the diagnostic is printed here instead — without
+        // this, a syntax error produces no output at all and `CellOutcome::Failed`'s
+        // contract is a lie (PDR-0008 §1).
         let program = match parse_source(&src_norm, 0) {
             Ok(p) => p,
-            Err(_) => return CellOutcome::Failed,
+            Err(e) => {
+                phalcom_core::diagnostics::print_parse(&src_norm, &e.kind.to_string(), e.range.clone());
+                return CellOutcome::Failed;
+            }
         };
 
         let is_expr_cell = matches!(program.statements.last(), Some(Statement::Expr { .. }));

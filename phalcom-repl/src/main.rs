@@ -9,7 +9,7 @@ use phalcom_repl::highlighter::PhalcomHighlighter;
 use phalcom_repl::oracle::ReplOracle;
 use phalcom_repl::repl::{CellOutcome, ReplSession, ValueExt};
 use phalcom_repl::snapshot::ReplSnapshot;
-use phalcom_repl::validator::{classify, PhalcomValidator, Verdict};
+use phalcom_repl::validator::{classify, explicit_continuation, PhalcomValidator, Verdict};
 
 use reedline::{
     default_emacs_keybindings, Color, EditCommand, Emacs, FileBackedHistory, IdeMenu, KeyCode,
@@ -149,7 +149,15 @@ fn main() -> Result<(), ReedlineError> {
                             break;
                         }
                         ":reload" => {
-                            session.reload();
+                            // `reload` halts at the first cell that fails and says which
+                            // one (U-REPL §07 §5). Discarding that answer left the user
+                            // unable to tell a full reload from a partial one.
+                            let complete = session.reload();
+                            if !complete {
+                                eprintln!(
+                                    "Reload stopped early; the session is at the state reached before that cell."
+                                );
+                            }
                             if let Ok(mut snap) = snapshot_cell.lock() {
                                 *snap = ReplSnapshot::capture(&session.vm, session.module);
                             }
@@ -168,12 +176,9 @@ fn main() -> Result<(), ReedlineError> {
                     continue;
                 }
 
-                let (has_explicit_cont, effective_line) = if line.ends_with('\\') {
-                    (true, format!("{} ", &line[..line.len() - 1]))
-                } else if line.ends_with("\\ ") {
-                    (true, format!("{} ", &line[..line.len() - 2]))
-                } else {
-                    (false, line.clone())
+                let (has_explicit_cont, effective_line) = match explicit_continuation(&line) {
+                    Some(joined) => (true, joined),
+                    None => (false, line.clone()),
                 };
 
                 buf.push_str(&effective_line);
@@ -197,9 +202,13 @@ fn main() -> Result<(), ReedlineError> {
 
                 match session.eval(&buf) {
                     CellOutcome::Value(val) => {
-                        let display = val.to_string_guarded(&session.vm);
+                        // Echo runs *after* `eval` has settled the outcome, which is what
+                        // guarantees a raising `toString` cannot turn a successful cell
+                        // into a failed one (§S4, PDR-0008 §4). Do not move it inside `eval`.
+                        let display = val.to_string_guarded(&mut session.vm);
                         println!("// => {display}");
                     }
+                    // `eval` has already printed the diagnostic for `Failed`.
                     CellOutcome::Unit | CellOutcome::Failed => {}
                 }
 
@@ -214,8 +223,12 @@ fn main() -> Result<(), ReedlineError> {
                 prompt.is_cont = false;
             }
             Ok(Signal::CtrlD) => break,
-            x => {
-                eprintln!("Event: {x:?}");
+            // A read error is not transient: on a closed or non-tty stdin every
+            // subsequent read fails identically, so continuing spins forever
+            // printing the same line. Report once and leave.
+            Err(err) => {
+                eprintln!("Input closed: {err}");
+                break;
             }
         }
     }
