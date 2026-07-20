@@ -18,6 +18,9 @@ they move here.
 |---|---|---|---|---|---|
 | [0065](0065-classes-are-closed.md) | Classes are closed: remove class reopening | Accepted | ADR-0026 (Axis 1) | | ❌ ruled 2026-07-19, unimplemented |
 | [0066](0066-class-declarations-join-the-binding-namespace.md) | Class declarations join the binding namespace; duplicate diagnostic carries both spans | Accepted | *amends* 0065 (rulings 2, 8) | | ⚠️ partial — 0065 ruling 8's import half shipped with U-BINDINGS (`b843fe2`), verified live; the rest unimplemented |
+| [0067](0067-no-user-visible-threads-fibers-and-isolates.md) | No user-visible shared-memory threads: fibers now, isolates if ever | Accepted | | | — mostly a *constraint*, not code. Its live half is already true (single-threaded VM, `VecDeque` ready-queue); §3's worker-thread boundary binds 0068 and is unimplemented |
+| [0068](0068-io-is-future-shaped-reactor-owned.md) | IO is `Future`-shaped and reactor-owned; reactor built before the IO surface | Accepted | | | ❌ ruled 2026-07-20, unimplemented. Precondition met: E004 fixed (`f479189`), fibers genuinely park. Closes system.md's open `System.sleep(_)` question |
+| [0069](0069-resources-are-disposable-handles-not-finalized.md) | Native resources are disposable handles with a generation-tagged table; no finalizers | Accepted | | | ❌ ruled 2026-07-20, unimplemented. Depends on `cdd2117` (`ensure` no longer drops live values when cleanup collects) — `using` lowers onto `ensure`. Closes ffi.md F-3 |
 
 ## Cross-tracker obligations
 
