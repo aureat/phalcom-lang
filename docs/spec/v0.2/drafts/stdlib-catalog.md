@@ -937,3 +937,97 @@ Numbered for citation. Add rows; do not renumber.
 | **S-9** | What is `StringCodePointSequence`'s (`core.ph:388`) element type today? | §1.4 asserts `Char` is missing but **did not verify** what the existing sequence yields — possibly `Number` code points, possibly single-char `String`s. | Read `core.ph:388-420`. |
 | **S-10** | Can `VM::ready_queue` accept a push from a signal handler context? | §3.6 — signal delivery must be queued, not re-entrant. Suspected **no**; this may be the first thing that forces S-3. | Read the ready-queue implementation; likely needs a self-pipe or an atomic flag drained at a safepoint. |
 | **S-11** | Where do Tiers 2–5 physically live, given `core.ph` is bootstrap-loaded? | Tier 6 — a `core`/`std` split interacts with ADR-0019's kernel-load DAG, and ADR-0045 gives no package mechanism to put a `std` behind. | Design work, gated on the module-resolution question. |
+| **S-12** | What does a `@protocol` decorator mean — documentation, a conformance check, or dispatch? | The 2026-07-20 amendment scopes protocols (`Reader`, `Writer`, `Seekable`, `Comparable`, `Hashable`, `Disposable`) as **prototype only**: ordinary classes, conformance by convention, unchecked. A later `@protocol` could (a) document, (b) verify at class-close that every selector is implemented, or (c) participate in dispatch/`is` tests. (b) and (c) have very different costs — (c) touches method lookup. | A ruling when the decorator is scoped. Until then, no Tier-1/3 spec may assume conformance is enforced. |
+| **S-13** | Are `process` and `os` lowercase **modules**, or `Process`/`Os` classes with class-side methods like `System`? | The amendment names them `process` / `os` (lowercase), which reads as ADR-0045 modules reached through `Module#doesNotUnderstand(_)` — a different mechanism from `System`'s class-side-methods-on-a-blessed-class. The two are not interchangeable: a module has no kernel-load-DAG edge (ffi.md §5.1), a class does. It also splits the naming convention, since `System` is already the other shape. | A ruling, and it should settle the convention for **all** Tier-3 surfaces at once, not per-module. Interacts with **S-7** (is `System` still the single effect receiver?) and ffi.md **F-7** / **F-11**. |
+
+---
+
+## Amendment, 2026-07-20 — the ratified build program
+
+**What changed.** The user selected a subset of this catalog to build and ruled on three
+things the catalog left open. Per house rule 6 this is recorded as an amendment rather
+than folded into the sections above, so the record of *what was chosen out of what* survives.
+
+The program itself — ordering, complexity and effort ranking, per-item blockers, and the
+planned per-module spec files — lives in **[`docs/stdlib/README.md`](../../../stdlib/README.md)**.
+This section records only the decisions and the corrections they forced.
+
+### A. Scope
+
+Eighteen items selected. **Deferred, not rejected** — everything else in Tiers 2–6:
+`Regex` (§2.3), `Json` (§2.4), `Crypto` (§2.7), `Net`/`Tls`/`Http` (§4.3–§4.4), channels
+and structured concurrency (§4.2), `Testing` (§5.1), `Logging` (§5.2), `Reflection` (§5.3),
+`Cli` (§5.5), the serialization protocol (§5.6), and all of Tier 6. Their entries above
+stand unchanged.
+
+Explicitly **out of this program:** bug-fix work. The user scoped this to libraries. Note
+what that leaves outstanding — §1.1's resource-lifetime ruling (**S-1**) is not a bug fix
+and **is** a hard blocker on item 8 (`File`/`Fs`), and the user has separately stated that
+finalizers are wanted. S-1 therefore remains live and gates the program's largest item.
+
+### B. Protocols are prototype-only, for now
+
+`Reader`, `Writer`, `Seekable`, `Comparable`, `Hashable`, and `Disposable` are to be
+written as **ordinary Phalcom classes with documented but unenforced conformance** — a
+demo/prototype tier. A `@protocol` decorator with real behavior may follow later.
+
+This is a real constraint on the specs, not a formality: §3.2's stream protocol was
+argued as the thing to design *before* `File`, and its value came from `File`, `Socket`,
+`BytesReader`, and stdio being substitutable. Under prototype-only, substitutability is
+a **convention that nothing checks**. Any spec written against it must therefore state
+its conformance requirements in prose precisely enough that a later `@protocol` can be
+mechanically derived from them — otherwise the decorator arrives and finds twelve classes
+that each almost conform. Recorded as **S-12**.
+
+### C. `process` and `os` are lowercase module names
+
+Ruled by the user. This raises a mechanism question the catalog did not ask — module
+(ADR-0045, `doesNotUnderstand` routing) versus blessed class (`System`'s shape) — which
+is **S-13**, and which should be settled once for every Tier-3 surface rather than per
+module.
+
+### D. Correction — `temp_roots` is built; the *Build order* above is stale
+
+The **Build order** section lists step 2 as `temp_roots (U-GC step 4) — soundness;
+already crashing`. **That is out of date and should not be planned around.**
+
+`ffi.md` **F-2 was closed 2026-07-19 (`cdd2117`)**: `push_temp_root` /
+`temp_root_depth` / `truncate_temp_roots` are built in `vm/gc.rs` and enumerated by
+`collect_roots` (ffi.md:161, ffi.md:449). The crash that motivated the entry —
+`block_ensure` dropping a live handle — was fixed by that commit
+([log](../../../logs/2026-07-19-ensure-temp-root-uaf.md)). This catalog was written on
+2026-07-20 and shipped the pre-fix state by one day.
+
+**Consequence for the program:** the critical path loses a blocker. Item 1 (numeric tower)
+is the only true prerequisite at the head of the chain.
+
+**What replaces it is narrower and still open.** ffi.md **F-12**: the temp-root mechanism
+is proven for exactly one in-tree caller (`block_ensure`), which re-enters the interpreter
+with a handle it owns. It is **untested across a native→`.ph` callback** — native code
+holding a handle while `.ph` code calls back into it. Two items in this program are
+exactly that shape:
+
+- **item 4**, a native `sort` driven by a `.ph` comparator block;
+- **item 7**, a native reader driven by a `.ph` consumer.
+
+Whichever lands first should carry F-12's verification — a forced collection inside the
+callback, asserting the held handle survives — as part of its test plan. It is one test,
+and it is cheap now and expensive as a debugging session later.
+
+### E. Correction — BigInt is inside item 1, not after it
+
+The user's list orders `Int`/`Float` first and `BigInt`/`Decimal` second. **ADR-0024 does
+not permit that split.** Its Decision §1 specifies `Int` as *"exact, **unbounded**
+integers"*, and its Context is explicit that a tag-only split was rejected precisely
+because `f64` is exact only to 2^53, so "delivering *never wrong* integers means a real
+representation split".
+
+An unbounded `Int` **is** a bignum. Arbitrary-precision arithmetic and the promotion
+channel from the small-integer representation into it are therefore part of item 1's
+semantics, not a follow-on library. What genuinely remains for item 2 is the **surface**
+(`BigInt` as a nameable class, radix conversion, `modPow`/`gcd`) and all of `Decimal`,
+which is independent.
+
+Planning them as separate sequential items risks shipping item 1 with a bounded `Int`,
+which would contradict a ratified ADR and be a breaking change to correct afterwards.
+The program in `docs/stdlib/README.md` reflects the corrected split.
