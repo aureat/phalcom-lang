@@ -233,7 +233,16 @@ pub fn cmd_parse(args: ParseArgs) -> Result<()> {
 /// out per save); `--format text` (default) reuses the existing span-aware
 /// renderer.
 pub fn cmd_check(args: CheckArgs) -> Result<()> {
-    let path_str = args.path.as_ref().map(|p| p.display().to_string());
+    let path_str = match &args.path {
+        Some(p) => {
+            if !p.exists() {
+                eprintln!("Error: File {} does not exist", p.display());
+                std::process::exit(66);
+            }
+            Some(fs::canonicalize(p)?.display().to_string())
+        }
+        None => None,
+    };
     let source = read_source(args.path, args.source)?;
     match phalcom_ast::parse_source(&source, 0) {
         Ok(_) => Ok(()),

@@ -103,7 +103,7 @@ impl ReplSession {
         let program = match parse_source(&src_norm, 0) {
             Ok(p) => p,
             Err(e) => {
-                phalcom_core::diagnostics::print_parse(&src_norm, &e.kind.to_string(), e.range.clone());
+                phalcom_core::diagnostics::print_parse(&src_norm, None, &e.kind.to_string(), e.range.clone());
                 return CellOutcome::Failed;
             }
         };

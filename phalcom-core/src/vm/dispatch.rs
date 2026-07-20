@@ -209,27 +209,27 @@ impl VM {
     /// `Err`, without the source excerpt this renders.
     pub fn compiler_error(&mut self, err: PhError, module: ObjRef, source_id: u32) {
         if let PhError::Compile(comp_err) = &err {
-            let range = match comp_err {
-                crate::compiler::lib::CompilerError::DestructuringWithoutInitializer(range) => Some(range.clone()),
-                crate::compiler::lib::CompilerError::ConstructStaticCollision(_, _, range) => Some(range.clone()),
-                crate::compiler::lib::CompilerError::BreakOutsideLoop(range) => Some(range.clone()),
-                crate::compiler::lib::CompilerError::ContinueOutsideLoop(range) => Some(range.clone()),
-                crate::compiler::lib::CompilerError::ThrowNonError(range) => Some(range.clone()),
-                crate::compiler::lib::CompilerError::ClassAlreadyDefined(_, _, range, _, _) => Some(range.clone()),
-                crate::compiler::lib::CompilerError::ClassDuplicateMember(_, _, _, range, _, _) => Some(range.clone()),
-                crate::compiler::lib::CompilerError::ClassReservedName(_, range) => Some(range.clone()),
-                crate::compiler::lib::CompilerError::Parse(syntax_err) => Some(phalcom_common::range::SourceRange::from(syntax_err.range.clone())),
-                _ => None,
+            let (msg, range) = match comp_err {
+                crate::compiler::lib::CompilerError::DestructuringWithoutInitializer(range) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::ConstructStaticCollision(_, _, range) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::BreakOutsideLoop(range) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::ContinueOutsideLoop(range) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::ThrowNonError(range) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::ClassAlreadyDefined(_, _, range, _, _) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::ClassDuplicateMember(_, _, _, range, _, _) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::ClassReservedName(_, range) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::Parse(syntax_err) => (syntax_err.kind.to_string(), Some(phalcom_common::range::SourceRange::from(syntax_err.range.clone()))),
+                _ => (comp_err.to_string(), None),
             };
             if let Some(r) = range {
                 let m = self.heap.module(module);
                 if let Some(src) = m.source_at(source_id) {
                     let config = crate::diagnostics::active_render_config();
                     let styler = crate::diagnostics::style::Styler::new(&config);
-                    eprintln!("{}{} {}", styler.paint(crate::diagnostics::style::Role::SeverityError, "error"), styler.paint(crate::diagnostics::style::Role::SeverityError, ":"), err.to_string());
+                    eprintln!("{}{} {}", styler.paint(crate::diagnostics::style::Role::SeverityError, "error"), styler.paint(crate::diagnostics::style::Role::SeverityError, ":"), msg);
                     let label = crate::diagnostics::caret::Label {
                         span: r,
-                        text: &err.to_string(),
+                        text: &msg,
                         kind: crate::diagnostics::caret::LabelKind::Primary,
                     };
                     let snippet = crate::diagnostics::caret::Snippet::with_file(m.path.clone());
