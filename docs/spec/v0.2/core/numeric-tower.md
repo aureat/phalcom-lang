@@ -11,9 +11,16 @@
 > **Supersedes in part:** [ADR-0005](../../../adr/retired/0005-number-as-flat-f64.md) — its
 > `f64` survives as `Float`'s representation only.
 >
+> **Rulings:** [PDR-0012](../../decisions/0012-numeric-tower-implementation-and-floor-amendment.md)
+> — **Proposed, not ratified.** It carries this spec's 24 implementation rulings and the
+> ADR-0019 floor amendment. Per `docs/decisions/README.md` rule 5, **do not build against this
+> spec until PDR-0012 is Accepted**; §17's open questions are duplicated there as its Q-1…Q-6.
+>
 > **Floor impact:** **REQUIRES an [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
-> amendment.** The per-class split is `137 → 153` installed bindings (§6). **This amendment is
-> requested, not granted** — see §6.5 and open question **Q-NUM-4**.
+> amendment**, carried in PDR-0012 ruling 20 (`docs/adr/` is frozen). The per-class split is
+> `137 → 153` installed bindings (§6). **Requested, not granted** — §6.5, open question
+> **Q-NUM-4**. Composes with PDR-0011's `Bytes` amendment (`137 → 147`); both ratified gives
+> **163** — recompute at ratification rather than trusting either figure.
 >
 > **Ordering constraint:** must land **before** any arithmetic fast path is burned into
 > bytecode (ADR-0024 §Context). That window is still open — verified, §11.
