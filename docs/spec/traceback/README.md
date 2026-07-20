@@ -3,6 +3,12 @@
 Specification for how Phalcom reports a failure to a human: runtime tracebacks, compile and
 syntax diagnostics, execution tracing, and disassembly.
 
+- [`implementation-spec.md`](implementation-spec.md) — the dispatch-ready implementation spec
+  (renderer ruling, walk/styler architecture, capture, native/@native frames, style guide,
+  did-you-mean, observability).
+- [`plan.md`](plan.md) — dependency-ordered units with write-sets, edges, and gates.
+- [`verification-2026-07-20.md`](verification-2026-07-20.md) — adversarial re-verification of
+  the audit; lists every claim that did not survive.
 - [`output-catalog.md`](output-catalog.md) — every rendering surface, by example.
 - [`color.md`](color.md) — the color scheme: semantic roles, palette discipline, per-surface use.
 - [`../../deferred/tracing.md`](../../deferred/tracing.md) — the U-TRACE audit and continuation
@@ -10,8 +16,12 @@ syntax diagnostics, execution tracing, and disassembly.
 - [`../../deferred/error-handling-followups.md`](../../deferred/error-handling-followups.md) —
   unowned error-handling defects found alongside.
 
-**Status:** design target. Nothing here is implemented. The material in `tracing.md` is
-verified against `main`; this document is where the *intended* surface is written down.
+**Status:** specified — implementation not started. §3.1 (renderer) is **ruled** in
+[`implementation-spec.md`](implementation-spec.md) §1; the capture row in §2 below is
+**superseded by [PDR-0010](../../decisions/0010-errors-carry-structure-and-cheap-origin.md) §3**
+(Proposed — implementation of the capture/kind sections gates on its ratification). Parts of
+`tracing.md` went stale when PDR-0008 landed; trust
+[`verification-2026-07-20.md`](verification-2026-07-20.md) over it where they disagree.
 
 ---
 
@@ -47,7 +57,7 @@ Carried from the U-TRACE design session. Do not re-litigate.
 | Core frames | Elided by default with a count; `--trace-core` expands |
 | Fiber boundary | Traceback **chains** across the floor with a spawn-site link; does not stop |
 | Primitive shape | Walkable live stack object; formatter is a consumer |
-| Capture timing | Compact record at **raise** (module id + closure id + ip); resolve text lazily at render |
+| Capture timing | ~~Compact record at **raise**~~ **Superseded by PDR-0010 §3** (Proposed): capture at the first `on` boundary / per-hop in the fiber cascade; record holds Symbols + line, never `ObjRef`s (PDR-0010 §4) |
 | Frame granularity | **Logical** frames, 1:many expansion from day one |
 | Trace stability | Golden fixtures assert fields via JSON stream; human layout explicitly unstable |
 | Fiber switch log | No `cfg` gate — cold path |
@@ -70,9 +80,14 @@ real here: superinstruction fusion already had to solve span-fidelity-under-tran
 
 ## 3. Open decisions
 
-### 3.1 Renderer — miette or color-print
+### 3.1 Renderer — miette or color-print  ✅ RULED
 
-**This gates the visual style of every example in the catalog.**
+**Ruled 2026-07-20: option (b), extended with a named style layer; miette leaves the
+workspace.** Full grounds in [`implementation-spec.md`](implementation-spec.md) §1 — the short
+version: most surfaces (frame lines, fiber log, disasm, JSON) are not miette-shaped, so (a)
+still means two renderers; `color.md`'s palette discipline is easier to own than to impose on
+miette; and the genuinely hard part (multi-label spans) is bounded at two labels. The catalog's
+`╭─ │ · ╰──` style is kept and implemented in-house. Original analysis preserved below.
 
 - `miette` is a declared workspace dependency and **nothing imports it**. Zero `use miette` /
   `miette::` across the repo. `CLAUDE.md` names "thiserror + miette" as the convention;

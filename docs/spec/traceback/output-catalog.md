@@ -17,7 +17,7 @@ Source `shop.ph`:
 ```phalcom
 1  class Cart {
 2    total { self.sum(_items) }
-3    sum(items) { items.fold(0) { acc, it => acc + it.price } }
+3    sum(items) { items.fold(0) { acc, it => acc + it.negatd } }
 4  }
 5
 6  let cart = Cart.new()
@@ -33,17 +33,17 @@ Traceback (most recent call last):
   shop.ph:2   in Cart.total
       total { self.sum(_items) }
   shop.ph:3   in Cart.sum(_)
-      sum(items) { items.fold(0) { acc, it => acc + it.price } }
+      sum(items) { items.fold(0) { acc, it => acc + it.negatd } }
   [2 core frames elided — pass --trace-core to expand]
   shop.ph:3   in <block in Cart.sum(_)>
 
-  × 1 does not understand 'price'
+  × 1 does not understand 'negatd'
    ╭─[shop.ph:3:48]
- 3 │   sum(items) { items.fold(0) { acc, it => acc + it.price } }
+ 3 │   sum(items) { items.fold(0) { acc, it => acc + it.negatd } }
    ·                                                ─────┬────
-   ·                                                     ╰── Number has no method 'price'
+   ·                                                     ╰── Number has no method 'negatd'
    ╰────
-  help: did you mean 'floor'?
+  help: did you mean 'negated'?
 ```
 
 Rules this encodes:
@@ -113,8 +113,10 @@ Rules this encodes:
   truncation rule once a chain exceeds the frame budget.
 
 The label on the caret (`receiver is None — \`first\` on an empty List`) is a **second-order
-hint**: it explains why the receiver is `None`, not merely that it is. Specifying when the VM can
-produce such a hint is open work — see README §"Open: hint provenance".
+hint**: it explains why the receiver is `None`, not merely that it is. **Aspirational — not v1.**
+`None` is a shared singleton, so origin-tracking means boxing absence; v1 renders the first-order
+`receiver is None` only. See [`implementation-spec.md`](implementation-spec.md) §10 (hint
+provenance classes A/B/C).
 
 ---
 
@@ -146,7 +148,7 @@ Target, same `shop.ph`:
 
        └─ <block in Cart.sum(_)>   slots=3 upvalues=1
             0000  line 3   GetUpvalue(0)
-            0001  line 3   Invoke(price, 0)
+            0001  line 3   Invoke(negatd, 0)
 ```
 
 Rules this encodes:
@@ -222,7 +224,7 @@ Both must produce the check path's register:
 ```
 error: expected ')' to close argument list
    ╭─[shop.ph:3:52]
- 3 │   sum(items) { items.fold(0) { acc, it => acc + it.price }
+ 3 │   sum(items) { items.fold(0) { acc, it => acc + it.negatd }
    ·              ─┬─                                          ▲
    ·               ╰── argument list opened here               ╰── expected ')' here
    ╰────
@@ -268,7 +270,7 @@ separately; they are not one change.
 phalcom> Cart.new().total
 Traceback (most recent call last):
   …
-  × 1 does not understand 'price'
+  × 1 does not understand 'negatd'
 
 phalcom> where
   #0  <block in Cart.sum(_)>   shop.ph:3    ← innermost

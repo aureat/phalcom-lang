@@ -1,3 +1,10 @@
+> **STALENESS NOTE (2026-07-20).** Superseded in part. PDR-0008 landed after this was written:
+> `cmd_run` now reports through `compiler_error`/`runtime_error`, defects 1 (unwrap) and 2
+> (ip underflow) below are fixed, and `compiler_error` is implemented (message-only). The
+> locked capture-at-raise decision is superseded by PDR-0010 §3 (Proposed). Authoritative
+> current picture: `docs/spec/traceback/verification-2026-07-20.md`; the spec and plan live in
+> `docs/spec/traceback/implementation-spec.md` + `plan.md`. Kept for the audit trail.
+
 You are continuing work on: U-TRACE — wire and finish Phalcom's existing-but-dead runtime traceback, plus the observability + error-rendering cleanups batched with it.
 
 First: adopt /forge senior. Start from the entry points below — do NOT re-survey. In particular, do NOT grep for "backtrace|traceback|stack_trace" — that vocabulary returns zero hits and produced a false "no traceback machinery exists" premise earlier in this work. The machinery is spelled print_rt / SourceLoc / runtime_error / print_line_information.

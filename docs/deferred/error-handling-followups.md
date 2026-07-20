@@ -27,6 +27,15 @@ index rebuild. The outer slot index is then stale: either out of range (indexing
 worse — pointing at a different, swapped-in entry. The second case is memory-safe and
 **surfaces no error at all**; the map is simply wrong from then on.
 
+**Reproduced 2026-07-20, both modes** (see
+[`../spec/traceback/verification-2026-07-20.md`](../spec/traceback/verification-2026-07-20.md)
+§2c). Clarification the original phrasing undersells: the panic mode is `map_raw_get`'s raw
+`.expect("slot from locate() is live")` at `primitive/map.rs:80` — a **Rust process abort,
+uncatchable by `on(_)`** — not a catchable `RuntimeError`. The corruption mode reproduced as: a
+key silently removed, a neighboring key's value overwritten with the value destined for the
+removed key, `size` shrunk, exit 0. The naive trigger sketch above recurses into PDR-0007's
+native-reentrancy limit; a reentrancy-guard flag in `==` is needed to reach the actual defect.
+
 Trigger sketch:
 
 ```phalcom
