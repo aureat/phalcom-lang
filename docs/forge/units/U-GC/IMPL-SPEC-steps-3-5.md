@@ -113,6 +113,20 @@ off-by-one on exactly this.
 
 ### 2.1 The audit is done, and its result inverts the plan
 
+> **CORRECTED 2026-07-19 — this section's conclusion was wrong, and its instruction below
+> ("do not build `VM::temp_roots`") has been overtaken by a shipped fix.** `temp_roots` is
+> **built and load-bearing**: `block_ensure` returned a dangling handle whenever its cleanup
+> block collected. See [docs/logs/2026-07-19-ensure-temp-root-uaf.md](../../../logs/2026-07-19-ensure-temp-root-uaf.md).
+>
+> The predicate below — *"functions containing both an allocation and a re-entrant call"* —
+> is too narrow. `block_ensure` allocates nothing; it is **two sequential re-entrant calls with
+> a live value between them**, which this method cannot see. The correct predicate is *"a handle
+> held in a Rust local across a re-entrant call"*; allocation is irrelevant, because Invariant L
+> already makes `Heap::alloc` latch rather than collect.
+>
+> Re-audited under the corrected predicate, `block_ensure` is the only such site — so §2.2's
+> Invariant-L argument still stands, and the rest of this section is retained for provenance.
+
 `plan.md` §3.4 calls for auditing "≈46 re-entrant sites, 40 alloc sites … each such handle gets a
 `push_temp_root`/`pop_temp_root` scope," and calls this "the substantive work of the unit."
 
