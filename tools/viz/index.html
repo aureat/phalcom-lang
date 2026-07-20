@@ -270,11 +270,12 @@
 
 <div class="transport">
   <button class="tb" id="first">⏮</button><button class="tb" id="prev">◀</button>
-  <button class="tb" id="next">▶</button><button class="tb" id="last">⏭</button>
+  <button class="tb" id="play" title="play / pause (space)">▶</button>
+  <button class="tb" id="next">▶|</button><button class="tb" id="last">⏭</button>
   <div class="track"><div class="ticks" id="ticks"></div><input type="range" id="scrub" min="0" value="0"></div>
   <div class="counter mono" id="counter"></div>
 </div>
-<div class="hint">← → step · shift+← → jump to switch · Home/End · T theme</div>
+<div class="hint">← → step · shift+← → jump to switch · space play/pause · 1–5 example · Home/End · T theme</div>
 
 <div class="takeaway" id="takeaway"></div>
 
@@ -1195,14 +1196,33 @@ function jumpSwitch(dir){
   go(dir>0?EVENTS.length:0);
 }
 
+$('play').onclick=()=>togglePlay();
 $('prev').onclick=()=>go(cursor-1); $('next').onclick=()=>go(cursor+1);
 $('first').onclick=()=>go(0); $('last').onclick=()=>go(EVENTS.length);
 $('scrub').oninput=e=>go(+e.target.value);
+// Autoplay is deliberately secondary (R-MANUAL): a viewer who cannot stop cannot
+// predict. It stops at the end and at any raised error.
+let PLAY=null;
+function togglePlay(){
+  if(PLAY){ clearInterval(PLAY); PLAY=null; $('play').textContent='▶'; return; }
+  $('play').textContent='▮';
+  PLAY=setInterval(()=>{
+    if(cursor>=EVENTS.length || STATES[cursor].error){ togglePlay(); return; }
+    go(cursor+1);
+  }, 900);
+}
+
 addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
   if(e.key==='ArrowRight'){ e.shiftKey?jumpSwitch(1):go(cursor+1); e.preventDefault(); }
   if(e.key==='ArrowLeft'){ e.shiftKey?jumpSwitch(-1):go(cursor-1); e.preventDefault(); }
   if(e.key==='Home'){go(0);e.preventDefault()}
   if(e.key==='End'){go(EVENTS.length);e.preventDefault()}
+  if(e.key===' '){ togglePlay(); e.preventDefault(); }
+  if(/^[1-9]$/.test(e.key)){
+    const k=Object.keys(EXAMPLES)[+e.key-1];
+    if(k){ if(PLAY) togglePlay(); load(k,0); e.preventDefault(); }
+  }
   if(e.key.toLowerCase()==='t'){
     const c=document.documentElement.getAttribute('data-theme');
     const dark=c?c==='dark':matchMedia('(prefers-color-scheme: dark)').matches;

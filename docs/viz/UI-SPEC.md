@@ -100,8 +100,19 @@ to `add_upvalue` instead. Upvalues are not a closure feature bolted on — they 
 
 ### 3.1 Slots
 
-A horizontal row of fixed-width cells, `28 px` wide at the fine zoom, mono-font values, absolute index
-printed below every fourth slot.
+A horizontal row of equal-width cells on a **9-column grid** (≈ 48 px+ at the envelope minimum),
+mono-font values, and a label row beneath.
+
+> **Amended after the build (2026-07-19).** This section originally specified `28 px` slots with the
+> absolute index printed below every fourth. Both were wrong in practice:
+> - `28 px` cannot hold `<Counter>`. Values are the reason the tape exists, so the slot sizes to the
+>   value, not the reverse. Cost: the visible envelope drops from ~40 slots to ~9. Acceptable — no
+>   teaching trace has exceeded 7.
+> - The label row now shows the **innermost frame's local name** for slots inside its window
+>   (`self`, `n`, `bump`) and the absolute index elsewhere. This is strictly better: it renders
+>   R-LINK's payload continuously instead of only when an instruction fires. It also produces a
+>   genuine lesson for free — inside `bump`, slot 1 shows as `1` and not as `n`, because from that
+>   frame's base the name is *not reachable*, which is precisely why a cell exists (§6).
 
 | Slot state | Render |
 |---|---|
@@ -123,9 +134,19 @@ the regions share a boundary and conceptually overlap. A single row of adjacent 
 clean partition that does not exist. Lanes render the overlap honestly without reintroducing boxes.
 
 Each bracket carries, in its label strip: chunk name · `offset=N` · `gen=N`. A **block** frame
-additionally shows `home ▸ f0` — a method frame has no `home_frame_token`, a block frame does, and that
-difference is the whole of non-local return. Rendering it always means the `DeadFrameError` example
-needs no new machinery.
+additionally shows `home ▸ fN genM` — a method frame has no `home_frame_token`, a block frame does, and
+that difference is the whole of non-local return.
+
+**Generations are minted by the engine from the pinned counter, never authored** (§5.4). That is what
+makes the dead-frame marker *derived* rather than scripted: a home token is stale precisely when
+`frames[home.index].gen !== home.gen`, computed from live state every render. E4 needed no new
+machinery beyond this, exactly as predicted.
+
+**Metadata degrades; it never vanishes.** An early build suppressed `offset`/`gen`/`home` on brackets
+narrower than three slots to avoid clipping. E4's tape is *two slots wide*, so the rule hid the exact
+labels that example exists to show — a narrow bracket is when generations matter most, not least.
+Below three slots the strip now drops to a compact form (`gen=3`, `▸f1g2 ✗ DEAD`) and the full text
+moves to the tooltip.
 
 Clicking a bracket loads that frame's chunk into the bytecode pane (R-POINT).
 
@@ -176,24 +197,49 @@ One card per live fiber. **Rounded corners, drop shadow, offset from the backgro
 that could be picked up (D3). Contains:
 
 ```
-▐ F1  ● running                    ▌   ← hue band + status
-▐ ▕frames▕stack▕upvals▕chk▏        ▌   ← the four compartments
-▐ mode: call   gen carried: —      ▌
+▐ F1                     failed   ▌   ← hue band + status
+▐ ▕frames▕stack▕upvals▕chk▏       ▌   ← the four compartments
+▐ result: <Error boom>            ▌   ← only when set
 ```
 
 The **four compartments are always drawn**, full when parked and hollow when running. This is the whole
 of T3: a viewer reads what a `FiberObject` contains directly off the card, and reads that a *running*
 fiber's card is **empty** — because its buffers are in the VM. That inversion is the grip, rendered.
 
-Status glyphs: `● running` · `○ suspended` · `◍ done` · `✗ failed` (`FiberStatus`, `heap/fiber.rs:12`).
+`result` appears only once set, and carries the error tint on a `failed` fiber — that slot holding an
+`Error` instead of a return value *is* the fiber floor's outcome (§5.2, E5).
+
+Status: `running` · `suspended` · `done` · `failed` (`FiberStatus`, `heap/fiber.rs:12`), always as a
+word, never hue alone (§7).
+
+**A trace must model the resumer parking.** A running child implies its resumer's buffers are sitting
+in the resumer's object; a trace that starts a fiber without that step renders one full card at the
+hole instead of two and silently destroys the crown-jewel frame (§8). `check.mjs` enforces this as
+`TWO-FULL-CARDS`.
 
 ### 5.2 Resumer chain
 
 Small directed chain beneath the cards: `F0 ─call─▶ F1 ─try─▶ F2`.
 
 Edge label is `FiberResumeMode` (`fiber.rs:37`) and edge **style** encodes it: `call` solid, `try`
-double-stroked. During an unwind the edge being traversed lights; a `try` edge **visibly halts it**.
-That is the fiber floor with no prose, and it is why the chain must be co-visible with status (§3).
+double-stroked. During an unwind the edge being traversed lights; a `try` edge **visibly halts it**
+("unwind stops here — the fiber floor") while a `call` edge shows it crossing. That is the fiber floor
+with no prose, and it is why the chain must be co-visible with status (§3).
+
+The mode is stored on the fiber but **set by the resume call**, so it is properly an *edge* property.
+Rendering it on the edge rather than on the card is what makes E5's lesson visible: the two variants
+differ in exactly one glyph, and containment turns out to be the caller's decision.
+
+### 5.4 Pinned state
+
+A small readout at the rail's base: `next_frame_generation = N`, styled distinctly from the cards —
+dashed, flush, not liftable.
+
+It exists because E1's takeaway asserts *"movable is position, pinned is identity"* and the first build
+showed only the movable half. The readout **must not change when the tape moves**; that non-movement
+is the claim. E4 then reads this counter directly: it advances on every frame push, never on a pop,
+and never travels on a switch — which is what makes a `FrameToken` unique across fibers rather than
+merely within one.
 
 ### 5.3 Spawn hopper
 
@@ -299,6 +345,18 @@ beat 2; it is the cleanest available proof that Phalcom's switch is not the ance
 The same three beats side by side in one frozen figure for `docs/learn` embeds — before / hole / after,
 with the current beat marked. Same trace data, different renderer, no extra authoring.
 
+**Not built.** Deferred until a `docs/learn` doc actually needs an embed; the live renderer already
+satisfies R-STATIC on its own, since each beat is a cursor position and screenshots cleanly.
+
+### During the hole there is no current instruction
+
+A consequence of D2 worth stating, because it looked like a bug and is not. With no frames there is no
+top frame, hence no `ip` and no chunk: the bytecode pane reads **"no frame — nothing is executing"**.
+
+This is not a gap in the rendering. `ip` lives on the `CallFrame` (`frame.rs:72`), so it parks with
+`frames`; between take and install the VM genuinely holds no instruction pointer at all. A pane that
+kept showing the outgoing chunk would be asserting execution that is not happening.
+
 ### Motion budget
 
 - **Permitted**: tape translate on park/unpark (≈ 400 ms, ease-out), connector stretch, cursor movement.
@@ -308,6 +366,10 @@ with the current beat marked. Same trace data, different renderer, no extra auth
   three beats are *cursor positions* rather than animation keyframes, the reduced-motion rendering is
   exactly as informative. That the design degrades this cleanly is a consequence of D2, and a check that
   D2 is right.
+
+**As built the tape does not translate at all** — the beats are cursor stops with no tween between
+them, i.e. the reduced-motion rendering is the only rendering. Nothing is lost by the argument above,
+which is why this has not been prioritised. Adding the slide later is additive and changes no state.
 
 ---
 
@@ -326,21 +388,36 @@ Navigation **F2**. Each example is its own page:
 
 ### Predict-then-check (R-GATE)
 
-Gates are **authored into the trace**, not inferred: one additional event type,
-`{t:'gate', question, options[], answer, because}`. The player halts, the viewer commits, then it
-reveals and continues.
+Gates are **authored per example**, not inferred: `{q, opts[{t, ok}], because}`, rendered above the
+player. The viewer commits, then the answer and its reasoning reveal.
 
 Gates are what make this a teaching tool rather than a debugger. Committing to a wrong answer *first* is
-the mechanism; a viewer who merely watches learns materially less. Gates are skippable on a second pass
-(`g`), never on the first.
+the mechanism; a viewer who merely watches learns materially less.
+
+**The gate collapses once answered** — unchosen options hide, leaving the choice made and the
+explanation. A gate sits above the player deliberately (commit before seeing), but left expanded it
+pushes the machine below the fold and costs the 5-second coarse read (R-ZOOM).
+
+**Not built: locking the transport.** The spec said the player unlocks only after answering; as built
+the gate is advisory and the transport is live throughout. Honest state — a determined viewer can
+scroll past and skip the prediction.
 
 Placement, one per example, at the moment the requirement names:
 
 | Example | Gate | Test |
 |---|---|---|
-| E1 ping-pong | *where is the tape after this yield?* | T1 |
-| E2 upvalue across a park | *does the connector break, or follow?* | T4 groundwork |
-| E3 legal vs illegal | *which of these two programs cannot work?* | T2 |
+| E1 ping-pong | *where does the fiber's stack go on a yield?* | T1, T5 |
+| E2 upvalue across a park | *does the reference break, or follow?* | T4 |
+| E3 legal vs illegal | *which program cannot work, and why?* | T2 |
+| E4 dead frame | *what happens when a block returns through a dead home?* | — |
+| E5 call vs try | *what decides whether the host survives a fiber's failure?* | — |
+
+**E4 and E5 were later tenants that arrived early.** Both were specced as "later" on the grounds that
+they needed no new panels — which held. E4 needed only `home ▸ fN genM` on block brackets (§3.2) plus
+engine-minted generations; E5 needed only the mode on the chain edge (§5.2) and a `result` line on the
+card (§5.1). They are where the tool stops being a stack visualiser and becomes an argument about
+language design, because each sits on a **feature collision** rather than a feature:
+*closures ⊗ frame lifetime*, and *errors ⊗ concurrency*.
 
 ---
 
@@ -359,9 +436,8 @@ can jump between switches without hunting. Readout: `event 84 / 150`.
 | `shift` + `←` `→` | jump to previous/next `fiber_switch` |
 | `space` | play / pause |
 | `home` `end` | first / last event |
-| `1`–`3` | switch example |
-| `g` | skip gate (second pass only) |
-| `?` | key help |
+| `1`–`5` | switch example |
+| `t` | toggle light / dark |
 
 ### Edge states
 
@@ -372,17 +448,40 @@ can jump between switches without hunting. Readout: `event 84 / 150`.
 | **end of trace** | transport disables forward, final state stays rendered |
 | **error raised** | the raising element takes the error colour; error text in a callout, not a modal |
 
-### Invariant checks (run on every fold step)
+### Validation
+
+Two layers. The player runs the **structural** checks on every fold step and shows a red banner; a
+headless runner, `tools/viz/check.mjs`, runs those plus **semantic** checks and exits non-zero, so a
+commit can be gated on it.
+
+**Structural** — is this a possible machine?
 
 1. frame brackets do not overlap illegally or exceed the tape length
-2. `upvalue_open` slot is within the current tape
-3. no pop from an empty tape
-4. every `frame_pop` matches a prior `frame_push`
-5. `fiber_switch` phases arrive in `take → hole → install` order
-6. no `fiber_switch` while `native_reentry_depth > 0`
+2. an open cell's slot is within the tape of the fiber it names
+3. no pop from an empty tape; every `frame_pop` matches a prior `frame_push`
+4. switch phases arrive in `take → hole → install` order, never interleaved
+5. no switch while `native_reentry_depth > 0`
+6. `ip` is within the current chunk; every named chunk exists; every line is within the source
+7. a `framePush` starts the callee at `ip 0`
 
-Check 6 is the encoded form of the language restriction. A hand-authored trace violating it would be
-drawing an illegal machine.
+**Semantic** — is this still the machine we meant to show?
+
+8. **`TWO-FULL-CARDS`** — at every hole other than a fiber's first resume, both fibers are parked and
+   the VM is empty
+9. **`DEAD-HOME`** — if a home token is captured, it must actually go stale somewhere
+10. a hole leaves no tape and no frames behind
+
+Check 5 is the language restriction encoded; a trace violating it draws an illegal machine.
+
+Checks 8–10 exist because structural validity is not the real risk. A trace can be entirely
+well-formed and still have quietly stopped teaching anything — the two-full-cards frame is the whole
+reason the tool exists, and losing it produces no error, no visual glitch, and no reason to look.
+Check 7 is there because the same authoring mistake recurred three times; it is silently in-bounds
+whenever the callee's chunk is longer than the caller's ip.
+
+> **The rule this encodes:** when a rendering carries a lesson, assert the lesson, not just the
+> well-formedness. Anything a reviewer would notice only by remembering to look, a check should notice
+> instead.
 
 ---
 
@@ -400,17 +499,45 @@ drawing an illegal machine.
 Each is a **later tenant on the same timeline**, not a v1 compromise (tiebreaker 7). The event schema
 and the layout both leave room: new tenants add event types and satellites, never a new spine.
 
+That claim has now been tested once, and held: E4 and E5 were filed here as later tenants and both
+landed **without a new panel** — E4 needed a label on an existing bracket, E5 an attribute on an
+existing edge (§9). Both are collision examples, which is the class this design most wants and the
+class that turns out to be cheapest.
+
 ---
 
 ## 12 · Build order
 
-1. Trace format + fold reducer + keyframe snapshots (R-SCRUB) + the six invariant checks
-2. Tape with brackets and delta marking — **verify D1 reads correctly before anything else is built**
-3. Host gutter, fiber rail, transport, keys
-4. The three-beat switch (C1), then the triptych renderer (C3)
-5. Cell strip and connectors — the stretch-into-locker moment
-6. Page shell, gates, prose for E1 → E2 → E3
+| | | |
+|---|---|---|
+| 1 | Trace format, fold reducer, structural checks | **done** |
+| 2 | Tape with brackets and delta marking — **the D1 go/no-go** | **done**, `tools/viz/prototype-tape.html` |
+| 3 | Host gutter, fiber rail, transport, keys | **done** |
+| 4 | The three-beat switch (C1) | **done** as cursor stops; no tween (§8) |
+| 5 | Cell strip — the stretch-into-locker moment | **done** as text; no drawn connector (§6) |
+| 6 | Page shell, gates, prose, E1 → E2 → E3 | **done** |
+| 7 | E4 dead frame, E5 call vs try, semantic checks | **done** |
+| — | Triptych renderer (C3) | deferred until a `docs/learn` embed needs it |
+| — | Drawn connector, tape tween, transport lock | deferred; all additive, none change state |
 
-Step 2 is the go/no-go. If the flat tape with bracket lanes does not read at a glance, D1 is wrong and
-everything downstream needs rethinking — so it gets built and judged first, against T1, before the
-satellites exist to prop it up.
+Step 2 was the go/no-go: if the flat tape with bracket lanes had not read at a glance, D1 was wrong and
+everything downstream needed rethinking. It was built and judged first, against T1, before any
+satellite existed to prop it up — **and it passed**, which is why the rest of this document still
+stands.
+
+## 13 · What the build changed about the spec
+
+Recorded because a spec that quietly absorbs its own mistakes is worth less than one that keeps them.
+
+| Spec said | Build found | Now |
+|---|---|---|
+| bytecode pane is a later satellite | slot indices become unexplained numbers without it | §3.0 — it is half the R-LINK fact |
+| 28 px slots, index every 4th | `<Counter>` does not fit; naming every slot is better | §3.1 |
+| suppress bracket metadata when narrow | E4's tape is 2 slots wide; the rule hid the lesson | §3.2 — degrade, never vanish |
+| `ip` is VM state | it is a `CallFrame` field, so it parks | engine; §8 "no current instruction" |
+| the hole shows two full cards | only true after a fiber's *first* resume | §8, and `TWO-FULL-CARDS` allows the exception |
+| gate locks the player | not built; gate is advisory | §9 |
+
+The through-line: **every one of these was found by building or by a check, not by re-reading.** The
+two that would have survived review indefinitely — `ip` placement and the one-full-card hole — were
+both caught by `check.mjs`, which is the argument for §10's semantic layer.

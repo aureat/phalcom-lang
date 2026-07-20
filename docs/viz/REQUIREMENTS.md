@@ -108,14 +108,25 @@ spot-the-difference — exhausting, and it defeats the learning.
 
 Stated limits. Degrading outside them is fine; pretending otherwise is not.
 
-- ~4 fibers · ~8 live frames · ~40 tape slots · ~150 events per trace
+- ~4 fibers · ~8 live frames · **9 tape slots** · ~150 events per trace
+
+  *Amended after the build:* the slot budget was ~40 at 28 px. Values are the reason the tape exists
+  and `<Counter>` does not fit in 28 px, so the slot sizes to the value and the grid dropped to 9.
+  No teaching trace has exceeded 7 slots; E1 peaks at 5.
 - Desktop, landscape, ≥ 1280 px. Not mobile.
 - Values render as short strings (`3`, `"hi"`, `<Counter>`); no nested object inspection.
 
 ## 8 · Failure modes to design against
 
 1. **The confident lie** — hand-authored trace is wrong, picture is plausible → player-side invariant
-   checks on by default, red banner on violation.
+   checks on by default, red banner on violation, plus `tools/viz/check.mjs` as a commit gate.
+
+   *Sharpened after the build.* Structural validity turned out not to be the real risk. A trace can be
+   perfectly well-formed and have **silently stopped teaching its lesson** — when E1 rendered one full
+   card at the hole instead of two, nothing was malformed, nothing looked broken, and there was no
+   reason to look. So checks come in two kinds, and the second matters more:
+   **assert the lesson, not just the well-formedness.** Anything a reviewer would catch only by
+   remembering to look, a check should catch instead (UI-SPEC §10).
 2. **Spot-the-difference fatigue** → R-DELTA.
 3. **Panel soup** — everything visible, nothing readable → §3 promotes only relationship-critical pairs.
 4. **Atomicity implied by a smooth tween** → the hole is a stoppable cursor position, not a transition.

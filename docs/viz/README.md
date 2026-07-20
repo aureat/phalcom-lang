@@ -21,13 +21,21 @@ open tools/viz/index.html      # the player
 node tools/viz/check.mjs       # validate every trace, exit 1 on any problem
 ```
 
-## The three examples
+## The five examples
 
-| | Teaches |
-|---|---|
-| **E1 · Ping-pong** | What a switch *is*: `mem::take` on four fields, take → **hole** → install. Also that module-level `let` is a global, not a slot. |
-| **E2 · Upvalue across a park** | Why `Upvalue::Open` names a `{ fiber, slot }`. Cells are heap objects and do not travel — the tape moves out from under them. |
-| **E3 · Legal vs illegal yield** | `native_reentry_depth == 0`. Two loops that look equally reasonable; the only visible difference is the host gutter. |
+The first three are mechanisms. The last two sit on **feature collisions**, which is where language
+design actually lives and where most real bugs come from.
+
+| | Teaches | Collision |
+|---|---|---|
+| **E1 · Ping-pong** | What a switch *is*: `mem::take` on four fields, take → **hole** → install. Also that module-level `let` is a global, not a slot. | — |
+| **E2 · Upvalue across a park** | Why `Upvalue::Open` names a `{ fiber, slot }`. Cells are heap objects and do not travel — the tape moves out from under them. | closures ⊗ fibers |
+| **E3 · Legal vs illegal yield** | `native_reentry_depth == 0`. Two loops that look equally reasonable; the only visible difference is the host gutter. | optimiser ⊗ user-visible semantics |
+| **E4 · Dead frame** | A block outlives its home and returns through it. The escaping block lands at the *same frame index* its home had — only the generation tells them apart. | closures ⊗ frame lifetime |
+| **E5 · call vs try** | The same failing fiber resumed two ways. `FiberResumeMode` is an edge property, so containment is the caller's decision. | errors ⊗ concurrency |
+
+Keys: `←` `→` step · `shift`+`←` `→` jump to the next switch · `space` play/pause · `1`–`5` example ·
+`Home`/`End` · `t` theme.
 
 ## The fidelity rule
 
@@ -35,10 +43,14 @@ Traces are **hand-authored**, and a hand-authored trace can be silently wrong �
 `stack_offset` draws a confident lie, which is worse than no picture (REQUIREMENTS §8, failure mode 1).
 Two defences, and both must stay:
 
-1. **`check.mjs` runs structural *and* semantic checks.** The load-bearing semantic one is
-   `TWO-FULL-CARDS`: at every hole other than a fiber's first resume, both fibers must be parked and
-   the VM empty. That frame is the entire reason the tool exists. Structural invariants cannot catch
-   its loss; this can. It has already caught five real bugs.
+1. **`check.mjs` runs structural *and* semantic checks**, and has caught seven real bugs so far.
+   The semantic layer is the important half: a trace can be perfectly well-formed and have quietly
+   stopped teaching anything, with no error and no visual glitch to prompt a second look.
+   - `TWO-FULL-CARDS` — at every hole other than a fiber's first resume, both fibers parked, VM empty
+   - `DEAD-HOME` — a captured home token must actually go stale somewhere
+   - a `framePush` must start the callee at `ip 0` (this authoring slip recurred three times)
+
+   The rule: **assert the lesson, not just the well-formedness.**
 2. **The fidelity note is rendered in the page itself**, naming what is verified and what is inferred.
 
 What is verified: the opcode vocabulary (`bytecode.rs`), module-level sequences (checked with
@@ -64,6 +76,8 @@ rather than a v1 compromise: dispatch and selector identity, inline caches and `
 invalidation, sacred-selector deopt, GC and parked-fibers-as-roots, the metaclass tower (structural —
 wrong renderer), compilation (needs an AST pane).
 
-Two examples are specced but unbuilt, and they are where this stops being a stack visualizer and
-starts being an argument about language design: **E4 `DeadFrameError`** (closures ⊗ frame lifetime)
-and **E5 `call` vs `try`** (errors ⊗ concurrency). Both run on the existing panels.
+Smaller deferrals, all additive and none of which change state: the **triptych renderer** for
+`docs/learn` stills (the live player already screenshots cleanly, so this waits until an embed needs
+it); a **drawn connector** for upvalue cells, which today say `cell n → slot 1 of F1 (parked)` in text
+rather than reaching into the card; a **tape tween** on park/unpark, currently cursor stops with no
+motion; and **locking the transport** until a gate is answered.
