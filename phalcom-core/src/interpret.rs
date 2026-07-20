@@ -7,7 +7,6 @@
 //! VM's [`Heap`](crate::heap::Heap) rather than `Rc<RefCell<T>>` graphs.
 
 use crate::compiler::lib::{Compiler, CompilerError, UnitKind};
-use crate::diagnostics::print_parse;
 use crate::error::{IoError, PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
 use crate::heap::{Object, ObjRef};
@@ -137,13 +136,11 @@ impl VM {
     /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
     pub fn compile_closure_as(&mut self, module: ObjRef, source: &str, kind: UnitKind) -> PhResult<ObjRef> {
         self.unit_kind = kind;
+        let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
         let program = parse_source(source, 0).map_err(|e| {
-            let msg = e.kind.to_string();
-            print_parse(source, &msg, e.range.clone());
             PhError::Compile(CompilerError::Parse(e))
         })?;
 
-        let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
         let compiler = Compiler::new(self, module, source_id, kind);
         let closure = compiler.compile(program)?;
         Ok(closure)
@@ -205,7 +202,8 @@ impl VM {
         // stamps its index into the chunks it builds, so source is registered
         // exactly where it is compiled (U-REPL §D2).
         let closure = self.compile_closure(module, source).inspect_err(|err| {
-            self.compiler_error(err.clone());
+            let source_id = self.heap.module(module).sources.len().saturating_sub(1) as u32;
+            self.compiler_error(err.clone(), module, source_id);
         })?;
 
         self.run_in_module(module, closure).inspect_err(|err| {
@@ -271,7 +269,6 @@ impl VM {
         let source = fs::read_to_string(&canonical).map_err(|e| IoError::Message(format!("Failed to read file {canonical}: {e}")))?;
         // `compile_closure` below records this text in the module and stamps
         // its index into every chunk it produces (U-REPL §D2).
-        self.register_source(&logical_name, &source);
 
         let closure = self.compile_closure(module_id, &source)?;
         self.heap.module_mut(module_id).add_closure(closure);

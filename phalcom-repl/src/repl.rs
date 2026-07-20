@@ -113,7 +113,8 @@ impl ReplSession {
         let closure = match self.vm.compile_closure_as(self.module, &src_norm, UnitKind::Repl) {
             Ok(c) => c,
             Err(err) => {
-                self.vm.compiler_error(err);
+                let source_id = (self.vm.heap.module(self.module).sources.len().saturating_sub(1)) as u32;
+                self.vm.compiler_error(err, self.module, source_id);
                 return CellOutcome::Failed;
             }
         };

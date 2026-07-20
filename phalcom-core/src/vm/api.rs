@@ -5,7 +5,6 @@ use crate::interner::Symbol;
 use crate::method::decode_selector;
 use crate::heap::ModuleObject;
 use crate::value::Value;
-use std::sync::Arc;
 use tracing::debug;
 
 use super::VM;
@@ -100,16 +99,7 @@ impl VM {
         }
     }
 
-    /// Registers `source` text for the module `logical_name` in the source map.
-    pub fn register_source(&mut self, logical_name: &str, source: &str) {
-        let source_ref = Arc::new(String::from(source));
-        let module_sym = self.interner.intern(logical_name);
-        crate::diagnostics::SOURCE_MAP.write().unwrap().insert(module_sym, source_ref.clone());
 
-        let module_sym = self.interner.intern(logical_name);
-        let src_ref = Arc::new(String::from(source));
-        crate::diagnostics::SOURCE_MAP.write().unwrap().insert(module_sym, src_ref.clone());
-    }
 
     /// Returns the module handle for `module_sym`, if loaded.
     pub fn get_module(&mut self, module_sym: Symbol) -> Option<ObjRef> {

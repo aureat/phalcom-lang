@@ -14,19 +14,12 @@
 pub mod caret;
 pub mod style;
 
-use crate::interner::Symbol;
-use lazy_static::lazy_static;
 use phalcom_common::range::SourceRange;
-use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 use style::{ColorMode, RenderConfig, Role, Styler};
 
-lazy_static! {
-    /// Module-name → source-text registry, superseded by `ModuleObject::sources`
-    /// (plan.md §7 deletes this along with `register_source`'s duplicated body).
-    pub static ref SOURCE_MAP: RwLock<HashMap<Symbol, Arc<String>>> = RwLock::new(HashMap::new());
-}
+
 
 /// The process-wide [`RenderConfig`], installed once at CLI startup
 /// (`bin/phalcom/main.rs::main`) from the `--color`/`--plain` flags.
@@ -53,7 +46,7 @@ pub fn install_render_config(config: RenderConfig) {
 
 /// Returns the installed [`RenderConfig`], or a fresh [`RenderConfig::from_env`] default if
 /// [`install_render_config`] has not run yet.
-fn active_render_config() -> RenderConfig {
+pub fn active_render_config() -> RenderConfig {
     match RENDER_CONFIG.get() {
         Some(config) => *config,
         None => RenderConfig::from_env(ColorMode::Auto, false),
@@ -137,16 +130,22 @@ pub fn print_line_information(source: &str, range: Range<usize>) {
 }
 
 /// Pretty-prints a parse error given only a byte range into the source string.
-pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
-    let styler = Styler::new(&active_render_config());
-    if range.start >= source.len() || range.end > source.len() || range.start >= range.end {
-        eprintln!("   {} Syntax error at file", styler.paint(Role::Rail, "|"));
-        eprintln!("    {} {}", styler.paint(Role::SeverityError, "="), styler.paint(Role::SeverityError, msg));
-        return;
-    }
+pub fn print_parse(source: &str, path: Option<&str>, msg: &str, range: Range<usize>) {
+    let config = active_render_config();
+    let styler = Styler::new(&config);
+    eprintln!("{}{} {}", styler.paint(Role::SeverityError, "error"), styler.paint(Role::SeverityError, ":"), msg);
 
-    print_line_information(source, range);
-    eprintln!("    {} {}", styler.paint(Role::SeverityError, "="), styler.paint(Role::SeverityError, msg));
+    let label = caret::Label {
+        span: SourceRange::from(range),
+        text: msg,
+        kind: caret::LabelKind::Primary,
+    };
+    let snippet = match path {
+        Some(p) => caret::Snippet::with_file(p.to_string()),
+        None => caret::Snippet::new(),
+    };
+    let rendered = snippet.render(source, &[label], &config);
+    eprint!("{rendered}");
 }
 
 /// Pretty-prints a *compile* error.
@@ -160,8 +159,7 @@ pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
 /// through first.
 pub fn print_compile(msg: &str) {
     let styler = Styler::new(&active_render_config());
-    eprintln!("   {} Compile error", styler.paint(Role::Rail, "|"));
-    eprintln!("    {} {}", styler.paint(Role::SeverityError, "="), styler.paint(Role::SeverityError, msg));
+    eprintln!("{}{} {}", styler.paint(Role::SeverityError, "error"), styler.paint(Role::SeverityError, ":"), msg);
 }
 
 /// Pretty-print a *runtime* error with Python-style stack trace.

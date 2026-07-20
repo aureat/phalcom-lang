@@ -153,6 +153,12 @@ pub struct DisasmArgs {
 }
 
 pub fn cmd_run(cli: Cli) -> Result<()> {
+    if let Some(p) = &cli.path {
+        if !p.exists() {
+            eprintln!("Error: File {} does not exist", p.display());
+            std::process::exit(66);
+        }
+    }
     // U15: a relative `import "./x"` resolves against the *importing file's*
     // own directory (DEC-U15 resolution choice A), so the entry module's
     // `path` must be the real absolute file path — not a placeholder — or
@@ -170,31 +176,32 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     // would no longer be legal.
     let compile_mode = cli.compile_mode();
     let strip_contract_metadata = cli.strip_contract_metadata;
-    let source = read_source(cli.path, cli.source)?;
+    let source = match read_source(cli.path.clone(), cli.source.clone()) {
+        Ok(s) => s,
+        Err(err) => {
+            eprintln!("Error: {}", err);
+            std::process::exit(74);
+        }
+    };
     let mut vm = VM::new();
     vm.compile_mode = compile_mode;
     vm.strip_contract_metadata = strip_contract_metadata;
     let module = vm.create_module("main", &abs_path);
-    // `cmd_run` deliberately does not go through `interpret_source`, so it has to
-    // do that function's reporting itself. Before PDR-0008 it did neither half: a
-    // compile error propagated with `?` and surfaced only as the CLI's generic
-    // `Error:` line, and a runtime error printed via `eprintln!` — which is why
-    // file-mode runtime errors never carried a traceback even though `print_rt`
-    // and `SourceLoc` were fully built.
-    let closure = match vm.compile_closure(module.clone(), &source) {
-        Ok(closure) => closure,
-        Err(err) => {
-            // Report and exit rather than propagating: `?` would hand the error to
-            // `main`, which prints it again as a bare `Error: …` line.
-            vm.compiler_error(err);
-            std::process::exit(1);
+    if let Err(err) = vm.interpret_source(module, &source) {
+        match err {
+            phalcom_core::error::PhError::Compile(_) | phalcom_core::error::PhError::Parse(_) => {
+                std::process::exit(65);
+            }
+            phalcom_core::error::PhError::Runtime(_) => {
+                std::process::exit(70);
+            }
+            phalcom_core::error::PhError::Io(_) => {
+                std::process::exit(74);
+            }
+            _ => {
+                std::process::exit(1);
+            }
         }
-    };
-    if let Err(err) = vm.run_in_module(module, closure) {
-        // `run_in_module` leaves the frames intact on the error path, so the
-        // traceback is still walkable here.
-        let _ = vm.runtime_error(err);
-        std::process::exit(1);
     }
     Ok(())
 }
@@ -211,7 +218,7 @@ pub fn cmd_tokenize(args: TokenizeArgs) -> Result<()> {
 
 pub fn cmd_parse(args: ParseArgs) -> Result<()> {
     let source = read_source(args.path, args.source)?;
-    let program = phalcom_ast::parse_source(&source, 0).map_err(CompilerError::from)?;
+    let program = phalcom_ast::parse_source(&source, 0)?;
     println!("{program:#?}");
     Ok(())
 }
@@ -219,23 +226,24 @@ pub fn cmd_parse(args: ParseArgs) -> Result<()> {
 /// Lexes and parses source only (no compile, no run) and reports syntax
 /// diagnostics.
 ///
-/// Exits `0` with no output on a clean parse; exits `1` and prints exactly one
+/// Exits `0` with no output on a clean parse; exits `65` and prints exactly one
 /// diagnostic otherwise (the front end currently stops at the first syntax
 /// error). `--format json` emits a single-line, machine-readable object
 /// intended for editor tooling (e.g. an LSP-less VS Code extension shelling
 /// out per save); `--format text` (default) reuses the existing span-aware
 /// renderer.
 pub fn cmd_check(args: CheckArgs) -> Result<()> {
+    let path_str = args.path.as_ref().map(|p| p.display().to_string());
     let source = read_source(args.path, args.source)?;
     match phalcom_ast::parse_source(&source, 0) {
         Ok(_) => Ok(()),
         Err(err) => {
             let syntax_err: phalcom_ast::error::SyntaxError = err;
-            let (start_line, start_col) = byte_offset_to_line_col(&source, syntax_err.range.start);
-            let (end_line, end_col) = byte_offset_to_line_col(&source, syntax_err.range.end);
             let message = syntax_err.kind.to_string();
 
             if args.format == "json" {
+                let (start_line, start_col) = byte_offset_to_line_col(&source, syntax_err.range.start);
+                let (end_line, end_col) = byte_offset_to_line_col(&source, syntax_err.range.end);
                 println!(
                     "{{\"severity\":\"error\",\"message\":{},\"range\":{{\"start\":{{\"line\":{},\"column\":{}}},\"end\":{{\"line\":{},\"column\":{}}}}}}}",
                     json_escape(&message),
@@ -245,9 +253,9 @@ pub fn cmd_check(args: CheckArgs) -> Result<()> {
                     end_col
                 );
             } else {
-                phalcom_core::diagnostics::print_parse(&source, &message, syntax_err.range.clone());
+                phalcom_core::diagnostics::print_parse(&source, path_str.as_deref(), &message, syntax_err.range.clone());
             }
-            std::process::exit(1);
+            std::process::exit(65);
         }
     }
 }

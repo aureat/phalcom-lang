@@ -179,7 +179,6 @@ impl VM {
     /// Bootstraps the core module and exposes each kernel class as a global.
     pub fn install_core(&mut self) {
         let m = self.create_module(CORE_MODULE_NAME, "<internal core module>");
-        self.register_source(CORE_MODULE_NAME, include_str!("../../core/core.ph"));
         let core_sym = self.heap.module(m).symbol();
         self.modules.insert(core_sym, m);
 
