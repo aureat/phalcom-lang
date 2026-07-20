@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 29] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 30] {
     let c = &vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -75,6 +75,10 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 29] {
         ("Tuple", c.tuple_class),
         // U-COLLTYPES Phase 3 (ADR-0039): Range joins the audited census.
         ("Range", c.range_class),
+        // U-BYTES (PDR-0011): Bytes joins the audited census at birth — the
+        // CB-5 lesson: a class absent from the census is a class the
+        // ADR-0019 freeze does not bind.
+        ("Bytes", c.bytes_class),
         ("Message", c.message_class),
         ("Error", c.error_class),
         ("MessageNotUnderstood", c.message_not_understood_class),
@@ -699,6 +703,18 @@ fn floor_census_matches_installed_bindings() {
     // inspect is unfixable in `.ph` when the attempt changes the answer: no
     // arrangement of library code can observe root-ness without a predicate.
     const NEW_FIBER: usize = 12;
+    // U-BYTES (PDR-0011 ruling 3, this unit's own amendment): the kernel
+    // octet buffer admits **+10** bindings (137 -> 147): `Bytes.new(_)`,
+    // `Bytes.fromString_(_)`, `size_`, `at_(_)`, `set_(_,_)`, `fill_(_)`,
+    // `slice_(_,_)`, `copyInto_(_,_)`, `utf8_`, `equalsConstantTime_(_)` —
+    // all `primitive/bytes.rs`, under the container bulk-op posture (bulk
+    // no-user-code ops native; block-taking selectors stay `.ph` so
+    // `Fiber#yield` works mid-iteration, bytes.md §3.1).
+    const NEW_BYTES: usize = 10;
+    // PDR-0013 ruling 4 (ships with U-BYTES, censused to its own record):
+    // `utf8Lossy_` (147 -> 148) — total lossy decode for `Path#toString`;
+    // display-only, never round-tripped into data.
+    const NEW_BYTES_LOSSY: usize = 1;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -822,6 +838,18 @@ fn floor_census_matches_installed_bindings() {
         (c.list_class, false, "set_(_,_)"),
         (c.list_class, false, "push_(_)"),
         (c.list_class, false, "toString"),
+        // §2.x Bytes (PDR-0011 ruling 3 + PDR-0013 ruling 4, U-BYTES)
+        (c.bytes_class, true, "new(_)"),
+        (c.bytes_class, true, "fromString_(_)"),
+        (c.bytes_class, false, "size_"),
+        (c.bytes_class, false, "at_(_)"),
+        (c.bytes_class, false, "set_(_,_)"),
+        (c.bytes_class, false, "fill_(_)"),
+        (c.bytes_class, false, "slice_(_,_)"),
+        (c.bytes_class, false, "copyInto_(_,_)"),
+        (c.bytes_class, false, "utf8_"),
+        (c.bytes_class, false, "utf8Lossy_"),
+        (c.bytes_class, false, "equalsConstantTime_(_)"),
         // §2.14 Message
         (c.message_class, false, "selector"),
         (c.message_class, false, "name"),
@@ -946,8 +974,10 @@ fn floor_census_matches_installed_bindings() {
             + NEW_ATTR_ROOT
             + NEW_GC
             + NEW_STRING
-            + NEW_FIBER,
-        "census must enumerate exactly 137 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 U-GC + 4 U-STRING/ADR-0049 + 12 Fiber/ADR-0030)"
+            + NEW_FIBER
+            + NEW_BYTES
+            + NEW_BYTES_LOSSY,
+        "census must enumerate exactly 148 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 U-GC + 4 U-STRING/ADR-0049 + 12 Fiber/ADR-0030 + 10 U-BYTES/PDR-0011 + 1 utf8Lossy_/PDR-0013)"
     );
     assert_eq!(
         live.len(),
@@ -967,8 +997,10 @@ fn floor_census_matches_installed_bindings() {
             + NEW_ATTR_ROOT
             + NEW_GC
             + NEW_STRING
-            + NEW_FIBER,
-        "the live floor must be exactly 137 bindings"
+            + NEW_FIBER
+            + NEW_BYTES
+            + NEW_BYTES_LOSSY,
+        "the live floor must be exactly 148 bindings"
     );
 }
 

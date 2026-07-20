@@ -1,6 +1,7 @@
 pub mod attribute;
 pub mod boolean;
 pub mod block;
+pub mod bytes;
 pub mod class;
 pub mod error;
 pub mod family;
@@ -232,6 +233,26 @@ pub(crate) fn expect_method(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a list.
+/// Extracts a bytes buffer's [`ObjRef`] handle from a receiver value.
+///
+/// Mirrors [`expect_list`]: a `Bytes` is a [`Value::Obj`] whose heap object
+/// is a [`crate::heap::BytesObject`] behind [`crate::heap::Object::Bytes`]
+/// ([PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `value` is not a `Bytes`.
+pub(crate) fn expect_bytes(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    match value {
+        Value::Obj(id) if vm.heap.as_bytes(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type {
+            expected: "Bytes",
+            found: other.type_name(),
+        }
+        .into()),
+    }
+}
+
 pub(crate) fn expect_list(vm: &VM, value: &Value) -> PhResult<ObjRef> {
     match value {
         Value::Obj(id) if vm.heap.as_list(*id).is_some() => Ok(*id),
@@ -378,7 +399,13 @@ pub(crate) fn send_eq(vm: &mut VM, a: Value, b: Value) -> PhResult<bool> {
 /// needed, since these three variants are exhaustively enumerable in Rust.
 pub(crate) fn is_mutable_collection_key(vm: &VM, value: &Value) -> bool {
     match value {
-        Value::Obj(id) => matches!(vm.heap.get(*id), crate::heap::Object::List(_) | crate::heap::Object::Map(_) | crate::heap::Object::Set(_)),
+        // `Bytes` joins the rejection set for the same reason (mutable ⇒
+        // identity hash, bytes.md law 5); its immutable escape hatch is
+        // `toTuple` (PDR-0011 ruling 4).
+        Value::Obj(id) => matches!(
+            vm.heap.get(*id),
+            crate::heap::Object::List(_) | crate::heap::Object::Map(_) | crate::heap::Object::Set(_) | crate::heap::Object::Bytes(_)
+        ),
         _ => false,
     }
 }

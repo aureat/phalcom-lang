@@ -1,4 +1,5 @@
 use crate::heap::BlockObject;
+use crate::heap::BytesObject;
 use crate::heap::ClassObject;
 use crate::heap::ClosureObject;
 use crate::heap::InstanceObject;
@@ -86,6 +87,17 @@ pub enum Object {
     ///
     /// **Boxed** (72 B) — see [`Object::Class`].
     Set(Box<MapObject>),
+    /// A native, fixed-length, mutable octet buffer ([`BytesObject`],
+    /// [PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
+    /// `Tuple`'s backing shape (`Box<[u8]>`, length fixed at construction)
+    /// with `List`'s mutability corner: contents mutable ⇒ identity
+    /// `Object#hash`, not a valid `Map`/`Set` key (collection-protocol
+    /// law 4). Reached through [`Value::Obj`]; there is **no** `Value::Bytes`
+    /// arm (ADR-0010 minimalism). Holds no [`Value`]s, so the tracer has
+    /// nothing to visit, and its drop glue frees plain memory only — no OS
+    /// handle lives here, so PDR-0005 §4's back-door-finalizer hazard does
+    /// not apply to this arm.
+    Bytes(BytesObject),
     /// A native, fixed-arity immutable product ([`TupleObject`],
     /// [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).

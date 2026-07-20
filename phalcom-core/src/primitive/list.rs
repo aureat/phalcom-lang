@@ -26,7 +26,7 @@ use crate::vm::VM;
 /// negative, fractional, or non-finite — an index must be a whole,
 /// non-negative, finite count (`U-LIST-plan.md` §3: a malformed index is a
 /// hard type error, never a silent wrap or truncation).
-fn expect_index(value: &Value) -> PhResult<usize> {
+pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
     let n = expect_value!(value, Number);
     if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
         return Err(RuntimeError::Type {

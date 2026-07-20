@@ -7,6 +7,10 @@ use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::family_does_not_understand;
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
+use crate::primitive::bytes::{
+    bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill,
+    bytes_raw_set, bytes_raw_size, bytes_raw_slice, bytes_raw_utf8, bytes_raw_utf8_lossy,
+};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
@@ -296,6 +300,26 @@ impl Universe {
         primitive!(vm, list_cls, "set_", SignatureKind::Method(2), list_raw_set);
         primitive!(vm, list_cls, "push_", SignatureKind::Method(1), list_raw_push);
         primitive!(vm, list_cls, "toString", SignatureKind::Getter, list_to_string);
+
+        // Kernel `Bytes` (PDR-0011 ruling 3, U-BYTES; the trailing `_` marks
+        // native/private primitives) — ten from that record plus PDR-0013
+        // ruling 4's `utf8Lossy_`. Bulk no-user-code operations are native
+        // under the container bulk-op posture; every block-taking selector
+        // (`each`/`map`/`filter`/`reduce`) stays `.ph`-inherited from
+        // `Iterable` so `Fiber#yield` works mid-iteration (bytes.md §3.1) —
+        // do NOT add native combinators here.
+        let bytes_cls = vm.universe.classes.bytes_class;
+        primitive_static!(vm, bytes_cls, "new", SignatureKind::Method(1), bytes_class_new);
+        primitive_static!(vm, bytes_cls, "fromString_", SignatureKind::Method(1), bytes_class_from_string);
+        primitive!(vm, bytes_cls, "size_", SignatureKind::Getter, bytes_raw_size);
+        primitive!(vm, bytes_cls, "at_", SignatureKind::Method(1), bytes_raw_at);
+        primitive!(vm, bytes_cls, "set_", SignatureKind::Method(2), bytes_raw_set);
+        primitive!(vm, bytes_cls, "fill_", SignatureKind::Method(1), bytes_raw_fill);
+        primitive!(vm, bytes_cls, "slice_", SignatureKind::Method(2), bytes_raw_slice);
+        primitive!(vm, bytes_cls, "copyInto_", SignatureKind::Method(2), bytes_raw_copy_into);
+        primitive!(vm, bytes_cls, "utf8_", SignatureKind::Getter, bytes_raw_utf8);
+        primitive!(vm, bytes_cls, "utf8Lossy_", SignatureKind::Getter, bytes_raw_utf8_lossy);
+        primitive!(vm, bytes_cls, "equalsConstantTime_", SignatureKind::Method(1), bytes_raw_equals_constant_time);
 
         // Kernel `Map`/`Set` (ADR-0039, U-COLLTYPES Phase 1): the native
         // hash-collection floor. `Map` gets 8 bindings (`new` + 7 native

@@ -189,6 +189,10 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
                 trace_value(value, push);
             }
         }
+        // `Bytes` holds raw octets, never a `Value` — nothing to visit. An
+        // explicit arm (not a `_` wildcard) so the match stays exhaustive and
+        // the next variant's author is forced to decide (impl/bytes.md §2.3).
+        Object::Bytes(_) => {}
         Object::Tuple(tuple) => {
             for element in tuple.elements() {
                 trace_value(*element, push);

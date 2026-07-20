@@ -123,6 +123,13 @@ impl Universe {
         // Immutable ⇒ value-hashable, a valid `Map`/`Set` key (Q5).
         let range_class = make_core_class(heap, "Range", iterable_class, metaclass_class);
 
+        // Kernel `Bytes` (PDR-0011, U-BYTES): the native fixed-length octet
+        // buffer. Same "no field layout, no `.ph` construct" load-order
+        // rationale as `List`; placed after `String` (its `utf8_`/`fromString_`
+        // primitives mint/consume `Str`) and under `Iterable` (bytes.md §1).
+        // Mutable contents ⇒ identity hash, not a valid `Map`/`Set` key.
+        let bytes_class = make_core_class(heap, "Bytes", iterable_class, metaclass_class);
+
         // Kernel `Message` (method-lookup.md §2, ADR-0012): the reified miss
         // send handed to `doesNotUnderstand(_:)`. An ordinary fixed-slot
         // `InstanceObject` (four slots: selector/name/labels/args) built
@@ -185,6 +192,7 @@ impl Universe {
             set_class,
             tuple_class,
             range_class,
+            bytes_class,
             message_class,
             error_class,
             message_not_understood_class,
@@ -315,6 +323,14 @@ pub struct CoreClasses {
     /// storage (RG-2 laziness). Immutable ⇒ value-hashable, a valid
     /// `Map`/`Set` key (Q5).
     pub range_class: ClassId,
+    /// `Bytes`, the native fixed-length mutable octet buffer
+    /// ([PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
+    /// A dedicated [`crate::heap::Object::Bytes`] heap variant over
+    /// [`crate::heap::BytesObject`] — `Box<[u8]>`, length fixed at
+    /// construction. Mutable ⇒ identity hash, **not** a valid `Map`/`Set`
+    /// key (collection-protocol law 4); `toTuple` is the immutable escape
+    /// hatch.
+    pub bytes_class: ClassId,
     /// `Message`, the reified message-send handed to `doesNotUnderstand(_:)`
     /// on a lookup miss (method-lookup.md §2, ADR-0012). An ordinary
     /// fixed-slot [`InstanceObject`](crate::heap::InstanceObject) built by
@@ -396,6 +412,7 @@ impl CoreClasses {
             set_class,
             tuple_class,
             range_class,
+            bytes_class,
             message_class,
             error_class,
             message_not_understood_class,
@@ -431,6 +448,7 @@ impl CoreClasses {
             set_class,
             tuple_class,
             range_class,
+            bytes_class,
             message_class,
             error_class,
             message_not_understood_class,

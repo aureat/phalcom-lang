@@ -1,4 +1,5 @@
 use crate::heap::BlockObject;
+use crate::heap::BytesObject;
 use crate::heap::ClassObject;
 use crate::heap::ClosureObject;
 use crate::heap::InstanceObject;
@@ -187,6 +188,38 @@ impl Heap {
     pub fn as_list(&self, id: ObjRef) -> Option<&ListObject> {
         match self.objects.get(id) {
             Some(Object::List(list)) => Some(list),
+            _ => None,
+        }
+    }
+
+    /// Borrows the [`BytesObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Bytes`].
+    pub fn bytes(&self, id: ObjRef) -> &BytesObject {
+        match self.get(id) {
+            Object::Bytes(bytes) => bytes,
+            _ => panic!("ObjRef {id:?} is not a BytesObject"),
+        }
+    }
+
+    /// Mutably borrows the [`BytesObject`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::Bytes`].
+    pub fn bytes_mut(&mut self, id: ObjRef) -> &mut BytesObject {
+        match self.get_mut(id) {
+            Object::Bytes(bytes) => bytes,
+            _ => panic!("ObjRef {id:?} is not a BytesObject"),
+        }
+    }
+
+    /// Returns the [`BytesObject`] behind `id`, or `None` if it is not one.
+    pub fn as_bytes(&self, id: ObjRef) -> Option<&BytesObject> {
+        match self.objects.get(id) {
+            Some(Object::Bytes(bytes)) => Some(bytes),
             _ => None,
         }
     }

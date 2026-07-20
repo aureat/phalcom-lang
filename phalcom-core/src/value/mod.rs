@@ -144,6 +144,7 @@ impl Value {
                 // protocol from the surface's point of view.
                 Object::BoundMethod(_) => vm.universe.classes.block_class,
                 Object::List(_) => vm.universe.classes.list_class,
+                Object::Bytes(_) => vm.universe.classes.bytes_class,
                 Object::Fiber(_) => vm.universe.classes.fiber_class,
                 Object::Map(_) => vm.universe.classes.map_class,
                 Object::Set(_) => vm.universe.classes.set_class,
@@ -192,6 +193,7 @@ impl Value {
                 | Object::Method(_)
                 | Object::BoundMethod(_)
                 | Object::List(_)
+                | Object::Bytes(_)
                 | Object::Fiber(_)
                 | Object::Map(_)
                 | Object::Set(_)

@@ -34,6 +34,7 @@ mod class;
 mod closure;
 mod fiber;
 mod instance;
+mod bytes;
 mod list;
 mod map;
 mod module;
@@ -45,6 +46,7 @@ mod tuple;
 mod upvalue;
 
 pub use block::BlockObject;
+pub use bytes::BytesObject;
 pub use class::{lookup_method_in_hierarchy, ClassObject};
 pub use closure::ClosureObject;
 pub use fiber::{FiberObject, FiberResumeMode, FiberStatus};
@@ -167,6 +169,23 @@ impl Heap {
         self.insert(Object::Set(Box::new(MapObject::new())))
     }
 
+    /// Allocates an [`Object::Bytes`] and returns its [`ObjRef`]
+    /// ([PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).
+    pub fn alloc_bytes(&mut self, bytes: BytesObject) -> ObjRef {
+        self.insert(Object::Bytes(bytes))
+    }
+
+    /// Mutably borrows **two distinct** [`BytesObject`]s at once — the
+    /// aliasing-safe seam `Bytes::copyInto_(_,_)` needs for its
+    /// source→destination memmove (`impl/bytes.md` §2.6). Returns `None` if
+    /// the handles are equal, stale, or either is not an [`Object::Bytes`].
+    pub fn bytes_pair_mut(&mut self, a: ObjRef, b: ObjRef) -> Option<(&mut BytesObject, &mut BytesObject)> {
+        match self.objects.get_disjoint_mut([a, b])? {
+            [Object::Bytes(first), Object::Bytes(second)] => Some((first, second)),
+            _ => None,
+        }
+    }
+
     /// Allocates an [`Object::Tuple`] from a fixed `elements` slice and
     /// returns its [`ObjRef`].
     pub fn alloc_tuple(&mut self, elements: Box<[crate::value::Value]>) -> ObjRef {
@@ -232,6 +251,7 @@ impl Heap {
             Some(Object::Fiber(_)) => "Fiber",
             Some(Object::Map(_)) => "Map",
             Some(Object::Set(_)) => "Set",
+            Some(Object::Bytes(_)) => "Bytes",
             Some(Object::Tuple(_)) => "Tuple",
             Some(Object::Range(_)) => "Range",
             Some(Object::Family(_)) => "Family",

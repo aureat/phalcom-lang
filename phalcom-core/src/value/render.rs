@@ -28,6 +28,10 @@ impl Value {
                     let parts: Vec<String> = list.elements().iter().map(|v| v.to_string(vm)).collect();
                     format!("[{}]", parts.join(", "))
                 }
+                // The `.ph` `Bytes#toString` (bytes.md §4) is the surface
+                // spelling; this is the same debug form for the raw-render
+                // path (echo of a receiver with no user override yet).
+                Object::Bytes(bytes) => format!("Bytes({})", bytes.len()),
                 Object::Instance(inst) if inst.class == vm.universe.classes.none_class => "None".to_string(),
                 Object::Instance(inst) if inst.class == vm.universe.classes.some_class => {
                     format!("Some({})", inst.slots[0].to_string(vm))
@@ -145,6 +149,7 @@ impl Value {
                 Object::Block(_) => "<block>".to_string(),
                 Object::BoundMethod(_) => "<bound method>".to_string(),
                 Object::List(_) => "<list>".to_string(),
+                Object::Bytes(_) => "<bytes>".to_string(),
                 Object::Fiber(_) => "<fiber>".to_string(),
                 Object::Map(_) => "<map>".to_string(),
                 Object::Set(_) => "<set>".to_string(),
