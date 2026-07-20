@@ -140,10 +140,26 @@ Every built-in failure is an `Error` subclass ([Object Model §Errors](object-mo
 so all of them are catchable with the same protocol:
 
 ```phalcom
-{ obj.frobnicate() }.on(MessageNotUnderstood) { e => … }
-{ list[99] }.on(RangeError) { e => … }
-{ escapedBlock.call() }.on(DeadFrameError) { e => … }
+{ obj.frobnicate() }.on(MessageNotUnderstood) { e => … }   // works today (reified via Raise)
+{ list[99] }.on(RangeError) { e => … }                     // NEVER FIRES — see note below
+{ escapedBlock.call() }.on(DeadFrameError) { e => … }      // NEVER FIRES — see note below
 ```
+
+> **Correction (2026-07-20).** The second and third examples cannot work: `RangeError` and
+> `DeadFrameError` kernel classes do not exist, and every non-`Raise` native error is wrapped,
+> on catch, into a generic base `Error` instance — so those handlers silently never fire.
+> The **ruled** replacement is [PDR-0010](../../decisions/0010-errors-carry-structure-and-cheap-origin.md)
+> §2 (ratified 2026-07-20): every `Error` carries a `kind` Symbol, matched as
+>
+> ```phalcom
+> { list[99] }.on(Error) { e => if (e.kind == #range) { … } }
+> ```
+>
+> Kernel classes per condition are deliberately **not** minted (PDR-0001 makes them the most
+> expensive answer). Normative `kind` table:
+> [`traceback/implementation-spec.md`](../traceback/implementation-spec.md) §8.1. Unimplemented
+> until traceback plan units T3/T6 land; until then only `Error`, `MessageNotUnderstood`, and
+> `CannotYieldAcrossNativeFrame` are matchable classes.
 
 User-defined errors subclass `Error` (or a more specific built-in) and participate
 identically.

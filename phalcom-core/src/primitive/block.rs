@@ -220,12 +220,22 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 ///   non-local `return` unwound *through* the protected block, U10) — `on`
 ///   does not catch a `return`; it is not a `throw` (ADR-0008 §4.2). Returned
 ///   unchanged.
-/// - **A `Raise` whose `Error` does not match `args[0]`** — re-propagated
-///   **verbatim**, frames untouched, so the next `on` in a `try` chain (or the
-///   top-level trace renderer) sees the full stack (first-match-wins,
-///   error-handling.md §2).
+/// - **A `Raise` whose `Error` does not match `args[0]`** — the original
+///   `Err` is re-propagated, but only *after* `unwind_to` has torn the
+///   protected block's frames down to this `on`'s own snapshot (the unwind
+///   moved before the probe for PDR-0007 §2 — see the comment in the body).
+///   An outer `on` still matches correctly because it records its own
+///   snapshot at entry; a traceback rendered *above* this point sees the
+///   stack only down to this boundary (first-match-wins, error-handling.md
+///   §2; capture-at-boundary is PDR-0010 §3's job).
 /// - **Any other `Err`** (`DeadFrameError`, a future fiber `abort` payload,
-///   …) — `on` catches only `Raise`; re-propagated unchanged.
+///   …) — **wrapped into a synthetic base `Error` instance** carrying the
+///   rendered message, then run through the *same* `isA` probe as a real
+///   `Raise`: a catch-all `on(Error)` catches it, a narrower class does not.
+///   The native variant's identity is currently discarded in the wrap;
+///   PDR-0010 §2's `kind` Symbol is the ruled fix. (This doc previously
+///   claimed non-`Raise` errors were "re-propagated unchanged" — wrong on
+///   both counts; error-handling-followups.md §3.)
 ///
 /// The snapshot/restore is **length-relative** (`vm.stack.len()`/
 /// `vm.frames.len()`, never an absolute index), so this stays fiber-local by
