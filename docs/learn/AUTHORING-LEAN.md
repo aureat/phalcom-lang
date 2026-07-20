@@ -418,3 +418,46 @@ Until someone does both, this file stays experimental and `AUTHORING.md` stays a
 **Verdict across four runs, spanning all three doc kinds the gate distinguishes: the lean variant
 holds.** Both exemption branches (C2, C4) produced full-weight docs; the one spend (C3) earned it.
 The promotion condition remains met and remains untaken, for the same reason as above.
+
+---
+
+### Run 5 — `vm/sacred-inliner.md` (fork, A ran)
+
+| | |
+|---|---|
+| Doc kind | **fork** — ADR-0018 has a real `## Alternatives considered` rejecting grammar-level control flow, the branch nearly every other language takes |
+| Agent A | 1, blind, redacted, **zero tool calls** — 62k tokens |
+| Agent B | 1, 6 questions, 3 REFUTE-asks — 146k tokens / 39 tool calls |
+| Wall clock | ~50 min |
+| Recon | 7 sections, 7 findings, + a §8 reconciliation added in phase 4.1 |
+| Gate | 0 failures |
+
+**Quality, against §8's table.**
+
+| Signal | C1 | C2 | C3 | C4 | Run 5 |
+|---|---|---|---|---|---|
+| Findings that contradicted the plan or priors | 2 | 4 | 6 | 6 | **5, two of them mine** — the doc's own recon was wrong about fallback suppression (soundness vs size) and about which mechanism `bootstrap.rs:134` belongs to; the source's "correct, just not fast" is wrong two ways; the guard's threat model was closed by an unrelated decision; the runtime win is unmeasured |
+| Adversarial checks that changed a claim | 1 | 2 | 3 | 2 | **3** — all three REFUTE-asks landed, and one *refuted me*: the soundness hypothesis I would otherwise have shipped as the doc's explanation |
+| ADR-vs-HEAD gaps found and stated | 3 | 2 | 1 | 3 | **2** — ADR-0018's Decision claims both guards check receiver type; `GuardBlock` does not. And decision 0065 silently closed the threat ADR-0018 defends against |
+| Claims labelled unverified rather than smuggled | 3 | 3 | 3 | 2 | **3** — `bool_and`/`bool_or` unaffected (by inspection, not repro); the un-audited blast radius of `block_call` post-processors; that dual-emission was *chosen* over recompilation (the ADR never names the alternative) |
+| Predict-then-check moments | 1 | 1 | 1 | 1 | **1** — "how many instructions does a two-line `if` compile to?" Natural guess four or five; answer seventeen, and the extra nine are the second program |
+| Gate items failed on first pass | 0 | 2 | 0 | 0 | **0** |
+
+**The finding that justifies the whole A-brief.** Agent A, with **no repository access and zero tool
+calls**, asked to name the bug it would expect a competent implementation of its recommended design to
+have, ranked first: *"the fast path is not a faithful speed-optimization of one fixed semantics — it's
+silently narrower semantics wearing the identical syntax."* That is E005, reproduced by B and then by
+me. A was wrong only in the safe direction — it assumed an override was needed to expose it; a `let`
+is enough.
+
+This is now **two for two** on that question producing a real, previously-unrecorded defect (C3 → E002,
+Run 5 → E005), across two different subsystems, from two independently-briefed blind agents. The ask
+is no longer a nice-to-have on fork/tension docs — it is the single highest-yield line in the A brief,
+and it works precisely *because* A cannot see the code and so reasons from the mechanism rather than
+pattern-matching the implementation.
+
+**One procedure finding.** Reading the sibling docs before writing recon paid for the **third**
+consecutive time, and this run shows the sharpest version: Doc 5 had *already* corrected "override
+epoch" to "five latching `pristine` flags." Had I not read it first, the doc's headline correction
+would have been a restatement of a shipped doc's finding, presented as new. The forbidden list is not
+bureaucracy — it is what stops a doc from rediscovering its predecessor.

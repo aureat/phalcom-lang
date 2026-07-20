@@ -72,6 +72,12 @@ one agent, scratch in [`parked-fiber/`](parked-fiber/) (`recon.md` + `source-map
 |---|---|---|
 | [`object-model/metaclass-tower.md`](object-model/metaclass-tower.md) | the tower is a finite cyclic graph, not an infinite regress | Ships with **no forward-pointer section**, so nothing declares what the rest of this track is. Deciding that is itself an open task. |
 
+### Standalone
+
+| Doc | Grip | Commit |
+|---|---|---|
+| [`vm/sacred-inliner.md`](vm/sacred-inliner.md) | every `if` is compiled **twice** — inlined fast path and real-send fallback, side by side in one chunk — and the guard is a forward jump between them. Deopt is free because there is no deopt; the bill is code size, a 2^depth compile blowup no gate measured, and two copies that do not agree | `92244a6` |
+
 ---
 
 ## Owed
@@ -109,11 +115,24 @@ One qualification C1 raised and did not own: [`upvalues.md`](vm/upvalues.md) own
 `GetUpvalue`/`SetUpvalue` fiber-aware branch, which makes Doc 1's "the inner loop is fiber-unaware"
 true of the loop's *structure* but not of two of its arms.
 
-### 2. Sacred-selector inliner — 2 pointers
+### 2. Sacred-selector inliner — **PAID.** *(was 2 pointers)*
 
-Doc 5 named `GuardBool`/`GuardBlock`, `compile_sacred_call`, and the override-epoch deopt; Doc 6
-leaned on it hard for the "the `ifTrue` blocks are not blocks at runtime" trace. Self-contained and
-ADR-0018-anchored — the cheapest of the three, and a good palate cleanser between tracks.
+[`vm/sacred-inliner.md`](vm/sacred-inliner.md) — *every `if` is compiled twice and a guard picks
+which copy runs; deopt is free because there is no deopt, and the bill is paid in code size, in a
+compile-time blowup nothing measured, and in two copies that do not actually agree.* Doc 5's
+`compile_sacred_call`/deopt handoff and Doc 6's "not blocks at runtime" lean are both discharged.
+
+Raised and not owned:
+
+- **[E005](../errors/E005-nonlocal-return-some-wrapped.md) — new, open.** A non-local `return`
+  through the *non-inlined* `ifTrue` comes back `Some`-wrapped. Reachable with no override, from
+  ordinary code, by hoisting a block into a `let`. The fix is a primitive-ABI signalling change, not
+  a local patch, and every `block_call` post-processor is unaudited.
+- **The inliner's runtime value has never been measured.** Every number attached to it in
+  `perf-log/` is compile time. The one cut nobody ran.
+- **Decision 0065 closed the threat the guard defends against** — kernel classes can no longer be
+  reopened from surface Phalcom, so no program can make `GuardBool`'s override question answer "yes."
+  The guard is still exercised in-crate. Nothing reconciles the two decisions.
 
 ### 3. `SuperSend` — 3 partial pointers
 
