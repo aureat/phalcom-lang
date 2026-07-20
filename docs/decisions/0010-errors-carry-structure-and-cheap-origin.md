@@ -1,6 +1,9 @@
 # PDR-0010 — Errors carry structure and cheap origin: one cause chain, a `kind` symbol, incremental capture
 
-- Status: Proposed
+- Status: Accepted (ratified 2026-07-20, same day as proposal; ratification ruled that the
+  normative `kind` Symbol table and the isA-vs-`kind` usage rule are specified in
+  [`docs/spec/traceback/implementation-spec.md`](../spec/traceback/implementation-spec.md) §8
+  rather than by amending this record)
 - Date: 2026-07-20
 - Related: [ADR-0008](../adr/accepted/0008-layered-exceptions-and-result.md) (layered exceptions +
   `Result`), [ADR-0038](../adr/accepted/0038-amend-floor-admit-block-on-ensure.md)
