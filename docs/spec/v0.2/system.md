@@ -52,11 +52,19 @@ All class-side. Grouped by service.
 
 ### Process & environment
 
+> **Specced 2026-07-20:** this group is promoted to
+> [`core/process.md`](core/process.md) (normative upon
+> [PDR-0019](../../decisions/0019-process-and-environment-surface.md) ratification),
+> which keeps these spellings, adds the exact-bytes siblings
+> (`envBytes(_)`/`argsBytes` — lossy/exact split, PDR-0013 ruling 4 pattern), rules
+> the environment **read-only**, and binds `exit(_)` to run reactor shutdown +
+> resource drain + leak report first. The rows below remain the quick reference.
+
 | Signature | Meaning |
 |-----------|---------|
-| `args` | the program's argument vector as a `List<String>` |
-| `env(_)` | an environment variable as `Option<String>` |
-| `exit(_)` | terminate the process with an integer status |
+| `args` | the program's argument vector as a `List<String>` (lossy display form; `argsBytes` is exact) |
+| `env(_)` | an environment variable as `Option<String>` (lossy; `envBytes(_)` is exact) |
+| `exit(_)` | terminate the process with an integer status `0..255`, after the shutdown obligations |
 
 ### Runtime
 
@@ -72,7 +80,7 @@ All class-side. Grouped by service.
 | `schedule(_)` | enqueue a `Function` to run on a fresh fiber at the next scheduler turn — **landed** (U-SCHED, floor-census.md amendment): wraps `args[0]` as a fresh `Fiber` via the same validation `Fiber.new(_)` uses and pushes it onto the native ready-queue (`VM::ready_queue`); returns the `Fiber` handle, does not run it |
 | `nextScheduled` | **landed** (U-SCHED, not originally in this table — a floor amendment in the same vein as ADR-0037/0038/0039/0049): pops and returns the next queued fiber as `Option<Fiber>`, `None` once the queue is empty; the drain seam every pump (native root-drive, `.ph` `runScheduled`) bottoms out in |
 | `runScheduled` | **landed** (U-SCHED, `.ph`, `core.ph`): `while (next.isSome) { … }` pump over `nextScheduled` — drains everything queued so far, in order, including work newly scheduled mid-drain, then returns; the mid-program counterpart to the native root-drive below |
-| `sleep(_)` | return a `Future` that settles after N seconds (a timer completion source) — **still open**: U-SCHED deliberately splits the ready-queue from timers (`open-questions.md` §15 fairness is unresolved for a timer completion source); tracked as a follow-on unit, not built here |
+| `sleep(_)` | return a `Future` that settles after the given integral **milliseconds** — **ruled** ([PDR-0004](../../decisions/0004-io-is-future-shaped-reactor-owned.md) §5 closed the question this row left open; normative contract [`core/reactor.md`](core/reactor.md) §6: monotonic, `>=`-bounded). Unbuilt — lands with U-REACTOR ([`impl/reactor.md`](impl/reactor.md)) |
 
 `VM::run`'s **root-drive pump** (`vm/dispatch.rs`) is the belt-and-suspenders
 counterpart to `runScheduled`: once the top-level program's own activation
@@ -110,10 +118,10 @@ To reach the specified surface from today's tree:
 1. install `write`, `printErr`, `readLine`, `clock`, `now`, `args`, `env`,
    `exit`, `gc`, `version` as primitives alongside `print`;
 2. give the VM a monotonic clock handle and (for `readLine`) buffered stdin;
-3. `schedule`/`nextScheduled`/`runScheduled` are landed (U-SCHED); `sleep`
-   remains a follow-on once the ready-queue/timer fairness question
-   (`open-questions.md` §15) is ruled — `sleep` would register a timer whose
-   firing settles the returned `Future`.
+3. `schedule`/`nextScheduled`/`runScheduled` are landed (U-SCHED); `sleep` is
+   **ruled and specced** ([`core/reactor.md`](core/reactor.md) §6 — fairness has a
+   proposed default there, Q-R1) and lands with U-REACTOR; the process/environment
+   rows land under [`core/process.md`](core/process.md) once PDR-0019 ratifies.
 
 Because `System` is the only sanctioned effect surface, a sandboxed or test
 embedding swaps the `System class` method dictionary for stubs and leaves the rest
