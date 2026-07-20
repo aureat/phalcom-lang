@@ -190,8 +190,9 @@ PDR-0004's mitigation for "specified against no real usage" is that these are th
 
 ## 12. What this document does not cover
 
-- **Any IO selector surface.** `File`/`Fs` are [`filesystem.md`](filesystem.md); sockets,
-  DNS, TLS, process-wait have no spec yet — they plug into §3's lifecycle unchanged.
+- **Any IO selector surface.** `File`/`Fs` are [`filesystem.md`](filesystem.md); sockets
+  and DNS are [`net.md`](net.md) (Proposed — normative upon PDR-0015 ratification); TLS
+  and process-wait have no spec yet. All plug into §3's lifecycle unchanged.
 - **Isolates.** PDR-0003 §2; if ever built, each isolate owns a reactor — nothing here
   assumes a process singleton beyond `System.sleep`'s binding.
 - **Streaming/backpressure abstractions.** Q-3 of PDR-0013 and beyond; the reactor
