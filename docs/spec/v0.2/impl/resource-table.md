@@ -98,9 +98,10 @@ scope note says *do not "restore consistency"* here); `Resource#isClosed => self
 
 ### 2.4 Error kinds without PDR-0010
 
-`kind: #useAfterClose` (stream-protocol §3.1 law 5) has no carrier yet — PDR-0010
-(structured errors) is **Proposed**; do not build against it (rule 5). The tree's
-existing kind mechanism is a **dedicated error class**:
+`kind: #useAfterClose` (stream-protocol §3.1 law 5) has no carrier yet — PDR-0010 is
+now **Accepted** (ratified 2026-07-20) but its `kind` carrier lands with the traceback
+plan's T3/T6 units, not here; do not implement it in this unit. The tree's existing
+kind mechanism is a **dedicated error class**:
 `CannotYieldAcrossNativeFrame < Error` (`core_classes.rs:160`) is the precedent. Add
 `UseAfterCloseError < Error` the same way (bootstrapped class + `add_class!` row). The
 diagnostic message names the resource kind and the site that closed it (PDR-0005 §4).

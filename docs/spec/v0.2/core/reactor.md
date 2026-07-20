@@ -6,7 +6,11 @@
 > both **Accepted**, so rule 5 does not block this document. This is a *machinery* spec:
 > its consumer is the implementer, not the `.ph` programmer; the only user-visible selector
 > it adds is `System.sleep(_)` (§6, ruled in substance by PDR-0004 §5).
-> **Floor delta: +1** (`System.sleep_`); census arithmetic follows
+> **Floor delta: +3** (`System.sleep_(_,_)` and the two pump seams
+> `System.nextCompletion_` / `System.parkForCompletion_(_)` — the U-SCHED
+> `schedule_`/`nextScheduled` seam precedent; amended from "+1" by
+> [`../impl/reactor.md`](../impl/reactor.md), which also rules phase 1 std-only:
+> worker pool + timers, no poller, no sockets, no new dependency); census arithmetic follows
 > [PDR-0012](../../../decisions/0012-numeric-tower-implementation-and-floor-amendment.md)
 > ruling 21's rebase discipline alongside the other pending amendments.
 > **Build order is ruled:** this machinery lands **before** any `File`/`Fs`/socket surface
@@ -115,8 +119,10 @@ System.sleep(_) -> Future     // settles Ok(None) after >= the given duration
 - `>=`, never `==`: settlement happens at the first pump after the deadline, and the spec
   promises no tighter bound (single VM thread; a fiber that never yields delays every
   timer — that is PDR-0003's documented cost, not a reactor defect).
-- Native: `System.sleep_(_)` (+1, this spec's whole floor delta); the `.ph` `sleep`
-  lifts argument validation.
+- Native: `System.sleep_(_,_)` — duration plus the pending future to register
+  (impl ruling: every reactor-registering native takes the future as its last
+  argument, because `Future` is pure `.ph` and natives never settle one). The `.ph`
+  `sleep` validates, creates the `Future`, registers, returns it.
 
 ## 7. Cancellation — deferred, with its obligations recorded now
 
