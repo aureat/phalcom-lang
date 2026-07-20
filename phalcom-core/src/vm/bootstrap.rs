@@ -246,6 +246,10 @@ impl VM {
         // `Range` (ADR-0039, U-COLLTYPES Phase 3): ordinary class global,
         // native heap arm mirroring `List`.
         add_class!(range_class);
+        // `Bytes` (PDR-0011, U-BYTES): ordinary class global, native heap arm
+        // mirroring `List`; the core.ph `class Bytes` block is a stub
+        // completion of this row, not a fresh class.
+        add_class!(bytes_class);
         add_class!(message_class);
         // `Error` root + `MessageNotUnderstood < Error` (U-CORE-6, ADR-0008):
         // globals only, no `.ph` reopen — an empty reopen would be harmless

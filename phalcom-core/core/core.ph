@@ -1197,6 +1197,167 @@ class Range {
   }
 }
 
+// U-BYTES (PDR-0011, docs/spec/v0.2/core/bytes.md): the kernel octet buffer's
+// `.ph` protocol over the eleven floor primitives. Bulk no-user-code work is
+// native (bytes.md §3.1); everything here is validation-lifting, derivation,
+// and the Iterable hookup. `each`/`map`/`filter`/`reduce` are deliberately
+// ABSENT — inherited from `Iterable` so `Fiber.yield` works mid-iteration
+// (law 8); adding native or local overrides is a spec violation.
+class Bytes {
+  size => self.size_
+
+  // Bare-or-None passthrough (List#at's shape). Unlike List, the union is
+  // unambiguous: an octet is never None (bytes.md §3).
+  at(i) => self.at_(i)
+
+  iteratorValue(cursor) => self.at_(cursor)
+
+  // An octet is an integer Number in 0..255 (bytes.md §2). `and` is lazy,
+  // so the arithmetic tests never run on a non-Number. (No trailing `_`:
+  // that marker is reserved for native primitives, and this is pure .ph.)
+  isOctet(v) {
+    return v.isA(Number) and (v >= 0) and (v <= 255) and ((v % 1) == 0)
+  }
+
+  // Raise-lifting writes (bytes.md law 1: precondition violations raise,
+  // reads stay total). The floor's set_ reports a bad write as a native
+  // type error; the .ph surface names the contract instead.
+  set(i, v) {
+    if (not self.isOctet(v)) {
+      throw ArgumentError.new("Bytes#set: value must be an integer in 0..255")
+    }
+    if ((i < 0) or (i >= self.size)) {
+      throw ArgumentError.new("Bytes#set: index out of range")
+    }
+    self.set_(i, v)
+    return self
+  }
+
+  at(i, put:) { return self.set(i, put) }
+
+  [i] { return self.at(i) }
+
+  [i, put:] { return self.at(i, put: put) }
+
+  fill(v) {
+    if (not self.isOctet(v)) {
+      throw ArgumentError.new("Bytes#fill: value must be an integer in 0..255")
+    }
+    self.fill_(v)
+    return self
+  }
+
+  // One native memset, complete because the length is fixed (bytes.md §7).
+  // The guarantee is a documented obligation, not a mechanism — scope it
+  // with `ensure`. A getter so the call reads `key.zeroize` (ADR-0012:
+  // `zeroize` and `zeroize()` are different selectors).
+  zeroize {
+    self.fill_(0)
+    return self
+  }
+
+  utf8 => self.utf8_
+
+  // Display decode: total, lossy (invalid sequences become U+FFFD). Never
+  // round-trip the result into data (PDR-0013 ruling 4).
+  utf8Lossy => self.utf8Lossy_
+
+  slice(start, end) {
+    if ((start < 0) or (end < start) or (end > self.size)) {
+      throw ArgumentError.new("Bytes#slice: range must satisfy 0 <= start <= end <= size")
+    }
+    return self.slice_(start, end)
+  }
+
+  copyInto(dst, offset) {
+    if (not dst.isA(Bytes)) {
+      throw ArgumentError.new("Bytes#copyInto: destination must be a Bytes")
+    }
+    if ((offset < 0) or ((offset + self.size) > dst.size)) {
+      throw ArgumentError.new("Bytes#copyInto: offset + size must fit the destination")
+    }
+    self.copyInto_(dst, offset)
+    return self
+  }
+
+  // Derivability with teeth (bytes.md §3.1): new + two native memmoves,
+  // zero per-byte loops.
+  concat(other) {
+    if (not other.isA(Bytes)) {
+      throw ArgumentError.new("Bytes#concat: argument must be a Bytes")
+    }
+    const out = Bytes.new(self.size + other.size)
+    self.copyInto_(out, 0)
+    other.copyInto_(out, self.size)
+    return out
+  }
+
+  equalsConstantTime(other) => self.equalsConstantTime_(other)
+
+  // Structural equality, List#=='s exact shape (collection-protocol §4).
+  // Short-circuits — correct here, and exactly why it must never be the
+  // secret-comparison spelling (bytes.md §8).
+  ==(other) {
+    if (other.isA(Bytes)) {
+      let same = (self.size == other.size)
+      let i = 0
+      // `and` is lazy: once `same` is false the loop exits without another
+      // `at(i)` (List#=='s exact shape).
+      while (same and (i < self.size)) {
+        same = (self.at(i) == other.at(i))
+        i = i + 1
+      }
+      return same
+    } else {
+      return false
+    }
+  }
+
+  // MUST route through == (the ==/!= decoupling hazard) — Object#!= negates
+  // identity, not this structural ==.
+  !=(other) {
+    return not (self == other)
+  }
+
+  toString => "Bytes(" + self.size.toString + ")"
+
+  toList {
+    const out = []
+    for (b in self) {
+      out.add(b)
+    }
+    return out
+  }
+
+  // The immutable, value-hashable snapshot — the Map-key escape hatch
+  // (PDR-0011 ruling 4; Bytes itself is mutable => identity hash, never a
+  // valid Map/Set key).
+  toTuple => Tuple.fromList(self.toList)
+
+  static fromString(s) {
+    if (not s.isA(String)) {
+      throw ArgumentError.new("Bytes.fromString: argument must be a String")
+    }
+    return Bytes.fromString_(s)
+  }
+
+  // The builder story (bytes.md law 3 forecloses growth): build in a List,
+  // freeze into Bytes — Tuple.fromList's shape. `set` (not `set_`) so a
+  // non-octet element raises the named contract error.
+  static fromList(list) {
+    if (not list.isA(List)) {
+      throw ArgumentError.new("Bytes.fromList: argument must be a List")
+    }
+    const out = Bytes.new(list.size)
+    let i = 0
+    while (i < list.size) {
+      out.set(i, list.at(i))
+      i = i + 1
+    }
+    return out
+  }
+}
+
 // Lazy view classes (wren_core.wren MapSequence/WhereSequence/SkipSequence L121-152, 168-182), ported
 // to Phalcom's bare-cursor protocol (post-U-ITERABLE: `iterate` returns the raw next cursor, or the
 // `None` singleton at exhaustion — never Some-wrapped). `extends Iterable` so combinators, `for`,
