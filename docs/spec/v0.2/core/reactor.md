@@ -124,10 +124,12 @@ System.sleep(_) -> Future     // settles Ok(None) after >= the given duration
   argument, because `Future` is pure `.ph` and natives never settle one). The `.ph`
   `sleep` validates, creates the `Future`, registers, returns it.
 
-## 7. Cancellation — deferred, with its obligations recorded now
+## 7. Cancellation — deferred here; now specced as its own unit
 
-Own unit (PDR-0004 Consequences: "it cannot be deferred indefinitely — a leaked
-registration is an fd leak"). What this spec binds now so the deferral stays honest:
+Own unit — **specced 2026-07-20**: [PDR-0017](../../../decisions/0017-future-cancel-is-renunciation.md)
+(Proposed) + [`cancellation.md`](cancellation.md) (U-CANCEL), built on exactly the
+substrate below, which stays binding (PDR-0004 Consequences: "it cannot be deferred
+indefinitely — a leaked registration is an fd leak"):
 
 1. Every registration carries the generation-tagged token from §3; **deregistration is
    generation bump + poller removal**, and a stale completion is dropped at the drain.
@@ -136,8 +138,9 @@ registration is an fd leak"). What this spec binds now so the deferral stays hon
    root rule) — it is a *leak*, and it must appear in `System.leakReport` as a distinct
    condition ("fiber parked on a registration nothing can complete"), the PDR-0005 §5
    posture applied to registrations.
-3. `Future` gets no `cancel` selector in this spec. When it does, it composes with the
-   token mechanism above rather than adding a second one.
+3. `Future` gets no `cancel` selector in this spec. It now has one **specced**
+   ([`cancellation.md`](cancellation.md), normative upon PDR-0017 ratification), and it
+   composes with the token mechanism above exactly as required — no second mechanism.
 
 ## 8. Shutdown
 
@@ -186,7 +189,7 @@ PDR-0004's mitigation for "specified against no real usage" is that these are th
 | Q-R1 | Fairness policy | §5's bounded-batch back-of-queue default, pending a real workload (`open-questions.md` §15) |
 | Q-R2 | Worker-pool size | Bounded, but bounded at what? libuv defaults to 4; measure, don't copy. Whatever it is, it is a constant with a doc comment, never a user-visible knob in v0.2 |
 | Q-R3 | Poller backend on macOS-first development | **Answered by [PDR-0016](../../../decisions/0016-poller-backend-is-mio.md) (Proposed):** `mio`, confined to `reactor.rs`, try-then-register. Closed when that record ratifies |
-| Q-R4 | `Future` cancellation surface | deferred unit (§7); the token mechanism is its fixed substrate |
+| Q-R4 | `Future` cancellation surface | **Answered by [PDR-0017](../../../decisions/0017-future-cancel-is-renunciation.md) (Proposed):** renunciation semantics over the token substrate, unit U-CANCEL. Closed when that record ratifies |
 
 ## 12. What this document does not cover
 

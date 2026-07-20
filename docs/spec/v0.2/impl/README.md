@@ -23,6 +23,7 @@ Dependency-ordered. "Needs" = units that must be **shipped** first, not merely s
 | U-REACTOR | [`reactor.md`](reactor.md) | [`core/reactor.md`](../core/reactor.md) | PDR-0004, PDR-0003 §3 | — (first consumer tests need U-BYTES) | spec ready |
 | U-FS | [`filesystem.md`](filesystem.md) | [`core/filesystem.md`](../core/filesystem.md) §4-§6 | PDR-0005 §7, PDR-0013 | U-PATH, U-RESOURCE, U-REACTOR, U-STREAMS | spec ready |
 | U-NET | [`net.md`](net.md) | [`core/net.md`](../core/net.md) | **PDR-0015 + PDR-0016 (both Proposed — rule-5 blocked)**, PDR-0004 §3/§4, PDR-0005 §3/§4 | U-RESOURCE, U-REACTOR | spec ready, **blocked on ratification** |
+| U-CANCEL | [`cancellation.md`](cancellation.md) | [`core/cancellation.md`](../core/cancellation.md) | **PDR-0017 (Proposed — rule-5 blocked)**, PDR-0004, C-FUT-3 | U-REACTOR | spec ready, **blocked on ratification**; parallel-safe with U-NET |
 
 ## Standing obligations (from as-built §7 of `bytes.md` — read it first)
 
