@@ -49,6 +49,7 @@ draft, becomes the citation.
 
 | File | Explores | Notes |
 |---|---|---|
+| [`stdlib-catalog.md`](stdlib-catalog.md) | The whole missing standard library, and the order it must be built in | **Start here for "what does Phalcom still need?"** Catalogs Tier 0 (language mechanisms) → Tier 6 (ecosystem) with illustrative signatures. Its deliverable is the dependency order, not the list: 10 items block everything else. Three forks need a user ruling (S-1 resource lifetime, S-2 IO shape, S-3 threads). |
 | [`ffi.md`](ffi.md) | Foreign function interface; native/extension modules | Argues FFI, not the ADR-0019 floor, is the door for native capability. Dependency for `bytes`/`crypto`/`native-math`. |
 | [`bytes.md`](bytes.md) | A `Bytes` type — native arm vs `.ph` | Follows ADR-0020's `List` template. Zeroization is unfixable under a GC. |
 | [`native-math.md`](native-math.md) | numpy-shaped native math; do we need `f32`/`u32`? | Answer: dtype-on-array, not new scalar classes. Collides with ADR-0019 head-on. |
