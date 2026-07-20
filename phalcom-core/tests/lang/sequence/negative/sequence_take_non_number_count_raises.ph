@@ -6,6 +6,6 @@
 try {
   TakeView.new([1, 2, 3], "invalid")
   System.print("ERROR: no exception")
-} on (e) {
+} on (Error) { e =>
   System.print(e.class.name)
 }
