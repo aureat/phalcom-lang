@@ -16,6 +16,11 @@ that point, with the resolved [open questions](v0.2/open-questions.md) woven in.
   directory (copy `v0.2/` forward, then edit), so `v0.2/` stays a frozen snapshot.
   Never edit a shipped version in place for a language change — cut a new version.
 - **Deferred / future / still-open work:** [v0.2/deferred-work.md](v0.2/deferred-work.md).
+- **Cross-version topic trees:** [`traceback/`](traceback/README.md) (diagnostic
+  rendering) and [`decorator/`](decorator/README.md) (the canonical decorator
+  taxonomy, verification, and implementation plans) live beside the version
+  snapshots — they organize a subsystem across versions and cite the as-built
+  records under `v0.2/` rather than duplicating them.
 - **Architecture decisions (ADRs):** live outside the version tree at
   [`../adr/`](../adr/README.md) — they are cross-version rationale.
 - **Per-unit implementation specs:** [`../forge/units/`](../forge/units/) — one folder
