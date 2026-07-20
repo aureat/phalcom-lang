@@ -118,6 +118,7 @@ impl Value {
     ///
     /// Panics if the value is a [`Value::Obj`] whose handle is stale, or a bare
     /// closure handle (closures are never surface values).
+    #[inline]
     pub fn class(&self, vm: &VM) -> ClassId {
         match self {
             Value::Nil => vm.universe.classes.nil_class,

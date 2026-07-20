@@ -281,11 +281,6 @@ pub struct VM {
     pub strip_contract_metadata: bool,
     /// Whether the active compilation/execution unit is a whole file or a single REPL cell.
     pub unit_kind: crate::compiler::lib::UnitKind,
-    /// `sel` → the interned `init <sel>` selector; memoizes the class-side
-
-    /// constructor-fallback probe (`Value::lookup_method`) so a miss costs a
-    /// hash lookup, not a `format!` + re-intern (U-HOTPATH).
-    pub(crate) init_selector_cache: HashMap<Symbol, Option<Symbol>>,
     /// `sel` → the interned `<name>(*)` variadic selector, or `None` when `sel`
     /// is not variadic-probe-eligible (labelled/getter/setter/subscript)
     /// (U-HOTPATH). Memoizes the eligibility decision and derived selector

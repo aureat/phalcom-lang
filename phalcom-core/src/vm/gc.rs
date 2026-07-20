@@ -82,8 +82,7 @@ impl VM {
             constructor_aliases: _,
             has_new_construct: _,
             class_parents: _,
-            // Memoization caches for derived selectors (U-HOTPATH).
-            init_selector_cache: _,
+            // Memoization cache for derived selectors (U-HOTPATH).
             variadic_selector_cache: _,
             switch_pending: _,
             native_reentry_depth: _,

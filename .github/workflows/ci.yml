@@ -55,3 +55,20 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  miri:
+    name: Miri (phalcom-ast)
+    runs-on: ubuntu-latest
+    # Mirrors `scripts/verify.sh --miri`: lexer/parser UB check only.
+    # phalcom-core is NOT run here — its `invariants` suite bootstraps the
+    # full core.ph object model under miri and does not finish inside a CI
+    # timeout (docs/forge/perf-log/011-attack-on-010.md §11: 51 min, 8/42
+    # tests, still incomplete). Scope stays phalcom-ast until that lane is
+    # made CI-shaped.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo +nightly miri test -p phalcom-ast
