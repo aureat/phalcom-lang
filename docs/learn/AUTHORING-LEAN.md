@@ -456,6 +456,40 @@ is no longer a nice-to-have on fork/tension docs — it is the single highest-yi
 and it works precisely *because* A cannot see the code and so reasons from the mechanism rather than
 pattern-matching the implementation.
 
+---
+
+### Run 6 — `vm/supersend.md` (fork, A ran)
+
+| | |
+|---|---|
+| Doc kind | **fork** — ADR-0040 records four rejected branches with reasons |
+| Agent A | 1, blind, redacted, zero tool calls — 60k tokens |
+| Agent B | 1, 6 questions, 2 REFUTE-asks — 113k tokens / 38 tool calls (over the stated 30-call budget; B said so, unprompted) |
+| Recon | 7 sections, 8 findings |
+| Gate | 0 failures |
+
+**The result that inverts runs 3 and 5.** A named two bugs it expected a competent implementation to
+have: non-idempotent `super.new` producing two objects, and — ranked first — field-slot resolution
+conflating the home class with the runtime class. **Phalcom has neither.** `NewInstance` is
+idempotent by design; field access resolves against the compiling class with an explicit "no
+superclass merge" rule.
+
+So A's value here was the opposite of C3 and Run 5, where it predicted real defects. Here it
+*certified what the implementation got right* — and did so with the specific mechanism, which is what
+made the doc able to say "two independent predictions of what should break, and the answer to both is
+that it already works." The actual defect (E006) was in neither list, and came from my own probing.
+
+That is the honest read on the "name the bug" ask after three runs: **it is not a defect detector.**
+It is a *mechanism-level second opinion*, which sometimes lands on a real bug (E002, E005) and
+sometimes lands on a real strength. Both are worth the spend on a fork doc; expecting the first every
+time would be reading two hits as a rule.
+
+**Also logged:** TRACKER predicted this "may be a section rather than its own doc." It was
+doc-length, and the reason is diagnostic — all three of its best facts (the untested classic-`super`
+case, E006, the disasm impossibility) were things the plan did not know. **A plan's size estimate is
+an estimate of what the plan knows**, and by now every doc in this course has found its own plan
+wrong about something. Size predictions deserve the same distrust as scope predictions.
+
 **One procedure finding.** Reading the sibling docs before writing recon paid for the **third**
 consecutive time, and this run shows the sharpest version: Doc 5 had *already* corrected "override
 epoch" to "five latching `pristine` flags." Had I not read it first, the doc's headline correction

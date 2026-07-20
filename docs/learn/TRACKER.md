@@ -77,6 +77,11 @@ one agent, scratch in [`parked-fiber/`](parked-fiber/) (`recon.md` + `source-map
 | Doc | Grip | Commit |
 |---|---|---|
 | [`vm/sacred-inliner.md`](vm/sacred-inliner.md) | every `if` is compiled **twice** — inlined fast path and real-send fallback, side by side in one chunk — and the guard is a forward jump between them. Deopt is free because there is no deopt; the bill is code size, a 2^depth compile blowup no gate measured, and two copies that do not agree | `92244a6` |
+| [`vm/supersend.md`](vm/supersend.md) | `super` is the least dynamic thing a program can write, and is resolved dynamically **by name** on every call — three decisions each traded a static fact the compiler already had for a lookup the VM redoes forever | `72fadbb` |
+
+**The Owed list is now empty of ranked gaps.** All three (concurrency 4/4, inliner, `SuperSend`) are
+paid. What remains is unranked: the object-model track has no declared plan, and memory management is
+named once by `execution-loop.md` and promised by nothing.
 
 ---
 
@@ -134,11 +139,28 @@ Raised and not owned:
   reopened from surface Phalcom, so no program can make `GuardBool`'s override question answer "yes."
   The guard is still exercised in-crate. Nothing reconciles the two decisions.
 
-### 3. `SuperSend` — 3 partial pointers
+### 3. `SuperSend` — **PAID.** *(was 3 partial pointers)*
 
-Its own opcode (ADR-0040), walk starts *above* the receiver's class, uncached by deliberate decision
-(DEC-IC-B). Docs 1, 4 and 5 each defer it. Smallest scope of the three — may be a section rather
-than its own doc.
+[`vm/supersend.md`](vm/supersend.md) — *`super` is the least dynamic thing a program can write and is
+resolved dynamically, by name, on every call.* TRACKER guessed it "may be a section rather than its
+own doc"; it is doc-length, and the reason is that its three most interesting facts are all things
+the plan did not know about. Docs 1, 4 and 5's pointers are discharged.
+
+Raised and not owned:
+
+- **[E006](../errors/E006-inherited-field-diagnostic-shadowing.md) — new, open.** Reading an
+  inherited field reports `Read-before-write`; following that advice silently yields two slots
+  (`Base sees: 7` / `Derived sees: 999`). Behaviour is spec-correct at every step — the defect is
+  the diagnostic and the path it steers down. `ReadBeforeWrite` has zero tests anywhere.
+- **The classic `super` correctness case has no fixture.** Lookup must start above the *lexically
+  defining* class, not the receiver's; the wrong rule infinite-loops on a three-level chain with an
+  inherited-but-not-overridden method. Phalcom is correct and nothing holds it correct — the four
+  `super` fixtures all test cases where both rules agree. Four lines to close.
+- **`SuperSend` caching** — DEC-IC-B, open. The honest sequencing argument is that it needs the
+  general hierarchy-invalidation machinery anyway; build that first, then piggyback.
+- **ADR-0040's option space is narrower than the real one** — its four alternatives debate *which
+  opcode* and *what walk*, never *what to bake*. A forward cell or an install-time `home_class`
+  field on the method are unweighed.
 
 ### Unowned but named in passing
 
