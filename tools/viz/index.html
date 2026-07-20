@@ -126,6 +126,19 @@
   .idx div.named{color:var(--fc);font-weight:600}
   .idx div.hot{color:var(--link);font-weight:700}
 
+  /* park/unpark tween (UI-SPEC §8): decoration on a clone laid over the
+     already-correct instant render, never a substitute for it (N7 — the
+     underlying state swap is never delayed, only its playback). */
+  .tape-tween{position:absolute;inset:0;pointer-events:none;
+    transition:transform 400ms cubic-bezier(.16,.84,.44,1),opacity 400ms ease-out}
+  .tw-out{transform:translateX(0);opacity:1}
+  .tw-out.tw-play{transform:translateX(56px);opacity:0}
+  .tw-in{transform:translateX(56px);opacity:0}
+  .tw-in.tw-play{transform:translateX(0);opacity:1}
+  @media (prefers-reduced-motion:reduce){
+    .tape-tween{transition:none}
+  }
+
   /* the hole */
   .hole{border:1.5px dashed var(--ink-faint);border-radius:6px;height:42px;display:flex;
     align-items:center;justify-content:center;color:var(--ink-mute);font-size:12.5px;
@@ -257,7 +270,7 @@
 <div class="machine">
   <div class="gutter" id="gutter"></div>
   <div class="tapewrap">
-    <div class="tape-area">
+    <div class="tape-area" id="tapearea">
       <div class="lanes" id="lanes"></div>
       <div id="tapebody"></div>
       <div class="idx" id="idx"></div>
@@ -1201,6 +1214,42 @@ function render(){
 // Cursor 0 is where the gate lives; clamping here (not just disabling the
 // buttons) closes the keyboard/scrub-drag route past an unanswered prediction.
 const go = n => { if (GATED && ex().gate) n = 0; cursor=Math.max(0,Math.min(EVENTS.length,n)); render(); };
+
+const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Beats stay discrete cursor positions — `render()` always draws the correct
+// state instantly, exactly as `go()` does. `step()` only additionally lays a
+// clone of the tape over that instant render and animates the clone's
+// position (never its content) on top, so a single step across a park/unpark
+// edge *reads* as motion (UI-SPEC §8) without ever delaying or interpolating
+// state (N7). Only single-step navigation (prev/next, plain arrow keys,
+// autoplay) goes through here; scrub/jump/first/last stay on `go()` so fast
+// scrubbing shows no smearing or intermediate frame.
+function playTapeTween(clone, mode){
+  const host = $('tapearea');
+  if (!host || !clone) return;
+  clone.removeAttribute('id');
+  clone.className = 'tape-tween ' + (mode==='out' ? 'tw-out' : 'tw-in');
+  host.appendChild(clone);
+  void clone.offsetWidth; // force layout so the starting transform paints before...
+  clone.classList.add('tw-play'); // ...this class flips it, which is what the transition animates
+  setTimeout(() => clone.remove(), 450);
+}
+
+function step(delta){
+  let target = cursor + delta;
+  if (GATED && ex().gate) target = 0;
+  target = Math.max(0, Math.min(EVENTS.length, target));
+  if (target === cursor){ go(target); return; }
+  const fromHole = STATES[cursor].hole, toHole = STATES[target].hole;
+  const tweenOut = !reducedMotion() && !fromHole && toHole;   // take: tape exits toward the card
+  const tweenIn  = !reducedMotion() &&  fromHole && !toHole;  // install: tape enters from the card
+  const tapearea = $('tapearea');
+  const outClone = tweenOut && tapearea ? tapearea.cloneNode(true) : null;
+  go(target);
+  if (outClone) playTapeTween(outClone, 'out');
+  else if (tweenIn && tapearea) playTapeTween(tapearea.cloneNode(true), 'in');
+}
 function jumpSwitch(dir){
   let i=cursor+dir;
   while(i>0&&i<=EVENTS.length){
@@ -1212,7 +1261,7 @@ function jumpSwitch(dir){
 }
 
 $('play').onclick=()=>togglePlay();
-$('prev').onclick=()=>go(cursor-1); $('next').onclick=()=>go(cursor+1);
+$('prev').onclick=()=>step(-1); $('next').onclick=()=>step(1);
 $('first').onclick=()=>go(0); $('last').onclick=()=>go(EVENTS.length);
 $('scrub').oninput=e=>go(+e.target.value);
 // Autoplay is deliberately secondary (R-MANUAL): a viewer who cannot stop cannot
@@ -1224,14 +1273,14 @@ function togglePlay(){
   $('play').textContent='▮';
   PLAY=setInterval(()=>{
     if(cursor>=EVENTS.length || STATES[cursor].error){ togglePlay(); return; }
-    go(cursor+1);
+    step(1);
   }, 900);
 }
 
 addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT') return;
-  if(e.key==='ArrowRight'){ e.shiftKey?jumpSwitch(1):go(cursor+1); e.preventDefault(); }
-  if(e.key==='ArrowLeft'){ e.shiftKey?jumpSwitch(-1):go(cursor-1); e.preventDefault(); }
+  if(e.key==='ArrowRight'){ e.shiftKey?jumpSwitch(1):step(1); e.preventDefault(); }
+  if(e.key==='ArrowLeft'){ e.shiftKey?jumpSwitch(-1):step(-1); e.preventDefault(); }
   if(e.key==='Home'){go(0);e.preventDefault()}
   if(e.key==='End'){go(EVENTS.length);e.preventDefault()}
   if(e.key===' '){ togglePlay(); e.preventDefault(); }
