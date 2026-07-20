@@ -54,6 +54,14 @@ queue, no fixed resumer). Six defects filed/updated in `docs/errors/`:
   language *looks* colorless but has an invisible, dynamic color. `catch` can
   never guard a resume; `Fiber#try` is the only capture route. The deferred
   ADR-0033 CallBlock trampoline is the acknowledged real cure.
+
+  > **Superseded same day, in part, by `5ba6101` (flat-entry block calls),**
+  > which landed from a parallel session while this audit was being written.
+  > Re-verified after it: `Fiber.yield` inside `.each`/`map`/`filter` now
+  > **works**; `try { fiber.call() }` and `try { pending.await }` still raise
+  > (`.on(_)`/`.ensure(_)` remain native re-entry). The tension survives,
+  > narrowed to the error-handling surface. Details:
+  > [edge matrix](2026-07-20-concurrency-edge-matrix.md).
 - **`ensure` is silently skipped for abandoned fibers.** No-finalizer heap policy
   means a suspended fiber that becomes garbage never runs pending `ensure`s.
   Consistent with the heap's stance; documented nowhere in `concurrency.md`.
