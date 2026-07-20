@@ -141,6 +141,46 @@ impl Chunk {
         }
     }
 
+    /// Span of the instruction at `ip`, clamped to this chunk's bounds.
+    ///
+    /// **The spans accessor** (traceback implementation spec §2.2): every consumer —
+    /// the stack walk ([`crate::vm::walk`]), disasm, trace events — reads a chunk's
+    /// span through this method. Direct `chunk.spans[...]` indexing outside this file
+    /// is a review-blockable offense from U-TRACE T1 on: [`Self::spans`] is 2× the
+    /// size of [`Self::code`] (`size_of::<SourceRange>() == 16` vs
+    /// `size_of::<Bytecode>() == 8`) before counting the sibling `ip`-indexed
+    /// [`Self::caches`]/[`Self::gcaches`] tables, so a future delta-encoded line
+    /// table + binary search changes only this method's body.
+    ///
+    /// Clamps rather than panics: `ip == 0` (a frame that has not executed any of
+    /// its own instructions yet — reachable the moment a depth-limit raise fires on
+    /// entry) yields the first span; `ip` past the last instruction (an `ip` that
+    /// has already advanced past the chunk's final opcode) yields the last span. An
+    /// empty chunk (no instructions at all, reachable only from a hand-built
+    /// [`Chunk`]) yields [`phalcom_common::range::EmptySourceRange`]. Never
+    /// underflows, never indexes out of bounds.
+    ///
+    /// This is the same clamping [`crate::vm::VM::runtime_error`] used to perform
+    /// inline via `saturating_sub`/`.get(...).unwrap_or_default()` before U-TRACE T1
+    /// centralized it here.
+    pub fn span_at(&self, ip: usize) -> SourceRange {
+        if self.spans.is_empty() {
+            return SourceRange::default();
+        }
+        self.spans[ip.min(self.spans.len() - 1)]
+    }
+
+    /// 1-based source line of `span_at(ip).start`, resolved against `source`.
+    ///
+    /// `source` must be the text this chunk was compiled from ([`Self::source_id`]
+    /// indexes into [`crate::heap::ModuleObject::sources`] to find it) — resolving
+    /// against the wrong text silently produces a wrong-but-plausible line number
+    /// rather than an error, so callers must not guess.
+    pub fn line_at(&self, ip: usize, source: &str) -> u32 {
+        let span = self.span_at(ip);
+        crate::diagnostics::line_col(source, span.start).0 as u32
+    }
+
     /// Every instruction index some branch in this chunk can jump to.
     ///
     /// A branch's offset is applied to the `ip` *already advanced past the branch
@@ -178,6 +218,53 @@ mod tests {
             chunk.add_instruction(*op, EmptySourceRange);
         }
         chunk
+    }
+
+    /// Negative control: before clamping existed, `chunk.spans[ip]` on an
+    /// out-of-range `ip` would panic — this fixture is worthless unless it can
+    /// tell a clamped `span_at` from a panicking raw index. Confirmed by
+    /// temporarily reverting `span_at` to `self.spans[ip]` and observing the
+    /// three tests below turn into panics rather than assertion failures.
+    #[test]
+    fn span_at_clamps_ip_zero_to_first_span() {
+        let mut chunk = Chunk::new();
+        chunk.add_instruction(Bytecode::Nil, SourceRange::new(0, 1));
+        chunk.add_instruction(Bytecode::Pop, SourceRange::new(1, 2));
+        assert_eq!(chunk.span_at(0), SourceRange::new(0, 1));
+    }
+
+    #[test]
+    fn span_at_clamps_past_end_to_last_span() {
+        let mut chunk = Chunk::new();
+        chunk.add_instruction(Bytecode::Nil, SourceRange::new(0, 1));
+        chunk.add_instruction(Bytecode::Pop, SourceRange::new(1, 2));
+        // Two instructions, so valid indices are 0 and 1 — 5 is well past the end.
+        assert_eq!(chunk.span_at(5), SourceRange::new(1, 2));
+    }
+
+    #[test]
+    fn span_at_resolves_a_mid_chunk_ip_exactly() {
+        let mut chunk = Chunk::new();
+        chunk.add_instruction(Bytecode::Nil, SourceRange::new(0, 1));
+        chunk.add_instruction(Bytecode::Pop, SourceRange::new(1, 4));
+        chunk.add_instruction(Bytecode::Nil, SourceRange::new(4, 9));
+        assert_eq!(chunk.span_at(1), SourceRange::new(1, 4));
+    }
+
+    #[test]
+    fn span_at_on_an_empty_chunk_never_panics() {
+        let chunk = Chunk::new();
+        assert_eq!(chunk.span_at(0), SourceRange::default());
+        assert_eq!(chunk.span_at(3), SourceRange::default());
+    }
+
+    #[test]
+    fn line_at_resolves_against_the_supplied_source() {
+        let mut chunk = Chunk::new();
+        let source = "let x = 1\nlet y = 2\nlet z = 3\n";
+        // "let y" starts at byte 10, on line 2.
+        chunk.add_instruction(Bytecode::Nil, SourceRange::new(10, 15));
+        assert_eq!(chunk.line_at(0, source), 2);
     }
 
     #[test]

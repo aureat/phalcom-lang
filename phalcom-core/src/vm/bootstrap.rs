@@ -37,6 +37,9 @@ impl VM {
             kernel_class_names: std::collections::HashSet::new(),
             universe,
             next_frame_generation: 0,
+            // The root fiber's `seq` is hardcoded to 1 (`FiberObject::root`); the
+            // first spawned fiber gets 2 (traceback implementation spec §6).
+            next_fiber_seq: 2,
             world_version: 0,
             open_upvalues: BTreeMap::new(),
             ready_queue: std::collections::VecDeque::new(),

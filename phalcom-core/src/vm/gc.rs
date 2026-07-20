@@ -87,6 +87,8 @@ impl VM {
             switch_pending: _,
             native_reentry_depth: _,
             next_frame_generation: _,
+            // A `u32` counter, no object handles — not a GC root.
+            next_fiber_seq: _,
             world_version: _,
             start_time: _,
             compile_mode: _,

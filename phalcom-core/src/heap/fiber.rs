@@ -115,6 +115,18 @@ pub struct FiberObject {
     /// mid-body: a VM-global set would leak one fiber's in-flight
     /// invariant-checking bookkeeping into whatever fiber resumes next.
     pub checking: HashSet<ObjRef>,
+    /// This fiber's stable display id (traceback implementation spec §6): a
+    /// per-VM monotonic counter assigned once, at spawn — the root fiber is
+    /// always `1`. Every rendered surface (traceback fiber chains, the
+    /// fiber-switch log, the JSON trace stream) shows `seq`, never the
+    /// underlying [`ObjRef`] handle, because a handle is recyclable once the
+    /// collector frees its slot and is meaningless to a human reading a trace.
+    /// [`Self::new_entry`]/[`Self::new_entry_with_buffers`] leave this `0` — a
+    /// placeholder immediately overwritten by the spawn site
+    /// ([`crate::primitive::fiber::new_fiber_ref`]) using
+    /// [`crate::vm::VM`]'s own counter, since a bare [`FiberObject`] constructor
+    /// has no [`crate::vm::VM`] to draw the next id from.
+    pub seq: u32,
 }
 
 impl FiberObject {
@@ -138,6 +150,7 @@ impl FiberObject {
             floor_depth: 0,
             resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
+            seq: 0,
         }
     }
 
@@ -160,6 +173,7 @@ impl FiberObject {
             floor_depth: 0,
             resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
+            seq: 0,
         }
     }
 
@@ -181,6 +195,10 @@ impl FiberObject {
             floor_depth: 0,
             resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
+            // The root fiber is always display id 1 (traceback implementation
+            // spec §6) — the one fiber never spawned through
+            // `new_fiber_ref`/`VM::next_fiber_seq`.
+            seq: 1,
         }
     }
 }

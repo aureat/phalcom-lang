@@ -165,17 +165,12 @@ impl VM {
             // unreachable while every traceback was built after the frames had
             // already been discarded; reporting before the unwind (PDR-0008 §2)
             // makes it reachable, and a depth-limit raise hits it immediately.
-            // `saturating_sub` degrades to the chunk's first span rather than
-            // panicking — a `panic!` reachable from ordinary source is a
-            // robustness bug, not an acceptable abort.
+            // `Chunk::span_at` clamps (degrades to the chunk's first span) rather
+            // than panicking — a `panic!` reachable from ordinary source is a
+            // robustness bug, not an acceptable abort (U-TRACE T1 centralized this
+            // clamp; see `Chunk::span_at`'s doc).
             let span_index = frame.ip.saturating_sub(1);
-            let span = closure
-                .callable
-                .chunk
-                .spans
-                .get(span_index)
-                .copied()
-                .unwrap_or_default();
+            let span = closure.callable.chunk.span_at(span_index);
             // Resolve the span against the text *this* chunk was compiled from,
             // not the module's most recent source: one module accumulates one
             // entry per compiled unit, so a REPL cell's span would otherwise be
@@ -497,15 +492,15 @@ impl VM {
         let receiver_class = receiver.class(self);
 
         // Cache probe. `chunk` is a shared borrow; the `Cell` is what lets us
-        // write back through it (U-IC §2.1). `spans[cache_ip]` rides along in the
-        // same borrow (S2): the loop head no longer reads it, and this arm
+        // write back through it (U-IC §2.1). `span_at(cache_ip)` rides along in
+        // the same borrow (S2): the loop head no longer reads it, and this arm
         // needs it for whichever `call_method` / dNU forward it reaches.
         let (cached, source_range) = {
             let chunk = &callable.chunk;
             let cached = chunk.caches[cache_ip].get().filter(|slot| {
                 slot.class == receiver_class && slot.version == self.world_version
             }).map(|slot| slot.method);
-            (cached, chunk.spans[cache_ip])
+            (cached, chunk.span_at(cache_ip))
         };
 
         if let Some(method) = cached {
@@ -939,7 +934,7 @@ impl VM {
                     let defining_val = callable.chunk.constants[defining_idx as usize];
                     // Read here rather than in the loop head (S2) — this arm and
                     // `Invoke` are the only consumers.
-                    let source_range = callable.chunk.spans[ip];
+                    let source_range = callable.chunk.span_at(ip);
                     let argc = argc as usize;
                     let selector_sym = selector_val.as_symbol().unwrap();
                     let defining_sym = defining_val.as_symbol().unwrap();

@@ -134,12 +134,19 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
         _ => unreachable!("checked above"),
     };
     #[cfg(feature = "fiber-pool")]
-    let fiber = {
+    let mut fiber = {
         let (stack, frames) = vm.fiber_pool.pop().unwrap_or_else(|| (Vec::new(), Vec::new()));
         crate::heap::FiberObject::new_entry_with_buffers(entry_id, stack, frames)
     };
     #[cfg(not(feature = "fiber-pool"))]
-    let fiber = crate::heap::FiberObject::new_entry(entry_id);
+    let mut fiber = crate::heap::FiberObject::new_entry(entry_id);
+    // Display id (traceback implementation spec §6): the constructor above
+    // leaves `seq` at its `0` placeholder, since it has no `VM` to draw from.
+    // This is the one seam every spawn — `Fiber.new` and `System.schedule` alike
+    // — funnels through, so it is the only place that needs to touch the
+    // counter.
+    fiber.seq = vm.next_fiber_seq;
+    vm.next_fiber_seq += 1;
     Ok(vm.heap.alloc(Object::Fiber(Box::new(fiber))))
 }
 

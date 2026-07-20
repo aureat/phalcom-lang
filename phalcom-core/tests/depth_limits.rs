@@ -88,12 +88,14 @@ fn depth_error_is_an_ordinary_catchable_raise() {
 
 #[test]
 fn traceback_survives_a_frame_that_executed_nothing() {
-    // Regression guard. `runtime_error` indexes `chunk.spans[frame.ip - 1]`, which
-    // underflows for a frame whose `ip` is still 0. That was unreachable while
-    // tracebacks were built after the frames had been discarded; reporting before
-    // the unwind (PDR-0008 §2) makes it reachable, and a depth-limit raise hits it
-    // immediately — it panicked with "attempt to subtract with overflow" before
-    // `saturating_sub`. A panic reachable from ordinary source is a robustness bug.
+    // Regression guard. `runtime_error` reads `chunk.span_at(frame.ip - 1)`
+    // (`chunk.spans[frame.ip - 1]` before U-TRACE T1 centralized the clamp),
+    // which underflows for a frame whose `ip` is still 0. That was unreachable
+    // while tracebacks were built after the frames had been discarded; reporting
+    // before the unwind (PDR-0008 §2) makes it reachable, and a depth-limit raise
+    // hits it immediately — it panicked with "attempt to subtract with overflow"
+    // before `saturating_sub`. A panic reachable from ordinary source is a
+    // robustness bug.
     let err = run("class P {\n  construct new() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n")
         .expect_err("must raise");
     // Reaching this line at all means the traceback walk did not panic.

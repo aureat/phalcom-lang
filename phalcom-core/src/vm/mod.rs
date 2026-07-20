@@ -13,6 +13,7 @@ mod bootstrap;
 mod dispatch;
 mod gc;
 mod send;
+pub mod walk;
 
 use crate::frame::CallFrame;
 use crate::heap::{ClassId, Heap, ObjRef};
@@ -194,6 +195,14 @@ pub struct VM {
     pub universe: Universe,
     /// Monotonically-assigned generation counter for frame tokens.
     pub(crate) next_frame_generation: u64,
+    /// Monotonic counter handing out [`crate::heap::FiberObject::seq`] display ids
+    /// to newly spawned fibers (traceback implementation spec §6). The root
+    /// fiber's `seq` is hardcoded to `1` in
+    /// [`crate::heap::FiberObject::root`], so this counter starts at `2` — the
+    /// first `Fiber.new`/`System.schedule` spawn gets the next id, and every
+    /// rendered surface (traceback fiber chains, the fiber-switch log, the JSON
+    /// trace stream) uses `seq` rather than the recyclable `ObjRef` handle.
+    pub(crate) next_fiber_seq: u32,
     /// Global version counter for inline-cache invalidation.
     ///
     /// Incremented whenever a method is added or replaced on any class.
