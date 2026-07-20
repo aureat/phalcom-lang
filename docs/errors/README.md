@@ -27,6 +27,10 @@ fix. The auditor's word confirms nothing; the machine does.
 | [E003](E003-schedule-pump-arity.md) | `System.schedule` pump resumes an arity-1 entry with zero args, failing the run | minor | 2026-07-19 |
 | [E005](E005-nonlocal-return-some-wrapped.md) | A non-local `return` through `bool_if_true`/`bool_if_false` comes back `Some`-wrapped | **major** (silent wrong answer) | 2026-07-20 |
 | [E006](E006-inherited-field-diagnostic-shadowing.md) | Reading an inherited field reports "Read-before-write"; following that advice silently creates a second slot | **major** (diagnostic steers into field shadowing) | 2026-07-20 |
+| [E007](E007-async-await-missettle.md) | `Future.async` settles prematurely when its action `await`s — wrong value, silently | **blocker** (silent wrong result) | 2026-07-20 |
+| [E008](E008-double-schedule-kills-run.md) | Scheduling the same fiber twice fails the whole run via the pre-flight refusal channel | **major** | 2026-07-20 |
+| [E009](E009-return-in-fiber-entry-deadframe.md) | Explicit `return` in a fiber entry block always raises `DeadFrameError` | **major** | 2026-07-20 |
+| [E010](E010-pump-swallows-task-errors.md) | Scheduler pumps swallow captured task errors; `await`'s quiescence diagnostic masks the cause | **major** (misleading diagnostic) | 2026-07-20 |
 
 E001, E002 and E004(c) are the **same family**: a value held live across a re-entrant /
 parked interpreter boundary that the root/unwind scan does not cover. E001 is

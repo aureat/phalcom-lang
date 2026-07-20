@@ -1,6 +1,6 @@
 # E002 · Fiber-floor failure capture drops the live stack without closing open upvalues
 
-- **Status:** OPEN — confirmed 2026-07-19 (reproduced under `target/debug/phalcom`)
+- **Status:** OPEN — confirmed 2026-07-19; **re-confirmed at HEAD 2026-07-20** (fresh repro shape: block escapes into a `List`, fiber raises via `doesNotUnderstand`, `fiber.try()`, then calling the escaped block panics at `dispatch.rs:1094`, `index out of bounds: the len is 0 but the index is 1`)
 - **Severity:** blocker — deterministic crash (`index out of bounds` panic)
 - **Subsystem:** fibers / upvalue lifecycle
 - **Related:** [E001](E001-gc-ensure-temp-root-uaf.md) (same family — value held live across a boundary the scan misses); seam DEC-FIB-A (U-FIBER owns fiber-floor capture)
@@ -51,3 +51,10 @@ This matches the VM's **own** documented unwind invariant at `dispatch.rs:96-103
 block still observes its captured locals rather than a use-after-free") — the
 failure path simply skips it. Re-derive + full suite + repro before trusting;
 commit narrow on `main`.
+
+> **Aggravation noted 2026-07-20:** with the `fiber-pool` feature on, the failed
+> fiber's cleared buffers are recycled into new fibers
+> (`primitive/fiber.rs:136-140`), so the dangling `Upvalue::Open { fiber, slot }`
+> can degrade from a deterministic panic to a **silent stale read** of an
+> unrelated fiber's stack slot. The pool is off by default (measured net
+> negative), but any future re-enable inherits this.
