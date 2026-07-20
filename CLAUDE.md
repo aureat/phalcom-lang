@@ -57,7 +57,7 @@ Cargo workspace (edition 2024, resolver 2). Members:
 Bootstrap core library written in Phalcom, loaded at startup to define base classes.
 
 ### `phalcom-repl/src`
-REPL built on `reedline`. Crate exposes `lib.rs` with `validator`, `snapshot`, `oracle`, `completer`, `highlighter`, and `repl` modules. Binary entrypoint is `main.rs`. Implements multi-line continuation, LSP-backed autocompletion and syntax highlighting, and state management commands like `:reload`.
+REPL built on `reedline`. Crate exposes `lib.rs` with `validator`, `snapshot`, `oracle`, `completer`, `highlighter`, and `repl` modules. Binary entrypoint is `main.rs`. Implements multi-line continuation, snapshot-oracle-backed autocompletion, lexer-backed syntax highlighting, and state management commands like `:reload`. Completion and highlighting are **not** LSP-backed: `phalcom-lsp` is a declared dependency with no `use` anywhere in `phalcom-repl/src/`, because the LSP-backed layer is deferred until ADR-0056 is ratified ([PDR-0009](docs/decisions/0009-defer-lsp-backed-repl-surface.md)).
 
 ## Build / run / test
 

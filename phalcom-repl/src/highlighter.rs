@@ -1,9 +1,14 @@
 //! Multi-layer syntax highlighting for the Phalcom REPL.
 //!
-//! Applies token-class colors to input text using three non-degrading layers:
+//! Applies token-class colors to input text using two non-degrading layers:
 //! - **L1 Lexical**: `phalcom_ast::lexer` token stream (synchronous per keystroke).
-//! - **L2 Syntactic**: `phalcom-lsp` semantic token pass.
 //! - **L3 Live**: `ReplOracle` snapshot lookup (dimming unbound identifiers).
+//!
+//! **L2 Syntactic** — the `phalcom-lsp` semantic-token pass specified in U-REPL
+//! §S5 — is **not built**. It is deferred until ADR-0056, which authorizes the
+//! `phalcom-lsp` crate, is ratified; see
+//! [PDR-0009](../../../docs/decisions/0009-defer-lsp-backed-repl-surface.md).
+//! This comment previously listed L2 as though it were wired, which it never was.
 
 use crate::oracle::ReplOracle;
 use nu_ansi_term::{Color, Style};

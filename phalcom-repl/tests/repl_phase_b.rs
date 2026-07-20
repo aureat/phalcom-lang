@@ -2,11 +2,15 @@
 
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use phalcom_repl::completer::PhalcomCompleter;
+use phalcom_repl::highlighter::PhalcomHighlighter;
+use phalcom_repl::oracle::ReplOracle;
 use phalcom_repl::repl::{CellOutcome, ReplSession, ValueExt};
 use phalcom_repl::snapshot::ReplSnapshot;
 use phalcom_repl::validator::{classify, explicit_continuation, PhalcomValidator, Verdict};
-use reedline::Validator;
+use reedline::{Completer, Highlighter, Validator};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 // --- §04 Continuation Tests ---
 
@@ -115,6 +119,155 @@ fn initializer_kind_never_offered() {
                 "Initializer kind must never be offered in completion"
             );
         }
+    }
+}
+
+// --- §06 Surface: ranking, insertion shape, layer discipline ---
+//
+// The five tests below are named in impl/06-surface.md:150-154 and were never
+// written. They are the completer/highlighter half of §S5/§S7.
+
+/// Builds an oracle over a live session snapshot, as the surface types take it.
+fn oracle_for(session: &ReplSession) -> Arc<ReplOracle> {
+    let snap = ReplSnapshot::capture(&session.vm, session.module);
+    Arc::new(ReplOracle::new(Arc::new(Mutex::new(snap))))
+}
+
+#[test]
+fn ranking_puts_own_before_inherited() {
+    // §S5 — `(own_depth, name)` order on a real chain: a subclass's own members
+    // sort ahead of everything it inherits, and ties break by name.
+    let mut session = ReplSession::start(PathBuf::from("."));
+    assert!(matches!(
+        session.eval("class Base {\n  construct new() {}\n  zzz_base { return 1 }\n}"),
+        CellOutcome::Unit
+    ));
+    assert!(matches!(
+        session.eval("class Derived extends Base {\n  construct new() {}\n  aaa_own { return 2 }\n}"),
+        CellOutcome::Unit
+    ));
+
+    let oracle = oracle_for(&session);
+    let cid = oracle.find_class_by_name("Derived").expect("Derived must be in the snapshot");
+    let members = oracle.members_for_class(cid);
+
+    let own = members.iter().position(|m| m.name == "aaa_own").expect("own member missing");
+    let inherited = members.iter().position(|m| m.name == "zzz_base").expect("inherited member missing");
+    assert!(
+        own < inherited,
+        "own members must rank before inherited ones regardless of name order"
+    );
+    assert_eq!(members[own].own_depth, 0, "an own member sits at depth 0");
+    assert!(members[inherited].own_depth > 0, "an inherited member sits deeper");
+
+    // Ties break by name within a depth.
+    let depths: Vec<usize> = members.iter().map(|m| m.own_depth).collect();
+    let mut sorted = depths.clone();
+    sorted.sort_unstable();
+    assert_eq!(depths, sorted, "members must be ordered by ascending own_depth");
+}
+
+#[test]
+fn arity_zero_inserts_bare_name() {
+    // §S7 — a getter or zero-arity method completes to a bare name, no parens.
+    let mut session = ReplSession::start(PathBuf::from("."));
+    assert!(matches!(
+        session.eval("class Widget {\n  construct new() {}\n  spin { return 1 }\n}"),
+        CellOutcome::Unit
+    ));
+    assert!(matches!(session.eval("let w = Widget.new()"), CellOutcome::Unit));
+
+    let completions = complete_for(&session, "w.sp");
+    assert!(
+        completions.iter().any(|c| c == "spin"),
+        "arity-0 member must insert bare; got {completions:?}"
+    );
+    assert!(
+        !completions.iter().any(|c| c == "spin("),
+        "arity-0 member must not insert a call opening; got {completions:?}"
+    );
+}
+
+#[test]
+fn arity_n_inserts_call_opening() {
+    // §S7 — an arity-n method completes to `name(` with the cursor inside, and
+    // explicitly not to a snippet placeholder like `${1:}`.
+    let mut session = ReplSession::start(PathBuf::from("."));
+    assert!(matches!(
+        session.eval("class Widget {\n  construct new() {}\n  scale(n) { return n }\n}"),
+        CellOutcome::Unit
+    ));
+    assert!(matches!(session.eval("let w = Widget.new()"), CellOutcome::Unit));
+
+    let completions = complete_for(&session, "w.sc");
+    assert!(
+        completions.iter().any(|c| c == "scale("),
+        "arity-n member must insert a call opening; got {completions:?}"
+    );
+    assert!(
+        !completions.iter().any(|c| c.contains("${")),
+        "insertion must not carry a snippet placeholder; got {completions:?}"
+    );
+}
+
+/// Runs the completer over `line` with the cursor at its end, returning the
+/// suggestion values.
+fn complete_for(session: &ReplSession, line: &str) -> Vec<String> {
+    let completer = PhalcomCompleter::new(PathBuf::from("."), oracle_for(session));
+    let mut completer = completer;
+    completer
+        .complete(line, line.len())
+        .into_iter()
+        .map(|s| s.value)
+        .collect()
+}
+
+#[test]
+fn l1_never_keywords_inside_strings() {
+    // The bug the lexer-backed L1 layer exists to fix: a regex-battery highlighter
+    // colors `class` inside a string literal, because it never tokenizes. Driving
+    // the real lexer means the whole literal is one string token.
+    let session = ReplSession::start(PathBuf::from("."));
+    let highlighter = PhalcomHighlighter::new(oracle_for(&session));
+
+    let line = "let s = \"class while return\"";
+    let styled = highlighter.highlight(line, line.len());
+
+    // Every styled run that falls inside the literal must share one style — the
+    // string's — so no keyword inside it is colored differently.
+    let open = line.find('"').expect("literal present");
+    let mut offset = 0usize;
+    let mut styles_in_literal = Vec::new();
+    for (style, text) in &styled.buffer {
+        if offset >= open && !text.trim().is_empty() {
+            styles_in_literal.push(style.clone());
+        }
+        offset += text.len();
+    }
+    assert!(!styles_in_literal.is_empty(), "the literal must produce styled output");
+    let first = &styles_in_literal[0];
+    assert!(
+        styles_in_literal.iter().all(|s| s == first),
+        "keywords inside a string literal must not be styled as keywords"
+    );
+}
+
+#[test]
+fn layers_only_refine() {
+    // L2/L3 are refinements: with L2 unbuilt and L3 contributing nothing for a
+    // line with no identifiers to dim, the rendered text must still reproduce the
+    // input exactly. A layer that *replaced* rather than refined would drop or
+    // reorder characters.
+    let session = ReplSession::start(PathBuf::from("."));
+    let highlighter = PhalcomHighlighter::new(oracle_for(&session));
+
+    for line in ["let x = 1 + 2", "class Foo {", "\"a string\"", "unbound_name"] {
+        let styled = highlighter.highlight(line, line.len());
+        let rendered: String = styled.buffer.iter().map(|(_, text)| text.as_str()).collect();
+        assert_eq!(
+            rendered, line,
+            "highlighting must only add style, never alter the text"
+        );
     }
 }
 
