@@ -3,6 +3,7 @@ use anyhow::{bail, Context, Result};
 use clap::{arg, command, Args, Parser, Subcommand, ValueHint};
 use phalcom_core::compiler::attributes::CompileMode;
 use phalcom_core::compiler::lib::CompilerError;
+use phalcom_core::diagnostics::style::{ColorMode, RenderConfig};
 use phalcom_core::vm::VM;
 use std::{fs, path::PathBuf};
 
@@ -43,6 +44,17 @@ pub struct Cli {
     #[arg(long)]
     pub(crate) strip_contract_metadata: bool,
 
+    /// Colorize diagnostic output: `auto` (the default — color iff stderr is a TTY and
+    /// `NO_COLOR` is unset), `always`, or `never` (traceback spec IS §3.2, PDR-0014).
+    #[arg(long, value_enum, default_value_t = ColorMode::Auto)]
+    pub(crate) color: ColorMode,
+
+    /// ASCII-only diagnostic rendering: forces the ASCII glyph set and, unless
+    /// `--color=always` is also given, disables color too (IS §3.3 — the two axes stay
+    /// separable, so `--color=always --plain` yields ASCII glyphs *with* color).
+    #[arg(long)]
+    pub(crate) plain: bool,
+
     /// Sub-command to execute
     #[command(subcommand)]
     pub(crate) command: Option<Commands>,
@@ -61,6 +73,12 @@ impl Cli {
         } else {
             CompileMode::Debug
         }
+    }
+
+    /// Resolves `--color`/`--plain` (plus the real process environment — `NO_COLOR`, whether
+    /// stderr is a TTY) into a [`RenderConfig`] (IS §3.2, §3.3).
+    pub(crate) fn render_config(&self) -> RenderConfig {
+        RenderConfig::from_env(self.color, self.plain)
     }
 }
 

@@ -81,7 +81,7 @@ The object-model design spec is `docs/spec/v0.2/object-model.md`.
   docs) is in [`docs/rust-documentation-guidelines.md`](docs/rust-documentation-guidelines.md).
   Undocumented public API is an incomplete change.
 - Rust 2024 edition across all crates; shared deps are pinned in the root `[workspace.dependencies]`.
-- Errors use `thiserror` + `miette` (fancy diagnostics); prefer surfacing spans via `phalcom-common` ranges.
+- Errors use `thiserror` (the diagnostics renderer is in-house, not `miette` — [PDR-0014](docs/decisions/0014-diagnostics-renderer-is-in-house.md)); prefer surfacing spans via `phalcom-common` ranges.
 - The object model follows Smalltalk-style semantics; method lookup keys on signature symbols
   (arity + kind encoded), so `foo` and `foo(_)` can coexist. See `docs/spec/v0.2/object-model.md` for the
   target design and current deviations before changing class/metaclass wiring.

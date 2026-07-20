@@ -1,20 +1,73 @@
+//! Diagnostic rendering: line/column arithmetic, the legacy parse/compile/runtime renderers,
+//! and the new rendering substrate (PDR-0014).
+//!
+//! - [`style`] — [`style::Role`], [`style::ColorMode`], [`style::GlyphSet`], [`style::Styler`]:
+//!   the only place SGR (ANSI escape) bytes are produced (IS §3.1).
+//! - [`caret`] — [`caret::Snippet`]/[`caret::Label`]: the column-arithmetic caret/snippet
+//!   renderer (IS §3.4). Not yet wired into the renderers below — that lands with the
+//!   traceback renderer itself (plan.md T4/T5), which also owns `print_rt`/`print_frame`'s
+//!   replacement.
+//! - This module itself keeps [`line_col`], [`print_parse`]/[`print_compile`]/[`print_rt`]
+//!   (mechanically migrated onto [`style::Styler`], IS §1 — visual layout unchanged) and the
+//!   legacy [`SOURCE_MAP`] until plan.md §7 deletes it.
+
+pub mod caret;
+pub mod style;
+
 use crate::interner::Symbol;
-use color_print::ceprintln;
 use lazy_static::lazy_static;
 use phalcom_common::range::SourceRange;
 use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
+use style::{ColorMode, RenderConfig, Role, Styler};
 
 lazy_static! {
+    /// Module-name → source-text registry, superseded by `ModuleObject::sources`
+    /// (plan.md §7 deletes this along with `register_source`'s duplicated body).
     pub static ref SOURCE_MAP: RwLock<HashMap<Symbol, Arc<String>>> = RwLock::new(HashMap::new());
+}
+
+/// The process-wide [`RenderConfig`], installed once at CLI startup
+/// (`bin/phalcom/main.rs::main`) from the `--color`/`--plain` flags.
+///
+/// **Interim bridge, not the final architecture.** IS §3.2's target design threads a
+/// `RenderConfig` explicitly through every renderer, with no global mutable state — a REPL or
+/// embedder builds its own against whatever stream it writes to. Getting there for
+/// [`print_compile`]/[`print_parse`]/[`print_rt`] means giving them a `&RenderConfig`
+/// parameter, which ripples into `vm/dispatch.rs` and `interpret.rs` (their callers) —
+/// outside this unit's write-set (plan.md T2; those files are T4/T5's). This `OnceLock` lets
+/// `--color`/`--plain` actually take effect today without touching those files: it is set once
+/// and read-only afterward (the same one-shot-init shape `main.rs` already uses for its
+/// `tracing_subscriber` registry). [`install_render_config`] is a no-op after the first
+/// successful call; [`active_render_config`] falls back to a fresh
+/// [`RenderConfig::from_env`] for any caller that runs before installation (tests, tools that
+/// link `phalcom-core` without going through the CLI).
+static RENDER_CONFIG: OnceLock<RenderConfig> = OnceLock::new();
+
+/// Installs the process-wide [`RenderConfig`], once. See the module-private `RENDER_CONFIG`
+/// static's docs (above, in source) for why this exists and what supersedes it.
+pub fn install_render_config(config: RenderConfig) {
+    let _ = RENDER_CONFIG.set(config);
+}
+
+/// Returns the installed [`RenderConfig`], or a fresh [`RenderConfig::from_env`] default if
+/// [`install_render_config`] has not run yet.
+fn active_render_config() -> RenderConfig {
+    match RENDER_CONFIG.get() {
+        Some(config) => *config,
+        None => RenderConfig::from_env(ColorMode::Auto, false),
+    }
 }
 
 /// A pointer into a specific module’s source.
 #[derive(Clone, Debug)]
 pub struct SourceLoc {
+    /// The module the failing frame belongs to.
     pub module_name: String,
+    /// The method (or `<main>`/block) the failing frame belongs to.
     pub method_name: String,
+    /// The byte span within [`Self::source`] the frame's instruction pointer maps to.
     pub span: SourceRange,
     /// The text [`Self::span`] indexes into, resolved through the frame's
     /// [`Chunk::source_id`](crate::chunk::Chunk::source_id).
@@ -24,8 +77,6 @@ pub struct SourceLoc {
     /// in the traceback, just without a code excerpt (U-REPL §D2).
     pub source: Option<Arc<String>>,
 }
-
-// use std::ops::Range;
 
 /// Resolves a byte `offset` into `source` to a 1-based `(line, column)` pair.
 ///
@@ -49,7 +100,14 @@ pub fn line_col(source: &str, offset: usize) -> (usize, usize) {
     (source.lines().count().max(1), 1)
 }
 
+/// Prints a byte `range` in `source` as a numbered source excerpt with a caret underline.
+///
+/// Mechanically migrated onto [`Styler`] (PDR-0014): identical text and layout to the
+/// `color_print`/`ceprintln!` version this replaces, only the emission path changed. The box
+/// look and column-exact caret arithmetic (IS §3.4) are [`caret::Snippet`]'s job — this
+/// function is the legacy renderer plan.md T4 replaces outright.
 pub fn print_line_information(source: &str, range: Range<usize>) {
+    let styler = Styler::new(&active_render_config());
     let (line_number, col_start_1based) = line_col(source, range.start);
     let col_start = col_start_1based - 1;
 
@@ -58,83 +116,73 @@ pub fn print_line_information(source: &str, range: Range<usize>) {
 
     let col_end = range.end - lines[..current].iter().map(|l| l.len() + 1).sum::<usize>();
 
-    ceprintln!("   <s,r!>--></> Error at {}:{}", line_number, col_start);
-    ceprintln!("    <s,r!>|</>");
+    eprintln!("   {} {}", styler.paint(Role::Rail, "-->"), styler.paint(Role::Location, &format!("Error at {line_number}:{col_start}")));
+    eprintln!("    {}", styler.paint(Role::Rail, "|"));
 
     if current > 0 {
-        ceprintln!("<s,r!>{:>3} |</> {}", current, lines[current - 1].trim_end());
+        eprintln!("{} {}", styler.paint(Role::LineNumber, &format!("{current:>3} |")), lines[current - 1].trim_end());
     }
 
-    ceprintln!("<s,r!>{:>3} |</> <s>{}", line_number, lines[current].trim_end());
+    eprintln!("{} {}", styler.paint(Role::LineNumber, &format!("{line_number:>3} |")), styler.paint(Role::Source, lines[current].trim_end()));
 
     let indent = " ".repeat(col_start);
     let carets = "^".repeat((col_end - col_start).max(1));
-    ceprintln!("    <s,r!>|</> {}<s,y>{}</>", indent, carets);
+    eprintln!("    {} {}{}", styler.paint(Role::Rail, "|"), indent, styler.paint(Role::SpanPrimary, &carets));
 
     if current + 1 < lines.len() {
-        ceprintln!("<s,r!>{:>3} |</> {}", line_number + 1, lines[current + 1].trim_end());
+        eprintln!("{} {}", styler.paint(Role::LineNumber, &format!("{:>3} |", line_number + 1)), lines[current + 1].trim_end());
     }
 
-    ceprintln!("    <s,r!>|</>");
+    eprintln!("    {}", styler.paint(Role::Rail, "|"));
 }
 
 /// Pretty-prints a parse error given only a byte range into the source string.
 pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
+    let styler = Styler::new(&active_render_config());
     if range.start >= source.len() || range.end > source.len() || range.start >= range.end {
-        ceprintln!("   <s,r!>|</> Syntax error at file");
-        ceprintln!("    <s><r!>=</r!> {msg}");
+        eprintln!("   {} Syntax error at file", styler.paint(Role::Rail, "|"));
+        eprintln!("    {} {}", styler.paint(Role::SeverityError, "="), styler.paint(Role::SeverityError, msg));
         return;
     }
 
     print_line_information(source, range);
-    ceprintln!("    <s><r!>=</r!> {msg}");
+    eprintln!("    {} {}", styler.paint(Role::SeverityError, "="), styler.paint(Role::SeverityError, msg));
 }
 
 /// Pretty-prints a *compile* error.
 ///
 /// Span-less by design for now: most [`CompilerError`](crate::compiler::lib::CompilerError)
-/// variants carry no [`SourceRange`](phalcom_common::range::SourceRange), and the
+/// variants carry no [`SourceRange`], and the
 /// few that do are not threaded together with the source text needed to render
 /// an excerpt. Rendering the message alone is what
 /// [PDR-0008](../../docs/decisions/0008-cell-boundary-diagnostics-and-state-hygiene.md) §1
 /// requires; adding spans is a separate change that has to plumb the source
 /// through first.
 pub fn print_compile(msg: &str) {
-    ceprintln!("   <s,r!>|</> Compile error");
-    ceprintln!("    <s><r!>=</r!> {msg}");
+    let styler = Styler::new(&active_render_config());
+    eprintln!("   {} Compile error", styler.paint(Role::Rail, "|"));
+    eprintln!("    {} {}", styler.paint(Role::SeverityError, "="), styler.paint(Role::SeverityError, msg));
 }
 
 /// Pretty-print a *runtime* error with Python-style stack trace.
 /// `stack` must be ordered **caller → callee** (older frames first).
 pub fn print_rt(msg: &str, stack: &[SourceLoc]) {
-    ceprintln!("<s,r!>Traceback (most recent call last):");
-    ceprintln!("    <s,r!>|</>");
-    ceprintln!("    <s><r!>=</r!> {msg}");
-    ceprintln!("    <s,r!>|</>");
+    let styler = Styler::new(&active_render_config());
+    eprintln!("{}", styler.paint(Role::SeverityError, "Traceback (most recent call last):"));
+    eprintln!("    {}", styler.paint(Role::Rail, "|"));
+    eprintln!("    {} {}", styler.paint(Role::SeverityError, "="), styler.paint(Role::SeverityError, msg));
+    eprintln!("    {}", styler.paint(Role::Rail, "|"));
 
     for frame in stack {
         print_frame(frame);
     }
-
-    // print_frame(loc);
 }
 
 /// Print one “File "...", line X” entry plus its source line.
 fn print_frame(loc: &SourceLoc) {
-    // if let Some(entry) = SOURCE_MAP.read().unwrap().get(&loc.module_id) {
-    //     if let Some(line) = line(&entry.code, loc.span.start.line) {
-    //         eprintln!("  File \"{}\", line {}", entry.name, loc.span.start.line);
-    //         eprintln!("    {}", line.trim_end());
-    //     }
-    // }
     // A frame whose source could not be resolved still belongs in the
     // traceback — it just cannot show the offending line.
     if let Some(source) = &loc.source {
         print_line_information(source, loc.span.start..loc.span.end);
     }
 }
-
-// /// Fetch `n`-th (1-based) line from `src`.
-// fn line<'a>(src: &'a str, n: u32) -> Option<&'a str> {
-//     src.lines().nth((n - 1) as usize)
-// }

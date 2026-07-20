@@ -16,6 +16,12 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
+    // Resolves `--color`/`--plain` once, up front, and installs it for every diagnostic
+    // renderer in `phalcom-core` to read (IS §3.2). See
+    // `phalcom_core::diagnostics::RENDER_CONFIG`'s docs for why this is a `OnceLock` bridge
+    // rather than an explicitly threaded parameter today.
+    phalcom_core::diagnostics::install_render_config(cli.render_config());
+
     let result = match cli.command {
         None => cmd_run(cli),
         Some(Commands::Tokenize(args)) => cmd_tokenize(args),
