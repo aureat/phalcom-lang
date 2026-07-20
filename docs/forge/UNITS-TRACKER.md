@@ -26,6 +26,11 @@ code" while both had landed (`d3b6cd2`/`8b4465c`/`14cdfb9`, then `7c2cfab`). Tha
 failure this file's 2026-07-19 note already records for `U-SEQ`/`U-STRING`, recurring within
 24 hours.
 
+Both findings are filed as unowned items in
+[`../deferred/doc-citation-integrity.md`](../deferred/doc-citation-integrity.md) — item 1 the
+rot, item 2 the false-status asymmetry (rows always *understate* what exists, never overstate,
+which points at the fix).
+
 > **Line numbers in this file are the least durable thing in it.** They drift on any commit that
 > touches the cited file, and nothing checks them. Prefer citing a *symbol* (`fn invoke_at`,
 > `pub struct ClassKey`) — greppable and stable — and treat any bare `file:line` older than a few

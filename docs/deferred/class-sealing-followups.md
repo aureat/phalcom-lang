@@ -8,8 +8,10 @@ PDR-0001's two units and currently have no owning unit.
 > `14cdfb9` / `c346200`); see
 > [`docs/logs/2026-07-20-u-classclose-two-issues-and-five-restored-tests.md`](../logs/2026-07-20-u-classclose-two-issues-and-five-restored-tests.md).
 > Items 1–3 predate that and are unchanged by it. **Items 4–6 are new, added 2026-07-20**: they
-> are gaps the implementation left open or created, not design leftovers. Nothing here blocks
-> anything; all six are unowned.
+> are gaps the implementation left open or created, not design leftovers. **Item 7 was added
+> later the same day** and is different in kind from all of them — it is not a leftover but a
+> *piece of U-CLASSNS's own spec that never shipped*. Nothing here blocks anything; all seven
+> are unowned.
 
 Items 1–2 are **performance** items *unlocked by* sealing rather than required by it. Neither
 is measured. Do not fold either into a correctness unit — a dispatch-path change inside a
@@ -282,3 +284,46 @@ The two `chunk.rs` inline-cache tests do exercise the real `.ph` compile path, b
 would close it — the one remaining sanctioned way to install onto a kernel class (stub completion,
 PDR-0001 ruling 4). That needs a test seam for "compile this source as the core module," which
 does not exist today. Worth scoping before anyone assumes kernel override is covered end to end.
+
+---
+
+## 7. U-CLASSNS shipped only its VM half — the LSP still merges same-named classes
+
+**Created by:** U-CLASSNS landing `d3b6cd2` / `8b4465c` / `14cdfb9` without its §8. Verified
+2026-07-20 against `main` (`e33e8e5`), during a citation sweep of
+[`docs/forge/UNITS-TRACKER.md`](../forge/UNITS-TRACKER.md) that found that file's U-CLASSNS row
+still reading "design only, zero code" for an already-landed unit.
+
+The VM side is done: class identity is `ClassKey { module: ObjRef, name: Symbol }` (grep
+`pub struct ClassKey` in `phalcom-core/src/vm/mod.rs`), and all four maps — `classes`,
+`field_layouts`, `class_parents`, `sealed_classes` — are keyed on it. Two modules each declaring
+`class Point` are now two distinct classes.
+
+**The language server was not migrated.** `ClassMap` is still keyed by bare name:
+
+```rust
+// phalcom-lsp/src/index.rs — grep `struct ClassMap`
+struct ClassMap {
+    by_class: DashMap<String, Vec<ClassEntry>>,
+}
+```
+
+So the completion surface still exhibits precisely the defect the VM no longer has: two modules'
+`class Point` merge into one entry list, and `ClassMap::members` unions members across every file
+declaring the name. A user completing on `P.Point` is offered `Q.Point`'s members.
+
+**This is not a re-key.** U-CLASSNS's implementation spec §8 is titled *"LSP — collapse, do not
+just re-key"*, and its §1.1 records that the LSP work is **entirely independent** of the VM work
+(`phalcom-lsp` has no VM dependency; zero sites in `phalcom-repl`, `phalcom-lsp`, `fuzz/`,
+`benchmarks/`, `phalcom-core/bin/`). So this can be picked up standalone, with no VM risk and no
+coordination with anything else in flight.
+
+**Scope, per that spec:** `Url` is the correct and only module proxy — the LSP never resolves
+`import` (`Statement::Import` is a no-op in every walker), so file identity *is* module identity.
+`ClassMap::remove_uri` already filters on `entry.uri != uri`, so invalidation is not a blocker.
+Roughly 25–30 sites, confined to `index.rs` + `completion.rs`. `core_table.rs` needs nothing.
+
+**Why it stayed open:** nothing surfaced it. The unit's VM half was verifiable by running the
+language; its LSP half is only observable through an editor session, and no test covers it. That
+asymmetry — one half self-demonstrating, the other silent — is the reason a unit can land
+"complete" with a third of its spec unbuilt.

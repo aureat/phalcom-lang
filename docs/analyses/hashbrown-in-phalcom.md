@@ -540,6 +540,13 @@ question that reaches back into just-ratified work. Step 1 alone buys nothing he
 **`[O]`** Whether R2 is better served by a distinct fixed-width type or by width-carrying
 selectors on `Int` is genuinely open and is not answered by this document.
 
+> **Filed.** Steps 2–4, plus §11's `map_numeric` hypothesis, are now recorded as unowned items in
+> [`../deferred/hashbrown-analysis-followups.md`](../deferred/hashbrown-analysis-followups.md).
+> That file restates the standing caution: none of them should be picked up *because hashbrown
+> needs them* — this analysis concludes a Phalcom SwissTable would measure worse than the current
+> native `Map` even with all four in hand. Each stands or falls on unrelated demand (binary
+> codecs, hex/base64, hash-table dispatch cost).
+
 ---
 
 ## 10. Provenance ledger
