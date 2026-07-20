@@ -21,8 +21,14 @@ Ratified as-is; the normative `kind` table + isA-vs-`kind` rule live in IS §8.1
 ratification ruling. STATUS.md flipped the same pass. T3 and T6 are unblocked (T3 still waits
 on G2).
 
-### G2 — Fix E002 (fiber-floor upvalue close) *(blocker — RULED: standalone unit, dispatch
-now, before T3)*
+### G2 — Fix E002 (fiber-floor upvalue close)  ✅ RESOLVED (fixed `a265684`, doc flip `3306fdf`)
+
+Landed 2026-07-20: originating fiber's live upvalues closed before the switch
+(`close_upvalues_from(0)` ahead of the cascade), plus a fiber-scoped
+`close_fiber_upvalues_from` for each cascaded `Call`-mode resumer's parked stack before its
+clear. Root-fiber exit untouched (frames stay live for the traceback). Negative-controlled,
+clean-worktree verified. Both gates are now discharged; T3 is unblocked once G0's `error.rs`
+write-set frees. Original ruling kept below for the record.
 
 Ruled 2026-07-20: fixed standalone, not folded into T3 (which would chain a live crash to
 governance latency) and not left to the unscheduled U-FIBER track. Re-derive the fix from code,
