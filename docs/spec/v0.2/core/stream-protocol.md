@@ -247,7 +247,8 @@ kernel `List` plays for the collection protocol — so the harness runs with no 
 - **`Path`, `Fs`, `File.open` modes.** PDR-0005 §7 ratifies the selector surface; the filesystem
   spec is separate and unwritten.
 - **The reactor.** PDR-0004 rules IO reactor-owned and requires the reactor before the IO surface.
-  This document says what the surface *is*, not how a `Future` settles.
+  This document says what the surface *is*, not how a `Future` settles — that is
+  [`reactor.md`](reactor.md).
 - **Reifying the other three axes.** Deferred to
   [`io-protocol-axes-need-stateless-interfaces.md`](../../../deferred/io-protocol-axes-need-stateless-interfaces.md).
   Full mixins and traits are the heavier alternative and are **not** what that defers to.
