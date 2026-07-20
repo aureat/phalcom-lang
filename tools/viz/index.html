@@ -72,8 +72,16 @@
   .bc .op.on .operand.lit{background:var(--link-soft);color:var(--link);font-weight:700;box-shadow:inset 0 0 0 1px var(--link)}
 
   /* machine row: gutter | tape | rail */
-  .machine{display:grid;grid-template-columns:74px 1fr 210px;gap:0;align-items:stretch}
+  .machine{position:relative;display:grid;grid-template-columns:74px 1fr 210px;gap:0;align-items:stretch}
   @media (max-width:1000px){.machine{grid-template-columns:74px 1fr}}
+
+  /* upvalue connector overlay (UI-SPEC §6) — one SVG spanning the whole
+     machine row, since the connector must survive the tape and the rail
+     being separate grid columns. Positions only; never redraws a value. */
+  .upv-svg{position:absolute;left:0;top:0;pointer-events:none;overflow:visible;z-index:5}
+  .upv-line{fill:none;stroke-width:2}
+  .upv-line.parked{stroke-dasharray:5 4}
+  .upv-dot{stroke:none}
 
   /* host gutter — flat, hatched, bolted down. never a card. */
   .gutter{border:1px solid var(--rule);border-right:none;border-radius:8px 0 0 8px;
@@ -267,7 +275,8 @@
   <div class="panel"><h2>Bytecode <span class="sub mono" id="chunkname">—</span></h2><div class="bc mono" id="bc"></div></div>
 </div>
 
-<div class="machine">
+<div class="machine" id="machine">
+  <svg class="upv-svg" id="upvsvg"></svg>
   <div class="gutter" id="gutter"></div>
   <div class="tapewrap">
     <div class="tape-area" id="tapearea">
@@ -1117,6 +1126,7 @@ function render(){
       const el=document.createElement('div');
       const val=st.tape[n], beyond=n>=st.tape.length;
       el.className='slot'+(beyond?' beyond':'')+(val==='·'?' nilv':'');
+      el.dataset.slot=n;
       const d=decayFor(n); if(d>=0&&!beyond) el.classList.add('chg-'+d);
       if(st.readfrom===n) el.classList.add('readfrom');
       if(st.cells.some(c=>!c.closed&&c.slot===n&&c.fiber===st.current)) el.classList.add('upv');
@@ -1138,13 +1148,13 @@ function render(){
   }
 
   // cells
-  $('cells').innerHTML = !st.cells.length ? '' : st.cells.map(c=>{
+  $('cells').innerHTML = !st.cells.length ? '' : st.cells.map((c,i)=>{
     if (c.closed) return `<span class="cell closed mono"><span class="k">cell ${c.name}</span><span class="arrow">holds</span>${esc(c.value)} <span class="arrow">· closed</span></span>`;
     const live = c.fiber===st.current && !st.hole;
     const cls = live ? 'cell' : 'cell stretched';
     const where = live ? `slot ${c.slot} <span class="arrow">(live tape)</span>`
                        : `slot ${c.slot} <span class="arrow">of</span> ${esc(st.fibers[c.fiber]?.name||('F'+c.fiber))} <span class="arrow">(parked)</span>`;
-    return `<span class="${cls} mono"><span class="k">cell ${c.name}</span><span class="arrow">→</span>${where}</span>`;
+    return `<span class="${cls} mono" id="cellchip-${i}"><span class="k">cell ${c.name}</span><span class="arrow">→</span>${where}</span>`;
   }).join('');
 
   // rail
@@ -1157,7 +1167,7 @@ function render(){
       `<div class="${f.parked?'full':''}">${l}</div>`).join('');
     const res = f.result!=null
       ? `<div class="fres mono${f.status==='failed'?' err':''}">result: ${esc(f.result)}</div>` : '';
-    return `<div class="fcard ${running?'running':''} ${f.status==='failed'?'failed':''}" style="--fc:${hueOf(id)}">
+    return `<div class="fcard ${running?'running':''} ${f.status==='failed'?'failed':''}" data-fiber="${id}" style="--fc:${hueOf(id)}">
       <div class="hd"><span>${esc(f.name)}</span><span class="st">${f.status}</span></div>
       <div class="comp">${comp}</div>${res}</div>`;
   }).join('')
@@ -1209,6 +1219,53 @@ function render(){
   $('scrub').value=cursor;
   $('prev').disabled=$('first').disabled=cursor===0;
   $('next').disabled=$('last').disabled=cursor===EVENTS.length;
+
+  renderConnectors(st);
+}
+
+// Upvalue cells are heap objects, not one of the four fields a switch moves
+// (§6). A cell's connector is drawn fresh every render from current DOM
+// geometry — never tweened, never cached across cursors — so it is correct
+// for a still frame by construction (R-STATIC) and cannot visually break
+// across a park: at every cursor it either reaches the live tape slot or
+// the owning fiber's card, with no state in between (N7).
+function renderConnectors(st){
+  const svg = $('upvsvg'), machine = $('machine');
+  if (!svg || !machine || !st.cells.length){ if(svg) svg.innerHTML=''; return; }
+  const mRect = machine.getBoundingClientRect();
+  svg.setAttribute('width', mRect.width);
+  svg.setAttribute('height', mRect.height);
+  svg.setAttribute('viewBox', `0 0 ${mRect.width} ${mRect.height}`);
+  let out = '';
+  st.cells.forEach((c,i) => {
+    if (c.closed) return; // closed: value retracted into the cell, no line (§6)
+    const chip = document.getElementById('cellchip-'+i);
+    if (!chip) return;
+    const cRect = chip.getBoundingClientRect();
+    const cx = cRect.left + cRect.width/2 - mRect.left, cy = cRect.top - mRect.top;
+    const live = c.fiber===st.current && !st.hole;
+    let tx, ty;
+    if (live) {
+      const slotEl = document.querySelector(`.slot[data-slot="${c.slot}"]`);
+      if (!slotEl) return;
+      const sRect = slotEl.getBoundingClientRect();
+      tx = sRect.left + sRect.width/2 - mRect.left; ty = sRect.bottom - mRect.top;
+    } else {
+      // Parked (including the hole): the tape moved out from under the cell
+      // into the owning fiber's object, so the connector stretches into that
+      // fiber's card — the single rendered fact behind Upvalue::Open{fiber,slot}.
+      const card = document.querySelector(`.fcard[data-fiber="${c.fiber}"]`);
+      if (!card) return;
+      const kRect = card.getBoundingClientRect();
+      tx = kRect.left + 16 - mRect.left; ty = kRect.top + kRect.height/2 - mRect.top;
+    }
+    const midY = (cy + ty) / 2;
+    const hue = hueOf(c.fiber);
+    out += `<path class="upv-line${live?'':' parked'}" style="stroke:${hue}" d="M ${cx} ${cy} C ${cx} ${midY}, ${tx} ${midY}, ${tx} ${ty}"/>`;
+    out += `<circle class="upv-dot" cx="${cx}" cy="${cy}" r="3" style="fill:${hue}"/>`;
+    out += `<circle class="upv-dot" cx="${tx}" cy="${ty}" r="3" style="fill:${hue}"/>`;
+  });
+  svg.innerHTML = out;
 }
 
 // Cursor 0 is where the gate lives; clamping here (not just disabling the
