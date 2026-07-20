@@ -62,8 +62,21 @@ pub struct ResourceEntry {
   arm and no new `Value` arm — the handle is plain data in an ordinary slot, which is
   what keeps sweep drop glue inert. Do **not** store the handle as two slots (one
   compare-and-swap-free update site, not two).
-- Concrete kinds subclass in `.ph` (`File < Resource` later); this unit adds a
-  test-only `.ph` subclass in the harness, not in core.ph.
+- **Field stamp:** `Resource` is a bootstrapped row (`make_core_class` gives no field
+  layout), so stamp `field_count = 1` in `VM::new` — the `Message` precedent
+  (`vm/bootstrap.rs:70` comment). A `.ph` subclass's own fields append after it
+  (ADR-0011 frozen offsets via U-INH); §5 has a dedicated harness row proving a
+  subclass with extra fields reads both correctly — **this is the unit's riskiest
+  seam; test it before building anything on it.**
+- **`Resource.register_(_)` static native** (part of this unit's floor delta): takes a
+  kind-name `String`, allocates a table row (capturing the call's source range as the
+  open site), returns the packed handle `Number`. This is how a `.ph` subclass
+  constructor acquires its row (`_handle = Resource.register_("BytesWriter")` — field 0
+  by declaration order). Without this seam, only Rust code could mint resources and
+  U-STREAMS' in-memory `Resource`s (`BytesReader`/`BytesWriter`) couldn't exist.
+- Concrete kinds subclass in `.ph` (`File < Resource` later; `BytesReader`/`BytesWriter`
+  in U-STREAMS); this unit adds a test-only `.ph` subclass in the harness, not in
+  core.ph.
 
 ### 2.3 Native primitives — `phalcom-core/src/primitive/resource.rs` (new)
 
@@ -72,6 +85,7 @@ type errors for contract violations, `.ph` lifts).
 
 | Rust fn | Binding | Behavior |
 |---|---|---|
+| `resource_register` | `Resource.register_(_)` static | allocate a row for the given kind name; return the packed handle `Number` (§2.2) |
 | `resource_raw_close` | `Resource#close_` | resolve handle: live → run kind-specific close, mark `closed`, bump generation, return `None`; already-closed → `None` (idempotent); stale generation → **raise** `UseAfterCloseError` |
 | `resource_raw_is_closed` | `Resource#isClosed_` | `Bool`; stale generation reports `true` (a swept-then-reopened slot must never read as open) |
 | `system_leak_report` | `System.leakReport_` | a `List` of `String`s (kind + open site rendered); `.ph` shapes richer rows later |
