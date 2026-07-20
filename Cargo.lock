@@ -1037,9 +1037,10 @@ name = "phalcom-repl"
 version = "0.1.0"
 dependencies = [
  "nu-ansi-term 0.50.1",
- "once_cell",
+ "phalcom-ast",
+ "phalcom-core",
+ "phalcom-lsp",
  "reedline",
- "regex",
  "unicode-segmentation",
 ]
 

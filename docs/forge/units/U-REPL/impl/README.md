@@ -17,6 +17,14 @@ it is [§00](00-branch-protocol.md), and it changes the stage order.
 | §S8 — delete the rustyline stack | surface.md §S8 | `380461c` | **landed** |
 | §D2 — source binds to the artifact | plan.md §D2 | `16b3760` | **landed** |
 | §D7 parser half — EOF → `UnrecognizedEof` | plan.md §D7 | `2fe6aba` | **landed** |
+| Stage 0 — crate wiring & public VM surface | §01 | `3e118ab` | **landed** |
+| Stage 1 — session & unwinding cell loop | §02 | `3e118ab` | **landed** |
+| Stage 2 — two-set immutability & cross-cell rebind | §03 | `3e118ab` | **landed** |
+| Stage 3 — continuation validator & trailing backslash | §04 | current | **landed** |
+| Stage 4 — snapshot oracle & selectors | §05 | current | **landed** |
+| Stage 5 — reedline surface (completer, highlighter, prompt) | §06 | current | **landed** |
+| Stage 6 — REPL commands & `:reload` | §07 | current | **landed** |
+| Consolidation — workspace tests & tracker updates | §08 | current | **landed** |
 
 Everything below covers what remains. Do not re-implement the three above; do read
 §D2's outcome, because [§02](02-session-and-cells.md) builds directly on `Chunk.source_id`.

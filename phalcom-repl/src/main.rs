@@ -2,18 +2,14 @@
 //!
 //! Assembles the [`reedline`]-backed interactive REPL: configures the editor
 //! with tab-completion, syntax highlighting, persistent file history, and a
-//! two-state prompt (`ph>` / `..>`) that detects incomplete blocks before
-//! evaluating input.
+//! two-state prompt (`ph>` / `...`) driven by §D7 parser classification.
 
-mod common;
-mod completer;
-mod highlighter;
-mod repl;
-
-use completer::PhalcomCompleter;
-use highlighter::PhalcomHighlighter;
-use repl::{CellOutcome, ReplSession};
-
+use phalcom_repl::completer::PhalcomCompleter;
+use phalcom_repl::highlighter::PhalcomHighlighter;
+use phalcom_repl::oracle::ReplOracle;
+use phalcom_repl::repl::{CellOutcome, ReplSession, ValueExt};
+use phalcom_repl::snapshot::ReplSnapshot;
+use phalcom_repl::validator::{classify, PhalcomValidator, Verdict};
 
 use reedline::{
     default_emacs_keybindings, Color, EditCommand, Emacs, FileBackedHistory, IdeMenu, KeyCode,
@@ -23,91 +19,17 @@ use reedline::{
 
 use std::borrow::Cow;
 use std::path::PathBuf;
-
-fn is_incomplete_block(src: &str) -> bool {
-    let mut paren = 0i32;
-    let mut brace = 0i32;
-    let mut bracket = 0i32;
-    let mut in_str = false;
-    let mut str_delim = '\0';
-    let mut in_line_comment = false;
-    let mut in_block_comment = false;
-    let mut iter = src.chars().peekable();
-    let mut prev = '\0';
-
-    while let Some(c) = iter.next() {
-        let next = *iter.peek().unwrap_or(&'\0');
-
-        if !in_str {
-            if !in_block_comment && c == '/' && next == '/' {
-                in_line_comment = true;
-            }
-            if !in_line_comment && c == '/' && next == '*' {
-                in_block_comment = true;
-            }
-            if in_block_comment && prev == '*' && c == '/' {
-                in_block_comment = false;
-            }
-        }
-
-        if in_line_comment {
-            if c == '\n' {
-                in_line_comment = false;
-            }
-            prev = c;
-            continue;
-        }
-        if in_block_comment {
-            prev = c;
-            continue;
-        }
-
-        if !in_str {
-            if c == '"' || c == '\'' {
-                in_str = true;
-                str_delim = c;
-                prev = c;
-                continue;
-            }
-        } else {
-            if c == str_delim && prev != '\\' {
-                in_str = false;
-                str_delim = '\0';
-                prev = c;
-                continue;
-            }
-            prev = c;
-            continue;
-        }
-
-        match c {
-            '(' => paren += 1,
-            ')' => paren -= 1,
-            '{' => brace += 1,
-            '}' => brace -= 1,
-            '[' => bracket += 1,
-            ']' => bracket -= 1,
-            _ => {}
-        }
-        prev = c;
-    }
-
-    in_str || in_block_comment || paren > 0 || brace > 0 || bracket > 0
-}
+use std::sync::{Arc, Mutex};
 
 /// A two-state reedline prompt that switches between the primary (`ph>`) and
-/// continuation (`..>`) prefix once an incomplete block is detected.
+/// continuation (`...`) prefix once an incomplete block is detected.
 struct PhPrompt {
-    /// The normal first-line prompt string, e.g. `"ph>".
     primary: String,
-    /// The continuation-line prompt string shown when a block is incomplete.
     cont: String,
-    /// `true` while the current input buffer contains an incomplete block.
     is_cont: bool,
 }
 
 impl PhPrompt {
-    /// Creates a new [`PhPrompt`] with the given primary and continuation strings.
     fn new(primary: &str, cont: &str) -> Self {
         Self {
             primary: primary.into(),
@@ -130,147 +52,169 @@ impl reedline::Prompt for PhPrompt {
         Color::Grey
     }
 
-    // nothing on the right side of the prompt
     fn render_prompt_right(&self) -> Cow<'_, str> {
         Cow::Borrowed("")
     }
 
-    // extra indicator appended by reedline for edit mode; we keep it minimal
     fn render_prompt_indicator(&self, _prompt_mode: PromptEditMode) -> Cow<'_, str> {
-        // return a single space to avoid cramped prompts
         Cow::Borrowed(" ")
     }
 
-    // indicator shown for wrapped/multiline prompts
     fn render_prompt_multiline_indicator(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.cont)
     }
 
-    // indicator shown during history search; short and unobtrusive
-    fn render_prompt_history_search_indicator(&self, _history_search: PromptHistorySearch) -> Cow<'_, str> {
+    fn render_prompt_history_search_indicator(
+        &self,
+        _history_search: PromptHistorySearch,
+    ) -> Cow<'_, str> {
         Cow::Borrowed("(search)")
     }
 }
 
 /// Launches the Phalcom interactive REPL.
-///
-/// Builds a [`Reedline`] editor with tab-completion, syntax highlighting, Emacs
-/// key-bindings, and a persistent history file (`.phalcom_history` in the
-/// working directory), then enters the read-eval-print loop until the user
-/// types `:quit` or sends `Ctrl-D`.
-///
-/// # Errors
-///
-/// Returns a [`ReedlineError`] if the history file cannot be opened or if
-/// reedline reports an unrecoverable I/O error.
 fn main() -> Result<(), ReedlineError> {
-    // session + cwd (unchanged placeholder session)
-    let cwd = std::env::current_dir().unwrap_or(PathBuf::from("."));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut session = ReplSession::start(cwd.clone());
 
-    // Build completer + highlighter
-    let completer = Box::new(PhalcomCompleter::new(cwd.clone()));
-    let highlighter = Box::new(PhalcomHighlighter);
+    let snapshot_cell = Arc::new(Mutex::new(ReplSnapshot::new()));
+    let oracle = Arc::new(ReplOracle::new(snapshot_cell.clone()));
+
+    let completer = Box::new(PhalcomCompleter::new(cwd.clone(), oracle.clone()));
+    let highlighter = Box::new(PhalcomHighlighter::new(oracle.clone()));
+    let validator = Box::new(PhalcomValidator);
 
     let mut keybindings: Keybindings = default_emacs_keybindings();
 
-    // TAB opens the completion menu; TAB again moves selection (Fish-like)
     keybindings.add_binding(
         KeyModifiers::NONE,
         KeyCode::Tab,
-        ReedlineEvent::UntilFound(vec![ReedlineEvent::Menu("completion_menu".into()), ReedlineEvent::MenuNext]),
+        ReedlineEvent::UntilFound(vec![
+            ReedlineEvent::Menu("completion_menu".into()),
+            ReedlineEvent::MenuNext,
+        ]),
     );
 
-    // Shift+Enter (and Alt+Enter) insert a newline
-    keybindings.add_binding(KeyModifiers::SHIFT, KeyCode::Enter, ReedlineEvent::Edit(vec![EditCommand::InsertNewline]));
-    keybindings.add_binding(KeyModifiers::ALT, KeyCode::Enter, ReedlineEvent::Edit(vec![EditCommand::InsertNewline]));
-
-    // Alt+Backspace → delete previous word
-    keybindings.add_binding(KeyModifiers::ALT, KeyCode::Backspace, ReedlineEvent::Edit(vec![EditCommand::BackspaceWord]));
-
-    // Cmd/Super+Backspace → kill entire line (if terminal sends SUPER)
-    keybindings.add_binding(KeyModifiers::SUPER, KeyCode::Backspace, ReedlineEvent::Edit(vec![EditCommand::KillLine]));
+    keybindings.add_binding(
+        KeyModifiers::SHIFT,
+        KeyCode::Enter,
+        ReedlineEvent::Edit(vec![EditCommand::InsertNewline]),
+    );
+    keybindings.add_binding(
+        KeyModifiers::ALT,
+        KeyCode::Enter,
+        ReedlineEvent::Edit(vec![EditCommand::InsertNewline]),
+    );
+    keybindings.add_binding(
+        KeyModifiers::ALT,
+        KeyCode::Backspace,
+        ReedlineEvent::Edit(vec![EditCommand::BackspaceWord]),
+    );
+    keybindings.add_binding(
+        KeyModifiers::SUPER,
+        KeyCode::Backspace,
+        ReedlineEvent::Edit(vec![EditCommand::KillLine]),
+    );
 
     let edit_mode = Box::new(Emacs::new(keybindings));
 
-    // --- Reedline editor with menu, completer, history ---
     let mut rl = Reedline::create()
         .with_edit_mode(edit_mode)
+        .with_validator(validator)
         .with_completer(completer)
         .with_highlighter(highlighter)
-        .with_quick_completions(true) // optional: auto-accept when single candidate
-        .with_partial_completions(true); // optional: common-prefix fill
+        .with_quick_completions(false)
+        .with_partial_completions(true);
 
-    // IDE-style popup menu (this is the one you asked for)
-    // Name must match the one used in the TAB keybinding.
     let completion_menu = IdeMenu::default().with_name("completion_menu");
     rl = rl.with_menu(ReedlineMenu::EngineCompleter(Box::new(completion_menu)));
 
-    // persistent history file (unchanged behavior)
     let hist_path = cwd.join(".phalcom_history");
     let history = FileBackedHistory::with_file(10_000, hist_path)?;
     rl = rl.with_history(Box::new(history));
 
-    // Prompt + continuation buffer
-    let mut prompt = PhPrompt::new("ph>", "..>");
+    let mut prompt = PhPrompt::new("ph>", "...");
     let mut buf = String::new();
 
     loop {
-        prompt.is_cont = is_incomplete_block(&buf);
+        prompt.is_cont = !buf.is_empty();
 
         match rl.read_line(&prompt) {
             Ok(Signal::Success(line)) => {
-                buf.push_str(&line);
-
-                if line.trim() == ":quit" {
-                    println!("Exiting REPL.");
-                    break;
-                }
-
-                if line.ends_with("\\ ") {
-                    buf.pop();
-                    buf.push(' ');
-                    continue;
-                }
-
-                if line.ends_with('\\') {
-                    // Line continuation: remove the backslash and keep reading
-                    buf.pop();
-                    buf.push('\n');
-                    continue;
-                }
-
-                if prompt.is_cont && line.trim().is_empty() {
-                    buf.push('\n');
-                    continue;
-                }
-
-                if line.trim().is_empty() {
+                let trimmed = line.trim();
+                if buf.is_empty() && trimmed.starts_with(':') {
+                    match trimmed {
+                        ":quit" => {
+                            println!("Exiting REPL.");
+                            break;
+                        }
+                        ":reload" => {
+                            session.reload();
+                            if let Ok(mut snap) = snapshot_cell.lock() {
+                                *snap = ReplSnapshot::capture(&session.vm, session.module);
+                            }
+                        }
+                        ":reset" => {
+                            println!("Command ':reset' is not yet implemented.");
+                        }
+                        ":help" => {
+                            println!("Command ':help' is not yet implemented.");
+                        }
+                        cmd => {
+                            println!("Unknown command '{cmd}'. Available commands: :reload, :reset, :help");
+                        }
+                    }
                     buf.clear();
                     continue;
                 }
 
-                if is_incomplete_block(&buf) {
+                let (has_explicit_cont, effective_line) = if line.ends_with('\\') {
+                    (true, format!("{} ", &line[..line.len() - 1]))
+                } else if line.ends_with("\\ ") {
+                    (true, format!("{} ", &line[..line.len() - 2]))
+                } else {
+                    (false, line.clone())
+                };
+
+                buf.push_str(&effective_line);
+
+                if has_explicit_cont {
                     buf.push('\n');
+                    continue;
+                }
+
+                let is_blank_submit = !buf.trim().is_empty() && trimmed.is_empty();
+
+                if !is_blank_submit && classify(&buf) == Verdict::Incomplete {
+                    buf.push('\n');
+                    continue;
+                }
+
+                if buf.trim().is_empty() {
+                    buf.clear();
                     continue;
                 }
 
                 match session.eval(&buf) {
                     CellOutcome::Value(val) => {
-                        println!("// => {}", val.to_string(&session.vm));
+                        let display = val.to_string_guarded(&session.vm);
+                        println!("// => {display}");
                     }
                     CellOutcome::Unit | CellOutcome::Failed => {}
                 }
-                buf.clear();
 
+                if let Ok(mut snap) = snapshot_cell.lock() {
+                    *snap = ReplSnapshot::capture(&session.vm, session.module);
+                }
+
+                buf.clear();
             }
             Ok(Signal::CtrlC) => {
-                // println!();
                 buf.clear();
+                prompt.is_cont = false;
             }
             Ok(Signal::CtrlD) => break,
             x => {
-                // Other events (resize etc.)
                 eprintln!("Event: {x:?}");
             }
         }

@@ -136,6 +136,9 @@ is the item that is hardest to retrofit once spans are baked.
 
 ### D3 — `CompileMode::Repl`
 
+> **Note (Implementation Delta):** `CompileMode` governs contract-weaving (Debug/Release/Unchecked).
+> As specced in `impl/README.md` delta 2 and `impl/02-session-and-cells.md §2.2`, the REPL compile mode is represented by a separate orthogonal `UnitKind` enum (`UnitKind::File` vs `UnitKind::Repl`), not a `CompileMode` variant.
+
 A Repl-mode unit suppresses the trailing `Pop` on a **final expression statement**
 and leaves the value for the loop to print; statements echo nothing. `_` binds the
 last value as an ordinary global.

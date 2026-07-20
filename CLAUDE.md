@@ -57,11 +57,7 @@ Cargo workspace (edition 2024, resolver 2). Members:
 Bootstrap core library written in Phalcom, loaded at startup to define base classes.
 
 ### `phalcom-repl/src`
-REPL built on `reedline`. The whole crate is one binary rooted at `main.rs`, which declares
-exactly four modules: `common.rs` (shared keyword table), `completer.rs`, `highlighter.rs`,
-`repl.rs`. There is no `lib.rs` and no second editor stack — the former `rustyline/`
-subdirectory and the orphaned `editor.rs`/`helper.rs` were deleted per U-REPL §S8 once they
-were found to be declared by nothing and therefore never compiled.
+REPL built on `reedline`. Crate exposes `lib.rs` with `validator`, `snapshot`, `oracle`, `completer`, `highlighter`, and `repl` modules. Binary entrypoint is `main.rs`. Implements multi-line continuation, LSP-backed autocompletion and syntax highlighting, and state management commands like `:reload`.
 
 ## Build / run / test
 

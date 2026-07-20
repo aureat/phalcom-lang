@@ -1,7 +1,7 @@
 use phalcom_ast::ast::Statement;
 use phalcom_ast::parse_source;
 use phalcom_core::compiler::lib::UnitKind;
-use phalcom_core::heap::ObjRef;
+use phalcom_core::heap::{ObjRef, Object};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use std::path::PathBuf;
@@ -17,14 +17,43 @@ pub enum CellOutcome {
     Failed,
 }
 
+/// Helper trait for error-guarded string rendering of REPL cell evaluation results.
+pub trait ValueExt {
+    /// Renders `self` as a string, falling back to class display name if `toString` panics or fails.
+    fn to_string_guarded(&self, vm: &VM) -> String;
+}
+
+impl ValueExt for Value {
+    fn to_string_guarded(&self, vm: &VM) -> String {
+        match self {
+            Value::Nil | Value::Bool(_) | Value::Number(_) | Value::Symbol(_) => self.to_string(vm),
+            Value::Obj(id) => {
+                let obj = vm.heap.get(*id);
+                match obj {
+                    Object::Str(_) => self.to_string(vm),
+                    Object::Class(c) => c.name_copy(),
+                    Object::Instance(inst) => {
+                        let class_name = vm.heap.class(inst.class).name_copy();
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            self.to_string(vm)
+                        }))
+                        .unwrap_or_else(|_| format!("<instance of {class_name}>"))
+                    }
+                    _ => self.to_string(vm),
+                }
+            }
+        }
+    }
+}
+
 /// Holds per-session state for one Phalcom REPL invocation.
 pub struct ReplSession {
-    pub(crate) vm: VM,
-    pub(crate) module: ObjRef,
-    pub(crate) cwd: PathBuf,
-    pub(crate) next_cell: usize,
+    pub vm: VM,
+    pub module: ObjRef,
+    pub cwd: PathBuf,
+    pub next_cell: usize,
     /// Every cell's source, in submission order — `:reload`'s input (§S9).
-    pub(crate) history: Vec<String>,
+    pub history: Vec<String>,
 }
 
 impl ReplSession {
@@ -44,17 +73,23 @@ impl ReplSession {
 
     /// Evaluates one input cell.
     pub fn eval(&mut self, src: &str) -> CellOutcome {
-        self.history.push(src.to_string());
+        let src_norm = if src.ends_with('\n') {
+            src.to_string()
+        } else {
+            format!("{src}\n")
+        };
+
+        self.history.push(src_norm.clone());
         self.next_cell += 1;
 
-        let program = match parse_source(src, 0) {
+        let program = match parse_source(&src_norm, 0) {
             Ok(p) => p,
             Err(_) => return CellOutcome::Failed,
         };
 
         let is_expr_cell = matches!(program.statements.last(), Some(Statement::Expr { .. }));
 
-        let closure = match self.vm.compile_closure_as(self.module, src, UnitKind::Repl) {
+        let closure = match self.vm.compile_closure_as(self.module, &src_norm, UnitKind::Repl) {
             Ok(c) => c,
             Err(err) => {
                 self.vm.compiler_error(err);
@@ -79,5 +114,28 @@ impl ReplSession {
             }
         }
     }
-}
 
+    /// Discards session state and re-runs accumulated cell history in order.
+    ///
+    /// Builds a fresh `VM` and `Compiler` to prevent same-scope redeclaration
+    /// and `class.already_defined` traps (§07 §4). Stops at the first failing cell.
+    pub fn reload(&mut self) -> bool {
+        let old_history = std::mem::take(&mut self.history);
+        let abs_path = self.cwd.display().to_string();
+        let mut new_vm = VM::new();
+        let new_module = new_vm.create_module("main", &abs_path);
+
+        self.vm = new_vm;
+        self.module = new_module;
+        self.next_cell = 1;
+        self.history = Vec::new();
+
+        for (idx, cell_src) in old_history.iter().enumerate() {
+            if let CellOutcome::Failed = self.eval(cell_src) {
+                eprintln!("Reload halted at cell {}: evaluation failed.", idx + 1);
+                return false;
+            }
+        }
+        true
+    }
+}

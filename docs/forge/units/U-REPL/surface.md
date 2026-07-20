@@ -234,10 +234,3 @@ Beyond `plan.md`'s: `phalcom-repl/src/{completer,highlighter,helper,editor}.rs`
 rewritten; `phalcom-repl/src/rustyline/` deleted (§S8); `phalcom-repl/Cargo.toml`
 loses the `rustyline` dependency (§S8); `CLAUDE.md`'s "alternate/experimental editor
 stack" sentence updated (§S8); `phalcom-lsp` consumed as a library, never modified.
-
-> Concurrent-edit note. At the time of writing, another session held an uncommitted
-> 2-line change to `phalcom-repl/src/completer.rs`, confined to `builtin_keywords()`.
-> It does not overlap §S5's deletion target (the regex battery and
-> `guess_type_from_name`), so there is no conflict to resolve — but `completer.rs` is
-> in this unit's write-set and is rewritten wholesale. Whoever implements §S5 lands
-> after that change, not over it.
