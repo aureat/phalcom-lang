@@ -311,7 +311,7 @@ const _ = cart.total([1, 2, 3])
         assert!(matches!(views[0].name, FrameName::Main), "first frame must be Main, got {:?}", views[0].name);
 
         // Find the `total(_)` method frame.
-        let total_sym = vm.interner.find("total(_)").expect("selector interned during compile");
+        let total_sym = vm.get_or_intern("total(_)");
         let total_idx = views
             .iter()
             .position(|v| matches!(v.name, FrameName::Method(s) if s == total_sym))
