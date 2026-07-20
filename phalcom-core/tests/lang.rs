@@ -266,6 +266,22 @@ fn list_pending() {
 }
 
 #[test]
+fn bytes() {
+    // U-BYTES (PDR-0011 + PDR-0013 ruling 4): the kernel octet buffer —
+    // laws 1-8 of bytes.md §5, positive lane. The yield-mid-iteration row
+    // (law 8) lives in the concurrency lane
+    // (`concurrency_fiber_yield_through_block_call.ph`).
+    support::check_pass("bytes");
+}
+
+#[test]
+fn bytes_negative() {
+    // bytes.md law 1's raise half: every precondition violation raises with
+    // the named diagnostic — never `None`, never a silent clamp.
+    support::check_negative("bytes/negative");
+}
+
+#[test]
 fn collections() {
     // U-CORE-5: the shared collection-protocol contract, certified against
     // `List` as its reference implementation — sequence laws (size/at/add/

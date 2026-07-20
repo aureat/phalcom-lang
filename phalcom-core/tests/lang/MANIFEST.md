@@ -284,6 +284,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | dispatch | 3 | – | 5 | `check_pass` + `check_pending` | messages-and-selectors.md; method-lookup.md; object-model.md |
 | metaclass | 2 | – | 1 | `check_pass` + `check_pending` | object-model.md |
 | list | 9 | – | 3 | `check_pass` + `check_pending` | U-LIST-plan.md; ADR-0019; ADR-0020; collection-protocol.md §2 (U-SEQ, pending) |
+| bytes | 5 (U-BYTES: `bytes_basics`, `bytes_bulk_ops`, `bytes_strings`, `bytes_equality_and_keys`, `bytes_iteration`; the law-8 yield row lives in `concurrency/concurrency_fiber_yield_through_block_call`) | 9 (`bytes/negative/`: every precondition raise of bytes.md law 1 — bad octet ×3, OOB set, bad fill/slice/copyInto, non-`Bytes` `equalsConstantTime`, `Bytes`-as-`Map`-key rejection) | – | `check_pass` + `check_negative` | bytes.md; PDR-0011; PDR-0013 ruling 4; collection-protocol laws 3/4 |
 | collections | 32 | 9 | 3 | `check_pass` (+ `check_negative`, `check_pending`) | U-CORE-5 as-built.md; U-COLL: lexical-structure.md §4/§6/§7/§8; ADR-0029; ADR-0032; U-COLLTYPES: map-and-set.md; tuple-and-range.md; ADR-0039 |
 | iteration | 9 | – | 2 | `check_pass` (+ `iteration_disasm`, `check_pending`) | ADR-0035; iteration.md; U-ITER specification |
 | syntax-errors | – | 5 | – | `check_negative` | lexical-structure.md; implementation-status.md |
