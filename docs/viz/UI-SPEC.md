@@ -367,9 +367,14 @@ kept showing the outgoing chunk would be asserting execution that is not happeni
   exactly as informative. That the design degrades this cleanly is a consequence of D2, and a check that
   D2 is right.
 
-**As built the tape does not translate at all** — the beats are cursor stops with no tween between
-them, i.e. the reduced-motion rendering is the only rendering. Nothing is lost by the argument above,
-which is why this has not been prioritised. Adding the slide later is additive and changes no state.
+**Tween built 2026-07-20.** The beats are still cursor stops — `render()` remains instant and correct
+for every navigation path, exactly as before. `step()` (prev/next, plain arrow keys, autoplay) lays a
+clone of the tape over that already-correct render and animates only the clone's position: `tw-out` on
+take (tape exits toward the outgoing card), `tw-in` on install (tape enters from the incoming one),
+~400ms ease-out. Scrub, jump-to-switch, and first/last stay on the untouched instant path, so fast
+scrubbing still shows no smearing. `prefers-reduced-motion` short-circuits both tween branches, so the
+reduced-motion rendering is unchanged from the pre-tween build — the argument above still holds, it is
+just no longer the *only* rendering.
 
 ---
 
@@ -520,7 +525,8 @@ class that turns out to be cheapest.
 | 7 | E4 dead frame, E5 call vs try, semantic checks | **done** |
 | — | Triptych renderer (C3) | deferred until a `docs/learn` embed needs it |
 | 8 | Transport lock (R-GATE) | **done** |
-| — | Drawn connector, tape tween | deferred; all additive, none change state |
+| 9 | Tape tween on park/unpark (C1 spatial slide) | **done** |
+| — | Drawn connector | deferred; additive, changes no state |
 
 Step 2 was the go/no-go: if the flat tape with bracket lanes had not read at a glance, D1 was wrong and
 everything downstream needed rethinking. It was built and judged first, against T1, before any
