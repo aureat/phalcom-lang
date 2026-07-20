@@ -11,7 +11,7 @@ unit**, in the order below. Each brief is self-contained; the normative specs ar
 |---|---|---|
 | G1/G2 gates | ✅ done | PDR-0010 ratified `27c4a1a`; E002 fixed `a265684` + `3306fdf` |
 | G0 Map/Set | ✅ COMPLETE, worktree-verified green | `861e21a` (core: reentrant_depth lock, fallible accessors, `RuntimeError::ConcurrentMutation`), `f43c00c` (docs), `df9bf45` (5 fixtures, negative-controlled) |
-| T1 walk/accessor | ⚠️ IN PROGRESS at shutdown | look for `feat(vm): T1 checkpoint` commits; else uncommitted edits in chunk.rs, vm/walk.rs?, heap/fiber.rs, primitive/fiber.rs, vm/bootstrap.rs, vm/gc.rs, vm/mod.rs, dispatch.rs |
+| T1 walk/accessor | ⚠️ ~95% — committed `e046696`, needs a short FINISHER pass | Done: walk API (oldest-first, expand seam, 3 tests), `span_at`/`line_at` + ALL `.spans[` sites migrated (invoke_at, SuperSend, runtime_error), `FiberObject::seq` (root=1). Finisher owes: (a) full `cargo test && cargo clippy --workspace` gate (agent wrapped before running it), (b) fix the order-dependent flaky `walk_orders_oldest_first_with_selector_shaped_names` test, (c) class-qualified frame names (`Cart.total` composition) — deliberately deferred, design note in walk.rs module doc; either finish it or explicitly hand to T4. `runtime_error` not swapped onto StackWalk (fine — T4 rewrites it anyway); `FrameName::Native` unconstructed (correct, T4/IS §5.5) |
 | T2 substrate | ✅ COMPLETE | `3ec895d` (deps), `523583c` (style.rs), `255d8b8` (caret.rs), `703c9e6` (mod.rs migration + flags + CLAUDE.md), `15ca990` (DEFERRED). 15 new tests green; miette gone. Known seams left FOR T4/T5 by design: `Snippet` not yet consumed by a real renderer; `print_*` read `RenderConfig` via a `RENDER_CONFIG` OnceLock (T4/T5 replace with explicit param); TTY width hardcoded 80 (DEFERRED.md) |
 | T3, T4, T5, T6, T7, T8 | not started | briefs in this folder |
 
@@ -23,10 +23,11 @@ session's live edits may be interleaved; touch only the unit's declared write-se
 ## Serial order
 
 1. ~~Finish T2~~ — DONE (see table).
-2. **Finish T1** — [`T1-walk-and-accessor.md`](T1-walk-and-accessor.md); resume from on-disk
-   state. NOTE from T2's report: `vm::walk::tests::walk_orders_oldest_first_with_selector_shaped_names`
-   was observed order-dependent-flaky in full-workspace runs (passes in isolation) — T1's
-   finisher must make it deterministic before calling the unit green.
+2. **Finish T1** — short pass, start from `e046696` (all work committed, tree clean): run the
+   full gate, fix the flaky walk test (order-dependent in full-workspace runs, passes in
+   isolation — per T2's report), and resolve the class-qualified-name deferral (walk.rs module
+   doc has the design note). Brief for context:
+   [`T1-walk-and-accessor.md`](T1-walk-and-accessor.md).
 3. **T5** — [`T5-entry-paths-exit-codes.md`](T5-entry-paths-exit-codes.md) (needs T2).
 4. **T3** — [`T3-capture-and-kind.md`](T3-capture-and-kind.md) (needs T1's walk vocabulary).
 5. **T4** — [`T4-traceback-renderer.md`](T4-traceback-renderer.md) (needs T1+T2+T3; the
