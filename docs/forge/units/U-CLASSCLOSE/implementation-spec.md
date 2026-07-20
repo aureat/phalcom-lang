@@ -4,10 +4,36 @@ Companion to [`plan.md`](plan.md). Governed by
 [PDR-0001](../../../decisions/0001-classes-are-closed.md) (**Accepted**), as amended by
 [PDR-0002](../../../decisions/0002-class-declarations-join-the-binding-namespace.md).
 
-**Status: READY to dispatch. No open decisions** — both were ruled 2026-07-19, see
-[§14](#14-decisions--ruled-2026-07-19): `Bytecode::Class` keeps its single operand, and the
-duplicate diagnostic carries both spans in the error value with both locations in the message
-([§3](#3-the-diagnostic--ruled-option-a) option A). Unit **B** of two. **Blocked on
+> **STATUS: SHIPPED 2026-07-20** — `7c2cfab`, with `c346200` (parser ban) and a follow-up
+> restoring five kernel-override tests in-crate. Green at each step. See
+> [the implementation log](../../../logs/2026-07-20-u-classclose-two-issues-and-five-restored-tests.md).
+>
+> **Two prescriptions in this document are wrong and were corrected against the running tree.
+> Do not follow them:**
+>
+> 1. **§2.1's predicate table.** It says a `classes` hit **and** a `field_layouts` hit together
+>    mean "already defined." Implemented literally, that let every same-file duplicate through:
+>    `field_layouts` is written at **compile** time, `classes` only at **runtime**, and a whole
+>    unit lowers to one closure before any of its bytecode runs — so at the second `class Point`'s
+>    compile time `classes_hit` is still `false`. **The predicate is `field_layouts_hit` alone**
+>    (exempted for a REPL cell, ruling 6). The pre-existing reopen guard already keyed on that one
+>    field; §2.1's re-derivation "from first principles" dropped the reason why.
+> 2. **§4's reserved-name source.** It rejects `add_class!`'s set and prescribes "the core-module
+>    keys present once `core.ph` has finished running" — which also catches ordinary `.ph` library
+>    classes `core.ph` declares, e.g. `ArgumentError`. That made the idiomatic
+>    `class ArgumentError extends Error` a `class.reserved_name` error and broke a real golden.
+>    **The set is `add_class!`'s**, now `VM::kernel_class_names` (`vm/mod.rs:188`), populated as
+>    each primitive installs plus one explicit `insert` for `None`. That is PDR-0001 ruling 3's
+>    own literal wording; §4's elaboration overreached past the ruling it implements.
+>
+> Both are instances of the same failure: re-deriving a predicate from the design rather than
+> from the code that already encoded it. §14's two rulings, §1.1–§1.7's corrections, and §11.2's
+> in-crate test placement all held up.
+
+Unit **B** of two, ruled 2026-07-19 (see [§14](#14-decisions--ruled-2026-07-19)):
+`Bytecode::Class` keeps its single operand, and the duplicate diagnostic carries both spans in the
+error value with both locations in the message
+([§3](#3-the-diagnostic--ruled-option-a) option A). **Was blocked on
 [`U-CLASSNS`](../U-CLASSNS/implementation-spec.md)**: the redefinition error is undecidable until
 class identity is `(module, name)`-keyed.
 
@@ -540,7 +566,7 @@ fixture so the behavior is pinned by this unit's lane rather than left implicit 
 | `phalcom-core/src/chunk.rs` | the two IC tests, in the existing `#[cfg(test)] mod tests` (§11) |
 | `phalcom-core/tests/lang/classes/` + `classes/negative/` | delete 4 `class_reopen_*` fixtures + sidecars; add new negative fixtures |
 | `phalcom-core/tests/lang/ic/` | delete 2 `.ph` + `.expected`, superseded by the in-crate tests |
-| `docs/decisions/0066-…md` | the §3 mechanism amendment, if A is chosen |
+| `docs/decisions/0002-class-declarations-join-the-binding-namespace.md` | the §3 mechanism amendment (was `0066-…` before the PDR renumber, `63dc4d4`) |
 
 **Not** in the write-set: `phalcom-core/core/core.ph` — zero true reopens, and stub completion is
 untouched. No conflict with any `.ph`-editing unit in either order.

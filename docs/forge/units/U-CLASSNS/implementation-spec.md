@@ -4,8 +4,18 @@ Companion to [`plan.md`](plan.md). Governed by
 [PDR-0001](../../../decisions/0001-classes-are-closed.md) ruling 1 (**Accepted**), as
 amended by [PDR-0002](../../../decisions/0002-class-declarations-join-the-binding-namespace.md).
 
-**Status: READY to dispatch.** Unit **A** of two. Unit **B**
-([`U-CLASSCLOSE`](../U-CLASSCLOSE/implementation-spec.md)) must land after this one — its
+> **STATUS: SHIPPED 2026-07-20.** `ClassKey` and all four re-keyed tables are on `main`
+> (`vm/mod.rs:74`, `:173`, `:238`, `:296`), plus follow-up `14cdfb9`. Unit B shipped after it
+> (`7c2cfab`). **This document is the record of intent, not of the tree** — read it for *why*,
+> and verify any file:line against `main` before acting.
+>
+> **One §11 item never landed:** the two invariant tests pinning `sealed_classes`
+> (`key.module == value`, and kernel sealing resolving to the core module). `rg sealed_classes
+> phalcom-core/tests/invariants.rs` returns nothing. Tracked as
+> [`class-sealing-followups.md`](../../../deferred/class-sealing-followups.md) item 4.
+
+Unit **A** of two. Unit **B**
+([`U-CLASSCLOSE`](../U-CLASSCLOSE/implementation-spec.md)) landed after this one — its
 redefinition error is undecidable without `(module, name)` identity.
 
 `plan.md`'s preconditions were re-verified 2026-07-19 against the tree. **Every line number in

@@ -105,6 +105,52 @@ misleads anyone reading the source as ground truth for what `on` catches.
 
 ---
 
+## 4. No compile-error renderer exists — every compile-error span is carried and dropped
+
+**Added 2026-07-20**, surfaced by U-CLASSCLOSE's two-span diagnostic work (PDR-0002). Appended
+rather than inserted to avoid renumbering items a concurrent session may be citing — **by severity
+it belongs second**, above items 2 and 3: it is a user-facing defect across every compile error,
+not a doc or comment fix.
+
+**Compile-error spans never reach the user.** `cmd_run` calls
+`vm.compile_closure(module, &source)?` (`phalcom-core/bin/phalcom/cli.rs:160`); the `?` propagates
+the `CompilerError` through `anyhow::Result` to `main`, which prints its `Display` text and
+nothing else. So the `SourceRange` carried by every span-bearing `CompilerError` variant —
+`DestructuringWithoutInitializer`, `ConstructStaticCollision`, `BreakOutsideLoop`,
+`ContinueOutsideLoop`, `ThrowNonError`, and now `class.already_defined`'s pair — is **carried and
+dropped**. The user gets a message with no file, no line, and no caret.
+
+**Only parse errors render.** `print_parse` fires from `compile_closure`'s `map_err`
+(`phalcom-core/src/interpret.rs:145`), which is the parse path only. So Phalcom renders a source
+frame for a syntax error and nothing for a compile error — an inconsistency no one chose.
+
+**miette is unused repo-wide.** `use miette` / `miette::` appears in **zero** `.rs` files, despite
+miette being a declared workspace dependency and `CLAUDE.md` naming "thiserror + miette" as the
+convention. `CompilerError` derives `thiserror::Error` only. **Any doc or decision that says
+"rendered as miette labels" is describing something that does not exist** — PDR-0002 did, and was
+amended for it (`bb4f365`).
+
+This is the same shape as [`tracing.md`](tracing.md)'s finding, one layer up: the renderer exists
+(`phalcom-core/src/diagnostics.rs`, `color_print`-based `print_line_information` — caret span plus
+one line of context either side), and the call site doesn't reach it.
+
+**Consequence for anyone adding a diagnostic:** adding a span to a compiler error is *not* a
+user-visible change on its own. Adding one costs a struct field; making it appear costs wiring
+this path. Price them separately. U-CLASSCLOSE hit this directly — PDR-0001 ruling 2 asked for
+both spans of a duplicate-class error, and the shipped compromise puts both **locations in the
+message text** (*"first declared at 3:1"*) precisely because there was nothing to render into.
+That variant already carries both `SourceRange`s, so literal two-label rendering later is a pure
+rendering change with no re-derivation.
+
+**Why it wants its own unit, not a bolt-on.** Wiring `cmd_run`'s compile-error path changes how
+**every** compile error prints, and the negative-lane golden harness asserts on
+`format!("{stdout}\n{stderr}")` as a **substring** (`phalcom-core/tests/support/mod.rs`). Every
+negative sidecar in the corpus — ~90 files, each currently exactly one line — would need
+re-checking against the new output. That is a gated migration, not an afternoon. It would also
+incidentally revive the five dead spans above, which is the actual prize.
+
+---
+
 ## Not recorded here
 
 The GC `ensure` temp-root UAF and the F1 fiber-floor upvalue-close crash are already tracked
