@@ -9,7 +9,8 @@ use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
 
 use super::error::CompilerError;
-use super::Compiler;
+use super::{Compiler, UnitKind};
+
 
 /// Attribute names handled entirely by the compiler itself — the guard weave
 /// (`@requires`/`@ensures`/`@invariant`), the field-derive (`@construct`,
@@ -340,9 +341,11 @@ impl<'vm> Compiler<'vm> {
             // zeroed layout and produced an out-of-bounds field slot).
             existing_layout
         } else {
-            let (sc_field_count, sc_meta_field_count) = if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
+            let (sc_field_count, sc_meta_field_count) = if self.unit_kind != UnitKind::Repl && self.vm.classes.contains_key(&name_sym) {
+                let existing_class = self.vm.classes[&name_sym];
                 // Bootstrap reopen: keep the Rust stub's established superclass.
                 match self.vm.heap.class(existing_class).superclass {
+
                     Some(sc_id) => {
                         let meta = self.vm.heap.class(sc_id).class;
                         (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
@@ -437,10 +440,12 @@ impl<'vm> Compiler<'vm> {
 
         self.current_class = Some(name_sym);
 
-        if let Some(&existing_class) = self.vm.classes.get(&name_sym) {
+        if self.unit_kind != UnitKind::Repl && self.vm.classes.contains_key(&name_sym) {
+            let existing_class = self.vm.classes[&name_sym];
             let class_idx = self.add_constant(Value::Obj(existing_class));
             self.emit(Bytecode::Constant(class_idx), range);
         } else {
+
             // Push the superclass onto the stack for the `Class` handler
             // to consume (vm.rs `Bytecode::Class` pops it and wires both
             // `superclass` and the parallel metaclass via `create_class`,

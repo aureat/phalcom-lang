@@ -6,7 +6,7 @@
 //! compiled closures, modules and frames are all [`ObjRef`] handles into the
 //! VM's [`Heap`](crate::heap::Heap) rather than `Rc<RefCell<T>>` graphs.
 
-use crate::compiler::lib::{Compiler, CompilerError};
+use crate::compiler::lib::{Compiler, CompilerError, UnitKind};
 use crate::diagnostics::print_parse;
 use crate::error::{IoError, PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
@@ -17,6 +17,7 @@ use phalcom_ast::parse_source;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::{fs, io};
+
 
 pub enum ExitCode {
     Success = 0,
@@ -132,6 +133,23 @@ impl Interpreter {
 }
 
 impl VM {
+    /// Parses and compiles `source` for `module` with `kind`, returning the top-level
+    /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
+    pub fn compile_closure_as(&mut self, module: ObjRef, source: &str, kind: UnitKind) -> PhResult<ObjRef> {
+        self.unit_kind = kind;
+        let program = parse_source(source, 0).map_err(|e| {
+            let msg = e.kind.to_string();
+            print_parse(source, &msg, e.range.clone());
+            PhError::Compile(CompilerError::Parse(e))
+        })?;
+
+        let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
+        let compiler = Compiler::new(self, module, source_id, kind);
+        let closure = compiler.compile(program)?;
+        Ok(closure)
+    }
+
+
     /// Parses and compiles `source` for `module`, returning the top-level
     /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
     ///
@@ -146,17 +164,9 @@ impl VM {
     /// Returns [`PhError::Compile`] if `source` fails to parse or compile; the
     /// parse diagnostic is printed before the error is returned.
     pub fn compile_closure(&mut self, module: ObjRef, source: &str) -> PhResult<ObjRef> {
-        let program = parse_source(source, 0).map_err(|e| {
-            let msg = e.kind.to_string();
-            print_parse(source, &msg, e.range.clone());
-            PhError::Compile(CompilerError::Parse(e))
-        })?;
-
-        let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
-        let compiler = Compiler::new(self, module, source_id);
-        let closure = compiler.compile(program)?;
-        Ok(closure)
+        self.compile_closure_as(module, source, UnitKind::File)
     }
+
 
     /// Installs `module` and runs its top-level `closure` on a fresh frame.
     ///

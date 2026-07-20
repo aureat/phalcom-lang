@@ -237,7 +237,10 @@ pub struct VM {
     /// (plan §3.6's table) — never coupled to [`Self::compile_mode`] beyond
     /// this one opt-in-to-stripping override.
     pub strip_contract_metadata: bool,
+    /// Whether the active compilation/execution unit is a whole file or a single REPL cell.
+    pub unit_kind: crate::compiler::lib::UnitKind,
     /// `sel` → the interned `init <sel>` selector; memoizes the class-side
+
     /// constructor-fallback probe (`Value::lookup_method`) so a miss costs a
     /// hash lookup, not a `format!` + re-intern (U-HOTPATH).
     pub(crate) init_selector_cache: HashMap<Symbol, Option<Symbol>>,

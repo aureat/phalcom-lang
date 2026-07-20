@@ -72,6 +72,8 @@ pub struct ModuleObject {
     /// Set by `Object#__freezeAttributes` — further `__attach` calls are
     /// rejected (`attr.frozen`).
     pub attributes_frozen: bool,
+    /// Prior units' global bindings: name -> is_mutable (U-REPL §D4).
+    pub global_bindings: HashMap<Symbol, bool>,
 }
 
 impl ModuleObject {
@@ -93,8 +95,18 @@ impl ModuleObject {
             sources: source.into_iter().collect(),
             attributes: Vec::new(),
             attributes_frozen: false,
+            global_bindings: HashMap::new(),
         }
     }
+
+    /// Merges global binding definitions from a completed compilation unit into
+    /// the module's prior global bindings map (U-REPL §D4).
+    pub fn merge_global_bindings(&mut self, unit_bindings: &HashMap<Symbol, bool>) {
+        for (&sym, &is_mut) in unit_bindings {
+            self.global_bindings.insert(sym, is_mut);
+        }
+    }
+
 
     /// Appends `source` to [`Self::sources`] and returns its index, to be
     /// stamped into every [`Chunk`](crate::chunk::Chunk) compiled from that text

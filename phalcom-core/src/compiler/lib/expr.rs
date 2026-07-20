@@ -6,7 +6,8 @@ use phalcom_ast::ast::{BinaryOp, BlockExpr, Expr, MethodRefKind, Statement, Symb
 use phalcom_common::range::SourceRange;
 
 use super::error::CompilerError;
-use super::Compiler;
+use super::{Compiler, UnitKind};
+
 
 impl<'vm> Compiler<'vm> {
     /// Compiles `expr`, always leaving exactly one value on the stack.
@@ -300,13 +301,17 @@ impl<'vm> Compiler<'vm> {
                             self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetUpvalue(upvalue as u16), range);
                         } else {
-                            if self.global_bindings.get(&name_sym) == Some(&false) {
+                            let is_const_this_unit = self.global_bindings.get(&name_sym) == Some(&false);
+                            let is_const_prior_unit = self.unit_kind != UnitKind::Repl
+                                && self.vm.heap.module(self.module).global_bindings.get(&name_sym) == Some(&false);
+                            if is_const_this_unit || is_const_prior_unit {
                                 return Err(CompilerError::AssignToImmutable(value));
                             }
                             self.compile_expr(assign_expr.value)?;
                             let name_idx = self.add_constant(Value::Symbol(name_sym));
                             self.emit(Bytecode::SetGlobal(name_idx), range);
                         }
+
                     }
                     Expr::Field { value, range } => {
                         let name_sym = self.vm.interner.intern(&value);

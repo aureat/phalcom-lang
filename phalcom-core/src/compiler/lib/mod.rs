@@ -19,6 +19,21 @@ mod state;
 
 pub use error::CompilerError;
 
+/// Whether a compilation unit is a whole file or a single REPL cell.
+///
+/// Orthogonal to [`CompileMode`](crate::compiler::attributes::CompileMode), which
+/// governs contract weaving and is global; this is per-unit. A `Repl` unit keeps
+/// its final expression's value instead of popping it (U-REPL §D3) and relaxes
+/// prior-unit binding checks (§D4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnitKind {
+    /// A whole source file. Every statement's value is discarded.
+    #[default]
+    File,
+    /// One REPL cell.
+    Repl,
+}
+
 use crate::bytecode::Bytecode;
 use crate::callable::Callable;
 use crate::heap::ClosureObject;
@@ -113,12 +128,14 @@ pub(crate) struct Compiler<'vm> {
     /// this compiler finalizes so diagnostics resolve a span against the source
     /// it came from (U-REPL §D2).
     source_id: u32,
+    /// Whether this compilation unit is a whole file or a single REPL cell.
+    pub(crate) unit_kind: UnitKind,
 }
 
 impl<'vm> Compiler<'vm> {
     /// Creates a compiler targeting `module`, whose chunks carry `source_id`
     /// as their [`Chunk::source_id`](crate::chunk::Chunk::source_id).
-    pub(crate) fn new(vm: &'vm mut VM, module: ObjRef, source_id: u32) -> Self {
+    pub(crate) fn new(vm: &'vm mut VM, module: ObjRef, source_id: u32, unit_kind: UnitKind) -> Self {
         Compiler {
             vm,
             module,
@@ -131,6 +148,7 @@ impl<'vm> Compiler<'vm> {
             in_constructor: false,
             scratch_counter: 0,
             source_id,
+            unit_kind,
         }
     }
 
@@ -273,6 +291,7 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn compile(mut self, program: Program) -> PhResult<ObjRef> {
         let len = program.statements.len();
         let mut last_is_return = false;
+        let mut leaves_value = false;
         for (i, statement) in program.statements.into_iter().enumerate() {
             let is_last = i == len - 1;
             // Check if last statement is a return
@@ -280,13 +299,18 @@ impl<'vm> Compiler<'vm> {
                 if let Statement::Return(_) = statement {
                     last_is_return = true;
                 }
+                leaves_value = matches!(statement, Statement::Expr { .. });
             }
             self.compile_statement_with_pop_control(statement, !is_last)?;
         }
 
         if !last_is_return {
+            if !leaves_value {
+                self.emit(Bytecode::Nil, EmptySourceRange);
+            }
             self.emit(Bytecode::Return, EmptySourceRange);
         }
+
 
         let name_sym = self.vm.heap.module(self.module).name_sym;
         let mut func = self.functions.pop().unwrap();
@@ -307,8 +331,12 @@ impl<'vm> Compiler<'vm> {
             upvalues: Vec::new(),
         })));
 
+        let module_obj = self.vm.heap.module_mut(self.module);
+        module_obj.merge_global_bindings(&self.global_bindings);
+
         Ok(closure)
     }
+
 
     pub(crate) fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {
         match statement {

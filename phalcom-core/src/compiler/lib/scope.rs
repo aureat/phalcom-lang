@@ -8,7 +8,8 @@ use phalcom_common::range::SourceRange;
 
 use super::error::CompilerError;
 use super::state::Local;
-use super::Compiler;
+use super::{Compiler, UnitKind};
+
 
 impl<'vm> Compiler<'vm> {
     /// Emits `opcode` into the current function's chunk.
@@ -178,12 +179,18 @@ impl<'vm> Compiler<'vm> {
     /// declared as a global.
     pub(super) fn declare_global(&mut self, name: Symbol, is_mutable: bool) -> Result<(), CompilerError> {
         let is_throwaway = self.vm.resolve_symbol(name) == "_";
-        if !is_throwaway && self.global_bindings.contains_key(&name) {
-            return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));
+        if !is_throwaway {
+            let redeclared_this_unit = self.global_bindings.contains_key(&name);
+            let redeclared_prior_unit = self.unit_kind != UnitKind::Repl
+                && self.vm.heap.module(self.module).global_bindings.contains_key(&name);
+            if redeclared_this_unit || redeclared_prior_unit {
+                return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));
+            }
         }
         self.global_bindings.insert(name, is_mutable);
         Ok(())
     }
+
 
     /// Resolves `name` as a local in the current function, returning its slot.
     pub(super) fn resolve_local(&self, name: Symbol) -> Option<usize> {

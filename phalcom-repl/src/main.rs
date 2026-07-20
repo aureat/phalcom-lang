@@ -12,7 +12,8 @@ mod repl;
 
 use completer::PhalcomCompleter;
 use highlighter::PhalcomHighlighter;
-use repl::ReplSession;
+use repl::{CellOutcome, ReplSession};
+
 
 use reedline::{
     default_emacs_keybindings, Color, EditCommand, Emacs, FileBackedHistory, IdeMenu, KeyCode,
@@ -254,9 +255,14 @@ fn main() -> Result<(), ReedlineError> {
                     continue;
                 }
 
-                let id = session.eval(&buf);
-                println!("{id}: {buf}");
+                match session.eval(&buf) {
+                    CellOutcome::Value(val) => {
+                        println!("// => {}", val.to_string(&session.vm));
+                    }
+                    CellOutcome::Unit | CellOutcome::Failed => {}
+                }
                 buf.clear();
+
             }
             Ok(Signal::CtrlC) => {
                 // println!();

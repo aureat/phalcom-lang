@@ -90,9 +90,11 @@ impl VM {
             start_time: _,
             compile_mode: _,
             strip_contract_metadata: _,
+            unit_kind: _,
             #[cfg(feature = "fiber-pool")]
                 fiber_pool: _,
         } = self;
+
 
         for frame in frames {
             trace_frame(frame, &mut |id| out.push(id));

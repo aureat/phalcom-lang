@@ -774,7 +774,12 @@ impl VM {
                                 // compiles) as a no-op fallthrough, since that
                                 // case already resolves at compile time and
                                 // never reaches here.
-                                if let Some(&existing) = self.classes.get(&name_sym) {
+                                 let existing_class_opt = if self.unit_kind != crate::compiler::lib::UnitKind::Repl {
+                                     self.classes.get(&name_sym).copied()
+                                 } else {
+                                     None
+                                 };
+                                 if let Some(existing) = existing_class_opt {
                                     // A reopen must not change the superclass
                                     // (U13 sealed inheritance): the compiler's
                                     // `Statement::Class` handler rejects this

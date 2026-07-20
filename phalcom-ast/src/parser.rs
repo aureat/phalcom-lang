@@ -2455,11 +2455,12 @@ impl<'source> Parser<'source> {
                     })));
                 }
                 self.advance();
-                if value.starts_with('_') {
+                if value.starts_with('_') && value != "_" {
                     Ok(Expr::Field { value, range })
                 } else {
                     Ok(Expr::Var { value, range })
                 }
+
             }
             Token::SelfKw => {
                 self.advance();

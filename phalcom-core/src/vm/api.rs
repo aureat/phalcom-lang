@@ -165,4 +165,30 @@ impl VM {
         }
         self.heap.class_mut(class_id).base_names = merged;
     }
+
+    /// Discards all execution state at a REPL cell boundary, closing any open
+    /// upvalues first (U-REPL §D10).
+    ///
+    /// `run_in_module`'s raw `frames.clear(); stack.clear()` is **not** equivalent:
+    /// `open_upvalues` is keyed by absolute value-stack index, so clearing the stack
+    /// beneath it aliases the previous cell's captured slots onto the next cell's
+    /// values — silent corruption, not a crash.
+    pub fn unwind_cell(&mut self) {
+        self.unwind_to(0, 0);
+    }
+
+    /// Runs a compiled cell top-level closure within `module`, returning its value,
+    /// and unwinding execution state at the cell boundary (U-REPL §D1, §D10).
+    pub fn run_cell(&mut self, module: ObjRef, closure: ObjRef) -> PhResult<Value> {
+        let module_sym = self.heap.module(module).symbol();
+        self.modules.insert(module_sym, module);
+
+        let frame = self.new_call_frame(closure, crate::frame::CallContext::Module { module }, 0, 0, None);
+        self.frames.push(frame);
+        let res = self.run();
+        self.unwind_cell();
+        res
+    }
 }
+
+
