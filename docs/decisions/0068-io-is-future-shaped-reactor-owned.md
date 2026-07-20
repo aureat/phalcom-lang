@@ -43,6 +43,22 @@ cannot block (`Path#join`, `Metadata#size`, `Fs.exists` on a cached stat) return
 Errors surface as a `Future` settling to `Err` — `Future<Result<T>>` collapses to one settlement
 channel, not two nested ones.
 
+**Scope, added 2026-07-20.** This rule governs operations that *can block*, not every member. Two
+consequences that have already come up, so they are stated rather than left to inference:
+
+- `File#path` returns `Path`, not `Future` — it is cached at open and cannot block.
+- **`Resource#close` returns `Result` synchronously**
+  ([decision 0069](0069-resources-are-disposable-handles-not-finalized.md) §3b). Over an unbuffered
+  `File` (0069 §3c) close has nothing to flush and `close(2)` on a local descriptor is fast, so it
+  is not a blocking operation and this rule never applied to it. Operations that genuinely block —
+  `File#sync`, `TlsStream#shutdown`, `BufferedWriter#flush` — are separate `Future`-returning
+  selectors.
+
+Do not "restore consistency" by making `close` return a `Future`. That was the original spelling
+here and it was reversed deliberately: awaitable cleanup is cleanup that gets skipped, and Java,
+Python, Lua and Wren all converged on synchronous scoped cleanup as the primary mechanism (0069
+§3b records the evidence).
+
 ### 2. The reactor is built **before** the IO surface, not staged behind it
 
 The alternative considered and rejected was shipping `Future`-shaped signatures over a synchronous

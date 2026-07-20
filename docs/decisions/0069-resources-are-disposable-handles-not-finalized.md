@@ -2,13 +2,16 @@
 
 - Status: Accepted
 - Date: 2026-07-20
-- Revised: 2026-07-20, same day, **before any implementation** — the interface was ratified in a
-  follow-up pass. Changes: `dispose`/`isDisposed` → **`close`/`isClosed`** (§3a); `close` returns
-  **`Future`** settling to `Result` rather than `None`, so a lost-write `EIO` is not discarded
-  (§3b); **`Resource` is a real root class** while Reader/Writer/Seekable stay duck-typed (§3);
-  use-after-close **raises** rather than returning `Err` (§4); **`using` sugar withdrawn** (§6);
-  the full selector surface is ratified in §7. Amended in place rather than as a separate decision
-  because nothing was built against the original.
+- Revised: 2026-07-20, same day, **before any implementation**, in two passes. Changes:
+  `dispose`/`isDisposed` → **`close`/`isClosed`** (§3a); `close` returns **`Result`,
+  synchronously** — first revised to `Future`, then reversed on the Java/Python/Lua/Wren evidence
+  once it became clear close is not a blocking operation over an unbuffered file (§3b);
+  **`File` is unbuffered**, buffering moves to an explicit wrapper, which is what makes the
+  synchronous close honest (§3c); **`Resource` is a real root class** while Reader/Writer/Seekable
+  stay duck-typed (§3); use-after-close **raises** rather than returning `Err` (§4); **`using` sugar
+  withdrawn** (§6); selector surface ratified (§7); the `BufferedWriter#close` trilemma is recorded
+  as **unruled** (§7a). Amended in place rather than as a separate decision because nothing was
+  built against the original.
 - Related: [ADR-0050](../adr/accepted/0050-non-moving-mark-sweep-collector.md) (§Context banks
   "no finalizers exist" as a reason the collector is hazard-free — **this decision keeps that
   true**), [ADR-0013](../adr/accepted/0013-closure-upvalues-and-frame-token-return.md)
@@ -67,26 +70,70 @@ sends `read(_)`. This follows the [ADR-0048](../adr/accepted/0048-amend-iteratio
 `Iterable`-as-kernel-root precedent for the one axis that benefits, and declines it for the three
 that would collide with single inheritance.
 
-Reifying all four properly needs mixins or traits. That is a real language feature, deliberately
-**not** decided here — see [`docs/deferred/io-protocol-axes-need-mixins.md`](../deferred/io-protocol-axes-need-mixins.md).
+Reifying all four needs **stateless interface-style declarations** — checkable identity, no shared
+implementation, no contributed fields, so ADR-0011's frozen slot offsets and ADR-0012's dispatch are
+both untouched. That is a real language feature, deliberately **not** decided here — see
+[`docs/deferred/io-protocol-axes-need-stateless-interfaces.md`](../deferred/io-protocol-axes-need-stateless-interfaces.md).
+Full mixins/traits are the heavier alternative and are **not** what this defers to.
 
 ### 3a. The name is `close`, not `dispose`
 
 This protocol exists to serve files and sockets, so it uses their word. `dispose` (this decision's
 original spelling) reads as generic-resource ceremony on a `File`.
 
-### 3b. `close` returns `Future` settling to `Result`
+### 3b. `close` is **synchronous** and returns `Result`
 
-`close(2)` can fail, and an `EIO` on close means **buffered data was lost after the write already
-reported success** — discarding that is a silent-data-loss bug, which is why Go linters flag
-`defer f.Close()` on writable files.
+```
+Resource#close -> Result        // synchronous; idempotent
+```
 
-It returns `Future`, not a bare `Result`, because closing can block on flush and
-[decision 0068](0068-io-is-future-shaped-reactor-owned.md) §1 admits no exceptions. The cost is
-accepted with open eyes: **cleanup becomes asynchronous**, and asynchronous cleanup is cleanup that
-can be forgotten. §5's leak reporting is what makes that failure observable rather than silent.
+It returns `Result` and not `None` because `close(2)` can fail, and an `EIO` on close means
+**buffered data was lost after the write already reported success**. Discarding that is a
+silent-data-loss bug — the one Go linters flag `defer f.Close()` for on writable files.
 
-`close` is idempotent — closing twice settles to `Ok`, not an error.
+It is **synchronous**, and does not return a `Future`. Four precedents point the same way:
+
+- **Java** ran cleanup on a separate finalizer thread and retreated: `finalize` deprecated in 9,
+  `AutoCloseable.close() throws Exception` + try-with-resources is the survivor, synchronous.
+  Suppressed-exception machinery exists because a close during unwind can throw while another
+  exception is in flight — the cost of taking close-can-fail seriously.
+- **Python** discourages `__del__`; `with`/`__exit__` is the survivor, synchronous. `async with`
+  was added *alongside*, not instead. Decisively: **you cannot await in `__del__`**, which is why
+  PEP 525 needed `shutdown_asyncgens()` as a whole subsystem, and why aiohttp's "Unclosed client
+  session" is a permanent fixture.
+- **Lua** has `__gc` finalizers and *still* added to-be-closed variables (`local f <close>`,
+  `__close`) in 5.4 — synchronous, scope-exit — because `__gc` timing is unpredictable.
+- **Wren**, the nearest sibling: a foreign class's `finalize` runs during GC and may not call back
+  into the VM at all. A GC-time hook in a Phalcom-shaped VM likewise could not run `.ph` code,
+  allocate, or re-enter the interpreter — so it could never await, settle a `Future`, or reach the
+  reactor.
+
+Two cleanups were being conflated. **Safety-net** cleanup cannot be asynchronous in any of these
+languages; **explicit** cleanup can. Phalcom has no safety net by §1, so async `close` would break
+nothing — but all four made synchronous scoped cleanup the *primary* mechanism, and async variants
+are additions bolted alongside.
+
+**This does not carve an exception into [decision 0068](0068-io-is-future-shaped-reactor-owned.md)
+§1.** That rule governs operations that *can block*. Given §3c's unbuffered `File`, `close` has
+nothing to flush and `close(2)` on a local descriptor is fast — so it is not a blocking operation
+and never was. The earlier `Future` spelling came from assuming it was.
+
+Residual blocking is handled explicitly rather than by making every close async: `File#sync`
+(fsync) and `TlsStream#shutdown` (`close_notify`) are separate `Future`-returning selectors, the
+shape Java uses for `SSLSocket`. `close(2)` can still block briefly on NFS or FUSE; that is
+accepted, as it is by all four languages above.
+
+`close` is idempotent — closing twice is `Ok`, not an error.
+
+### 3c. `File` is unbuffered; buffering is an explicit wrapper
+
+`File#write(_)` is a direct syscall. Buffering lives in `BufferedWriter`, which wraps any writer and
+whose `flush` is explicit and asynchronous — Rust's `File`/`BufWriter` and Java's
+`FileOutputStream`/`BufferedOutputStream`.
+
+This is what makes §3b honest rather than a trick: a synchronous `close` is only safe if close has
+nothing to flush. A buffered `File` would force close to either block on a write syscall or go async
+again, and a close that cannot report a failed flush loses data silently.
 
 ### 4. A generation-tagged resource table in the VM
 
@@ -135,23 +182,50 @@ five-line desugar.
 ### 7. The ratified surface
 
 ```
-Resource#close                 -> Future     // settles to Result; idempotent
+Resource#close                 -> Result     // SYNCHRONOUS; idempotent
 Resource#isClosed              -> Bool
 
 File.open(_)                   -> Future     // read-only
 File.create(_)                 -> Future     // write + truncate
 File.openWith(_, mode:)        -> Future     // OpenMode.read/.write/.append/.readWrite
 File#read(_)                   -> Future     // fills a Bytes, settles to count; 0 = EOF
-File#write(_)                  -> Future     // settles to count written
-File#flush                     -> Future
+File#write(_)                  -> Future     // direct syscall — File is unbuffered (§3c)
+File#sync                      -> Future     // fsync; explicit, genuinely blocking
 File#seek(_)                   -> Future     // SeekFrom.start(_)/.current(_)/.end(_)
 File#position                  -> Future
 File#metadata                  -> Future
 File#path                      -> Path       // cached; non-blocking, so no Future
+File#close                     -> Result     // from Resource
+
+BufferedWriter.new(_)                        // wraps any writer
+BufferedWriter#write(_)        -> Future
+BufferedWriter#flush           -> Future     // where the blocking work lives
+BufferedReader.new(_)                        // wraps any reader
+BufferedReader#read(_)         -> Future
+
+TlsStream#shutdown             -> Future     // close_notify; explicit, blocking
 
 System.leakReport              -> List       // open resources + allocation site
 System.strictResources(_)      -> None       // Bool; raise on leak instead of warn
 ```
+
+### 7a. Unruled consequence: what `BufferedWriter#close` does
+
+§3b + §3c relocate the data-loss hazard rather than removing it. `File` has nothing to flush, but
+**`BufferedWriter` does**, and a synchronous `close` cannot flush it without blocking on a write.
+Three shapes, none ruled here:
+
+1. `BufferedWriter` is **not** a `Resource` — it has no `close`. The caller does `flush.await` then
+   closes the underlying file. Honest, and easy to forget the flush.
+2. `BufferedWriter#close -> Future` — flushes then closes. Breaks `Resource`'s uniform contract,
+   since one implementor's `close` is now awaitable.
+3. `BufferedWriter#close -> Result` that flushes **synchronously**. Uniform contract, but blocks on
+   a write syscall, which is exactly what §3b claimed close never does.
+
+This must be settled before `BufferedWriter` is built. It is recorded rather than decided because
+it is a real trilemma and picking one silently would bury it. Note that (1) makes the leak reporter
+(§5) load-bearing again: an unflushed `BufferedWriter` at collection should be reported with the
+same machinery as an unclosed resource.
 
 Selector spellings follow [ADR-0012](../adr/accepted/0012-selector-signature-encoding-and-dispatch.md)
 (comma form; `openWith(_, mode:)` is one selector with a labelled second parameter) and
