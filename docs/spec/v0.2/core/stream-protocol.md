@@ -252,7 +252,7 @@ kernel `List` plays for the collection protocol — so the harness runs with no 
 - **Reifying the other three axes.** Deferred to
   [`io-protocol-axes-need-stateless-interfaces.md`](../../../deferred/io-protocol-axes-need-stateless-interfaces.md).
   Full mixins and traits are the heavier alternative and are **not** what that defers to.
-- **`Bytes`.** Every selector here takes or fills a `Bytes`, which does not exist in the tree
-  yet. Its spec is [`bytes.md`](bytes.md), normative upon ratification of
-  [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) (Proposed
-  2026-07-20). Still a hard dependency for any implementation.
+- **`Bytes`.** Every selector here takes or fills a `Bytes`. Its spec is
+  [`bytes.md`](bytes.md), normative —
+  [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) Accepted
+  2026-07-20, implementation unit U-BYTES.

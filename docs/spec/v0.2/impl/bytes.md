@@ -1,11 +1,13 @@
 # Implementation spec — `Bytes` (U-BYTES)
 
-> **Status:** dispatch-ready, **blocked on
-> [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) ratification**
-> (Proposed 2026-07-20; `decisions/README.md` rule 5 — building this before acceptance
-> ratifies by fait accompli). Surface contract: [`../core/bytes.md`](../core/bytes.md);
-> every law/harness reference below points there. All `file:line` anchors verified
-> 2026-07-20 on `4c902b3`.
+> **Status:** dispatch-ready and **unblocked** —
+> [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) **Accepted**
+> 2026-07-20. Scope addition at ratification:
+> [PDR-0013](../../../decisions/0013-path-is-bytes-backed-filesystem-surface.md) ruling 4's
+> `utf8Lossy_` (also Accepted, no reactor dependency) ships in this unit as an **eleventh**
+> primitive — own census constant, cited to PDR-0013. Surface contract:
+> [`../core/bytes.md`](../core/bytes.md); every law/harness reference below points there.
+> All `file:line` anchors verified 2026-07-20 on `4c902b3`.
 >
 > **Rustdoc is mandatory on every item this unit adds**
 > (`docs/rust-documentation-guidelines.md`) — an undocumented public item is an incomplete

@@ -11,4 +11,4 @@ the spec says so in its header.
 
 | Impl spec | Surface spec | Governing record | Buildable? |
 |---|---|---|---|
-| [`bytes.md`](bytes.md) | [`core/bytes.md`](../core/bytes.md) | [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) | ❌ blocked until PDR-0011 is Accepted |
+| [`bytes.md`](bytes.md) | [`core/bytes.md`](../core/bytes.md) | [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) | ✅ unblocked — PDR-0011 Accepted 2026-07-20 |

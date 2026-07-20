@@ -1,13 +1,13 @@
 # Specification — Filesystem (`Path`, `File`, `Fs`, `DirEntry`, `Metadata`, `Permissions`, `OpenMode`)
 
-> **Status:** split authority, stated per section. The `File` selector surface (§4) encodes
-> [PDR-0005](../../../decisions/0005-resources-are-disposable-handles-not-finalized.md) §7,
-> **Accepted** — normative now. Everything else (`Path`, `Fs`, `DirEntry`, `Metadata`,
-> `Permissions`, `OpenMode` beyond its ratified spellings) encodes
-> [PDR-0013](../../../decisions/0013-path-is-bytes-backed-filesystem-surface.md),
-> **Proposed — normative upon its ratification** (`decisions/README.md` rule 5 applies).
+> **Status:** **Normative.** The `File` selector surface (§4) encodes
+> [PDR-0005](../../../decisions/0005-resources-are-disposable-handles-not-finalized.md) §7;
+> everything else (`Path`, `Fs`, `DirEntry`, `Metadata`, `Permissions`, `OpenMode` beyond
+> its ratified spellings) encodes
+> [PDR-0013](../../../decisions/0013-path-is-bytes-backed-filesystem-surface.md) — both
+> **Accepted** (PDR-0013 ratified 2026-07-20).
 > Depends on [`bytes.md`](bytes.md) / [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md)
-> (Proposed) for the backing store, and on the reactor
+> (Accepted) for the backing store, and on the reactor
 > ([PDR-0004](../../../decisions/0004-io-is-future-shaped-reactor-owned.md) §2) before any
 > implementation. **Floor delta: nonzero, enumerated in PDR-0013 ruling 10**, censused at
 > impl time under PDR-0012 ruling 21's rebase discipline.

@@ -1,6 +1,7 @@
 # PDR-0012 — The numeric tower lands: `Int`/`Float` implementation rulings and the floor amendment (137 → 153)
 
-- Status: **Proposed**
+- Status: **Accepted** (ratified 2026-07-20, same day as proposed; ratified in the same
+  pass as PDR-0011/PDR-0013, so ruling 21's rebase applies to all three off the 137 base)
 - Date: 2026-07-20
 - Amends: [ADR-0019](../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md) (the floor
   freeze — `docs/adr/` is frozen, so the amendment is carried here, the way ADR-0039/ADR-0049

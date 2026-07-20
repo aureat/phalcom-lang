@@ -2,7 +2,7 @@
 
 - Status: **Draft — PROMOTED 2026-07-20.** The normative surface is
   [`../core/bytes.md`](../core/bytes.md), ruled by
-  [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) (Proposed). This
+  [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) (Accepted). This
   file stays as the exploration/precedent record; where they disagree, the spec wins. Known
   staleness at promotion: the floor baseline below (§4's 125) predates the Fiber census
   admission — the audited floor is **137** (`invariants.rs:605`), so the delta is 137 → 147

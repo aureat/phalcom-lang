@@ -1,6 +1,6 @@
 # PDR-0013 — `Path` is bytes-backed, not a `String`; the filesystem surface
 
-- Status: **Proposed**
+- Status: **Accepted** (ratified 2026-07-20, same day as proposed)
 - Date: 2026-07-20
 - Related: [PDR-0005](0005-resources-are-disposable-handles-not-finalized.md) §7 (the `File`
   selector surface, **already ratified there** — this record adds the types around it, it does

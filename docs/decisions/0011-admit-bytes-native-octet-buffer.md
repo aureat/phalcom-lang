@@ -1,6 +1,6 @@
 # PDR-0011 — Admit `Bytes`: a native octet buffer arm, ten floor primitives, and the container bulk-op posture
 
-- Status: **Proposed**
+- Status: **Accepted** (ratified 2026-07-20, same day as proposed)
 - Date: 2026-07-20
 - Related: [ADR-0019](../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md) (the floor
   freeze **this record amends** — `docs/adr/` is frozen, so the amendment is carried here, the

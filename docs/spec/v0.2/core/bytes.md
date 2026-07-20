@@ -1,13 +1,15 @@
 # Specification — `Bytes` (the native octet buffer)
 
-> **Status:** **Proposed — normative upon ratification of
-> [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md)** (Proposed
-> 2026-07-20; per [`decisions/README.md`](../../../decisions/README.md) rule 5, nothing may be
-> built against this document until that record is Accepted). Encodes PDR-0011's rulings;
-> the exploration and precedent survey behind them is
+> **Status:** **Normative.** Encodes
+> [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) (**Accepted**,
+> ratified 2026-07-20); the exploration and precedent survey behind it is
 > [`drafts/bytes.md`](../drafts/bytes.md); the implementation spec is
 > [`../impl/bytes.md`](../impl/bytes.md).
-> **Floor delta: +10 primitives (audited floor 137 → 147)** — this is *not* a zero-floor spec;
+> [PDR-0013](../../../decisions/0013-path-is-bytes-backed-filesystem-surface.md) ruling 4
+> (also Accepted) adds an eleventh primitive on this class, `utf8Lossy_`, censused with
+> that record.
+> **Floor delta: +10 primitives (audited floor 137 → 147; +1 more via PDR-0013)** — this is
+> *not* a zero-floor spec;
 > the amendment to [ADR-0019](../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md),
 > and the amended admission posture for container bulk operations (§3.1), are carried by
 > PDR-0011. The 137 baseline is the tree's, not a record's: the source of record is
@@ -73,6 +75,7 @@ a bad *write* is a native type error, not a `None`.
 | `slice_(_,_)` | instance | `Bytes` | **copy** of `[start, end)` into a fresh buffer; type error on a bad range |
 | `copyInto_(_,_)` | instance | `None` | copy the whole receiver into the given `Bytes` at the given offset (one memmove); type error if it does not fit |
 | `utf8_` | instance | `String` \| `None` | fallible UTF-8 decode of the whole buffer; invalid → `None` |
+| `utf8Lossy_` | instance | `String` | total lossy decode (invalid sequences → U+FFFD, Rust `from_utf8_lossy`); admitted by PDR-0013 ruling 4 for `Path#toString`, censused with that record |
 | `equalsConstantTime_(_)` | instance | `Bool` | §8; the one selector whose *timing* is part of its contract |
 
 Natives never build a `Result` — `Result`/`Ok`/`Err` are pure `.ph`; the `.ph` layer lifts
@@ -122,6 +125,7 @@ All `.ph` over §3 plus what `Iterable` provides. Zero additional primitives.
 | `hash` | `Number` | **identity** (inherited `Object#hash`) — mutable ⇒ not value-hashable, not a valid `Map`/`Set` key (law 4) |
 | `toString` | `String` | total debug form (e.g. `Bytes(16)`); **not** the decoder |
 | `utf8` | `String` \| `None` | decode via `utf8_`; the fallibility is the point (PDR-0011 consequences) |
+| `utf8Lossy` | `String` | total display decode via `utf8Lossy_` — for humans; never round-trip it into data |
 | `slice(_,_)` | `Bytes` | `slice_` — a copy, never a view (ruling 5; a view retains its parent under ADR-0050, Erlang's binary leak) |
 | `concat(_)` | `Bytes` | `.ph` over `new` + `copyInto_` ×2 — §3.1 |
 | `copyInto(_,_)` | receiver | `copyInto_` with raise-lifting |
