@@ -3,8 +3,8 @@ caught: rejected
 async running
 async result
 then run: settled
-map run: settled
 then result
+map run: settled
 map result
 settled
 catch run error: failed

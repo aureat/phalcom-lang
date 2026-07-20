@@ -14,14 +14,26 @@ try {
   System.print("caught: " + e.message)
 }
 
-// C-FUT-2: async/await suspending
+// C-FUT-2: async/await on the ROOT fiber, which cannot yield and so drives the
+// scheduler itself rather than suspending. The genuinely-suspending case — a
+// non-root fiber that parks on a pending future and resumes — is
+// `concurrency_future_await_suspends.ph` (E004); until that landed, this case
+// was labelled "suspending" while exercising only the fallback.
 const f3 = Future.async {
   System.print("async running")
   "async result"
 }
 System.print(f3.await)
 
-// C-FUT-4: pending then/map/catch settlement
+// C-FUT-4: pending then/map/catch settlement.
+//
+// Re-blessed with E004's fix: the root-fiber `await` pump now stops as soon as
+// its OWN future settles, instead of draining the whole ready queue every
+// iteration (it used to call `System.runScheduled`, which pumps to exhaustion).
+// Same twelve lines, same callbacks, same results — only the interleaving of
+// `map run` and `then result` swaps, because `f5.await` no longer runs f6's
+// waiter before returning. Nothing is dropped; the remaining waiters run on the
+// next pump.
 const f4 = Future.new()
 const f5 = f4.then { v =>
   System.print("then run: " + v)

@@ -698,16 +698,27 @@ fn floor_census_matches_installed_bindings() {
     // `System.write_(_)` — all `primitive/string.rs`/`primitive/system.rs`.
     const NEW_STRING: usize = 4;
     // `Fiber` (ADR-0030) — admitted to the census 2026-07-15 (DEFERRED CB-5).
-    // NOT a floor amendment: these 11 bindings have been installed since the
-    // fiber work landed. What changes is that they are now *audited*. Before
+    // The first 11 were NOT a floor amendment: they had been installed since the
+    // fiber work landed. What changed is that they became *audited*. Before
     // this, `Fiber` was absent from `core_class_rows` and from
     // `floor-census.md` entirely, so the ADR-0019 freeze did not bind it
     // (125 -> 136): `Fiber.new(_)`, `#call()`/`#call(_)`, `#try()`/`#try(_)`,
     // `Fiber.yield()`/`Fiber.yield(_)`, `Fiber.current`, `Fiber.abort(_)`,
     // `#isDone`, `#error` — all `primitive/fiber.rs`, bound at
-    // `universe/primitives.rs` L362-374. 8 distinct native fns (110 -> 118);
-    // `call`/`try`/`yield` are each shared across two arities.
-    const NEW_FIBER: usize = 11;
+    // `universe/primitives.rs`. `call`/`try`/`yield` are each shared across two
+    // arities.
+    //
+    // The 12th, `#isRoot`, **is** a floor amendment (136 -> 137, 9 distinct
+    // native fns): the predicate form of `Fiber::yield`'s root refusal, added
+    // 2026-07-19 to fix E004. `Future#await` had no way to ask whether it was
+    // allowed to suspend, so it attempted a yield and inspected the failure —
+    // but the `{ … }.attempt()` wrapper it used to catch that failure is itself
+    // two native re-entrant frames, so the probe tripped the restricted-yield
+    // guard it was probing for and `await` could never suspend any fiber.
+    // Justified against the ADR-0019 freeze on the ground that attempt-and-
+    // inspect is unfixable in `.ph` when the attempt changes the answer: no
+    // arrangement of library code can observe root-ness without a predicate.
+    const NEW_FIBER: usize = 12;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -878,6 +889,7 @@ fn floor_census_matches_installed_bindings() {
         (c.fiber_class, true, "current"),
         (c.fiber_class, true, "abort(_)"),
         (c.fiber_class, false, "isDone"),
+        (c.fiber_class, false, "isRoot"),
         (c.fiber_class, false, "error"),
     ];
 
@@ -955,7 +967,7 @@ fn floor_census_matches_installed_bindings() {
             + NEW_GC
             + NEW_STRING
             + NEW_FIBER,
-        "census must enumerate exactly 136 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 U-GC + 4 U-STRING/ADR-0049 + 11 Fiber/ADR-0030)"
+        "census must enumerate exactly 137 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 U-GC + 4 U-STRING/ADR-0049 + 12 Fiber/ADR-0030)"
     );
     assert_eq!(
         live.len(),
@@ -976,7 +988,7 @@ fn floor_census_matches_installed_bindings() {
             + NEW_GC
             + NEW_STRING
             + NEW_FIBER,
-        "the live floor must be exactly 136 bindings"
+        "the live floor must be exactly 137 bindings"
     );
 }
 

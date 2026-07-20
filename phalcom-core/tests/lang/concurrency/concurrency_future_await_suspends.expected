@@ -1,0 +1,9 @@
+worker: awaiting
+parked, not failed: isDone = false
+no error: None
+worker: got 42
+after settle: isDone = true
+doomed died: true
+healthy waiter still ran with 7
+caught: await: the future is still pending and the scheduler is empty; nothing can settle it
+guard intact: true

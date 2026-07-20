@@ -1324,25 +1324,25 @@ class System {
   }
 }
 
-// `Future` (U-FUTURE Slice A; concurrency.md §2; ADR-0030 §1): a settle-once
-// state machine over a fulfilled/rejected result. Slice A ships the
-// **scheduler-free** half of the spec surface only — `value(_)`/`error(_)`
-// construct an already-settled future, `isReady`/`value` read it, and
-// `then`/`map`/`catch` fire synchronously because a Slice-A future is
-// *always* already settled by the time `.ph` code can observe it. This is a
-// **plain `InstanceObject`** (concurrency.md §2 "Implementation" ¶1) — zero
-// new floor, zero native code, no `Fiber` dependency (a settled future never
-// suspends). `async(_)`/`await` and the pending→settle drain need a native
-// ready-queue (`System.schedule(_)`) and `Fiber#isDone`, neither of which is
-// landed; that is Slice B, gated on DEC-FUT-SCHED
-// (`docs/forge/units/U-FUTURE/plan.md` §9) — deliberately NOT built here.
+// `Future` (concurrency.md §2; ADR-0030 §1): a settle-once state machine over
+// a fulfilled/rejected result. A **plain `InstanceObject`** (concurrency.md §2
+// "Implementation" ¶1) — zero new floor, written entirely in Phalcom over the
+// same two public seams user code has, `System.schedule(_)` and `Fiber.yield`.
+//
+// **Both slices are landed.** Slice A is the scheduler-free half:
+// `value(_)`/`error(_)` construct an already-settled future, `isReady`/`value`
+// read it, and `then`/`map`/`catch` fire synchronously on an already-settled
+// receiver. Slice B added `async(_)`, `await`, and the pending→settle `drain`
+// over the native ready queue (`06432bd`, 2026-07-14). Note that this comment
+// previously still described Slice B as "deliberately NOT built" long after it
+// shipped, eleven lines above its own implementation — see
+// `docs/learn/concurrency/future-await.md`.
 //
 // State lives in three private fields (plan §6.1): `_state` (one of the
 // strings `"pending"`, `"fulfilled"`, `"rejected"`), `_value` (the settled
-// value or the captured `Error`), and `_waiters` (a `List`, always empty in
-// Slice A — no suspender ever registers on it; kept as a field now so Slice
-// B's pending→settle drain is an additive change to this same layout, not a
-// field-layout break).
+// value or the captured `Error`), and `_waiters` — a `List` holding two kinds
+// of thing, `Fiber`s registered by `await` and `Block`s registered by
+// `then`/`map`/`catch`, unified by `System.schedule(_)` accepting both.
 class Future {
   // Builds a pending future (U-FUTURE Slice B).
   construct new() {
@@ -1406,9 +1406,21 @@ class Future {
   }
 
   // Reschedules all waiters once settled.
+  //
+  // A waiter is either a `Fiber` (registered by `await`) or a `Block`
+  // (registered by `then`/`map`/`catch`); `System.schedule(_)` accepts both,
+  // enqueueing a fiber as-is and wrapping anything else. A fiber waiter can,
+  // however, be *finished* by the time we settle — it may have failed after
+  // registering (E004(c): a caller that `await`s from under a native frame
+  // raises out of `await` with its registration still in the list). Resuming a
+  // finished fiber aborts the whole run, taking every other waiter on this
+  // future down with it, so skip those rather than scheduling a corpse.
   drain() {
     _waiters.each { w =>
-      System.schedule(w)
+      const dead = w.isA(Fiber) and w.isDone
+      if (not dead) {
+        System.schedule(w)
+      }
     }
     _waiters = List.new()
   }
@@ -1418,23 +1430,44 @@ class Future {
   // reason is reached via `catch(_)`/`then(_)`, not `value`).
   value => (_state == "fulfilled").ifTrue({ Some.new(_value) }, ifFalse: { None })
 
-  // Suspends the current fiber until settled (U-FUTURE Slice B).
-  // If called on the root fiber, degrades to "pump until settled" (pumps
-  // System.runScheduled) because the root fiber cannot yield.
+  // Suspends the current fiber until settled (U-FUTURE Slice B). On the root
+  // fiber — which has no resumer and so cannot yield — degrades to driving the
+  // scheduler here instead.
+  //
+  // The branch is chosen by **asking** (`Fiber#isRoot`), not by attempting a
+  // yield and inspecting the failure. It used to do the latter, via
+  // `{ Fiber.yield(None) }.attempt()`, and that could never work: `.attempt()`
+  // is two nested native re-entrant frames (`block_on` + `block_call`), so the
+  // probe tripped the restricted-yield guard (ADR-0030 §4) it was probing for,
+  // unconditionally, for every fiber. `await` therefore never suspended anyone
+  // — E004. Attempt-and-inspect cannot work when the attempt changes the answer.
+  //
+  // Consequently the `Fiber.yield` below is **bare**. Wrapping it in anything
+  // that reaches `Block#call` — `.attempt()`, `.on(_)`, `ensure` — puts a native
+  // frame between the fiber floor and the switch and reinstates the bug. A
+  // `CannotYieldAcrossNativeFrame` raised from here is now a real one: it means
+  // the *caller* invoked `await` from inside a block a native primitive is
+  // driving, which is genuinely unsupported and correctly propagates.
   await {
     if (not self.isReady) {
-      _waiters.add(Fiber.current)
-      const res = { Fiber.yield(None) }.attempt()
-      if (res.isErr) {
-        const err = res.unwrapErr
-        if (err.isA(CannotYieldAcrossNativeFrame)) {
-          return err.raise()
-        }
-        // Yield failed because we are on the root fiber!
-        _waiters = _waiters.filter { w => w != Fiber.current }
+      if (Fiber.current.isRoot) {
+        // Pump until someone settles us. If the ready queue drains while we are
+        // still pending, nothing can settle us and looping again would spin
+        // forever in silence (E004(b)) — report it instead. `try()`-resume, so
+        // one scheduled task's uncaught raise cannot abort the others, and as
+        // its own statement rather than inside a block, for the same reason
+        // `System.runScheduled` is written that way.
         while (not self.isReady) {
-          System.runScheduled()
+          const next = System.nextScheduled
+          if (next.isNone) {
+            return Error.new("await: the future is still pending and the scheduler is empty; nothing can settle it").raise()
+          }
+          const f = next.unwrapOr(None)
+          f.try()
         }
+      } else {
+        _waiters.add(Fiber.current)
+        Fiber.yield(None)
       }
     }
     if (_state == "rejected") {

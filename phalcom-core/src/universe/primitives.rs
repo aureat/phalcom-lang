@@ -6,7 +6,7 @@ use crate::primitive::block::{block_arity, block_call, block_call_with, block_en
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::family_does_not_understand;
-use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_new, fiber_try, fiber_yield};
+use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
@@ -371,6 +371,10 @@ impl Universe {
         // U-FIBER-REFLECT: `isDone`/`error` are pure instance-side reads over
         // `FiberObject::status`/`result` — no scheduler dependency.
         primitive!(vm, fiber_cls, "isDone", SignatureKind::Getter, fiber_is_done);
+        // The predicate form of `Fiber::yield`'s root refusal, so `.ph` code can
+        // ask "may I yield?" instead of attempting a yield and inspecting the
+        // wreckage — see `fiber_is_root`'s doc and E004.
+        primitive!(vm, fiber_cls, "isRoot", SignatureKind::Getter, fiber_is_root);
         primitive!(vm, fiber_cls, "error", SignatureKind::Getter, fiber_error);
     }
 }

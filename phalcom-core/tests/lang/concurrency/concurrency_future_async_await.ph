@@ -1,6 +1,6 @@
 // area: concurrency
 // spec: concurrency.md
-// status: PENDING
+// status: PASS
 
 const f = Future.async { 42 }
 System.print(f.await)

@@ -175,6 +175,37 @@ pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
     Ok(Value::Bool(matches!(status, FiberStatus::Done | FiberStatus::Failed)))
 }
 
+/// Signature: `Fiber#isRoot` — `true` if the receiver is the root fiber, i.e.
+/// it has no resumer to hand control back to.
+///
+/// This is the *predicate form* of [`fiber_yield`]'s first refusal: a root
+/// fiber cannot yield, because there is nowhere to yield to. Exposing it as a
+/// getter lets `.ph` code ask the question **before** attempting a switch.
+///
+/// That distinction is the whole reason this primitive exists. `Future#await`
+/// (`core/core.ph`) previously discovered its own root-ness by wrapping a
+/// `Fiber.yield` in `{ … }.attempt()` and inspecting the failure — but
+/// `.attempt()` is itself two nested native re-entrant frames (`block_on` +
+/// `block_call`, each bumping [`crate::vm::VM::native_reentry_depth`]), so the
+/// probe tripped the restricted-yield guard it was probing for and `await`
+/// could never suspend any fiber at all ([E004]). Attempt-and-inspect cannot
+/// work when the attempt changes the answer; a predicate can.
+///
+/// Like `isDone`/`error`, a pure read with no scheduler or suspension
+/// dependency — callable from anywhere, including under a native re-entrant
+/// frame ([U-FIBER-REFLECT]).
+///
+/// [U-FIBER-REFLECT]: ../../../docs/forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md
+/// [E004]: ../../../docs/errors/E004-await-cannot-suspend.md
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.
+pub fn fiber_is_root(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    Ok(Value::Bool(vm.heap.fiber(fiber_ref).resumer.is_none()))
+}
+
 /// Signature: `Fiber#error` — the captured `Error` as `Option`, if the
 /// receiver is `Failed`; `None` otherwise (including `Done`, where
 /// [`crate::heap::FiberObject::result`] holds the return value, not an
