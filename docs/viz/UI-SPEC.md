@@ -398,9 +398,10 @@ the mechanism; a viewer who merely watches learns materially less.
 explanation. A gate sits above the player deliberately (commit before seeing), but left expanded it
 pushes the machine below the fold and costs the 5-second coarse read (R-ZOOM).
 
-**Not built: locking the transport.** The spec said the player unlocks only after answering; as built
-the gate is advisory and the transport is live throughout. Honest state — a determined viewer can
-scroll past and skip the prediction.
+**Locking the transport.** Built 2026-07-20: transport buttons and the scrub track disable while a
+gate is unanswered, and `go()` itself clamps the cursor to 0 in that state — so a keyboard shortcut or
+a programmatic `go()` call can't bypass the disabled buttons either. Unlocks on answer via the existing
+`GATED=false` path. Examples without a gate are unaffected.
 
 Placement, one per example, at the moment the requirement names:
 
@@ -518,7 +519,8 @@ class that turns out to be cheapest.
 | 6 | Page shell, gates, prose, E1 → E2 → E3 | **done** |
 | 7 | E4 dead frame, E5 call vs try, semantic checks | **done** |
 | — | Triptych renderer (C3) | deferred until a `docs/learn` embed needs it |
-| — | Drawn connector, tape tween, transport lock | deferred; all additive, none change state |
+| 8 | Transport lock (R-GATE) | **done** |
+| — | Drawn connector, tape tween | deferred; all additive, none change state |
 
 Step 2 was the go/no-go: if the flat tape with bracket lanes had not read at a glance, D1 was wrong and
 everything downstream needed rethinking. It was built and judged first, against T1, before any
@@ -536,7 +538,7 @@ Recorded because a spec that quietly absorbs its own mistakes is worth less than
 | suppress bracket metadata when narrow | E4's tape is 2 slots wide; the rule hid the lesson | §3.2 — degrade, never vanish |
 | `ip` is VM state | it is a `CallFrame` field, so it parks | engine; §8 "no current instruction" |
 | the hole shows two full cards | only true after a fiber's *first* resume | §8, and `TWO-FULL-CARDS` allows the exception |
-| gate locks the player | not built; gate is advisory | §9 |
+| gate locks the player | not built at first cut; built 2026-07-20 (`go()` clamp + disabled controls) | §9 |
 
 The through-line: **every one of these was found by building or by a check, not by re-reading.** The
 two that would have survived review indefinitely — `ip` placement and the one-full-card hole — were
