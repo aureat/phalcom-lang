@@ -5,7 +5,8 @@
   [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) (Proposed). This
   file stays as the exploration/precedent record; where they disagree, the spec wins. Known
   staleness at promotion: the floor baseline below (§4's 125) predates the Fiber census
-  admission — the audited floor is **137** (`invariants.rs:605`), so the delta is 137 → 143.
+  admission — the audited floor is **137** (`invariants.rs:605`), so the delta is 137 → 147
+  (PDR-0011 ruling 3 admits ten, not this draft's six — the container bulk-op posture).
 - Date: 2026-07-15
 - Depends on:
   [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md) (the floor + its admission rule) ·
