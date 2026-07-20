@@ -774,8 +774,21 @@ impl VM {
                                 // compiles) as a no-op fallthrough, since that
                                 // case already resolves at compile time and
                                 // never reaches here.
+                                 let closure_module = self.heap.closure(closure_id).module;
+                                 let name_key = crate::vm::ClassKey { module: closure_module, name: name_sym };
                                  let existing_class_opt = if self.unit_kind != crate::compiler::lib::UnitKind::Repl {
-                                     self.classes.get(&name_sym).copied()
+                                     if let Some(&cls) = self.classes.get(&name_key) {
+                                         Some(cls)
+                                     } else if let Some(core_sym) = self.interner.find(crate::heap::CORE_MODULE_NAME) {
+                                         if let Some(&core_mod) = self.modules.get(&core_sym) {
+                                             let core_key = crate::vm::ClassKey { module: core_mod, name: name_sym };
+                                             self.classes.get(&core_key).copied()
+                                         } else {
+                                             None
+                                         }
+                                     } else {
+                                         None
+                                     }
                                  } else {
                                      None
                                  };
@@ -897,9 +910,23 @@ impl VM {
                     // correct). The defining class was created before any of its
                     // methods could run, so it is present in `self.classes`.
                     // No superclass ⇒ the walk is empty ⇒ `doesNotUnderstand`.
-                    let parent = self.classes.get(&defining_sym).and_then(|&c| self.heap.class(c).superclass);
+                    let closure_module = self.heap.closure(closure_id).module;
+                    let defining_key = crate::vm::ClassKey { module: closure_module, name: defining_sym };
+                    let parent = if let Some(&c) = self.classes.get(&defining_key) {
+                        self.heap.class(c).superclass
+                    } else if let Some(core_sym) = self.interner.find(crate::heap::CORE_MODULE_NAME) {
+                        if let Some(&core_mod) = self.modules.get(&core_sym) {
+                            let core_key = crate::vm::ClassKey { module: core_mod, name: defining_sym };
+                            self.classes.get(&core_key).and_then(|&c| self.heap.class(c).superclass)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
 
-                    let mut method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, selector_sym));
+                    let effective_selector = self.constructor_aliases.get(&(defining_sym, selector_sym)).copied().unwrap_or(selector_sym);
+                    let mut method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, effective_selector));
 
                     // Super-construct fallback (U-INH §3.5): constructors are
                     // installed on the *metaclass*, under the same ordinary
@@ -918,8 +945,12 @@ impl VM {
                     if method.is_none()
                         && let Some(p) = parent
                     {
-                        let parent_meta = self.heap.class(p).class;
-                        method = crate::heap::lookup_method_in_hierarchy(&self.heap, parent_meta, selector_sym)
+                        let target_meta = if self.heap.class(p).name.ends_with(".class") {
+                            p
+                        } else {
+                            self.heap.class(p).class
+                        };
+                        method = crate::heap::lookup_method_in_hierarchy(&self.heap, target_meta, effective_selector)
                             .filter(|&m| matches!(self.heap.method(m).signature.kind, SignatureKind::Initializer(_)));
                     }
 

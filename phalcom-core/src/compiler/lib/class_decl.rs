@@ -318,6 +318,7 @@ impl<'vm> Compiler<'vm> {
         // `field_layouts`/`classes` metadata, since a *user* superclass
         // has not been created at runtime yet), or the implicit `Object`
         // root.
+        let resolved_class_key = self.resolve_superclass_key(name_sym);
         let layout = if let Some(existing_layout) = self.vm.field_layouts.get(&name_key).cloned() {
             // U-REOPEN-FIX (field-layout preservation): a genuine
             // same-unit reopen is detected here by
@@ -342,8 +343,10 @@ impl<'vm> Compiler<'vm> {
             // zeroed layout and produced an out-of-bounds field slot).
             existing_layout
         } else {
-            let (sc_field_count, sc_meta_field_count) = if self.unit_kind != UnitKind::Repl && self.vm.classes.contains_key(&name_sym) {
-                let existing_class = self.vm.classes[&name_sym];
+            let (sc_field_count, sc_meta_field_count) = if self.unit_kind != UnitKind::Repl
+                && resolved_class_key.map_or(false, |k| self.vm.classes.contains_key(&k))
+            {
+                let existing_class = self.vm.classes[&resolved_class_key.unwrap()];
                 // Bootstrap reopen: keep the Rust stub's established superclass.
                 match self.vm.heap.class(existing_class).superclass {
                     Some(sc_id) => {
@@ -388,7 +391,7 @@ impl<'vm> Compiler<'vm> {
                 let counts = if let Some(key) = sc_key {
                     if let Some(layout) = self.vm.field_layouts.get(&key) {
                         (layout.field_count, layout.static_field_count)
-                    } else if let Some(&sc_id) = self.vm.classes.get(&sc_sym) {
+                    } else if let Some(&sc_id) = self.vm.classes.get(&key) {
                         let meta = self.vm.heap.class(sc_id).class;
                         (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
                     } else {
@@ -397,9 +400,6 @@ impl<'vm> Compiler<'vm> {
                             sc_ref.name, class_def.name
                         )));
                     }
-                } else if let Some(&sc_id) = self.vm.classes.get(&sc_sym) {
-                    let meta = self.vm.heap.class(sc_id).class;
-                    (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
                 } else {
                     return Err(CompilerError::Message(format!(
                         "Unknown superclass `{}`: it must be a class defined before `{}`.",
@@ -452,8 +452,10 @@ impl<'vm> Compiler<'vm> {
 
         self.current_class = Some(name_key);
 
-        if self.unit_kind != UnitKind::Repl && self.vm.classes.contains_key(&name_sym) {
-            let existing_class = self.vm.classes[&name_sym];
+        if self.unit_kind != UnitKind::Repl
+            && resolved_class_key.map_or(false, |k| self.vm.classes.contains_key(&k))
+        {
+            let existing_class = self.vm.classes[&resolved_class_key.unwrap()];
             let class_idx = self.add_constant(Value::Obj(existing_class));
             self.emit(Bytecode::Constant(class_idx), range);
         } else {

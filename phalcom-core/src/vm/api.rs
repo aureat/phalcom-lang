@@ -75,8 +75,9 @@ impl VM {
             self.heap.class_mut(class).static_slots = vec![Value::Nil; layout.static_field_count as usize].into_boxed_slice();
         }
 
-        self.classes.insert(name_sym, class);
-        self.classes.insert(meta_sym, metaclass);
+        let meta_key = super::ClassKey { module, name: meta_sym };
+        self.classes.insert(class_key, class);
+        self.classes.insert(meta_key, metaclass);
 
         class
     }

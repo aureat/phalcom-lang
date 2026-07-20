@@ -42,7 +42,7 @@ fn compiled_foo_has_contracts(mode: CompileMode, strip_contract_metadata: bool) 
     vm.run_in_module(module, closure).expect("Box's top level runs without error");
 
     let class_sym = vm.interner.find("Box").expect("Box was interned while compiling");
-    let class_id = *vm.classes.get(&class_sym).expect("Box is a defined global class");
+    let class_id = *vm.classes.get(&phalcom_core::vm::ClassKey { module, name: class_sym }).expect("Box is a defined global class");
 
     let selector = encode_selector("foo", &[None], SignatureKind::Method(1));
     let selector_sym = vm.interner.find(&selector).expect("foo's selector was interned while compiling");

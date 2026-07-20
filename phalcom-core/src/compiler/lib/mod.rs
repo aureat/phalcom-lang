@@ -176,13 +176,13 @@ impl<'vm> Compiler<'vm> {
     /// `docs/forge/units/U-CLASSNS/implementation-spec.md` §4.1.
     pub(crate) fn resolve_superclass_key(&self, name: Symbol) -> Option<ClassKey> {
         let own_key = self.class_key(name);
-        if self.vm.field_layouts.contains_key(&own_key) || self.vm.classes.contains_key(&name) {
+        if self.vm.field_layouts.contains_key(&own_key) || self.vm.classes.contains_key(&own_key) {
             return Some(own_key);
         }
         if let Some(core_module_sym) = self.vm.interner.find(crate::heap::CORE_MODULE_NAME) {
             if let Some(core_module) = self.vm.modules.get(&core_module_sym).copied() {
                 let core_key = ClassKey { module: core_module, name };
-                if self.vm.field_layouts.contains_key(&core_key) || self.vm.classes.contains_key(&name) {
+                if self.vm.field_layouts.contains_key(&core_key) || self.vm.classes.contains_key(&core_key) {
                     return Some(core_key);
                 }
             }

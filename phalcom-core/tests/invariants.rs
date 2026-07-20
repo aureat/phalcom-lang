@@ -458,7 +458,7 @@ fn user_class_metaclass_superclass_parallels_instance_superclass() {
     vm.interpret_source(module, "class SomeUserClass {\n}\n").expect("class declaration should run without error");
 
     let name = vm.get_or_intern("SomeUserClass");
-    let user_class = *vm.classes.get(&name).expect("SomeUserClass should be registered as a named class");
+    let user_class = *vm.classes.get(&ClassKey { module, name }).expect("SomeUserClass should be registered as a named class");
     let object_class = vm.universe.classes.object_class;
 
     let user_meta = vm.heap.class(user_class).class;
@@ -512,7 +512,7 @@ fn subclass_field_offset_stability() {
     
     // 2. Retrieve base_cls and define Subclass inheriting from Base
     let base_sym = vm.get_or_intern("Base");
-    let base_cls = *vm.classes.get(&base_sym).unwrap();
+    let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
     let _sub_cls = vm.create_class(module, "Subclass", Some(base_cls));
     
     // 3. Compile Subclass closure without running it yet
@@ -528,7 +528,7 @@ fn subclass_field_offset_stability() {
     // 4. Update Subclass class object in the heap with the compiled layout
     let sub_sym = vm.get_or_intern("Subclass");
     let layout = vm.field_layouts.get(&ClassKey { module, name: sub_sym }).unwrap().clone();
-    let sub_cls = *vm.classes.get(&sub_sym).unwrap();
+    let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
     let sub_meta = vm.heap.class(sub_cls).class;
     
     vm.heap.class_mut(sub_cls).field_slots = layout.field_slots;
@@ -543,8 +543,8 @@ fn subclass_field_offset_stability() {
     let name_sym = vm.get_or_intern("_name");
     let other_sym = vm.get_or_intern("_other");
     
-    let base_cls = *vm.classes.get(&base_sym).unwrap();
-    let sub_cls = *vm.classes.get(&sub_sym).unwrap();
+    let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
+    let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
     
     let base_layout = vm.heap.class(base_cls);
     let sub_layout = vm.heap.class(sub_cls);
@@ -572,7 +572,7 @@ fn subclass_static_field_offset_stability() {
     
     // 2. Retrieve base_cls and define Subclass inheriting from Base
     let base_sym = vm.get_or_intern("Base");
-    let base_cls = *vm.classes.get(&base_sym).unwrap();
+    let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
     let _sub_cls = vm.create_class(module, "Subclass", Some(base_cls));
     
     // 3. Compile Subclass closure without running it yet
@@ -586,7 +586,7 @@ fn subclass_static_field_offset_stability() {
     // 4. Update Subclass class object in the heap with the compiled layout
     let sub_sym = vm.get_or_intern("Subclass");
     let layout = vm.field_layouts.get(&ClassKey { module, name: sub_sym }).unwrap().clone();
-    let sub_cls = *vm.classes.get(&sub_sym).unwrap();
+    let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
     let sub_meta = vm.heap.class(sub_cls).class;
     
     vm.heap.class_mut(sub_cls).field_slots = layout.field_slots;
@@ -600,8 +600,8 @@ fn subclass_static_field_offset_stability() {
     
     let count_sym = vm.get_or_intern("_count");
     
-    let base_cls = *vm.classes.get(&base_sym).unwrap();
-    let sub_cls = *vm.classes.get(&sub_sym).unwrap();
+    let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
+    let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
     
     let base_meta = vm.heap.class(base_cls).class;
     let sub_meta = vm.heap.class(sub_cls).class;
@@ -1059,7 +1059,7 @@ fn isa_is_reflexive_and_superclass_closed() {
     let module = vm.create_module("main", "isa_user_instance");
     vm.interpret_source(module, "class IsaFoo {}\n").expect("class decl should run");
     let foo_sym = vm.get_or_intern("IsaFoo");
-    let foo_cls = *vm.classes.get(&foo_sym).expect("IsaFoo registered");
+    let foo_cls = *vm.classes.get(&ClassKey { module, name: foo_sym }).expect("IsaFoo registered");
     let foo_val = Value::Obj(foo_cls);
     let instance = send0(&mut vm, foo_val, "new()");
     assert!(matches!(send1(&mut vm, instance, "isA(_)", foo_val), Value::Bool(true)), "aFoo.isA(IsaFoo)");

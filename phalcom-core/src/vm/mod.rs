@@ -130,8 +130,8 @@ pub struct VM {
     /// Handle to the most recently imported module, for `import` resolution.
     pub last_imported_module: Option<ObjRef>,
 
-    /// Named classes by name [`Symbol`], each a [`ClassId`] handle.
-    pub classes: HashMap<Symbol, ClassId>,
+    /// Named classes by identity [`ClassKey`], each a [`ClassId`] handle.
+    pub classes: HashMap<ClassKey, ClassId>,
     /// The symbol interner backing selectors, names and string identity.
     pub interner: Interner,
     /// VM start time, used for `System` timing primitives.

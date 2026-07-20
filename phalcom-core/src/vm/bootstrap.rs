@@ -186,7 +186,8 @@ impl VM {
                 let name = self.heap.class(class_id).name.clone();
                 let name_sym = self.interner.intern(&name);
                 self.define_global(core_sym, name_sym, Value::Obj(class_id)).ok();
-                self.classes.insert(name_sym, class_id);
+                let key = crate::vm::ClassKey { module: m, name: name_sym };
+                self.classes.insert(key, class_id);
             };
         }
 
@@ -265,7 +266,8 @@ impl VM {
         let none_class = self.universe.classes.none_class;
         let none_class_name = self.heap.class(none_class).name.clone();
         let none_class_sym = self.interner.intern(&none_class_name);
-        self.classes.insert(none_class_sym, none_class);
+        let none_class_key = crate::vm::ClassKey { module: m, name: none_class_sym };
+        self.classes.insert(none_class_key, none_class);
         // Seal `None` to the core module too (see the sealing note above the
         // `Option`/`Some` rows): `class MyNone extends None {}` in user code
         // must raise `attr.sealed_violation` the same as the other two.
