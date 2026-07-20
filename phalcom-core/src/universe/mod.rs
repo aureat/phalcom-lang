@@ -224,3 +224,225 @@ impl Universe {
         self.str_tostring_pristine = true;
     }
 }
+
+// U-CLASSCLOSE (decision 0065): five golden fixtures used to prove
+// override-epoch/inline-cache invalidation by *reopening* a kernel class
+// from `.ph` source (`Number#toString`, `Bool#and`, `Block#whileTrue`,
+// `Option#match`) — no longer expressible now that classes are closed.
+// Rewritten here, in-crate, driving the exact install sequence
+// `Bytecode::Method`'s own handler runs (`dispatch.rs`: `add_method`, bump
+// `world_version`, then `note_method_installed` for a non-static instance
+// method) directly against the kernel `ClassId`s in `vm.universe.classes`,
+// which needs `pub(crate) VM::world_version` — unreachable from an
+// integration test, reachable from inside the crate (mirrors the two
+// `ic_*` tests in `chunk.rs`, U-CLASSCLOSE §1.5/§11.2).
+#[cfg(test)]
+mod tests {
+    use crate::error::PhResult;
+    use crate::heap::Object;
+    use crate::method::{MethodKind, MethodObject, SignatureKind};
+    use crate::value::Value;
+    use crate::vm::VM;
+
+    /// Installs `method` under `selector` directly on `class`, exactly as
+    /// `Bytecode::Method`'s non-static arm does — `add_method`, then bump
+    /// `world_version`, then `note_method_installed` (sacred-selector
+    /// tracking is a no-op for a selector/class pair it doesn't watch).
+    fn install_kernel_method(vm: &mut VM, class: crate::heap::ClassId, selector: crate::interner::Symbol, method: crate::heap::ObjRef) {
+        let before = vm.world_version;
+        vm.heap.class_mut(class).add_method(selector, method);
+        vm.world_version += 1;
+        assert_ne!(vm.world_version, before, "world_version must actually move, or a warmed cache would stay valid against the stale method");
+        vm.universe.note_method_installed(class, selector, &vm.interner);
+    }
+
+    fn read_global(vm: &VM, module: crate::heap::ObjRef, name: &str) -> Value {
+        let sym = vm.interner.find(name).unwrap_or_else(|| panic!("global `{name}` was never interned — did it compile?"));
+        vm.heap.module(module).get(sym).unwrap_or_else(|| panic!("global `{name}` was never bound"))
+    }
+
+    fn read_str_global(vm: &VM, module: crate::heap::ObjRef, name: &str) -> String {
+        match read_global(vm, module, name) {
+            Value::Obj(id) => vm.heap.string(id).as_str().to_string(),
+            other => panic!("global `{name}` is not a Str: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn kernel_number_leaf_tostring_override_flips_the_fast_path() {
+        // Was strings/print_number_reopen_agrees.ph. `Value::to_display_string`
+        // is the single function both `System.print` (a container's per-element
+        // render) and `\(…)` interpolation route through (see its own doc) —
+        // testing it directly covers both surfaces at once.
+        let mut vm = VM::new();
+        assert!(vm.universe.number_tostring_pristine, "post-bootstrap baseline must start pristine (VM::new calls mark_leaf_tostring_pristine last)");
+        assert_eq!(Value::Number(1.0).to_display_string(&mut vm).unwrap(), "1");
+
+        let number_class = vm.universe.classes.number_class;
+        let selector = vm.get_or_intern("toString");
+        fn returns_n(vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
+            Ok(vm.alloc_string_value("N".to_string()))
+        }
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(selector, SignatureKind::Getter, MethodKind::Primitive(returns_n)))));
+        install_kernel_method(&mut vm, number_class, selector, method);
+
+        assert!(!vm.universe.number_tostring_pristine, "installing toString on Number must flip the leaf fast-path flag");
+        assert_eq!(Value::Number(1.0).to_display_string(&mut vm).unwrap(), "N", "to_display_string must fall back to the real toString send");
+    }
+
+    #[test]
+    fn kernel_bool_sacred_override_deopts_nested_iftrue() {
+        // Was absence/absence_iftrue_nested_deopt_path.ph. Every sacred call
+        // compiles its arms twice (perf-log F13) — inlined, and again as
+        // block literals for the GuardBool fallback, itself compiled with
+        // the inliner suppressed. Installing `and` (a sacred selector, not
+        // ifTrue/ifFalse themselves) flips `bool_sacred_pristine` *before*
+        // this closure ever runs, so every GuardBool site here takes the
+        // deopt branch on its very first execution — proving the fallback's
+        // nested conditionals, compiled as ordinary sends, compute the same
+        // answers as the (separately-tested) fast path.
+        let mut vm = VM::new();
+        let bool_class = vm.universe.classes.bool_class;
+        let and_selector = vm.get_or_intern("and(_)");
+        fn returns_false(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
+            Ok(Value::Bool(false))
+        }
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(and_selector, SignatureKind::Method(1), MethodKind::Primitive(returns_false)))));
+        install_kernel_method(&mut vm, bool_class, and_selector, method);
+        assert!(!vm.universe.bool_sacred_pristine, "installing `and` (sacred) must flip the Bool guard flag");
+
+        let module = vm.create_module("main", "kernel_bool_sacred_override_deopts_nested_iftrue");
+        let source = "
+let n = 3
+let r = (n < 1).ifTrue({ \"one\" }, ifFalse: {
+  (n < 2).ifTrue({ \"two\" }, ifFalse: {
+    (n < 3).ifTrue({ \"three\" }, ifFalse: {
+      (n < 4).ifTrue({ \"four\" }, ifFalse: { \"big\" })
+    })
+  })
+})
+let someCheck = (n < 4).ifTrue({ (n < 2).ifTrue({ \"inner\" }) }).isSome
+let noneCheck = (n < 2).ifTrue({ (n < 4).ifTrue({ \"inner\" }) }).isNone
+";
+        let closure = vm.compile_closure(module, source).expect("compiles");
+        vm.run_in_module(module, closure).expect("runs on the deopt path");
+
+        assert_eq!(read_str_global(&vm, module, "r"), "four");
+        assert_eq!(read_global(&vm, module, "someCheck"), Value::Bool(true));
+        assert_eq!(read_global(&vm, module, "noneCheck"), Value::Bool(true));
+    }
+
+    #[test]
+    fn kernel_bool_sacred_override_deopts_some_lift() {
+        // Was absence/absence_iftrue_some_lift_deopt_path.ph. Same
+        // deopt-forcing setup as the nested case, proving the untaken-arm
+        // Some-lift (WrapSome on the fast path) still holds through the
+        // primitive path (`bool_if_true`/`bool_if_false`) once deopted.
+        let mut vm = VM::new();
+        let bool_class = vm.universe.classes.bool_class;
+        let and_selector = vm.get_or_intern("and(_)");
+        fn returns_false(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
+            Ok(Value::Bool(false))
+        }
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(and_selector, SignatureKind::Method(1), MethodKind::Primitive(returns_false)))));
+        install_kernel_method(&mut vm, bool_class, and_selector, method);
+        assert!(!vm.universe.bool_sacred_pristine);
+
+        let module = vm.create_module("main", "kernel_bool_sacred_override_deopts_some_lift");
+        let source = "
+let a = true.ifTrue { 42 }.isSome
+let b = false.ifTrue { 42 }.isSome
+let c = false.ifTrue { 42 }.isNone
+let d = true.ifTrue { }.isSome
+";
+        let closure = vm.compile_closure(module, source).expect("compiles");
+        vm.run_in_module(module, closure).expect("runs on the deopt path");
+
+        assert_eq!(read_global(&vm, module, "a"), Value::Bool(true));
+        assert_eq!(read_global(&vm, module, "b"), Value::Bool(false));
+        assert_eq!(read_global(&vm, module, "c"), Value::Bool(true));
+        assert_eq!(read_global(&vm, module, "d"), Value::Bool(true));
+    }
+
+    #[test]
+    fn kernel_block_sacred_override_deopts_inline_while_true() {
+        // Was control-flow/control_flow_inline_override_honored.ph. `Block`'s
+        // receiver is always a compiler-materialized block literal (static
+        // type, GuardBlock doesn't peek it) — the only thing that can go
+        // stale is whether whileTrue itself was redefined. Deliberately
+        // returns a Number no correct loop could ever produce, so "the
+        // override's return value came through" is unambiguous.
+        let mut vm = VM::new();
+        let block_class = vm.universe.classes.block_class;
+        let while_true_selector = vm.get_or_intern("whileTrue(_)");
+        fn returns_sentinel(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
+            Ok(Value::Number(-999.0))
+        }
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(while_true_selector, SignatureKind::Method(1), MethodKind::Primitive(returns_sentinel)))));
+        install_kernel_method(&mut vm, block_class, while_true_selector, method);
+        assert!(!vm.universe.block_sacred_pristine, "installing whileTrue (sacred) must flip the Block guard flag");
+
+        let module = vm.create_module("main", "kernel_block_sacred_override_deopts_inline_while_true");
+        let source = "
+let i = 0
+let r = { i < 3 }.whileTrue { i = i + 1 }
+";
+        let closure = vm.compile_closure(module, source).expect("compiles");
+        vm.run_in_module(module, closure).expect("runs on the deopt path");
+
+        assert_eq!(read_global(&vm, module, "r"), Value::Number(-999.0), "the inlined whileTrue site must deopt to the real send and honor the override, not the fast loop");
+    }
+
+    #[test]
+    fn kernel_option_match_override_reroutes_every_combinator() {
+        // Was absence/absence_combinators_route_through_match.ph. Every
+        // `Option` combinator (isSome/isNone/ifNone/orElse) is derived
+        // purely over the match(some:none:) eliminator in core.ph — no
+        // combinator peeks at a variant tag. `match` is not a sacred
+        // selector (no inliner, no pristine flag): this is ordinary
+        // world_version-based dispatch invalidation on a kernel class,
+        // proving the *routing* property, not a deopt guard.
+        let mut vm = VM::new();
+        let baseline_module = vm.create_module("main", "kernel_option_match_baseline");
+        let baseline_source = "
+let baselineSome = Some.new(1).isSome
+let baselineNone = None.isNone
+";
+        let baseline_closure = vm.compile_closure(baseline_module, baseline_source).expect("compiles");
+        vm.run_in_module(baseline_module, baseline_closure).expect("runs");
+        assert_eq!(read_global(&vm, baseline_module, "baselineSome"), Value::Bool(true));
+        assert_eq!(read_global(&vm, baseline_module, "baselineNone"), Value::Bool(true));
+
+        let option_class = vm.universe.classes.option_class;
+        let match_selector = vm.get_or_intern("match(some,none)");
+        fn always_takes_none_arm(vm: &mut VM, _recv: &Value, args: &[Value]) -> PhResult<Value> {
+            crate::primitive::block::block_call(vm, &args[1], &[])
+        }
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            match_selector,
+            SignatureKind::Method(2),
+            MethodKind::Primitive(always_takes_none_arm),
+        ))));
+        // `match` is not a sacred selector — no `note_method_installed` call
+        // needed, but `add_method` + the `world_version` bump alone (not
+        // `install_kernel_method`, which also calls it) still busts any
+        // warmed cache in core.ph's own combinator bodies.
+        let before = vm.world_version;
+        vm.heap.class_mut(option_class).add_method(match_selector, method);
+        vm.world_version += 1;
+        assert_ne!(vm.world_version, before);
+
+        let module = vm.create_module("main", "kernel_option_match_override_reroutes_every_combinator");
+        let source = "
+let someIsSome = Some.new(1).isSome
+let someIsNone = Some.new(1).isNone
+let routed = Some.new(1).orElse { Some.new(9) }.match(some: { v => v }, none: { -1 })
+";
+        let closure = vm.compile_closure(module, source).expect("compiles");
+        vm.run_in_module(module, closure).expect("runs");
+
+        assert_eq!(read_global(&vm, module, "someIsSome"), Value::Bool(false), "a real Some forced through the none: arm must report itself absent");
+        assert_eq!(read_global(&vm, module, "someIsNone"), Value::Bool(true));
+        assert_eq!(read_global(&vm, module, "routed"), Value::Number(-1.0), "the fixture's own trailing explicit .match(...) call must also route through the override");
+    }
+}
