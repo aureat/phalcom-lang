@@ -95,7 +95,17 @@ in the same global namespace. Options and a recommendation are in
 ## Master status ledger
 
 Legend: ✅ built · 🟦 ratified design, unbuilt · 📝 draft (design-ratified, far)
-· 💡 proposed in this tree · ❌ rejected in this tree.
+· 💡 proposed in this tree · ❌ rejected in this tree · 🧪 v0.3 experimental
+design (PDR-0018 §3 mandate — full design exists, binds only the v0.3 track).
+
+> **PDR-0018 (2026-07-20)** carries the four decorator ADRs forward under the
+> PDR regime and mandates the runtime tiers, `@effect`, and the framework
+> families as the v0.3 experimental track. Design set:
+> [runtime-tier.md](runtime-tier.md) · [dispatch-tier.md](dispatch-tier.md) ·
+> [effect.md](effect.md) · [frameworks-design.md](frameworks-design.md).
+> The build-when-forced posture recorded in this tree's first cut is
+> withdrawn where those files say so; the `@async`/perf-hint/doc-decorator
+> rejections stand.
 
 ### Compile tier (builtin, `runtime: false`)
 
@@ -137,10 +147,11 @@ Legend: ✅ built · 🟦 ratified design, unbuilt · 📝 draft (design-ratifie
 
 | Decorator | Status | Spec | Notes |
 |---|---|---|---|
-| *(Dispatch: no shipped candidate)* | — | [interception.md](interception.md) | `@delegate` moved to Compile; tier kept for DNU-installing attributes |
-| `@Traced` | 📝 | [interception.md](interception.md) | `Tracer` protocol already in `core.ph` |
-| `@FeatureFlag(name:, whenOff:)` | 📝 | [interception.md](interception.md) | off-default raises, never silent `None` |
+| `@ForwardMissing(to:)` | 🧪 | [dispatch-tier.md](dispatch-tier.md) | first Dispatch decorator; transient resolution, miss-path only |
+| `@Traced` | 🧪 | [interception.md](interception.md) + [runtime-tier.md](runtime-tier.md) | `Tracer` protocol already in `core.ph` |
+| `@FeatureFlag(name:, whenOff:)` | 🧪 | [interception.md](interception.md) + [runtime-tier.md](runtime-tier.md) | off-default raises, never silent `None` |
 | `@Metered` | 📝 sketch-only | [interception.md](interception.md) | disposition recorded |
+| `@effect` | 🧪 | [effect.md](effect.md) | explicit activation, scope-owned disposal |
 
 ### Passive metadata
 
@@ -164,8 +175,8 @@ Legend: ✅ built · 🟦 ratified design, unbuilt · 📝 draft (design-ratifie
 
 | Family | Decorators | Spec |
 |---|---|---|
-| Persistence | `@Entity @Column @Id @Index @Unique @Default @BelongsTo @HasMany` + lifecycle | [frameworks.md](frameworks.md) |
-| Web | `@Resource @Get @Post @Put @Patch @Delete @Route @Body @Param @Query @Header @Subscribe @Cron` | [frameworks.md](frameworks.md) |
+| Persistence | `@Entity @Column @Id @Index @Unique @Default @BelongsTo @HasMany` + lifecycle | [frameworks.md](frameworks.md) · 🧪 [frameworks-design.md](frameworks-design.md) |
+| Web | `@Resource @Get @Post @Put @Patch @Delete @Route @Body @Param @Query @Header @Subscribe @Cron` | [frameworks.md](frameworks.md) · 🧪 [frameworks-design.md](frameworks-design.md) |
 
 ## Collision registry
 
@@ -208,7 +219,10 @@ one place with owners.
 3. [contracts.md](contracts.md), [derives.md](derives.md),
    [subtractive.md](subtractive.md) — the built Compile tier, verified.
 4. [behavioral.md](behavioral.md), [interception.md](interception.md),
-   [reactive.md](reactive.md) — the unbuilt runtime tiers, in build order.
+   [reactive.md](reactive.md) — the unbuilt runtime tiers, in build order;
+   then the v0.3 designs: [runtime-tier.md](runtime-tier.md),
+   [dispatch-tier.md](dispatch-tier.md), [effect.md](effect.md),
+   [frameworks-design.md](frameworks-design.md).
 5. [concurrency.md](concurrency.md), [compiler-directives.md](compiler-directives.md)
    — evaluations that end mostly in rejections, recorded so they stay rejected.
 6. [metadata-and-docs.md](metadata-and-docs.md) — passive metadata and the

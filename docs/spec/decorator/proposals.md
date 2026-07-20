@@ -76,9 +76,14 @@ today's semantics. (That reversibility is why it can be a short PDR.)
 
 Recorded so their absence reads as decision, not oversight: `@async`/`@await`
 ([concurrency.md](concurrency.md)); performance hints and `@cfg`/`@intrinsic`
-([compiler-directives.md](compiler-directives.md)); `@effect` before R-5
-([reactive.md](reactive.md)); `@pure` without an effect system
-([contracts.md](contracts.md)); doc-content decorators
+([compiler-directives.md](compiler-directives.md)); `@pure` without an effect
+system ([contracts.md](contracts.md)); doc-content decorators
 ([metadata-and-docs.md](metadata-and-docs.md)); `@Timed` as a separate
 decorator ([behavioral.md](behavioral.md)); scheduling/priority decorators
 ([concurrency.md](concurrency.md)).
+
+Two entries left this list via **PDR-0018 §3** (2026-07-20 mandate): the
+Dispatch tier ([dispatch-tier.md](dispatch-tier.md)) and `@effect`
+([effect.md](effect.md)) are now designed on the v0.3 experimental track,
+together with [runtime-tier.md](runtime-tier.md) and
+[frameworks-design.md](frameworks-design.md).

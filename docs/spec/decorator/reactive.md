@@ -55,6 +55,12 @@ is decidable at the decorator layer — recorded as inherited, not new.
 
 ## `@effect` — evaluated, deferred with a reason
 
+> **Superseded by PDR-0018 §3 (2026-07-20):** `@effect` is designed now, on
+> the v0.3 experimental track — [effect.md](effect.md) supplies the explicit
+> ownership/disposal model this section said had to exist first (scope-owned
+> handles, no finalizers), answering R-5 for the decorator surface. The
+> analysis below is kept as the rationale that shaped that design.
+
 An `@effect`-decorated method ("re-run when dependencies change") is the
 natural third member, and this tree deliberately does **not** propose it for
 v0.2. An effect is not per-receiver derived state — it is a *subscription
@@ -85,5 +91,8 @@ no number exists yet because no runtime exists yet.
   foreclosed by the observable spec; restated because the persistence draft
   is where the temptation recurs.
 - Deep reactivity by default.
-- `@effect` before R-5. A subscription without a disposal story is a leak
-  with a decorator name.
+- ~~`@effect` before R-5.~~ **Replaced by PDR-0018 §3**: the disposal story
+  now exists ([effect.md](effect.md)); the standing preclusion becomes —
+  `@effect` without explicit activation and scope-owned disposal. A
+  subscription without a disposal story is still a leak with a decorator
+  name; the design's job was to give it one.

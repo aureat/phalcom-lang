@@ -97,4 +97,8 @@ build site).
 - A Runtime tier that intercepts sacred-selector fast paths without deopt —
   the ADR-0018 guard is the mechanism, reused, not duplicated.
 - Silent-`None` feature flagging, in any mode.
-- Building the Dispatch tier speculatively, with no shipping decorator.
+- ~~Building the Dispatch tier speculatively, with no shipping decorator.~~
+  **Withdrawn by PDR-0018 §3** (user mandate, 2026-07-20): the Dispatch tier
+  is built on the v0.3 experimental track with `@ForwardMissing` as its
+  first decorator — full design in [dispatch-tier.md](dispatch-tier.md);
+  Runtime-tier mechanics deepened in [runtime-tier.md](runtime-tier.md).

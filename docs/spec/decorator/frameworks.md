@@ -10,6 +10,11 @@
   does not exist (`Database`, an HTTP server, `Session`, `EventBus`,
   `Scheduler`) — the decorators are the *surface* of those systems, and
   surfaces do not land before their systems.
+- **Update (PDR-0018 §3, 2026-07-20):** the families now have a concrete
+  experimental design — [frameworks-design.md](frameworks-design.md)
+  resolves E-1…E-4 and W-1…W-3 and fixes the build order within the v0.3
+  track. The infrastructure caveat above still governs *backends*; the
+  derive/schema machinery is buildable against in-memory adapters first.
 
 ## Renames under the naming convention (COLL-2, COLL-4 resolved)
 
