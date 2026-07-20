@@ -10,8 +10,10 @@
   synchronous close honest (§3c); **`Resource` is a real root class** while Reader/Writer/Seekable
   stay duck-typed (§3); use-after-close **raises** rather than returning `Err` (§4); **`using` sugar
   withdrawn** (§6); selector surface ratified (§7); the `BufferedWriter#close` trilemma is recorded
-  as **unruled** (§7a). Amended in place rather than as a separate decision because nothing was
-  built against the original.
+  as **unruled** (§7a). **Third revision, 2026-07-20, still before implementation:** §7a is now
+  **ruled** — `BufferedWriter` is a `Resource`, `close` never flushes and raises on a non-empty
+  buffer, `finish` is the flush-then-close spelling. Amended in place rather than as a separate
+  decision because nothing was built against the original.
 - Related: [ADR-0050](../adr/accepted/0050-non-moving-mark-sweep-collector.md) (§Context banks
   "no finalizers exist" as a reason the collector is hazard-free — **this decision keeps that
   true**), [ADR-0013](../adr/accepted/0013-closure-upvalues-and-frame-token-return.md)
@@ -200,6 +202,9 @@ File#close                     -> Result     // from Resource
 BufferedWriter.new(_)                        // wraps any writer
 BufferedWriter#write(_)        -> Future
 BufferedWriter#flush           -> Future     // where the blocking work lives
+BufferedWriter#close           -> Result     // never flushes; raises if pending > 0 (§7a)
+BufferedWriter#finish          -> Future     // flush then close — the recommended spelling
+BufferedWriter#pending         -> Number     // buffered bytes not yet handed to the inner writer
 BufferedReader.new(_)                        // wraps any reader
 BufferedReader#read(_)         -> Future
 
@@ -209,23 +214,69 @@ System.leakReport              -> List       // open resources + allocation site
 System.strictResources(_)      -> None       // Bool; raise on leak instead of warn
 ```
 
-### 7a. Unruled consequence: what `BufferedWriter#close` does
+### 7a. `BufferedWriter#close` — ruled: it is a `Resource`, and a dirty close raises
 
 §3b + §3c relocate the data-loss hazard rather than removing it. `File` has nothing to flush, but
 **`BufferedWriter` does**, and a synchronous `close` cannot flush it without blocking on a write.
-Three shapes, none ruled here:
+Three shapes were recorded here as an open trilemma. Two are foreclosed by records already
+accepted, and the third is Go's known papercut:
 
-1. `BufferedWriter` is **not** a `Resource` — it has no `close`. The caller does `flush.await` then
-   closes the underlying file. Honest, and easy to forget the flush.
-2. `BufferedWriter#close -> Future` — flushes then closes. Breaks `Resource`'s uniform contract,
-   since one implementor's `close` is now awaitable.
-3. `BufferedWriter#close -> Result` that flushes **synchronously**. Uniform contract, but blocks on
-   a write syscall, which is exactly what §3b claimed close never does.
+1. **Not a `Resource`** — no `close`; the caller flushes then closes the underlying file. This is
+   Go's `bufio.Writer`, whose standing failure mode is write-close-forget-flush and an empty file.
+   Rust's `BufWriter` takes the adjacent position — flushes on `Drop` but **ignores the error** —
+   which is why `into_inner()` exists and is that API's most-cited wart.
+2. **`close -> Future`** — defeats the reason §3 reifies closeability at all. That axis earns a
+   class because leak reporting and generic cleanup must *ask the type*; if `close` returns
+   `Result` on `File` and `Future` here, no generic cleanup path can be written without a type
+   test, which is the question reification was supposed to answer.
+3. **`close -> Result` flushing synchronously** — unavailable. [PDR-0003](0003-no-user-visible-threads-fibers-and-isolates.md)
+   guarantees a single VM thread, so a blocking write syscall inside `close` blocks **every fiber**,
+   not just the caller. Java and Python both chose this shape and can afford it because they block
+   a thread rather than a scheduler.
 
-This must be settled before `BufferedWriter` is built. It is recorded rather than decided because
-it is a real trilemma and picking one silently would bury it. Note that (1) makes the leak reporter
-(§5) load-bearing again: an unflushed `BufferedWriter` at collection should be reported with the
-same machinery as an unclosed resource.
+**The ruling.** `BufferedWriter` **is** a `Resource` with the uniform synchronous `close -> Result`,
+and closing with a non-empty buffer **raises**:
+
+```
+BufferedWriter#close   -> Result     // from Resource: synchronous, never blocks, never flushes
+BufferedWriter#flush   -> Future     // where the blocking work lives
+BufferedWriter#finish  -> Future     // flush, then close — the recommended spelling
+BufferedWriter#pending -> Number     // buffered bytes not yet handed to the inner writer
+```
+
+- `close` on a non-empty buffer raises with `kind: #unflushed`, naming the pending byte count and
+  the site that opened the writer.
+- A raising `close` **closes nothing** — the inner writer stays open and the buffer stays intact,
+  so the caller can still `flush.await` and close. Nothing is lost and nothing is discarded.
+- `close` on an empty buffer is an ordinary `Resource#close`.
+- `finish` is what documentation should teach; two selectors rather than one because
+  [ADR-0043](../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md) forbids
+  default arguments, and a caller who wants to inspect the flush result before closing must be able
+  to.
+
+This is not a fourth invented option — it is **§4's rule applied unchanged**: precondition
+violations raise, IO failures return `Err`, because an `Err` would hide a programmer bug in the same
+channel as a genuine IO error. Writing to a buffer and then closing without flushing is a
+programmer error in exactly the same category as use-after-close. §3b's claim that `close` never
+blocks survives with no exception carved into it.
+
+The nearest precedent for an explicit fallible finisher is Rust's `BufWriter::into_inner()`, which
+returns `Result<W, IntoInnerError<W>>` — it fails when the flush fails and hands the writer back so
+nothing is stranded. This is that shape, with recovery expressed as "the resource is untouched"
+rather than as a returned value.
+
+**What it costs.** The common case is two calls (`flush.await`, then `close`) unless the caller
+uses `finish`. Accepted: the mistake shape 1 permits *silently* now becomes loud at the moment it is
+made, rather than at exit — which is strictly better than a leak report alone, since a report
+arrives after the data is already gone.
+
+§5's leak reporter stays load-bearing, for a narrower reason: a `BufferedWriter` abandoned with a
+non-empty buffer must be reported as a **distinct condition** from an unclosed resource, naming the
+pending byte count. Losing buffered writes and leaking a descriptor are different bugs with
+different fixes, and a report that conflates them sends the reader to the wrong place.
+
+Full protocol, laws, and conformance harness:
+[`stream-protocol.md`](../spec/v0.2/core/stream-protocol.md).
 
 Selector spellings follow [ADR-0012](../adr/accepted/0012-selector-signature-encoding-and-dispatch.md)
 (comma form; `openWith(_, mode:)` is one selector with a labelled second parameter) and
