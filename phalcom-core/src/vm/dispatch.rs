@@ -124,7 +124,23 @@ impl VM {
             let closure = self.heap.closure(frame.closure);
             let module_id = closure.module;
             let name_sym = closure.callable.name_sym;
-            let span = closure.callable.chunk.spans[frame.ip - 1];
+            // `ip` points *past* the instruction being executed, so the offending
+            // one is `ip - 1` — except for a frame that has not executed anything
+            // yet, where `ip` is 0 and the subtraction underflows. That was
+            // unreachable while every traceback was built after the frames had
+            // already been discarded; reporting before the unwind (PDR-0008 §2)
+            // makes it reachable, and a depth-limit raise hits it immediately.
+            // `saturating_sub` degrades to the chunk's first span rather than
+            // panicking — a `panic!` reachable from ordinary source is a
+            // robustness bug, not an acceptable abort.
+            let span_index = frame.ip.saturating_sub(1);
+            let span = closure
+                .callable
+                .chunk
+                .spans
+                .get(span_index)
+                .copied()
+                .unwrap_or_default();
             // Resolve the span against the text *this* chunk was compiled from,
             // not the module's most recent source: one module accumulates one
             // entry per compiled unit, so a REPL cell's span would otherwise be

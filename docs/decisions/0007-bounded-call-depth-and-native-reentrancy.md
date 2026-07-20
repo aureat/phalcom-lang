@@ -54,9 +54,18 @@ process — an abort Rust cannot catch — at a far smaller count.
 
 ### 1. Two counters
 
-- **`.ph` frame depth** — checked where a frame is pushed. Initial ceiling **10,000**.
-- **Native re-entrancy depth** — the existing ADR-0030 §4 counter, now also a limit. Initial
-  ceiling **200**.
+- **`.ph` frame depth** — checked where a frame is pushed. Ceiling **10,000**.
+- **Native re-entrancy depth** — the existing ADR-0030 §4 counter, now also a limit. Ceiling
+  **32**.
+
+> **Amended 2026-07-20, during implementation.** This section first proposed **200** for the
+> native ceiling. That number was a guess and measurement refuted it: on a standard 2 MiB
+> thread stack — what Rust gives test and spawned threads, versus the main thread's 8 MiB —
+> 200 still aborts the process before the counter can fire. Measured: 128 aborts, 64 and 32
+> survive. 32 is taken, leaving margin for deeper interpreter frames and smaller embedder
+> stacks. A ceiling that holds only on the main thread does not protect the resource it exists
+> to protect, and §4's "there is no after" is exactly why this had to be measured rather than
+> reasoned about.
 
 Both are per-VM, and therefore per-fiber in effect: [PDR-0003](0003-no-user-visible-threads-fibers-and-isolates.md)
 guarantees one VM thread, so neither counter needs atomics.

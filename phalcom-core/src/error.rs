@@ -68,6 +68,27 @@ pub enum RuntimeError {
     #[error("Expected {expected}, got {found}")]
     Type { expected: &'static str, found: &'static str },
 
+    /// A recursion ceiling was exceeded
+    /// ([PDR-0007](../../docs/decisions/0007-bounded-call-depth-and-native-reentrancy.md)).
+    ///
+    /// One variant covers both of the VM's counters — `.ph` call-frame depth and
+    /// native re-entrancy depth — because they are the same failure to the user and
+    /// differ only in which resource ran out. `what` names the counter and `limit`
+    /// its ceiling, so the message identifies a limit the reader can actually act on.
+    ///
+    /// Before this existed, unbounded `.ph` recursion did not fail at all: frames
+    /// live in a heap `Vec`, so it grew until the OS killed the process — measured at
+    /// over five minutes with no diagnostic. This is an ordinary raise, so
+    /// [ADR-0008](../../docs/adr/accepted/0008-layered-exceptions-and-result.md)'s
+    /// terminating unwind applies and `ensure` blocks still run.
+    #[error("{what} limit exceeded ({limit}); the computation recurses too deeply")]
+    DepthExceeded {
+        /// Human-readable name of the counter that tripped.
+        what: &'static str,
+        /// The ceiling that was hit.
+        limit: usize,
+    },
+
     /// The surface-`Error` unwind payload — the `Raise(error)` half of
     /// [ADR-0008](../../docs/adr/accepted/0008-layered-exceptions-and-result.md)'s
     /// single unwind primitive (the sibling of U10's `Return`/

@@ -334,7 +334,7 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
         vm.stack.extend_from_slice(args);
         let mut frame = vm.new_call_frame(closure_id, CallContext::Instance { instance: entry }, 0, stack_offset, None);
         frame.home_frame_token = home_frame_token;
-        vm.frames.push(frame);
+        vm.push_frame(frame)?;
         vm.heap.fiber_mut(callee_ref).started = true;
     } else {
         load_live_from(vm, callee_ref);

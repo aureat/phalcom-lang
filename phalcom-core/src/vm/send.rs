@@ -111,7 +111,7 @@ impl VM {
                 }
                 let stack_offset = receiver_idx;
                 let new_frame = self.new_call_frame(closure_id, context, 0, stack_offset, Some(source_range));
-                self.frames.push(new_frame);
+                self.push_frame(new_frame)?;
                 Ok(())
             }
         }
@@ -230,6 +230,7 @@ impl VM {
         // while this recursive `run_until` is on the Rust call stack, since
         // its `base_frames` is computed against *this* fiber and would be
         // corrupted by a switch underneath it (see `native_reentry_depth`'s doc).
+        self.check_native_reentry()?;
         self.native_reentry_depth += 1;
         let result = self.run_until(base_frames);
         self.native_reentry_depth -= 1;
@@ -273,6 +274,7 @@ impl VM {
         self.call_method(&receiver, method_id, args.len(), SourceRange::default())?;
         // See `send_dynamic`'s matching comment — re-entrant native frame,
         // fiber switch forbidden underneath (ADR-0030 §4).
+        self.check_native_reentry()?;
         self.native_reentry_depth += 1;
         let result = self.run_until(base_frames);
         self.native_reentry_depth -= 1;

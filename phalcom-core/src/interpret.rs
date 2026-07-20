@@ -187,7 +187,7 @@ impl VM {
         let mut frame = CallFrame::new(closure, CallContext::Module { module }, 0, 0, None);
         frame.generation = self.next_frame_generation;
         self.next_frame_generation = self.next_frame_generation.wrapping_add(1);
-        self.frames.push(frame);
+        self.push_frame(frame)?;
         self.run()?;
         Ok(())
     }
@@ -283,7 +283,8 @@ impl VM {
         let base_frames = self.frames.len();
         let stack_offset = self.stack.len();
         let frame = self.new_call_frame(closure, CallContext::Module { module: module_id }, 0, stack_offset, None);
-        self.frames.push(frame);
+        self.push_frame(frame)?;
+        self.check_native_reentry()?;
         self.native_reentry_depth += 1;
         let result = self.run_until(base_frames);
         self.native_reentry_depth -= 1;

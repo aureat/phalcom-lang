@@ -1,5 +1,5 @@
 use crate::heap::ClassObject;
-use crate::error::PhResult;
+use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ClassId, Object, ObjRef};
 use crate::interner::Symbol;
 use crate::method::decode_selector;
@@ -169,6 +169,49 @@ impl VM {
         self.heap.class_mut(class_id).base_names = merged;
     }
 
+    /// Pushes a call frame, refusing once the `.ph` call-depth ceiling is reached.
+    ///
+    /// Every recursive frame push goes through here so the ceiling cannot be
+    /// bypassed by a new call site
+    /// ([PDR-0007](../../../docs/decisions/0007-bounded-call-depth-and-native-reentrancy.md) §1).
+    ///
+    /// # Errors
+    ///
+    /// [`RuntimeError::DepthExceeded`] when the frame stack is already at
+    /// [`MAX_CALL_DEPTH`](crate::vm::MAX_CALL_DEPTH).
+    pub(crate) fn push_frame(&mut self, frame: crate::frame::CallFrame) -> PhResult<()> {
+        if self.frames.len() >= crate::vm::MAX_CALL_DEPTH {
+            return Err(RuntimeError::DepthExceeded {
+                what: "call depth",
+                limit: crate::vm::MAX_CALL_DEPTH,
+            }
+            .into());
+        }
+        self.frames.push(frame);
+        Ok(())
+    }
+
+    /// Checks the native re-entrancy ceiling before a recursive `run_until`.
+    ///
+    /// This counter is checked *before* recursing, not after: each native re-entry
+    /// consumes a real Rust stack frame, and overflowing that aborts the process —
+    /// there is no after (PDR-0007 §4).
+    ///
+    /// # Errors
+    ///
+    /// [`RuntimeError::DepthExceeded`] when already at
+    /// [`MAX_NATIVE_REENTRY`](crate::vm::MAX_NATIVE_REENTRY).
+    pub(crate) fn check_native_reentry(&self) -> PhResult<()> {
+        if self.native_reentry_depth >= crate::vm::MAX_NATIVE_REENTRY {
+            return Err(RuntimeError::DepthExceeded {
+                what: "native re-entrancy depth",
+                limit: crate::vm::MAX_NATIVE_REENTRY,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
     /// Discards all execution state at a REPL cell boundary, closing any open
     /// upvalues first (U-REPL §D10).
     ///
@@ -187,7 +230,7 @@ impl VM {
         self.modules.insert(module_sym, module);
 
         let frame = self.new_call_frame(closure, crate::frame::CallContext::Module { module }, 0, 0, None);
-        self.frames.push(frame);
+        self.push_frame(frame)?;
 
         // Report *before* unwinding. `unwind_cell` truncates `frames` to zero, and
         // `runtime_error` builds its traceback by walking exactly that vector — so a

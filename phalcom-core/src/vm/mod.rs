@@ -24,6 +24,43 @@ use std::{collections::BTreeMap, collections::HashMap, collections::VecDeque};
 use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
 
+/// Maximum depth of the `.ph` call-frame stack before
+/// [`RuntimeError::DepthExceeded`](crate::error::RuntimeError::DepthExceeded).
+///
+/// Set well above Python's default of 1000 and Ruby's comparable ceiling, because
+/// Phalcom's message-send idiom is frame-hungry — a `for` body already costs several
+/// `.ph` frames per element, so a limit tuned for a C-style language would reject
+/// ordinary code.
+///
+/// Raising this is *safe* in a way it is not for most interpreters: frames live in a
+/// heap `Vec`, not on the Rust stack, so a higher ceiling cannot turn a clean error
+/// into a segfault. CPython's `sys.setrecursionlimit` is a footgun precisely because
+/// its frames still consume C stack; Phalcom's cannot. That is why this ceiling is
+/// the generous one and [`MAX_NATIVE_REENTRY`] is not
+/// ([PDR-0007](../../docs/decisions/0007-bounded-call-depth-and-native-reentrancy.md) §1).
+pub const MAX_CALL_DEPTH: usize = 10_000;
+
+/// Maximum nesting of re-entrant native `run_until` calls before
+/// [`RuntimeError::DepthExceeded`](crate::error::RuntimeError::DepthExceeded).
+///
+/// Far below [`MAX_CALL_DEPTH`] because each native re-entry consumes a real
+/// **Rust** stack frame. Overflowing that aborts the process — an abort
+/// `catch_unwind` cannot intercept — so this ceiling is the one that must stay
+/// conservative, and it is deliberately not user-adjustable (PDR-0007 §3).
+///
+/// **Measured, not guessed.** PDR-0007 originally proposed 200. On a standard 2 MiB
+/// thread stack (what Rust gives test and spawned threads, as opposed to the main
+/// thread's 8 MiB) that still aborts: 128 aborts, 64 and 32 survive. 32 is taken to
+/// leave margin for deeper interpreter frames and for embedders with smaller stacks.
+/// A ceiling that only holds on the main thread does not protect the resource it
+/// exists to protect.
+///
+/// Reached through `send_dynamic`, `block_call`, and any primitive that drives the
+/// dispatch loop to get a synchronous value back. Note a `doesNotUnderstand` chain
+/// is *not* on this path — it pushes ordinary `.ph` frames and trips
+/// [`MAX_CALL_DEPTH`] instead.
+pub const MAX_NATIVE_REENTRY: usize = 32;
+
 /// Identity of a class: the module that declares it, plus its name.
 ///
 /// Class *bindings* have always been module-scoped (`VM::define_global`
@@ -122,6 +159,8 @@ pub struct VM {
     /// `Fiber#yield`'s restricted-yield guard and `Fiber#call`/`#try`'s
     /// resume gate both check this against 0.
     pub(crate) native_reentry_depth: usize,
+    // Ceilings for both counters live at module scope — see `MAX_CALL_DEPTH` and
+    // `MAX_NATIVE_REENTRY` below.
 
     /// Loaded modules by name [`Symbol`], each a [`ModuleObject`](crate::heap::ModuleObject) handle.
     pub modules: HashMap<Symbol, ObjRef>,

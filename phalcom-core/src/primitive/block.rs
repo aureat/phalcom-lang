@@ -149,12 +149,13 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     // parameter) keeps `new_call_frame`'s signature stable and is sound because
     // `CallFrame` is `Copy`.
     frame.home_frame_token = home_frame_token;
-    vm.frames.push(frame);
+    vm.push_frame(frame)?;
     // Re-entrant native frame — the crown-jewel hazard (ADR-0030 §4): a fiber
     // switch is forbidden while this recursive `run_until` is live on the
     // Rust call stack (`native_reentry_depth`, `vm.rs`). This is precisely
     // what makes `.each { Fiber.yield(x) }` raise `CannotYieldAcrossNativeFrame`
     // instead of corrupting the suspended position.
+    vm.check_native_reentry()?;
     vm.native_reentry_depth += 1;
     let result = vm.run_until(base_frames);
     vm.native_reentry_depth -= 1;
@@ -267,11 +268,23 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
             // `.ph` call-site encoding rather than hand-rolling the walk
             // in Rust (error-handling.md §2: "`on` catches typed by
             // `isA`", U-ERR plan §2.3).
+            // Unwind *before* probing. The protected block's frames are dead the
+            // moment the error escaped it, and the probe below is a full dynamic
+            // send that needs frames of its own. Probing first meant running
+            // recovery logic on top of an abandoned stack — which is merely untidy
+            // until the stack is the resource that ran out, and then it is fatal:
+            // a `RuntimeError::DepthExceeded` raised at the call-depth ceiling could
+            // never be caught, because `isA` could not get a frame to run in
+            // (PDR-0007 §2 requires the depth error be catchable).
+            //
+            // Unwinding here also covers the non-matching branch below, which
+            // previously returned `Err` without unwinding at all.
+            vm.unwind_to(stack_len, frames_len);
+
             let isa_sig = crate::method::encode_selector("isA", &[None], crate::method::SignatureKind::Method(1));
             let isa_sym = vm.get_or_intern(&isa_sig);
             let matched = vm.send_dynamic(error, isa_sym, &[class_arg])?;
             if matches!(matched, Value::Bool(true)) {
-                vm.unwind_to(stack_len, frames_len);
                 block_call(vm, &handler, &[error])
             } else {
                 Err(err)
