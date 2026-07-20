@@ -797,7 +797,8 @@ impl VM {
                                     }
                                     self.stack.push(Value::Obj(existing));
                                 } else {
-                                    let new_class = self.create_class(&name, Some(sc_id));
+                                    let closure_module = self.heap.closure(closure_id).module;
+                                    let new_class = self.create_class(closure_module, &name, Some(sc_id));
                                     self.stack.push(Value::Obj(new_class));
                                 }
                             }

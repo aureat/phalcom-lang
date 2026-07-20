@@ -48,7 +48,8 @@ impl VM {
     /// superclass is `superclass`'s own metaclass (`Class` if `superclass` is
     /// `None`), and the class itself is an instance of that metaclass with the
     /// requested `superclass`.
-    pub fn create_class(&mut self, name: &str, superclass: Option<ClassId>) -> ClassId {
+    /// requested `superclass`.
+    pub fn create_class(&mut self, module: ObjRef, name: &str, superclass: Option<ClassId>) -> ClassId {
         let metaclass_class = self.universe.classes.metaclass_class;
         let metaclass_superclass = match superclass {
             Some(sc) => self.heap.class(sc).class,
@@ -65,7 +66,8 @@ impl VM {
         let name_sym = self.interner.intern(name);
         let meta_sym = self.interner.intern(&metaclass_name);
 
-        if let Some(layout) = self.field_layouts.get(&name_sym).cloned() {
+        let class_key = super::ClassKey { module, name: name_sym };
+        if let Some(layout) = self.field_layouts.get(&class_key).cloned() {
             self.heap.class_mut(class).field_slots = layout.field_slots;
             self.heap.class_mut(class).field_count = layout.field_count;
             self.heap.class_mut(metaclass).field_slots = layout.static_field_slots;

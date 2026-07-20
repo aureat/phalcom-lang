@@ -41,7 +41,7 @@ use crate::error::PhResult;
 use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;
 use crate::value::Value;
-use crate::vm::VM;
+use crate::vm::{ClassKey, VM};
 use phalcom_ast::ast::{BindingKind, Expr, MethodCallExpr, Pattern, Program, Statement};
 use phalcom_common::range::EmptySourceRange;
 use state::FunctionState;
@@ -75,8 +75,8 @@ pub(crate) struct Compiler<'vm> {
     /// kernel stub completion reopen, `core.ph`'s bootstrap path — never
     /// interacts with this map (§12C of the U-BINDINGS spec).
     global_bindings: std::collections::HashMap<Symbol, bool>,
-    /// The class name Symbol currently being compiled, if any (ADR-0011).
-    current_class: Option<Symbol>,
+    /// The class identity [`ClassKey`] currently being compiled, if any (ADR-0011, U-CLASSNS).
+    current_class: Option<ClassKey>,
     /// Whether the current method/scope context is static (metaclass-side) (ADR-0017).
     is_static_context: bool,
     /// The stack of enclosing `for`-loop contexts, innermost last (ADR-0035 §3,
@@ -157,6 +157,37 @@ impl<'vm> Compiler<'vm> {
     /// [`Self::deopt_fallback_depth`]).
     pub(crate) fn in_deopt_fallback(&self) -> bool {
         self.deopt_fallback_depth > 0
+    }
+
+    /// The [`ClassKey`] for `name` in the module currently being compiled.
+    pub(crate) fn class_key(&self, name: Symbol) -> ClassKey {
+        ClassKey { module: self.module, name }
+    }
+
+    /// Resolve a superclass name to the [`ClassKey`] that actually owns it.
+    ///
+    /// Mirrors the runtime global-resolution order (`vm/dispatch.rs`,
+    /// `Bytecode::GetGlobal`): the compiling module first, then the core
+    /// module. A superclass is always a bare identifier
+    /// (`phalcom_ast::ast::SuperclassRef`), so those two are the complete
+    /// resolution space.
+    ///
+    /// **Not** for the class being declared — see
+    /// `docs/forge/units/U-CLASSNS/implementation-spec.md` §4.1.
+    pub(crate) fn resolve_superclass_key(&self, name: Symbol) -> Option<ClassKey> {
+        let own_key = self.class_key(name);
+        if self.vm.field_layouts.contains_key(&own_key) || self.vm.classes.contains_key(&name) {
+            return Some(own_key);
+        }
+        if let Some(core_module_sym) = self.vm.interner.find(crate::heap::CORE_MODULE_NAME) {
+            if let Some(core_module) = self.vm.modules.get(&core_module_sym).copied() {
+                let core_key = ClassKey { module: core_module, name };
+                if self.vm.field_layouts.contains_key(&core_key) || self.vm.classes.contains_key(&name) {
+                    return Some(core_key);
+                }
+            }
+        }
+        None
     }
 
     /// Runs `f` with the inliner suppressed, for compiling a sacred call's

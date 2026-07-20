@@ -286,7 +286,8 @@ impl<'vm> Compiler<'vm> {
         //   - changing the superclass: U13 sealed inheritance forbids
         //     it, and reusing the original `ClassId` with a different
         //     superclass would silently keep the old one.
-        if self.vm.field_layouts.contains_key(&name_sym) {
+        let name_key = self.class_key(name_sym);
+        if self.vm.field_layouts.contains_key(&name_key) {
             if !own_instance_fields.is_empty() || !own_static_fields.is_empty() {
                 return Err(CompilerError::Message(format!(
                     "Cannot reopen class `{}`: adding fields to an already-defined class is not supported. Declare all fields in the class's first `class {}` block.",
@@ -317,7 +318,7 @@ impl<'vm> Compiler<'vm> {
         // `field_layouts`/`classes` metadata, since a *user* superclass
         // has not been created at runtime yet), or the implicit `Object`
         // root.
-        let layout = if let Some(existing_layout) = self.vm.field_layouts.get(&name_sym).cloned() {
+        let layout = if let Some(existing_layout) = self.vm.field_layouts.get(&name_key).cloned() {
             // U-REOPEN-FIX (field-layout preservation): a genuine
             // same-unit reopen is detected here by
             // `field_layouts.contains_key` — the same
@@ -345,7 +346,6 @@ impl<'vm> Compiler<'vm> {
                 let existing_class = self.vm.classes[&name_sym];
                 // Bootstrap reopen: keep the Rust stub's established superclass.
                 match self.vm.heap.class(existing_class).superclass {
-
                     Some(sc_id) => {
                         let meta = self.vm.heap.class(sc_id).class;
                         (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
@@ -354,6 +354,7 @@ impl<'vm> Compiler<'vm> {
                 }
             } else if let Some(sc_ref) = &class_def.superclass {
                 let sc_sym = self.vm.interner.intern(&sc_ref.name);
+                let sc_key = self.resolve_superclass_key(sc_sym);
                 // Self-inheritance and unknown/forward superclasses are
                 // rejected here (U-INH §3.2): a class cannot appear in its own
                 // superclass chain (that would make method lookup
@@ -384,8 +385,18 @@ impl<'vm> Compiler<'vm> {
                         )));
                     }
                 }
-                let counts = if let Some(layout) = self.vm.field_layouts.get(&sc_sym) {
-                    (layout.field_count, layout.static_field_count)
+                let counts = if let Some(key) = sc_key {
+                    if let Some(layout) = self.vm.field_layouts.get(&key) {
+                        (layout.field_count, layout.static_field_count)
+                    } else if let Some(&sc_id) = self.vm.classes.get(&sc_sym) {
+                        let meta = self.vm.heap.class(sc_id).class;
+                        (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
+                    } else {
+                        return Err(CompilerError::Message(format!(
+                            "Unknown superclass `{}`: it must be a class defined before `{}`.",
+                            sc_ref.name, class_def.name
+                        )));
+                    }
                 } else if let Some(&sc_id) = self.vm.classes.get(&sc_sym) {
                     let meta = self.vm.heap.class(sc_id).class;
                     (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
@@ -434,11 +445,12 @@ impl<'vm> Compiler<'vm> {
                 static_field_slots,
                 static_field_count,
                 const_fields: const_field_names,
+                declared_at: class_def.range,
             }
         };
-        self.vm.field_layouts.insert(name_sym, layout);
+        self.vm.field_layouts.insert(name_key, layout);
 
-        self.current_class = Some(name_sym);
+        self.current_class = Some(name_key);
 
         if self.unit_kind != UnitKind::Repl && self.vm.classes.contains_key(&name_sym) {
             let existing_class = self.vm.classes[&name_sym];
@@ -534,7 +546,7 @@ impl<'vm> Compiler<'vm> {
                     let range = getter_def.range;
 
                     if getter_def.name.starts_with('_') {
-                        let layout = self.vm.field_layouts.get(&name_sym).unwrap().clone();
+                        let layout = self.vm.field_layouts.get(&name_key).unwrap().clone();
                         let field_name_sym = self.vm.interner.intern(&getter_def.name);
                         let slot = if getter_def.is_static {
                             *layout.static_field_slots.get(&field_name_sym).ok_or_else(|| {
@@ -643,9 +655,9 @@ impl<'vm> Compiler<'vm> {
                     // yes/no pair is what proves a `Foo.new(...)` call would
                     // otherwise fall through to the bare allocator.
                     let class_name_sym = self.current_class.expect("construct is only compiled within a class body");
-                    self.vm.constructor_aliases.insert((class_name_sym, selector_sym), selector_sym);
+                    self.vm.constructor_aliases.insert((class_name_sym.name, selector_sym), selector_sym);
                     if construct_def.name == "new" {
-                        self.vm.has_new_construct.insert(class_name_sym);
+                        self.vm.has_new_construct.insert(class_name_sym.name);
                     }
 
                     let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();

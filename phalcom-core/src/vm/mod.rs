@@ -22,6 +22,24 @@ use crate::value::Value;
 use std::time::Instant;
 use std::{collections::BTreeMap, collections::HashMap, collections::VecDeque};
 use indexmap::IndexMap;
+use phalcom_common::range::SourceRange;
+
+/// Identity of a class: the module that declares it, plus its name.
+///
+/// Class *bindings* have always been module-scoped (`VM::define_global`
+/// writes into the module object's own globals), but class *identity* was
+/// keyed by bare name VM-wide, so two modules declaring the same class name
+/// silently collapsed into one class
+/// ([decision 0065](../../../docs/decisions/0065-classes-are-closed.md)
+/// ruling 1). This key restores the symmetry: since file = module
+/// (ADR-0045), "same module" and "same file" are the same check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ClassKey {
+    /// The declaring module's [`ModuleObject`](crate::heap::ModuleObject) handle.
+    pub module: ObjRef,
+    /// The class's name, interned.
+    pub name: Symbol,
+}
 
 /// Layout description for a compiled class (ADR-0011/ADR-0017).
 #[derive(Debug, Clone)]
@@ -37,6 +55,15 @@ pub struct ClassLayout {
     /// (ADR-0011), so this set holds only this class's own declarations —
     /// no superclass merge.
     pub const_fields: std::collections::HashSet<Symbol>,
+    /// Source range of the `class` declaration that produced this layout.
+    ///
+    /// Stored by U-CLASSNS, consumed by
+    /// [`U-CLASSCLOSE`](../../../docs/forge/units/U-CLASSCLOSE/implementation-spec.md):
+    /// decision 0065 ruling 2's `X is already defined` diagnostic carries **both**
+    /// spans, and the *first* declaration's location is otherwise unrecoverable —
+    /// no sibling map records it. Dead until unit B lands; that is intentional,
+    /// so the struct rewrite happens once.
+    pub declared_at: SourceRange,
 }
 
 /// The bytecode virtual machine: owns the [`Heap`], the operand stack, and the
@@ -154,7 +181,7 @@ pub struct VM {
     /// See [`VM::push_temp_root`].
     pub(crate) temp_roots: Vec<ObjRef>,
     /// Registered class layouts for slot mapping.
-    pub field_layouts: HashMap<Symbol, ClassLayout>,
+    pub field_layouts: HashMap<ClassKey, ClassLayout>,
     /// Maps a `construct`'s ordinary call-site selector (as an
     /// `Expr::MethodCall` on the class name would encode it, `SignatureKind::Method`)
     /// to the `SignatureKind::Initializer` selector it was actually installed

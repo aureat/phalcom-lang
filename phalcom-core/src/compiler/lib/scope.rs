@@ -50,7 +50,7 @@ impl<'vm> Compiler<'vm> {
     /// at top level or in a free function — has no defining class to anchor the
     /// walk and is rejected with [`CompilerError::SuperOutsideMethod`].
     pub(super) fn compile_super_send(&mut self, selector_sym: Symbol, args: Vec<Argument>, argc: u8, range: SourceRange) -> Result<(), CompilerError> {
-        let defining = self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
+        let class_key = self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
         // Class-side `super` (U-ERR-FIX SUPER-STATIC): inside a `static`
         // member, `self` is the class object, whose own class is the
         // *metaclass* — so the walk must start above the metaclass's
@@ -60,10 +60,10 @@ impl<'vm> Compiler<'vm> {
         // `Bytecode::SuperSend` handler resolves the metaclass instead of
         // the instance class.
         let defining = if self.is_static_context {
-            let name = self.vm.resolve_symbol(defining).to_string();
+            let name = self.vm.resolve_symbol(class_key.name).to_string();
             self.vm.interner.intern(&format!("{name}.class"))
         } else {
-            defining
+            class_key.name
         };
         self.emit_self(range);
         for arg in args {

@@ -253,11 +253,11 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::Field { value, range } => {
                 let name_sym = self.vm.interner.intern(&value);
-                let class_sym = self.current_class.ok_or_else(|| {
+                let class_key = self.current_class.ok_or_else(|| {
                     CompilerError::Message(format!("Fields can only be accessed within a class: {}", value))
                 })?;
-                let layout = self.vm.field_layouts.get(&class_sym).cloned().ok_or_else(|| {
-                    CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_sym)))
+                let layout = self.vm.field_layouts.get(&class_key).cloned().ok_or_else(|| {
+                    CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_key.name)))
                 })?;
 
                 if let Some(&slot) = layout.static_field_slots.get(&name_sym) {
@@ -315,11 +315,11 @@ impl<'vm> Compiler<'vm> {
                     }
                     Expr::Field { value, range } => {
                         let name_sym = self.vm.interner.intern(&value);
-                        let class_sym = self.current_class.ok_or_else(|| {
+                        let class_key = self.current_class.ok_or_else(|| {
                             CompilerError::Message(format!("Fields can only be accessed within a class: {}", value))
                         })?;
-                        let layout = self.vm.field_layouts.get(&class_sym).cloned().ok_or_else(|| {
-                            CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_sym)))
+                        let layout = self.vm.field_layouts.get(&class_key).cloned().ok_or_else(|| {
+                            CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_key.name)))
                         })?;
 
                         if let Some(&slot) = layout.static_field_slots.get(&name_sym) {

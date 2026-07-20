@@ -38,7 +38,7 @@ use phalcom_core::primitive::object::{object_hash, object_method_for};
 use phalcom_core::primitive::string::string_hash;
 use phalcom_core::primitive::symbol::symbol_hash;
 use phalcom_core::value::{sentinel_to_option, Value};
-use phalcom_core::vm::VM;
+use phalcom_core::vm::{ClassKey, VM};
 use std::collections::HashSet;
 
 /// The 21 named kernel classes (`CoreClasses` rows), paired with a stable name.
@@ -244,10 +244,11 @@ fn sealed_hierarchy_rejects_runtime_reparent_and_keeps_invariants() {
     use phalcom_core::primitive::class::class_set_superclass;
 
     let mut vm = VM::new();
+    let module = vm.create_module("main", "test");
     let object_class = vm.universe.classes.object_class;
-    let animal = vm.create_class("Animal", Some(object_class));
-    let dog = vm.create_class("Dog", Some(animal));
-    let cat = vm.create_class("Cat", Some(object_class));
+    let animal = vm.create_class(module, "Animal", Some(object_class));
+    let dog = vm.create_class(module, "Dog", Some(animal));
+    let cat = vm.create_class(module, "Cat", Some(object_class));
 
     let dog_value = Value::Obj(dog);
     let result = class_set_superclass(&mut vm, &dog_value, &[Value::Obj(cat)]);
@@ -294,9 +295,10 @@ fn user_subclass_metaclass_parallels_superclass() {
     // single site that maintains rule 4 (DEC-INH-E), so both a surface
     // `class B extends A` and a reflective creation stay parallel.
     let mut vm = VM::new();
+    let module = vm.create_module("main", "test");
     let object_class = vm.universe.classes.object_class;
-    let animal = vm.create_class("Animal", Some(object_class));
-    let dog = vm.create_class("Dog", Some(animal));
+    let animal = vm.create_class(module, "Animal", Some(object_class));
+    let dog = vm.create_class(module, "Dog", Some(animal));
 
     assert_eq!(vm.heap.class(dog).superclass, Some(animal), "Dog.superclass should be Animal");
 
@@ -511,7 +513,7 @@ fn subclass_field_offset_stability() {
     // 2. Retrieve base_cls and define Subclass inheriting from Base
     let base_sym = vm.get_or_intern("Base");
     let base_cls = *vm.classes.get(&base_sym).unwrap();
-    let _sub_cls = vm.create_class("Subclass", Some(base_cls));
+    let _sub_cls = vm.create_class(module, "Subclass", Some(base_cls));
     
     // 3. Compile Subclass closure without running it yet
     let sub_code = "
@@ -525,7 +527,7 @@ fn subclass_field_offset_stability() {
     
     // 4. Update Subclass class object in the heap with the compiled layout
     let sub_sym = vm.get_or_intern("Subclass");
-    let layout = vm.field_layouts.get(&sub_sym).unwrap().clone();
+    let layout = vm.field_layouts.get(&ClassKey { module, name: sub_sym }).unwrap().clone();
     let sub_cls = *vm.classes.get(&sub_sym).unwrap();
     let sub_meta = vm.heap.class(sub_cls).class;
     
@@ -571,7 +573,7 @@ fn subclass_static_field_offset_stability() {
     // 2. Retrieve base_cls and define Subclass inheriting from Base
     let base_sym = vm.get_or_intern("Base");
     let base_cls = *vm.classes.get(&base_sym).unwrap();
-    let _sub_cls = vm.create_class("Subclass", Some(base_cls));
+    let _sub_cls = vm.create_class(module, "Subclass", Some(base_cls));
     
     // 3. Compile Subclass closure without running it yet
     let sub_code = "
@@ -583,7 +585,7 @@ fn subclass_static_field_offset_stability() {
     
     // 4. Update Subclass class object in the heap with the compiled layout
     let sub_sym = vm.get_or_intern("Subclass");
-    let layout = vm.field_layouts.get(&sub_sym).unwrap().clone();
+    let layout = vm.field_layouts.get(&ClassKey { module, name: sub_sym }).unwrap().clone();
     let sub_cls = *vm.classes.get(&sub_sym).unwrap();
     let sub_meta = vm.heap.class(sub_cls).class;
     
