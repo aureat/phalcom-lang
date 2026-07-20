@@ -17,9 +17,20 @@ analysis._
 | 0 — regenerate roots + edge table | **done** | `f0a8a1d` |
 | 1 — Win A, box six fat variants (280 B → 40 B) | **done** | `7480d75` |
 | 2 — `trace_object` / `Heap::collect` / `VM::collect_roots` / `force_gc` + 6 GC tests | **done** | `e9fdd96` |
-| **3 — `System.gc`** | **TODO** | §1 |
-| **4 — safepoint latch** | **TODO** | §2 |
-| **5 — fiber pool re-measure** | **TODO** | §3 |
+| 3 — `System.gc` | **done** | `94b6bbf` |
+| 4 — safepoint latch (Invariant L) | **done** | `94b6bbf` |
+| 4b — `temp_roots` escape hatch (ADR-0050 §7) | **done** | `cdd2117` |
+| 5 — fiber pool re-measure | **done** (landed behind the off-by-default `fiber-pool` feature; A/B was net-negative, `perf-log/findings.md` F10) | `496912b` |
+
+**Step 4b was not in the original plan for this unit — §2.1 argued against building it.** It
+shipped because `block_ensure` was already hitting the hazard §2.1 concluded did not occur. See
+the correction banner in §2.1 and
+[docs/logs/2026-07-19-ensure-temp-root-uaf.md](../../../logs/2026-07-19-ensure-temp-root-uaf.md).
+
+**Closeout is still open** — see `UNITS-TRACKER.md` §U-GC: the `DEFERRED.md` M-RUNTIME temp-root
+note is unwritten, the miri lane is a `verify.sh` flag rather than a CI job, and no
+`phalcom-reviewer` sign-off exists on the `heap/`/`vm/` spine diff despite both this spec and
+`plan.md` mandating one.
 
 DEC-GC-A is **resolved by the user: option A** — ADR-0050 is Accepted, collection ships **on by
 default**, no `gc_enabled` soak flag. There is no flag to hide a missed root behind.

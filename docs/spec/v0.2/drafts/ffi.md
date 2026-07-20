@@ -158,11 +158,21 @@ the mechanism — `vm.push_temp_root(h)`/`pop_temp_root()`, the Wren
 this collector drops a live object is a native primitive holding a fresh handle
 across a re-entrant send without a temp-root."
 
-**And it is not built.** `vm/gc.rs:119-121`: "the `temp_roots` escape hatch that
-makes the native side safe [is] U-GC step 4; until then this is driven only by
-tests." `:128-134` documents `push_root_for_test` as test scaffolding explicitly
-"Not a temp-root". No `push_temp_root` definition exists in `phalcom-core/src`.
-**FFI's liveness mechanism is specified, named, and absent** (F-2).
+**Built as of 2026-07-19 (`cdd2117`) — F-2 is closed.** This section previously read "And it is
+not built … FFI's liveness mechanism is specified, named, and absent." It is now present:
+`VM::temp_roots` with `push_temp_root(value)` / `temp_root_depth()` / `truncate_temp_roots(depth)`
+(`vm/gc.rs`), enumerated by `collect_roots`. It shipped not as FFI groundwork but because
+`block_ensure` was already hitting the hazard — holding the protected block's outcome in a Rust
+local across the cleanup block's re-entrant call, and returning a swept handle. See
+[docs/logs/2026-07-19-ensure-temp-root-uaf.md](../../../logs/2026-07-19-ensure-temp-root-uaf.md).
+
+The API is depth-and-truncate rather than Wren's literal push/pop pair, because a re-entrant call
+can return through `Ok`, a raised `Err`, or a non-local return and truncation is correct on all
+three without the caller counting its own pushes. An FFI boundary should use the same shape.
+
+Note what this does **not** settle: the mechanism exists and has exactly one caller. Nothing has
+yet exercised it from a native module holding a handle across a *callback* into `.ph`, which is
+the shape FFI actually needs (§8 F-2's original question).
 
 Two mitigations, both already true:
 
@@ -382,8 +392,9 @@ unbalanced-stack and index-arithmetic bugs are easy to write and hard to detect;
 already has this shape. ADR-0050 §Context: "Roots are fully reified — `VM::stack`
 and `VM::frames` are owned `Vec`s ... so root enumeration is *precise*", and
 §Decision 7's temp-root stack **is** `luaL_ref`/`wrenPushRoot` renamed. Phalcom
-need not invent an FFI memory discipline — it needs to build the one ADR-0050
-already specified (F-2). Study this first.
+need not invent an FFI memory discipline — and as of `cdd2117` it no longer needs
+to build one either: the temp-root stack is live (§3). What remains is extending
+it across a native→`.ph` callback, not designing it. Study this first.
 
 **JNI — pinning windows and verbosity.** Local/global reference tables keep the
 collector informed, but zero-copy array access via
@@ -435,7 +446,8 @@ Numbered for citation. Add rows; do not renumber.
 | # | Question | Why it is open | Would resolve via |
 |---|---|---|---|
 | **F-1** | What is the *actual* binding count for a minimum crypto suite? | §2's table is an estimate, not a measurement. The argument is magnitude-robust, but the number should not be quoted as fact. | Scope a throwaway spike; count bindings. |
-| **F-2** | ADR-0050 §7's `push_temp_root`/`pop_temp_root` is specified but **not built** (`vm/gc.rs:119-121`, `:128-134`; no definition in `phalcom-core/src`). Is FFI blocked on U-GC step 4? | It is the *only* mechanism protecting a native-held handle across a re-entrant send. Any FFI that re-enters the interpreter needs it. Non-re-entrant FFI may not. | Determine whether any plausible FFI call re-enters (callbacks do). If yes: hard dependency on U-GC step 4. |
+| **F-2** | ~~ADR-0050 §7's `push_temp_root`/`pop_temp_root` is specified but **not built**. Is FFI blocked on U-GC step 4?~~ **CLOSED 2026-07-19 (`cdd2117`)** — built as `push_temp_root`/`temp_root_depth`/`truncate_temp_roots` (`vm/gc.rs`), enumerated by `collect_roots`. FFI is **not** blocked on it. Closed by a bug, not by this doc: `block_ensure` was already hitting the hazard ([log](../../../logs/2026-07-19-ensure-temp-root-uaf.md)). | — | Superseded by **F-12**. |
+| **F-12** | Does the temp-root mechanism hold across a native→`.ph` **callback**, as opposed to the one in-tree caller it has today? | F-2 asked whether the mechanism existed; it does. The FFI-relevant question is untested: `block_ensure` re-enters the interpreter with a handle it owns, but no native module has yet held a handle across `.ph` code calling *back* into it. The re-audit that found `block_ensure` covered `phalcom-core/src` only — it says nothing about a shape that does not exist in-tree yet. | Spike a native module with a callback; assert the held handle survives a forced collection inside the callback. |
 | **F-3** | Do native resources (sockets, files) force finalizers? | ADR-0050 §Context banks "No finalizers exist" as a reason the collector is hazard-free. Native handles are the classic reason a language grows them. | Rule: explicit `ensure`-scoped ownership vs. a finalizer/`Drop` admission. The latter reopens ADR-0050. |
 | **F-4** | Should ADR-0050 be amended to record the FFI benefit? | It is a real consequence of a ratified decision that the ADR does not claim. But it must be worded as §3 does (*out-of-line payloads are address-stable*), **not** as "non-moving ⇒ zero-copy", which is false. | An ADR-0050 amendment, only if FFI is taken up. |
 | **F-5** | Is ADR-0009's memory-safety commitment object-graph-scoped or crate-wide? | ADR-0009 **never says `unsafe`** — the phrasing is the overlay's. `interner.rs:105` already carries `unsafe` in `phalcom-core` with no ADR treating it as a violation, which strongly implies "object graph". But the overlay's row should say so explicitly rather than relying on inference. §4 drafts the precise statement. | A user ruling + an overlay edit; possibly an ADR-0009 clarifying amendment. **This is the doc's most important question.** |
