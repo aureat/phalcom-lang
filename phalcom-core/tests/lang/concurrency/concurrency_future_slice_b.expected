@@ -9,4 +9,4 @@ map result
 settled
 catch run error: failed
 catch recovered
-caught yield across native frame: cannot switch fibers across a native call frame (e.g. inside .each { })
+caught yield across native frame: cannot switch fibers across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)

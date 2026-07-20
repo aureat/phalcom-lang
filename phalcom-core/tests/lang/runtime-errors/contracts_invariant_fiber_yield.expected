@@ -1,1 +1,1 @@
-cannot switch fibers across a native call frame (e.g. inside .each { })
+cannot switch fibers across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)

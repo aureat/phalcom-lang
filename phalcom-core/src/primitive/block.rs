@@ -31,7 +31,7 @@ use crate::vm::VM;
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `receiver` is neither a block nor a closure.
-fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::heap::ObjRef, Option<FrameToken>)> {
+pub(crate) fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::heap::ObjRef, Option<FrameToken>)> {
     match receiver {
         Value::Obj(id) => match vm.heap.get(*id) {
             Object::Block(block) => Ok((block.closure, Some(block.home_frame_token))),

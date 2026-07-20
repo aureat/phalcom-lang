@@ -80,7 +80,7 @@ fn cannot_switch_across_native_frame(vm: &mut VM, rendered: String) -> crate::er
 /// attempted underneath a native re-entrant `run_until` (a `block_call` and
 /// friends) on the Rust call stack.
 fn cannot_yield_across_native_frame(vm: &mut VM) -> crate::error::PhError {
-    cannot_switch_across_native_frame(vm, "cannot switch fibers across a native call frame (e.g. inside .each { })".to_string())
+    cannot_switch_across_native_frame(vm, "cannot switch fibers across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)".to_string())
 }
 
 /// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1) for a
@@ -94,7 +94,7 @@ fn cannot_yield_across_native_frame(vm: &mut VM) -> crate::error::PhError {
 /// would corrupt). The message names the actual violated action instead of
 /// reusing [`cannot_yield_across_native_frame`]'s yield-specific wording.
 fn cannot_resume_across_native_frame(vm: &mut VM) -> crate::error::PhError {
-    cannot_switch_across_native_frame(vm, "cannot resume a fiber across a native call frame (e.g. inside .each { })".to_string())
+    cannot_switch_across_native_frame(vm, "cannot resume a fiber across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)".to_string())
 }
 
 /// Resolves `receiver` to the [`FiberObject`] handle it refers to.

@@ -22,6 +22,43 @@ impl VM {
             MethodKind::Primitive(native_fn) => {
                 let receiver_idx = self.stack.len() - 1 - arity;
                 let receiver = self.stack[receiver_idx];
+                // Flat-entry fork for `f.call(...)` sent from bytecode on a
+                // `Block`/`Closure` receiver: enter the closure's frame in
+                // THIS dispatch loop instead of running `block_call`'s
+                // re-entrant `run_until`. With no native frame live during
+                // the block body, `Fiber.yield` inside a combinator block
+                // (`each`/`map`/`filter` — bytes.md §3.1 law 8) is legal —
+                // this removes Lua's "attempt to yield across a C-call
+                // boundary" wall for the bytecode→`call` path. The stack
+                // window is already in `block_call`'s exact layout (dummy
+                // receiver slot + args; blocks reach `self` through a
+                // captured upvalue, not slot 0). Native callers of
+                // `block_call` (`Block#on` handlers, `invokeOn`, fiber
+                // entry) still take the re-entrant path and keep its
+                // restricted-yield guard — that guard exists to protect a
+                // recursive Rust frame, and here there is none.
+                // `BoundMethod` receivers keep the primitive path: they
+                // funnel through `invoke_method_object`, which may have no
+                // closure at all.
+                if std::ptr::fn_addr_eq(native_fn, crate::primitive::block::block_call as crate::method::PrimitiveFn)
+                    && matches!(&receiver, Value::Obj(id) if matches!(self.heap.get(*id), Object::Block(_) | Object::Closure(_)))
+                {
+                    let (closure_id, home_frame_token) = crate::primitive::block::resolve_callable(self, &receiver)?;
+                    let closure_arity = self.heap.closure(closure_id).callable.arity;
+                    if arity != closure_arity {
+                        return Err(RuntimeError::Arity { signature: "call", expected: closure_arity, found: arity }.into());
+                    }
+                    let context = crate::frame::CallContext::Instance {
+                        instance: match receiver {
+                            Value::Obj(id) => id,
+                            _ => unreachable!("guarded above: receiver is Value::Obj"),
+                        },
+                    };
+                    let mut frame = self.new_call_frame(closure_id, context, 0, receiver_idx, Some(source_range));
+                    frame.home_frame_token = home_frame_token;
+                    self.push_frame(frame)?;
+                    return Ok(());
+                }
                 // Snapshot the frame count so we can detect a non-local return
                 // that fired *inside* `native_fn` (e.g. `block_call` running a
                 // block whose `return` unwound past this call site). See the
