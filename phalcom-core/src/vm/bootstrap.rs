@@ -224,12 +224,14 @@ impl VM {
         add_class!(option_class);
         {
             let option_sym = self.interner.intern(&self.heap.class(self.universe.classes.option_class).name.clone());
-            self.sealed_classes.insert(option_sym, m);
+            let option_key = crate::vm::ClassKey { module: m, name: option_sym };
+            self.sealed_classes.insert(option_key, m);
         }
         add_class!(some_class);
         {
             let some_sym = self.interner.intern(&self.heap.class(self.universe.classes.some_class).name.clone());
-            self.sealed_classes.insert(some_sym, m);
+            let some_key = crate::vm::ClassKey { module: m, name: some_sym };
+            self.sealed_classes.insert(some_key, m);
         }
         add_class!(iterable_class);
         add_class!(list_class);
@@ -271,7 +273,8 @@ impl VM {
         // Seal `None` to the core module too (see the sealing note above the
         // `Option`/`Some` rows): `class MyNone extends None {}` in user code
         // must raise `attr.sealed_violation` the same as the other two.
-        self.sealed_classes.insert(none_class_sym, m);
+        let none_class_key_sealed = crate::vm::ClassKey { module: m, name: none_class_sym };
+        self.sealed_classes.insert(none_class_key_sealed, m);
 
         // Bind the `None` global to the shared singleton object.
         let none_global_sym = self.interner.intern("None");

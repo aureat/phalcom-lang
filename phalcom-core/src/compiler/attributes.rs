@@ -4,8 +4,10 @@ use phalcom_ast::ast::{
     ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
 };
 use crate::compiler::lib::CompilerError;
+use crate::heap::ObjRef;
 use crate::interner::Symbol;
 use crate::method::{encode_selector, SignatureKind};
+use crate::vm::ClassKey;
 
 /// The active contract-stripping mode (U-ANNOT-CONTRACTS plan §3.6,
 /// `annotations-contract-semantics.md`'s stripping table).
@@ -58,7 +60,7 @@ pub struct ExpandCtx<'a> {
     /// that *does* name a user `Attribute` subclass is retained silently
     /// instead of raising `attr.unknown` (see `resolves_to_attribute_class`
     /// in this module).
-    pub class_parents: &'a HashMap<Symbol, Symbol>,
+    pub class_parents: &'a HashMap<ClassKey, ClassKey>,
     /// The compile-unit-scoped sealed-class table
     /// ([`crate::vm::VM::sealed_classes`]), read-only here — the **second**
     /// source of "is this class sealed?", and the only one that knows about a
@@ -79,7 +81,13 @@ pub struct ExpandCtx<'a> {
     ///
     /// A gate that consults either source alone is wrong for the other case, so
     /// [`expand_class_attributes`] takes the union. See `has_sealed` there.
-    pub sealed_classes: &'a HashMap<Symbol, crate::heap::ObjRef>,
+    pub sealed_classes: &'a HashMap<ClassKey, ObjRef>,
+    /// The module handle for the currently-compiling unit. Used to build a
+    /// [`ClassKey`] for lookups in `class_parents` and `sealed_classes`.
+    pub module: ObjRef,
+    /// All loaded modules by name, used for the core-module fallback in
+    /// [`ClassKey`]-based lookups (when a name resolves from the core module).
+    pub modules: &'a HashMap<Symbol, ObjRef>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1462,7 +1470,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
 /// on revisiting an already-seen symbol (a reopen-redefinition back-edge, the
 /// same guard [`crate::compiler::lib::Compiler::inherits_new_construct`]
 /// uses).
-fn resolves_to_attribute_class(class_parents: &HashMap<Symbol, Symbol>, interner: &mut crate::interner::Interner, name: &str) -> bool {
+fn resolves_to_attribute_class(class_parents: &HashMap<ClassKey, ClassKey>, interner: &mut crate::interner::Interner, name: &str, module: ObjRef, modules: &HashMap<Symbol, ObjRef>) -> bool {
     let attribute_sym = interner.intern("Attribute");
     let mut sym = interner.intern(name);
     let mut visited = std::collections::HashSet::new();
@@ -1470,8 +1478,22 @@ fn resolves_to_attribute_class(class_parents: &HashMap<Symbol, Symbol>, interner
         if sym == attribute_sym {
             return true;
         }
-        match class_parents.get(&sym) {
-            Some(&parent) => sym = parent,
+        // Try current module key, then core module fallback.
+        let key = ClassKey { module, name: sym };
+        let parent = if let Some(&p) = class_parents.get(&key) {
+            Some(p.name)
+        } else if let Some(core_sym) = interner.find(crate::heap::CORE_MODULE_NAME) {
+            if let Some(&core_mod) = modules.get(&core_sym) {
+                let core_key = ClassKey { module: core_mod, name: sym };
+                class_parents.get(&core_key).map(|p| p.name)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        match parent {
+            Some(p) => sym = p,
             None => return false,
         }
     }
@@ -1674,8 +1696,14 @@ pub fn expand_class_attributes(
     //   diagnostic about a class that *is* sealed.
     let sealed_by_attr = class_attrs.iter().any(|a| a.name == "sealed");
     let sealed_by_table = {
+        // The class **being declared** (§4.1 of the U-CLASSNS implementation
+        // spec): own-module key only, no core-module fallback. A user
+        // module's own class of the same name as a kernel class is a
+        // distinct class (decision 0065 — classes are closed) and must not
+        // inherit the kernel class's sealed status by name collision.
         let name_sym = ctx.interner.intern(&class.name);
-        ctx.sealed_classes.contains_key(&name_sym)
+        let key = ClassKey { module: ctx.module, name: name_sym };
+        ctx.sealed_classes.contains_key(&key)
     };
     let has_sealed = sealed_by_attr || sealed_by_table;
     for attr in &class_attrs {
@@ -1702,7 +1730,7 @@ pub fn expand_class_attributes(
             // `Compiler`'s module handle, which this function has no access
             // to — it runs from `compile_class` itself, right after this
             // call returns (see that function's doc).
-        } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name) {
+        } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
             // M-ATTR-ROOT: an unrecognized name that resolves to a user
             // `Attribute` subclass is retained silently — its runtime
             // instantiate+attach codegen is emitted separately by
@@ -1797,7 +1825,7 @@ pub fn expand_class_attributes(
                     )));
                 }
                 expander.expand(ctx, member, &attr.args)?;
-            } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name) {
+            } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
                 // Retained silently — see the class-level branch above.
             } else {
                 return Err(CompilerError::Message(format!(

@@ -1,1 +1,1 @@
-attr.sealed_violation: `Foo` extends `@sealed` class `Option`, but was not declared in the same compilation unit
+attr.illegal_target: `@variant` requires its enclosing class `Option` to also carry `@sealed`

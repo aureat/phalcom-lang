@@ -4,6 +4,7 @@ use crate::heap::Object;
 use crate::interner::Symbol;
 use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
 use crate::value::Value;
+use crate::vm::ClassKey;
 use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, MethodCallExpr, Statement};
 use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
@@ -69,6 +70,8 @@ impl<'vm> Compiler<'vm> {
             strip_metadata,
             class_parents: &self.vm.class_parents,
             sealed_classes: &self.vm.sealed_classes,
+            module: self.module,
+            modules: &self.vm.modules,
         };
         let registry = AttributeRegistry::new();
         // DEC-ANNOT-G (U-ANNOT-LAYOUT §3.4): `expand_class_attributes`
@@ -294,9 +297,14 @@ impl<'vm> Compiler<'vm> {
                     class_def.name, class_def.name
                 )));
             }
-            let prev_superclass_sym = self.vm.class_parents.get(&name_sym).copied();
-            let new_superclass_sym = class_def.superclass.as_ref().map(|sc_ref| self.vm.interner.intern(&sc_ref.name));
-            if prev_superclass_sym != new_superclass_sym {
+            let prev_superclass_key = self.vm.class_parents.get(&name_key).copied();
+            let new_superclass_key = class_def.superclass.as_ref().map(|sc_ref| {
+                let sc_sym = self.vm.interner.intern(&sc_ref.name);
+                self.resolve_superclass_key(sc_sym)
+                    .map(|k| k)
+                    .unwrap_or_else(|| ClassKey { module: self.module, name: sc_sym })
+            });
+            if prev_superclass_key != new_superclass_key {
                 return Err(CompilerError::Message(format!(
                     "Cannot reopen class `{}` with a different superclass: it was already defined with a different (or no) `extends` clause.",
                     class_def.name
@@ -380,7 +388,8 @@ impl<'vm> Compiler<'vm> {
                 // pass: the single-pass top-down discipline already
                 // guarantees a same-unit sealed superclass is recorded
                 // before any of its subclasses reach this point.
-                if let Some(&sealed_in_module) = self.vm.sealed_classes.get(&sc_sym) {
+                let sc_key_for_sealed = sc_key.unwrap_or(ClassKey { module: self.module, name: sc_sym });
+                if let Some(&sealed_in_module) = self.vm.sealed_classes.get(&sc_key_for_sealed) {
                     if sealed_in_module != self.module {
                         return Err(CompilerError::Message(format!(
                             "attr.sealed_violation: `{}` extends `@sealed` class `{}`, but was not declared in the same compilation unit",
@@ -417,7 +426,8 @@ impl<'vm> Compiler<'vm> {
                 // back-edge is a reopen-redefinition within a unit (`class A {}`,
                 // `class B extends A`, then `class A extends B`), which the
                 // `visited` guard in both chain-walks handles without spinning.
-                self.vm.class_parents.insert(name_sym, sc_sym);
+                let sc_key_val = sc_key.unwrap_or(ClassKey { module: self.module, name: sc_sym });
+                self.vm.class_parents.insert(name_key, sc_key_val);
                 counts
             } else {
                 // Implicit `Object` root.
@@ -657,9 +667,9 @@ impl<'vm> Compiler<'vm> {
                     // yes/no pair is what proves a `Foo.new(...)` call would
                     // otherwise fall through to the bare allocator.
                     let class_name_sym = self.current_class.expect("construct is only compiled within a class body");
-                    self.vm.constructor_aliases.insert((class_name_sym.name, selector_sym), selector_sym);
+                    self.vm.constructor_aliases.insert((class_name_sym, selector_sym), selector_sym);
                     if construct_def.name == "new" {
-                        self.vm.has_new_construct.insert(class_name_sym.name);
+                        self.vm.has_new_construct.insert(class_name_sym);
                     }
 
                     let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();
@@ -790,7 +800,7 @@ impl<'vm> Compiler<'vm> {
         // checks `VM::sealed_classes` at the point in `Self::compile_class`
         // above where its own superclass is resolved.
         if class_level_attrs.iter().any(|a| a.name == "sealed") {
-            self.vm.sealed_classes.insert(name_sym, self.module);
+            self.vm.sealed_classes.insert(name_key, self.module);
         }
 
         // DEC-ANNOT-G: compile every `@variant`-generated sibling class now,
@@ -940,11 +950,12 @@ impl<'vm> Compiler<'vm> {
         // never spins.
         let mut visited = std::collections::HashSet::new();
         while visited.insert(class_sym) {
-            if self.vm.has_new_construct.contains(&class_sym) {
+            let key = self.class_key(class_sym);
+            if self.vm.has_new_construct.contains(&key) {
                 return true;
             }
-            match self.vm.class_parents.get(&class_sym) {
-                Some(&parent) => class_sym = parent,
+            match self.vm.class_parents.get(&key) {
+                Some(&parent) => class_sym = parent.name,
                 None => return false,
             }
         }
@@ -974,11 +985,12 @@ impl<'vm> Compiler<'vm> {
         // edge (see [`Self::inherits_new_construct`]).
         let mut visited = std::collections::HashSet::new();
         while visited.insert(class_sym) {
-            if let Some(&alias) = self.vm.constructor_aliases.get(&(class_sym, selector_sym)) {
+            let key = self.class_key(class_sym);
+            if let Some(&alias) = self.vm.constructor_aliases.get(&(key, selector_sym)) {
                 return Some(alias);
             }
-            match self.vm.class_parents.get(&class_sym) {
-                Some(&parent) => class_sym = parent,
+            match self.vm.class_parents.get(&key) {
+                Some(&parent) => class_sym = parent.name,
                 None => return None,
             }
         }

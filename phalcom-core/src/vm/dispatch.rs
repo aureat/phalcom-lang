@@ -925,7 +925,7 @@ impl VM {
                         None
                     };
 
-                    let effective_selector = self.constructor_aliases.get(&(defining_sym, selector_sym)).copied().unwrap_or(selector_sym);
+                    let effective_selector = self.constructor_aliases.get(&(defining_key, selector_sym)).copied().unwrap_or(selector_sym);
                     let mut method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, effective_selector));
 
                     // Super-construct fallback (U-INH §3.5): constructors are

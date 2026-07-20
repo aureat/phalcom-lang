@@ -195,17 +195,17 @@ pub struct VM {
     /// `ClassName.method(...)` receiver) to redirect the emitted selector to
     /// the constructor instead of silently falling through to
     /// `Object::new`'s bare-allocation primitive.
-    pub constructor_aliases: HashMap<(Symbol, Symbol), Symbol>,
-    /// Class names (by [`Symbol`]) that declare at least one `construct new(...)`.
+    pub constructor_aliases: HashMap<(ClassKey, Symbol), Symbol>,
+    /// Classes (by [`ClassKey`]) that declare at least one `construct new(...)`.
     ///
     /// Once a class opts into a `new`-named constructor, it has no
     /// user-visible bare allocator (U7-plan §3/§6): a call-site `new(...)`
     /// whose arity/labels match none of the class's declared constructors is
     /// a compile error rather than a silent fall-through to the inherited
     /// `Object::new` primitive.
-    pub has_new_construct: std::collections::HashSet<Symbol>,
-    /// Compile-time superclass edges: a user class name (by [`Symbol`]) mapped
-    /// to the name of its `extends` superclass.
+    pub has_new_construct: std::collections::HashSet<ClassKey>,
+    /// Compile-time superclass edges: a class (by [`ClassKey`]) mapped
+    /// to the [`ClassKey`] of its `extends` superclass.
     ///
     /// Populated by the compiler as each `class B extends A { … }` is lowered
     /// (the superclass is required to be defined earlier in the same pass, so
@@ -217,8 +217,8 @@ pub struct VM {
     /// call site exactly as a locally declared one is (U-INH follow-on;
     /// `docs/forge/DEFERRED.md` correctness entry). Only user classes appear;
     /// the implicit `Object` root is absent (chain-walks terminate there).
-    pub class_parents: HashMap<Symbol, Symbol>,
-    /// Class names (by [`Symbol`]) declared `@sealed` (U-ANNOT-LAYOUT §3.4,
+    pub class_parents: HashMap<ClassKey, ClassKey>,
+    /// Classes (by [`ClassKey`]) declared `@sealed` (U-ANNOT-LAYOUT §3.4,
     /// `annotations-data.md` §"`@sealed`"), mapped to the compiling
     /// [`ModuleObject`](crate::heap::ModuleObject) handle (`ObjRef`) whose
     /// `Compiler::compile` call declared them — the "compile-unit-scoped"
@@ -239,7 +239,7 @@ pub struct VM {
     /// class's entry here is always populated before any of its same-unit
     /// subclasses compile, so an immediate check is equivalent to (and
     /// simpler than) deferring to a dedicated end-of-unit pass.
-    pub sealed_classes: HashMap<Symbol, ObjRef>,
+    pub sealed_classes: HashMap<ClassKey, ObjRef>,
     /// Live mirror of [`Self::current`]'s
     /// [`FiberObject::checking`](crate::heap::FiberObject::checking) — the
     /// identity set of receivers currently under `@invariant`
