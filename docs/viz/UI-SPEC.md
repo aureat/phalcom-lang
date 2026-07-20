@@ -280,6 +280,11 @@ and under a pointer-swap rendering it would look like noise.
 is dropped, the locker empties, and the connector is left **reaching into a hollow card**. Rendered, not
 narrated (T4).
 
+**Built 2026-07-20** as an SVG overlay (`#upvsvg`) spanning the whole machine row, redrawn from live DOM
+geometry on every `render()` — never cached across cursors, so a still frame is correct by construction
+and the connector cannot desync from the state it is drawn from. Solid to the slot when live, dashed
+into the fiber's card when parked or holed; nothing drawn for a closed cell.
+
 ---
 
 ## 7 · Colour, type, and delta
@@ -520,13 +525,13 @@ class that turns out to be cheapest.
 | 2 | Tape with brackets and delta marking — **the D1 go/no-go** | **done**, `tools/viz/prototype-tape.html` |
 | 3 | Host gutter, fiber rail, transport, keys | **done** |
 | 4 | The three-beat switch (C1) | **done** as cursor stops; no tween (§8) |
-| 5 | Cell strip — the stretch-into-locker moment | **done** as text; no drawn connector (§6) |
+| 5 | Cell strip — the stretch-into-locker moment | **done**, text + drawn connector (§6) |
 | 6 | Page shell, gates, prose, E1 → E2 → E3 | **done** |
 | 7 | E4 dead frame, E5 call vs try, semantic checks | **done** |
 | — | Triptych renderer (C3) | deferred until a `docs/learn` embed needs it |
 | 8 | Transport lock (R-GATE) | **done** |
 | 9 | Tape tween on park/unpark (C1 spatial slide) | **done** |
-| — | Drawn connector | deferred; additive, changes no state |
+| 10 | Drawn connector for upvalue cells | **done** |
 
 Step 2 was the go/no-go: if the flat tape with bracket lanes had not read at a glance, D1 was wrong and
 everything downstream needed rethinking. It was built and judged first, against T1, before any
