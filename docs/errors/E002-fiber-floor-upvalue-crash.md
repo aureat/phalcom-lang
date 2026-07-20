@@ -1,6 +1,6 @@
 # E002 · Fiber-floor failure capture drops the live stack without closing open upvalues
 
-- **Status:** OPEN — confirmed 2026-07-19; **re-confirmed at HEAD 2026-07-20** (fresh repro shape: block escapes into a `List`, fiber raises via `doesNotUnderstand`, `fiber.try()`, then calling the escaped block panics at `dispatch.rs:1094`, `index out of bounds: the len is 0 but the index is 1`)
+- **Status:** FIXED — `a265684` (2026-07-20). `run_until`'s fiber-floor `Err` arm now closes the originating fiber's live open upvalues (`close_upvalues_from(0)`, against the still-live `VM::stack`, before any switch repoints it) and each intermediate `Call`-mode resumer's parked open upvalues (new fiber-scoped `close_fiber_upvalues_from`, against that resumer's own parked `FiberObject::stack`) before either is cleared. Regression coverage: `tests/lang/concurrency/concurrency_fiber_floor_upvalue_close.ph` (originating fiber) and `concurrency_fiber_floor_upvalue_close_cascade.ph` (intermediate `Call`-mode resumer); both confirmed to panic on the pre-fix tree and pass post-fix.
 - **Severity:** blocker — deterministic crash (`index out of bounds` panic)
 - **Subsystem:** fibers / upvalue lifecycle
 - **Related:** [E001](E001-gc-ensure-temp-root-uaf.md) (same family — value held live across a boundary the scan misses); seam DEC-FIB-A (U-FIBER owns fiber-floor capture)
