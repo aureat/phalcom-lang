@@ -52,19 +52,19 @@ today's semantics. (That reversibility is why it can be a short PDR.)
 
 | Candidate | Where argued | Size |
 |---|---|---|
-| Naming convention: lowercase builtin vs Capitalized `Attribute` class | [README.md](README.md), [mechanism.md](mechanism.md) | small |
-| COLL-3 suffix resolution (`@Name` → `NameAttribute` then `Name`) | [mechanism.md](mechanism.md) | small |
+| Naming convention: lowercase builtin vs Capitalized `Attribute` class | [README.md](README.md), [mechanism.md](mechanism.md) — **filed as PDR-0021** | small |
+| COLL-3 suffix resolution (`@Name` → `NameAttribute` then `Name`) | [mechanism.md](mechanism.md) — **filed as PDR-0022** (pair-ratify with 0021) | small |
 | Labeled attribute arguments (DEF-3 fix — unblocks ratified `@On` surface) | [mechanism.md](mechanism.md) plan §1 | medium |
 | Registry-wide `AttrArity` validation (DEF-6) | [mechanism.md](mechanism.md) plan §4 | small |
 | `@ensures` `result` substitution (DEF-1) | [contracts.md](contracts.md) plan §1 | small |
 | ADR-0052 guard implementation (DEF-2 — ratified, so a unit, not a PDR) | [contracts.md](contracts.md) plan §2 | medium |
-| Contract inheritance ruling (covariant-replacement gap) | [contracts.md](contracts.md) | needs real design |
+| Contract inheritance ruling (covariant-replacement gap) | [contracts.md](contracts.md) — **filed as PDR-0023** (replacement now, combination behind DEF-11 + PDR-0024) | needs real design |
 | `attr.set_on_const` (DEF-8) | [derives.md](derives.md) | small |
 | Reject-don't-ignore `@get(priv)` (DEF-7) | [derives.md](derives.md) | small |
 | `@native`+`@ignore` stacking = `attr.redundant` (N-5/I-4) | [subtractive.md](subtractive.md) | trivial |
 | N-2 pre-drop harvest table (LSP anchor + invariant test, one producer) | [subtractive.md](subtractive.md) | medium |
 | `attr.native_outside_core` | [subtractive.md](subtractive.md) | small |
-| U-METHOD-REIFY floor amendment (`Method.fromBlock`/`invokeOn`/`defineMethod`) | [behavioral.md](behavioral.md) plan §1 | **the big one** — floor PDR |
+| U-METHOD-REIFY floor amendment (`Method.fromBlock`/`invokeOn`/`defineMethod`) | [behavioral.md](behavioral.md) plan §1 — **filed as PDR-0024** (explicit-receiver blocks; no removal; single choke point) | **the big one** — floor PDR |
 | U-LAYOUT-SLOTS (reserved hidden slots; `@lazy`/`@synchronized`/`@observable` gate) | [behavioral.md](behavioral.md) plan §4 | medium |
 | ADR-0053 guard-bit build (ratified → unit) | [interception.md](interception.md) plan | medium |
 | `@Deprecated(reason:, since:)` | [metadata-and-docs.md](metadata-and-docs.md) | small |
