@@ -61,5 +61,5 @@ pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 pub fn error_raise(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let message_sym = vm.get_or_intern("message");
     let rendered = vm.send_dynamic(*receiver, message_sym, &[])?.to_string(vm);
-    Err(RuntimeError::Raise { error: *receiver, rendered }.into())
+    Err(RuntimeError::Raise { error: *receiver, rendered, traceback: None }.into())
 }

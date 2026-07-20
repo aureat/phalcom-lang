@@ -261,7 +261,8 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
 
     match outcome {
         Ok(v) => Ok(v),
-        Err(err) => {
+        Err(mut err) => {
+            let captured_tb = vm.capture_frames(frames_len);
             let error = match &err {
                 PhError::Runtime(RuntimeError::Raise { error, .. }) => *error,
                 _ => {
@@ -272,6 +273,22 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
                     Value::Obj(vm.heap.alloc(crate::heap::Object::Instance(inst)))
                 }
             };
+            match err {
+                PhError::Runtime(RuntimeError::Raise { error, rendered, mut traceback }) => {
+                    if traceback.is_none() {
+                        traceback = Some(captured_tb);
+                    }
+                    err = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback });
+                }
+                _ => {
+                    let rendered = err.to_string();
+                    err = PhError::Runtime(RuntimeError::Raise {
+                        error,
+                        rendered,
+                        traceback: Some(captured_tb),
+                    });
+                }
+            }
             // `isA(_)` is an ordinary 1-arg `.ph` `Method` (`core.ph`'s
             // `Object#isA`), so its dispatch selector is the *encoded*
             // form `isA(_:)`, not the bare name — mirror the ordinary

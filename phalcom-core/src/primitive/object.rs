@@ -247,7 +247,7 @@ pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value])
 
     // Raise it through the unified unwind (NOT the retired native
     // RuntimeError::MessageNotUnderstood variant).
-    Err(RuntimeError::Raise { error: mnu, rendered }.into())
+    Err(RuntimeError::Raise { error: mnu, rendered, traceback: None }.into())
 }
 
 /// Reads slot `index` of a `Message` instance `value`, or `None` if `value` is

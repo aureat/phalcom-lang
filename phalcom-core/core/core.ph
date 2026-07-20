@@ -56,8 +56,24 @@ class Error {
   // Fiber/Future fixtures — rely on it; declaring *any* `new`-named
   // `construct` drops the generic inherited bare allocator, U7, so this must
   // be declared explicitly alongside the 1-arg form below, not left implicit).
-  construct new() { }
-  construct new(msg) { _message = msg }
+  construct new() {
+    _message = None
+    _kind = None
+    _cause = None
+    _displaced = None
+  }
+  construct new(msg) {
+    _message = msg
+    _kind = None
+    _cause = None
+    _displaced = None
+  }
+  kind => _kind
+  kind=(val) { _kind = val }
+  cause => _cause
+  cause=(val) { _cause = val }
+  displaced => _displaced
+  displaced=(val) { _displaced = val }
 }
 
 // Design-by-Contract failure classes (U-ANNOT-CONTRACTS,

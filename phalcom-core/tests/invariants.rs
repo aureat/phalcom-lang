@@ -1557,7 +1557,7 @@ fn error_raise_unwinds_through_the_shared_raise_payload() {
     let raise_sym = vm.get_or_intern("raise()");
     let err = vm.send_dynamic(error_instance, raise_sym, &[]).unwrap_err();
     match err {
-        PhError::Runtime(RuntimeError::Raise { error, rendered }) => {
+        PhError::Runtime(RuntimeError::Raise { error, rendered, .. }) => {
             assert!(matches!(error, Value::Obj(id) if matches!(error_instance, Value::Obj(other) if id == other)), "raise() should carry `self` as the raised error");
             assert_eq!(rendered, "boom", "raise() should render via the `message` send");
         }

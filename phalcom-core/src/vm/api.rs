@@ -159,6 +159,19 @@ impl VM {
         self.heap.class_mut(class_id).base_names = merged;
     }
 
+    /// Maps a native RuntimeError to its surface kind Symbol value, if applicable.
+    pub fn error_kind_symbol(&mut self, err: &RuntimeError) -> Option<Value> {
+        let sym_str = match err {
+            RuntimeError::ConcurrentMutation { .. } => "concurrentMutation",
+            RuntimeError::DepthExceeded { .. } => "depthExceeded",
+            RuntimeError::DeadFrameError => "deadFrame",
+            RuntimeError::Type { .. } | RuntimeError::TypeConversion { .. } | RuntimeError::Arity { .. } => "type",
+            _ => return None,
+        };
+        let sym = self.interner.intern(sym_str);
+        Some(Value::Symbol(sym))
+    }
+
     /// Pushes a call frame, refusing once the `.ph` call-depth ceiling is reached.
     ///
     /// Every recursive frame push goes through here so the ceiling cannot be
@@ -235,6 +248,89 @@ impl VM {
 
         self.unwind_cell();
         res
+    }
+
+    /// Captures a slice of stack frames as `FrameRecord`s.
+    pub fn capture_frames(&mut self, start_idx: usize) -> Vec<crate::error::FrameRecord> {
+        let mut records = Vec::new();
+        let end_idx = self.frames.len();
+        for idx in start_idx..end_idx {
+            let frame = &self.frames[idx];
+            let closure = self.heap.closure(frame.closure);
+            let module_id = closure.module;
+            let module = self.heap.module(module_id);
+            let module_sym = module.name_sym;
+
+            let is_main = matches!(frame.context, crate::frame::CallContext::Module { module: ctx_module } if ctx_module == closure.module)
+                && closure.callable.name_sym == module.name_sym;
+            let method_sym = if is_main {
+                self.interner.intern("<main>")
+            } else if let Some(token) = frame.home_frame_token {
+                let enclosing = self.frames.get(token.frame_index)
+                    .filter(|home| home.generation == token.generation)
+                    .map(|home| self.heap.closure(home.closure).callable.name_sym)
+                    .unwrap_or(closure.callable.name_sym);
+                let enclosing_str = self.resolve_symbol(enclosing);
+                let name_str = format!("<block in {}>", enclosing_str);
+                self.interner.intern(&name_str)
+            } else {
+                closure.callable.name_sym
+            };
+
+            let span_index = frame.ip.saturating_sub(1);
+            let span = closure.callable.chunk.span_at(span_index);
+            let source = module.source_at(closure.callable.chunk.source_id);
+            let line = source.as_ref().map_or(0, |text| closure.callable.chunk.line_at(span_index, text));
+
+            records.push(crate::error::FrameRecord::Normal {
+                module: module_sym,
+                method: method_sym,
+                line: line as u32,
+            });
+        }
+        records
+    }
+
+    /// Captures the parked frames of `fiber_ref` as `FrameRecord`s.
+    pub fn capture_parked_frames(&mut self, fiber_ref: ObjRef) -> Vec<crate::error::FrameRecord> {
+        let mut records = Vec::new();
+        let fiber = self.heap.fiber(fiber_ref);
+        let end_idx = fiber.frames.len();
+        for idx in 0..end_idx {
+            let frame = &fiber.frames[idx];
+            let closure = self.heap.closure(frame.closure);
+            let module_id = closure.module;
+            let module = self.heap.module(module_id);
+            let module_sym = module.name_sym;
+
+            let is_main = matches!(frame.context, crate::frame::CallContext::Module { module: ctx_module } if ctx_module == closure.module)
+                && closure.callable.name_sym == module.name_sym;
+            let method_sym = if is_main {
+                self.interner.intern("<main>")
+            } else if let Some(token) = frame.home_frame_token {
+                let enclosing = fiber.frames.get(token.frame_index)
+                    .filter(|home| home.generation == token.generation)
+                    .map(|home| self.heap.closure(home.closure).callable.name_sym)
+                    .unwrap_or(closure.callable.name_sym);
+                let enclosing_str = self.resolve_symbol(enclosing);
+                let name_str = format!("<block in {}>", enclosing_str);
+                self.interner.intern(&name_str)
+            } else {
+                closure.callable.name_sym
+            };
+
+            let span_index = frame.ip.saturating_sub(1);
+            let span = closure.callable.chunk.span_at(span_index);
+            let source = module.source_at(closure.callable.chunk.source_id);
+            let line = source.as_ref().map_or(0, |text| closure.callable.chunk.line_at(span_index, text));
+
+            records.push(crate::error::FrameRecord::Normal {
+                module: module_sym,
+                method: method_sym,
+                line: line as u32,
+            });
+        }
+        records
     }
 }
 

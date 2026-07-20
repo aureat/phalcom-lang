@@ -383,7 +383,26 @@ impl VM {
                     self.switch_to_fiber_and_deliver(resumer, value);
                     // Loop again: keep draining, now as `resumer`.
                 }
-                Err(e) => {
+                Err(mut e) => {
+                    if !matches!(e, PhError::Runtime(RuntimeError::Raise { .. })) {
+                        let error_class = self.universe.classes.error_class;
+                        let field_count = self.heap.class(error_class).field_count;
+                        let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
+                        inst.slots[0] = self.alloc_string_value(e.to_string());
+                        if let PhError::Runtime(runtime_err) = &e {
+                            if let Some(kind_val) = self.error_kind_symbol(runtime_err) {
+                                inst.slots[1] = kind_val;
+                            }
+                        }
+                        let error = Value::Obj(self.heap.alloc(Object::Instance(inst)));
+                        let rendered = e.to_string();
+                        e = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback: None });
+                    }
+                    if let PhError::Runtime(RuntimeError::Raise { traceback, .. }) = &mut e {
+                        if traceback.is_none() {
+                            *traceback = Some(self.capture_frames(0));
+                        }
+                    }
                     // Fiber-floor capture, failure path (spec §3.2, the
                     // DEC-FIB-A fix): the U-CORE-6 unwind reached the top of
                     // the current fiber's own activation uncaught. Capture it
@@ -391,7 +410,7 @@ impl VM {
                     // fiber boundary. Under `call`, cascade the same capture
                     // straight up the resumer chain — without executing any
                     // of an intermediate `call`-mode resumer's own bytecode,
-                    // exactly as if `e` had been raised at each `call()` site
+                    // exactly as if `e` raised at each `call()` site
                     // in turn with no handler — until a `try`-mode resumer
                     // (which gets the `Error` delivered as a value instead)
                     // or the root fiber (which ends the whole run) is
@@ -427,6 +446,23 @@ impl VM {
                         // fiber-scoped `close_fiber_upvalues_from` rather than
                         // `close_upvalues_from`.
                         self.close_fiber_upvalues_from(failed, 0);
+
+                        let mode = self.heap.fiber(failed).resume_mode;
+                        let Some(resumer) = self.heap.fiber(failed).resumer else {
+                            return Err(e);
+                        };
+
+                        if let PhError::Runtime(RuntimeError::Raise { traceback: Some(tb), .. }) = &mut e {
+                            let failed_fiber = self.heap.fiber(failed);
+                            tb.push(crate::error::FrameRecord::FiberBoundary {
+                                seq: failed_fiber.seq,
+                                spawn_file: failed_fiber.spawn_file,
+                                spawn_line: failed_fiber.spawn_line,
+                            });
+                            let resumer_frames = self.capture_parked_frames(resumer);
+                            tb.extend(resumer_frames);
+                        }
+
                         // Spec §5.1: a `Failed` fiber can never resume, so its
                         // parked state is pure retention — clear all three
                         // parked fields here (not just `frames`). The
@@ -440,10 +476,7 @@ impl VM {
                         self.heap.fiber_mut(failed).frames.clear();
                         self.heap.fiber_mut(failed).stack.clear();
                         self.heap.fiber_mut(failed).open_upvalues.clear();
-                        let mode = self.heap.fiber(failed).resume_mode;
-                        let Some(resumer) = self.heap.fiber(failed).resumer else {
-                            return Err(e);
-                        };
+
                         match mode {
                             crate::heap::FiberResumeMode::Try => {
                                 self.switch_to_fiber_and_deliver(resumer, error_value);
@@ -496,6 +529,11 @@ impl VM {
         let field_count = self.heap.class(error_class).field_count;
         let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
         inst.slots[0] = self.alloc_string_value(e.to_string());
+        if let PhError::Runtime(runtime_err) = e {
+            if let Some(kind_val) = self.error_kind_symbol(runtime_err) {
+                inst.slots[1] = kind_val;
+            }
+        }
         Value::Obj(self.heap.alloc(Object::Instance(inst)))
     }
 

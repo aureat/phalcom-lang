@@ -71,7 +71,7 @@ fn cannot_switch_across_native_frame(vm: &mut VM, rendered: String) -> crate::er
     let mut inst = InstanceObject::new(class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
     let error = Value::Obj(vm.heap.alloc(Object::Instance(inst)));
-    RuntimeError::Raise { error, rendered }.into()
+    RuntimeError::Raise { error, rendered, traceback: None }.into()
 }
 
 /// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1) for a
@@ -147,6 +147,19 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
     // counter.
     fiber.seq = vm.next_fiber_seq;
     vm.next_fiber_seq += 1;
+    let (spawn_file, spawn_line) = if let Some(caller_frame) = vm.frames.last() {
+        let closure = vm.heap.closure(caller_frame.closure);
+        let module = vm.heap.module(closure.module);
+        let span_index = caller_frame.ip.saturating_sub(1);
+        let span = closure.callable.chunk.span_at(span_index);
+        let source = module.source_at(closure.callable.chunk.source_id);
+        let line = source.as_ref().map_or(0, |text| closure.callable.chunk.line_at(span_index, text));
+        (Some(module.symbol()), line as u32)
+    } else {
+        (None, 0)
+    };
+    fiber.spawn_file = spawn_file;
+    fiber.spawn_line = spawn_line;
     Ok(vm.heap.alloc(Object::Fiber(Box::new(fiber))))
 }
 
@@ -250,7 +263,7 @@ pub fn fiber_abort(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
     }
     let error = args[0];
     let rendered = error.to_string(vm);
-    Err(RuntimeError::Raise { error, rendered }.into())
+    Err(RuntimeError::Raise { error, rendered, traceback: None }.into())
 }
 
 /// Signature: `Fiber#call`/`call(_)` — resumes the receiver fiber, re-raising

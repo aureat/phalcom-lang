@@ -127,6 +127,10 @@ pub struct FiberObject {
     /// [`crate::vm::VM`]'s own counter, since a bare [`FiberObject`] constructor
     /// has no [`crate::vm::VM`] to draw the next id from.
     pub seq: u32,
+    /// Symbol of the module where this fiber was spawned (None for root).
+    pub spawn_file: Option<crate::interner::Symbol>,
+    /// Line number where this fiber was spawned (0 for root).
+    pub spawn_line: u32,
 }
 
 impl FiberObject {
@@ -151,6 +155,8 @@ impl FiberObject {
             resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
             seq: 0,
+            spawn_file: None,
+            spawn_line: 0,
         }
     }
 
@@ -174,6 +180,8 @@ impl FiberObject {
             resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
             seq: 0,
+            spawn_file: None,
+            spawn_line: 0,
         }
     }
 
@@ -199,6 +207,8 @@ impl FiberObject {
             // spec §6) — the one fiber never spawned through
             // `new_fiber_ref`/`VM::next_fiber_seq`.
             seq: 1,
+            spawn_file: None,
+            spawn_line: 0,
         }
     }
 }

@@ -90,25 +90,43 @@ impl VM {
         {
             let error_class = vm.universe.classes.error_class;
             let msg_sym = vm.interner.intern("_message");
+            let kind_sym = vm.interner.intern("_kind");
+            let cause_sym = vm.interner.intern("_cause");
+            let displaced_sym = vm.interner.intern("_displaced");
             vm.heap.class_mut(error_class).field_slots.insert(msg_sym, 0);
-            vm.heap.class_mut(error_class).field_count = 1;
+            vm.heap.class_mut(error_class).field_slots.insert(kind_sym, 1);
+            vm.heap.class_mut(error_class).field_slots.insert(cause_sym, 2);
+            vm.heap.class_mut(error_class).field_slots.insert(displaced_sym, 3);
+            vm.heap.class_mut(error_class).field_count = 4;
         }
         {
             let mnu = vm.universe.classes.message_not_understood_class;
             let msg_sym = vm.interner.intern("_message");
+            let kind_sym = vm.interner.intern("_kind");
+            let cause_sym = vm.interner.intern("_cause");
+            let displaced_sym = vm.interner.intern("_displaced");
             let reified_sym = vm.interner.intern("_reifiedMessage");
             vm.heap.class_mut(mnu).field_slots.insert(msg_sym, 0);
-            vm.heap.class_mut(mnu).field_slots.insert(reified_sym, 1);
-            vm.heap.class_mut(mnu).field_count = 2;
+            vm.heap.class_mut(mnu).field_slots.insert(kind_sym, 1);
+            vm.heap.class_mut(mnu).field_slots.insert(cause_sym, 2);
+            vm.heap.class_mut(mnu).field_slots.insert(displaced_sym, 3);
+            vm.heap.class_mut(mnu).field_slots.insert(reified_sym, 4);
+            vm.heap.class_mut(mnu).field_count = 5;
         }
         // `CannotYieldAcrossNativeFrame < Error` (U-FIBER, D-FIB-1): no
-        // fields beyond the inherited `_message` slot 0 — mirrors `Error`
+        // fields beyond the inherited slots — mirrors `Error`
         // itself rather than adding anything.
         {
             let cynf = vm.universe.classes.cannot_yield_across_native_frame_class;
             let msg_sym = vm.interner.intern("_message");
+            let kind_sym = vm.interner.intern("_kind");
+            let cause_sym = vm.interner.intern("_cause");
+            let displaced_sym = vm.interner.intern("_displaced");
             vm.heap.class_mut(cynf).field_slots.insert(msg_sym, 0);
-            vm.heap.class_mut(cynf).field_count = 1;
+            vm.heap.class_mut(cynf).field_slots.insert(kind_sym, 1);
+            vm.heap.class_mut(cynf).field_slots.insert(cause_sym, 2);
+            vm.heap.class_mut(cynf).field_slots.insert(displaced_sym, 3);
+            vm.heap.class_mut(cynf).field_count = 4;
         }
         Universe::install_primitives(&mut vm);
 

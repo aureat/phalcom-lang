@@ -60,6 +60,21 @@ pub enum IoError {
     Message(String),
 }
 
+/// A traceback frame record captured at the raise/throw site, GC-immune by using Symbol.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum FrameRecord {
+    Normal {
+        module: crate::interner::Symbol,
+        method: crate::interner::Symbol,
+        line: u32,
+    },
+    FiberBoundary {
+        seq: u32,
+        spawn_file: Option<crate::interner::Symbol>,
+        spawn_line: u32,
+    },
+}
+
 #[derive(Error, Debug, Clone)]
 pub enum RuntimeError {
     #[error("Method {signature} expected {}, got {found}", format_num_arguments(*expected))]
@@ -112,6 +127,8 @@ pub enum RuntimeError {
         /// A display snapshot of `error`'s `message` at raise time, used only
         /// to render the uncaught-error trace; never itself catchable.
         rendered: String,
+        /// Traceback frames captured at the catch/unwind boundary.
+        traceback: Option<Vec<FrameRecord>>,
     },
 
     #[error("Unsupported operation '{op}' for {value}")]
