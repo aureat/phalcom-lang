@@ -154,6 +154,47 @@ fn lex_error_to_syntax(err: LexicalError, offset: usize) -> SyntaxError {
     }
 }
 
+/// Lowers a [`LexicalError`] into the parser's diagnostic list, co-emitting
+/// [`SyntaxErrorKind::UnrecognizedEof`] when input ended inside an open lexer mode.
+///
+/// Most lexical errors lower to exactly one [`SyntaxError`]. An *unterminated*
+/// construct is different: it means the author has not finished typing, which is a
+/// continuable state — but the grammar cannot see it. A bare `/* …` produces an
+/// empty statement list, which is a **grammatically complete parse**, so the parser
+/// never wants another token and never emits `UnrecognizedEof` on its own.
+///
+/// Co-emitting one here is what lets a consumer's completeness rule stay a single
+/// question about the parser ("did any error say `UnrecognizedEof`?") instead of
+/// growing a second, drifting model of the grammar. The REPL's validator is
+/// unchanged by this
+/// ([PDR-0006](../../docs/decisions/0006-repl-completeness-is-a-parser-signal.md) §1–2).
+///
+/// The obligation is over *modes*, not over today's two cases: **any** future
+/// heredoc, raw string, or nested-interpolation mode must co-emit here too, or it
+/// silently stops continuing in the REPL (PDR-0006 §3).
+fn push_lex_error(errors: &mut Vec<SyntaxError>, err: LexicalError, offset: usize) {
+    let expected_closer = match &err {
+        LexicalError::UnterminatedBlockComment(_) => Some("`*/`"),
+        LexicalError::UnterminatedString(_) => Some("`\"`"),
+        _ => None,
+    };
+
+    let lowered = lex_error_to_syntax(err, offset);
+    // End-of-input is a point, not a span — the convention `SyntaxError::range`
+    // documents for `UnrecognizedEof`.
+    let eof_point = lowered.range.end..lowered.range.end;
+    errors.push(lowered);
+
+    if let Some(closer) = expected_closer {
+        errors.push(SyntaxError {
+            kind: SyntaxErrorKind::UnrecognizedEof {
+                expected: vec![closer.to_string()],
+            },
+            range: eof_point,
+        });
+    }
+}
+
 /// A single scanned lexeme: a token plus its half-open byte span.
 struct Lexeme {
     /// The token value.
@@ -200,7 +241,7 @@ impl<'source> Parser<'source> {
                     start: start + offset,
                     end: end + offset,
                 }),
-                Err(err) => errors.push(lex_error_to_syntax(err, offset)),
+                Err(err) => push_lex_error(&mut errors, err, offset),
             }
         }
         if !matches!(

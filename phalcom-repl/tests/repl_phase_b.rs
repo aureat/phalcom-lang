@@ -36,6 +36,25 @@ fn validator_matches_probe_classification() {
 }
 
 #[test]
+fn unterminated_lexer_mode_continues() {
+    // PDR-0006. A bare `/* …` used to classify Invalid and submit mid-comment: an
+    // empty statement list is a grammatically *complete* parse, so the parser never
+    // wanted another token and never emitted `UnrecognizedEof`. The lowering now
+    // co-emits one, and the validator's single rule is untouched.
+    assert_eq!(classify("/* an unfinished comment"), Verdict::Incomplete);
+    assert_eq!(classify("/* spanning\n   two lines"), Verdict::Incomplete);
+    // A bare unterminated string is the same shape, and now continues for the same
+    // reason rather than incidentally.
+    assert_eq!(classify("\"an unfinished string"), Verdict::Incomplete);
+
+    // A *closed* comment is complete, not continued — the co-emission must not fire
+    // for a mode that was properly terminated.
+    assert_eq!(classify("/* done */ let x = 1"), Verdict::Complete);
+    // And a genuine syntax error is still Invalid, not held open forever.
+    assert_eq!(classify("let x = )"), Verdict::Invalid);
+}
+
+#[test]
 fn invalid_input_submits_rather_than_waiting() {
     let v = PhalcomValidator;
     let res = v.validate("let x = )");
