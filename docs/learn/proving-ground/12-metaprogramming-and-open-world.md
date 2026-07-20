@@ -523,10 +523,11 @@ representation.
 **3.** Because `eval` requires the **compiler to be present in the shipped runtime**, and
 that is a VM-level fact, not a compiler-level one. Consequences: you cannot ship an
 ahead-of-time-only artifact; you cannot close the world for whole-program optimisation; you
-cannot claim a memory ceiling (compilation allocates); you cannot run on a platform that
-forbids generating executable pages (iOS's W^X restrictions are why JavaScriptCore on iOS
-historically ran interpreted for third-party apps); and every cache keyed on "the program's
-shape" needs an invalidation path. It also permanently changes your security posture: any
+cannot claim a memory ceiling (compilation allocates); and every cache keyed on "the
+program's shape" needs an invalidation path. Note what this does *not* foreclose: a platform
+banning writable-executable pages kills the **JIT**, not `eval` — JavaScriptCore embedded in
+a third-party iOS app runs `eval` interpreted, at roughly an order-of-magnitude slowdown.
+The permanent cost is the front end in your binary, not the pages. It also permanently changes your security posture: any
 path from untrusted input to `eval` is remote code execution, so the feature is a
 threat-model line item. This is why "we have `eval`" belongs in the same decision tier as
 "we have a GC."
@@ -786,9 +787,11 @@ this token, and therefore which scope its identifiers resolve in. That is the sa
 scope-set information from A4, stored on the token. So `Span::call_site()` does two things
 at once — it makes errors point at the caller *and* makes identifiers resolve in the
 caller's scope (unhygienically); a definition-site span points errors at the macro and
-resolves in the macro's scope. The two are not separable, which is a genuine design wart:
-you sometimes want the error location of one and the hygiene of the other, and the API
-gives you a single knob.
+resolves in the macro's scope. They are only partly separable, which is the design wart:
+`Span::mixed_site()` exists precisely because you often want the caller's *location* with the
+macro's *hygiene* for locals, labels, and `$crate` — that is `macro_rules!` hygiene, and it
+is stable. The knob is coarse — three presets, with `def_site()` still unstable — but the two
+properties are not fully welded together.
 
 **3.** Because a source map is the *cheapest possible reconstruction* of the span
 information the generator threw away: a side table from generated position back to source
@@ -858,8 +861,11 @@ stacks, and all registers) rewriting every pointer to A into a pointer to B. O(h
 `become:`, but ordinary access stays direct. The trade is stark and it is the same trade as
 handles-versus-direct-pointers in a moving GC: you can make one rare operation cheap by
 taxing every common one, or keep the common one fast and accept that the rare operation is
-a full-heap event. Most modern systems chose (b) and made `become:` correspondingly rare and
-expensive.
+a full-heap event. But there is a third point, and it is the one that actually shipped:
+(c) **lazy forwarding**, as in Spur (Squeak 5+, Pharo) — reserve a forwarding slot in every
+object, install forwarders in O(1) on `become:`, and repair references lazily through a
+partial read barrier and during GC. That recovers most of (a)'s O(1) while taxing only
+barriered reads rather than every access, at roughly 3.6% space overhead.
 
 **3.** The cascade is over the **transitive subclass closure** for shape, and over the
 **transitive set of compiled code and cache entries that recorded any assumption touching

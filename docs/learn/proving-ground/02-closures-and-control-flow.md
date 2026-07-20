@@ -345,8 +345,10 @@ gets multiplied by the loop trip count. The uncomfortable consequence is action 
 adding one reference to an outer variable in a deeply nested helper silently changes the
 allocation profile of code far above it, with nothing at the edit site to suggest it.
 
-**3.** Optimizing compilers generally prefer flat closures. Closure conversion into a flat
-record is the standard result of lambda lifting, and it makes the environment a plain struct
+**3.** Optimizing compilers generally prefer flat closures. Flat-versus-linked is a choice
+*within* closure conversion — the neighbouring transformation, lambda lifting, avoids the
+record entirely by turning free variables into extra parameters and rewriting every call
+site. A flat record makes the environment a plain struct
 with known offsets — which is what enables scalar replacement, unboxing, and treating captured
 immutable values as constants for constant folding. The answer flips when creation dominates:
 a callback allocated in a hot loop and invoked once pays (B)'s copying on every iteration and

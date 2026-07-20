@@ -106,9 +106,10 @@ class C(A, B): pass   # TypeError: Cannot create a consistent method resolution 
 ```
 
 1. State the consistency requirement being violated, in terms of orderings.
-2. Naive depth-first left-to-right — Python 2.2, and what most hand-rolled systems do —
-   accepts this. What does it get *wrong* in the ordinary diamond, and why did Python
-   consider that worth a breaking change?
+2. Naive depth-first left-to-right — Python's *classic* (old-style) classes, and what most
+   hand-rolled systems do — accepts this. What does it get *wrong* in the ordinary diamond?
+   Python 2.2's new-style MRO already fixed that case; say what was still broken in 2.2 that
+   made C3 worth another breaking change in 2.3.
 3. C3 makes some hierarchies illegal. Argue that this is the right trade, then give the
    strongest counterargument.
 
@@ -378,7 +379,10 @@ split forces you to decide up front which one you are doing.
 ancestry link itself is per-object and reassignable.** Setting `Foo.prototype.bar` changes
 every existing instance because the link is to a live object, not to a description — a
 language with class reopening can match that. But `Object.setPrototypeOf(o, other)` changes
-one object's ancestry retroactively, and essentially no class-based language offers that. It
+one object's ancestry retroactively. Class-based languages that offer the analogue do so as a
+deliberately marked escape hatch — Python's `__class__` assignment, Objective-C's
+`object_setClass` (the mechanism behind KVO), Smalltalk's `become:` — never as an ordinary
+operation, and each carries the same deoptimizing consequence. It
 is exactly why `setPrototypeOf` is a deoptimizing operation in every JS engine: the derived
 shape encodes an assumption that ancestry is stable, and that operation falsifies it for a
 single object, which is the worst granularity to have to handle.
@@ -588,8 +592,10 @@ and requires the entire deoptimization apparatus. HotSpot's class-hierarchy-anal
 devirtualization is exactly this bet: assume a single implementor, deoptimize when a second
 one loads. Sealing forecloses monkey patching, runtime extension of third-party classes,
 patch-based test doubles, and plugins that add behaviour to core types — which is to say it
-forecloses Ruby, and languages like Wren that never offered class reopening did so precisely
-to keep this closed-world assumption.
+forecloses Ruby. Wren is the small-scale version of the same bet: because its classes are
+closed, it copies inherited methods down into each subclass's own method table at declaration
+time, so an inherited send is one hash lookup with no chain walk — a closed-world payoff that
+needs no inliner or deoptimizer to collect.
 
 ### A11 — Fields, offsets, and the fragile base class
 
@@ -668,8 +674,10 @@ achievement is real and the equivalence is not.
 ### A13 — Interface dispatch is not virtual dispatch
 
 **1.** Under single inheritance a subclass's vtable is a prefix-extension of its superclass's,
-so the slot for `Base.m` sits at the same index in every subclass — a compile-time constant,
-and one indexed load. An interface can be implemented by classes with entirely unrelated
+so the slot for `Base.m` sits at the same index in every subclass, reached by one indexed
+load. In C++ that index is a compile-time constant; on the JVM `invokevirtual` carries a
+symbolic constant-pool reference and the index is fixed at link time, then cached. Either
+way the load-bearing property is that a *consistent* index exists at all. An interface can be implemented by classes with entirely unrelated
 vtable layouts, and one class can implement many interfaces, so no consistent index exists:
 assigning one would require every implementor of `I` to reserve the same slot, which is
 impossible to arrange across an open program compiled in pieces. So `invokeinterface` has to
@@ -708,11 +716,13 @@ reflection can hand you a `CompiledMethod`, but invoking it requires supplying a
 explicitly.
 
 **2.** It allocates a bound-method object per attribute access — one short-lived heap object
-per `obj.method(...)` call, immediately garbage. CPython avoids it with a **`LOAD_METHOD` /
-`CALL_METHOD` pair**: `LOAD_METHOD` detects the common case (a plain function found on the
-type and not shadowed in the instance dict) and pushes the unbound function and the receiver
-as two separate stack entries, so the call can prepend the receiver directly with no wrapper
-object. Anything unusual falls back to the general path. Structurally that is an inline
+per `obj.method(...)` call, immediately garbage. CPython avoids it by **splitting the load**:
+the bytecode detects the common case (a plain function found on the type and not shadowed in
+the instance dict) and pushes the unbound function and the receiver as two separate stack
+entries, so the call can prepend the receiver directly with no wrapper object. This shipped
+as a `LOAD_METHOD`/`CALL_METHOD` pair in 3.7; `CALL_METHOD` was removed in 3.11 and
+`LOAD_METHOD` folded back into `LOAD_ATTR` as a flag bit in 3.12, to get better
+specialization. The mechanism is current; the opcode names are not. Anything unusual falls back to the general path. Structurally that is an inline
 cache: a fast path admitted by a cheap check, with a general path behind it.
 
 **3.** Because call-form-determined `this` means every callback loses the receiver —
@@ -782,7 +792,9 @@ a super send — or a selector namespaced by the defining class, so a private `#
 really `#Foo::reset` and is unforgeable from outside. Both are implementable and both are
 *fast*, because resolution is static. What breaks: private methods stop being usefully
 overridable, since a subclass's `reset` is a different selector and a base method calling
-`reset` will never reach it — that is exactly C++'s non-virtual private semantics, and it is
+`reset` will never reach it. Note this is *not* what C++ does — C++ private virtuals are
+overridable, and the Non-Virtual Interface idiom depends on exactly that — so the nearest
+analogue is C++ name hiding on *non-virtual* members. It is
 surprising in a dynamic language where people expect overriding to work. Reflective invocation
 then needs an escape hatch that reopens the hole. And `respond_to?` / `doesNotUnderstand` now
 need a notion of "absent from here but present from there", so a miss is no longer a property

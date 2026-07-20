@@ -44,7 +44,7 @@ int x = 10, y = 3;
 int z = x---y;          // what does this compute?
 ```
 ```lua
-print(1..2)             -- error: malformed number near '1..'
+print(1..2)             -- error: malformed number near '1..2'
 ```
 
 1. State the rule that produces both of these, and explain why it is the rule despite
@@ -350,7 +350,7 @@ saying something; a candidate who says "C is badly designed" is not.
 characters that forms a valid token, with no regard for whether the resulting token stream
 parses. So `x---y` lexes as `x`, `--`, `-`, `y` (postfix decrement of `x`, then binary
 minus) — which is legal C and computes `x-- - y`, i.e. `10 - 3 == 7`, leaving `x == 9`. In
-Lua, `1..2` starts a number at `1` and the number scanner munches `1..` greedily before
+Lua, `1..2` starts a number at `1` and the number scanner munches `1..2` greedily before
 failing, so you get a malformed-number error rather than concat. It is the rule because the
 alternative — letting the parser guide token boundaries — makes the lexer's output
 non-deterministic and its cost unbounded, and because for the overwhelming majority of
@@ -371,11 +371,13 @@ locally.
 - **Require whitespace** (`1 .. 2`). Cheapest to implement, but now whitespace is
   significant inside expressions, which surprises everyone and interacts badly with
   formatters and with macro-generated code.
-- **Forbid trailing-dot float literals** — require `1.0` and never allow `1.`. This is
-  Rust's neighbourhood: it makes `1..2` unambiguous by shrinking the float grammar. Costs a
-  small convenience and closes a door on `1.` forever.
+- **Forbid trailing-dot float literals** — require `1.0` and never allow `1.`. Makes `1..2`
+  unambiguous by shrinking the float grammar; costs a small convenience and closes a door on
+  `1.` forever. (Rust is *not* this option — it allows `1.` and took the next one instead.)
 - **Lexer lookahead / backtracking**: on seeing `1..`, check whether the next char is a
-  digit; if not, emit integer `1` then `..`. This is a targeted maximal-munch violation and
+  digit; if not, emit integer `1` then `..`. **This is what Rust actually does** — its float
+  literal is `DEC_LITERAL .` with a negative lookahead `!( . | _ | XID_Start )`, so `1.` is
+  legal while `1..2` and `1.foo()` still lex correctly. It is a targeted maximal-munch violation and
   works well, but it is a precedent — every such special case is one more place the token
   stream is not a pure longest-match function, and they interact.
 - **Pick a different operator** (`...`, `to`, `:`). Free at the lexer, costs you a
@@ -622,9 +624,12 @@ restricted-production half of ASI is not opt-out.
 **1.** `Thing()` is being read as a **parameter declaration**: an unnamed parameter of type
 "function taking no arguments and returning `Thing`", which then decays to a function
 pointer. So the whole line declares `w` as a function taking such a parameter and returning
-`Widget`. The rule is the standard's disambiguation: **if a construct can be parsed as a
-declaration or as an expression statement, it is a declaration.** The same rule makes
-`Widget w();` a function declaration rather than a default-constructed variable.
+`Widget`. Cite the right rule: this is **`[dcl.ambig.res]`**, not the statement-level
+`[stmt.ambig]`, because *both* readings here are declarations — the choice is between a
+function declaration with redundant parentheses around a parameter and an object declaration
+with a function-style cast as its initializer, resolved by the same prefer-declaration
+principle. (`Widget w();` needs no disambiguation rule at all: `()` is not a valid
+initializer, so the function-declaration reading is the only grammatical one.)
 
 **2.** Not a lexer/parser-split problem: every token here is unambiguous, and no amount of
 symbol-table feedback helps — `Thing` is a type name in both readings. Not fixable by
@@ -837,7 +842,9 @@ character composed versus decomposed, say `é` as U+00E9 versus `e` + U+0301 —
 symbols**, so a declaration and a use that look identical and compare equal in the user's
 editor fail to resolve. Worse, whether they are equal depends on which editor or input method
 produced the file. NFC normalization makes canonically equivalent spellings the same
-identifier, which is what Rust and Swift do. The new problem: the identifier in the source no
+identifier, which is what Rust does (RFC 2457). Swift is the trap here: despite an
+accepted-in-principle proposal from 2016 it still compares identifiers by raw scalars, so an
+NFC declaration and an NFD use do not resolve. The new problem: the identifier in the source no
 longer matches the byte sequence anywhere the name escapes the compiler — **exported symbol
 names, mangled names, filenames derived from module names, debug info, and FFI lookups**.
 Some filesystems normalize differently (Apple's HFS+ historically stored NFD), so a module
@@ -861,8 +868,11 @@ grammar.
 **3.** Unicode property tables change between Unicode versions — characters are added,
 and derived properties like `XID_Start`/`XID_Continue` (the UAX #31 identifier properties)
 grow. So **which programs lex depends on which Unicode version your compiler was built
-against**, and upgrading the table can make previously-invalid programs valid — or, rarely
-and much worse, change a character's category. Consequences: your grammar is not stable
+against**, and upgrading the table can make previously-invalid programs valid. It cannot go
+the other way: Unicode's identifier stability policy guarantees a character with
+`XID_Start`/`XID_Continue` keeps it forever, which is exactly why UAX #31 steers languages to
+the XID_* properties rather than ID_*. So the hazard is one-directional — the set of legal
+programs grows with your toolchain's Unicode version and never shrinks. Consequences: your grammar is not stable
 unless you pin a Unicode version, and pinning means you fall behind and reject new scripts;
 not pinning means the language accepted is a function of the toolchain build. Every language
 that supports non-ASCII identifiers has quietly accepted that its lexical specification is
@@ -905,9 +915,12 @@ practice this pushes Scala library authors to pick operator spellings for their 
 rather than for their meaning, which is a real cost that shows up as unreadable names.
 
 **Trap.** Claiming user-defined precedence is "just a table the parser consults." The table
-is not available at parse time in any language with modules, and saying so is the whole
-question. If the answer does not mention that fixity crosses a module boundary and therefore
-requires name resolution, it has missed why the feature is hard rather than tedious.
+is not available at parse time when fixity is *declared* and crosses a module boundary, which
+is the whole question — shaping the tree then requires name resolution first. If the answer
+misses that, it has missed why the feature is hard rather than tedious. The exception proves
+it: Scala derives precedence from the operator's first character, which is exactly the design
+that keeps the table available at parse time, at the cost of letting anyone pick a
+precedence.
 
 ### A17 — Nobody generates their parser
 

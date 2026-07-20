@@ -309,7 +309,9 @@ the program. The collapsing workload is code that defines methods at runtime in 
 defining singleton methods per object, metaprogramming that generates accessors, a REPL
 reopening classes, lazily loading libraries — where the process spends its life flushing
 and re-warming every cache it has. Ruby lived this with a single global method-cache serial
-and moved to finer-grained per-class serials for exactly this reason.
+and moved to per-class caches with finer-grained invalidation for exactly this reason —
+Ruby 3.0 went past class serials to an invalidation flag on the method entry itself, because
+class-serial comparison had its own blast-radius problem.
 *B (dependency lists).* Read side: **free** — the cache stores no version; if it is there,
 it is valid. Write side: expensive and fiddly. You maintain lists whose memory is
 proportional to sites times dependencies, an invalidating definition must find every
@@ -479,9 +481,11 @@ instantly with essentially no analysis and buys a large constant factor over the
 interpreter. Second, and this is the one that is not about speed: the baseline tier
 provides a **stable, well-specified frame layout and IC infrastructure to deoptimize
 into**. Deopt has to land somewhere, and landing in a baseline frame with a known layout is
-far simpler than reconstructing an interpreter's state. JSC's Baseline, V8's Sparkplug, and
-HotSpot's C1 all serve this double duty, and the deopt-target role is why they survive even
-as interpreters get faster.
+far simpler than reconstructing an interpreter's state. JSC's Baseline and V8's Sparkplug
+both serve this double duty — DFG OSR exits prefer Baseline, and V8 dispatches deopt into
+Sparkplug code when the function has it. HotSpot is the instructive exception: it unpacks
+deopt into **interpreter** frames unconditionally, so C1's role is tiering economics only,
+never a deopt landing pad. Do not put C1 in this list.
 
 ### A9 — Materializing what the optimizer erased
 

@@ -69,8 +69,9 @@ L:  x1 = phi(a, y1)
    name the fix.
 2. Describe the lost-copy problem — the setup that produces it and why splitting critical
    edges is part of the answer.
-3. Modern compilers allocate registers *before* destructing SSA. State the argument for
-   that ordering, and name the problem it relocates rather than solves.
+3. Some compilers allocate registers *before* destructing SSA — Go's backend does — while
+   LLVM, GCC, and HotSpot C2 all destruct first. State the argument for the SSA-first
+   ordering, and name the problem it relocates rather than solves.
 
 ### Q5 — CPS, ANF, and SSA
 
@@ -136,9 +137,9 @@ Point p = new Point(x, y);
 return p.x + p.y;
 ```
 
-1. Scalar replacement and stack allocation are the two payoffs. HotSpot does one of them
-   far more than the other. Say which, and give the reason it is the easier one — the
-   reason is about the *collector*, not about the stack.
+1. Scalar replacement and stack allocation are the two payoffs. HotSpot ships one and not
+   the other. Say which, and give the reason it is the tractable one — the reason is about
+   the *collector*, not about the stack.
 2. Escape analysis dies at a call the compiler did not inline. Explain the mechanism, and
    state the consequence for pass ordering.
 3. An object was scalar-replaced. Execution then deoptimizes, and the interpreter expects
@@ -435,7 +436,8 @@ re-acquiring, explicitly, one thing CPS had for free.
 **Trap.** "CPS is obsolete; everyone uses SSA now." The correspondence in part 1 means they
 are the same structure viewed from two sides, and the choice is driven entirely by the source
 language: a compiler for a language with first-class control or effect handlers still reaches
-for a continuation-based IR, and GHC, Racket, and the ML-family compilers did not switch.
+for a continuation-based IR — SML/NJ is the standing example. But the correspondence cuts
+both ways: MLton compiles Standard ML through **SSA**, and OCaml's Flambda is ANF, not CPS.
 "Obsolete" here means "not what LLVM does," which is a statement about LLVM's input language.
 
 ### A6 — Loops need a tree
@@ -714,8 +716,10 @@ runs an optimizer over the entire program, which is where the multi-gigabyte-RSS
 failures come from); **incrementality** (a one-line change can invalidate optimization
 decisions across the program, so the "rebuild one file" model degrades); **debuggability and
 reproducibility of performance** (a function's generated code now depends on the whole
-program, so a benign change elsewhere can move it); and **parallelism** (monolithic LTO is
-fundamentally a single-threaded whole-program pass).
+program, so a benign change elsewhere can move it); and **parallelism** — the whole-program
+analysis stage is inherently serial and needs all the IR resident at once. Codegen itself can
+be partitioned (GCC's LTRANS stage under WHOPR, LLVM's `-flto-partitions`), so the honest
+claim is that the *analysis* does not parallelize and the memory ceiling is what bites.
 
 **3.** ThinLTO puts a compact **per-module summary** in the object file: the module's symbol
 definitions and references, a call graph with rough profile/size information, and enough
@@ -831,8 +835,10 @@ means either a miscompilation or a nondeterminism bug. GCC's `make bootstrap` pe
 exactly this comparison and it is a standard way both classes of bug get caught.
 
 **2.** **Go** made a clean break: at 1.5 they mechanically translated the C-written
-compiler into Go, so the toolchain became self-hosted in one step, and every release since
-is built by the previous Go release. The trade: a large one-time engineering cost, initially
+compiler into Go, so the toolchain became self-hosted in one step. Releases then bootstrapped
+from Go 1.4 — the last C-implemented release — for years, and the floor now advances roughly
+annually (Go 1.24 and 1.25 require Go 1.22), so the chain is deliberately kept a few hops
+long rather than growing per release. The trade: a large one-time engineering cost, initially
 worse-quality generated code (the translation was faithful, not idiomatic), in exchange for
 a short, comprehensible chain and no permanent C dependency. **Rust** built a chain: each
 release is compiled by the previous release's binary, going back through many releases to
@@ -849,7 +855,7 @@ release that **accepts and implements** the new construct without the compiler's
 using it; then, one release later, the compiler's source may use it. The mechanism a real
 compiler uses is a **bootstrap conditional**: `rustc` compiles its own source with
 `#[cfg(bootstrap)]` / `#[cfg(not(bootstrap))]`, so a single source tree can be built either
-by the previous stable compiler (taking the old code path) or by the in-tree compiler
+by the stage0 compiler — which is the current *beta*, not the last stable — or by the in-tree compiler
 (taking the new one), and the old arm is deleted in the following cycle. Without such a
 mechanism your only options are to keep a binary blob or to freeze the language.
 
@@ -874,12 +880,15 @@ not magic.
 
 **2.** **Diverse double-compiling** (Wheeler). Let `S` be the compiler's source, `A` the
 suspect compiler binary, and `B` any *other* compiler for the same language, from an
-independent lineage. Compute `X = A(S)` and `Y = B(S)`. Now compile `S` again with each:
-compare `X(S)` against `Y(S)`. If `A` is honest, both `X` and `Y` are implementations of
-`S`'s semantics, so compiling `S` with either must produce the same artifact — the outputs
-must be bit-identical. If they differ, something injected code. What it **proves**: `A` did
-not inject anything into the compiler it built from `S` — the trusting-trust attack
-specifically. What it **assumes**: that the build is deterministic and reproducible (else the
+independent lineage. Compute `stage1 = B(S)` — the compiler's source built by the trusted
+outsider — then `stage2 = stage1(S)`. Now compare `stage2` against `A` itself, bit for bit.
+The second compile is what makes the test meaningful: `stage2` was produced by a compiler
+that was itself built from `S`, so if `A` is honest it must be the same artifact. What it
+**proves**: the suspect binary `A` corresponds to its purported source `S` — nothing lives
+in the binary that is absent from the source. Note the suspect binary must be *one side of
+the equality*; comparing two derived compilers against each other proves nothing, because a
+payload that backdoors `login` without reproducing itself into the compiler would leave both
+sides clean. What it **assumes**: that the build is deterministic and reproducible (else the
 comparison is meaningless), that `S`'s semantics are deterministic, that `B` is not
 subverted in a way that happens to produce the *identical* payload (independent lineage is
 the mitigation), and that the environment running the comparison is itself trustworthy.
@@ -888,7 +897,8 @@ the mitigation), and that the environment running the comparison is itself trust
 from identical inputs, no comparison — DDC's, stage-2-vs-stage-3, or a distribution's
 rebuild check — can distinguish an attack from a timestamp. They make the equality test
 meaningful. **Full-source bootstrap** (the Bootstrappable Builds work: `hex0`/`stage0`,
-GNU Mes, TinyCC, then GCC — as shipped in Guix and NixOS) contributes the *reduction of the
+GNU Mes, TinyCC, then GCC — Guix's default bootstrap path since 2023, with an equivalent
+effort still in progress in Nixpkgs) contributes the *reduction of the
 seed*: instead of trusting a multi-hundred-megabyte compiler binary, the trusted binary is
 a few hundred bytes of hex that a person can genuinely audit by hand, and everything above it
 is built from source. Residual trusted base after both: the **hardware** (Thompson's own

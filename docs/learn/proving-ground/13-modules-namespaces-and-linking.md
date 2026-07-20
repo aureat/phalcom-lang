@@ -172,7 +172,7 @@ Three points on a line:
 1. State what each system must ship to a consumer, and derive the recompilation
    consequences of each from that.
 2. Erasure buys separate compilation and a stable class-file format. Name the two concrete
-   things it costs, and why one of them took twenty years to start addressing.
+   things it costs, and why one of them is still unresolved twenty years on.
 3. Why did `export template` fail? Answer in terms of what the two-phase name lookup rules
    require an implementation to have retained.
 
@@ -770,7 +770,11 @@ of encapsulation either.
 
 **1.** You get `serde` **with `std` enabled**, despite asking for `default-features = false`:
 Cargo builds one copy of each crate version per unique feature-set-plus-target, and **unifies
-features across the graph by union**. The designers chose union because the alternative —
+features across the graph by union**. Resolver `"2"` — the default since edition 2021 —
+carves out three cases where it deliberately does *not* unify: build-dependencies and
+proc-macros, platform-specific deps for targets you are not building, and dev-dependencies.
+None of them help here, since both `serde` requirements are ordinary dependencies. The
+designers chose union because the alternative —
 building `serde` twice, once with `std` and once without — reintroduces exactly the two-copies
 problem of Q4: two `serde::Serialize` traits, two incompatible sets of impls, and a type
 implementing "the wrong one". Union guarantees one copy and therefore one coherent set of
@@ -807,9 +811,12 @@ the wrong file; only the resolved graph knows.
 
 ### A15 — The package manager is the real module system
 
-**1.** Easiest to hardest: **npm**, **Go MVS**, **Cargo**, **pip**. npm is easiest because
-nesting means a conflict is never fatal — the solver can always satisfy a constraint by
-giving that consumer its own copy, so resolution is nearly local. Go's MVS is easy for a
+**1.** Easiest to hardest: **npm**, **Go MVS**, **Cargo**, **pip**. npm is easiest *for
+ordinary `dependencies`*, because nesting means a conflict is never fatal — the solver hands
+that consumer its own copy, so resolution is nearly local. Its one genuinely hard constraint
+is `peerDependencies`, which exist precisely because nesting is *not* an acceptable answer
+there; since npm 7 a peer conflict is a fatal `ERESOLVE`, which is why `--legacy-peer-deps`
+is a fixture of real build files. Go's MVS is easy for a
 different reason: it is not a search at all, it is a **maximum over the requirements** —
 each module states a minimum, the answer is the largest minimum, which is computable in one
 pass with no backtracking, and is reproducible without a lockfile. Cargo is harder: it must

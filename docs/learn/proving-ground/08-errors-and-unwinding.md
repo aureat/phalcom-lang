@@ -123,9 +123,10 @@ unsafe { qsort(base, n, sz, cmp) };
 1. The panic unwinds out of `cmp` and into `qsort`'s frames. Name two distinct reasons this
    is undefined behaviour rather than merely rude — one about the frames, one about `qsort`
    itself.
-2. Rust's fix was to make `extern "C"` abort on unwind rather than propagate, and then to
-   add a separate `extern "C-unwind"` ABI. Why was a second ABI necessary — what real
-   pattern would a blanket abort have broken?
+2. Rust shipped its fix in two steps, in the opposite order to what you would guess:
+   `extern "C-unwind"` was stabilized first (1.71), and only later did plain `extern "C"`
+   change from undefined behaviour to a guaranteed abort (1.81). Why was a second ABI
+   necessary — what real pattern would a blanket abort have broken?
 3. C++ has the same problem in miniature with `noexcept`. A `noexcept` function that throws
    calls `std::terminate` rather than propagating. Why terminate instead of "just let it
    through, the annotation was only advice"?
@@ -536,10 +537,12 @@ mechanism, and the giveaway is `catch_unwind` appearing anywhere other than a bo
 
 ### A7 — Unwinding into code that never agreed
 
-**1.** (a) **The frames have no unwind information the personality routine can use.** C
-compiled without `-fexceptions` has no `.eh_frame` entry describing how to restore its
-frame, so the unwinder cannot even step past it correctly; behaviour ranges from a corrupt
-stack pointer to `_Unwind_RaiseException` failing in an unspecified state. (b) **`qsort`'s
+**1.** (a) **The C frames may carry no usable unwind actions.** Be careful how you state
+this: on x86-64 and aarch64 you usually *do* get `.eh_frame`, because those targets default
+to `-fasynchronous-unwind-tables` — what `-fexceptions` adds is the personality routine and
+the LSDA (`.gcc_except_table`), i.e. the cleanup and catch actions, of which C has none.
+Nothing in the C ABI *promises* the unwinder can restore the frame, so you are relying on a
+platform accident rather than a guarantee, and (b) below is the stronger reason anyway. (b) **`qsort`'s
 own invariants are abandoned.** `qsort` is in the middle of a partition: it may hold a
 scratch buffer it allocated, and the array it is sorting is in an intermediate permutation.
 Unwinding past it frees nothing and repairs nothing — you leak the buffer and hand back a
@@ -673,8 +676,12 @@ enumerable; the handler picks from an offered menu, it does not force a value in
 language wanting resumption must make it a raise-site feature, which means auditing every
 raise site — that is the real reason nobody copied it.
 
-**3.** The **separation of the handler-selection decision from the unwinding**, surviving as
-the *filter*: C#'s `catch ... when`, and the two-phase design generally. Also widely copied,
+**3.** `unwind-protect` — it became `finally`, `ensure`, `defer`, and `__exit__`, and it is
+genuinely in effectively every modern language. Do not claim that status for the condition
+system's *other* separable piece, running handler-selection before unwinding: that was barely
+copied at all, and .NET's `catch ... when` filters (with SEH's two-phase model beneath) are
+the one mainstream survivor. Java, C++, Python, Ruby, JS, Go, and Swift all unwind first.
+Also widely copied,
 if you squint: the idea that a condition might not be an error at all (warnings, and
 `with_handler`-style dynamic hooks — Python's `warnings` module and its filters are
 structurally a condition system for the non-fatal case). And in a different lineage,
@@ -834,8 +841,10 @@ initiated transfer wins — and the exception is discarded entirely, not even ch
 call was wrong, and the evidence is that every static analyzer flags `return` in `finally`
 and no style guide permits it. "Discard" throws away the earlier, causally prior failure in
 favour of a control-flow statement whose author almost certainly did not know an exception
-was in flight. Python makes the same choice for `return` in `finally` but at least chains
-exception-on-exception; C# forbids leaving a `finally` block by `return` outright, which is
+was in flight. Python makes the same choice and discards just as silently — its `__context__`
+chaining fires only when the `finally` *raises*, never when it returns — though it has since
+moved toward C#'s position: PEP 765 makes `return`/`break`/`continue` leaving a `finally` a
+`SyntaxWarning` in 3.14. C# forbids it outright, which is
 the defensible answer: if two exits conflict, make it a compile error rather than picking a
 winner silently.
 
@@ -911,10 +920,12 @@ assertion is **undefined behaviour rather than a diagnostic**. `assert(p != NULL
 out under `NDEBUG` merely stops checking; `__builtin_assume(p != NULL)` tells the optimizer
 to delete the null check you wrote three lines later, so a violation produces silent
 miscompilation exactly where you were trying to add safety. This is why the C++ contracts
-work has repeatedly changed position on whether a contract may be assumed in a build mode
+work went back and forth for a decade on whether a contract may be assumed in a build mode
 that does not check it: the "assume" semantics give real optimization wins and turn every
-wrong contract into a security bug, and the committee has never been comfortable shipping a
-feature whose failure mode is UB by default. The general principle worth stating: a check
+wrong contract into a security bug, which is what got contracts pulled from C++20 in 2019.
+Know the landing point — the version adopted for C++26 resolved it by refusing the assume
+semantic entirely (`ignore`, `observe`, `enforce`, `quick_enforce`, with `ignore` granting
+the optimizer nothing). The committee shipped it only once its failure mode stopped being UB. The general principle worth stating: a check
 and an assumption look identical in source and are opposites in effect — one adds behaviour
 on violation, the other removes the ability to have any.
 

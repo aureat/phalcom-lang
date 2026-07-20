@@ -99,7 +99,7 @@ Twenty runs of a request handler, in milliseconds:
 12 11 12 13 11 12 11 340 12 13 11 12 12 11 13 12 380 11 12 12
 ```
 
-Mean: **28.2**. Median: **12**.
+Mean: **46.65**. Median: **12**.
 
 1. Report this honestly in one line. Then say what the mean is *actually measuring* here —
    it is a real quantity, just not the one people think.
@@ -314,8 +314,9 @@ it introduces a conditional whose cost is data-dependent and which perturbs the 
 branch prediction. Blackhole's whole design problem is consuming a value in a way the
 compiler cannot see through while itself costing a known, small, *constant* amount — which
 turns out to be genuinely hard, and is why the implementation is more elaborate than a
-volatile store, and why JMH later added compiler-blackhole support so the JIT can implement
-the sink as a true no-op with a barrier rather than as real work.
+volatile store, and why JMH later added compiler blackholes (OpenJDK 17), where the JIT
+carries the value through the optimisation phases and then emits nothing at all for the sink
+— no call and no barrier — cutting the per-op sink cost from roughly 3.2 ns to about 1 ns.
 
 **3.** **Profile pollution.** In a shared JVM, benchmark A's execution fills the profiling
 data at shared call sites — a send site that A made megamorphic stays megamorphic for B,
@@ -368,9 +369,12 @@ a short-lived workload is not a rounding error; it is measuring a different prog
 **3.** **LuaJIT**: it is a *tracing* compiler — it records a linear trace of a hot loop
 including the branches actually taken, then compiles it with guards. A benchmark that
 exercises one path produces a trace specialised to that path; production traffic that takes
-the other branch exits through a guard, and if it does so often, the trace is recompiled,
-side-traced, or the whole region is **blacklisted** and falls back to the interpreter
-permanently. So more warmup on unrepresentative data makes the compiled artifact *more*
+the other branch exits through a guard. A hot side exit gets its own **side trace**, so the
+artifact grows a shape fitted to whichever branch the benchmark took; and if recording that
+side trace repeatedly *aborts*, LuaJIT penalises and eventually **blacklists** the originating
+bytecode, so the region falls back to the interpreter for the rest of the process. Note the
+causal chain: blacklisting is driven by recording aborts, not by guard exits directly. So more
+warmup on unrepresentative data makes the compiled artifact *more*
 wrong for production, and the failure is a cliff rather than a slope. **HotSpot**: the
 analogous case is a call site that is monomorphic during warmup, gets an inlined
 monomorphic-dispatch fast path, and then goes megamorphic in production — a deoptimisation
@@ -431,7 +435,10 @@ diagnostic than a profile of either one.
 **1.** Gate on **1-minute load average below ~0.5 per core-equivalent you intend to use**,
 checked immediately before the run and again after. The reasoning that matters: the naive
 gate is "load < 1.0 because I have spare cores", and it is wrong because **your own
-benchmark process contributes roughly 1.0 to the load average within a minute of starting**.
+benchmark process contributes about 0.63 to the one-minute average after 60 seconds**, and
+approaches 1.0 only after several minutes — the figure is exponentially damped with a
+60-second time constant, so it both understates a load that just started and lags one that
+just ended.
 A harness that gates at 1.5 will pass, start the run, push the load to 2.5, and then spend
 the measurement window competing with whatever was already there — and because the load
 average is a decaying average, it lags the actual contention by tens of seconds, so a gate
@@ -444,9 +451,11 @@ second benchmark you started yourself.
 **2.**
 - **Frequency scaling / turbo.** Modern cores boost above base clock and drop back based on
   thermal and power budget and on how many cores are active. In a sequential A-then-B run, A
-  starts on a cold, un-boosted core, ramps up, and B runs on a hot one — so the bias depends
-  on the ramp direction and typically **favours whichever ran second** on a cold machine and
-  **whichever ran first** on a machine that heats into throttling.
+  starts on a cold package with the most thermal and power headroom, so it typically sustains
+  the highest clock — the bias **favours whichever ran first**. The low-P-state ramp at
+  process start pushes the other way, but it is a millisecond-scale transient (Speed Shift
+  settles in about 1 ms) and is noise for any benchmark over ~100 ms. State your run length
+  before claiming a direction.
 - **Thermal throttling.** After sustained load, the package hits its limit and clocks drop.
   In a sequential comparison this systematically **penalises the second build**, and it is
   the reason a long benchmark suite shows a downward drift unrelated to any code.
@@ -485,8 +494,9 @@ for the decoded-instruction cache, so the frontend must re-decode that region. T
 mitigation avoids the erratum's correctness issue and costs performance in exactly those
 cases; toolchains responded with assembler and compiler options that pad instructions so
 branches do not land on those boundaries. The relevance here: it turned "where your
-instructions happen to sit" from an academic curiosity into something with a documented
-double-digit worst case, and it makes layout-sensitivity a permanent property of the
+instructions happen to sit" from an academic curiosity into something Intel documents at
+0–4% on industry-standard benchmarks, with unspecified higher outliers — and it makes
+layout-sensitivity a permanent property of the
 measurement environment rather than a fluke.
 
 **3.** **Randomise the layout and measure the distribution**, rather than measuring one
@@ -510,7 +520,7 @@ experiment are evidence of a stable machine, not of a real effect.
 ### A6 — The mean is the wrong summary
 
 **1.** "Median 12 ms, p95 ≈ 340 ms, max 380 ms, n=20; the distribution is bimodal with two
-outliers around 350 ms — the interesting question is what those two are." The mean of 28.2
+outliers around 350 ms — the interesting question is what those two are." The mean of 46.65
 is a real quantity: it is **total time divided by count**, i.e. a *throughput* statistic. It
 answers "how long will 1000 of these take" correctly and answers "what will a user
 experience" wrong, because no user experienced 28 ms — they experienced 12 or they
@@ -574,7 +584,10 @@ badly, which is the worst possible shape for a measurement error.
 
 **Trap.** "We measure at the server, so there's no coordinated omission." Server-side timing
 starts when the request is *dequeued*, so a request that spent 400 ms waiting for a worker is
-recorded as 3 ms of service time. That is the same omission wearing different clothes: the
+recorded as 3 ms of service time. Strictly, that is a *different* defect with the same
+signature — not coordinated omission, since the generator's send schedule is unaffected, but
+an incomplete definition of latency. The distinction is worth keeping, because coordinated
+omission is the term most often misstated. Either way: the
 queueing delay — the part the user experiences — is excluded by construction, and the metric
 looks best exactly when the queue is deepest. Latency must be measured from the earliest
 moment the client could have been served, which for a closed-loop harness means the intended
@@ -800,10 +813,10 @@ logically private and never contended. More threads means more participants in t
 ping-pong, which is why throughput goes *down* past four.
 
 **2.** Pad and align each worker to a cache line — `#[repr(align(128))]`, a `CachePadded`
-wrapper, or `@Contended` on the JVM. The constant is not 64 everywhere: **Apple's arm64
-cores use 128-byte cache lines**, and several architectures use a coherence granule larger
-than the line, while some x86 prefetchers fetch adjacent line pairs, so the effective sharing
-unit can be 128 bytes even where the line is 64. Padding to 128 is the portable-safe choice
+wrapper, or `@Contended` on the JVM. The constant is not 64 everywhere. On Apple Silicon the
+**L1D line is 64 bytes but the L2/system-level-cache line is 128**, and macOS reports
+`hw.cachelinesize` as 128 — so the effective cross-core sharing unit is 128. On modern Intel
+the L2 spatial prefetcher pulls adjacent 64-byte pairs, with the same consequence. Padding to 128 is the portable-safe choice
 and costs memory; this is why Rust's `CachePadded` uses a target-dependent alignment rather
 than a hard 64. Getting this wrong by choosing 64 on a 128-byte-line machine reproduces the
 original bug at half the rate, which is worse than not fixing it because it looks fixed.
@@ -834,8 +847,10 @@ gets one extra opcode of context for free. That is the mechanism: not fewer bran
 empirically.
 
 **2.** What changed is the predictor. The 2003 result assumed a BTB with limited per-branch
-history, where a single indirect site could not learn a mixture of targets. Modern cores use
-**ITTAGE-class indirect predictors**, which index on a long global branch history — meaning a
+history, where a single indirect site could not learn a mixture of targets. Modern cores
+predict indirect branches using **long global branch history** — no x86 vendor documents the
+implementation, but Rohou et al. show Haswell performing at least as well as an ITTAGE
+predictor, which is the class of design the behaviour is consistent with — meaning a
 single indirect branch site *can* learn "if the previous few opcodes were X, Y, Z, the target
 is now T". That is precisely the context threading was hand-building. Rohou, Swamy and Seznec
 ("Branch Prediction and the Performance of Interpreters — Don't Trust Folklore", CGO 2015)
@@ -875,8 +890,9 @@ the runtime helpers the handlers call.
   exceed capacity. So on this target the hypothesis is not absurd, and the correct conclusion
   is "not refuted, go measure" — specifically, measure whether L1i misses are served from L2
   (cheap) and what fraction of cycles are frontend-bound.
-- **Apple M-series performance core**, whose L1i is in the hundreds of kilobytes rather than
-  32 KiB: the entire interpreter, its helpers, and a large amount of surrounding runtime fit
+- **Apple M-series performance core**, with a **192 KiB** L1i (Firestorm and successors)
+  rather than 32 KiB — 16 KB of handler code is about a twelfth of capacity, so the entire
+  interpreter, its helpers, and a large amount of surrounding runtime fit
   several times over. Capacity misses are essentially impossible for a loop of this size.
   **The hypothesis is refuted on this target without running anything**, and any observed
   frontend cost must have a different cause — conflict misses from unlucky set mapping, TLB,

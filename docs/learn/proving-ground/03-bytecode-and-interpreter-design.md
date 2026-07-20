@@ -27,7 +27,8 @@ ISTORE c
    Lua's compiler must now do that a stack compiler does not, and where it hits a hard
    wall that surfaces to the user.
 3. CLR IL and JVM bytecode are stack machines despite being consumed almost exclusively
-   by JIT compilers, never interpreted at speed. Argue that this is the right choice for
+   primarily by JIT and AOT compilers, with interpretation as a warmup or JIT-prohibited
+   fallback rather than the performance path. Argue that this is the right choice for
    them and the wrong choice for Lua.
 
 ### Q2 — Three dispatch loops
@@ -242,9 +243,13 @@ cost of getting to a handler — the indirect branch, its prediction, the operan
 four instructions to one collapses four dispatches to one, and that is close to the whole
 win. What you added: instruction *width*. The register form must name three operands, so
 each instruction carries more bits, so the same program occupies more bytes of icache and
-the decode itself does more shifting and masking. The Lua 5.0 implementation paper reports
-roughly a third fewer executed instructions with a comparable-magnitude increase in code
-size — that is the shape of the trade, and it is a good one only because dispatch is
+the decode itself does more shifting and masking. The measured version of this trade comes
+from the Java literature, not from Lua: Shi et al.'s "Virtual Machine Showdown" eliminates
+more than 47% of executed VM instructions for a bytecode about 25% larger, and Davis et al.
+earlier reported roughly 35% fewer instructions for roughly 45% larger code. The Lua 5.0
+paper makes the argument qualitatively and cites Davis for the hard numbers — note it claims
+total code size is "not much larger", since fewer opcodes partly offset wider ones. That is
+the shape of the trade, and it is a good one only because dispatch is
 expensive relative to decode.
 
 **2.** The Lua compiler must assign every local and every temporary to a numbered slot in
@@ -252,9 +257,12 @@ the frame's register window, maintain a free-register high-water mark, restore t
 each statement boundary, and guarantee that at every control-flow join the same value lives
 in the same register — because there is no dynamic stack depth to absorb a disagreement. A
 stack compiler gets all of that for free: "push" means "wherever the top is". The hard wall
-is the width of the `A` field: Lua caps a function at roughly 250 registers, and a function
-with too many live locals or a sufficiently nested expression is *rejected at compile
-time*. That is a format constant surfacing to the user as "your function is too complex",
+is the width of the 8-bit `A` field: Lua 5.3/5.4 cap a function at 255 registers (`MAXREGS`,
+"function or expression needs too many registers"), and 5.0–5.2 capped it lower still at 250
+(`MAXSTACK`, "function or expression too complex"). Be careful which limit you attribute to
+what: too many *locals* hits a separate and tighter cap, `MAXVARS` at 200, with its own error
+— only a sufficiently nested *expression* hits the register cap. Either way it is rejected at
+compile time. That is a format constant surfacing to the user,
 and no amount of compiler cleverness removes it — only a format change does.
 
 **3.** IL and class files are *distribution* formats consumed by a JIT. Stack form is the
@@ -271,8 +279,11 @@ the stack form's advantages is worth nothing to it.
 **Trap.** "Register machines are faster because they avoid pushing and popping memory."
 The operand stack's top few slots are in L1 and often kept in a register by a
 top-of-stack cache; the memory traffic is close to free. The win is the count of
-dispatches, and if you say "memory traffic" you will also predict that a register VM helps
-a JIT-backed system, which it does not.
+dispatches, and if you say "memory traffic" you cannot explain why the advantage shrinks as
+dispatch gets cheaper. Keep the two arguments separate: register form does have real,
+independent benefits as a *JIT input* — less to decode and parse in the compiler front end,
+which is part of why Ignition and dex are register-shaped — and that is not the interpreter
+argument.
 
 ### A2 — Three dispatch loops
 
@@ -286,10 +297,12 @@ branch site can learn "what usually follows *me*" and predict it. The structure 
 indirect branch predictor / branch target buffer. Ertl and Gregg's work on efficient
 interpreters is the canonical measurement of this effect.
 
-**2.** What changed: modern indirect predictors (the ITTAGE family, on Intel from roughly
-the Haswell generation onward, and on contemporary AMD and ARM cores) use long global
-history, so a single shared indirect branch can be predicted nearly as well as replicated
-ones — Rohou et al.'s "don't trust folklore" result. What survives: (a) on in-order and
+**2.** What changed: modern cores predict indirect branches from **long global history**, so
+a single shared indirect branch can be predicted nearly as well as replicated ones. Rohou et
+al.'s "don't trust folklore" measured the collapse — the threaded-over-switch advantage fell
+10.1% on Nehalem, 4.2% on Sandy Bridge, 2.8% on Haswell, so it *narrowed sharply rather than
+vanished*. Do not assert the mechanism as fact: Intel's indirect predictor is undisclosed,
+and the paper's claim is that a simulated ITTAGE reproduces the measured accuracy. What survives: (a) on in-order and
 embedded cores with weak predictors the classic win is entirely intact; (b) threading still
 removes the range check and lets the dispatch be scheduled *with* the handler's work rather
 than after a join; and (c) the durable one — a single giant `switch` is one enormous
@@ -331,9 +344,11 @@ spreads the genuinely hot handlers apart; it also consumes branch-target predict
 capacity, so the per-opcode prediction that motivated threading in the first place starts
 to degrade. And in the `switch` form each new case is more pressure on one register
 allocator. There is a crossover where the icache misses you bought exceed the dispatches
-you saved. Both YARV's instruction unification and Ertl's dynamic superinstructions
-converge on the same conclusion: fuse the *measured* hot bigrams of a representative
-corpus, not everything you can think of — and accept that the corpus drifts.
+you saved. Ertl's dynamic superinstructions make the case for fusing measured hot bigrams;
+YARV makes the case for restraint, having shipped instruction unification as a build option
+(`OPT_INSTRUCTIONS_UNIFICATION`) that is **off by default**, while keeping operand
+unification on. Fuse the *measured* hot bigrams of a representative corpus, not everything
+you can think of — accept that the corpus drifts, and that the answer may be "not worth it".
 
 **3.** `ADD_CONST` is a **fusion**: it is unconditionally correct, it can never be wrong,
 it needs no guard and no fallback, and its payoff is a fixed constant per occurrence.
@@ -607,10 +622,11 @@ maps a breakpoint to, or a generator resume point, you have deleted a target and
 failure will present as a jump into the middle of an instruction, far from the pass that
 caused it.
 
-**Trap.** "A peephole is safe as long as I only make the code shorter." Shorter is the
-dangerous direction, precisely because it relocates every offset after the window. The safe
-direction is same-length rewrites; anything that shrinks the array is a whole-function
-transformation and should be done where whole-function facts are available.
+**Trap.** "A peephole is a local rewrite, so I only have to reason locally." The window is
+local; the *offsets* are not. Any rewrite that changes length relocates every jump target,
+line-table entry, and handler bound after it, so length-changing peepholes are whole-function
+transformations wearing a local costume. Same-length rewrites are the only genuinely local
+ones.
 
 ### A12 — Bytecode you did not produce
 
@@ -623,8 +639,10 @@ stack form is easier because the stack *is* the def-use structure — each opera
 is structurally determined, so verification is a straight-line abstract simulation with
 merges only at branch targets. A register form has no such structure: any register may be
 written from anywhere, so you need a genuine dataflow fixpoint over the CFG with a type
-lattice, plus per-register definite-assignment. Dalvik's verifier is meaningfully more
-machinery than the JVM's for exactly this reason.
+lattice, plus per-register definite-assignment. Make the comparison against the
+*pre-`StackMapTable`* JVM verifier, which ran the same iterative fixpoint — what made the
+modern JVM verifier linear is the producer-supplied stack maps of part 2, not its stack form.
+Conflating the two credits the difference to the wrong axis.
 
 **2.** Avoided: the **iterative dataflow fixpoint** at class-load time — superlinear,
 unbounded in practice, and squarely on the startup critical path, which was the driver

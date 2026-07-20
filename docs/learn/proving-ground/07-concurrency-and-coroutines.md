@@ -52,9 +52,11 @@ Go, Erlang, and Java 21's virtual threads have no `async` keyword at all.
 
 ### Q4 — The C-stack boundary
 
-Lua raises `attempt to yield across a C-call boundary`. Python generators cannot yield
-from inside a C-implemented callback like `list.sort`'s comparator. Many VMs with
-coroutines have some form of this error.
+Lua raises `attempt to yield across a C-call boundary`. Many VMs with coroutines have some
+form of this error. (Python generators also cannot suspend from inside a `list.sort`
+comparator, but for an unrelated reason — `yield` is lexically confined to the generator's
+own frame, so the callback's implementation language is irrelevant. That is the stackless
+limitation of Q6, not a boundary check.)
 
 1. Why does a native frame between the coroutine's entry and the `yield` site make
    suspension unsound? Be specific about what breaks — it is not "we can't save C
@@ -335,9 +337,13 @@ re-yield the inner one's values.
 **2.** Naive sugar (a loop in the outer generator that pulls from the inner and re-yields)
 makes each value traverse every level of the delegation chain, so a chain of depth *n*
 costs O(n) per element, O(n²) for a linear recursive generator over *n* items — the classic
-quadratic recursive-tree-traversal blowup. Real `yield from` implementations short-circuit
-the chain so the driver talks to the innermost generator directly, restoring O(1) per
-element. It also has to forward `send`, `throw`, and `close` — semantics, not sugar.
+quadratic recursive-tree-traversal blowup. But do **not** claim `yield from` fixes the
+asymptotics: PEP 380 lists chain short-circuiting only as an optional optimisation, and
+CPython declined it — a depth-*n* delegation still costs O(n) per element, measurably about
+1.3× faster than a hand-written re-yield loop and no better. What `yield from` genuinely adds
+over sugar is *semantics*: it forwards `send`, `throw`, and `close` to the innermost
+generator and propagates the subgenerator's return value, all of which a re-yield loop gets
+silently wrong.
 
 **3.** Because the weak form requires no stack switching. A generator is a frame turned
 into a heap object — the compiler already knows that frame's layout — so it needs no
@@ -366,9 +372,13 @@ production concern.
 **3.** **Self-referential futures**: a local holding a reference to another local — e.g. a
 slice into a buffer — is legal across an await, so the state object contains a pointer into
 itself. Move the object and the pointer dangles. C# doesn't care because references are GC
-handles that survive relocation. Rust's answer is `Pin` plus the `Unpin` auto-trait: a
-contract that a value, once polled, will never be moved again. That contract is why `Future`
-is `poll(self: Pin<&mut Self>)` rather than `poll(&mut self)`.
+handles that survive relocation. Rust's answer is `Pin`: once a value has been *pinned* —
+by `Box::pin`, `pin!`, or an unsafe `Pin::new_unchecked`, not by the first poll — it may
+never be moved again, which is why `Future::poll` takes `self: Pin<&mut Self>` rather than
+`&mut self`. `Unpin` is the auto-trait that opts *out*: a type with no interior
+self-references implements it automatically and can still be moved out of a `Pin`, which is
+what stops the scheme infecting ordinary types. A generated `async` state machine is `!Unpin`
+exactly when it holds a reference into itself.
 
 **Trap.** Saying `Pin` exists "for safety" without naming *what* moves and *why anything
 points into it*. `Pin` is not a general safety wrapper; it exists because the state machine
@@ -394,9 +404,13 @@ maximally uninformative.
 **3.** Hard because interrupting a task requires suspending it at a point where its state
 is coherent, and in a cooperative runtime the only such points are the suspension points
 the task chose. The standard trick is compiler- or interpreter-inserted **yield points** —
-a check on loop back-edges and function entries, exactly analogous to GC safepoints. Go did
-this: pre-1.14 Go had exactly this bug (a tight non-allocating loop was uninterruptible),
-and the fix was asynchronous preemption via signals plus safepoint metadata.
+a check on loop back-edges and function entries, exactly analogous to GC safepoints. Go is
+the instructive counter-example, and getting it right is worth points: Go only ever had
+checks at **function prologues**, so a loop containing no function calls — not merely a
+non-allocating one — was uninterruptible before 1.14. When Go measured explicit
+loop-back-edge preemption, even the cheapest scheme cost roughly 8% geomean, so it abandoned
+that route for **signal-based asynchronous preemption**, paying instead for register and
+stack maps at nearly every instruction.
 
 ### A9 — Parked stacks and the collector
 
@@ -462,9 +476,12 @@ exceptions for cancellation therefore need a distinguished, hard-to-catch except
 (Python's `CancelledError` derives from `BaseException`, not `Exception`, precisely for
 this) plus rules about re-raising.
 
-**2.** Erlang processes share **nothing** — no shared heap, no shared mutable structure —
-so killing one at an arbitrary instruction cannot leave shared state half-mutated. There
-is no invariant spanning two processes that a kill can break. Go's goroutines share memory
+**2.** Erlang processes share nothing **by default** — no shared heap, no shared mutable
+terms — so killing one cannot tear the data structures other processes are reading. The
+escape hatches prove the rule rather than refuting it: ETS tables *are* genuinely shared
+mutable state, individual operations are atomic but multi-operation sequences are not, and a
+kill between two related writes leaves exactly the inconsistency the model otherwise rules
+out. Name ETS before the interviewer does. Go's goroutines share memory
 freely: killing one mid-mutation could leave a map or a lock in a broken state visible to
 everyone else, so Go can only offer *cooperative* cancellation where the target chooses
 its own consistent stopping points. The lesson generalizes: **preemptive kill is only safe
@@ -476,9 +493,10 @@ suspension points, loop back-edges, allocation sites, calls. The GC vocabulary w
 only stop where you can describe the machine's state.
 
 **Trap.** Calling cooperative cancellation a weakness of Go's design. It is forced by the
-memory model, and (2) is the proof: the language that *can* kill arbitrarily is the one that
-shares nothing. Anyone proposing `killGoroutine()` is proposing shared-memory corruption
-with extra steps.
+memory model, and (2) is the proof: the language that *can* kill arbitrarily is the one whose
+processes share nothing by default. Anyone proposing `killGoroutine()` is proposing
+shared-memory corruption with extra steps — and note the symmetry, since Erlang's own shared
+mutable escape hatch, ETS, is precisely where a kill *can* leave torn state.
 
 ### A12 — Actors and shared nothing
 
@@ -490,9 +508,13 @@ a good trade because messages are mostly small and the alternative (shared heap)
 throughput at the cost of the one property the system exists for.
 
 **2.** Per-process heaps are **independently collectible and never require a write barrier
-for cross-process references**, because there are none — a message is copied, so no pointer
+for cross-process references** in the common case, because a message is copied and no pointer
 crosses a heap boundary. That kills the two hardest parts of concurrent GC at once:
-inter-region reference tracking and stop-the-world coordination. It also means a dead
+inter-region reference tracking and stop-the-world coordination. Know the documented
+exception before it is produced against you: binaries over 64 bytes live in a shared off-heap
+area, and a message passes a refcounted handle rather than a copy — which is exactly why that
+one case needs explicit refcount bookkeeping and is the classic source of BEAM binary leaks.
+It also means a dead
 process's heap is freed wholesale with no tracing at all, which is why process death is
 cheap enough to be a control-flow mechanism.
 
@@ -555,8 +577,11 @@ stack. You get one enormously powerful primitive with a global tax on the implem
 `reset`, so the cost is proportional to a known slice of the stack, not the whole program.
 That makes capture cheap, makes composition local, and — decisively — makes the captured
 thing a *function-shaped value* you can type. Effect handlers are this idea with the
-handler chosen by the effect's type, which is why OCaml 5 can implement stackful
-concurrency as a *library* on top of one runtime primitive.
+handler selected by the effect's *constructor* and the resumption reified as a first-class
+continuation value — which is why OCaml 5 can implement stackful concurrency as a *library*
+on top of one runtime primitive. Be precise about OCaml here: its effects are deliberately
+**unchecked**, nothing appears in function types, and an unhandled effect is a runtime
+failure. Koka is the system that tracks effects in the type system.
 
 ### A15 — Detecting the end
 
@@ -569,10 +594,11 @@ domain — which most dynamic languages don't have.
 **2.** (a) **Exception on exhaustion** — Python's `StopIteration`; correct but expensive if
 exceptions are expensive, and it leaks (a `StopIteration` escaping a generator body used to
 silently truncate the caller; PEP 479 fixed it by converting to `RuntimeError`). (b) **A
-result record** — JS's `{value, done}`, C#'s `MoveNext()` + `Current`; the JS form
-**allocates an object per step** unless the engine escape-analyses it away. (c) **A
-separate query** — `hasNext()`/`isDone`, which is state-dependent and forces the iterator to
-compute one element ahead. (d) **A private, unforgeable end sentinel** — zero alloc, but
+result record** — JS's `{value, done}`, which **allocates an object per step** unless the
+engine escape-analyses it away. (c) **A separate status from the value** — Java's
+`hasNext()`/`next()`, state-dependent and forcing the iterator to compute one element ahead;
+C#'s `MoveNext()`/`Current` is the sharper form of this family, folding advance and status
+into one `bool`-returning call with the value read separately, and allocating nothing. (d) **A private, unforgeable end sentinel** — zero alloc, but
 requires the sentinel to be inaccessible from user code.
 
 **3.** A cursor gives up **suspension of arbitrary computation**. A generator can be paused

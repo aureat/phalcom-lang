@@ -490,11 +490,13 @@ is what you would have written. Classic shape: a helper used at two different ty
 one function.
 
 ```haskell
-f xs ys = (g xs, g ys) where g = length     -- HM generalizes g; fine
+f = (g [1 :: Int, 2], g "ab") where g = length   -- HM generalizes g; fine
 ```
 
-Bidirectional systems that only generalize at explicit signatures will infer `g` at a
-single type from its first use and then reject the second. The bill is paid by the
+Bidirectional systems that only generalize at explicit signatures fix `g` at `[Int] -> Int`
+from its first use and reject the second. The two uses must be at *concrete differing* types
+for this to bite — write it as `f xs ys = (g xs, g ys)` and the checker simply unifies `xs`
+with `ys`, nothing is rejected, and the example proves nothing. The bill is paid by the
 *programmer*, in annotations on local helpers, and by the language designer, in "why does
 this need a type here" bug reports. Everyone concluded that bill is cheaper than the
 error-message bill, and they were right.
@@ -522,10 +524,8 @@ class, and a subtype test, on every single reference store into any array — in
 `String[] s; s[0] = "x";` where nothing can possibly go wrong. JITs claw it back by
 speculating: if the array's exact type is known at the store (from an allocation in the same
 compilation unit, or from a profile plus a guard), the check folds away. That works well in
-hot loops and not at all across a non-inlined call, so the residual cost is real and is
-part of why `ArrayList<T>` with an `Object[]` backing store can outperform naïve array code
-in some shapes — the erased array's element type is `Object`, so the check trivially passes
-and the JIT eliminates it easily.
+hot loops and not at all across a non-inlined call, so the residual cost is real — and it is
+one of the reasons a covariant array store is not the free operation the source text suggests.
 
 **3.** Because removing it would break every program written since 1995, and there is no
 migration path: the fix is not a new API alongside the old one, it is a change to the
@@ -628,16 +628,18 @@ unreadable and unprintable. So you either publish an incomprehensible type, or y
 some non-principal instance of it and lose the guarantee that the inferred type is the most
 general one. Every practical language picks the latter and demands annotations.
 
-**2.** **F-bounded polymorphism** (`<T extends Comparable<T>>` — the bound mentions the
-variable) plus **wildcards with capture** (contravariant occurrences producing fresh
-existentials). Together they let a subtyping query on one type spawn subtyping queries on
+**2.** **Contravariance** (Java gets it from wildcards) plus **expansive inheritance** —
+hierarchies where the set of types reachable by inheritance and decomposition is infinite.
+Note it is *not* F-bounded polymorphism: bounds play no role in the undecidability. Together
+the real pair lets a subtyping query on one type spawn subtyping queries on
 freshly constructed types of greater depth, with no bound on the depth, so the subtype
 checker's recursion can encode unbounded computation — Grigore showed you can compile a
 Turing machine into Java class declarations such that `javac`'s subtype check simulates it.
-Kennedy and Pierce had earlier shown that nominal subtyping with variance plus expansive
-inheritance is undecidable in general. Real compilers survive by imposing a depth cutoff and
-reporting an error, which is why `javac` and Scala's checker can both report "cyclic" or
-depth-limit errors on pathological hierarchies.
+Kennedy and Pierce isolated three culprits — contravariance, expansive inheritance, and
+multiple instantiation inheritance — and proved subtyping decidable once contravariance *or*
+expansive inheritance is removed. Scala's checker survives by imposing a depth cutoff and
+reporting an error. `javac` does **not**: on Grigore's programs it simply fails to terminate,
+which is exactly what lets him use `javac` itself as an interpreter.
 
 **3.** It buys the checker **the equality solver**. With no subtyping, trait resolution and
 generic inference are unification problems, so they have most general solutions, terminate
@@ -739,8 +741,12 @@ essentially all of DOM and Node code:
 elem.addEventListener("click", (e: MouseEvent) => { ... })
 ```
 
-`addEventListener` wants `(e: Event) => void`. A `MouseEvent`-taking handler is *not* a
-valid `Event`-taking handler under contravariance — it would be rejected. The idiom is
+A `listenEvent(type, handler: (e: Event) => void)` API wants `(e: Event) => void`, and a
+`MouseEvent`-taking handler is *not* a valid `Event`-taking handler under contravariance — it
+would be rejected. (Do not use `addEventListener` itself as the demo: `lib.dom.d.ts` has
+since papered it over with `HTMLElementEventMap` overloads, so that exact call now typechecks
+for an unrelated reason and someone pasting it into a playground will think you are wrong.
+The thousands of user-written APIs shaped like it still rely on bivariance.) The idiom is
 ubiquitous, correct in practice (the runtime really does pass a `MouseEvent` for `"click"`),
 and cannot be expressed soundly without overloads or dependent parameter types. TypeScript's
 mandate was to type existing JavaScript, and existing JavaScript is full of this. So
@@ -869,8 +875,11 @@ pattern in the payload — a niche —** and encodes the tag into it. `&T` is ne
 `Option<&T>` uses the all-zeros pointer as `None` and needs no separate tag word; the same
 applies to `NonZeroU32`, `bool`'s 254 unused byte values, and enums with unused
 discriminants. What it forecloses: **layout guarantees**. You cannot rely on where the tag
-is, you cannot `transmute` an enum meaningfully, and you cannot pass one across FFI without
-`#[repr(C)]` or `#[repr(u8)]`, which switch the optimization off. The general shape here is
+is and you cannot `transmute` an arbitrary enum meaningfully, and adding `#[repr(C)]` or
+`#[repr(u8)]` to a data-carrying enum for FFI switches the optimization off. The
+nullable-pointer case is the carved-out exception, and it cuts the other way: `Option<&T>`,
+`Option<&mut T>`, and `Option<fn()>` have a *guaranteed* layout identical to the pointer and
+are FFI-safe with no attribute at all. The general shape here is
 worth naming — every representation optimization is paid for in ABI freedom.
 
 **3.** `A | B` erases to the **least upper bound of the erasures** — usually `Object`.

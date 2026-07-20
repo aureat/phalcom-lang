@@ -479,8 +479,9 @@ other's cleanup handlers.
 **1.** Allocation per step: **A** allocates a record (unless the compiler escape-analyses it
 away, which is real in optimising JS engines and absent in a simple interpreter); **B**
 allocates only at the end, but the end allocation is an exception object with, potentially,
-a stack trace — CPython optimises this by pre-allocating and caching `StopIteration`
-precisely because it is per-loop, not per-step; **C** and **D** allocate nothing. Dynamic
+a stack trace — though CPython does not even pay that, since normal exhaustion is signalled
+by `tp_iternext` returning `NULL` with **no exception object constructed at all**, and the
+`StopIteration` of the language semantics is materialised only when something observes it; **C** and **D** allocate nothing. Dynamic
 dispatches per step: **C** is two (`hasNext` then `next`); **A**, **B**, and **D** are one.
 So the rankings cross: **C** is allocation-optimal but dispatch-worst, and in an interpreter
 where a send costs tens of nanoseconds and a nursery allocation costs a pointer bump, **C**
@@ -571,13 +572,15 @@ containing `NaN` breaks even when it looks perfectly ordinary.
   equality never stops the scan, and the pointer runs off the partition and off the buffer.
   The crash is not a check that failed; it is the *absence* of a check that a valid
   comparator made unnecessary.
-- **Java's TimSort**: it maintains a stack of pending runs with a size invariant, and the
-  stack is allocated to a fixed depth computed from that invariant. An inconsistent
-  comparator produces runs that violate it, the merge logic then indexes past the run stack
-  or merges in the wrong order, and the explicit `IllegalArgumentException` is the
-  defensive check added after exactly this failure was found in the wild. Java gets to
-  detect it because the invariant is *explicit and checkable*; `std::sort`'s invariant is
-  implicit in a pointer scan.
+- **Java's TimSort**: the merge routines track how many elements remain in each of the two
+  runs. An inconsistent comparator makes a merge consume one run faster than its count
+  allows, so `mergeLo`/`mergeHi` reach `len1 == 0` (resp. `len2 == 0`) — a state a valid
+  comparator makes unreachable — and throw `IllegalArgumentException: Comparison method
+  violates its general contract!`. Java detects it because the merge carries *explicit
+  element counts*; `std::sort`'s invariant is implicit in an unguarded pointer scan. Keep
+  this separate from the famous 2015 run-stack `ArrayIndexOutOfBoundsException` (de Gouw et
+  al.): that was an OpenJDK defect in `mergeCollapse` and fires with a perfectly *valid*
+  comparator.
 - **Rust's `sort_by`**: same family of algorithm, but every buffer access is bounds-checked
   and the merge logic is written to terminate on element count rather than on a sentinel, so
   the worst case is a wrong permutation or a panic from an explicit assert. The guarantee is
@@ -598,10 +601,11 @@ comparator into part of the collection's type.
 
 **1.** Best-effort because the modcount is an **unsynchronised heuristic that can alias**.
 Concretely: a counter that increments on every structural modification and is compared to a
-snapshot at each `next`. It slips through when the modifications cancel in count — a `remove`
-followed by an `add` between two `next` calls leaves the count changed by two, and with a
-counter of finite width or with a paired add/remove implemented as one bump, you get equal
-counts and a silently wrong traversal. It also cannot detect modification of an element's
+snapshot at each `next`. It slips through because the check lives in `next()` and **not in
+`hasNext()`** — `ArrayList`'s `hasNext()` is just `cursor != size`. Remove the second-to-last
+element mid-loop and the cursor equals the shrunken size, so `hasNext()` returns false,
+`next()` is never called again, and the loop exits cleanly on a silently truncated traversal
+with no exception at all. It also cannot detect modification of an element's
 *contents*, only structural change, and it makes no promise at all across threads because
 the counter is not volatile-read on every path. Java's documentation is explicit that the
 exception is a bug-detection aid and must not be used for program logic, and that phrasing is
@@ -623,8 +627,10 @@ checker, which is precisely an admission that it belongs to the language.
 **3.** Free in Clojure because the "snapshot" *is* the value — `assoc` returns a new map and
 the iterator holds the old root, which remains a complete, valid, immutable structure
 sharing everything untouched. Expensive in Java because a snapshot means a real copy: O(n)
-time and O(n) space at iteration start, which is what `CopyOnWriteArrayList` does and why
-it is only sane for read-mostly workloads. What is *not* free even in Clojure: **the
+time and O(n) space — note `CopyOnWriteArrayList` pays that on every **mutation**, not at
+iteration start; its iterator holds a reference to the array as it was and is free to start.
+That is exactly why the structure is only sane for read-mostly workloads, and a general
+`List` has no cheap snapshot at all. What is *not* free even in Clojure: **the
 iteration sees stale data**, and staleness is a semantic cost that no amount of structural
 sharing removes. A loop that removes dead items from a snapshot and writes back the result
 loses any concurrent insert. Persistent structures convert a crash into a lost update, which
@@ -778,9 +784,11 @@ branch, emitting a conditional jump rather than a send — and does the same for
 `or:`, `whileTrue:`, and `to:do:`. This is not an optimisation applied late; it is a fixed
 list of selectors the compiler knows. What it must check to stay correct is that **the
 receiver really is a Boolean at runtime** — so the emitted branch is a jump-if-true that
-also verifies the value is exactly `true` or `false` and traps to a real send otherwise. That
-trap is what preserves the semantics for a user object that implements `ifTrue:`, and it is
-why the fast path is a two-way check, not a single bit test. The correctness obligation this
+also verifies the value is exactly `true` or `false` and traps otherwise — which is why the
+fast path is a two-way check, not a single bit test. What the trap *does* is dialect-specific
+and worth hedging: classically it sends `mustBeBoolean`, which signals a **resumable**
+non-Boolean-receiver error whose resumption value feeds the jump, rather than falling back to
+a real `ifTrue:` send on the user's class. The correctness obligation this
 creates is that user code must not be able to *redefine* `Boolean>>ifTrue:`, or the inlined
 form and the sent form diverge — which is question Q17.
 
@@ -864,10 +872,13 @@ lives in the `Num` class, so a literal `1` has type `Num a => a`, and the langua
 perfectly reasonable programs from being ambiguous or from silently becoming slow
 polymorphic dictionaries. Haskell then *declines* to put string concatenation in `Num`,
 which is the relevant data point: even the language with the machinery to overload `+`
-across unrelated domains chose not to, because `Num`'s laws (associativity is fine,
-commutativity is not — `"a" + "b" ≠ "b" + "a"`) do not hold for strings. Overloading an
-operator across domains with different algebraic laws is how you get a class whose laws
-nobody can state.
+across unrelated domains chose not to — it gives lists their own `++`. State the reason
+carefully: the Report specifies **no laws for `Num`**, so this is not a law violation. The
+operative barrier is that the class demands `*`, `negate`, `abs`, `signum`, and
+`fromInteger`, none of which mean anything for a string; the customary reading of `Num` as a
+ring also wants `+` commutative, which concatenation is not. Overloading an operator across
+domains that do not share an algebraic shape is how you get a class whose contract nobody can
+state.
 
 **3.** The trap is **quadratic concatenation**: `s = s + x` in a loop allocates and copies
 the whole accumulated string on every iteration, so building an n-character string costs
@@ -995,8 +1006,11 @@ Smalltalk and Ruby are pleasant. Concretely impossible: a decimal-money library 
 `Object>>should:`; a duration library adding `Integer>>seconds`; and — the strongest case —
 adding a protocol conformance to a type you do not own so it works with your generic
 algorithm. That last one is a real expressiveness loss and it is why Rust has coherent trait
-impls, Swift has retroactive conformance, and Clojure has protocols: all three are answers
-to "extend a type you don't own *without* mutating it globally". The partial answer is
+impls (orphan rule plus trait-in-scope) and why Clojure has protocols — both let you extend a
+type you don't own without a globally-visible collision. Swift's retroactive conformance is
+the counterexample that proves the point: it *is* global, two modules can conform the same
+foreign type to the same foreign protocol, which one the linker registers is undefined, and
+that is why Swift 6 requires `@retroactive` and warns. The partial answer is
 exactly that shape: **allow extension, forbid replacement, and scope the extension**. Seal
 the existing methods and the layout, permit adding new selectors, and make the additions
 lexically or module-scoped so two libraries adding the same name do not collide. Ruby's
@@ -1019,9 +1033,11 @@ is one global method dictionary per class, so the two definitions are the *same 
 last one loaded wins, silently, with no diagnostic. A program that worked because it got the
 gem's `flatten` now gets yours, or vice versa depending on require order, and the failure
 appears as wrong behaviour in a call site that mentions neither library. The real instance:
-Ruby 2.4 added `Array#sum` to core, and ActiveSupport had shipped its own `Array#sum` with
-different semantics for some argument shapes — the resolution required ActiveSupport to
-detect the core version and defer to it. Objective-C is worse: two categories defining the
+Ruby 2.4 added `Array#sum` to core, and ActiveSupport had shipped its own `Enumerable#sum`
+supporting arbitrary `Object#+` where core's handled only numerics — so ActiveSupport
+resolved it by *overriding* the new core method with its own, keeping the slot rather than
+yielding it, and only deprecated its version in favour of core's five years later in Rails
+7.0. (They tried deferring with a fallback; exception-handling cost made it slower.) Objective-C is worse: two categories defining the
 same selector on the same class produce *undefined* winner with no warning at load time,
 which is why every Objective-C style guide mandates prefixing category methods.
 
