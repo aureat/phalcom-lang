@@ -99,6 +99,16 @@ a viable octet type; the only real design is the ADR-0020 pattern.
    swap) stays outside the contract and the spec says so, unhedged — the .NET `SecureString`
    deprecation is what shipping a stronger claim costs.
 
+## Composition with PDR-0012
+
+[PDR-0012](0012-numeric-tower-implementation-and-floor-amendment.md) (numeric tower, Proposed
+the same day) amends ADR-0019 off the **same measured 137** over disjoint classes. Whichever
+record ratifies second rebases its floor arithmetic (PDR-0012 ruling 21; both ⇒ **163**).
+Ruling 2 here is already worded for that landing: elements are "integers in 0–255"
+representation-independently, so under the tower they become small `Int`s with no surface
+change — and the §9.1-draft constraint stands: secret material never routes through the
+auto-promoting `Int`.
+
 ## Open questions
 
 | # | Question | Notes |
