@@ -1,13 +1,14 @@
 # Implementation spec — `Bytes` (U-BYTES)
 
-> **Status:** dispatch-ready and **unblocked** —
-> [PDR-0011](../../../decisions/0011-admit-bytes-native-octet-buffer.md) **Accepted**
-> 2026-07-20. Scope addition at ratification:
+> **Status:** **SHIPPED 2026-07-20** — `19c5db9` (spine), `9445d1f` (core.ph + bootstrap),
+> `732189b` (golden lanes), plus the flat-entry follow-on `5ba6101`; clean-worktree
+> verified 164/0. This document is now the **as-built record**; §7 lists the deviations
+> discovered during implementation — read §7 before writing any future impl spec, its
+> items are standing obligations. Scope addition at ratification:
 > [PDR-0013](../../../decisions/0013-path-is-bytes-backed-filesystem-surface.md) ruling 4's
-> `utf8Lossy_` (also Accepted, no reactor dependency) ships in this unit as an **eleventh**
-> primitive — own census constant, cited to PDR-0013. Surface contract:
-> [`../core/bytes.md`](../core/bytes.md); every law/harness reference below points there.
-> All `file:line` anchors verified 2026-07-20 on `4c902b3`.
+> `utf8Lossy_` shipped here as the **eleventh** primitive (own census constant
+> `NEW_BYTES_LOSSY`). Surface contract: [`../core/bytes.md`](../core/bytes.md).
+> `file:line` anchors below are as of the pre-implementation tree (`4c902b3`).
 >
 > **Rustdoc is mandatory on every item this unit adds**
 > (`docs/rust-documentation-guidelines.md`) — an undocumented public item is an incomplete
@@ -232,3 +233,29 @@ checkpoint, never one end-of-unit batch.
 
 `BytesReader`/`BytesWriter` (stream-protocol §8 — separate unit, needs this one),
 any literal syntax (BY-1, no owner), any encoding beyond UTF-8.
+
+## 7. (as-built) Deviations and findings — obligations for every future impl spec
+
+Three things the plan missed, found during implementation; each is now a checklist item
+any new impl spec must address explicitly:
+
+1. **A new kernel class MUST join `install_core`'s `add_class!` list**
+   (`vm/bootstrap.rs`, next to `add_class!(range_class)`). Without the row, the core.ph
+   `class X` block mints a **fresh** class that shadows the bootstrapped row carrying the
+   native bindings — symptom: `<class X> does not understand 'new(_)'` at first use.
+   §2.5's "bootstrap class + verify row" was necessary but not sufficient.
+2. **`is_mutable_collection_key` (`primitive/mod.rs`) is a match site the file-by-file
+   sweep missed.** Any new *mutable* container arm must join its rejection set or it
+   silently becomes a corrupting `Map`/`Set` key. Found by compiler-driven exhaustive
+   matching — which is also the method: grep every `Object::List` match site and decide
+   each one for the new arm; `if let`/`matches!` sites do not error on omission.
+3. **Law 8 was made true by VM surgery, not documentation** (`5ba6101`,
+   `vm/send.rs::call_method`): an ordinary `f.call(...)` from bytecode on a
+   `Block`/`Closure` receiver now enters the closure frame **flat** in the same dispatch
+   loop (the stack window is already in `block_call`'s layout), so no native frame exists
+   during the block body and `Fiber.yield` inside `each`/`map`/`filter` is legal. The
+   restricted-switch guard survives only for genuine native re-entry (`.on(_)` handlers,
+   `.ensure(_)` cleanup, `invokeOn`, `BoundMethod#call`, `@invariant`). Fixtures re-aimed
+   accordingly (`each_generator_yields.ph`, `concurrency_fiber_yield_through_block_call.ph`);
+   guard message reworded. **Standing doc debt:** `concurrency.md` §6's restriction table
+   still describes the pre-fork rule.
