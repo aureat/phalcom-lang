@@ -13,9 +13,13 @@ Questions first. Answers below. Do not scroll.
 ### Q1 — The bits you do not have
 
 A 64-bit IEEE-754 double has an 11-bit exponent. When every exponent bit is set and the
-mantissa is non-zero, the value is a NaN — and the hardware only ever *produces* one
-specific quiet NaN. NaN-boxing stuffs pointers and other immediates into the remaining
-patterns. LuaJIT, JavaScriptCore, and SpiderMonkey's 64-bit build all do this. V8 does not.
+mantissa is non-zero, the value is a NaN — and when an operation *generates* a NaN from
+non-NaN inputs, a given ISA produces one canonical pattern (x86 `0xFFF8…`, ARM `0x7FF8…`).
+NaN *inputs* are a different matter: their payloads propagate. NaN-boxing stuffs pointers and
+other immediates into the remaining patterns. LuaJIT and SpiderMonkey's 64-bit build put
+pointers *into* NaN space; JavaScriptCore reaches the same place from the opposite direction,
+leaving pointers bit-exact in the low 48 bits and adding 2^49 to every double so the doubles
+are what gets displaced. V8 does neither.
 
 1. Count the payload bits honestly, then explain why the scheme works on x86-64 and ARM64
    today and what hardware change would break it. Name what implementations do about it.
@@ -52,8 +56,10 @@ x = 42
 def x.shout; "I am #{self}"; end   # TypeError: can't define singleton method
 ```
 
-Ruby lets you attach a singleton method to almost any object. Not to an Integer, a Symbol,
-`nil`, `true`, or `false`.
+Ruby lets you attach a singleton method to almost any object. Not to an Integer, a Symbol, or
+a Float — those raise `TypeError: can't define singleton`. (`nil`, `true`, and `false` look
+like they belong on that list and do not: each has exactly one instance, so Ruby lets the
+definition land on `NilClass`/`TrueClass`/`FalseClass` and calls that the singleton class.)
 
 1. Explain the refusal from the representation up. What structure does a singleton method
    require, and where would it have to live?
@@ -314,7 +320,9 @@ object boxed = new Counter();
 lock (boxed) { }                 // locks the box
 List<Counter> list = new();
 list.Add(new Counter());
-list[0].Inc();                   // compiler error, and for a good reason
+list[0].Inc();                   // compiles; mutates a discarded temporary
+Counter[] arr = { new Counter() };
+arr[0].Inc();                    // same syntax — this one actually mutates
 ```
 
 ```go
@@ -348,8 +356,10 @@ The hardware change that breaks it is **wider virtual addressing** — Intel's 5
 (LA57) gives 57-bit virtual addresses, and ARM has 52-bit variants. A 57-bit pointer does
 not fit alongside a tag in 52 bits. Implementations respond by *constraining where the heap
 lives*: LuaJIT's original x64 port required all GC memory in the low 2 GB and famously fell
-over on systems that would not cooperate, which is why **GC64 mode** exists — it widened
-the value representation and gave up the tightest packing. Most systems only enable
+over on systems that would not cooperate, which is why **GC64 mode** exists. Note it did *not*
+widen the value word — TValue is 8 bytes either way. It re-cut it: 13 bits of NaN prefix, a
+4-bit tag, and a 47-bit pointer, replacing the old 32-bit-pointer layout. The cost landed on
+internal references (`GCRef`/`MRef`), which inflates tables and other runtime structures. Most systems only enable
 57-bit addressing for processes that explicitly request high mappings, so the scheme
 survives by convention rather than by guarantee.
 
@@ -545,9 +555,11 @@ Java cannot adopt the rule because `Object.hashCode` already exists and every cl
 it; the strictness has to be there from day one or not at all.
 
 **Trap.** "Just make `hashCode` return a constant — it satisfies the contract." It does
-satisfy it, and it is legal, and it turns your `HashMap` into a linked list with O(n)
-lookups — and in a web-facing service, into an algorithmic-complexity DoS. Satisfying a
-contract is not the same as being usable.
+satisfy it, and it is legal, and it collapses every lookup into one bucket. Be current about
+the consequence: pre-Java-8 that meant a linked list and O(n); since Java 8 the bin treeifies
+at 8 entries and you get O(log n) plus tree overhead. Better — and treeification exists
+precisely *because* hash-collision DoS was a live web vulnerability. Satisfying a contract is
+not the same as being usable.
 
 ### A7 — A comparator that corrupted the heap
 
@@ -668,8 +680,11 @@ expensive or would raise.
 **1.** **Wrap** foreclosures: the compiler cannot assume `a + 1 > a`, so it loses a large
 family of loop optimizations that depend on induction variables not wrapping — bounds-check
 elimination, loop-invariant motion, strength reduction, and reasoning about trip counts.
-This is precisely why C and C++ leave *signed* overflow **undefined** rather than wrapping:
-UB restores `a + 1 > a` as an assumption and buys back the optimizations, at the cost of
+Get the causality right: C left *signed* overflow **undefined** originally because it had to
+run on ones' complement and sign-magnitude hardware, where the result is negative zero or a
+trap. The optimization argument came later and is why it *survived* — UB restores `a + 1 > a`
+as an assumption, which is why C23 mandates two's complement and still leaves overflow
+undefined. The cost is
 programs that overflow becoming nondemonic. Java chose wrapping and accepted the weaker
 optimizer; Go did too.
 
@@ -807,8 +822,10 @@ fixed-size struct — it is a call to a constructor that branches on whether the
 inline (copy the bytes) or heap (steal the pointer, null the source). That code is inlined at
 every move, inflating code size, and it is why passing `std::string` by value has a real cost
 even when "moving". (b) **In the object layout**: the object is much larger than three words
-— typically 32 bytes in libstdc++ and libc++ — so every `std::string` field in every struct
-costs 32 bytes and every `vector<string>` has 32-byte stride, worsening cache density for
+— 32 bytes in libstdc++ and MSVC, 24 in libc++ (which is exactly why they differ in how much
+they store inline) — so every `std::string` field in every struct costs three to four words
+even when it holds `"hi"`, and every `vector<string>` carries that stride, worsening cache
+density for
 the *long* strings that gain nothing from SSO. Also credible: (c) the implementations are
 ABI-locked to their layouts, which is why libstdc++'s COW-to-SSO change required a
 dual-ABI (`_GLIBCXX_USE_CXX11_ABI`) that still causes link errors today.
@@ -937,9 +954,12 @@ which is why `lock (someStruct)` locks a fresh monitor each time and synchronize
 allocation; a value has no allocation of its own to die. (c) **Reference equality and
 identity hash** — `ReferenceEquals`/`==` on a boxed value compares boxes, so two boxes of the
 same value are unequal, which quietly breaks identity-keyed caches. Also credible:
-(d) **mutation through an alias** — `list[0].Inc()` is a compile error in C# because the
-indexer returns a *copy*, and mutating a copy that is immediately discarded is always a bug;
-the language chose to reject it rather than let it silently do nothing.
+(d) **mutation through an alias** — `list[0].Inc()` compiles in C# and silently mutates a
+temporary, because `List<T>`'s indexer returns a *value*; the spec mandates the temporary
+whenever the receiver is not classified as a variable. The identical call on an *array*
+element does mutate in place, since `arr[0]` yields a variable. C# rejects only *assignment*
+to an rvalue's field (CS1612, `list[0].N = 5`), so the method-call case fails with no
+diagnostic at all — which is worse than an error, and is why this is the famous gotcha.
 
 **2.** The method has a **value receiver**, so calling `s.Do()` copies the entire struct,
 mutex included, and `Lock` is taken on the **copy's** mutex. The copy dies when `Do`

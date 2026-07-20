@@ -14,7 +14,8 @@ Questions first. Answers below. Do not scroll.
 ### Q1 — Reference counting versus tracing, honestly
 
 Swift and Objective-C use ARC and ship no tracing collector at all. Java, Go, and BEAM
-trace and do no reference counting. Both camps are shipping serious systems.
+trace, and Java and Go do no reference counting at all — BEAM reserves it for the one thing
+that is shared, off-heap binaries above 64 bytes. Both camps are shipping serious systems.
 
 1. State the throughput trade in terms of *what each algorithm's cost is proportional to*.
    The answer is not "RC is slower"; it is a statement about which quantity drives the bill.
@@ -144,8 +145,10 @@ forbade `ref` fields on the heap.
 
 ### Q10 — Read barriers buy relocation
 
-ZGC and Shenandoah move objects while the application runs. Both use a read (load) barrier.
-G1 does not, and must stop the world to evacuate.
+ZGC and Shenandoah move objects while the application runs, and both need a read (load)
+barrier to do it — though neither relies on load barriers alone: Shenandoah pairs its LRB
+with SATB write barriers, and Generational ZGC added store barriers and moved marking work
+into them. G1 has no read barrier, and must stop the world to evacuate.
 
 1. Explain why concurrent *relocation* requires intercepting loads, when concurrent
    *marking* only needs write barriers. The argument turns on a counting fact about program
@@ -337,8 +340,11 @@ lock. Under the GIL this did not matter — only one thread ran Python at a time
 updates could be plain non-atomic increments. The moment the GIL is removed, every refcount
 update must be atomic, and the singletons become the single hottest contended cache lines in
 the process. Immortality means those objects' counts are simply never touched: the
-increment/decrement path checks for the immortal marker and returns. It became urgent because
-free-threaded CPython made a previously free operation cost a contended atomic.
+increment/decrement path checks for the immortal marker and returns. Attribute the motivation
+correctly: PEP 683 never mentions free-threading. It cites cache-line invalidation on the
+objects every thread touches, sharing objects across subinterpreters under a per-interpreter
+GIL, and copy-on-write pages in pre-fork servers — the Instagram/YouTube case. Free-threaded
+CPython later *consumed* immortality; it did not motivate it.
 
 ### A3 — Three ways to reclaim, three ways to fail
 
@@ -359,8 +365,11 @@ life (mark-sweep, non-moving, no per-object copy).
 
 **2.** **Fragmentation.** A non-moving mark-sweep collector reclaims memory into a free list
 of holes; if the free bytes are scattered as thousands of small gaps and the request needs a
-large contiguous run, the allocation fails despite ample free memory. Only the non-moving
-collector makes this possible — mark-compact and copying both produce a single contiguous
+large contiguous run, the allocation fails despite ample free memory. This happens whenever
+some objects cannot be relocated — either because the collector never moves anything, or
+because a moving collector carves out a non-moving exception, which is exactly the G1 case
+below. Do not claim it is unique to non-moving collectors: a monolithic mark-compact or
+copying collector produces a single contiguous
 free region by construction. The JVM case: **G1's humongous objects**. An object larger than
 half a region is allocated into a sequence of contiguous regions; a heap with humongous
 allocations interleaved among ordinary regions can fail to find enough *adjacent* free
@@ -681,10 +690,13 @@ memory overhead across the entire heap. The load barrier concentrates the cost o
 loads and lets the fast path be a predictable, mostly-not-taken check, while the write-back
 means each stale reference is fixed at most once.
 
-**3.** ZGC stores metadata **in unused high bits of the pointer** — which colour phase the
-reference was last seen in (`marked0`, `marked1`, `remapped`), and finalizable status. The
-same physical page is mapped at multiple virtual addresses differing only in those bits, so a
-"coloured" pointer dereferences correctly without masking — the hardware does the work.
+**3.** ZGC stores metadata **in the pointer**. Get the generation right, because the stale
+version is what every blog repeats: the *original* non-generational design put metadata in
+unused high bits and multi-mapped the same physical page at several virtual addresses so a
+coloured pointer dereferenced without masking. Generational ZGC — default since JDK 23, with
+non-generational removed in 24 — **dropped multi-mapping entirely**, moved the metadata to the
+**low-order** bits, and strips it with a single shift in the barrier. The old
+`marked0/marked1/remapped/finalizable` colour set is likewise gone.
 **Self-healing** means the load barrier, on encountering a reference whose colour is stale,
 does the work (mark it, or look up its forwarding entry) *and then stores the corrected,
 recoloured reference back into the memory location it was loaded from*, so the next load of
@@ -808,12 +820,14 @@ single most common misuse of the class.
 
 ### A13 — Allocation speed is a garbage collection decision
 
-**1.** Bump allocation requires a **large contiguous region of free memory** and the ability
-to hand out the next `n` bytes by incrementing a pointer. That means free memory must be
-consolidated, which means the collector must be able to **move live objects out of the way** —
-compaction or copying. A non-moving collector reclaims memory *in place*, so free space is
-whatever pattern of holes the dead objects happened to occupy; there is no contiguous region
-to bump through, and the allocator must search a free list or size-class bin for a hole that
+**1.** Bump allocation requires a **contiguous region of free memory** and the ability to hand
+out the next `n` bytes by incrementing a pointer. What a non-moving collector cannot offer is
+a *single monotonic bump pointer over the whole heap*: it reclaims memory in place, so free
+space is whatever pattern of holes the dead objects happened to occupy, and it must keep
+re-acquiring a fresh run whose length is decided by the death pattern rather than by the
+allocator. Do not overstate this into "non-moving means no bump allocation" — mark-region
+collectors like Immix bump-allocate *within* a block or line-run while moving nothing, which
+is the whole point of the family. A free-list allocator gives up even that, and the allocator must search a free list or size-class bin for a hole that
 fits. So "allocation is a pointer bump" is not an allocator achievement, it is a **dividend
 paid by the collector's willingness to relocate** — and any decision that forecloses moving
 (conservative roots, unmanaged interior pointers, pinning for FFI) also forecloses fast
