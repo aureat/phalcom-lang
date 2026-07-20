@@ -171,10 +171,13 @@ A `Future` settles **exactly once**; further completions are ignored.
 
 ### Interface
 
-**Status column below**: **A** = landed (U-FUTURE Slice A, pure `.ph`, no
-`Fiber`/scheduler involvement); **B** = not landed — its own owning unit is
-`Future`'s job, not built here, but its precondition (the native ready-queue
-+ root-drive/`runScheduled` pump) is now landed
+**Both slices are landed.** The status column below records which slice a member
+came from, not whether it exists: **A** = U-FUTURE Slice A (pure `.ph`, no
+`Fiber`/scheduler involvement); **B** = Slice B, landed in `06432bd`
+(2026-07-14) over the native ready-queue. Slice B's `await` did not actually
+*work* until [E004](../../errors/E004-await-cannot-suspend.md) was fixed — it
+probed its own permission to yield with a wrapper that made the yield illegal,
+so it never suspended a fiber; `Fiber#isRoot` replaced the probe
 ([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md), ratified per
 [DEC-FUT-SCHED](../../forge/units/U-FUTURE/plan.md#9-blocked-on-decision-register)
 Option 1).
@@ -222,13 +225,21 @@ settle-once state machine over three private fields (`_state`/`_value`/
 synchronously. **Zero native code, zero `Fiber` involvement** — a settled
 future never suspends.
 
-**Slice B — not landed** (needs `Fiber`, §1, as the substrate; its native
-ready-queue precondition is landed, see below):
+**Slice B — landed** in `06432bd` (2026-07-14), over `Fiber` (§1) as the
+substrate and the native ready-queue below. What it took:
 
 1. `await` = "add `current` to the future's waiters, then `Fiber.yield` to
-   the scheduler" — needs `Fiber#isDone`/`error`
-   ([U-FIBER-REFLECT](../../forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md), unblocked
-   now) to detect an `async` driver's completion/failure;
+   the scheduler" — plus, on the **root** fiber, which has no resumer and so
+   cannot yield at all, a degrade to driving the queue in place. Choosing
+   between those two branches turned out to need a *predicate*
+   (`Fiber#isRoot`): the shipped implementation originally chose by attempting
+   a yield inside `{ … }.attempt()` and inspecting the failure, and since
+   `.attempt()` is itself two native re-entrant frames, the probe tripped the
+   restricted-yield guard (§4) it was probing for — so `await` never suspended
+   any fiber until [E004](../../errors/E004-await-cannot-suspend.md) was fixed.
+   Also uses `Fiber#isDone`/`error`
+   ([U-FIBER-REFLECT](../../forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md))
+   to detect an `async` driver's completion/failure;
 2. a **scheduler**: a ready-queue of resumable fibers plus a source of
    external completions (timers, I/O) exposed through [`System`](system.md).
    No `.ph`-reachable class-side/module mutable state exists today
@@ -241,10 +252,12 @@ ready-queue precondition is landed, see below):
    degrades to "drain, re-check" rather than requiring `main` itself to be a
    scheduler fiber;
 3. settlement moves the future to `fulfilled`/`rejected` and enqueues every
-   waiter fiber and `then` continuation onto the ready-queue — this
-   enqueue-on-settle half is still `Future`'s own job (U-SCHED's
-   `drain_ready_queue`/`runScheduled` only ever *pop*, never push a
-   resumed-later fiber back on).
+   waiter fiber and `then` continuation onto the ready-queue — the
+   enqueue-on-settle half is `Future`'s own job (`drain`), since U-SCHED's
+   `runScheduled` only ever *pops*, never pushes a resumed-later fiber back
+   on. `drain` skips a waiter fiber that has already finished: one can fail
+   *after* registering, and resuming it would abort the run and take the
+   future's healthy waiters with it (E004(c)).
 
 The native ready-queue seam is landed
 ([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md),
@@ -252,8 +265,11 @@ ratified — [DEC-FUT-SCHED](../../forge/units/U-FUTURE/plan.md#9-blocked-on-dec
 Option 1); `Future` deliberately owns **no** new VM mechanism beyond
 `Fiber` + a queue — keeping the concurrency primitive singular
 ([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)).
-What remains for Slice B itself is `Future`'s own waiter-list/settlement
-wiring over this now-landed substrate, not the substrate itself.
+`Future`'s own waiter-list/settlement wiring over that substrate is what Slice
+B added, and it is now landed too. `_waiters` holds two kinds of thing —
+`Fiber`s registered by `await`, `Block`s registered by `then`/`map`/`catch` —
+unified by `System.schedule(_)`, which enqueues a fiber as-is and wraps anything
+else.
 
 ---
 

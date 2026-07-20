@@ -25,7 +25,6 @@ fix. The auditor's word confirms nothing; the machine does.
 |----|-------|----------|-----------|
 | [E002](E002-fiber-floor-upvalue-crash.md) | Fiber-floor failure capture drops the live stack without closing open upvalues | **blocker** (crash) | 2026-07-19 |
 | [E003](E003-schedule-pump-arity.md) | `System.schedule` pump resumes an arity-1 entry with zero args, failing the run | minor | 2026-07-19 |
-| [E004](E004-await-cannot-suspend.md) | `Future#await` can never suspend a fiber; its own `.attempt()` wrapper trips the restricted-yield guard | **blocker** (feature inoperable) | 2026-07-19 |
 
 E001, E002 and E004(c) are the **same family**: a value held live across a re-entrant /
 parked interpreter boundary that the root/unwind scan does not cover. E001 is
@@ -45,6 +44,13 @@ inside.
 | ID | Title | Fixed at | Verified |
 |----|-------|----------|----------|
 | [E001](E001-gc-ensure-temp-root-uaf.md) | `block_ensure` frees the protected block's pending result if the cleanup collects | `cdd2117` — `VM::push_temp_root` + `collect_roots` enumeration | 2026-07-19 (all repros + control + the error-carrying path) |
+| [E004](E004-await-cannot-suspend.md) | `Future#await` could never suspend a fiber; its own `.attempt()` wrapper tripped the restricted-yield guard | `f479189` — `Fiber#isRoot` predicate + bare yield, pump quiescence check, `drain` skips finished waiters | 2026-07-19 (all 3 repros + both controls + clean-checkout suite) |
+
+E004 is the sharpest illustration of this directory's method note: its diagnosis was reproduced and
+correct, and **its fix direction was still wrong**. The recorded prescription for E004(c) — unregister
+the waiter on `await`'s raising branch — is not implementable once (a) is fixed, because catching that
+raise requires the very native frame whose removal was the fix. The repair that worked guards at
+`drain` instead, and covers strictly more. Reproduce, then re-derive.
 
 ## Refuted (documented non-errors)
 

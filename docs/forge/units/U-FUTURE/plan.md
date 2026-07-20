@@ -106,9 +106,16 @@ Spec names are authoritative (`concurrency.md §2`). `resolve`/`reject` in the t
 | `isReady` | instance | **A (v1, `.ph`)** | `true` once settled; never suspends |
 | `value` | instance | **A (v1, `.ph`)** | `Some(v)` if fulfilled else `None`; never suspends |
 | `then(_)` / `map(_)` / `catch(_)` | instance | **A (v1, `.ph`) — settled-only** | on an already-settled receiver, fire synchronously and return a settled future. On a `pending` receiver they **register a continuation** — which can only ever fire in Slice B, so v1 documents "pending continuations require the scheduler (Slice B)". |
-| `async(_)` | class | **B (DEFERRED → DEC-FUT-SCHED)** | run a `Function` on a fresh fiber; needs `System.schedule` + `Fiber#isDone` |
-| `await` | instance | **B (DEFERRED → DEC-FUT-SCHED)** | suspend current fiber until settled; needs the pump/root-drive |
-| pending→settle **drain** (enqueue waiters) | — | **B (DEFERRED)** | needs the native ready-queue |
+| `async(_)` | class | **B — LANDED `06432bd`** | run a `Function` on a fresh fiber; uses `System.schedule` + `Fiber#isDone` |
+| `await` | instance | **B — LANDED `06432bd`**, fixed `f479189` | suspend current fiber until settled; root fiber degrades to driving the pump. Branch selected by `Fiber#isRoot` — see E004 |
+| pending→settle **drain** (enqueue waiters) | — | **B — LANDED `06432bd`** | over the native ready-queue; skips finished fiber waiters (E004(c)) |
+
+> **Status correction, 2026-07-19.** The three rows above read `DEFERRED` for
+> five months after Slice B shipped, as did `concurrency.md` and `core.ph`'s own
+> `Future` class comment. Slice B landed 2026-07-14 in `06432bd`; `await` did not
+> actually suspend anything until [E004](../../../errors/E004-await-cannot-suspend.md)
+> was fixed in `f479189`. DEC-FUT-SCHED's Option 1 ruling below (v1 = Slice A
+> only) describes what this *unit* scoped, not what the tree contains.
 
 **Explicitly deferred beyond Slice B (OPEN — do not design in):** `select`/`race`, structured
 concurrency / cancellation scopes, scheduler **fairness** guarantees, `System.sleep`/timer &

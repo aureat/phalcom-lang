@@ -1,7 +1,12 @@
 # E004 · `Future#await` can never suspend a fiber; its own wrapper trips the restricted-yield guard
 
-- **Status:** OPEN — confirmed 2026-07-19 (reproduced under `target/debug/phalcom`, isolated by control)
-- **Severity:** blocker — the feature's central operation cannot execute; two secondary failure modes (silent hang, cross-waiter corruption)
+- **Status:** **FIXED** at `f479189` — verified 2026-07-19: all three repros below now behave
+  correctly, both controls still hold, the full suite is green from a clean checkout, and the
+  previously-missing coverage landed as
+  `phalcom-core/tests/lang/concurrency/concurrency_future_await_suspends.ph`. See
+  [The fix](#the-fix) for what changed and why the obvious repair was not the one taken.
+- *Originally:* OPEN — confirmed 2026-07-19 (reproduced under `target/debug/phalcom`, isolated by control)
+- **Severity:** blocker — the feature's central operation could not execute; two secondary failure modes (silent hang, cross-waiter corruption)
 - **Subsystem:** core library (`Future`) × fibers / restricted-yield guard
 - **Related:** [E002](E002-fiber-floor-upvalue-crash.md), [E001](E001-gc-ensure-temp-root-uaf.md) — same recurring shape: a participant removed from the machinery on one exit path and not the other. Narrative: [`docs/learn/concurrency/future-await.md`](../learn/concurrency/future-await.md).
 
@@ -98,7 +103,7 @@ System.runScheduled()                             // -> Err(<CannotYieldAcrossNa
 System.print({ Fiber.yield(None) }.attempt().toString)   // root -> Err(<Error>)
 ```
 
-## Why the suite is green
+## Why the suite was green
 
 `phalcom-core/tests/lang/concurrency/concurrency_future_slice_b.ph` is the feature's acceptance test
 and calls `await` twelve times. Every call is on the **root** fiber (branch (b), with a queue that does
@@ -124,19 +129,41 @@ Slice B landed in `06432bd` (2026-07-14). Three records still describe it as unb
 - `phalcom-core/core/core.ph:1335-1338` — the `Future` class doc comment says `async(_)`/`await` are
   "deliberately NOT built here", eleven lines above their implementations.
 
-## Fix direction (NOT implemented / NOT verified)
+## The fix
 
-Recorded as a sketch of the space, not a prescription — in this codebase a reproduced diagnosis is not
-a verified fix (see [README](README.md)); re-derive from code before acting.
+Landed `f479189`. The three consequences were independent and each needed its own repair.
 
-The three consequences are **independent** and (b) and (c) survive any repair of (a):
+**(a) — a predicate, not a probe.** Added `Fiber#isRoot`
+(`phalcom-core/src/primitive/fiber.rs`), the predicate form of `fiber_yield`'s root refusal:
+`vm.heap.fiber(fiber_ref).resumer.is_none()`. `await` now *asks* which branch it is on instead of
+attempting a yield and reading the wreckage, and the `Fiber.yield` is **bare** — no wrapper, so
+nothing between the fiber floor and the switch. A comment at the call site says why, because the
+failure mode is invisible: any future edit that wraps that yield in `.attempt()`, `.on(_)`, or
+`ensure` silently reinstates the whole bug.
 
-- **(a)** needs the yield out from under a re-entrant frame, or a way to ask the VM "may I yield?"
-  without attempting it. Attempt-and-inspect cannot work when the attempt changes the answer.
-- **(b)** needs a quiescence check in the pump loop — the information is present (empty queue plus
-  still-pending receiver implies no progress is possible) and is not consulted. Independent of (a).
-- **(c)** needs the `_waiters` unregistration on *both* exit paths, not just the root one. Independent
-  of (a).
+This is a **floor amendment** (136 → 137 bindings), recorded with its rationale in
+`phalcom-core/tests/invariants.rs`. Justified against the ADR-0019 freeze on the ground that no
+arrangement of library code can observe root-ness without it: attempt-and-inspect is unfixable in
+`.ph` when the attempt changes the answer.
 
-Whatever lands: add a non-root park-and-resume fixture, since the corpus has none, and correct the
-three stale records above in the same change.
+**(b) — quiescence check.** The root pump now pops one entry at a time via `System.nextScheduled`
+and raises when the queue drains while the receiver is still pending, instead of calling
+`System.runScheduled` in a loop that spins on an empty queue. Side effect: `await` now returns as
+soon as *its own* future settles rather than draining the whole queue first, which reordered two
+lines of `concurrency_future_slice_b`'s golden — same twelve lines, re-blessed with the reason
+recorded in the fixture.
+
+**(c) — guarded at `drain`, not at `await`.** The §Defect text and the original fix sketch both said
+to unregister `Fiber.current` from `_waiters` on `await`'s raising branch. **That was the wrong
+place.** With a bare yield there is no way to catch the raise without reintroducing a native frame —
+the same catch-22 as (a). `drain` instead skips waiters that are finished fibers. This is also
+strictly more robust: it covers a waiter that dies for reasons having nothing to do with `await`,
+which the unregister-on-error-path repair would have missed.
+
+Point (c) is why the standing rule exists. The diagnosis was reproduced and correct; the prescription
+derived from it was not implementable, and following it would have re-broken (a).
+
+**Coverage.** `concurrency_future_await_suspends.ph` asserts all three fixes plus the two controls,
+including that the restricted-yield guard still refuses a wrapped yield — the fix removed `await`'s
+self-inflicted native frame, not the rule. The three stale records listed above were corrected in the
+same change.

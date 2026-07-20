@@ -97,12 +97,13 @@ Three items the track raised and did not own, none assigned to a unit:
   hook a per-cell step onto, so a fix must *introduce* the walk. C1's open question (narrowing the
   resume-side over-restriction) now carries this as a second cost — the guard is what keeps E002's
   family mostly unreachable.
-- **[E004](../errors/E004-await-cannot-suspend.md) is open, and it is three independent defects**
-  wearing one name: `await`'s self-defeating probe, a pump loop with no quiescence check, and a
-  waiter unregistered on one exit branch only. (b) and (c) survive any repair of (a). C4's separate
-  finding is that **no test in the corpus has a fiber await a pending future and later resume** — the
-  suite's coverage of the feature's central operation is zero cases, hidden by a fallback path good
-  enough to make every root-fiber demo pass.
+- ~~**E004**~~ — **fixed in `f479189`**, immediately after C4 shipped. Three independent defects
+  wearing one name: `await`'s self-defeating probe (fixed with a new floor binding, `Fiber#isRoot`,
+  136 → 137 — the question had no answer in the language), a pump loop with no quiescence check, and
+  a dead waiter left registered. C4's coverage finding — **no test in the corpus had a fiber await a
+  pending future and later resume** — is closed by `concurrency_future_await_suspends.ph`. Note that
+  E004's own recorded fix direction for the third defect was **wrong and unimplementable**; the
+  working repair guards at `drain`. See [E004](../errors/E004-await-cannot-suspend.md) §The fix.
 
 One qualification C1 raised and did not own: [`upvalues.md`](vm/upvalues.md) owns the
 `GetUpvalue`/`SetUpvalue` fiber-aware branch, which makes Doc 1's "the inner loop is fiber-unaware"

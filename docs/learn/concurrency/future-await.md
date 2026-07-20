@@ -7,6 +7,22 @@ re-derives none of it.*
 
 ---
 
+> **Fixed after this doc was written.** Everything below describes HEAD as of `8bee47a`. The defect
+> it analyses — [E004](../../errors/E004-await-cannot-suspend.md) — was repaired in `f479189`:
+> `await` now asks `Fiber#isRoot` instead of probing, yields bare, reports quiescence instead of
+> spinning, and `drain` skips finished waiters. The missing coverage landed as
+> `concurrency_future_await_suspends.ph`.
+>
+> The document is **left as written**, because what it is teaching is not "here is a bug" but how the
+> guard, the wrapper, and the fallback combine — and that reasoning is what produced the fix. Read it
+> in the past tense. One thing it got wrong is worth carrying forward: its closing design-space
+> section suggests unregistering the dead waiter on `await`'s error path, and that turns out to be
+> **unimplementable** once the wrapper is gone, since catching the raise requires the native frame
+> whose removal is the fix. The working repair guards at `drain`. A correct diagnosis does not imply a
+> correct prescription.
+
+---
+
 ## The grip
 
 > **`Future#await` is the only method in the core library that makes its own precondition fail.**
@@ -559,7 +575,13 @@ upvalue, and a feature that cannot run.
 
 Left open, and not this doc's to close:
 
-- **E004** — `await` cannot suspend; the waiter leak; the quiescent spin. Reproduced, not fixed.
+- ~~**E004**~~ — closed in `f479189`, after this doc was written. `await` suspends; the pump reports
+  quiescence; `drain` skips dead waiters. The three stale records and the `status: PENDING` header
+  were corrected in the same change. What the fix cost: one new floor binding (`Fiber#isRoot`,
+  136 → 137), because the question `await` needed to ask had no answer in the language.
 - **E002** — still open from C3: the fiber floor drops the stack without closing upvalues.
-- Three stale records naming Slice B as unbuilt, listed above.
-- `concurrency_future_async_await.ph`'s `status: PENDING` header, in the passing directory.
+
+And one thing this doc found that outlived its own defect: **a fallback path that works is the most
+effective way to hide that the primary path does not.** The root-fiber branch made every demo and
+every test produce the right answer for five months. That is a coverage lesson, not a fiber lesson,
+and nothing in the fix prevents it happening again somewhere else.
