@@ -4,6 +4,7 @@ Specification for how Phalcom reports a failure to a human: runtime tracebacks, 
 syntax diagnostics, execution tracing, and disassembly.
 
 - [`output-catalog.md`](output-catalog.md) — every rendering surface, by example.
+- [`color.md`](color.md) — the color scheme: semantic roles, palette discipline, per-surface use.
 - [`../../deferred/tracing.md`](../../deferred/tracing.md) — the U-TRACE audit and continuation
   prompt: what exists, what is unwired, what is broken.
 - [`../../deferred/error-handling-followups.md`](../../deferred/error-handling-followups.md) —
@@ -125,6 +126,10 @@ escapes unconditionally. Required:
 - Honour the `NO_COLOR` environment variable (any non-empty value disables).
 - Piping to a file or a test harness must produce clean text with no escapes. Today it does not,
   which silently makes every diagnostic byte-fragile in fixtures.
+
+Which elements get which colors is specified separately in [`color.md`](color.md). The governing
+rule there: color is emphasis, never information — every distinction must survive
+`--color=never`.
 
 ### 4.2 Unicode and alignment
 
