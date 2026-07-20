@@ -85,6 +85,41 @@ impl VM {
         }
     }
 
+    /// [`Self::close_upvalues_from`]'s counterpart for a **parked** fiber:
+    /// closes every open upvalue at absolute stack index `>= from` recorded
+    /// in `fiber_ref`'s own [`crate::heap::FiberObject::open_upvalues`],
+    /// copying out of `fiber_ref`'s own parked
+    /// [`crate::heap::FiberObject::stack`] rather than [`Self::stack`].
+    ///
+    /// `close_upvalues_from` only closes upvalues open against the *live*
+    /// mirror (`self.stack`/`self.open_upvalues`), which is exactly the
+    /// currently-running fiber's state. A fiber that isn't currently running
+    /// keeps its own open upvalues — and the stack slots they read from — in
+    /// its parked `FiberObject` fields instead, so closing them needs this
+    /// fiber-scoped variant (E002,
+    /// [`docs/errors/E002-fiber-floor-upvalue-crash.md`](../../../docs/errors/E002-fiber-floor-upvalue-crash.md)).
+    ///
+    /// Used by the fiber-floor failure cascade
+    /// ([`Self::run_until`]) to close each intermediate `Call`-mode
+    /// resumer's open upvalues — captured against *its* parked stack, not
+    /// the failing fiber's — before that resumer's parked state is
+    /// discarded, mirroring [`Self::unwind_to`]'s close-before-truncate
+    /// order for the parked case.
+    fn close_fiber_upvalues_from(&mut self, fiber_ref: ObjRef, from: usize) {
+        let to_close: Vec<(usize, ObjRef)> = self
+            .heap
+            .fiber(fiber_ref)
+            .open_upvalues
+            .range(from..)
+            .map(|(&idx, &cell)| (idx, cell))
+            .collect();
+        for (idx, cell) in to_close {
+            let value = self.heap.fiber(fiber_ref).stack[idx];
+            *self.heap.upvalue_mut(cell) = Upvalue::Closed(value);
+            self.heap.fiber_mut(fiber_ref).open_upvalues.remove(&idx);
+        }
+    }
+
     /// Discards every frame/stack slot pushed since a caught `Raise` snapshot,
     /// restoring the VM to the state it was in immediately before the
     /// protected block ran ([`primitive::block::block_on`](crate::primitive::block::block_on),
@@ -337,10 +372,35 @@ impl VM {
                     // reached. The host, and every fiber the failure doesn't
                     // reach, survives.
                     let error_value = self.capture_error_value(&e);
+                    // E002 fix: close the originating fiber's own open
+                    // upvalues against its still-live stack *before* the
+                    // cascade below discards anything, mirroring
+                    // `unwind_to`'s close-before-truncate order (dispatch.rs
+                    // ~L96-103) for the fiber-floor failure path, which
+                    // previously skipped it entirely. This must run before
+                    // `self.current` is repointed by `switch_to_fiber_and_deliver`
+                    // (`load_live_from` would otherwise overwrite
+                    // `self.open_upvalues`/`self.stack` first, discarding the
+                    // failing fiber's slots un-closed).
+                    self.close_upvalues_from(0);
                     let mut failed = self.current;
                     loop {
                         self.heap.fiber_mut(failed).status = crate::heap::FiberStatus::Failed;
                         self.heap.fiber_mut(failed).result = error_value;
+                        // Close `failed`'s own open upvalues before clearing
+                        // its parked state below. For the fiber that actually
+                        // raised (the first iteration) this is a no-op — its
+                        // `FiberObject` fields are still empty (they were
+                        // `vm.frames`/`stack`/`open_upvalues`, the live
+                        // mirror, when it raised), and `close_upvalues_from`
+                        // above already closed those against the live stack.
+                        // For each intermediate `Call`-mode resumer this
+                        // cascade walks past, its open upvalues are real:
+                        // parked (along with its own stack) when it resumed
+                        // the fiber that ultimately failed — hence the
+                        // fiber-scoped `close_fiber_upvalues_from` rather than
+                        // `close_upvalues_from`.
+                        self.close_fiber_upvalues_from(failed, 0);
                         // Spec §5.1: a `Failed` fiber can never resume, so its
                         // parked state is pure retention — clear all three
                         // parked fields here (not just `frames`). The
