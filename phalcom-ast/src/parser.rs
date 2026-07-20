@@ -1553,12 +1553,15 @@ impl<'source> Parser<'source> {
     ///
     /// Small statements are separated by `;` and each group is terminated by a
     /// newline (matching the LALRPOP `BlockStatements` rule); blank lines are
-    /// ignored and nested `class` declarations are permitted.
+    /// ignored. Class declarations are module top-level only (decision 0065
+    /// ruling 5, U-CLASSCLOSE §6) — a nested `class` still *parses* (so the
+    /// error carries a real span and the surrounding block otherwise reads
+    /// normally) but is rejected right after with `class.nested_declaration`.
     ///
     /// # Errors
     ///
-    /// Returns an error on a malformed statement or a missing terminating
-    /// newline.
+    /// Returns an error on a malformed statement, a missing terminating
+    /// newline, or a nested `class` declaration.
     fn parse_block_statements(&mut self) -> ParserResult<Vec<Statement>> {
         let mut stmts = Vec::new();
         loop {
@@ -1566,10 +1569,35 @@ impl<'source> Parser<'source> {
             match self.peek() {
                 Token::RBrace | Token::Eof => break,
                 // `Token::At` also dispatches here — a nested class may carry
-                // header attributes too (U-ANNOT-LAYOUT §3.3), same rationale
-                // as the top-level `parse_top_item` dispatch.
+                // header attributes too (U-ANNOT-LAYOUT §3.3), same dispatch
+                // shape as the top-level `parse_top_item`, but nesting itself
+                // is rejected below rather than accepted.
+                //
+                // Synthesized `Statement::Class` nodes (`@variant`,
+                // `compiler/attributes.rs`) never reach this arm — they are
+                // built as Rust struct literals and handed straight to the
+                // compiler, bypassing the parser entirely (U-CLASSCLOSE §1.3).
+                // This ban is therefore a syntax-level check only; any future
+                // desugar that synthesizes a `Statement::Class` inherits the
+                // same bypass silently.
                 Token::Class | Token::At => {
-                    stmts.push(self.parse_class()?);
+                    let stmt = self.parse_class()?;
+                    // `range.start` is the `class` keyword's own byte offset
+                    // (set in `parse_class` before any header attribute
+                    // affects it — attributes are consumed first, then
+                    // `start = self.cur_start()` right before `Token::Class`
+                    // is expected), so the span points at the keyword even
+                    // when the nested class carries `@` attributes.
+                    let Statement::Class(class_def) = &stmt else {
+                        unreachable!("parse_class always returns Statement::Class")
+                    };
+                    let keyword_start = class_def.range.start;
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message(
+                            "class.nested_declaration: class declarations are only allowed at a module's top level, not nested inside a block".to_string(),
+                        ),
+                        range: keyword_start..keyword_start + "class".len(),
+                    });
                 }
                 _ => {
                     loop {

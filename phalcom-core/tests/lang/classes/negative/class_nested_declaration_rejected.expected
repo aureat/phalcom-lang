@@ -1,0 +1,1 @@
+class.nested_declaration: class declarations are only allowed at a module's top level, not nested inside a block
