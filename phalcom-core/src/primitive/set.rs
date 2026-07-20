@@ -16,11 +16,28 @@
 //! are distinct heap variants over the same [`crate::heap::MapObject`] backing
 //! struct and so need distinct `vm.heap.set`/`set_mut` calls).
 
-use crate::error::PhResult;
+use crate::error::{MapMutationError, PhResult, RuntimeError};
 use crate::heap::ObjRef;
 use crate::primitive::{expect_set, is_mutable_collection_key, mutable_key_error, send_eq, send_hash};
 use crate::value::Value;
 use crate::vm::VM;
+
+/// Converts a [`MapMutationError`] into the [`RuntimeError`] a `Set` raw
+/// primitive should surface — the `Object::Set` twin of
+/// `crate::primitive::map`'s identically-shaped private helper.
+/// [`MapMutationError::Locked`] becomes the catchable
+/// [`RuntimeError::ConcurrentMutation`] (the G0 reentrancy lock,
+/// `docs/deferred/error-handling-followups.md` §1); [`MapMutationError::OutOfRange`]
+/// becomes [`RuntimeError::Internal`] (defense-in-depth, should be
+/// unreachable).
+fn set_mutation_error(err: MapMutationError, collection: &'static str) -> RuntimeError {
+    match err {
+        MapMutationError::Locked => RuntimeError::ConcurrentMutation { collection },
+        MapMutationError::OutOfRange => {
+            RuntimeError::Internal(format!("{collection} slot from locate() was out of range (internal invariant violation)"))
+        }
+    }
+}
 
 /// Signature: `Set.class::new()` — allocates an empty set.
 pub fn set_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -39,19 +56,28 @@ pub fn set_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 
 /// Locates `key` in the set at `id` — the `Object::Set` twin of
 /// [`crate::primitive::map`]'s `locate`; see that module's doc for the
-/// borrow-model proof (no `&Heap` borrow held across the `hash`/`==` sends).
+/// borrow-model proof (no `&Heap` borrow held across the `hash`/`==` sends)
+/// and the G0 reentrancy lock it applies around each `hash`/`==` send
+/// (`docs/deferred/error-handling-followups.md` §1).
 ///
 /// # Errors
 ///
 /// Propagates any [`crate::error::RuntimeError`] raised by the `hash`/`==` sends.
 fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)> {
-    let bucket = send_hash(vm, key)?;
+    vm.heap.set_mut(id).enter_reentrant_send();
+    let bucket_result = send_hash(vm, key);
+    vm.heap.set_mut(id).exit_reentrant_send();
+    let bucket = bucket_result?;
+
     let candidates: Vec<usize> = vm.heap.set(id).bucket(bucket).to_vec();
     for slot in candidates {
         let Some(candidate_key) = vm.heap.set(id).key_at(slot) else {
             continue;
         };
-        if send_eq(vm, candidate_key, key)? {
+        vm.heap.set_mut(id).enter_reentrant_send();
+        let eq_result = send_eq(vm, candidate_key, key);
+        vm.heap.set_mut(id).exit_reentrant_send();
+        if eq_result? {
             return Ok((bucket, Some(slot)));
         }
     }
@@ -79,7 +105,10 @@ pub fn set_raw_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     if slot.is_none() {
         // Set entries carry no meaningful value slot (DEC-CT-B) — Nil, never
         // surfaced by `Set`'s `.ph` protocol.
-        vm.heap.set_mut(id).insert_new(bucket, key, Value::Nil);
+        vm.heap
+            .set_mut(id)
+            .insert_new(bucket, key, Value::Nil)
+            .map_err(|err| set_mutation_error(err, "Set"))?;
     }
     Ok(*receiver)
 }
@@ -107,7 +136,7 @@ pub fn set_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     let id: ObjRef = expect_set(vm, receiver)?;
     let (_, slot) = locate(vm, id, args[0])?;
     if let Some(s) = slot {
-        vm.heap.set_mut(id).remove_at(s);
+        vm.heap.set_mut(id).remove_at(s).map_err(|err| set_mutation_error(err, "Set"))?;
     }
     Ok(*receiver)
 }

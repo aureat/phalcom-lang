@@ -35,6 +35,7 @@
 //! value — no rehashing, no re-entrant send, ever needed for internal
 //! bookkeeping.
 
+use crate::error::MapMutationError;
 use crate::value::Value;
 use std::collections::HashMap;
 
@@ -59,6 +60,13 @@ pub struct MapObject {
     /// Bucket index: a key's Phalcom `hash` (truncated `i64`) to the
     /// `entries` slots whose key hashed there.
     index: HashMap<i64, Vec<usize>>,
+    /// Reentrant-send depth: nonzero while a `locate` call (in
+    /// [`crate::primitive::map`]/[`crate::primitive::set`]) has a `hash`/`==`
+    /// send in flight against this collection's own key. A counter, not a
+    /// bool, so a read-only reentrant call (e.g. one key's `==` reading
+    /// `m.at(_)` on the same map) nests correctly without the inner call's
+    /// exit clearing the outer call's lock. See [`Self::enter_reentrant_send`].
+    reentrant_depth: u32,
 }
 
 impl MapObject {
@@ -97,14 +105,21 @@ impl MapObject {
         self.entries.get(slot).map(|&(k, _, _)| k)
     }
 
-    /// Overwrites the value at an existing `slot`.
+    /// Overwrites the value at an existing `slot`. Not a structural mutation
+    /// (no slot creation/removal/reindex), so — unlike [`Self::insert_new`]/
+    /// [`Self::remove_at`] — this is **not** guarded by
+    /// [`Self::is_locked`]: overwriting an existing key's value in place
+    /// remains legal from within that same key's `hash`/`==`
+    /// (`docs/deferred/error-handling-followups.md` §1).
     ///
-    /// # Panics
-    ///
-    /// Panics if `slot` is out of range — callers only reach this after a
-    /// [`Self::bucket`] scan confirms `slot` is a live entry.
-    pub fn set_value_at(&mut self, slot: usize, value: Value) {
-        self.entries[slot].1 = value;
+    /// Returns `None` if `slot` is out of range instead of panicking
+    /// (defense-in-depth, same rationale as [`MapMutationError::OutOfRange`]) —
+    /// callers only reach this after a [`Self::bucket`] scan confirms `slot`
+    /// is a live entry, so `None` should be unreachable in practice.
+    pub fn set_value_at(&mut self, slot: usize, value: Value) -> Option<()> {
+        let entry = self.entries.get_mut(slot)?;
+        entry.1 = value;
+        Some(())
     }
 
     /// Appends a fresh `(key, value)` entry and indexes it under `bucket`.
@@ -113,19 +128,40 @@ impl MapObject {
     /// `put_`/`add_` primitive) must have already confirmed no live entry
     /// matches `key` (via [`Self::bucket`] + a Phalcom `==` scan) before
     /// calling this, or the map gains a duplicate key.
-    pub fn insert_new(&mut self, bucket: i64, key: Value, value: Value) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MapMutationError::Locked`] if this collection is currently
+    /// inside a reentrant `hash`/`==` send window
+    /// ([`Self::is_locked`]) — a key's `hash`/`==` may not structurally
+    /// mutate the collection it is being compared for.
+    pub fn insert_new(&mut self, bucket: i64, key: Value, value: Value) -> Result<(), MapMutationError> {
+        if self.is_locked() {
+            return Err(MapMutationError::Locked);
+        }
         let slot = self.entries.len();
         self.entries.push((key, value, bucket));
         self.index.entry(bucket).or_default().push(slot);
+        Ok(())
     }
 
     /// Removes the entry at `slot` (swap-remove), maintaining the index from
     /// each entry's own cached bucket — no re-hashing.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `slot` is out of range.
-    pub fn remove_at(&mut self, slot: usize) -> (Value, Value) {
+    /// Returns [`MapMutationError::Locked`] if this collection is currently
+    /// inside a reentrant `hash`/`==` send window ([`Self::is_locked`]).
+    /// Returns [`MapMutationError::OutOfRange`] if `slot` is out of range
+    /// (defense-in-depth — every caller derives `slot` from a fresh
+    /// [`Self::bucket`] scan, so this should be unreachable in practice).
+    pub fn remove_at(&mut self, slot: usize) -> Result<(Value, Value), MapMutationError> {
+        if self.is_locked() {
+            return Err(MapMutationError::Locked);
+        }
+        if slot >= self.entries.len() {
+            return Err(MapMutationError::OutOfRange);
+        }
         let last = self.entries.len() - 1;
         let (key, value, bucket) = self.entries.swap_remove(slot);
 
@@ -150,11 +186,38 @@ impl MapObject {
             }
         }
 
-        (key, value)
+        Ok((key, value))
     }
 
     /// Borrows every entry (key, value, cached bucket), in insertion order.
     pub fn entries(&self) -> impl Iterator<Item = (Value, Value)> + '_ {
         self.entries.iter().map(|&(k, v, _)| (k, v))
+    }
+
+    /// Returns `true` while a reentrant `hash`/`==` send is in flight against
+    /// this collection's own key ([`Self::enter_reentrant_send`]/
+    /// [`Self::exit_reentrant_send`]). [`Self::insert_new`]/[`Self::remove_at`]
+    /// consult this to reject a structural mutation attempted from within
+    /// that send.
+    pub fn is_locked(&self) -> bool {
+        self.reentrant_depth > 0
+    }
+
+    /// Marks the start of a reentrant `hash`/`==` send window
+    /// ([`crate::primitive::map::locate`]/[`crate::primitive::set::locate`]),
+    /// incrementing the reentrancy depth counter. Must be paired with
+    /// [`Self::exit_reentrant_send`] on **every** exit path of the send,
+    /// including an `Err` return — callers use a guard pattern or an
+    /// explicit clear-before-`?` to guarantee this (never leave the
+    /// collection permanently locked after a failed send).
+    pub fn enter_reentrant_send(&mut self) {
+        self.reentrant_depth += 1;
+    }
+
+    /// Marks the end of a reentrant `hash`/`==` send window, decrementing the
+    /// reentrancy depth counter. See [`Self::enter_reentrant_send`].
+    pub fn exit_reentrant_send(&mut self) {
+        debug_assert!(self.reentrant_depth > 0, "exit_reentrant_send without a matching enter");
+        self.reentrant_depth = self.reentrant_depth.saturating_sub(1);
     }
 }

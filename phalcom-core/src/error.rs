@@ -171,8 +171,55 @@ pub enum RuntimeError {
     #[error("non-local return from a block whose home method frame is no longer alive (DeadFrameError)")]
     DeadFrameError,
 
+    /// A `Map`/`Set` key's `hash`/`==` tried to structurally mutate (insert or
+    /// remove an entry of) the very collection [`crate::primitive::map::locate`]/
+    /// [`crate::primitive::set::locate`] is currently disambiguating a candidate
+    /// for.
+    ///
+    /// Raised **at the mutation call site** inside the user's `hash`/`==`
+    /// method — not back in `locate`'s caller — so the traceback blames the
+    /// culprit line, not the collection operation that innocently triggered
+    /// it (`docs/deferred/error-handling-followups.md` §1, RULED
+    /// 2026-07-20). Overwriting an *existing* key's value in place is not
+    /// structural and remains legal from within `hash`/`==`; only slot
+    /// creation/removal is guarded.
+    ///
+    /// Maps to `kind: #concurrentMutation` once PDR-0010's `kind` field lands
+    /// (`docs/spec/traceback/implementation-spec.md` §8.1).
+    #[error("cannot mutate this {collection} inside 'hash'/'==' of its own key (concurrent mutation)")]
+    ConcurrentMutation {
+        /// The collection's display name — `"Map"` or `"Set"`.
+        collection: &'static str,
+    },
+
     #[error("{0}")]
     Message(String),
+}
+
+/// Failure returned by [`crate::heap::MapObject`]'s structural-mutation
+/// methods (`insert_new`/`remove_at`).
+///
+/// Realizes the G0 reentrancy lock
+/// (`docs/deferred/error-handling-followups.md` §1, RULED 2026-07-20): a
+/// key's `hash`/`==` may not structurally mutate the collection currently
+/// disambiguating it via [`crate::primitive::map::locate`]/
+/// [`crate::primitive::set::locate`]. Lives in `error` rather than `heap::map`
+/// so both the heap layer and the `primitive::map`/`primitive::set` layer can
+/// name it without a cross-module visibility widening.
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapMutationError {
+    /// The collection is locked — a reentrant `hash`/`==` send is in
+    /// progress (see [`crate::heap::MapObject::enter_reentrant_send`]).
+    /// Callers convert this into a catchable [`RuntimeError::ConcurrentMutation`].
+    #[error("collection is locked by a reentrant hash/== send")]
+    Locked,
+    /// `slot` does not refer to a live entry. Defense-in-depth only: every
+    /// caller derives `slot` from a fresh `MapObject::bucket` scan performed
+    /// under the same lock discipline, so this should be unreachable in
+    /// practice — it converts a hypothetical future logic bug into a
+    /// diagnosable error instead of a panic.
+    #[error("slot does not refer to a live entry")]
+    OutOfRange,
 }
 
 #[macro_export]

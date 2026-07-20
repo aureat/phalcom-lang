@@ -19,11 +19,31 @@
 //! `list_raw_at` arena discipline; `docs/forge/units/U-COLLTYPES/plan.md`
 //! §Rubric).
 
-use crate::error::PhResult;
+use crate::error::{MapMutationError, PhResult, RuntimeError};
 use crate::heap::ObjRef;
 use crate::primitive::{expect_map, is_mutable_collection_key, mutable_key_error, send_eq, send_hash};
 use crate::value::Value;
 use crate::vm::VM;
+
+/// Converts a [`MapMutationError`] into the [`RuntimeError`] a `Map` raw
+/// primitive should surface.
+///
+/// [`MapMutationError::Locked`] becomes the catchable
+/// [`RuntimeError::ConcurrentMutation`] (the G0 reentrancy lock,
+/// `docs/deferred/error-handling-followups.md` §1) — the real, reachable
+/// case, hit when a key's `hash`/`==` calls back into a `Map::put_`/`remove_`
+/// primitive on the same collection while [`locate`] holds the lock.
+/// [`MapMutationError::OutOfRange`] becomes [`RuntimeError::Internal`] — a
+/// defense-in-depth case that should be unreachable, since every caller
+/// derives its `slot` from a fresh `locate` scan.
+fn map_mutation_error(err: MapMutationError, collection: &'static str) -> RuntimeError {
+    match err {
+        MapMutationError::Locked => RuntimeError::ConcurrentMutation { collection },
+        MapMutationError::OutOfRange => {
+            RuntimeError::Internal(format!("{collection} slot from locate() was out of range (internal invariant violation)"))
+        }
+    }
+}
 
 /// Signature: `Map.class::new()` — allocates an empty map.
 pub fn map_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -52,13 +72,20 @@ pub fn map_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 /// (e.g. a key whose `hash` tries to `Fiber.yield` under this native frame,
 /// which correctly raises `CannotYieldAcrossNativeFrame` — ADR-0030 §4).
 fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)> {
-    let bucket = send_hash(vm, key)?;
+    vm.heap.map_mut(id).enter_reentrant_send();
+    let bucket_result = send_hash(vm, key);
+    vm.heap.map_mut(id).exit_reentrant_send();
+    let bucket = bucket_result?;
+
     let candidates: Vec<usize> = vm.heap.map(id).bucket(bucket).to_vec();
     for slot in candidates {
         let Some((candidate_key, _)) = vm.heap.map(id).entry_at(slot) else {
             continue;
         };
-        if send_eq(vm, candidate_key, key)? {
+        vm.heap.map_mut(id).enter_reentrant_send();
+        let eq_result = send_eq(vm, candidate_key, key);
+        vm.heap.map_mut(id).exit_reentrant_send();
+        if eq_result? {
             return Ok((bucket, Some(slot)));
         }
     }
@@ -105,8 +132,18 @@ pub fn map_raw_put(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     }
     let (bucket, slot) = locate(vm, id, key)?;
     match slot {
-        Some(s) => vm.heap.map_mut(id).set_value_at(s, value),
-        None => vm.heap.map_mut(id).insert_new(bucket, key, value),
+        Some(s) => {
+            vm.heap
+                .map_mut(id)
+                .set_value_at(s, value)
+                .ok_or_else(|| RuntimeError::Internal("Map slot from locate() was out of range (internal invariant violation)".to_string()))?;
+        }
+        None => {
+            vm.heap
+                .map_mut(id)
+                .insert_new(bucket, key, value)
+                .map_err(|err| map_mutation_error(err, "Map"))?;
+        }
     }
     Ok(*receiver)
 }
@@ -134,7 +171,7 @@ pub fn map_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     let id: ObjRef = expect_map(vm, receiver)?;
     let (_, slot) = locate(vm, id, args[0])?;
     if let Some(s) = slot {
-        vm.heap.map_mut(id).remove_at(s);
+        vm.heap.map_mut(id).remove_at(s).map_err(|err| map_mutation_error(err, "Map"))?;
     }
     Ok(*receiver)
 }
