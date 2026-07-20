@@ -185,7 +185,7 @@ PDR-0004's mitigation for "specified against no real usage" is that these are th
 |---|---|---|
 | Q-R1 | Fairness policy | §5's bounded-batch back-of-queue default, pending a real workload (`open-questions.md` §15) |
 | Q-R2 | Worker-pool size | Bounded, but bounded at what? libuv defaults to 4; measure, don't copy. Whatever it is, it is a constant with a doc comment, never a user-visible knob in v0.2 |
-| Q-R3 | Poller backend on macOS-first development | `kqueue` now with `epoll` later, or an abstraction (`mio`-style) from day one? A dependency decision with workspace-pinning consequences |
+| Q-R3 | Poller backend on macOS-first development | **Answered by [PDR-0016](../../../decisions/0016-poller-backend-is-mio.md) (Proposed):** `mio`, confined to `reactor.rs`, try-then-register. Closed when that record ratifies |
 | Q-R4 | `Future` cancellation surface | deferred unit (§7); the token mechanism is its fixed substrate |
 
 ## 12. What this document does not cover
