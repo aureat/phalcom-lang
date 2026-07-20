@@ -158,11 +158,11 @@ impl Universe {
         if heap.class(c.message_class).field_count != 4 {
             return Err("Message.field_count should be 4 (ADR-0011)".to_string());
         }
-        if heap.class(c.error_class).field_count != 1 {
-            return Err("Error.field_count should be 1 (ADR-0011, U-CORE-6)".to_string());
+        if heap.class(c.error_class).field_count != 4 {
+            return Err("Error.field_count should be 4 (ADR-0011, U-CORE-6)".to_string());
         }
-        if heap.class(c.message_not_understood_class).field_count != 2 {
-            return Err("MessageNotUnderstood.field_count should be 2 (ADR-0011, U-CORE-6)".to_string());
+        if heap.class(c.message_not_understood_class).field_count != 5 {
+            return Err("MessageNotUnderstood.field_count should be 5 (ADR-0011, U-CORE-6)".to_string());
         }
 
         // R-INV-6.1 — `MessageNotUnderstood < Error < Object`, explicit beyond
