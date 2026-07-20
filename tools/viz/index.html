@@ -195,6 +195,8 @@
     background:transparent;color:var(--ink);cursor:pointer}
   button.tb:hover:not(:disabled){border-color:var(--ink-mute)}
   button.tb:disabled{opacity:.32;cursor:default}
+  .transport.locked{opacity:.55}
+  .transport.locked .track input{cursor:not-allowed}
   .track{flex:1;position:relative;height:22px;display:flex;align-items:center}
   .track input{width:100%;accent-color:var(--f1)}
   .track .ticks{position:absolute;left:0;right:0;top:1px;height:5px;pointer-events:none}
@@ -268,7 +270,7 @@
 
 <div class="callout" id="callout"><div class="leader"></div><div class="txt"></div></div>
 
-<div class="transport">
+<div class="transport" id="transport">
   <button class="tb" id="first">⏮</button><button class="tb" id="prev">◀</button>
   <button class="tb" id="play" title="play / pause (space)">▶</button>
   <button class="tb" id="next">▶|</button><button class="tb" id="last">⏭</button>
@@ -991,8 +993,18 @@ function load(id, v){
   render();
 }
 
+// R-GATE: an unanswered gate locks the transport, not just advises. Locking
+// only the controls (not `go`/keys) would leave a keyboard route past the
+// prediction, so `go` itself also clamps to cursor 0 while GATED (see below).
+function updateTransportLock(){
+  const locked = GATED && !!ex().gate;
+  $('transport').classList.toggle('locked', locked);
+  ['first','prev','play','next','last','scrub'].forEach(id => $(id).disabled = locked);
+}
+
 function renderGate(){
   const g = ex().gate;
+  updateTransportLock();
   if (!g || !GATED){ $('gate').style.display='none'; return; }
   $('gate').style.display='block';
   $('gate').innerHTML = `<h3>Predict</h3><div class="q">${g.q}</div><div class="opts">`
@@ -1006,6 +1018,7 @@ function renderGate(){
     });
     $('because').classList.add('on');
     GATED=false;
+    updateTransportLock();
     // Collapse the unchosen options once answered. The gate deliberately sits
     // above the player so you commit before seeing — but left expanded it pushes
     // the machine below the fold, which costs the 5-second coarse read (R-ZOOM).
@@ -1185,7 +1198,9 @@ function render(){
   $('next').disabled=$('last').disabled=cursor===EVENTS.length;
 }
 
-const go = n => { cursor=Math.max(0,Math.min(EVENTS.length,n)); render(); };
+// Cursor 0 is where the gate lives; clamping here (not just disabling the
+// buttons) closes the keyboard/scrub-drag route past an unanswered prediction.
+const go = n => { if (GATED && ex().gate) n = 0; cursor=Math.max(0,Math.min(EVENTS.length,n)); render(); };
 function jumpSwitch(dir){
   let i=cursor+dir;
   while(i>0&&i<=EVENTS.length){
@@ -1205,6 +1220,7 @@ $('scrub').oninput=e=>go(+e.target.value);
 let PLAY=null;
 function togglePlay(){
   if(PLAY){ clearInterval(PLAY); PLAY=null; $('play').textContent='▶'; return; }
+  if(GATED && ex().gate) return;
   $('play').textContent='▮';
   PLAY=setInterval(()=>{
     if(cursor>=EVENTS.length || STATES[cursor].error){ togglePlay(); return; }
