@@ -3,7 +3,7 @@ use crate::value::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
 use crate::callable::Callable;
 use crate::heap::ClosureObject;
-use crate::diagnostics::{print_rt, SourceLoc};
+use crate::diagnostics::{print_compile, print_rt, SourceLoc};
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, CallFrame};
 use crate::heap::{ObjRef, Object};
@@ -152,8 +152,18 @@ impl VM {
         Err(err)
     }
 
-    /// Placeholder for compiler-error reporting (currently a no-op).
-    pub fn compiler_error(&mut self, err: PhError) {}
+    /// Reports a compile error to the user.
+    ///
+    /// This was an empty function body until
+    /// [PDR-0008](../../../docs/decisions/0008-cell-boundary-diagnostics-and-state-hygiene.md) §1.
+    /// Both callers — [`VM::interpret_source`](crate::vm::VM::interpret_source) and
+    /// the REPL's cell loop — believed it printed, so a compile error produced no
+    /// diagnostic from either. In the REPL that meant no output whatsoever; in file
+    /// mode the message still surfaced, but only because the CLI prints the returned
+    /// `Err`, without the source excerpt this renders.
+    pub fn compiler_error(&mut self, err: PhError) {
+        print_compile(&err.to_string());
+    }
 
     /// Pops a value from the operand stack.
     ///

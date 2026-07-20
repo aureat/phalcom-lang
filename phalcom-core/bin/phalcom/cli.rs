@@ -157,9 +157,25 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     vm.compile_mode = compile_mode;
     vm.strip_contract_metadata = strip_contract_metadata;
     let module = vm.create_module("main", &abs_path);
-    let closure = vm.compile_closure(module.clone(), &source)?;
-    if let Err(e) = vm.run_in_module(module, closure) {
-        eprintln!("{e}");
+    // `cmd_run` deliberately does not go through `interpret_source`, so it has to
+    // do that function's reporting itself. Before PDR-0008 it did neither half: a
+    // compile error propagated with `?` and surfaced only as the CLI's generic
+    // `Error:` line, and a runtime error printed via `eprintln!` — which is why
+    // file-mode runtime errors never carried a traceback even though `print_rt`
+    // and `SourceLoc` were fully built.
+    let closure = match vm.compile_closure(module.clone(), &source) {
+        Ok(closure) => closure,
+        Err(err) => {
+            // Report and exit rather than propagating: `?` would hand the error to
+            // `main`, which prints it again as a bare `Error: …` line.
+            vm.compiler_error(err);
+            std::process::exit(1);
+        }
+    };
+    if let Err(err) = vm.run_in_module(module, closure) {
+        // `run_in_module` leaves the frames intact on the error path, so the
+        // traceback is still walkable here.
+        let _ = vm.runtime_error(err);
         std::process::exit(1);
     }
     Ok(())

@@ -129,10 +129,10 @@ impl ReplSession {
                     CellOutcome::Unit
                 }
             }
-            Err(err) => {
-                let _ = self.vm.runtime_error(err);
-                CellOutcome::Failed
-            }
+            // `run_cell` reports the runtime error itself, while the frames that make
+            // up the traceback still exist (PDR-0008 §2). Reporting again here would
+            // print it twice.
+            Err(_) => CellOutcome::Failed,
         }
     }
 

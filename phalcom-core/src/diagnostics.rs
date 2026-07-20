@@ -90,6 +90,20 @@ pub fn print_parse(source: &str, msg: &str, range: Range<usize>) {
     ceprintln!("    <s><r!>=</r!> {msg}");
 }
 
+/// Pretty-prints a *compile* error.
+///
+/// Span-less by design for now: most [`CompilerError`](crate::compiler::lib::CompilerError)
+/// variants carry no [`SourceRange`](phalcom_common::range::SourceRange), and the
+/// few that do are not threaded together with the source text needed to render
+/// an excerpt. Rendering the message alone is what
+/// [PDR-0008](../../docs/decisions/0008-cell-boundary-diagnostics-and-state-hygiene.md) §1
+/// requires; adding spans is a separate change that has to plumb the source
+/// through first.
+pub fn print_compile(msg: &str) {
+    ceprintln!("   <s,r!>|</> Compile error");
+    ceprintln!("    <s><r!>=</r!> {msg}");
+}
+
 /// Pretty-print a *runtime* error with Python-style stack trace.
 /// `stack` must be ordered **caller → callee** (older frames first).
 pub fn print_rt(msg: &str, stack: &[SourceLoc]) {

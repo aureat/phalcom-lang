@@ -188,7 +188,18 @@ impl VM {
 
         let frame = self.new_call_frame(closure, crate::frame::CallContext::Module { module }, 0, 0, None);
         self.frames.push(frame);
-        let res = self.run();
+
+        // Report *before* unwinding. `unwind_cell` truncates `frames` to zero, and
+        // `runtime_error` builds its traceback by walking exactly that vector — so a
+        // caller that reported after `run_cell` returned always rendered an empty
+        // traceback, which is what every REPL runtime error did
+        // (PDR-0008 §2). `runtime_error` always returns `Err`, so the `map` only
+        // adjusts the type.
+        let res = match self.run() {
+            Ok(value) => Ok(value),
+            Err(err) => self.runtime_error(err).map(|()| Value::Nil),
+        };
+
         self.unwind_cell();
         res
     }
