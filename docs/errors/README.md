@@ -26,6 +26,7 @@ fix. The auditor's word confirms nothing; the machine does.
 | [E002](E002-fiber-floor-upvalue-crash.md) | Fiber-floor failure capture drops the live stack without closing open upvalues | **blocker** (crash) | 2026-07-19 |
 | [E003](E003-schedule-pump-arity.md) | `System.schedule` pump resumes an arity-1 entry with zero args, failing the run | minor | 2026-07-19 |
 | [E005](E005-nonlocal-return-some-wrapped.md) | A non-local `return` through `bool_if_true`/`bool_if_false` comes back `Some`-wrapped | **major** (silent wrong answer) | 2026-07-20 |
+| [E006](E006-inherited-field-diagnostic-shadowing.md) | Reading an inherited field reports "Read-before-write"; following that advice silently creates a second slot | **major** (diagnostic steers into field shadowing) | 2026-07-20 |
 
 E001, E002 and E004(c) are the **same family**: a value held live across a re-entrant /
 parked interpreter boundary that the root/unwind scan does not cover. E001 is
