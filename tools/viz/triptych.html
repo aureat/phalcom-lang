@@ -82,8 +82,9 @@
 <p class="sub" id="subtitle">—</p>
 <div class="triptych" id="triptych"></div>
 <p class="hint">Same trace data as the live player (<code>tools/viz/index.html</code>), frozen for a docs/learn
-embed. Pick a different switch with <code>?ex=e1&amp;switch=2</code> (1-indexed) or a sub-variant with
-<code>&amp;var=1</code>.</p>
+embed. Pick a different switch with <code>?ex=e1&amp;switch=2</code> (1-indexed), a sub-variant with
+<code>&amp;var=1</code>, or mark one beat for prose to point at with <code>&amp;mark=2</code> (1=take,
+2=hole, 3=install).</p>
 
 <script src="trace-data.js"></script>
 <script>
@@ -141,6 +142,7 @@ function render(){
   const exKey = params.get('ex') || 'e1';
   const varIdx = +(params.get('var') || 0);
   const switchN = +(params.get('switch') || 1);
+  const markBeat = +(params.get('mark') || 0); // 1=take, 2=hole, 3=install; 0=none
 
   const ex = EXAMPLES[exKey];
   if (!ex){ $('title').textContent = `Unknown example "${exKey}"`; return; }
@@ -159,7 +161,7 @@ function render(){
   $('triptych').innerHTML = cursors.map((c, i) => {
     const st = states[c];
     const note = events[c-1]?.note || '';
-    return `<div class="beat">
+    return `<div class="beat${markBeat===i+1?' current':''}">
       <h2>${labels[i][0]}</h2>
       <div class="label">event ${c}</div>
       ${renderTape(st)}
