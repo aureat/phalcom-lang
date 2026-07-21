@@ -398,7 +398,7 @@ impl Universe {
         // The predicate form of `Fiber::yield`'s root refusal, so `.ph` code can
         // ask "may I yield?" instead of attempting a yield and inspecting the
         // wreckage — see `fiber_is_root`'s doc and E004.
-        primitive_static!(vm, fiber_cls, "isRoot", SignatureKind::Getter, fiber_is_root);
+        primitive!(vm, fiber_cls, "isRoot", SignatureKind::Getter, fiber_is_root);
         primitive!(vm, fiber_cls, "error", SignatureKind::Getter, fiber_error);
 
         // U-RESOURCE primitives

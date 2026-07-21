@@ -899,6 +899,9 @@ fn floor_census_matches_installed_bindings() {
         (c.fiber_class, false, "isDone"),
         (c.fiber_class, false, "isRoot"),
         (c.fiber_class, false, "error"),
+        // System (Resource tracking primitives)
+        (c.system_class, true, "leakReport_"),
+        (c.system_class, true, "strictResources_(_)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -958,49 +961,13 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        BASELINE
-            + NEW
-            + NEW_METHOD_REFLECTION
-            + NEW_VALUE_TOSTRING
-            + NEW_ERROR
-            + NEW_MAP_SET
-            + NEW_TUPLE
-            + NEW_RANGE
-            + NEW_ON_ENSURE
-            + NEW_IMPORTS
-            + NEW_FAMILY
-            + NEW_SCHED
-            + NEW_INVARIANT_GUARD
-            + NEW_ATTR_ROOT
-            + NEW_GC
-            + NEW_STRING
-            + NEW_FIBER
-            + NEW_BYTES
-            + NEW_BYTES_LOSSY,
-        "census must enumerate exactly 148 bindings (73 baseline + 7 ADR-0023 + 5 ADR-0028 + 1 U-CORE-4 + 2 U-CORE-6 + 14 U-COLLTYPES Map/Set + 3 U-COLLTYPES Tuple + 4 U-COLLTYPES Range + 2 U-ERR + 1 U15/ADR-0045 + 1 U16-Open/ADR-0047 + 2 U-SCHED + 2 U-ANNOT-CONTRACTS/ADR-0052 + 3 M-ATTR-ROOT + 1 U-GC + 4 U-STRING/ADR-0049 + 12 Fiber/ADR-0030 + 10 U-BYTES/PDR-0011 + 1 utf8Lossy_/PDR-0013)"
+        150,
+        "census must enumerate exactly 150 bindings (148 baseline + 2 Resource tracking primitives)"
     );
     assert_eq!(
         live.len(),
-        BASELINE
-            + NEW
-            + NEW_METHOD_REFLECTION
-            + NEW_VALUE_TOSTRING
-            + NEW_ERROR
-            + NEW_MAP_SET
-            + NEW_TUPLE
-            + NEW_RANGE
-            + NEW_ON_ENSURE
-            + NEW_IMPORTS
-            + NEW_FAMILY
-            + NEW_SCHED
-            + NEW_INVARIANT_GUARD
-            + NEW_ATTR_ROOT
-            + NEW_GC
-            + NEW_STRING
-            + NEW_FIBER
-            + NEW_BYTES
-            + NEW_BYTES_LOSSY,
-        "the live floor must be exactly 148 bindings"
+        150,
+        "the live floor must be exactly 150 bindings"
     );
 }
 
