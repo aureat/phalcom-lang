@@ -35,6 +35,9 @@ Program {
                             is_static: false,
                             attributes: [
                                 Attribute {
+                                    kind: User(
+                                        "pure",
+                                    ),
                                     name: "pure",
                                     args: [],
                                     range: CopyRange {

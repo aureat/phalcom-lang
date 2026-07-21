@@ -35,6 +35,9 @@ Program {
                             is_static: false,
                             attributes: [
                                 Attribute {
+                                    kind: Builtin(
+                                        Ensures,
+                                    ),
                                     name: "ensures",
                                     args: [
                                         Binary(

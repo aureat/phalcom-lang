@@ -56,6 +56,9 @@ Program {
                             is_static: false,
                             attributes: [
                                 Attribute {
+                                    kind: Builtin(
+                                        Requires,
+                                    ),
                                     name: "requires",
                                     args: [
                                         Binary(
