@@ -3,7 +3,7 @@ use crate::method::SignatureKind;
 use crate::primitive::attribute::{attribute_attach, attribute_attributes, attribute_freeze};
 use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_ensure, block_name, block_on, block_while_true};
-use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new, class_set_superclass, class_superclass};
+use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::family_does_not_understand;
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
@@ -21,7 +21,7 @@ use crate::primitive::number::{
     number_to_string,
 };
 use crate::primitive::object::{
-    message_args, message_labels, message_name, message_selector, object_class, object_class_new, object_does_not_understand, object_eq, object_hash,
+    message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash,
     object_invariant_enter, object_invariant_exit, object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to,
     object_set_class, object_to_string,
 };
@@ -48,7 +48,6 @@ impl Universe {
         // Identity `hash` (object-model.md §8, ADR-0023): immediates override it
         // per-type below; every heap object inherits this handle digest.
         primitive!(vm, object_cls, "hash", SignatureKind::Getter, object_hash);
-        primitive_static!(vm, object_cls, "new", SignatureKind::Method(0), object_class_new);
         // U5 (control-flow.md §1): `==`/`!=` are ordinary sends, not opcodes.
         primitive!(vm, object_cls, "==", SignatureKind::Method(1), object_eq);
         primitive!(vm, object_cls, "!=", SignatureKind::Method(1), object_neq);
@@ -101,7 +100,7 @@ impl Universe {
 
         let class_cls = vm.universe.classes.class_class;
         primitive!(vm, class_cls, "+", SignatureKind::Method(1), class_add);
-        primitive!(vm, class_cls, "new", SignatureKind::Method(0), class_new);
+        primitive!(vm, class_cls, "new_", SignatureKind::Method(0), class_new_);
 
         let number_cls = vm.universe.classes.number_class;
         // U5 (control-flow.md §1): every arithmetic/comparison operator is an

@@ -1,0 +1,2 @@
+@constructor
+class Foo {}

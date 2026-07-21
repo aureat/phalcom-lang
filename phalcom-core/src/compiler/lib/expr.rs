@@ -95,23 +95,6 @@ impl<'vm> Compiler<'vm> {
                         let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
                         let selector_sym = self.vm.interner.intern(&selector);
 
-                        // U7-plan §6 negative: a class with a `new`
-                        // constructor has no user-visible bare allocator —
-                        // a `new(...)` call whose arity/labels match no
-                        // declared `construct` must not silently fall
-                        // through to the bare allocator `Class >> new()` and
-                        // hand back an uninitialized instance.
-                        if method_call.method == "new"
-                            && let Some(class_sym) = receiver_class_sym
-                            && self.lookup_constructor_alias(class_sym, selector_sym).is_none()
-                            && self.inherits_new_construct(class_sym)
-                        {
-                            return Err(CompilerError::Message(format!(
-                                "No constructor `{}.new(...)` matches this call: arity/labels don't match any declared `construct`",
-                                self.vm.resolve_symbol(class_sym)
-                            )));
-                        }
-
                         self.compile_expr(method_call.object)?;
                         for arg in &method_call.args {
                             self.compile_expr(arg.expr.clone())?;

@@ -15,8 +15,6 @@ use crate::interner::Symbol;
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SignatureKind {
-    /// An initializer, `init new(_,_)`, of the given arity.
-    Initializer(u8),
     /// An ordinary method, `foo(_,_,_)`, of the given arity.
     Method(u8),
     /// A no-argument getter, `foo`.
@@ -63,7 +61,6 @@ impl Signature {
     /// Builds a signature for `selector` of the given `kind`, deriving arity.
     pub fn new(selector: Symbol, kind: SignatureKind) -> Self {
         let positional_arity = match kind {
-            SignatureKind::Initializer(n) => n,
             SignatureKind::Method(n) => n,
             SignatureKind::Getter => 0,
             SignatureKind::Setter => 1,
@@ -101,8 +98,6 @@ impl Signature {
 /// paren-delimited and with no leading name.
 pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKind) -> String {
     match kind {
-        SignatureKind::Initializer(0) => format!("init {name}()"),
-        SignatureKind::Initializer(_) => format!("init {name}({})", comma_form_slots(labels)),
         SignatureKind::Method(0) => format!("{name}()"),
         SignatureKind::Method(_) => format!("{name}({})", comma_form_slots(labels)),
         SignatureKind::Getter => name.to_string(),
@@ -195,15 +190,13 @@ pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, Signatur
     }
 
     // Initializer (`init name(...)`) vs ordinary method.
-    let (name, is_init) = match head.strip_prefix("init ") {
-        Some(rest) => (rest.to_string(), true),
-        None => (head.to_string(), false),
-    };
+    // Historical `init ` prefixes are accepted on input for reified legacy
+    // selectors, but carry no distinct runtime signature kind.
+    let name = head.strip_prefix("init ").unwrap_or(head).to_string();
 
     let labels = parse_labels(inner);
     let arity = labels.len() as u8;
-    let kind = if is_init { SignatureKind::Initializer(arity) } else { SignatureKind::Method(arity) };
-    (name, labels, kind)
+    (name, labels, SignatureKind::Method(arity))
 }
 
 /// Parses a method/initializer paren body (`"to,duration"`, `"_,_"`, `""`)
@@ -231,7 +224,6 @@ fn is_identifier(s: &str) -> bool {
 /// Turns a base `name` plus a [`SignatureKind`] into its textual signature.
 pub fn make_signature(base: &str, kind: SignatureKind) -> String {
     let arity = match kind {
-        SignatureKind::Initializer(n) => n,
         SignatureKind::Method(n) => n,
         SignatureKind::Getter => 0,
         SignatureKind::Setter => 0, // Setter has 1 arg but the label list is empty in the AST.
@@ -305,6 +297,22 @@ mod tests {
         assert_eq!(name, "garbage");
         assert!(labels.is_empty());
         assert_eq!(kind, SignatureKind::Getter);
+    }
+
+    #[test]
+    fn method_selector_round_trip_including_init_prefix() {
+        let (name, labels, kind) = decode_selector("init new(_,foo)");
+        assert_eq!(name, "new");
+        assert_eq!(labels, vec![None, Some("foo".to_string())]);
+        assert_eq!(kind, SignatureKind::Method(2));
+        assert_eq!(encode_selector(&name, &labels, kind), "new(_,foo)");
+    }
+
+    #[test]
+    fn no_initializer_signature_kind() {
+        let signature = Signature::new(Symbol(0), SignatureKind::Method(2));
+        assert_eq!(signature.kind, SignatureKind::Method(2));
+        assert_eq!(signature.positional_arity, 2);
     }
 
     /// [`SignatureKind::Subscript`] (U-INDEX, ADR-0060) decodes with its

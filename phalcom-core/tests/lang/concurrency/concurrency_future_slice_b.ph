@@ -61,6 +61,12 @@ const f9 = f8.catch { e =>
 f8.settleError(Error.new("failed"))
 System.print(f9.await)
 
+// C-FUT-8: callbacks returning a Future are assimilated, rather than wrapped
+// as a Future value. This exercises fulfilled, pending, and rejected paths.
+System.print(Future.value("then").then { v => Future.value(v + " flattened") }.await)
+System.print(Future.value("map").map { v => Future.value(v + " flattened") }.await)
+System.print(Future.error(Error.new("catch")).catch { e => Future.value(e.message + " flattened") }.await)
+
 // C-FUT-7: await under native frame raises CannotYieldAcrossNativeFrame
 const f10 = Future.new()
 const helper = Fiber.new {

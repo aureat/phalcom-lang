@@ -1093,11 +1093,6 @@ impl VM {
                     // original instance as the receiver so the parent
                     // initializer fills the inherited slots in place.
                     //
-                    // Gated on the resolved method's `Initializer` kind: only a
-                    // real constructor may be reached this way. Without the
-                    // gate a parent *static* method sharing the selector would
-                    // capture the send and run with an instance receiver it was
-                    // never written for.
                     if method.is_none()
                         && let Some(p) = parent
                     {
@@ -1106,8 +1101,7 @@ impl VM {
                         } else {
                             self.heap.class(p).class
                         };
-                        method = crate::heap::lookup_method_in_hierarchy(&self.heap, target_meta, effective_selector)
-                            .filter(|&m| matches!(self.heap.method(m).signature.kind, SignatureKind::Initializer(_)));
+                        method = crate::heap::lookup_method_in_hierarchy(&self.heap, target_meta, effective_selector);
                     }
 
                     if let Some(method) = method {

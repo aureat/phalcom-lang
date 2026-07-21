@@ -373,6 +373,8 @@ pub struct FieldDef {
     /// distinction (L-2). Mutable fields take no keyword at all (`_x`, not
     /// `let _x`); only `const _x` spells the immutable form.
     pub mutable: bool,
+    /// Whether field storage belongs to declaring class object (`@class`).
+    pub is_static: bool,
     /// The field's default-value expression (`= expr`), or `None` if the
     /// field was declared with no initializer. A layout-derive attribute
     /// (e.g. `@construct`) that omits a defaulted field from its generated

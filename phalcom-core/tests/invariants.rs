@@ -741,7 +741,6 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "__attach(_)"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         (c.object_class, false, "__attributes"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         (c.object_class, false, "__freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
-        (c.object_class, true, "new()"),
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
         (c.behavior_class, false, "superclass=(_)"),
@@ -749,7 +748,7 @@ fn floor_census_matches_installed_bindings() {
         (c.behavior_class, false, "methods"), // NEW (ADR-0023)
         // §2.3 Class
         (c.class_class, false, "+(_)"),
-        (c.class_class, false, "new()"),
+        (c.class_class, false, "new_()"),
         // §2.4 Number
         (c.number_class, false, "+(_)"),
         (c.number_class, false, "-(_)"),
@@ -961,13 +960,13 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        150,
-        "census must enumerate exactly 150 bindings (148 baseline + 2 Resource tracking primitives)"
+        149,
+        "census must enumerate exactly 149 bindings (150 baseline minus 1 duplicate allocator deleted in U-CTOR-4)"
     );
     assert_eq!(
         live.len(),
-        150,
-        "the live floor must be exactly 150 bindings"
+        149,
+        "the live floor must be exactly 149 bindings"
     );
 }
 

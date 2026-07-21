@@ -17,7 +17,10 @@
 //! `*_current_limitation` tests pin behavior we expect to change as the grammar
 //! grows, so their snapshots act as executable TODOs.
 
-use phalcom_ast::parse_source;
+use phalcom_ast::{
+    ast::{ClassMember, Expr, Statement},
+    parse_source,
+};
 
 /// Parse `src` and render the result deterministically for snapshotting.
 fn parse(src: &str) -> String {
@@ -151,6 +154,33 @@ fn class_declaration_with_trailing_newline_parses() {
     // newline the compound `class` statement parses (the bare, newline-less
     // form remains a separate grammar gap).
     insta::assert_snapshot!(parse("class Point {}\n"));
+}
+
+#[test]
+fn class_keyword_send_in_method_body_targets_self_class() {
+    let program = parse_source("class Counter {\n  bump() {\n    class.bump()\n  }\n}\n", 0)
+        .expect("method body containing `class.bump()` should parse");
+
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class declaration");
+    };
+    let ClassMember::Method(method) = &class.members[0] else {
+        panic!("expected method declaration");
+    };
+    let Statement::Expr {
+        expr: Expr::MethodCall(send),
+        ..
+    } = &method.body[0]
+    else {
+        panic!("expected `class.bump()` send");
+    };
+
+    assert_eq!(send.method, "bump");
+    let Expr::GetProperty(class_property) = &send.object else {
+        panic!("expected send receiver to be `self.class`");
+    };
+    assert_eq!(class_property.property, "class");
+    assert!(matches!(class_property.object, Expr::SelfVar { .. }));
 }
 
 // --- F9: parse errors render via `Display` instead of panicking ---

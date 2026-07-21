@@ -1100,6 +1100,10 @@ impl<'source> Parser<'source> {
         // ordinary selector text despite being reserved words elsewhere.
         let name = if self.eat(&Token::Construct) {
             "construct".to_string()
+        } else if self.eat(&Token::Class) {
+            // `class` is a declaration/expression keyword elsewhere, but is
+            // also the canonical placement attribute in member position.
+            "class".to_string()
         } else {
             self.expect_identifier(&["attribute name"])?
         };
@@ -1250,6 +1254,7 @@ impl<'source> Parser<'source> {
         Ok(ClassMember::Field(FieldDef {
             name,
             mutable: !is_const,
+            is_static: false,
             default,
             attributes: Vec::new(),
             range,
@@ -1337,6 +1342,15 @@ impl<'source> Parser<'source> {
                 range,
             });
         }
+        if matches!(self.peek(), Token::Class) && matches!(self.peek_next(), Token::Identifier(_)) {
+            let range = (start..self.cur_start() + 5).into();
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(
+                    "help: `class foo()` is legacy syntax; use `@class foo()`".to_string(),
+                ),
+                range,
+            });
+        }
         if let Token::Identifier(name) = self.peek() {
             if name.starts_with('_')
                 && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal)
@@ -1370,7 +1384,10 @@ impl<'source> Parser<'source> {
                 name_range,
             }));
         }
-        let is_static = self.eat(&Token::Static);
+        // `class name(...)` is retained as a migration spelling for
+        // `@class name(...)`; token `class` remains an expression keyword in
+        // primary position, so this branch is unambiguous inside a class.
+        let is_static = self.eat(&Token::Static) || self.eat(&Token::Class);
         let name_start = self.cur_start();
         let name = self.parse_method_name()?;
         let name_range = (name_start..self.prev_end).into();
@@ -1497,6 +1514,9 @@ impl<'source> Parser<'source> {
             _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
         };
         self.advance();
+        if name == "new_" {
+            return Err(self.error_here(strs(&["method name (new_ is reserved for native class allocator)"])));
+        }
         Ok(name)
     }
 
@@ -1625,7 +1645,14 @@ impl<'source> Parser<'source> {
                 // This ban is therefore a syntax-level check only; any future
                 // desugar that synthesizes a `Statement::Class` inherits the
                 // same bypass silently.
-                Token::Class | Token::At => {
+                // A declaration starts `class Name`; `class.` is an expression
+                // spelling for `self.class` and must continue through small
+                // statement parsing below. `@` keeps its existing decorated
+                // class-declaration path.
+                Token::At | Token::Class
+                    if matches!(self.peek(), Token::At)
+                        || matches!(self.peek_next(), Token::Identifier(_)) =>
+                {
                     let stmt = self.parse_class()?;
                     // `range.start` is the `class` keyword's own byte offset
                     // (set in `parse_class` before any header attribute
@@ -2538,6 +2565,14 @@ impl<'source> Parser<'source> {
             Token::SelfKw => {
                 self.advance();
                 Ok(Expr::SelfVar { range })
+            }
+            Token::Class => {
+                self.advance();
+                Ok(Expr::GetProperty(Box::new(GetPropertyExpr {
+                    object: Expr::SelfVar { range },
+                    property: "class".to_string(),
+                    range,
+                })))
             }
             Token::Super => {
                 self.advance();

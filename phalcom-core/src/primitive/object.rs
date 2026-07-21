@@ -15,7 +15,7 @@ use crate::error::RuntimeError;
 use crate::expect_value;
 use crate::heap::Object;
 use crate::heap::InstanceObject;
-use crate::primitive::{expect_class, expect_list};
+use crate::primitive::expect_list;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -95,18 +95,6 @@ pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 /// Always returns [`RuntimeError::InvalidSetClass`].
 pub fn object_set_class(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::InvalidSetClass.into())
-}
-
-/// Signature: `Object.class::new` — allocates a bare instance of the receiver class.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a class.
-pub fn object_class_new(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let class_id = expect_class(vm, receiver)?;
-    let field_count = vm.heap.class(class_id).field_count;
-    let instance = InstanceObject::new(class_id, field_count);
-    Ok(Value::Obj(vm.heap.alloc(Object::Instance(instance))))
 }
 
 /// Signature: `Object::==(_)` — the base equality send (U5, control-flow.md

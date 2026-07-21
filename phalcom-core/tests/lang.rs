@@ -551,3 +551,13 @@ fn streams() {
 fn streams_negative() {
     support::check_negative("streams/negative");
 }
+
+#[test]
+fn path() {
+    support::check_pass("path");
+}
+
+#[test]
+fn path_negative() {
+    support::check_negative("path/negative");
+}

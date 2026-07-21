@@ -1,0 +1,1 @@
+Bytes.fromString(42)

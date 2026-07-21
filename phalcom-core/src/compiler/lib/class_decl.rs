@@ -25,7 +25,7 @@ use super::{Compiler, UnitKind};
 /// never reaches this set at all — it is stripped from `class.members`
 /// entirely by `compiler::attributes::expand_variants` before this point, so
 /// it can never appear in `class_level_attrs`.
-const COMPILER_ONLY_ATTRS: &[&str] = &["requires", "ensures", "invariant", "construct", "data", "sealed"];
+const COMPILER_ONLY_ATTRS: &[&str] = &["requires", "ensures", "invariant", "construct", "constructor", "class", "data", "sealed"];
 
 impl<'vm> Compiler<'vm> {
     /// Lowers a `class Name [extends Super] { members }` declaration
@@ -140,7 +140,12 @@ impl<'vm> Compiler<'vm> {
                         let sel = encode_selector("", &labels, SignatureKind::Subscript(idx.params.len() as u8));
                         (MemberKey::Selector(false, sel.clone()), sel, idx.name_range)
                     }
-                    ClassMember::Construct(_) | ClassMember::Variant(_) => continue,
+                    ClassMember::Construct(c) => {
+                        let labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
+                        let sel = encode_selector(&c.name, &labels, SignatureKind::Method(c.params.len() as u8));
+                        (MemberKey::Selector(true, sel.clone()), sel, c.name_range)
+                    }
+                    ClassMember::Variant(_) => continue,
                 };
                 if let Some((_, first_range)) = seen.get(&key) {
                     let first_range = *first_range;
@@ -259,10 +264,17 @@ impl<'vm> Compiler<'vm> {
             .members
             .iter()
             .filter_map(|m| match m {
-                ClassMember::Field(f) => Some(self.vm.interner.intern(&f.name)),
+                ClassMember::Field(f) if !f.is_static => Some(self.vm.interner.intern(&f.name)),
                 _ => None,
             })
             .collect();
+        for member in &class_def.members {
+            if let ClassMember::Field(f) = member
+                && f.is_static
+            {
+                own_static_fields.push(self.vm.interner.intern(&f.name));
+            }
+        }
         // Own `const`-declared field names (ADR-0064 §3, U-BINDINGS §5) —
         // only an explicit `FieldDef` can be `const`; an implicitly-inferred
         // field (bare assignment, no declaration) is always mutable.
@@ -819,7 +831,7 @@ impl<'vm> Compiler<'vm> {
 
                     let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                         selector_sym,
-                        SignatureKind::Initializer(arity as u8),
+                        SignatureKind::Method(arity as u8),
                         MethodKind::Closure(closure),
                     ))));
 
@@ -834,6 +846,17 @@ impl<'vm> Compiler<'vm> {
                 // emits no bytecode of its own. Its `default` expression, if
                 // any, is data for a layout-derive attribute
                 // (`@construct`/`@data`) to read — not compiled here.
+                ClassMember::Field(field) if field.is_static => {
+                    if let Some(default) = field.default {
+                        let layout = self.vm.field_layouts.get(&name_key).unwrap().clone();
+                        let field_sym = self.vm.interner.intern(&field.name);
+                        let slot = *layout.static_field_slots.get(&field_sym).unwrap();
+                        self.emit(Bytecode::Dup, field.range);
+                        self.compile_expr(default)?;
+                        self.emit(Bytecode::SetField(slot), field.range);
+                        self.emit(Bytecode::Pop, field.range);
+                    }
+                }
                 ClassMember::Field(_) => {}
                 // Unreachable in practice — `expand_class_attributes`
                 // (`compiler::attributes::expand_variants`) always strips

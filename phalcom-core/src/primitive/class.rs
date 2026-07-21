@@ -99,14 +99,21 @@ pub fn class_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     Ok(vm.alloc_string_value(name))
 }
 
-/// Signature: `Class::new` — allocates a bare instance of the receiver class.
+/// Signature: `Class::new_` — allocates a bare instance of the receiver class.
 ///
 /// # Errors
 ///
-/// Returns [`RuntimeError::Type`] if the receiver is not a class.
-pub fn class_new(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+/// Returns [`RuntimeError::Type`] if the receiver is not a class or has `native_repr: true`.
+pub fn class_new_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let class_id = expect_class(vm, receiver)?;
-    let field_count = vm.heap.class(class_id).field_count;
+    let target_class = vm.heap.class(class_id);
+    if target_class.native_repr {
+        return Err(RuntimeError::Type {
+            expected: "InstanceObject-backed class",
+            found: "native representation class",
+        }.into());
+    }
+    let field_count = target_class.field_count;
     let instance = InstanceObject::new(class_id, field_count);
     Ok(Value::Obj(vm.heap.alloc(Object::Instance(instance))))
 }

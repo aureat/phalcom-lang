@@ -1,0 +1,1 @@
+Number.new_()

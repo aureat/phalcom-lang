@@ -63,6 +63,9 @@ pub struct ClassObject {
     /// finished attaching every class-level attribute — further `__attach`
     /// calls are rejected (`attr.frozen`).
     pub attributes_frozen: bool,
+    /// Refusal flag for native representation classes that cannot be allocated
+    /// via standard `InstanceObject::new` generic allocator (`new_`).
+    pub native_repr: bool,
 }
 
 /// Walks `class` and its superclasses for a method bound to `selector`.
@@ -102,6 +105,7 @@ impl ClassObject {
             base_names: HashMap::new(),
             attributes: Vec::new(),
             attributes_frozen: false,
+            native_repr: false,
         }
     }
 

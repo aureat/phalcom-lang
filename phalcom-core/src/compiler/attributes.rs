@@ -741,9 +741,16 @@ impl AttributeExpander for ClassExpander {
     fn expand(
         &self,
         _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
+        member: &mut ClassMember,
         _args: &[Expr],
     ) -> Result<(), CompilerError> {
+        match member {
+            ClassMember::Method(m) => m.is_static = true,
+            ClassMember::Getter(g) => g.is_static = true,
+            ClassMember::Setter(s) => s.is_static = true,
+            ClassMember::Field(f) => f.is_static = true,
+            _ => {}
+        }
         Ok(())
     }
 }
@@ -851,13 +858,13 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
     let labels: Vec<Option<String>> = param_fields.iter().map(|f| Some(strip_leading_underscore(&f.name))).collect();
     let arity = param_fields.len() as u8;
 
-    let derived_selector = encode_selector("new", &labels, SignatureKind::Initializer(arity));
+    let derived_selector = encode_selector("new", &labels, SignatureKind::Method(arity));
     let derived_sym = ctx.interner.intern(&derived_selector);
 
     for m in &class.members {
         if let ClassMember::Construct(c) = m {
             let c_labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
-            let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Initializer(c.params.len() as u8));
+        let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Method(c.params.len() as u8));
             if ctx.interner.intern(&c_selector) == derived_sym {
                 return Err(CompilerError::Message(format!(
                     "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written `construct {}(...)` of the same selector",
@@ -1417,6 +1424,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             members.push(ClassMember::Field(FieldDef {
                 name: format!("_{}", label),
                 mutable: true,
+                is_static: false,
                 default: None,
                 attributes: Vec::new(),
                 range: v.range,
@@ -1753,8 +1761,8 @@ pub fn expand_class_attributes(
         if let Some(expander) = registry.get(&attr.name) {
             let legal = expander.legal_targets().contains(&Target::Class);
             if !legal {
-                return Err(CompilerError::Message(format!(
-                    "attr.illegal_target: attribute `@{}` is not legal on class targets",
+                    return Err(CompilerError::Message(format!(
+                        "attr.illegal_target: attribute `@{}` is not legal on class targets (method-only)",
                     attr.name
                 )));
             }
@@ -1878,7 +1886,7 @@ pub fn expand_class_attributes(
             if let Some(expander) = registry.get(&attr.name) {
                 if !expander.legal_targets().contains(&member_target) {
                     return Err(CompilerError::Message(format!(
-                        "attr.illegal_target: attribute `@{}` is not legal on this target",
+                        "attr.illegal_target: attribute `@{}` is not legal on this target (class-only)",
                         attr.name
                     )));
                 }
@@ -1903,6 +1911,30 @@ pub fn expand_class_attributes(
             ClassMember::Index(ix) => ix.attributes = attrs,
         }
     }
+
+    // Canonical `@constructor` lowers to the same ordinary constructor
+    // member used by legacy `construct` syntax. Keep lowering here, after
+    // contract weaving, so constructor contracts wrap initializer body while
+    // duplicate-selector checks see the final class-side identity.
+    let members = std::mem::take(&mut class.members);
+    class.members = members
+        .into_iter()
+        .map(|member| match member {
+            ClassMember::Method(method) if method.attributes.iter().any(|a| a.name == "constructor") => {
+                if method.attributes.iter().any(|a| a.name == "class") {
+                    return Err(CompilerError::Message("attr.illegal_target: `@constructor` is method-only and cannot combine with `@class`".to_string()));
+                }
+                Ok(ClassMember::Construct(phalcom_ast::ast::ConstructDef {
+                    name: method.name,
+                    params: method.params,
+                    body: method.body,
+                    range: method.range,
+                    name_range: method.name_range,
+                }))
+            }
+            other => Ok(other),
+        })
+        .collect::<Result<Vec<_>, CompilerError>>()?;
 
     // 3. Weave class invariants into methods, getters, setters, and
     // constructors. §3.6 axis 1: `@invariant`'s guard is woven only in

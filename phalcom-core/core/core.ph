@@ -33,7 +33,9 @@ class Object {
   isA(cls) => self.is(cls)
 }
 
-class Class {}
+class Class {
+  new() => self.new_()
+}
 
 class Metaclass {}
 
@@ -1374,6 +1376,160 @@ class Bytes {
   }
 }
 
+class OpenMode {
+  construct named_(n) { _name = n }
+  static read => OpenMode.named_("read")
+  static write => OpenMode.named_("write")
+  static append => OpenMode.named_("append")
+  static readWrite => OpenMode.named_("readWrite")
+  name => _name
+  ==(other) { return other.isA(OpenMode) and (_name == other.name) }
+  !=(other) { return not (self == other) }
+  toString => "OpenMode." + _name
+}
+
+class Path {
+  construct of(s) {
+    if (not s.isA(String)) {
+      throw ArgumentError.new("Path.of: argument must be a String")
+    }
+    _bytes = Bytes.fromString(s)
+    _hash = Path.contentHash(_bytes)
+  }
+
+  construct ofBytes(b) {
+    if (not b.isA(Bytes)) {
+      throw ArgumentError.new("Path.ofBytes: argument must be a Bytes")
+    }
+    _bytes = b.slice(0, b.size)
+    _hash = Path.contentHash(_bytes)
+  }
+
+  static contentHash(bytes) {
+    let acc = 1
+    let i = 0
+    while (i < bytes.size) {
+      acc = (acc * 31 + bytes.at(i)) % 999999937
+      i = i + 1
+    }
+    return acc
+  }
+
+  bytes => _bytes.slice(0, _bytes.size)
+  hash => _hash
+
+  ==(other) {
+    if (not other.isA(Path)) { return false }
+    if (_hash != other.hash) { return false }
+    return _bytes == other.bytes
+  }
+
+  !=(other) { return not (self == other) }
+
+  isAbsolute => (_bytes.size > 0) and (_bytes.at(0) == 47)
+
+  join(other) {
+    if (not other.isA(Path)) {
+      throw ArgumentError.new("Path#join: argument must be a Path")
+    }
+    if (other.isAbsolute) {
+      return other
+    }
+    let recv = _bytes
+    let recvLen = recv.size
+    while ((recvLen > 0) and (recv.at(recvLen - 1) == 47)) {
+      recvLen = recvLen - 1
+    }
+    const trimmedRecv = recv.slice(0, recvLen)
+    const sep = Bytes.fromString("/")
+    const combined = trimmedRecv.concat(sep).concat(other.bytes)
+    return Path.ofBytes(combined)
+  }
+
+  parent {
+    let len = _bytes.size
+    while ((len > 0) and (_bytes.at(len - 1) == 47)) {
+      len = len - 1
+    }
+    let idx = len - 1
+    while ((idx >= 0) and (_bytes.at(idx) != 47)) {
+      idx = idx - 1
+    }
+    if (idx < 0) {
+      return None
+    }
+    if (idx == 0) {
+      return Path.of("/")
+    }
+    let pLen = idx
+    while ((pLen > 0) and (_bytes.at(pLen - 1) == 47)) {
+      pLen = pLen - 1
+    }
+    if (pLen == 0) {
+      return Path.of("/")
+    }
+    return Path.ofBytes(_bytes.slice(0, pLen))
+  }
+
+  fileName {
+    let len = _bytes.size
+    if ((len > 0) and (_bytes.at(len - 1) == 47)) {
+      return None
+    }
+    let idx = len - 1
+    while ((idx >= 0) and (_bytes.at(idx) != 47)) {
+      idx = idx - 1
+    }
+    if ((idx < 0) and (len == 0)) {
+      return None
+    }
+    const nameBytes = _bytes.slice(idx + 1, len)
+    if (nameBytes.size == 0) {
+      return None
+    }
+    return Path.ofBytes(nameBytes)
+  }
+
+  extension {
+    const namePath = self.fileName
+    if (namePath == None) {
+      return None
+    }
+    const nb = namePath.bytes
+    let idx = nb.size - 1
+    while ((idx >= 0) and (nb.at(idx) != 46)) {
+      idx = idx - 1
+    }
+    if ((idx <= 0) or (idx == nb.size - 1)) {
+      return None
+    }
+    const extBytes = nb.slice(idx + 1, nb.size)
+    return extBytes.utf8
+  }
+
+  components {
+    let res = List.new()
+    let i = 0
+    let len = _bytes.size
+    while (i < len) {
+      while ((i < len) and (_bytes.at(i) == 47)) {
+        i = i + 1
+      }
+      if (i < len) {
+        let start = i
+        while ((i < len) and (_bytes.at(i) != 47)) {
+          i = i + 1
+        }
+        res.add(Path.ofBytes(_bytes.slice(start, i)))
+      }
+    }
+    return res
+  }
+
+  toString => _bytes.utf8Lossy
+}
+
+
 // Lazy view classes (wren_core.wren MapSequence/WhereSequence/SkipSequence L121-152, 168-182), ported
 // to Phalcom's bare-cursor protocol (post-U-ITERABLE: `iterate` returns the raw next cursor, or the
 // `None` singleton at exhaustion — never Some-wrapped). `extends Iterable` so combinators, `for`,
@@ -1670,13 +1826,23 @@ class Future {
     return f
   }
 
+  // Normalizes a continuation result into a single Future layer. A callback
+  // returning a Future is adopted; a plain value becomes an already-fulfilled
+  // Future. This is the Future assimilation rule used by then/map/catch.
+  static flatten(value) {
+    if (value.isA(Future)) {
+      return value
+    }
+    return Future.value(value)
+  }
+
   // Registers a continuation on the settled/fulfilled path (concurrency.md
   // §2 `then(_)`). If pending, registers a continuation that will settle
   // the returned future when this receiver settles.
   then(f) {
     if (self.isReady) {
       if (_state == "fulfilled") {
-        return Future.value(f.call(_value))
+        return Future.flatten(f.call(_value))
       } else {
         return self
       }
@@ -1689,7 +1855,9 @@ class Future {
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
-            f_next.settleValue(res)
+            const flattened = Future.flatten(res)
+            flattened.then { value => f_next.settleValue(value) }
+            flattened.catch { error => f_next.settleError(error) }
           }
         } else {
           f_next.settleError(_value)
@@ -1703,7 +1871,7 @@ class Future {
   map(f) {
     if (self.isReady) {
       if (_state == "fulfilled") {
-        return Future.value(f.call(_value))
+        return Future.flatten(f.call(_value))
       } else {
         return self
       }
@@ -1716,7 +1884,9 @@ class Future {
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
-            f_next.settleValue(res)
+            const flattened = Future.flatten(res)
+            flattened.then { value => f_next.settleValue(value) }
+            flattened.catch { error => f_next.settleError(error) }
           }
         } else {
           f_next.settleError(_value)
@@ -1731,7 +1901,7 @@ class Future {
   catch(f) {
     if (self.isReady) {
       if (_state == "rejected") {
-        return Future.value(f.call(_value))
+        return Future.flatten(f.call(_value))
       } else {
         return self
       }
@@ -1744,7 +1914,9 @@ class Future {
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
-            f_next.settleValue(res)
+            const flattened = Future.flatten(res)
+            flattened.then { value => f_next.settleValue(value) }
+            flattened.catch { error => f_next.settleError(error) }
           }
         } else {
           f_next.settleValue(_value)
@@ -1895,8 +2067,8 @@ class Method {
 
 class Resource {
   close {
-    self.close_
-    return Result.ok(None)
+    self.close_()
+    return Ok.new(None)
   }
   isClosed => self.isClosed_
 }
@@ -2021,12 +2193,13 @@ class BufferedWriter extends Resource {
     if (_len > 0) {
       throw UnflushedError.new("BufferedWriter closed with " + _len.toString + " pending bytes")
     }
-    return super.close
+    super.close
+    return _inner.close
   }
 
   finish {
     return self.flush.then { _ =>
-      Future.value(self.close)
+      self.close
     }
   }
 }
