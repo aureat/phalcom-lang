@@ -350,6 +350,7 @@ impl<'vm> Compiler<'vm> {
             upvalues: func.upvalues,
             arity: params.len(),
             name_sym,
+            local_names: func.local_names,
         });
 
         let closure = self.vm.heap.alloc(Object::Closure(Box::new(ClosureObject {
@@ -395,6 +396,7 @@ impl<'vm> Compiler<'vm> {
             upvalues: Vec::new(),
             arity: 0,
             name_sym,
+            local_names: func.local_names,
         });
 
         let closure = self.vm.heap.alloc(Object::Closure(Box::new(ClosureObject {

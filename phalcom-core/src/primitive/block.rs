@@ -274,11 +274,11 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
                 }
             };
             match err {
-                PhError::Runtime(RuntimeError::Raise { error, rendered, mut traceback }) => {
+                PhError::Runtime(RuntimeError::Raise { error, rendered, mut traceback, help }) => {
                     if traceback.is_none() {
                         traceback = Some(captured_tb);
                     }
-                    err = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback });
+                    err = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback, help });
                 }
                 _ => {
                     let rendered = err.to_string();
@@ -286,6 +286,7 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
                         error,
                         rendered,
                         traceback: Some(captured_tb),
+                        help: None,
                     });
                 }
             }

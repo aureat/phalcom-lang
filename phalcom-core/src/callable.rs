@@ -31,4 +31,6 @@ pub struct Callable {
     pub arity: usize,
     /// Interned selector/method symbol name.
     pub name_sym: Symbol,
+    /// Names of local variables declared in this callable.
+    pub local_names: Vec<Symbol>,
 }

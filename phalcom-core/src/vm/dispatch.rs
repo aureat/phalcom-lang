@@ -3,7 +3,7 @@ use crate::value::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
 use crate::callable::Callable;
 use crate::heap::ClosureObject;
-use crate::diagnostics::{print_compile, print_rt, SourceLoc};
+use crate::diagnostics::print_compile;
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, CallFrame};
 use crate::heap::{ObjRef, Object};
@@ -148,53 +148,25 @@ impl VM {
         self.stack.truncate(stack_len);
     }
 
-    /// Prints a runtime error with a source-mapped stack trace and returns it.
+    /// Renders a runtime-error traceback to stderr and returns the error.
+    ///
+    /// Uses [`crate::diagnostics::traceback::render_traceback`] — the new renderer
+    /// that walks the live call stack through [`crate::vm::walk::StackWalk`] (oldest→newest,
+    /// no `.rev()`, no `frames.clone()`) and emits a Python-style traceback with the
+    /// innermost-frame caret block (IS §5.1, plan.md T4).
     ///
     /// # Errors
     ///
-    /// Always returns `err` (the trace is a side effect).
+    /// Always returns `err` (the traceback is a side effect on stderr).
     pub fn runtime_error(&mut self, err: PhError) -> PhResult<()> {
-        let mut frames = Vec::new();
-        for frame in self.frames.clone().iter().rev() {
-            let closure = self.heap.closure(frame.closure);
-            let module_id = closure.module;
-            let name_sym = closure.callable.name_sym;
-            // `ip` points *past* the instruction being executed, so the offending
-            // one is `ip - 1` — except for a frame that has not executed anything
-            // yet, where `ip` is 0 and the subtraction underflows. That was
-            // unreachable while every traceback was built after the frames had
-            // already been discarded; reporting before the unwind (PDR-0008 §2)
-            // makes it reachable, and a depth-limit raise hits it immediately.
-            // `Chunk::span_at` clamps (degrades to the chunk's first span) rather
-            // than panicking — a `panic!` reachable from ordinary source is a
-            // robustness bug, not an acceptable abort (U-TRACE T1 centralized this
-            // clamp; see `Chunk::span_at`'s doc).
-            let span_index = frame.ip.saturating_sub(1);
-            let span = closure.callable.chunk.span_at(span_index);
-            // Resolve the span against the text *this* chunk was compiled from,
-            // not the module's most recent source: one module accumulates one
-            // entry per compiled unit, so a REPL cell's span would otherwise be
-            // rendered against a later cell's text (U-REPL §D2, precondition 6).
-            let source_id = closure.callable.chunk.source_id;
-
-            let module = self.heap.module(module_id);
-            let module_name = module.name.clone();
-            // `None` for a chunk the compiler never stamped (a hand-built chunk
-            // defaults to source id 0) on a module that recorded no source at
-            // all. Degrades to a frame without a code excerpt rather than
-            // panicking, which is what the previous `.unwrap()` did here.
-            let module_source = module.source_at(source_id).cloned();
-            let method_name = self.resolve_symbol(name_sym).to_string();
-
-            frames.push(SourceLoc {
-                source: module_source,
-                module_name,
-                method_name,
-                span,
-            });
-        }
-
-        print_rt(&err.to_string(), &frames);
+        let config = crate::diagnostics::active_render_config();
+        crate::diagnostics::traceback::render_traceback(
+            self,
+            &err,
+            &config,
+            self.trace_core,
+            self.trace_format_json,
+        );
         Err(err)
     }
 
@@ -367,6 +339,18 @@ impl VM {
                     // `try` expression and switch back to it.
                     self.heap.fiber_mut(finished).status = crate::heap::FiberStatus::Done;
                     self.heap.fiber_mut(finished).result = value;
+
+                    if self.trace_fibers {
+                        let finished_seq = self.heap.fiber(finished).seq;
+                        let frames_cnt = self.frames.len();
+                        let val_str = value.to_string(self);
+                        if self.trace_format_json {
+                            tracing::debug!(target: "fibers", "{{\"ev\":\"done\",\"fiber\":{},\"result\":{},\"frames\":{}}}", finished_seq, crate::diagnostics::traceback::json_str(&val_str), frames_cnt);
+                        } else {
+                            tracing::debug!(target: "fibers", "[fiber] done    #{}  result={}  frames={}", finished_seq, val_str, frames_cnt);
+                        }
+                    }
+
                     // Recycle the finished fiber's buffers into the pool to
                     // avoid allocations (U-GC step 5, `fiber-pool` feature —
                     // off by default; measured net negative, perf-log 2026-07-14).
@@ -413,6 +397,17 @@ impl VM {
                     loop {
                         self.heap.fiber_mut(failed).status = crate::heap::FiberStatus::Failed;
                         self.heap.fiber_mut(failed).result = error_value;
+
+                        if self.trace_fibers {
+                            let failed_seq = self.heap.fiber(failed).seq;
+                            let error_str = error_value.to_string(self);
+                            if self.trace_format_json {
+                                tracing::debug!(target: "fibers", "{{\"ev\":\"fail\",\"fiber\":{},\"error\":{}}}", failed_seq, crate::diagnostics::traceback::json_str(&error_str));
+                            } else {
+                                tracing::debug!(target: "fibers", "[fiber] fail    #{}  error={}", failed_seq, error_str);
+                            }
+                        }
+
                         // Close `failed`'s own open upvalues before clearing
                         // its parked state below. For the fiber that actually
                         // raised (the first iteration) this is a no-op — its
@@ -450,7 +445,7 @@ impl VM {
                             } else {
                                 self.capture_parked_frames(failed)
                             };
-                            e = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback: Some(tb) });
+                            e = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback: Some(tb), help: None });
                         }
 
                         if let PhError::Runtime(RuntimeError::Raise { traceback: Some(tb), .. }) = &mut e {
@@ -505,6 +500,58 @@ impl VM {
     /// `pub(crate)` so [`crate::primitive::fiber::fiber_yield`] can reuse it
     /// instead of hand-inlining the same four-step sequence.
     pub(crate) fn switch_to_fiber_and_deliver(&mut self, target: ObjRef, value: Value) {
+        if self.trace_fibers {
+            let from_seq = self.heap.fiber(self.current).seq;
+            let to_seq = self.heap.fiber(target).seq;
+
+            // Resolve location where switch/resume happened
+            let mut from_file = None;
+            let mut from_line = 0;
+            let mut from_name = None;
+            if let Some(top) = self.frames.last() {
+                let closure = self.heap.closure(top.closure);
+                let module = self.heap.module(closure.module);
+                let span_index = top.ip.saturating_sub(1);
+                from_line = closure.callable.chunk.line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
+                from_file = Some(module.name_sym);
+                from_name = Some(closure.callable.name_sym);
+            }
+
+            let mut to_file = None;
+            let mut to_line = 0;
+            // Target fiber's frames are parked in target.frames
+            if let Some(top) = self.heap.fiber(target).frames.last() {
+                let closure = self.heap.closure(top.closure);
+                let module = self.heap.module(closure.module);
+                let span_index = top.ip.saturating_sub(1);
+                to_line = closure.callable.chunk.line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
+                to_file = Some(module.name_sym);
+            }
+
+            if self.trace_format_json {
+                let mut json = format!("{{\"ev\":\"switch\",\"from\":{},\"to\":{}", from_seq, to_seq);
+                if let Some(f) = from_file {
+                    json.push_str(&format!(",\"from_at\":{{\"file\":\"{}.ph\",\"line\":{}}}", self.resolve_symbol(f), from_line));
+                }
+                if let Some(f) = to_file {
+                    json.push_str(&format!(",\"to_at\":{{\"file\":\"{}.ph\",\"line\":{}}}", self.resolve_symbol(f), to_line));
+                }
+                json.push_str("}");
+                tracing::debug!(target: "fibers", "{}", json);
+            } else {
+                let mut from_str = String::new();
+                if let Some(f) = from_file {
+                    let name_str = from_name.map_or(String::new(), |s| format!(" <{}>", self.resolve_symbol(s)));
+                    from_str = format!("{} @ {}.ph:{}", name_str, self.resolve_symbol(f), from_line);
+                }
+                let mut to_str = String::new();
+                if let Some(f) = to_file {
+                    to_str = format!(" @ {}.ph:{}", self.resolve_symbol(f), to_line);
+                }
+                tracing::debug!(target: "fibers", "[fiber] switch  #{}{}  ──→  #{}{}", from_seq, from_str, to_seq, to_str);
+            }
+        }
+
         self.current = target;
         crate::primitive::fiber::load_live_from(self, target);
         let slot = self.heap.fiber(target).resume_slot;
@@ -820,9 +867,7 @@ impl VM {
                                     Some(slot) => (core_module, slot),
                                     None => {
                                         let name = self.resolve_symbol(name_sym).to_string();
-                                        return Err(
-                                            RuntimeError::Message(format!("Undefined variable '{}'.", name)).into()
-                                        );
+                                        return Err(RuntimeError::UndefinedVariable { name }.into());
                                     }
                                 }
                             }
@@ -873,7 +918,7 @@ impl VM {
                             self.heap.module_mut(module_id).set_global(slot, value).unwrap();
                         } else {
                             let name = self.resolve_symbol(name_sym).to_string();
-                            return Err(RuntimeError::Message(format!("Undefined variable '{}'.", name)).into());
+                            return Err(RuntimeError::UndefinedVariable { name }.into());
                         }
                     }
                 }
@@ -1110,10 +1155,26 @@ impl VM {
                                 let val = class.static_slots.get(slot as usize).copied().unwrap_or(Value::Nil);
                                 self.stack.push(self.surface_absence(val));
                             } else {
-                                return Err(RuntimeError::Internal(format!("Only instances and classes can have fields: {:?}", receiver)).into());
+                                let mut val_str = receiver.to_string(self);
+                                if val_str.chars().count() > 40 {
+                                    val_str = val_str.chars().take(40).collect();
+                                }
+                                return Err(RuntimeError::AccessFieldsNonInstance {
+                                    value: val_str,
+                                    found: receiver.type_name(),
+                                }.into());
                             }
                         }
-                        _ => return Err(RuntimeError::Internal(format!("Only instances and classes can have fields: {:?}", receiver)).into()),
+                        _ => {
+                            let mut val_str = receiver.to_string(self);
+                            if val_str.chars().count() > 40 {
+                                val_str = val_str.chars().take(40).collect();
+                            }
+                            return Err(RuntimeError::AccessFieldsNonInstance {
+                                value: val_str,
+                                found: receiver.type_name(),
+                            }.into());
+                        }
                     }
                 }
                 Bytecode::SetField(slot) => {
@@ -1138,10 +1199,26 @@ impl VM {
                                 }
                                 self.stack.push(value_to_assign);
                             } else {
-                                return Err(RuntimeError::Internal(format!("Only instances and classes can have fields: {:?}", receiver)).into());
+                                let mut val_str = receiver.to_string(self);
+                                if val_str.chars().count() > 40 {
+                                    val_str = val_str.chars().take(40).collect();
+                                }
+                                return Err(RuntimeError::AccessFieldsNonInstance {
+                                    value: val_str,
+                                    found: receiver.type_name(),
+                                }.into());
                             }
                         }
-                        _ => return Err(RuntimeError::Internal(format!("Only instances and classes can have fields: {:?}", receiver)).into()),
+                        _ => {
+                            let mut val_str = receiver.to_string(self);
+                            if val_str.chars().count() > 40 {
+                                val_str = val_str.chars().take(40).collect();
+                            }
+                            return Err(RuntimeError::AccessFieldsNonInstance {
+                                value: val_str,
+                                found: receiver.type_name(),
+                            }.into());
+                        }
                     }
                 }
                 Bytecode::NewInstance => {
@@ -1163,10 +1240,24 @@ impl VM {
                             // slots in place) rather than allocating a fresh one.
                             self.stack.push(class_val);
                         } else {
-                            return Err(RuntimeError::Internal(format!("NewInstance operand is not a class: {:?}", class_val)).into());
+                            let mut val_str = class_val.to_string(self);
+                            if val_str.chars().count() > 40 {
+                                val_str = val_str.chars().take(40).collect();
+                            }
+                            return Err(RuntimeError::InstantiateNonClass {
+                                value: val_str,
+                                found: class_val.type_name(),
+                            }.into());
                         }
                     } else {
-                        return Err(RuntimeError::Internal(format!("NewInstance operand is not a class object: {:?}", class_val)).into());
+                        let mut val_str = class_val.to_string(self);
+                        if val_str.chars().count() > 40 {
+                            val_str = val_str.chars().take(40).collect();
+                        }
+                        return Err(RuntimeError::InstantiateNonClass {
+                            value: val_str,
+                            found: class_val.type_name(),
+                        }.into());
                     }
                 }
                 Bytecode::Dup => {

@@ -9,6 +9,8 @@ fn phalcom_bin() -> PathBuf {
 fn run_bin(args: &[&str]) -> Output {
     Command::new(phalcom_bin())
         .args(args)
+        .env_remove("RUST_LOG")
+        .env_remove("RUST_LOG_STYLE")
         .output()
         .expect("failed to spawn the `phalcom` binary")
 }
@@ -70,6 +72,15 @@ fn test_check_vs_run_syntax_diagnostic() {
 
     let run_err = strip_ansi(&String::from_utf8_lossy(&run_output.stderr));
     let check_err = strip_ansi(&String::from_utf8_lossy(&check_output.stderr));
+
+    if run_err != check_err {
+        eprintln!("run_output status: {:?}", run_output.status);
+        eprintln!("run_output stdout: {}", String::from_utf8_lossy(&run_output.stdout));
+        eprintln!("run_output stderr: {}", String::from_utf8_lossy(&run_output.stderr));
+        eprintln!("check_output status: {:?}", check_output.status);
+        eprintln!("check_output stdout: {}", String::from_utf8_lossy(&check_output.stdout));
+        eprintln!("check_output stderr: {}", String::from_utf8_lossy(&check_output.stderr));
+    }
 
     assert_eq!(run_err, check_err);
 }

@@ -129,20 +129,9 @@ pub enum RuntimeError {
         rendered: String,
         /// Traceback frames captured at the catch/unwind boundary.
         traceback: Option<Vec<FrameRecord>>,
+        /// Optional suggestion or help message.
+        help: Option<String>,
     },
-
-    #[error("Unsupported operation '{op}' for {value}")]
-    UnsupportedOperation { op: &'static str, value: String },
-
-    #[error("Binary operation '{op}' not supported for {left} and {right}")]
-    BinaryNotSupported {
-        op: &'static str,
-        left: String,
-        right: String,
-    },
-
-    #[error("Unary operation '{op}' not supported for {value}")]
-    UnaryNotSupported { op: &'static str, value: String },
 
     #[error("Can't set superclass of a class")]
     InvalidSetSuper,
@@ -150,11 +139,8 @@ pub enum RuntimeError {
     #[error("Can't set class of an object")]
     InvalidSetClass,
 
-    #[error("Undefined variable `{0}`")]
-    UndefinedVar(String),
-
-    #[error("Division by zero")]
-    ZeroDivision,
+    #[error("undefined variable '{name}'")]
+    UndefinedVariable { name: String },
 
     #[error("Can't convert {found} to {expected}")]
     TypeConversion { expected: &'static str, found: &'static str },
@@ -168,7 +154,13 @@ pub enum RuntimeError {
     #[error("Invalid argument: {0}")]
     ArgumentError(String),
 
-    #[error("Internal error: {0}")]
+    #[error("cannot instantiate from '{value}': it is a {found}, not a class")]
+    InstantiateNonClass { value: String, found: &'static str },
+
+    #[error("cannot access fields on '{value}': it is a {found}, not an instance or class")]
+    AccessFieldsNonInstance { value: String, found: &'static str },
+
+    #[error("internal error (this is a Phalcom bug, please report): {0}")]
     Internal(String),
 
     /// A non-local `return` inside a block tried to unwind to its home method

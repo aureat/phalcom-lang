@@ -1,8 +1,7 @@
 use crate::disasm;
 use anyhow::{bail, Context, Result};
-use clap::{arg, command, Args, Parser, Subcommand, ValueHint};
+use clap::{Args, Parser, Subcommand, ValueHint};
 use phalcom_core::compiler::attributes::CompileMode;
-use phalcom_core::compiler::lib::CompilerError;
 use phalcom_core::diagnostics::style::{ColorMode, RenderConfig};
 use phalcom_core::vm::VM;
 use std::{fs, path::PathBuf};
@@ -62,6 +61,10 @@ pub struct Cli {
     /// Trace format: `text` or `json`
     #[arg(long, default_value = "text")]
     pub(crate) trace_format: String,
+
+    /// Comma-separated list of trace targets (e.g. `fibers`, `dispatch`)
+    #[arg(long, value_delimiter = ',', default_value = "")]
+    pub(crate) trace: Vec<String>,
 
     /// Sub-command to execute
     #[command(subcommand)]
@@ -196,6 +199,10 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     vm.strip_contract_metadata = strip_contract_metadata;
     vm.trace_core = cli.trace_core;
     vm.trace_format_json = cli.trace_format == "json";
+    vm.trace_fibers = cli.trace.iter().any(|t| t == "fibers");
+    if cli.trace.iter().any(|t| t == "dispatch") && !cfg!(feature = "vm-trace") {
+        eprintln!("warning: --trace=dispatch requested but the 'vm-trace' cargo feature is not enabled");
+    }
     let module = vm.create_module("main", &abs_path);
     if let Err(err) = vm.interpret_source(module, &source) {
         match err {

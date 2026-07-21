@@ -53,6 +53,8 @@ pub(crate) struct FunctionState {
     /// `return` in a method body keeps [`crate::bytecode::Bytecode::Return`] (blocks.md §5,
     /// [ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)).
     pub(super) is_block: bool,
+    /// All local variable names declared inside this function.
+    pub(super) local_names: Vec<Symbol>,
 }
 
 /// A single enclosing loop's control-flow context (ADR-0035 §3,
@@ -102,6 +104,7 @@ impl FunctionState {
             upvalues: Vec::new(),
             is_constructor,
             is_block,
+            local_names: Vec::new(),
         }
     }
 }

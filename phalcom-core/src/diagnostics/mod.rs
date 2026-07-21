@@ -1,18 +1,19 @@
-//! Diagnostic rendering: line/column arithmetic, the legacy parse/compile/runtime renderers,
-//! and the new rendering substrate (PDR-0014).
+//! Diagnostic rendering: line/column arithmetic, caret snippets, and the traceback renderer
+//! (PDR-0014, IS §1–§5).
 //!
 //! - [`style`] — [`style::Role`], [`style::ColorMode`], [`style::GlyphSet`], [`style::Styler`]:
 //!   the only place SGR (ANSI escape) bytes are produced (IS §3.1).
 //! - [`caret`] — [`caret::Snippet`]/[`caret::Label`]: the column-arithmetic caret/snippet
-//!   renderer (IS §3.4). Not yet wired into the renderers below — that lands with the
-//!   traceback renderer itself (plan.md T4/T5), which also owns `print_rt`/`print_frame`'s
-//!   replacement.
-//! - This module itself keeps [`line_col`], [`print_parse`]/[`print_compile`]/[`print_rt`]
-//!   (mechanically migrated onto [`style::Styler`], IS §1 — visual layout unchanged) and the
-//!   legacy [`SOURCE_MAP`] until plan.md §7 deletes it.
+//!   renderer (IS §3.4).
+//! - [`traceback`] — [`traceback::render_traceback`]: the human and JSON traceback renderers;
+//!   replaces the legacy `print_rt`/`print_frame` functions (plan.md T4).
+//! - This module itself keeps [`line_col`], [`print_parse`]/[`print_compile`] (restyled, IS §1)
+//!   and the legacy [`SOURCE_MAP`] until plan.md §7 deletes it.
 
 pub mod caret;
 pub mod style;
+pub mod traceback;
+pub mod suggest;
 
 use phalcom_common::range::SourceRange;
 use std::ops::Range;
@@ -162,25 +163,5 @@ pub fn print_compile(msg: &str) {
     eprintln!("{}{} {}", styler.paint(Role::SeverityError, "error"), styler.paint(Role::SeverityError, ":"), msg);
 }
 
-/// Pretty-print a *runtime* error with Python-style stack trace.
-/// `stack` must be ordered **caller → callee** (older frames first).
-pub fn print_rt(msg: &str, stack: &[SourceLoc]) {
-    let styler = Styler::new(&active_render_config());
-    eprintln!("{}", styler.paint(Role::SeverityError, "Traceback (most recent call last):"));
-    eprintln!("    {}", styler.paint(Role::Rail, "|"));
-    eprintln!("    {} {}", styler.paint(Role::SeverityError, "="), styler.paint(Role::SeverityError, msg));
-    eprintln!("    {}", styler.paint(Role::Rail, "|"));
-
-    for frame in stack {
-        print_frame(frame);
-    }
-}
-
-/// Print one “File "...", line X” entry plus its source line.
-fn print_frame(loc: &SourceLoc) {
-    // A frame whose source could not be resolved still belongs in the
-    // traceback — it just cannot show the offending line.
-    if let Some(source) = &loc.source {
-        print_line_information(source, loc.span.start..loc.span.end);
-    }
-}
+// `print_rt` and `print_frame` removed in plan.md T4.
+// Their replacement is [`traceback::render_traceback`].

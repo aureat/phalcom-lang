@@ -241,6 +241,9 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::Constant(idx), range);
             }
             Expr::Var { value, range } => {
+                if value == "nil" {
+                    return Err(CompilerError::UndefinedVariable(value.clone()));
+                }
                 let name_sym = self.vm.interner.intern(&value);
                 if let Some(slot) = self.resolve_local(name_sym) {
                     self.emit(Bytecode::GetLocal(slot as u16), range);

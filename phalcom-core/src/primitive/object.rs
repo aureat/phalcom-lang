@@ -232,8 +232,26 @@ pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value])
         Some(Value::Symbol(sym)) => vm.resolve_symbol(sym).to_string(),
         _ => "<unknown>".to_string(),
     };
-    let receiver_name = receiver.to_string(vm);
+    let mut receiver_name = receiver.to_string(vm);
+    if receiver_name.chars().count() > 40 {
+        receiver_name = receiver_name.chars().take(40).collect::<String>();
+    }
     let rendered = format!("{receiver_name} does not understand '{selector}'");
+
+    // Collect candidates from receiver's class and ancestors
+    let mut cand_strings = Vec::new();
+    let mut current_class_id = Some(receiver.class(vm));
+    while let Some(cls_id) = current_class_id {
+        let class_obj = vm.heap.class(cls_id);
+        for &sym in class_obj.methods.keys() {
+            cand_strings.push(vm.resolve_symbol(sym).to_string());
+        }
+        current_class_id = class_obj.superclass;
+    }
+    cand_strings.sort();
+    cand_strings.dedup();
+
+    let help = crate::diagnostics::suggest::suggest_selector(&selector, cand_strings.into_iter());
 
     // Reify the surface MessageNotUnderstood: slot 0 = message string, slot 1
     // = the reified Message (`args[0]`, floor-census §2.14). Built directly in
@@ -247,7 +265,7 @@ pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value])
 
     // Raise it through the unified unwind (NOT the retired native
     // RuntimeError::MessageNotUnderstood variant).
-    Err(RuntimeError::Raise { error: mnu, rendered, traceback: None }.into())
+    Err(RuntimeError::Raise { error: mnu, rendered, traceback: None, help }.into())
 }
 
 /// Reads slot `index` of a `Message` instance `value`, or `None` if `value` is

@@ -132,7 +132,7 @@ corruption).
   run-vs-check same-bytes syntax diagnostic (strip-SGR compare); negative-lane migration for
   restyled parse errors.
 
-### T6 — Message hygiene + did-you-mean  *(IS §8, §9; G1 resolved — kind table normative at IS §8.1)*
+### T6 — Message hygiene + did-you-mean  ✅ COMPLETE  *(IS §8, §9; G1 resolved — kind table normative at IS §8.1)*
 
 - **Delivers:** style-guide enforcement pass over live messages; dead variants deleted
   (`UndefinedVar`, `UnsupportedOperation`, `BinaryNotSupported`, `UnaryNotSupported`,

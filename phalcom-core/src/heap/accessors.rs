@@ -460,4 +460,12 @@ impl Heap {
             _ => panic!("ObjRef {id:?} is not an Upvalue"),
         }
     }
+
+    /// Returns the [`ClosureObject`] behind `id`, or `None` if it is not one.
+    pub fn as_closure(&self, id: ObjRef) -> Option<&ClosureObject> {
+        match self.objects.get(id) {
+            Some(Object::Closure(closure)) => Some(closure),
+            _ => None,
+        }
+    }
 }

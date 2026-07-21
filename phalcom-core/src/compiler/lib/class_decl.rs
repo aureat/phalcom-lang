@@ -480,16 +480,46 @@ impl<'vm> Compiler<'vm> {
                         let meta = self.vm.heap.class(sc_id).class;
                         (self.vm.heap.class(sc_id).field_count, self.vm.heap.class(meta).field_count)
                     } else {
-                        return Err(CompilerError::Message(format!(
-                            "Unknown superclass `{}`: it must be a class defined before `{}`.",
+                        let mut candidates = Vec::new();
+                        for key in self.vm.field_layouts.keys().chain(self.vm.classes.keys()) {
+                            candidates.push(self.vm.resolve_symbol(key.name).to_string());
+                        }
+                        for &sym in self.import_bindings.keys() {
+                            candidates.push(self.vm.resolve_symbol(sym).to_string());
+                        }
+                        candidates.sort();
+                        candidates.dedup();
+                        let cand_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
+                        let suggestion = crate::diagnostics::suggest::best_match(&sc_ref.name, cand_refs.into_iter());
+                        let mut msg = format!(
+                            "unknown superclass '{}': it must be a class defined before '{}'",
                             sc_ref.name, class_def.name
-                        )));
+                        );
+                        if let Some(sug) = suggestion {
+                            msg.push_str(&format!("; did you mean '{}'?", sug));
+                        }
+                        return Err(CompilerError::Message(msg));
                     }
                 } else {
-                    return Err(CompilerError::Message(format!(
-                        "Unknown superclass `{}`: it must be a class defined before `{}`.",
+                    let mut candidates = Vec::new();
+                    for key in self.vm.field_layouts.keys().chain(self.vm.classes.keys()) {
+                        candidates.push(self.vm.resolve_symbol(key.name).to_string());
+                    }
+                    for &sym in self.import_bindings.keys() {
+                        candidates.push(self.vm.resolve_symbol(sym).to_string());
+                    }
+                    candidates.sort();
+                    candidates.dedup();
+                    let cand_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
+                    let suggestion = crate::diagnostics::suggest::best_match(&sc_ref.name, cand_refs.into_iter());
+                    let mut msg = format!(
+                        "unknown superclass '{}': it must be a class defined before '{}'",
                         sc_ref.name, class_def.name
-                    )));
+                    );
+                    if let Some(sug) = suggestion {
+                        msg.push_str(&format!("; did you mean '{}'?", sug));
+                    }
+                    return Err(CompilerError::Message(msg));
                 };
                 // Record the compile-time superclass edge (U-INH follow-on)
                 // ONLY here — past the self-check, on a known/validated

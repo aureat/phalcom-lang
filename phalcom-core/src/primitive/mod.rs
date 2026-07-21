@@ -428,5 +428,5 @@ pub(crate) fn mutable_key_error(vm: &mut VM, class_name: &str) -> RuntimeError {
     let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
     let error = Value::Obj(vm.heap.alloc(crate::heap::Object::Instance(inst)));
-    RuntimeError::Raise { error, rendered, traceback: None }
+    RuntimeError::Raise { error, rendered, traceback: None, help: None }
 }

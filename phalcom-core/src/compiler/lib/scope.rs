@@ -140,6 +140,7 @@ impl<'vm> Compiler<'vm> {
         let func = self.functions.last_mut().unwrap();
         tracing::debug!("[Compiler] Adding local at depth {}", func.scope_depth);
         func.locals.push(Local { name, depth: func.scope_depth, is_captured: false, is_mutable });
+        func.local_names.push(name);
         func.num_locals += 1;
         if func.num_locals > func.max_slots {
             func.max_slots = func.num_locals;

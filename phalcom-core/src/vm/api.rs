@@ -165,7 +165,11 @@ impl VM {
             RuntimeError::ConcurrentMutation { .. } => "concurrentMutation",
             RuntimeError::DepthExceeded { .. } => "depthExceeded",
             RuntimeError::DeadFrameError => "deadFrame",
-            RuntimeError::Type { .. } | RuntimeError::TypeConversion { .. } | RuntimeError::Arity { .. } => "type",
+            RuntimeError::Type { .. }
+            | RuntimeError::TypeConversion { .. }
+            | RuntimeError::Arity { .. }
+            | RuntimeError::InstantiateNonClass { .. }
+            | RuntimeError::AccessFieldsNonInstance { .. } => "type",
             _ => return None,
         };
         let sym = self.interner.intern(sym_str);

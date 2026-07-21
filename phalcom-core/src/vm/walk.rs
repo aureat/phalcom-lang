@@ -123,6 +123,8 @@ pub struct FrameView {
     /// ([`crate::heap::FiberObject::seq`], IS §6) — stable across a run, unlike the
     /// recyclable [`ObjRef`] handle.
     pub fiber: u32,
+    /// Interned symbol of the class name, if this is a class/instance method frame.
+    pub class_name: Option<Symbol>,
 }
 
 /// An iterator over a live [`VM`]'s call stack, oldest frame first.
@@ -133,6 +135,8 @@ pub struct FrameView {
 /// Build one with [`VM::walk`].
 pub struct StackWalk<'vm> {
     vm: &'vm VM,
+    /// The fiber being walked (its ObjRef handle).
+    fiber: ObjRef,
     /// Index of the next **physical** [`CallFrame`] in [`VM::frames`] to expand.
     next_physical: usize,
     /// The still-unyielded tail of the current physical frame's logical expansion.
@@ -142,7 +146,13 @@ pub struct StackWalk<'vm> {
 impl<'vm> StackWalk<'vm> {
     /// Builds a walk over `vm`'s current call stack. See [`VM::walk`].
     pub(crate) fn new(vm: &'vm VM) -> Self {
-        Self { vm, next_physical: 0, pending: Vec::new().into_iter() }
+        Self { vm, fiber: vm.current, next_physical: 0, pending: Vec::new().into_iter() }
+    }
+
+    /// Builds a walk over `vm`'s call stack for a specific fiber.
+    #[allow(dead_code)]
+    pub(crate) fn new_fiber(vm: &'vm VM, fiber: ObjRef) -> Self {
+        Self { vm, fiber, next_physical: 0, pending: Vec::new().into_iter() }
     }
 
     /// The logical-expansion seam (module docs). Returns every logical
@@ -179,6 +189,24 @@ impl<'vm> StackWalk<'vm> {
         let span = closure.callable.chunk.span_at(span_index);
         let source = module.source_at(closure.callable.chunk.source_id).cloned();
         let line = source.as_deref().map_or(0, |text| closure.callable.chunk.line_at(span_index, text));
+        // Resolve class name for instance/class method frames (e.g. `Cart.total`).
+        // Block frames and <main> frames get None.
+        let class_name_sym = if is_main || frame.home_frame_token.is_some() {
+            None
+        } else {
+            match frame.context {
+                crate::frame::CallContext::Instance { instance } => {
+                    let class_id = crate::value::Value::Obj(instance).class(self.vm);
+                    let name = &self.vm.heap.class(class_id).name;
+                    self.vm.interner.find(name)
+                }
+                crate::frame::CallContext::Class { class } => {
+                    // class is an ObjRef that refers to a ClassObject
+                    self.vm.heap.as_class(class).and_then(|c| self.vm.interner.find(&c.name))
+                }
+                _ => None,
+            }
+        };
 
         FrameView {
             module: module.name_sym,
@@ -187,7 +215,8 @@ impl<'vm> StackWalk<'vm> {
             span,
             source,
             is_core: self.is_core_module(module_id),
-            fiber: self.vm.heap.fiber(self.vm.current).seq,
+            fiber: self.vm.heap.fiber(self.fiber).seq,
+            class_name: class_name_sym,
         }
     }
 

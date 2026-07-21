@@ -71,7 +71,7 @@ fn cannot_switch_across_native_frame(vm: &mut VM, rendered: String) -> crate::er
     let mut inst = InstanceObject::new(class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
     let error = Value::Obj(vm.heap.alloc(Object::Instance(inst)));
-    RuntimeError::Raise { error, rendered, traceback: None }.into()
+    RuntimeError::Raise { error, rendered, traceback: None, help: None }.into()
 }
 
 /// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1) for a
@@ -160,6 +160,47 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
     };
     fiber.spawn_file = spawn_file;
     fiber.spawn_line = spawn_line;
+
+    let fiber_seq = fiber.seq;
+    let parent_seq = vm.heap.fiber(vm.current).seq;
+
+    let entry_name = match vm.heap.get(entry_id) {
+        Object::Block(block) => {
+            let closure = vm.heap.closure(block.closure);
+            format!("<block in {}>", vm.resolve_symbol(closure.callable.name_sym))
+        }
+        Object::Closure(closure) => {
+            vm.resolve_symbol(closure.callable.name_sym).to_string()
+        }
+        _ => "<unknown>".to_string(),
+    };
+
+    if vm.trace_fibers {
+        let file_str = spawn_file.map_or(String::new(), |s| vm.resolve_symbol(s).to_string());
+        if vm.trace_format_json {
+            let mut escaped_name = String::new();
+            // simple escaping for json
+            for ch in entry_name.chars() {
+                match ch {
+                    '"' => escaped_name.push_str("\\\""),
+                    '\\' => escaped_name.push_str("\\\\"),
+                    c => escaped_name.push(c),
+                }
+            }
+            tracing::debug!(
+                target: "fibers",
+                "{{\"ev\":\"spawn\",\"fiber\":{},\"parent\":{},\"name\":\"{}\",\"at\":{{\"file\":\"{}.ph\",\"line\":{}}}}}",
+                fiber_seq, parent_seq, escaped_name, file_str, spawn_line
+            );
+        } else {
+            tracing::debug!(
+                target: "fibers",
+                "[fiber] spawn   #{} {}  parent=#{}  at {}.ph:{}",
+                fiber_seq, entry_name, parent_seq, file_str, spawn_line
+            );
+        }
+    }
+
     Ok(vm.heap.alloc(Object::Fiber(Box::new(fiber))))
 }
 
@@ -263,7 +304,7 @@ pub fn fiber_abort(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
     }
     let error = args[0];
     let rendered = error.to_string(vm);
-    Err(RuntimeError::Raise { error, rendered, traceback: None }.into())
+    Err(RuntimeError::Raise { error, rendered, traceback: None, help: None }.into())
 }
 
 /// Signature: `Fiber#call`/`call(_)` — resumes the receiver fiber, re-raising
@@ -392,6 +433,42 @@ pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
 
     let receiver_idx = vm.stack.len() - 1 - args.len();
     let value = args.first().copied().unwrap_or_else(|| vm.none_value());
+
+    if vm.trace_fibers {
+        let fiber_seq = vm.heap.fiber(me).seq;
+        let mut file_str = String::new();
+        let mut line = 0;
+        if let Some(top) = vm.frames.last() {
+            let closure = vm.heap.closure(top.closure);
+            let module = vm.heap.module(closure.module);
+            let span_index = top.ip.saturating_sub(1);
+            line = closure.callable.chunk.line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
+            file_str = vm.resolve_symbol(module.name_sym).to_string();
+        }
+        let val_str = value.to_string(vm);
+
+        if vm.trace_format_json {
+            let mut escaped_val = String::new();
+            for ch in val_str.chars() {
+                match ch {
+                    '"' => escaped_val.push_str("\\\""),
+                    '\\' => escaped_val.push_str("\\\\"),
+                    c => escaped_val.push(c),
+                }
+            }
+            tracing::debug!(
+                target: "fibers",
+                "{{\"ev\":\"yield\",\"fiber\":{},\"at\":{{\"file\":\"{}.ph\",\"line\":{}}},\"value\":\"{}\"}}",
+                fiber_seq, file_str, line, escaped_val
+            );
+        } else {
+            tracing::debug!(
+                target: "fibers",
+                "[fiber] yield   #{} @ {}.ph:{}  value={}",
+                fiber_seq, file_str, line, val_str
+            );
+        }
+    }
 
     vm.heap.fiber_mut(me).resume_slot = receiver_idx;
     vm.heap.fiber_mut(me).status = FiberStatus::Suspended;

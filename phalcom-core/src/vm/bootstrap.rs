@@ -56,6 +56,7 @@ impl VM {
             variadic_selector_cache: HashMap::new(),
             trace_core: false,
             trace_format_json: false,
+            trace_fibers: false,
             native_selector: None,
             native_class: None,
 

@@ -98,6 +98,7 @@ impl VM {
             native_selector: _,
             native_class: _,
             trace_format_json: _,
+            trace_fibers: _,
             #[cfg(feature = "fiber-pool")]
                 fiber_pool: _,
         } = self;

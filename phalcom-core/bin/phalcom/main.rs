@@ -1,4 +1,5 @@
-#![allow(warnings)]
+//! The Phalcom programming language compiler and virtual machine driver.
+
 pub mod cli;
 pub mod disasm;
 
@@ -7,14 +8,31 @@ use anyhow::Result;
 use clap::Parser;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{filter, fmt, Layer};
+use tracing_subscriber::filter::Targets;
+use tracing_subscriber::{fmt, Layer};
 
 fn main() -> Result<()> {
-    let stdout_log = fmt::layer().pretty();
-
-    tracing_subscriber::registry().with(stdout_log.with_filter(filter::LevelFilter::OFF)).init();
-
     let cli = Cli::parse();
+
+    // Build a per-target filter: only enable `DEBUG` on the specific targets
+    // requested via `--trace=<targets>`. A global `LevelFilter::DEBUG` would
+    // also enable the compiler's own debug instrumentation, flooding stderr.
+    let targets_filter = cli.trace.iter()
+        .filter(|t| !t.is_empty())
+        .fold(
+            Targets::new().with_default(tracing_subscriber::filter::LevelFilter::OFF),
+            |acc, t| acc.with_target(t.as_str(), tracing::Level::DEBUG),
+        );
+
+    let stderr_layer = fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .with_level(false)
+        .with_ansi(false);
+
+    tracing_subscriber::registry()
+        .with(stderr_layer.with_filter(targets_filter))
+        .init();
 
     // Resolves `--color`/`--plain` once, up front, and installs it for every diagnostic
     // renderer in `phalcom-core` to read (IS §3.2). See

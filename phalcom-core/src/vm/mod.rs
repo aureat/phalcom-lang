@@ -338,6 +338,8 @@ pub struct VM {
     pub trace_core: bool,
     /// Whether tracebacks should render as JSON.
     pub trace_format_json: bool,
+    /// Whether to trace fiber switch events.
+    pub trace_fibers: bool,
     /// In-flight native selector for error context.
     pub native_selector: Option<Symbol>,
     /// In-flight native receiver class symbol for error context.
