@@ -21,7 +21,7 @@
 - Depends on:
   [README.md](README.md) (the five-tier model; this note reifies its descriptor) ·
   [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism, registry, phase pipeline) ·
-  [annotations-legality-grammar.md](../experimental/annotations-legality-grammar.md) (`Target`, the legality table)
+  [legality-grammar.md](../../../work/pending/ctor/notes/legality-grammar.md) (`Target`, the legality table)
 - Related:
   [object-model.md](../object-model.md) (metaclass tower, `Behavior`, the `§8` metaobject surface) ·
   [method-lookup.md](../method-lookup.md) (`doesNotUnderstand`, `perform`) ·
@@ -229,7 +229,7 @@ retained instance disappears). It satisfies the erasure golden of
 
 ### `@On` — legality and tier as one class-side declaration (renamed, A-1)
 
-The [annotations-legality-grammar.md](../experimental/annotations-legality-grammar.md)
+The [legality-grammar.md](../../../work/pending/ctor/notes/legality-grammar.md)
 `Target` table is driven, for attribute classes, from a single class-side
 `@On(target…, tier: ..., inherited: ...)` declaration rather than a Rust `match` —
 this **replaces** the earlier two-decorator design (`@AttributeUsage(...)` +

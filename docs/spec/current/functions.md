@@ -183,7 +183,7 @@ Already present as `MethodObject` / `MethodKind`
 
 - `bind(_)` (needs first-class `Block`, §2);
 - `invokeOn(_,_)` and `methodFor(_)` reflective entry points;
-- class-side methods (`static`, `construct`) already register on the metaclass
+- class-side methods (`@class`, `@constructor`) already register on the metaclass
   ([Classes §1](classes.md)); no change to storage, only reflection surface.
 
 ---

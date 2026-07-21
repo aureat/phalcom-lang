@@ -3,7 +3,7 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) (**Accepted** — constructors as ordinary class-side methods; `@constructor`/`@class`; `new_`) ·
+[PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md) (**Accepted** — `@construct` classes, `@constructor` methods, target-polymorphic `@class`) ·
 [ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md) (static per-class slot layout) ·
 [ADR-0064](../../adr/accepted/0064-let-const-bindings-and-field-mutability.md) (**Accepted** — `let`/`const`; unkeyworded mutable fields; supersedes ADR-0014) ·
 [ADR-0002](../../adr/accepted/0002-metaclass-tower-parallel-rule.md) (the parallel tower that resolves them)
@@ -60,7 +60,7 @@ root, so `Ref.at(1, 2)` either finds the constructor or raises `doesNotUnderstan
 
 `new` is the **one** name the language treats specially, and only because
 `Class >> new()` occupies it as a default (§1.2) — and even that is ordinary
-inheritance, not a rule (ADR-0063 §7).
+inheritance, not constructor-specific dispatch (PDR-0028).
 
 ### 1.2 The allocator: `new_`
 
@@ -105,11 +105,11 @@ author's choice. This is the Smalltalk pattern (`Point class >> new` calling
 `basicNew`), and `@constructor` exists to make the common case a one-liner — not
 because the long form is forbidden.
 
-**Relationship to `@constructor` on a class header.** [Selectors, Symbols &
-References §4](selectors.md#4-attributes-) specifies `@constructor` as a class-header
-attribute that *derives* a constructor from the declared fields. Same name, same
-mechanism: the header form emits a `@constructor` method member, which then expands
-exactly as a hand-written one does.
+**Relationship to `@construct` on a class header.** [Selectors, Symbols &
+References §4](selectors.md#4-attributes-) specifies `@construct` as the class-header
+attribute that derives a constructor from declared fields. The derived member has
+the method semantics of [`@constructor`](decorators/constructor.md), but the two
+decorators have different legal targets.
 
 ## 2. Fields
 
@@ -239,9 +239,9 @@ attribute, and the difference is visible in what they produce:
 
 | | `@class` | `@constructor` |
 |---|---|---|
-| Kind | modifier | derive |
-| Effect | sets one bit in place | rewrites one member into two |
-| Members in → out | 1 → 1 | 1 → 2 |
+| Kind | placement | constructor marker |
+| Effect | places field or member on class side | marks one method as constructor |
+| Members in → out | 1 → 1 | 1 → 1 |
 
 `@class @constructor` on one member is an error: a constructor is already class-side.
 

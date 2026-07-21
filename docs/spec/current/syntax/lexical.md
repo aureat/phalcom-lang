@@ -42,6 +42,9 @@ SUPPRESS-AFTER :=
   | "," | "(" | "{" | "[" | "." | "::" | ":" | "=>" | "->" | "??" | "?."
 ```
 
+`**` is one `BINARY-OP` token. The lexer must take the longest match, so `**` never becomes two
+adjacent `*` tokens. It is power, not a compound assignment; `**=` is not a token.
+
 Every other position emits a real `NEWLINE` token.
 
 ## 3. Comments
@@ -77,12 +80,11 @@ convention enforced by style, not a distinct token class — `Person` and
 | `let` | | `while` | | `and` |
 | `var` | | `for` | | `or` |
 | `class` | | `in` | | `not` |
-| `construct` | | `break` | | `is` |
-| `static` | | `continue` | | `true` |
-| `self` | | `return` | | `false` |
-| `super` | | `import` | | `throw` |
-| `if` | | `as` | | |
-| `else` | | | | |
+| `const` | | `break` | | `is` |
+| `continue` | | `true` | | `false` |
+| `self` | | `return` | | `super` |
+| `import` | | `throw` | | `as` |
+| `if` | | `else` | | |
 
 ```
 KEYWORD :=
@@ -91,7 +93,18 @@ KEYWORD :=
   | "and" | "or" | "not" | "is" | "true" | "false" | "import" | "as" | "throw"
 ```
 
-### 5.1 Contextual keywords
+### 5.1 Reserved names and migration spellings
+
+`construct` and `constructor` are reserved names. User declarations may not
+define either name as a declaration, selector family, or attribute class.
+
+`construct` and `static` are retired declaration spellings, not canonical
+keywords. Parsers may recognize their legacy positions long enough for the
+compiler to emit non-fatal migration hints: `construct new(...) { ... }` →
+`@constructor`, `static ...` → `@class`. A method-shaped `class name(...) { ... }`
+form receives the same `@class` hint.
+
+### 5.2 Contextual keywords
 
 Reserved only in a specific grammatical position; elsewhere they lex as
 ordinary `IDENT` and may be used as identifiers.
@@ -101,13 +114,13 @@ ordinary `IDENT` and may be used as identifiers.
 | `extends` | class header (see [`statements-and-declarations.md`](statements-and-declarations.md)) |
 | `try`, `catch`, `on`, `ensure` | error-handling clauses ([ADR-0031]) |
 
-### 5.2 Reserved-inactive
+### 5.3 Reserved-inactive
 
 `fn` is reserved but not currently bound to any production — it lexes as a
 keyword token so it cannot be used as an identifier, but no grammar rule
 consumes it yet.
 
-### 5.3 No `nil`
+### 5.4 No `nil`
 
 There is no `nil`, `null`, or `none` keyword in Phalcom. Absence is
 represented by the `None` value of the abstract `Option` type; there is no
@@ -314,7 +327,7 @@ METHOD-REF  := "::" [ "#" ]
 ATTRIBUTE   := "@" IDENT
 
 BINARY-OP  :=
-    "+" | "-" | "*" | "/" | "%" | "~/"
+    "+" | "-" | "*" | "/" | "%" | "~/" | "**"
   | "&" | "|" | "^" | "<<" | ">>"
   | "==" | "!=" | "<" | "<=" | ">" | ">="
   | ".." | "..."

@@ -13,7 +13,7 @@ the shape of the language:
   operators are just methods with punctuation for names.
 - **Objects all the way up.** Classes are objects. Their classes (metaclasses) are
   objects too. `Int` is an instance of `Int class`, which is an instance of
-  `Metaclass`. This is not trivia — it is how `static` methods and per-class state
+  `Metaclass`. This is not trivia — it is how `@class` methods and per-class state
   work without a bolted-on mechanism.
 - **The surface looks like JavaScript.** Curly braces, `let`/`var`, `class Foo
   extends Bar`, `x => x + 1`. A JavaScript programmer can read Phalcom on day one.
@@ -22,7 +22,8 @@ the shape of the language:
 
 ```phalcom
 class Greeter {
-  construct new(name:) { _name = name }
+  @constructor
+  new(name:) { _name = name }
 
   greet() => "Hello, \(_name)"
 }
@@ -50,7 +51,7 @@ order:
 |------|----------------|
 | [Values](values.md) | `Int`/`Float`, `String` + interpolation, `Bool`, and the big one — there is no `nil`, absence is `Option` |
 | [Variables](variables.md) | `let` vs `var`, block scope, `_fields`, and why bindings are not the same as slots |
-| [Classes](classes.md) | `construct`, fields, methods, getters/setters, operators, `static`, `extends` |
+| [Classes](classes.md) | `@construct`, `@constructor`, fields, methods, getters/setters, operators, `@class`, `extends` |
 | [Messages & Dispatch](messages.md) | Selector identity, labelled arguments, spread/rest, method lookup, `doesNotUnderstand` |
 | [Blocks](blocks.md) | Block literals, closures, non-local return, and blocks as the substrate of control flow |
 | [Control Flow](control-flow.md) | `if`/`while`/`for`, `and`/`or`, `??`/`?.`, and the inliner that makes it all cheap |

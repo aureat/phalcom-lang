@@ -1,5 +1,9 @@
 # 63. Constructors are ordinary class-side methods: `@constructor`/`@class` decorators, `new_` allocator
 
+> **Superseded at the surface level by PDR-0028 (2026-07-21).** Retain this ADR as
+> historical input; current decorator targets and retired-spelling migration hints live
+> under `docs/spec/current`.
+
 - Status: **Accepted** (ratified by the user 2026-07-15, DEC-CTOR-B "ratify in full")
 - Date: 2026-07-15
 - **Amended 2026-07-15, same day, before any implementation** (DEC-CTOR-F/G/H/I). Amended

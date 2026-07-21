@@ -11,15 +11,16 @@
 > **Supersedes in part:** [ADR-0005](../../../adr/retired/0005-number-as-flat-f64.md) — its
 > `f64` survives as `Float`'s representation only.
 >
-> **Rulings:** [PDR-0012](../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
+> **Rulings:** [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
 > — **Accepted** (ratified 2026-07-20). It carries this spec's 24 implementation rulings and the
-> ADR-0019 floor amendment. [PDR-0025](../../pdr/0025-numeric-tower-residue-rulings.md)
-> resolves its former primitive blockers; this spec is implementation-ready.
+> ADR-0019 floor amendment. [PDR-0025](../../../pdr/0025-numeric-tower-residue-rulings.md)
+> resolves its former primitive blockers; [PDR-0027](../../../pdr/0027-float-protocol-and-explicit-narrowing.md)
+> ratifies Float edge behavior, power, construction enforcement, text, and diagnostics. This spec is implementation-ready.
 >
 > **Floor impact:** **REQUIRES an [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
 > amendment**, carried and ratified by PDR-0012 ruling 20 (`docs/adr/` is frozen). The per-class
-> split is `137 → 153` installed bindings (§6). It composes with PDR-0011's `Bytes` amendment;
-> recompute against the live census at implementation rather than trusting prose totals.
+> split's historical tally is `137 → 153`; PDR-0027 separately adds 12 frozen bindings (§6).
+> Recompute against the live census at implementation rather than trusting prose totals.
 >
 > **Ordering constraint:** must land **before** any arithmetic fast path is burned into
 > bytecode (ADR-0024 §Context). That window is still open — verified, §11.
@@ -101,7 +102,7 @@ Every row below was checked against the tree at `8b4465c` during authoring. Rows
 
 ### 2.2 Interaction with PDR-0001 (classes are closed)
 
-[PDR-0001](../../pdr/0001-classes-are-closed.md) is Accepted and **unimplemented**
+[PDR-0001](../../../pdr/0001-classes-are-closed.md) is Accepted and **unimplemented**
 (verified: `docs/pdr/STATUS.md` row 0065, `❌ ruled 2026-07-19, unimplemented`). Two of
 its rulings touch this spec:
 
@@ -119,12 +120,13 @@ its rulings touch this spec:
 rows and rides the existing gate. If this spec lands first, 0065 inherits two more reserved
 names. Neither blocks the other.
 
-### 2.3 `Number` is abstract — but nothing enforces abstractness
+### 2.3 `Number` is allocator-abstract
 
-There is no `@abstract` mechanism in the tree that this spec verified. `Number` is abstract by
-**construction**: no literal produces one, no primitive returns one, and its statics are
-removed (§10). A determined user could still reach it. **Q-NUM-6** asks whether that is
-acceptable or whether the allocator must raise.
+PDR-0027 resolves the former construction-only hole. `Number` carries class metadata marking it
+abstract, and the shared allocation path rejects it with `#abstractClass`. This covers direct,
+reflective, and inherited `new` sends; an overridable method-level guard is insufficient. Normal
+lookup remains visible (`Number.respondsTo(#new)` can be true), while invocation cannot construct
+an instance. `Int` and `Float` stay concrete.
 
 ---
 
@@ -297,7 +299,7 @@ fn scan_number(&mut self) -> Result<Token, LexicalError> {
 - **(c)** reject oversized literals as a lex error.
 
 **Recommend (a).** It keeps `phalcom-ast` dependency-free, keeps the common path an `i64`, and
-puts the one `BigInt` parse where the heap already is. [PDR-0026](../../pdr/0026-numeric-literals.md)
+puts the one `BigInt` parse where the heap already is. [PDR-0026](../../../pdr/0026-numeric-literals.md)
 ratifies that choice and extends the payload to `{ digits, radix }` so binary, octal, and
 hexadecimal literals remain exact.
 
@@ -323,7 +325,7 @@ would mean deciding whether `1e5` is an `Int` or a `Float` — a real question (
 
 **Ruling: this spec adds neither.** The tower does not need them, and bundling them puts a
 new syntax decision inside a representation change. They are now specified separately by
-[PDR-0026](../../pdr/0026-numeric-literals.md); implement them as the follow-on literal unit.
+[PDR-0026](../../../pdr/0026-numeric-literals.md); implement them as the follow-on literal unit.
 
 ---
 
@@ -394,6 +396,7 @@ Per the user's ruling, **every numeric primitive is split per-class**; neither `
 | `/(_)` | — | ✅ | ✅ | always returns `Float` (ADR-0024 §4) |
 | `%(_)` | — | ✅ | ✅ | `Int%Int` exact; `Float` keeps `fmod` |
 | `~/(_)` | — | ✅ | ✅ | PDR-0025: total over the tower; always returns `Int` |
+| `**(_)` | — | ✅ | ✅ | PDR-0027: exact nonnegative Int power; otherwise Float power |
 | `<(_)` | — | ✅ | ✅ | |
 | `<=(_)` | — | ✅ | ✅ | |
 | `>(_)` | — | ✅ | ✅ | |
@@ -410,17 +413,9 @@ than a silent re-flattening of the tower.
 
 ### 6.4 Census arithmetic
 
-```
-  137   current installed (invariants.rs:642-723, verified green at 8b4465c)
- − 14   Number's bindings, all removed
- + 26   Int (13 instance) + Float (13 instance)
- +  4   Int.new()/new(_) + Float.new()/new(_)
- ────
-  153   post-split
-```
-
-The numeric floor goes **14 → 30**: it more than doubles, which is precisely why this needs
-ratification rather than a census bump.
+At the historical authoring baseline, PDR-0012/PDR-0025's split is 14 removed and 30 added
+(153 total); PDR-0027 adds 2 power and 10 Float-protocol bindings (165 total). These numbers are
+explanatory only: the live invariant test is authoritative and must be recomputed at landing.
 
 **Implementation note — the assertion cannot express a removal.** Every constant in
 `floor_census_matches_installed_bindings` is a `usize` *addition*
@@ -435,9 +430,14 @@ const NUMERIC_SPLIT_REMOVED: usize = 14;
 /// U-NUMTOWER: `Int` and `Float` each take the full arithmetic/comparison
 /// surface plus `~/`, `hash`, `toString`, and both `new` arities (15 each).
 const NUMERIC_SPLIT_ADDED: usize = 30;
+/// PDR-0027: `**(_)` exists independently on Int and Float.
+const NEW_NUMERIC_POWER: usize = 2;
+/// PDR-0027: Float-only classification and explicit-narrowing protocol.
+const NEW_FLOAT_PROTOCOL: usize = 10;
 ```
 
-and extend the assertion with `+ NUMERIC_SPLIT_ADDED - NUMERIC_SPLIT_REMOVED`, keeping the
+and extend the assertion with `+ NUMERIC_SPLIT_ADDED + NEW_NUMERIC_POWER + NEW_FLOAT_PROTOCOL
+- NUMERIC_SPLIT_REMOVED`, keeping the
 addition ahead of the subtraction so the `usize` expression never goes negative mid-evaluation.
 
 ### 6.5 The ratified amendment
@@ -458,9 +458,9 @@ argued with:
 - The honest alternative — a shared `Number#+` that dispatches internally on the arm — is
   **the thing the user ruled against**, and §16 records why that ruling is defensible.
 
-So the amendment is not "we found 16 new things the VM must do". It is "the ruled class
-structure costs 16 bindings to express". A reviewer could reasonably respond that this is the
-ratchet working as designed and the count is the price of the ruling.
+The split amendment is a representation cost. PDR-0027 separately ratifies 12 new frozen bindings
+whose Float-specific semantics cannot be derived from existing primitives; its own census constants
+make that cost reviewable.
 
 **Also required in the same change** (`floor-census.md` §7.2's coverage caveat, which was
 written *because* `Fiber` slipped this exact gap): `Int` and `Float` must gain rows in
@@ -512,6 +512,7 @@ arithmetic (`docs/forge/perf-log/SCOREBOARD.md`).
 | `/` | **always `Float`** — convert both, then `f64` divide | → `Float` | `f64` |
 | `~/` | floor division, exact `Int` | exact `Int` (PDR-0025) | exact `Int` (PDR-0025) |
 | `%` | exact, **sign follows the divisor** so it agrees with `~/`'s floor | → `Float` | `fmod`, sign follows dividend (unchanged) |
+| `**` | nonnegative exponent: exact, normalize; negative exponent: `Float` | → `Float` | binary64 power |
 | `< <= > >=` | exact | compare by mathematical value | `f64` |
 | `negated` | `i64::MIN` overflows `checked_neg` → `LargeInt` | — | `f64` |
 
@@ -601,8 +602,9 @@ Map and Set hash their keys by **sending the Phalcom `hash` selector** through t
 (`primitive/map.rs:55`, and the module doc at `map.rs:12-15` calls it "the re-entrant key-hash
 crux"). After the split, `hash` returns a `Value::Int` — which this `match` **rejects**. Every
 `Map` and `Set` insertion would fail at runtime. It must accept `Int` (and decide whether a
-`Float` return from a user-defined `hash` is an error or is truncated — recommend: accept
-integral `Float` for compatibility, reject non-integral).
+`Float` return from a user-defined `hash` is an error or is truncated. **Resolved by PDR-0027:**
+accept `Int` only; every other return raises `#invalidHash`. Truncation and integral-Float
+compatibility are both rejected because a hash contract must not be value-dependent.
 
 This is the single most likely site to be missed, because it is a `match` on a `Value` *return*
 rather than a `match` on `Value` in a signature — the compiler's exhaustiveness check catches
@@ -725,8 +727,9 @@ type.
 
 ## 10. Disposition of `Number.new`
 
-`Number` becomes abstract with no instances, so `Number.class::new()` and `new(_)`
-(`primitive/number.rs:22-45`, bound at `universe/primitives.rs:122-123`) cannot survive as-is.
+`Number` becomes allocator-abstract with no instances. Every `Number.new()` / `Number.new(_)`
+path, including reflective sends, raises `#abstractClass`; the selector must not be deleted merely
+to simulate abstractness.
 
 `number_class_new` is a **coercion constructor**: number → identity, `Bool` → `1`/`0`, string →
 parsed. String→number parsing is genuinely not `.ph`-derivable, so the capability is
@@ -745,12 +748,12 @@ Semantics per class:
 | `Int` | identity | widen to `f64` |
 | `Float` | raises — no implicit narrowing (PDR-0025) | identity |
 | `Bool` | raises — coercion removed (PDR-0025) | raises — coercion removed (PDR-0025) |
-| numeric string | exact parse, `LargeInt` if oversized | `parse::<f64>()` |
-| non-numeric string | `TypeConversion` (with `arg.type_name()` — §9.6) | same |
+| numeric string | strict decimal parse, `LargeInt` if oversized | strict decimal / special-value parse |
+| malformed string | `#numericText` with byte offset | same |
 
 `Float.new(2.7)` is identity. **`Int.new(2.7)` raises**: PDR-0025 rejects every `Float`
 argument, including integral values, so construction is never a value-dependent narrowing door.
-The explicit narrowing selectors belong to the Float-protocol follow-on.
+The explicit narrowing selectors are ratified in [Float protocol](float-protocol.md).
 
 ---
 
@@ -985,10 +988,10 @@ Numbered rather than guessed, per house rule.
 |---|---|---|
 | **Q-NUM-1** | ~~Is `~/` defined on `Float`?~~ | **Resolved — PDR-0025:** it is total over the tower, returns exact `Int`, and raises when no exact result exists. |
 | **Q-NUM-2** | ~~What payload carries oversized integer literals?~~ | **Resolved — PDR-0026:** a dependency-free `{ digits, radix }` token payload; compiler parses to `BigInt`. |
-| **Q-NUM-3** | Does the constant pool's GC rooting cover a compile-time-minted `LargeInt` `ObjRef`? **Not verified.** | Verify before Phase 4; if not, root it. |
+| **Q-NUM-3** | Does the constant pool's GC rooting cover a compile-time-minted `LargeInt` `ObjRef`? **Not verified.** | Deferred follow-up, but a ship gate: verify before Phase 4; if not, root it. |
 | **Q-NUM-4** | ~~Ratify the ADR-0019 amendment?~~ | **Resolved — PDR-0012 accepted:** 137 → 153 was ratified; recompute on the live implementation baseline. |
-| **Q-NUM-5** | Should `expect_index`'s transitional `Float` arm carry a machine-checkable marker (a `#[deprecated]`-style tripwire) rather than only a doc comment, so the follow-on unit cannot be forgotten? | A doc comment naming the follow-on unit is probably enough; a tripwire is cheap insurance. |
-| **Q-NUM-6** | `Number` is abstract by construction only — no mechanism enforces it (§2.3). Should its allocator raise? | Low priority; the surface is unreachable through literals or statics once §10 lands. |
+| **Q-NUM-5** | Should `expect_index`'s transitional `Float` arm carry a machine-checkable marker? | Deferred to [numeric follow-ups](../../../work/deferred/numeric-followups.md); add the marker in that unit. |
+| **Q-NUM-6** | ~~Should `Number`'s allocator raise?~~ | **Resolved — PDR-0027:** yes, shared allocation guard with `#abstractClass`. |
 | **Q-NUM-7** | `phalcom-core`'s dependency pinning is split between workspace and crate-literal, with `thiserror` pinned in both (§3.3). Normalize in this unit, separately, or not at all? | Separately — unrelated to the tower. |
 | **Q-NUM-8** | ~~What does `Int.new(2.7)` do?~~ | **Resolved — PDR-0025:** raises for every `Float`; explicit narrowing is a Float-protocol selector. |
 

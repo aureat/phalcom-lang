@@ -12,7 +12,8 @@ written outside a class body — is a member of that file's module:
 ```phalcom
 // geometry.ph
 class Circle {
-  construct new(radius:) { _radius = radius }
+  @constructor
+  new(radius:) { _radius = radius }
   area => 3.14159 * _radius * _radius
 }
 

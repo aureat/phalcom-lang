@@ -1,5 +1,9 @@
 # Placement decorators — `@class` and `@constructor`
 
+> **Surface superseded by PDR-0028 (2026-07-21).** Current canon splits
+> `@construct` (class-only) from `@constructor` (method-only); see
+> [`docs/spec/current/decorators/`](../../../current/decorators/).
+
 - Status: **Ratified design (ADR-0063, 2026-07-15, amended DEC-CTOR-F/G/H/I),
   entirely unbuilt.** The tree at HEAD still has `construct`/`static` keywords,
   `ConstructDef`, and the `@construct` derive. Implementation is U-CTOR

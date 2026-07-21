@@ -39,7 +39,7 @@ getter_def     := IDENT method_body
 field_init     := FIELD "=" expr
 
 method_name    := IDENT | operator
-operator       := "+" | "-" | "*" | "/" | "%"
+operator       := "+" | "-" | "*" | "/" | "%" | "~/" | "**"
                  | "&" | "|" | "^" | "~" | "<<" | ">>"
                  | "==" | "!=" | "<" | "<=" | ">" | ">="
                  | "and" | "or" | "is"
@@ -93,7 +93,8 @@ bit_and        := shift { "&" shift }
 shift          := additive { ( "<<" | ">>" ) additive }
 additive       := multiplicative { ( "+" | "-" ) multiplicative }
 multiplicative := unary { ( "*" | "/" | "%" | "~/" ) unary }
-unary          := ( "-" | "~" | "!" | "not" ) unary | postfix
+unary          := ( "-" | "~" | "!" | "not" ) unary | power
+power          := postfix [ "**" unary ]
 
 postfix        := primary { "." ( IDENT | keyword ) [ arg_list ]  (* send / property *)
                            | "?." IDENT [ arg_list ]              (* optional send *)
@@ -193,7 +194,8 @@ keyword        := "let" | "const" | "class"
    +  -  *  /  %  ~/  &  |  ^  ~  <<  >>  ==  !=  <  <=  >  >=
    =  +=  -=  *=  /=  %=  ??  ?.  .  ::  :  =>  ( )  { }  [ ]  ,  ;  #  @  !
    reserved-inactive: ..  ...  ->
-   note: a lone "?" (without "." or "?") is not a token *)
+   note: a lone "?" (without "." or "?") is not a token;
+   construct/static declaration spellings are migration forms, not keywords *)
 ```
 
 ## Notes
@@ -205,7 +207,8 @@ keyword        := "let" | "const" | "class"
 - **`->`** — reserved-inactive; not used for blocks, types, or returns in this
   grammar. See `../selectors.md#7`.
 - **`fn`** — reserved-inactive; no alternate function-declaration keyword is
-  active alongside `method_def`/`construct_def`. See `../lexical-structure.md`.
+  active alongside `method_def`. Legacy `construct` declarations are migration
+  forms for `@constructor`, not a canonical production. See `../lexical-structure.md`.
 - **Full string-escape set** — the escape production above is illustrative; the
   only escapes the spec fixes today are `\\` and `\(` (interpolation), and the
   complete repertoire (unicode escapes, etc.) is unresolved. See

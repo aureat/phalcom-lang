@@ -3,7 +3,7 @@
 - Status: **Proposed** (experimental; not ratified)
 - Date: 2026-07-13
 - Depends on: [annotations-core.md](annotations-core.md) (the `@` desugar
-  pass), [annotations-construct.md](annotations-construct.md) (field-decl
+  pass), [construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md) (field-decl
   syntax, `@construct` — `@data` composes with it), [annotations-legality-grammar.md](annotations-legality-grammar.md)
   (`Target` already carries `@data`/`@sealed`/`@variant` rows — this doc fills
   in the expansion semantics the grammar note left open)

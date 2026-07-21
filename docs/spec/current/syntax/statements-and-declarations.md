@@ -81,7 +81,7 @@ setter_decl    := IDENT "=" param_list method_body
 field_decl     := [ "const" ] FIELD [ "=" expr ]
 
 method_name    := IDENT | operator
-operator       := "+" | "-" | "*" | "/" | "%"
+operator       := "+" | "-" | "*" | "/" | "%" | "~/" | "**"
                 | "&" | "|" | "^" | "~" | "<<" | ">>"
                 | "==" | "!=" | "<" | "<=" | ">" | ">="
                 | "and" | "or" | "is"
@@ -111,13 +111,13 @@ naming itself or a supertype ancestor (a cycle) as its own superclass is
 rejected. See [Classes](../classes.md) and [Object Model](../object-model.md)
 for the semantics.
 
-- `attribute` covers `@constructor` / `@class` / `@get` / `@set` and the contract
+- `attribute` covers `@construct` / `@constructor` / `@class` / `@get` / `@set` and the contract
   forms ([Selectors, Symbols & References §4](../selectors.md#4-attributes-)).
   **It is load-bearing**: `member` has no `static` or `construct` slot of its own —
-  class-side placement and constructor-ness are carried by `@class` and
-  `@constructor`, which desugar into ordinary `method_decl`s before the rest of
-  compilation
-  ([ADR-0063](../../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)).
+  `@construct` is class-only; it derives ordinary `@constructor` methods from
+  fields. `@class` is target-polymorphic for class-side fields and methods;
+  `@constructor` marks method declarations. All three desugar before the rest of
+  compilation ([PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md)).
 - `@class` puts the member on the metaclass rather than the instance side (methods) or on the class object (fields).
 - **Constructor**: `@constructor` on a `method_decl` allocates a fresh instance via
   `new_`, runs the body with `self` bound to it, and returns the instance implicitly.

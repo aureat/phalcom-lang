@@ -36,7 +36,7 @@ is ever actually running.
 
 | Signature | Side | Meaning |
 |---|---|---|
-| `construct new(_)` | class | wrap a block as a not-yet-started fiber |
+| `@constructor new(_)` | class | wrap a block as a not-yet-started fiber |
 | `call` / `call(_)` | instance | resume; the argument becomes `yield`'s return value (or the entry's parameter, first time) |
 | `try` / `try(_)` | instance | like `call`, but a failure comes back as an `Error` value instead of propagating |
 | `yield(_)` | class | suspend the *running* fiber, handing a value to whoever resumed it |

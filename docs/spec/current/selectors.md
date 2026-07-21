@@ -225,14 +225,14 @@ ordinary hierarchy lookup for that one selector
 
 | Attribute | Target | Effect |
 | --- | --- | --- |
-| `@constructor` | class header | Derives a constructor from the declared fields. |
-| `@constructor` | method member | Marks the method a constructor ([Classes §1](classes.md)). |
+| `@construct` | class header | Derives a constructor from the declared fields ([`@construct`](decorators/construct.md)). |
+| `@constructor` | method member | Marks the method a constructor ([`@constructor`](decorators/constructor.md)). |
 | `@class` | method / getter / setter / field | Declares the member on the **class side**: a method installs on the metaclass, a field stores on the class object ([Classes §2.1](classes.md)). |
 | `@get` | field | Derives an accessor method for a field. |
 | `@set` | field | Derives a mutator method for a field. |
 
 ```
-@constructor
+@construct
 class Point {
   var _x
   var _y
@@ -243,16 +243,11 @@ class Point {
 
 Per-field escape hatches (e.g. `@get(priv)`) fit without a grammar change.
 
-`@constructor` is **target-polymorphic** on purpose. On a class header it derives a
-constructor from the declared fields, in declaration order, with labels stripped of the
-leading underscore (`_x` → `x:`); fields carrying a `default` are omitted from the
-parameter list and evaluated per instance at construct time. It does **not** chain
-`super.new(...)` — own fields only.
-
-Both targets share one mechanism: the header form emits a `@constructor` **method
-member** into the AST, which then expands exactly as a hand-written one does. There is
-no second code path, and no separate `@construct` attribute — one name for one concept
-([ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) §2).
+`@construct` is class-only. It derives a constructor from declared fields, in
+declaration order, with labels stripped of the leading underscore (`_x` → `x:`).
+`@constructor` is method-only. It marks the method that performs construction.
+`@class` is target-polymorphic for class-side fields and methods. These are three
+separate placement/meaning decisions ([PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md)).
 
 ---
 

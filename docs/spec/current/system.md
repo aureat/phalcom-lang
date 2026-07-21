@@ -20,7 +20,7 @@ obvious place to stub or sandbox the environment.
 
 - it has **no instance fields** and no user-facing constructor — `System.new` is
   not part of the surface protocol;
-- every service is a **class-side** method (`static`), so `System` is used purely
+- every service is a **class-side** method (`@class`), so `System` is used purely
   as a receiver of class messages, exactly like a module of free functions;
 - the live values it returns (a `Float` clock reading, a `String` line of input)
   are ordinary objects — `System` itself never appears inside them.

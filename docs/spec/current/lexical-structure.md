@@ -168,13 +168,13 @@ ordinary method-table entries at compile time — no new dispatch machinery. `@`
 reserved for this role only and does not overlap with `#` (symbols) or `::` (method
 references).
 
-Member metadata lives here rather than in the keyword space. `@constructor` and
-`@class` replace what were once the `construct` and `static` keywords
-([ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) §1):
-neither changed the grammar — `construct new(x) {}` and `new(x) {}` parse identically
-after the prefix, and `static` was a pure modifier bit — so neither earned a reserved
-word. `construct` and `static` are now ordinary identifiers, usable as method and
-variable names.
+Member metadata lives here rather than in the keyword space. `@construct` derives
+constructors from classes, `@constructor` marks constructor methods, and `@class`
+places fields and methods on the class side ([PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md)).
+The retired `construct` and `static` declaration forms remain recognizable during
+migration so the compiler can emit non-fatal replacement hints. `construct` and
+`constructor` are reserved names and cannot be user-defined declaration names,
+selector families, or attribute classes.
 
 ## 13. Error-handling keywords
 

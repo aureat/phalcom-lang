@@ -161,7 +161,7 @@ stay **name-disjoint** even though they are lexically separated.
 §6 established *that* code `@`-attributes are harvested rather than re-documented.
 This section pins *how*, for the full experimental annotation surface
 ([annotations-contracts.md](annotations-contracts.md),
-[annotations-construct.md](annotations-construct.md),
+[construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md),
 [annotation-paradigm-bridges.md](annotation-paradigm-bridges.md),
 [annotations-legality-grammar.md](annotations-legality-grammar.md)).
 
@@ -233,7 +233,7 @@ the badge shows the *enforcement*.
 
 ### §8.5 Layout & bridge annotations — document the *generated* surface
 
-Layout-tier attributes (annotations-construct.md, annotation-paradigm-bridges.md)
+Layout-tier attributes (construct-derive.md, annotation-paradigm-bridges.md)
 generate members; Phaldoc documents **what they generate**, the way rustdoc shows
 `#[derive(...)]`-produced impls:
 

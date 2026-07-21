@@ -27,7 +27,7 @@ subclass set at finalization → the closed-world fact that makes exhaustiveness
 checkable (Phalcom has no type checker, so `@sealed` is the *sole* route).
 Dispatch desugars to a generated visitor (double-dispatch) — the textbook
 OO encoding of ADTs (Expression Problem). Precludes open extension of a sealed
-family (the point). Downstream of [annotations-construct.md](annotations-construct.md)
+family (the point). Downstream of [construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md)
 (needs field decls).
 
 > **Fully specified in [annotations-data.md](annotations-data.md)** (2026-07-13,

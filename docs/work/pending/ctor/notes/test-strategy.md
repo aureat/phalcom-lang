@@ -2,7 +2,7 @@
 
 - Status: **Proposed** (experimental; not ratified)
 - Date: 2026-07-11
-- Depends on: [annotations-core.md](annotations-core.md), [annotations-legality-grammar.md](annotations-legality-grammar.md), [decorators.md](../decorators/README.md) (five-tier model — adds Install/Dispatch/Runtime failure modes below), [attribute-classes.md](../decorators/on.md) (attribute-as-class — adds tier-inference and `@AttributeUsage` failure modes below)
+- Depends on: [annotations-core.md](../../../../spec/design/experimental/annotations-core.md), [legality-grammar.md](legality-grammar.md), [decorator model](../../../../spec/current/decorators/README.md) (five-tier model — adds Install/Dispatch/Runtime failure modes below), [@On](../../../../spec/current/decorators/on.md) (attribute-as-class — adds tier-inference and `@AttributeUsage` failure modes below)
 - Resolves: process gaps — no test plan, no diagnostics catalog (repo conventions)
 - Related: docs/forge/test-corpus-plan.md, `Universe::verify_invariants`, ADR-0016 (multi-error diagnostics), [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) (invariant re-entrancy fix — adds the `contracts_invariant_cross_receiver.ph` case below)
 

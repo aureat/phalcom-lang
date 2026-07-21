@@ -12,12 +12,12 @@
   legality-check-then-drop pass runs before `derive_accessors`/`expand_variants`.
   Fixtures under `phalcom-core/tests/lang/decorators/`,
   `tests/lang/classes/`, `tests/lang/errors/`, `tests/lang/compile-errors/`.
-- Depends on: [annotations-core.md](../experimental/annotations-core.md) (the `@` mechanism, registry, phase pipeline)
+- Depends on: [annotations-core.md](../../design/experimental/annotations-core.md) (the `@` mechanism, registry, phase pipeline)
 - Related:
-  [annotation-paradigm-bridges.md](../experimental/annotation-paradigm-bridges.md) (the method-table / layout tier line) ·
-  [annotations-construct.md](../experimental/annotations-construct.md) (layout derives) ·
-  [annotations-contracts.md](../experimental/annotations-contracts.md) (weave tier) ·
-  [typing.md](../experimental/typing.md) (erasure invariant E, §5.2/§9) ·
+  [annotation-paradigm-bridges.md](../../design/experimental/annotation-paradigm-bridges.md) (the method-table / layout tier line) ·
+  [construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md) (constructor derivation archive) ·
+  [annotations-contracts.md](../../design/experimental/annotations-contracts.md) (weave tier) ·
+  [typing.md](../../design/experimental/typing.md) (erasure invariant E, §5.2/§9) ·
   [method-lookup.md](../method-lookup.md) (`doesNotUnderstand`, `perform`) ·
   [object-model.md](../object-model.md) (metaclass tower, `Behavior`)
 
@@ -167,7 +167,7 @@ enum Tier { Compile, Layout, Install, Dispatch, Runtime }
 - **Compile / Layout** hooks are the existing `AttributeExpander`:
   `expand(&ClassDef, Target) -> Vec<ClassMember>` — pure AST, run in the compiler
   pass. `Layout` additionally reserves/reads declared slots (gated on
-  [annotations-construct.md](../experimental/annotations-construct.md)).
+  [construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md)).
 - **Install** hooks receive the reified `Method` at class-definition time and
   return a replacement: `wrap(Method) -> Method`. This is the first-class,
   value-level decorator — it may close over runtime state (a cache, a lock, a

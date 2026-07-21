@@ -1,68 +1,86 @@
-# PDR-0027 — Float protocol: classification and explicit narrowing
+# PDR-0027 — Numeric semantics completion
 
-- Status: **Proposed** (2026-07-21)
-- Depends on: [PDR-0012](0012-numeric-tower-implementation-and-floor-amendment.md) and
-  [PDR-0025](0025-numeric-tower-residue-rulings.md)
+- Status: **Accepted** (ratified 2026-07-21)
+- Depends on: [PDR-0012](0012-numeric-tower-implementation-and-floor-amendment.md),
+  [PDR-0025](0025-numeric-tower-residue-rulings.md), and
+  [PDR-0026](0026-numeric-literals.md)
 - Amends: [ADR-0019](../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md):
-  `NEW_FLOAT_PROTOCOL = 10` native `Float` bindings
-- Spec: [`docs/spec/current/numbers/float-protocol.md`](../spec/current/numbers/float-protocol.md)
+  `NEW_FLOAT_PROTOCOL = 10`, `NEW_NUMERIC_POWER = 2`; recompute the live census, never add
+  prose totals
+- Supersedes: PDR-0012 ruling 14's temporary acceptance of an integral `Float` from `hash`
+- Specs: [tower](../spec/current/numbers/numeric-tower.md),
+  [Float protocol](../spec/current/numbers/float-protocol.md), and
+  [numeric text and errors](../spec/current/numbers/text-and-errors.md)
 
-## Proposed decision
+## Decision
 
-1. **`Int` and `Float` expose one Number-facing protocol.** Its selectors are `abs`, `sign`,
-   `floor`, `ceil`, `truncated`, `rounded`, `isInteger`, `isNaN`, `isFinite`, and
-   `isInfinite`. `Int` implementations are exact identities, simple predicates, or
-   `.ph`-derivable arithmetic; the ten `Float` implementations are native. `Number` remains
-   abstract and keeps zero bindings, as PDR-0012 requires.
+1. **`Number` is allocator-abstract.** Every class allocation path, including `new` sent through
+   reflection, rejects `Number` with `Error.kind == #abstractClass`. This is a class metadata /
+   allocator check, not an overridable `Number.new` method. Lookup remains ordinary:
+   `Number.respondsTo(#new)` is true if inherited lookup finds it, but invocation raises.
+   `Int` and `Float` are concrete; both are `isA(Number)`.
 
-2. **All four narrowing selectors return exact `Int`.** On a finite `Float`, `floor`, `ceil`,
-   `truncated` (toward zero), and `rounded` convert through the tower's `normalize(BigInt)`
-   path. They raise on `NaN` and infinities. This is the explicit conversion door PDR-0025
-   requires after making `Int.new(Float)` always raise.
+2. **Float follows IEEE-754 binary64.** Arithmetic uses host binary64 operations without an
+   implicit fused operation. Overflow, underflow, subnormals, signed zero, and infinities follow
+   IEEE behavior. Public `==`, `!=`, `<`, `<=`, `>`, and `>=` use IEEE comparison: every ordered
+   comparison involving `NaN` is false, `NaN != NaN` is true, and `+0.0 == -0.0` is true.
+   `NaN` has no public ordering. Payload bits are not surface state.
 
-3. **`rounded` uses nearest value, ties away from zero.** Thus `1.5.rounded == 2` and
-   `(-1.5).rounded == -2`. This preserves the intended behavior in the existing pending
-   Number fixtures while stating the tie rule they omit.
+3. **Map/Set key equivalence is deliberately narrower than `==`.** Numeric keys use internal
+   SameValueZero-style equivalence: all NaNs are one key class; signed zeroes are one key class;
+   equal integral `Int`/`Float` values are one key class. Their hashes match. This relation is
+   internal to keyed collections; it does not change ordinary equality or expose a total order.
+   `hash` must return `Int`; any other return, including integral `Float`, raises `#invalidHash`.
 
-4. **Classification is IEEE-aware and total.** `isNaN`, `isFinite`, and `isInfinite` return
-   `Bool`; all return fixed answers on `Int`. `isInteger` is true exactly for finite `Float`
-   values with no fractional part, including both signed zeroes. `abs` preserves the concrete
-   numeric class (`Int -> Int`, `Float -> Float`); `sign` returns `Int` `-1`, `0`, or `1`, and
-   raises for `NaN` because no ordered sign exists.
+4. **Ratify Float classification and explicit narrowing.** `abs`, `sign`, `floor`, `ceil`,
+   `truncated`, `rounded`, `isInteger`, `isNaN`, `isFinite`, and `isInfinite` are the protocol.
+   Narrowing returns exact `Int` through `BigInt` normalization; non-finite inputs raise.
+   `rounded` ties away from zero. The ten native bindings are Float-only; Int behavior is
+   derivable in `core.ph`.
 
-5. **Names are intentional.** Use `isNaN`, not legacy Wren-port `isNan`; use result names
-   `truncated` and `rounded`, not `truncate` and `round`. `floor` and `ceil` stay conventional.
-   The unimplemented pending fixtures are changed with the implementation; they have not
-   established compatibility.
+5. **Add `**` as right-associative power.** It is a normal overridable selector `**(_)`.
+   Its grammar gives Python-compatible unary binding: `-2 ** 2` is `-(2 ** 2)` and
+   `2 ** -2` is `2 ** (-2)`. `Int ** nonnegative Int` is exact and may produce `LargeInt`;
+   a negative integral exponent returns `Float`; any Float operand uses binary64 power.
+   `0 ** negative` raises `#divideByZero`. No `**=` is added.
 
-6. **The native floor delta is +10, all on `Float`.** The `Int` half is defined in `core.ph`;
-   no selector lives on abstract `Number`. Recompute the live census when PDR-0012 lands,
-   then add `NEW_FLOAT_PROTOCOL = 10`; do not add guessed totals to prose.
+6. **String construction and rendering are strict and canonical.** Constructors reject leading
+   or trailing whitespace and radix prefixes; optional leading sign applies to finite decimal
+   forms. `Int.new` accepts decimal integer text only. `Float.new` accepts decimal numeric text
+   plus exactly `NaN`, `Infinity`, and `-Infinity`. Output is locale-independent and round trips
+   as specified by the numeric text spec.
 
-## Rationale
+7. **Numeric failures are structured rich diagnostics.** They are `Error` values with stable
+   `kind` Symbols and stable message templates. When the running instruction has a module source
+   span, the existing `RuntimeError::Raise` traceback path must carry it to the innermost caret:
+   primary label on the failing operator or constructor argument; a secondary label only where it
+   materially identifies another operand. No source is invented for native, REPL, or generated
+   frames without a span.
 
-PDR-0025 deliberately closes the implicit narrowing door in `Int.new`. A Float value still
-needs a clear, exact route to `Int`; four named choices make loss policy visible at each call
-site. Keeping the same vocabulary on `Int` avoids numeric type tests in generic code while
-keeping the VM floor at the Float-only semantic boundary. The acronym spelling matches the
-IEEE term and avoids treating `NaN` as ordinary camel-case prose.
+8. **Bound resources explicitly.** Exact integer allocation and exact-power work consume a VM
+   numeric-resource budget; exhaustion raises `#numericLimit` rather than aborting or exhausting
+   memory. The initial defaults and tuning policy are deferred, not the guard.
 
-## Consequences
+## Rationale and rejected precedents
 
-- `Int.new(2.0)` remains an error; `2.0.truncated` is the explicit conversion.
-- `Float#floor` and siblings never return a rounded `f64`; large finite results may become
-  `LargeInt` through `normalize`.
-- Non-finite classification remains observable, while non-finite-to-`Int` conversion is not.
-- The existing `number_is_nan`, `number_is_infinity`, `number_round`, and `number_truncate`
-  pending Wren ports require migration rather than promotion unchanged.
+- IEEE makes NaN unordered because it denotes an invalid/indeterminate numeric result, not one
+  particular number. Making `NaN == NaN` true would violate IEEE comparisons and makes generic
+  arithmetic less predictable. JavaScript's collection behavior remains useful only internally:
+  `Map` can retrieve a NaN key without redefining language equality.
+- Python's power precedence and negative-exponent result rule make algebraic expressions readable;
+  Python's permissive whitespace parsing does not. Phalcom chooses strict constructors so input
+  validation has one grammar and one failure point.
+- Ruby's prefix-friendly `Integer` parsing is rejected: source literals already own radix
+  prefixes; accepting them in strings would create a second, less visible literal grammar.
+- Dart's `~/` established a recognizable integer-division spelling. Phalcom retains it because
+  `//` is a line comment and because PDR-0025 already assigns it floor-division semantics.
 
-## Alternatives rejected
+## Consequences and preclusions
 
-- **Keep the Wren spellings.** Rejected: they conflict with PDR-0025's already named
-  `truncated`/`rounded` conversion family and obscure the established `NaN` acronym.
-- **Make `Int.new(Float)` the conversion API.** Rejected by PDR-0025: it makes value loss look
-  like construction and creates value-dependent acceptance.
-- **Return `Float` from rounding selectors.** Rejected: the selectors are an explicit exact
-  narrowing API, not a formatting operation.
-- **Bind the entire protocol twice in Rust.** Rejected: `Int` behavior is derivable and does
-  not justify an additional ten frozen primitive slots.
+- `Number.new` cannot be bypassed through selector replacement or reflection.
+- There is no public `totalOrder`, NaN payload API, numeric serialization format, or extended
+  numerical-method family in this record.
+- `toString` is display text, not an interchange format.
+- Collection/index APIs keep their transitional integral-Float acceptance until their dedicated
+  follow-on; the numeric tower itself does not depend on it.
+- Large compile-time constants remain gated on GC-root verification before implementation ships.

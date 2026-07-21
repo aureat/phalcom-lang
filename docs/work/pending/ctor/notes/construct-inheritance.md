@@ -2,7 +2,7 @@
 
 - Status: **Proposed** (experimental; not ratified)
 - Date: 2026-07-11
-- Depends on: [annotations-construct.md](annotations-construct.md)
+- Depends on: [construct-derive.md](construct-derive.md)
 - Resolves: construct gaps — super-construct chaining, hand-written collision, `let` vs `var` fields, default timing
 - Related: classes.md §2 (private, non-inherited fields), ADR-0011 (fixed slots), ADR-0014 (`let`/`var`)
 

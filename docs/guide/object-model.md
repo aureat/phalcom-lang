@@ -1,6 +1,6 @@
 # The Object Model
 
-You've been told twice already that classes are objects — once when `static`
+You've been told twice already that classes are objects — once when `@class`
 inherited without ceremony, once when `doesNotUnderstand` fell out of an
 ordinary method lookup. This page is where that stops being a slogan and
 becomes a tower you can draw.
@@ -14,13 +14,14 @@ That something is its **metaclass**:
 ```phalcom
 class Sprite {
   move(dx, dy) { ... }
-  static spawn() => Sprite.new()
+  @class
+  spawn() => Sprite.new()
 }
 
 let s = Sprite.new()
 
 s.class              // Sprite          — an instance's class holds its methods
-Sprite.class          // Sprite class    — the metaclass, holds Sprite's static methods
+Sprite.class          // Sprite class    — the metaclass, holds Sprite's @class methods
 Sprite.class.class    // Metaclass       — every metaclass is itself an instance of Metaclass
 ```
 
@@ -31,24 +32,25 @@ s ────────► Sprite ────────► Sprite class �
     .class       .class            .class
   (an instance) (a class,     (a metaclass,       (the class every
                  holds s's     holds Sprite's       metaclass is an
-                 methods)      static methods)      instance of)
+                 methods)      @class methods)      instance of)
 ```
 
 `Sprite class` is not a naming convention, it's a real, distinct object —
 Sprite's own, private metaclass, created alongside `Sprite` and holding exactly
-the methods you marked `static`. Nothing is special-cased to make `static`
+the methods you marked `@class`. Nothing is special-cased to make `@class`
 work: it's an ordinary instance send where the "instance" happens to be a
 class and the "class" happens to be a metaclass.
 
-## The parallel rule: why inherited `static` works
+## The parallel rule: why inherited `@class` works
 
-Declaring `static species` on `Person` and reading it through `Employee` only
+Declaring `@class species` on `Person` and reading it through `Employee` only
 works because the metaclass hierarchy isn't flat — it *mirrors* the class
 hierarchy, one level up:
 
 ```phalcom
 class Person {
-  static species => "Homo sapiens"
+  @class
+  species => "Homo sapiens"
 }
 
 class Employee extends Person {}
@@ -107,7 +109,7 @@ sends — the walk is identical, it just starts one rung higher:
 | `Sprite.spawn()` | `Sprite.class` → `Sprite class` | `Sprite class`'s superclass chain |
 
 One hashmap hit per class on the interned selector, same as any instance send.
-`super` inside a static method restarts the walk at the superclass of the
+`super` inside a class-side method restarts the walk at the superclass of the
 *defining* metaclass, for the same reason `super` does anywhere else. See
 [Method Lookup](../spec/current/method-lookup.md) for the normative resolution
 order — this page only needed you to see *what* the walk climbs over.
@@ -117,11 +119,11 @@ order — this page only needed you to see *what* the walk climbs over.
 None of the following needed a bolted-on feature. They're all the same
 mechanism, "classes are objects," pointed at a different question:
 
-- **`static` methods** — a class-side send is an ordinary send to the
+- **`@class` methods** — a class-side send is an ordinary send to the
   metaclass. You just saw it inherit for free.
 - **Per-class state** — `Class` is an ordinary heap-object kind (`U` in the
   catalog, not a VM special case), so a class carries slots the same way any
-  instance does. There's no separate "static storage" mechanism to design.
+  instance does. There's no separate class-side storage mechanism to design.
 - **Reflection** — `respondsTo`, `perform`, and `doesNotUnderstand` are just
   `Object` methods, inherited by every object including classes and
   metaclasses:
@@ -159,7 +161,7 @@ which subclass got instantiated:
 — not one method with an `if` inside it. `Option>>map` is `Some>>map` and
 `None>>map`. There's no tag to test because there's nothing to test: method
 lookup already knows which subclass it's holding, so dispatch *is* the
-branch. It's the same trick you saw for `static`, run on values instead of
+branch. It's the same trick you saw for `@class`, run on values instead of
 classes — "classes are objects" and "dispatch replaces branching" are two
 views of the one idea that this whole page has been building toward.
 

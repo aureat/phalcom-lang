@@ -1,59 +1,75 @@
-# Float protocol and explicit narrowing
+# Float protocol
 
-**Status: Proposed.** Normative when [PDR-0027](../../../pdr/0027-float-protocol-and-explicit-narrowing.md)
-is accepted. Depends on the `Int`/`Float` tower and PDR-0025's construction rule.
+**Status:** Normative. Ratified by [PDR-0027](../../../pdr/0027-float-protocol-and-explicit-narrowing.md).
+This document completes the Float surface left open by PDR-0025. The tower rules remain in
+[numeric-tower.md](numeric-tower.md); parsing, rendering, and errors are in
+[text-and-errors.md](text-and-errors.md).
 
-## 1. Surface
+## 1. Binary64 model
 
-Every concrete `Number` responds to these selectors. `Int` answers are exact; `Float` uses
-IEEE-754 classification and arithmetic.
+`Float` is IEEE-754 binary64. `+`, `-`, `*`, `/`, `%`, and Float-taking `**` perform the host
+binary64 operation. No operation silently uses a fused multiply-add. Overflow produces signed
+infinity where IEEE requires it; underflow may produce a subnormal or signed zero; signed zero is
+preserved by arithmetic where IEEE preserves it. Platform implementations must use IEEE binary64;
+they may differ only in unobservable NaN payload bits.
 
-| Selector | `Int` result | finite `Float` result | non-finite `Float` result |
+## 2. Equality, order, and keys
+
+Public comparison uses IEEE comparison.
+
+| expression | result |
+|---|---|
+| `NaN == NaN` | `false` |
+| `NaN != NaN` | `true` |
+| ordered comparison with `NaN` | `false` |
+| `+0.0 == -0.0` | `true` |
+| finite/infinite ordered comparisons | IEEE numeric order (`-Infinity < finite < Infinity`) |
+
+`NaN` has no public ordering and no public total-order selector. `Int` and a finite integral
+`Float` compare equal exactly when their mathematical values agree, including values beyond
+`2^53`; conversion must use the represented binary64 value, not decimal spelling.
+
+`Map` and `Set` use an internal numeric-key relation: all NaNs compare as the same key, signed
+zeroes compare as the same key, and equal Int/Float values compare as the same key. Hashing follows
+that relation. It does not alter `==`.
+
+## 3. Protocol and exact narrowing
+
+| Selector | `Int` | finite `Float` | non-finite `Float` |
 |---|---|---|---|
-| `abs` | `Int` magnitude | `Float` magnitude | IEEE result (`abs(NaN) == NaN`) |
-| `sign` | `Int` `-1`/`0`/`1` | `Int` `-1`/`0`/`1` | `±inf` gives `±1`; `NaN` raises |
-| `floor` | self | greatest integer, `Int` | raises |
-| `ceil` | self | least integer, `Int` | raises |
-| `truncated` | self | toward-zero integer, `Int` | raises |
-| `rounded` | self | nearest integer, ties away from zero, `Int` | raises |
-| `isInteger` | `true` | true iff fraction is zero | `false` |
-| `isNaN` | `false` | IEEE `is_nan` | `true` only for `NaN` |
-| `isFinite` | `true` | IEEE `is_finite` | `false` |
-| `isInfinite` | `false` | IEEE `is_infinite` | `true` only for `±inf` |
+| `abs` | exact `Int` magnitude | `Float` IEEE absolute value | IEEE result |
+| `sign` | `Int` -1/0/1 | `Int` -1/0/1 | ±Infinity → ±1; NaN raises `#nonFiniteNumber` |
+| `floor` | self | exact greatest `Int` | raises `#nonFiniteNumber` |
+| `ceil` | self | exact least `Int` | raises `#nonFiniteNumber` |
+| `truncated` | self | exact toward-zero `Int` | raises `#nonFiniteNumber` |
+| `rounded` | self | exact nearest `Int`, ties away from zero | raises `#nonFiniteNumber` |
+| `isInteger` | true | finite and fractionless | false |
+| `isNaN` | false | IEEE `is_nan` | true only for NaN |
+| `isFinite` | true | IEEE `is_finite` | false |
+| `isInfinite` | false | IEEE `is_infinite` | true only for ±Infinity |
 
-`-0.0.sign == 0`; `(-0.0).isInteger` is true. `abs` preserves `Float` identity as a class even
-when its numeric value is integral.
+`-0.0.sign == 0`; `(-0.0).isInteger` is true. Narrowing converts directly from binary64 to
+`BigInt`, then through `normalize(BigInt)`, never through `i64`; `1.0e300.floor` may therefore be
+`LargeInt`. `rounded(x)` is `floor(x + 0.5)` for nonnegative x and `ceil(x - 0.5)` otherwise.
 
-## 2. Exact conversion
+## 4. Power
 
-For every finite Float conversion result `r`, the implementation converts `r` directly to
-`BigInt` and passes it through the tower's `normalize(BigInt) -> Int` path. It must not pass
-through `i64`, so values such as `1.0e300.floor` are legal `LargeInt` results.
+`**` is selector `**(_)`, parsed right-associatively with Python's unary asymmetry.
 
-The Float computation is IEEE-754: its representable input is authoritative. No selector
-reconstructs a decimal source literal or promises a mathematical result unavailable from that
-input. `rounded` is specified as:
-
-```text
-rounded(x) = floor(x + 0.5), x >= 0
-           = ceil(x - 0.5),  x < 0
+```phalcom
+-2 ** 2      // -(2 ** 2) == -4
+2 ** -2      // 2 ** (-2) == 0.25
+2 ** 3 ** 2  // 2 ** (3 ** 2)
 ```
 
-after the finite check. This makes half-ties deterministic and sign-symmetric.
+`Int ** Int` with a nonnegative exponent is exact and normalizes to `Int` / `LargeInt`. A negative
+Int exponent produces `Float`. If either operand is Float, use binary64 power. `0 ** negative`
+raises `#divideByZero`; other binary64 domain outcomes, including a negative base to a nonintegral
+Float exponent, are IEEE NaN.
 
-## 3. Errors
+## 5. Hash contract
 
-`floor`, `ceil`, `truncated`, and `rounded` raise an argument-value error when the receiver is
-`NaN` or infinite. Until typed error subclasses land, this means the current native error path;
-the eventual surface subclass is `ArgumentError`. `sign` raises by the same route for `NaN`.
-
-## 4. Implementation and conformance
-
-Install ten native bindings on `Float`. Define the `Int` counterparts in `core.ph`, and do not
-add a binding to abstract `Number`.
-
-Required goldens cover both signs of zero; fractions around every half-tie; `±2^53`, a large
-finite Float producing `LargeInt`; `NaN`; both infinities; result classes; selector symbols;
-and PDR-0025's `Int.new(2.0)` rejection beside `2.0.truncated` success. Migrate the existing
-pending Wren fixtures to `isNaN`, `isInfinite`, `rounded`, and `truncated` before promoting
-them.
+`hash` returns `Int` only. For finite integral Float values, hash the exact integer value at every
+magnitude, not only through the safe-integer range. `+0.0` and `-0.0` hash alike. All NaNs hash
+alike for keyed collections; infinities have stable distinct hashes. A user-defined `hash` that
+returns anything except Int raises `#invalidHash` when a keyed collection consumes it.

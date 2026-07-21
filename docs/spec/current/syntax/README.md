@@ -49,7 +49,7 @@ are given in ` ```phalcom ` fenced blocks with aligned `//` comments.
 | [`lexical.md`](lexical.md) | Tokens: whitespace/newline handling, comments, identifiers, keywords, string/boolean/symbol literals, operators and punctuation |
 | [`numeric-literals.md`](numeric-literals.md) | Normative numeric literal grammar: radices, separators, exponent floats, boundaries, diagnostics |
 | [`expressions.md`](expressions.md) | The expression grammar: primary/postfix/binary forms, message sends, operator precedence and associativity |
-| [`statements-and-declarations.md`](statements-and-declarations.md) | Statements, blocks, and declarations: `let`/`var`, `class`, `construct`, methods, modules, error-handling clauses |
+| [`statements-and-declarations.md`](statements-and-declarations.md) | Statements, blocks, and declarations: `let`/`var`, `class`, `@construct`, `@constructor`, methods, modules, error-handling clauses |
 | [`grammar.md`](grammar.md) | Consolidated appendix — every production from the three files above collected in one place |
 
 Read `lexical.md` first; `expressions.md` and `statements-and-declarations.md`

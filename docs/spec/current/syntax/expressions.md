@@ -22,9 +22,10 @@ a semantic concern, not a syntax one — see [Control Flow](../control-flow.md).
 | 10 | shifts `<< >>` | left |
 | 11 | additive `+ -` | left |
 | 12 | multiplicative `* / % ~/` | left |
-| 13 | unary prefix `- ~ ! not` | right |
-| 14 | postfix `.` `?.` call `(...)` trailing-block `::` | left |
-| 15 | primary | — |
+| 13 | power `**` | right |
+| 14 | unary prefix `- ~ ! not` | right |
+| 15 | postfix `.` `?.` call `(...)` trailing-block `::` | left |
+| 16 | primary | — |
 
 > Range (`.. ...`) is a reserved-inactive binary operator ([ADR-0032]); its
 > precedence slot is not yet fixed — pending U-LEX. `is`/`as` beyond the
@@ -52,7 +53,8 @@ shift         := additive { ( "<<" | ">>" ) additive }
 additive      := multiplicative { ( "+" | "-" ) multiplicative }
 multiplicative:= unary { ( "*" | "/" | "%" | "~/" ) unary }
 unary         := ( "-" | "~" | "!" | "not" ) unary
-               | postfix
+               | power
+power         := postfix [ "**" unary ]
 
 postfix       := primary { send_tail }
 send_tail     := "." [ "?" ] ( IDENT | keyword ) [ arg_list ]
@@ -65,7 +67,11 @@ primary       := literal | grouping | tuple | list | map | block
 ```
 
 Every binary and unary operator here is sugar for a message send: `a + b` is
-`a.+(b)`, `a & b` is `a.&(b)`, and `~a` is `a.~()` — see §2 and [ADR-0012].
+`a.+(b)`, `a ** b` is `a.**(b)`, `a & b` is `a.&(b)`, and `~a` is `a.~()` — see §2 and [ADR-0012].
+
+Power's right operand is `unary`, rather than `postfix`, deliberately. Therefore `2 ** -2`
+groups as `2 ** (-2)`, while a prefix on the left binds outside power: `-2 ** 2` groups as
+`-(2 ** 2)`. This is the Python power rule ratified by PDR-0027.
 
 ## 2. Message sends
 

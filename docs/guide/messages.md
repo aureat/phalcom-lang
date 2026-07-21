@@ -154,7 +154,8 @@ model for free, instead of needing separate machinery:
 
 ```phalcom
 class Proxy {
-  construct new(target:) { _target = target }
+  @constructor
+  new(target:) { _target = target }
 
   doesNotUnderstand(msg) {
     // msg.selector -> Symbol      full selector, e.g. #move(_,to,duration)

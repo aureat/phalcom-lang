@@ -7,7 +7,7 @@
   called from `expand_class_attributes` L1593; `check_accessor_collision` (L821).
   Fixture: `phalcom-core/tests/lang/classes/class_attribute_construct_get_set.ph`.
 - Tier: **Compile / generate**, `runtime: false`.
-- Depends on: [README.md](README.md) · [annotations-construct.md](../experimental/annotations-construct.md)
+- Depends on: [README.md](README.md) · [construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md)
 - Related: [construct.md](construct.md) · [data.md](data.md) (backfills getters)
 
 One file for both: they are a pair, share one derive function, and differ only in

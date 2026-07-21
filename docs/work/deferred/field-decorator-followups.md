@@ -111,9 +111,9 @@ Point.new(3, 4)         // fails — no positional form
 Consistent with the surviving fixture, which calls
 `Point.new(x: 3, y: 4, label: "origin")` and is still marked `status: PENDING` **[tree]**.
 
-**Owner candidate: U-CTOR-3.** That step replaces `@construct` with a target-polymorphic
-`@constructor` and adds `derive_constructor` next to `derive_construct`
-(`docs/forge/units/U-CTOR/plan.md:152-163`), codemodding 148 sites. Whether derived
+**Owner candidate: ctor-3.** That step migrates legacy `@construct` derivation onto the
+class-only `@construct` / method-only `@constructor` canon and adds `derive_constructor`
+next to `derive_construct` (`docs/work/pending/ctor/plan.md:152-163`), codemodding 148 sites. Whether derived
 constructors gain a positional form is a decision that step should make explicitly rather
 than inherit by accident — and if the answer is "labeled-only, by design", say so and drop
 the fixture's `PENDING`.

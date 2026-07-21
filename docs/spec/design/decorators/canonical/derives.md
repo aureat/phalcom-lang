@@ -88,7 +88,7 @@ Two behaviors must be decided (not silently inherited) when
    super-inference (`construct.super_ambiguous` etc.); as-built punts.
    U-CTOR should adopt the specced inference (single-constructor parent →
    chain; ambiguous → error) rather than freeze the punt; the fixture names
-   already exist in annotations-test-strategy.md.
+   already exist in the archived [test-strategy.md](../../../../work/pending/ctor/notes/test-strategy.md).
 
 ## Evaluated extensions
 

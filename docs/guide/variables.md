@@ -84,7 +84,8 @@ body ([Lexical Structure §3](../spec/current/lexical-structure.md)):
 
 ```phalcom
 class Counter {
-  construct new() { _count = 0 }
+  @constructor
+  new() { _count = 0 }
 
   increment() { _count = _count + 1 }
   value => _count
@@ -116,5 +117,5 @@ name currently points to, the same way it would in JavaScript.
 
 ---
 
-Next: [Classes](classes.md) — `construct`, the full field-declaration and
+Next: [Classes](classes.md) — `@construct`, `@constructor`, the full field-declaration and
 visibility model, and how methods turn `_fields` into an object's behavior.

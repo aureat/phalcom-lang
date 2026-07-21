@@ -12,12 +12,12 @@ flags. Promote to `docs/adr/` + `docs/spec/` on ratification.
 | [bound-callable-unification.md](bound-callable-unification.md) | `Family` vs `Method.bind` (open-Q14) | Proposed |
 | [annotations-core.md](annotations-core.md) | selectors.md §4 — `@` mechanism, expander registry, phases | Proposed |
 | [annotations-contracts.md](annotations-contracts.md) | `@requires`/`@ensures`/`@invariant` (DbC, reflectable) | Proposed |
-| [annotations-construct.md](annotations-construct.md) | `@construct`/`@get`/`@set` + field-decl layout tier | Proposed |
+| [construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md) | `@construct`/`@get`/`@set` + field-decl layout tier | Pending archive |
 | [annotation-paradigm-bridges.md](annotation-paradigm-bridges.md) | `@data`/`@observable` bridges; two-tier finding | Proposed |
-| [annotations-legality-grammar.md](annotations-legality-grammar.md) | `@` EBNF, `Target`/legality table, unknown-attr, newline binding | Proposed |
+| [legality-grammar.md](../../../work/pending/ctor/notes/legality-grammar.md) | `@` EBNF, `Target`/legality table, unknown-attr, newline binding | Pending archive |
 | [annotations-contract-semantics.md](annotations-contract-semantics.md) | invariant re-entrancy, predicate purity, release stripping | Proposed |
-| [annotations-construct-inheritance.md](annotations-construct-inheritance.md) | super-construct chaining, collisions, field defaults | Proposed |
-| [annotations-test-strategy.md](annotations-test-strategy.md) | AST snapshots, `.ph` corpus, diagnostics catalog | Proposed |
+| [construct-inheritance.md](../../../work/pending/ctor/notes/construct-inheritance.md) | super-construct chaining, collisions, field defaults | Pending archive |
+| [test-strategy.md](../../../work/pending/ctor/notes/test-strategy.md) | AST snapshots, `.ph` corpus, diagnostics catalog | Pending archive |
 | [annotations-data.md](annotations-data.md) | `@data`/`@sealed`/`@variant` — structural records, closed hierarchies, generated visitor dispatch (no new `match` grammar) | Proposed |
 | [iteration-protocol.md](iteration-protocol.md) | untracked — `iterate(_)`/`iteratorValue(_)`; unblocks `for` | Proposed |
 | [equality-and-hash.md](equality-and-hash.md) | untracked — `==`/`hash` ladder, NaN keys, mutable keys | Proposed |

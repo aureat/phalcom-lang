@@ -4,7 +4,7 @@
 - Date: 2026-07-11
 - Resolves: selectors.md §4 (attributes planned, undetailed); classes.md §1/§3 (`@construct`/`@get`/`@set` relationship TBD)
 - Related: ADR-0012 (selector identity), ADR-0011 (fixed slot layout), ADR-0016 (hand-written lexer/parser)
-- Siblings: [annotations-contracts.md](annotations-contracts.md), [annotations-construct.md](annotations-construct.md)
+- Siblings: [annotations-contracts.md](annotations-contracts.md), [construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md)
 
 ## Context
 
@@ -91,7 +91,7 @@ CLAUDE.md conventions).
 - Two tiers emerge (see siblings): **method-table macros** (`@requires`,
   `@ensures`, `@invariant`, `@get`, `@set` — body/method only) are buildable on
   the current tree; **layout derives** (`@construct`, `@data`, `@observable` —
-  grow the slot vector) are gated behind [annotations-construct.md](annotations-construct.md).
+  grow the slot vector) are gated behind [construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md).
 - Order-independence of contract attributes falls out of the derive model for free.
 
 ## What this precludes

@@ -184,7 +184,7 @@ Every known name conflict in the decorator namespace, with disposition:
 
 | # | Collision | Disposition |
 |---|---|---|
-| COLL-1 | `@construct` (built derive) vs `@constructor` (ADR-0063 marker) | **Ruled** by ADR-0063 DEC-CTOR-E: two names one character apart is "a trap"; unified into one target-polymorphic `@constructor`. `@construct` is deleted with `ConstructDef` when U-CTOR lands. [placement.md](placement.md) |
+| COLL-1 | `@construct` (class derive) vs `@constructor` (method marker) | **Re-ruled** by [PDR-0028](../../../../pdr/0028-class-and-constructor-decorator-canon.md): retain both names with distinct targets; `@class` remains target-polymorphic for class-side placement. [placement.md](placement.md) |
 | COLL-2 | web `@get`/`@delete` (HTTP verbs on methods) vs builtin `@get` (field accessor) | **Dissolved by the naming convention**: web decorators are library `Attribute` subclasses ⇒ `@Get(path:)`, `@Delete`. Zero registry overlap. [frameworks.md](frameworks.md) |
 | COLL-3 | `@Retry`/`@Traced`/`@Lazy` attribute classes vs `Retry`/`Trace`/`Lazy` **proxy** classes (ADR-0057 kept both names) | **Open — needs a PDR.** Recommended: C#-style suffix resolution (`@Retry` resolves `RetryAttribute` first, then `Retry`), keeping ADR-0057's surface intact. Full options in [mechanism.md](mechanism.md) |
 | COLL-4 | web `@on(event:)` vs builtin `@On(targets…)` | Case-distinct but one character apart — same trap shape COLL-1 rejected. Web draft's `@on` renamed `@Subscribe`/`@Handles`. [frameworks.md](frameworks.md) |

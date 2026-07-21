@@ -9,7 +9,8 @@ the same table.
 
 ```phalcom
 class Person {
-  construct new(name:, age:) {
+  @constructor
+  new(name:, age:) {
     _name = name
     _age = age
   }
@@ -18,7 +19,8 @@ class Person {
 }
 
 class Employee extends Person {
-  construct new(name:, age:, title:) {
+  @constructor
+  new(name:, age:, title:) {
     super.new(name: name, age: age)
     _title = title
   }
@@ -35,17 +37,20 @@ buys you — is [The Object Model](../spec/current/object-model.md).
 ## Constructors
 
 There is no implicit `new` and no user-visible allocator. A class gets an
-initializer only if you write one, with `construct`:
+initializer only if you write one, with `@constructor`:
 
 ```phalcom
 class Person {
-  construct new(name:, age:) {
+  @constructor
+  new(name:, age:) {
     _name = name
     _age = age
   }
 
-  construct new(name:) { _name = name }     // a different selector, not an overload
-  construct anonymous()  { _name = "Anonymous" }
+  @constructor
+  new(name:) { _name = name }     // a different selector, not an overload
+  @constructor
+  anonymous()  { _name = "Anonymous" }
 }
 
 Person.new(name: "Ada", age: 36)
@@ -53,7 +58,7 @@ Person.new(name: "Grace")
 Person.anonymous()
 ```
 
-`construct` allocates the instance, runs the body with `self` bound to it, and
+`@constructor` allocates the instance, runs the body with `self` bound to it, and
 returns `self` — you never see or write the allocation step. `new` isn't a
 keyword; `anonymous` is exactly as legitimate a constructor name. Because
 selectors are labels-and-all, `new(name:, age:)` and `new(name:)` coexist as
@@ -70,7 +75,8 @@ assigned and fixes that as the instance's slot layout:
 
 ```phalcom
 class Counter {
-  construct new() { _count = 0 }
+  @constructor
+  new() { _count = 0 }
 
   increment() { _count = _count + 1 }
   value => _count
@@ -131,22 +137,23 @@ describe() {
 }
 ```
 
-## `static` members
+## `@class` members
 
-`static` declares a member on the class itself rather than on instances:
+`@class` declares a field or method on the class side rather than on instances:
 
 ```phalcom
 class Person {
-  static species => "Homo sapiens"
+  @class
+  species => "Homo sapiens"
 }
 
 Person.species   // "Homo sapiens"
 ```
 
-Under the hood there's no separate "static" mechanism — `static` methods live
+Under the hood there's no separate class-side mechanism — `@class` methods live
 on the **metaclass**, `Person`'s own class, and are looked up by walking the
 metaclass's superclass chain exactly like an instance send walks `Person`'s.
-That's why static methods and `construct` inherit correctly along a class
+That's why class-side methods and `@constructor` inherit correctly along a class
 hierarchy for free. The full tower — metaclasses, `X class`, why classes being
 objects pays off — is [The Object Model](../spec/current/object-model.md); the
 slot-layout mechanics are [ADR-0011](../adr/0011-static-instance-slot-layout.md).
@@ -159,7 +166,8 @@ up one level without knowing how deep the hierarchy actually goes:
 
 ```phalcom
 class Employee extends Person {
-  construct new(name:, age:, title:) {
+  @constructor
+  new(name:, age:, title:) {
     super.new(name: name, age: age)   // Person's constructor
     _title = title
   }

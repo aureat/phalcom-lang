@@ -213,7 +213,7 @@ every metaclass's superclass to `Class`, breaking it (see
 
 Rule 4 is also the whole of constructor dispatch. A constructor is an ordinary
 class-side method ([Classes §1](classes.md),
-[ADR-0063](../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)),
+[PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md)),
 so `Foo.new(1)` is an ordinary send resolved by walking `Foo class` and its
 superclass chain — from any receiver expression, with no constructor-specific
 namespace, table, or call-site rewriting. The bare allocator `Class >> new()` sits at
@@ -225,7 +225,7 @@ the root of that chain as an ordinary default, shadowed by ordinary lookup.
 > Every other receiver shape walked past the constructor to the bare allocator and
 > silently produced an uninitialized instance. The kernel's own `List.new()` /
 > `Map.new()` never had the bug because they always registered as ordinary selectors
-> and let this rule do the work. See ADR-0063's Context.
+> and let this rule do the work. See PDR-0028's Context.
 
 ### Diagram
 

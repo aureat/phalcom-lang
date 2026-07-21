@@ -139,7 +139,7 @@ Layout/builtin, both thin layers over reactivity.md.
   `@observable` field inside a derived `==` also, incidentally, registers a dependency
   if that `==` runs inside an effect — usually harmless, but note it (an effect that
   compares two `@data` values subscribes to both).
-- **`@observable` ⊗ `@construct` ([annotations-construct.md](../experimental/annotations-construct.md)).**
+- **`@observable` ⊗ `@construct` ([construct-derive.md](../../../work/pending/ctor/notes/construct-derive.md)).**
   `@construct` binds declared fields in the generated `new(...)`. For an `@observable`
   field the binding assigns through the reboxed slot: `_balance = Signal.new(value: balance)`
   — the constructor parameter seeds the `Signal`'s initial value. `@construct`'s
