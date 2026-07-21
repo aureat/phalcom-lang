@@ -1,18 +1,20 @@
-# U-CTOR — constructors become ordinary class-side methods: `@constructor`/`@class` decorators, `new_` allocator
+# U-CTOR — constructors become ordinary class-side methods: `@construct`/`@constructor`/`@class`, `new_` allocator
 
-> **Revised 2026-07-15** for the DEC-CTOR-F/G/H/I rulings (ADR-0063's same-day
-> amendment). Three changes to this plan: `@static` + `@classField` collapse into a
-> single **`@class`**; U-CTOR-4's **tombstone and arity guard are deleted** (so this
-> unit **no longer closes `DEFERRED.md:29`** — it is dissolved by ruling) and gains a
-> **`native_repr`** category instead; a **`class` keyword-variable** is added.
-> **[U-BINDINGS](../U-BINDINGS/plan.md) now lands first** — its field grammar is the
+> **Revised 2026-07-21** for [PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md).
+> `@construct` is class-header-only; `@constructor` is method-only; and `@class`
+> owns all class-side placement. Legacy `construct` and `static` declarations remain
+> parseable during migration with non-fatal help hints. U-CTOR-4's **tombstone and
+> arity guard are deleted** (so this unit **no longer closes `DEFERRED.md:29`** — it
+> is dissolved by ruling) and gains a **`native_repr`** category instead; a `class`
+> keyword-variable is added.
+> **[U-BINDINGS](../../../forge/units/U-BINDINGS/plan.md) now lands first** — its field grammar is the
 > ground this unit's `@class` fields stand on.
 
-Status: **READY** (2026-07-15), **sequenced after [U-BINDINGS](../U-BINDINGS/plan.md)**.
-[ADR-0063](../../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)
-**Accepted** (amended same day); all DEC-CTOR questions ruled (see Decisions). Five
-sub-units, landing independently; **U-CTOR-5 is separately gated on a perf
-measurement** (DEC-CTOR-C) and may be declined without affecting 1–4.
+Status: **READY** (2026-07-21), **sequenced after [U-BINDINGS](../../../forge/units/U-BINDINGS/plan.md)**.
+[PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md) is **Accepted**
+and supersedes ADR-0063's target-polymorphic `@constructor` surface. Six sub-units
+land independently, but U-CTOR-5's two-method lowering is required semantics, not a
+performance option.
 
 Not a performance tier — a surface + object-model unit that *removes* machinery.
 Net effect on the primitive floor is **−1 fn, −1 binding** (a duplicate dies).
@@ -21,8 +23,8 @@ Touches `phalcom-ast/src/{lexer.rs,token.rs,ast.rs,parser.rs}`,
 `phalcom-core/src/compiler/{attributes.rs,lib/{class_decl.rs,expr.rs}}`,
 `phalcom-core/src/{method/mod.rs,vm/dispatch.rs,value/mod.rs,primitive/{class.rs,object.rs},universe/primitives.rs}`,
 `phalcom-core/core/core.ph`, `phalcom-lsp/src/*` (exhaustive-match fixups),
-`phalcom-core/tests/invariants.rs`, `docs/spec/current/core/floor-census.md`, plus a
-148+152-site `.ph` codemod.
+`phalcom-core/tests/invariants.rs`, `docs/spec/current/core/floor-census.md`, and
+compatibility fixtures plus a recommended corpus codemod.
 
 ---
 
@@ -37,7 +39,7 @@ attribute-less `ClassMember`), the `parse_attribute` keyword hack, the
 `SignatureKind::Initializer` gate on the super-construct metaclass hop, and a
 duplicated floor allocator.
 
-[`DEFERRED.md:29`](../../DEFERRED.md) (wrong arity through a dynamic receiver) is
+[`DEFERRED.md:29`](../../../forge/DEFERRED.md) (wrong arity through a dynamic receiver) is
 **not** fixed by this unit — DEC-CTOR-H rules the behavior correct. That row is
 dissolved, not closed; rewrite it to say so.
 
@@ -45,13 +47,42 @@ dissolved, not closed; rewrite it to say so.
 
 ## Spec anchor
 
-- **[ADR-0063](../../../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md)** — the whole unit. **Accepted** (ratified 2026-07-15). Note U-CTOR-5's desugar is *not* covered by that ratification — DEC-CTOR-C gates it on measurement.
+- **[PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md)** — governing canon. `docs/spec/current` is authoritative; this pending unit follows it.
 - [ADR-0002](../../../adr/accepted/0002-metaclass-tower-parallel-rule.md) — the parallel tower is the mechanism this stops opting out of.
 - [ADR-0012](../../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md) — `SignatureKind::Initializer` retired (§9).
 - [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md) — **floor amendment**; census is normative.
-- [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md) — measure-first; the gate on U-CTOR-5.
-- `docs/spec/current/classes.md` §1/§3 — **rewritten by this unit** (direction reversed).
-- `docs/spec/current/selectors.md` §4 — `@construct` → `@constructor`, "Planned" → shipped.
+- [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md) — measure performance but never make a semantic lowering optional.
+- [Classes §1–3](../../../spec/current/classes.md) and [Selectors §4](../../../spec/current/selectors.md) — canonical constructor, placement, and decorator-target contract.
+
+### Current-spec crosswalk (implementation reading order)
+
+Read these as normative constraints on this plan.  They are deliberately linked at
+the point of use, rather than treated as background material: implementation work
+must reconcile the source, tests, and every row below before changing behavior.
+
+| Surface | Current spec | Plan consequence |
+|---|---|---|
+| Public constructor contract, `new_`, handwritten construction, field initialization, `@class` fields | [Classes §1–2](../../../spec/current/classes.md) | U-CTOR-2..6; in particular, preserve ordinary lookup for `new`, reserve `new_`, and keep class-side storage per declaring class. |
+| Class/metaclass identity, `Behavior`, and parallel class-side lookup | [Object Model §2, §4–5](../../../spec/current/object-model.md) | U-CTOR-3/4 must install and resolve through the parallel metaclass tower; no constructor-only dispatch path may survive. |
+| Exact selector identity, declaration grammar, and attribute targets | [Selectors §1, §4](../../../spec/current/selectors.md) · [Messages & Selectors §2–4](../../../spec/current/messages-and-selectors.md) | U-CTOR-3/5 retire `SignatureKind::Initializer` without changing encoded selector identity; duplicate detection keys on side + canonical selector. |
+| Ordinary class-side and `super` lookup, DNU behavior | [Method Lookup §1–2](../../../spec/current/method-lookup.md) | U-CTOR-4 preserves inherited `new()`; U-CTOR-5's rewritten `super` send remains an ordinary super-send. |
+| Attribute spelling, migration recognition, and reserved declaration names | [Lexical Structure §3, §10](../../../spec/current/lexical-structure.md) · [Syntax grammar](../../../spec/current/syntax/grammar.md) · [Syntax declarations](../../../spec/current/syntax/statements-and-declarations.md) | U-CTOR-2/3/6 own lexer/parser recovery for `static`, `construct`, and the keyword-variable `class`; validate grammar rather than only AST lowering. |
+| Decorator tier/order and generated-member collisions | [Decorators overview](../../../spec/current/decorators/README.md) · [`@construct`](../../../spec/current/decorators/construct.md) · [`@constructor`](../../../spec/current/decorators/constructor.md) | U-CTOR-1/3 must preserve class-header derivation ordering, method-only `@constructor`, and same-side selector collisions. |
+| Derives and weaves that currently special-case `ConstructDef` | [`@data`](../../../spec/current/decorators/data.md) · [`@get` / `@set`](../../../spec/current/decorators/accessors.md) · [`@requires`](../../../spec/current/decorators/requires.md) · [`@ensures`](../../../spec/current/decorators/ensures.md) · [`@invariant`](../../../spec/current/decorators/invariant.md) · [`@native`](../../../spec/current/decorators/native.md) | U-CTOR-3 migrates every target/attribute path from `Construct` to method + `@constructor`; contracts and native anchors need explicit legality and regression coverage. |
+| Core allocator placement and native-class catalog | [Core overview](../../../spec/current/core/overview.md) · [Core classes](../../../spec/current/core/core-classes.md) · [Catalog delta](../../../spec/current/core/catalog-delta.md) | U-CTOR-4 moves the sole generic allocator without changing native constructors; `native_repr` must prevent invalid instance allocation. |
+| Tower boot order and invariant gates | [Bootstrap phases](../../../spec/current/core/bootstrap-phases.md) · [Invariant requirements](../../../spec/current/core/invariant-requirements.md) | U-CTOR-4 requires a clean boot plus parallel-tower and floor-census invariants before landing. |
+| Primitive floor accounting | [Floor census](../../../spec/current/core/floor-census.md) | U-CTOR-4 updates both census and `R-INV-0.1`; the claimed net −1 is not complete until live bindings agree. |
+| Heap edges, `static_slots`, and constructor-era VM metadata | [Memory management §2.1–2.3](../../../spec/current/memory-management.md) | U-CTOR-4's `native_repr` and class-side allocation changes must keep class objects, static slots, and every new heap edge traceable. |
+| Uninitialized state / `None` observable after bare allocation | [Values & Absence §3](../../../spec/current/values-and-absence.md) | U-CTOR-4 tests the ruled behavior: a legal bare allocation leaves fields as `None`, rather than inventing an arity/tombstone failure. |
+| Hot-path measurement and deoptimization equivalence | [Performance Strategy](../../../spec/current/performance.md) | U-CTOR-5 is required semantics. Benchmark and optimize only without changing its observable two-method behavior. |
+
+### Reconciliation record — resolved by PDR-0028
+
+PDR-0028 settles the five formerly blocking conflicts. Implementation may not reopen
+them: `@construct` derives only on class headers; `@constructor` marks only methods;
+U-CTOR-5 is semantic lowering; inherited `new()` bare-allocates; `@class` is the only
+canonical class-side spelling; and current decorator docs must distinguish canon from
+legacy `ConstructDef` implementation until U-CTOR-3 removes it.
 
 ---
 
@@ -73,7 +104,7 @@ dissolved, not closed; rewrite it to say so.
 | P12 | ADR-0061 not built (leading-`_` rules absent) | `parser.rs:1374` | `rg -n 'fn parse_method_name' -A6` |
 
 **P6/P7 are the load-bearing surprises.** If they do not hold, §U-CTOR-4 is wrong and
-the floor accounting in ADR-0063 must be redone before proceeding.
+the floor accounting must be redone before proceeding.
 
 ---
 
@@ -86,7 +117,7 @@ extend instead of a stringly `else if` chain.
 
 ```rust
 // phalcom-core/src/compiler/attributes.rs
-pub enum BuiltinAttr { Constructor, Class, Get, Set, Data, Sealed, Variant, Invariant, Requires, Ensures, On }
+pub enum BuiltinAttr { Construct, Constructor, Class, Get, Set, Data, Sealed, Variant, Invariant, Requires, Ensures, On }
 pub enum AttrKind { Builtin(BuiltinAttr), User(String) }
 pub struct Attribute { pub kind: AttrKind, pub args: Vec<Expr>, pub range: SourceRange }
 ```
@@ -102,21 +133,27 @@ builtin is a compile error.
 > exhaustiveness and deleting stringly-typed dispatch — **not** by speed. Do not
 > benchmark it and do not claim a win.
 
-### U-CTOR-2 — `@class` modifier; drop `Token::Static`
+### U-CTOR-2 — `@class` modifier; retain legacy class-side parsing
 
 `@class` is a **modifier**: `expand()` sets `is_class_side = true` in place. One member
 in, one out. No codegen change — the bit already exists and already means this.
 
-Parser stops setting the class-side bit (`parser.rs:1265`); always `false` until
-expansion. `Token::Static` and its lexer row are deleted.
+Canonical declarations reach the parser with `is_class_side = false` until attribute
+expansion. `static` and class-member `class foo(...)` stay recognized only as legacy
+declaration forms; each lowers to the same member marked `@class`, preserving meaning
+while emitting its hint.
 
 Recovery diagnostic in `parse_class_member`, keyed on identifier `static` followed by a
 name token:
 
-> `member.legacy_keyword: 'static foo()' is no longer valid syntax; use the '@class' decorator on the member`
+> help: `static foo()` is legacy syntax; use `@class foo()`
 
-**`@class` covers fields too** — **ruled** (DEC-CTOR-F, superseding DEC-CTOR-A/A1;
-`@classField` is deleted). One decorator, legal on `Method`/`Getter`/`Setter`/`Field`:
+> help: `class foo()` is legacy syntax; use `@class foo()`
+
+The hint points at `static`, is non-fatal, and does not call the source deprecated.
+
+**`@class` covers fields too** — **ruled** (DEC-CTOR-F). No separate field decorator;
+one decorator is legal on `Method`/`Getter`/`Setter`/`Field`:
 
 ```phalcom
 @class _total = 0        // class-side field (unkeyworded mutable — ADR-0064)
@@ -141,33 +178,39 @@ grammar production from `method_decl`:
 > is ADR-0064's grammar. U-BINDINGS must land first, or this sub-unit has to emit
 > `@class var _total = 0` and then migrate the same lines again.
 
-### U-CTOR-3 — collapse `ConstructDef`; `@constructor`; drop `Token::Construct`
+### U-CTOR-3 — collapse `ConstructDef`; `@construct` header derive; `@constructor` methods
 
 `ClassMember::Construct` and `ConstructDef` are deleted. `MethodDef` gains
 `is_constructor: bool` alongside `is_static`.
 
-`@constructor` is a **derive**, not a modifier — it cannot be done in `expand()`,
-which mutates one member in place and cannot append a sibling (this is exactly why
-`ConstructExpander`/`GetExpander` are no-ops today). It runs from
-`expand_class_attributes` via a new `derive_constructor`, next to `derive_construct`
-and `derive_accessors`.
-
-Target-polymorphic, replacing `@construct`:
+`@constructor` is a method marker. `@construct` is the class-header derive: it runs
+from `expand_class_attributes`, before member decorators, and emits a
+`@constructor`-marked method from declared fields. The marker's lowering then splits
+that method into the canonical allocation and initializer pair.
 
 | Target | Meaning |
 |---|---|
-| Class header | derive a constructor from declared fields (today's `@construct`, `attributes.rs:729`) |
-| Method member | this method is a constructor |
+| `@construct` class header | derive a constructor from declared fields |
+| `@constructor` method member | mark this method as a constructor |
 
-`legal_targets() = &[Target::Class, Target::Method]`. `Target::Construct` deleted.
-Header derive runs **first**, emitting a `@constructor`-marked method member that the
-member derive then splits — ordering already holds at `class_decl.rs:82`.
+`@construct` is legal only at `Target::Class`; `@constructor` is legal only at
+`Target::Method`. Header derivation runs **first**, emitting a `@constructor`-marked
+method member; member lowering follows. `@constructor` on a header and `@construct`
+on a member are target errors.
 
-Deleted for free: `parse_attribute`'s `Token::Construct` hack (`parser.rs:1046`),
-`attach_attributes`'s constructor arm + `attr.dangling` (`parser.rs:1113`).
+`ConstructDef` and the attribute-less member path are deleted. Legacy `construct
+foo(...)` remains parseable, lowers to an equivalent `@constructor` method, and emits
+a non-fatal help hint. `Token::Construct`/its lexer spelling remain only as migration
+recognition; they are not canonical declaration syntax.
+
+`construct` and `constructor` are reserved declaration names, selector families, and
+attribute-class names. These checks must not reject the legacy declaration keyword;
+they apply after recognizing that migration form.
 **Contracts on constructors start working** — add a fixture proving it.
 
 `attributes.rs:729` changes `SignatureKind::Initializer(arity)` → `Method(arity)`.
+Update decorator docs' implementation-status language in the same landing so they no
+longer claim legacy `ConstructDef` internals are canonical or implemented behavior.
 
 ### U-CTOR-4 — `new_`; re-home `Class >> new()`; `native_repr`; `duplicate_selector`
 
@@ -209,7 +252,7 @@ now *wrong*, not merely partial, because it rejects a legal send. `Factory.new()
 class whose only constructor is `new(n)` returns an object with every field `None`, and
 that is **specified**.
 
-> **This unit no longer closes [`DEFERRED.md:29`](../../DEFERRED.md).** That row is
+> **This unit no longer closes [`DEFERRED.md:29`](../../../forge/DEFERRED.md).** That row is
 > **dissolved by ruling** — the behavior it describes is now correct. Rewrite the row
 > to say so; do not silently delete it.
 
@@ -235,7 +278,7 @@ class body may not install the same selector on the same side, regardless of
 decorators. Runs on the **post-expansion** list. Derived members need provenance back
 to their source member or the message points at synthesized AST.
 
-### U-CTOR-5 — desugar to two methods (**perf-gated, may be declined**)
+### U-CTOR-5 — desugar to two methods (required semantics)
 
 ```phalcom
 @constructor
@@ -267,10 +310,10 @@ Deletes: the super-construct metaclass hop (`vm/dispatch.rs`), the
 `super.new(x)` inside a `@constructor` body rewrites to `super.«init new»(x)` — an
 ordinary instance-side super-send.
 
-> **Gate (ADR-0051).** +1 send per construction, on the hottest path in the language.
-> Land only if a construction benchmark shows no regression, or `inliner.rs` folds the
-> hop. **If it regresses: decline this sub-unit and keep the fused constructor + the
-> `Initializer` gate.** U-CTOR-1..4 do not depend on it.
+> **Performance discipline (ADR-0051).** Measure the extra send and optimize it only
+> with a guard/deopt path that is observably identical to this lowering. A regression
+> does not permit retaining a fused constructor or `Initializer` gate: the lowering is
+> the [Classes §1](../../../spec/current/classes.md) contract.
 
 ---
 
@@ -278,11 +321,11 @@ ordinary instance-side super-send.
 
 | File | Sub-unit | Change |
 |---|---|---|
-| `phalcom-ast/src/lexer.rs` | 2, 3 | delete `"static"`/`"construct"` keyword rows (`:284-285`) |
-| `phalcom-ast/src/token.rs` | 2, 3 | delete `Token::Static`, `Token::Construct` (`:80,82`) |
+| `phalcom-ast/src/lexer.rs` | 2, 3 | retain `static`/`construct` only for legacy-form recognition; emit help hints and lower to canonical decorators |
+| `phalcom-ast/src/token.rs` | 2, 3 | retain migration tokens only; remove their role in canonical member representation |
 | `phalcom-ast/src/ast.rs` | 3 | delete `ClassMember::Construct` (`:197`), `ConstructDef` (`:321`); `MethodDef.is_constructor` |
-| `phalcom-ast/src/parser.rs` | 2, 3, 4 | `parse_class_member` (`:1234`) legacy diagnostics + no `is_static`; `parse_attribute` hack out (`:1046`); `attach_attributes` arm out (`:1113`); `parse_method_name` reserved-name check |
-| `phalcom-core/src/compiler/attributes.rs` | 1, 2, 3 | `BuiltinAttr`/`AttrKind` (incl. `ClassField`); array registry (`:635`); exhaustive match (`:1550`); `derive_constructor`; `Initializer`→`Method` (`:729`) |
+| `phalcom-ast/src/parser.rs` | 2, 3, 4 | lower legacy `static`/`construct` forms with non-fatal help hints; parse canonical `@construct`/`@constructor` targets; `parse_method_name` reserved-name check |
+| `phalcom-core/src/compiler/attributes.rs` | 1, 2, 3 | `BuiltinAttr`/`AttrKind` (`Construct`, `Constructor`, `Class`); array registry (`:635`); exhaustive match (`:1550`); class-only `derive_construct`, method-only constructor lowering; `Initializer`→`Method` (`:729`) |
 | `phalcom-core/src/compiler/lib/class_decl.rs` | 3, 4, 5 | `Construct` arm → `MethodDef` path (`:615-650`); `duplicate_selector` pre-pass (`:82`+) |
 | `phalcom-core/src/compiler/lib/expr.rs` | 4 | **delete** the arity guard (`:103`) — DEC-CTOR-H |
 | `phalcom-core/src/compiler/lib/error.rs` | 4 | `ConstructStaticCollision` → `DuplicateSelector`; `ReservedName` |
@@ -296,17 +339,19 @@ ordinary instance-side super-send.
 | `phalcom-lsp/src/*` | 3 | 4 `Construct` refs — exhaustive-match fixups |
 | `phalcom-core/tests/invariants.rs` | 4 | **R-INV-0.1 selector strings + count (−1)** |
 | `docs/spec/current/core/floor-census.md` | 4 | amendment row, net −1 fn/binding |
-| corpus `.ph` ×~150 files | 2, 3 | codemod |
+| `docs/spec/current/decorators/{README,construct,constructor}.md` and related decorator docs | 3 | align legacy-internal status/evidence with PDR-0028 and the new AST/lowering path |
+| corpus `.ph` ×~150 files | 2, 3 | recommended one-shot codemod; legacy forms remain accepted with help hints |
 
 ---
 
 ## Build order
 
 1. **U-CTOR-1** — enum + registry. Green, no behavior change.
-2. **U-CTOR-2** — `@class` (methods + fields), codemod 152 sites split by member kind. **Requires U-BINDINGS landed.**
-3. **U-CTOR-3** — collapse `ConstructDef`, `@constructor`, codemod 148 sites.
+2. **U-CTOR-2** — `@class` (methods + fields), canonical codemod with legacy `static` hints retained. **Requires U-BINDINGS landed.**
+3. **U-CTOR-3** — collapse `ConstructDef`; class-only `@construct`, method-only `@constructor`; canonical codemod with legacy `construct` hints retained.
 4. **U-CTOR-4** — floor: `new_`, delete the duplicate, re-home `new()`, `native_repr`, `duplicate_selector`; **delete** the `expr.rs:103` arity guard. **Gate: bootstrap + `verify_invariants()` + R-INV-0.1 green.**
-5. **U-CTOR-5** — desugar. **Gate: construction benchmark.** Decline if red.
+5. **U-CTOR-5** — required desugar; benchmark and optimize without changing semantics.
+6. **U-CTOR-6** — `class` keyword-variable, with legacy class-member recovery kept unambiguous.
 
 Each step commits green ([[commit-frequently]]). Verify each commit from a **clean
 throwaway worktree at the SHA**, not in-tree ([[clean-checkout-verify-each-commit]]).
@@ -331,15 +376,15 @@ Main has live concurrent sessions — branch, commit narrow paths, never `git ad
 
 **Negative lane** — `tests/lang/compile-errors/`:
 - `ctor_duplicate_selector.ph` — `@constructor new(x)` + `@class new(x)`
-- `ctor_duplicate_static.ph` — `@class new(x)` twice (**catches nothing today**)
+- `ctor_duplicate_class_side.ph` — `@class new(x)` twice (**catches nothing today**)
 - `ctor_reserved_new_underscore.ph` — user declares `new_`
-- `ctor_legacy_keyword.ph` — `construct new()` → recovery diagnostic
-- `ctor_static_on_field.ph` — `@static` illegal target (pending DEC-CTOR-A)
+- `ctor_target_errors.ph` — `@constructor` header / `@construct` member reject with target diagnostics
+- `ctor_legacy_keywords.ph` — legacy `construct` / `static` / class-member `class` declarations compile with non-fatal help hints and preserve meaning
+- `ctor_reserved_decorator_names.ph` — `construct` / `constructor` cannot be declared as a user name, selector family, or attribute class
 
 **Runtime lane** — `tests/lang/runtime-errors/`:
-- `ctor_tombstone_arity.ph` — `var C = Point; C.new()` where only `new(_,_)` exists → tombstone raises with candidates. **This is `DEFERRED.md:29`.**
-- `classfield_inherited_static_unset.ph` — **DEC-CTOR-A2**: `Derived.bump()` on an
-  inherited `@static` method touching an unset subclass `@classField` raises
+- `classfield_inherited_class_unset.ph` — **DEC-CTOR-A2**: `Derived.bump()` on an
+  inherited `@class` method touching an unset subclass `@class` field raises
   `None does not understand '+(_)'`. Ratified as correct, so it is pinned here rather
   than fixed.
 
@@ -353,22 +398,20 @@ confirm the suite reddens, restore ([[phalcom-golden-test-lanes]]).
 
 ---
 
-## Decisions (DEC-CTOR) — **all ruled 2026-07-15**
+## Decisions (DEC-CTOR) — **reconciled 2026-07-21 by PDR-0028**
 
 | # | Question | Ruling |
 |---|---|---|
-| ~~**A**~~ | ~~Does `@static` cover static fields?~~ | ~~No — a distinct decorator~~ **superseded by F** |
-| ~~**A1**~~ | ~~Its name~~ | ~~`@classField`~~ **superseded by F** |
 | **A2** | Inherited `@class` method reading a subclass's unset `@class` field → `None` | **Working as designed — fixture it** |
-| **B** | Ratify ADR-0063 (reverses `classes.md` §1)? | **Ratify in full** — ADR-0063 is **Accepted** |
-| **C** | U-CTOR-5 desugar vs +1 send/construction | **Measure, then decide** — gate stands |
-| **D** | Codemod one-shot vs deprecation window | **One-shot**, no window |
-| **E** | `@construct` vs `@constructor` for the header derive | **Unify on `@constructor`** |
-| **F** | `@static` + `@classField` → one decorator? | **`@class` for both** — supersedes A/A1 |
+| **B** | Governing constructor canon | **PDR-0028 wins** — `docs/spec/current` is authoritative; ADR-0063's target-polymorphic surface is superseded. |
+| **C** | U-CTOR-5 desugar vs +1 send/construction | **Two-method lowering is semantics.** Measure and optimize, but do not decline it. |
+| **D** | Codemod one-shot vs compatibility | **Codemod recommended; legacy forms remain parseable with non-fatal help hints.** |
+| **E** | `@construct` vs `@constructor` for the header derive | **`@construct` class-only; `@constructor` method-only.** |
+| **F** | One decorator for all class-side placement? | **`@class` for both fields and behavior.** |
 | **G/G2** | A `class` keyword-variable? | **Yes — dynamic ≡ `self.class`**, legal everywhere |
 | **H** | Does declaring `new(n)` drop the inherited `new()`? | **No** — `new()` is an ordinary inherited method; **tombstone + arity guard deleted** |
 | **H2** | May any class bare-allocate? | **Only `Object::Instance`-backed** — via a new `native_repr` flag |
-| **I/I2** | `let` on fields unenforced | **`let`/`const` rework → [ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md), [U-BINDINGS](../U-BINDINGS/plan.md), lands first** |
+| **I/I2** | `let` on fields unenforced | **`let`/`const` rework → [ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md), [U-BINDINGS](../../../forge/units/U-BINDINGS/plan.md), lands first** |
 
 ### The A → F reversal, and why the measurement mattered twice
 
@@ -424,19 +467,16 @@ defining class and silently skip subclass overrides — PHP's `self::`/`static::
 
 - **Niche/NaN-boxing (ADR-0044/0010)** — no new `Value` arm, no tag. Untouched.
 - **U-IC inline caches** — *improved*: constructors become ordinary monomorphic sends.
-  Tombstone installs pre-instance (ADR-0053's condition), so no epoch bump.
-- **ADR-0043 (no default args)** — nothing varies effective arity; the tombstone is
-  arity-0-keyed and adds no arity family. The *identity-dispatch ⊗ optional arity*
-  hazard does not fire.
-- **ADR-0026/0041 (sealed reparenting)** — the tombstone is computed at
-  class-definition time and would need recomputation under reparenting. Already sealed;
-  moot. **Re-opening reparenting would reopen this.**
+  Two-method lowering must remain ordinary sends or use a guarded optimization with
+  exact slow-path equivalence; no constructor-only dispatch path or tombstone returns.
+- **ADR-0043 (no default args)** — selector identity remains exact. `new()` and
+  `new(_)` coexist as ordinary selectors; inherited `new()` must remain reachable.
 - **ADR-0061** — disjoint (leading vs trailing `_`), but if 0061 lands first, the
   `new_` reserved-name check must compose with its prefix ban rather than duplicate it.
 - **A future capability boundary** — retiring `Initializer` removes a *kind*, not a
   hook. A dispatch-level boundary (ADR-0061's deferred idea) stays open.
-- **`@constructor` on the class header** — the member derive must not assume a
-  hand-written source member; the header derive synthesizes one.
+- **Distinct decorator targets** — `@construct` stays class-only and `@constructor`
+  stays method-only. The header derive synthesizes a method marked `@constructor`.
 
 ---
 
