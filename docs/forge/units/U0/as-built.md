@@ -1,7 +1,7 @@
 # U0 — Stabilization & Verification Substrate (as-built)
 
 - **Status:** ✅ Landed — front-end fixes (F9+F10) + substrate committed with the ground-state baseline `3657d4f` (`chore: commit WIP ground state`).
-- **Realizes:** the verification gate every later forge phase depends on; spec [§implementation-status](../../../spec/v0.2/implementation-status.md), [object-model §6 step 7](../../../spec/v0.2/object-model.md).
+- **Realizes:** the verification gate every later forge phase depends on; spec [§implementation-status](../../../forge/spec-status.md), [object-model §6 step 7](../../../spec/current/object-model.md).
 - **Reviewer gate:** U0 **APPROVED** (F9 + F10), per STATE.md phase log ("U0 APPROVED (F9+F10)"). This is the stabilizer phase — the substrate it stood up is what every subsequent unit's reviewer/self-verify gate runs.
 
 ## Mission
@@ -34,7 +34,7 @@ The substrate is three test lanes plus one shell entry point:
 ## Deviations & deferrals
 - Fuzz and miri are **opt-in**, not in the default merge gate — they need a nightly toolchain with components that may not be installed, and are smoke checks. See [`scripts/verify.sh`](../../../../scripts/verify.sh) header.
 - The golden runner is a stdout-equality regression gate, not a semantic conformance check — deliberately (see its module doc). Two `tests/fixtures/golden/*.ph` fixtures predate the F10 fix and deliberately carry no trailing newline; left as-is since their goldens are pinned.
-- Excluded example programs remain blocked on unimplemented surface syntax; see [deferred-work](../../../spec/v0.2/deferred-work.md).
+- Excluded example programs remain blocked on unimplemented surface syntax; see [deferred-work](../../../spec/current/deferred-work.md).
 
 ## Sources
 - forge: [`STATE.md`](../../archive/phase2/STATE.md) phase log ("0. Stabilize"), [`PLAN.md`](../../archive/phase2/PLAN.md) §"U0 — Front-end stabilization (F9 + F10)".

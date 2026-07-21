@@ -16,7 +16,7 @@
   (one-hashmap-probe dispatch — a later numeric-type split must not add a
   dispatch axis), [ADR-0009](../accepted/0009-handle-arena-heap.md) (handle heap — leaves a
   future boxed-bignum / tagged-int representation implementable without
-  disturbing existing references), `docs/spec/v0.2/object-model.md` (the
+  disturbing existing references), `docs/spec/current/object-model.md` (the
   `Number` core class), `docs/forge/units/U12/plan.md`,
   `docs/forge/STATE.md` (DEC-U12 resolution record)
 

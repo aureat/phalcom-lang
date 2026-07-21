@@ -8,7 +8,7 @@
   (adds `Reactive.current` to §Decision 4's sequencing constraint)
 - Related: [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md) §4–§5
   (restricted switch model — the guard this ADR leans on);
-  [`docs/spec/v0.2/drafts/reactivity.md`](../../spec/v0.2/drafts/reactivity.md)
+  [`docs/spec/current/drafts/reactivity.md`](../../spec/current/drafts/reactivity.md)
   (`Reactive.trackedBy`/`untracked`, the `Computed` recompute path);
   [`docs/design-notes/reactivity-coherence-and-hazards.md`](../design-notes/reactivity-coherence-and-hazards.md)
   (finding 1, where this was surfaced)

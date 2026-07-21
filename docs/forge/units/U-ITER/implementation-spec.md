@@ -3,7 +3,7 @@
 > **Status:** Normative work order for a `phalcom-implementer`. Realizes
 > [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) and the deepened
 > [specification.md](specification.md) (which extends the normative
-> [`iteration.md`](../../../spec/v0.2/iteration.md) §1–§7). Where a fact was verified
+> [`iteration.md`](../../../spec/current/iteration.md) §1–§7). Where a fact was verified
 > against source it carries a `file:line`; **re-confirm line numbers at dispatch** —
 > concurrent forge sessions shift them.
 >
@@ -286,7 +286,7 @@ Add `phalcom-core/tests/lang/iteration/` and bump `tests/lang/MANIFEST.md`.
 
 ## §5. Must-not-preclude
 
-*Grounded in [`iteration.md`](../../../spec/v0.2/iteration.md) §6,
+*Grounded in [`iteration.md`](../../../spec/current/iteration.md) §6,
 [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) §5, and the
 [[U-FIBER]](../U-FIBER/specification.md) seam.*
 
@@ -318,7 +318,7 @@ Add `phalcom-core/tests/lang/iteration/` and bump `tests/lang/MANIFEST.md`.
   send (→ `block_call`) into the chunk. Even though that fallback is untaken while
   `Block>>whileTrue` is pristine, emitting `for` directly makes the **"no `block_call` in
   the chunk" guarantee unconditional** and keeps C-ITER-4 clean and honest.
-  > **⚠ verify-on-HEAD / spec reconciliation.** [`iteration.md`](../../../spec/v0.2/iteration.md)
+  > **⚠ verify-on-HEAD / spec reconciliation.** [`iteration.md`](../../../spec/current/iteration.md)
   > §3 currently phrases the *plain* case as "keep the plain `whileTrue`/cursor desugar."
   > If the implementer instead routes the plain `for` through an actual `whileTrue`
   > `MethodCall`, the emitted chunk **will contain a `block_call` in the deopt fallback
@@ -370,8 +370,8 @@ Each step is a self-verifiable commit; reviewer gates the `compiler/lib.rs` diff
 
 | Claim / requirement | Source |
 |---|---|
-| Two-selector cursor protocol; `for` → cursor `while` not `.each`; `iterate`/`iteratorValue` non-inlined; break/continue jumps; U-STD combinator follow-on | [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) §1–§5; [iteration.md](../../../spec/v0.2/iteration.md) §1–§6; [specification.md](specification.md) |
-| `for` ⊗ fiber generator (the load-bearing preclusion) | [iteration.md](../../../spec/v0.2/iteration.md) §6; [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4; [ADR-0033](../../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) Context; [[U-FIBER]](../U-FIBER/specification.md#the-crown-jewel) |
+| Two-selector cursor protocol; `for` → cursor `while` not `.each`; `iterate`/`iteratorValue` non-inlined; break/continue jumps; U-STD combinator follow-on | [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) §1–§5; [iteration.md](../../../spec/current/iteration.md) §1–§6; [specification.md](specification.md) |
+| `for` ⊗ fiber generator (the load-bearing preclusion) | [iteration.md](../../../spec/current/iteration.md) §6; [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4; [ADR-0033](../../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) Context; [[U-FIBER]](../U-FIBER/specification.md#the-crown-jewel) |
 | Jump opcodes / inliner helpers exist | `bytecode.rs:130/139/145`; `compiler/inliner.rs:157/167/182/194` |
 | `while` desugars to `whileTrue` at parse time | `parser.rs:1338-1357` |
 | tokens already lex (plan-precondition correction) | `token.rs` `For`/`Break`/`Continue`/`In`; `lexer.rs:256-263` |

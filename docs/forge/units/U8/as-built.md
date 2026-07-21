@@ -1,7 +1,7 @@
 # U8 — doesNotUnderstand & perform (as-built)
 
 - **Status:** ✅ Landed — `b99ad22` (runtime), `806c9ea` (acceptance corpus), `83221e8` (forge docs)
-- **Realizes:** [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md); spec [method-lookup.md §2](../../../spec/v0.2/method-lookup.md), [messages-and-selectors.md §5](../../../spec/v0.2/messages-and-selectors.md)
+- **Realizes:** [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md); spec [method-lookup.md §2](../../../spec/current/method-lookup.md), [messages-and-selectors.md §5](../../../spec/current/messages-and-selectors.md)
 - **Reviewer gate:** OFF per the load-bearing-only review policy (STATE.md) — self-verified on the green gate (`./scripts/verify.sh` exit 0, `cargo doc` clean, clippy clean).
 
 ## Mission

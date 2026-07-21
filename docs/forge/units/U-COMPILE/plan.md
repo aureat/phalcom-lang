@@ -1,7 +1,7 @@
 # U-COMPILE — compile-time & startup optimization (Tier 5)
 
 Status: **PLANNED** (dispatch-ready). Tier 5 of the performance strategy
-([performance.md](../../../spec/v0.2/performance.md) §4 Tier 5,
+([performance.md](../../../spec/current/performance.md) §4 Tier 5,
 [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
 Single-writer on the compiler front-end (`chunk.rs`, `compiler/lib.rs`, `vm.rs`
 core-load path, and optionally `phalcom-ast`) → **worktree-isolate**; the lexer
@@ -17,7 +17,7 @@ it is produced faster and, for the core, cached. Ordered cheapest-and-highest-va
 first; the invasive lexer refactor is last and optional.
 
 ## Spec anchor
-[performance.md](../../../spec/v0.2/performance.md) §4 Tier 5, law P2. Compile-time
+[performance.md](../../../spec/current/performance.md) §4 Tier 5, law P2. Compile-time
 optimization is behavior-invariant by construction (same bytecode out) — no ADR
 amendment. The one thing to guard is that dedup/caching does not change what the
 compiler emits or the diagnostics/spans it attaches.

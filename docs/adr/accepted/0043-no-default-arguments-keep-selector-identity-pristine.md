@@ -3,13 +3,13 @@
 - Status: Accepted
 - Date: 2026-07-12
 - Amended: 2026-07-15 — prose only, **the decision is unchanged**. Reconciles this ADR's
-  forward-looking clause with [open-Q12](../../spec/v0.2/open-questions.md)'s mechanism
+  forward-looking clause with [open-Q12](../../spec/current/open-questions.md)'s mechanism
   ruling, which is narrower and more specific than what this ADR left open. See
   [§Amendment](#amendment-2026-07-15--the-mechanism-is-no-longer-open). Prompted by
   DEFERRED CB-4.
 - Related: [ADR-0012](0012-selector-signature-encoding-and-dispatch.md)
   (selector-signature encoding — arity is *part of the dispatch key*; default
-  arguments would make one method answer several arities), `docs/spec/v0.2/object-model.md`
+  arguments would make one method answer several arities), `docs/spec/current/object-model.md`
   (message-send dispatch; signature = selector + arity/kind),
   `docs/forge/units/U18/plan.md`, `docs/forge/STATE.md` (DEC-U18 resolution record)
 
@@ -69,7 +69,7 @@ reversible pre-release, per the standing delegated-decision protocol).
 
 **Prose only. The decision stands: no default arguments.** This ADR was written as if the
 *mechanism* for a future re-add were an open design question ("aliasing vs call-site fold").
-[open-Q12](../../spec/v0.2/open-questions.md) — a ruling, no ADR, narrower and more
+[open-Q12](../../spec/current/open-questions.md) — a ruling, no ADR, narrower and more
 specific than this one — has since fixed it:
 
 - **Call-site / caller-side resolution is permanently forbidden.** It needs static callee
@@ -85,7 +85,7 @@ specific than this one — has since fixed it:
 "rejects arity-family expansion as *combinatorial*", putting it in tension with Q12, which
 ratifies that same mechanism where it is linear. **This ADR never said that** — the word
 appears nowhere in it. The claim came from `experimental/default-arguments.md` (retired
-2026-07-15, superseded by [`drafts/default-arguments.md`](../../spec/v0.2/drafts/default-arguments.md)),
+2026-07-15, superseded by [`drafts/default-arguments.md`](../../spec/current/drafts/default-arguments.md)),
 which *did* reject arity-family expansion as combinatorial and which CB-4 read as speaking
 for the ADR. There was no general-vs-trailing contradiction here to fix.
 

@@ -2,12 +2,12 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: `docs/spec/v0.2/object-model.md` §2, §8; `docs/spec/v0.2/classes.md`; forge finding F4; [ADR-0009](0009-handle-arena-heap.md)
+- Related: `docs/spec/current/object-model.md` §2, §8; `docs/spec/current/classes.md`; forge finding F4; [ADR-0009](0009-handle-arena-heap.md)
 
 ## Context
 
 `toString` is universal `Object` protocol — a display representation, overridable
-everywhere ([Object Model §8](../../spec/v0.2/object-model.md)). The spec pins that `name`
+everywhere ([Object Model §8](../../spec/current/object-model.md)). The spec pins that `name`
 is `Behavior`-side (a class's own name) but leaves the *instance* display string
 open. The forge audit found the current implementation actively wrong here:
 

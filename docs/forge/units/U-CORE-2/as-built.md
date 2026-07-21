@@ -82,14 +82,14 @@ already-fully-specified fixture-authoring pass — not a re-verify-and-close.
 > **Baseline:** HEAD `4e2ec73` (U10 landed); last U-CORE-2 code commit
 > `0da64d6`. **Floor delta: none** (no new native primitive — see §2).
 >
-> **Governing anchors:** [`values-and-absence.md`](../../../spec/v0.2/values-and-absence.md) §3
+> **Governing anchors:** [`values-and-absence.md`](../../../spec/current/values-and-absence.md) §3
 > (absence is `Option`), §3.3 (combinator groups); [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md);
 > [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md);
 > [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md) + its
-> **U-CORE-2 amendment**; [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md) §2.2 / §4.2;
-> [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q2 / §4.4; [`floor-census.md`](../../../spec/v0.2/core/floor-census.md)
-> §2.6 / §2.8; [`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) R-INV-2.1–2.4,
-> R-INV-0.3; [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §2.
+> **U-CORE-2 amendment**; [`catalog-delta.md`](../../../spec/current/core/catalog-delta.md) §2.2 / §4.2;
+> [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q2 / §4.4; [`floor-census.md`](../../../spec/current/core/floor-census.md)
+> §2.6 / §2.8; [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) R-INV-2.1–2.4,
+> R-INV-0.3; [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §2.
 
 ---
 
@@ -108,7 +108,7 @@ divergence") delivered, and this spec confirms as-built:
 1. **`Bool#ifTrue(_)` / `ifFalse(_)` now return a well-formed `Option`.** The
    *taken* arm is `Some`-lifted; the *untaken* arm is the `None` singleton — so
    the result is `Some(A) ∪ None`, not the pre-U-CORE-2 half-`Option`
-   (`A ∪ None`). This closes [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md) §4.2.
+   (`A ∪ None`). This closes [`catalog-delta.md`](../../../spec/current/core/catalog-delta.md) §4.2.
    - `primitive/boolean.rs` `bool_if_true` (L115–122): `true` → `wrap_some(vm, block_call(…))`; `false` → `vm.none_value()`.
    - `primitive/boolean.rs` `bool_if_false` (L133–140): mirror.
    - `primitive/nil.rs` `wrap_some` (L47–58): the shared allocator factored out of `some_new`; **asserts `!matches!(value, Value::Nil)`** (Invariant 4).
@@ -155,18 +155,18 @@ and note it.
 
 | Item | Owner | Anchor |
 |---|---|---|
-| `None#toString` / `Some#toString` surface (the `toString` **message**) | **U-CORE-4** | [`decisions.md`](../../../spec/v0.2/core/decisions.md) §4.4 |
-| `Option#ifSome(_)`, `map(_)`, `flatMap(_)`, `filter(_)`, `unwrapOr(_)`, `unwrapOrElse(_)`, `unwrap()`, `zip(_)`, `contains(_)` | **U-STD** | [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md) §2.2 |
-| `??` / `?.` surface tokens + desugar | **U-LEX** | [`values-and-absence.md`](../../../spec/v0.2/values-and-absence.md) §3.4 |
+| `None#toString` / `Some#toString` surface (the `toString` **message**) | **U-CORE-4** | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §4.4 |
+| `Option#ifSome(_)`, `map(_)`, `flatMap(_)`, `filter(_)`, `unwrapOr(_)`, `unwrapOrElse(_)`, `unwrap()`, `zip(_)`, `contains(_)` | **U-STD** | [`catalog-delta.md`](../../../spec/current/core/catalog-delta.md) §2.2 |
+| `??` / `?.` surface tokens + desugar | **U-LEX** | [`values-and-absence.md`](../../../spec/current/values-and-absence.md) §3.4 |
 | `Some(x)` bare-call sugar (only `Some.new(x)` exists today) | **U-LEX** | [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md) |
 | Abstract `Bool` + `True`/`False` singleton *representation* | **U11** (separate forge unit) | [ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md); see §5.3 |
-| `Result`/`Ok`/`Err` (the `Option` sibling) | **U-CORE-6** (reserve) / later | [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §2; §5.2 below |
+| `Result`/`Ok`/`Err` (the `Option` sibling) | **U-CORE-6** (reserve) / later | [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §2; §5.2 below |
 | Removing the `bool_class_new` debug `println!`s (`boolean.rs` L33/L35) | **DEFERRED** (pre-existing noise) | `docs/forge/DEFERRED.md` |
 
-> **Note on the README parenthetical.** [`README.md`](../../../spec/v0.2/core/README.md) L47–48 lists
+> **Note on the README parenthetical.** [`README.md`](../../../spec/current/core/README.md) L47–48 lists
 > the U-CORE-2 residue as "(absence invariants, `None`/`Some` surface
 > `toString`)". That parenthetical is loose: the authoritative owner ruling is
-> [`decisions.md`](../../../spec/v0.2/core/decisions.md) §4.4, which assigns per-type `toString`
+> [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §4.4, which assigns per-type `toString`
 > **to U-CORE-4**. This spec follows the ruling — `toString` is **not** U-CORE-2.
 
 ---
@@ -175,7 +175,7 @@ and note it.
 
 ### 1.1 The absence + Boolean floor (present, frozen)
 
-Per [`floor-census.md`](../../../spec/v0.2/core/floor-census.md) §2.6 / §2.8, the relevant floor is
+Per [`floor-census.md`](../../../spec/current/core/floor-census.md) §2.6 / §2.8, the relevant floor is
 complete and is **not** touched by this unit:
 
 | Selector (human `_` form) | Class | Native fn | Sacred? |
@@ -249,7 +249,7 @@ narrowly one of `bool_if_true`/`bool_if_false` (boolean.rs L115–140),
 ## §4. Test strategy — the invariant corpus (the deliverable)
 
 **Acceptance bar:** the four new invariant fixtures below go green. Per
-[`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) §4, U-CORE-2 flips **no
+[`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) §4, U-CORE-2 flips **no
 pending fixture** ("its combinators already landed `0da64d6`; no pending fixture
 is gated on the residue"). In particular `control-flow/control_flow_iftrue_iffalse`
 needs `Option#unwrapOr`, which is **U-STD**, not this unit — leave it in
@@ -257,7 +257,7 @@ needs `Option#unwrapOr`, which is **U-STD**, not this unit — leave it in
 
 **Home = the golden corpus** (`tests/lang/…`, exact-stdout snapshot), matching the
 `0da64d6` precedent; this is the "C — corpus" surface of
-[`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) §1 (user-observable
+[`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §1 (user-observable
 `.ph` output). All are **corpus**, none is **boot** (`verify_invariants`). Each
 `.ph` carries the standard header (`// area:`, `// spec:`, `// status: PASS`).
 
@@ -343,7 +343,7 @@ value-position twin fires the side effect once *and* still yields a `Some`
 
 **Claim:** the `Some`-lift is **one-armed only**. `ifTrue(_, ifFalse)`, `and(_)`,
 `or(_)` return their block result **raw**, never wrapped
-([`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md) §4.2; ADR-0018 amendment).
+([`catalog-delta.md`](../../../spec/current/core/catalog-delta.md) §4.2; ADR-0018 amendment).
 
 **Fixture** `control-flow/control_flow_paired_and_or_raw.ph` — send a `Number`
 message to the result; if it were `Some(_)`-lifted, `Some` would `dnu '+(_)'`:
@@ -373,7 +373,7 @@ primitives.)*
 
 **Claim:** every `Option` combinator is defined over `match` (no combinator peeks
 at a variant tag), so overriding `match` reroutes `isSome`/`isNone`/`ifNone`/`orElse`
-([`values-and-absence.md`](../../../spec/v0.2/values-and-absence.md) §3.3;
+([`values-and-absence.md`](../../../spec/current/values-and-absence.md) §3.3;
 [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md)'s "dispatch
 replaces branching").
 
@@ -418,7 +418,7 @@ true
 - **Boot half** (`verify_invariants`): the `None` singleton is a live value
   distinct from `Value::Nil`, and the `None` **global** resolves to that
   singleton *value*, not the `None` **class**
-  ([`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) §3, R-INV-0.3).
+  ([`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §3, R-INV-0.3).
   This is **owned by U-CORE-1** (R-INV-1.1 "closes R-INV-0.1…0.4"). **U-CORE-2
   must NOT add it** — doing so would edit `universe.rs::verify_invariants`, a
   file U-CORE-1 owns, risking write-contention/merge churn.
@@ -448,7 +448,7 @@ directory).
 
 ### 5.1 `forward-compat.md` §2 — `Option`↔`Result` shape parity (the section this unit must clear)
 
-Per [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §5, U-CORE-2's applicable section
+Per [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §5, U-CORE-2's applicable section
 is **§2 (error mechanism), specifically the `Option`↔`Result` shape-parity
 constraint**: `Result`/`Ok`/`Err` must be able to mirror `Option`/`Some`/`None`
 (abstract root + two concrete subclasses, one field each), and the `Some`/`None`
@@ -483,7 +483,7 @@ layerable later over `match` without re-shaping `Option`.
 
 ### 5.2 Reserve, don't build, `Result`
 
-Consistent with [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q2 (confirm ADR-0008; U-CORE-6
+Consistent with [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q2 (confirm ADR-0008; U-CORE-6
 reifies `Error` and **reserves** `Result`): U-CORE-2 must not sneak in
 `Result`/`Ok`/`Err`. It does not.
 

@@ -6,7 +6,7 @@ codes directly against — exact signatures, exact registration diff, exact
 fixture skeletons. No design decisions live here; all judgment calls are
 already closed in `plan.md` §2/§7.
 
-Grounds: [concurrency.md §1](../../../../spec/v0.2/concurrency.md) Interface
+Grounds: [concurrency.md §1](../../../../spec/current/concurrency.md) Interface
 table · [ADR-0030](../../../../adr/0030-fibers-and-futures-cooperative-concurrency.md).
 
 ---
@@ -18,7 +18,7 @@ table · [ADR-0030](../../../../adr/0030-fibers-and-futures-cooperative-concurre
 | `phalcom-core/src/primitive/fiber.rs` | add `fiber_is_done`, `fiber_error` |
 | `phalcom-core/src/universe/primitives.rs` | register both as instance `Getter`s on `fiber_cls`, next to the existing block at L324–333 |
 | `phalcom-core/tests/lang/concurrency/` + `MANIFEST.md` | goldens |
-| `docs/spec/v0.2/concurrency.md` | flip implementation-status note |
+| `docs/spec/current/concurrency.md` | flip implementation-status note |
 | `docs/forge/units/U-FUTURE/plan.md` | companion edit, `plan.md` §4 |
 
 ## 2. `fiber_is_done`

@@ -2,9 +2,9 @@
 
 - Status: Accepted (Compile/Layout tier ratified by the user 2026-07-13; Install/Dispatch/Runtime tier ratified by the user 2026-07-13 — both gate conditions in Decision §2 satisfied: (a) ADR-0053 Accepted, (b) `attribute-classes.md` A-1–A-5 resolved, A-6 explicitly deferred to v0.3 as a non-blocking per-instance-behavior question)
 - Date: 2026-07-13
-- Related: `docs/spec/v0.2/experimental/annotations-core.md` (the original
-  derive-macro-only foreclosure, amended below), `docs/spec/v0.2/decorators/README.md`
-  (the five-tier model that reopened it), `docs/spec/v0.2/decorators/on.md`
+- Related: `docs/spec/current/experimental/annotations-core.md` (the original
+  derive-macro-only foreclosure, amended below), `docs/spec/current/decorators/README.md`
+  (the five-tier model that reopened it), `docs/spec/current/decorators/on.md`
   (open questions A-1–A-6, the remaining gate), [ADR-0053](0053-runtime-decorator-interception-reuses-override-epoch-guard.md)
   (Runtime-tier cost model — the gate this ADR records as satisfied),
   [ADR-0052](0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
@@ -98,9 +98,9 @@ conditions — both now satisfied, **ratified 2026-07-13**:
 
 With both satisfied, Install/Dispatch/Runtime tier moves from mechanism-only
 to implementable: the 8 named decorators speced in
-[decorators-behavioral.md](../../spec/v0.2/drafts/decorators-behavioral.md),
-[decorators-dispatch-observability.md](../../spec/v0.2/drafts/decorators-dispatch-observability.md),
-and [decorators-observable.md](../../spec/v0.2/drafts/decorators-observable.md)
+[decorators-behavioral.md](../../spec/current/drafts/decorators-behavioral.md),
+[decorators-dispatch-observability.md](../../spec/current/drafts/decorators-dispatch-observability.md),
+and [decorators-observable.md](../../spec/current/drafts/decorators-observable.md)
 are ratification-ready, not just mechanism-illustrated.
 
 The justification for reopening the foreclosure is **no longer**

@@ -2,8 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-07-12
-- Related: [`docs/spec/v0.2/concurrency.md`](../../spec/v0.2/concurrency.md);
-  [`docs/spec/v0.2/core/forward-compat.md`](../../spec/v0.2/core/forward-compat.md) §7;
+- Related: [`docs/spec/current/concurrency.md`](../../spec/current/concurrency.md);
+  [`docs/spec/current/core/forward-compat.md`](../../spec/current/core/forward-compat.md) §7;
   [ADR-0009](0009-handle-arena-heap.md) (handle heap);
   [ADR-0010](0010-tagged-value-enum.md) (tagged `Value`);
   [ADR-0013](0013-closure-upvalues-and-frame-token-return.md) (frame-token return);
@@ -13,13 +13,13 @@
 ## Context
 
 `Fiber`/`Future` was the only major subsystem fully specified
-([`concurrency.md`](../../spec/v0.2/concurrency.md)) yet ADR-less, and its execution
+([`concurrency.md`](../../spec/current/concurrency.md)) yet ADR-less, and its execution
 model was the last **genuinely-open decision** blocking the fiber unit
-([`deferred-work.md`](../../spec/v0.2/deferred-work.md) §2). Two things were
+([`deferred-work.md`](../../spec/current/deferred-work.md) §2). Two things were
 unrecorded and load-bearing:
 
 1. **How fibers execute on the existing VM.** The
-   [forward-compat §7](../../spec/v0.2/core/forward-compat.md) code-grounded audit
+   [forward-compat §7](../../spec/current/core/forward-compat.md) code-grounded audit
    found that the VM dispatch loop is **re-entrant across native frames**: pure
    Phalcom→Phalcom sends are trampolined (one `run_until` loop, no native
    recursion — `vm.rs` `call_method` Closure arm), but every path where a Rust
@@ -51,7 +51,7 @@ Option A / Lua-5.1 style), with `Future` as a pure library layer.**
 Cooperative, single-threaded, no preemption. `Future`, `async`/`await`,
 generators, and the scheduler all derive from it. No data races by construction;
 no locks in the object model. A running fiber runs until it explicitly `yield`s,
-`await`s, returns, or raises. The surface is [`concurrency.md`](../../spec/v0.2/concurrency.md)
+`await`s, returns, or raises. The surface is [`concurrency.md`](../../spec/current/concurrency.md)
 §1–2 (`new`/`call`/`try`/`yield`/`current`/`abort`; `Future.async`/`await`/`then`).
 
 ### 2. `Fiber` is a heap object, not a new `Value` arm
@@ -137,7 +137,7 @@ stack and frame stack are GC roots for as long as the fiber is reachable and not
   moving-ready arena claim is preserved intact.
 - **New floor surface (ADR-0019 amendment).** The Fiber/Future primitive set —
   `call`/`yield`/`current`/`abort`, a `Yield` opcode, per-fiber stack machinery,
-  and the scheduler hooks exposed through [`System`](../../spec/v0.2/system.md) — is a
+  and the scheduler hooks exposed through [`System`](../../spec/current/system.md) — is a
   deliberate extension of the frozen floor, authorized here per the
   [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) amendment convention (as
   [ADR-0020](0020-kernel-list-native-array-protocol.md)/[ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md)
@@ -147,7 +147,7 @@ stack and frame stack are GC roots for as long as the fiber is reachable and not
   spec documents the restriction and the index-iteration workaround.
 - Five pre-fiber invariants (§5–§7 plus frame-relative `stack_offset` and
   no-new-`Value`-arm) bind every unit that touches the VM before the fiber unit
-  lands ([forward-compat §7.3](../../spec/v0.2/core/forward-compat.md)).
+  lands ([forward-compat §7.3](../../spec/current/core/forward-compat.md)).
 
 ## Alternatives considered
 

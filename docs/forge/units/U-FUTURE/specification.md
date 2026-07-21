@@ -8,17 +8,17 @@
 > is the library layer [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
 > already sanctions; **no new ADR is needed.**
 >
-> **This is authored fresh** from [`concurrency.md`](../../../spec/v0.2/concurrency.md) §2
-> (the surface) + [`experimental/scheduler-unit.md`](../../../spec/v0.2/experimental/scheduler-unit.md)
+> **This is authored fresh** from [`concurrency.md`](../../../spec/current/concurrency.md) §2
+> (the surface) + [`experimental/scheduler-unit.md`](../../../design/experimental/v0.2/scheduler-unit.md)
 > (the scheduler that closes the bootstrap gap) +
-> [`experimental/fiber-ensure-and-limits.md`](../../../spec/v0.2/experimental/fiber-ensure-and-limits.md)
+> [`experimental/fiber-ensure-and-limits.md`](../../../design/experimental/v0.2/fiber-ensure-and-limits.md)
 > (abandoned-fiber `ensure` + resource caps). It deepens `concurrency.md` §2 by reference;
 > that document stays the surface index.
 >
 > **Governing sources.** [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
-> §1 (`Future` = pure library layer); [`concurrency.md`](../../../spec/v0.2/concurrency.md)
-> §2 (surface + implementation notes); [`system.md`](../../../spec/v0.2/system.md)
-> (the scheduler's external-completion source); [`open-questions.md`](../../../spec/v0.2/open-questions.md)
+> §1 (`Future` = pure library layer); [`concurrency.md`](../../../spec/current/concurrency.md)
+> §2 (surface + implementation notes); [`system.md`](../../../spec/current/system.md)
+> (the scheduler's external-completion source); [`open-questions.md`](../../../spec/current/open-questions.md)
 > §15 (still-open: structured concurrency / cancellation, `select`/`race`, scheduler
 > fairness).
 >
@@ -48,7 +48,7 @@ exactly three things, **all of which depend on [[U-FIBER]](../U-FIBER/specificat
    then `Fiber.yield` to the scheduler";
 2. **a scheduler** (§4, the proposed **U-SCHED**) — a ready-queue of resumable fibers plus
    an external-completion source (timers, I/O) exposed through
-   [`System`](../../../spec/v0.2/system.md);
+   [`System`](../../../spec/current/system.md);
 3. **settlement** (§5) moves the future to `fulfilled`/`rejected` and enqueues every waiter
    fiber and `then` continuation onto the ready-queue.
 
@@ -64,7 +64,7 @@ concurrency primitive stays singular (ADR-0030).
 
 ## 2. Surface
 
-*Deepens [`concurrency.md`](../../../spec/v0.2/concurrency.md) §2.*
+*Deepens [`concurrency.md`](../../../spec/current/concurrency.md) §2.*
 
 | Signature | Side | Meaning | Needs scheduler? |
 |---|---|---|---|
@@ -118,7 +118,7 @@ else `None` (never blocks — it does not suspend).
 
 ## 4. The scheduler (proposed U-SCHED) — BLOCKED, no owner yet
 
-*From [`scheduler-unit.md`](../../../spec/v0.2/experimental/scheduler-unit.md); hazard:
+*From [`scheduler-unit.md`](../../../design/experimental/v0.2/scheduler-unit.md); hazard:
 **primitive/library boundary ⊗ bootstrap order**.*
 
 `Future.await`/`async` and `System.sleep` bottom out in a **scheduler run-loop** that
@@ -212,7 +212,7 @@ U-FIBER failure-capture path.
   `Future`-heavy program is a DoS surface without these; **flag as a robustness dependency**
   (post-v0.2).
 - **Structured concurrency / cancellation scopes, `select`/`race`, scheduler fairness** —
-  **still open** ([`open-questions.md`](../../../spec/v0.2/open-questions.md) §15). U-FUTURE
+  **still open** ([`open-questions.md`](../../../spec/current/open-questions.md) §15). U-FUTURE
   ships none of them; leave the waiter list + ready-queue shaped so a later cancellation
   scope / `select` can layer on.
 

@@ -55,7 +55,7 @@ stub — it does not exist.** `phalcom-core/src/primitive/system.rs` has no `gc`
 `universe/primitives.rs` has no `gc` registration. Sending `System.gc` today raises
 `doesNotUnderstand`. This step *adds* the primitive; it does not rewire one.
 
-Spec: [`system.md:65`](../../../spec/v0.2/system.md) — "`gc` | request a garbage collection;
+Spec: [`system.md:65`](../../../spec/current/system.md) — "`gc` | request a garbage collection;
 returns `None`". Note `System`'s primitives are **static** (`System.gc`, not `aSystem.gc`).
 
 ### 1.1 Write
@@ -71,7 +71,7 @@ returns `None`". Note `System`'s primitives are **static** (`System.gc`, not `aS
 /// (Invariant M1) — a surviving object keeps its `ObjRef`. Deterministic and safe
 /// to call from `.ph` code: a primitive runs at a dispatch safepoint by
 /// construction, where `VM::stack`/`frames` are the complete root truth
-/// ([memory-management.md §4](../../../docs/spec/v0.2/memory-management.md)).
+/// ([memory-management.md §4](../../../docs/spec/current/memory-management.md)).
 ///
 /// Returns `None` rather than the swept count because `system.md` §`gc` says so;
 /// the count is available to Rust via [`VM::force_gc`].

@@ -2,20 +2,20 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: `docs/spec/v0.2/messages-and-selectors.md` §2–3; `docs/spec/v0.2/method-lookup.md` §1; `docs/spec/v0.2/object-model.md` §7; forge findings F1, F7, F8; [ADR-0009](0009-handle-arena-heap.md)
+- Related: `docs/spec/current/messages-and-selectors.md` §2–3; `docs/spec/current/method-lookup.md` §1; `docs/spec/current/object-model.md` §7; forge findings F1, F7, F8; [ADR-0009](0009-handle-arena-heap.md)
 
 > **Amended 2026-07-11:** canonical selector spelling is comma form
-> `move(_,to,duration)` (see [`docs/spec/v0.2/selectors.md`](../../spec/v0.2/selectors.md)); the
+> `move(_,to,duration)` (see [`docs/spec/current/selectors.md`](../../spec/current/selectors.md)); the
 > original colon spelling in this ADR is superseded. The decision and reasoning
 > below are otherwise unchanged — only the selector's string encoding changes.
 
 ## Context
 
 A Phalcom selector is an interned symbol encoding **name + argument labels**,
-Smalltalk style ([Messages & Selectors §2](../../spec/v0.2/messages-and-selectors.md)):
+Smalltalk style ([Messages & Selectors §2](../../spec/current/messages-and-selectors.md)):
 `move(to,duration)` and `move(_,_)` are **distinct methods**, and `name=(_)`,
 `+(_)`, `add(_,_)` are all their own selectors. Because labels are baked into the
-interned symbol, lookup stays a single hashmap probe ([Method Lookup §1](../../spec/v0.2/method-lookup.md)).
+interned symbol, lookup stays a single hashmap probe ([Method Lookup §1](../../spec/current/method-lookup.md)).
 
 The current tree dispatches on **arity only** (`SignatureKind::Method(u8)`), which
 cannot distinguish label sets and forces malformed encodings. The forge audit
@@ -63,12 +63,12 @@ into the rewrite rather than scheduling them as separate patches.
 - One `encode_selector` helper keeps compile-time and run-time selector construction
   byte-identical, closing the F8 divergence permanently.
 - The monomorphic IC slot is the hook for later polymorphic/megamorphic caching and
-  for the variadic-table fallback ([Messages & Selectors §4](../../spec/v0.2/messages-and-selectors.md)).
+  for the variadic-table fallback ([Messages & Selectors §4](../../spec/current/messages-and-selectors.md)).
 - **Inline-cache population is deferred.** Dispatch is built IC-*ready* here; the
   cache itself is a speed item in the deferred register, not part of the accepted
   decision. The shape is fixed now so adding the cache later is not a redesign.
 - `Signature` reserves a separate internal-binding field and the variadic flag now,
-  so external≠internal parameter names ([open question Q3](../../spec/v0.2/open-questions.md))
+  so external≠internal parameter names ([open question Q3](../../spec/current/open-questions.md))
   and variadics can be added later **without** changing selector identity.
 
 ## Alternatives considered

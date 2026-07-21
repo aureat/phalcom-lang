@@ -103,7 +103,7 @@ ever disagree, trust disk and fix this line.
 > ADR-0029 (list literals) is now **Accepted** — its sub-decisions (desugar-to-sends,
 > no subscript sugar, trailing comma) were ratified with the collections umbrella
 > [ADR-0032](accepted/0032-collections-representation-and-literals.md). Design in
-> [`docs/spec/v0.2/core/list-literal-syntax.md`](../spec/v0.2/core/list-literal-syntax.md).
+> [`docs/spec/current/syntax/list-literals.md`](../spec/current/syntax/list-literals.md).
 > (0028 is claimed by a concurrent unit's `Method`-reflection floor amendment.)
 
 > ADR-0032 (collections) was ratified by the user on 2026-07-12: native heap-arm
@@ -115,8 +115,8 @@ ever disagree, trust disk and fix this line.
 > ADR-0030 (Fibers & Futures) was ratified by the user on 2026-07-12, resolving the
 > concurrency execution-model open decision (open-question 15 → **Option A**, the
 > restricted re-entrant loop). It promotes the
-> [`concurrency-adr.md`](../spec/v0.2/experimental/concurrency-adr.md) draft and the
-> [`forward-compat.md §7`](../spec/v0.2/core/forward-compat.md) code-grounded audit.
+> [`concurrency-adr.md`](../design/experimental/v0.2/concurrency-adr.md) draft and the
+> [`forward-compat.md §7`](../spec/current/core/forward-compat.md) code-grounded audit.
 
 > ADR-0031 (error surface syntax) was ratified by the user on 2026-07-12: the
 > `throw`/`try`/`catch`/`on`/`ensure` spelling, 1:1 sugar over the ADR-0008 block
@@ -125,9 +125,9 @@ ever disagree, trust disk and fix this line.
 
 > ADR-0035 (iteration protocol) was ratified by the user on 2026-07-12, promoting
 > `experimental/iteration-protocol.md` to normative
-> [`iteration.md`](../spec/v0.2/iteration.md): a Wren-style `iterate`/`iteratorValue`
+> [`iteration.md`](../spec/current/iteration.md): a Wren-style `iterate`/`iteratorValue`
 > cursor, the `for` desugar, `break`/`continue`, and the inliner/`Fiber` interactions.
-> (`Result`/`Ok`/`Err` was promoted to normative [`result.md`](../spec/v0.2/result.md)
+> (`Result`/`Ok`/`Err` was promoted to normative [`result.md`](../spec/current/result.md)
 > in the same session under the existing ADR-0008.)
 
 > ADR-0033 (`CallBlock` trampoline) is **Deferred past v0.2**: the callback-generator
@@ -151,11 +151,11 @@ ever disagree, trust disk and fix this line.
 
 > ADRs 0024–0027 were ratified by the user on 2026-07-12, resolving open-questions
 > Q2 (numeric split + division), Q3 (parameter names), Q4 (hierarchy mutability), and
-> Q8 (modules). See [`docs/spec/v0.2/open-questions.md`](../spec/v0.2/open-questions.md).
+> Q8 (modules). See [`docs/spec/current/open-questions.md`](../spec/current/open-questions.md).
 
 > ADRs 0019–0020 were ratified by the user on 2026-07-11, clearing the U-LIST-plan
 > §0 gate: they derive from the experimental draft
-> `docs/spec/v0.2/experimental/bootstrapping-and-self-hosting.md` (D1, D2/DEC-A). 0019
+> `docs/spec/current/experimental/bootstrapping-and-self-hosting.md` (D1, D2/DEC-A). 0019
 > consolidates an existing boundary; 0020 resolves DEC-A.
 
 > ADR-0052 amends two unratified annotation/decorator drafts found during spec

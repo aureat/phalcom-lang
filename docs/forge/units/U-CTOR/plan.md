@@ -21,7 +21,7 @@ Touches `phalcom-ast/src/{lexer.rs,token.rs,ast.rs,parser.rs}`,
 `phalcom-core/src/compiler/{attributes.rs,lib/{class_decl.rs,expr.rs}}`,
 `phalcom-core/src/{method/mod.rs,vm/dispatch.rs,value/mod.rs,primitive/{class.rs,object.rs},universe/primitives.rs}`,
 `phalcom-core/core/core.ph`, `phalcom-lsp/src/*` (exhaustive-match fixups),
-`phalcom-core/tests/invariants.rs`, `docs/spec/v0.2/core/floor-census.md`, plus a
+`phalcom-core/tests/invariants.rs`, `docs/spec/current/core/floor-census.md`, plus a
 148+152-site `.ph` codemod.
 
 ---
@@ -50,8 +50,8 @@ dissolved, not closed; rewrite it to say so.
 - [ADR-0012](../../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md) — `SignatureKind::Initializer` retired (§9).
 - [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md) — **floor amendment**; census is normative.
 - [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md) — measure-first; the gate on U-CTOR-5.
-- `docs/spec/v0.2/classes.md` §1/§3 — **rewritten by this unit** (direction reversed).
-- `docs/spec/v0.2/selectors.md` §4 — `@construct` → `@constructor`, "Planned" → shipped.
+- `docs/spec/current/classes.md` §1/§3 — **rewritten by this unit** (direction reversed).
+- `docs/spec/current/selectors.md` §4 — `@construct` → `@constructor`, "Planned" → shipped.
 
 ---
 
@@ -295,7 +295,7 @@ ordinary instance-side super-send.
 | `phalcom-core/core/core.ph` | 4 | `class Class { new() => self.new_() }`; codemod 28 sites |
 | `phalcom-lsp/src/*` | 3 | 4 `Construct` refs — exhaustive-match fixups |
 | `phalcom-core/tests/invariants.rs` | 4 | **R-INV-0.1 selector strings + count (−1)** |
-| `docs/spec/v0.2/core/floor-census.md` | 4 | amendment row, net −1 fn/binding |
+| `docs/spec/current/core/floor-census.md` | 4 | amendment row, net −1 fn/binding |
 | corpus `.ph` ×~150 files | 2, 3 | codemod |
 
 ---

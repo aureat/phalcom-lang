@@ -1,7 +1,7 @@
 # U3 — Selector Dispatch (as-built)
 
 - **Status:** ✅ Landed — `5758f3c` (`feat(u3): update AST, parser, compiler, and Signature for label-encoded selectors`) + `ae16924` (`feat(u3): propagate errors in VM Invoke handler and update binary op selectors`) + `845f2f9` (`feat(u3): update primitive macros and bootstrap registrations in universe.rs`), 2026-07-11.
-- **Realizes:** [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors + inline-cache-ready dispatch); spec [messages-and-selectors §2–3](../../../spec/v0.2/messages-and-selectors.md), [method-lookup §1](../../../spec/v0.2/method-lookup.md), [object-model §7](../../../spec/v0.2/object-model.md), [selectors.md](../../../spec/v0.2/selectors.md).
+- **Realizes:** [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors + inline-cache-ready dispatch); spec [messages-and-selectors §2–3](../../../spec/current/messages-and-selectors.md), [method-lookup §1](../../../spec/current/method-lookup.md), [object-model §7](../../../spec/current/object-model.md), [selectors.md](../../../spec/current/selectors.md).
 - **Reviewer gate:** the review policy lists dispatch (**U3**) among the load-bearing, reviewer-**ON** units. STATE.md records U3 as landed (`✅ (ADR-0012)`) but — unlike U1/U2 — does not log an explicit reviewer PASS/BLOCK verdict for it. (Unknown; not invented here.)
 
 ## Mission
@@ -26,8 +26,8 @@ A selector is an interned symbol encoding **name + argument labels** (Smalltalk-
 - Later units assert against this substrate: U8's `decode_selector` round-trip unit tests, and the floor-census / dispatch goldens.
 
 ## Deviations & deferrals
-- **Inline-cache population is deferred** — dispatch is built IC-*ready* here; the cache itself is a speed item, not part of the accepted decision. See [deferred-work](../../../spec/v0.2/deferred-work.md).
-- Canonical selector spelling was **amended to comma form** (`move(_,to,duration)`, [selectors.md](../../../spec/v0.2/selectors.md)); ADR-0012's original colon spelling is superseded — decision and reasoning unchanged, only the string encoding. (The as-built `encode_selector` emits the `_:`/label`:` internal form seen in `method.rs`.)
+- **Inline-cache population is deferred** — dispatch is built IC-*ready* here; the cache itself is a speed item, not part of the accepted decision. See [deferred-work](../../../spec/current/deferred-work.md).
+- Canonical selector spelling was **amended to comma form** (`move(_,to,duration)`, [selectors.md](../../../spec/current/selectors.md)); ADR-0012's original colon spelling is superseded — decision and reasoning unchanged, only the string encoding. (The as-built `encode_selector` emits the `_:`/label`:` internal form seen in `method.rs`.)
 - The `Signature`'s reserved internal-binding field and variadic flag were added now but not populated until later units (variadics = U9).
 
 ## Sources

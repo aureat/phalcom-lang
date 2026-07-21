@@ -1,7 +1,7 @@
 # U5 — Control-Flow Inliner (as-built)
 
 - **Status:** ✅ Landed — `83c908a` (`feat(u5): lower operators to sends + sacred-selector inliner with override guards`). In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md) (sacred-selector inliner + override-epoch deopt guard); builds on [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors + IC-ready dispatch — the inliner is a coarse inline cache over the sacred selectors), [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (blocks). Spec: [control-flow.md](../../../spec/v0.2/control-flow.md) §1–3.
+- **Realizes:** [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md) (sacred-selector inliner + override-epoch deopt guard); builds on [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors + IC-ready dispatch — the inliner is a coarse inline cache over the sacred selectors), [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (blocks). Spec: [control-flow.md](../../../spec/current/control-flow.md) §1–3.
 - **Reviewer gate:** OFF per STATE.md review policy (U5 is not in the load-bearing hierarchy set U1/U2/U4/U6) — self-verified on the green gate + `cargo doc` + the §7 soundness tests.
 
 ## Mission
@@ -51,7 +51,7 @@ Non-local return through inlined blocks: inlined bodies are spliced into the hom
 - **Class reopening added** to `Statement::Class` (attach to an existing same-named global instead of shadowing) so a sacred override is testable from surface Phalcom; `install_core` now also registers kernel `Function`/`Block` as globals (they were silently shadowed — a real bug fixed this session).
 - **`if`/`else` desugars to `ifTrue(_:)ifFalse(_:)`**, not to an `Option`/`ifNone` chain — keeps U5 independent of U6.
 - **`for (x in xs)` deferred** — it desugars to `xs.each { … }`, a non-sacred send needing an iterable protocol no kernel type defines until collections exist.
-- **`repeat(_:)` deferred** — its receiver/semantics are unpinned (U5-plan BD-U5-2); only `whileTrue(_:)` is the inlinable loop selector. See [`docs/forge/DEFERRED.md`](../../DEFERRED.md) and [deferred-work.md](../../../spec/v0.2/deferred-work.md).
+- **`repeat(_:)` deferred** — its receiver/semantics are unpinned (U5-plan BD-U5-2); only `whileTrue(_:)` is the inlinable loop selector. See [`docs/forge/DEFERRED.md`](../../DEFERRED.md) and [deferred-work.md](../../../spec/current/deferred-work.md).
 
 ## Sources
 - Forge work order (`U5-plan.md`) folded into this spec (see git history); landing record: [`docs/forge/archive/phase2/STATE.md`](../../archive/phase2/STATE.md) "U5 — LANDED"; DEC-E in [`docs/forge/archive/phase2/PHASE2-INDEX.md`](../../archive/phase2/PHASE2-INDEX.md) §4.

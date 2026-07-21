@@ -12,7 +12,7 @@ Lex `#`-prefixed symbol literals so the language has first-class **name symbols*
   `tests/lang/collections/pending/literal_map_symbol_keys.ph`.
 - Future `perform` / reflection selector symbols.
 
-## Spec anchor — [selectors.md §2](../../../spec/v0.2/selectors.md) (AUTHORITATIVE, fully specified)
+## Spec anchor — [selectors.md §2](../../../spec/current/selectors.md) (AUTHORITATIVE, fully specified)
 Two value types, both backed by an interned `Symbol`:
 
 | Literal | Type | Meaning |
@@ -68,7 +68,7 @@ lexing alone.
 - `phalcom-core/src/compiler/lib.rs` (emit Symbol constant + canonicalize/intern)
 - `phalcom-core/src/value.rs` — **the Symbol#== arm ONLY** (coupled fix above)
 - `phalcom-core/tests/` (goldens + graduate the pending fixture)
-- `docs/spec/v0.2/selectors.md` §2 (mark IMPLEMENTED); `docs/forge/DEFERRED.md` (strike the two
+- `docs/spec/current/selectors.md` §2 (mark IMPLEMENTED); `docs/forge/DEFERRED.md` (strike the two
   resolved entries: `#IDENT` lexer hole + Symbol#==)
 - **Floor: expect +0** (pure lex/parse/compile + existing `Value::Symbol` + a 1-line eq arm; no new
   native binding). If a primitive turns out needed → STOP-and-report per ADR-0019.

@@ -10,7 +10,7 @@ record and carries only the cross-cutting coordination knowledge (collision matr
 discipline, resolved-decision register, successor-track pointer) that outlives any single unit.
 
 Chronological landing detail → [`STATE.md`](STATE.md). Deferral ledger → [`DEFERRED.md`](DEFERRED.md).
-Per-unit as-built specs → [`../spec/v0.2/units/`](units/).
+Per-unit as-built specs → [`../spec/current/units/`](units/).
 
 ---
 
@@ -18,8 +18,8 @@ Per-unit as-built specs → [`../spec/v0.2/units/`](units/).
 
 | Track | Status of record | As-built specs |
 |---|---|---|
-| Spine roster — U-FE, U0–U11, U-LIST, U-LEX, U-STD (**all landed**) | [`STATE.md`](STATE.md) "— LANDED ✅" sections | [`../spec/v0.2/units/U/`](units/) |
-| Successor core library — U-CORE-1..6 (partly landed) | [`../spec/v0.2/core/README.md`](../spec/v0.2/core/README.md) §"Status" | [`../spec/v0.2/units/U-CORE/`](units/) |
+| Spine roster — U-FE, U0–U11, U-LIST, U-LEX, U-STD (**all landed**) | [`STATE.md`](STATE.md) "— LANDED ✅" sections | [`../spec/current/units/U/`](units/) |
+| Successor core library — U-CORE-1..6 (partly landed) | [`../spec/current/core/README.md`](../spec/current/core/README.md) §"Status" | [`../spec/current/units/U-CORE/`](units/) |
 | In-flight batch — U12–U20, U-COLL (planning) | their per-unit `U*-plan.md` in this directory | (not yet) |
 
 ---
@@ -87,12 +87,12 @@ Full decision text + soft-flag rulings: [`archive/phase2/PHASE2-INDEX.md`](archi
 ## 5. Successor track — core library (U-CORE-1..6)
 
 The spine roster is closed. Ongoing core-library work is planned in a separate, HEAD-grounded track
-whose **index of record is [`../spec/v0.2/core/README.md`](../spec/v0.2/core/README.md)** — do not
+whose **index of record is [`../spec/current/core/README.md`](../spec/current/core/README.md)** — do not
 fork its roster here.
 
 | Unit | Mission (1-line) | As-built spec | Status |
 |---|---|---|---|
-| U-CORE-0 | requirements/rulings: floor census, bootstrap phases, catalog delta, invariant-requirements, forward-compat | [`core/README.md`](../spec/v0.2/core/README.md) | ✅ docs done |
+| U-CORE-0 | requirements/rulings: floor census, bootstrap phases, catalog delta, invariant-requirements, forward-compat | [`core/README.md`](../spec/current/core/README.md) | ✅ docs done |
 | U-CORE-1 | kernel reflection — `Object#hash`/`isA(_)`, `Behavior#name`/`methods`, `Method < Function` re-parent | [`1-kernel-reflection.md`](units/U-CORE-1/as-built.md) | ✅ landed (`03764e3`) |
 | U-CORE-2 | `Bool` half-Option fix + core `Option` combinators | [`2-bool-and-option-residue.md`](units/U-CORE-2/as-built.md) | mostly landed (`0da64d6`) |
 | U-CORE-3 | callables/`Block`/`Method` reflection — iteration-method prereq | [`3-callable-reflection.md`](units/U-CORE-3/as-built.md) | dispatch-ready (track head) |
@@ -114,4 +114,4 @@ and U-CORE-3 (R-INV-1.5/3.1) — never co-schedule them. `Object#hash` (U-CORE-1
 Sections 2–5 were transferred (2026-07-12) from the Phase-2 planning index, now archived at
 [`archive/phase2/PHASE2-INDEX.md`](archive/phase2/PHASE2-INDEX.md) — which remains the historical
 planning record (full roster, dependency notes, ADR/spec-edit backlog, cross-unit brief corrections).
-Successor-track links were re-grounded to the versioned spec tree (`../spec/v0.2/`).
+Successor-track links were re-grounded to the versioned spec tree (`../spec/current/`).

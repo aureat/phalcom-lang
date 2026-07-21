@@ -7,10 +7,10 @@
   (handle/arena heap, `Copy` `ObjRef`), [ADR-0011](0011-static-instance-slot-layout.md)
   (fixed per-class slot layout), [ADR-0013](0013-closure-upvalues-and-frame-token-return.md)
   (non-local return / unwind), [ADR-0050](0050-non-moving-mark-sweep-collector.md)
-  (mark-sweep collector), `docs/spec/v0.2/experimental/annotations-contract-semantics.md`
-  (invariant re-entrancy — the bug this amends), `docs/spec/v0.2/decorators/README.md`
-  + `docs/spec/v0.2/decorators/on.md` (tier model; attribute-classes.md
-  already states the rule this ADR enforces), `docs/spec/v0.2/drafts/decorators-stdlib.md`
+  (mark-sweep collector), `docs/spec/current/experimental/annotations-contract-semantics.md`
+  (invariant re-entrancy — the bug this amends), `docs/spec/current/decorators/README.md`
+  + `docs/spec/current/decorators/on.md` (tier model; attribute-classes.md
+  already states the rule this ADR enforces), `docs/spec/current/drafts/decorators-stdlib.md`
   (`@computed` — the violation this amends), `docs/forge/units/U-ANNOT-CONTRACTS/plan.md`
   (the two erratum fixes below — ownership-tracking pseudocode, fiber-switch
   `checking` state — were surfaced during that unit's build-order grounding,

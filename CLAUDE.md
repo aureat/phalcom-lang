@@ -57,7 +57,7 @@ Cargo workspace (edition 2024, resolver 2). Members:
 Bootstrap core library written in Phalcom, loaded at startup to define base classes.
 
 ### `phalcom-repl/src`
-REPL built on `reedline`. Crate exposes `lib.rs` with `validator`, `snapshot`, `oracle`, `completer`, `highlighter`, and `repl` modules. Binary entrypoint is `main.rs`. Implements multi-line continuation, snapshot-oracle-backed autocompletion, lexer-backed syntax highlighting, and state management commands like `:reload`. Completion and highlighting are **not** LSP-backed: `phalcom-lsp` is a declared dependency with no `use` anywhere in `phalcom-repl/src/`, because the LSP-backed layer is deferred until ADR-0056 is ratified ([PDR-0009](docs/decisions/0009-defer-lsp-backed-repl-surface.md)).
+REPL built on `reedline`. Crate exposes `lib.rs` with `validator`, `snapshot`, `oracle`, `completer`, `highlighter`, and `repl` modules. Binary entrypoint is `main.rs`. Implements multi-line continuation, snapshot-oracle-backed autocompletion, lexer-backed syntax highlighting, and state management commands like `:reload`. Completion and highlighting are **not** LSP-backed: `phalcom-lsp` is a declared dependency with no `use` anywhere in `phalcom-repl/src/`, because the LSP-backed layer is deferred until ADR-0056 is ratified ([PDR-0009](docs/pdr/0009-defer-lsp-backed-repl-surface.md)).
 
 ## Build / run / test
 
@@ -70,7 +70,7 @@ cargo clippy --workspace                 # lints
 ```
 
 Example programs live in `examples/*.ph` (e.g. `simple.ph`, `calculator.ph`, `person*.ph`).
-The object-model design spec is `docs/spec/v0.2/object-model.md`.
+The object-model design spec is `docs/spec/current/object-model.md`.
 
 ## Conventions
 
@@ -81,9 +81,9 @@ The object-model design spec is `docs/spec/v0.2/object-model.md`.
   docs) is in [`docs/rust-documentation-guidelines.md`](docs/rust-documentation-guidelines.md).
   Undocumented public API is an incomplete change.
 - Rust 2024 edition across all crates; shared deps are pinned in the root `[workspace.dependencies]`.
-- Errors use `thiserror` (the diagnostics renderer is in-house, not `miette` — [PDR-0014](docs/decisions/0014-diagnostics-renderer-is-in-house.md)); prefer surfacing spans via `phalcom-common` ranges.
+- Errors use `thiserror` (the diagnostics renderer is in-house, not `miette` — [PDR-0014](docs/pdr/0014-diagnostics-renderer-is-in-house.md)); prefer surfacing spans via `phalcom-common` ranges.
 - The object model follows Smalltalk-style semantics; method lookup keys on signature symbols
-  (arity + kind encoded), so `foo` and `foo(_)` can coexist. See `docs/spec/v0.2/object-model.md` for the
+  (arity + kind encoded), so `foo` and `foo(_)` can coexist. See `docs/spec/current/object-model.md` for the
   target design and current deviations before changing class/metaclass wiring.
 
 ## graphify

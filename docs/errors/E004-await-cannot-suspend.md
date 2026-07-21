@@ -124,7 +124,7 @@ header while living in the passing directory, so it runs as a green test.
 
 Slice B landed in `06432bd` (2026-07-14). Three records still describe it as unbuilt:
 
-- `docs/spec/v0.2/concurrency.md:187` — `await` status `B`, not landed.
+- `docs/spec/current/concurrency.md:187` — `await` status `B`, not landed.
 - `docs/forge/units/U-FUTURE/plan.md:109-110` — `async(_)`/`await` "**B (DEFERRED → DEC-FUT-SCHED)**".
 - `phalcom-core/core/core.ph:1335-1338` — the `Future` class doc comment says `async(_)`/`await` are
   "deliberately NOT built here", eleven lines above their implementations.

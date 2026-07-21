@@ -1,6 +1,6 @@
 # 26. Methods are open; superclass reparenting is sealed
 
-> **RETIRED 2026-07-19 by [PDR-0001](../../decisions/0001-classes-are-closed.md).**
+> **RETIRED 2026-07-19 by [PDR-0001](../../pdr/0001-classes-are-closed.md).**
 > **Axis 1 is reversed** — classes are closed after definition; class reopening is removed
 > from the language. **Axis 2 is unchanged and strengthened** — the superclass link stays
 > sealed. This ADR's own rejection of "fully sealed (Wren)" reasoned that *"Axis 1 is free
@@ -10,7 +10,7 @@
 > made Axis 1 free, is **retained** — it backs bootstrap and the deferred reflection layer,
 > just no longer this argument. See 0065 for the verified mechanics.
 >
-> This file stays in `accepted/` pending the `docs/adr` → `docs/decisions` migration; its
+> This file stays in `accepted/` pending the `docs/adr` → `docs/pdr` migration; its
 > status line above is authoritative, not its path.
 
 - Status: Retired (superseded by PDR-0001, 2026-07-19)
@@ -19,7 +19,7 @@
   [ADR-0017](0017-class-side-stored-static-fields.md) (class-side field offsets up the tower),
   [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md) (override-epoch deopt guard),
   [ADR-0009](0009-handle-arena-heap.md) (handle heap — makes a future reshape implementable),
-  `docs/spec/v0.2/object-model.md`, `docs/spec/v0.2/open-questions.md` Q4
+  `docs/spec/current/object-model.md`, `docs/spec/current/open-questions.md` Q4
 
 ## Context
 

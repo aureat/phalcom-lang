@@ -6,7 +6,7 @@
   latch) plus `cdd2117` (`temp_roots` push/pop escape hatch, paired fix)
 - Reviewed against: [U-GC plan.md](../forge/units/U-GC/plan.md) §3/Rubric/§7/§10,
   [ADR-0050](../adr/accepted/0050-non-moving-mark-sweep-collector.md),
-  [memory-management.md](../spec/v0.2/memory-management.md) §1–§7
+  [memory-management.md](../spec/current/memory-management.md) §1–§7
 - Reviewer: done in-conversation, no subagent — the collector was already landed and green on
   `main`; this is the missing independent adversarial pass the plan's own text required
   ("Reviewer ON — hand the diff to `phalcom-reviewer`; do not self-approve") but that, on the

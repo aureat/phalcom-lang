@@ -2,18 +2,18 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: `docs/spec/v0.2/control-flow.md` §2–§3; [ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md); [ADR-0006](0006-function-as-abstract-callable-root.md); [ADR-0012](0012-selector-signature-encoding-and-dispatch.md); [ADR-0013](0013-closure-upvalues-and-frame-token-return.md)
+- Related: `docs/spec/current/control-flow.md` §2–§3; [ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md); [ADR-0006](0006-function-as-abstract-callable-root.md); [ADR-0012](0012-selector-signature-encoding-and-dispatch.md); [ADR-0013](0013-closure-upvalues-and-frame-token-return.md)
 
 ## Context
 
 Control flow in Phalcom is not built into the grammar — `if`/`while` desugar to
 ordinary message sends (`ifTrue(_:ifFalse:)`, `whileTrue(_:)`) over block literals,
 and boolean `and`/`or` are lazy sends over a block argument
-([control-flow.md §2](../../spec/v0.2/control-flow.md)). This keeps the object model
+([control-flow.md §2](../../spec/current/control-flow.md)). This keeps the object model
 uniform (Bool and Block are real classes with overridable methods) but makes the
 *hot path of every program* a closure allocation plus a call frame per branch and
 per loop iteration. The spec is explicit that the inliner is **load-bearing**
-([control-flow.md §3](../../spec/v0.2/control-flow.md), Invariant 5): "If blocks are slow,
+([control-flow.md §3](../../spec/current/control-flow.md), Invariant 5): "If blocks are slow,
 users learn to avoid them and every other decision in the spec unravels."
 
 This is the canonical **speculative inlining ⊗ late binding** hazard. Splicing the
@@ -71,9 +71,9 @@ each is intentional and, where the spec is affected, the spec should be reconcil
 match (or an open question resolved) rather than the code changed back.
 
 1. **Selector spelling `ifTrue(_:ifFalse:)` vs spec's `ifTrue(_)ifFalse(_)`.**
-   [control-flow.md §3](../../spec/v0.2/control-flow.md) lists the paired conditional as the
+   [control-flow.md §3](../../spec/current/control-flow.md) lists the paired conditional as the
    comma/positional form `ifTrue(_)ifFalse(_)` (two block-typed positional slots),
-   flagged against an [open question](../../spec/v0.2/open-questions.md). The implementation
+   flagged against an [open question](../../spec/current/open-questions.md). The implementation
    uses the keyword-labelled selector `ifTrue(_:ifFalse:)` because that is what the
    surface desugaring of `if/else` and the existing selector encoder
    ([ADR-0012](0012-selector-signature-encoding-and-dispatch.md)) naturally produce.
@@ -107,7 +107,7 @@ match (or an open question resolved) rather than the code changed back.
 
 ## Amendment (U-CORE-2): one-armed sacred conditionals are `Some`-lifting
 
-`docs/spec/v0.2/core/catalog-delta.md` §4.2 flagged a confirmed divergence: `ifTrue(_)`/
+`docs/spec/current/core/catalog-delta.md` §4.2 flagged a confirmed divergence: `ifTrue(_)`/
 `ifFalse(_)` returned a **half-`Option`** (the taken arm's raw block result, the
 untaken arm `None`) rather than a well-formed `Option` (`Some(A) ∪ None`), even
 though `object-model.md` §4 and `control-flow.md` §1's `if/else ===

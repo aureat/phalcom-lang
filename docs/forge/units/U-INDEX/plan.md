@@ -56,7 +56,7 @@ buys more than it costs.
 
 ## Spec anchor
 
-- [collection-protocol.md](../../../spec/v0.2/core/collection-protocol.md) §2–3 —
+- [collection-protocol.md](../../../spec/current/core/collection-protocol.md) §2–3 —
   `at(_)` is a **total** operation (`Option`-shaped: raw value or `None`,
   never a raise) per law 1; `at(_,put:)` is `List`'s ordered/mutable
   refinement. `[](...)`/`[](...,put:)` are new `core.ph` methods that
@@ -404,7 +404,7 @@ follow-on to it. Reasons:
   `[i] {}` (read-only) on `Tuple`, each a one-line delegation to `at(_)`/`at(_,put:)`.
 - `docs/adr/accepted/0060-index-operator-as-real-selector.md` — the ADR (already
   existed, Accepted; amended in this pass to record what landed).
-- `docs/spec/v0.2/lexical-structure.md` — new section for `[]` call-site syntax
+- `docs/spec/current/lexical-structure.md` — new section for `[]` call-site syntax
   and the bracket-method definition form.
 - `phalcom-core/bin/gen-core-table/main.rs`, `phalcom-lsp/src/{completion,hover,
   index,selectors,semantic_tokens}.rs` — exhaustive-match fixups for the two new
@@ -627,7 +627,7 @@ U-ITERABLE's gate-clean status), including the `range_dnu`/`empty_arg_dnu`/
 (`'[_]'`, `'[]'`) · `benchmarks/math/stats.ph` comment reference corrected
 from the retired ADR-0055 to ADR-0060 · ADR-0060 amended in this pass to
 record what landed (was previously "none of this is implemented yet") ·
-`docs/spec/v0.2/lexical-structure.md` gained a `[]` call-site + bracket-method
+`docs/spec/current/lexical-structure.md` gained a `[]` call-site + bracket-method
 section · floor delta: **+0** confirmed, no `primitive/*.rs`/`Value`/opcode
 changes · `cargo build && cargo test -p phalcom-core --test lang && cargo
 clippy --workspace` green (clippy/doc warning counts unchanged vs. main

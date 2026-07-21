@@ -28,7 +28,7 @@ _Self-contained implementation plan for **one** implementer. Runtime/heap unit �
 no `core.ph` protocol. **Reviewer ON** (touches spine files `heap.rs`, `vm.rs`) — hand the diff to
 `phalcom-reviewer`; do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
 `cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0050](../../../adr/0050-non-moving-mark-sweep-collector.md)**
-and normative **[memory-management.md](../../../spec/v0.2/memory-management.md) §1–§7**. Governing ADR:
+and normative **[memory-management.md](../../../spec/current/memory-management.md) §1–§7**. Governing ADR:
 ADR-0050 (Proposed — ratify before merge, or land behind the flag; see §8 DEC-GC-A)._
 
 > **Provenance.** Design verified against HEAD 2026-07-13: `Heap = SlotMap<ObjRef, Object>` (`slotmap = "1"`
@@ -45,7 +45,7 @@ ADR-0050 (Proposed — ratify before merge, or land behind the flag; see §8 DEC
 >    single-file paths — read it as directories.
 > 2. **`size_of::<Object>()` = 280 B, not 256 B — it grew.** `ClassObject` gained `attributes: Vec<Value>`
 >    + `attributes_frozen` (U-ANNOT) and now *is* the whole 280 B. Win A is **six** variants, not "the
->    driver(s)" — see the measured ladder in [memory-management.md §7](../../../spec/v0.2/memory-management.md),
+>    driver(s)" — see the measured ladder in [memory-management.md §7](../../../spec/current/memory-management.md),
 >    which supersedes ADR-0050 §9's list. Boxing `Instance` (24 B) would be counterproductive.
 > 3. **§2.3's edge table was stale and is now regenerated** (memory-management.md §2.3, 16 variants,
 >    field-level). It had **two missed edges that would each free a live object**: `Block.closure` (the
@@ -95,7 +95,7 @@ ADR-0050 (Proposed — ratify before merge, or land behind the flag; see §8 DEC
 
 ## 1. Mission (one sentence)
 Land Phalcom's first real reclamation — a **non-moving, precise, stop-the-world mark-sweep** collector on
-the existing `SlotMap` heap ([memory-management.md §3](../../../spec/v0.2/memory-management.md)), wire
+the existing `SlotMap` heap ([memory-management.md §3](../../../spec/current/memory-management.md)), wire
 `System.gc` to it, discharge the **safepoint / temp-root** obligation for native code (§4, the only way the
 collector can lose a live object), and ship the two orthogonal, independently-green memory wins — **`Box`
 the fat `Object` variants** (measured 256 B → ~24–32 B) and **pool fiber stacks** — with **zero change to
@@ -109,7 +109,7 @@ the `ObjRef`/`ClassId`/`Value` surface** and **no `unsafe`**.
   has appeared, **stop** — Invariant M4 (no finalization) is violated and the design must be revisited.
 - **Roots reified** — `VM::stack: Vec<Value>`, `VM::frames: Vec<CallFrame>`, `VM::open_upvalues`,
   `VM::current`, `VM::modules`/`main_module`/`last_imported_module`, `VM::classes`, `VM::universe`. Confirm
-  the field names on HEAD (the root set of [memory-management.md §2.1](../../../spec/v0.2/memory-management.md)
+  the field names on HEAD (the root set of [memory-management.md §2.1](../../../spec/current/memory-management.md)
   is normative — a *missed* root frees live objects; an *extra* non-root over-retains but is safe).
 - **`Chunk::constants: Vec<Value>`** exists (const pools are a trace edge). Confirm.
 - **`FiberObject`** owns `stack`/`frames`/`open_upvalues`/`resumer`/`result`/`entry`. Confirm — these are
@@ -122,11 +122,11 @@ the `ObjRef`/`ClassId`/`Value` surface** and **no `unsafe`**.
 
 ## 3. Design (realise memory-management.md — do not re-litigate the algorithm)
 
-### 3.1 Marks in a side table — no struct churn ([spec §3](../../../spec/v0.2/memory-management.md))
+### 3.1 Marks in a side table — no struct churn ([spec §3](../../../spec/current/memory-management.md))
 Add a `SecondaryMap<ObjRef, ()>` to `Heap` (or a throwaway per-collection local). **No `mark` field on any
 `Object` variant.** Cleared each cycle. This is the non-invasive core: 16 object structs untouched.
 
-### 3.2 Precise trace — one exhaustive match ([spec §2.3](../../../spec/v0.2/memory-management.md))
+### 3.2 Precise trace — one exhaustive match ([spec §2.3](../../../spec/current/memory-management.md))
 `fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef))` — an **exhaustive** `match` over `Object`
 (the compiler then forces every future variant to declare its edges) yielding every child handle per the
 §2.3 table. Visit `Value` children through a **single `Value::as_obj() -> Option<ObjRef>` accessor**, never
@@ -134,7 +134,7 @@ by matching `Value`'s tags — this is the seam that keeps the collector NaN-box
 to `value.rs` if absent). Mark with an **explicit worklist** `Vec<ObjRef>`, never Rust recursion (a deep
 `List`/`Instance` chain must not overflow the native stack).
 
-### 3.3 Collect = mark then `retain` ([spec §3](../../../spec/v0.2/memory-management.md))
+### 3.3 Collect = mark then `retain` ([spec §3](../../../spec/current/memory-management.md))
 ```rust
 pub fn collect(&mut self, roots: &Roots) {
     let mut marks = SecondaryMap::new();
@@ -149,7 +149,7 @@ pub fn collect(&mut self, roots: &Roots) {
 `Roots::each_handle` lives on the VM (it alone knows the root set §2.1) and **must** include the kernel
 (`universe`) and the `temp_roots` stack. Non-moving: surviving objects keep their key (Invariant M1).
 
-### 3.4 Safepoint latch + temp roots — the real work ([spec §4](../../../spec/v0.2/memory-management.md))
+### 3.4 Safepoint latch + temp roots — the real work ([spec §4](../../../spec/current/memory-management.md))
 - `Heap::alloc` accrues live size and **latches** `gc_pending` past a self-tuning threshold
   (`next_gc = live * grow`, grow ≈ 1.5, floored) — it does **not** collect in place.
 - The dispatch loop services `gc_pending` **only at a back-edge safepoint**, where `VM::stack`/`frames`
@@ -163,18 +163,18 @@ pub fn collect(&mut self, roots: &Roots) {
   (receiver/args) need none. **List this audit explicitly in the return contract** — a missed site is a
   silently-lost live object (Invariant M3).
 
-### 3.5 `System.gc` ([spec §5](../../../spec/v0.2/memory-management.md))
+### 3.5 `System.gc` ([spec §5](../../../spec/current/memory-management.md))
 Wire the `gc` primitive (currently a spec'd no-op stub, `system.md` §`gc`) to `Heap::collect` at the
 safepoint, returning `None`. No finalizers, no compaction, handles stable.
 
-### 3.6 Companion win A — `Box` the fat variants ([spec §7](../../../spec/v0.2/memory-management.md), **independent, ship first**)
+### 3.6 Companion win A — `Box` the fat variants ([spec §7](../../../spec/current/memory-management.md), **independent, ship first**)
 `size_of::<Object>()` = **280 B measured on HEAD 2026-07-14** (not the 256 B in ADR-0050 — `ClassObject`
 grew by `attributes: Vec<Value>` + `attributes_frozen` under U-ANNOT, and now *is* the whole 280 B). The
 `SlotMap` slot is sized to the fattest variant, so every `Str`/`Range`/small instance pays it, taxing the
 hot `heap.get` path.
 
 The per-variant ladder is **already measured** — see the table in
-[memory-management.md §7](../../../spec/v0.2/memory-management.md); do not re-derive it. Box **six**
+[memory-management.md §7](../../../spec/current/memory-management.md); do not re-derive it. Box **six**
 variants — `Class` (280), `Fiber` (176), `Module` (168), `Closure` (160), `Method` (88), `Map`/`Set` (72) —
 so `Range` (40) becomes the cap and the `<= 48` bound in §7 holds. `Object::Class(Box<ClassObject>)`, etc.
 **Do not box `Instance`** (24 B): it is already below the floor and is the most-allocated variant, so a
@@ -186,7 +186,7 @@ dependency — land it as the first commit for a standalone measurable win**, th
 `size_of::<Object>()` and record the number in the return contract. Re-measure with
 `cargo +nightly rustc -p phalcom-core --lib -- -Zprint-type-sizes` (the method used for the ladder).
 
-### 3.7 Companion win B — fiber-stack pool ([spec §7](../../../spec/v0.2/memory-management.md), **independent**)
+### 3.7 Companion win B — fiber-stack pool ([spec §7](../../../spec/current/memory-management.md), **independent**)
 Pool and reuse `FiberObject::stack`/`frames` `Vec`s across fiber deaths instead of fresh-allocating per
 fiber (Skynet allocates ~1M fibers). A free-list of `Vec<Value>`/`Vec<CallFrame>` on the VM, handed out at
 fiber creation and returned when a fiber reaches `Finished`/`Failed`. **Zero observable semantic change.**
@@ -217,12 +217,12 @@ The exhaustive `match` (§3.2) is what forces every future tier to declare its e
 that discipline — not a decorator-aware tracer — is the defence.
 
 ### Rubric — hazards & preclusion (mandatory)
-- **Safepoint ⊗ re-entrant native handle (THE load-bearing check, [spec §4](../../../spec/v0.2/memory-management.md)).**
+- **Safepoint ⊗ re-entrant native handle (THE load-bearing check, [spec §4](../../../spec/current/memory-management.md)).**
   The collector is sound **iff** no live object is reachable only from a Rust local across a re-entrant send
   at a safepoint. The §3.4 audit + temp-root scopes discharge this. Guard with a **stress test**: a
   primitive path that allocs-then-re-enters under a forced `System.gc` between the two, asserting the object
   survives (see §7).
-- **Moving ⊗ handle stability (why non-moving, [spec §3](../../../spec/v0.2/memory-management.md)).** IC tags
+- **Moving ⊗ handle stability (why non-moving, [spec §3](../../../spec/current/memory-management.md)).** IC tags
   (ADR-0012), `==` identity (`value_eq`), and suspended-fiber `Value`s all assume a handle names the same
   object forever. Non-moving mark-sweep preserves this (M1). Do **not** compact in this unit.
 - **Finalizer ⊗ unwind (absent by construction, M4).** No `impl Drop` on the graph → GC runs no user code →
@@ -268,7 +268,7 @@ or a separate doc-sync commit updates the ledger, never this unit's code diff).
 
 ## 5. Build order (small, independently-green diffs)
 0. **Step 0 — re-ground the normative tables against HEAD. DONE 2026-07-14** (see Provenance): §2.1 root set
-   and §2.3 edge table regenerated in [memory-management.md](../../../spec/v0.2/memory-management.md); §7
+   and §2.3 edge table regenerated in [memory-management.md](../../../spec/current/memory-management.md); §7
    size ladder measured; this plan's drifts annotated. Doc-only, no code. **Do not start step 1 from the
    pre-step-0 tables** — they carry two live free-a-live-object bugs (`Block.closure`, `Upvalue::Open.fiber`).
 1. **Win A — `Box` fat variants.** Ladder already measured (§3.6) — box the six named variants, not
@@ -349,8 +349,8 @@ Each step is a self-verifiable commit; never commit a non-compiling tree.
 
 ## 10. Return contract (report to `phalcom-reviewer`)
 The `Object` variants boxed + **before/after `size_of::<Object>()`** (measured) · the `trace_object` edge
-coverage vs [spec §2.3](../../../spec/v0.2/memory-management.md) (confirm every variant's handles/Values
-visited) · the exact `Roots::each_handle` root set vs [spec §2.1](../../../spec/v0.2/memory-management.md)
+coverage vs [spec §2.3](../../../spec/current/memory-management.md) (confirm every variant's handles/Values
+visited) · the exact `Roots::each_handle` root set vs [spec §2.1](../../../spec/current/memory-management.md)
 (confirm kernel + temp_roots included; confirm `field_layouts`/symbol maps correctly excluded) · **the
 full §3.4 temp-root audit list** — every primitive site that holds a fresh handle across a re-entrant send
 and how it was protected (the load-bearing deliverable) · the safepoint wiring (where `gc_pending` is

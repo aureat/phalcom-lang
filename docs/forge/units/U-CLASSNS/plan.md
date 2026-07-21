@@ -1,6 +1,6 @@
 # U-CLASSNS — Work order: class identity becomes module-scoped
 
-_Unit **A** of two implementing [PDR-0001](../../../decisions/0001-classes-are-closed.md)
+_Unit **A** of two implementing [PDR-0001](../../../pdr/0001-classes-are-closed.md)
 (ruling 1). Unit B is [`U-CLASSCLOSE`](../U-CLASSCLOSE/plan.md) and **must land after this
 one** — its redefinition error is undecidable without module-scoped identity._
 

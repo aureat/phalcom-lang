@@ -1,7 +1,7 @@
 # U-FIBER — Specification: cooperative `Fiber` (bare) on the restricted re-entrant loop
 
 > **Status:** Normative surface (deepens the ratified spec). Unit-scoped, full-detail
-> specification for U-FIBER. It **extends** [`concurrency.md`](../../../spec/v0.2/concurrency.md)
+> specification for U-FIBER. It **extends** [`concurrency.md`](../../../spec/current/concurrency.md)
 > §1 (Draft 0.1, execution model ratified by
 > [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)) — that
 > document stays the surface index; this one adds the `FiberObject` state machine, the
@@ -13,8 +13,8 @@
 > worked examples, and conformance points.
 >
 > **Governing sources.** [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
-> §1–§7 (the execution model — the whole thing); [`concurrency.md`](../../../spec/v0.2/concurrency.md)
-> §1 (the surface); [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §7
+> §1–§7 (the execution model — the whole thing); [`concurrency.md`](../../../spec/current/concurrency.md)
+> §1 (the surface); [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §7
 > (the code-grounded foreclosure audit, D1–D7 + the re-entrant-loop finding);
 > [ADR-0009](../../../adr/0009-handle-arena-heap.md) (arena heap — `Object::Fiber`, no
 > native fiber stacks); [ADR-0010](../../../adr/0010-tagged-value-enum.md) (tagged
@@ -38,7 +38,7 @@
 
 ## 1. Surface
 
-*Deepens [`concurrency.md`](../../../spec/v0.2/concurrency.md) §1.* `Fiber` is an
+*Deepens [`concurrency.md`](../../../spec/current/concurrency.md) §1.* `Fiber` is an
 independently-suspendable call stack — the **sole** concurrency primitive. Both the
 instance and class sides are ordinary metaclass methods (ADR-0030 §Consequences, D6).
 
@@ -46,7 +46,7 @@ instance and class sides are ordinary metaclass methods (ADR-0030 §Consequences
 
 | Signature | Side | Meaning |
 |---|---|---|
-| `construct new(_)` | class | wrap a [`Function`](../../../spec/v0.2/functions.md) as a not-yet-started (`suspended`) fiber |
+| `construct new(_)` | class | wrap a [`Function`](../../../spec/current/functions.md) as a not-yet-started (`suspended`) fiber |
 | `call` / `call(_)` | instance | resume; the argument becomes the value of the suspended `yield` (or the entry's parameter on first resume). Returns the next yielded/returned value. **Re-raises** if the fiber fails. |
 | `try` / `try(_)` | instance | like `call`, but a failure yields the captured `Error` value (or `None`) instead of propagating |
 | `isDone` | instance | `true` once `done` or `failed` |
@@ -148,9 +148,9 @@ never `done`/`failed` under normal termination and has no resumer.
 
 ## 3. Execution model — restricted yield (Option A)
 
-*Deepens [`concurrency.md`](../../../spec/v0.2/concurrency.md) §1 "Execution model";
+*Deepens [`concurrency.md`](../../../spec/current/concurrency.md) §1 "Execution model";
 grounded in [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4
-and [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §7.2.*
+and [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §7.2.*
 
 ### 3.1 The crown-jewel hazard — native-stack frames ⊗ suspendable control {#the-crown-jewel}
 
@@ -268,7 +268,7 @@ boundary raises `DeadFrameError`." **This falls out with no new code**, provided
 ## 5. Failure and the fiber-floor unwind
 
 *Grounded in [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §6,
-[`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §7.1 D7,
+[`forward-compat.md`](../../../spec/current/core/forward-compat.md) §7.1 D7,
 [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md), and the landed U-CORE-6
 unwind.*
 
@@ -367,7 +367,7 @@ land ([[U-ITER §9 C-ITER-8]](../U-ITER/specification.md#9-conformance-points-ma
 ### 7.2 `Fiber` ⊗ `Future` — the resumer/result-slot seam (with [[U-FUTURE]](../U-FUTURE/specification.md)) {#future-seam}
 
 *Cross-links [[U-FUTURE §The Fiber seam]](../U-FUTURE/specification.md#the-fiber-seam);
-[`concurrency.md`](../../../spec/v0.2/concurrency.md) §2; ADR-0030 §1.*
+[`concurrency.md`](../../../spec/current/concurrency.md) §2; ADR-0030 §1.*
 
 `Future`/`async`/`await` are a **Deferred post-v0.2 track** ([[U-FUTURE]](../U-FUTURE/specification.md)),
 **not** built here. But U-FIBER must leave them layerable: `await` will be defined as "add

@@ -7,11 +7,11 @@ all five tiers), **[ADR-0052](../adr/0052-invariant-reentrancy-scope-and-layout-
 **[ADR-0053](../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)** (Runtime
 interceptor guard bit), **[ADR-0057](../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)**
 (decorator vs `Proxy` split), and the normative specs
-[attribute-classes.md](../spec/v0.2/decorators/on.md),
-[decorators.md](../spec/v0.2/decorators/README.md),
-[decorators-behavioral.md](../spec/v0.2/drafts/decorators-behavioral.md),
-[decorators-dispatch-observability.md](../spec/v0.2/drafts/decorators-dispatch-observability.md),
-[decorators-observable.md](../spec/v0.2/drafts/decorators-observable.md)._
+[attribute-classes.md](../spec/current/decorators/on.md),
+[decorators.md](../spec/current/decorators/README.md),
+[decorators-behavioral.md](../spec/current/drafts/decorators-behavioral.md),
+[decorators-dispatch-observability.md](../spec/current/drafts/decorators-dispatch-observability.md),
+[decorators-observable.md](../spec/current/drafts/decorators-observable.md)._
 
 ---
 

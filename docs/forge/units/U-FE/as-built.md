@@ -1,7 +1,7 @@
 # U-FE — Hand-written Lexer + Recursive-descent Parser (as-built)
 
 - **Status:** ✅ Landed — ADR-0016 front-end rewrite (in-tree on `main`; F10 EOF fix `f6d8753`, invalid-token span `4045085`). No single squash sha — the unit predates the per-unit commit discipline; it is recorded as landed in `../../archive/phase2/STATE.md` (Phase log + "U-FE follow-ups").
-- **Realizes:** [ADR-0016](../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md); spec [lexical-structure.md](../../../spec/v0.2/lexical-structure.md), [messages-and-selectors.md](../../../spec/v0.2/messages-and-selectors.md). Closes forge fixes **F9** (`SyntaxError::Display` was `todo!()` → panicked on any parse error) and **F10** (trailing-newline file failed to parse).
+- **Realizes:** [ADR-0016](../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md); spec [lexical-structure.md](../../../spec/current/lexical-structure.md), [messages-and-selectors.md](../../../spec/current/messages-and-selectors.md). Closes forge fixes **F9** (`SyntaxError::Display` was `todo!()` → panicked on any parse error) and **F10** (trailing-newline file failed to parse).
 - **Reviewer gate:** Not independently reviewed — the session ended before a `phalcom-reviewer` pass; the unit self-reports green build + `cargo doc` clean (`../../archive/phase2/STATE.md` §"U-FE follow-ups"). User confirmed the parser/lexer finished; later units (U4/U6/U7/U-LEX) extended it in place, exercising it heavily.
 
 ## Mission
@@ -54,4 +54,4 @@ Front end, all in `phalcom-ast/src` (`phalcom-core` compiler and every AST snaps
 - ADR: [0016-hand-written-lexer-and-recursive-descent-parser.md](../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md)
 - Code: `phalcom-ast/src/lexer.rs`, `phalcom-ast/src/token.rs`, `phalcom-ast/src/parser.rs`, `phalcom-ast/src/ast.rs`, `phalcom-ast/src/error.rs`; tests `phalcom-ast/tests/lexer.rs`, `phalcom-ast/tests/parser.rs`.
 - Forge: [STATE.md](../../archive/phase2/STATE.md) (Phase log; "U-FE follow-ups"); [PHASE2-INDEX.md](../../archive/phase2/PHASE2-INDEX.md).
-- Deferred: [deferred-work.md](../../../spec/v0.2/deferred-work.md); [DEFERRED.md](../../DEFERRED.md) #12/#32.
+- Deferred: [deferred-work.md](../../../spec/current/deferred-work.md); [DEFERRED.md](../../DEFERRED.md) #12/#32.

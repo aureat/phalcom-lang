@@ -4,8 +4,8 @@ _Self-contained implementation plan for **one** implementer. Load-bearing object
 (edits `compiler/lib.rs`, `vm.rs`, `bytecode.rs`, and the class-creation wiring) — **Reviewer ON**;
 hand the diff to `phalcom-reviewer`, do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
 `cargo doc --workspace --no-deps` clean + `verify_invariants()` green. Grounded in normative
-**[object-model.md §5 (metaclass rules 1–5)](../../../spec/v0.2/object-model.md)** and
-**[method-lookup.md §1.14 / §2](../../../spec/v0.2/method-lookup.md)**, and in **[ADR-0002](../../../adr/0002-metaclass-tower-parallel-rule.md)**
+**[object-model.md §5 (metaclass rules 1–5)](../../../spec/current/object-model.md)** and
+**[method-lookup.md §1.14 / §2](../../../spec/current/method-lookup.md)**, and in **[ADR-0002](../../../adr/0002-metaclass-tower-parallel-rule.md)**
 (parallel metaclass rule), **[ADR-0011](../../../adr/0011-fixed-instance-slot-layout.md)** (fixed slot
 layout), **[ADR-0012](../../../adr/0012-label-encoded-selectors.md)** (label-encoded selectors, IC-ready
 dispatch). **New governing ADR required** for the `SuperSend` opcode — see DEC-INH-D._

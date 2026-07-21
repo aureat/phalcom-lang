@@ -12,7 +12,7 @@ do X"* or *"should Phalcom borrow X from Y"*, grounded in both trees, and stops 
 
 | Kind | Goes to |
 |---|---|
-| a ruling | [`../decisions/`](../decisions/) (PDR) |
+| a ruling | [`../pdr/`](../pdr/) (PDR) |
 | a normative contract | [`../spec/`](../spec/) |
 | a finding from work already under way | [`../design-notes/`](../design-notes/) |
 | a measurement | [`../forge/perf-log/`](../forge/perf-log/) |

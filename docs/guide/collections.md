@@ -5,8 +5,8 @@ two-message cursor protocol, and every loop and combinator you'll ever write is
 built on top of it.
 
 For the exhaustive grammar and laws, see
-[Iteration](../spec/v0.2/iteration.md) and
-[Collection Protocol](../spec/v0.2/core/collection-protocol.md). This page is
+[Iteration](../spec/current/iteration.md) and
+[Collection Protocol](../spec/current/core/collection-protocol.md). This page is
 the tour.
 
 ## The literals
@@ -54,16 +54,16 @@ hashability-iff-immutable law makes it value-hashable — two structurally equal
 tuples hash the same, so they work as `Map`/`Set` keys. `List`, `Map`, and
 `Set` are mutable and keep identity hash instead: `a == b` can hold for two
 lists while `a.hash != b.hash`. This is intended, not a gap — see
-[Collection Protocol §3](../spec/v0.2/core/collection-protocol.md#3-laws).
+[Collection Protocol §3](../spec/current/core/collection-protocol.md#3-laws).
 
 `Range` is lazy once it lands: `a..b` won't allocate a million elements any
 more than a `while` loop does. `each` generates values on the fly; `toList` is
 the explicit materialize-it escape hatch.
 
 Full detail on each literal — evaluation order, key rules, edge cases — lives
-in [List Literal Syntax](../spec/v0.2/core/list-literal-syntax.md),
-[Map and Set](../spec/v0.2/core/map-and-set.md), and
-[Tuple and Range](../spec/v0.2/core/tuple-and-range.md), ratified by
+in [List Literal Syntax](../spec/current/syntax/list-literals.md),
+[Map and Set](../spec/current/stdlib/map-and-set.md), and
+[Tuple and Range](../spec/current/stdlib/tuple-and-range.md), ratified by
 [ADR-0029](../adr/0029-list-literal-syntax.md) and the collections umbrella
 [ADR-0032](../adr/0032-collections-representation-and-literals.md).
 

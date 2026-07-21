@@ -5,7 +5,7 @@
 > were taken by concurrent planning agents; U20 is the first free ID after them.
 > **Scope:** cooperative, single-threaded concurrency — `Fiber` (the sole primitive)
 > + `Future` (library layer). **Spec:** [`docs/spec/concurrency.md`](../spec/concurrency.md).
-> **Forward-compat audit:** [`docs/spec/core/forward-compat.md`](../spec/core/forward-compat.md)
+> **Forward-compat audit:** [`docs/spec/current/core/forward-compat.md`](../spec/core/forward-compat.md)
 > §7 (code-grounded — this plan is its companion; **read §7 first**).
 >
 > **Honesty flag — this plan is materially more speculative than the U1–U11

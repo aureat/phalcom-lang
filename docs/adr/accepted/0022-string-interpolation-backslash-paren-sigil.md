@@ -8,8 +8,8 @@
   target can be revisited"); U-CORE-4 landed in `2061795`. See
   [§Amendment](#amendment-2026-07-15--stringification-target-is-now-tostring). Prompted by
   DEFERRED CB-1.
-- Related: `docs/spec/v0.2/lexical-structure.md` §5 (string interpolation);
-  `docs/spec/v0.2/units/U/lex-lexical-delta.md` §D4; `docs/forge/open-questions.md`
+- Related: `docs/spec/current/lexical-structure.md` §5 (string interpolation);
+  `docs/spec/current/units/U/lex-lexical-delta.md` §D4; `docs/forge/open-questions.md`
   item 5 (Q5); `docs/forge/PHASE2-INDEX.md` §4 DEC-F;
   [ADR-0016](0016-hand-written-lexer-and-recursive-descent-parser.md)
   (hand-written scanner); `phalcom-ast/src/lexer.rs` (`scan_string`),

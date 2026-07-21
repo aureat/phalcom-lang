@@ -4,9 +4,9 @@
 - Date: 2026-07-12
 - Related: [ADR-0008](0008-layered-exceptions-and-result.md) (error **model** — layered,
   terminating, one unwind, handling as a `Block` protocol);
-  [`docs/spec/v0.2/error-handling.md`](../../spec/v0.2/error-handling.md);
-  [`docs/spec/v0.2/blocks.md`](../../spec/v0.2/blocks.md);
-  [`docs/spec/v0.2/concurrency.md`](../../spec/v0.2/concurrency.md) (`Fiber>>try`/`abort`)
+  [`docs/spec/current/error-handling.md`](../../spec/current/error-handling.md);
+  [`docs/spec/current/blocks.md`](../../spec/current/blocks.md);
+  [`docs/spec/current/concurrency.md`](../../spec/current/concurrency.md) (`Fiber>>try`/`abort`)
 
 ## Context
 
@@ -17,7 +17,7 @@ for expected failure; **handling is a `Block` protocol** — `blk.on(ErrorClass)
 unwind primitive so `ensure` fires on any of them. ADR-0008 sketched a
 JavaScript-shaped `try`/`catch`/`finally` surface *illustratively* but did **not**
 ratify the keyword spelling — that was tracked as a genuinely-open decision
-([deferred-work §2](../../spec/v0.2/deferred-work.md); [decisions.md Q2](../../spec/v0.2/core/decisions.md))
+([deferred-work §2](../../spec/current/deferred-work.md); [decisions.md Q2](../../forge/units/U-CORE-0/decision-register.md))
 blocking U-CORE-6's non-minimal slice. This ADR fixes the spelling. It does **not**
 touch the model, and does not supersede ADR-0008.
 

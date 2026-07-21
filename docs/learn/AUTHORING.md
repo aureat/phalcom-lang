@@ -355,7 +355,7 @@ absent, SAY THAT PLAINLY — that is a valid and important answer. Do not patter
   guessed. For each, if a .ph fixture exists OR you can write a tiny program, RUN it and report
   the actual observed output. Examples live in examples/*.ph and tests/lang/; the CLI is
   `cargo run -p phalcom-core --bin phalcom`.>>
-- Spec/ADR — BOUNDED. Grep docs/adr/ and docs/spec/v0.2/ for the concept. Read the ONE relevant
+- Spec/ADR — BOUNDED. Grep docs/adr/ and docs/spec/current/ for the concept. Read the ONE relevant
   ADR's Decision + Alternatives considered. Cite and summarize in a few lines. Do NOT sweep.
 - Tests/fixtures exercising it — paths, one line each.
 

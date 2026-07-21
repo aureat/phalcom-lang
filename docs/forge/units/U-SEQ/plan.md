@@ -5,8 +5,8 @@ over an already-landed protocol, zero primitives, zero compiler/VM touch — sam
 ran reviewer-OFF) — confirm against the current reviewer roster policy at dispatch time; if any doubt,
 default reviewer ON since this unit reopens a kernel file (`core.ph`) live editors share. Green gate:
 `./scripts/verify.sh` exits 0 + `cargo doc --workspace --no-deps` clean. Grounded in
-**[iteration.md](../../../spec/v0.2/iteration.md) §5**, **[ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)**,
-**[collection-protocol.md](../../../spec/v0.2/core/collection-protocol.md)**, and Wren's `Sequence` +
+**[iteration.md](../../../spec/current/iteration.md) §5**, **[ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)**,
+**[collection-protocol.md](../../../spec/current/core/collection-protocol.md)**, and Wren's `Sequence` +
 view-class precedent (`wren_core.wren` L7–182, cited throughout as precedent-with-consequence, not
 gospel — see §3.4 for the one place the port deliberately diverges). New governing artifact: **none**
 required for the combinator breadth (pure derivation, ADR-0019 unaffected); **DEC-SEQ-A** (§8) is a real
@@ -227,7 +227,7 @@ iterate(iterator) {
 This means a `TakeSequence` instance is only *safely* iterable **once** — a second `for` over the same
 value silently returns the wrong (empty, or truncated-early) result, because `_taken` keeps counting
 from where the first traversal left off. That directly violates
-[collection-protocol.md](../../../spec/v0.2/core/collection-protocol.md) **law 2 — deterministic
+[collection-protocol.md](../../../spec/current/core/collection-protocol.md) **law 2 — deterministic
 iteration: "two traversals of an unmutated collection agree."** This is a known, real Wren gotcha, not
 a semantic worth reproducing — **the fix is to make `iterate` a pure function of its `cursor` argument**,
 carrying the running "taken so far" count *inside the cursor* rather than in instance state, using the

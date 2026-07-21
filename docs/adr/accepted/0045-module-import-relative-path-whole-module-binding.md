@@ -12,7 +12,7 @@
   [ADR-0037](0037-amend-floor-admit-error-root.md),
   [ADR-0038](0038-amend-floor-admit-block-on-ensure.md),
   [ADR-0039](0039-amend-floor-admit-collection-container-primitives.md)
-- Related: `docs/spec/v0.2/open-questions.md` Q8; `docs/spec/v0.2/object-model.md` §4
+- Related: `docs/spec/current/open-questions.md` Q8; `docs/spec/current/object-model.md` §4
   (`Module` catalog row); `docs/forge/units/U15/plan.md`; `docs/forge/STATE.md`
   (DEC-U15 ruling, 2026-07-12); `phalcom-core/src/module.rs`,
   `phalcom-core/src/interpret.rs::VM::import_module`,

@@ -3,8 +3,8 @@
 - Date: 2026-07-20
 - Commits: `14cdfb9` (U-CLASSNS follow-up fix), `c346200` (parser nested-class ban),
   `7c2cfab` (U-CLASSCLOSE landed), this session's follow-up (in-crate kernel-reopen tests)
-- Realizes: [PDR-0001](../decisions/0001-classes-are-closed.md), as amended by
-  [PDR-0002](../decisions/0002-class-declarations-join-the-binding-namespace.md), per
+- Realizes: [PDR-0001](../pdr/0001-classes-are-closed.md), as amended by
+  [PDR-0002](../pdr/0002-class-declarations-join-the-binding-namespace.md), per
   `docs/forge/units/U-CLASSCLOSE/implementation-spec.md`
 - Related: [U-CLASSNS implementation-spec.md](../forge/units/U-CLASSNS/implementation-spec.md) —
   the module-scoped `ClassKey` re-key this unit builds on
@@ -56,7 +56,7 @@ not a contrived case) — `ArgumentError` is declared in `core.ph` (`extends Err
 `class.reserved_name`, which is wrong: `ArgumentError` carries no literal-bound `ClassId` the way
 `List`/`Object`/`Number` do (nothing indexes it by name at a hot path), so redeclaring or
 shadowing it from a non-core module is not the trap [PDR-0001 ruling
-3](../decisions/0001-classes-are-closed.md) exists to close.
+3](../pdr/0001-classes-are-closed.md) exists to close.
 
 Fix: a new `VM::kernel_class_names: HashSet<Symbol>`, populated by `add_class!` itself as each
 primitive installs (plus one explicit `insert` for `None`, which bypasses `add_class!` entirely

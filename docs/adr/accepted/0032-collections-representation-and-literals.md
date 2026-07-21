@@ -8,19 +8,19 @@
   [ADR-0021](0021-no-truthiness-enforcement.md) (no truthiness);
   [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (floor);
   [ADR-0016](0016-hand-written-lexer-and-recursive-descent-parser.md) (lexer/parser);
-  [`decisions.md`](../../spec/v0.2/core/decisions.md) Q5;
-  [`collection-protocol.md`](../../spec/v0.2/core/collection-protocol.md),
-  [`map-and-set.md`](../../spec/v0.2/core/map-and-set.md),
-  [`tuple-and-range.md`](../../spec/v0.2/core/tuple-and-range.md),
-  [`list-literal-syntax.md`](../../spec/v0.2/core/list-literal-syntax.md);
-  [open-question 6](../../spec/v0.2/open-questions.md) (set literal)
+  [`decisions.md`](../../forge/units/U-CORE-0/decision-register.md) Q5;
+  [`collection-protocol.md`](../../spec/current/core/collection-protocol.md),
+  [`map-and-set.md`](../../spec/current/stdlib/map-and-set.md),
+  [`tuple-and-range.md`](../../spec/current/stdlib/tuple-and-range.md),
+  [`list-literal-syntax.md`](../../spec/current/syntax/list-literals.md);
+  [open-question 6](../../spec/current/open-questions.md) (set literal)
 
 ## Context
 
 The `Map`/`Set`/`Tuple`/`Range` family had four separate design specs (all
 **Proposal**) and an in-flight list-literal ADR ([ADR-0029](0029-list-literal-syntax.md),
 **Proposed**), but no ratified decision on the two axes that gate the collections
-unit ([deferred-work §2](../../spec/v0.2/deferred-work.md)): **per-class storage** and
+unit ([deferred-work §2](../../spec/current/deferred-work.md)): **per-class storage** and
 **which literal sigils ship**. This ADR is the umbrella that ratifies the family —
 flipping the four specs and ADR-0029 to Accepted — so each class's unit can be
 scheduled. It changes no runtime today; it fixes the representation, the shared
@@ -50,7 +50,7 @@ primitives were. **Combinators (`map`/`filter`/`reduce`/…) stay `.ph`.**
 
 ### 2. Shared protocol + laws are binding
 
-All four satisfy the [collection-protocol](../../spec/v0.2/core/collection-protocol.md)
+All four satisfy the [collection-protocol](../../spec/current/core/collection-protocol.md)
 (already Normative): totality, deterministic iteration, structural `==`, and
 **hashability-iff-immutable**. Concretely (decisions.md Q5): `List`/`Map`/`Set` are
 mutable ⇒ **identity `hash`, not valid `Map`/`Set` keys**; `Tuple`/`Range` are
@@ -98,7 +98,7 @@ as ADR-0029 established for `List`).
 
 The operator literals are **reserved and inactive**, but their meaning is
 **committed** so activation later is not a fresh decision (RG-1/RG-2 of
-[tuple-and-range.md](../../spec/v0.2/core/tuple-and-range.md)):
+[tuple-and-range.md](../../spec/current/stdlib/tuple-and-range.md)):
 
 - `a..b` — **inclusive** of `b`; `a...b` — **exclusive** of `b`.
 - `Range` is **lazy** — `each` generates `a, a+1, …`; no element allocation;

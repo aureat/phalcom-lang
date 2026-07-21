@@ -1,10 +1,10 @@
 # Deferred: diagnostics, depth-limit and REPL follow-ups (unowned)
 
 Surfaced while verifying U-REPL and implementing
-[PDR-0006](../decisions/0006-repl-completeness-is-a-parser-signal.md),
-[PDR-0007](../decisions/0007-bounded-call-depth-and-native-reentrancy.md),
-[PDR-0008](../decisions/0008-cell-boundary-diagnostics-and-state-hygiene.md) and
-[PDR-0009](../decisions/0009-defer-lsp-backed-repl-surface.md). These are the items those
+[PDR-0006](../pdr/0006-repl-completeness-is-a-parser-signal.md),
+[PDR-0007](../pdr/0007-bounded-call-depth-and-native-reentrancy.md),
+[PDR-0008](../pdr/0008-cell-boundary-diagnostics-and-state-hygiene.md) and
+[PDR-0009](../pdr/0009-defer-lsp-backed-repl-surface.md). These are the items those
 records either explicitly scoped out, or that turned up during implementation and have no
 owning unit.
 

@@ -4,14 +4,14 @@ _Self-contained implementation plan for **one** implementer. Post-U-ITER / post-
 **Reviewer ON** (touches `compiler/lib.rs`, a spine file, plus `bytecode.rs`/`vm.rs`) — hand the
 diff to `phalcom-reviewer`; do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
 `cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0048](../../../adr/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)**
-(amends ADR-0035 §1/§4) and normative **[iteration.md](../../../spec/v0.2/iteration.md) §1–§6**
+(amends ADR-0035 §1/§4) and normative **[iteration.md](../../../spec/current/iteration.md) §1–§6**
 (already rewritten for this unit — read it first, it is more current than ADR-0035 alone).
 
 > **Grounding correction vs. any stale framing.** ADR-0048 is **already Accepted** (dated
 > 2026-07-13) and `iteration.md` is **already rewritten** to its post-amendment shape (§5
 > `Countdown extends Iterable`, §2 bare-cursor desugar). There is **no new ADR to write** —
 > this plan realizes an already-ratified amendment; cite ADR-0048 directly, do not treat it as
-> pending. `docs/spec/v0.2/deferred-work.md` already carries a **U-ITERABLE** row ("ratified
+> pending. `docs/spec/current/deferred-work.md` already carries a **U-ITERABLE** row ("ratified
 > (ADR-0048); code unbuilt") plus forward rows for **U-SEQ** (`all`/`any`/`count`/`find`/`join`
 > + lazy views, depends on this unit) and **U-STRING** — both out of scope here, cited only for
 > the must-not-preclude check.
@@ -76,7 +76,7 @@ the returned cursor against `None` **by identity** via one new opcode, and intro
   `universe.rs`/`compiler/lib.rs` mid-edit by other sessions as recently as this same day (U16
   work); by plan time they are committed and clean again (verified via `git status --porcelain`
   at plan time — only doc files dirty: `deferred-work.md`, `iteration.md`,
-  `values-and-absence.md`, plus the new ADR-0048 and three `docs/spec/v0.2/drafts/*` files,
+  `values-and-absence.md`, plus the new ADR-0048 and three `docs/spec/current/drafts/*` files,
   untracked). **Re-run `git status`/`graphify affected` on all five write-set Rust files
   immediately before dispatch** — do not trust these line numbers blindly; they are exact as of
   this read, but `main` moves.

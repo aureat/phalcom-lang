@@ -4,7 +4,7 @@ _Self-contained implementation plan for **one** implementer. Post-U5 (inliner) /
 post-U6 (Option) surface+compiler unit. **Reviewer ON** (touches a spine file, `compiler/lib.rs`) —
 hand the diff to `phalcom-reviewer`; do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
 `cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)**
-and normative **[iteration.md](../../../spec/v0.2/iteration.md) §1–§6**. New governing ADR: none —
+and normative **[iteration.md](../../../spec/current/iteration.md) §1–§6**. New governing ADR: none —
 ADR-0035 is ratified; this unit realises it._
 
 > **Unit-name note.** ADR-0035 §3 says `for`/`break`/`continue` are "owned by U-LEX", but **U-LEX is
@@ -16,7 +16,7 @@ ADR-0035 is ratified; this unit realises it._
 
 ## 1. Mission (one sentence)
 Realise Phalcom's **one** iteration contract — the two-selector cursor protocol `iterate(_)` /
-`iteratorValue(_)` ([iteration.md §1](../../../spec/v0.2/iteration.md)) on the reference iterable `List`,
+`iteratorValue(_)` ([iteration.md §1](../../../spec/current/iteration.md)) on the reference iterable `List`,
 the **`for (x in coll)`** surface that lowers to an inlined cursor `while` (§2), and **`break`/`continue`**
 as jump-based loop control (§3) — with **zero new floor primitives** and the `for` lowering shaped so a
 `Fiber`-backed generator suspends freely (§6, the load-bearing preclusion check).

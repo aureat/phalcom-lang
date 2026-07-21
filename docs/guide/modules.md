@@ -53,9 +53,9 @@ terse form for a name you'll use constantly and don't need to trace back.
 otherwise collide on the same name.
 
 These three are the whole of `import`; the normative `import_decl` productions
-are in the [consolidated grammar](../spec/v0.2/syntax/grammar.md), and the
+are in the [consolidated grammar](../spec/current/syntax/grammar.md), and the
 annotated walkthrough is in
-[Statements & Declarations](../spec/v0.2/syntax/statements-and-declarations.md).
+[Statements & Declarations](../spec/current/syntax/statements-and-declarations.md).
 
 ## Name resolution
 

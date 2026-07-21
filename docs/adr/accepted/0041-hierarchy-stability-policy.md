@@ -12,7 +12,7 @@
   heap — keeps a future reparent-with-migration implementable, so sealing now
   costs nothing later), [ADR-0012](0012-selector-signature-encoding-and-dispatch.md)
   (one-hashmap-probe dispatch — the invariant single inheritance protects),
-  `docs/spec/v0.2/object-model.md` §1.5/§5, `docs/spec/v0.2/open-questions.md`
+  `docs/spec/current/object-model.md` §1.5/§5, `docs/spec/current/open-questions.md`
   Q4/Q10, `docs/forge/units/U13/plan.md`
 
 ## Context
@@ -109,7 +109,7 @@ and none is added by this ADR). Traits/mixins/full multiple inheritance are
   A rejected `superclass=` leaves the class graph byte-for-byte unchanged —
   tested directly (see Test coverage below) — so there is no path by which an
   attempted mutation corrupts the tower without a loud, typed error.
-- **Concurrency (`docs/spec/v0.2/concurrency.md`) is simplified.** Class
+- **Concurrency (`docs/spec/current/concurrency.md`) is simplified.** Class
   objects are shared across fibers via the handle heap; a sealed hierarchy
   means a `superclass=` mid-computation can never surprise a suspended fiber
   — the mutable-hierarchy hazard Q4's option B would have introduced does not

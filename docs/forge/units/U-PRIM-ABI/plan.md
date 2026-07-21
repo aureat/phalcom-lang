@@ -1,7 +1,7 @@
 # U-PRIM-ABI — in-place primitive stack ABI + arithmetic fast path (Tier 2)
 
 Status: **PLANNED** (dispatch-ready). Tier 2 of the performance strategy
-([performance.md](../../../spec/v0.2/performance.md) §4 Tier 2,
+([performance.md](../../../spec/current/performance.md) §4 Tier 2,
 [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
 Single-writer on `vm.rs` + `primitive/*` → **worktree-isolate**; serialize against
 `U-HOTPATH`, `U-IC`, `U-GC` (all single-write `vm.rs`)
@@ -15,7 +15,7 @@ the allocation half of arithmetic dispatch, **without changing any observable
 behavior**.
 
 ## Spec anchor
-[performance.md](../../../spec/v0.2/performance.md) §4 Tier 2, laws P2/P3, invariant
+[performance.md](../../../spec/current/performance.md) §4 Tier 2, laws P2/P3, invariant
 I4. The in-place ABI is behavior-invariant (no ADR). The arithmetic fast path is a
 **speculative optimization** and is governed by P3 + I4 (guard-implies-slow-path +
 exact deopt); it amends no surface semantics, so no ADR — but it is the part a

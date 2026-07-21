@@ -4,14 +4,14 @@ _Self-contained implementation plan for **one** implementer. **Reviewer ON** (de
 diff to `phalcom-reviewer`; never self-approve. **Worktree isolation** (mutates `vm.rs`/`heap.rs`/
 `core.ph` while U-ITER and U-CORE units are live). Green gate: `./scripts/verify.sh` exits 0 +
 `cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)**
-(execution model) + **[concurrency.md §1](../../../spec/v0.2/concurrency.md)** (surface) +
-**[forward-compat.md §7](../../../spec/v0.2/core/forward-compat.md)** (the code-grounded foreclosure audit,
+(execution model) + **[concurrency.md §1](../../../spec/current/concurrency.md)** (surface) +
+**[forward-compat.md §7](../../../spec/current/core/forward-compat.md)** (the code-grounded foreclosure audit,
 D1–D7). Floor extension authorised by **ADR-0030 §Consequences** (the ADR-0019 amendment convention) — no
 new ADR needed._
 
 > **v0.2 scope decision (user, 2026-07-12): BARE `Fiber` ONLY.** `new`/`call`/`try`/`yield`/`current`/
 > `abort` — enough for generators and the `for`-yield ergonomic. **`Future`/`async`/`await`/scheduler are
-> a separate later track** ([concurrency.md §2](../../../spec/v0.2/concurrency.md), unbuilt); this unit
+> a separate later track** ([concurrency.md §2](../../../spec/current/concurrency.md), unbuilt); this unit
 > ships **no** `Future`, **no** ready-queue, **no** `System` scheduler hooks.
 
 ---

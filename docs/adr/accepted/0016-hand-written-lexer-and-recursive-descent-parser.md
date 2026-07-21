@@ -2,8 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: `docs/spec/v0.2/lexical-structure.md`; `docs/spec/v0.2/classes.md`;
-  `docs/spec/v0.2/messages-and-selectors.md`; forge fixes F9, F10;
+- Related: `docs/spec/current/lexical-structure.md`; `docs/spec/current/classes.md`;
+  `docs/spec/current/messages-and-selectors.md`; forge fixes F9, F10;
   [ADR-0012](0012-selector-signature-encoding-and-dispatch.md)
 
 ## Context
@@ -16,8 +16,8 @@ language the spec describes:
 - **The grammar has to grow, incrementally and with good diagnostics.** The spec
   roadmap adds blocks, `construct`, labeled/keyword selectors, string
   interpolation, and `let`/`var` and literal syntax
-  ([Lexical Structure](../../spec/v0.2/lexical-structure.md),
-  [Messages & Selectors](../../spec/v0.2/messages-and-selectors.md)). Several of these
+  ([Lexical Structure](../../spec/current/lexical-structure.md),
+  [Messages & Selectors](../../spec/current/messages-and-selectors.md)). Several of these
   are context-sensitive (brace disambiguation, interpolation, newline
   suppression) and awkward or impossible to express cleanly in an LALR grammar.
 - **Error quality and recovery were weak.** A LALR parser reports a single error

@@ -11,8 +11,8 @@ compete for the same shelf and confusing them is how each of them rots:
 
 | Layer | Question it answers | Authority |
 |---|---|---|
-| `docs/spec/v0.2/` | *What is Phalcom?* | Normative. The language is what the spec says. |
-| `docs/adr/`, `docs/decisions/` | *Why did we choose this over that?* | Binding. A ratified record is a commitment. |
+| `docs/spec/current/` | *What is Phalcom?* | Normative. The language is what the spec says. |
+| `docs/adr/`, `docs/pdr/` | *Why did we choose this over that?* | Binding. A ratified record is a commitment. |
 | `docs/learn/` | *How does the implementation actually work?* | Descriptive, code-grounded, per-mechanism. |
 | `.claude/skills/language-design/references/` | *What is the general design space?* | Generic. Language-agnostic axes and precedents. |
 | **`docs/theory/` (here)** | ***What did building this teach that transfers?*** | **Non-binding. Leads, lineages, and lessons.** |

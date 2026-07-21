@@ -55,7 +55,7 @@ Option (a) is the real fix and needs no unit. (b) is optional and should not be 
 has been applied to the docs that move fastest.
 
 **Scope if anyone does (b):** `docs/forge/UNITS-TRACKER.md`, `docs/forge/DEFERRED.md`, and
-`docs/spec/v0.2/**` carry the most citations and move the fastest. `docs/adr/` is frozen and can
+`docs/spec/current/**` carry the most citations and move the fastest. `docs/adr/` is frozen and can
 be skipped.
 
 ## 2. Trackers go wrong about *whether things exist* faster than about *where they are*
@@ -86,7 +86,7 @@ only ever run one way.
 - The mechanical version is to **derive** the checkbox rather than assert it — a row that names
   its landing commits could have its `[x]`/`[ ]` computed by asking git whether those commits are
   reachable. That inverts the drift the way `VM::collect_roots`'s exhaustive destructure inverted
-  the GC-roots table (`docs/spec/v0.2/memory-management.md` §2.1): the doc stops being able to
+  the GC-roots table (`docs/spec/current/memory-management.md` §2.1): the doc stops being able to
   disagree with the tree silently.
 
 Neither is scoped. The convention is worth adopting immediately regardless; it is free.

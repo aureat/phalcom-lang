@@ -7,10 +7,10 @@ they share the spine files `heap.rs`/`universe.rs`/`core.ph`, so they cannot fan
 while U-ITER, U-FIBER, and the U-CORE `core.ph` track are live). Green gate: `./scripts/verify.sh` exits 0 +
 `cargo doc --workspace --no-deps` clean, **per phase**. Grounded in
 **[ADR-0032](../../../adr/0032-collections-representation-and-literals.md)** (native heap arms, hashing
-contract, §1 representation table), **[map-and-set.md](../../../spec/v0.2/core/map-and-set.md)**,
-**[tuple-and-range.md](../../../spec/v0.2/core/tuple-and-range.md)**,
-**[collection-protocol.md](../../../spec/v0.2/core/collection-protocol.md)** (the binding laws + the
-U-CORE-5 conformance harness), **[decisions.md Q5](../../../spec/v0.2/core/decisions.md)** (mutability ⇒
+contract, §1 representation table), **[map-and-set.md](../../../spec/current/stdlib/map-and-set.md)**,
+**[tuple-and-range.md](../../../spec/current/stdlib/tuple-and-range.md)**,
+**[collection-protocol.md](../../../spec/current/core/collection-protocol.md)** (the binding laws + the
+U-CORE-5 conformance harness), **[decisions.md Q5](../../../forge/units/U-CORE-0/decision-register.md)** (mutability ⇒
 identity hash / immutability ⇒ value hash), and the native-arm precedent
 **[ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md)**. Floor extension governed by
 **[ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)** + its amendment convention

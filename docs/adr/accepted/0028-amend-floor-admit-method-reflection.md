@@ -13,7 +13,7 @@
   (frame-token non-local return, re-entered by `invoke_method_object`);
   [ADR-0010](0010-tagged-value-enum.md) (closed `Value` enum, untouched here);
   `docs/forge/units/U-CORE-3/as-built.md` §2.3, §2.6 (drafted amendment text
-  and `BoundMethod` representation decision); `docs/spec/v0.2/core/floor-census.md`
+  and `BoundMethod` representation decision); `docs/spec/current/core/floor-census.md`
   §1.1, §2.9–§2.10 (re-baselined in the same implementation change as this ADR)
 
 ## Context

@@ -3,7 +3,7 @@
 **Status: FINDINGS.** Grounded in HEAD (`2b75429`) while writing
 [U-IC/implementation-spec.md](../forge/units/U-IC/implementation-spec.md) and
 [U-HOTPATH/implementation-spec.md](../forge/units/U-HOTPATH/implementation-spec.md). Governed by
-[performance.md](../spec/v0.2/performance.md) + [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
+[performance.md](../spec/current/performance.md) + [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant).
 
 Companion to [optimization-method-and-harness-fidelity.md](optimization-method-and-harness-fidelity.md).

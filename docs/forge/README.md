@@ -1,8 +1,8 @@
 # `docs/forge/` — the Phalcom forge working record
 
 This directory is the **planning-and-execution record** of the `/forge` method. Normative spec
-lives under [`../spec/`](../spec/) (current: `../spec/v0.2/`); the per-unit **as-built** specs (the
-translated, authoritative record of what landed) live under [`../spec/v0.2/units/`](units/).
+lives under [`../spec/`](../spec/) (current: `../spec/current/`); the per-unit **as-built** specs (the
+translated, authoritative record of what landed) live under [`../spec/current/units/`](units/).
 
 ## The method — six roles across four phases
 
@@ -41,7 +41,7 @@ this level as `HANDOFF-<TOPIC>.md`.
 
 **[`units/`](units/)** — one folder per unit (`U-CORE-3/`, `U12/`, …), holding that unit's plan /
 implementation-spec / handoff docs. Units for **landed** spine work (U1–U11, U-LIST, U-LEX, U-STD)
-were translated into as-built specs under `../spec/v0.2/units/` and removed here (recoverable in
+were translated into as-built specs under `../spec/current/units/` and removed here (recoverable in
 git history) — see those specs' "Sources" sections for landing commits.
 
 **[`archive/`](archive/)**:
@@ -56,7 +56,7 @@ checkboxes and a landing-order timeline. A view, not a fork of the roster (see C
 ## Conventions
 
 - Don't fork the roster: status of record is [`STATE.md`](STATE.md) + the as-built specs +
-  [`../spec/v0.2/core/README.md`](../spec/v0.2/core/README.md). [`INDEX.md`](INDEX.md) *points*,
+  [`../spec/current/core/README.md`](../spec/current/core/README.md). [`INDEX.md`](INDEX.md) *points*,
   it does not re-list. [`UNITS-TRACKER.md`](UNITS-TRACKER.md) is a read grouping of that same
   roster, not a second source of truth — update the roster first, then refresh the tracker.
 - **One `STATE.md`, one `DEFERRED.md`, at this level.** Do not create a second copy in a

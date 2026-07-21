@@ -90,7 +90,7 @@ block: early exit *is* `return`. `break`/`continue` exist only inside
 closed over — pass one into a callback that runs later, and the frame it would
 return to may already be gone. Phalcom detects this at the return site rather
 than corrupting the stack; see
-[Blocks §5](../spec/v0.2/blocks.md#5-non-local-return) for the frame-token
+[Blocks §5](../spec/current/blocks.md#5-non-local-return) for the frame-token
 mechanism and the exact error.
 
 ## The callable tower
@@ -104,7 +104,7 @@ is not a `Block` — it additionally carries a selector, a holder class, and a
 receiver — but both answer the same call protocol, which is what makes
 `m.bind(receiver)` able to hand you back something block-shaped. The full
 tower, including `methodFor`/`invokeOn` reflection, is in
-[Functions, Blocks & Methods](../spec/v0.2/functions.md).
+[Functions, Blocks & Methods](../spec/current/functions.md).
 
 Blocks are also cheap to reach for. The compiler inlines control-flow sends
 over block literals whenever it can prove the shape, so `ifTrue`, `each`,

@@ -1,7 +1,7 @@
 # U4 — Blocks & Closures (as-built)
 
 - **Status:** ✅ Landed — `707dc17` (`feat(u4): first-class blocks + open/closed upvalues + frame-token infra`), plus in-flight fixes `71df836` (blocks without a trailing `return`) and the review-driven runtime wiring closed in the same session. In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (open/closed upvalues + frame-token non-local return infrastructure); [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md) (`Function` abstract callable root); builds on [ADR-0009/0010](../../../adr/0009-handle-arena-heap.md) (heap handles + tagged `Value`). Spec: [blocks.md](../../../spec/v0.2/blocks.md) §1–7, [functions.md](../../../spec/v0.2/functions.md) §1–4.
+- **Realizes:** [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (open/closed upvalues + frame-token non-local return infrastructure); [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md) (`Function` abstract callable root); builds on [ADR-0009/0010](../../../adr/0009-handle-arena-heap.md) (heap handles + tagged `Value`). Spec: [blocks.md](../../../spec/current/blocks.md) §1–7, [functions.md](../../../spec/current/functions.md) §1–4.
 - **Reviewer gate:** ON (load-bearing — closures can corrupt the object model). The independent `phalcom-reviewer` pass returned `request-changes` on the first cut: the front end + type scaffolding were correct but the runtime was stubbed (`block.call` returned "not wired yet", `GetUpvalue`/`SetUpvalue` raised `RuntimeError::Internal`, `Bytecode::Closure` never allocated a `BlockObject`) and it silently regressed the `example_calculator` golden. The gaps were closed in a follow-up pass and re-verified green.
 
 ## Mission
@@ -57,7 +57,7 @@ Apply protocol (`primitive/block.rs`, wired in `universe.rs`): `arity` and `name
 - **`callWith(_:)` stubbed** pending kernel `List` (landed later in U-LIST); tracked in [`docs/forge/DEFERRED.md`](../../DEFERRED.md).
 - **`call` arity capped at 4** (`MAX_CALL_ARITY`); higher-arity blocks are out of the pre-registered set.
 - Unbraced arrow blocks are expression-only by construction, so they cannot carry `return` (blocks.md §2) — a property U10 relies on.
-- See [deferred-work.md](../../../spec/v0.2/deferred-work.md) for the running deferral ledger.
+- See [deferred-work.md](../../../spec/current/deferred-work.md) for the running deferral ledger.
 
 ## Sources
 - Forge work order (`U4-plan.md`) + handoff (`U4-handoff.md`) folded into this spec (see git history); landing record: [`docs/forge/archive/phase2/STATE.md`](../../archive/phase2/STATE.md) "U4 — LANDED".

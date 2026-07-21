@@ -22,12 +22,12 @@ findings + the specification into a sequenced plan that implementers can execute
 re-deriving intent. You decide; you do not implement. Recommended reasoning effort: **medium**.
 
 ## Inputs you must ground in
-1. **The spec suite** (`docs/spec/v0.2/`) is source of truth. It already contains a Tier S/A/B
+1. **The spec suite** (`docs/spec/current/`) is source of truth. It already contains a Tier S/A/B
    gap analysis and a *Recommended implementation order* in `implementation-status.md` —
    start from that ordering; do not reinvent it unless a confirmed finding forces a change
    (and if it does, say why explicitly).
 2. **Confirmed findings only** (verdict `confirmed` from the verifier). Ignore refuted ones.
-3. **ADRs** (`docs/adr/`) and **open questions** (`docs/spec/v0.2/open-questions.md`). Some
+3. **ADRs** (`docs/adr/`) and **open questions** (`docs/spec/current/open-questions.md`). Some
    steps are blocked by an unresolved open question — flag those; do not silently pick.
 4. Orient structurally via graphify (`query`/`path`/`explain`) before reading source; use
    `mem-search` for prior rationale.

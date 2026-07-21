@@ -12,7 +12,7 @@ Claims tagged **`[V]`** were verified this session by opening the named artifact
 inherited from the parent analysis (verified there, not re-opened here); **`[D]`** are derived
 arguments — checkable, not yet demonstrated by running code.
 
-Related: [`../spec/v0.2/core/map-and-set.md`](../spec/v0.2/core/map-and-set.md) §4,
+Related: [`../spec/current/stdlib/map-and-set.md`](../spec/current/stdlib/map-and-set.md) §4,
 [`../deferred/hashbrown-analysis-followups.md`](../deferred/hashbrown-analysis-followups.md),
 [`../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md`](../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md),
 [`../adr/accepted/0020-kernel-list-native-array-protocol.md`](../adr/accepted/0020-kernel-list-native-array-protocol.md).

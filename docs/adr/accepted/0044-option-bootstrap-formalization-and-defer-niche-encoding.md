@@ -5,8 +5,8 @@
 - Related: [ADR-0007](0007-option-as-abstract-with-some-none.md) (abstract
   `Option` + `Some`/`None`), [ADR-0010](0010-tagged-value-enum.md) (tagged
   `Value` enum — the representation a niche would change), [ADR-0009](0009-handle-arena-heap.md)
-  (handle heap — where the `None` singleton lives), `docs/spec/v0.2/values-and-absence.md` §3
-  (surface `None` vs private `nil`, Invariant 4), `docs/spec/v0.2/open-questions.md` Q13,
+  (handle heap — where the `None` singleton lives), `docs/spec/current/values-and-absence.md` §3
+  (surface `None` vs private `nil`, Invariant 4), `docs/spec/current/open-questions.md` Q13,
   `docs/forge/units/U17/plan.md`, `docs/forge/STATE.md` (DEC-U17 resolution record)
 
 ## Context

@@ -2,9 +2,9 @@
 
 - Status: Accepted
 - Date: 2026-07-13
-- Related: [`docs/spec/v0.2/concurrency.md`](../../spec/v0.2/concurrency.md) §2
+- Related: [`docs/spec/current/concurrency.md`](../../spec/current/concurrency.md) §2
   (`System.schedule(_)`/`System.nextScheduled`/`System.runScheduled` — the
-  precedent this ADR reuses), [`docs/spec/v0.2/drafts/reactivity.md`](../../spec/v0.2/drafts/reactivity.md)
+  precedent this ADR reuses), [`docs/spec/current/drafts/reactivity.md`](../../spec/current/drafts/reactivity.md)
   (the `Reactive` runtime this unblocks, R-2), [ADR-0054](0054-two-speed-ratification-annotation-decorator-tiers.md)
   (Install/Dispatch/Runtime tier, `@observable`'s eventual host)
 

@@ -8,8 +8,8 @@
   (`phalcom-ast` is the standalone, VM-free front end this server embeds);
   [ADR-0025](../accepted/0025-external-internal-parameter-names.md) (external labels the
   completion snippets render); [ADR-0027](../retired/0027-modules-as-files-with-public-by-default-imports.md)
-  (module = file — the workspace-index granularity); `docs/spec/v0.2/lexical-structure.md`
-  §§9–14 (token surface for semanticTokens); `docs/spec/v0.2/experimental/doc-comments-phaldoc.md`
+  (module = file — the workspace-index granularity); `docs/spec/current/lexical-structure.md`
+  §§9–14 (token surface for semanticTokens); `docs/spec/current/experimental/doc-comments-phaldoc.md`
   §§3–5,8 (Phaldoc hover sources); `docs/forge/units/U-VSPHALCOM/plan.md`
   (DEC-VSP-A subprocess `phalcom check`, DEC-VSP-B harvested `core-table.json`,
   DEC-VSP-C grammar-approximation ceiling — all superseded/mooted here).

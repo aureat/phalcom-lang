@@ -65,7 +65,7 @@ recorded there in full. This file is only the "where I was standing" note.
    `class C { static get { return later } }` before `var later = "…"` resolves
    fine. So late binding is not an exotic corner — it is how the language
    currently reads a global defined further down the file.
-4. **Spec Q4 ([`core/decisions.md`](../spec/v0.2/core/decisions.md:121)) leans
+4. **Spec Q4 ([`core/decisions.md`](../forge/units/U-CORE-0/decision-register.md:121)) leans
    against making shadowing illegal**: the ruling models kernel names as "the core
    module's exports, auto-imported", explicitly so the import system "can re-scope
    or **shadow** it without a breaking change" (forward-compat §3, ADR-0027).

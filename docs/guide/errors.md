@@ -22,8 +22,8 @@ Int.parse(input)         // Result<Int, Error>
 invariant violations, `doesNotUnderstand`, arity mismatches, anything that
 surfaces deep in the VM where threading a `Result` back through every caller
 would be noise, not signal. Neither channel is primary; the full rationale is
-in [Error Handling](../spec/v0.2/error-handling.md) and
-[Result](../spec/v0.2/result.md).
+in [Error Handling](../spec/current/error-handling.md) and
+[Result](../spec/current/result.md).
 
 ## Raising: `throw`
 
@@ -87,7 +87,7 @@ A `throw` always unwinds — Phalcom doesn't have Smalltalk's resumable
 conditions (`resume:`). A handler runs *after* the frames between the `throw`
 and the handler are gone, and `return` inside a handler does an ordinary
 non-local return to its own home method, not a jump back into the raiser. See
-[Error Handling §3-4](../spec/v0.2/error-handling.md) if you need the unwind
+[Error Handling §3-4](../spec/current/error-handling.md) if you need the unwind
 mechanics.
 
 ## The bridges
@@ -124,7 +124,7 @@ or something more specific) participate identically:
 
 For the full built-in hierarchy and the object-model side of `Error`, see
 [Object Model](object-model.md) and
-[Error Handling §6](../spec/v0.2/error-handling.md).
+[Error Handling §6](../spec/current/error-handling.md).
 
 ---
 

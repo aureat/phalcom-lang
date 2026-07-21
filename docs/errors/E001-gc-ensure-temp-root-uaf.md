@@ -78,7 +78,7 @@ other chaining primitives (`.on(_)`, `whileTrue`) may share it.
 
 - `docs/forge/units/U-GC/IMPL-SPEC-steps-3-5.md:137-139` — "do not build `VM::temp_roots`" (refuted by this entry).
 - `phalcom-core/src/vm/gc.rs:119-121` — claims automatic safepoint triggering is off until step 4. **False at HEAD** — repro C fires it; `tests/gc.rs:238` `automatic_safepoint_fires` already passes. Half of step 4 shipped; the doc says neither did.
-- `docs/spec/v0.2/memory-management.md` §2.1 line 70 — lists a `VM::temp_roots` root that does not exist.
+- `docs/spec/current/memory-management.md` §2.1 line 70 — lists a `VM::temp_roots` root that does not exist.
 
 ## Fix direction (as recorded before the fix landed — superseded, kept for the record)
 

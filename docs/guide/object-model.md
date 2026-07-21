@@ -109,7 +109,7 @@ sends — the walk is identical, it just starts one rung higher:
 One hashmap hit per class on the interned selector, same as any instance send.
 `super` inside a static method restarts the walk at the superclass of the
 *defining* metaclass, for the same reason `super` does anywhere else. See
-[Method Lookup](../spec/v0.2/method-lookup.md) for the normative resolution
+[Method Lookup](../spec/current/method-lookup.md) for the normative resolution
 order — this page only needed you to see *what* the walk climbs over.
 
 ## Why this pays off
@@ -167,4 +167,4 @@ views of the one idea that this whole page has been building toward.
 
 For the exhaustive class catalog, the full bootstrap-construction order, and
 every invariant the tower must satisfy, see
-[the spec](../spec/v0.2/object-model.md).
+[the spec](../spec/current/object-model.md).

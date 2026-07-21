@@ -5,7 +5,7 @@
 - Amends: [ADR-0035](0035-iteration-protocol-cursor.md) §1 (protocol return shape) and
   §4 (loop-scaffold test). Everything ADR-0035 decided that is not restated here still
   holds — this is an amendment, not a supersession.
-- Related: [`docs/spec/v0.2/iteration.md`](../../spec/v0.2/iteration.md) (normative spec);
+- Related: [`docs/spec/current/iteration.md`](../../spec/current/iteration.md) (normative spec);
   [ADR-0007](0007-option-as-abstract-with-some-none.md) / [ADR-0044](0044-option-bootstrap-formalization-and-defer-niche-encoding.md)
   (`Option`, the deferred niche); [ADR-0010](0010-tagged-value-enum.md) (`Value`, the
   private `Nil` sentinel); [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)

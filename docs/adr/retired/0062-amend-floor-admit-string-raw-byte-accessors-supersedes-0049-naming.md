@@ -65,8 +65,8 @@ All other operations—`split`, `replace`, `trim`, indexing, substring search (`
 - **`ArgumentError` exception class is introduced** as the boundary-guard exception for library argument validation (error-handling.md §1).
 - **`StringByteSequence` and `StringCodePointSequence`** are introduced as sub-accessor classes for per-byte and per-codepoint iteration (shaped to extend `Iterable` when U-ITERABLE lands).
 - **`floor-census.md` § 2.5 and § 2.11 are updated** to reflect the 4 new bindings.
-- **`docs/spec/v0.2/core/core-classes.md`** row for `String` is updated to mark it as "◐ partially implemented" and document the new accessors.
-- **`docs/spec/v0.2/deferred-work.md`** is updated to mark U-STRING as landed and add follow-on rows for `print(_)/writeObject_` funnel unification, character indexing, and derived search methods.
+- **`docs/spec/current/core/core-classes.md`** row for `String` is updated to mark it as "◐ partially implemented" and document the new accessors.
+- **`docs/spec/current/deferred-work.md`** is updated to mark U-STRING as landed and add follow-on rows for `print(_)/writeObject_` funnel unification, character indexing, and derived search methods.
 - **Invariant R-INV-0.1** (floor census audit, `tests/invariants.rs`) is updated to assert 125 bindings (post-drift).
 
 ## Notes

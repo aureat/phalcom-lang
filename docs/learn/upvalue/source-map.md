@@ -733,7 +733,7 @@ root-set discipline for `open_upvalues`), and several `amend-floor-admit-*`
 ADRs with incidental mentions — not read in full; out of scope per the
 "bounded, do not sweep" instruction.
 
-Grep of `docs/spec/v0.2/` for "upvalue" (case-insensitive) hit
+Grep of `docs/spec/current/` for "upvalue" (case-insensitive) hit
 `deferred-work.md`, `implementation-status.md`, `functions.md`,
 `performance.md`, `memory-management.md`, `concurrency.md`, plus a few
 `core/`/`experimental/`/`drafts/` files. Not opened — timeboxed per
@@ -792,7 +792,7 @@ on switch (its *existence and effect* is verified by the doc comments at
 the swap function's own body was not opened); the "zero `unsafe` in this
 crate" claim for `heap/mod.rs` is quoted from that file's own module doc, not
 independently confirmed by grepping for `unsafe` across the whole heap
-module; the full content of `docs/spec/v0.2/blocks.md §5` (cited repeatedly
+module; the full content of `docs/spec/current/blocks.md §5` (cited repeatedly
 by source comments as the normative spec) was not opened, per the
 instruction to timebox spec reading.
 

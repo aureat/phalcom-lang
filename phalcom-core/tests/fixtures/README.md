@@ -4,7 +4,7 @@ This directory contains the test fixtures for the Phalcom programming language.
 
 ## Diagnostic Field-Assert Contract
 
-As specified in `docs/spec/traceback/implementation-spec.md` §11 ("Testability"), traceback and diagnostic fixtures must adhere to the **field-assert contract**:
+As specified in `docs/spec/current/traceback/implementation-spec.md` §11 ("Testability"), traceback and diagnostic fixtures must adhere to the **field-assert contract**:
 
 1. **Structure is the Contract:**
    - Traceback fixtures must assert the structural fields of the JSON output (`--trace-format=json`) rather than freezing the pretty-printed, colored, or styled text representation on stderr.

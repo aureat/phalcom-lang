@@ -2,13 +2,13 @@
 
 - Status: Accepted
 - Date: 2026-07-13
-- Amends (ruling scope only): `docs/spec/v0.2/open-questions.md` Q7's original
+- Amends (ruling scope only): `docs/spec/current/open-questions.md` Q7's original
   ruling, which shipped irrefutable **tuple** destructuring now and deferred
   **list**/`*rest` destructuring to a future refutable `match`/`if let` unit. This
   ADR ships **both** now, kept irrefutable (see "Why list destructuring ships
   irrefutable now" below) — the deferred item narrows to *further* pattern forms
   (map patterns, match arms), not list/`*rest` itself.
-- Related: `docs/spec/v0.2/open-questions.md` Q7; `docs/adr/accepted/0014-let-and-var-bindings.md`
+- Related: `docs/spec/current/open-questions.md` Q7; `docs/adr/accepted/0014-let-and-var-bindings.md`
   (the base `let`/`var` binding this extends); `docs/adr/accepted/0020-kernel-list-native-array-protocol.md`
   (`at(_)` — the accessor this reuses); `docs/adr/accepted/0032-collections-representation-and-literals.md` (the `(a,b)`/
   `[…]` collection-literal grammar this reuses in pattern position);

@@ -4,7 +4,7 @@ _Self-contained implementation plan for **one** implementer. Small, surgical nat
 addition to a landed unit — no new mechanism, no scheduler dependency. **Reviewer ON**
 (touches `fiber.rs`/`universe.rs`, floor census). Green gate: `./scripts/verify.sh`
 exits 0 + `cargo doc --workspace --no-deps` clean. Grounded in
-**[concurrency.md §1](../../../spec/v0.2/concurrency.md)** (Interface table, already
+**[concurrency.md §1](../../../spec/current/concurrency.md)** (Interface table, already
 speced — `isDone`/`error` are documented, just unbuilt) and
 **[ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)**
 (floor-amendment convention, §Consequences). No new ADR needed — same authorization
@@ -25,7 +25,7 @@ U-FIBER's own primitives used._
 ## 1. Mission (one sentence)
 
 Land the two remaining `Fiber` reflective accessors speced in
-[concurrency.md §1](../../../spec/v0.2/concurrency.md) — `isDone` (instance,
+[concurrency.md §1](../../../spec/current/concurrency.md) — `isDone` (instance,
 `true` once `Done`/`Failed`) and `error` (instance, the captured `Error` as
 `Option`, if `Failed`) — as plain native reads over `FiberObject`'s existing
 `status`/`result` fields, with no new state and no scheduler dependency.
@@ -77,7 +77,7 @@ why they don't need U-SCHED: nothing here is a suspension point.
 | `phalcom-core/src/universe.rs` | register `isDone`/`error` as instance-side `Getter`s on `fiber_cls`; floor-census bump (+2) |
 | `phalcom-core/tests/lang/concurrency/` + `tests/lang/MANIFEST.md` | goldens (below); graduate `pending/concurrency_fiber_wren_is_done_and_error.ph` if present on HEAD (check — a prior session staged this fixture ahead of the unit existing) |
 | `docs/forge/units/U-FUTURE/plan.md` | strike the Slice-B write-set rows this unit now owns; replace with a precondition note (§4 below has the exact edit) |
-| `docs/spec/v0.2/concurrency.md` | flip the `isDone`/`error` implementation-status note (§1 Implementation, already added) from "not yet landed" to landed, citing this unit's commit |
+| `docs/spec/current/concurrency.md` | flip the `isDone`/`error` implementation-status note (§1 Implementation, already added) from "not yet landed" to landed, citing this unit's commit |
 
 **Deliberately NOT in scope:** `async`/`await`, `System.schedule`, any ready-queue,
 any `Future` change beyond what already reads these two accessors once they exist.

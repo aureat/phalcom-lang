@@ -701,7 +701,7 @@ never patched or relocated by a collection — only ever read, marked, and
   where needed) … Rejected as the design baseline"* — confirming the tower
   was originally built on `Rc`/`Weak`/`RefCell` and was re-represented onto
   handles by this ADR.
-- **`docs/spec/v0.2/core/core-classes.md` §3 "Kernel tower classes"** (Object
+- **`docs/spec/current/core/core-classes.md` §3 "Kernel tower classes"** (Object
   ~L100, Behavior ~L132, Class ~L157, Metaclass ~L170): matches the code —
   `Object` is the root (no superclass); `Behavior` (superclass `Object`) is
   *"the home of everything that has instances"*, superclass of both `Class`
@@ -742,7 +742,7 @@ separately exercised live; the remaining ~21 golden fixtures in
 `tests/lang/{classes,metaclass,reflection}/` were read but not re-run (their
 `.expected` files were read alongside them and are internally consistent
 with the live-run results, but "presumed passing" is not the same as
-"observed passing" for those specific files); `docs/spec/v0.2/object-model.md`
+"observed passing" for those specific files); `docs/spec/current/object-model.md`
 §5-6 itself was not opened in this pass (out of the bounded ADR/spec list the
 task specified) — `core-classes.md` §3 and the ADRs were treated as the
 bounded spec surface instead, per instruction.

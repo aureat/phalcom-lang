@@ -15,7 +15,7 @@
   (block closures + frame-token non-local return); [ADR-0008](../accepted/0008-layered-exceptions-and-result.md)
   (one unwind primitive / error floor); [ADR-0018](../accepted/0018-sacred-selector-inliner-and-override-guard.md)
   (sacred-selector inliner); [ADR-0019](../accepted/0019-freeze-vm-blessed-primitive-floor.md)
-  (frozen floor); [`docs/spec/v0.2/concurrency.md`](../spec/v0.2/concurrency.md) §1
+  (frozen floor); [`docs/spec/current/concurrency.md`](../spec/current/concurrency.md) §1
 
 ## Context
 

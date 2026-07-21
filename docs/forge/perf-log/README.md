@@ -4,7 +4,7 @@ Running, measured record of optimization cuts and profiling findings for the
 Phalcom VM. One entry per landed cut; findings that reshape the plan live in
 [`findings.md`](findings.md).
 
-Governed by [`performance.md`](../../spec/v0.2/performance.md) +
+Governed by [`performance.md`](../../spec/current/performance.md) +
 [ADR-0051](../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant). Every entry cites a **before/after
 number from the U-BENCH harness** (`benchmarks/vm/`, criterion target

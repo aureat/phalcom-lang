@@ -17,8 +17,8 @@ deliberately split... the exact cut line for `String` is the one genuinely fuzzy
 called out as the first place a future amendment is likely"*), **[ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)**/
 **[ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)** (the `throw`/`Error`
 machinery this unit's argument guards ride on — **landed**, `7c901cf`), and the normative
-**[error-handling.md](../../../spec/v0.2/error-handling.md)**, **[system.md](../../../spec/v0.2/system.md)**,
-**[core/core-classes.md](../../../spec/v0.2/core/core-classes.md)** §`String`/§`System`.
+**[error-handling.md](../../../spec/current/error-handling.md)**, **[system.md](../../../spec/current/system.md)**,
+**[core/core-classes.md](../../../spec/current/core/core-classes.md)** §`String`/§`System`.
 Wren precedent: `/Users/altunhasanli/dev/repos/wren/src/vm/wren_core.wren` L184–316 (`String`
 + `StringByteSequence`/`StringCodePointSequence`), L440–473 (`System`); native shapes cross-checked
 against `wren_core.c` L982–1199. **New governing ADR REQUIRED:** claim **ADR-0049** (next free
@@ -27,7 +27,7 @@ after ADR-0048 on HEAD) — the floor amendment for `String::rawByteCount`/`rawB
 `documentation-and-adrs` skill drafts it._
 
 > **Unit-name note.** Reserved and pointed at by
-> [`deferred-work.md`](../../../spec/v0.2/deferred-work.md) row "**U-STRING** string protocol"
+> [`deferred-work.md`](../../../spec/current/deferred-work.md) row "**U-STRING** string protocol"
 > — this plan is that row's realization. `U-STRING` verified free at plan time (no prior
 > `docs/forge/units/U-STRING/` content). Does **not** edit `docs/forge/INDEX.md` /
 > `STATE.md` (shared coordination docs, concurrent editors) beyond what's explicitly listed below.
@@ -370,9 +370,9 @@ exactly. `printErr(_)`/`readLine`/`clock`/`now`/`args`/`env`/`exit`/`gc`/`versio
 | `phalcom-core/src/universe.rs` **(SERIALIZE — see header)** | register the 4 new primitives; +4 floor census wiring | floor |
 | `phalcom-core/core/core.ph` **(never two editors — currently clean, re-verify before dispatch)** | `String` reopen (§2.1/§2.3/§2.4), `class ArgumentError extends Error {}` (§2.2), `class StringByteSequence`/`StringCodePointSequence` (§2.4), `System` reopen (§2.5, incl. dropping the dead 0-arity `print()` stub) | protocol |
 | `docs/adr/accepted/0049-amend-floor-admit-string-raw-byte-accessors.md` (**new**, claim number at dispatch) | ADR-0019 amendment landing-record for the +4 (mirrors ADR-0037/ADR-0038's per-unit pattern) | ADR |
-| `docs/spec/v0.2/core/floor-census.md` | §2.5 `String` rows (+3), §2.11 `System` rows (+1), §7 audit count 113→117 | ADR-lockstep |
-| `docs/spec/v0.2/core/core-classes.md` | `String` status row ("◐ partial" → the new interface list); note the `Iterable`-deferred `bytes`/`codePoints` shape | docs |
-| `docs/spec/v0.2/deferred-work.md` | flip the "U-STRING" row from "code unbuilt" to landed-summary; **add** new deferred rows: (a) `print(_)`/`writeObject_` funnel unification (§2.5's follow-on), (b) `String#at(_)` character indexing + `RangeError` (§2.2's follow-on), (c) `contains`/`startsWith`/`endsWith` over `indexOf` (§2.0's named-but-unshipped derivations), (d) `codePoints`/`bytes` → `extends Iterable` migration once U-ITERABLE lands | docs |
+| `docs/spec/current/core/floor-census.md` | §2.5 `String` rows (+3), §2.11 `System` rows (+1), §7 audit count 113→117 | ADR-lockstep |
+| `docs/spec/current/core/core-classes.md` | `String` status row ("◐ partial" → the new interface list); note the `Iterable`-deferred `bytes`/`codePoints` shape | docs |
+| `docs/spec/current/deferred-work.md` | flip the "U-STRING" row from "code unbuilt" to landed-summary; **add** new deferred rows: (a) `print(_)`/`writeObject_` funnel unification (§2.5's follow-on), (b) `String#at(_)` character indexing + `RangeError` (§2.2's follow-on), (c) `contains`/`startsWith`/`endsWith` over `indexOf` (§2.0's named-but-unshipped derivations), (d) `codePoints`/`bytes` → `extends Iterable` migration once U-ITERABLE lands | docs |
 | `phalcom-core/tests/invariants.rs` | bump `floor_census_matches_installed_bindings`'s asserted count 113→117 (§7 audit hook) | invariant |
 | `phalcom-core/tests/lang/strings/` (**new label**) + `phalcom-core/tests/lang/MANIFEST.md` | goldens + negatives (§6) | all |
 
@@ -485,7 +485,7 @@ independent of 1–5 and could run in parallel **once** `universe.rs` is free (�
 | **DEC-STR-B** | **`indexOf`/`contains`-family nativization.** Wren nativizes `indexOf`/`contains`/`startsWith`/`endsWith` for `memcmp` speed. Keep them native or `.ph`-derived? | **(A)** `.ph`-derived over `rawByteAt` (this plan's choice, §2.0); **(B)** nativize `indexOf` (still skip `contains`/`startsWith`/`endsWith`, derivable over it). | **(A)** — ADR-0019's stated philosophy (smaller floor, accept slower hot paths, fund an IC/JIT later if it matters) overrides raw Wren fidelity. Revisit only with a profiling-driven case, as its own ADR-0019 amendment. |
 | **DEC-STR-C** | **`ArgumentError` construction spelling.** error-handling.md §1's example is the bare-call `ArgumentError("msg")`; the landed surface only supports `ArgumentError.new("msg")` (DEC-ERR-B resolved (B), confirmed §0). | **(A)** use `.new(_)` throughout this unit, note the spec-example/landed-surface gap as pre-existing (not this unit's to fix); **(B)** generalize the bare-call construction sugar here to also cover `ArgumentError`. | **(A)** — generalizing `Name(args)` construction sugar is a `phalcom-ast`/`compiler/lib.rs` change explicitly named out of scope by U-ERR's own DEC-ERR-B follow-on note; doing it here would smuggle a spine-adjacent change into a library unit. |
 
-## 8. Must-not-preclude check ([deferred-work.md](../../../spec/v0.2/deferred-work.md), ADR-0048)
+## 8. Must-not-preclude check ([deferred-work.md](../../../spec/current/deferred-work.md), ADR-0048)
 - **`Iterable` root (ADR-0048, U-ITERABLE):** actively *served*, not precluded —
   `StringByteSequence`/`StringCodePointSequence` are shaped so `extends Iterable` + renaming
   `nextCursor_`→`iterate(_)` is a **pure addition** later (§2.4); the byte sequence's cursor is

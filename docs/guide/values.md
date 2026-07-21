@@ -6,7 +6,7 @@ object with a real class, so `42.toString()` and `"hi".size` are ordinary messag
 sends, not compiler magic.
 
 For the exhaustive protocol on each type, see
-[Values & Absence](../spec/v0.2/values-and-absence.md). This page is the tour.
+[Values & Absence](../spec/current/values-and-absence.md). This page is the tour.
 
 ## Numbers: `Int` and `Float` are different types
 

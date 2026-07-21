@@ -9,11 +9,11 @@ landed; this unit adds rows, it does not re-shape the trait. **Reviewer ON** (sp
 `parser.rs`/`compiler/lib.rs`, plus `ClassLayout`) — hand the diff to `phalcom-reviewer`; do not
 self-approve. Green gate: `./scripts/verify.sh` exits 0 + `cargo doc --workspace --no-deps`
 clean. Grounded in **[ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)**
-and normative **[annotations-construct.md](../../../spec/v0.2/experimental/annotations-construct.md)**,
-**[annotations-construct-inheritance.md](../../../spec/v0.2/experimental/annotations-construct-inheritance.md)**,
-**[annotations-data.md](../../../spec/v0.2/experimental/annotations-data.md)**,
-**[annotations-legality-grammar.md](../../../spec/v0.2/experimental/annotations-legality-grammar.md)**,
-**[annotations-test-strategy.md](../../../spec/v0.2/experimental/annotations-test-strategy.md)**.
+and normative **[annotations-construct.md](../../../design/experimental/v0.2/annotations-construct.md)**,
+**[annotations-construct-inheritance.md](../../../design/experimental/v0.2/annotations-construct-inheritance.md)**,
+**[annotations-data.md](../../../design/experimental/v0.2/annotations-data.md)**,
+**[annotations-legality-grammar.md](../../../design/experimental/v0.2/annotations-legality-grammar.md)**,
+**[annotations-test-strategy.md](../../../design/experimental/v0.2/annotations-test-strategy.md)**.
 
 > **Grounding correction, the single biggest sizing surprise in this whole plan (read before
 > estimating effort).** `annotations-construct.md` §"Context" states `@construct` "has two

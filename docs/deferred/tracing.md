@@ -2,8 +2,8 @@
 > `cmd_run` now reports through `compiler_error`/`runtime_error`, defects 1 (unwrap) and 2
 > (ip underflow) below are fixed, and `compiler_error` is implemented (message-only). The
 > locked capture-at-raise decision is superseded by PDR-0010 §3 (Proposed). Authoritative
-> current picture: `docs/spec/traceback/verification-2026-07-20.md`; the spec and plan live in
-> `docs/spec/traceback/implementation-spec.md` + `plan.md`. Kept for the audit trail.
+> current picture: `docs/spec/current/traceback/verification-2026-07-20.md`; the spec and plan live in
+> `docs/spec/current/traceback/implementation-spec.md` + `plan.md`. Kept for the audit trail.
 
 You are continuing work on: U-TRACE — wire and finish Phalcom's existing-but-dead runtime traceback, plus the observability + error-rendering cleanups batched with it.
 
@@ -87,7 +87,7 @@ OUT OF SCOPE — do not bundle into U-TRACE:
   - Typed-catch reification: every non-Raise RuntimeError wraps to base Error on catch (block.rs:253-263,
     dispatch.rs:370-379), so on(DeadFrameError)/on(RangeError) never fire — those kernel classes do not
     exist (only Error, MessageNotUnderstood, CannotYieldAcrossNativeFrame). Three worked examples in
-    docs/spec/v0.2/error-handling.md:143-146 are currently FALSE. Deliberately deferred per
+    docs/spec/current/error-handling.md:143-146 are currently FALSE. Deliberately deferred per
     docs/forge/units/U-ERR/plan.md:277-281, but the spec doc was never marked aspirational. CHEAP FIX
     WORTH DOING NOW: annotate those spec examples as unimplemented so the doc stops lying.
   - block_on rustdoc (primitive/block.rs:226-227) claims non-Raise errors are "re-propagated unchanged";

@@ -18,7 +18,7 @@
   dispatch / `doesNotUnderstand(_:)`, method-lookup.md §2 — the miss path this
   unit re-wires); `docs/forge/units/U-CORE-6/as-built.md` §2, §3, §6
   (drafted amendment text, concrete bodies, and the native/`.ph` split);
-  `docs/spec/v0.2/core/floor-census.md` §1.1, §2.15 (re-baselined in the same
+  `docs/spec/current/core/floor-census.md` §1.1, §2.15 (re-baselined in the same
   implementation change as this ADR)
 
 ## Context

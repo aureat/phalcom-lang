@@ -1,7 +1,7 @@
 # U-IC — selector-only interner + monomorphic inline cache + superinstructions (Tier 3)
 
 Status: **PLANNED** (dispatch-ready). Tier 3 of the performance strategy
-([performance.md](../../../spec/v0.2/performance.md) §4 Tier 3,
+([performance.md](../../../spec/current/performance.md) §4 Tier 3,
 [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
 Populates the inline-cache seam ADR-0012 already reserves. Single-writer on
 `vm.rs` + `class.rs` + `interner.rs` → **worktree-isolate**; serialize against
@@ -20,8 +20,8 @@ misses a hierarchy mutation serves a stale method.
 ## Spec anchor
 [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (the
 `ClassId`-keyed IC seam — **locked**; this unit *populates* it, does not redesign
-it), [performance.md](../../../spec/v0.2/performance.md) §4 Tier 3 + invariant I2,
-[method-lookup.md](../../../spec/v0.2/method-lookup.md),
+it), [performance.md](../../../spec/current/performance.md) §4 Tier 3 + invariant I2,
+[method-lookup.md](../../../spec/current/method-lookup.md),
 [ADR-0041](../../../adr/0041-hierarchy-stability-policy.md) (what mutations the
 cache must invalidate on). Behavior-invariant (P2): identical methods resolved,
 faster. No new surface, so no ADR amendment — but the epoch-invalidation contract

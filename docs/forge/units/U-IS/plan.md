@@ -15,11 +15,11 @@ methods:
 Only **two magic methods** (`is(_)`, `isExactly(_)`); negation is a compile-time `.not` wrap, not
 a selector. `isA(_)` (landed U-CORE-1) becomes an alias over `is(_)` for back-compat.
 
-## Spec anchor — [is-tests.md](../../../spec/v0.2/is-tests.md) (Status: Proposed; Fork A ratified in-note)
+## Spec anchor — [is-tests.md](../../../spec/current/is-tests.md) (Status: Proposed; Fork A ratified in-note)
 AUTHORITATIVE for the surface table, the magic-method bodies, the `is not` compound-operator
 disambiguation, the proxy P-2 policy, and the precludes list. Grounds on:
-[object-model.md §8](../../../spec/v0.2/object-model.md) (`isA`, metaclass tower),
-[selectors.md §2](../../../spec/v0.2/selectors.md) (the `#`-adjacency precedent reused for `is!`).
+[object-model.md §8](../../../spec/current/object-model.md) (`isA`, metaclass tower),
+[selectors.md §2](../../../spec/current/selectors.md) (the `#`-adjacency precedent reused for `is!`).
 
 ## Current state (verified)
 - `Token::Is` exists (token.rs:73) and lexes (`"is" => Token::Is`, lexer.rs:280). **No `is!`
@@ -38,7 +38,7 @@ disambiguation, the proxy P-2 policy, and the precludes list. Grounds on:
 At the comparison tier (parser.rs ~1242 region, same precedence as `==`/`!=`, non-associative,
 non-chaining), after parsing the left `shift`-level expr, if the next token is `Token::Is`:
 1. **Strict suffix** — peek for a **contiguous** `Token::Bang` (span end of `is` == span start of
-   `!`, the [selectors.md §2](../../../spec/v0.2/selectors.md) adjacency test). Contiguous → strict
+   `!`, the [selectors.md §2](../../../spec/current/selectors.md) adjacency test). Contiguous → strict
    (`isExactly`); consume the `Bang`. A space before `!` is **not** strict (and, post-U-NEG, a
    lone `!` in RHS position is a parse error — good).
 2. **`not` particle** — if the next token is `Token::Not`, consume it as the **negation particle**
@@ -86,7 +86,7 @@ class Object {
   only if a field is genuinely missing.
 - `phalcom-core/core/core.ph` — `is`/`isExactly` added, `isA` → alias.
 - `phalcom-core/tests/` — goldens + graduate any pending is-test fixture.
-- `docs/spec/v0.2/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
+- `docs/spec/current/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
   DEFERRED/STATE as the index requires.
 - **Floor: +0** (pure parser desugar + `.ph` methods over the floor; no native primitive). If a
   primitive turns out needed → STOP-and-report per ADR-0019.

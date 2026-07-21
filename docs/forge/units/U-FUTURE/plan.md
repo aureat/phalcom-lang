@@ -10,10 +10,10 @@ This plan is authored against **HEAD `0de7496`** (U-FIBER landed on `main`). **R
 
 > **Governing sources.** [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
 > §1 (`Future` = pure library layer, "no VM mechanism beyond `Fiber` + a queue"); §Consequences
-> (floor-amendment convention). [concurrency.md §2](../../../spec/v0.2/concurrency.md) (surface +
-> state machine + settle-once). [system.md §2](../../../spec/v0.2/system.md) (the reserved
-> `System.schedule(_)`/`sleep(_)` scheduler seam). [scheduler-unit.md](../../../spec/v0.2/experimental/scheduler-unit.md)
-> (the proposed, **unowned** `U-SCHED`). [open-questions.md §15](../../../spec/v0.2/open-questions.md)
+> (floor-amendment convention). [concurrency.md §2](../../../spec/current/concurrency.md) (surface +
+> state machine + settle-once). [system.md §2](../../../spec/current/system.md) (the reserved
+> `System.schedule(_)`/`sleep(_)` scheduler seam). [scheduler-unit.md](../../../design/experimental/v0.2/scheduler-unit.md)
+> (the proposed, **unowned** `U-SCHED`). [open-questions.md §15](../../../spec/current/open-questions.md)
 > (still-OPEN: structured concurrency / cancellation, `select`/`race`, fairness).
 
 ---
@@ -80,7 +80,7 @@ today provide.
   `system.md §2`: **`System.schedule(_)`** (enqueue a resumable fiber onto a runtime-owned
   FIFO) — plus `Fiber#isDone`. The *event-loop policy* (waiter registration, settle-drain,
   pump-until-settled, root-drive) can then be `.ph` over that seam. **This is Slice B, and it
-  is the [scheduler-unit.md](../../../spec/v0.2/experimental/scheduler-unit.md) `U-SCHED` unit
+  is the [scheduler-unit.md](../../../design/experimental/v0.2/scheduler-unit.md) `U-SCHED` unit
   — proposed, ratified in spirit by ADR-0030, but with no owner.** Whether U-FUTURE absorbs
   that seam or `U-SCHED` ships it as a prerequisite is **DEC-FUT-SCHED (§9)**.
 
@@ -240,7 +240,7 @@ Invariant/regression: Slice A adds `class Future` to the tower — it must pass
 - **DEC-FUT-SCHED — the one surviving, load-bearing, spec-unresolvable decision.** *Does
   U-FUTURE absorb the minimal native scheduler seam (Slice B), or does a ratified & owned
   `U-SCHED` ship it as a prerequisite?* It is unresolvable from spec because
-  [scheduler-unit.md](../../../spec/v0.2/experimental/scheduler-unit.md) proposes `U-SCHED` as a
+  [scheduler-unit.md](../../../design/experimental/v0.2/scheduler-unit.md) proposes `U-SCHED` as a
   **separate, unowned** unit, and open-questions §15 leaves **fairness** OPEN — the architect
   cannot unilaterally (a) fold an unowned unit's scope in, nor (b) decide v0.2 must ship
   suspending futures. Options:

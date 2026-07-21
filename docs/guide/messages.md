@@ -57,8 +57,8 @@ Labels are part of identity, so label **order** is part of identity too:
 caller cannot reorder labels to match whichever one it means. There is no
 keyword-argument sorting step — sorting would require knowing the callee's
 declared order before dispatch, which is exactly what dispatch is for. See
-[Messages & Selectors](../spec/v0.2/messages-and-selectors.md) and
-[Selectors, Symbols & References §1](../spec/v0.2/selectors.md#1-selector-identity)
+[Messages & Selectors](../spec/current/messages-and-selectors.md) and
+[Selectors, Symbols & References §1](../spec/current/selectors.md#1-selector-identity)
 for the full grammar and rules R1–R5; the governing decision is
 [ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md).
 
@@ -123,7 +123,7 @@ known until runtime, so the selector can't be resolved statically either — the
 compiler emits a dynamic send that builds the selector at the call and looks it
 up like any other. It's the same mechanism `Object.perform` and
 `doesNotUnderstand` forwarding use underneath. Details in
-[Messages & Selectors §4–5](../spec/v0.2/messages-and-selectors.md#4-rest-parameters).
+[Messages & Selectors §4–5](../spec/current/messages-and-selectors.md#4-rest-parameters).
 
 ## Method lookup: one hashmap hit, then a walk
 
@@ -141,7 +141,7 @@ That's the whole algorithm — one interned symbol, one hashmap key, a chain
 walk on a miss. The full class/metaclass tower this walk runs over belongs to
 [The Object Model](object-model.md); this page only needs you to know that
 "lookup" means "walk superclasses for this exact selector," full stop. See
-[Method Lookup](../spec/v0.2/method-lookup.md) for the normative resolution
+[Method Lookup](../spec/current/method-lookup.md) for the normative resolution
 order, including how `super.sel` restarts the walk at the *defining* class of
 the current method rather than the receiver's class.
 
@@ -176,8 +176,8 @@ expected. `perform` is the reflective send this proxy relies on: it takes a
 *selector* symbol (`#move(_,to,duration)`), never a bare name symbol
 (`#move`) — a name identifies a family of overloads, not one method, and
 `perform` has no call-site labels to disambiguate with. See
-[Method Lookup §2–3](../spec/v0.2/method-lookup.md#2-doesnotunderstand) and
-[Selectors, Symbols & References §2](../spec/v0.2/selectors.md#2-symbol-literals-)
+[Method Lookup §2–3](../spec/current/method-lookup.md#2-doesnotunderstand) and
+[Selectors, Symbols & References §2](../spec/current/selectors.md#2-symbol-literals-)
 for the name-symbol vs. selector-symbol split.
 
 ---

@@ -14,11 +14,11 @@ Install/Dispatch/Runtime decorator work ratified this session under ADR-0054).
   state) — new, Accepted.
 - ADR-0054 fully ratified (Install/Dispatch/Runtime tier unblocked; both gate
   conditions in Decision §2 satisfied).
-- `docs/spec/v0.2/drafts/decorators-behavioral.md`, `decorators-dispatch-observability.md`,
+- `docs/spec/current/drafts/decorators-behavioral.md`, `decorators-dispatch-observability.md`,
   `decorators-observable.md` — new, ratified, all open questions (B-1/B-2/D-1/D-2/D-3/R-1..R-5)
   resolved to option (a) in every case, deferred alternatives filed in `docs/forge/DEFERRED.md`.
-- `docs/spec/v0.2/drafts/reactivity.md` — ratified (R-1..R-5 resolved).
-- `docs/spec/v0.2/decorators/on.md` — mechanism spec, A-1–A-5 resolved inline
+- `docs/spec/current/drafts/reactivity.md` — ratified (R-1..R-5 resolved).
+- `docs/spec/current/decorators/on.md` — mechanism spec, A-1–A-5 resolved inline
   (A-6 explicitly deferred to v0.3, not a blocker).
 - `docs/forge/PLAN-DECORATORS.md` — the full unit-dependency plan (commit `df259f3`),
   updated after the M-ATTR-ROOT blocker below (write-set expanded).
@@ -222,7 +222,7 @@ Baseline `cargo test -p phalcom-core --test lang` fails 6 groups on a clean run,
    landed in `concurrency.md`/prior memory, or it regressed. **Nobody has looked into
    this yet** — worth a dedicated investigation, independent of everything else in
    this document. Entry point: `phalcom-core/tests/lang/concurrency/concurrency_sched_fifo_order.ph`,
-   `docs/spec/v0.2/concurrency.md` §2 "Implementation" (the root-drive pump
+   `docs/spec/current/concurrency.md` §2 "Implementation" (the root-drive pump
    description), `VM::run` (locate via graphify).
 
 ## Next step for whoever picks this up

@@ -5,10 +5,10 @@ _Self-contained implementation plan for **one** implementer. Foundational,
 unit touching `vm/dispatch.rs`/`vm/mod.rs`/`vm/bootstrap.rs` or
 `universe/primitives.rs`'s `System` block. **Reviewer ON.** Green gate:
 `./scripts/verify.sh` exits 0 + `cargo doc --workspace --no-deps` clean.
-Grounded in [scheduler-unit.md](../../../../spec/v0.2/experimental/scheduler-unit.md)
+Grounded in [scheduler-unit.md](../../../../design/experimental/v0.2/scheduler-unit.md)
 (the proposed decision this unit realizes),
-[concurrency.md §2](../../../../spec/v0.2/concurrency.md) Slice B design intent,
-[system.md §2](../../../../spec/v0.2/system.md) (`schedule(_)`/`sleep(_)`
+[concurrency.md §2](../../../../spec/current/concurrency.md) Slice B design intent,
+[system.md §2](../../../../spec/current/system.md) (`schedule(_)`/`sleep(_)`
 reserved seam), and [ADR-0030](../../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
 (no second concurrency primitive — a queue, not a mechanism)._
 
@@ -81,8 +81,8 @@ build on, without inventing a second concurrency primitive or requiring
 | `phalcom-core/src/universe/primitives.rs` | register both class-side on `system_cls` (L225–227 block); floor-census bump (+2) |
 | `phalcom-core/core/core.ph` | `System.runScheduled` |
 | `phalcom-core/tests/lang/concurrency/` + `tests/lang/MANIFEST.md` | goldens (§6) |
-| `docs/spec/v0.2/system.md` | flip `schedule(_)` status; document `nextScheduled`/`runScheduled` as a floor amendment |
-| `docs/spec/v0.2/concurrency.md` | flip Slice B's "needs the native ready-queue" note to landed, citing this unit |
+| `docs/spec/current/system.md` | flip `schedule(_)` status; document `nextScheduled`/`runScheduled` as a floor amendment |
+| `docs/spec/current/concurrency.md` | flip Slice B's "needs the native ready-queue" note to landed, citing this unit |
 
 **Deliberately NOT in scope:** `System.sleep(_)`, any timer completion
 source, `async`/`await`, `Future` Slice B itself (ships in U-FUTURE, gated

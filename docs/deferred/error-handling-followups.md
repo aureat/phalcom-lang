@@ -28,7 +28,7 @@ worse — pointing at a different, swapped-in entry. The second case is memory-s
 **surfaces no error at all**; the map is simply wrong from then on.
 
 **Reproduced 2026-07-20, both modes** (see
-[`../spec/traceback/verification-2026-07-20.md`](../spec/traceback/verification-2026-07-20.md)
+[`../spec/current/traceback/verification-2026-07-20.md`](../spec/current/traceback/verification-2026-07-20.md)
 §2c). Clarification the original phrasing undersells: the panic mode is `map_raw_get`'s raw
 `.expect("slot from locate() is live")` at `primitive/map.rs:80` — a **Rust process abort,
 uncatchable by `on(_)`** — not a catchable `RuntimeError`. The corruption mode reproduced as: a
@@ -68,7 +68,7 @@ being operated on* — an extension of the existing key/collection contract
 (`is_mutable_collection_key`, collection law 4). Rejected: re-locate (order-dependent
 semantics, livelock bound), version-counter-at-outer-op (blame one frame removed),
 fallible-accessors-alone (leaves silent corruption). Unit scheduling:
-[`../spec/traceback/plan.md`](../spec/traceback/plan.md) §G0 — ranked above the traceback
+[`../spec/current/traceback/plan.md`](../spec/current/traceback/plan.md) §G0 — ranked above the traceback
 track. Scope: `locate()` only; iteration-during-mutation stays a separate question.
 
 ---
@@ -83,7 +83,7 @@ instance** (`primitive/block.rs:253-263`, mirrored in `vm/dispatch.rs:370-379`
 `RangeError` / `TypeError` / `ZeroDivision` kernel classes — only `Error`,
 `MessageNotUnderstood`, and `CannotYieldAcrossNativeFrame`.
 
-So the worked examples at `docs/spec/v0.2/error-handling.md:143-146` are false:
+So the worked examples at `docs/spec/current/error-handling.md:143-146` are false:
 
 ```phalcom
 { obj.frobnicate() }.on(MessageNotUnderstood) { e => … }   // works (reified via Raise)

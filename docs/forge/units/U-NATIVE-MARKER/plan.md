@@ -81,8 +81,8 @@ suffix, so `at` (public) and `at_` (native) coexist cleanly.
 | `phalcom-core/src/universe.rs` | any bootstrap interning / installation of those selector symbols |
 | `phalcom-core/src/bin/phalcom/disasm.rs` | only if it string-matches any `raw*` selector (grep) |
 | `phalcom-core/tests/lang/**` | any golden `.ph` that calls a `raw*` primitive directly (likely none — they are internal) |
-| `docs/spec/v0.2/**`, `docs/adr/**` | prose references to `raw*` primitive names (grep; update to the `_` form) |
-| `docs/spec/v0.2/lexical-structure.md` | **add** a one-line convention note: trailing `_` marks a native/private primitive selector (Wren-style) |
+| `docs/spec/current/**`, `docs/adr/**` | prose references to `raw*` primitive names (grep; update to the `_` form) |
+| `docs/spec/current/lexical-structure.md` | **add** a one-line convention note: trailing `_` marks a native/private primitive selector (Wren-style) |
 
 **Deliberately NOT in scope:** any logic, opcode, `Value`/`heap` change; the iteration protocol; the
 `Tuple.fromList` helper; String primitives (U-STRING).

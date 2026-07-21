@@ -4,7 +4,7 @@
 - Scope: `phalcom-lsp` only — `index.rs`, `completion.rs`, one line of `backend.rs`
 - Realizes: [U-CLASSNS implementation-spec.md](../forge/units/U-CLASSNS/implementation-spec.md)
   §8 ("LSP — collapse, do not just re-key"), the last unbuilt piece of
-  [PDR-0001](../decisions/0001-classes-are-closed.md)
+  [PDR-0001](../pdr/0001-classes-are-closed.md)
 - Closes: [`docs/deferred/class-sealing-followups.md`](../deferred/class-sealing-followups.md)
   item 7, filed earlier the same day
 - Related: [2026-07-20-u-classclose-two-issues-and-five-restored-tests.md](2026-07-20-u-classclose-two-issues-and-five-restored-tests.md)

@@ -327,7 +327,7 @@ Carrying weight that would otherwise sit in an ADR (D5):
 ## Decisions to flag (DEC-REPL)
 
 - **DEC-REPL-A — class redefinition. CLOSED** by
-  [PDR-0001](../../../decisions/0001-classes-are-closed.md) ruling 6: *REPL
+  [PDR-0001](../../../pdr/0001-classes-are-closed.md) ruling 6: *REPL
   cells shadow; they do not reopen.* A later cell's `class Foo` binds a **new**
   class; instances made under the old definition keep it (they hold a `ClassId`,
   nothing migrates); the old class becomes unreachable by name. No live object is

@@ -60,10 +60,10 @@
 >   L27, `class Option {` L70; no drift from any other concurrent edit).
 >
 > Read against
-> [`floor-census.md`](../../../spec/v0.2/core/floor-census.md), [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md),
-> [`decisions.md`](../../../spec/v0.2/core/decisions.md) §4.4, [`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md)
-> §4, [`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) §4,
-> [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §3–4.
+> [`floor-census.md`](../../../spec/current/core/floor-census.md), [`catalog-delta.md`](../../../spec/current/core/catalog-delta.md),
+> [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §4.4, [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md)
+> §4, [`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) §4,
+> [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §3–4.
 
 ---
 
@@ -539,7 +539,7 @@ committing; `list_to_string_renders_brackets` (numbers only) and the two
 ### 4.4 Invariants this unit adds — all **corpus** (`tests/invariants.rs`, "C")
 
 Per invariant-requirements §4 (re-confirmed unchanged this pass — R-INV-4.1–4.4
-still exact at `docs/spec/v0.2/core/invariant-requirements.md` §4, "U-CORE-4 —
+still exact at `docs/spec/current/core/invariant-requirements.md` §4, "U-CORE-4 —
 value classes"), U-CORE-4 rows are all corpus (behavioral) — none go in
 `verify_invariants` (boot). `tests/invariants.rs` currently defines R-INV-0.x
 (L532+) and R-INV-1.x (L749+, U-CORE-1); R-INV-4.x does not exist yet — this
@@ -676,7 +676,7 @@ follow immediately after under whichever form is chosen.
 
 | Claim / requirement | Source |
 |---|---|
-| U-CORE-4 owns per-type `toString`; keep print-path separate but agreeing | [`decisions.md`](../../../spec/v0.2/core/decisions.md) §4.4; [`catalog-delta.md`](../../../spec/v0.2/core/catalog-delta.md) §4.4 |
+| U-CORE-4 owns per-type `toString`; keep print-path separate but agreeing | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §4.4; [`catalog-delta.md`](../../../spec/current/core/catalog-delta.md) §4.4 |
 | Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../DEFERRED.md) #4; [ADR-0015](../../../adr/0015-object-default-tostring.md) |
 | Unblocks DEFERRED #30 (interpolation desugar's `String.new(_)` stand-in) — desugar-target switch is a `phalcom-ast` follow-up, out of this unit's write-set | [`DEFERRED.md`](../../DEFERRED.md) #30; ADR-0022 |
 | `"<ClassName>"` instance default; class `toString` = own name | [ADR-0015](../../../adr/0015-object-default-tostring.md) |
@@ -685,11 +685,11 @@ follow immediately after under whichever form is chosen.
 | Symbol paths disagree (`Symbol("…")` vs bare) | `interner.rs` L20–23; `primitive/symbol.rs` L13 |
 | `Number#toString` must be native; not `.ph`-derivable | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1; DEFERRED #19; decisions.md Q1 |
 | ADR-0019 amendment precedent (already amended twice since this unit's draft) | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md); [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) |
-| `Some`/`None` `toString` derivable over `match` | [`values-and-absence.md`](../../../spec/v0.2/values-and-absence.md) §3.2; `primitive/nil.rs` `option_match` |
+| `Some`/`None` `toString` derivable over `match` | [`values-and-absence.md`](../../../spec/current/values-and-absence.md) §3.2; `primitive/nil.rs` `option_match` |
 | `Bool#toString` `.ph` syntax proven; non-sacred (no deopt) | `control-flow/control_flow_send_equivalence.ph` L9; floor-census §5 |
-| Direct flips + gated flips | [`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) §4 |
+| Direct flips + gated flips | [`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) §4 |
 | Green fixtures pinning `<None instance>`/`<Some instance>` to re-pin | corpus audit (§4.3), fixture headers ("pins today's substrate output") |
-| R-INV-4.1–4.4 (all corpus) | [`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) §4 |
-| int/float-safe `toString`; names → core module | [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §4, §3, §5 |
+| R-INV-4.1–4.4 (all corpus) | [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §4 |
+| int/float-safe `toString`; names → core module | [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §4, §3, §5 |
 | `List#toString` → `.ph` is a later move (unblocked, not done here) | [`DEFERRED.md`](../../DEFERRED.md) #19; catalog-delta §2.4 (U-STD) |
-| Universal `toString` on `Object`, overridable everywhere | [`object-model.md`](../../../spec/v0.2/object-model.md) §4, §8 |
+| Universal `toString` on `Object`, overridable everywhere | [`object-model.md`](../../../spec/current/object-model.md) §4, §8 |

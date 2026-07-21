@@ -736,7 +736,7 @@ this is the bill being paid.
 - `phalcom-core/src/error.rs::RuntimeError::DeadFrameError` (~L138–151).
 - ADR-0013 (`0013-closure-upvalues-and-frame-token-return.md`) — Decision + the two Alternatives.
   ADR-0030 §6 — the "must not be relocated into `FiberObject`" invariant. ADR-0009 — why frames are
-  `Copy` at all. `docs/spec/v0.2/blocks.md` §5 — the surface promise.
+  `Copy` at all. `docs/spec/current/blocks.md` §5 — the surface promise.
 - Fixtures: `blocks/blocks_non_local_return{,_bare,_two_deep,_in_loop}.ph`,
   `control-flow/control_flow_inline_non_local_return.ph` (inlined `if`/`while` is an *ordinary*
   return — a useful contrast), `runtime-errors/runtime_non_local_return_dead_frame.ph`,

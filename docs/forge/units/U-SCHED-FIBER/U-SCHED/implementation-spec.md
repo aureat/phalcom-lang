@@ -4,10 +4,10 @@ Companion to [`plan.md`](plan.md) (work order, decisions register, test
 strategy). This document is the Rust-level reference: exact `VM` field,
 exact primitive signatures, exact hook point in the dispatch loop.
 
-Grounds: [scheduler-unit.md](../../../../spec/v0.2/experimental/scheduler-unit.md)
+Grounds: [scheduler-unit.md](../../../../design/experimental/v0.2/scheduler-unit.md)
 (problem statement, dependency DAG) ·
-[concurrency.md §2](../../../../spec/v0.2/concurrency.md) Implementation/Slice B
-(design intent this unit realizes) · [system.md §2](../../../../spec/v0.2/system.md)
+[concurrency.md §2](../../../../spec/current/concurrency.md) Implementation/Slice B
+(design intent this unit realizes) · [system.md §2](../../../../spec/current/system.md)
 Scheduler row (`schedule(_)`/`sleep(_)` reserved seam) ·
 [ADR-0030](../../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
 (no second concurrency primitive — this unit adds a queue, not a mechanism).
@@ -33,8 +33,8 @@ scheduler-fiber-as-main model scheduler-unit.md originally sketched.
 | `phalcom-core/src/universe/primitives.rs` | register both class-side on `system_cls`, next to `print`/`new` (L225–227) |
 | `phalcom-core/core/core.ph` | `System.runScheduled` — thin `.ph` drain loop over `nextScheduled` |
 | `phalcom-core/tests/lang/concurrency/` + `MANIFEST.md` | goldens |
-| `docs/spec/v0.2/system.md` | flip `schedule(_)` status note; document the additional `nextScheduled` seam as a floor amendment |
-| `docs/spec/v0.2/concurrency.md` | flip Slice B "needs the native ready-queue" note once this lands |
+| `docs/spec/current/system.md` | flip `schedule(_)` status note; document the additional `nextScheduled` seam as a floor amendment |
+| `docs/spec/current/concurrency.md` | flip Slice B "needs the native ready-queue" note once this lands |
 
 **Deliberately NOT in scope (separate sub-slice, see `plan.md` §9):**
 `System.sleep(_)`, any timer completion source, `async`/`await`/`Future`

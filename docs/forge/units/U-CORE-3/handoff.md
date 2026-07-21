@@ -6,7 +6,7 @@ Paste the block below into a fresh Claude Code session to continue.
 
 You are the orchestrator continuing the **/forge** build of the **Phalcom** language (Rust
 workspace, `main`, at the repo root). The prior session consolidated the tree (reconciled the
-`PHASE2-INDEX.md` ↔ `docs/spec/core/` roster fork, ratified ADR-0023) and landed **U-CORE-1**
+`PHASE2-INDEX.md` ↔ `docs/spec/current/core/` roster fork, ratified ADR-0023) and landed **U-CORE-1**
 (kernel reflection). **Do NOT replay that work — all state is on disk.** Invoke the forge skill
 (`.claude/skills/forge/SKILL.md`), stay lean (delegate reading/writing to subagents, graphify
 first, never slurp source into your own context).
@@ -16,7 +16,7 @@ first, never slurp source into your own context).
   shipped, and the phase-log NEXT pointer.
 - `docs/forge/PHASE2-INDEX.md` §7 — the successor-track roster (U-CORE-1..6), now the single index
   of record (no more forked rosters — this was DEFERRED #29, now resolved).
-- `docs/spec/core/decisions.md`, `docs/spec/core/U-CORE-3-implementation-spec.md` — the next unit.
+- `docs/forge/units/U-CORE-0/decision-register.md`, `docs/spec/current/core/U-CORE-3-implementation-spec.md` — the next unit.
 - `docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md` — the omnibus floor amendment,
   **Accepted**. U-CORE-3's own floor delta (+5, `Method` reflection surface) is already authorized
   by this ADR — nothing to draft or ratify, only ground and implement.
@@ -25,7 +25,7 @@ first, never slurp source into your own context).
 is `03764e3`. Floor is **80 bindings** (73 base + U-CORE-1's 7).
 
 **What landed this session (in order):**
-1. **Docs consolidation** (`de03f26`) — PHASE2-INDEX.md §7 now points at `docs/spec/core/` as the
+1. **Docs consolidation** (`de03f26`) — PHASE2-INDEX.md §7 now points at `docs/spec/current/core/` as the
    index of record; refreshed stale baseline pins (76b5f35→0f84232) across
    README.md/decisions.md/invariant-requirements.md/forward-compat.md; recomputed catalog-delta.md
    §3's rollup table (True/False + Option now fully-✅ rows). Ratified **ADR-0023** (Accepted) —
@@ -45,7 +45,7 @@ is `03764e3`. Floor is **80 bindings** (73 base + U-CORE-1's 7).
    by the orchestrator (not just the test harness) before being accepted as done.
 
 **Immediate next steps, in order:**
-1. **Re-ground `docs/spec/core/U-CORE-3-implementation-spec.md`** against current HEAD `03764e3`
+1. **Re-ground `docs/spec/current/core/U-CORE-3-implementation-spec.md`** against current HEAD `03764e3`
    the same way U-CORE-1 was re-grounded (dispatch `phalcom-architect`) — floor is now 80, not 73;
    `Method < Function` is already done (U-CORE-3's own spec likely has a "whichever lands first"
    clause for this — it should now read "already done by U-CORE-1, assert don't redo," per
@@ -54,7 +54,7 @@ is `03764e3`. Floor is **80 bindings** (73 base + U-CORE-1's 7).
 2. **Dispatch `phalcom-implementer` for U-CORE-3** (callables/Block/Method reflection —
    `Object#methodFor(_)`, `Method#invokeOn(_,_)`, `Method#bind(_)`, `Method#selector`,
    `Method#holder`, +5 floor bindings, 80→85). This is the hard prereq for any iteration method
-   built after it (per `docs/spec/core/README.md`'s recommended order: U-CORE-1 → **3** → 2 → 4 →
+   built after it (per `docs/spec/current/core/README.md`'s recommended order: U-CORE-1 → **3** → 2 → 4 →
    5 → 6).
 3. Continue in the recommended order: U-CORE-2 (residue check — mostly landed already at
    `0da64d6`), then U-CORE-4 (value-class `toString`), U-CORE-5 (collection contract), U-CORE-6
@@ -84,7 +84,7 @@ is `03764e3`. Floor is **80 bindings** (73 base + U-CORE-1's 7).
   built CLI (`cargo run -p phalcom-core --bin phalcom -- <fixture>.ph`) rather than trusting the
   test harness alone.
 
-Keep your own context lean: reconstruct state from `STATE.md`/`PHASE2-INDEX.md`/`docs/spec/core/`
+Keep your own context lean: reconstruct state from `STATE.md`/`PHASE2-INDEX.md`/`docs/spec/current/core/`
 + graphify, not from transcripts.
 
 ---

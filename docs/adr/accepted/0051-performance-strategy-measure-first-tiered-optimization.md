@@ -10,7 +10,7 @@
   inline-cache seam), [ADR-0018](../accepted/0018-sacred-selector-inliner-and-override-guard.md)
   (sacred-selector inliner + deopt guard), [ADR-0030](../accepted/0030-fibers-and-futures-cooperative-concurrency.md)
   (fibers own heap-resident stacks), [ADR-0050](../accepted/0050-non-moving-mark-sweep-collector.md)
-  (non-moving collector); `docs/spec/v0.2/performance.md` (normative);
+  (non-moving collector); `docs/spec/current/performance.md` (normative);
   `docs/forge/DEFERRED.md` (the deferred perf cluster);
   `docs/forge/units/U-HOTPATH`, `U-GC` (existing units this strategy sequences).
 
@@ -62,7 +62,7 @@ path that silently changes semantics.
 Adopt a **measure-first, tiered, behavior-invariant** performance strategy,
 targeting **Wren parity (~2× on Skynet)**. The strategy is a standing policy plus
 an ordered sequence; the normative detail (laws, invariants, tier contract) is in
-`docs/spec/v0.2/performance.md`.
+`docs/spec/current/performance.md`.
 
 1. **Measure-first is policy, not advice.** No optimization lands without (a) a
    reproducible in-repo benchmark, (b) a profile attributing the cost to a named

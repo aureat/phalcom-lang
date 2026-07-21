@@ -1,7 +1,7 @@
 # 002 — U-GC Win A: box the six fat `Object` variants (Tier 4 representation)
 
 Commit `7480d75`. Grounded in [ADR-0050 §Decision 9](../../adr/accepted/0050-non-moving-mark-sweep-collector.md)
-+ [memory-management.md §7](../../spec/v0.2/memory-management.md). U-GC step 1 of 5;
++ [memory-management.md §7](../../spec/current/memory-management.md). U-GC step 1 of 5;
 standalone, no collector dependency.
 
 ## The cost

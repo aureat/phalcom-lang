@@ -1,7 +1,7 @@
 # U9 — Variadics (rest parameters) (as-built)
 
 - **Status:** ✅ Landed — `c9805d0` (runtime + acceptance corpus + forge docs, single commit)
-- **Realizes:** [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (amendment — adds the `Variadic` signature kind and `(*)` selector spelling); spec [messages-and-selectors.md §4](../../../spec/v0.2/messages-and-selectors.md)
+- **Realizes:** [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (amendment — adds the `Variadic` signature kind and `(*)` selector spelling); spec [messages-and-selectors.md §4](../../../spec/current/messages-and-selectors.md)
 - **Reviewer gate:** OFF per the load-bearing-only review policy (STATE.md) — self-verified on the green gate (`./scripts/verify.sh` exit 0, `cargo doc` clean, clippy clean).
 
 ## Mission

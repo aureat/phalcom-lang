@@ -30,13 +30,13 @@ phalcom-core/core/core.ph — grep "no bitwise ops"
   // or mid-sequence. UTF-8 decode via division/modulo (no bitwise ops).
 ```
 
-They appear in `docs/spec/v0.2/drafts/stdlib-catalog.md` §0.2 as
+They appear in `docs/spec/current/drafts/stdlib-catalog.md` §0.2 as
 `and/or/xor/not/shl/shr/ushr/bitAt/bitCount/leadingZeros/trailingZeros`, and in
-`docs/spec/v0.2/experimental/numeric-and-string-indexing.md` at status **Proposed**. Neither is a
+`docs/spec/current/experimental/numeric-and-string-indexing.md` at status **Proposed**. Neither is a
 record. `stdlib-catalog.md` §0.2 lists the real demand: open-flags, permission modes, `Bytes`
 fixed-width codecs, hex/base64, "every hash function", socket options.
 
-**The trap.** [PDR-0012](../decisions/0012-numeric-tower-implementation-and-floor-amendment.md)
+**The trap.** [PDR-0012](../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
 (Accepted 2026-07-20, unimplemented) is easy to read as unblocking this. It does not:
 
 - It contains **zero** occurrences of "bitwise", "shift", `bitAnd`, or `<<`. Verified by grep over
@@ -70,7 +70,7 @@ runtime change; this one adds surface syntax.
 `Bytes` is octet-at-a-time. Its eleven primitives (`phalcom-core/src/universe/primitives.rs`, grep
 `bytes_cls`) are `new/1`, `fromString_`, `size_`, `at_`, `set_`, `fill_`, `slice_`, `copyInto_`,
 `utf8_`, `utf8Lossy_`, `equalsConstantTime_`. There is no `loadU32_`/`loadU64_`/`storeU32_`, and
-none is among [PDR-0011](../decisions/0011-admit-bytes-native-octet-buffer.md)'s ten or
+none is among [PDR-0011](../pdr/0011-admit-bytes-native-octet-buffer.md)'s ten or
 PDR-0013's eleventh.
 
 It cannot be synthesized in `.ph`: `*256 +` accumulation exceeds 2⁵³ at the seventh byte, and

@@ -4,7 +4,7 @@
 - Commits: `cdd2117` (`primitive/block.rs`, `vm/gc.rs`, `vm/bootstrap.rs`), `vm/mod.rs` in the
   preceding commit, tests in `42aafce`
 - Realizes: [ADR-0050](../adr/accepted/0050-non-moving-mark-sweep-collector.md) §7 (the
-  `push_temp_root` escape hatch), closes [ffi.md](../spec/v0.2/drafts/ffi.md) **F-2**
+  `push_temp_root` escape hatch), closes [ffi.md](../spec/current/drafts/ffi.md) **F-2**
 - Supersedes: [U-GC IMPL-SPEC-steps-3-5.md](../forge/units/U-GC/IMPL-SPEC-steps-3-5.md) §2.1's
   "do not build `VM::temp_roots`" instruction — see §4 below
 

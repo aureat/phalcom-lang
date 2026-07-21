@@ -6,7 +6,7 @@
   derivation — this ADR makes `strip_leading_underscore` total);
   [ADR-0002](../accepted/0002-metaclass-tower.md) (why `Object#__attach` is registered once,
   instance-side, and reaches class/method/module receivers);
-  [`docs/spec/v0.2/syntax/README.md`](../../spec/v0.2/syntax/README.md) (identifier grammar);
+  [`docs/spec/current/syntax/README.md`](../../spec/current/syntax/README.md) (identifier grammar);
   `attribute-classes.md` (M-ATTR-ROOT — the mechanism whose selectors this ADR renames)
 
 ## Context

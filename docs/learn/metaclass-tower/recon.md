@@ -144,7 +144,7 @@ and it earns the most weight.
   `.ph` — `X class`, `X class class`, whether `Metaclass class == Metaclass` holds, and
   `Object class superclass == Class`. Report actual output. If any reflection selector is absent at
   HEAD, say so plainly — that bounds what the doc can claim.
-- Bounded spec/ADR: `docs/spec/v0.2/core/core-classes.md` §"Kernel tower classes" (Object @ ~L100,
+- Bounded spec/ADR: `docs/spec/current/core/core-classes.md` §"Kernel tower classes" (Object @ ~L100,
   Behavior @ ~L132, Class @ ~L157, Metaclass @ ~L170) + `object-model.md` §5–6. ADRs 0002 / 0003 /
   0009 Decision sections only.
 - GC angle: confirm the collector marks through `ClassId` links and never moves/patches them

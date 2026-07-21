@@ -68,22 +68,22 @@
 |---|---|---|
 | **U8** | Overridable `doesNotUnderstand(_)` hook + `Message` reification (`VM::new_message`) + `forward_does_not_understand` miss forward. | `primitive/object.rs:219` ⚠ (`object_does_not_understand`; was `:140` at the prior grounding — `object.rs` is mid-edit by the concurrent U-CORE-4 session, re-confirm before editing), `vm.rs:487` (`new_message`, stable), `vm.rs:530` (`forward_does_not_understand`, stable) |
 | **U10** | The **unified unwind** substrate: `Bytecode::ReturnNonLocal` + frame-token eager unwind + `RuntimeError::DeadFrameError`. This is the *Return-token* payload of ADR-0008's one unwind primitive; U-CORE-6 adds the sibling *Raise* payload. | `vm.rs:1126` (`ReturnNonLocal` handler, was `:1068`, stable file), `error.rs:138-139` (`DeadFrameError`, unchanged) |
-| **U-CORE-0** | Q2 ruling (confirm ADR-0008, do not redesign), the census, the invariant ledger, the forward-compat gate. | [`decisions.md`](../../../spec/v0.2/core/decisions.md) §Q2, [`floor-census.md`](../../../spec/v0.2/core/floor-census.md), [`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) §U-CORE-6, [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §2 |
+| **U-CORE-0** | Q2 ruling (confirm ADR-0008, do not redesign), the census, the invariant ledger, the forward-compat gate. | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §Q2, [`floor-census.md`](../../../spec/current/core/floor-census.md), [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §U-CORE-6, [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §2 |
 | **U-CORE-3** *(landed since the prior grounding — new dependency, confirmed)* | Landed the `Method`/`Object#methodFor(_)` reflection primitives via the same `primitive!`/`primitive_static!` registration idiom this unit reuses for `Error#message`/`Error#raise`. More importantly, U-CORE-3 **explicitly deferred** the reification of `RuntimeError::Arity`/`RuntimeError::Type` into surface `ArgumentError`/`TypeError` to *this* unit — its own as-built says "Reifying those is U-CORE-6; R-INV-3.4's 'ArgumentError' today means the native `RuntimeError::Arity`." **U-CORE-6 does not pick this up**: per §0 "Explicitly OUT of scope" below, the native `RuntimeError::Arity`/`Type` paths stay native *through* this unit too — only the dNU→`MessageNotUnderstood` slice lands here. The hand-off is one-directional (U-CORE-3 → future unit); U-CORE-6 is a way-station, not the destination, for `ArgumentError`/`TypeError`. | [`U-CORE-3/as-built.md`](../U-CORE-3/as-built.md) §0.2 (lines 62-65: "The full error hierarchy... Reifying those is U-CORE-6"), §4.3 R-INV-3.4 (line 543: "the surface `ArgumentError` is U-CORE-6"), §3.2/589-591 (`invoke_method_object`'s `RuntimeError::Arity` "is exactly the native path that will be re-pointed") |
 | **Class-tower machinery** | `make_core_class` (create a kernel row + parallel-rule metaclass), Phase-E field stamping (`Some`/`Message`), `add_class!` globals, the reopen path. | `universe.rs:622` ⚠ (`make_core_class`, was `:492` — `universe.rs` is mid-edit; re-confirm), `vm.rs:142-157` (Phase E stamping, stable, unchanged from prior grounding), `vm.rs:336-372` (`add_class!` macro + calls, was `:323-352`, stable file) |
 
 ### Explicitly OUT of scope (RESERVE, do not implement)
 
-Per [`decisions.md`](../../../spec/v0.2/core/decisions.md) §Q2 and [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md),
+Per [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §Q2 and [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md),
 the following are **later units** — U-CORE-6 must *reserve* their shapes (keep them
 layerable) but ship **none** of them:
 
 - **`Result` / `Ok` / `Err`** and the bridges `{…}.attempt()`, `result.unwrap()`,
-  `option.okOr(_)`, `result.ok()` ([values-and-absence.md](../../../spec/v0.2/values-and-absence.md) §4).
+  `option.okOr(_)`, `result.ok()` ([values-and-absence.md](../../../spec/current/values-and-absence.md) §4).
   Later **Result unit**; must mirror `Option`/`Some`/`None` (abstract root + two
   concrete subclasses), ADR-0008/[ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md).
 - **The full handling protocol** — `blk.on(ErrorClass){…}`, `blk.ensure{…}`, and the
-  `try`/`catch`/`finally` sugar over it ([error-handling.md](../../../spec/v0.2/error-handling.md) §2).
+  `try`/`catch`/`finally` sugar over it ([error-handling.md](../../../spec/current/error-handling.md) §2).
   **This is no longer a vague "later unit": the keyword spelling is now ratified
   by [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)** (Accepted,
   2026-07-12 — landed *during* this refresh pass): `throw`/`try`/`on`/`catch`/`ensure`
@@ -96,7 +96,7 @@ layerable) but ship **none** of them:
 - **Surface `DeadFrameError` / `TypeError` / `ArgumentError` / `RangeError` classes.**
   The runtime *already raises these natively today* as `RuntimeError` variants —
   they stay native this unit (see §1, "native errors that remain unreified"). Only
-  the dNU miss is reified. (Note: [catalog-delta.md](../../../spec/v0.2/core/catalog-delta.md)
+  the dNU miss is reified. (Note: [catalog-delta.md](../../../spec/current/core/catalog-delta.md)
   §2.7 tags all six error rows, including these four, with owner "U-CORE-6" — that
   column is coarse and does not distinguish this unit's *minimal* slice from the
   reification of native `RuntimeError` variants, which is explicitly reserved
@@ -154,11 +154,11 @@ layerable) but ship **none** of them:
 *surface* `Error` object. There is **no `Error` / `MessageNotUnderstood` class**, no
 `message`/`raise` protocol, and the unwind carries no catchable `Value`. `Error`,
 `MessageNotUnderstood`, `DeadFrameError`, `TypeError`, `ArgumentError`, `RangeError`
-are catalogued ([object-model.md](../../../spec/v0.2/object-model.md) §4 "Errors",
+are catalogued ([object-model.md](../../../spec/current/object-model.md) §4 "Errors",
 now lines 170-179, was cited "160-165" — the table drifted down as the "Concurrency"
 subsection was inserted above it) and **absent from the tower** (`universe.rs`
 `create_core_classes` has no `Error` row, re-confirmed this pass at `universe.rs:94-218`
-⚠; [catalog-delta.md](../../../spec/v0.2/core/catalog-delta.md) §2.7 marks all six ❌/❌).
+⚠; [catalog-delta.md](../../../spec/current/core/catalog-delta.md) §2.7 marks all six ❌/❌).
 
 ### The unified-unwind gap (the load-bearing design point)
 
@@ -443,7 +443,7 @@ pub fn error_raise(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 
 ## §4. Test strategy
 
-### `_pending` fixtures this unit relates to ([pending-retirement.md](../../../spec/v0.2/core/pending-retirement.md) §4)
+### `_pending` fixtures this unit relates to ([pending-retirement.md](../../../spec/current/core/pending-retirement.md) §4)
 
 Neither is a **direct** flip — both need surface syntax this unit does not add:
 
@@ -500,21 +500,21 @@ not on these lexer/Result-gated ones.
    (Use a small `is_a` helper walking the superclass chain, or reuse the runtime's
    lookup; the point is the three assertions.)
 
-### Invariants this unit adds ([invariant-requirements.md](../../../spec/v0.2/core/invariant-requirements.md) §U-CORE-6)
+### Invariants this unit adds ([invariant-requirements.md](../../../spec/current/core/invariant-requirements.md) §U-CORE-6)
 
 | # | Invariant | Where | Notes |
 |---|---|---|---|
 | **6.1** | `MessageNotUnderstood < Error < Object`; parallel rule holds for both new rows (extends R-INV-0.2). | **H** (`verify_invariants`) + **C** | Boot: assert `error.superclass == Object`, `mnu.superclass == Error`, and `X.class.superclass == X.superclass.class` for both. Corpus: same via handle identity + a user subclass of `Error`. |
 | **6.2** | A genuine miss (dNU not overridden) raises a **surface** `MessageNotUnderstood` carrying the `Message`, `isA(Error)`, **not** native `RuntimeError`. | **C** | The Rust corpus test above. |
 | **6.3** | Only `Error` subclasses are raisable — `raise` lives on `Error` only. | **C** | Assert an `Error` (or subclass) instance responds to `raise` and `3` / a `String` does not (`respondsTo` via `Symbol.new("raise()")`, no `#…` literal needed). `throw 42` compile-rejection = deferred to the ADR-0031 error-syntax unit. |
-| **6.4** | An overriding `doesNotUnderstand(_)` still intercepts **before** the default raise. | **C** | Guard `tests/lang/dispatch/dispatch_dnu_proxy_forwards.{ph,expected}` (Proxy `doesNotUnderstand` forwards via `perform`, `status: PASS`). **Fixture identity corrected this pass**: the prior grounding cited `dispatch/pending/dispatch_does_not_understand`; the actual, current, already-promoted fixture is `tests/lang/dispatch/dispatch_dnu_proxy_forwards.ph` (confirmed on disk, no `pending/` prefix, `// status: PASS`). [`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) line 93 still names the old `dispatch/pending/dispatch_does_not_understand` path — that doc has not caught up to the promotion (do not edit it; it is out of this unit's write-set). It is category-A green today; U-CORE-6 must keep it green. |
-| **6.5** | Floor census (R-INV-0.1) updated in lockstep for the `message`/`raise` additions. | **C** | Bump the census audit's expected binding count to **+2 on top of whatever U-CORE-4 landed it at** (88 total per the header's floor-math box) and add the two `(Error, selector)` rows; amend [`floor-census.md`](../../../spec/v0.2/core/floor-census.md) §2 + §1.1 in the same change. Re-read the live count first — do not assume 86 as the pre-U-CORE-6 base without confirming U-CORE-4 has actually landed. |
+| **6.4** | An overriding `doesNotUnderstand(_)` still intercepts **before** the default raise. | **C** | Guard `tests/lang/dispatch/dispatch_dnu_proxy_forwards.{ph,expected}` (Proxy `doesNotUnderstand` forwards via `perform`, `status: PASS`). **Fixture identity corrected this pass**: the prior grounding cited `dispatch/pending/dispatch_does_not_understand`; the actual, current, already-promoted fixture is `tests/lang/dispatch/dispatch_dnu_proxy_forwards.ph` (confirmed on disk, no `pending/` prefix, `// status: PASS`). [`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) line 93 still names the old `dispatch/pending/dispatch_does_not_understand` path — that doc has not caught up to the promotion (do not edit it; it is out of this unit's write-set). It is category-A green today; U-CORE-6 must keep it green. |
+| **6.5** | Floor census (R-INV-0.1) updated in lockstep for the `message`/`raise` additions. | **C** | Bump the census audit's expected binding count to **+2 on top of whatever U-CORE-4 landed it at** (88 total per the header's floor-math box) and add the two `(Error, selector)` rows; amend [`floor-census.md`](../../../spec/current/core/floor-census.md) §2 + §1.1 in the same change. Re-read the live count first — do not assume 86 as the pre-U-CORE-6 base without confirming U-CORE-4 has actually landed. |
 
 **Boot vs corpus:** 6.1 → **H + C**; 6.2/6.3/6.4/6.5 → **C**.
 
 ---
 
-## §5. Must-not-preclude ([forward-compat.md](../../../spec/v0.2/core/forward-compat.md) §2 — *the* section — + §1)
+## §5. Must-not-preclude ([forward-compat.md](../../../spec/current/core/forward-compat.md) §2 — *the* section — + §1)
 
 | Hazard (§2/§1) | How this design clears it |
 |---|---|
@@ -578,7 +578,7 @@ the "must-not-preclude" gate paying off, not a gap.
   `object_does_not_understand`.)
 
 *No new design-level ADR is required* — ADR-0008 already governs the model, and
-[`decisions.md`](../../../spec/v0.2/core/decisions.md) §Q2 confirms it. A
+[`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §Q2 confirms it. A
 **floor-amendment landing-record ADR** *is* required (see below) — that is a
 bookkeeping ADR (mirrors ADR-0028/ADR-0036), not a design ADR.
 
@@ -602,7 +602,7 @@ is playing for U-CORE-4 — that:
 2. Records the actual landing: floor moves to *whatever U-CORE-4 left it at*, **+2**
    (the two `Error` bindings), and the concrete distinct-fn delta (+2:
    `error_message`, `error_raise`).
-3. Updates [`floor-census.md`](../../../spec/v0.2/core/floor-census.md) §1.1/§2 and
+3. Updates [`floor-census.md`](../../../spec/current/core/floor-census.md) §1.1/§2 and
    the R-INV-0.1 audit in the same change (mirrors how ADR-0036's Related-list
    cites "floor-census.md §1.1, §2.1, §2.4 (re-baselined in the same
    implementation change as this ADR)").
@@ -616,20 +616,20 @@ is playing for U-CORE-4 — that:
 
 | Claim / requirement | Source |
 |---|---|
-| Confirm ADR-0008; U-CORE-6 = minimal reification | [`decisions.md`](../../../spec/v0.2/core/decisions.md) §Q2; [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md) |
-| `Error`/`MNU`/… catalog rows (`message`, `raise`) | [object-model.md](../../../spec/v0.2/object-model.md) §4 "Errors" (lines 170-179, was cited 160-165) |
-| Raise / handling as block protocol; `throw expr === expr.raise()`; only-`Error` throwable | [error-handling.md](../../../spec/v0.2/error-handling.md) §1-2, §4 |
+| Confirm ADR-0008; U-CORE-6 = minimal reification | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §Q2; [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md) |
+| `Error`/`MNU`/… catalog rows (`message`, `raise`) | [object-model.md](../../../spec/current/object-model.md) §4 "Errors" (lines 170-179, was cited 160-165) |
+| Raise / handling as block protocol; `throw expr === expr.raise()`; only-`Error` throwable | [error-handling.md](../../../spec/current/error-handling.md) §1-2, §4 |
 | Surface keyword spelling for `throw`/`try`/`on`/`catch`/`ensure` (ratified this pass) | [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md) (Accepted, 2026-07-12) |
 | One unwind primitive (Return vs Raise payloads) | [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md); U10 spec §2 |
-| `Result`/`Ok`/`Err` reserved, `Option`-mirrored | [values-and-absence.md](../../../spec/v0.2/values-and-absence.md) §4; [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) |
-| dNU/`Message` reification the raise wires to | [floor-census.md](../../../spec/v0.2/core/floor-census.md) §2.14; [catalog-delta.md](../../../spec/v0.2/core/catalog-delta.md) §2.7/§4.5 |
+| `Result`/`Ok`/`Err` reserved, `Option`-mirrored | [values-and-absence.md](../../../spec/current/values-and-absence.md) §4; [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) |
+| dNU/`Message` reification the raise wires to | [floor-census.md](../../../spec/current/core/floor-census.md) §2.14; [catalog-delta.md](../../../spec/current/core/catalog-delta.md) §2.7/§4.5 |
 | Floor amendment pre-cleared in principle (+2 bindings) | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) Decision §4; sibling per-unit landing records [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) (U-CORE-3), [ADR-0036](../../../adr/0036-amend-floor-admit-number-tostring.md) (U-CORE-4, Proposed) |
-| Invariants R-INV-6.1…6.5 | [invariant-requirements.md](../../../spec/v0.2/core/invariant-requirements.md) §U-CORE-6 (verbatim-matched this pass, no drift) |
-| Must-not-preclude (errors + fibers) | [forward-compat.md](../../../spec/v0.2/core/forward-compat.md) §2, §1 |
-| Fixtures `errors_throw_try_catch_finally` / `errors_result_bridge` | [pending-retirement.md](../../../spec/v0.2/core/pending-retirement.md) §4 |
+| Invariants R-INV-6.1…6.5 | [invariant-requirements.md](../../../spec/current/core/invariant-requirements.md) §U-CORE-6 (verbatim-matched this pass, no drift) |
+| Must-not-preclude (errors + fibers) | [forward-compat.md](../../../spec/current/core/forward-compat.md) §2, §1 |
+| Fixtures `errors_throw_try_catch_finally` / `errors_result_bridge` | [pending-retirement.md](../../../spec/current/core/pending-retirement.md) §4 |
 | R-INV-6.4 guard fixture — corrected identity | `tests/lang/dispatch/dispatch_dnu_proxy_forwards.ph` (confirmed on disk, `status: PASS`, no `pending/` prefix — supersedes the stale `dispatch/pending/dispatch_does_not_understand` name still in `pending-retirement.md` line 93) |
 | U-CORE-3 → U-CORE-6 error-reification hand-off | [`U-CORE-3/as-built.md`](../U-CORE-3/as-built.md) §0.2 (lines 62-65), R-INV-3.4 (line 543), §589-591 |
-| open-Q9 resolved by ADR-0008 + ADR-0031 | [open-questions.md](../../../spec/v0.2/open-questions.md) §9 (`~~struck~~`, → ADR-0008; surface spelling → ADR-0031) |
+| open-Q9 resolved by ADR-0008 + ADR-0031 | [open-questions.md](../../../spec/current/open-questions.md) §9 (`~~struck~~`, → ADR-0008; surface spelling → ADR-0031) |
 | Current miss path (files) | `primitive/object.rs:219` ⚠ (was `:140`); `vm.rs:487,530,690` (was `:467,510,632`); `error.rs:63,82,138-139` (unchanged); `interpret.rs:125` (unchanged) |
 | Reopen preserves stamped `field_count` | `compiler/lib.rs:734` (existing-class path, unchanged); `vm.rs:142-148` (`Some` stamp, unchanged) |
 | Read-before-write hazard | `compiler/lib.rs:84` (unchanged), field collection `compiler/lib.rs:~660-730` (was cited `584-730`; drifted, re-verify at dispatch) |

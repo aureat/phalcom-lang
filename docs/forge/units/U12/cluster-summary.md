@@ -130,7 +130,7 @@ load-bearing sub-feature waits on the ruling._
 
 ## 7. New ADRs to draft (via `documentation-and-adrs`)
 Provisional numbers **0024–0030** — **ADR-0023 is already reserved** (core-floor omnibus, per
-`docs/spec/core/README.md`), and the concurrent **collection-literals** and **concurrency** planning
+`docs/spec/current/core/README.md`), and the concurrent **collection-literals** and **concurrency** planning
 agents are also claiming numbers. **Do not hard-code these; grab the next-free at authoring time**
 and update the plan's `00XX` placeholder.
 

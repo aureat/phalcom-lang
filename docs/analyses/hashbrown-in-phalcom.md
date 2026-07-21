@@ -10,11 +10,11 @@ Every claim carries a warrant tag — **`[V]`** verified by opening the named ar
 **`[M]`** measured (with the instrument named), **`[R]`** recalled, **`[X]`** refuted,
 **`[O]`** open. §10 is the provenance ledger: what was actually opened, and by whom.
 
-Related: [`../spec/v0.2/core/map-and-set.md`](../spec/v0.2/core/map-and-set.md) §4 (which already
-ruled the adjacent question), [`../spec/v0.2/core/bytes.md`](../spec/v0.2/core/bytes.md),
-[`../spec/v0.2/core/numeric-tower.md`](../spec/v0.2/core/numeric-tower.md),
-[`../decisions/0012-numeric-tower-implementation-and-floor-amendment.md`](../decisions/0012-numeric-tower-implementation-and-floor-amendment.md),
-[`../spec/v0.2/memory-management.md`](../spec/v0.2/memory-management.md),
+Related: [`../spec/current/stdlib/map-and-set.md`](../spec/current/stdlib/map-and-set.md) §4 (which already
+ruled the adjacent question), [`../spec/current/stdlib/bytes.md`](../spec/current/stdlib/bytes.md),
+[`../spec/current/numbers/numeric-tower.md`](../spec/current/numbers/numeric-tower.md),
+[`../pdr/0012-numeric-tower-implementation-and-floor-amendment.md`](../pdr/0012-numeric-tower-implementation-and-floor-amendment.md),
+[`../spec/current/memory-management.md`](../spec/current/memory-management.md),
 [`../forge/perf-log/SCOREBOARD.md`](../forge/perf-log/SCOREBOARD.md).
 
 ---
@@ -180,7 +180,7 @@ of *how the algorithm works*:
 **None of it survives translation into Phalcom, and not because Phalcom is too weak — because
 Phalcom's heap makes the problems it solves not exist.**
 
-**`[V]`** [`../spec/v0.2/memory-management.md`](../spec/v0.2/memory-management.md) §1: all heap
+**`[V]`** [`../spec/current/memory-management.md`](../spec/current/memory-management.md) §1: all heap
 objects live in one `Heap`, a generational arena (`SlotMap<ObjRef, Object>`); every object is
 named by a `Copy` handle (index-plus-generation), **not a pointer**. Sweeping bumps the
 generation, so a stale handle resolves to a defined diagnostic, "never to undefined behaviour."
@@ -290,7 +290,7 @@ A 64-bit group word cannot be represented. Neither can `h1` for a 64-bit hash.
 primitives at [`universe/primitives.rs:312-322`](../../phalcom-core/src/universe/primitives.rs:312) —
 `new/1`, `fromString_`, `size_`, `at_`, `set_`, `fill_`, `slice_`, `copyInto_`, `utf8_`,
 `utf8Lossy_`, `equalsConstantTime_`. Backing is `Box<[u8]>`, fixed length
-([`../spec/v0.2/core/bytes.md`](../spec/v0.2/core/bytes.md) §1).
+([`../spec/current/stdlib/bytes.md`](../spec/current/stdlib/bytes.md) §1).
 
 **There is no multi-byte accessor**, and none can be synthesized. `*256 +` accumulation
 overflows 2⁵³ at the seventh byte, and even below that you cannot mask or shift the result.
@@ -325,7 +325,7 @@ the member is *deleted* before anything else sees it:
 class.members.retain(|m| !member_has_attr(m, "native") && !member_has_attr(m, "ignore"));
 ```
 
-Its own spec (`docs/spec/v0.2/decorators/native.md`, "What it is not") says: "It is not a binding
+Its own spec (`docs/spec/current/decorators/native.md`, "What it is not") says: "It is not a binding
 directive. `@native` does not tell the compiler which Rust function to install, and does not
 cause anything to be installed." It is an LSP anchor.
 
@@ -339,8 +339,8 @@ floor amendment, i.e. a governance action, not a language feature.
 This is the finding most likely to be missed by anyone reading the roadmap and concluding "the
 numeric tower unblocks this."
 
-**`[V]`** [PDR-0012](../decisions/0012-numeric-tower-implementation-and-floor-amendment.md) is
-**Accepted, ratified 2026-07-20, unimplemented** ([`../decisions/STATUS.md:30`](../decisions/STATUS.md)).
+**`[V]`** [PDR-0012](../pdr/0012-numeric-tower-implementation-and-floor-amendment.md) is
+**Accepted, ratified 2026-07-20, unimplemented** ([`../pdr/STATUS.md:30`](../pdr/STATUS.md)).
 It rules the `Int`/`Float` split, floor 137 → 153.
 
 **`[V]`** It contains **zero** occurrences of "bitwise", "shift", `bitAnd`, or `<<`. Verified by
@@ -353,8 +353,8 @@ never in `i64` range (`:93-94`).
 So even after PDR-0012 ships in full:
 
 - R1 is still unmet — bitwise ops are ruled by nothing. They appear in
-  `docs/spec/v0.2/experimental/numeric-and-string-indexing.md` (status **Proposed**) and are
-  sketched in `docs/spec/v0.2/drafts/stdlib-catalog.md:109-113` as
+  `docs/spec/current/experimental/numeric-and-string-indexing.md` (status **Proposed**) and are
+  sketched in `docs/spec/current/drafts/stdlib-catalog.md:109-113` as
   `and/or/xor/not/shl/shr/ushr/bitAt/bitCount/leadingZeros/trailingZeros`. A draft is not a record.
 - **R2 is not merely unmet; it is in tension with what was ratified.** `Int` is *unbounded*.
   Unbounded integers have no wrapping semantics — there is no width for a borrow to propagate
@@ -508,7 +508,7 @@ slot for want of a presized `List`. Useful as a teaching artifact — it makes t
 visible — not as a collection.
 
 **`[V]`** And the tree already ruled the adjacent question.
-[`../spec/v0.2/core/map-and-set.md`](../spec/v0.2/core/map-and-set.md) §4 evaluated exactly this
+[`../spec/current/stdlib/map-and-set.md`](../spec/current/stdlib/map-and-set.md) §4 evaluated exactly this
 and rejected it: "`.ph` over `List` of buckets — rejected: O(n) lookup defeats the point; hashing
 in `.ph` is awkward," recommending the native arm as "matches the 'native container, `.ph`
 protocol' pattern."
@@ -560,9 +560,9 @@ Per R2 of the citation discipline: the verb needs its object.
 `phalcom-core/src/primitive/mod.rs:150-160`, `:356-370`,
 `phalcom-core/src/universe/primitives.rs:106-127`, `:297`, `:305-325`,
 `phalcom-core/src/compiler/attributes.rs:1790-1796`, `phalcom-core/core/core.ph:107`,
-`docs/spec/v0.2/core/{bytes,map-and-set,numeric-tower}.md`,
-`docs/spec/v0.2/drafts/stdlib-catalog.md:95-135`, `docs/spec/v0.2/memory-management.md:1-60`,
-`docs/decisions/STATUS.md:30`, `docs/decisions/0012-…md` (grep),
+`docs/spec/current/core/{bytes,map-and-set,numeric-tower}.md`,
+`docs/spec/current/drafts/stdlib-catalog.md:95-135`, `docs/spec/current/memory-management.md:1-60`,
+`docs/pdr/STATUS.md:30`, `docs/pdr/0012-…md` (grep),
 `docs/forge/perf-log/SCOREBOARD.md:253-303`.
 
 **Delegated to subagents, then spot-checked against the tree before use:** the `phalcom-ast`

@@ -34,7 +34,7 @@ Greeter.new(name: "Ada").greet()   // "Hello, Ada"
 
 This is a **guide**: it teaches, in prose and examples, and it links out. The
 normative rules — every combinator, every grammar production, every edge case —
-live in the [language specification](../spec/v0.2/README.md), which is the source
+live in the [language specification](../spec/current/README.md), which is the source
 of truth. When the guide says "see the spec," it means *that document owns the
 exhaustive answer*; the guide owns the intuition and the shortest path to it.
 

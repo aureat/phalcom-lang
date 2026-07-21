@@ -14,7 +14,7 @@ inert.**
 
 ## 1. The state of the attribute system, established by probe
 
-Phalcom's attribute design (`docs/spec/v0.2/decorators/on.md`) is a
+Phalcom's attribute design (`docs/spec/current/decorators/on.md`) is a
 tiered decorator system: an attribute class declares `@On(Target, tier: Tier)`
 and implements a hook (`wrap`, `aroundSend`, `expand`, `resolveMissing`,
 `finalizeLayout`) that the runtime dispatches at the right moment. It is a good

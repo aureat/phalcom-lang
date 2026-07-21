@@ -3,8 +3,8 @@
 - Status: Accepted (ratified with the collections umbrella [ADR-0032](0032-collections-representation-and-literals.md), 2026-07-12)
 - Date: 2026-07-12
 - Related: [ADR-0032](0032-collections-representation-and-literals.md) (collections umbrella),
-  `docs/spec/v0.2/core/list-literal-syntax.md` (the design this ADR ratifies),
-  `docs/spec/v0.2/core/core-classes.md` §6, `docs/spec/v0.2/object-model.md` §3,
+  `docs/spec/current/syntax/list-literals.md` (the design this ADR ratifies),
+  `docs/spec/current/core/core-classes.md` §6, `docs/spec/current/object-model.md` §3,
   [ADR-0020](0020-kernel-list-native-array-protocol.md) (native `List`),
   [ADR-0021](0021-no-truthiness-enforcement.md) (no truthiness),
   [ADR-0016](0016-hand-written-lexer-and-recursive-descent-parser.md) (lexer/parser),

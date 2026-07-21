@@ -8,7 +8,7 @@ None of this runs yet. `Fiber` and `Future` are reserved class names with a
 design that's fully specified and ratified
 ([ADR-0030](../adr/0030-fibers-and-futures-cooperative-concurrency.md)), but no
 primitives behind them — see
-[concurrency.md](../spec/v0.2/concurrency.md) for the "unrealized today" list.
+[concurrency.md](../spec/current/concurrency.md) for the "unrealized today" list.
 This page teaches the target semantics: what you'll write once the concurrency
 unit lands, and why it's shaped this way.
 
@@ -67,7 +67,7 @@ the fiber's parked state — and that frame isn't something the VM can snapshot
 and resume later, only unwind. `for`, by contrast, lowers to an *inlined*
 `while` over the cursor protocol
 ([ADR-0018](../adr/0018-sacred-selector-inliner-and-override-guard.md),
-[iteration.md](../spec/v0.2/iteration.md) §2) — one bytecode chunk, no native
+[iteration.md](../spec/current/iteration.md) §2) — one bytecode chunk, no native
 frame in between, so `yield` suspends exactly where it's called.
 
 So the pattern that stays legal is anything that yields at the **top level of
@@ -124,7 +124,7 @@ better at the call site.
 built entirely from `Fiber` plus a ready-queue, which is deliberate: the
 concurrency primitive stays singular, and `Future` is "just" the ergonomic
 layer over it. Full interface and the scheduler's contract are in
-[concurrency.md](../spec/v0.2/concurrency.md) §2.
+[concurrency.md](../spec/current/concurrency.md) §2.
 
 ---
 

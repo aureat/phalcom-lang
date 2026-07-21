@@ -7,11 +7,11 @@ module). **Reviewer ON** (spine files `parser.rs`/`compiler/lib.rs`) — hand th
 `cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)**
 (ratifies this tier), **[ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)**
 (Fix 1 — receiver-scoped invariant guard, built in from the start here, not retrofitted), and
-normative **[annotations-core.md](../../../spec/v0.2/experimental/annotations-core.md)**,
-**[annotations-legality-grammar.md](../../../spec/v0.2/experimental/annotations-legality-grammar.md)**,
-**[annotations-contracts.md](../../../spec/v0.2/experimental/annotations-contracts.md)**,
-**[annotations-contract-semantics.md](../../../spec/v0.2/experimental/annotations-contract-semantics.md)**,
-**[annotations-test-strategy.md](../../../spec/v0.2/experimental/annotations-test-strategy.md)**.
+normative **[annotations-core.md](../../../design/experimental/v0.2/annotations-core.md)**,
+**[annotations-legality-grammar.md](../../../design/experimental/v0.2/annotations-legality-grammar.md)**,
+**[annotations-contracts.md](../../../design/experimental/v0.2/annotations-contracts.md)**,
+**[annotations-contract-semantics.md](../../../design/experimental/v0.2/annotations-contract-semantics.md)**,
+**[annotations-test-strategy.md](../../../design/experimental/v0.2/annotations-test-strategy.md)**.
 
 > **Grounding correction vs. the source drafts (read this before coding).** Three claims in the
 > ratified docs do not match HEAD, verified by direct source read (2026-07-13):

@@ -30,7 +30,7 @@ class Employee extends Person {
 `extends` is optional — a class with no `extends` clause is a direct subclass of
 `Object`. Inheritance is **single**: one `superclass`, no mixins, no interfaces
 to satisfy. The full class/metaclass story — why this is enough, and what it
-buys you — is [The Object Model](../spec/v0.2/object-model.md).
+buys you — is [The Object Model](../spec/current/object-model.md).
 
 ## Constructors
 
@@ -58,7 +58,7 @@ returns `self` — you never see or write the allocation step. `new` isn't a
 keyword; `anonymous` is exactly as legitimate a constructor name. Because
 selectors are labels-and-all, `new(name:, age:)` and `new(name:)` coexist as
 two distinct constructors rather than one arity-juggling `new`. See
-[Classes §1](../spec/v0.2/classes.md#1-constructors) for the rest, and
+[Classes §1](../spec/current/classes.md#1-constructors) for the rest, and
 [Messages & Dispatch](messages.md) for why labels are identity everywhere, not
 just here.
 
@@ -89,8 +89,8 @@ Fields are private to the class that declares them — a subclass writing `_name
 gets its own slot, not the superclass's. There's no field-visibility syntax to
 learn because there's only one visibility: external code reaches state through
 a method, always. Details and rationale in
-[Classes §2](../spec/v0.2/classes.md#2-fields) and
-[Selectors §5](../spec/v0.2/selectors.md#5-field-visibility).
+[Classes §2](../spec/current/classes.md#2-fields) and
+[Selectors §5](../spec/current/selectors.md#5-field-visibility).
 
 ## Methods, accessors, and operators
 
@@ -116,7 +116,7 @@ class Person {
   behaviors.
 - Operators (`==`, `+`, `[]`, ...) are ordinary methods with punctuation for a
   name — nothing about dispatch treats them specially. See
-  [Selectors §1](../spec/v0.2/selectors.md#1-selector-identity) for how a
+  [Selectors §1](../spec/current/selectors.md#1-selector-identity) for how a
   selector's identity is computed.
 
 ## Implicit return
@@ -148,7 +148,7 @@ on the **metaclass**, `Person`'s own class, and are looked up by walking the
 metaclass's superclass chain exactly like an instance send walks `Person`'s.
 That's why static methods and `construct` inherit correctly along a class
 hierarchy for free. The full tower — metaclasses, `X class`, why classes being
-objects pays off — is [The Object Model](../spec/v0.2/object-model.md); the
+objects pays off — is [The Object Model](../spec/current/object-model.md); the
 slot-layout mechanics are [ADR-0011](../adr/0011-static-instance-slot-layout.md).
 
 ## `super` and method resolution

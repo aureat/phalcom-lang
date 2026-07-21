@@ -1,7 +1,7 @@
 # U1 — Heap & Value (as-built)
 
 - **Status:** ✅ Landed — `6515ea3` (`feat(u1): handle/arena heap + tagged Value`, 2026-07-11).
-- **Realizes:** [ADR-0009](../../../adr/0009-handle-arena-heap.md) (handle/arena heap) + [ADR-0010](../../../adr/0010-tagged-value-enum.md) (tagged `Value` enum); spec [object-model §3](../../../spec/v0.2/object-model.md) (value representation) and [§6](../../../spec/v0.2/object-model.md) (bootstrap), [values-and-absence §2](../../../spec/v0.2/values-and-absence.md).
+- **Realizes:** [ADR-0009](../../../adr/0009-handle-arena-heap.md) (handle/arena heap) + [ADR-0010](../../../adr/0010-tagged-value-enum.md) (tagged `Value` enum); spec [object-model §3](../../../spec/current/object-model.md) (value representation) and [§6](../../../spec/current/object-model.md) (bootstrap), [values-and-absence §2](../../../spec/current/values-and-absence.md).
 - **Reviewer gate:** **ON** (load-bearing — can corrupt the object model). Independent `phalcom-reviewer` **PASSED** after a scoped fixer restored a `Symbol`/`Module` `==`/`!=` semantics regression (`value_eq` had fallen through to derived `PartialEq`).
 
 ## Mission
@@ -27,7 +27,7 @@ No surface-language change; behavior preserved observationally (goldens byte-ide
 
 ## Deviations & deferrals
 - **Reviewer-blessed deviation:** the compiler allocates constants directly via `&mut VM` into the one VM-owned `Heap` (not the plan's heap-free-descriptor approach) — sound for U1 (single heap, VM-lifetime handles). A "true heap-free compiler" is deferred.
-- **NaN-boxing is deferred** behind the same enum API (ADR-0010) — packing `Value` into a single NaN-tagged `f64` word is a later optimization, not this unit. See [deferred-work](../../../spec/v0.2/deferred-work.md).
+- **NaN-boxing is deferred** behind the same enum API (ADR-0010) — packing `Value` into a single NaN-tagged `f64` word is a later optimization, not this unit. See [deferred-work](../../../spec/current/deferred-work.md).
 - **A tracing collector is not built** — the arena is *designed* to host one (stable handles survive relocation/reclamation) but reclamation is deferred (ADR-0009). `System.gc` remains future work.
 - Every dereference threads a heap reference — the deliberate cost of removing pointer aliasing.
 - Closed **DEFERRED #1**: LALRPOP fully removed from the workspace dependency graph.

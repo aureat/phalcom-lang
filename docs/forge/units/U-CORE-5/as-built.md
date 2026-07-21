@@ -22,11 +22,11 @@
 > amendment, visible in `universe.rs`'s currently-dirty tree). **This unit's own
 > floor delta is +0**, expressed as math on whichever of those two numbers is
 > current at dispatch — do not hardcode a literal (see §3.1).
-> Encodes [`decisions.md`](../../../spec/v0.2/core/decisions.md) **Q5**
+> Encodes [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) **Q5**
 > (mutability + equality + hashability). Depends on **U-CORE-1** (`isA(_)` and
 > `hash` — **confirmed landed**, commit `03764e3`,
-> [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q1). See
-> [`README.md`](../../../spec/v0.2/core/README.md) for the baseline-pin policy.
+> [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q1). See
+> [`README.md`](../../../spec/current/core/README.md) for the baseline-pin policy.
 
 ---
 
@@ -37,11 +37,11 @@
 1. The **normative contract**: the sequence-protocol selectors (`size`, `at(_)`,
    `add(_)`, `each(_)`) and the **laws** governing them (totality, deterministic
    iteration, structural equality, hashability-iff-immutable) — the
-   [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q5 ruling made executable.
+   [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q5 ruling made executable.
 2. A **reusable conformance harness** parameterized by *the collection under
    test* (a build-closure + a `ContractSpec`), so that when `Map`/`Set`/`Tuple`
    land (U-STD) they are certified against **this** corpus rather than ad-hoc
-   tests ([R-INV-5.4](../../../spec/v0.2/core/invariant-requirements.md)).
+   tests ([R-INV-5.4](../../../spec/current/core/invariant-requirements.md)).
 3. The **minimal `.ph`** that makes `List` satisfy the *whole* contract today —
    specifically a **structural `==`** (and its paired `!=`). `List` today has only
    **identity** equality (§1.3); without this it is not a conformant reference
@@ -355,7 +355,7 @@ different closure** — the contract is the gate, not each class's ad-hoc tests.
 
 ```rust
 //! Reusable conformance harness for the collection-protocol contract
-//! (docs/spec/v0.2/units/U-CORE/5-collection-contract.md). Keyed by "the collection
+//! (docs/spec/current/units/U-CORE/5-collection-contract.md). Keyed by "the collection
 //! under test": a `ContractSpec` + a build-closure. New collections (U-STD)
 //! are certified by adding a `build_*` closure and one `#[test]` — R-INV-5.4.
 
@@ -500,7 +500,7 @@ System.print(total)    // 1*10 + 1*20 + 2*10 + 2*20 = 90
 
 All of R-INV-5.1…5.4 are **corpus** ("C") assertions — **none** touch
 `verify_invariants`/`universe.rs` (nothing here is a boot-soundness invariant), per
-[`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) §4 U-CORE-5.
+[`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §4 U-CORE-5.
 
 | R-INV | Contract law(s) | Where it lands |
 |---|---|---|
@@ -642,16 +642,16 @@ and (b) a self-referential list (`l.add(l)`) recurses unboundedly.
 
 | Claim | Source |
 |---|---|
-| Contract = selectors + laws, not new classes | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q5; catalog-delta §2.4 |
-| Mutable by default; `==` structural; mutable⇒not-hashable | [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q5 |
+| Contract = selectors + laws, not new classes | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q5; catalog-delta §2.4 |
+| Mutable by default; `==` structural; mutable⇒not-hashable | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q5 |
 | `List` reference protocol (`size`/`at`/`add`/`each`) | `core.ph` **L143–160** (⚠ shifts with U-CORE-4, re-confirm at dispatch; was L75–94 pre-U-STD); floor-census §2.13/§3; `src/list.rs`; `src/primitive/list.rs` |
 | `List` combinators (`map`/`filter`/`reduce`/`includes`/`isEmpty`/`at(_,put)`) already landed, pre-dating this unit | commits `5e2b395`/`176d454`; `core.ph` L162–211; `catalog-delta.md` §2.4 ("combinators landed"); `pending-retirement.md` §2/L95 |
 | `List` equality is identity today (the gap) | `value.rs` **L245–272** ⚠; `primitive/object.rs` **L119–127** ⚠ (`object_eq`/`object_neq`) — both files concurrently edited by U-CORE-4, re-confirm at dispatch |
 | `==`/`!=` install as `Method(1)`, not sacred | `universe.rs` **L257–258** ⚠ (concurrently edited by U-CORE-4, re-confirm at dispatch); floor-census §2.1/§5 |
 | `at` out-of-range → `None` singleton | `primitive/list.rs` L72-79 (re-verified unchanged); invariants.rs (absence precedent) |
-| `isA(_)` / `hash` are U-CORE-1 — **landed** (`03764e3`) | catalog-delta §4.5; [`decisions.md`](../../../spec/v0.2/core/decisions.md) Q1; invariant-requirements 1.2/1.3 |
-| R-INV-5.1…5.4 all corpus | [`invariant-requirements.md`](../../../spec/v0.2/core/invariant-requirements.md) §4 U-CORE-5 |
-| Flips nothing directly; enables U-STD/U-LEX fixtures (2 of 3 rows turned out already resolved, see §4.3 re-grounding note) | [`pending-retirement.md`](../../../spec/v0.2/core/pending-retirement.md) §4 |
+| `isA(_)` / `hash` are U-CORE-1 — **landed** (`03764e3`) | catalog-delta §4.5; [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q1; invariant-requirements 1.2/1.3 |
+| R-INV-5.1…5.4 all corpus | [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §4 U-CORE-5 |
+| Flips nothing directly; enables U-STD/U-LEX fixtures (2 of 3 rows turned out already resolved, see §4.3 re-grounding note) | [`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) §4 |
 | No floor amendment; census stays wherever U-CORE-4 lands it (85 today → 86 expected) | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md); floor-census §1.1/§7 |
-| int/float-safe by element delegation; fiber-safe iteration | [`forward-compat.md`](../../../spec/v0.2/core/forward-compat.md) §4, §1 |
+| int/float-safe by element delegation; fiber-safe iteration | [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §4, §1 |
 | Harness surfaces mirror in-process + golden precedent | `tests/invariants.rs`; `tests/support/mod.rs`; `tests/lang.rs` |

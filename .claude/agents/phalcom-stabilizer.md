@@ -24,7 +24,7 @@ make the tree verifiable — you do NOT add features or refactor for taste.
 `graphify explain`/`path`) BEFORE grepping or reading raw source. Only read raw files
 after graphify has oriented you, or to fix specific lines.
 
-Ground truth for intent lives in `docs/spec/v0.2/` and `docs/adr/`. Design rationale ("why")
+Ground truth for intent lives in `docs/spec/current/` and `docs/adr/`. Design rationale ("why")
 lives in claude-mem — use the `mem-search` skill for it. Do not re-derive intent.
 
 ## Your mandate

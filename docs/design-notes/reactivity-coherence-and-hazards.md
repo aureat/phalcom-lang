@@ -1,6 +1,6 @@
 # Reactivity — OOP coherence, and hazards found before `U-REACTIVE-NATIVE`
 
-Status: investigation notes. The design itself is **not** open — `docs/spec/v0.2/drafts/reactivity.md`
+Status: investigation notes. The design itself is **not** open — `docs/spec/current/drafts/reactivity.md`
 is Accepted (ratified 2026-07-13, R-1–R-5 all resolved) and [ADR-0058](../adr/0058-reactive-tracking-context-needs-a-native-module.md)
 is Accepted. Nothing here reopens either. Findings 1–3 are gaps *inside* the
 accepted design, surfaced pre-implementation; finding 1 is a cross-ADR coupling

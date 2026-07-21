@@ -10,7 +10,7 @@ wall-clock, ~7–9× RSS** (Phalcom 13.7–15.6 s / 4.65–6.09 GB vs local `wre
 0.68–0.79 s / ~667 MB). The oral "~29×" (ADR-0051 context) is revised **down** to a
 measured ~19–20×.
 
-**Attribution re-ranks [performance.md §2](../../spec/v0.2/performance.md).**
+**Attribution re-ranks [performance.md §2](../../spec/current/performance.md).**
 malloc/free is the single largest attributable mechanism on **both** workloads
 (arith 19.7%, Skynet 28.2%) — larger than the tracing span (18.3%) and larger than
 dispatch lookup (13.9% arith / 7.8% Skynet). Confirms ADR-0051's rejection of a

@@ -1,7 +1,7 @@
 # `docs/forge/units/` — per-unit record
 
 One folder per implementation unit. A landed unit holds `as-built.md` (moved here from
-`docs/spec/v0.2/units/`, now retired); an in-flight unit holds its `plan.md`/`handoff.md`.
+`docs/spec/current/units/`, now retired); an in-flight unit holds its `plan.md`/`handoff.md`.
 
 ## U-CORE track — the core library, built in Phalcom over the frozen primitive floor
 

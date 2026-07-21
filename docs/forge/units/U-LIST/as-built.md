@@ -1,7 +1,7 @@
 # U-LIST — Kernel List (as-built)
 
 - **Status:** ✅ Landed — `c7c63fb` (native variant + primitives), `6fdf0c7` (core.ph execution + `.ph` protocol), `b2f7aec` (acceptance corpus), `333823a` (forge docs)
-- **Realizes:** [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) (frozen VM-blessed primitive floor), [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) (native `Vec<Value>` List behind the handle heap); spec [core/catalog-delta.md §2.4](../../../spec/v0.2/core/catalog-delta.md), [core/floor-census.md](../../../spec/v0.2/core/floor-census.md)
+- **Realizes:** [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) (frozen VM-blessed primitive floor), [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) (native `Vec<Value>` List behind the handle heap); spec [core/catalog-delta.md §2.4](../../../spec/current/core/catalog-delta.md), [core/floor-census.md](../../../spec/current/core/floor-census.md)
 - **Reviewer gate:** OFF per the load-bearing-only review policy (STATE.md) — self-verified on the green gate (`cargo build`/`test`/`doc`/`clippy` all clean).
 
 ## Mission
@@ -72,7 +72,7 @@ xs.toString                // "[1, 2, 3]"
   [forge/DEFERRED.md](../../DEFERRED.md) #18 (later delivered by U-STD).
 - **No combinators or list-literal syntax** (`map`/`reduce`/`filter`, `[a, b, c]`) — U-STD's
   job, layered additively over the floor → [forge/DEFERRED.md](../../DEFERRED.md) #20;
-  see also [deferred-work.md](../../../spec/v0.2/deferred-work.md) (collection-literal lowering).
+  see also [deferred-work.md](../../../spec/current/deferred-work.md) (collection-literal lowering).
 - **`None`-reopen compiler trap** (`Statement::Class` unconditional `DefineGlobal`) →
   [forge/DEFERRED.md](../../DEFERRED.md) #17 (high priority for the next `None` work).
 

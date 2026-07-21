@@ -8,14 +8,14 @@
   [ADR-0038](0038-amend-floor-admit-block-on-ensure.md),
   [ADR-0045](0045-module-import-relative-path-whole-module-binding.md)
 - Related: [ADR-0012](0012-selector-signature-encoding-and-dispatch.md) (`encode_selector`/
-  `decode_selector`, reused verbatim, not re-derived); `docs/spec/v0.2/selectors.md` §3
-  ("Method references (`::`)") + §3.1 (base-name index); `docs/spec/v0.2/open-questions.md`
+  `decode_selector`, reused verbatim, not re-derived); `docs/spec/current/selectors.md` §3
+  ("Method references (`::`)") + §3.1 (base-name index); `docs/spec/current/open-questions.md`
   Q14 (`Family` callable-only — reflective mirror deferred); `docs/forge/units/U16/plan.md`
   (superseded original scope — see "Scope" below)
 
 ## Context
 
-[selectors.md §3](../../spec/v0.2/selectors.md#3-method-references-) specifies `::` producing a
+[selectors.md §3](../../spec/current/selectors.md#3-method-references-) specifies `::` producing a
 callable **Family** value in two forms — **Open** (`obj::name`, selector built at call time)
 and **Pinned** (`obj::#sel(...)`, selector fixed at compile time) — each either bound or
 unbound. The `::` token (`Token::ColonColon`) already lexed; nothing else existed: no

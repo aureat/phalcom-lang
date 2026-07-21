@@ -9,9 +9,9 @@
 
 Two spec rules, both deliberate and both stated:
 
-- `docs/spec/v0.2/classes.md:125` — **"Fields are private to the declaring class and not
+- `docs/spec/current/classes.md:125` — **"Fields are private to the declaring class and not
   inherited-visible."**
-- `docs/spec/v0.2/classes.md:172` — **"A subclass gets its own fresh slot."**
+- `docs/spec/current/classes.md:172` — **"A subclass gets its own fresh slot."**
 
 A subclass reading a field declared by its parent violates the first rule. But there is **no
 field-privacy diagnostic in `CompilerError` at all**. The only error that can fire is a

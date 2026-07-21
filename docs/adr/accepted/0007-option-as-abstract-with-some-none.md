@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-11
-- Related: `docs/spec/v0.2/values-and-absence.md` §3; [ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md); `phalcom-core/src/nil.rs`, `value.rs`
+- Related: `docs/spec/current/values-and-absence.md` §3; [ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md); `phalcom-core/src/nil.rs`, `value.rs`
 
 ## Context
 
@@ -51,7 +51,7 @@ correctness fix, and can follow the kernel work.
 - `None` as a shared singleton keeps the common case (every unassigned field reads
   `None`) allocation-free; only `Some` allocates.
 - `?.` adds one token and desugaring to the grammar
-  ([lexical-structure.md §9](../../spec/v0.2/lexical-structure.md)); it must be threaded
+  ([lexical-structure.md §9](../../spec/current/lexical-structure.md)); it must be threaded
   into the precedence table in the grammar pass.
 - Two extra kernel classes to bootstrap and keep invariant-checked, plus the
   private VM `nil` must never leak into a `Some`.

@@ -730,7 +730,7 @@ ADR-0013 (`docs/adr/accepted/0013-closure-upvalues-and-frame-token-return.md`)
 2. "Raw frame pointer with no generation counter" — rejected: a reused frame
    slot would alias a stale pointer, silently returning to the wrong method.
 
-`docs/spec/v0.2/blocks.md` §5 "Non-local return" (~L62-85) promises: `return`
+`docs/spec/current/blocks.md` §5 "Non-local return" (~L62-85) promises: `return`
 inside a block unwinds to the frame it was created in and returns from the
 enclosing method; escaping blocks get a frame token (pointer + generation);
 generation mismatch raises `DeadFrameError`; explicitly notes Smalltalk's

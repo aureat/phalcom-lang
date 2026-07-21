@@ -8,8 +8,8 @@
   (`Value` repr; NaN-boxing deferral); [ADR-0012](0012-selector-signature-encoding-and-dispatch.md)
   (inline-cache tags key on handles); [ADR-0013](0013-block-closure-upvalues.md)
   (upvalue cells / non-local return); [ADR-0030](0030-fibers-and-futures-cooperative-concurrency.md)
-  (fibers own heap-resident stacks); `docs/spec/v0.2/memory-management.md` (normative);
-  `docs/spec/v0.2/system.md` §`gc`; [open question Q4](../../spec/v0.2/open-questions.md)
+  (fibers own heap-resident stacks); `docs/spec/current/memory-management.md` (normative);
+  `docs/spec/current/system.md` §`gc`; [open question Q4](../../spec/current/open-questions.md)
   (`superclass=`); forge finding F5.
 
 > **Provisional number.** `0050` was the next free slot at authoring time on a
@@ -27,7 +27,7 @@ allocation grows the `SlotMap`; a long-running program or any allocating loop
 `System.gc` is specified (`system.md` §`gc`, returns `None`) but unimplemented.
 Smalltalk semantics assume a real collector: cycles are normal, the kernel
 *is* a cycle (`Metaclass` is an instance of itself), and `superclass=`
-([Q4](../../spec/v0.2/open-questions.md)) mutates the graph after construction.
+([Q4](../../spec/current/open-questions.md)) mutates the graph after construction.
 
 A verification pass over the current tree established the constraints the
 collector must honour — these are measured/confirmed facts, not assumptions:
@@ -79,7 +79,7 @@ built directly on the existing `SlotMap`, in safe Rust, behind the current
 4. **Sweep** is a single `SlotMap::retain(|k, _| marked.contains(k))` pass;
    the kernel is pinned and never swept.
 5. **Stop-the-world, no write barrier.** The collector runs to completion at a
-   safepoint. This needs no barrier, so `superclass=` ([Q4](../../spec/v0.2/open-questions.md))
+   safepoint. This needs no barrier, so `superclass=` ([Q4](../../spec/current/open-questions.md))
    and every field mutation stay barrier-free for now.
 6. **Safepoint-latched.** Collection runs **only** at interpreter-loop safepoints,
    where `VM::stack`/`frames` are the complete root truth — never in the middle of
@@ -100,7 +100,7 @@ built directly on the existing `SlotMap`, in safe Rust, behind the current
    `Object` enum and independent of the collector; it ships first.
 
    **Landed 2026-07-14 (`7480d75`), and the numbers here are superseded by
-   measurement** — see [memory-management.md §7](../../spec/v0.2/memory-management.md)
+   measurement** — see [memory-management.md §7](../../spec/current/memory-management.md)
    for the authoritative ladder and `docs/forge/perf-log/002-gc-win-a-box-fat-variants.md`
    for the cut. Three corrections to this clause as originally written:
    - The starting size was **280 B, not 256 B** — `ClassObject` gained
@@ -121,7 +121,7 @@ built directly on the existing `SlotMap`, in safe Rust, behind the current
    should not be read as promising an RSS win from this clause.
 
 The self-tuning threshold is Wren's: after a collection, `next_gc = live * grow`
-(grow ≈ 1.5, floored). See `docs/spec/v0.2/memory-management.md` for the
+(grow ≈ 1.5, floored). See `docs/spec/current/memory-management.md` for the
 normative root set, invariants, and phase contract.
 
 ## Consequences

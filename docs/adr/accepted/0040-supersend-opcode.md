@@ -14,8 +14,8 @@
   slots in place without aliasing); [ADR-0018](0018-sacred-selector-inliner-and-override-guard.md)
   (override-epoch guard — the IC-invalidation seam a future cached `SuperSend`
   must share); `docs/forge/units/U-INH/plan.md` (DEC-INH-B/D/F — the decisions
-  this ADR records); `docs/spec/v0.2/method-lookup.md` §1.14 (`super` semantics);
-  `docs/spec/v0.2/object-model.md` §5.1 (`extends` surface)
+  this ADR records); `docs/spec/current/method-lookup.md` §1.14 (`super` semantics);
+  `docs/spec/current/object-model.md` §5.1 (`extends` surface)
 
 ## Context
 

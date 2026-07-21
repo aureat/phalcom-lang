@@ -1,7 +1,7 @@
 # U10 — Non-Local Return (as-built)
 
 - **Status:** ✅ Landed — `4e2ec73` (`U10: non-local return via `return` inside blocks`). In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (frame-token non-local return — consumes the infrastructure U4 stood up). Spec: [blocks.md](../../../spec/v0.2/blocks.md) §5, [functions.md](../../../spec/v0.2/functions.md) §2, [object-model.md](../../../spec/v0.2/object-model.md) §4 (`DeadFrameError`).
+- **Realizes:** [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (frame-token non-local return — consumes the infrastructure U4 stood up). Spec: [blocks.md](../../../spec/current/blocks.md) §5, [functions.md](../../../spec/current/functions.md) §2, [object-model.md](../../../spec/current/object-model.md) §4 (`DeadFrameError`).
 - **Reviewer gate:** OFF per STATE.md review policy (U10 is not in the load-bearing set U1/U2/U4/U6) — self-verified on the green gate, including the dead-frame path and upvalue-across-unwind promotion.
 
 ## Mission
@@ -55,7 +55,7 @@ The Primitive-arm guard (`call_method`) is the second, mandatory half: snapshot 
 - **Primitive-arm guard re-pushes the value** rather than skipping the push, correcting U10-implementation-spec §2 pt3 (see above).
 - **Pending fixtures rewritten off real `List`:** `pending/blocks_non_local_return.ph` (used unparseable `[3,-5,8]` list-literal syntax) was rewritten against `List.new()`/`.add(_)` and promoted; `pending/blocks_argument_to_method.ph` stays pending — it needs `List.reduce`, which is U-STD's job, **not** a U10 blocker ([`docs/forge/DEFERRED.md`](../../DEFERRED.md) #25).
 - **No exception machinery.** ADR-0008 notes `throw`/`return`/`abort` unify as one unwind primitive; U10 implements only the `return` slice and does not preclude that reuse. `break`/`continue` are out of scope (loop sugar, U5).
-- **Concurrency-forward:** the unwind operates only on the current fiber's `frames`/`stack`; nothing assumes a single global call stack, so a future per-fiber stack is not foreclosed. See [deferred-work.md](../../../spec/v0.2/deferred-work.md).
+- **Concurrency-forward:** the unwind operates only on the current fiber's `frames`/`stack`; nothing assumes a single global call stack, so a future per-fiber stack is not foreclosed. See [deferred-work.md](../../../spec/current/deferred-work.md).
 
 ## Sources
 - Forge work orders (`U10-plan.md` and the superseding `U10-implementation-spec.md`) folded into this spec (see git history); landing record: [`docs/forge/archive/phase2/STATE.md`](../../archive/phase2/STATE.md) "U10 — LANDED".

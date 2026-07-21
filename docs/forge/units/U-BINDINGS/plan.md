@@ -36,7 +36,7 @@ codemod to understand two grammars.
 - [ADR-0014](../../../adr/accepted/0014-let-and-var-bindings.md) — **superseded**; flip its status + `STATUS.md` in this unit ([[adr-status-two-way-sync]]).
 - [ADR-0007](../../../adr/accepted/0007-option-as-abstract-with-some-none.md) — an uninitialized mutable binding reads `None`; carried over verbatim.
 - [ADR-0011](../../../adr/accepted/0011-static-instance-slot-layout.md) — read-before-write; **orthogonal**, must keep passing.
-- `docs/spec/v0.2/syntax/statements-and-declarations.md` §2, §5 · `syntax/grammar.md` · `syntax/lexical.md` · `classes.md` §2.
+- `docs/spec/current/syntax/statements-and-declarations.md` §2, §5 · `syntax/grammar.md` · `syntax/lexical.md` · `classes.md` §2.
 
 ---
 
@@ -132,8 +132,8 @@ and is **specified**, not a bug. Fixture it so it stays specified.
 | `phalcom-core/core/core.ph` | codemod (`var _targets` → `_targets`, etc.) |
 | `phalcom-lsp/src/*` | keyword lists, highlighting, completion — `var`→`const` |
 | corpus `.ph` ×395 files | **the codemod, 1080 sites** |
-| `docs/spec/v0.2/syntax/{grammar,lexical,statements-and-declarations}.md` | grammar + keyword lists |
-| `docs/spec/v0.2/classes.md` §2 | field mutability + `const` |
+| `docs/spec/current/syntax/{grammar,lexical,statements-and-declarations}.md` | grammar + keyword lists |
+| `docs/spec/current/classes.md` §2 | field mutability + `const` |
 | `docs/adr/accepted/0014-*.md` + `docs/adr/STATUS.md` | flip to Superseded, both sides |
 
 ---

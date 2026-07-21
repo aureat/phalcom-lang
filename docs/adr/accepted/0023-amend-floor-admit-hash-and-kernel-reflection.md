@@ -5,11 +5,11 @@
 - Related: [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) (frozen floor,
   amended here); [ADR-0006](0006-function-as-abstract-callable-root.md)
   (`Function` root); [ADR-0008](0008-layered-exceptions-and-result.md) (layered
-  exceptions/`Result`); `docs/spec/v0.2/core/decisions.md` Q1 (hash), §4.1 (`Method`
-  superclass); `docs/spec/v0.2/core/U-CORE-1-implementation-spec.md` §2.2–2.3;
-  `docs/spec/v0.2/core/U-CORE-3-implementation-spec.md` §2.6;
-  `docs/spec/v0.2/core/U-CORE-4-implementation-spec.md` §6.1;
-  `docs/spec/v0.2/core/U-CORE-6-implementation-spec.md` (ADR-0019 amendment section)
+  exceptions/`Result`); `docs/forge/units/U-CORE-0/decision-register.md` Q1 (hash), §4.1 (`Method`
+  superclass); `docs/spec/current/core/U-CORE-1-implementation-spec.md` §2.2–2.3;
+  `docs/spec/current/core/U-CORE-3-implementation-spec.md` §2.6;
+  `docs/spec/current/core/U-CORE-4-implementation-spec.md` §6.1;
+  `docs/spec/current/core/U-CORE-6-implementation-spec.md` (ADR-0019 amendment section)
 
 ## Context
 
@@ -20,7 +20,7 @@ Rust forever; everything above it is `.ph`. A method may move *up* (native →
 superseding ADR that amends this list" — a deliberate one-way door, not an
 ordinary commit.
 
-The `docs/spec/v0.2/core/` U-CORE-0 requirements pass (floor census, catalog delta,
+The `docs/spec/current/core/` U-CORE-0 requirements pass (floor census, catalog delta,
 gating decisions) independently identified **four** capabilities that fail
 ADR-0019 §1's derivability test — each reads representation or identity below
 the `.ph` boundary that no existing floor primitive exposes:
@@ -43,7 +43,7 @@ Each was independently drafted as its own "amend ADR-0019" note inside its
 owning unit's implementation spec. Opening four separate superseding ADRs
 against the same frozen list is unnecessary churn and risks the amendments
 drifting out of sync (e.g. disagreeing on the resulting floor count). The
-`docs/spec/v0.2/core/README.md` cross-spec integration notes flagged this and
+`docs/spec/current/core/README.md` cross-spec integration notes flagged this and
 called for **one omnibus amendment** instead. (Numbering note: the individual
 specs were drafted before U-LEX claimed ADR-0022 for string interpolation, so
 some cite "ADR-0022" for this amendment — 0023 is the correct, current number.)

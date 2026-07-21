@@ -69,7 +69,7 @@ Slice B landed on 2026-07-14 in `06432bd`. `await` is `core.ph:1424`. `static as
 
 | Record | What it says | Line |
 |---|---|---|
-| `docs/spec/v0.2/concurrency.md` | `await` status **B**, not landed | `:187` |
+| `docs/spec/current/concurrency.md` | `await` status **B**, not landed | `:187` |
 | `docs/forge/units/U-FUTURE/plan.md` | `async(_)`, `await` — **B (DEFERRED → DEC-FUT-SCHED)** | `:109-110` |
 | **`core.ph` itself** | "`async(_)`/`await` … neither of which is landed; that is Slice B … **deliberately NOT built here**" | `:1335-1338` |
 

@@ -5,7 +5,7 @@ can be reassigned. Everything else — scope, shadowing, fields — follows from
 keeping that one distinction sharp.
 
 For the normative rules, see [ADR-0014](../adr/0014-let-and-var-bindings.md) and
-[Values & Absence §3](../spec/v0.2/values-and-absence.md).
+[Values & Absence §3](../spec/current/values-and-absence.md).
 
 ## `let` vs `var`
 
@@ -80,7 +80,7 @@ new name, not an assignment to the old one.
 A leading underscore marks a **field** — state that belongs to an instance,
 not a binding in some enclosing scope. Fields are a different token class
 from ordinary identifiers, and a field reference is legal only inside a class
-body ([Lexical Structure §3](../spec/v0.2/lexical-structure.md)):
+body ([Lexical Structure §3](../spec/current/lexical-structure.md)):
 
 ```phalcom
 class Counter {
@@ -98,7 +98,7 @@ A field read before it's assigned anywhere in the class is a compile error (it
 catches the `_naem`-typo class of bug); a field that's declared but not yet
 assigned *on a given instance* reads as `None`, exactly like an uninitialized
 `var`. The full model — visibility, inheritance, accessors — is
-[Classes §2](../spec/v0.2/classes.md); this page just introduces the binding
+[Classes §2](../spec/current/classes.md); this page just introduces the binding
 form.
 
 ## Bindings name values; they aren't slots on the object

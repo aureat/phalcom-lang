@@ -1,7 +1,7 @@
 # U-BENCH — performance instrumentation & baseline (Tier 0)
 
 Status: **PLANNED** (dispatch-ready). Tier 0 of the performance strategy
-([performance.md](../../../spec/v0.2/performance.md) §4,
+([performance.md](../../../spec/current/performance.md) §4,
 [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
 **Blocks every other perf tier** — law P1 (measure before you touch) is
 unsatisfiable without it. Write-set is test/bench/doc infrastructure only; it
@@ -15,7 +15,7 @@ committed** measurement, and stand up the harness every later tier re-measures
 against. Nothing here changes runtime behavior; it makes the runtime *measurable*.
 
 ## Spec anchor
-[performance.md](../../../spec/v0.2/performance.md) §3 (target), §4 Tier 0, law P1.
+[performance.md](../../../spec/current/performance.md) §3 (target), §4 Tier 0, law P1.
 No surface semantics change, so no ADR is amended.
 
 ## Preconditions (verify on HEAD before building)

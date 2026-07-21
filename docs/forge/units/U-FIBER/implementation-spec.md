@@ -3,7 +3,7 @@
 > **Status:** Normative work order for a `phalcom-implementer`. Realizes
 > [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1–§7 and the
 > deepened [specification.md](specification.md) (which extends
-> [`concurrency.md`](../../../spec/v0.2/concurrency.md) §1). `file:line` anchors were
+> [`concurrency.md`](../../../spec/current/concurrency.md) §1). `file:line` anchors were
 > verified against source; **re-confirm at dispatch** (spine files shift under concurrent
 > sessions).
 >
@@ -370,8 +370,8 @@ non-`done`) fiber's stacks remain reachable arena roots (spec §7.3).
 | Claim / requirement | Source |
 |---|---|
 | Execution model (Option A), typed switch, O(1) swap, GC roots, fiber-local return, floor amendment | [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1–§7 |
-| Surface (`new`/`call`/`try`/`yield`/`current`/`abort`), state machine | [concurrency.md](../../../spec/v0.2/concurrency.md) §1; [specification.md](specification.md) §1–§2 |
-| D1–D7 audit; re-entrant-loop finding; pre-fiber invariants | [forward-compat.md](../../../spec/v0.2/core/forward-compat.md) §7 |
+| Surface (`new`/`call`/`try`/`yield`/`current`/`abort`), state machine | [concurrency.md](../../../spec/current/concurrency.md) §1; [specification.md](specification.md) §1–§2 |
+| D1–D7 audit; re-entrant-loop finding; pre-fiber invariants | [forward-compat.md](../../../spec/current/core/forward-compat.md) §7 |
 | DEC-FIB-A: U-CORE-6 unwind not floor-parameterised → U-FIBER owns capture | `error.rs:86-94`, `vm.rs:818-826`/`:1149-1151` (this pass); [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md); [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §6 |
 | No `Value::Fiber` (D2); `Object` enum | `value.rs:30-45`; `heap.rs:68`; [ADR-0009](../../../adr/0009-handle-arena-heap.md)/[ADR-0010](../../../adr/0010-tagged-value-enum.md) |
 | `next_frame_generation` VM-global (D4); `stack_offset` relative (D3) | `vm.rs:72`; `frame.rs:75` |

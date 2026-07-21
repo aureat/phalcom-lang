@@ -498,7 +498,7 @@ re-pointed at runtime.
 | GC marks through, non-moving | `heap/trace.rs::trace_object` (`Object::Class` arm); ADR-0050 |
 | Fixed class | `primitive/object.rs::object_set_class` — `InvalidSetClass` |
 | ADRs | 0002 (parallel rule), 0003 (`Behavior` kernel), 0009 (handle heap, supersedes `Rc` cycle) |
-| Spec | `docs/spec/v0.2/core/core-classes.md` §3 "Kernel tower classes" |
+| Spec | `docs/spec/current/core/core-classes.md` §3 "Kernel tower classes" |
 
 **Simplifications marked as lies, with forward pointers.** Earlier object-model docs may say "an
 object has a class" as if that class were flat and final — *this* document is where that is

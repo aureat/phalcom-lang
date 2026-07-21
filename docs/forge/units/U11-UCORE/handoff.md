@@ -14,17 +14,17 @@ workspace, `main`, at the repo root). A prior session landed the last four units
 14-unit plan and paused deliberately before starting a second, newer work track. **Do NOT replay
 that work — all state is on disk.** Invoke the forge skill (`.claude/skills/forge/SKILL.md`),
 stay lean (delegate reading/writing to subagents, graphify first, never slurp source into your
-own context), and persist results to `docs/forge/*` / `docs/spec/core/*`.
+own context), and persist results to `docs/forge/*` / `docs/spec/current/core/*`.
 
 **Read these first — they ARE your context:**
 - `docs/forge/STATE.md` — live status board, all landed units, all ratified decisions.
 - `docs/forge/PHASE2-INDEX.md` — the original 14-unit plan roster + dependency graph (now fully
   landed) + the open-decision register (DEC-A…F, all resolved).
-- `docs/spec/core/README.md` + `HANDOFF.md` — the **second track**: a core-library spec effort
+- `docs/spec/current/core/README.md` + `HANDOFF.md` — the **second track**: a core-library spec effort
   (U-CORE-0…6) that ran *concurrently* with the last batch, is now fully spec-complete, and has
   **not been implemented yet**. This is where you pick up.
-- `docs/spec/core/decisions.md` — Q1/Q2/Q4/Q5 + two catalog/code divergences, all ruled.
-- `docs/spec/core/U-CORE-1-implementation-spec.md` — the next unit to ground/implement.
+- `docs/forge/units/U-CORE-0/decision-register.md` — Q1/Q2/Q4/Q5 + two catalog/code divergences, all ruled.
+- `docs/spec/current/core/U-CORE-1-implementation-spec.md` — the next unit to ground/implement.
 
 **Status:** `./scripts/verify.sh` is green on `main` right now (build+test+clippy, no worktree in
 use — every unit since U2 has landed in-tree on `main`, committed per green checkpoint). All 14
@@ -51,15 +51,15 @@ U-LIST and U-FE were added mid-flight). Last four landed this session:
 
 **The unresolved thread — read this before dispatching anything:** while the batch above was
 running, a *separate concurrent process* (same git identity, not dispatched by this session) was
-independently authoring a whole second spec track — `docs/spec/core/` — that re-derives the core
+independently authoring a whole second spec track — `docs/spec/current/core/` — that re-derives the core
 library's ground truth from scratch and **re-carves unit boundaries** the original
 `PHASE2-INDEX.md` doesn't know about (`U-CORE-1` through `U-CORE-6`). This is *why* U-STD hit a
-scope conflict. **`docs/forge/PHASE2-INDEX.md`'s roster and `docs/spec/core/`'s taxonomy still
+scope conflict. **`docs/forge/PHASE2-INDEX.md`'s roster and `docs/spec/current/core/`'s taxonomy still
 disagree** — nobody has reconciled them (DEFERRED #29 names this explicitly). The user was asked
 and chose to pause rather than reconcile or start U-CORE-1 immediately — that choice still stands
 until they say otherwise.
 
-**What `docs/spec/core/` actually contains (fully spec-complete, zero code written against it):**
+**What `docs/spec/current/core/` actually contains (fully spec-complete, zero code written against it):**
 - **U-CORE-0** (requirements/rulings): 7/7 docs done — floor census (73 native bindings),
   bootstrap phases, sacred-selector set, catalog delta, pending-retirement map,
   invariant-requirements, forward-compat checklist.
@@ -85,7 +85,7 @@ until they say otherwise.
      through the unified unwind (per ADR-0008). Reserve, don't build, `Result`/`try`/`catch`.
 
 **Immediate next steps (in order), once the user says go:**
-1. **Reconcile `PHASE2-INDEX.md` vs `docs/spec/core/`** — fold the U-CORE-N roster into the forge
+1. **Reconcile `PHASE2-INDEX.md` vs `docs/spec/current/core/`** — fold the U-CORE-N roster into the forge
    index's unit table so scheduling doesn't fork again (this was flagged, not fixed).
 2. Re-ground `U-CORE-1-implementation-spec.md` against current HEAD (`c0e1066` at last check) the
    same way U9/U10/U-LEX/U-STD/U11 were re-grounded before implementing — three separate times
@@ -111,7 +111,7 @@ until they say otherwise.
   yourself** (`git log`, `git show`, re-run `./scripts/verify.sh`) rather than trusting the
   self-report alone — this caught nothing wrong this session, but is the standing bar.
 
-Keep your own context lean: reconstruct state from `STATE.md`/`PHASE2-INDEX.md`/`docs/spec/core/`
+Keep your own context lean: reconstruct state from `STATE.md`/`PHASE2-INDEX.md`/`docs/spec/current/core/`
 + graphify, not from transcripts.
 
 ---

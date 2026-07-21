@@ -98,7 +98,7 @@ parameter list and no cover grammar is needed.
 
 **Lowering target (DEC-COLL-A, recommendation A):** a **distinct minimal pure-`.ph` `Tuple`** authored
 in `core.ph`, backed by a `List` field, so `Tuple` ≠ `List` (the typing surface,
-`docs/spec/experimental/typing-stdlib-surface.md`, specifies `(a,b) : Tuple<A,B>` as a fixed-arity
+`docs/design/experimental/v0.2/typing-stdlib-surface.md`, specifies `(a,b) : Tuple<A,B>` as a fixed-arity
 heterogeneous product — *not* a `List`). To dodge any dependency on variadic `construct`, desugar via a
 **non-variadic factory that takes an already-built `List`**:
 - `(a, b)`   → `Tuple.fromList(List.new().add(a).add(b))`
@@ -141,7 +141,7 @@ the implementer handles those or explicitly defers them to a follow-on.
 
 **Runtime target — DEC-COLL-B (resolved, §8).** `Object#hash`-as-floor is **ratified**
 ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md), landed U-CORE-1), the
-equality/mutability model is ruled ([decisions.md](../../../spec/v0.2/core/decisions.md) Q5), and
+equality/mutability model is ruled ([decisions.md](../../../forge/units/U-CORE-0/decision-register.md) Q5), and
 native-arm `Map` is ratified ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md)
 §1). U-COLL **must not author a competing `Map`**: it ships §6 disambiguation + a precise diagnostic,
 and the one-line `{k:v}` → real-native-`Map` wiring lands in the **collection-runtime unit
@@ -220,7 +220,7 @@ write-sets vs U-COLL:
   absorb." U-COLL owns expression position; U14 owns pattern position; the shared helper is the seam.
 - **`phalcom-core/core/core.ph` — the never-two-editors file.** If U-COLL's tuple slice authors `class
   Tuple` (DEC-COLL-A=A), it edits `core.ph`, which the **U-CORE track is actively editing** (live churn
-  in git status: `docs/spec/core/*`; U-CORE authors `Map`/`Set` there). Per "never co-schedule two
+  in git status: `docs/spec/current/core/*`; U-CORE authors `Map`/`Set` there). Per "never co-schedule two
   `core.ph` editors," **U-COLL's tuple slice must be serialized against every U-CORE `core.ph` unit.**
   The **list slice touches no `core.ph`** and is free of this — the reason to keep list as the
   collision-free MVP.
@@ -265,7 +265,7 @@ Each step is a self-verifiable commit; if any can't go green alone, it is alread
 | ID | Decision | Options | Architect recommendation |
 |---|---|---|---|
 | **DEC-COLL-A** ✅ **RESOLVED** | **Tuple lowering target.** | Superseded by **[ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1**: `Tuple` is a **native heap arm** (`Object::Tuple`, immutable, value-hashable), **not** `.ph`-over-`List`. | `(a,b)` desugars to a **`Tuple` construction send**; the native `Tuple` class is built by the **collection-runtime unit (U-COLLTYPES)**, not here — same defer-the-runtime pattern as the map (DEC-COLL-B). U-COLL ships the literal + disambiguation against a pending/construction target. |
-| **DEC-COLL-B** ✅ **RESOLVED (B)** | **Map runtime target.** | Blocker cleared: `Object#hash`-as-floor is **ratified** ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md), landed U-CORE-1), the equality/mutability model is ruled ([decisions.md](../../../spec/v0.2/core/decisions.md) Q5), and native-arm `Map` is ratified ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1). | **(B)** — U-COLL ships §6 disambiguation + a precise "pending" diagnostic; the **collection-runtime unit (U-COLLTYPES)** wires `{k:v}` → the real native `Map` in one line after it lands. Do **not** build a throwaway `.ph` `Map` or open a competing `Map` in `core.ph`. |
+| **DEC-COLL-B** ✅ **RESOLVED (B)** | **Map runtime target.** | Blocker cleared: `Object#hash`-as-floor is **ratified** ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md), landed U-CORE-1), the equality/mutability model is ruled ([decisions.md](../../../forge/units/U-CORE-0/decision-register.md) Q5), and native-arm `Map` is ratified ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1). | **(B)** — U-COLL ships §6 disambiguation + a precise "pending" diagnostic; the **collection-runtime unit (U-COLLTYPES)** wires `{k:v}` → the real native `Map` in one line after it lands. Do **not** build a throwaway `.ph` `Map` or open a competing `Map` in `core.ph`. |
 
 ## 9. Must-not-preclude check (task step 6)
 - **Q7 destructuring — now the LIVE concurrent U14** (`let (a, b) = point`, `let [first, *rest] = list`):

@@ -1,7 +1,7 @@
 # U-CLASSCLOSE — Work order: classes are closed after definition
 
-_Unit **B** of two implementing [PDR-0001](../../../decisions/0001-classes-are-closed.md),
-as amended by [PDR-0002](../../../decisions/0002-class-declarations-join-the-binding-namespace.md).
+_Unit **B** of two implementing [PDR-0001](../../../pdr/0001-classes-are-closed.md),
+as amended by [PDR-0002](../../../pdr/0002-class-declarations-join-the-binding-namespace.md).
 **Blocked on [`U-CLASSNS`](../U-CLASSNS/plan.md)** — the redefinition error below is
 undecidable until class identity is `(module, name)`-keyed._
 

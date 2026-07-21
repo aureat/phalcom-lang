@@ -1,8 +1,8 @@
 # U-CLASSNS — Implementation spec
 
 Companion to [`plan.md`](plan.md). Governed by
-[PDR-0001](../../../decisions/0001-classes-are-closed.md) ruling 1 (**Accepted**), as
-amended by [PDR-0002](../../../decisions/0002-class-declarations-join-the-binding-namespace.md).
+[PDR-0001](../../../pdr/0001-classes-are-closed.md) ruling 1 (**Accepted**), as
+amended by [PDR-0002](../../../pdr/0002-class-declarations-join-the-binding-namespace.md).
 
 > **STATUS: SHIPPED 2026-07-20.** `ClassKey` and all four re-keyed tables are on `main`
 > (`vm/mod.rs:74`, `:173`, `:238`, `:296`), plus follow-up `14cdfb9`. Unit B shipped after it
@@ -222,7 +222,7 @@ is the ruling; §11's slot-aliasing fixture is the gate. **Read §4 before writi
 /// writes into the module object's own globals), but class *identity* was
 /// keyed by bare name VM-wide, so two modules declaring the same class name
 /// silently collapsed into one class
-/// ([PDR-0001](../../../docs/decisions/0001-classes-are-closed.md)
+/// ([PDR-0001](../../../docs/pdr/0001-classes-are-closed.md)
 /// ruling 1). This key restores the symmetry: since file = module
 /// (ADR-0045), "same module" and "same file" are the same check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

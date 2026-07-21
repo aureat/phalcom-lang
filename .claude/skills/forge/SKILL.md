@@ -105,12 +105,12 @@ Parallelism has coordination cost. Over-parallelizing *dependent* work causes re
 <a id="orchestrate"></a>
 ## §Orchestrate — the Phalcom implementation pipeline
 
-Spec-anchored, adversarially-verified pipeline that keeps the implementation **correct and clean** by separating *deciding*, *writing*, and *approving* into different agents, each grounded in an external source of truth (`docs/spec/v0.2/`, `docs/adr/`) rather than its own judgment. A single agent that reviews and implements its own work compounds errors; each phase checks the last.
+Spec-anchored, adversarially-verified pipeline that keeps the implementation **correct and clean** by separating *deciding*, *writing*, and *approving* into different agents, each grounded in an external source of truth (`docs/spec/current/`, `docs/adr/`) rather than its own judgment. A single agent that reviews and implements its own work compounds errors; each phase checks the last.
 
 **This is [§Senior](#senior) applied to the pipeline.** Every rule above holds — ladder, ledger, stop-rule, subagent contract, re-entry. This section adds only what is phalcom- and pipeline-specific. Do not restate the mode; obey it.
 
 ### Ground rules (every phase, every agent)
-- **Spec is source of truth.** Every finding, plan unit, diff cites a `docs/spec/v0.2/` § or an ADR. No spec coverage → a *new* ADR (`documentation-and-adrs`).
+- **Spec is source of truth.** Every finding, plan unit, diff cites a `docs/spec/current/` § or an ADR. No spec coverage → a *new* ADR (`documentation-and-adrs`).
 - **Writer ≠ approver.** The implementer never approves its own diff.
 - **No merge on red.** `cargo build && cargo test && cargo clippy --workspace` is the gate at every step. Verify substrate (invariant harness + golden `.ph` corpus + snapshot/fuzz/miri) stood up in Phase 0, gates everything after.
 - **Adversarial verification.** Every audit finding and load-bearing design claim is refuted-tested before it drives work.

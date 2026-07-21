@@ -1,7 +1,7 @@
 # U7 — Fixed instance slot layout + `construct` + class-side static fields (as-built)
 
 - **Status:** ✅ Landed — `b619448` (parse `construct`) → `f38e591` (layout + `construct` + static fields + dispatch fix) → `561f7e2` (two missing negative goldens). In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0011](../../../adr/0011-static-instance-slot-layout.md) (static per-class instance slot layout), [ADR-0017](../../../adr/0017-class-side-stored-static-fields.md) (class-side stored static fields, DEC-D); spec [classes §1](../../../spec/v0.2/classes.md) (Constructors), [classes §2](../../../spec/v0.2/classes.md) (Fields), [object-model §5](../../../spec/v0.2/object-model.md) (metaclass tower). Reuses U6's private `Value::Nil` sentinel + surfacing helper.
+- **Realizes:** [ADR-0011](../../../adr/0011-static-instance-slot-layout.md) (static per-class instance slot layout), [ADR-0017](../../../adr/0017-class-side-stored-static-fields.md) (class-side stored static fields, DEC-D); spec [classes §1](../../../spec/current/classes.md) (Constructors), [classes §2](../../../spec/current/classes.md) (Fields), [object-model §5](../../../spec/current/object-model.md) (metaclass tower). Reuses U6's private `Value::Nil` sentinel + surfacing helper.
 - **Reviewer gate:** **OFF** per STATE.md policy (U7 is not hierarchy-load-bearing) — self-verified on the green gate + `cargo doc` clean.
 
 ## Mission
@@ -90,10 +90,10 @@ System.print(Counter._count)   // → 2  (shared class state)
 - **Precluded (acceptable per ADR-0011/0017, good for a future inline cache):** adding a field
   to a *live* class / `become:`-style reshape (offsets frozen at definition); shared *protected*
   inherited fields (subclasses use accessors). Reparenting / `reshape`-with-migration is sealed
-  by policy but left implementable → [deferred-work §1](../../../spec/v0.2/deferred-work.md) (ADR-0026).
+  by policy but left implementable → [deferred-work §1](../../../spec/current/deferred-work.md) (ADR-0026).
 - **Identity-dispatch ⊗ optional arity:** any future default/optional arg on `construct` would
   change the selector and miss — a cross-cutting decision, not a local one
-  ([deferred-work §1](../../../spec/v0.2/deferred-work.md), open-Q12).
+  ([deferred-work §1](../../../spec/current/deferred-work.md), open-Q12).
 
 ## Sources
 - Forge: `U7-plan.md` (folded into this spec; see git history), [STATE.md](../../archive/phase2/STATE.md) "U7 — LANDED".
