@@ -79,7 +79,7 @@ fn open_upvalue_hygiene_across_cells() {
     vm.define_global(mod_sym, getter_sym, Value::Nil).unwrap();
 
     // Cell 1: creates a block capturing a local `secret`, assigns getter, then raises a runtime error
-    let cell1_src = "let make = {\nlet secret = 999\ngetter = {\nsecret\n}\nnil.non_existent_method()\n}\nmake()\n";
+    let cell1_src = "let make = {\nlet secret = 999\ngetter = {\nsecret\n}\nNone.non_existent_method()\n}\nmake()\n";
 
     let c1 = vm.compile_closure_as(module, cell1_src, UnitKind::Repl).expect("cell 1 compiles");
     let res1 = vm.run_cell(module, c1);
