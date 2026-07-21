@@ -1111,7 +1111,11 @@ impl<'source> Parser<'source> {
             Vec::new()
         };
         let range = (start..self.prev_end).into();
-        Ok(Attribute { name, args, range })
+        let kind = match BuiltinAttr::parse(&name) {
+            Some(b) => AttrKind::Builtin(b),
+            None => AttrKind::User(name.clone()),
+        };
+        Ok(Attribute { kind, name, args, range })
     }
 
     /// Parses a parenthesized, comma-separated list of attribute argument

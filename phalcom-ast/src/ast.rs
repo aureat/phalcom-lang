@@ -163,15 +163,86 @@ pub struct ClassDef {
 /// implementations (`docs/spec/v0.2/experimental/annotations-core.md`,
 /// `annotations-legality-grammar.md`) that desugar it into ordinary AST before
 /// the rest of compilation runs.
+/// Builtin attribute variants recognized by the compiler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinAttr {
+    Construct,
+    Constructor,
+    Class,
+    Get,
+    Set,
+    Data,
+    Sealed,
+    Variant,
+    Invariant,
+    Requires,
+    Ensures,
+    On,
+    Native,
+    Ignore,
+}
+
+impl BuiltinAttr {
+    pub fn name(&self) -> &'static str {
+        match self {
+            BuiltinAttr::Construct => "construct",
+            BuiltinAttr::Constructor => "constructor",
+            BuiltinAttr::Class => "class",
+            BuiltinAttr::Get => "get",
+            BuiltinAttr::Set => "set",
+            BuiltinAttr::Data => "data",
+            BuiltinAttr::Sealed => "sealed",
+            BuiltinAttr::Variant => "variant",
+            BuiltinAttr::Invariant => "invariant",
+            BuiltinAttr::Requires => "requires",
+            BuiltinAttr::Ensures => "ensures",
+            BuiltinAttr::On => "On",
+            BuiltinAttr::Native => "native",
+            BuiltinAttr::Ignore => "ignore",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "construct" => Some(BuiltinAttr::Construct),
+            "constructor" => Some(BuiltinAttr::Constructor),
+            "class" => Some(BuiltinAttr::Class),
+            "get" => Some(BuiltinAttr::Get),
+            "set" => Some(BuiltinAttr::Set),
+            "data" => Some(BuiltinAttr::Data),
+            "sealed" => Some(BuiltinAttr::Sealed),
+            "variant" => Some(BuiltinAttr::Variant),
+            "invariant" => Some(BuiltinAttr::Invariant),
+            "requires" => Some(BuiltinAttr::Requires),
+            "ensures" => Some(BuiltinAttr::Ensures),
+            "On" => Some(BuiltinAttr::On),
+            "native" => Some(BuiltinAttr::Native),
+            "ignore" => Some(BuiltinAttr::Ignore),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttrKind {
+    Builtin(BuiltinAttr),
+    User(String),
+}
+
+impl AttrKind {
+    pub fn name(&self) -> &str {
+        match self {
+            AttrKind::Builtin(b) => b.name(),
+            AttrKind::User(s) => s.as_str(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Attribute {
-    /// The attribute's bare name, without the leading `@` (e.g. `"requires"`
-    /// for `@requires(...)`).
+    pub kind: AttrKind,
     pub name: String,
-    /// The attribute's parenthesized argument expressions, in source order.
-    /// Empty for a bare `@name` with no argument list.
     pub args: Vec<Expr>,
-    /// The source span of the whole `@name(args…)` attribute.
     pub range: SourceRange,
 }
 

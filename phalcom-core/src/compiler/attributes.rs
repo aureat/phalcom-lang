@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use phalcom_ast::ast::{
-    AssignmentExpr, Attribute, BinaryExpr, BinaryOp, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, GetPropertyExpr, GetterDef, MethodDef,
+    AttrKind, BuiltinAttr, AssignmentExpr, Attribute, BinaryExpr, BinaryOp, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, GetPropertyExpr, GetterDef, MethodDef,
     ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
 };
 use crate::compiler::lib::CompilerError;
@@ -716,30 +716,68 @@ impl AttributeExpander for IgnoreExpander {
     }
 }
 
+pub struct ConstructorExpander;
+impl AttributeExpander for ConstructorExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
+pub struct ClassExpander;
+impl AttributeExpander for ClassExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method, Target::Getter, Target::Setter, Target::Field]
+    }
+
+    fn expand(
+        &self,
+        _ctx: &mut ExpandCtx,
+        _member: &mut ClassMember,
+        _args: &[Expr],
+    ) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
 pub struct AttributeRegistry {
-    expanders: HashMap<String, Box<dyn AttributeExpander + Send + Sync>>,
+    expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 14],
 }
 
 impl AttributeRegistry {
     pub fn new() -> Self {
-        let mut expanders: HashMap<String, Box<dyn AttributeExpander + Send + Sync>> = HashMap::new();
-        expanders.insert("requires".to_string(), Box::new(RequiresExpander));
-        expanders.insert("ensures".to_string(), Box::new(EnsuresExpander));
-        expanders.insert("invariant".to_string(), Box::new(InvariantExpander));
-        expanders.insert("construct".to_string(), Box::new(ConstructExpander));
-        expanders.insert("get".to_string(), Box::new(GetExpander));
-        expanders.insert("set".to_string(), Box::new(SetExpander));
-        expanders.insert("data".to_string(), Box::new(DataExpander));
-        expanders.insert("sealed".to_string(), Box::new(SealedExpander));
-        expanders.insert("variant".to_string(), Box::new(VariantExpander));
-        expanders.insert("On".to_string(), Box::new(OnExpander));
-        expanders.insert("native".to_string(), Box::new(NativeExpander));
-        expanders.insert("ignore".to_string(), Box::new(IgnoreExpander));
+        let mut expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 14] = Default::default();
+        expanders[BuiltinAttr::Requires as usize] = Some(Box::new(RequiresExpander));
+        expanders[BuiltinAttr::Ensures as usize] = Some(Box::new(EnsuresExpander));
+        expanders[BuiltinAttr::Invariant as usize] = Some(Box::new(InvariantExpander));
+        expanders[BuiltinAttr::Construct as usize] = Some(Box::new(ConstructExpander));
+        expanders[BuiltinAttr::Constructor as usize] = Some(Box::new(ConstructorExpander));
+        expanders[BuiltinAttr::Class as usize] = Some(Box::new(ClassExpander));
+        expanders[BuiltinAttr::Get as usize] = Some(Box::new(GetExpander));
+        expanders[BuiltinAttr::Set as usize] = Some(Box::new(SetExpander));
+        expanders[BuiltinAttr::Data as usize] = Some(Box::new(DataExpander));
+        expanders[BuiltinAttr::Sealed as usize] = Some(Box::new(SealedExpander));
+        expanders[BuiltinAttr::Variant as usize] = Some(Box::new(VariantExpander));
+        expanders[BuiltinAttr::On as usize] = Some(Box::new(OnExpander));
+        expanders[BuiltinAttr::Native as usize] = Some(Box::new(NativeExpander));
+        expanders[BuiltinAttr::Ignore as usize] = Some(Box::new(IgnoreExpander));
         Self { expanders }
     }
 
+    pub fn get_builtin(&self, attr: BuiltinAttr) -> Option<&(dyn AttributeExpander + Send + Sync)> {
+        self.expanders[attr as usize].as_deref()
+    }
+
     pub fn get(&self, name: &str) -> Option<&(dyn AttributeExpander + Send + Sync)> {
-        self.expanders.get(name).map(|boxed| &**boxed)
+        BuiltinAttr::parse(name).and_then(|b| self.get_builtin(b))
     }
 }
 
@@ -1416,7 +1454,12 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             name: v.name.clone(),
             superclass: Some(SuperclassRef { name: class.name.clone(), range: v.range }),
             members,
-            attributes: vec![Attribute { name: "data".to_string(), args: Vec::new(), range: v.range }],
+            attributes: vec![Attribute {
+                kind: AttrKind::Builtin(BuiltinAttr::Data),
+                name: "data".to_string(),
+                args: Vec::new(),
+                range: v.range,
+            }],
             invariants: Vec::new(),
             range: v.range,
             name_range: v.range,
@@ -1715,21 +1758,36 @@ pub fn expand_class_attributes(
                     attr.name
                 )));
             }
-            if attr.name == "invariant" {
-                validate_purity(&attr.args)?;
-                for arg in &attr.args {
-                    class_invariants.push((arg.clone(), attr.range));
+            match &attr.kind {
+                AttrKind::Builtin(b) => {
+                    match b {
+                        BuiltinAttr::Invariant => {
+                            validate_purity(&attr.args)?;
+                            for arg in &attr.args {
+                                class_invariants.push((arg.clone(), attr.range));
+                            }
+                        }
+                        BuiltinAttr::Construct => {
+                            derive_construct(&mut class, ctx, attr.range)?;
+                        }
+                        BuiltinAttr::Data => {
+                            derive_data(&mut class, ctx, attr.range)?;
+                        }
+                        BuiltinAttr::Sealed
+                        | BuiltinAttr::Constructor
+                        | BuiltinAttr::Class
+                        | BuiltinAttr::Get
+                        | BuiltinAttr::Set
+                        | BuiltinAttr::Variant
+                        | BuiltinAttr::Requires
+                        | BuiltinAttr::Ensures
+                        | BuiltinAttr::On
+                        | BuiltinAttr::Native
+                        | BuiltinAttr::Ignore => {}
+                    }
                 }
-            } else if attr.name == "construct" {
-                derive_construct(&mut class, ctx, attr.range)?;
-            } else if attr.name == "data" {
-                derive_data(&mut class, ctx, attr.range)?;
+                AttrKind::User(_) => {}
             }
-            // `@sealed`'s own bookkeeping (recording `class` + the compiling
-            // module in `VM::sealed_classes`) needs the compiling
-            // `Compiler`'s module handle, which this function has no access
-            // to — it runs from `compile_class` itself, right after this
-            // call returns (see that function's doc).
         } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
             // M-ATTR-ROOT: an unrecognized name that resolves to a user
             // `Attribute` subclass is retained silently — its runtime
