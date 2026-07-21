@@ -33,8 +33,8 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **136** |
-| Distinct native Rust functions | **118** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **147** |
+| Distinct native Rust functions | **129** |
 | Classes carrying floor primitives | **23** (of 29 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
@@ -385,7 +385,6 @@ Ordered as `install_primitives` installs them
 | `class` | instance | `object_class` | |
 | `class=(_)` | instance | `object_set_class` | reflective class reassignment |
 | `toString` | instance | `object_to_string` | default display, `"<ClassName>"` for an instance / own name for a class receiver (ADR-0015; U-CORE-4 re-home off `object_name`, fixes DEFERRED F4) |
-| `new()` | static | `object_class_new` | generic instance allocator — the default `new` for user classes (see §4) |
 | `==(_)` | instance | `object_eq` | ordinary send, **not** an opcode (control-flow.md §1) |
 | `!=(_)` | instance | `object_neq` | ordinary send |
 | `perform(_)` | instance | `object_perform` | reflective send (U8, messages-and-selectors.md §5) |
@@ -414,7 +413,7 @@ Ordered as `install_primitives` installs them
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `+(_)` | instance | `class_add` | |
-| `new()` | instance | `class_new` | allocator reachable through the metaclass chain apex (see §4) |
+| `new_()` | instance | `class_new_` | generic bare allocator reachable through the metaclass chain apex (U-CTOR-4) |
 
 ### 2.4 `Number` — flat `f64` ([ADR-0005](../../../adr/0005-number-as-flat-f64.md))
 
