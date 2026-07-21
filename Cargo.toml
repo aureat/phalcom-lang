@@ -2,16 +2,22 @@
 members = [
     "phalcom-ast",
     "phalcom-common",
-    "phalcom-core", "phalcom-repl",
+    "phalcom-core",
+    "phalcom-repl",
     "phalcom-lsp",
 ]
 resolver = "2"
+default-members = ["phalcom-core"]
 
 [workspace.dependencies]
 thiserror = "2.0.12"
 rustyline = "16.0.0"
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "registry", "std"] }
+tracing-subscriber = { version = "0.3.19", features = [
+    "env-filter",
+    "registry",
+    "std",
+] }
 indexmap = "2.9.0"
 once_cell = "1.21.3"
 anyhow = "1.0.98"
