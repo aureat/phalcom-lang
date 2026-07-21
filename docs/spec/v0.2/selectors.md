@@ -22,6 +22,7 @@ move(_,to,duration)     // 1 positional, 2 labeled
 move(_,_)               // 2 positional
 size()                  // nullary
 +(_)                    // binary operator
+~()                     // unary operator
 ```
 
 Grammar of the canonical string:
@@ -57,7 +58,7 @@ Two distinct value types, both backed by an interned `Symbol`:
 | --- | --- | --- | --- |
 | `#move` | **Name symbol** | A bare method name; identifies a *family*, not a method. | `respondsTo`, map keys, reflection queries |
 | `#move(_,to,duration)` | **Selector symbol** | A complete method identity. | `perform`, pinned method refs |
-| `#+`, `#==` | Selector symbol | Operator selectors. | same |
+| `#+`, `#==`, `#&`, `#~` | Selector symbol | Operator selectors (`#~` is nullary). | same |
 
 `perform` accepts **only** selector symbols. Passing a name symbol is a type error. (`perform` itself is not yet implemented — U-LEX-HASH lexes and interns both symbol shapes only.)
 

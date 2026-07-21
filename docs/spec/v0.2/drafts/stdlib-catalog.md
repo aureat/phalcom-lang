@@ -106,9 +106,12 @@ purposes, and it is already ratified — no new decision is needed, only the uni
 ### 0.2 Bitwise operations on `Int`
 
 ```
-Int#and(_)  or(_)  xor(_)  not  shl(_)  shr(_)  ushr(_)
-Int#bitAt(_) -> Bool   bitCount   leadingZeros   trailingZeros
+Int#&(_)  |(_)  ^(_)  ~()  <<(_)  >>(_)
+Int#bitAt(_) -> Bool   bitCount   bitLength   trailingZeros
 ```
+
+Ratified surface: [PDR-0020](../../../decisions/0020-bitwise-operations-on-int.md). `ushr`
+and `leadingZeros` are deliberately absent because unbounded `Int` has no fixed width.
 
 Blocked on 0.1. Required by: open-flags, permission modes, `Bytes` fixed-width codecs
 (§1.2), hex/base64 (§1.5), every hash function (§2.7), socket options (§4.3).

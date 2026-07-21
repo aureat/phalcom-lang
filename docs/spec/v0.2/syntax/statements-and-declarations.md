@@ -82,6 +82,7 @@ field_decl     := [ "const" ] FIELD [ "=" expr ]
 
 method_name    := IDENT | operator
 operator       := "+" | "-" | "*" | "/" | "%"
+                | "&" | "|" | "^" | "~" | "<<" | ">>"
                 | "==" | "!=" | "<" | "<=" | ">" | ">="
                 | "and" | "or" | "is"
 

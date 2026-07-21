@@ -14,6 +14,8 @@ receiver.name                      // unary send   -> selector `name`
 receiver.add(1, 2)                 // positional    -> selector `add(_,_)`
 receiver.move(to: p, duration: 2)  //               -> selector `move(to,duration)`
 a + b                              // binary        -> selector `+(_)`
+a & b                              // binary        -> selector `&(_)`
+~a                                 // unary         -> selector `~()`
 a.name = v                         // assignment    -> selector `name=(_)`
 ```
 
@@ -31,6 +33,8 @@ for the full canonical-form grammar and rules R1–R5.
 | `p.move(a, b)` | `move(_,_)` |
 | `p.name = v` | `name=(_)` |
 | `a + b` | `+(_)` |
+| `a & b` | `&(_)` |
+| `~a` | `~()` |
 
 `move(to,duration)` and `move(_,_)` are **distinct methods**. Argument order is
 significant; labels are not reorderable. Because labels are baked into the interned

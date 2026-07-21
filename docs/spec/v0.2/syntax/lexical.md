@@ -115,32 +115,19 @@ lexical token for it ([ADR-0007]).
 
 ## 6. Numeric literals
 
-Numeric surface syntax splits `Int` (exact, auto-promoting on overflow) and
-`Float` on the presence of a decimal point ([ADR-0024]).
+Numeric syntax is specified by [Numeric literals](numeric-literals.md), ratified by
+PDR-0026. It supplies exact radix `Int` literals, decimal exponent `Float` literals,
+separator rules, and atomic malformed-literal diagnostics.
 
 ```
-INT      := DIGIT { DIGIT | "_" }
-FLOAT    := DIGIT { DIGIT | "_" } "." DIGIT { DIGIT | "_" }
+INT   := DEC-INT | BIN-INT | OCT-INT | HEX-INT
+FLOAT := DEC-DIGITS "." DEC-DIGITS [ EXPONENT ]
+       | "." DEC-DIGITS [ EXPONENT ]
+       | DEC-DIGITS EXPONENT
 ```
 
-`1` lexes as `INT`; `1.0` lexes as `FLOAT`. Digit-group separators (`_`) are
-permitted only directly between two digits — a leading, trailing, or doubled
-`_` is not part of either production.
-
-`.` is read as a decimal point only when the next character is a digit; in
-every other position it lexes as the member-access operator. This is why
-`1..2` lexes as `INT ".." INT` (range) rather than a malformed float followed
-by `.2`.
-
-> **Unresolved / not yet specified:** hexadecimal, octal, binary, and
-> exponent (scientific-notation) numeric forms have no production. See
-> [`../implementation-status.md`](../implementation-status.md).
-
-```phalcom
-let count = 1_000_000   // Int, digit-separated
-let ratio = 0.5          // Float
-let range = 1..10        // Int .. Int, not "1." followed by ".10"
-```
+`5.` is invalid: trailing-dot floats are excluded so `5.toString` stays a dot send and
+`5..2` stays a range. `0x_FF_A0_00`, `.25`, and `6.02e-23` are valid.
 
 ## 7. String literals
 
@@ -220,6 +207,8 @@ lex error, not merely unconventional.
 #move                    // name symbol
 #move(_,to,duration)     // selector symbol, one positional + two labels
 #+                       // operator selector symbol
+#&                       // binary operator selector
+#~                       // nullary operator selector
 #[]                      // index-selector symbol
 ```
 
@@ -263,6 +252,7 @@ ATTRIBUTE := "@" IDENT
 | Group | Tokens |
 |---|---|
 | Arithmetic | `+` `-` `*` `/` `%` `~/` (`~/` is integer division, [ADR-0024]) |
+| Bitwise | `&` `|` `^` `~` `<<` `>>` (PDR-0020) |
 | Comparison | `==` `!=` `<` `<=` `>` `>=` |
 | Assignment | `=`, compound `+=` `-=` `*=` `/=` `%=` |
 | Option | `??` `?.` |
@@ -273,7 +263,7 @@ ATTRIBUTE := "@" IDENT
 | Arrow | `=>` (block/expression body); `->` reserved-inactive |
 | Delimiters | `(` `)` `{` `}` `[` `]` |
 | Separators | `,` `;` `NEWLINE` |
-| Prefix | `-` (negate), `!` (not) |
+| Prefix | `-` (negate), `~` (bitwise not), `!` / `not` (boolean not) |
 
 A lone `?` is not a token — it is reserved but currently unassigned to any
 production; `??` and `?.` are each lexed as a single two-character token, not
@@ -302,8 +292,10 @@ KEYWORD :=
   | "if" | "else" | "while" | "for" | "in" | "break" | "continue" | "return"
   | "and" | "or" | "not" | "is" | "true" | "false" | "import" | "as" | "throw"
 
-INT   := DIGIT { DIGIT | "_" }
-FLOAT := DIGIT { DIGIT | "_" } "." DIGIT { DIGIT | "_" }
+INT   := DEC-INT | BIN-INT | OCT-INT | HEX-INT
+FLOAT := DEC-DIGITS "." DEC-DIGITS [ EXPONENT ]
+       | "." DEC-DIGITS [ EXPONENT ]
+       | DEC-DIGITS EXPONENT
 BOOL  := "true" | "false"
 
 STRING           := "\"" { STRING-SEGMENT } "\""
@@ -323,6 +315,7 @@ ATTRIBUTE   := "@" IDENT
 
 BINARY-OP  :=
     "+" | "-" | "*" | "/" | "%" | "~/"
+  | "&" | "|" | "^" | "<<" | ">>"
   | "==" | "!=" | "<" | "<=" | ">" | ">="
   | ".." | "..."
 ASSIGN-OP  := "=" | "+=" | "-=" | "*=" | "/=" | "%="

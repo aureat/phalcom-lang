@@ -12,15 +12,14 @@
 > `f64` survives as `Float`'s representation only.
 >
 > **Rulings:** [PDR-0012](../../decisions/0012-numeric-tower-implementation-and-floor-amendment.md)
-> — **Proposed, not ratified.** It carries this spec's 24 implementation rulings and the
-> ADR-0019 floor amendment. Per `docs/decisions/README.md` rule 5, **do not build against this
-> spec until PDR-0012 is Accepted**; §17's open questions are duplicated there as its Q-1…Q-6.
+> — **Accepted** (ratified 2026-07-20). It carries this spec's 24 implementation rulings and the
+> ADR-0019 floor amendment. [PDR-0025](../../decisions/0025-numeric-tower-residue-rulings.md)
+> resolves its former primitive blockers; this spec is implementation-ready.
 >
 > **Floor impact:** **REQUIRES an [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
-> amendment**, carried in PDR-0012 ruling 20 (`docs/adr/` is frozen). The per-class split is
-> `137 → 153` installed bindings (§6). **Requested, not granted** — §6.5, open question
-> **Q-NUM-4**. Composes with PDR-0011's `Bytes` amendment (`137 → 147`); both ratified gives
-> **163** — recompute at ratification rather than trusting either figure.
+> amendment**, carried and ratified by PDR-0012 ruling 20 (`docs/adr/` is frozen). The per-class
+> split is `137 → 153` installed bindings (§6). It composes with PDR-0011's `Bytes` amendment;
+> recompute against the live census at implementation rather than trusting prose totals.
 >
 > **Ordering constraint:** must land **before** any arithmetic fast path is burned into
 > bytecode (ADR-0024 §Context). That window is still open — verified, §11.
@@ -298,9 +297,9 @@ fn scan_number(&mut self) -> Result<Token, LexicalError> {
 - **(c)** reject oversized literals as a lex error.
 
 **Recommend (a).** It keeps `phalcom-ast` dependency-free, keeps the common path an `i64`, and
-puts the one `BigInt` parse where the heap already is. (c) is defensible but contradicts "`Int`
-is unbounded" in the one place a user most expects it to hold — a literal. This is a *new*
-decision the ADR does not cover; recorded as **Q-NUM-2**, recommended answer (a).
+puts the one `BigInt` parse where the heap already is. [PDR-0026](../../decisions/0026-numeric-literals.md)
+ratifies that choice and extends the payload to `{ digits, radix }` so binary, octal, and
+hexadecimal literals remain exact.
 
 ### 4.3 Parser and AST
 
@@ -316,16 +315,15 @@ heap `LargeInt` at **compile time**, which means the constant pool holds an `Obj
 that the constant pool's GC rooting covers compile-time-minted objects — the spec did **not**
 verify this. **Q-NUM-3.**
 
-### 4.5 Hex and exponent: leave them out
+### 4.5 Hex and exponent: leave them out of this unit
 
 The grammar has neither (§1). ADR-0024 does not ask for them. Adding `0x…` and `1e5` here
 would mean deciding whether `1e5` is an `Int` or a `Float` — a real question (Python says
 `float`, Ruby says `Float`, Dart says `double`) that has nothing to do with the tower.
 
 **Ruling: this spec adds neither.** The tower does not need them, and bundling them puts a
-new syntax decision inside a representation change. If they are wanted, they are a separate,
-much smaller unit — and it will be *easier* after this lands, because the `is_float` predicate
-will already exist and `1e5 → Float` will be one arm.
+new syntax decision inside a representation change. They are now specified separately by
+[PDR-0026](../../decisions/0026-numeric-literals.md); implement them as the follow-on literal unit.
 
 ---
 
@@ -395,7 +393,7 @@ Per the user's ruling, **every numeric primitive is split per-class**; neither `
 | `*(_)` | — | ✅ | ✅ | |
 | `/(_)` | — | ✅ | ✅ | always returns `Float` (ADR-0024 §4) |
 | `%(_)` | — | ✅ | ✅ | `Int%Int` exact; `Float` keeps `fmod` |
-| `~/(_)` | — | ✅ | ✅? | **Q-NUM-1** — see below |
+| `~/(_)` | — | ✅ | ✅ | PDR-0025: total over the tower; always returns `Int` |
 | `<(_)` | — | ✅ | ✅ | |
 | `<=(_)` | — | ✅ | ✅ | |
 | `>(_)` | — | ✅ | ✅ | |
@@ -421,8 +419,6 @@ than a silent re-flattening of the tower.
   153   post-split
 ```
 
-If **Q-NUM-1** resolves `~/` as `Int`-only, `Float` loses one and the total is **152**.
-
 The numeric floor goes **14 → 30**: it more than doubles, which is precisely why this needs
 ratification rather than a census bump.
 
@@ -444,7 +440,7 @@ const NUMERIC_SPLIT_ADDED: usize = 30;
 and extend the assertion with `+ NUMERIC_SPLIT_ADDED - NUMERIC_SPLIT_REMOVED`, keeping the
 addition ahead of the subtraction so the `usize` expression never goes negative mid-evaluation.
 
-### 6.5 The amendment — requested, not granted
+### 6.5 The ratified amendment
 
 ADR-0019 is a deliberate **one-way ratchet**
 ([`0019…md:26`](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)), and
@@ -514,7 +510,7 @@ arithmetic (`docs/forge/perf-log/SCOREBOARD.md`).
 |---|---|---|---|
 | `+` `-` `*` | `checked_*`, overflow → `LargeInt`, then demote | → `Float` | `f64` |
 | `/` | **always `Float`** — convert both, then `f64` divide | → `Float` | `f64` |
-| `~/` | floor division, exact `Int` | see **Q-NUM-1** | see **Q-NUM-1** |
+| `~/` | floor division, exact `Int` | exact `Int` (PDR-0025) | exact `Int` (PDR-0025) |
 | `%` | exact, **sign follows the divisor** so it agrees with `~/`'s floor | → `Float` | `fmod`, sign follows dividend (unchanged) |
 | `< <= > >=` | exact | compare by mathematical value | `f64` |
 | `negated` | `i64::MIN` overflows `checked_neg` → `LargeInt` | — | `f64` |
@@ -747,15 +743,14 @@ Semantics per class:
 | Argument | `Int.new(_)` | `Float.new(_)` |
 |---|---|---|
 | `Int` | identity | widen to `f64` |
-| `Float` | **Q-NUM-8** — truncate, raise, or round? | identity |
-| `Bool` | `1` / `0` | `1.0` / `0.0` |
+| `Float` | raises — no implicit narrowing (PDR-0025) | identity |
+| `Bool` | raises — coercion removed (PDR-0025) | raises — coercion removed (PDR-0025) |
 | numeric string | exact parse, `LargeInt` if oversized | `parse::<f64>()` |
 | non-numeric string | `TypeConversion` (with `arg.type_name()` — §9.6) | same |
 
-`Float.new(2.7)` is uncontroversial. **`Int.new(2.7)` is not** — it is the one place a user can
-ask for a lossy narrowing, and ADR-0024 has no ruling on it. `Int.new` being the *only*
-truncation door is arguably good design (explicit, greppable); raising is arguably better
-(matches "integers are never silently wrong"). **Q-NUM-8.**
+`Float.new(2.7)` is identity. **`Int.new(2.7)` raises**: PDR-0025 rejects every `Float`
+argument, including integral values, so construction is never a value-dependent narrowing door.
+The explicit narrowing selectors belong to the Float-protocol follow-on.
 
 ---
 
@@ -988,14 +983,14 @@ Numbered rather than guessed, per house rule.
 
 | # | Question | Recommendation |
 |---|---|---|
-| **Q-NUM-1** | **Is `~/` defined on `Float`?** ADR-0024 §5 says it "returns an exact `Int`" without restricting the receiver, but §6's promotion rule says `_ ⊕ Float → Float`. The two cannot both hold for `7.5 ~/ 2`. Genuinely unruled. | **Define it on `Float`, returning `Int`** (Dart precedent; §5's "returns an exact `Int`" is unconditional). Floor semantics, raise on non-finite operands. Census +1. |
-| **Q-NUM-2** | **Integer literals too large for `i64`** — `Token::BigInt(String)`, `Token::Int(BigInt)` (pulls `num-bigint` into `phalcom-ast`), or a lex error? | `Token::BigInt(String)` (§4.2). |
+| **Q-NUM-1** | ~~Is `~/` defined on `Float`?~~ | **Resolved — PDR-0025:** it is total over the tower, returns exact `Int`, and raises when no exact result exists. |
+| **Q-NUM-2** | ~~What payload carries oversized integer literals?~~ | **Resolved — PDR-0026:** a dependency-free `{ digits, radix }` token payload; compiler parses to `BigInt`. |
 | **Q-NUM-3** | Does the constant pool's GC rooting cover a compile-time-minted `LargeInt` `ObjRef`? **Not verified.** | Verify before Phase 4; if not, root it. |
-| **Q-NUM-4** | **Ratify the ADR-0019 amendment?** 137 → 153 (or 152). The count doubles for a structural reason, adding no new capability (§6.5). | Ratify — the cost follows from a ruling already made. But this is the user's call and this spec does **not** assume it. |
+| **Q-NUM-4** | ~~Ratify the ADR-0019 amendment?~~ | **Resolved — PDR-0012 accepted:** 137 → 153 was ratified; recompute on the live implementation baseline. |
 | **Q-NUM-5** | Should `expect_index`'s transitional `Float` arm carry a machine-checkable marker (a `#[deprecated]`-style tripwire) rather than only a doc comment, so the follow-on unit cannot be forgotten? | A doc comment naming the follow-on unit is probably enough; a tripwire is cheap insurance. |
 | **Q-NUM-6** | `Number` is abstract by construction only — no mechanism enforces it (§2.3). Should its allocator raise? | Low priority; the surface is unreachable through literals or statics once §10 lands. |
 | **Q-NUM-7** | `phalcom-core`'s dependency pinning is split between workspace and crate-literal, with `thiserror` pinned in both (§3.3). Normalize in this unit, separately, or not at all? | Separately — unrelated to the tower. |
-| **Q-NUM-8** | **`Int.new(2.7)`** — truncate, round, or raise? ADR-0024 has no ruling. | Lean **raise**: it matches "integers are never silently wrong". Truncation is defensible if an explicit narrowing door is wanted, but then it should be spelled `Float#truncated`, not `Int.new`. |
+| **Q-NUM-8** | ~~What does `Int.new(2.7)` do?~~ | **Resolved — PDR-0025:** raises for every `Float`; explicit narrowing is a Float-protocol selector. |
 
 ---
 

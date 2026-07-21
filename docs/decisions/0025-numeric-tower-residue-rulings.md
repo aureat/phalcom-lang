@@ -1,6 +1,6 @@
 # PDR-0025 — Numeric tower residue: `~/` is total over the tower and returns `Int`; construction never narrows; the `Bool` arm dies
 
-- Status: **Proposed** (2026-07-20)
+- Status: **Accepted** (ratified 2026-07-21)
 - Discharges: [PDR-0012](0012-numeric-tower-implementation-and-floor-amendment.md) open
   questions **Q-1** and **Q-2** (both flagged there as "genuinely unruled by ADR-0024" and
   blocking the primitives phase)
@@ -8,7 +8,7 @@
   §5/§6 (whose contradiction Q-1 names), PDR-0012 rulings 3 (`normalize`), 11 (zero divisor),
   18 (`new` re-homing), 20 (the floor figure this record leaves unchanged),
   [ADR-0021](../adr/accepted/0021-no-truthiness-enforcement.md) (the posture ruling 4's
-  discovery offends), [PDR-0020](0020-bitwise-operations-on-int.md) (`shr ≡ ~/ 2ⁿ` inherits
+  discovery offends), [PDR-0020](0020-bitwise-operations-on-int.md) (`>> ≡ ~/ 2ⁿ` inherits
   ruling 1's semantics on the `Int` side; unaffected otherwise)
 - No floor change; no new dependencies; no new tokens. Lands **inside** the tower unit —
   no separate unit.

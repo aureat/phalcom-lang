@@ -40,6 +40,7 @@ field_init     := FIELD "=" expr
 
 method_name    := IDENT | operator
 operator       := "+" | "-" | "*" | "/" | "%"
+                 | "&" | "|" | "^" | "~" | "<<" | ">>"
                  | "==" | "!=" | "<" | "<=" | ">" | ">="
                  | "and" | "or" | "is"
 method_body    := "=>" expr | block
@@ -85,10 +86,14 @@ coalesce       := or_expr [ "??" coalesce ]
 or_expr        := and_expr { "or" and_expr }
 and_expr       := equality { "and" equality }
 equality       := comparison { ( "==" | "!=" ) comparison }
-comparison     := additive { ( "<" | "<=" | ">" | ">=" | "is" ) additive }
+comparison     := bit_or { ( "<" | "<=" | ">" | ">=" | "is" ) bit_or }
+bit_or         := bit_xor { "|" bit_xor }
+bit_xor        := bit_and { "^" bit_and }
+bit_and        := shift { "&" shift }
+shift          := additive { ( "<<" | ">>" ) additive }
 additive       := multiplicative { ( "+" | "-" ) multiplicative }
 multiplicative := unary { ( "*" | "/" | "%" | "~/" ) unary }
-unary          := ( "-" | "!" | "not" ) unary | postfix
+unary          := ( "-" | "~" | "!" | "not" ) unary | postfix
 
 postfix        := primary { "." ( IDENT | keyword ) [ arg_list ]  (* send / property *)
                            | "?." IDENT [ arg_list ]              (* optional send *)
@@ -121,16 +126,36 @@ block_params   := IDENT { "," IDENT }
 literal        := INT | FLOAT | STRING | "true" | "false"
 
 symbol         := "#" IDENT | "#" symbol_sel
-symbol_sel     := ( IDENT | operator ) "(" [ slot { "," slot } ] ")"
+symbol_sel     := IDENT "(" [ slot { "," slot } ] ")" | operator
 slot           := "_" | IDENT
+
+(* Operator selector symbols are bare: `#+`, `#&`, `#~`. `#~` denotes the
+   nullary `~()` selector; every other operator denotes its canonical arity. *)
 
 (* --- Lexical --- *)
 
 (* identifiers, field slots, numbers *)
 IDENT          := LETTER { LETTER | DIGIT }
 FIELD          := "_" { LETTER | DIGIT }
-INT            := DIGIT { DIGIT | "_" }
-FLOAT          := DIGIT { DIGIT | "_" } "." DIGIT { DIGIT | "_" }
+INT            := DEC-INT | BIN-INT | OCT-INT | HEX-INT
+FLOAT          := DEC-DIGITS "." DEC-DIGITS [ EXPONENT ]
+                | "." DEC-DIGITS [ EXPONENT ]
+                | DEC-DIGITS EXPONENT
+DEC-INT        := ZERO-INT | NZ-DIGIT { DEC-GROUP }
+ZERO-INT       := "0" { "0" | "_" "0" }
+BIN-INT        := "0" ( "b" | "B" ) [ "_" ] BIN-DIGIT { BIN-GROUP }
+OCT-INT        := "0" ( "o" | "O" ) [ "_" ] OCT-DIGIT { OCT-GROUP }
+HEX-INT        := "0" ( "x" | "X" ) [ "_" ] HEX-DIGIT { HEX-GROUP }
+EXPONENT       := ( "e" | "E" ) [ "+" | "-" ] DEC-DIGITS
+DEC-DIGITS     := DIGIT { DEC-GROUP }
+DEC-GROUP      := DIGIT | "_" DIGIT
+BIN-GROUP      := BIN-DIGIT | "_" BIN-DIGIT
+OCT-GROUP      := OCT-DIGIT | "_" OCT-DIGIT
+HEX-GROUP      := HEX-DIGIT | "_" HEX-DIGIT
+NZ-DIGIT       := "1".."9"
+BIN-DIGIT      := "0" | "1"
+OCT-DIGIT      := "0".."7"
+HEX-DIGIT      := DIGIT | "a".."f" | "A".."F"
 
 (* strings and interpolation *)
 STRING         := '"' { string_char | interpolation } '"'
@@ -165,7 +190,7 @@ keyword        := "let" | "const" | "class"
 
 (* punctuation / operators, used directly as literals above; listed here for
    reference only — not a nonterminal:
-   +  -  *  /  %  ~/  ==  !=  <  <=  >  >=
+   +  -  *  /  %  ~/  &  |  ^  ~  <<  >>  ==  !=  <  <=  >  >=
    =  +=  -=  *=  /=  %=  ??  ?.  .  ::  :  =>  ( )  { }  [ ]  ,  ;  #  @  !
    reserved-inactive: ..  ...  ->
    note: a lone "?" (without "." or "?") is not a token *)

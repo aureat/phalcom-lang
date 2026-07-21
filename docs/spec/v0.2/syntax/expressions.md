@@ -16,11 +16,15 @@ a semantic concern, not a syntax one — see [Control Flow](../control-flow.md).
 | 4 | `and` | left |
 | 5 | equality `== !=` | left |
 | 6 | comparison `< <= > >=` (and `is` type-test) | left |
-| 7 | additive `+ -` | left |
-| 8 | multiplicative `* / % ~/` | left |
-| 9 | unary prefix `- ! not` | right |
-| 10 | postfix `.` `?.` call `(...)` trailing-block `::` | left |
-| 11 | primary | — |
+| 7 | bitwise OR `|` | left |
+| 8 | bitwise XOR `^` | left |
+| 9 | bitwise AND `&` | left |
+| 10 | shifts `<< >>` | left |
+| 11 | additive `+ -` | left |
+| 12 | multiplicative `* / % ~/` | left |
+| 13 | unary prefix `- ~ ! not` | right |
+| 14 | postfix `.` `?.` call `(...)` trailing-block `::` | left |
+| 15 | primary | — |
 
 > Range (`.. ...`) is a reserved-inactive binary operator ([ADR-0032]); its
 > precedence slot is not yet fixed — pending U-LEX. `is`/`as` beyond the
@@ -40,13 +44,14 @@ and_expr      := equality { "and" equality }
 
 equality      := comparison { ( "==" | "!=" ) comparison }
 
-comparison    := additive { ( "<" | "<=" | ">" | ">=" | "is" ) additive }
-
+comparison    := bit_or { ( "<" | "<=" | ">" | ">=" | "is" ) bit_or }
+bit_or        := bit_xor { "|" bit_xor }
+bit_xor       := bit_and { "^" bit_and }
+bit_and       := shift { "&" shift }
+shift         := additive { ( "<<" | ">>" ) additive }
 additive      := multiplicative { ( "+" | "-" ) multiplicative }
-
 multiplicative:= unary { ( "*" | "/" | "%" | "~/" ) unary }
-
-unary         := ( "-" | "!" | "not" ) unary
+unary         := ( "-" | "~" | "!" | "not" ) unary
                | postfix
 
 postfix       := primary { send_tail }
@@ -60,7 +65,7 @@ primary       := literal | grouping | tuple | list | map | block
 ```
 
 Every binary and unary operator here is sugar for a message send: `a + b` is
-`a.+(b)`, `-a` is `a.-()` — see §2 and [ADR-0012].
+`a.+(b)`, `a & b` is `a.&(b)`, and `~a` is `a.~()` — see §2 and [ADR-0012].
 
 ## 2. Message sends
 
@@ -121,7 +126,7 @@ opt?.m(a)     // ≡ opt.map { x => x.m(a) }
 a ?? b        // ≡ a.orElse { b }
 ```
 
-`?.` is a postfix chain member (tier 10): left-associative, and a `None`
+`?.` is a postfix chain member (tier 14): left-associative, and a `None`
 anywhere in a `?.` chain short-circuits the rest of the chain without
 evaluating further sends. `??` (tier 2) is right-associative: looser than
 comparison and arithmetic, tighter than assignment, so `a ?? b == c` parses
@@ -236,7 +241,7 @@ in the superclass of the method's holder, not the receiver's class.
 
 **Spread `*`.** `*expr` is legal only in call arguments, collection element
 lists, and parameter lists. Everywhere else `*` is the multiply operator (tier
-8) — see [Lexical Structure §8](../lexical-structure.md#8).
+12) — see [Lexical Structure §8](../lexical-structure.md#8).
 
 ## 5. No cascades
 

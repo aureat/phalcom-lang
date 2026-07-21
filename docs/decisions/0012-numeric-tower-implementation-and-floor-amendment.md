@@ -323,7 +323,7 @@ this record.** Argue with ADR-0024 if you want them changed.
 - **Negative-operand `%` changes on the `Int` path** (ruling 10) — the least obvious
   user-visible consequence, forced by ADR-0024 §5 rather than chosen here.
 - **`6 / 2` is `3.0`.** ADR-0024's deliberate cost; `~/` is the tool when an `Int` is wanted.
-- **The numeric floor doubles** (ruling 20). Requires ratification; not assumed.
+- **The numeric floor doubles** (ruling 20). Ratified with this record.
 - **`phalcom-ast` enters the write set** (ruling 5) — this is no longer the compiler-side unit
   U12's plan hoped for.
 - **Arithmetic gets slower before it gets faster.** Two arms and a promotion lattice replace
@@ -354,19 +354,19 @@ relitigated. New to this record:
 - **Widening `hash_code`'s mask in this unit** — rejected as scope, ruling 15.
 - **Adding hex/exponent literals here** — rejected, ruling 7.
 
-## Open questions — must be settled before or during implementation
+## Questions recorded at proposal time
 
 | # | Question | Recommendation |
 |---|---|---|
-| **Q-1** | **Is `~/` defined on `Float`?** ADR-0024 §5 says it "returns an exact `Int`" without restricting the receiver; §6 says any `Float` operand contaminates to `Float`. Both cannot hold for `7.5 ~/ 2`. Genuinely unruled — this record does not guess. | Define it on `Float`, returning `Int` (Dart precedent; §5's wording is unconditional). Floor semantics; raise on non-finite operands. Floor +1 → 153. |
-| **Q-2** | **`Int.new(2.7)`** — truncate, round, or raise? ADR-0024 has no ruling, and it is the one place a user can request a lossy narrowing. | Lean **raise** — it matches "integers are never silently wrong". Truncation is defensible if an explicit narrowing door is wanted, but then it belongs as `Float#truncated`, not hidden in a constructor. |
-| **Q-3** | **Ratify the amendment in ruling 20?** This is what the record's Proposed status turns on. | Ratify — the cost follows from a class-structure ruling already made. The user's call; not assumed. |
+| **Q-1** | ~~Is `~/` defined on `Float`?~~ | **Resolved — PDR-0025:** defined over the full tower and always returns `Int`. |
+| **Q-2** | ~~What does `Int.new(2.7)` do?~~ | **Resolved — PDR-0025:** it raises for every `Float` argument. |
+| **Q-3** | ~~Ratify the amendment in ruling 20?~~ | **Resolved — PDR-0012 accepted 2026-07-20:** the 137 → 153 amendment is granted. |
 | **Q-4** | Does the constant pool's GC rooting cover a compile-time-minted `LargeInt` `ObjRef` (ruling 6)? **Not verified.** | Verify before the primitives phase; root it if not. |
 | **Q-5** | Should `expect_index`'s transitional `Float` arm carry a machine-checkable tripwire rather than only a doc comment (ruling 23)? | A doc comment naming the follow-on is probably enough; a tripwire is cheap insurance against the arm becoming permanent. |
 | **Q-6** | `phalcom-core`'s dependency pinning is split between workspace and crate-literal, with `thiserror` in both (ruling 4). Normalize? | Separately — unrelated to the tower, and bundling it hides a real cleanup inside a semantics change. |
 
-> **Q-1 and Q-2 are discharged by [PDR-0025](0025-numeric-tower-residue-rulings.md)** (Proposed
-> 2026-07-20, same day): `~/` is total over the tower and returns `Int` (the stated exception to
+> **Q-1 and Q-2 are discharged by [PDR-0025](0025-numeric-tower-residue-rulings.md)** (Accepted,
+> ratified 2026-07-21): `~/` is total over the tower and returns `Int` (the stated exception to
 > §A A6); `Int.new` never narrows (any `Float` argument raises); and the re-homing of ruling 18
 > drops `number_class_new`'s undocumented `Bool` arm. Q-3 was discharged by this record's own
 > ratification. Q-4/Q-5 remain implementation-time checks; Q-6 remains parked.

@@ -26,7 +26,8 @@ document says which it is in its own header:
   one document, for work that is ruled but unbuilt. These supersede the older
   `docs/forge/units/<UNIT>/plan.md` + `IMPL-SPEC-*.md` two-document convention for new
   work. Current: [`numeric-tower.md`](./numeric-tower.md) (the `Int`/`Float` split,
-  ADR-0024).
+  ADR-0024), [`bitwise.md`](./bitwise.md) (accepted `Int` bitwise surface), and
+  [`float-protocol.md`](./float-protocol.md) (proposed explicit Float narrowing).
 
 A forward spec's baseline pin is its own, stated in its header, and does **not** ride the
 directory-wide pin below.
