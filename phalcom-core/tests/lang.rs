@@ -541,3 +541,13 @@ fn ic() {
     //     wrong.
     support::check_pass("ic");
 }
+
+#[test]
+fn streams() {
+    support::check_pass("streams");
+}
+
+#[test]
+fn streams_negative() {
+    support::check_negative("streams/negative");
+}

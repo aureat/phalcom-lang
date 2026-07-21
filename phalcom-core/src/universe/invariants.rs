@@ -77,7 +77,7 @@ impl Universe {
         // `False` rows (both resolve to `Bool class`) and the absence /
         // collection / message rows. Any newly-added row that breaks the rule
         // fails boot rather than silently mis-dispatching statics.
-        let ordinary_rows: [(&str, ClassId); 25] = [
+        let ordinary_rows: [(&str, ClassId); 30] = [
             ("Number", c.number_class),
             ("String", c.string_class),
             ("Nil", c.nil_class),
@@ -103,6 +103,11 @@ impl Universe {
             ("Message", c.message_class),
             ("Error", c.error_class),
             ("MessageNotUnderstood", c.message_not_understood_class),
+            ("Fiber", c.fiber_class),
+            ("CannotYieldAcrossNativeFrame", c.cannot_yield_across_native_frame_class),
+            ("Family", c.family_class),
+            ("Resource", c.resource_class),
+            ("UseAfterCloseError", c.use_after_close_error_class),
         ];
         for (name, class_id) in ordinary_rows {
             let meta = heap.class(class_id).class;

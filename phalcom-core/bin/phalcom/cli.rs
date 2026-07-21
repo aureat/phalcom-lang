@@ -204,7 +204,25 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
         eprintln!("warning: --trace=dispatch requested but the 'vm-trace' cargo feature is not enabled");
     }
     let module = vm.create_module("main", &abs_path);
-    if let Err(err) = vm.interpret_source(module, &source) {
+    let run_res = vm.interpret_source(module, &source);
+
+    let leaks = vm.resources.leaks();
+    if !leaks.is_empty() {
+        for (kind, site) in &leaks {
+            let site_str = site
+                .map(|s| format!("{}:{}", s.start, s.end))
+                .unwrap_or_else(|| "unknown".to_string());
+            eprintln!("Unclosed resource kind: {} opened at {}", kind, site_str);
+            if kind.to_string() == "BufferedWriter" {
+                eprintln!("Note: pending bytes may be lost for unclosed BufferedWriter");
+            }
+        }
+        if vm.strict_resources {
+            std::process::exit(70);
+        }
+    }
+
+    if let Err(err) = run_res {
         match err {
             phalcom_core::error::PhError::Compile(_) | phalcom_core::error::PhError::Parse(_) => {
                 std::process::exit(65);

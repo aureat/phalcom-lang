@@ -344,6 +344,10 @@ pub struct VM {
     pub native_selector: Option<Symbol>,
     /// In-flight native receiver class symbol for error context.
     pub native_class: Option<Symbol>,
+    /// Generation-tagged resource table.
+    pub resources: crate::resource::ResourceTable,
+    /// Whether unclosed resources at VM teardown produce an exit failure.
+    pub strict_resources: bool,
     /// Bounded free-list for recycling fiber stacks/frames to avoid
     /// allocations (U-GC step 5, `fiber-pool` feature). Measured net
     /// negative in whole-process A/B benchmarking (perf-log, 2026-07-14);

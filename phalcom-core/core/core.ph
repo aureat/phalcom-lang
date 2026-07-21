@@ -1888,3 +1888,187 @@ class Method {
   attributes => self.__attributes
   attributesOfType(cls) => self.__attributes.filter { a => a.isA(cls) }
 }
+
+// ============================================================================
+// U-RESOURCE & U-STREAMS
+// ============================================================================
+
+class Resource {
+  close {
+    self.close_
+    return Result.ok(None)
+  }
+  isClosed => self.isClosed_
+}
+
+class UseAfterCloseError extends Error {}
+
+class UnflushedError extends Error {}
+
+class BytesReader extends Resource {
+  construct new(source) {
+    source.is(Bytes).ifFalse {
+      throw ArgumentError.new("BytesReader source must be a Bytes")
+    }
+    _handle = Resource.register_("BytesReader")
+    // snapshot: source is a Bytes, copied — the reader's contents never change under it
+    _data = source.slice(0, source.size)
+    _pos = 0
+  }
+
+  read(dst) {
+    dst.is(Bytes).ifFalse {
+      throw ArgumentError.new("dst must be a Bytes")
+    }
+    self.isClosed.ifTrue {
+      throw UseAfterCloseError.new("cannot read from closed BytesReader")
+    }
+    let remaining = _data.size - _pos
+    let n = dst.size
+    (remaining < n).ifTrue { n = remaining }
+    (n > 0).ifTrue {
+      _data.slice(_pos, _pos + n).copyInto(dst, 0)
+      _pos = _pos + n
+    }
+    // In-memory operation cannot block, honest return type per spec section 2
+    return Future.value(n)
+  }
+}
+
+class BytesWriter extends Resource {
+  construct new() {
+    _handle = Resource.register_("BytesWriter")
+    _chunks = List.new()
+  }
+
+  write(src) {
+    src.is(Bytes).ifFalse {
+      throw ArgumentError.new("src must be a Bytes")
+    }
+    self.isClosed.ifTrue {
+      throw UseAfterCloseError.new("cannot write to closed BytesWriter")
+    }
+    _chunks.add(src.slice(0, src.size))
+    return Future.value(src.size)
+  }
+
+  flush {
+    return Future.value(None)
+  }
+
+  toBytes {
+    let total = 0
+    _chunks.each { c => total = total + c.size }
+    let res = Bytes.new(total)
+    let offset = 0
+    _chunks.each { c =>
+      c.copyInto(res, offset)
+      offset = offset + c.size
+    }
+    return res
+  }
+}
+
+class BufferedWriter extends Resource {
+  construct new(inner) {
+    _handle = Resource.register_("BufferedWriter")
+    _inner = inner
+    _buf = Bytes.new(8192)
+    _len = 0
+  }
+
+  pending => _len
+
+  write(src) {
+    src.is(Bytes).ifFalse {
+      throw ArgumentError.new("src must be a Bytes")
+    }
+    self.isClosed.ifTrue {
+      throw UseAfterCloseError.new("cannot write to closed BufferedWriter")
+    }
+
+    if (src.size >= _buf.size) {
+      return self.flush.then { _ =>
+        _inner.write(src)
+      }
+    }
+
+    if ((_len + src.size) > _buf.size) {
+      return self.flush.then { _ =>
+        src.copyInto(_buf, _len)
+        _len = _len + src.size
+        Future.value(src.size)
+      }
+    } else {
+      src.copyInto(_buf, _len)
+      _len = _len + src.size
+      return Future.value(src.size)
+    }
+  }
+
+  flush {
+    if (_len == 0) {
+      return Future.value(None)
+    }
+    let chunk = _buf.slice(0, _len)
+    return _inner.write(chunk).then { bytesWritten =>
+      _len = 0
+      Future.value(None)
+    }
+  }
+
+  close {
+    if (_len > 0) {
+      throw UnflushedError.new("BufferedWriter closed with " + _len.toString + " pending bytes")
+    }
+    return super.close
+  }
+
+  finish {
+    return self.flush.then { _ =>
+      Future.value(self.close)
+    }
+  }
+}
+
+class BufferedReader extends Resource {
+  construct new(inner) {
+    _handle = Resource.register_("BufferedReader")
+    _inner = inner
+    _buf = Bytes.new(8192)
+    _pos = 0
+    _len = 0
+  }
+
+  read(dst) {
+    dst.is(Bytes).ifFalse {
+      throw ArgumentError.new("dst must be a Bytes")
+    }
+    self.isClosed.ifTrue {
+      throw UseAfterCloseError.new("cannot read from closed BufferedReader")
+    }
+
+    if (_pos < _len) {
+      let avail = _len - _pos
+      let n = dst.size
+      (avail < n).ifTrue { n = avail }
+      _buf.slice(_pos, _pos + n).copyInto(dst, 0)
+      _pos = _pos + n
+      return Future.value(n)
+    }
+
+    return _inner.read(_buf).then { count =>
+      if (count == 0) {
+        return Future.value(0)
+      }
+      _pos = 0
+      _len = count
+      let avail = _len
+      let n = dst.size
+      (avail < n).ifTrue { n = avail }
+      _buf.slice(_pos, _pos + n).copyInto(dst, 0)
+      _pos = _pos + n
+      Future.value(n)
+    }
+  }
+}

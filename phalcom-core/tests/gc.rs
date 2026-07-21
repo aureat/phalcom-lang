@@ -245,7 +245,7 @@ fn automatic_safepoint_fires() {
         r#"
         class Trash {}
         let i = 0
-        while (i < 5000) {
+        while (i < 10000) {
             Trash.new()
             i = i + 1
         }
@@ -266,7 +266,7 @@ fn automatic_safepoint_fires() {
     // under the old assertion that difference alone flipped the test from red to
     // green, which is the definition of a test measuring the wrong thing.
     let live = vm.heap.live_count();
-    assert!(live < before + 5000, "no automatic collection ran: {live} live vs {before} baseline + 5000 allocated");
+    assert!(live < before + 10000, "no automatic collection ran: {live} live vs {before} baseline + 10000 allocated");
     assert!(live <= vm.heap.next_gc_for_test(), "live count should be bounded by the collector's threshold");
     assert!(!vm.heap.gc_pending(), "gc_pending should be reset after safepoint collection");
 }

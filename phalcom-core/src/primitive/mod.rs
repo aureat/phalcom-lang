@@ -14,6 +14,7 @@ pub mod nil;
 pub mod number;
 pub mod object;
 pub mod range;
+pub mod resource;
 pub mod set;
 pub mod string;
 pub mod symbol;

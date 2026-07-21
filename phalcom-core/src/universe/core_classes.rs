@@ -164,6 +164,8 @@ impl Universe {
         // variant (no `Value::Family` arm) sitting directly under `Object`,
         // mirroring `Fiber`/`List`.
         let family_class = make_core_class(heap, "Family", object_class, metaclass_class);
+        let resource_class = make_core_class(heap, "Resource", object_class, metaclass_class);
+        let use_after_close_error_class = make_core_class(heap, "UseAfterCloseError", error_class, metaclass_class);
 
         CoreClasses {
             object_class,
@@ -199,6 +201,8 @@ impl Universe {
             fiber_class,
             cannot_yield_across_native_frame_class,
             family_class,
+            resource_class,
+            use_after_close_error_class,
         }
     }
 }
@@ -366,6 +370,10 @@ pub struct CoreClasses {
     /// (selectors.md §3, U16-Open, [ADR-0047](../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md)).
     /// Backed by [`crate::heap::Object::Family`] — no `Value::Family` arm.
     pub family_class: ClassId,
+    /// `Resource`, kernel disposable handle base class.
+    pub resource_class: ClassId,
+    /// `UseAfterCloseError`, error raised when acting on closed resource.
+    pub use_after_close_error_class: ClassId,
 }
 
 impl CoreClasses {
@@ -419,6 +427,8 @@ impl CoreClasses {
             fiber_class,
             cannot_yield_across_native_frame_class,
             family_class,
+            resource_class,
+            use_after_close_error_class,
         } = self;
 
         for handle in [
@@ -455,6 +465,8 @@ impl CoreClasses {
             fiber_class,
             cannot_yield_across_native_frame_class,
             family_class,
+            resource_class,
+            use_after_close_error_class,
         ] {
             push(*handle);
         }

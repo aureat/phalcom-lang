@@ -543,6 +543,27 @@ impl<'vm> Compiler<'vm> {
             };
 
             let mut field_slots = IndexMap::new();
+            if let Some(sc_ref) = &class_def.superclass {
+                let sc_sym = self.vm.interner.intern(&sc_ref.name);
+                if let Some(key) = self.resolve_superclass_key(sc_sym) {
+                    if let Some(sc_layout) = self.vm.field_layouts.get(&key) {
+                        for (k, v) in &sc_layout.field_slots {
+                            field_slots.insert(*k, *v);
+                        }
+                    } else if let Some(&sc_id) = self.vm.classes.get(&key) {
+                        let class_obj = self.vm.heap.class(sc_id);
+                        for (k, v) in &class_obj.field_slots {
+                            field_slots.insert(*k, *v);
+                        }
+                    }
+                }
+            } else if is_core_module || name_sym != self.vm.interner.intern("Object") {
+                let object_class = self.vm.universe.classes.object_class;
+                let class_obj = self.vm.heap.class(object_class);
+                for (k, v) in &class_obj.field_slots {
+                    field_slots.insert(*k, *v);
+                }
+            }
             for (i, f) in own_instance_fields.iter().enumerate() {
                 field_slots.insert(*f, (sc_field_count as usize + i) as u16);
             }

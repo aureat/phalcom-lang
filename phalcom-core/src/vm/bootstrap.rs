@@ -59,6 +59,8 @@ impl VM {
             trace_fibers: false,
             native_selector: None,
             native_class: None,
+            resources: crate::resource::ResourceTable::new(),
+            strict_resources: false,
 
             #[cfg(feature = "fiber-pool")]
             fiber_pool: Vec::new(),
@@ -132,6 +134,28 @@ impl VM {
             vm.heap.class_mut(cynf).field_slots.insert(cause_sym, 2);
             vm.heap.class_mut(cynf).field_slots.insert(displaced_sym, 3);
             vm.heap.class_mut(cynf).field_count = 4;
+        }
+
+        // Resource base class field stamp (U-RESOURCE): slot 0 is packed handle
+        {
+            let res_class = vm.universe.classes.resource_class;
+            let handle_sym = vm.interner.intern("_handle");
+            vm.heap.class_mut(res_class).field_slots.insert(handle_sym, 0);
+            vm.heap.class_mut(res_class).field_count = 1;
+        }
+
+        // UseAfterCloseError < Error
+        {
+            let uace = vm.universe.classes.use_after_close_error_class;
+            let msg_sym = vm.interner.intern("_message");
+            let kind_sym = vm.interner.intern("_kind");
+            let cause_sym = vm.interner.intern("_cause");
+            let displaced_sym = vm.interner.intern("_displaced");
+            vm.heap.class_mut(uace).field_slots.insert(msg_sym, 0);
+            vm.heap.class_mut(uace).field_slots.insert(kind_sym, 1);
+            vm.heap.class_mut(uace).field_slots.insert(cause_sym, 2);
+            vm.heap.class_mut(uace).field_slots.insert(displaced_sym, 3);
+            vm.heap.class_mut(uace).field_count = 4;
         }
         Universe::install_primitives(&mut vm);
 
@@ -289,6 +313,8 @@ impl VM {
         // `Family` (selectors.md §3, U16-Open, ADR-0047): ordinary class
         // global, native heap arm mirroring `Fiber`/`List`.
         add_class!(family_class);
+        add_class!(resource_class);
+        add_class!(use_after_close_error_class);
 
         // The `None` class row is *not* exposed under a class global (that name
         // is the singleton), but it must live in `self.classes` so a

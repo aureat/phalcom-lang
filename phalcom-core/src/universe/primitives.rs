@@ -398,7 +398,17 @@ impl Universe {
         // The predicate form of `Fiber::yield`'s root refusal, so `.ph` code can
         // ask "may I yield?" instead of attempting a yield and inspecting the
         // wreckage — see `fiber_is_root`'s doc and E004.
-        primitive!(vm, fiber_cls, "isRoot", SignatureKind::Getter, fiber_is_root);
+        primitive_static!(vm, fiber_cls, "isRoot", SignatureKind::Getter, fiber_is_root);
         primitive!(vm, fiber_cls, "error", SignatureKind::Getter, fiber_error);
+
+        // U-RESOURCE primitives
+        let resource_cls = vm.universe.classes.resource_class;
+        primitive_static!(vm, resource_cls, "register_", SignatureKind::Method(1), crate::primitive::resource::resource_register);
+        primitive!(vm, resource_cls, "close_", SignatureKind::Method(0), crate::primitive::resource::resource_raw_close);
+        primitive!(vm, resource_cls, "isClosed_", SignatureKind::Getter, crate::primitive::resource::resource_raw_is_closed);
+
+        let system_cls = vm.universe.classes.system_class;
+        primitive_static!(vm, system_cls, "leakReport_", SignatureKind::Getter, crate::primitive::resource::system_leak_report);
+        primitive_static!(vm, system_cls, "strictResources_", SignatureKind::Method(1), crate::primitive::resource::system_strict_resources);
     }
 }
