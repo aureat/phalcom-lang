@@ -1,56 +1,83 @@
 #!/usr/bin/env bash
 # Single entry point for the /forge verification gate.
 #
-# Runs the lanes every later forge phase gates on: build, full test suite
-# (unit + phalcom-ast lexer/parser insta snapshots + phalcom-core golden .ph
-# corpus + object-model invariants), and clippy across the workspace.
+# The default gate favors fast local feedback: it runs the full workspace test
+# suite and Clippy across every target. Use --full when the ordinary non-test
+# workspace build must also be verified, such as before a merge or release.
 #
 # Usage:
-#   scripts/verify.sh            # default gate (build + test + clippy)
-#   scripts/verify.sh --fuzz     # also run a short fuzz smoke pass (needs nightly + cargo-fuzz)
-#   scripts/verify.sh --miri     # also run miri on phalcom-ast (needs nightly + miri component)
+#   scripts/verify.sh            # fast gate: test + clippy
+#   scripts/verify.sh --full     # full gate: build + test + clippy
+#   scripts/verify.sh --fuzz     # also run short parser/lexer fuzz smoke passes
+#   scripts/verify.sh --miri     # also run Miri on phalcom-ast
 #
-# Exit code is non-zero if any lane fails. Fuzz/miri are opt-in and do not
-# run by default: they need a nightly toolchain with extra components that
-# may not be installed, and are smoke checks, not part of the merge gate.
+# Flags may be combined. Fuzz and Miri require a nightly toolchain and their
+# respective components/tools. Any failed lane makes the script exit non-zero.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+run_build=0
 run_fuzz=0
 run_miri=0
+
 for arg in "$@"; do
   case "$arg" in
+    --full) run_build=1 ;;
     --fuzz) run_fuzz=1 ;;
     --miri) run_miri=1 ;;
-    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+    -h|--help)
+      cat <<'USAGE'
+Usage: scripts/verify.sh [--full] [--fuzz] [--miri]
+
+  --full  Also verify the ordinary non-test workspace build.
+  --fuzz  Run 60-second parser and lexer fuzz smoke passes.
+  --miri  Run Miri tests for phalcom-ast.
+USAGE
+      exit 0
+      ;;
+    *)
+      printf 'unknown flag: %s\n' "$arg" >&2
+      exit 2
+      ;;
   esac
 done
 
 step() { printf '\n==> %s\n' "$*"; }
 
-step "cargo build --workspace"
-cargo build --workspace
+if (( run_build )); then
+  step "cargo build --workspace"
+  cargo build --workspace
+fi
 
 step "cargo test --workspace"
-# Includes: phalcom-ast lexer/parser insta snapshot tests, phalcom-core
-# golden .ph corpus (tests/golden.rs), phalcom-core object-model invariants
-# (tests/invariants.rs), and every other unit/doc test in the workspace.
+# Includes phalcom-ast lexer/parser Insta snapshots, the phalcom-core golden
+# .ph corpus and object-model invariants, plus all other unit/integration/doc
+# tests in the workspace.
 cargo test --workspace
 
 step "cargo clippy --workspace --all-targets"
 cargo clippy --workspace --all-targets
 
-if [ "$run_fuzz" -eq 1 ]; then
+if (( run_fuzz )); then
   step "cargo +nightly fuzz run parser (60s smoke)"
-  cargo +nightly fuzz run parser --fuzz-dir fuzz -- -dict=fuzz/phalcom.dict -max_total_time=60
+  cargo +nightly fuzz run parser \
+    --fuzz-dir fuzz \
+    -- \
+    -dict=fuzz/phalcom.dict \
+    -max_total_time=60
+
   step "cargo +nightly fuzz run lexer (60s smoke)"
-  cargo +nightly fuzz run lexer --fuzz-dir fuzz -- -dict=fuzz/phalcom.dict -max_total_time=60
+  cargo +nightly fuzz run lexer \
+    --fuzz-dir fuzz \
+    -- \
+    -dict=fuzz/phalcom.dict \
+    -max_total_time=60
 fi
 
-if [ "$run_miri" -eq 1 ]; then
+if (( run_miri )); then
   step "cargo +nightly miri test -p phalcom-ast"
   cargo +nightly miri test -p phalcom-ast
 fi
 
-step "verify: all lanes green"
+step "verify: all requested lanes green"
