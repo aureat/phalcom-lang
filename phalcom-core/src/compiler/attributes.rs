@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use phalcom_ast::ast::{
-    AttrKind, BuiltinAttr, AssignmentExpr, Attribute, BinaryExpr, BinaryOp, ClassDef, ClassMember, ConstructDef, Expr, FieldDef, GetPropertyExpr, GetterDef, MethodDef,
+    AttrKind, BuiltinAttr, AssignmentExpr, Attribute, BinaryExpr, BinaryOp, ClassDef, ClassMember, Expr, FieldDef, GetPropertyExpr, GetterDef, MethodDef,
     ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
 };
 use crate::compiler::lib::CompilerError;
@@ -677,7 +677,7 @@ impl AttributeExpander for OnExpander {
 pub struct NativeExpander;
 impl AttributeExpander for NativeExpander {
     fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Method, Target::Getter, Target::Setter, Target::Construct]
+        &[Target::Method, Target::Getter, Target::Setter]
     }
 
     fn expand(
@@ -703,7 +703,7 @@ impl AttributeExpander for NativeExpander {
 pub struct IgnoreExpander;
 impl AttributeExpander for IgnoreExpander {
     fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Method, Target::Getter, Target::Setter, Target::Construct]
+        &[Target::Method, Target::Getter, Target::Setter]
     }
 
     fn expand(
@@ -826,15 +826,8 @@ fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> State
 /// labeled-parameter assignments — so a later field's default (if any) still
 /// observes prior defaults already applied.
 ///
-/// Emits a real [`ConstructDef`]/[`ClassMember::Construct`] — not a
-/// `MethodDef` (`annotations-construct.md`'s "Prerequisite 2 correction":
-/// `MethodDef` has no `is_constructor` field; emitting a plain method named
-/// `new` would silently produce a non-constructor). The emitted node is
-/// compiled through the exact same path a hand-written `construct` member is
-/// (`compiler::lib::class_decl`'s per-member loop), so it gets the same
-/// selector encoding, `constructor_aliases` call-site registration, and
-/// `has_new_construct` bare-allocator-guard interaction a hand-written
-/// constructor would.
+/// Emits a [`MethodDef`] marked `is_constructor`, so it follows the same
+/// desugaring and compilation path as a hand-written `@constructor` member.
 ///
 /// # Errors
 ///
@@ -862,7 +855,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
     let derived_sym = ctx.interner.intern(&derived_selector);
 
     for m in &class.members {
-        if let ClassMember::Construct(c) = m {
+        if let ClassMember::Method(c) = m && c.is_constructor {
             let c_labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
         let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Method(c.params.len() as u8));
             if ctx.interner.intern(&c_selector) == derived_sym {
@@ -893,10 +886,13 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
         body.push(field_assign_stmt(&f.name, Expr::Var { value: pname, range: f.range }, f.range));
     }
 
-    class.members.push(ClassMember::Construct(ConstructDef {
+    class.members.push(ClassMember::Method(MethodDef {
         name: "new".to_string(),
         params,
         body,
+        is_static: false,
+        is_constructor: true,
+        attributes: Vec::new(),
         range: attr_range,
         name_range: attr_range,
     }));
@@ -906,7 +902,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
 /// Returns the derived selector `m` would occupy if `m` is a
 /// [`ClassMember::Method`]/[`ClassMember::Getter`]/[`ClassMember::Setter`],
 /// or `None` for a member kind with no ordinary dispatch selector of its own
-/// ([`ClassMember::Field`]/[`ClassMember::Construct`]/[`ClassMember::Variant`]).
+/// ([`ClassMember::Field`]/[`ClassMember::Variant`]).
 /// Shared by [`check_selector_collision`]/[`class_has_selector`] — the one
 /// place this module computes "what selector does this existing member
 /// occupy" generically across member kinds.
@@ -922,7 +918,7 @@ fn member_selector(m: &ClassMember) -> Option<String> {
             let labels: Vec<Option<String>> = ix.params.iter().map(|p| p.label.clone()).collect();
             Some(encode_selector("", &labels, SignatureKind::Subscript(ix.params.len() as u8)))
         }
-        ClassMember::Field(_) | ClassMember::Construct(_) | ClassMember::Variant(_) => None,
+        ClassMember::Field(_) | ClassMember::Variant(_) => None,
     }
 }
 
@@ -1197,12 +1193,12 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
 ///
 /// # Constructor reuse
 ///
-/// If `class.members` already carries a `Construct` member named `"new"` —
+/// If `class.members` already carries an `is_constructor` method named `"new"` —
 /// whether hand-written or already derived earlier in this same expansion
 /// pass by a preceding `@construct` (attribute processing order in source is
 /// not fixed either way) — this step is skipped entirely rather than
 /// re-derived, avoiding a spurious self-collision (§3.4: "detect via 'a
-/// `ConstructDef` named `new` was already emitted earlier in this same
+/// constructor method named `new` was already emitted earlier in this same
 /// expansion pass'").
 ///
 /// # `==`/`hash` togetherness
@@ -1250,7 +1246,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         })
         .collect();
 
-    let has_new_construct = class.members.iter().any(|m| matches!(m, ClassMember::Construct(c) if c.name == "new"));
+    let has_new_construct = class.members.iter().any(|m| matches!(m, ClassMember::Method(c) if c.is_constructor && c.name == "new"));
     if !has_new_construct {
         derive_construct(class, ctx, attr_range)?;
     }
@@ -1288,6 +1284,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             params: vec![ParameterDef { name: "other".to_string(), label: None, is_rest: false, range: attr_range }],
             body: vec![Statement::Return(ReturnStatement { value: Some(eq_body), range: attr_range })],
             is_static: false,
+            is_constructor: false,
             attributes: Vec::new(),
             range: attr_range,
             name_range: attr_range,
@@ -1335,6 +1332,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 params: with_params,
                 body: vec![Statement::Return(ReturnStatement { value: Some(with_body), range: attr_range })],
                 is_static: false,
+                is_constructor: false,
                 attributes: Vec::new(),
                 range: attr_range,
                 name_range: attr_range,
@@ -1453,6 +1451,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             params,
             body: vec![Statement::Return(ReturnStatement { value: Some(call_expr), range: v.range })],
             is_static: false,
+            is_constructor: false,
             attributes: Vec::new(),
             range: v.range,
             name_range: v.range,
@@ -1500,6 +1499,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         params: match_params,
         body: vec![Statement::Return(ReturnStatement { value: Some(arm_call), range: match_range })],
         is_static: false,
+        is_constructor: false,
         attributes: Vec::new(),
         range: match_range,
         name_range: match_range,
@@ -1655,7 +1655,6 @@ fn member_target(member: &ClassMember) -> Target {
         ClassMember::Method(_) => Target::Method,
         ClassMember::Getter(_) => Target::Getter,
         ClassMember::Setter(_) => Target::Setter,
-        ClassMember::Construct(_) => Target::Construct,
         ClassMember::Field(_) => Target::Field,
         ClassMember::Variant(_) => Target::Variant,
         ClassMember::Index(_) => Target::Index,
@@ -1665,9 +1664,9 @@ fn member_target(member: &ClassMember) -> Target {
 /// Returns whether `member` carries an attribute named `name` in its own
 /// `attributes` list.
 ///
-/// Every [`ClassMember`] variant except [`ClassMember::Construct`] carries an
-/// `attributes` field (see `Parser::attach_attrs`'s doc), so there is no
-/// uniform accessor — this is the small match that stands in for one. Used by
+/// Every attribute-bearing [`ClassMember`] variant stores an `attributes`
+/// field (see `Parser::attach_attrs`'s doc), so there is no uniform accessor —
+/// this is the small match that stands in for one. Used by
 /// the `@native`/`@ignore` legality-check-then-drop pass in
 /// [`expand_class_attributes`].
 fn member_has_attr(member: &ClassMember, name: &str) -> bool {
@@ -1675,7 +1674,6 @@ fn member_has_attr(member: &ClassMember, name: &str) -> bool {
         ClassMember::Method(m) => &m.attributes,
         ClassMember::Getter(g) => &g.attributes,
         ClassMember::Setter(s) => &s.attributes,
-        ClassMember::Construct(_) => return false,
         ClassMember::Field(f) => &f.attributes,
         ClassMember::Variant(v) => &v.attributes,
         ClassMember::Index(ix) => &ix.attributes,
@@ -1876,7 +1874,6 @@ pub fn expand_class_attributes(
             ClassMember::Method(m) => std::mem::take(&mut m.attributes),
             ClassMember::Getter(g) => std::mem::take(&mut g.attributes),
             ClassMember::Setter(s) => std::mem::take(&mut s.attributes),
-            ClassMember::Construct(_) => Vec::new(),
             ClassMember::Field(f) => std::mem::take(&mut f.attributes),
             ClassMember::Variant(v) => std::mem::take(&mut v.attributes),
             ClassMember::Index(ix) => std::mem::take(&mut ix.attributes),
@@ -1905,36 +1902,23 @@ pub fn expand_class_attributes(
             ClassMember::Method(m) => m.attributes = attrs,
             ClassMember::Getter(g) => g.attributes = attrs,
             ClassMember::Setter(s) => s.attributes = attrs,
-            ClassMember::Construct(_) => {}
             ClassMember::Field(f) => f.attributes = attrs,
             ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Index(ix) => ix.attributes = attrs,
         }
     }
 
-    // Canonical `@constructor` lowers to the same ordinary constructor
-    // member used by legacy `construct` syntax. Keep lowering here, after
-    // contract weaving, so constructor contracts wrap initializer body while
-    // duplicate-selector checks see the final class-side identity.
-    let members = std::mem::take(&mut class.members);
-    class.members = members
-        .into_iter()
-        .map(|member| match member {
-            ClassMember::Method(method) if method.attributes.iter().any(|a| a.name == "constructor") => {
-                if method.attributes.iter().any(|a| a.name == "class") {
-                    return Err(CompilerError::Message("attr.illegal_target: `@constructor` is method-only and cannot combine with `@class`".to_string()));
-                }
-                Ok(ClassMember::Construct(phalcom_ast::ast::ConstructDef {
-                    name: method.name,
-                    params: method.params,
-                    body: method.body,
-                    range: method.range,
-                    name_range: method.name_range,
-                }))
+    for member in &mut class.members {
+        if let ClassMember::Method(method) = member
+            && method.attributes.iter().any(|a| a.name == "constructor")
+        {
+            if method.attributes.iter().any(|a| a.name == "class") {
+                return Err(CompilerError::Message("attr.illegal_target: `@constructor` cannot combine with `@class`".to_string()));
             }
-            other => Ok(other),
-        })
-        .collect::<Result<Vec<_>, CompilerError>>()?;
+            method.is_constructor = true;
+            method.attributes.retain(|a| a.name != "constructor");
+        }
+    }
 
     // 3. Weave class invariants into methods, getters, setters, and
     // constructors. §3.6 axis 1: `@invariant`'s guard is woven only in
@@ -1946,7 +1930,7 @@ pub fn expand_class_attributes(
         for member in &mut class.members {
             match member {
                 ClassMember::Method(m) if !m.is_static => {
-                    weave_invariant_checks(&mut m.body, &class_invariants, &class_name, false);
+                    weave_invariant_checks(&mut m.body, &class_invariants, &class_name, m.is_constructor);
                 }
                 ClassMember::Getter(g) if !g.is_static => {
                     weave_invariant_checks(&mut g.body, &class_invariants, &class_name, false);
@@ -1954,17 +1938,89 @@ pub fn expand_class_attributes(
                 ClassMember::Setter(s) if !s.is_static => {
                     weave_invariant_checks(&mut s.body, &class_invariants, &class_name, false);
                 }
-                ClassMember::Construct(c) => {
-                    // Entry check skipped — invariant cannot hold pre-construction.
-                    weave_invariant_checks(&mut c.body, &class_invariants, &class_name, true);
-                }
                 _ => {}
             }
         }
     }
 
+    lower_constructors(&mut class.members);
+
     class.invariants = class_invariants;
     Ok((class, sibling_statements))
+}
+
+/// Lowers each constructor marker into an ordinary class-side factory plus an
+/// ordinary instance-side initializer. The initializer name is intentionally
+/// unspellable in source so its protocol remains compiler-owned.
+fn lower_constructors(members: &mut Vec<ClassMember>) {
+    let original = std::mem::take(members);
+    for member in original {
+        let ClassMember::Method(method) = member else {
+            members.push(member);
+            continue;
+        };
+        if !method.is_constructor {
+            members.push(ClassMember::Method(method));
+            continue;
+        }
+
+        let range = method.range;
+        let init_name = format!("init {}", method.name);
+        let args = method
+            .params
+            .iter()
+            .map(|param| Argument {
+                label: param.label.clone(),
+                expr: Expr::Var { value: param.name.clone(), range: param.range },
+                range: param.range,
+            })
+            .collect();
+        let instance = Expr::Var { value: "instance".to_string(), range };
+        let factory_body = vec![
+            Statement::Let(LetBinding {
+                kind: BindingKind::Let,
+                pattern: Pattern::Name { name: "instance".to_string(), range },
+                value: Some(Expr::MethodCall(Box::new(MethodCallExpr {
+                    object: Expr::SelfVar { range },
+                    method: "new_".to_string(),
+                    args: Vec::new(),
+                    range,
+                }))),
+                range,
+            }),
+            Statement::Expr {
+                expr: Expr::MethodCall(Box::new(MethodCallExpr {
+                    object: instance.clone(),
+                    method: init_name,
+                    args,
+                    range,
+                })),
+                range,
+            },
+            Statement::Return(ReturnStatement { value: Some(instance), range }),
+        ];
+        let constructor_name = method.name.clone();
+        members.push(ClassMember::Method(MethodDef {
+            name: constructor_name.clone(),
+            params: method.params.clone(),
+            body: factory_body,
+            is_static: true,
+            is_constructor: false,
+            attributes: Vec::new(),
+            range,
+            name_range: method.name_range,
+        }));
+        members.push(ClassMember::Method(MethodDef {
+            name: format!("init {constructor_name}"),
+            params: method.params,
+            body: method.body,
+            is_static: false,
+            is_constructor: true,
+            attributes: method.attributes,
+            range,
+            name_range: method.name_range,
+        }));
+    }
 }
 
 /// Builds `predicate.ifFalse { <error_class>.raise("<msg>") }` — the shared

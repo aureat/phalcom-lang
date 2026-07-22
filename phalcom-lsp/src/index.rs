@@ -419,9 +419,9 @@ struct CollectedClass {
 /// shape rather than being silently dropped.
 fn member_kind(member: &ClassMember) -> MemberKind {
     match member {
+        ClassMember::Method(m) if m.is_constructor => MemberKind::Construct,
         ClassMember::Method(m) if m.is_static => MemberKind::StaticMethod,
         ClassMember::Method(_) => MemberKind::Method,
-        ClassMember::Construct(_) => MemberKind::Construct,
         ClassMember::Getter(g) if g.is_static => MemberKind::StaticMethod,
         ClassMember::Getter(_) => MemberKind::Getter,
         ClassMember::Setter(s) if s.is_static => MemberKind::StaticMethod,
@@ -695,12 +695,6 @@ impl Collector {
                 ClassMember::Setter(s) => {
                     self.definitions.push((selector, s.range, class, kind));
                     for statement in &s.body {
-                        self.walk_statement(statement);
-                    }
-                }
-                ClassMember::Construct(c) => {
-                    self.definitions.push((selector, c.range, class, kind));
-                    for statement in &c.body {
                         self.walk_statement(statement);
                     }
                 }

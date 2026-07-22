@@ -140,11 +140,6 @@ impl<'vm> Compiler<'vm> {
                         let sel = encode_selector("", &labels, SignatureKind::Subscript(idx.params.len() as u8));
                         (MemberKey::Selector(false, sel.clone()), sel, idx.name_range)
                     }
-                    ClassMember::Construct(c) => {
-                        let labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
-                        let sel = encode_selector(&c.name, &labels, SignatureKind::Method(c.params.len() as u8));
-                        (MemberKey::Selector(true, sel.clone()), sel, c.name_range)
-                    }
                     ClassMember::Variant(_) => continue,
                 };
                 if let Some((_, first_range)) = seen.get(&key) {
@@ -161,36 +156,6 @@ impl<'vm> Compiler<'vm> {
                     ));
                 }
                 seen.insert(key, (display, member_name_range));
-            }
-        }
-
-        // Pass 0: class-side selector collision check. A `construct` and a
-        // `static` method of the same name/arity encode to one selector and
-        // both install on the metaclass, so the later would silently clobber
-        // the earlier. Reject the pair rather than let declaration order pick a
-        // winner (ruled: compile error; cf. `derive_data`'s sibling
-        // `attr.accessor_collision` check for a derived-vs-hand-written
-        // `@construct`).
-        let construct_selectors: Vec<String> = class_def
-            .members
-            .iter()
-            .filter_map(|m| match m {
-                ClassMember::Construct(c) => {
-                    let labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
-                    Some(encode_selector(&c.name, &labels, SignatureKind::Method(c.params.len() as u8)))
-                }
-                _ => None,
-            })
-            .collect();
-        for member in &class_def.members {
-            if let ClassMember::Method(m) = member
-                && m.is_static
-            {
-                let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
-                let selector = encode_selector(&m.name, &labels, SignatureKind::Method(m.params.len() as u8));
-                if construct_selectors.contains(&selector) {
-                    return Err(CompilerError::ConstructStaticCollision(class_def.name.clone(), selector, m.name_range));
-                }
             }
         }
 
@@ -331,7 +296,7 @@ impl<'vm> Compiler<'vm> {
                             }
                         }
                     }
-                    ClassMember::Construct(c) => {
+                    ClassMember::Method(c) if c.is_constructor => {
                         let mut fields = Vec::new();
                         for stmt in &c.body {
                             collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
@@ -634,7 +599,7 @@ impl<'vm> Compiler<'vm> {
         // The class object is now on top of the stack. Iterate through members.
         for member in class_def.members {
             match member {
-                ClassMember::Method(method_def) => {
+                ClassMember::Method(method_def) if !method_def.is_constructor => {
                     let range = method_def.range;
 
                     let arity = method_def.params.len();
@@ -672,7 +637,7 @@ impl<'vm> Compiler<'vm> {
 
                     let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
                     self.is_static_context = method_def.is_static;
-                    let closure = self.compile_block(method_def.body, selector_sym, param_names, true, false)?;
+                    let closure = self.compile_block(method_def.body, selector_sym, param_names, true, false, None)?;
 
                     tracing::debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
@@ -726,7 +691,7 @@ impl<'vm> Compiler<'vm> {
                         let selector_sym = self.vm.interner.intern(&selector);
 
                         self.is_static_context = getter_def.is_static;
-                        let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), true, false)?;
+                        let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), true, false, None)?;
 
                         tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
@@ -756,7 +721,7 @@ impl<'vm> Compiler<'vm> {
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     self.is_static_context = setter_def.is_static;
-                    let closure = self.compile_block(setter_def.body, selector_sym, vec![setter_def.param.clone()], true, false)?;
+                    let closure = self.compile_block(setter_def.body, selector_sym, vec![setter_def.param.clone()], true, false, None)?;
 
                     tracing::debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
@@ -778,42 +743,17 @@ impl<'vm> Compiler<'vm> {
 
                     self.emit_member_attribute_attaches(&setter_def.attributes, method_obj_idx, range)?;
                 }
-                ClassMember::Construct(construct_def) => {
+                ClassMember::Method(construct_def) => {
                     let range = construct_def.range;
 
                     let arity = construct_def.params.len();
                     let labels: Vec<Option<String>> = construct_def.params.iter().map(|p| p.label.clone()).collect();
-                    // A constructor installs under the *ordinary* selector its
-                    // call sites already encode (`Counter.new()` -> `new()`),
-                    // on the metaclass (`Bytecode::Method(_, is_static: true)`
-                    // below). The parallel metaclass tower (ADR-0002,
-                    // object-model §5) then resolves it exactly as it already
-                    // resolves the kernel's own class-side `new` primitives
-                    // (`List.new()` et al, `universe/primitives.rs`): this
-                    // class's metaclass entry shadows the bare allocator
-                    // `Class >> new()` inherited from the tower root, by
-                    // ordinary lookup, for **any** receiver expression.
-                    //
-                    // The `Signature`'s *kind* stays `Initializer` — it no
-                    // longer picks the selector, and survives purely as the
-                    // "this is a constructor" marker that `Bytecode::SuperSend`
-                    // gates its super-construct metaclass hop on (U-INH §3.5).
+                    // Initializers install as ordinary instance-side methods
+                    // under their generated, source-unspellable `init <name>`
+                    // selector (ADR-0063). The paired factory is class-side
+                    // and dispatches under the original constructor selector.
                     let selector = encode_selector(&construct_def.name, &labels, SignatureKind::Method(arity as u8));
                     let selector_sym = self.vm.interner.intern(&selector);
-
-                    // Record the declared constructor selector. Dispatch no
-                    // longer consults this — it exists only so the *arity*
-                    // guard in `expr.rs` stays a compile-time diagnostic:
-                    // `has_new_construct` answers "does a `new` constructor
-                    // exist in this chain at all", `constructor_aliases`
-                    // answers "does one match this exact selector", and a
-                    // yes/no pair is what proves a `Foo.new(...)` call would
-                    // otherwise fall through to the bare allocator.
-                    let class_name_sym = self.current_class.expect("construct is only compiled within a class body");
-                    self.vm.constructor_aliases.insert((class_name_sym, selector_sym), selector_sym);
-                    if construct_def.name == "new" {
-                        self.vm.has_new_construct.insert(class_name_sym);
-                    }
 
                     let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();
 
@@ -824,7 +764,20 @@ impl<'vm> Compiler<'vm> {
                     // restored unconditionally after the body compiles (a
                     // constructor never nests another constructor).
                     self.in_constructor = true;
-                    let closure = self.compile_block(construct_def.body, selector_sym, param_names, true, true)?;
+                    let closure = self.compile_block(
+                        construct_def.body,
+                        selector_sym,
+                        param_names,
+                        true,
+                        true,
+                        Some(
+                            construct_def
+                                .name
+                                .strip_prefix("init ")
+                                .unwrap_or(&construct_def.name)
+                                .to_string(),
+                        ),
+                    )?;
                     self.in_constructor = false;
 
                     tracing::debug!("[Compiler] Compiling constructor: {}", selector);
@@ -839,7 +792,7 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::Constant(method_obj_idx), range);
 
                     let selector_idx = self.add_constant(Value::Symbol(selector_sym));
-                    self.emit(Bytecode::Method(selector_idx, true), range);
+                    self.emit(Bytecode::Method(selector_idx, false), range);
                 }
                 // A declared field is layout-only (U-ANNOT-LAYOUT §3.1): it
                 // already fed `own_instance_fields`/`field_slots` above and
@@ -880,7 +833,7 @@ impl<'vm> Compiler<'vm> {
 
                     let param_names: Vec<String> = index_def.params.iter().map(|p| p.name.clone()).collect();
                     self.is_static_context = false;
-                    let closure = self.compile_block(index_def.body, selector_sym, param_names, true, false)?;
+                    let closure = self.compile_block(index_def.body, selector_sym, param_names, true, false, None)?;
 
                     tracing::debug!("[Compiler] Compiling subscript method: {}", selector);
 
@@ -1098,77 +1051,13 @@ impl<'vm> Compiler<'vm> {
                 let name_sym = self.vm.interner.intern(&name);
                 let range = arg.range();
                 let body = vec![Statement::Expr { expr: arg.clone(), range }];
-                let closure_ref = self.compile_block(body, name_sym, Vec::new(), true, false)?;
+                let closure_ref = self.compile_block(body, name_sym, Vec::new(), true, false, None)?;
                 contracts.push((name_sym, Value::Obj(closure_ref)));
             }
         }
         Ok(contracts)
     }
 
-    /// Reports whether `class_sym` or any of its compile-time ancestors
-    /// (via [`crate::vm::VM::class_parents`]) declares a
-    /// `new`-named `construct`.
-    ///
-    /// Inheritance-aware form of a bare `has_new_construct` membership test.
-    /// A subclass that *inherits* a `new` constructor but declares none still
-    /// has no user-visible bare allocator, so a mis-arity `Sub.new(...)` must
-    /// error rather than silently fall through to the `Object.class::new`
-    /// bare allocator and yield an uninitialized instance (U-INH follow-on;
-    /// `docs/forge/DEFERRED.md` correctness entry). The walk terminates at the
-    /// implicit `Object` root, which never has an edge in `class_parents`.
-    pub(super) fn inherits_new_construct(&self, mut class_sym: Symbol) -> bool {
-        // `class_parents` is normally a strict-ancestry DAG, but a reopen-
-        // redefinition within a unit can form a back-edge (see the populate site);
-        // the `visited` guard makes the walk terminate regardless, so the compiler
-        // never spins.
-        let mut visited = std::collections::HashSet::new();
-        while visited.insert(class_sym) {
-            let key = self.class_key(class_sym);
-            if self.vm.has_new_construct.contains(&key) {
-                return true;
-            }
-            match self.vm.class_parents.get(&key) {
-                Some(&parent) => class_sym = parent.name,
-                None => return false,
-            }
-        }
-        false
-    }
-
-    /// Reports whether `class_sym` — or any ancestor, walking the compile-time
-    /// superclass chain ([`crate::vm::VM::class_parents`]) — declares a
-    /// `construct` whose selector is exactly `selector_sym`, returning that
-    /// selector if so and `None` otherwise.
-    ///
-    /// Dispatch does **not** consult this: a constructor installs under the
-    /// very selector its call sites encode, so the metaclass tower resolves it
-    /// by ordinary lookup with no call-site rewrite. This survives only to keep
-    /// the *arity* guard in [`Compiler::compile_expr`]'s `new(...)` arm a
-    /// compile-time diagnostic wherever the receiver names a statically known
-    /// class: paired with [`Self::inherits_new_construct`] ("does a `new`
-    /// constructor exist in this chain at all"), a yes/no answer here proves a
-    /// `Foo.new(...)` call matches no declared `construct` and would otherwise
-    /// fall through to the bare allocator `Class >> new()`.
-    ///
-    /// [`Compiler::compile_expr`]: crate::compiler::Compiler
-    pub(super) fn lookup_constructor_alias(&self, mut class_sym: Symbol, selector_sym: Symbol) -> Option<Symbol> {
-        // Nearest-declared wins: the walk checks each class before its parent, so
-        // a subclass `construct` shadows an ancestor's of the same selector. The
-        // `visited` guard terminates the walk even on a reopen-redefinition back-
-        // edge (see [`Self::inherits_new_construct`]).
-        let mut visited = std::collections::HashSet::new();
-        while visited.insert(class_sym) {
-            let key = self.class_key(class_sym);
-            if let Some(&alias) = self.vm.constructor_aliases.get(&(key, selector_sym)) {
-                return Some(alias);
-            }
-            match self.vm.class_parents.get(&key) {
-                Some(&parent) => class_sym = parent.name,
-                None => return None,
-            }
-        }
-        None
-    }
 }
 
 fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut crate::interner::Interner) {

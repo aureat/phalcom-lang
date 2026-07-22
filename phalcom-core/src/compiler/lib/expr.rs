@@ -38,7 +38,18 @@ impl<'vm> Compiler<'vm> {
                     let mc = *method_call;
                     let argc = mc.args.len();
                     let labels: Vec<Option<String>> = mc.args.iter().map(|a| a.label.clone()).collect();
-                    let selector = encode_selector(&mc.method, &labels, SignatureKind::Method(argc as u8));
+                    // ADR-0063 splits a source constructor into a class-side
+                    // factory and an instance-side `init <name>` method.
+                    // Rewrite only the matching super-constructor send:
+                    // ordinary `super` sends inside an initializer retain
+                    // their source selector.
+                    let method = match self.functions.last().unwrap().constructor_name.as_deref() {
+                        Some(constructor_name) if mc.method == constructor_name => {
+                            format!("init {constructor_name}")
+                        }
+                        _ => mc.method.clone(),
+                    };
+                    let selector = encode_selector(&method, &labels, SignatureKind::Method(argc as u8));
                     let selector_sym = self.vm.interner.intern(&selector);
                     return self.compile_super_send(selector_sym, mc.args, argc as u8, mc.range);
                 }
@@ -75,16 +86,6 @@ impl<'vm> Compiler<'vm> {
                         return self.compile_sacred_call_want(sacred, range, want_value);
                     }
                     Err(method_call) => {
-                        // A constructor now installs under the very selector
-                        // this call site encodes (`class_decl.rs`'s
-                        // `ClassMember::Construct` arm), so `Counter.new()`
-                        // resolves to it by ordinary metaclass-tower lookup and
-                        // needs no call-site rewrite — from any receiver
-                        // expression, not just a literal class name.
-                        //
-                        // A literal `ClassName` receiver is still recognised,
-                        // purely to keep the *arity* guard below a compile-time
-                        // diagnostic where the class is statically known.
                         let receiver_class_sym = match &method_call.object {
                             Expr::Var { value, .. } => Some(self.vm.interner.intern(value)),
                             _ => None,
@@ -401,7 +402,15 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::Block(block_expr) => {
                 let name_sym = self.vm.interner.intern("<block>");
-                let closure = self.compile_block(block_expr.body, name_sym, block_expr.params, false, false)?;
+                let constructor_name = self.functions.last().unwrap().constructor_name.clone();
+                let closure = self.compile_block(
+                    block_expr.body,
+                    name_sym,
+                    block_expr.params,
+                    false,
+                    false,
+                    constructor_name,
+                )?;
                 let idx = self.add_constant(Value::Obj(closure));
                 self.emit(Bytecode::Closure(idx), block_expr.range);
             }

@@ -14,7 +14,7 @@
 //! source of selector spelling here, deliberately independent.
 
 use phalcom_ast::ast::{
-    ClassMember, ConstructDef, FieldDef, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef,
+    ClassMember, FieldDef, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef,
 };
 
 /// Builds the comma-form selector string from a method/constructor name and
@@ -82,11 +82,6 @@ pub fn method_selector(m: &MethodDef) -> String {
     comma_form(&m.name, &m.params)
 }
 
-/// The comma-form selector a `construct name(...)` declaration defines.
-pub fn construct_selector(c: &ConstructDef) -> String {
-    comma_form(&c.name, &c.params)
-}
-
 /// The comma-form selector a declared class field's bare-name read resolves
 /// to (U-ANNOT-LAYOUT §3.1).
 ///
@@ -128,7 +123,6 @@ pub fn class_member_selector(member: &ClassMember) -> String {
         ClassMember::Method(m) => method_selector(m),
         ClassMember::Getter(g) => getter_selector(g),
         ClassMember::Setter(s) => setter_selector(s),
-        ClassMember::Construct(c) => construct_selector(c),
         ClassMember::Field(f) => field_selector(f),
         // A `@variant` arm is not itself a message selector — it names the
         // sibling class `phalcom-core`'s `expand_class_attributes` generates
@@ -208,10 +202,11 @@ mod tests {
         let class_def = parse_class(
             "class Point {\n  construct new(x, y:) { }\n}\n",
         );
-        let ClassMember::Construct(c) = &class_def.members[0] else {
-            panic!("expected construct")
+        let ClassMember::Method(m) = &class_def.members[0] else {
+            panic!("expected method")
         };
-        assert_eq!(construct_selector(c), "new(_,y)");
+        assert!(m.is_constructor);
+        assert_eq!(method_selector(m), "new(_,y)");
     }
 
     #[test]

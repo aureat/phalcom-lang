@@ -26,8 +26,9 @@
 //! ([`ClassDef::name_range`](phalcom_ast::ast::ClassDef::name_range) and its
 //! siblings on [`MethodDef`](phalcom_ast::ast::MethodDef)/
 //! [`GetterDef`](phalcom_ast::ast::GetterDef)/
-//! [`SetterDef`](phalcom_ast::ast::SetterDef)/
-//! [`ConstructDef`](phalcom_ast::ast::ConstructDef)). Any flat-pass token
+//! [`SetterDef`](phalcom_ast::ast::SetterDef)). Constructor declarations are
+//! [`MethodDef`](phalcom_ast::ast::MethodDef) nodes marked during attribute
+//! expansion. Any flat-pass token
 //! whose byte range exactly matches one of these declaration spans is
 //! upgraded from the generic [`SemanticTokenKind::Variable`] to
 //! [`SemanticTokenKind::Class`] or [`SemanticTokenKind::Method`].
@@ -415,10 +416,6 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<(SourceRange, Se
         ClassMember::Setter(setter_def) => {
             out.push((setter_def.name_range, SemanticTokenKind::Method));
             collect_decl_names(&setter_def.body, out);
-        }
-        ClassMember::Construct(construct_def) => {
-            out.push((construct_def.name_range, SemanticTokenKind::Method));
-            collect_decl_names(&construct_def.body, out);
         }
         ClassMember::Field(_) | ClassMember::Variant(_) => {}
         ClassMember::Index(index_def) => {

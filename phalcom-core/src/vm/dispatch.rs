@@ -183,7 +183,6 @@ impl VM {
         if let PhError::Compile(comp_err) = &err {
             let (msg, range) = match comp_err {
                 crate::compiler::lib::CompilerError::DestructuringWithoutInitializer(range) => (comp_err.to_string(), Some(*range)),
-                crate::compiler::lib::CompilerError::ConstructStaticCollision(_, _, range) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::BreakOutsideLoop(range) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::ContinueOutsideLoop(range) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::ThrowNonError(range) => (comp_err.to_string(), Some(*range)),
@@ -1081,28 +1080,7 @@ impl VM {
                         None
                     };
 
-                    let effective_selector = self.constructor_aliases.get(&(defining_key, selector_sym)).copied().unwrap_or(selector_sym);
-                    let mut method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, effective_selector));
-
-                    // Super-construct fallback (U-INH §3.5): constructors are
-                    // installed on the *metaclass*, under the same ordinary
-                    // selector their call sites encode. A positional
-                    // `super.new(args)` / `super.construct(args)` that misses
-                    // the instance side therefore retries the *same* selector
-                    // against the superclass's metaclass chain, keeping the
-                    // original instance as the receiver so the parent
-                    // initializer fills the inherited slots in place.
-                    //
-                    if method.is_none()
-                        && let Some(p) = parent
-                    {
-                        let target_meta = if self.heap.class(p).name.ends_with(".class") {
-                            p
-                        } else {
-                            self.heap.class(p).class
-                        };
-                        method = crate::heap::lookup_method_in_hierarchy(&self.heap, target_meta, effective_selector);
-                    }
+                    let method = parent.and_then(|p| crate::heap::lookup_method_in_hierarchy(&self.heap, p, selector_sym));
 
                     if let Some(method) = method {
                         self.call_method(&receiver, method, argc, source_range)?;

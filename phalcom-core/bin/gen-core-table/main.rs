@@ -107,13 +107,6 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                         source: "core.ph",
                     });
                 }
-                ClassMember::Construct(c) => {
-                    entries.push(SelectorEntry {
-                        selector: comma_form(&c.name, &c.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>()),
-                        kind: "construct",
-                        source: "core.ph",
-                    });
-                }
                 // A declared field (U-ANNOT-LAYOUT §3.1) has no selector of
                 // its own to harvest — it is not a dispatchable member.
                 ClassMember::Field(_) => {}
@@ -238,9 +231,6 @@ fn comma_form_from_signature_kind(name: &str, kind_expr: &str) -> (String, &'sta
     }
     if let Some(n) = extract_arity(kind_expr, "SignatureKind::Method") {
         return (positional_comma_form(name, n), "method");
-    }
-    if let Some(n) = extract_arity(kind_expr, "SignatureKind::Initializer") {
-        return (positional_comma_form(name, n), "construct");
     }
     if extract_arity(kind_expr, "SignatureKind::Variadic").is_some() {
         return (format!("{name}(*)"), "method");

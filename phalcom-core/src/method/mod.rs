@@ -24,8 +24,8 @@ pub enum SignatureKind {
     /// A bracket subscript method, `[idx]` / `[idx, put:]` / `[]` / `[put:]`
     /// (U-INDEX, [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
     /// The payload is the *total* slot count (positional + labeled, same
-    /// counting convention as [`SignatureKind::Method`]) — unlike
-    /// `Method`/`Initializer`, there is no separate name; both the read
+    /// counting convention as [`SignatureKind::Method`]) — there is no
+    /// separate read/write kind; both the read
     /// shape (`[_]`) and the write shape (`[_,put]`) are this one kind, told
     /// apart purely by which labels the selector string carries (a trailing
     /// `put` label, by ADR-0060 convention, not a distinct `Kind`).
@@ -189,9 +189,8 @@ pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, Signatur
         return (head.to_string(), Vec::new(), SignatureKind::Variadic(0));
     }
 
-    // Initializer (`init name(...)`) vs ordinary method.
-    // Historical `init ` prefixes are accepted on input for reified legacy
-    // selectors, but carry no distinct runtime signature kind.
+    // Historical `init ` prefixes are accepted on input for generated hidden
+    // initializer selectors, but carry no distinct runtime signature kind.
     let name = head.strip_prefix("init ").unwrap_or(head).to_string();
 
     let labels = parse_labels(inner);

@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 312
 expression: "parse(\"class Point {\\n  @invariant(x >= 0)\\n\\n  get() {\\n    return x\\n  }\\n}\\n\")"
 ---
 Program {
@@ -33,6 +34,7 @@ Program {
                                 ),
                             ],
                             is_static: false,
+                            is_constructor: false,
                             attributes: [],
                             range: CopyRange {
                                 start: 38,

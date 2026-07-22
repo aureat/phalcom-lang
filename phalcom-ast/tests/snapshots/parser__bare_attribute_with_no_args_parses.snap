@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 300
 expression: "parse(\"class Point {\\n  @pure\\n  x() {\\n    return 1\\n  }\\n}\\n\")"
 ---
 Program {
@@ -33,6 +34,7 @@ Program {
                                 ),
                             ],
                             is_static: false,
+                            is_constructor: false,
                             attributes: [
                                 Attribute {
                                     kind: User(

@@ -125,11 +125,11 @@ pub enum Bytecode {
     /// The **defining class** is baked in (not its superclass, DEC-INH-B) so the
     /// VM computes `defining.superclass` at dispatch time; this stays correct
     /// under a future `superclass=` mutation (U13). The walk begins at
-    /// `defining.superclass` on the instance side; for a super-*construct*
-    /// (the selector encodes a `SignatureKind::Initializer`) it also considers
-    /// the superclass's metaclass chain, where constructors are installed
-    /// (U-INH §3.5). The receiver stays the original `self`, so an overridden
-    /// method runs its *super*'s definition against the same instance. A walk
+    /// `defining.superclass` on the instance side. Constructor super-sends are
+    /// lowered to their hidden initializer selector before this opcode is
+    /// emitted, so they follow this same ordinary instance-side path. The
+    /// receiver stays the original `self`, so an overridden method runs its
+    /// super definition against the same instance. A walk
     /// that exhausts the chain routes to the same `doesNotUnderstand(_:)` →
     /// surface `MessageNotUnderstood` path as an ordinary [`Bytecode::Invoke`]
     /// miss — never a panic. Unlike `Invoke`, the start class is a static

@@ -154,7 +154,6 @@ impl ReplSnapshot {
                     SignatureKind::Method(n) => (MemberKind::Method, n),
                     SignatureKind::Subscript(n) => (MemberKind::Subscript, n),
                     SignatureKind::Variadic(n) => (MemberKind::Variadic, n),
-                    SignatureKind::Initializer(_) => continue,
                 };
 
                 result.push(Member {

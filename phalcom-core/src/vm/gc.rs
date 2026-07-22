@@ -79,8 +79,6 @@ impl VM {
             interner: _,
             // `ClassLayout` holds only Symbols and slot indices.
             field_layouts: _,
-            constructor_aliases: _,
-            has_new_construct: _,
             class_parents: _,
             // Memoization cache for derived selectors (U-HOTPATH).
             variadic_selector_cache: _,

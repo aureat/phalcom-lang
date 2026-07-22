@@ -132,11 +132,11 @@ pub(crate) struct Compiler<'vm> {
     /// trade only if that path is hot; it is a message send into a user-defined
     /// `ifTrue`, so it is not.
     deopt_fallback_depth: usize,
-    /// Whether the member currently being compiled is a `construct` body.
+    /// Whether the member currently being compiled is a constructor initializer.
     ///
     /// Gates `const`-field writes (ADR-0064 §3, L-3) — a write to a `const`
     /// field is legal only while this is `true`. Set/cleared around all
-    /// three `ClassMember::Construct` compile sites (`class_decl.rs`); no
+    /// initializer compilation in `class_decl.rs`; no
     /// flow analysis is performed, so a `const` field write anywhere else in
     /// a constructor's own nested blocks still counts (no attempt is made to
     /// track "inside a block passed to something else").
@@ -167,7 +167,7 @@ impl<'vm> Compiler<'vm> {
         Compiler {
             vm,
             module,
-            functions: vec![FunctionState::new(false, false)],
+            functions: vec![FunctionState::new(false, false, None)],
             global_bindings: std::collections::HashMap::new(),
             import_bindings: std::collections::HashMap::new(),
             current_class: None,
@@ -269,6 +269,7 @@ impl<'vm> Compiler<'vm> {
         params: Vec<String>,
         is_method: bool,
         is_constructor: bool,
+        constructor_name: Option<String>,
     ) -> Result<ObjRef, CompilerError> {
         // Intern parameter and receiver names before pushing the function state.
         let mut param_symbols = Vec::with_capacity(params.len());
@@ -279,7 +280,8 @@ impl<'vm> Compiler<'vm> {
         let dummy_sym = self.vm.interner.intern("<block-receiver>");
 
         // Push a fresh function-compilation state for this body.
-        self.functions.push(FunctionState::new(is_constructor, !is_method));
+        self.functions
+            .push(FunctionState::new(is_constructor, !is_method, constructor_name));
         self.begin_scope();
 
         if is_method {
@@ -294,13 +296,6 @@ impl<'vm> Compiler<'vm> {
             // Slot 0 holds the block object itself (blocks reach `self` via an
             // upvalue, functions.md §2), so we reserve it with a dummy local.
             self.add_local(dummy_sym, false).expect("block-receiver slot is the first local in a fresh function state");
-        }
-
-        if is_constructor {
-            self.emit(Bytecode::GetSelf, EmptySourceRange);
-            self.emit(Bytecode::NewInstance, EmptySourceRange);
-            self.emit(Bytecode::SetLocal(0), EmptySourceRange);
-            self.emit(Bytecode::Pop, EmptySourceRange);
         }
 
         for param_sym in param_symbols {

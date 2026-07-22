@@ -1145,17 +1145,10 @@ impl<'source> Parser<'source> {
 
     /// Attaches `attrs` to `member`'s `attributes` field.
     ///
-    /// Every [`ClassMember`] variant except [`ClassMember::Construct`] carries
-    /// an `attributes` field (U-ANNOT-CONTRACTS plan §3.1: no method-table-
-    /// macro or layout-tier attribute targets a constructor) — attaching to a
-    /// `Construct` member is therefore an `attr.dangling`-class error, not a
-    /// silent drop. [`ClassMember::Field`] carries one too (U-ANNOT-LAYOUT
+    /// Constructors are ordinary [`ClassMember::Method`] nodes, so attributes
+    /// attach before attribute expansion marks and lowers constructor methods.
+    /// [`ClassMember::Field`] carries an attribute list too (U-ANNOT-LAYOUT
     /// §3.1), for the not-yet-implemented `@get`/`@set` derive tier.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `member` is a [`ClassMember::Construct`], since it
-    /// has nowhere to attach the attributes.
     fn attach_attrs(&mut self, member: &mut ClassMember, attrs: Vec<Attribute>) -> ParserResult<()> {
         match member {
             ClassMember::Method(m) => m.attributes = attrs,
@@ -1171,14 +1164,6 @@ impl<'source> Parser<'source> {
             // support attaching, would land here rather than panicking).
             ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Index(ix) => ix.attributes = attrs,
-            ClassMember::Construct(c) => {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message(
-                        "attr.dangling: attributes cannot be attached to a constructor".to_string(),
-                    ),
-                    range: c.range.start..c.range.start,
-                });
-            }
         }
         Ok(())
     }
@@ -1377,10 +1362,13 @@ impl<'source> Parser<'source> {
             self.expect(&Token::RParen, &["\")\""])?;
             let body = self.parse_method_block()?;
             let range = (start..self.prev_end).into();
-            return Ok(ClassMember::Construct(ConstructDef {
+            return Ok(ClassMember::Method(MethodDef {
                 name,
                 params,
                 body,
+                is_static: false,
+                is_constructor: true,
+                attributes: Vec::new(),
                 range,
                 name_range,
             }));
@@ -1440,6 +1428,7 @@ impl<'source> Parser<'source> {
                 params,
                 body,
                 is_static,
+                is_constructor: false,
                 attributes: Vec::new(),
                 range,
                 name_range,

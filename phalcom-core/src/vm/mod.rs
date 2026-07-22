@@ -245,41 +245,13 @@ pub struct VM {
     pub(crate) temp_roots: Vec<ObjRef>,
     /// Registered class layouts for slot mapping.
     pub field_layouts: HashMap<ClassKey, ClassLayout>,
-    /// Maps a `construct`'s ordinary call-site selector (as an
-    /// `Expr::MethodCall` on the class name would encode it, `SignatureKind::Method`)
-    /// to the `SignatureKind::Initializer` selector it was actually installed
-    /// under, keyed by `(class name, call-site selector)`.
-    ///
-    /// User source always calls a constructor as an ordinary send
-    /// (`Counter.new()`), but `construct` installs under a distinct
-    /// `init `-prefixed selector (ADR-0011/`method.rs`) so overloaded
-    /// constructors can coexist with an inherited `new` primitive. The
-    /// compiler consults this table at the call site (only for a literal
-    /// `ClassName.method(...)` receiver) to redirect the emitted selector to
-    /// the constructor instead of silently falling through to
-    /// `Object::new`'s bare-allocation primitive.
-    pub constructor_aliases: HashMap<(ClassKey, Symbol), Symbol>,
-    /// Classes (by [`ClassKey`]) that declare at least one `construct new(...)`.
-    ///
-    /// Once a class opts into a `new`-named constructor, it has no
-    /// user-visible bare allocator (U7-plan §3/§6): a call-site `new(...)`
-    /// whose arity/labels match none of the class's declared constructors is
-    /// a compile error rather than a silent fall-through to the inherited
-    /// `Object::new` primitive.
-    pub has_new_construct: std::collections::HashSet<ClassKey>,
     /// Compile-time superclass edges: a class (by [`ClassKey`]) mapped
     /// to the [`ClassKey`] of its `extends` superclass.
     ///
     /// Populated by the compiler as each `class B extends A { … }` is lowered
     /// (the superclass is required to be defined earlier in the same pass, so
-    /// the edge is always known here). Lets constructor-guard and
-    /// constructor-alias lookups walk the inheritance chain at compile time —
-    /// so a subclass that *inherits* a `new`-named `construct` but declares
-    /// none still has no user-visible bare allocator, and an inherited
-    /// `construct` is redirected to its `Initializer` selector at a subclass
-    /// call site exactly as a locally declared one is (U-INH follow-on;
-    /// `docs/forge/DEFERRED.md` correctness entry). Only user classes appear;
-    /// the implicit `Object` root is absent (chain-walks terminate there).
+    /// the edge is always known here). Only user classes appear; the implicit
+    /// `Object` root is absent (chain-walks terminate there).
     pub class_parents: HashMap<ClassKey, ClassKey>,
     /// Classes (by [`ClassKey`]) declared `@sealed` (U-ANNOT-LAYOUT §3.4,
     /// `annotations-data.md` §"`@sealed`"), mapped to the compiling

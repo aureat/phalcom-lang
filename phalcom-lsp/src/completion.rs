@@ -182,7 +182,6 @@ fn enclosing_scope_chain(program: &Program, offset: usize) -> (Vec<&[Statement]>
                         ClassMember::Method(m) if m.range.contains(offset) => Some(&m.body),
                         ClassMember::Getter(g) if g.range.contains(offset) => Some(&g.body),
                         ClassMember::Setter(s) if s.range.contains(offset) => Some(&s.body),
-                        ClassMember::Construct(c) if c.range.contains(offset) => Some(&c.body),
                         _ => None,
                     };
                     if let Some(body) = body {

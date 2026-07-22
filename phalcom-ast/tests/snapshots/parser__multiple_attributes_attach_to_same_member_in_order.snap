@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 305
 expression: "parse(\"class Point {\\n  @requires(x > 0)\\n  @requires(x < 100)\\n  set(x) {\\n    self.x = x\\n  }\\n}\\n\")"
 ---
 Program {
@@ -54,6 +55,7 @@ Program {
                                 },
                             ],
                             is_static: false,
+                            is_constructor: false,
                             attributes: [
                                 Attribute {
                                     kind: Builtin(

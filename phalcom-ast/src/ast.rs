@@ -265,7 +265,6 @@ pub enum ClassMember {
     Method(MethodDef),
     Getter(GetterDef),
     Setter(SetterDef),
-    Construct(ConstructDef),
     /// A declared field (`let`/`var` at class-body position, U-ANNOT-LAYOUT
     /// §3.1). See [`FieldDef`].
     Field(FieldDef),
@@ -391,19 +390,6 @@ pub struct FieldDef {
     pub range: SourceRange,
 }
 
-#[derive(Debug, Clone)]
-pub struct ConstructDef {
-    pub name: String,
-    pub params: Vec<ParameterDef>,
-    pub body: Vec<Statement>,
-    pub range: SourceRange,
-    /// The source span of just the constructor's name/selector token (the
-    /// `init` in `construct init(x) { … }`), distinct from [`Self::range`]'s
-    /// whole-declaration span. See [`ClassDef::name_range`]'s doc for why this
-    /// exists as its own field rather than being re-derived from `range`.
-    pub name_range: SourceRange,
-}
-
 /// A single parameter in a method/constructor parameter list.
 ///
 /// See `messages-and-selectors.md` §4 for the surface grammar: an ordinary
@@ -432,6 +418,9 @@ pub struct MethodDef {
     pub params: Vec<ParameterDef>,
     pub body: Vec<Statement>,
     pub is_static: bool,
+    /// Marks a source constructor before compiler lowering splits it into a
+    /// class-side factory and an instance-side initializer.
+    pub is_constructor: bool,
     /// `@name(args…)` attributes attached to this method, in declaration
     /// order (e.g. `@requires`/`@ensures` — U-ANNOT-CONTRACTS). Consumed and
     /// cleared by [`AttributeExpander::expand`](../../../phalcom-core/src/compiler/attributes.rs)

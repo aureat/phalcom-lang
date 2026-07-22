@@ -45,8 +45,6 @@ impl VM {
             ready_queue: std::collections::VecDeque::new(),
             temp_roots: Vec::new(),
             field_layouts: HashMap::new(),
-            constructor_aliases: HashMap::new(),
-            has_new_construct: std::collections::HashSet::new(),
             class_parents: HashMap::new(),
             sealed_classes: HashMap::new(),
             checking: std::collections::HashSet::new(),

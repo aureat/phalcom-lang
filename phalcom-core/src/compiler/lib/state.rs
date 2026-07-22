@@ -42,8 +42,14 @@ pub(crate) struct FunctionState {
     pub(super) max_slots: usize,
     /// The upvalue capture descriptors resolved for this body.
     pub(super) upvalues: Vec<UpvalueDescriptor>,
-    /// Whether this body compiles a constructor initializer (ADR-0011).
+    /// Whether this body compiles a constructor initializer (ADR-0063).
     pub(super) is_constructor: bool,
+    /// Source constructor name whose body this initializer executes, if any.
+    ///
+    /// This lets `super.<constructor-name>(...)` lower to the generated hidden
+    /// instance-side initializer without changing ordinary `super` sends made
+    /// from constructor bodies.
+    pub(super) constructor_name: Option<String>,
     /// Whether this body compiles a **block literal** (rather than a method or
     /// constructor body).
     ///
@@ -94,7 +100,11 @@ impl FunctionState {
     /// constructor initializer (`is_constructor`) and/or a block literal
     /// (`is_block`); a plain method body and the top-level module body pass
     /// `false` for both.
-    pub(super) fn new(is_constructor: bool, is_block: bool) -> Self {
+    pub(super) fn new(
+        is_constructor: bool,
+        is_block: bool,
+        constructor_name: Option<String>,
+    ) -> Self {
         FunctionState {
             chunk: Chunk::default(),
             locals: Vec::new(),
@@ -103,6 +113,7 @@ impl FunctionState {
             max_slots: 0,
             upvalues: Vec::new(),
             is_constructor,
+            constructor_name,
             is_block,
             local_names: Vec::new(),
         }
