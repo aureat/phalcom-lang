@@ -895,6 +895,7 @@ impl<'source> Parser<'source> {
             self.peek(),
             Token::Number(_)
                 | Token::String(_)
+                | Token::StringInterp(_)
                 | Token::True
                 | Token::False
                 | Token::Identifier(_)

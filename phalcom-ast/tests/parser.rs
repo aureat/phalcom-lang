@@ -89,6 +89,12 @@ fn return_statement() {
 }
 
 #[test]
+fn interpolated_string_parses() {
+    let result = parse_source("return \"\\(value)\"", 0);
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
 fn symbol_name_literal_parses() {
     // selectors.md §2: `#move` parses to `Expr::Symbol(SymbolLiteralKind::Name)`.
     insta::assert_snapshot!(parse("let s = #move"));
