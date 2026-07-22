@@ -8,6 +8,5 @@
 // through `String#toString`'s `=> self` unchanged.
 
 System.print("".toString)
-System.print("line1
-line2".toString)
+System.print("line1\nline2".toString)
 System.print("a\\b".toString)
