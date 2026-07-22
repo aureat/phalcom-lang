@@ -38,10 +38,7 @@ impl PhalcomCompleter {
     }
 
     fn collect_members_for_receiver(&self, receiver: &str, prefix: &str) -> Vec<String> {
-        let class_id = self
-            .oracle
-            .global_name_class(receiver)
-            .or_else(|| self.oracle.find_class_by_name(receiver));
+        let class_id = self.oracle.global_name_class(receiver).or_else(|| self.oracle.find_class_by_name(receiver));
 
         let Some(cid) = class_id else {
             return Vec::new();
@@ -116,14 +113,7 @@ impl Completer for PhalcomCompleter {
 }
 
 impl Hinter for PhalcomCompleter {
-    fn handle(
-        &mut self,
-        line: &str,
-        pos: usize,
-        _history: &dyn History,
-        _use_ansi_coloring: bool,
-        _cwd: &str,
-    ) -> String {
+    fn handle(&mut self, line: &str, pos: usize, _history: &dyn History, _use_ansi_coloring: bool, _cwd: &str) -> String {
         if let Some(hint) = self.hint(line, pos) {
             format!("{line}{hint}")
         } else {
@@ -148,14 +138,37 @@ enum Cx<'a> {
 }
 
 const BUILTIN_KEYWORDS: &[&str] = &[
-    "class", "import", "for", "while", "if", "else", "return", "break", "continue", "true", "false",
-    "nil", "let", "const", "and", "or", "not", "self", "super", "in", "is", "as", "static", "construct",
-    "throw", "try", "fn",
+    "class",
+    "import",
+    "for",
+    "while",
+    "if",
+    "else",
+    "return",
+    "break",
+    "continue",
+    "true",
+    "false",
+    "nil",
+    "let",
+    "const",
+    "and",
+    "or",
+    "not",
+    "self",
+    "super",
+    "in",
+    "is",
+    "as",
+    "static",
+    "construct",
+    "throw",
+    "try",
+    "fn",
 ];
 
 const BUILTIN_CLASSES: &[&str] = &[
-    "String", "List", "Map", "Number", "Function", "Module", "Class", "Instance", "Bool", "True",
-    "False", "Nil", "Symbol", "Fiber", "Future",
+    "String", "List", "Map", "Number", "Function", "Module", "Class", "Instance", "Bool", "True", "False", "Nil", "Symbol", "Fiber", "Future",
 ];
 
 fn classify_position<'a>(line: &'a str, pos: usize) -> (Cx<'a>, usize, &'a str) {

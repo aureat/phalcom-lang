@@ -78,10 +78,7 @@ impl ScratchWorkspace {
         let root = std::env::temp_dir().join(format!(
             "phalcom-lsp-stage4-{name}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         Self { root }
@@ -113,17 +110,12 @@ mod url {
 
 /// Spawns a `Backend` server bound to an in-process duplex pipe, returning
 /// the client-side end of the pipe and the server task handle.
-fn spawn_server() -> (
-    tokio::io::DuplexStream,
-    tokio::task::JoinHandle<()>,
-) {
+fn spawn_server() -> (tokio::io::DuplexStream, tokio::task::JoinHandle<()>) {
     let (server_end, client_end) = tokio::io::duplex(1 << 16);
     let (server_read, server_write) = tokio::io::split(server_end);
     let (service, socket) = LspService::new(Backend::new);
     let server_task = tokio::spawn(async move {
-        Server::new(server_read, server_write, socket)
-            .serve(service)
-            .await;
+        Server::new(server_read, server_write, socket).serve(service).await;
     });
     (client_end, server_task)
 }
@@ -133,22 +125,10 @@ async fn initialize(client_end: &mut tokio::io::DuplexStream, root_uri: Option<&
     if let Some(root) = root_uri {
         params["rootUri"] = json!(root);
     }
-    write_message(
-        client_end,
-        &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": params }),
-    )
-    .await;
+    write_message(client_end, &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": params })).await;
     let init_response = read_response(client_end, 1).await;
-    assert_eq!(
-        init_response["result"]["capabilities"]["hoverProvider"],
-        json!(true),
-        "{init_response:#?}"
-    );
-    write_message(
-        client_end,
-        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-    )
-    .await;
+    assert_eq!(init_response["result"]["capabilities"]["hoverProvider"], json!(true), "{init_response:#?}");
+    write_message(client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
 }
 
 async fn did_open(client_end: &mut tokio::io::DuplexStream, uri: &str, text: &str) {
@@ -182,13 +162,7 @@ fn position_of(text: &str, needle: &str) -> (usize, usize) {
     (line, col)
 }
 
-async fn hover_at(
-    client_end: &mut tokio::io::DuplexStream,
-    id: i64,
-    uri: &str,
-    text: &str,
-    needle: &str,
-) -> Value {
+async fn hover_at(client_end: &mut tokio::io::DuplexStream, id: i64, uri: &str, text: &str, needle: &str) -> Value {
     let (line, character) = position_of(text, needle);
     write_message(
         client_end,
@@ -216,9 +190,7 @@ async fn keyword_hover_renders_the_blurb() {
     did_open(&mut client_end, uri, text).await;
 
     let response = hover_at(&mut client_end, 2, uri, text, "self").await;
-    let value = response["result"]["contents"]["value"]
-        .as_str()
-        .expect("markup contents");
+    let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("**self**"), "{value:?}");
     assert!(value.contains("current receiver"), "{value:?}");
 
@@ -237,9 +209,7 @@ async fn phaldoc_adjacency_attaches_and_blank_line_breaks_it() {
 
     // Adjacent doc attaches.
     let response = hover_at(&mut client_end, 2, uri, text, "move(x)").await;
-    let value = response["result"]["contents"]["value"]
-        .as_str()
-        .expect("markup contents");
+    let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("Moves the point."), "{value:?}");
     assert!(value.contains("move(_)"), "{value:?}");
 
@@ -247,9 +217,7 @@ async fn phaldoc_adjacency_attaches_and_blank_line_breaks_it() {
     // `reset()` still gets a signature hover (it IS a real definition), but
     // no Phaldoc summary section.
     let response = hover_at(&mut client_end, 3, uri, text, "reset()").await;
-    let value = response["result"]["contents"]["value"]
-        .as_str()
-        .expect("markup contents");
+    let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("reset()"), "{value:?}");
     assert!(!value.contains("Detached"), "{value:?}");
 
@@ -299,27 +267,20 @@ async fn selector_keying_gives_each_arity_its_own_doc() {
 #[tokio::test]
 async fn cross_file_hover_resolves_the_doc_from_the_declaring_file() {
     let workspace = ScratchWorkspace::new("cross-file");
-    workspace.write(
-        "mover.ph",
-        "class Mover {\n  /// Moves the mover by `x`.\n  move(x) { }\n}\n",
-    );
+    workspace.write("mover.ph", "class Mover {\n  /// Moves the mover by `x`.\n  move(x) { }\n}\n");
     let main_text = "let m = Mover.new();\nm.move(1);\n";
     workspace.write("main.ph", main_text);
 
     let (mut client_end, server_task) = spawn_server();
     initialize(&mut client_end, Some(&workspace.uri())).await;
 
-    let main_uri = url::Url::from_file_path(workspace.root.join("main.ph"))
-        .unwrap()
-        .to_string();
+    let main_uri = url::Url::from_file_path(workspace.root.join("main.ph")).unwrap().to_string();
     did_open(&mut client_end, &main_uri, main_text).await;
 
     // Hover the call site `m.move(1)` in main.ph — the doc lives in
     // mover.ph, a file never opened by the client.
     let response = hover_at(&mut client_end, 2, &main_uri, main_text, "move(1)").await;
-    let value = response["result"]["contents"]["value"]
-        .as_str()
-        .expect("markup contents");
+    let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("Moves the mover by `x`."), "{value:?}");
     assert!(value.contains("method on Mover"), "{value:?}");
 
@@ -340,9 +301,7 @@ async fn builtin_hover_has_kind_and_selector_but_no_phaldoc_section() {
     did_open(&mut client_end, uri, text).await;
 
     let response = hover_at(&mut client_end, 2, uri, text, "ifTrue").await;
-    let value = response["result"]["contents"]["value"]
-        .as_str()
-        .expect("markup contents");
+    let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("ifTrue(_)"), "{value:?}");
     assert!(value.contains("on Bool"), "{value:?}");
     // No Phaldoc section: no `---` divider, since there is no local `.ph`
@@ -404,9 +363,7 @@ async fn hover_over_a_top_level_binding_usage_surfaces_its_doc() {
     )
     .await;
     let response = read_response(&mut client_end, 2).await;
-    let value = response["result"]["contents"]["value"]
-        .as_str()
-        .expect("markup contents");
+    let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("The application's shared counter."), "{value:?}");
 
     drop(client_end);

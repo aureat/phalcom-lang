@@ -41,7 +41,11 @@ fn test_missing_file_exit_code() {
 #[test]
 fn test_syntax_error_exit_code() {
     let file_path = std::env::temp_dir().join(format!("syntax_{}.ph", std::process::id()));
-    fs::write(&file_path, "class Point {\n  var x\n  var y\n  construct new(x, y) {\n    _x = x\n    _y = y\n  }\n}\nlet p = Point.new(1, 2)\n1 + ").unwrap();
+    fs::write(
+        &file_path,
+        "class Point {\n  var x\n  var y\n  construct new(x, y) {\n    _x = x\n    _y = y\n  }\n}\nlet p = Point.new(1, 2)\n1 + ",
+    )
+    .unwrap();
 
     let output = run_bin(&[file_path.to_str().unwrap()]);
     let _ = fs::remove_file(&file_path);

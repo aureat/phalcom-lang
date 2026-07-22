@@ -5,12 +5,12 @@ use crate::heap::ClosureObject;
 use crate::heap::InstanceObject;
 use crate::heap::ListObject;
 use crate::heap::MapObject;
-use crate::method::MethodObject;
 use crate::heap::ModuleObject;
 use crate::heap::RangeObject;
 use crate::heap::StringObject;
 use crate::heap::TupleObject;
 use crate::heap::Upvalue;
+use crate::method::MethodObject;
 
 use super::object::{BoundMethodObject, FamilyObject};
 use super::{ClassId, FiberObject, Heap, ObjRef, Object};

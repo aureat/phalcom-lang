@@ -44,9 +44,17 @@ pub(crate) fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::he
             // the generic "expected Function, found Method" it would
             // otherwise fall through to.
             Object::Method(_) => Err(RuntimeError::NotAllowed("unbound Method — use bind(_) or invokeOn(_,_)".to_string()).into()),
-            _ => Err(RuntimeError::Type { expected: "Function", found: receiver.type_name() }.into()),
+            _ => Err(RuntimeError::Type {
+                expected: "Function",
+                found: receiver.type_name(),
+            }
+            .into()),
         },
-        other => Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
+        other => Err(RuntimeError::Type {
+            expected: "Function",
+            found: other.type_name(),
+        }
+        .into()),
     }
 }
 
@@ -66,9 +74,17 @@ pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
             }
             Object::Method(method) => Ok(Value::Number(method.signature.positional_arity as f64)),
             Object::BoundMethod(bound) => Ok(Value::Number(vm.heap.method(bound.method).signature.positional_arity as f64)),
-            _ => Err(RuntimeError::Type { expected: "Function", found: receiver.type_name() }.into()),
+            _ => Err(RuntimeError::Type {
+                expected: "Function",
+                found: receiver.type_name(),
+            }
+            .into()),
         },
-        other => Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
+        other => Err(RuntimeError::Type {
+            expected: "Function",
+            found: other.type_name(),
+        }
+        .into()),
     }
 }
 
@@ -90,9 +106,21 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
                 let selector = vm.heap.method(bound.method).signature.selector;
                 vm.resolve_symbol(selector).to_string()
             }
-            _ => return Err(RuntimeError::Type { expected: "Function", found: receiver.type_name() }.into()),
+            _ => {
+                return Err(RuntimeError::Type {
+                    expected: "Function",
+                    found: receiver.type_name(),
+                }
+                .into());
+            }
         },
-        other => return Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
+        other => {
+            return Err(RuntimeError::Type {
+                expected: "Function",
+                found: other.type_name(),
+            }
+            .into());
+        }
     };
     Ok(vm.alloc_string_value(name))
 }
@@ -125,7 +153,12 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     let (closure_id, home_frame_token) = resolve_callable(vm, receiver)?;
     let arity = vm.heap.closure(closure_id).callable.arity;
     if args.len() != arity {
-        return Err(RuntimeError::Arity { signature: "call", expected: arity, found: args.len() }.into());
+        return Err(RuntimeError::Arity {
+            signature: "call",
+            expected: arity,
+            found: args.len(),
+        }
+        .into());
     }
 
     // Slot 0 of the callee's stack window is a dummy receiver slot (blocks
@@ -136,10 +169,12 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     vm.stack.extend_from_slice(args);
 
     let base_frames = vm.frames.len();
-    let context = CallContext::Instance { instance: match receiver {
-        Value::Obj(id) => *id,
-        _ => unreachable!("resolve_callable only accepts Value::Obj"),
-    } };
+    let context = CallContext::Instance {
+        instance: match receiver {
+            Value::Obj(id) => *id,
+            _ => unreachable!("resolve_callable only accepts Value::Obj"),
+        },
+    };
     let mut frame = vm.new_call_frame(closure_id, context, 0, stack_offset, None);
     // Stamp the block activation with its lexical home frame so a `return` in
     // the block body (compiled to `Bytecode::ReturnNonLocal`) can unwind to the
@@ -197,7 +232,11 @@ pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     loop {
         let cond = block_call(vm, receiver, &[])?;
         let Value::Bool(cond) = cond else {
-            return Err(RuntimeError::Type { expected: "Bool", found: cond.type_name() }.into());
+            return Err(RuntimeError::Type {
+                expected: "Bool",
+                found: cond.type_name(),
+            }
+            .into());
         };
         if !cond {
             return Ok(vm.none_value());
@@ -251,7 +290,11 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
     let class_arg = args[0];
     let is_class = matches!(class_arg, Value::Obj(id) if matches!(vm.heap.get(id), Object::Class(_)));
     if !is_class {
-        return Err(RuntimeError::Type { expected: "Class", found: class_arg.type_name() }.into());
+        return Err(RuntimeError::Type {
+            expected: "Class",
+            found: class_arg.type_name(),
+        }
+        .into());
     }
     let handler = args[1];
 
@@ -274,11 +317,21 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
                 }
             };
             match err {
-                PhError::Runtime(RuntimeError::Raise { error, rendered, mut traceback, help }) => {
+                PhError::Runtime(RuntimeError::Raise {
+                    error,
+                    rendered,
+                    mut traceback,
+                    help,
+                }) => {
                     if traceback.is_none() {
                         traceback = Some(captured_tb);
                     }
-                    err = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback, help });
+                    err = PhError::Runtime(RuntimeError::Raise {
+                        error,
+                        rendered,
+                        traceback,
+                        help,
+                    });
                 }
                 _ => {
                     let rendered = err.to_string();

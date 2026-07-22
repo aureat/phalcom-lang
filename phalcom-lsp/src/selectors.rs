@@ -13,9 +13,7 @@
 //! crate never links `phalcom-core` (ADR-0056 §2) — this module is the sole
 //! source of selector spelling here, deliberately independent.
 
-use phalcom_ast::ast::{
-    ClassMember, FieldDef, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef,
-};
+use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
 
 /// Builds the comma-form selector string from a method/constructor name and
 /// its parameter list: `name(_,label,...)`, or `name()` for zero-arity.
@@ -27,11 +25,7 @@ pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
     if params.is_empty() {
         return format!("{name}()");
     }
-    let inner = params
-        .iter()
-        .map(|p| p.label.as_deref().unwrap_or("_"))
-        .collect::<Vec<_>>()
-        .join(",");
+    let inner = params.iter().map(|p| p.label.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
     format!("{name}({inner})")
 }
 
@@ -43,11 +37,7 @@ pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
     if labels.is_empty() {
         return format!("{name}()");
     }
-    let inner = labels
-        .iter()
-        .map(|l| l.as_deref().unwrap_or("_"))
-        .collect::<Vec<_>>()
-        .join(",");
+    let inner = labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
     format!("{name}({inner})")
 }
 
@@ -104,12 +94,7 @@ pub fn index_selector(ix: &IndexMethodDef) -> String {
     if ix.params.is_empty() {
         return "[]".to_string();
     }
-    let inner = ix
-        .params
-        .iter()
-        .map(|p| p.label.as_deref().unwrap_or("_"))
-        .collect::<Vec<_>>()
-        .join(",");
+    let inner = ix.params.iter().map(|p| p.label.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
     format!("[{inner}]")
 }
 
@@ -138,8 +123,8 @@ pub fn class_member_selector(member: &ClassMember) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phalcom_ast::parser::parse;
     use phalcom_ast::ast::Statement;
+    use phalcom_ast::parser::parse;
 
     fn parse_class(src: &str) -> phalcom_ast::ast::ClassDef {
         let parsed = parse(src, 0);
@@ -154,9 +139,7 @@ mod tests {
 
     #[test]
     fn method_with_positional_and_labeled_params() {
-        let class_def = parse_class(
-            "class Point {\n  move(x, to:, duration:) { }\n}\n",
-        );
+        let class_def = parse_class("class Point {\n  move(x, to:, duration:) { }\n}\n");
         let ClassMember::Method(m) = &class_def.members[0] else {
             panic!("expected method")
         };
@@ -174,9 +157,7 @@ mod tests {
 
     #[test]
     fn getter_has_no_parens_and_never_aliases_zero_arity_method() {
-        let class_def = parse_class(
-            "class Point {\n  y { }\n  x() { }\n}\n",
-        );
+        let class_def = parse_class("class Point {\n  y { }\n  x() { }\n}\n");
         let ClassMember::Getter(g) = &class_def.members[0] else {
             panic!("expected getter")
         };
@@ -199,9 +180,7 @@ mod tests {
 
     #[test]
     fn construct_is_comma_form() {
-        let class_def = parse_class(
-            "class Point {\n  construct new(x, y:) { }\n}\n",
-        );
+        let class_def = parse_class("class Point {\n  construct new(x, y:) { }\n}\n");
         let ClassMember::Method(m) = &class_def.members[0] else {
             panic!("expected method")
         };
@@ -212,10 +191,7 @@ mod tests {
     #[test]
     fn call_site_labels_match_declaration_selector() {
         assert_eq!(
-            comma_form_from_labels(
-                "move",
-                &[None, Some("to".to_string()), Some("duration".to_string())]
-            ),
+            comma_form_from_labels("move", &[None, Some("to".to_string()), Some("duration".to_string())]),
             "move(_,to,duration)"
         );
         assert_eq!(comma_form_from_labels("reset", &[]), "reset()");

@@ -76,10 +76,7 @@ impl ScratchWorkspace {
         let root = std::env::temp_dir().join(format!(
             "phalcom-lsp-stage2-{name}-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
         Self { root }
@@ -114,23 +111,15 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     let workspace = ScratchWorkspace::new("defs");
     // `Mover` defines `move(_,to,duration)`; `main.ph` calls it. Both are
     // on disk before `initialize` runs, so the startup scan indexes both.
-    let def_path = workspace.write(
-        "mover.ph",
-        "class Mover {\n  move(x, to:, duration:) { }\n}\n",
-    );
-    workspace.write(
-        "main.ph",
-        "let m = Mover.new();\nm.move(1, to: 2, duration: 3);\n",
-    );
+    let def_path = workspace.write("mover.ph", "class Mover {\n  move(x, to:, duration:) { }\n}\n");
+    workspace.write("main.ph", "let m = Mover.new();\nm.move(1, to: 2, duration: 3);\n");
 
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
     let (server_read, server_write) = tokio::io::split(server_end);
 
     let (service, socket) = LspService::new(Backend::new);
     let server_task = tokio::spawn(async move {
-        Server::new(server_read, server_write, socket)
-            .serve(service)
-            .await;
+        Server::new(server_read, server_write, socket).serve(service).await;
     });
 
     // initialize, rooted at the scratch workspace so the startup scan picks
@@ -150,32 +139,17 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     )
     .await;
     let init_response = read_response(&mut client_end, 1).await;
-    assert_eq!(
-        init_response["result"]["capabilities"]["definitionProvider"],
-        json!(true)
-    );
-    assert_eq!(
-        init_response["result"]["capabilities"]["referencesProvider"],
-        json!(true)
-    );
-    assert_eq!(
-        init_response["result"]["capabilities"]["workspaceSymbolProvider"],
-        json!(true)
-    );
+    assert_eq!(init_response["result"]["capabilities"]["definitionProvider"], json!(true));
+    assert_eq!(init_response["result"]["capabilities"]["referencesProvider"], json!(true));
+    assert_eq!(init_response["result"]["capabilities"]["workspaceSymbolProvider"], json!(true));
 
-    write_message(
-        &mut client_end,
-        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-    )
-    .await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
 
     // Open the call-site file (not strictly required — the scan already
     // indexed it from disk — but mirrors a real editor session and proves
     // did_open doesn't disturb the cross-file index).
     let main_text = std::fs::read_to_string(workspace.root.join("main.ph")).unwrap();
-    let main_uri = url::Url::from_file_path(workspace.root.join("main.ph"))
-        .unwrap()
-        .to_string();
+    let main_uri = url::Url::from_file_path(workspace.root.join("main.ph")).unwrap().to_string();
     write_message(
         &mut client_end,
         &json!({
@@ -202,11 +176,7 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     // main.ph) must resolve to `move`'s declaration in mover.ph.
     let call_site_offset = main_text.find("move").unwrap();
     let call_site_line = main_text[..call_site_offset].matches('\n').count();
-    let call_site_col = call_site_offset
-        - main_text[..call_site_offset]
-            .rfind('\n')
-            .map(|i| i + 1)
-            .unwrap_or(0);
+    let call_site_col = call_site_offset - main_text[..call_site_offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
 
     write_message(
         &mut client_end,
@@ -240,12 +210,7 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     .await;
     let symbol_response = read_response(&mut client_end, 3).await;
     let symbols = symbol_response["result"].as_array().expect("symbols array");
-    assert!(
-        symbols
-            .iter()
-            .any(|s| s["name"] == json!("move(_,to,duration)")),
-        "{symbols:#?}"
-    );
+    assert!(symbols.iter().any(|s| s["name"] == json!("move(_,to,duration)")), "{symbols:#?}");
 
     drop(client_end);
     let _ = server_task.await;

@@ -38,10 +38,7 @@ fn phalcom_bin() -> PathBuf {
 }
 
 fn run(path: &Path) -> Output {
-    Command::new(phalcom_bin())
-        .arg(path)
-        .output()
-        .expect("failed to spawn the `phalcom` binary")
+    Command::new(phalcom_bin()).arg(path).output().expect("failed to spawn the `phalcom` binary")
 }
 
 /// Runs `path` (resolved relative to the `phalcom-core` crate root) and
@@ -54,14 +51,8 @@ fn assert_golden(path: &str, expected_stdout: &str) {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(
-        output.status.code() != Some(101),
-        "{path} panicked (exit 101, Rust panic). stderr:\n{stderr}"
-    );
-    assert!(
-        !stderr.contains("panicked at"),
-        "{path} panicked. stderr:\n{stderr}"
-    );
+    assert!(output.status.code() != Some(101), "{path} panicked (exit 101, Rust panic). stderr:\n{stderr}");
+    assert!(!stderr.contains("panicked at"), "{path} panicked. stderr:\n{stderr}");
     assert_eq!(stdout, expected_stdout, "{path} produced unexpected stdout");
 }
 
@@ -96,10 +87,7 @@ fn example_person() {
     // instance now routes through the same `toString` send (U-ERR-FIX
     // PRINT-TOSTRING), so the two agree instead of the old debug-form
     // fallback (`"<Person instance>"`, `Value::to_debug`) diverging from it.
-    assert_golden(
-        "../examples/person.ph",
-        "<Person>\nAnonymous\nNone\nAlice\nNone\nBob\n30\n31\n",
-    );
+    assert_golden("../examples/person.ph", "<Person>\nAnonymous\nNone\nAlice\nNone\nBob\n30\n31\n");
 }
 
 #[test]

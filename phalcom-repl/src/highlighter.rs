@@ -109,12 +109,7 @@ impl Highlighter for PhalcomHighlighter {
                 Token::String(_) | Token::StringInterp(_) => {
                     color(start, end, str_style);
                 }
-                Token::LParen
-                | Token::RParen
-                | Token::LBrace
-                | Token::RBrace
-                | Token::LBracket
-                | Token::RBracket => {
+                Token::LParen | Token::RParen | Token::LBrace | Token::RBrace | Token::LBracket | Token::RBracket => {
                     color(start, end, bracket_style);
                 }
                 Token::Identifier(ref name) => {

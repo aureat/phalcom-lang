@@ -61,7 +61,14 @@ impl MethodObject {
     /// Builds a method with the given `kind`, deriving its signature.
     pub fn new(selector: Symbol, sig_kind: SignatureKind, kind: MethodKind, holder: Option<ClassId>) -> Self {
         let signature = Signature::new(selector, sig_kind);
-        MethodObject { kind, signature, holder, contracts: None, attributes: Vec::new(), attributes_frozen: false }
+        MethodObject {
+            kind,
+            signature,
+            holder,
+            contracts: None,
+            attributes: Vec::new(),
+            attributes_frozen: false,
+        }
     }
 
     /// Builds an unbound method (holder `None`), typically a compiler-produced

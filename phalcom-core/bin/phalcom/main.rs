@@ -3,13 +3,13 @@
 pub mod cli;
 pub mod disasm;
 
-use crate::cli::{cmd_check, cmd_disasm, cmd_parse, cmd_run, cmd_tokenize, cmd_version, Cli, Commands};
+use crate::cli::{Cli, Commands, cmd_check, cmd_disasm, cmd_parse, cmd_run, cmd_tokenize, cmd_version};
 use anyhow::Result;
 use clap::Parser;
+use tracing_subscriber::filter::Targets;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::filter::Targets;
-use tracing_subscriber::{fmt, Layer};
+use tracing_subscriber::{Layer, fmt};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -17,22 +17,17 @@ fn main() -> Result<()> {
     // Build a per-target filter: only enable `DEBUG` on the specific targets
     // requested via `--trace=<targets>`. A global `LevelFilter::DEBUG` would
     // also enable the compiler's own debug instrumentation, flooding stderr.
-    let targets_filter = cli.trace.iter()
+    let targets_filter = cli
+        .trace
+        .iter()
         .filter(|t| !t.is_empty())
-        .fold(
-            Targets::new().with_default(tracing_subscriber::filter::LevelFilter::OFF),
-            |acc, t| acc.with_target(t.as_str(), tracing::Level::DEBUG),
-        );
+        .fold(Targets::new().with_default(tracing_subscriber::filter::LevelFilter::OFF), |acc, t| {
+            acc.with_target(t.as_str(), tracing::Level::DEBUG)
+        });
 
-    let stderr_layer = fmt::layer()
-        .with_writer(std::io::stderr)
-        .with_target(false)
-        .with_level(false)
-        .with_ansi(false);
+    let stderr_layer = fmt::layer().with_writer(std::io::stderr).with_target(false).with_level(false).with_ansi(false);
 
-    tracing_subscriber::registry()
-        .with(stderr_layer.with_filter(targets_filter))
-        .init();
+    tracing_subscriber::registry().with(stderr_layer.with_filter(targets_filter)).init();
 
     // Resolves `--color`/`--plain` once, up front, and installs it for every diagnostic
     // renderer in `phalcom-core` to read (IS §3.2). See

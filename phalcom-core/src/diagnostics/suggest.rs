@@ -149,10 +149,7 @@ pub fn best_match<'a>(miss: &str, candidates: impl Iterator<Item = &'a str>) -> 
     if matches.len() > 1 {
         let best = &matches[0];
         let runner_up = &matches[1];
-        if best.category == runner_up.category
-            && best.distance == runner_up.distance
-            && best.name.chars().count() == runner_up.name.chars().count()
-        {
+        if best.category == runner_up.category && best.distance == runner_up.distance && best.name.chars().count() == runner_up.name.chars().count() {
             // Tie-suppression: same category, distance, and length — no confidence.
             return None;
         }
@@ -162,10 +159,7 @@ pub fn best_match<'a>(miss: &str, candidates: impl Iterator<Item = &'a str>) -> 
 }
 
 /// Suggests a selector, taking into account arity mismatches for exact base name matches.
-pub fn suggest_selector(
-    miss_selector: &str,
-    candidates: impl Iterator<Item = String>,
-) -> Option<String> {
+pub fn suggest_selector(miss_selector: &str, candidates: impl Iterator<Item = String>) -> Option<String> {
     let (miss_base, miss_labels, _) = crate::method::decode_selector(miss_selector);
     let miss_arity = miss_labels.len();
 
@@ -185,7 +179,11 @@ pub fn suggest_selector(
         // Find the one closest in arity
         exact_base_matches.sort_by_key(|&(_, arity)| (arity as isize - miss_arity as isize).abs());
         let (best_cand, best_arity) = &exact_base_matches[0];
-        let arg_str = if *best_arity == 1 { "1 argument" } else { &format!("{} arguments", best_arity) };
+        let arg_str = if *best_arity == 1 {
+            "1 argument"
+        } else {
+            &format!("{} arguments", best_arity)
+        };
         return Some(format!("'{}' exists — did you mean to pass {}?", best_cand, arg_str));
     }
 
@@ -215,10 +213,10 @@ mod tests {
     #[test]
     fn test_best_match_thresholds() {
         let candidates = vec!["negated", "negate", "negatd_other"];
-        
+
         // len <= 4: max distance 1
         assert_eq!(best_match("neg", candidates.iter().copied()), None);
-        
+
         // len 5..8: max distance 2
         assert_eq!(best_match("negatd", candidates.iter().copied()), Some("negate"));
         assert_eq!(best_match("negatdd", candidates.iter().copied()), Some("negated"));

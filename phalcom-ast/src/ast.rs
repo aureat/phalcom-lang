@@ -25,7 +25,10 @@ pub enum Statement {
     Class(ClassDef),
     Let(LetBinding),
     Return(ReturnStatement),
-    Expr { expr: Expr, range: SourceRange },
+    Expr {
+        expr: Expr,
+        range: SourceRange,
+    },
     /// `for (binding in iter) { body }` — the cursor loop (ADR-0035 §2,
     /// iteration.md §2). Lowered by the compiler to an inlined cursor `while`
     /// over the two-selector protocol `iterate(_)` / `iteratorValue(_)` —
@@ -602,13 +605,32 @@ pub struct ForStatement {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Number { value: f64, range: SourceRange },
-    String { value: String, range: SourceRange },
-    Boolean { value: bool, range: SourceRange },
-    Var { value: String, range: SourceRange },
-    Field { value: String, range: SourceRange },
-    SelfVar { range: SourceRange },
-    SuperVar { range: SourceRange },
+    Number {
+        value: f64,
+        range: SourceRange,
+    },
+    String {
+        value: String,
+        range: SourceRange,
+    },
+    Boolean {
+        value: bool,
+        range: SourceRange,
+    },
+    Var {
+        value: String,
+        range: SourceRange,
+    },
+    Field {
+        value: String,
+        range: SourceRange,
+    },
+    SelfVar {
+        range: SourceRange,
+    },
+    SuperVar {
+        range: SourceRange,
+    },
     Assignment(Box<AssignmentExpr>),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),

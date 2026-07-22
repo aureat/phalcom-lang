@@ -1,0 +1,4 @@
+count: 5
+argument: next: 5
+1|left2|right3
+literal \( stays; nested ok

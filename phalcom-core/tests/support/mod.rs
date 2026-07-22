@@ -255,10 +255,7 @@ pub fn check_for_zero_alloc_loop(rel_path: &str) {
         text.contains("JumpIfNone("),
         "{rel_path}: expected `JumpIfNone(` in the disassembly, got:\n{text}"
     );
-    assert!(
-        !text.contains("isSome"),
-        "{rel_path}: expected NO `isSome` in the disassembly, got:\n{text}"
-    );
+    assert!(!text.contains("isSome"), "{rel_path}: expected NO `isSome` in the disassembly, got:\n{text}");
     assert!(
         !text.contains("unwrapOr"),
         "{rel_path}: expected NO `unwrapOr` in the disassembly, got:\n{text}"

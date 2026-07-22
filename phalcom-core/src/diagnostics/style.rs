@@ -69,13 +69,29 @@ pub struct Weight {
 
 impl Weight {
     /// No attributes — plain text at the role's color (or the terminal default).
-    pub const NORMAL: Weight = Weight { bold: false, dim: false, italic: false };
+    pub const NORMAL: Weight = Weight {
+        bold: false,
+        dim: false,
+        italic: false,
+    };
     /// Bold only.
-    pub const BOLD: Weight = Weight { bold: true, dim: false, italic: false };
+    pub const BOLD: Weight = Weight {
+        bold: true,
+        dim: false,
+        italic: false,
+    };
     /// Dim only.
-    pub const DIM: Weight = Weight { bold: false, dim: true, italic: false };
+    pub const DIM: Weight = Weight {
+        bold: false,
+        dim: true,
+        italic: false,
+    };
     /// Dim and italic together — reserved for the `elision` role.
-    pub const DIM_ITALIC: Weight = Weight { bold: false, dim: true, italic: true };
+    pub const DIM_ITALIC: Weight = Weight {
+        bold: false,
+        dim: true,
+        italic: true,
+    };
 }
 
 /// The closed set of semantic roles a diagnostic surface may paint.
@@ -130,21 +146,14 @@ impl Role {
             Role::SeverityHelp => AnsiColor::Cyan,
             Role::Location | Role::SpanSecondary => AnsiColor::Blue,
             Role::Chain => AnsiColor::Magenta,
-            Role::Identifier
-            | Role::Rail
-            | Role::LineNumber
-            | Role::Source
-            | Role::Label
-            | Role::Elision => AnsiColor::Default,
+            Role::Identifier | Role::Rail | Role::LineNumber | Role::Source | Role::Label | Role::Elision => AnsiColor::Default,
         }
     }
 
     /// This role's fixed weight, per `color.md` §2's table.
     fn weight(self) -> Weight {
         match self {
-            Role::SeverityError | Role::SeverityWarn | Role::SeverityHelp | Role::Identifier | Role::SpanPrimary => {
-                Weight::BOLD
-            }
+            Role::SeverityError | Role::SeverityWarn | Role::SeverityHelp | Role::Identifier | Role::SpanPrimary => Weight::BOLD,
             Role::Rail | Role::LineNumber => Weight::DIM,
             Role::Elision => Weight::DIM_ITALIC,
             Role::Location | Role::Source | Role::SpanSecondary | Role::Label | Role::Chain => Weight::NORMAL,
@@ -285,7 +294,11 @@ impl RenderConfig {
                 }
             }
         };
-        RenderConfig { color, glyphs, width: Self::DEFAULT_WIDTH }
+        RenderConfig {
+            color,
+            glyphs,
+            width: Self::DEFAULT_WIDTH,
+        }
     }
 
     /// Resolves a [`RenderConfig`] against the real process environment: `NO_COLOR` (IS §3.2 —
@@ -317,7 +330,9 @@ impl Styler {
     /// defensive default, not a second resolution path.
     #[must_use]
     pub fn new(config: &RenderConfig) -> Styler {
-        Styler { enabled: matches!(config.color, ColorMode::Always) }
+        Styler {
+            enabled: matches!(config.color, ColorMode::Always),
+        }
     }
 
     /// Builds a `Styler` with color forced on or off directly, bypassing [`RenderConfig`].

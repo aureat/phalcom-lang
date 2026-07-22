@@ -11,9 +11,7 @@
 //! name — via `crate::selectors`.
 
 use dashmap::DashMap;
-use phalcom_ast::ast::{
-    Argument, ClassDef, ClassMember, Expr, ForStatement, Pattern, Program, Statement,
-};
+use phalcom_ast::ast::{Argument, ClassDef, ClassMember, Expr, ForStatement, Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
@@ -97,10 +95,7 @@ impl DefinitionMetaMap {
     }
 
     fn get(&self, selector: &str) -> Vec<DefinitionInfo> {
-        self.by_selector
-            .get(selector)
-            .map(|entry| entry.clone())
-            .unwrap_or_default()
+        self.by_selector.get(selector).map(|entry| entry.clone()).unwrap_or_default()
     }
 }
 
@@ -118,10 +113,7 @@ impl SelectorMap {
     }
 
     fn get(&self, selector: &str) -> Vec<Occurrence> {
-        self.by_selector
-            .get(selector)
-            .map(|entry| entry.clone())
-            .unwrap_or_default()
+        self.by_selector.get(selector).map(|entry| entry.clone()).unwrap_or_default()
     }
 }
 
@@ -196,9 +188,7 @@ impl ClassMap {
     /// The `extends` parent of `class` **as declared in `uri`**, if it named
     /// one.
     fn parent(&self, uri: &Url, class: &str) -> Option<String> {
-        self.by_class
-            .get(&(uri.clone(), class.to_string()))
-            .and_then(|entry| entry.parent.clone())
+        self.by_class.get(&(uri.clone(), class.to_string())).and_then(|entry| entry.parent.clone())
     }
 
     /// Whether `uri` declares a class named `class`.
@@ -270,10 +260,7 @@ impl WorkspaceIndex {
 
         let mut file_defs = Vec::with_capacity(collector.definitions.len());
         for (selector, range, class, kind) in collector.definitions {
-            let occ = Occurrence {
-                uri: uri.clone(),
-                range,
-            };
+            let occ = Occurrence { uri: uri.clone(), range };
             self.definitions.insert(selector.clone(), occ);
             self.definition_meta.insert(
                 selector.clone(),
@@ -289,10 +276,7 @@ impl WorkspaceIndex {
 
         let mut file_refs = Vec::with_capacity(collector.references.len());
         for (selector, range) in collector.references {
-            let occ = Occurrence {
-                uri: uri.clone(),
-                range,
-            };
+            let occ = Occurrence { uri: uri.clone(), range };
             self.references.insert(selector.clone(), occ);
             file_refs.push(selector);
         }
@@ -315,8 +299,7 @@ impl WorkspaceIndex {
     pub fn remove_file(&self, uri: &Url) {
         if let Some((_, contribution)) = self.files.remove(uri) {
             self.definitions.remove_uri(uri, &contribution.definitions);
-            self.definition_meta
-                .remove_uri(uri, &contribution.definitions);
+            self.definition_meta.remove_uri(uri, &contribution.definitions);
             self.references.remove_uri(uri, &contribution.references);
             self.classes.remove_uri(uri, &contribution.classes);
         }
@@ -463,10 +446,7 @@ pub fn selector_at_offset(program: &Program, offset: usize) -> Option<(String, S
     };
     collector.walk_program(program);
 
-    let def_iter = collector
-        .definitions
-        .iter()
-        .map(|(selector, range, _class, _kind)| (selector, range));
+    let def_iter = collector.definitions.iter().map(|(selector, range, _class, _kind)| (selector, range));
     let ref_iter = collector.references.iter().map(|(selector, range)| (selector, range));
 
     def_iter
@@ -749,8 +729,7 @@ impl Collector {
             }
             Expr::MethodCall(m) => {
                 self.walk_expr(&m.object);
-                let labels: Vec<Option<String>> =
-                    m.args.iter().map(|a| a.label.clone()).collect();
+                let labels: Vec<Option<String>> = m.args.iter().map(|a| a.label.clone()).collect();
                 let selector = comma_form_from_labels(&m.method, &labels);
                 self.references.push((selector, m.range));
                 self.walk_args(&m.args);
@@ -765,8 +744,7 @@ impl Collector {
             Expr::SetProperty(s) => {
                 self.walk_expr(&s.object);
                 self.walk_expr(&s.value);
-                self.references
-                    .push((setter_selector_from_name(&s.property), s.range));
+                self.references.push((setter_selector_from_name(&s.property), s.range));
             }
             Expr::Index(i) => {
                 self.walk_expr(&i.object);
@@ -954,14 +932,9 @@ mod tests {
 
         let a = uri("file:///a.ph");
         let members = index.class_members(&a, "Point");
-        assert!(members.iter().any(|m| m.selector == "move(_,to)"
-            && m.kind == MemberKind::Method));
-        assert!(members
-            .iter()
-            .any(|m| m.selector == "size" && m.kind == MemberKind::Getter));
-        assert!(members
-            .iter()
-            .any(|m| m.selector == "size=(_)" && m.kind == MemberKind::Setter));
+        assert!(members.iter().any(|m| m.selector == "move(_,to)" && m.kind == MemberKind::Method));
+        assert!(members.iter().any(|m| m.selector == "size" && m.kind == MemberKind::Getter));
+        assert!(members.iter().any(|m| m.selector == "size=(_)" && m.kind == MemberKind::Setter));
         assert!(index.has_class(&a, "Point"));
         assert!(!index.has_class(&a, "Nope"));
     }
@@ -1061,10 +1034,7 @@ mod tests {
         let index = WorkspaceIndex::new();
         let a = uri("file:///a.ph");
         index.update_file(a.clone(), &parse("class A {\n  one() { }\n}\n", 0).program);
-        assert!(index
-            .class_members(&a, "A")
-            .iter()
-            .any(|m| m.selector == "one()"));
+        assert!(index.class_members(&a, "A").iter().any(|m| m.selector == "one()"));
 
         index.update_file(a.clone(), &parse("class A {\n  two() { }\n}\n", 0).program);
         let members = index.class_members(&a, "A");
@@ -1093,10 +1063,7 @@ mod tests {
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 
         let offset = src.find("counter").unwrap();
-        assert_eq!(
-            top_level_binding_at_offset(&parsed.program, offset),
-            Some("counter".to_string())
-        );
+        assert_eq!(top_level_binding_at_offset(&parsed.program, offset), Some("counter".to_string()));
     }
 
     #[test]
@@ -1106,10 +1073,7 @@ mod tests {
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 
         let usage_offset = src.rfind("counter").unwrap();
-        assert_eq!(
-            top_level_binding_at_offset(&parsed.program, usage_offset),
-            Some("counter".to_string())
-        );
+        assert_eq!(top_level_binding_at_offset(&parsed.program, usage_offset), Some("counter".to_string()));
     }
 
     #[test]

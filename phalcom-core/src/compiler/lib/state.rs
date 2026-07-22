@@ -100,11 +100,7 @@ impl FunctionState {
     /// constructor initializer (`is_constructor`) and/or a block literal
     /// (`is_block`); a plain method body and the top-level module body pass
     /// `false` for both.
-    pub(super) fn new(
-        is_constructor: bool,
-        is_block: bool,
-        constructor_name: Option<String>,
-    ) -> Self {
+    pub(super) fn new(is_constructor: bool, is_block: bool, constructor_name: Option<String>) -> Self {
         FunctionState {
             chunk: Chunk::default(),
             locals: Vec::new(),

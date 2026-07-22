@@ -32,29 +32,19 @@ pub enum Verdict {
 /// This lives here, not in the binary, so it can be tested — the previous test
 /// for this feature could not reach the binary and exercised nothing.
 pub fn explicit_continuation(line: &str) -> Option<String> {
-    line.trim_end()
-        .strip_suffix('\\')
-        .map(|prefix| format!("{prefix} "))
+    line.trim_end().strip_suffix('\\').map(|prefix| format!("{prefix} "))
 }
 
 /// Classifies `src` according to U-REPL §D7 rules.
 ///
 /// Ensures statement-terminating newline normalization before classification.
 pub fn classify(src: &str) -> Verdict {
-    let src_norm = if src.ends_with('\n') {
-        src.to_string()
-    } else {
-        format!("{src}\n")
-    };
+    let src_norm = if src.ends_with('\n') { src.to_string() } else { format!("{src}\n") };
 
     let parsed = parse(&src_norm, 0);
     if parsed.errors.is_empty() {
         Verdict::Complete
-    } else if parsed
-        .errors
-        .iter()
-        .any(|e| matches!(e.kind, SyntaxErrorKind::UnrecognizedEof { .. }))
-    {
+    } else if parsed.errors.iter().any(|e| matches!(e.kind, SyntaxErrorKind::UnrecognizedEof { .. })) {
         Verdict::Incomplete
     } else {
         Verdict::Invalid

@@ -10,8 +10,8 @@ use crate::heap::ObjRef;
 use crate::interner::Symbol;
 use crate::value::Value;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Hard limit on the number of globals a single module may declare.
 pub const MAX_GLOBALS: usize = 1 << 16; // = 65,536
@@ -106,7 +106,6 @@ impl ModuleObject {
             self.global_bindings.insert(sym, is_mut);
         }
     }
-
 
     /// Appends `source` to [`Self::sources`] and returns its index, to be
     /// stamped into every [`Chunk`](crate::chunk::Chunk) compiled from that text

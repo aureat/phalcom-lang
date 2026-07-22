@@ -55,10 +55,7 @@ impl MemberKind {
     /// (methods, static methods, constructs) rather than bare-name / setter
     /// forms.
     pub fn is_method_like(self) -> bool {
-        matches!(
-            self,
-            MemberKind::Method | MemberKind::StaticMethod | MemberKind::Construct
-        )
+        matches!(self, MemberKind::Method | MemberKind::StaticMethod | MemberKind::Construct)
     }
 }
 
@@ -93,8 +90,7 @@ pub struct CoreTable {
 }
 
 /// The raw `core-table.json` bytes, embedded at build time.
-const CORE_TABLE_JSON: &str =
-    include_str!("../../tools/vsphalcom/src/generated/core-table.json");
+const CORE_TABLE_JSON: &str = include_str!("../../tools/vsphalcom/src/generated/core-table.json");
 
 impl CoreTable {
     /// Returns the process-wide, lazily-parsed builtin table embedded from
@@ -111,10 +107,7 @@ impl CoreTable {
     /// condition a client can trigger.
     pub fn bundled() -> &'static CoreTable {
         static TABLE: OnceLock<CoreTable> = OnceLock::new();
-        TABLE.get_or_init(|| {
-            serde_json::from_str(CORE_TABLE_JSON)
-                .expect("embedded core-table.json must be valid CoreTable JSON")
-        })
+        TABLE.get_or_init(|| serde_json::from_str(CORE_TABLE_JSON).expect("embedded core-table.json must be valid CoreTable JSON"))
     }
 
     /// The member list of the builtin class named `class`, or `None` if no
@@ -131,19 +124,13 @@ impl CoreTable {
     /// surface, matching the pre-LSP `completions.ts` behavior so Stage 3 is
     /// never worse than the status quo when it cannot resolve a receiver.
     pub fn all_members(&self) -> Vec<CoreMember> {
-        let mut merged: std::collections::BTreeMap<String, MemberKind> =
-            std::collections::BTreeMap::new();
+        let mut merged: std::collections::BTreeMap<String, MemberKind> = std::collections::BTreeMap::new();
         for members in self.classes.values() {
             for member in members {
-                merged
-                    .entry(member.selector.clone())
-                    .or_insert(member.kind);
+                merged.entry(member.selector.clone()).or_insert(member.kind);
             }
         }
-        merged
-            .into_iter()
-            .map(|(selector, kind)| CoreMember { selector, kind })
-            .collect()
+        merged.into_iter().map(|(selector, kind)| CoreMember { selector, kind }).collect()
     }
 }
 
@@ -164,16 +151,8 @@ mod tests {
         let table = CoreTable::bundled();
         let behavior = table.class_members("Behavior").expect("Behavior present");
         // `name` is a getter, `superclass=(_)` is a setter (per the fixture).
-        assert!(
-            behavior
-                .iter()
-                .any(|m| m.selector == "name" && m.kind == MemberKind::Getter)
-        );
-        assert!(
-            behavior
-                .iter()
-                .any(|m| m.selector == "superclass=(_)" && m.kind == MemberKind::Setter)
-        );
+        assert!(behavior.iter().any(|m| m.selector == "name" && m.kind == MemberKind::Getter));
+        assert!(behavior.iter().any(|m| m.selector == "superclass=(_)" && m.kind == MemberKind::Setter));
     }
 
     #[test]

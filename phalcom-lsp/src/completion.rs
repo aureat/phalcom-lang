@@ -111,8 +111,7 @@ impl ReceiverResolver for ConstructResolver {
         if receiver.chars().next().is_some_and(char::is_uppercase) {
             return Some((receiver, ReceiverKind::ClassObject));
         }
-        resolve_var_class(&doc.parse.program, &receiver, offset)
-            .map(|class| (class, ReceiverKind::Instance))
+        resolve_var_class(&doc.parse.program, &receiver, offset).map(|class| (class, ReceiverKind::Instance))
     }
 }
 
@@ -245,21 +244,13 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
     }
     match expr {
         Expr::Block(b) => Some(&b.body),
-        Expr::Assignment(a) => {
-            nested_block_in_expr(&a.name, offset).or_else(|| nested_block_in_expr(&a.value, offset))
-        }
+        Expr::Assignment(a) => nested_block_in_expr(&a.name, offset).or_else(|| nested_block_in_expr(&a.value, offset)),
         Expr::Unary(u) => nested_block_in_expr(&u.expr, offset),
-        Expr::Binary(b) => {
-            nested_block_in_expr(&b.left, offset).or_else(|| nested_block_in_expr(&b.right, offset))
-        }
-        Expr::MethodCall(m) => nested_block_in_expr(&m.object, offset)
-            .or_else(|| m.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
+        Expr::Binary(b) => nested_block_in_expr(&b.left, offset).or_else(|| nested_block_in_expr(&b.right, offset)),
+        Expr::MethodCall(m) => nested_block_in_expr(&m.object, offset).or_else(|| m.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
         Expr::GetProperty(g) => nested_block_in_expr(&g.object, offset),
-        Expr::SetProperty(s) => {
-            nested_block_in_expr(&s.object, offset).or_else(|| nested_block_in_expr(&s.value, offset))
-        }
-        Expr::Index(i) => nested_block_in_expr(&i.object, offset)
-            .or_else(|| i.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
+        Expr::SetProperty(s) => nested_block_in_expr(&s.object, offset).or_else(|| nested_block_in_expr(&s.value, offset)),
+        Expr::Index(i) => nested_block_in_expr(&i.object, offset).or_else(|| i.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
         Expr::SetIndex(si) => nested_block_in_expr(&si.object, offset)
             .or_else(|| si.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset)))
             .or_else(|| nested_block_in_expr(&si.value, offset)),
@@ -281,10 +272,7 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
 /// sibling scope nor another class member is ever consulted.
 fn resolve_var_class(program: &Program, target: &str, offset: usize) -> Option<String> {
     let (chain, _enclosing_class) = enclosing_scope_chain(program, offset);
-    chain
-        .iter()
-        .rev()
-        .find_map(|scope| resolve_in_scope(scope, target, offset))
+    chain.iter().rev().find_map(|scope| resolve_in_scope(scope, target, offset))
 }
 
 /// Scans one scope's own top-level statements — never descending into a
@@ -372,12 +360,7 @@ fn class_of_construct(expr: &Expr) -> Option<String> {
 ///   completion).
 ///
 /// Items are returned sorted by label for a deterministic order.
-pub fn completions(
-    resolved: Option<(&str, ReceiverKind)>,
-    uri: &Url,
-    index: &WorkspaceIndex,
-    table: &CoreTable,
-) -> Vec<CompletionItem> {
+pub fn completions(resolved: Option<(&str, ReceiverKind)>, uri: &Url, index: &WorkspaceIndex, table: &CoreTable) -> Vec<CompletionItem> {
     let members = match resolved {
         Some((class, kind)) => {
             let collected = collect_class_members(class, uri, index, table);
@@ -460,12 +443,7 @@ const IMPLICIT_ROOT_CLASS: &str = "Object";
 /// happily answer with some *other* file's class of the same name — which is
 /// how `class Dog extends Animal` in one file used to pick up an unrelated
 /// `Animal` from another. Losing that is the fix, not a regression.
-fn collect_class_members(
-    class: &str,
-    uri: &Url,
-    index: &WorkspaceIndex,
-    table: &CoreTable,
-) -> Vec<ClassMemberInfo> {
+fn collect_class_members(class: &str, uri: &Url, index: &WorkspaceIndex, table: &CoreTable) -> Vec<ClassMemberInfo> {
     let mut out: Vec<ClassMemberInfo> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut guard = std::collections::HashSet::new();
@@ -488,11 +466,7 @@ fn collect_class_members(
                     out.push(member);
                 }
             }
-            current = Some(
-                index
-                    .class_parent(uri, &name)
-                    .unwrap_or_else(|| IMPLICIT_ROOT_CLASS.to_string()),
-            );
+            current = Some(index.class_parent(uri, &name).unwrap_or_else(|| IMPLICIT_ROOT_CLASS.to_string()));
         } else if let Some(members) = table.class_members(&name) {
             for member in members {
                 if seen.insert(member.selector.clone()) {
@@ -538,23 +512,11 @@ fn collect_class_members(
 /// snippet reflecting it (see [`method_snippet`] / [`setter_snippet`]).
 fn to_completion_item(member: &ClassMemberInfo) -> CompletionItem {
     let (kind, insert_text, format) = match member.kind {
-        MemberKind::Getter => (
-            CompletionItemKind::PROPERTY,
-            member.selector.clone(),
-            InsertTextFormat::PLAIN_TEXT,
-        ),
-        MemberKind::Setter => (
-            CompletionItemKind::PROPERTY,
-            setter_snippet(&member.selector),
-            InsertTextFormat::SNIPPET,
-        ),
+        MemberKind::Getter => (CompletionItemKind::PROPERTY, member.selector.clone(), InsertTextFormat::PLAIN_TEXT),
+        MemberKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(&member.selector), InsertTextFormat::SNIPPET),
         // Methods, static methods, and constructs all render as a
         // parenthesized argument-slot snippet.
-        _ => (
-            CompletionItemKind::METHOD,
-            method_snippet(&member.selector),
-            InsertTextFormat::SNIPPET,
-        ),
+        _ => (CompletionItemKind::METHOD, method_snippet(&member.selector), InsertTextFormat::SNIPPET),
     };
     CompletionItem {
         label: member.selector.clone(),
@@ -575,9 +537,7 @@ fn method_snippet(selector: &str) -> String {
         return selector.to_string();
     };
     let name = &selector[..open];
-    let inner = selector[open + 1..]
-        .strip_suffix(')')
-        .unwrap_or(&selector[open + 1..]);
+    let inner = selector[open + 1..].strip_suffix(')').unwrap_or(&selector[open + 1..]);
     if inner.is_empty() {
         return format!("{name}()");
     }
@@ -586,11 +546,7 @@ fn method_snippet(selector: &str) -> String {
         .enumerate()
         .map(|(i, slot)| {
             let n = i + 1;
-            if slot == "_" {
-                format!("${{{n}:_}}")
-            } else {
-                format!("{slot}: ${{{n}:_}}")
-            }
+            if slot == "_" { format!("${{{n}:_}}") } else { format!("{slot}: ${{{n}:_}}") }
         })
         .collect();
     format!("{name}({})", slots.join(", "))
@@ -629,14 +585,8 @@ mod tests {
 
     #[test]
     fn receiver_prefix_reads_receiver_and_partial() {
-        assert_eq!(
-            receiver_prefix("m.mov", 5),
-            Some(("m".to_string(), "mov".to_string()))
-        );
-        assert_eq!(
-            receiver_prefix("foo.", 4),
-            Some(("foo".to_string(), String::new()))
-        );
+        assert_eq!(receiver_prefix("m.mov", 5), Some(("m".to_string(), "mov".to_string())));
+        assert_eq!(receiver_prefix("foo.", 4), Some(("foo".to_string(), String::new())));
     }
 
     #[test]
@@ -651,10 +601,7 @@ mod tests {
         let doc = Document::new(src.to_string());
         // Position at end of `m.` on line 1.
         let pos = Position { line: 1, character: 2 };
-        assert_eq!(
-            ConstructResolver.resolve(&doc, pos),
-            Some(("Mover".to_string(), ReceiverKind::Instance))
-        );
+        assert_eq!(ConstructResolver.resolve(&doc, pos), Some(("Mover".to_string(), ReceiverKind::Instance)));
     }
 
     #[test]
@@ -670,10 +617,7 @@ mod tests {
         let src = "Mover.\n";
         let doc = Document::new(src.to_string());
         let pos = Position { line: 0, character: 6 };
-        assert_eq!(
-            ConstructResolver.resolve(&doc, pos),
-            Some(("Mover".to_string(), ReceiverKind::ClassObject))
-        );
+        assert_eq!(ConstructResolver.resolve(&doc, pos), Some(("Mover".to_string(), ReceiverKind::ClassObject)));
     }
 
     #[test]
@@ -685,10 +629,7 @@ mod tests {
         let src = "class Mover {\n  move() {\n    self.size\n  }\n}\n";
         let doc = Document::new(src.to_string());
         let pos = Position { line: 2, character: 9 };
-        assert_eq!(
-            ConstructResolver.resolve(&doc, pos),
-            Some(("Mover".to_string(), ReceiverKind::Instance))
-        );
+        assert_eq!(ConstructResolver.resolve(&doc, pos), Some(("Mover".to_string(), ReceiverKind::Instance)));
     }
 
     #[test]
@@ -706,10 +647,7 @@ mod tests {
         let src = "let m = Car.new();\nm = Mover.new();\nm.\n";
         let doc = Document::new(src.to_string());
         let pos = Position { line: 2, character: 2 };
-        assert_eq!(
-            ConstructResolver.resolve(&doc, pos),
-            Some(("Mover".to_string(), ReceiverKind::Instance))
-        );
+        assert_eq!(ConstructResolver.resolve(&doc, pos), Some(("Mover".to_string(), ReceiverKind::Instance)));
     }
 
     #[test]
@@ -719,10 +657,7 @@ mod tests {
         let src = "let m = Car.new();\nm.\nm = Mover.new();\n";
         let doc = Document::new(src.to_string());
         let pos = Position { line: 1, character: 2 };
-        assert_eq!(
-            ConstructResolver.resolve(&doc, pos),
-            Some(("Car".to_string(), ReceiverKind::Instance))
-        );
+        assert_eq!(ConstructResolver.resolve(&doc, pos), Some(("Car".to_string(), ReceiverKind::Instance)));
     }
 
     #[test]
@@ -746,18 +681,12 @@ mod tests {
         let src = "let m = Car.new();\n{\n  let m = Truck.new();\n};\nm.\n";
         let doc = Document::new(src.to_string());
         let pos = Position { line: 4, character: 2 };
-        assert_eq!(
-            ConstructResolver.resolve(&doc, pos),
-            Some(("Car".to_string(), ReceiverKind::Instance))
-        );
+        assert_eq!(ConstructResolver.resolve(&doc, pos), Some(("Car".to_string(), ReceiverKind::Instance)));
     }
 
     #[test]
     fn method_snippet_positional_and_labeled_slots() {
-        assert_eq!(
-            method_snippet("move(_,to,duration)"),
-            "move(${1:_}, to: ${2:_}, duration: ${3:_})"
-        );
+        assert_eq!(method_snippet("move(_,to,duration)"), "move(${1:_}, to: ${2:_}, duration: ${3:_})");
         assert_eq!(method_snippet("reset()"), "reset()");
         assert_eq!(method_snippet("at(_,put)"), "at(${1:_}, put: ${2:_})");
     }
@@ -769,10 +698,7 @@ mod tests {
 
     #[test]
     fn completions_for_resolved_user_class_only_that_class() {
-        let index = index_with(
-            "file:///a.ph",
-            "class Point {\n  move(x, to:) { }\n  size { }\n}\n",
-        );
+        let index = index_with("file:///a.ph", "class Point {\n  move(x, to:) { }\n  size { }\n}\n");
         let items = completions(Some(("Point", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"move(_,to)"));
@@ -783,10 +709,7 @@ mod tests {
 
     #[test]
     fn completions_walk_user_superclass_chain() {
-        let index = index_with(
-            "file:///a.ph",
-            "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n",
-        );
+        let index = index_with("file:///a.ph", "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n");
         let items = completions(Some(("Dog", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
@@ -812,10 +735,7 @@ mod tests {
     fn completions_walk_implicit_object_parent_past_a_user_superclass_chain() {
         // `Animal` also writes no `extends`, so `Dog`'s walk must reach
         // `Object` past `Animal`, not stop at `Animal`.
-        let index = index_with(
-            "file:///a.ph",
-            "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n",
-        );
+        let index = index_with("file:///a.ph", "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n");
         let items = completions(Some(("Dog", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
@@ -859,16 +779,8 @@ mod tests {
     fn completions_class_object_receiver_offers_user_static_method_only() {
         // A user class with a `static` method and an instance method: the
         // class-object receiver must see only the `static` one.
-        let index = index_with(
-            "file:///a.ph",
-            "class Counter {\n  static make() { }\n  next() { }\n}\n",
-        );
-        let items = completions(
-            Some(("Counter", ReceiverKind::ClassObject)),
-            &a_uri(),
-            &index,
-            CoreTable::bundled(),
-        );
+        let index = index_with("file:///a.ph", "class Counter {\n  static make() { }\n  next() { }\n}\n");
+        let items = completions(Some(("Counter", ReceiverKind::ClassObject)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"make()"), "{labels:#?}");
         assert!(!labels.contains(&"next()"), "{labels:#?}");
@@ -884,14 +796,8 @@ mod tests {
         let index = WorkspaceIndex::new();
         let a = Url::parse("file:///a.ph").unwrap();
         let b = Url::parse("file:///b.ph").unwrap();
-        index.update_file(
-            a.clone(),
-            &phalcom_ast::parser::parse("class Point {\n  aye() { }\n}\n", 0).program,
-        );
-        index.update_file(
-            b.clone(),
-            &phalcom_ast::parser::parse("class Point {\n  bee() { }\n}\n", 0).program,
-        );
+        index.update_file(a.clone(), &phalcom_ast::parser::parse("class Point {\n  aye() { }\n}\n", 0).program);
+        index.update_file(b.clone(), &phalcom_ast::parser::parse("class Point {\n  bee() { }\n}\n", 0).program);
 
         let items = completions(Some(("Point", ReceiverKind::Instance)), &a, &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -911,10 +817,7 @@ mod tests {
             a.clone(),
             &phalcom_ast::parser::parse("class Dog extends Animal {\n  bark() { }\n}\n", 0).program,
         );
-        index.update_file(
-            b.clone(),
-            &phalcom_ast::parser::parse("class Animal {\n  eat() { }\n}\n", 0).program,
-        );
+        index.update_file(b.clone(), &phalcom_ast::parser::parse("class Animal {\n  eat() { }\n}\n", 0).program);
 
         let items = completions(Some(("Dog", ReceiverKind::Instance)), &a, &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -935,12 +838,7 @@ mod tests {
         let none = completions(None, &a_uri(), &index, CoreTable::bundled());
         assert!(!none.is_empty());
         // Unresolvable class name also falls back rather than returning empty.
-        let unknown = completions(
-            Some(("Nonexistent", ReceiverKind::Instance)),
-            &a_uri(),
-            &index,
-            CoreTable::bundled(),
-        );
+        let unknown = completions(Some(("Nonexistent", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         assert_eq!(none.len(), unknown.len());
     }
 

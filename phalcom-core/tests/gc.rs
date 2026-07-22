@@ -34,7 +34,10 @@ fn settled_vm() -> (VM, usize) {
 /// program would defeat the point.
 fn alloc_instance(vm: &mut VM, slots: Vec<Value>) -> phalcom_core::heap::ObjRef {
     let class = vm.universe.classes.object_class;
-    vm.heap.alloc(Object::Instance(InstanceObject { class, slots: slots.into_boxed_slice() }))
+    vm.heap.alloc(Object::Instance(InstanceObject {
+        class,
+        slots: slots.into_boxed_slice(),
+    }))
 }
 
 /// **Reclaims garbage (M6).** An object no root reaches is swept, and its handle
@@ -165,7 +168,7 @@ fn system_gc_returns_none() {
     let system_cls = Value::Obj(vm.universe.classes.system_class);
     use phalcom_core::primitive::system::system_gc;
     let result = system_gc(&mut vm, &system_cls, &[]).expect("System.gc primitive call");
-    
+
     let none_singleton = vm.universe.classes.none_singleton;
     assert!(matches!(result, Value::Obj(id) if id == none_singleton));
 }
@@ -200,13 +203,13 @@ fn system_gc_is_idempotent() {
     let (mut vm, _) = settled_vm();
     let system_cls = Value::Obj(vm.universe.classes.system_class);
     use phalcom_core::primitive::system::system_gc;
-    
+
     system_gc(&mut vm, &system_cls, &[]).expect("first System.gc");
     let count1 = vm.heap.live_count();
-    
+
     system_gc(&mut vm, &system_cls, &[]).expect("second System.gc");
     let count2 = vm.heap.live_count();
-    
+
     assert_eq!(count1, count2, "System.gc twice in a row must be idempotent");
 }
 
@@ -214,11 +217,11 @@ fn system_gc_is_idempotent() {
 #[test]
 fn alloc_latches_but_never_collects() {
     let (mut vm, before) = settled_vm();
-    
+
     // Allocate one unrooted object and hold its handle.
     let unrooted = alloc_instance(&mut vm, vec![]);
     assert_eq!(vm.heap.live_count(), before + 1);
-    
+
     // Allocate past the collector's ACTUAL threshold to cross the latch without
     // running bytecode. Do not hard-code the count: the threshold is tuned (it
     // now scales by reclamation yield, F11) and a baked-in 4100 tests the
@@ -227,7 +230,7 @@ fn alloc_latches_but_never_collects() {
     while vm.heap.live_count() < target {
         alloc_instance(&mut vm, vec![]);
     }
-    
+
     // The unrooted object must STILL be alive (latch does not collect).
     assert!(vm.heap.try_get(unrooted).is_some());
     assert!(vm.heap.gc_pending());
@@ -266,7 +269,10 @@ fn automatic_safepoint_fires() {
     // under the old assertion that difference alone flipped the test from red to
     // green, which is the definition of a test measuring the wrong thing.
     let live = vm.heap.live_count();
-    assert!(live < before + 10000, "no automatic collection ran: {live} live vs {before} baseline + 10000 allocated");
+    assert!(
+        live < before + 10000,
+        "no automatic collection ran: {live} live vs {before} baseline + 10000 allocated"
+    );
     assert!(live <= vm.heap.next_gc_for_test(), "live count should be bounded by the collector's threshold");
     assert!(!vm.heap.gc_pending(), "gc_pending should be reset after safepoint collection");
 }
@@ -318,10 +324,14 @@ fn suspended_fiber_roots_its_stack() {
 
     // Extract the yielded item from the fiber's stack.
     let fiber_obj = vm.heap.fiber(fiber_ref);
-    let yielded_ref = fiber_obj.stack.iter().find_map(|v| match v {
-        Value::Obj(id) => Some(*id),
-        _ => None,
-    }).expect("expected object in fiber stack");
+    let yielded_ref = fiber_obj
+        .stack
+        .iter()
+        .find_map(|v| match v {
+            Value::Obj(id) => Some(*id),
+            _ => None,
+        })
+        .expect("expected object in fiber stack");
 
     // Root the fiber in Rust.
     vm.push_root_for_test(fiber_val);
@@ -355,7 +365,7 @@ fn suspended_fiber_roots_its_stack() {
 fn verify_invariants_post_automatic_gc() {
     let mut vm = VM::new();
     let module = vm.create_module("test_gc_invariants", "invariants_test");
-    
+
     vm.interpret_source(
         module,
         r#"
@@ -367,9 +377,7 @@ fn verify_invariants_post_automatic_gc() {
     )
     .expect("interpret_source failed");
 
-    vm.universe
-        .verify_invariants(&vm.heap)
-        .expect("kernel invariants must hold after automatic GC");
+    vm.universe.verify_invariants(&vm.heap).expect("kernel invariants must hold after automatic GC");
 }
 
 /// **A pending `ensure` outcome survives a collecting cleanup block (ADR-0050 §7).**
@@ -454,6 +462,3 @@ fn ensure_raised_error_survives_collecting_cleanup() {
         .verify_invariants(&vm.heap)
         .expect("kernel invariants must hold after the rooted-raise collection");
 }
-
-
-

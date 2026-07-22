@@ -8,7 +8,7 @@
 use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::value::Value;
-use phalcom_core::vm::{VM, MAX_CALL_DEPTH, MAX_NATIVE_REENTRY};
+use phalcom_core::vm::{MAX_CALL_DEPTH, MAX_NATIVE_REENTRY, VM};
 
 /// Runs `source` as a module and returns the outcome.
 fn run(source: &str) -> Result<(), PhError> {
@@ -21,7 +21,10 @@ fn run(source: &str) -> Result<(), PhError> {
 /// Asserts the error is a `DepthExceeded` naming `what`, with the ceiling `limit`.
 fn assert_depth_exceeded(err: PhError, what: &str, limit: usize) {
     match err {
-        PhError::Runtime(RuntimeError::DepthExceeded { what: got_what, limit: got_limit }) => {
+        PhError::Runtime(RuntimeError::DepthExceeded {
+            what: got_what,
+            limit: got_limit,
+        }) => {
             assert_eq!(got_what, what, "wrong counter tripped");
             assert_eq!(got_limit, limit, "message must name the actual ceiling");
         }
@@ -43,8 +46,7 @@ fn native_reentry_is_bounded() {
     // through `send_dynamic`, which drives the dispatch loop recursively on the
     // *Rust* stack — overflowing that aborts the process rather than unwinding, so
     // this ceiling is two orders of magnitude tighter and must fire first.
-    let err = run("class P {\n  construct new() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n")
-        .expect_err("unbounded native re-entrancy must fail");
+    let err = run("class P {\n  construct new() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n").expect_err("unbounded native re-entrancy must fail");
     assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
 }
 
@@ -79,11 +81,7 @@ fn depth_error_is_an_ordinary_catchable_raise() {
     let caught_sym = vm.get_or_intern("caught");
     let module_obj = vm.heap.module(module);
     let slot = module_obj.slot_of(caught_sym).expect("`caught` must be bound");
-    assert_eq!(
-        module_obj.globals[slot],
-        Value::Bool(true),
-        "the handler must have run"
-    );
+    assert_eq!(module_obj.globals[slot], Value::Bool(true), "the handler must have run");
 }
 
 #[test]
@@ -96,8 +94,7 @@ fn traceback_survives_a_frame_that_executed_nothing() {
     // hits it immediately — it panicked with "attempt to subtract with overflow"
     // before `saturating_sub`. A panic reachable from ordinary source is a
     // robustness bug.
-    let err = run("class P {\n  construct new() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n")
-        .expect_err("must raise");
+    let err = run("class P {\n  construct new() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n").expect_err("must raise");
     // Reaching this line at all means the traceback walk did not panic.
     assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
 }

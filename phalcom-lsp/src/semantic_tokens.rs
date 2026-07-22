@@ -297,20 +297,15 @@ fn collect_tokens(text: &str, offset: usize, out: &mut Vec<RawToken>) {
 /// recursed into via [`collect_tokens`] so its own tokens classify as their
 /// own kinds (e.g. `"a \(x + 1) b"` yields `string`, `x`, `+`, `1`,
 /// `string` — not one giant `string` token).
-fn push_string_interp(
-    segments: &[StringSegment],
-    token_start: usize,
-    token_end: usize,
-    out: &mut Vec<RawToken>,
-) {
+fn push_string_interp(segments: &[StringSegment], token_start: usize, token_end: usize, out: &mut Vec<RawToken>) {
     let mut cursor = token_start;
     for segment in segments {
-        let StringSegment::Expr { source, start } = segment else {
+        let StringSegment::Expr { source, range } = segment else {
             continue;
         };
-        // `start` is the absolute byte offset of the expression body (right
+        // `range.start` is the byte offset of the expression body (right
         // after the `\(`); the `\(` opener itself is 2 bytes before it.
-        let expr_open = *start;
+        let expr_open = token_start + range.start;
         let backslash_paren = expr_open.saturating_sub(2);
         if backslash_paren > cursor {
             out.push(RawToken {
@@ -321,7 +316,7 @@ fn push_string_interp(
         }
         collect_tokens(source, expr_open, out);
         // Past the expression body and its closing `)`.
-        cursor = expr_open + source.len() + 1;
+        cursor = token_start + range.end + 1;
     }
     if token_end > cursor {
         out.push(RawToken {
@@ -367,10 +362,7 @@ fn apply_decl_name_overrides(text: &str, raw: &mut [RawToken]) {
     // so a linear scan per raw token is simplest and fast enough; no need
     // for a `HashMap` keyed on `(start, end)`.
     for token in raw.iter_mut() {
-        if let Some(&(_, kind)) = decls
-            .iter()
-            .find(|(range, _)| range.start == token.start && range.end == token.end)
-        {
+        if let Some(&(_, kind)) = decls.iter().find(|(range, _)| range.start == token.start && range.end == token.end) {
             token.kind = kind;
         }
     }
@@ -395,7 +387,12 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<(SourceRange, Sema
             }
             Statement::For(for_stmt) => collect_decl_names(&for_stmt.body, out),
             Statement::Expr { expr, .. } => collect_decl_names_in_expr(expr, out),
-            Statement::Let(_) | Statement::Return(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::Throw { .. } | Statement::Import(_) => {}
+            Statement::Let(_)
+            | Statement::Return(_)
+            | Statement::Break { .. }
+            | Statement::Continue { .. }
+            | Statement::Throw { .. }
+            | Statement::Import(_) => {}
         }
     }
 }
@@ -449,10 +446,7 @@ fn encode(text: &str, line_index: &LineIndex, raw: &[RawToken]) -> Vec<SemanticT
     let mut prev_start = 0u32;
     for token in raw {
         let start_pos = line_index.position(token.start);
-        let length: u32 = text[token.start..token.end]
-            .chars()
-            .map(|c| c.len_utf16() as u32)
-            .sum();
+        let length: u32 = text[token.start..token.end].chars().map(|c| c.len_utf16() as u32).sum();
 
         let delta_line = start_pos.line - prev_line;
         let delta_start = if delta_line == 0 {
@@ -491,19 +485,15 @@ mod tests {
     #[test]
     fn keyword_identifier_number_string_operator() {
         use SemanticTokenKind::{Keyword, Number, Operator, String, Variable};
-        assert_eq!(
-            kinds("let x = 1 + \"a\""),
-            vec![Keyword, Variable, Operator, Number, Operator, String]
-        );
+        assert_eq!(kinds("let x = 1 + \"a\""), vec![Keyword, Variable, Operator, Number, Operator, String]);
     }
 
     #[test]
     fn punctuation_and_newline_are_uncolored() {
-        assert_eq!(kinds("f(x, y)\n"), vec![
-            SemanticTokenKind::Variable,
-            SemanticTokenKind::Variable,
-            SemanticTokenKind::Variable,
-        ]);
+        assert_eq!(
+            kinds("f(x, y)\n"),
+            vec![SemanticTokenKind::Variable, SemanticTokenKind::Variable, SemanticTokenKind::Variable,]
+        );
     }
 
     #[test]
@@ -513,19 +503,13 @@ mod tests {
 
     #[test]
     fn selector_symbol_with_labels_is_one_selector_token() {
-        assert_eq!(
-            kinds("#move(_,to,duration)"),
-            vec![SemanticTokenKind::Selector]
-        );
+        assert_eq!(kinds("#move(_,to,duration)"), vec![SemanticTokenKind::Selector]);
     }
 
     #[test]
     fn string_interpolation_recurses_into_expression_body() {
         use SemanticTokenKind::{Number, Operator, String, Variable};
-        assert_eq!(
-            kinds(r#""a \(x + 1) b""#),
-            vec![String, Variable, Operator, Number, String]
-        );
+        assert_eq!(kinds(r#""a \(x + 1) b""#), vec![String, Variable, Operator, Number, String]);
     }
 
     #[test]
@@ -555,10 +539,7 @@ mod tests {
     #[test]
     fn class_declaration_name_is_class_kind() {
         use SemanticTokenKind::{Class, Keyword};
-        assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n}\n"),
-            vec![Keyword, Class]
-        );
+        assert_eq!(kinds_with_decl_overrides("class Foo {\n}\n"), vec![Keyword, Class]);
     }
 
     #[test]
@@ -580,9 +561,7 @@ mod tests {
         // both `new` and `greeting` are declaration names, upgraded to
         // Method.
         assert_eq!(
-            kinds_with_decl_overrides(
-                "class Foo {\n  construct new() {\n  }\n  greeting {\n    return 1\n  }\n}\n"
-            ),
+            kinds_with_decl_overrides("class Foo {\n  construct new() {\n  }\n  greeting {\n    return 1\n  }\n}\n"),
             vec![Keyword, Class, Keyword, Method, Method, Keyword, Number]
         );
     }

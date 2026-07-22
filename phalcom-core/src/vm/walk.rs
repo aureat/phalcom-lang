@@ -34,7 +34,7 @@ use std::sync::Arc;
 use phalcom_common::range::SourceRange;
 
 use crate::frame::{CallFrame, FrameToken};
-use crate::heap::{ObjRef, CORE_MODULE_NAME};
+use crate::heap::{CORE_MODULE_NAME, ObjRef};
 use crate::interner::Symbol;
 
 use super::VM;
@@ -146,13 +146,23 @@ pub struct StackWalk<'vm> {
 impl<'vm> StackWalk<'vm> {
     /// Builds a walk over `vm`'s current call stack. See [`VM::walk`].
     pub(crate) fn new(vm: &'vm VM) -> Self {
-        Self { vm, fiber: vm.current, next_physical: 0, pending: Vec::new().into_iter() }
+        Self {
+            vm,
+            fiber: vm.current,
+            next_physical: 0,
+            pending: Vec::new().into_iter(),
+        }
     }
 
     /// Builds a walk over `vm`'s call stack for a specific fiber.
     #[allow(dead_code)]
     pub(crate) fn new_fiber(vm: &'vm VM, fiber: ObjRef) -> Self {
-        Self { vm, fiber, next_physical: 0, pending: Vec::new().into_iter() }
+        Self {
+            vm,
+            fiber,
+            next_physical: 0,
+            pending: Vec::new().into_iter(),
+        }
     }
 
     /// The logical-expansion seam (module docs). Returns every logical
@@ -172,7 +182,9 @@ impl<'vm> StackWalk<'vm> {
 
         let is_main = self.is_main_frame(frame, closure);
         let name = if let Some(token) = frame.home_frame_token {
-            FrameName::Block { enclosing: self.resolve_enclosing(token, closure.callable.name_sym) }
+            FrameName::Block {
+                enclosing: self.resolve_enclosing(token, closure.callable.name_sym),
+            }
         } else if is_main {
             FrameName::Main
         } else {
@@ -395,6 +407,10 @@ const _ = cart.total([1, 2, 3])
         vm.frames.push(frame);
         let views: Vec<FrameView> = vm.walk().collect();
         assert_eq!(views.len(), 1);
-        assert!(views[0].line >= 1, "a chunk with recorded source must resolve a nonzero line, got {}", views[0].line);
+        assert!(
+            views[0].line >= 1,
+            "a chunk with recorded source must resolve a nonzero line, got {}",
+            views[0].line
+        );
     }
 }

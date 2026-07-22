@@ -34,10 +34,7 @@ pub fn syntax_error_to_diagnostic(error: &SyntaxError, index: &LineIndex) -> Dia
 /// `publish_diagnostics` with this list unconditionally (an empty list
 /// clears previously published diagnostics for a now-clean document).
 pub fn syntax_errors_to_diagnostics(errors: &[SyntaxError], index: &LineIndex) -> Vec<Diagnostic> {
-    errors
-        .iter()
-        .map(|e| syntax_error_to_diagnostic(e, index))
-        .collect()
+    errors.iter().map(|e| syntax_error_to_diagnostic(e, index)).collect()
 }
 
 #[cfg(test)]

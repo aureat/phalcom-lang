@@ -3,8 +3,8 @@ use crate::value::Value;
 use phalcom_ast::ast::Pattern;
 use phalcom_common::range::SourceRange;
 
-use super::error::CompilerError;
 use super::Compiler;
+use super::error::CompilerError;
 
 // ── Destructuring `let`/`const` bindings (U14, open-questions.md Q7) ───────
 //

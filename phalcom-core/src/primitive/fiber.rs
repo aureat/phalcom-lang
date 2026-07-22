@@ -14,8 +14,8 @@
 
 use crate::error::{PhResult, RuntimeError};
 use crate::frame::CallContext;
-use crate::heap::{FiberResumeMode, FiberStatus, Object, ObjRef};
 use crate::heap::InstanceObject;
+use crate::heap::{FiberResumeMode, FiberStatus, ObjRef, Object};
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -71,7 +71,13 @@ fn cannot_switch_across_native_frame(vm: &mut VM, rendered: String) -> crate::er
     let mut inst = InstanceObject::new(class, field_count);
     inst.slots[0] = vm.alloc_string_value(rendered.clone());
     let error = Value::Obj(vm.heap.alloc(Object::Instance(inst)));
-    RuntimeError::Raise { error, rendered, traceback: None, help: None }.into()
+    RuntimeError::Raise {
+        error,
+        rendered,
+        traceback: None,
+        help: None,
+    }
+    .into()
 }
 
 /// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1) for a
@@ -80,7 +86,10 @@ fn cannot_switch_across_native_frame(vm: &mut VM, rendered: String) -> crate::er
 /// attempted underneath a native re-entrant `run_until` (a `block_call` and
 /// friends) on the Rust call stack.
 fn cannot_yield_across_native_frame(vm: &mut VM) -> crate::error::PhError {
-    cannot_switch_across_native_frame(vm, "cannot switch fibers across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)".to_string())
+    cannot_switch_across_native_frame(
+        vm,
+        "cannot switch fibers across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)".to_string(),
+    )
 }
 
 /// Builds and raises the `CannotYieldAcrossNativeFrame` error (D-FIB-1) for a
@@ -94,7 +103,10 @@ fn cannot_yield_across_native_frame(vm: &mut VM) -> crate::error::PhError {
 /// would corrupt). The message names the actual violated action instead of
 /// reusing [`cannot_yield_across_native_frame`]'s yield-specific wording.
 fn cannot_resume_across_native_frame(vm: &mut VM) -> crate::error::PhError {
-    cannot_switch_across_native_frame(vm, "cannot resume a fiber across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)".to_string())
+    cannot_switch_across_native_frame(
+        vm,
+        "cannot resume a fiber across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)".to_string(),
+    )
 }
 
 /// Resolves `receiver` to the [`FiberObject`] handle it refers to.
@@ -105,7 +117,11 @@ fn cannot_resume_across_native_frame(vm: &mut VM) -> crate::error::PhError {
 fn expect_fiber(vm: &VM, receiver: &Value) -> PhResult<ObjRef> {
     match receiver {
         Value::Obj(id) if vm.heap.as_fiber(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type { expected: "Fiber", found: other.type_name() }.into()),
+        other => Err(RuntimeError::Type {
+            expected: "Fiber",
+            found: other.type_name(),
+        }
+        .into()),
     }
 }
 
@@ -125,9 +141,21 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
     match entry {
         Value::Obj(id) => match vm.heap.get(id) {
             Object::Block(_) | Object::Closure(_) => {}
-            _ => return Err(RuntimeError::Type { expected: "Function", found: entry.type_name() }.into()),
+            _ => {
+                return Err(RuntimeError::Type {
+                    expected: "Function",
+                    found: entry.type_name(),
+                }
+                .into());
+            }
         },
-        other => return Err(RuntimeError::Type { expected: "Function", found: other.type_name() }.into()),
+        other => {
+            return Err(RuntimeError::Type {
+                expected: "Function",
+                found: other.type_name(),
+            }
+            .into());
+        }
     }
     let entry_id = match entry {
         Value::Obj(id) => id,
@@ -169,9 +197,7 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
             let closure = vm.heap.closure(block.closure);
             format!("<block in {}>", vm.resolve_symbol(closure.callable.name_sym))
         }
-        Object::Closure(closure) => {
-            vm.resolve_symbol(closure.callable.name_sym).to_string()
-        }
+        Object::Closure(closure) => vm.resolve_symbol(closure.callable.name_sym).to_string(),
         _ => "<unknown>".to_string(),
     };
 
@@ -304,7 +330,13 @@ pub fn fiber_abort(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
     }
     let error = args[0];
     let rendered = error.to_string(vm);
-    Err(RuntimeError::Raise { error, rendered, traceback: None, help: None }.into())
+    Err(RuntimeError::Raise {
+        error,
+        rendered,
+        traceback: None,
+        help: None,
+    }
+    .into())
 }
 
 /// Signature: `Fiber#call`/`call(_)` — resumes the receiver fiber, re-raising
@@ -372,7 +404,12 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
                 FiberResumeMode::Call => "call",
                 FiberResumeMode::Try => "try",
             };
-            return Err(RuntimeError::Arity { signature, expected: arity, found: args.len() }.into());
+            return Err(RuntimeError::Arity {
+                signature,
+                expected: arity,
+                found: args.len(),
+            }
+            .into());
         }
         Some((entry, closure_id, home_frame_token))
     } else {
@@ -442,7 +479,10 @@ pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
             let closure = vm.heap.closure(top.closure);
             let module = vm.heap.module(closure.module);
             let span_index = top.ip.saturating_sub(1);
-            line = closure.callable.chunk.line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
+            line = closure
+                .callable
+                .chunk
+                .line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
             file_str = vm.resolve_symbol(module.name_sym).to_string();
         }
         let val_str = value.to_string(vm);

@@ -149,8 +149,13 @@ fn render_line_block(
     let expanded = expand_tabs(line_text);
     let total_width = display_width(&expanded);
 
-    let (win_start_col, win_text, left_trim, right_trim) =
-        window(&expanded, total_width, col_of(line_text, byte_in_line(primary, line_start, line_text)), config.width, glyphs);
+    let (win_start_col, win_text, left_trim, right_trim) = window(
+        &expanded,
+        total_width,
+        col_of(line_text, byte_in_line(primary, line_start, line_text)),
+        config.width,
+        glyphs,
+    );
 
     // Gutter + windowed source line.
     out.push_str(&styler.paint(Role::LineNumber, &format!("{line_no:>gutter_width$}")));
@@ -167,7 +172,11 @@ fn render_line_block(
         };
         let multiline = source[label.span.start..label.span.end.min(source.len())].contains('\n');
         let start_byte = byte_in_line(label, line_start, line_text);
-        let end_byte = if multiline { line_text.len() } else { (label.span.end.saturating_sub(line_start)).min(line_text.len()) };
+        let end_byte = if multiline {
+            line_text.len()
+        } else {
+            (label.span.end.saturating_sub(line_start)).min(line_text.len())
+        };
         let start_col = col_of(line_text, start_byte);
         let end_col = col_of(line_text, end_byte).max(start_col + 1);
 
@@ -280,13 +289,7 @@ fn col_of(line: &str, byte_offset: usize) -> usize {
 /// Cuts `expanded` (already tab-expanded) to at most `width` display columns, centered on
 /// `focus_col`, with `…`/`...` elision markers on any trimmed side (IS §3.4's width-windowing
 /// rule). Returns `(window_start_col, windowed_text, left_trimmed, right_trimmed)`.
-fn window(
-    expanded: &str,
-    total_width: usize,
-    focus_col: usize,
-    width: u16,
-    glyphs: &super::style::Glyphs,
-) -> (usize, String, bool, bool) {
+fn window(expanded: &str, total_width: usize, focus_col: usize, width: u16, glyphs: &super::style::Glyphs) -> (usize, String, bool, bool) {
     let width = width.max(10) as usize; // a pathologically small width still needs room for glyphs.
     if total_width <= width {
         return (0, expanded.to_string(), false, false);
@@ -333,13 +336,17 @@ fn window(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::style::GlyphSet;
+    use super::*;
     use phalcom_common::range::SourceRange;
 
     fn cfg(color: bool, glyphs: GlyphSet, width: u16) -> RenderConfig {
         RenderConfig {
-            color: if color { super::super::style::ColorMode::Always } else { super::super::style::ColorMode::Never },
+            color: if color {
+                super::super::style::ColorMode::Always
+            } else {
+                super::super::style::ColorMode::Never
+            },
             glyphs,
             width,
         }
@@ -353,7 +360,11 @@ mod tests {
     fn tab_expansion_aligns_underline_to_next_multiple_of_four() {
         // "\tx" -> tab expands to 4 columns, so 'x' starts at column 5 (1-based).
         let source = "\tx = 1";
-        let labels = [Label { span: range(1, 2), text: "here", kind: LabelKind::Primary }];
+        let labels = [Label {
+            span: range(1, 2),
+            text: "here",
+            kind: LabelKind::Primary,
+        }];
         let out = Snippet::new().render(source, &labels, &cfg(false, GlyphSet::Unicode, 80));
         // The underline row's leading spaces before the underline glyph must equal 4 (the tab
         // stop), not 1 (the raw byte offset).
@@ -371,7 +382,11 @@ mod tests {
         // "你好" starts at byte 8, each char is 3 bytes / 2 columns wide.
         let start = source.find("你好").unwrap();
         let end = source.len();
-        let labels = [Label { span: range(start, end), text: "wide", kind: LabelKind::Primary }];
+        let labels = [Label {
+            span: range(start, end),
+            text: "wide",
+            kind: LabelKind::Primary,
+        }];
         let out = Snippet::new().render(source, &labels, &cfg(false, GlyphSet::Unicode, 80));
         let underline_line = out.lines().find(|l| l.contains('─') && l.contains('·')).unwrap();
         let underline_cols = underline_line.chars().filter(|c| *c == '─').count();
@@ -385,7 +400,11 @@ mod tests {
         let source = "cafe\u{0301} ok";
         let start = source.find("e\u{0301}").unwrap();
         let end = start + "e\u{0301}".len();
-        let labels = [Label { span: range(start, end), text: "accent", kind: LabelKind::Primary }];
+        let labels = [Label {
+            span: range(start, end),
+            text: "accent",
+            kind: LabelKind::Primary,
+        }];
         let out = Snippet::new().render(source, &labels, &cfg(false, GlyphSet::Unicode, 80));
         let underline_line = out.lines().find(|l| l.contains('─') && !l.contains('╭') && !l.contains('╰')).unwrap();
         let underline_cols = underline_line.chars().filter(|c| *c == '─').count();
@@ -399,7 +418,11 @@ mod tests {
         let source = format!("{long_prefix}TARGET{}", "y".repeat(100));
         let start = long_prefix.len();
         let end = start + "TARGET".len();
-        let labels = [Label { span: range(start, end), text: "here", kind: LabelKind::Primary }];
+        let labels = [Label {
+            span: range(start, end),
+            text: "here",
+            kind: LabelKind::Primary,
+        }];
         let out = Snippet::new().render(&source, &labels, &cfg(false, GlyphSet::Unicode, 40));
         let source_line = out.lines().find(|l| l.contains("TARGET")).expect("windowed source row");
         assert!(source_line.contains('…'), "expected an elision marker: {source_line:?}");
@@ -409,8 +432,16 @@ mod tests {
     #[test]
     fn two_label_layout_renders_primary_and_secondary() {
         let source = "{ unterminated";
-        let opener = Label { span: range(0, 1), text: "opened here", kind: LabelKind::Secondary };
-        let eof = Label { span: range(source.len(), source.len()), text: "expected '}'", kind: LabelKind::Primary };
+        let opener = Label {
+            span: range(0, 1),
+            text: "opened here",
+            kind: LabelKind::Secondary,
+        };
+        let eof = Label {
+            span: range(source.len(), source.len()),
+            text: "expected '}'",
+            kind: LabelKind::Primary,
+        };
         let out = Snippet::new().render(source, &[opener, eof], &cfg(false, GlyphSet::Unicode, 80));
         assert!(out.contains("opened here"));
         assert!(out.contains("expected '}'"));
@@ -419,7 +450,11 @@ mod tests {
     #[test]
     fn ascii_glyph_set_uses_ascii_only_box_drawing() {
         let source = "1 + negatd";
-        let labels = [Label { span: range(4, 10), text: "no such method", kind: LabelKind::Primary }];
+        let labels = [Label {
+            span: range(4, 10),
+            text: "no such method",
+            kind: LabelKind::Primary,
+        }];
         let out = Snippet::new().render(source, &labels, &cfg(false, GlyphSet::Ascii, 80));
         assert!(!out.chars().any(|c| c as u32 > 0x7f), "ASCII glyph set must not emit non-ASCII bytes: {out:?}");
         assert!(out.contains('|'));
@@ -431,7 +466,11 @@ mod tests {
     #[test]
     fn strip_sgr_invariance() {
         let source = "1 + negatd";
-        let labels = [Label { span: range(4, 10), text: "no such method", kind: LabelKind::Primary }];
+        let labels = [Label {
+            span: range(4, 10),
+            text: "no such method",
+            kind: LabelKind::Primary,
+        }];
         let styled = Snippet::new().render(source, &labels, &cfg(true, GlyphSet::Unicode, 80));
         let plain = Snippet::new().render(source, &labels, &cfg(false, GlyphSet::Unicode, 80));
         assert_eq!(strip_sgr(&styled), plain);

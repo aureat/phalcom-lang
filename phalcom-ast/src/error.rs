@@ -44,11 +44,7 @@ impl Display for SyntaxError {
     /// callers should prefer rendering [`kind`](Self::kind) against the source
     /// via `phalcom-core`'s `diagnostics::print_parse`.
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{} (at bytes {}..{})",
-            self.kind, self.range.start, self.range.end
-        )
+        write!(f, "{} (at bytes {}..{})", self.kind, self.range.start, self.range.end)
     }
 }
 
@@ -157,6 +153,22 @@ pub enum SyntaxErrorKind {
     #[error("Unterminated comment")]
     UnterminatedComment,
 
+    /// An invalid escape sequence was encountered in a string literal.
+    #[error("Invalid string escape")]
+    InvalidStringEscape,
+
+    /// An interpolation `\(` was not closed before end-of-input.
+    #[error("Unterminated string interpolation")]
+    UnterminatedInterpolation,
+
+    /// String interpolation contains no expression.
+    #[error("String interpolation requires an expression")]
+    EmptyInterpolation,
+
+    /// A unescaped physical newline occurred inside a double-quoted string.
+    #[error("Raw newline is not allowed in a string literal")]
+    RawNewlineInString,
+
     /// A syntax error with no more specific classification.
     #[error("Unknown error")]
     Unknown,
@@ -164,4 +176,39 @@ pub enum SyntaxErrorKind {
     /// A pre-formatted, free-form diagnostic message.
     #[error("{0}")]
     Message(String),
+}
+
+impl SyntaxErrorKind {
+    /// Returns the stable diagnostic code for this error category.
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::ExtraToken { .. } => "syntax.extra_token",
+            Self::InvalidToken => "syntax.invalid_token",
+            Self::ReturnInInitializer => "syntax.block.return_in_initializer",
+            Self::ReturnOutsideFunction => "syntax.block.return_outside_function",
+            Self::SuperOutsideClass => "syntax.class.super_outside_class",
+            Self::SuperWithoutSuperclass => "syntax.class.super_without_superclass",
+            Self::SelfOutsideClass => "syntax.class.self_outside_class",
+            Self::UnexpectedInput { .. } => "syntax.unexpected_input",
+            Self::UnrecognizedEof { .. } => "syntax.unrecognized_eof",
+            Self::UnrecognizedToken { .. } => "syntax.unrecognized_token",
+            Self::InvalidInteger => "number.invalid_integer",
+            Self::InvalidFloat => "number.invalid_float",
+            Self::UnterminatedString => "string.unterminated",
+            Self::UnterminatedComment => "comment.unterminated",
+            Self::InvalidStringEscape => "string.invalid_escape",
+            Self::UnterminatedInterpolation => "string.interpolation.unterminated",
+            Self::EmptyInterpolation => "string.interpolation.empty",
+            Self::RawNewlineInString => "string.raw_newline",
+            Self::Unknown => "syntax.unknown",
+            Self::Message(_) => "syntax.message",
+        }
+    }
+}
+
+impl SyntaxError {
+    /// Returns the stable diagnostic code for this syntax error.
+    pub const fn code(&self) -> &'static str {
+        self.kind.code()
+    }
 }

@@ -1,16 +1,13 @@
 use std::fs;
-use std::process::{Command, Output};
 use std::path::PathBuf;
+use std::process::{Command, Output};
 
 fn phalcom_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_phalcom"))
 }
 
 fn run_bin(args: &[&str]) -> Output {
-    Command::new(phalcom_bin())
-        .args(args)
-        .output()
-        .expect("failed to spawn the `phalcom` binary")
+    Command::new(phalcom_bin()).args(args).output().expect("failed to spawn the `phalcom` binary")
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -33,7 +30,11 @@ fn strip_ansi(s: &str) -> String {
 #[test]
 fn test_json_traceback_format() {
     let file_path = std::env::temp_dir().join(format!("traceback_json_{}.ph", std::process::id()));
-    fs::write(&file_path, "class Test {\n  construct new() {}\n  foo { return self.bar }\n  bar { return 1.missing }\n}\nTest.new().foo\n").unwrap();
+    fs::write(
+        &file_path,
+        "class Test {\n  construct new() {}\n  foo { return self.bar }\n  bar { return 1.missing }\n}\nTest.new().foo\n",
+    )
+    .unwrap();
 
     let output = run_bin(&["--trace-format", "json", file_path.to_str().unwrap()]);
     let _ = fs::remove_file(&file_path);
@@ -49,7 +50,11 @@ fn test_recursion_collapse() {
     let file_path = std::env::temp_dir().join(format!("traceback_collapse_{}.ph", std::process::id()));
     // Create a loop recursion where go calls itself repeatedly.
     // In Phalcom, MAX_CALL_DEPTH is 256. 256 > 3, so repeat collapse should trigger.
-    fs::write(&file_path, "class Boom {\n  construct new() {}\n  go(n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n").unwrap();
+    fs::write(
+        &file_path,
+        "class Boom {\n  construct new() {}\n  go(n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n",
+    )
+    .unwrap();
 
     let output = run_bin(&[file_path.to_str().unwrap()]);
     let _ = fs::remove_file(&file_path);
@@ -138,32 +143,23 @@ fn assert_color_invariance(source: &str, extra_args: &[&str]) {
 fn test_color_invariance_runtime_base() {
     assert_color_invariance(
         "class Test {\n  construct new() {}\n  foo { return self.bar }\n  bar { return 1.missing }\n}\nTest.new().foo\n",
-        &[]
+        &[],
     );
 }
 
 #[test]
 fn test_color_invariance_runtime_fiber() {
-    assert_color_invariance(
-        "let worker = Fiber.new {\n  1.missing\n}\nworker.call()\n",
-        &[]
-    );
+    assert_color_invariance("let worker = Fiber.new {\n  1.missing\n}\nworker.call()\n", &[]);
 }
 
 #[test]
 fn test_color_invariance_syntax_error() {
-    assert_color_invariance(
-        "1 + \n",
-        &[]
-    );
+    assert_color_invariance("1 + \n", &[]);
 }
 
 #[test]
 fn test_color_invariance_compile_error() {
-    assert_color_invariance(
-        "break\n",
-        &[]
-    );
+    assert_color_invariance("break\n", &[]);
 }
 
 #[test]
@@ -188,4 +184,3 @@ fn test_color_invariance_disasm() {
         stripped_colored, stdout_plain
     );
 }
-

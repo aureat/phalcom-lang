@@ -78,10 +78,7 @@ const VARIADIC_SEND: &str = include_str!("../../benchmarks/vm/variadic_send.ph")
 fn run_program(src: &str, checks: &[(&str, f64)]) {
     let mut interp = Interpreter::new();
     let main = interp.vm.create_module("main", "<bench>");
-    interp
-        .vm
-        .interpret_source(main, src)
-        .expect("benchmark program must execute cleanly");
+    interp.vm.interpret_source(main, src).expect("benchmark program must execute cleanly");
 
     for &(name, expected) in checks {
         let sym = interp.vm.interner.intern(name);
@@ -105,9 +102,7 @@ fn run_program(src: &str, checks: &[(&str, f64)]) {
 /// dispatched `Empty.noop` returns — i.e. every send resolved to the intended
 /// method body.
 fn bench_bare_send(c: &mut Criterion) {
-    c.bench_function("bare_send", |b| {
-        b.iter(|| run_program(black_box(BARE_SEND), &[("i", 200_000.0), ("acc", 0.0)]))
-    });
+    c.bench_function("bare_send", |b| b.iter(|| run_program(black_box(BARE_SEND), &[("i", 200_000.0), ("acc", 0.0)])));
 }
 
 /// Benchmarks the allocation-bound program ([`ARITH_SEND`]).

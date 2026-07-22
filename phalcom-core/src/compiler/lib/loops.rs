@@ -3,9 +3,9 @@ use crate::value::Value;
 use phalcom_ast::ast::ForStatement;
 use phalcom_common::range::SourceRange;
 
+use super::Compiler;
 use super::error::CompilerError;
 use super::state::LoopContext;
-use super::Compiler;
 
 impl<'vm> Compiler<'vm> {
     /// Pushes a fresh [`LoopContext`] for a loop entered at the current
@@ -16,7 +16,11 @@ impl<'vm> Compiler<'vm> {
     /// `break`/`continue` in either construct's body resolve against it via
     /// [`Self::compile_break`]/[`Self::compile_continue`].
     pub(crate) fn push_loop_context(&mut self) {
-        self.loop_contexts.push(LoopContext { func_depth: self.functions.len(), break_jumps: Vec::new(), continue_jumps: Vec::new() });
+        self.loop_contexts.push(LoopContext {
+            func_depth: self.functions.len(),
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+        });
     }
 
     /// Pops the innermost [`LoopContext`], returning its recorded `break`

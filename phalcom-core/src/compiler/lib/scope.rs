@@ -1,7 +1,7 @@
 use crate::bytecode::Bytecode;
 use crate::callable::UpvalueDescriptor;
 use crate::interner::Symbol;
-use crate::method::{encode_selector, SignatureKind};
+use crate::method::{SignatureKind, encode_selector};
 use crate::value::Value;
 use phalcom_ast::ast::Argument;
 use phalcom_common::range::SourceRange;
@@ -9,7 +9,6 @@ use phalcom_common::range::SourceRange;
 use super::error::CompilerError;
 use super::state::Local;
 use super::{Compiler, UnitKind};
-
 
 impl<'vm> Compiler<'vm> {
     /// Emits `opcode` into the current function's chunk.
@@ -134,12 +133,24 @@ impl<'vm> Compiler<'vm> {
         let func = self.functions.last_mut().unwrap();
         let depth = func.scope_depth;
         let is_throwaway = self.vm.resolve_symbol(name) == "_";
-        if !is_throwaway && func.locals.iter().rev().take_while(|local| local.depth == depth).any(|local| local.name == name) {
+        if !is_throwaway
+            && func
+                .locals
+                .iter()
+                .rev()
+                .take_while(|local| local.depth == depth)
+                .any(|local| local.name == name)
+        {
             return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));
         }
         let func = self.functions.last_mut().unwrap();
         tracing::debug!("[Compiler] Adding local at depth {}", func.scope_depth);
-        func.locals.push(Local { name, depth: func.scope_depth, is_captured: false, is_mutable });
+        func.locals.push(Local {
+            name,
+            depth: func.scope_depth,
+            is_captured: false,
+            is_mutable,
+        });
         func.local_names.push(name);
         func.num_locals += 1;
         if func.num_locals > func.max_slots {
@@ -182,8 +193,7 @@ impl<'vm> Compiler<'vm> {
         let is_throwaway = self.vm.resolve_symbol(name) == "_";
         if !is_throwaway {
             let redeclared_this_unit = self.global_bindings.contains_key(&name);
-            let redeclared_prior_unit = self.unit_kind != UnitKind::Repl
-                && self.vm.heap.module(self.module).global_bindings.contains_key(&name);
+            let redeclared_prior_unit = self.unit_kind != UnitKind::Repl && self.vm.heap.module(self.module).global_bindings.contains_key(&name);
             if redeclared_this_unit || redeclared_prior_unit {
                 return Err(CompilerError::BindingRedeclared(self.vm.resolve_symbol(name).to_string()));
             }
@@ -191,7 +201,6 @@ impl<'vm> Compiler<'vm> {
         self.global_bindings.insert(name, is_mutable);
         Ok(())
     }
-
 
     /// Resolves `name` as a local in the current function, returning its slot.
     pub(super) fn resolve_local(&self, name: Symbol) -> Option<usize> {
@@ -204,7 +213,6 @@ impl<'vm> Compiler<'vm> {
         let func = &self.functions[func_idx];
         (0..func.num_locals).rev().find(|&i| func.locals[i].name == name)
     }
-
 
     /// Resolves `name` as an upvalue captured by the current function.
     ///

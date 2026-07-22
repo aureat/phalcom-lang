@@ -1,16 +1,16 @@
 use crate::method::MethodObject;
 use crate::method::SignatureKind;
 use crate::primitive::attribute::{attribute_attach, attribute_attributes, attribute_freeze};
-use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
 use crate::primitive::block::{block_arity, block_call, block_call_with, block_ensure, block_name, block_on, block_while_true};
+use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
+use crate::primitive::bytes::{
+    bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill, bytes_raw_set, bytes_raw_size,
+    bytes_raw_slice, bytes_raw_utf8, bytes_raw_utf8_lossy,
+};
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::family_does_not_understand;
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
-use crate::primitive::bytes::{
-    bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill,
-    bytes_raw_set, bytes_raw_size, bytes_raw_slice, bytes_raw_utf8, bytes_raw_utf8_lossy,
-};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
@@ -21,18 +21,18 @@ use crate::primitive::number::{
     number_to_string,
 };
 use crate::primitive::object::{
-    message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash,
-    object_invariant_enter, object_invariant_exit, object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to,
-    object_set_class, object_to_string,
+    message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
+    object_invariant_exit, object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to, object_set_class,
+    object_to_string,
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
 use crate::primitive::range::{range_class_new, range_raw_end, range_raw_inclusive, range_raw_start};
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
-use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_count, string_raw_byte_at, string_raw_slice};
-use crate::primitive::tuple::{tuple_class_from_list, tuple_raw_at, tuple_raw_size};
+use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
-use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_schedule, system_raw_write};
+use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_raw_write, system_schedule};
+use crate::primitive::tuple::{tuple_class_from_list, tuple_raw_at, tuple_raw_size};
 use crate::vm::VM;
 
 use super::Universe;
@@ -402,12 +402,42 @@ impl Universe {
 
         // U-RESOURCE primitives
         let resource_cls = vm.universe.classes.resource_class;
-        primitive_static!(vm, resource_cls, "register_", SignatureKind::Method(1), crate::primitive::resource::resource_register);
-        primitive!(vm, resource_cls, "close_", SignatureKind::Method(0), crate::primitive::resource::resource_raw_close);
-        primitive!(vm, resource_cls, "isClosed_", SignatureKind::Getter, crate::primitive::resource::resource_raw_is_closed);
+        primitive_static!(
+            vm,
+            resource_cls,
+            "register_",
+            SignatureKind::Method(1),
+            crate::primitive::resource::resource_register
+        );
+        primitive!(
+            vm,
+            resource_cls,
+            "close_",
+            SignatureKind::Method(0),
+            crate::primitive::resource::resource_raw_close
+        );
+        primitive!(
+            vm,
+            resource_cls,
+            "isClosed_",
+            SignatureKind::Getter,
+            crate::primitive::resource::resource_raw_is_closed
+        );
 
         let system_cls = vm.universe.classes.system_class;
-        primitive_static!(vm, system_cls, "leakReport_", SignatureKind::Getter, crate::primitive::resource::system_leak_report);
-        primitive_static!(vm, system_cls, "strictResources_", SignatureKind::Method(1), crate::primitive::resource::system_strict_resources);
+        primitive_static!(
+            vm,
+            system_cls,
+            "leakReport_",
+            SignatureKind::Getter,
+            crate::primitive::resource::system_leak_report
+        );
+        primitive_static!(
+            vm,
+            system_cls,
+            "strictResources_",
+            SignatureKind::Method(1),
+            crate::primitive::resource::system_strict_resources
+        );
     }
 }

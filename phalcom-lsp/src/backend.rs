@@ -30,14 +30,11 @@ use std::path::{Path, PathBuf};
 
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
-    HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, Location,
-    MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind,
-    ReferenceParams, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation,
-    SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceSymbolParams,
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
+    InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams,
+    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities,
+    SymbolInformation, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -98,9 +95,7 @@ impl Backend {
                 syntax_errors_to_diagnostics(doc.errors(), &doc.line_index)
             })
             .unwrap_or_default();
-        self.client
-            .publish_diagnostics(uri, diagnostics, version)
-            .await;
+        self.client.publish_diagnostics(uri, diagnostics, version).await;
     }
 
     /// Scans every `.ph` file under `roots` and (re)builds the workspace
@@ -136,16 +131,11 @@ impl Backend {
     ///
     /// Returns `None` if `uri` is not open, or if `position` sits on no
     /// selector-bearing node (see [`index::selector_at_offset`]).
-    fn selector_at_position(
-        &self,
-        uri: &Url,
-        position: Position,
-    ) -> Option<(String, tower_lsp::lsp_types::Range)> {
+    fn selector_at_position(&self, uri: &Url, position: Position) -> Option<(String, tower_lsp::lsp_types::Range)> {
         self.documents
             .with_document(uri, |doc| {
                 let offset = doc.line_index.offset(position);
-                index::selector_at_offset(&doc.parse.program, offset)
-                    .map(|(selector, range)| (selector, doc.line_index.range(range.start..range.end)))
+                index::selector_at_offset(&doc.parse.program, offset).map(|(selector, range)| (selector, doc.line_index.range(range.start..range.end)))
             })
             .flatten()
     }
@@ -172,10 +162,10 @@ impl Backend {
     /// Returns `None` if the file is not open and cannot be read from disk
     /// (deleted since the last scan, or not a `file://` URI).
     fn occurrence_to_location(&self, occurrence: &Occurrence) -> Option<Location> {
-        if let Some(range) = self.documents.with_document(&occurrence.uri, |doc| {
-            doc.line_index
-                .range(occurrence.range.start..occurrence.range.end)
-        }) {
+        if let Some(range) = self
+            .documents
+            .with_document(&occurrence.uri, |doc| doc.line_index.range(occurrence.range.start..occurrence.range.end))
+        {
             return Some(Location {
                 uri: occurrence.uri.clone(),
                 range,
@@ -195,10 +185,7 @@ impl Backend {
     /// dropping any whose file could not be resolved
     /// ([`Self::occurrence_to_location`]).
     fn occurrences_to_locations(&self, occurrences: &[Occurrence]) -> Vec<Location> {
-        occurrences
-            .iter()
-            .filter_map(|occ| self.occurrence_to_location(occ))
-            .collect()
+        occurrences.iter().filter_map(|occ| self.occurrence_to_location(occ)).collect()
     }
 
     /// Runs `f` against a snapshot of `uri`'s source text, parsed
@@ -217,16 +204,10 @@ impl Backend {
     ///   for the on-disk path.
     ///
     /// Returns `None` if `uri` is not open and cannot be read from disk.
-    fn with_source_snapshot<R>(
-        &self,
-        uri: &Url,
-        f: impl FnOnce(&str, &phalcom_ast::ast::Program, &LineIndex) -> R,
-    ) -> Option<R> {
+    fn with_source_snapshot<R>(&self, uri: &Url, f: impl FnOnce(&str, &phalcom_ast::ast::Program, &LineIndex) -> R) -> Option<R> {
         let is_open = self.documents.with_document(uri, |_| ()).is_some();
         if is_open {
-            return self
-                .documents
-                .with_document(uri, |doc| f(&doc.text, &doc.parse.program, &doc.line_index));
+            return self.documents.with_document(uri, |doc| f(&doc.text, &doc.parse.program, &doc.line_index));
         }
 
         let path = uri.to_file_path().ok()?;
@@ -265,8 +246,7 @@ impl Backend {
             .documents
             .with_document(uri, |doc| {
                 let offset = doc.line_index.offset(position);
-                hover::keyword_at_offset(&doc.text, offset)
-                    .map(|(word, range)| (word, doc.line_index.range(range)))
+                hover::keyword_at_offset(&doc.text, offset).map(|(word, range)| (word, doc.line_index.range(range)))
             })
             .flatten()
         {
@@ -343,8 +323,7 @@ impl Backend {
             .with_document(uri, |doc| {
                 let offset = doc.line_index.offset(position);
                 let name = index::top_level_binding_at_offset(&doc.parse.program, offset)?;
-                let phaldoc =
-                    hover::harvest_doc_for_selector(&doc.text, &doc.parse.program, &doc.line_index, &name)?;
+                let phaldoc = hover::harvest_doc_for_selector(&doc.text, &doc.parse.program, &doc.line_index, &name)?;
                 Some((name, phaldoc))
             })
             .flatten()?;
@@ -421,12 +400,7 @@ impl LanguageServer for Backend {
     /// only, no `range`/`delta` support yet), with the legend built by
     /// [`semantic_tokens::legend`].
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        let mut roots: Vec<Url> = params
-            .workspace_folders
-            .unwrap_or_default()
-            .into_iter()
-            .map(|folder| folder.uri)
-            .collect();
+        let mut roots: Vec<Url> = params.workspace_folders.unwrap_or_default().into_iter().map(|folder| folder.uri).collect();
         #[allow(deprecated)]
         if let Some(root_uri) = params.root_uri {
             if !roots.contains(&root_uri) {
@@ -437,9 +411,7 @@ impl LanguageServer for Backend {
 
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
-                )),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
                 position_encoding: Some(PositionEncodingKind::UTF16),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
@@ -451,15 +423,11 @@ impl LanguageServer for Backend {
                     ..CompletionOptions::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
-                semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensOptions(
-                        SemanticTokensOptions {
-                            legend: semantic_tokens::legend(),
-                            full: Some(SemanticTokensFullOptions::Bool(true)),
-                            ..SemanticTokensOptions::default()
-                        },
-                    ),
-                ),
+                semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
+                    legend: semantic_tokens::legend(),
+                    full: Some(SemanticTokensFullOptions::Bool(true)),
+                    ..SemanticTokensOptions::default()
+                })),
                 ..ServerCapabilities::default()
             },
             server_info: Some(tower_lsp::lsp_types::ServerInfo {
@@ -473,9 +441,7 @@ impl LanguageServer for Backend {
     /// [`Self::initialize`] (per the LSP spec, `initialize` may do this kind
     /// of setup work before responding).
     async fn initialized(&self, _params: InitializedParams) {
-        self.client
-            .log_message(MessageType::INFO, "phalcom-lsp initialized")
-            .await;
+        self.client.log_message(MessageType::INFO, "phalcom-lsp initialized").await;
     }
 
     /// Reports readiness to shut down. Holds no resources that need
@@ -490,8 +456,7 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let version = params.text_document.version;
-        self.documents
-            .open_or_update(uri.clone(), params.text_document.text);
+        self.documents.open_or_update(uri.clone(), params.text_document.text);
         self.publish_diagnostics_for(uri, Some(version)).await;
     }
 
@@ -535,10 +500,7 @@ impl LanguageServer for Backend {
     /// the selector has no recorded definition (e.g. a builtin core-class
     /// method — the index only covers user `.ph` source; `core-table.json`
     /// lookup is a later stage, plan DEC-LSP-B).
-    async fn goto_definition(
-        &self,
-        params: GotoDefinitionParams,
-    ) -> Result<Option<GotoDefinitionResponse>> {
+    async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         let Some((selector, _range)) = self.selector_at_position(&uri, position) else {
@@ -571,11 +533,7 @@ impl LanguageServer for Backend {
         }
 
         let locations = self.occurrences_to_locations(&occurrences);
-        if locations.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(locations))
-        }
+        if locations.is_empty() { Ok(None) } else { Ok(Some(locations)) }
     }
 
     /// Answers `workspace/symbol`: every indexed selector containing
@@ -588,10 +546,7 @@ impl LanguageServer for Backend {
     /// `SymbolKind`-shaped way; refining this is left to a later stage
     /// (hover, Stage 4, already needs that per-kind rendering and is the
     /// natural place to add it once).
-    async fn symbol(
-        &self,
-        params: WorkspaceSymbolParams,
-    ) -> Result<Option<Vec<SymbolInformation>>> {
+    async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
         let matches = self.index.symbols_matching(&params.query);
         let symbols: Vec<SymbolInformation> = matches
             .into_iter()
@@ -623,10 +578,7 @@ impl LanguageServer for Backend {
     /// suppressing completion (never worse than the pre-LSP client behavior).
     ///
     /// Returns `Ok(None)` if the document is not open.
-    async fn completion(
-        &self,
-        params: CompletionParams,
-    ) -> Result<Option<CompletionResponse>> {
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
 
@@ -659,17 +611,11 @@ impl LanguageServer for Backend {
     /// buffer (diagnostics squiggle it red; tokens still color it).
     ///
     /// Returns `Ok(None)` if the document is not open.
-    async fn semantic_tokens_full(
-        &self,
-        params: SemanticTokensParams,
-    ) -> Result<Option<SemanticTokensResult>> {
+    async fn semantic_tokens_full(&self, params: SemanticTokensParams) -> Result<Option<SemanticTokensResult>> {
         let uri = params.text_document.uri;
         let data = self
             .documents
             .with_document(&uri, |doc| semantic_tokens::tokens_for(&doc.text, &doc.line_index));
-        Ok(data.map(|data| SemanticTokensResult::Tokens(tower_lsp::lsp_types::SemanticTokens {
-            result_id: None,
-            data,
-        })))
+        Ok(data.map(|data| SemanticTokensResult::Tokens(tower_lsp::lsp_types::SemanticTokens { result_id: None, data })))
     }
 }

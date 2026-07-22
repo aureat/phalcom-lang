@@ -111,45 +111,45 @@ impl<'input> Lexer<'input> {
     /// Returns [`LexicalError::UnterminatedBlockComment`] if a `/*` is opened
     /// but end-of-input is reached before the closing `*/`; the carried span
     /// runs from the opening `/*` to the cursor.
+    /// Scans a `//` line comment up to (not including) the terminating newline or EOF.
+    fn scan_line_comment(&mut self) {
+        self.pos += 2;
+        while let Some(c) = self.peek_at(0) {
+            if c == b'\n' || (c == b'\r' && self.peek_at(1) == Some(b'\n')) {
+                break;
+            }
+            self.pos += 1;
+        }
+    }
+
+    /// Scans a `/* … */` block comment up to and including `*/`.
+    fn scan_block_comment(&mut self) -> Result<(), LexicalError> {
+        let open = self.pos;
+        self.pos += 2;
+        loop {
+            match self.peek_at(0) {
+                Some(b'*') if self.peek_at(1) == Some(b'/') => {
+                    self.pos += 2;
+                    return Ok(());
+                }
+                Some(_) => self.pos += 1,
+                None => {
+                    return Err(LexicalError::UnterminatedBlockComment(open..self.pos));
+                }
+            }
+        }
+    }
+
+    /// Skips spaces, tabs, form feeds, lone carriage returns, `//` line
+    /// comments, and `/* … */` block comments.
     fn skip_trivia(&mut self) -> Result<(), LexicalError> {
         while let Some(b) = self.peek_at(0) {
             match b {
                 b' ' | b'\t' | b'\x0c' => self.pos += 1,
                 // A lone carriage return (not part of a `\r\n` newline).
                 b'\r' if self.peek_at(1) != Some(b'\n') => self.pos += 1,
-                // Line comment: consume `//` and everything up to (not
-                // including) the terminating newline.
-                b'/' if self.peek_at(1) == Some(b'/') => {
-                    self.pos += 2;
-                    while let Some(c) = self.peek_at(0) {
-                        if c == b'\n' {
-                            break;
-                        }
-                        self.pos += 1;
-                    }
-                }
-                // Block comment: consume `/*` and everything up to and
-                // including the closing `*/`. Non-nesting (DEFERRED #12 tracks
-                // nested block comments). Reaching end-of-input first is an
-                // unterminated-comment error carrying the real span.
-                b'/' if self.peek_at(1) == Some(b'*') => {
-                    let open = self.pos;
-                    self.pos += 2;
-                    loop {
-                        match self.peek_at(0) {
-                            Some(b'*') if self.peek_at(1) == Some(b'/') => {
-                                self.pos += 2;
-                                break;
-                            }
-                            Some(_) => self.pos += 1,
-                            None => {
-                                return Err(LexicalError::UnterminatedBlockComment(
-                                    open..self.pos,
-                                ));
-                            }
-                        }
-                    }
-                }
+                b'/' if self.peek_at(1) == Some(b'/') => self.scan_line_comment(),
+                b'/' if self.peek_at(1) == Some(b'*') => self.scan_block_comment()?,
                 _ => return Ok(()),
             }
         }
@@ -251,10 +251,7 @@ impl<'input> Lexer<'input> {
     /// decides between a variable and a field reference.
     fn scan_identifier(&mut self) -> Token {
         let start = self.pos;
-        while matches!(
-            self.peek_at(0),
-            Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
-        ) {
+        while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
             self.pos += 1;
         }
         let slice = &self.input[start..self.pos];
@@ -309,6 +306,57 @@ impl<'input> Lexer<'input> {
     /// Returns [`LexicalError::UnterminatedString`] if end-of-input is reached
     /// before the closing quote — including inside an unterminated `\(…`
     /// interpolation.
+    /// Scans an interpolation body `\(…)` balancing parentheses while respecting
+    /// nested lexical modes (nested strings, line comments, and block comments).
+    fn scan_interpolation_body(&mut self, interpolation_open: usize) -> Result<StringSegment, LexicalError> {
+        let body_start = self.pos;
+        let mut depth = 1usize;
+
+        loop {
+            match self.peek_at(0) {
+                None => {
+                    return Err(LexicalError::UnterminatedInterpolation(interpolation_open..self.pos));
+                }
+                Some(b'"') => {
+                    // Consume nested string using full string scanner.
+                    let _ = self.scan_string()?;
+                }
+                Some(b'/') if self.peek_at(1) == Some(b'/') => {
+                    self.scan_line_comment();
+                }
+                Some(b'/') if self.peek_at(1) == Some(b'*') => {
+                    self.scan_block_comment()?;
+                }
+                Some(b'(') => {
+                    depth += 1;
+                    self.pos += 1;
+                }
+                Some(b')') => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let body_end = self.pos;
+                        let source = self.input[body_start..body_end].to_string();
+                        self.pos += 1;
+                        return Ok(StringSegment::Expr {
+                            source,
+                            range: body_start..body_end,
+                        });
+                    }
+                    self.pos += 1;
+                }
+                Some(_) => {
+                    self.pos += self.char_len_at(self.pos);
+                }
+            }
+        }
+    }
+
+    /// Scans a double-quoted string literal, stripping the surrounding quotes.
+    ///
+    /// Double-quoted string literals decode conventional escapes (`\"`, `\\`, `\n`,
+    /// `\t`, `\r`), open interpolation on `\(`, reject unknown escapes with
+    /// [`LexicalError::InvalidEscape`], and reject physical newlines with
+    /// [`LexicalError::RawNewlineInString`].
     fn scan_string(&mut self) -> Result<Token, LexicalError> {
         let open = self.pos;
         self.pos += 1;
@@ -328,51 +376,63 @@ impl<'input> Lexer<'input> {
                     }
                     return Ok(Token::StringInterp(segments));
                 }
-                Some(b'\\') if self.peek_at(1) == Some(b'(') => {
-                    interpolated = true;
-                    if !literal.is_empty() {
-                        segments.push(StringSegment::Literal(std::mem::take(&mut literal)));
-                    }
-                    self.pos += 2; // past `\(`
-                    let expr_start = self.pos;
-                    // Scan the expression body to its matching `)`, tracking
-                    // parenthesis depth so `\(f(x))` reads as one expression.
-                    let mut depth = 1usize;
-                    loop {
-                        match self.peek_at(0) {
-                            None => {
-                                return Err(LexicalError::UnterminatedString(open..self.pos));
-                            }
-                            Some(b'(') => {
-                                depth += 1;
-                                self.pos += 1;
-                            }
-                            Some(b')') => {
-                                depth -= 1;
-                                if depth == 0 {
-                                    let source = self.input[expr_start..self.pos].to_string();
-                                    segments.push(StringSegment::Expr {
-                                        source,
-                                        start: expr_start,
-                                    });
-                                    self.pos += 1; // past `)`
-                                    break;
-                                }
-                                self.pos += 1;
-                            }
-                            Some(_) => self.pos += self.char_len_at(self.pos),
-                        }
-                    }
+                Some(b'\n') => {
+                    let start = self.pos;
+                    self.pos += 1;
+                    return Err(LexicalError::RawNewlineInString(start..self.pos));
                 }
-                Some(b'\\') if self.peek_at(1) == Some(b'\\') => {
-                    literal.push('\\');
+                Some(b'\r') if self.peek_at(1) == Some(b'\n') => {
+                    let start = self.pos;
                     self.pos += 2;
+                    return Err(LexicalError::RawNewlineInString(start..self.pos));
+                }
+                Some(b'\r') => {
+                    let start = self.pos;
+                    self.pos += 1;
+                    return Err(LexicalError::RawNewlineInString(start..self.pos));
                 }
                 Some(b'\\') => {
-                    // A backslash before any other character is a literal
-                    // backslash; the next character is scanned normally.
-                    literal.push('\\');
-                    self.pos += 1;
+                    let esc_start = self.pos;
+                    match self.peek_at(1) {
+                        Some(b'(') => {
+                            interpolated = true;
+                            if !literal.is_empty() {
+                                segments.push(StringSegment::Literal(std::mem::take(&mut literal)));
+                            }
+                            self.pos += 2;
+                            let expr_seg = self.scan_interpolation_body(esc_start)?;
+                            segments.push(expr_seg);
+                        }
+                        Some(b'"') => {
+                            literal.push('"');
+                            self.pos += 2;
+                        }
+                        Some(b'\\') => {
+                            literal.push('\\');
+                            self.pos += 2;
+                        }
+                        Some(b'n') => {
+                            literal.push('\n');
+                            self.pos += 2;
+                        }
+                        Some(b't') => {
+                            literal.push('\t');
+                            self.pos += 2;
+                        }
+                        Some(b'r') => {
+                            literal.push('\r');
+                            self.pos += 2;
+                        }
+                        Some(_) => {
+                            let next_len = self.char_len_at(self.pos + 1);
+                            let end = self.pos + 1 + next_len;
+                            self.pos = end;
+                            return Err(LexicalError::InvalidEscape(esc_start..end));
+                        }
+                        None => {
+                            self.pos += 1;
+                        }
+                    }
                 }
                 Some(_) => {
                     let len = self.char_len_at(self.pos);
@@ -475,10 +535,7 @@ impl<'input> Lexer<'input> {
     /// See [`Lexer::scan_selector_labels`] for the selector-form error cases.
     fn scan_symbol_name(&mut self) -> Result<Token, LexicalError> {
         let name_start = self.pos;
-        while matches!(
-            self.peek_at(0),
-            Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
-        ) {
+        while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
             self.pos += 1;
         }
         let name = self.input[name_start..self.pos].to_string();
@@ -520,10 +577,7 @@ impl<'input> Lexer<'input> {
             }
 
             let slot_start = self.pos;
-            while matches!(
-                self.peek_at(0),
-                Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')
-            ) {
+            while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
                 self.pos += 1;
             }
             if self.pos == slot_start {
@@ -619,10 +673,7 @@ impl<'input> Lexer<'input> {
             _ => {
                 // Unknown character: advance past the whole UTF-8 scalar so the
                 // iterator makes progress, and report its exact byte span.
-                let ch_len = self.input[self.pos..]
-                    .chars()
-                    .next()
-                    .map_or(1, char::len_utf8);
+                let ch_len = self.input[self.pos..].chars().next().map_or(1, char::len_utf8);
                 let span = self.pos..self.pos + ch_len;
                 self.pos += ch_len;
                 return Err(LexicalError::InvalidToken(span));
@@ -731,12 +782,7 @@ impl Iterator for Lexer<'_> {
 
             let start = self.pos;
             match self.scan_token() {
-                Ok(Token::Newline)
-                    if self
-                        .last_significant
-                        .as_ref()
-                        .is_some_and(suppresses_following_newline) =>
-                {
+                Ok(Token::Newline) if self.last_significant.as_ref().is_some_and(suppresses_following_newline) => {
                     // Swallow the newline as trivia and scan the next token; the
                     // previous significant token cannot end a statement.
                     continue;
@@ -772,10 +818,7 @@ mod tests {
     #[test]
     fn injects_a_single_eof_at_end_of_input() {
         let toks = spans("x");
-        assert_eq!(
-            toks,
-            vec![(Token::Identifier("x".to_string()), 0, 1), (Token::Eof, 1, 1)]
-        );
+        assert_eq!(toks, vec![(Token::Identifier("x".to_string()), 0, 1), (Token::Eof, 1, 1)]);
     }
 
     #[test]
@@ -805,18 +848,12 @@ mod tests {
     fn line_comment_is_skipped_but_its_newline_survives() {
         let toks = spans("1 // c\n2");
         let kinds: Vec<Token> = toks.into_iter().map(|(t, _, _)| t).collect();
-        assert_eq!(
-            kinds,
-            vec![Token::Number(1.0), Token::Newline, Token::Number(2.0), Token::Eof]
-        );
+        assert_eq!(kinds, vec![Token::Number(1.0), Token::Newline, Token::Number(2.0), Token::Eof]);
     }
 
     #[test]
     fn maximal_munch_prefers_longer_operators() {
-        let kinds: Vec<Token> = spans("a += 1 .. 2 ... 3 -> 4")
-            .into_iter()
-            .map(|(t, _, _)| t)
-            .collect();
+        let kinds: Vec<Token> = spans("a += 1 .. 2 ... 3 -> 4").into_iter().map(|(t, _, _)| t).collect();
         assert_eq!(kinds[1], Token::PlusEqual);
         assert!(kinds.contains(&Token::DotDot));
         assert!(kinds.contains(&Token::DotDotDot));
@@ -827,10 +864,7 @@ mod tests {
     fn number_dot_dot_is_not_a_decimal() {
         // `1..2` must be Number, DotDot, Number — never `1.` then `.2`.
         let kinds: Vec<Token> = spans("1..2").into_iter().map(|(t, _, _)| t).collect();
-        assert_eq!(
-            kinds,
-            vec![Token::Number(1.0), Token::DotDot, Token::Number(2.0), Token::Eof]
-        );
+        assert_eq!(kinds, vec![Token::Number(1.0), Token::DotDot, Token::Number(2.0), Token::Eof]);
     }
 
     #[test]

@@ -9,12 +9,12 @@
 //! opcodes are an optimization over calling these, never a divergent
 //! reimplementation of their semantics.
 
-use crate::value::{FALSE, TRUE};
 use crate::error::{PhResult, RuntimeError};
 use crate::primitive::block::block_call;
 use crate::primitive::expect_class;
 use crate::primitive::nil::wrap_some;
 use crate::value::Value;
+use crate::value::{FALSE, TRUE};
 use crate::vm::VM;
 
 /// Signature: `Bool.class::new(_)` — coerces its argument to a boolean.
@@ -61,7 +61,11 @@ pub fn bool_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 fn expect_bool(value: &Value) -> PhResult<bool> {
     match value {
         Value::Bool(b) => Ok(*b),
-        other => Err(RuntimeError::Type { expected: "Bool", found: other.type_name() }.into()),
+        other => Err(RuntimeError::Type {
+            expected: "Bool",
+            found: other.type_name(),
+        }
+        .into()),
     }
 }
 

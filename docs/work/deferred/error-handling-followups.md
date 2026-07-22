@@ -142,7 +142,7 @@ not a doc or comment fix.
 `vm.compile_closure(module, &source)?` (`phalcom-core/bin/phalcom/cli.rs:160`); the `?` propagates
 the `CompilerError` through `anyhow::Result` to `main`, which prints its `Display` text and
 nothing else. So the `SourceRange` carried by every span-bearing `CompilerError` variant —
-`DestructuringWithoutInitializer`, `ConstructStaticCollision`, `BreakOutsideLoop`,
+`DestructuringWithoutInitializer`, `DuplicateSelector`/`DuplicateField` (superseding `ConstructStaticCollision`), `BreakOutsideLoop`,
 `ContinueOutsideLoop`, `ThrowNonError`, and now `class.already_defined`'s pair — is **carried and
 dropped**. The user gets a message with no file, no line, and no caret.
 

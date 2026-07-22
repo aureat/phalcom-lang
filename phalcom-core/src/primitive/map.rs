@@ -39,9 +39,7 @@ use crate::vm::VM;
 fn map_mutation_error(err: MapMutationError, collection: &'static str) -> RuntimeError {
     match err {
         MapMutationError::Locked => RuntimeError::ConcurrentMutation { collection },
-        MapMutationError::OutOfRange => {
-            RuntimeError::Internal(format!("{collection} slot from locate() was out of range (internal invariant violation)"))
-        }
+        MapMutationError::OutOfRange => RuntimeError::Internal(format!("{collection} slot from locate() was out of range (internal invariant violation)")),
     }
 }
 

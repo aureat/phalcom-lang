@@ -20,7 +20,7 @@
 //! handle-bearing field to any payload struct below, add it here **and** to
 //! memory-management.md §2.3 in the same change.
 
-use super::{Object, ObjRef, Upvalue};
+use super::{ObjRef, Object, Upvalue};
 use crate::frame::{CallContext, CallFrame};
 use crate::method::MethodKind;
 use crate::value::Value;

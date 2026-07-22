@@ -86,11 +86,7 @@ impl ReplSession {
 
     /// Evaluates one input cell.
     pub fn eval(&mut self, src: &str) -> CellOutcome {
-        let src_norm = if src.ends_with('\n') {
-            src.to_string()
-        } else {
-            format!("{src}\n")
-        };
+        let src_norm = if src.ends_with('\n') { src.to_string() } else { format!("{src}\n") };
 
         self.history.push(src_norm.clone());
         self.next_cell += 1;

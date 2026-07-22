@@ -4,8 +4,8 @@
 //! of the output: recursive closure walk, header format, line numbers, selector
 //! shapes, upvalue annotations, and fused superinstruction rendering.
 
-use std::process::{Command, Output};
 use std::path::PathBuf;
+use std::process::{Command, Output};
 
 fn phalcom_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_phalcom"))
@@ -39,10 +39,7 @@ fn method_body_appears_in_disasm() {
     // must walk into it and produce a second `bytecode:` section.
     let src = "class Foo { construct new() {} bar { 1 + 2 } }\n";
     let out = disasm_stdout(src);
-    assert!(
-        out.contains("└─"),
-        "expected nested closure tree connector '└─'; output:\n{out}"
-    );
+    assert!(out.contains("└─"), "expected nested closure tree connector '└─'; output:\n{out}");
 }
 
 #[test]
@@ -72,9 +69,7 @@ fn invoke_shows_selector_name_not_raw_index() {
     // The format is: `Invoke(<selector>, <arity>)` or `InvokeConst(<idx>, <arity>, <selector>)`.
     let has_named = out.lines().any(|l| {
         // Named Invoke: first char after `(` should eventually contain a non-digit alpha.
-        (l.contains("Invoke(") || l.contains("InvokeConst(") || l.contains("InvokeLocal("))
-            && !l.contains("[shadowed dead slot]")
-            && l.contains("+")  // the `+(_)` selector
+        (l.contains("Invoke(") || l.contains("InvokeConst(") || l.contains("InvokeLocal(")) && !l.contains("[shadowed dead slot]") && l.contains("+") // the `+(_)` selector
     });
     assert!(has_named, "expected an Invoke-family line with the '+' selector name; output:\n{out}");
 }

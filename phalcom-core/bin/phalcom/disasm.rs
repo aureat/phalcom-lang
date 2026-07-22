@@ -1,12 +1,12 @@
 //! Recursive bytecode disassembler for Phalcom (IS §12, catalog §3).
 
-use phalcom_core::error::PhError;
-use phalcom_core::vm::VM;
 use phalcom_core::bytecode::Bytecode;
 use phalcom_core::chunk::Chunk;
+use phalcom_core::error::PhError;
+use phalcom_core::heap::{ObjRef, Object};
 use phalcom_core::method::MethodKind;
 use phalcom_core::value::Value;
-use phalcom_core::heap::{Object, ObjRef};
+use phalcom_core::vm::VM;
 use std::collections::HashSet;
 
 /// Disassembles the compiled source code, printing its chunks recursively (IS §12).
@@ -14,7 +14,7 @@ pub fn disassemble_source(source: &str) -> Result<(), PhError> {
     let mut vm = VM::new();
     let module = vm.create_module("main", "<main>");
     let closure_ref = vm.compile_closure(module, source)?;
-    
+
     // Track closures we have already disassembled to avoid duplicate disassembly.
     let mut visited = HashSet::new();
     visited.insert(closure_ref);
@@ -25,7 +25,7 @@ pub fn disassemble_source(source: &str) -> Result<(), PhError> {
         let chunk = closure.callable.chunk.clone();
         (name, chunk)
     };
-    
+
     let closure_info = {
         let closure = vm.heap.closure(closure_ref);
         (closure.callable.max_slots, closure.callable.num_upvalues)
@@ -35,16 +35,9 @@ pub fn disassemble_source(source: &str) -> Result<(), PhError> {
     Ok(())
 }
 
-fn disassemble_chunk(
-    vm: &mut VM,
-    chunk: &Chunk,
-    indent: usize,
-    visited: &mut HashSet<ObjRef>,
-    parent_name: &str,
-    source: &str,
-) -> Result<(), PhError> {
+fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut HashSet<ObjRef>, parent_name: &str, source: &str) -> Result<(), PhError> {
     let indent_str = "  ".repeat(indent);
-    
+
     println!("{}constants:", indent_str);
     for (i, constant) in chunk.constants.iter().enumerate() {
         let val_str = match constant {
@@ -62,8 +55,8 @@ fn disassemble_chunk(
                 Object::Method(m) => {
                     let sel = vm.resolve_symbol(m.signature.selector).to_string();
                     match m.kind {
-                        MethodKind::Closure(_) => format!("<method {}>" , sel),
-                        MethodKind::Primitive(_) => format!("<primitive {}>" , sel),
+                        MethodKind::Closure(_) => format!("<method {}>", sel),
+                        MethodKind::Primitive(_) => format!("<primitive {}>", sel),
                     }
                 }
                 _ => format!("{:?}", constant),
@@ -78,9 +71,9 @@ fn disassemble_chunk(
     let source_id = chunk.source_id;
     let main_sym = vm.get_or_intern("main");
     let main_module_ref = vm.modules.get(&main_sym).copied();
-    let source_text = main_module_ref.and_then(|m| {
-        vm.heap.module(m).source_at(source_id).map(|s| s.as_str())
-    }).unwrap_or(source);
+    let source_text = main_module_ref
+        .and_then(|m| vm.heap.module(m).source_at(source_id).map(|s| s.as_str()))
+        .unwrap_or(source);
 
     let mut pending_nested = Vec::new();
 
@@ -121,7 +114,7 @@ fn disassemble_chunk(
     while ip < chunk.code.len() {
         let instr = chunk.code[ip];
         let line = chunk.line_at(ip, source_text);
-        
+
         let instr_str = match instr {
             Bytecode::Invoke(arity, sel_idx) => {
                 let sel_val = chunk.constants[sel_idx as usize];
@@ -145,9 +138,7 @@ fn disassemble_chunk(
                     let cls = vm.heap.closure(id);
                     if !cls.callable.upvalues.is_empty() {
                         capture_ann = "        ← captures: ".to_string();
-                        let names: Vec<String> = cls.callable.upvalues.iter().map(|desc| {
-                            format!("{}", desc.index)
-                        }).collect();
+                        let names: Vec<String> = cls.callable.upvalues.iter().map(|desc| format!("{}", desc.index)).collect();
                         capture_ann.push_str(&names.join(", "));
                     }
                 }
@@ -158,9 +149,9 @@ fn disassemble_chunk(
 
         // Note: fused superinstructions leave a dead Invoke at ip + 1
         let is_fused = matches!(instr, Bytecode::InvokeLocal(..) | Bytecode::InvokeConst(..));
-        
+
         println!("{}  {:04}  line {}   {}", indent_str, ip, line, instr_str);
-        
+
         if is_fused {
             // Print the shadowed dead Invoke slot at ip + 1
             ip += 1;
@@ -176,14 +167,17 @@ fn disassemble_chunk(
         println!();
         let prefix = "  ".repeat(indent);
         let closure = vm.heap.closure(id);
-        
+
         let block_prefix = if (name.contains("<block") || name.is_empty() || name == parent_name) as bool {
             format!("<block in {}>", parent_name)
         } else {
             format!("{}.{}", parent_name, name)
         };
 
-        println!("{}└─ {}   slots={} upvalues={}", prefix, block_prefix, closure.callable.max_slots, closure.callable.num_upvalues);
+        println!(
+            "{}└─ {}   slots={} upvalues={}",
+            prefix, block_prefix, closure.callable.max_slots, closure.callable.num_upvalues
+        );
         disassemble_chunk(vm, &nested_chunk, indent + 3, visited, &block_prefix, source)?;
     }
 

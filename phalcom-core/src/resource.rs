@@ -138,11 +138,7 @@ impl ResourceTable {
     }
 
     pub fn leaks(&self) -> Vec<(&ResourceKind, Option<SourceRange>)> {
-        self.entries
-            .iter()
-            .filter(|e| !e.closed)
-            .map(|e| (&e.kind, e.open_site))
-            .collect()
+        self.entries.iter().filter(|e| !e.closed).map(|e| (&e.kind, e.open_site)).collect()
     }
 
     pub fn leaks_detail(&self) -> Vec<(u32, &ResourceKind, Option<SourceRange>)> {
@@ -166,7 +162,10 @@ mod tests {
         let unpacked1 = ResourceHandle::unpack(packed1);
         assert_eq!(h1, unpacked1);
 
-        let h2 = ResourceHandle { index: u32::MAX, generation: u32::MAX };
+        let h2 = ResourceHandle {
+            index: u32::MAX,
+            generation: u32::MAX,
+        };
         let packed2 = ResourceHandle::pack(h2.index, h2.generation);
         let unpacked2 = ResourceHandle::unpack(packed2);
         assert_eq!(h2, unpacked2);
@@ -183,7 +182,10 @@ mod tests {
         // Idempotent close
         assert!(table.close(h1).is_ok());
 
-        let h1_closed = ResourceHandle { index: h1.index, generation: h1.generation };
+        let h1_closed = ResourceHandle {
+            index: h1.index,
+            generation: h1.generation,
+        };
         assert_eq!(table.resolve(h1_closed), Err(ResourceError::AlreadyClosed));
 
         // Reuse slot

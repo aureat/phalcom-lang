@@ -207,10 +207,29 @@ impl Universe {
 
         // Mark native representation classes that cannot be allocated via generic InstanceObject::new (new_).
         let native_repr_classes = [
-            res.number_class, res.string_class, res.nil_class, res.bool_class, res.true_class, res.false_class,
-            res.symbol_class, res.list_class, res.map_class, res.set_class, res.tuple_class, res.range_class,
-            res.bytes_class, res.fiber_class, res.method_class, res.module_class, res.block_class, res.function_class,
-            res.family_class, res.class_class, res.behavior_class, res.metaclass_class, res.system_class,
+            res.number_class,
+            res.string_class,
+            res.nil_class,
+            res.bool_class,
+            res.true_class,
+            res.false_class,
+            res.symbol_class,
+            res.list_class,
+            res.map_class,
+            res.set_class,
+            res.tuple_class,
+            res.range_class,
+            res.bytes_class,
+            res.fiber_class,
+            res.method_class,
+            res.module_class,
+            res.block_class,
+            res.function_class,
+            res.family_class,
+            res.class_class,
+            res.behavior_class,
+            res.metaclass_class,
+            res.system_class,
             res.message_class,
         ];
         for cid in native_repr_classes {

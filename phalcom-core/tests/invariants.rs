@@ -24,9 +24,9 @@
 //! [`Heap`]: phalcom_core::heap::Heap
 //! [`Heap::class`]: phalcom_core::heap::Heap::class
 
-use phalcom_core::heap::lookup_method_in_hierarchy;
 use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::heap::ClassId;
+use phalcom_core::heap::lookup_method_in_hierarchy;
 use phalcom_core::interner::Symbol;
 use phalcom_core::primitive::block::{block_arity, block_call, block_name};
 use phalcom_core::primitive::boolean::bool_hash;
@@ -37,7 +37,7 @@ use phalcom_core::primitive::number::number_hash;
 use phalcom_core::primitive::object::{object_hash, object_method_for};
 use phalcom_core::primitive::string::string_hash;
 use phalcom_core::primitive::symbol::symbol_hash;
-use phalcom_core::value::{sentinel_to_option, Value};
+use phalcom_core::value::{Value, sentinel_to_option};
 use phalcom_core::vm::{ClassKey, VM};
 use std::collections::HashSet;
 
@@ -130,7 +130,9 @@ fn surface_nil_is_unreachable_from_user_code() {
     // Compile + run directly (rather than `interpret_source`, whose diagnostic
     // path renders source spans) so the assertion is on the result, not on
     // reporting. `nil` is an undefined identifier, so the program errors.
-    let result = vm.compile_closure(module, "System.print(nil)\n").and_then(|closure| vm.run_in_module(module, closure));
+    let result = vm
+        .compile_closure(module, "System.print(nil)\n")
+        .and_then(|closure| vm.run_in_module(module, closure));
     assert!(result.is_err(), "surface `nil` must not resolve to any value — it is an undefined identifier");
 }
 
@@ -145,10 +147,16 @@ fn sentinel_surfaces_to_none_and_never_survives_as_nil() {
 
     let surfaced = sentinel_to_option(Value::Nil, none);
     assert!(!matches!(surfaced, Value::Nil), "the sentinel must not survive surfacing");
-    assert!(matches!(surfaced, Value::Obj(id) if id == none), "the sentinel must surface to the None singleton");
+    assert!(
+        matches!(surfaced, Value::Obj(id) if id == none),
+        "the sentinel must surface to the None singleton"
+    );
 
     let passthrough = sentinel_to_option(Value::Number(1.0), none);
-    assert!(matches!(passthrough, Value::Number(n) if n == 1.0), "non-sentinel values must pass through unchanged");
+    assert!(
+        matches!(passthrough, Value::Number(n) if n == 1.0),
+        "non-sentinel values must pass through unchanged"
+    );
 }
 
 #[test]
@@ -183,7 +191,10 @@ fn expression_result_absence_surfaces_to_none() {
     is_none(bool_if_false(&mut vm, &Value::Bool(true), &[unused_block]).expect("ifFalse"), "true.ifFalse");
 
     // `System.print(_)` — surface-reachable send result.
-    is_none(system_class_print(&mut vm, &Value::Number(1.0), &[Value::Number(1.0)]).expect("print"), "System.print");
+    is_none(
+        system_class_print(&mut vm, &Value::Number(1.0), &[Value::Number(1.0)]).expect("print"),
+        "System.print",
+    );
 
     // `Object.superclass` — the root class has no superclass.
     let object = Value::Obj(vm.universe.classes.object_class);
@@ -322,8 +333,16 @@ fn behavior_class_exists_in_tower() {
     let class_class = vm.universe.classes.class_class;
     let metaclass_class = vm.universe.classes.metaclass_class;
 
-    assert_eq!(vm.heap.class(behavior_class).superclass, Some(object_class), "Behavior.superclass should be Object");
-    assert_eq!(vm.heap.class(class_class).superclass, Some(behavior_class), "Class.superclass should be Behavior");
+    assert_eq!(
+        vm.heap.class(behavior_class).superclass,
+        Some(object_class),
+        "Behavior.superclass should be Object"
+    );
+    assert_eq!(
+        vm.heap.class(class_class).superclass,
+        Some(behavior_class),
+        "Class.superclass should be Behavior"
+    );
     assert_eq!(
         vm.heap.class(metaclass_class).superclass,
         Some(behavior_class),
@@ -338,7 +357,7 @@ fn metaclass_responds_to_superclass_via_behavior() {
     // it through the superclass chain, rather than each metaclass
     // special-casing its own accessor.
     use phalcom_core::heap::lookup_method_in_hierarchy;
-    use phalcom_core::method::{make_signature, SignatureKind};
+    use phalcom_core::method::{SignatureKind, make_signature};
 
     let mut vm = VM::new();
     let behavior_class = vm.universe.classes.behavior_class;
@@ -378,8 +397,15 @@ fn metaclass_is_instance_of_metaclass_class_closing_the_loop() {
     let metaclass = vm.universe.classes.metaclass_class;
     let metaclass_meta = vm.heap.class(metaclass).class;
 
-    assert_ne!(metaclass_meta, metaclass, "Metaclass.class should be a distinct 'Metaclass class' row, not itself");
-    assert_eq!(vm.heap.class(metaclass_meta).class, metaclass, "Metaclass.class.class should be Metaclass (closed loop)");
+    assert_ne!(
+        metaclass_meta, metaclass,
+        "Metaclass.class should be a distinct 'Metaclass class' row, not itself"
+    );
+    assert_eq!(
+        vm.heap.class(metaclass_meta).class,
+        metaclass,
+        "Metaclass.class.class should be Metaclass (closed loop)"
+    );
 }
 
 #[test]
@@ -444,7 +470,11 @@ fn core_classes_have_correct_metaclass_and_superclass() {
         assert_eq!(vm.heap.class(class_meta).class, metaclass, "{name}.class.class should be Metaclass");
         let sup = vm.heap.class(class).superclass.unwrap_or_else(|| panic!("{name}.superclass should be set"));
         assert_eq!(sup, object_class, "{name}.superclass should be Object");
-        let meta_sup = vm.heap.class(class_meta).superclass.unwrap_or_else(|| panic!("{name}.class.superclass should be set"));
+        let meta_sup = vm
+            .heap
+            .class(class_meta)
+            .superclass
+            .unwrap_or_else(|| panic!("{name}.class.superclass should be set"));
         assert_eq!(meta_sup, object_meta, "{name}.class.superclass should be Object.class (parallel rule)");
     }
 }
@@ -459,10 +489,14 @@ fn user_class_metaclass_superclass_parallels_instance_superclass() {
     // syntax, not just `make_core_class`.
     let mut vm = VM::new();
     let module = vm.create_module("main", "user_class_metaclass_superclass_parallels_instance_superclass");
-    vm.interpret_source(module, "class SomeUserClass {\n}\n").expect("class declaration should run without error");
+    vm.interpret_source(module, "class SomeUserClass {\n}\n")
+        .expect("class declaration should run without error");
 
     let name = vm.get_or_intern("SomeUserClass");
-    let user_class = *vm.classes.get(&ClassKey { module, name }).expect("SomeUserClass should be registered as a named class");
+    let user_class = *vm
+        .classes
+        .get(&ClassKey { module, name })
+        .expect("SomeUserClass should be registered as a named class");
     let object_class = vm.universe.classes.object_class;
 
     let user_meta = vm.heap.class(user_class).class;
@@ -554,7 +588,7 @@ fn subclass_field_offset_stability() {
 fn subclass_static_field_offset_stability() {
     let mut vm = VM::new();
     let module = vm.create_module("main", "subclass_static_field_offset_stability");
-    
+
     // 1. Compile and define Base
     let base_code = "
         class Base {
@@ -584,16 +618,16 @@ fn subclass_static_field_offset_stability() {
 
     let base_cls = *vm.classes.get(&ClassKey { module, name: base_sym }).unwrap();
     let sub_cls = *vm.classes.get(&ClassKey { module, name: sub_sym }).unwrap();
-    
+
     let base_meta = vm.heap.class(base_cls).class;
     let sub_meta = vm.heap.class(sub_cls).class;
-    
+
     let base_meta_layout = vm.heap.class(base_meta);
     let sub_meta_layout = vm.heap.class(sub_meta);
-    
+
     assert_eq!(base_meta_layout.field_slots.get(&count_sym).copied(), Some(0));
     assert_eq!(base_meta_layout.field_count, 1);
-    
+
     assert_eq!(sub_meta_layout.field_slots.get(&count_sym).copied(), Some(1));
     assert_eq!(sub_meta_layout.field_count, 2);
 }
@@ -735,11 +769,11 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "perform(_,_)"),
         (c.object_class, false, "respondsTo(_)"),
         (c.object_class, false, "doesNotUnderstand(_)"),
-        (c.object_class, false, "methodFor(_)"), // NEW (ADR-0028)
-        (c.object_class, false, "__invariantEnter()"), // NEW_INVARIANT_GUARD (ADR-0052)
-        (c.object_class, false, "__invariantExit()"), // NEW_INVARIANT_GUARD (ADR-0052)
-        (c.object_class, false, "__attach(_)"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
-        (c.object_class, false, "__attributes"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "methodFor(_)"),         // NEW (ADR-0028)
+        (c.object_class, false, "__invariantEnter()"),   // NEW_INVARIANT_GUARD (ADR-0052)
+        (c.object_class, false, "__invariantExit()"),    // NEW_INVARIANT_GUARD (ADR-0052)
+        (c.object_class, false, "__attach(_)"),          // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "__attributes"),         // NEW_ATTR_ROOT (M-ATTR-ROOT)
         (c.object_class, false, "__freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
@@ -760,7 +794,7 @@ fn floor_census_matches_installed_bindings() {
         (c.number_class, false, ">(_)"),
         (c.number_class, false, ">=(_)"),
         (c.number_class, false, "negated()"),
-        (c.number_class, false, "hash"), // NEW (ADR-0023)
+        (c.number_class, false, "hash"),     // NEW (ADR-0023)
         (c.number_class, false, "toString"), // NEW_VALUE_TOSTRING (U-CORE-4)
         (c.number_class, true, "new()"),
         (c.number_class, true, "new(_)"),
@@ -770,8 +804,8 @@ fn floor_census_matches_installed_bindings() {
         (c.string_class, true, "new()"),
         (c.string_class, true, "new(_)"),
         // U-STRING raw byte accessors (ADR-0049 amendment)
-        (c.string_class, false, "byteCount_"), // NEW (ADR-0049)
-        (c.string_class, false, "byteAt_(_)"), // NEW (ADR-0049)
+        (c.string_class, false, "byteCount_"),  // NEW (ADR-0049)
+        (c.string_class, false, "byteAt_(_)"),  // NEW (ADR-0049)
         (c.string_class, false, "slice_(_,_)"), // NEW (ADR-0049)
         // §2.6 Bool
         (c.bool_class, true, "new()"),
@@ -793,9 +827,9 @@ fn floor_census_matches_installed_bindings() {
         // §2.9 Method
         (c.method_class, true, "new(_)"),
         (c.method_class, false, "invokeOn(_,_)"), // NEW (ADR-0028)
-        (c.method_class, false, "bind(_)"),        // NEW (ADR-0028)
-        (c.method_class, false, "selector"),         // NEW (ADR-0028)
-        (c.method_class, false, "holder"),           // NEW (ADR-0028)
+        (c.method_class, false, "bind(_)"),       // NEW (ADR-0028)
+        (c.method_class, false, "selector"),      // NEW (ADR-0028)
+        (c.method_class, false, "holder"),        // NEW (ADR-0028)
         // §2.10 Function
         (c.function_class, false, "arity"),
         (c.function_class, false, "name"),
@@ -963,11 +997,7 @@ fn floor_census_matches_installed_bindings() {
         149,
         "census must enumerate exactly 149 bindings (150 baseline minus 1 duplicate allocator deleted in U-CTOR-4)"
     );
-    assert_eq!(
-        live.len(),
-        149,
-        "the live floor must be exactly 149 bindings"
-    );
+    assert_eq!(live.len(), 149, "the live floor must be exactly 149 bindings");
 }
 
 #[test]
@@ -1003,7 +1033,11 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
         let meta = vm.heap.class(class_id).class;
         let superclass = vm.heap.class(class_id).superclass.unwrap_or_else(|| panic!("{name}.superclass should be set"));
         let expected = vm.heap.class(superclass).class;
-        assert_eq!(vm.heap.class(meta).superclass, Some(expected), "{name}.class.superclass should equal {name}.superclass.class (parallel rule)");
+        assert_eq!(
+            vm.heap.class(meta).superclass,
+            Some(expected),
+            "{name}.class.superclass should equal {name}.superclass.class (parallel rule)"
+        );
     }
 }
 
@@ -1023,9 +1057,18 @@ fn isa_is_reflexive_and_superclass_closed() {
     let class = Value::Obj(vm.universe.classes.class_class);
 
     // Immediate receiver `3`.
-    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", number), Value::Bool(true)), "3.isA(Number)");
-    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", object), Value::Bool(true)), "3.isA(Object) — reflexive-to-root");
-    assert!(matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", string), Value::Bool(false)), "!3.isA(String)");
+    assert!(
+        matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", number), Value::Bool(true)),
+        "3.isA(Number)"
+    );
+    assert!(
+        matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", object), Value::Bool(true)),
+        "3.isA(Object) — reflexive-to-root"
+    );
+    assert!(
+        matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", string), Value::Bool(false)),
+        "!3.isA(String)"
+    );
 
     // Class receiver `Number` (walks the metaclass chain, Smalltalk isKindOf:).
     assert!(matches!(send1(&mut vm, number, "isA(_)", class), Value::Bool(true)), "Number.isA(Class)");
@@ -1061,7 +1104,10 @@ fn hash_is_consistent_with_equality() {
     // String: two distinct-handle, equal-content strings.
     let s1 = vm.alloc_string_value("ab".to_string());
     let s2 = vm.alloc_string_value("ab".to_string());
-    assert!(matches!((s1, s2), (Value::Obj(a), Value::Obj(b)) if a != b), "the two strings must have distinct handles");
+    assert!(
+        matches!((s1, s2), (Value::Obj(a), Value::Obj(b)) if a != b),
+        "the two strings must have distinct handles"
+    );
     let h1 = as_number(string_hash(&mut vm, &s1, &[]).unwrap());
     let h2 = as_number(string_hash(&mut vm, &s2, &[]).unwrap());
     assert_eq!(h1, h2, "equal string content ⇒ equal hash");
@@ -1110,17 +1156,28 @@ fn method_reparents_under_function_with_call_protocol() {
     let mut vm = VM::new();
     let method_class = vm.universe.classes.method_class;
     let function_class = vm.universe.classes.function_class;
-    assert_eq!(vm.heap.class(method_class).superclass, Some(function_class), "Method.superclass should be Function");
+    assert_eq!(
+        vm.heap.class(method_class).superclass,
+        Some(function_class),
+        "Method.superclass should be Function"
+    );
 
     // Parallel rule for Method.
     let method_meta = vm.heap.class(method_class).class;
     let function_meta = vm.heap.class(function_class).class;
-    assert_eq!(vm.heap.class(method_meta).superclass, Some(function_meta), "Method.class.superclass should be Function.class");
+    assert_eq!(
+        vm.heap.class(method_meta).superclass,
+        Some(function_meta),
+        "Method.class.superclass should be Function.class"
+    );
 
     // The call protocol is reachable from Method via inheritance.
     for selector in ["arity", "name", "callWith(_)", "call()", "call(_)"] {
         let sym = vm.get_or_intern(selector);
-        assert!(lookup_method_in_hierarchy(&vm.heap, method_class, sym).is_some(), "Method should inherit `{selector}` from Function");
+        assert!(
+            lookup_method_in_hierarchy(&vm.heap, method_class, sym).is_some(),
+            "Method should inherit `{selector}` from Function"
+        );
     }
 }
 
@@ -1177,20 +1234,33 @@ fn callable_tower_and_reflection_protocol() {
     let mut vm = VM::new();
     let block_class = vm.universe.classes.block_class;
     let function_class = vm.universe.classes.function_class;
-    assert_eq!(vm.heap.class(block_class).superclass, Some(function_class), "Block.superclass should be Function");
+    assert_eq!(
+        vm.heap.class(block_class).superclass,
+        Some(function_class),
+        "Block.superclass should be Function"
+    );
 
     let module = vm.create_module("main", "callable_tower_and_reflection_protocol");
-    vm.interpret_source(module, "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n")
-        .expect("class + instance should compile and run");
+    vm.interpret_source(
+        module,
+        "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
+    )
+    .expect("class + instance should compile and run");
     let g_sym = vm.interner.intern("g");
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
     let selector_sym = vm.get_or_intern("greet(_)");
     let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
-    assert!(!matches!(method_value, Value::Obj(id) if id == vm.universe.classes.none_singleton), "methodFor should hit for a defined selector");
+    assert!(
+        !matches!(method_value, Value::Obj(id) if id == vm.universe.classes.none_singleton),
+        "methodFor should hit for a defined selector"
+    );
 
     // `arity`/`name` on the bare `Method`.
-    assert!(matches!(block_arity(&mut vm, &method_value, &[]).unwrap(), Value::Number(n) if n == 1.0), "Method#arity should be 1");
+    assert!(
+        matches!(block_arity(&mut vm, &method_value, &[]).unwrap(), Value::Number(n) if n == 1.0),
+        "Method#arity should be 1"
+    );
     match block_name(&mut vm, &method_value, &[]).unwrap() {
         Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_)", "Method#name should be the encoded selector"),
         other => panic!("Method#name should return a String, got {other:?}"),
@@ -1198,7 +1268,10 @@ fn callable_tower_and_reflection_protocol() {
 
     // `arity`/`name` on the `BoundMethod` produced by `bind(_)`.
     let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
-    assert!(matches!(block_arity(&mut vm, &bound, &[]).unwrap(), Value::Number(n) if n == 1.0), "BoundMethod#arity should be 1");
+    assert!(
+        matches!(block_arity(&mut vm, &bound, &[]).unwrap(), Value::Number(n) if n == 1.0),
+        "BoundMethod#arity should be 1"
+    );
     match block_name(&mut vm, &bound, &[]).unwrap() {
         Value::Obj(id) => assert_eq!(vm.heap.string(id).as_str(), "greet(_)", "BoundMethod#name should be the wrapped method's name"),
         other => panic!("BoundMethod#name should return a String, got {other:?}"),
@@ -1272,8 +1345,11 @@ fn invoke_on_and_bind_call_are_equivalent() {
     // intercept).
     let mut vm = VM::new();
     let module = vm.create_module("main", "invoke_on_and_bind_call_are_equivalent");
-    vm.interpret_source(module, "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n")
-        .expect("class + instance should compile and run");
+    vm.interpret_source(
+        module,
+        "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
+    )
+    .expect("class + instance should compile and run");
     let g_sym = vm.interner.intern("g");
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
@@ -1300,8 +1376,11 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
     // stack), not a truncation or a silently wrong value.
     let mut vm = VM::new();
     let module = vm.create_module("main", "invoke_on_and_bind_call_reject_arity_mismatch");
-    vm.interpret_source(module, "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n")
-        .expect("class + instance should compile and run");
+    vm.interpret_source(
+        module,
+        "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
+    )
+    .expect("class + instance should compile and run");
     let g_sym = vm.interner.intern("g");
     let g = vm.heap.module(module).get(g_sym).expect("`g` global should exist");
 
@@ -1368,7 +1447,8 @@ fn value_object_default_tostring_is_angle_bracket_class_name() {
     // `Number` receivers).
     let mut vm = VM::new();
     let module = vm.create_module("main", "value_object_default_tostring_is_angle_bracket_class_name");
-    vm.interpret_source(module, "class Foo {}\nlet f = Foo.new()\n").expect("class + instance should compile and run");
+    vm.interpret_source(module, "class Foo {}\nlet f = Foo.new()\n")
+        .expect("class + instance should compile and run");
     let f_sym = vm.interner.intern("f");
     let f = vm.heap.module(module).get(f_sym).expect("`f` global should exist");
 
@@ -1376,7 +1456,11 @@ fn value_object_default_tostring_is_angle_bracket_class_name() {
     assert_eq!(rendered.to_string(&vm), "<Foo>", "a bare user instance should render as `<ClassName>`");
 
     let number_rendered = send0(&mut vm, Value::Number(42.0), "toString");
-    assert_eq!(number_rendered.to_string(&vm), "42", "Number's own toString override must still read the numeric value");
+    assert_eq!(
+        number_rendered.to_string(&vm),
+        "42",
+        "Number's own toString override must still read the numeric value"
+    );
 }
 
 #[test]
@@ -1422,7 +1506,8 @@ fn value_tostring_is_total_and_never_leaks_nil() {
     // The empty-body `ifTrue` case: the taken branch's absent result
     // Some-lifts to `Some(None)`, and its message `toString` must agree.
     let module = vm.create_module("main", "value_tostring_is_total_and_never_leaks_nil");
-    vm.interpret_source(module, "let r = true.ifTrue { }\n").expect("empty ifTrue should compile and run");
+    vm.interpret_source(module, "let r = true.ifTrue { }\n")
+        .expect("empty ifTrue should compile and run");
     let r_sym = vm.interner.intern("r");
     let result = vm.heap.module(module).get(r_sym).expect("`r` global should exist");
     let rendered = send0(&mut vm, result, "toString");
@@ -1467,12 +1552,22 @@ fn genuine_miss_raises_surface_message_not_understood() {
 
     // (b) The raised object isA(Error) and is exactly a MessageNotUnderstood.
     let cls = raised.class(&vm);
-    assert_eq!(cls, vm.universe.classes.message_not_understood_class, "the raised object's class should be MessageNotUnderstood");
-    assert!(is_a(&vm, cls, vm.universe.classes.error_class), "the raised MessageNotUnderstood must be isA(Error)");
+    assert_eq!(
+        cls, vm.universe.classes.message_not_understood_class,
+        "the raised object's class should be MessageNotUnderstood"
+    );
+    assert!(
+        is_a(&vm, cls, vm.universe.classes.error_class),
+        "the raised MessageNotUnderstood must be isA(Error)"
+    );
 
     // (c) `Error#message` reads the rendered miss string (slot 0).
     let message = send0(&mut vm, raised, "message");
-    assert_eq!(message.to_string(&vm), "3 does not understand 'frobnicate'", "Error#message should read the rendered miss string");
+    assert_eq!(
+        message.to_string(&vm),
+        "3 does not understand 'frobnicate'",
+        "Error#message should read the rendered miss string"
+    );
 
     // (d) Slot 1 carries the reified `Message` (census §2.14); its `selector`
     // accessor should round-trip the missed selector symbol. `selector` lives
@@ -1482,9 +1577,16 @@ fn genuine_miss_raises_surface_message_not_understood() {
         Value::Obj(id) => vm.heap.as_instance(id).expect("MessageNotUnderstood should be an InstanceObject").slots[1],
         other => panic!("expected an Obj, got {other:?}"),
     };
-    assert_eq!(reified_message.class(&vm), vm.universe.classes.message_class, "slot 1 should hold a reified Message");
+    assert_eq!(
+        reified_message.class(&vm),
+        vm.universe.classes.message_class,
+        "slot 1 should hold a reified Message"
+    );
     let reified_selector = send0(&mut vm, reified_message, "selector");
-    assert!(matches!(reified_selector, Value::Symbol(sym) if sym == bogus), "the reified Message's selector should be the missed selector");
+    assert!(
+        matches!(reified_selector, Value::Symbol(sym) if sym == bogus),
+        "the reified Message's selector should be the missed selector"
+    );
 }
 
 #[test]
@@ -1528,7 +1630,10 @@ fn error_raise_unwinds_through_the_shared_raise_payload() {
     let err = vm.send_dynamic(error_instance, raise_sym, &[]).unwrap_err();
     match err {
         PhError::Runtime(RuntimeError::Raise { error, rendered, .. }) => {
-            assert!(matches!(error, Value::Obj(id) if matches!(error_instance, Value::Obj(other) if id == other)), "raise() should carry `self` as the raised error");
+            assert!(
+                matches!(error, Value::Obj(id) if matches!(error_instance, Value::Obj(other) if id == other)),
+                "raise() should carry `self` as the raised error"
+            );
             assert_eq!(rendered, "boom", "raise() should render via the `message` send");
         }
         other => panic!("expected RuntimeError::Raise, got {other:?}"),
@@ -1554,7 +1659,11 @@ fn overriding_does_not_understand_still_intercepts_before_the_default_raise() {
 
     let bogus = vm.get_or_intern("frobnicate");
     let result = vm.send_dynamic(p, bogus, &[]).expect("the override should intercept, not raise");
-    assert_eq!(result.to_string(&vm), "intercepted: frobnicate", "the user override should run instead of the default raise");
+    assert_eq!(
+        result.to_string(&vm),
+        "intercepted: frobnicate",
+        "the user override should run instead of the default raise"
+    );
 }
 
 #[test]
@@ -1596,7 +1705,11 @@ let after = 1 + 2
 
     let r_sym = vm.interner.intern("r");
     let r_value = vm.heap.module(module).get(r_sym).expect("`r` global should exist");
-    assert_eq!(r_value.to_string(&vm), "handled:deep", "the handler's post-restore allocation should survive as the `on` result");
+    assert_eq!(
+        r_value.to_string(&vm),
+        "handled:deep",
+        "the handler's post-restore allocation should survive as the `on` result"
+    );
 
     let after_sym = vm.interner.intern("after");
     let after_value = vm.heap.module(module).get(after_sym).expect("`after` global should exist");
@@ -1630,5 +1743,9 @@ let r = { throw SubErr.new("leaf") }.on(BaseErr) { e => "caught:" + e.message }
 
     let r_sym = vm.interner.intern("r");
     let r_value = vm.heap.module(module).get(r_sym).expect("`r` global should exist");
-    assert_eq!(r_value.to_string(&vm), "caught:leaf", "on(BaseErr) should catch a SubErr throw via the superclass walk");
+    assert_eq!(
+        r_value.to_string(&vm),
+        "caught:leaf",
+        "on(BaseErr) should catch a SubErr throw via the superclass walk"
+    );
 }

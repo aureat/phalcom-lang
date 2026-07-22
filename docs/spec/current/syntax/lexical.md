@@ -148,8 +148,9 @@ FLOAT := DEC-DIGITS "." DEC-DIGITS [ EXPONENT ]
 STRING := "\"" { STRING-SEGMENT } "\""
 ```
 
-Double-quoted; a string literal may span multiple physical lines (an embedded
-`NEWLINE` character is part of the string content, not a token).
+Double-quoted strings do not span physical lines. A raw `NEWLINE` is invalid
+inside the literal; use `\n` or `\r\n` escapes for embedded line breaks. Multiline string literal
+syntax is deferred by [PDR-0029](../../../pdr/0029-string-literals-and-interpolation-completion.md).
 
 ### 7.1 Interpolation ([ADR-0022])
 
@@ -164,16 +165,20 @@ INTERP-SEGMENT   := "\(" expr ")"          (* expr per expressions.md *)
 ```
 
 `\\(` lexes as a literal `\(` (the backslash is escaped, so the sigil does not
-fire). The two escapes with defined meaning inside a string are:
+fire). The defined escapes inside a string are:
 
 | Escape | Meaning |
 |---|---|
 | `\\` | literal backslash |
+| `\"` | literal quotation mark |
+| `\n` | line feed |
+| `\t` | horizontal tab |
+| `\r` | carriage return |
 | `\(` | begins an interpolation segment; `\\(` for a literal `\(` |
 
-> **Unresolved:** the full escape set (`\n`, `\t`, `\"`, unicode escapes, etc.)
-> beyond `\\` and `\(` is not yet specified. See
-> [`../implementation-status.md`](../implementation-status.md).
+Every other escape is an error. The stable diagnostic codes are
+`string.invalid_escape`, `string.interpolation.unterminated`,
+`string.interpolation.empty`, and `string.raw_newline`.
 
 ```phalcom
 let name = "Alice"

@@ -152,10 +152,18 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
     // via a second equal-to-`b` collection.
     let differing = [Value::Number(1.0), Value::Number(9.0), Value::Number(3.0)];
     let c = build(vm, &differing);
-    assert!(!as_bool(send1(vm, a, "==(_)", c)), "{}: differing elements must compare unequal", spec.class_name);
+    assert!(
+        !as_bool(send1(vm, a, "==(_)", c)),
+        "{}: differing elements must compare unequal",
+        spec.class_name
+    );
     let a2 = build(vm, &elems);
     assert!(as_bool(send1(vm, b, "==(_)", a2)), "{}: transitivity precondition (B == A2)", spec.class_name);
-    assert!(as_bool(send1(vm, a, "==(_)", a2)), "{}: == must be transitive (A == B, B == A2 => A == A2)", spec.class_name);
+    assert!(
+        as_bool(send1(vm, a, "==(_)", a2)),
+        "{}: == must be transitive (A == B, B == A2 => A == A2)",
+        spec.class_name
+    );
 
     // E6: != is the logical negation of ==, routed through it (not floor
     // identity) — the `==`/`!=` decoupling hazard this unit guards against.
@@ -178,7 +186,11 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
 #[test]
 fn list_satisfies_sequence_contract() {
     let mut vm = VM::new();
-    let spec = ContractSpec { class_name: "List", mutable: true, hashable: false };
+    let spec = ContractSpec {
+        class_name: "List",
+        mutable: true,
+        hashable: false,
+    };
     assert_sequence_contract(&mut vm, &spec, build_list);
 }
 
@@ -206,7 +218,11 @@ fn build_map(vm: &mut VM, elems: &[Value]) -> Value {
 #[test]
 fn map_satisfies_sequence_contract() {
     let mut vm = VM::new();
-    let spec = ContractSpec { class_name: "Map", mutable: false, hashable: false };
+    let spec = ContractSpec {
+        class_name: "Map",
+        mutable: false,
+        hashable: false,
+    };
     assert_sequence_contract(&mut vm, &spec, build_map);
 }
 
@@ -228,7 +244,11 @@ fn build_set(vm: &mut VM, elems: &[Value]) -> Value {
 #[test]
 fn set_satisfies_sequence_contract() {
     let mut vm = VM::new();
-    let spec = ContractSpec { class_name: "Set", mutable: true, hashable: false };
+    let spec = ContractSpec {
+        class_name: "Set",
+        mutable: true,
+        hashable: false,
+    };
     assert_sequence_contract(&mut vm, &spec, build_set);
 }
 
@@ -306,7 +326,11 @@ fn build_tuple(vm: &mut VM, elems: &[Value]) -> Value {
 #[test]
 fn tuple_satisfies_sequence_contract() {
     let mut vm = VM::new();
-    let spec = ContractSpec { class_name: "Tuple", mutable: false, hashable: true };
+    let spec = ContractSpec {
+        class_name: "Tuple",
+        mutable: false,
+        hashable: true,
+    };
     assert_sequence_contract(&mut vm, &spec, build_tuple);
 }
 
@@ -332,11 +356,17 @@ fn tuple_value_hash_and_immutability() {
 
     // Cross-kind: a same-content List is never == a Tuple (E2).
     let list_same_content = build_list(&mut vm, &[Value::Number(1.0), Value::Number(2.0)]);
-    assert!(!as_bool(send1(&mut vm, a, "==(_)", list_same_content)), "Tuple must never == a List, even same content");
+    assert!(
+        !as_bool(send1(&mut vm, a, "==(_)", list_same_content)),
+        "Tuple must never == a List, even same content"
+    );
 
     // No mutation selector: `at(_,put)` and `add(_)` both miss (dNU).
     let sym_put = vm.get_or_intern("at(_,put)");
-    assert!(vm.send_dynamic(a, sym_put, &[Value::Number(0.0), Value::Number(9.0)]).is_err(), "Tuple must not respond to at(_,put)");
+    assert!(
+        vm.send_dynamic(a, sym_put, &[Value::Number(0.0), Value::Number(9.0)]).is_err(),
+        "Tuple must not respond to at(_,put)"
+    );
     let sym_add = vm.get_or_intern("add(_)");
     assert!(vm.send_dynamic(a, sym_add, &[Value::Number(9.0)]).is_err(), "Tuple must not respond to add(_)");
 }
@@ -355,7 +385,11 @@ fn tuple_is_a_valid_map_key() {
 
     let key2 = build_tuple(&mut vm, &[Value::Number(1.0), Value::Number(2.0)]);
     let got = send1(&mut vm, map, "at(_)", key2);
-    assert_eq!(as_number(got), 9.0, "a value-equal Tuple key must recover the same entry (re-entrant hash+== lookup)");
+    assert_eq!(
+        as_number(got),
+        9.0,
+        "a value-equal Tuple key must recover the same entry (re-entrant hash+== lookup)"
+    );
     assert_eq!(as_number(send0(&mut vm, map, "size")), 1.0, "only one entry — key1/key2 are the SAME key");
 }
 
@@ -402,21 +436,29 @@ fn range_satisfies_the_applicable_sequence_laws() {
             assert_eq!(as_number(got), i as f64, "Range: at({i}) should recover the generated element");
         }
         let out_of_range = send1(&mut vm, range, "at(_)", Value::Number(n as f64));
-        assert!(matches!(out_of_range, Value::Obj(id) if id == vm.universe.classes.none_singleton), "Range: at(size) must surface the None singleton");
+        assert!(
+            matches!(out_of_range, Value::Obj(id) if id == vm.universe.classes.none_singleton),
+            "Range: at(size) must surface the None singleton"
+        );
     }
 
     // E1/E3/E4/E6: two independently-built equal ranges.
     let elems = [Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)];
     let a = build_range(&mut vm, &elems);
     let b = build_range(&mut vm, &elems);
-    assert!(as_bool(send1(&mut vm, a, "==(_)", b)), "Range: independently-built equal ranges must compare ==");
+    assert!(
+        as_bool(send1(&mut vm, a, "==(_)", b)),
+        "Range: independently-built equal ranges must compare =="
+    );
     assert!(as_bool(send1(&mut vm, a, "==(_)", a)), "Range: == must be reflexive");
     assert!(!as_bool(send1(&mut vm, a, "!=(_)", a)), "Range: != must be false where == holds");
 
     // A genuinely different range (different bounds) must compare unequal.
     let range_class = Value::Obj(vm.universe.classes.range_class);
     let sym_new = vm.get_or_intern("new(_,_,_)");
-    let differing = vm.send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(9.0), Value::Bool(false)]).unwrap();
+    let differing = vm
+        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(9.0), Value::Bool(false)])
+        .unwrap();
     assert!(!as_bool(send1(&mut vm, a, "==(_)", differing)), "Range: differing bounds must compare unequal");
     assert!(as_bool(send1(&mut vm, a, "!=(_)", differing)), "Range: != must hold where == fails");
 
@@ -440,11 +482,16 @@ fn range_inclusive_exclusive_parity_and_to_list_roundtrip() {
     let sym_new = vm.get_or_intern("new(_,_,_)");
 
     // Range.new(1, 5, true) — inclusive: 1,2,3,4,5.
-    let inclusive = vm.send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(true)]).unwrap();
+    let inclusive = vm
+        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(true)])
+        .unwrap();
     assert_eq!(as_number(send0(&mut vm, inclusive, "size")), 5.0, "inclusive size: 5-1+1 = 5");
     assert_eq!(as_number(send0(&mut vm, inclusive, "first")), 1.0);
     assert_eq!(as_number(send0(&mut vm, inclusive, "last")), 5.0, "inclusive last == end");
-    assert!(as_bool(send1(&mut vm, inclusive, "includes(_)", Value::Number(5.0))), "inclusive range includes its end bound");
+    assert!(
+        as_bool(send1(&mut vm, inclusive, "includes(_)", Value::Number(5.0))),
+        "inclusive range includes its end bound"
+    );
 
     let list_inclusive = send0(&mut vm, inclusive, "toList");
     for (i, expected) in [1.0, 2.0, 3.0, 4.0, 5.0].iter().enumerate() {
@@ -453,14 +500,24 @@ fn range_inclusive_exclusive_parity_and_to_list_roundtrip() {
     }
 
     // Range.new(1, 5, false) — exclusive: 1,2,3,4.
-    let exclusive = vm.send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(false)]).unwrap();
+    let exclusive = vm
+        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(false)])
+        .unwrap();
     assert_eq!(as_number(send0(&mut vm, exclusive, "size")), 4.0, "exclusive size: 5-1 = 4");
     assert_eq!(as_number(send0(&mut vm, exclusive, "last")), 4.0, "exclusive last == end-1");
-    assert!(!as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Number(5.0))), "exclusive range excludes its end bound");
-    assert!(as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Number(4.0))), "exclusive range includes end-1");
+    assert!(
+        !as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Number(5.0))),
+        "exclusive range excludes its end bound"
+    );
+    assert!(
+        as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Number(4.0))),
+        "exclusive range includes end-1"
+    );
 
     // Value-hash equality + structural == over independently-built ranges.
-    let inclusive2 = vm.send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(true)]).unwrap();
+    let inclusive2 = vm
+        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(true)])
+        .unwrap();
     assert!(as_bool(send1(&mut vm, inclusive, "==(_)", inclusive2)));
     assert_eq!(as_number(send0(&mut vm, inclusive, "hash")), as_number(send0(&mut vm, inclusive2, "hash")));
 }
@@ -486,7 +543,10 @@ fn range_is_lazy_for_a_million_element_bound() {
     let elapsed = start.elapsed();
     assert_eq!(size, 1_000_000.0);
     assert!(includes);
-    assert!(elapsed.as_millis() < 200, "construct+size+includes on a million-bound Range took {elapsed:?} — looks materialized, not lazy");
+    assert!(
+        elapsed.as_millis() < 200,
+        "construct+size+includes on a million-bound Range took {elapsed:?} — looks materialized, not lazy"
+    );
 }
 
 /// DEC-CT-C (negative): a mutable-collection key (`List`) rejected by both

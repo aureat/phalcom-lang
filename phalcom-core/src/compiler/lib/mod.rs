@@ -36,8 +36,8 @@ pub enum UnitKind {
 
 use crate::bytecode::Bytecode;
 use crate::callable::Callable;
-use crate::heap::ClosureObject;
 use crate::error::PhResult;
+use crate::heap::ClosureObject;
 use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;
 use crate::value::Value;
@@ -234,10 +234,7 @@ impl<'vm> Compiler<'vm> {
     /// Runs `f` with the inliner suppressed, for compiling a sacred call's
     /// deopt-fallback copy of its arms. Nests correctly: the counter is
     /// restored on the way out, so an outer fallback stays suppressed.
-    pub(crate) fn with_deopt_fallback<T>(
-        &mut self,
-        f: impl FnOnce(&mut Self) -> Result<T, CompilerError>,
-    ) -> Result<T, CompilerError> {
+    pub(crate) fn with_deopt_fallback<T>(&mut self, f: impl FnOnce(&mut Self) -> Result<T, CompilerError>) -> Result<T, CompilerError> {
         self.deopt_fallback_depth += 1;
         let result = f(self);
         self.deopt_fallback_depth -= 1;
@@ -280,8 +277,7 @@ impl<'vm> Compiler<'vm> {
         let dummy_sym = self.vm.interner.intern("<block-receiver>");
 
         // Push a fresh function-compilation state for this body.
-        self.functions
-            .push(FunctionState::new(is_constructor, !is_method, constructor_name));
+        self.functions.push(FunctionState::new(is_constructor, !is_method, constructor_name));
         self.begin_scope();
 
         if is_method {
@@ -291,11 +287,13 @@ impl<'vm> Compiler<'vm> {
             // documentary here; the constructor's own `SetLocal(0)` below
             // writes this slot directly, bypassing the immutability check
             // entirely (L-6).
-            self.add_local(self_sym, false).expect("receiver slot is the first local in a fresh function state");
+            self.add_local(self_sym, false)
+                .expect("receiver slot is the first local in a fresh function state");
         } else {
             // Slot 0 holds the block object itself (blocks reach `self` via an
             // upvalue, functions.md §2), so we reserve it with a dummy local.
-            self.add_local(dummy_sym, false).expect("block-receiver slot is the first local in a fresh function state");
+            self.add_local(dummy_sym, false)
+                .expect("block-receiver slot is the first local in a fresh function state");
         }
 
         for param_sym in param_symbols {
@@ -379,7 +377,6 @@ impl<'vm> Compiler<'vm> {
             self.emit(Bytecode::Return, EmptySourceRange);
         }
 
-
         let name_sym = self.vm.heap.module(self.module).name_sym;
         let mut func = self.functions.pop().unwrap();
         func.chunk.fuse_superinstructions();
@@ -405,7 +402,6 @@ impl<'vm> Compiler<'vm> {
 
         Ok(closure)
     }
-
 
     pub(crate) fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {
         match statement {
@@ -586,10 +582,7 @@ impl<'vm> Compiler<'vm> {
 /// the runtime `doesNotUnderstand` miss on `raise()` instead — deliberately no
 /// flow typing (U-ERR plan §2.2).
 fn is_non_error_literal(expr: &Expr) -> bool {
-    matches!(
-        expr,
-        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Symbol(_)
-    )
+    matches!(expr, Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Symbol(_))
 }
 
 #[cfg(test)]

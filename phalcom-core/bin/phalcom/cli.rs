@@ -1,5 +1,5 @@
 use crate::disasm;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand, ValueHint};
 use phalcom_core::compiler::attributes::CompileMode;
 use phalcom_core::diagnostics::style::{ColorMode, RenderConfig};
@@ -179,7 +179,10 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     // process's current directory, `resolve_import_path`'s documented
     // fallback).
     let abs_path = match &cli.path {
-        Some(p) => fs::canonicalize(p).with_context(|| format!("Failed to resolve path {}", p.display()))?.display().to_string(),
+        Some(p) => fs::canonicalize(p)
+            .with_context(|| format!("Failed to resolve path {}", p.display()))?
+            .display()
+            .to_string(),
         None => "<main>".to_string(),
     };
     // Read before `cli.path`/`cli.source` are moved out below — `cli` would
@@ -209,9 +212,7 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
     let leaks = vm.resources.leaks();
     if !leaks.is_empty() {
         for (kind, site) in &leaks {
-            let site_str = site
-                .map(|s| format!("{}:{}", s.start, s.end))
-                .unwrap_or_else(|| "unknown".to_string());
+            let site_str = site.map(|s| format!("{}:{}", s.start, s.end)).unwrap_or_else(|| "unknown".to_string());
             eprintln!("Unclosed resource kind: {} opened at {}", kind, site_str);
             if kind.to_string() == "BufferedWriter" {
                 eprintln!("Note: pending bytes may be lost for unclosed BufferedWriter");

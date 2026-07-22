@@ -1,0 +1,4 @@
+b1 = <Base>
+Base.count = 1
+b2 = <Base>
+Base.count = 2

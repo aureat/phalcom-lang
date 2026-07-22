@@ -1,9 +1,9 @@
-use crate::heap::ClassObject;
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::{ClassId, Object, ObjRef};
+use crate::heap::ClassObject;
+use crate::heap::ModuleObject;
+use crate::heap::{ClassId, ObjRef, Object};
 use crate::interner::Symbol;
 use crate::method::decode_selector;
-use crate::heap::ModuleObject;
 use crate::value::Value;
 use tracing::debug;
 
@@ -98,8 +98,6 @@ impl VM {
             debug!("Module with symbol {:?} not found for path registration", module_sym);
         }
     }
-
-
 
     /// Returns the module handle for `module_sym`, if loaded.
     pub fn get_module(&mut self, module_sym: Symbol) -> Option<ObjRef> {
@@ -270,7 +268,9 @@ impl VM {
             let method_sym = if is_main {
                 self.interner.intern("<main>")
             } else if let Some(token) = frame.home_frame_token {
-                let enclosing = self.frames.get(token.frame_index)
+                let enclosing = self
+                    .frames
+                    .get(token.frame_index)
                     .filter(|home| home.generation == token.generation)
                     .map(|home| self.heap.closure(home.closure).callable.name_sym)
                     .unwrap_or(closure.callable.name_sym);
@@ -312,7 +312,9 @@ impl VM {
             let method_sym = if is_main {
                 self.interner.intern("<main>")
             } else if let Some(token) = frame.home_frame_token {
-                let enclosing = fiber.frames.get(token.frame_index)
+                let enclosing = fiber
+                    .frames
+                    .get(token.frame_index)
                     .filter(|home| home.generation == token.generation)
                     .map(|home| self.heap.closure(home.closure).callable.name_sym)
                     .unwrap_or(closure.callable.name_sym);
@@ -337,5 +339,3 @@ impl VM {
         records
     }
 }
-
-

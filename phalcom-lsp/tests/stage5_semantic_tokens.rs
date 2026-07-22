@@ -67,9 +67,7 @@ async fn semantic_tokens_full_classifies_a_representative_document() {
 
     let (service, socket) = LspService::new(Backend::new);
     let server_task = tokio::spawn(async move {
-        Server::new(server_read, server_write, socket)
-            .serve(service)
-            .await;
+        Server::new(server_read, server_write, socket).serve(service).await;
     });
 
     write_message(
@@ -86,19 +84,10 @@ async fn semantic_tokens_full_classifies_a_representative_document() {
     let provider = &init_response["result"]["capabilities"]["semanticTokensProvider"];
     assert!(provider.is_object(), "{init_response:#?}");
     assert_eq!(provider["full"], json!(true));
-    let token_types = provider["legend"]["tokenTypes"]
-        .as_array()
-        .expect("legend token types array");
-    assert!(
-        token_types.iter().any(|t| t == "selector"),
-        "{token_types:#?}"
-    );
+    let token_types = provider["legend"]["tokenTypes"].as_array().expect("legend token types array");
+    assert!(token_types.iter().any(|t| t == "selector"), "{token_types:#?}");
 
-    write_message(
-        &mut client_end,
-        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-    )
-    .await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
 
     let uri = "file:///workspace/main.ph";
     let text = "let x = 1\n#move\n";
@@ -134,9 +123,7 @@ async fn semantic_tokens_full_classifies_a_representative_document() {
     )
     .await;
     let response = read_response(&mut client_end, 2).await;
-    let data = response["result"]["data"]
-        .as_array()
-        .expect("semantic token data array");
+    let data = response["result"]["data"].as_array().expect("semantic token data array");
 
     // 5 fields per token; classified tokens are: let, x, =, 1, #move
     // (Newline is uncolored). 5 tokens * 5 fields = 25.

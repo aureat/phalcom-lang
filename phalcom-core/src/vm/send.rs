@@ -58,7 +58,12 @@ impl VM {
                     let (closure_id, home_frame_token) = crate::primitive::block::resolve_callable(self, &receiver)?;
                     let closure_arity = self.heap.closure(closure_id).callable.arity;
                     if arity != closure_arity {
-                        return Err(RuntimeError::Arity { signature: "call", expected: closure_arity, found: arity }.into());
+                        return Err(RuntimeError::Arity {
+                            signature: "call",
+                            expected: closure_arity,
+                            found: arity,
+                        }
+                        .into());
                     }
                     let context = crate::frame::CallContext::Instance {
                         instance: match receiver {
@@ -317,7 +322,12 @@ impl VM {
         };
         let ok = if variadic { args.len() >= positional } else { args.len() == positional };
         if !ok {
-            return Err(RuntimeError::Arity { signature: "invokeOn", expected: positional, found: args.len() }.into());
+            return Err(RuntimeError::Arity {
+                signature: "invokeOn",
+                expected: positional,
+                found: args.len(),
+            }
+            .into());
         }
 
         self.stack.push(receiver);

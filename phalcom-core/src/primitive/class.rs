@@ -2,8 +2,8 @@
 
 use crate::error::PhResult;
 use crate::error::RuntimeError;
-use crate::heap::Object;
 use crate::heap::InstanceObject;
+use crate::heap::Object;
 use crate::primitive::expect_class;
 use crate::value::Value;
 use crate::vm::VM;
@@ -111,7 +111,8 @@ pub fn class_new_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
         return Err(RuntimeError::Type {
             expected: "InstanceObject-backed class",
             found: "native representation class",
-        }.into());
+        }
+        .into());
     }
     let field_count = target_class.field_count;
     let instance = InstanceObject::new(class_id, field_count);

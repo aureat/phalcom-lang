@@ -44,10 +44,7 @@ fn recovers_across_multiple_broken_statements() {
     // lines ending in an operator would legitimately be joined.
     let result = phalcom_ast::parse("let 9\nreturn )\nlet 9\n", 0);
     let rendered: Vec<String> = result.errors.iter().map(ToString::to_string).collect();
-    assert!(
-        result.errors.len() >= 3,
-        "expected at least three recovered errors, got {rendered:?}"
-    );
+    assert!(result.errors.len() >= 3, "expected at least three recovered errors, got {rendered:?}");
     insta::assert_debug_snapshot!(rendered);
 }
 
@@ -164,8 +161,7 @@ fn class_declaration_with_trailing_newline_parses() {
 
 #[test]
 fn class_keyword_send_in_method_body_targets_self_class() {
-    let program = parse_source("class Counter {\n  bump() {\n    class.bump()\n  }\n}\n", 0)
-        .expect("method body containing `class.bump()` should parse");
+    let program = parse_source("class Counter {\n  bump() {\n    class.bump()\n  }\n}\n", 0).expect("method body containing `class.bump()` should parse");
 
     let Statement::Class(class) = &program.statements[0] else {
         panic!("expected class declaration");
@@ -174,8 +170,7 @@ fn class_keyword_send_in_method_body_targets_self_class() {
         panic!("expected method declaration");
     };
     let Statement::Expr {
-        expr: Expr::MethodCall(send),
-        ..
+        expr: Expr::MethodCall(send), ..
     } = &method.body[0]
     else {
         panic!("expected `class.bump()` send");
@@ -258,7 +253,6 @@ fn postfix_call_desugars_to_call_method() {
     insta::assert_snapshot!(parse("f(1, 2)"));
 }
 
-
 // --- Iteration surface (U-ITER, ADR-0035 §2/§3) ---
 
 #[test]
@@ -308,7 +302,9 @@ fn bare_attribute_with_no_args_parses() {
 
 #[test]
 fn multiple_attributes_attach_to_same_member_in_order() {
-    insta::assert_snapshot!(parse("class Point {\n  @requires(x > 0)\n  @requires(x < 100)\n  set(x) {\n    self.x = x\n  }\n}\n"));
+    insta::assert_snapshot!(parse(
+        "class Point {\n  @requires(x > 0)\n  @requires(x < 100)\n  set(x) {\n    self.x = x\n  }\n}\n"
+    ));
 }
 
 #[test]

@@ -1,7 +1,7 @@
 //! Native primitives for the kernel `Module` class (U15, DEC-U15 A+A).
 
 use crate::error::{PhResult, RuntimeError};
-use crate::method::{decode_selector, encode_selector, SignatureKind};
+use crate::method::{SignatureKind, decode_selector, encode_selector};
 use crate::primitive::object::object_does_not_understand;
 use crate::value::Value;
 use crate::vm::VM;

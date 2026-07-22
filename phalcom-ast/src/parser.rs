@@ -43,6 +43,7 @@ use crate::error::{SyntaxError, SyntaxErrorKind};
 use crate::lexer::Lexer;
 use crate::token::{LexicalError, StringSegment, Token};
 use phalcom_common::range::SourceRange;
+use std::ops::Range;
 
 /// The three pieces [`Parser::parse_class_body`] assembles a [`ClassDef`]
 /// from: its members, its (currently always-empty, see that field's doc)
@@ -110,8 +111,18 @@ pub fn parse(source: &str, offset: usize) -> Parse {
 /// but missing, keeping error snapshots stable.
 fn primary_expected() -> Vec<String> {
     [
-        "\"true\"", "\"false\"", "\"nil\"", "\"self\"", "\"super\"", "identifier", "string",
-        "number", "\"(\"", "\"not\"", "\"-\"", "\"{\"",
+        "\"true\"",
+        "\"false\"",
+        "\"nil\"",
+        "\"self\"",
+        "\"super\"",
+        "identifier",
+        "string",
+        "number",
+        "\"(\"",
+        "\"not\"",
+        "\"-\"",
+        "\"{\"",
     ]
     .iter()
     .map(|s| (*s).to_string())
@@ -147,6 +158,18 @@ fn lex_error_to_syntax(err: LexicalError, offset: usize) -> SyntaxError {
             kind: SyntaxErrorKind::UnterminatedComment,
             range: (span.start + offset)..(span.end + offset),
         },
+        LexicalError::InvalidEscape(span) => SyntaxError {
+            kind: SyntaxErrorKind::InvalidStringEscape,
+            range: (span.start + offset)..(span.end + offset),
+        },
+        LexicalError::UnterminatedInterpolation(span) => SyntaxError {
+            kind: SyntaxErrorKind::UnterminatedInterpolation,
+            range: (span.start + offset)..(span.end + offset),
+        },
+        LexicalError::RawNewlineInString(span) => SyntaxError {
+            kind: SyntaxErrorKind::RawNewlineInString,
+            range: (span.start + offset)..(span.end + offset),
+        },
         LexicalError::Invalid => SyntaxError {
             kind: SyntaxErrorKind::InvalidToken,
             range: 0..0,
@@ -176,6 +199,7 @@ fn push_lex_error(errors: &mut Vec<SyntaxError>, err: LexicalError, offset: usiz
     let expected_closer = match &err {
         LexicalError::UnterminatedBlockComment(_) => Some("`*/`"),
         LexicalError::UnterminatedString(_) => Some("`\"`"),
+        LexicalError::UnterminatedInterpolation(_) => Some("`)`"),
         _ => None,
     };
 
@@ -244,13 +268,7 @@ impl<'source> Parser<'source> {
                 Err(err) => push_lex_error(&mut errors, err, offset),
             }
         }
-        if !matches!(
-            tokens.last(),
-            Some(Lexeme {
-                token: Token::Eof,
-                ..
-            })
-        ) {
+        if !matches!(tokens.last(), Some(Lexeme { token: Token::Eof, .. })) {
             let end = tokens.last().map_or(offset, |l| l.end);
             tokens.push(Lexeme {
                 token: Token::Eof,
@@ -480,12 +498,16 @@ impl<'source> Parser<'source> {
             Token::Break => {
                 let start = self.cur_start();
                 self.advance(); // 'break'
-                Ok(Statement::Break { range: (start..self.prev_end).into() })
+                Ok(Statement::Break {
+                    range: (start..self.prev_end).into(),
+                })
             }
             Token::Continue => {
                 let start = self.cur_start();
                 self.advance(); // 'continue'
-                Ok(Statement::Continue { range: (start..self.prev_end).into() })
+                Ok(Statement::Continue {
+                    range: (start..self.prev_end).into(),
+                })
             }
             _ => self.parse_expr_statement(),
         }
@@ -629,7 +651,15 @@ impl<'source> Parser<'source> {
                 if needs_wrap {
                     acc = Self::wrap_expr_as_block(acc);
                 }
-                acc = self.wrap_on(acc, Expr::Var { value: class_name, range: class_range }, handler, start);
+                acc = self.wrap_on(
+                    acc,
+                    Expr::Var {
+                        value: class_name,
+                        range: class_range,
+                    },
+                    handler,
+                    start,
+                );
                 has_handler = true;
                 needs_wrap = true;
             } else if is_catch {
@@ -641,7 +671,15 @@ impl<'source> Parser<'source> {
                 if needs_wrap {
                     acc = Self::wrap_expr_as_block(acc);
                 }
-                acc = self.wrap_on(acc, Expr::Var { value: "Error".to_string(), range: class_range }, handler, start);
+                acc = self.wrap_on(
+                    acc,
+                    Expr::Var {
+                        value: "Error".to_string(),
+                        range: class_range,
+                    },
+                    handler,
+                    start,
+                );
                 has_handler = true;
                 needs_wrap = true;
             } else {
@@ -660,7 +698,11 @@ impl<'source> Parser<'source> {
             acc = Expr::MethodCall(Box::new(MethodCallExpr {
                 object: acc,
                 method: "ensure".to_string(),
-                args: vec![Argument { label: None, expr: cleanup, range: cleanup_range }],
+                args: vec![Argument {
+                    label: None,
+                    expr: cleanup,
+                    range: cleanup_range,
+                }],
                 range,
             }));
             has_ensure = true;
@@ -684,8 +726,16 @@ impl<'source> Parser<'source> {
             object: protected,
             method: "on".to_string(),
             args: vec![
-                Argument { label: None, expr: class, range: class_range },
-                Argument { label: None, expr: handler, range: handler_range },
+                Argument {
+                    label: None,
+                    expr: class,
+                    range: class_range,
+                },
+                Argument {
+                    label: None,
+                    expr: handler,
+                    range: handler_range,
+                },
             ],
             range,
         }))
@@ -731,18 +781,9 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         self.advance(); // 'let' or 'var'
         let pattern = self.parse_pattern()?;
-        let value = if self.eat(&Token::Equal) {
-            Some(self.parse_expr()?)
-        } else {
-            None
-        };
+        let value = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
-        Ok(Statement::Let(LetBinding {
-            kind,
-            pattern,
-            value,
-            range,
-        }))
+        Ok(Statement::Let(LetBinding { kind, pattern, value, range }))
     }
 
     /// Parses a `let`/`var` binding's left-hand side [`Pattern`] (U14,
@@ -835,9 +876,7 @@ impl<'source> Parser<'source> {
                 let elem_start = self.cur_start();
                 if rest.is_some() {
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message(
-                            "a rest pattern (\"*name\") must be the last element of a list pattern".to_string(),
-                        ),
+                        kind: SyntaxErrorKind::Message("a rest pattern (\"*name\") must be the last element of a list pattern".to_string()),
                         range: elem_start..elem_start,
                     });
                 }
@@ -868,11 +907,7 @@ impl<'source> Parser<'source> {
     fn parse_return(&mut self) -> ParserResult<Statement> {
         let start = self.cur_start();
         self.advance(); // 'return'
-        let value = if self.at_expr_start() {
-            Some(self.parse_expr()?)
-        } else {
-            None
-        };
+        let value = if self.at_expr_start() { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
         Ok(Statement::Return(ReturnStatement { value, range }))
     }
@@ -969,7 +1004,10 @@ impl<'source> Parser<'source> {
             let sc_start = self.cur_start();
             let sc_name = self.expect_identifier(&["superclass name"])?;
             let sc_range = (sc_start..self.prev_end).into();
-            Some(SuperclassRef { name: sc_name, range: sc_range })
+            Some(SuperclassRef {
+                name: sc_name,
+                range: sc_range,
+            })
         } else {
             None
         };
@@ -1041,9 +1079,7 @@ impl<'source> Parser<'source> {
                     if attr.name == "invariant" {
                         if attr.args.len() != 1 {
                             return Err(SyntaxError {
-                                kind: SyntaxErrorKind::Message(
-                                    "@invariant expects exactly one predicate argument".to_string(),
-                                ),
+                                kind: SyntaxErrorKind::Message("@invariant expects exactly one predicate argument".to_string()),
                                 range: attr.range.start..attr.range.end,
                             });
                         }
@@ -1222,9 +1258,7 @@ impl<'source> Parser<'source> {
         let ok = chars.next() == Some('_') && chars.next().is_some_and(|c| c.is_alphabetic());
         if !ok {
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message(format!(
-                    "field name '{name}' must start with `_` followed by a letter"
-                )),
+                kind: SyntaxErrorKind::Message(format!("field name '{name}' must start with `_` followed by a letter")),
                 range: name_start..self.prev_end,
             });
         }
@@ -1320,27 +1354,21 @@ impl<'source> Parser<'source> {
         }
         if matches!(self.peek(), Token::Let) {
             self.advance();
-            let range = (start..self.prev_end).into();
+            let range = start..self.prev_end;
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message(
-                    "mutable fields take no keyword; write `_name` instead of `let _name`".to_string(),
-                ),
+                kind: SyntaxErrorKind::Message("mutable fields take no keyword; write `_name` instead of `let _name`".to_string()),
                 range,
             });
         }
         if matches!(self.peek(), Token::Class) && matches!(self.peek_next(), Token::Identifier(_)) {
-            let range = (start..self.cur_start() + 5).into();
+            let range = start..self.cur_start() + 5;
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message(
-                    "help: `class foo()` is legacy syntax; use `@class foo()`".to_string(),
-                ),
+                kind: SyntaxErrorKind::Message("help: `class foo()` is legacy syntax; use `@class foo()`".to_string()),
                 range,
             });
         }
         if let Token::Identifier(name) = self.peek() {
-            if name.starts_with('_')
-                && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal)
-            {
+            if name.starts_with('_') && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal) {
                 return self.parse_field_decl(start, false);
             }
         }
@@ -1405,11 +1433,7 @@ impl<'source> Parser<'source> {
         let range = (start..self.prev_end).into();
         if has_equal {
             let param = if let Some(ref list) = params {
-                if !list.is_empty() {
-                    list[0].name.clone()
-                } else {
-                    "value".to_string()
-                }
+                if !list.is_empty() { list[0].name.clone() } else { "value".to_string() }
             } else {
                 "value".to_string()
             };
@@ -1545,11 +1569,7 @@ impl<'source> Parser<'source> {
             }
             let is_rest = self.eat(&Token::Asterisk);
             let name = self.expect_identifier(&["identifier"])?;
-            let label = if self.eat(&Token::Colon) {
-                Some(name.clone())
-            } else {
-                None
-            };
+            let label = if self.eat(&Token::Colon) { Some(name.clone()) } else { None };
             if is_rest {
                 if label.is_some() {
                     return Err(SyntaxError {
@@ -1559,9 +1579,7 @@ impl<'source> Parser<'source> {
                 }
                 if any_labeled {
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message(
-                            "a rest parameter cannot follow a labeled parameter".to_string(),
-                        ),
+                        kind: SyntaxErrorKind::Message("a rest parameter cannot follow a labeled parameter".to_string()),
                         range: start..self.prev_end,
                     });
                 }
@@ -1639,10 +1657,7 @@ impl<'source> Parser<'source> {
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
                 // class-declaration path.
-                Token::At | Token::Class
-                    if matches!(self.peek(), Token::At)
-                        || matches!(self.peek_next(), Token::Identifier(_)) =>
-                {
+                Token::At | Token::Class if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) => {
                     let stmt = self.parse_class()?;
                     // `range.start` is the `class` keyword's own byte offset
                     // (set in `parse_class` before any header attribute
@@ -1797,98 +1812,89 @@ impl<'source> Parser<'source> {
     /// stringified segments.
     ///
     /// Each [`StringSegment::Literal`] becomes an [`Expr::String`]; each
-    /// [`StringSegment::Expr`] is re-parsed from its source slice (with this
-    /// parser's [`offset`](Self::offset) folded onto the segment's start so
-    /// spans stay absolute) and wrapped as `String.new(expr)` — the working
-    /// content-stringify send while a real content `toString` is blocked on
-    /// U-CORE-4 (see ADR-0022). The parts are folded left with binary `+`
-    /// ([`BinaryOp::Add`]), so `"a \(x) b"` lowers to
-    /// `"a " + String.new(x) + " b"`.
+    /// [`StringSegment::Expr`] is re-parsed from its source slice and wrapped
+    /// in a `toString` getter (`Expr::GetProperty`). The parts are folded left
+    /// with binary `+` ([`BinaryOp::Add`]). If the first segment is an expression,
+    /// an empty string accumulator `""` is seeded. For example, `"a \(x) b"` lowers to
+    /// `("a " + x.toString) + " b"`.
     ///
     /// # Errors
     ///
     /// Returns a [`SyntaxError`] if any interpolated expression fails to parse,
     /// or if an interpolation body is empty (no expression).
-    fn desugar_string_interp(
-        &self,
-        segments: Vec<StringSegment>,
-        range: SourceRange,
-    ) -> ParserResult<Expr> {
-        let mut acc: Option<Expr> = None;
+    fn desugar_string_interp(&self, segments: Vec<StringSegment>, outer_range: SourceRange) -> ParserResult<Expr> {
+        let starts_with_expr = matches!(segments.first(), Some(StringSegment::Expr { .. }));
+
+        let mut acc = if starts_with_expr {
+            Some(Expr::String {
+                value: String::new(),
+                range: outer_range,
+            })
+        } else {
+            None
+        };
+
         for segment in segments {
             let part = match segment {
-                StringSegment::Literal(value) => Expr::String { value, range },
-                StringSegment::Expr { source, start } => {
-                    let inner = self.parse_interp_expr(&source, start, range)?;
-                    // Each interpolated expression becomes an ordinary
-                    // `expr.toString` **getter send** (DEFERRED CB-1, amending
-                    // [ADR-0022]'s "Stringification target").
-                    //
-                    // It used to wrap as `String.new(expr)`, which renders via
-                    // the native `Value::to_string` and therefore **bypassed a
-                    // user's `toString` override**: `System.print(p)` gave
-                    // `<redacted>` while `"\(p)"` gave `<Secret instance>` for
-                    // the same object. ADR-0022 chose `String.new` deliberately
-                    // — at the time `toString` was only `Object`'s class-name
-                    // default — and pre-authorised this revisit "when U-CORE-4
-                    // lands a real content `toString`". It has.
-                    //
-                    // `GetProperty`, not a zero-arg `MethodCall`: `toString` is
-                    // bound as `SignatureKind::Getter`, and `toString()` would
-                    // encode a *different* selector that misses it.
+                StringSegment::Literal(value) => Expr::String { value, range: outer_range },
+                StringSegment::Expr { source, range } => {
+                    let inner = self.parse_interp_expr(&source, range)?;
                     Expr::GetProperty(Box::new(GetPropertyExpr {
                         object: inner,
                         property: "toString".to_string(),
-                        range,
+                        range: outer_range,
                     }))
                 }
             };
+
             acc = Some(match acc {
                 None => part,
                 Some(left) => Expr::Binary(Box::new(BinaryExpr {
                     op: BinaryOp::Add,
                     left,
                     right: part,
-                    range,
+                    range: outer_range,
                 })),
             });
         }
-        // An interpolated string always has at least one segment (the lexer only
-        // emits `StringInterp` once it has seen an interpolation), so `acc` is
-        // populated; fall back to the empty string for total robustness.
+
         Ok(acc.unwrap_or(Expr::String {
             value: String::new(),
-            range,
+            range: outer_range,
         }))
     }
 
     /// Re-parses a single interpolated-expression source slice into an [`Expr`].
     ///
-    /// `start` is the byte offset of `source` within the lexer input; this
-    /// parser's [`offset`](Self::offset) is folded on so the re-parsed spans are
-    /// absolute. The slice must contain exactly one expression.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`SyntaxError`] if the slice does not parse as a single
-    /// expression (a parse failure, or an empty / non-expression body).
-    fn parse_interp_expr(
-        &self,
-        source: &str,
-        start: usize,
-        range: SourceRange,
-    ) -> ParserResult<Expr> {
-        let program = parse_source(source, self.offset + start)?;
-        match program.statements.into_iter().next() {
-            Some(Statement::Expr { expr, .. }) => Ok(expr),
-            _ => Err(SyntaxError {
-                kind: SyntaxErrorKind::UnrecognizedToken {
-                    token: String::new(),
-                    expected: primary_expected(),
-                },
-                range: range.start..range.end,
-            }),
+    /// Requires exactly one expression followed by optional trivia/newlines and EOF.
+    fn parse_interp_expr(&self, source: &str, body_range: Range<usize>) -> ParserResult<Expr> {
+        let absolute_start = self.offset + body_range.start;
+        let absolute_range = (self.offset + body_range.start)..(self.offset + body_range.end);
+
+        let mut parser = Parser::new(source, absolute_start);
+
+        if let Some(err) = parser.errors.first().cloned() {
+            return Err(err);
         }
+
+        parser.skip_newlines();
+
+        if matches!(parser.peek(), Token::Eof) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::EmptyInterpolation,
+                range: absolute_range,
+            });
+        }
+
+        let expr = parser.parse_expr()?;
+
+        parser.skip_newlines();
+
+        if !matches!(parser.peek(), Token::Eof) {
+            return Err(parser.error_here(vec!["end of interpolation".to_string()]));
+        }
+
+        Ok(expr)
     }
 
     /// Wraps `expr` in a zero-parameter block literal `{ expr }`, used to build
@@ -1955,12 +1961,7 @@ impl<'source> Parser<'source> {
             self.advance();
             let right = self.parse_binary(prec + 1)?;
             let range = (start..self.prev_end).into();
-            left = Expr::Binary(Box::new(BinaryExpr {
-                op,
-                left,
-                right,
-                range,
-            }));
+            left = Expr::Binary(Box::new(BinaryExpr { op, left, right, range }));
         }
         Ok(left)
     }
@@ -2012,11 +2013,7 @@ impl<'source> Parser<'source> {
         let base = Expr::MethodCall(Box::new(MethodCallExpr {
             object: left,
             method,
-            args: vec![Argument {
-                label: None,
-                expr: rhs,
-                range,
-            }],
+            args: vec![Argument { label: None, expr: rhs, range }],
             range,
         }));
         let result = if negate {
@@ -2030,9 +2027,7 @@ impl<'source> Parser<'source> {
         };
 
         if matches!(self.peek(), Token::Is) {
-            return Err(self.error_here(strs(&[
-                "an expression (chained `is` is not allowed — the result of `is` is a `Bool`)",
-            ])));
+            return Err(self.error_here(strs(&["an expression (chained `is` is not allowed — the result of `is` is a `Bool`)"])));
         }
 
         Ok(result)
@@ -2112,11 +2107,7 @@ impl<'source> Parser<'source> {
                     }
                 };
                 let range = (start..self.prev_end).into();
-                expr = Expr::MethodRef(Box::new(MethodRefExpr {
-                    receiver: expr,
-                    kind,
-                    range,
-                }));
+                expr = Expr::MethodRef(Box::new(MethodRefExpr { receiver: expr, kind, range }));
             } else if self.eat(&Token::Dot) {
                 let property = self.parse_property_name()?;
                 if self.eat(&Token::LParen) {
@@ -2131,11 +2122,7 @@ impl<'source> Parser<'source> {
                     }));
                 } else {
                     let range = (start..self.prev_end).into();
-                    expr = Expr::GetProperty(Box::new(GetPropertyExpr {
-                        object: expr,
-                        property,
-                        range,
-                    }));
+                    expr = Expr::GetProperty(Box::new(GetPropertyExpr { object: expr, property, range }));
                 }
             } else if self.eat(&Token::LParen) {
                 let args = self.parse_arg_list()?;
@@ -2158,11 +2145,7 @@ impl<'source> Parser<'source> {
                 let args = self.parse_arg_list()?;
                 self.expect(&Token::RBracket, &["\"]\""])?;
                 let range = (start..self.prev_end).into();
-                expr = Expr::Index(Box::new(IndexExpr {
-                    object: expr,
-                    args,
-                    range,
-                }));
+                expr = Expr::Index(Box::new(IndexExpr { object: expr, args, range }));
             } else if matches!(self.peek(), Token::LBrace) {
                 let block = self.parse_primary()?;
                 let range = (start..self.prev_end).into();
@@ -2495,10 +2478,7 @@ impl<'source> Parser<'source> {
             }
             Token::False => {
                 self.advance();
-                Ok(Expr::Boolean {
-                    value: false,
-                    range,
-                })
+                Ok(Expr::Boolean { value: false, range })
             }
             Token::Number(value) => {
                 self.advance();
@@ -2533,10 +2513,7 @@ impl<'source> Parser<'source> {
                     self.advance(); // =>
                     let body_expr = self.parse_expr()?;
                     let range = (start..self.prev_end).into();
-                    let stmt = Statement::Expr {
-                        expr: body_expr,
-                        range,
-                    };
+                    let stmt = Statement::Expr { expr: body_expr, range };
                     return Ok(Expr::Block(Box::new(BlockExpr {
                         params: vec![value],
                         body: vec![stmt],
@@ -2550,7 +2527,6 @@ impl<'source> Parser<'source> {
                 } else {
                     Ok(Expr::Var { value, range })
                 }
-
             }
             Token::SelfKw => {
                 self.advance();
@@ -2583,7 +2559,7 @@ impl<'source> Parser<'source> {
 
                 let mut params = Vec::new();
                 let mut has_arrow = false;
-                
+
                 let mut scan_idx = self.pos;
                 loop {
                     if scan_idx >= self.tokens.len() {
@@ -2615,7 +2591,7 @@ impl<'source> Parser<'source> {
                         }
                     }
                 }
-                
+
                 if has_arrow {
                     while !matches!(self.peek(), Token::FatArrow) {
                         let param = self.expect_identifier(&["parameter name"])?;
@@ -2626,11 +2602,11 @@ impl<'source> Parser<'source> {
                     }
                     self.expect(&Token::FatArrow, &["\"=>\""])?;
                 }
-                
+
                 let body = self.parse_block_statements()?;
                 self.expect(&Token::RBrace, &["\"}\""])?;
                 let range = (start..self.prev_end).into();
-                
+
                 Ok(Expr::Block(Box::new(BlockExpr {
                     params,
                     body,
@@ -2718,9 +2694,16 @@ impl<'source> Parser<'source> {
         let range: SourceRange = (start..self.prev_end).into();
         let list = Self::list_construction_chain(elems, range);
         Ok(Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var { value: "Tuple".to_string(), range },
+            object: Expr::Var {
+                value: "Tuple".to_string(),
+                range,
+            },
             method: "fromList".to_string(),
-            args: vec![Argument { label: None, expr: list, range }],
+            args: vec![Argument {
+                label: None,
+                expr: list,
+                range,
+            }],
             range,
         })))
     }
@@ -2755,9 +2738,19 @@ impl<'source> Parser<'source> {
             // DEFERRED.md), so the desugar targets the existing interning
             // constructor directly rather than a literal token.
             let key = Expr::MethodCall(Box::new(MethodCallExpr {
-                object: Expr::Var { value: "Symbol".to_string(), range: key_range },
+                object: Expr::Var {
+                    value: "Symbol".to_string(),
+                    range: key_range,
+                },
                 method: "new".to_string(),
-                args: vec![Argument { label: None, expr: Expr::String { value: key_name, range: key_range }, range: key_range }],
+                args: vec![Argument {
+                    label: None,
+                    expr: Expr::String {
+                        value: key_name,
+                        range: key_range,
+                    },
+                    range: key_range,
+                }],
                 range: key_range,
             }));
             self.expect(&Token::Colon, &["\":\""])?;
@@ -2786,7 +2779,10 @@ impl<'source> Parser<'source> {
     /// `Map.new()` receiver for robustness.
     fn map_construction_chain(pairs: Vec<(Expr, Expr)>, range: SourceRange) -> Expr {
         let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var { value: "Map".to_string(), range },
+            object: Expr::Var {
+                value: "Map".to_string(),
+                range,
+            },
             method: "new".to_string(),
             args: Vec::new(),
             range,
@@ -2797,8 +2793,16 @@ impl<'source> Parser<'source> {
                 object: acc,
                 method: "at".to_string(),
                 args: vec![
-                    Argument { label: None, expr: key, range: value_range },
-                    Argument { label: Some("put".to_string()), expr: value, range: value_range },
+                    Argument {
+                        label: None,
+                        expr: key,
+                        range: value_range,
+                    },
+                    Argument {
+                        label: Some("put".to_string()),
+                        expr: value,
+                        range: value_range,
+                    },
                 ],
                 range,
             }));
@@ -2832,9 +2836,7 @@ impl<'source> Parser<'source> {
         }
         loop {
             if matches!(self.peek(), Token::Asterisk) {
-                return Err(self.error_message_here(
-                    "spread element (`*x`) in a collection literal is not yet supported",
-                ));
+                return Err(self.error_message_here("spread element (`*x`) in a collection literal is not yet supported"));
             }
             elems.push(self.parse_expr()?);
             if !self.eat(&Token::Comma) {
@@ -2857,7 +2859,10 @@ impl<'source> Parser<'source> {
     /// [ADR-0029]: ../../../docs/adr/accepted/0029-list-literal-syntax.md
     fn list_construction_chain(elems: Vec<Expr>, range: SourceRange) -> Expr {
         let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var { value: "List".to_string(), range },
+            object: Expr::Var {
+                value: "List".to_string(),
+                range,
+            },
             method: "new".to_string(),
             args: Vec::new(),
             range,
@@ -2867,7 +2872,11 @@ impl<'source> Parser<'source> {
             acc = Expr::MethodCall(Box::new(MethodCallExpr {
                 object: acc,
                 method: "add".to_string(),
-                args: vec![Argument { label: None, expr: elem, range: elem_range }],
+                args: vec![Argument {
+                    label: None,
+                    expr: elem,
+                    range: elem_range,
+                }],
                 range,
             }));
         }
@@ -2981,11 +2990,7 @@ mod tests {
         // (`lexer::suppresses_following_newline`); a line ending in an operator
         // would legitimately continue onto the next.
         let result = parse("let 9\nlet 9\n", 0);
-        assert!(
-            result.errors.len() >= 2,
-            "expected at least two recovered errors, got {:?}",
-            result.errors
-        );
+        assert!(result.errors.len() >= 2, "expected at least two recovered errors, got {:?}", result.errors);
     }
 
     #[test]

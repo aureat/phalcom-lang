@@ -76,9 +76,7 @@ async fn did_open_with_two_syntax_errors_publishes_two_diagnostics() {
 
     let (service, socket) = LspService::new(Backend::new);
     let server_task = tokio::spawn(async move {
-        Server::new(server_read, server_write, socket)
-            .serve(service)
-            .await;
+        Server::new(server_read, server_write, socket).serve(service).await;
     });
 
     // initialize
@@ -94,17 +92,10 @@ async fn did_open_with_two_syntax_errors_publishes_two_diagnostics() {
     .await;
     let init_response = read_message(&mut client_end).await;
     assert_eq!(init_response["id"], json!(1));
-    assert_eq!(
-        init_response["result"]["capabilities"]["positionEncoding"],
-        json!("utf-16")
-    );
+    assert_eq!(init_response["result"]["capabilities"]["positionEncoding"], json!("utf-16"));
 
     // initialized
-    write_message(
-        &mut client_end,
-        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-    )
-    .await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
 
     // A fixture with exactly 2 recovered syntax errors (mirrors
     // `diagnostics::tests::n_syntax_errors_yield_n_diagnostics`).
@@ -129,9 +120,7 @@ async fn did_open_with_two_syntax_errors_publishes_two_diagnostics() {
 
     let publish = read_until_method(&mut client_end, "textDocument/publishDiagnostics").await;
     assert_eq!(publish["params"]["uri"], json!("file:///test.ph"));
-    let diagnostics = publish["params"]["diagnostics"]
-        .as_array()
-        .expect("diagnostics array");
+    let diagnostics = publish["params"]["diagnostics"].as_array().expect("diagnostics array");
     assert_eq!(diagnostics.len(), 2, "expected 2 diagnostics, got {diagnostics:#?}");
 
     // Cross-check each diagnostic's range against an independently built

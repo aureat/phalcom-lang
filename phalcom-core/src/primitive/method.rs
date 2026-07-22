@@ -59,7 +59,10 @@ pub fn method_invoke_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 /// Returns [`RuntimeError::Type`] if `self` is not a `Method`.
 pub fn method_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
-    let bound = BoundMethodObject { method: method_id, receiver: args[0] };
+    let bound = BoundMethodObject {
+        method: method_id,
+        receiver: args[0],
+    };
     Ok(Value::Obj(vm.heap.alloc(Object::BoundMethod(bound))))
 }
 

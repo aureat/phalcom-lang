@@ -21,4 +21,4 @@ pub mod parser;
 pub mod token;
 pub mod util;
 
-pub use parser::{parse, parse_source, Parse, ParserResult};
+pub use parser::{Parse, ParserResult, parse, parse_source};

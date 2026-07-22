@@ -201,10 +201,7 @@ pub fn bytes_raw_copy_into(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
         // `copy_within` gives memmove semantics regardless.
         vm.heap.bytes_mut(dst_id).as_mut_slice().copy_within(0..src_len, offset);
     } else {
-        let (src, dst) = vm
-            .heap
-            .bytes_pair_mut(src_id, dst_id)
-            .expect("both handles were just validated as live Bytes");
+        let (src, dst) = vm.heap.bytes_pair_mut(src_id, dst_id).expect("both handles were just validated as live Bytes");
         dst.as_mut_slice()[offset..offset + src_len].copy_from_slice(src.as_slice());
     }
     Ok(vm.none_value())

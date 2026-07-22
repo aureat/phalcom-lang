@@ -13,7 +13,7 @@
 //! something is a root, root it.
 
 use super::VM;
-use crate::heap::{trace_frame, ObjRef};
+use crate::heap::{ObjRef, trace_frame};
 
 impl VM {
     /// Collects the complete root set into `out`.
@@ -102,7 +102,6 @@ impl VM {
             #[cfg(feature = "fiber-pool")]
                 fiber_pool: _,
         } = self;
-
 
         for frame in frames {
             trace_frame(frame, &mut |id| out.push(id));

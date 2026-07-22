@@ -92,7 +92,7 @@
 
 use super::lib::Compiler;
 use crate::bytecode::Bytecode;
-use crate::method::{encode_selector, SignatureKind};
+use crate::method::{SignatureKind, encode_selector};
 use crate::value::Value;
 use phalcom_ast::ast::{Argument, BlockExpr, Expr, MethodCallExpr, Statement};
 use phalcom_common::range::SourceRange;
@@ -140,33 +140,48 @@ pub(crate) fn recognize(call: MethodCallExpr) -> Result<SacredCall, MethodCallEx
     match (call.method.as_str(), call.args.len()) {
         ("ifTrue", 1) if is_literal_block(&call.args[0]) => {
             let mut args = call.args;
-            Ok(SacredCall::IfTrue { receiver: call.object, then_block: args.remove(0).expr })
+            Ok(SacredCall::IfTrue {
+                receiver: call.object,
+                then_block: args.remove(0).expr,
+            })
         }
         ("ifFalse", 1) if is_literal_block(&call.args[0]) => {
             let mut args = call.args;
-            Ok(SacredCall::IfFalse { receiver: call.object, else_block: args.remove(0).expr })
+            Ok(SacredCall::IfFalse {
+                receiver: call.object,
+                else_block: args.remove(0).expr,
+            })
         }
-        ("ifTrue", 2)
-            if is_literal_block(&call.args[0])
-                && call.args[1].label.as_deref() == Some("ifFalse")
-                && matches!(call.args[1].expr, Expr::Block(_)) =>
-        {
+        ("ifTrue", 2) if is_literal_block(&call.args[0]) && call.args[1].label.as_deref() == Some("ifFalse") && matches!(call.args[1].expr, Expr::Block(_)) => {
             let mut args = call.args;
             let else_block = args.remove(1).expr;
             let then_block = args.remove(0).expr;
-            Ok(SacredCall::IfTrueIfFalse { receiver: call.object, then_block, else_block })
+            Ok(SacredCall::IfTrueIfFalse {
+                receiver: call.object,
+                then_block,
+                else_block,
+            })
         }
         ("and", 1) if is_literal_block(&call.args[0]) => {
             let mut args = call.args;
-            Ok(SacredCall::And { receiver: call.object, rhs_block: args.remove(0).expr })
+            Ok(SacredCall::And {
+                receiver: call.object,
+                rhs_block: args.remove(0).expr,
+            })
         }
         ("or", 1) if is_literal_block(&call.args[0]) => {
             let mut args = call.args;
-            Ok(SacredCall::Or { receiver: call.object, rhs_block: args.remove(0).expr })
+            Ok(SacredCall::Or {
+                receiver: call.object,
+                rhs_block: args.remove(0).expr,
+            })
         }
         ("whileTrue", 1) if is_literal_block(&call.args[0]) && matches!(call.object, Expr::Block(_)) => {
             let mut args = call.args;
-            Ok(SacredCall::WhileTrue { cond_block: call.object, body_block: args.remove(0).expr })
+            Ok(SacredCall::WhileTrue {
+                cond_block: call.object,
+                body_block: args.remove(0).expr,
+            })
         }
         _ => Err(call),
     }
@@ -193,9 +208,11 @@ impl<'vm> Compiler<'vm> {
         match call {
             SacredCall::IfTrue { receiver, then_block } => self.compile_if_true(receiver, then_block, range, want_value),
             SacredCall::IfFalse { receiver, else_block } => self.compile_if_false(receiver, else_block, range, want_value),
-            SacredCall::IfTrueIfFalse { receiver, then_block, else_block } => {
-                self.compile_if_true_if_false(receiver, then_block, else_block, range)
-            }
+            SacredCall::IfTrueIfFalse {
+                receiver,
+                then_block,
+                else_block,
+            } => self.compile_if_true_if_false(receiver, then_block, else_block, range),
             SacredCall::And { receiver, rhs_block } => self.compile_and(receiver, rhs_block, range),
             SacredCall::Or { receiver, rhs_block } => self.compile_or(receiver, rhs_block, range),
             SacredCall::WhileTrue { cond_block, body_block } => self.compile_while_true(cond_block, body_block, range),

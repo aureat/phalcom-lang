@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-use phalcom_ast::ast::{
-    AttrKind, BuiltinAttr, AssignmentExpr, Attribute, BinaryExpr, BinaryOp, ClassDef, ClassMember, Expr, FieldDef, GetPropertyExpr, GetterDef, MethodDef,
-    ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
-};
 use crate::compiler::lib::CompilerError;
 use crate::heap::ObjRef;
 use crate::interner::Symbol;
-use crate::method::{encode_selector, SignatureKind};
+use crate::method::{SignatureKind, encode_selector};
 use crate::vm::ClassKey;
+use phalcom_ast::ast::{
+    AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, GetPropertyExpr, GetterDef, MethodDef,
+    ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
+};
+use std::collections::HashMap;
 
 /// The active contract-stripping mode (U-ANNOT-CONTRACTS plan §3.6,
 /// `annotations-contract-semantics.md`'s stripping table).
@@ -118,20 +118,21 @@ pub enum Target {
 
 pub trait AttributeExpander {
     fn legal_targets(&self) -> &'static [Target];
-    fn expand(
-        &self,
-        ctx: &mut ExpandCtx,
-        member: &mut ClassMember,
-        args: &[Expr],
-    ) -> Result<(), CompilerError>;
+    fn expand(&self, ctx: &mut ExpandCtx, member: &mut ClassMember, args: &[Expr]) -> Result<(), CompilerError>;
 }
 
-use phalcom_ast::ast::{Argument, MethodCallExpr, Statement, BlockExpr, LetBinding, BindingKind, Pattern};
+use phalcom_ast::ast::{Argument, BindingKind, BlockExpr, LetBinding, MethodCallExpr, Pattern, Statement};
 use phalcom_common::range::SourceRange;
 
 fn is_pure_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Var { .. } | Expr::Field { .. } | Expr::SelfVar { .. } | Expr::SuperVar { .. } => true,
+        Expr::Number { .. }
+        | Expr::String { .. }
+        | Expr::Boolean { .. }
+        | Expr::Var { .. }
+        | Expr::Field { .. }
+        | Expr::SelfVar { .. }
+        | Expr::SuperVar { .. } => true,
         Expr::Assignment(_) | Expr::SetProperty(_) | Expr::SetIndex(_) => false,
         Expr::Unary(u) => is_pure_expr(&u.expr),
         Expr::Binary(b) => is_pure_expr(&b.left) && is_pure_expr(&b.right),
@@ -145,13 +146,11 @@ fn is_pure_expr(expr: &Expr) -> bool {
         }
         Expr::GetProperty(g) => is_pure_expr(&g.object),
         Expr::Index(i) => is_pure_expr(&i.object) && i.args.iter().all(|a| is_pure_expr(&a.expr)),
-        Expr::Block(b) => b.body.iter().all(|s| {
-            match s {
-                Statement::Expr { expr, .. } => is_pure_expr(expr),
-                Statement::Let(l) => l.value.as_ref().map_or(true, |v| is_pure_expr(v)),
-                Statement::Return(r) => r.value.as_ref().map_or(true, |v| is_pure_expr(v)),
-                _ => false,
-            }
+        Expr::Block(b) => b.body.iter().all(|s| match s {
+            Statement::Expr { expr, .. } => is_pure_expr(expr),
+            Statement::Let(l) => l.value.as_ref().map_or(true, |v| is_pure_expr(v)),
+            Statement::Return(r) => r.value.as_ref().map_or(true, |v| is_pure_expr(v)),
+            _ => false,
         }),
         _ => true,
     }
@@ -190,7 +189,9 @@ fn contains_old_call(expr: &Expr) -> bool {
 fn validate_purity(args: &[Expr]) -> Result<(), CompilerError> {
     for arg in args {
         if !is_pure_expr(arg) {
-            return Err(CompilerError::Message("contract.impure_predicate: predicate contains mutating or side-effecting operations".to_string()));
+            return Err(CompilerError::Message(
+                "contract.impure_predicate: predicate contains mutating or side-effecting operations".to_string(),
+            ));
         }
     }
     Ok(())
@@ -202,12 +203,7 @@ impl AttributeExpander for RequiresExpander {
         &[Target::Method, Target::Getter, Target::Setter]
     }
 
-    fn expand(
-        &self,
-        ctx: &mut ExpandCtx,
-        member: &mut ClassMember,
-        args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, ctx: &mut ExpandCtx, member: &mut ClassMember, args: &[Expr]) -> Result<(), CompilerError> {
         validate_purity(args)?;
 
         // §3.6 axis 1 (guard stripping): `@requires` is woven in `Debug`
@@ -220,7 +216,9 @@ impl AttributeExpander for RequiresExpander {
         if ctx.compile_mode == CompileMode::Unchecked {
             for arg in args {
                 if contains_old_call(arg) {
-                    return Err(CompilerError::Message("contract.old_in_precondition: requires cannot contain old() expressions".to_string()));
+                    return Err(CompilerError::Message(
+                        "contract.old_in_precondition: requires cannot contain old() expressions".to_string(),
+                    ));
                 }
             }
             return Ok(());
@@ -245,7 +243,9 @@ impl AttributeExpander for RequiresExpander {
         let mut new_prologue = Vec::new();
         for arg in args {
             if contains_old_call(arg) {
-                return Err(CompilerError::Message("contract.old_in_precondition: requires cannot contain old() expressions".to_string()));
+                return Err(CompilerError::Message(
+                    "contract.old_in_precondition: requires cannot contain old() expressions".to_string(),
+                ));
             }
 
             let range = arg.range();
@@ -266,12 +266,7 @@ impl AttributeExpander for EnsuresExpander {
         &[Target::Method, Target::Getter, Target::Setter]
     }
 
-    fn expand(
-        &self,
-        ctx: &mut ExpandCtx,
-        member: &mut ClassMember,
-        args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, ctx: &mut ExpandCtx, member: &mut ClassMember, args: &[Expr]) -> Result<(), CompilerError> {
         validate_purity(args)?;
 
         // §3.6 axis 1 (guard stripping): `@ensures` is woven only in
@@ -299,7 +294,7 @@ impl AttributeExpander for EnsuresExpander {
         // 1. Hoist old(...) calls to lets
         let mut old_lets = Vec::new();
         let mut new_args = Vec::new();
-        
+
         for arg in args {
             let mut rewritten_arg = arg.clone();
             rewrite_old_calls(&mut rewritten_arg, &mut old_lets, &mut new_args, ctx)?;
@@ -326,11 +321,20 @@ impl AttributeExpander for EnsuresExpander {
                 let range = expr.range();
                 new_body.push(Statement::Let(LetBinding {
                     kind: BindingKind::Let,
-                    pattern: Pattern::Name { name: "__result".to_string(), range },
+                    pattern: Pattern::Name {
+                        name: "__result".to_string(),
+                        range,
+                    },
                     value: Some(expr),
                     range,
                 }));
-                result_stmt = Some(Statement::Expr { expr: Expr::Var { value: "__result".to_string(), range }, range });
+                result_stmt = Some(Statement::Expr {
+                    expr: Expr::Var {
+                        value: "__result".to_string(),
+                        range,
+                    },
+                    range,
+                });
             }
 
             for arg in &new_args {
@@ -349,12 +353,7 @@ impl AttributeExpander for EnsuresExpander {
     }
 }
 
-fn rewrite_old_calls(
-    expr: &mut Expr,
-    old_lets: &mut Vec<Statement>,
-    new_args: &mut Vec<Expr>,
-    ctx: &mut ExpandCtx,
-) -> Result<(), CompilerError> {
+fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>, new_args: &mut Vec<Expr>, ctx: &mut ExpandCtx) -> Result<(), CompilerError> {
     match expr {
         Expr::MethodCall(m) if as_old_call(m) => {
             let mut inner = m.args[0].expr.clone();
@@ -373,7 +372,9 @@ fn rewrite_old_calls(
             // whole-receiver case is.
             match &inner {
                 Expr::SelfVar { .. } | Expr::SuperVar { .. } => {
-                    return Err(CompilerError::Message("contract.old_on_mutable: old() operand must not be the whole receiver (aliases the live, mutable object)".to_string()));
+                    return Err(CompilerError::Message(
+                        "contract.old_on_mutable: old() operand must not be the whole receiver (aliases the live, mutable object)".to_string(),
+                    ));
                 }
                 _ => {}
             }
@@ -418,13 +419,19 @@ fn rewrite_returns(body: &mut Vec<Statement>, ensures_args: &[Expr], method_name
         match stmt {
             Statement::Return(ret) => {
                 let range = ret.range;
-                let value_expr = ret.value.unwrap_or(Expr::Var { value: "None".to_string(), range });
+                let value_expr = ret.value.unwrap_or(Expr::Var {
+                    value: "None".to_string(),
+                    range,
+                });
                 let mut local_block = Vec::new();
-                
+
                 // let __result = value_expr
                 local_block.push(Statement::Let(LetBinding {
                     kind: BindingKind::Let,
-                    pattern: Pattern::Name { name: "__result".to_string(), range },
+                    pattern: Pattern::Name {
+                        name: "__result".to_string(),
+                        range,
+                    },
                     value: Some(value_expr),
                     range,
                 }));
@@ -437,7 +444,10 @@ fn rewrite_returns(body: &mut Vec<Statement>, ensures_args: &[Expr], method_name
 
                 // return __result
                 local_block.push(Statement::Return(phalcom_ast::ast::ReturnStatement {
-                    value: Some(Expr::Var { value: "__result".to_string(), range }),
+                    value: Some(Expr::Var {
+                        value: "__result".to_string(),
+                        range,
+                    }),
                     range,
                 }));
 
@@ -451,7 +461,10 @@ fn rewrite_returns(body: &mut Vec<Statement>, ensures_args: &[Expr], method_name
                     range,
                 });
             }
-            Statement::Expr { expr: Expr::Block(mut b), range } => {
+            Statement::Expr {
+                expr: Expr::Block(mut b),
+                range,
+            } => {
                 rewrite_returns(&mut b.body, ensures_args, method_name);
                 rewritten.push(Statement::Expr { expr: Expr::Block(b), range });
             }
@@ -478,12 +491,7 @@ impl AttributeExpander for InvariantExpander {
         &[Target::Class] // Note: standalone invariant is parsed directly to class.invariants, but @invariant class-decorator target is legal too
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -507,12 +515,7 @@ impl AttributeExpander for ConstructExpander {
         &[Target::Class]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -530,12 +533,7 @@ impl AttributeExpander for GetExpander {
         &[Target::Field]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -547,12 +545,7 @@ impl AttributeExpander for SetExpander {
         &[Target::Field]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -571,12 +564,7 @@ impl AttributeExpander for DataExpander {
         &[Target::Class]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -596,12 +584,7 @@ impl AttributeExpander for SealedExpander {
         &[Target::Class]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -623,12 +606,7 @@ impl AttributeExpander for VariantExpander {
         &[Target::Variant]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -650,12 +628,7 @@ impl AttributeExpander for OnExpander {
         &[Target::Class]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -680,12 +653,7 @@ impl AttributeExpander for NativeExpander {
         &[Target::Method, Target::Getter, Target::Setter]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -706,12 +674,7 @@ impl AttributeExpander for IgnoreExpander {
         &[Target::Method, Target::Getter, Target::Setter]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -722,12 +685,7 @@ impl AttributeExpander for ConstructorExpander {
         &[Target::Method]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        _member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         Ok(())
     }
 }
@@ -738,12 +696,7 @@ impl AttributeExpander for ClassExpander {
         &[Target::Method, Target::Getter, Target::Setter, Target::Field]
     }
 
-    fn expand(
-        &self,
-        _ctx: &mut ExpandCtx,
-        member: &mut ClassMember,
-        _args: &[Expr],
-    ) -> Result<(), CompilerError> {
+    fn expand(&self, _ctx: &mut ExpandCtx, member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
         match member {
             ClassMember::Method(m) => m.is_static = true,
             ClassMember::Getter(g) => g.is_static = true,
@@ -801,7 +754,10 @@ fn strip_leading_underscore(name: &str) -> String {
 fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> Statement {
     Statement::Expr {
         expr: Expr::Assignment(Box::new(AssignmentExpr {
-            name: Box::new(Expr::Field { value: field_name.to_string(), range }),
+            name: Box::new(Expr::Field {
+                value: field_name.to_string(),
+                range,
+            }),
             value,
             range,
         })),
@@ -855,9 +811,11 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
     let derived_sym = ctx.interner.intern(&derived_selector);
 
     for m in &class.members {
-        if let ClassMember::Method(c) = m && c.is_constructor {
+        if let ClassMember::Method(c) = m
+            && c.is_constructor
+        {
             let c_labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
-        let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Method(c.params.len() as u8));
+            let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Method(c.params.len() as u8));
             if ctx.interner.intern(&c_selector) == derived_sym {
                 return Err(CompilerError::Message(format!(
                     "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written `construct {}(...)` of the same selector",
@@ -871,7 +829,12 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
         .iter()
         .map(|f| {
             let pname = strip_leading_underscore(&f.name);
-            ParameterDef { name: pname.clone(), label: Some(pname), is_rest: false, range: f.range }
+            ParameterDef {
+                name: pname.clone(),
+                label: Some(pname),
+                is_rest: false,
+                range: f.range,
+            }
         })
         .collect();
 
@@ -1003,7 +966,10 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name.clone(),
                     body: vec![Statement::Expr {
-                        expr: Expr::Field { value: field.name.clone(), range: attr.range },
+                        expr: Expr::Field {
+                            value: field.name.clone(),
+                            range: attr.range,
+                        },
                         range: attr.range,
                     }],
                     is_static: false,
@@ -1018,7 +984,10 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     param: "value".to_string(),
                     body: vec![field_assign_stmt(
                         &field.name,
-                        Expr::Var { value: "value".to_string(), range: attr.range },
+                        Expr::Var {
+                            value: "value".to_string(),
+                            range: attr.range,
+                        },
                         attr.range,
                     )],
                     is_static: false,
@@ -1050,11 +1019,28 @@ fn build_data_eq(fields: &[FieldDef], range: SourceRange) -> Expr {
     for f in fields {
         let base_name = strip_leading_underscore(&f.name);
         let field_read = Expr::Field { value: f.name.clone(), range };
-        let other_read = Expr::GetProperty(Box::new(GetPropertyExpr { object: Expr::Var { value: "other".to_string(), range }, property: base_name, range }));
-        let eq = Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Equal, left: field_read, right: other_read, range }));
+        let other_read = Expr::GetProperty(Box::new(GetPropertyExpr {
+            object: Expr::Var {
+                value: "other".to_string(),
+                range,
+            },
+            property: base_name,
+            range,
+        }));
+        let eq = Expr::Binary(Box::new(BinaryExpr {
+            op: BinaryOp::Equal,
+            left: field_read,
+            right: other_read,
+            range,
+        }));
         acc = Some(match acc {
             None => eq,
-            Some(left) => Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::And, left, right: eq, range })),
+            Some(left) => Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::And,
+                left,
+                right: eq,
+                range,
+            })),
         });
     }
     acc.unwrap_or(Expr::Boolean { value: true, range })
@@ -1075,12 +1061,26 @@ fn build_data_eq(fields: &[FieldDef], range: SourceRange) -> Expr {
 fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
     let mut acc: Option<Expr> = None;
     for f in fields {
-        let hash_read = Expr::GetProperty(Box::new(GetPropertyExpr { object: Expr::Field { value: f.name.clone(), range }, property: "hash".to_string(), range }));
+        let hash_read = Expr::GetProperty(Box::new(GetPropertyExpr {
+            object: Expr::Field { value: f.name.clone(), range },
+            property: "hash".to_string(),
+            range,
+        }));
         acc = Some(match acc {
             None => hash_read,
             Some(left) => {
-                let scaled = Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Multiply, left, right: Expr::Number { value: 31.0, range }, range }));
-                Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left: scaled, right: hash_read, range }))
+                let scaled = Expr::Binary(Box::new(BinaryExpr {
+                    op: BinaryOp::Multiply,
+                    left,
+                    right: Expr::Number { value: 31.0, range },
+                    range,
+                }));
+                Expr::Binary(Box::new(BinaryExpr {
+                    op: BinaryOp::Add,
+                    left: scaled,
+                    right: hash_read,
+                    range,
+                }))
             }
         });
     }
@@ -1100,20 +1100,48 @@ fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
 /// itself). This is the Rubric's own flagged fallback ("build the equivalent
 /// `+`-chain manually is safer/less coupled").
 fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRange) -> Expr {
-    let mut acc = Expr::String { value: format!("{}(", class_name), range };
+    let mut acc = Expr::String {
+        value: format!("{}(", class_name),
+        range,
+    };
     for (i, f) in fields.iter().enumerate() {
         if i > 0 {
-            acc = Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left: acc, right: Expr::String { value: ", ".to_string(), range }, range }));
+            acc = Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Add,
+                left: acc,
+                right: Expr::String {
+                    value: ", ".to_string(),
+                    range,
+                },
+                range,
+            }));
         }
         let stringified = Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var { value: "String".to_string(), range },
+            object: Expr::Var {
+                value: "String".to_string(),
+                range,
+            },
             method: "new".to_string(),
-            args: vec![Argument { label: None, expr: Expr::Field { value: f.name.clone(), range }, range }],
+            args: vec![Argument {
+                label: None,
+                expr: Expr::Field { value: f.name.clone(), range },
+                range,
+            }],
             range,
         }));
-        acc = Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left: acc, right: stringified, range }));
+        acc = Expr::Binary(Box::new(BinaryExpr {
+            op: BinaryOp::Add,
+            left: acc,
+            right: stringified,
+            range,
+        }));
     }
-    Expr::Binary(Box::new(BinaryExpr { op: BinaryOp::Add, left: acc, right: Expr::String { value: ")".to_string(), range }, range }))
+    Expr::Binary(Box::new(BinaryExpr {
+        op: BinaryOp::Add,
+        left: acc,
+        right: Expr::String { value: ")".to_string(), range },
+        range,
+    }))
 }
 
 /// Builds `@data`'s derived `with(...)` method body ([`derive_data`]): one
@@ -1152,32 +1180,59 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
             let is_none = Expr::Binary(Box::new(BinaryExpr {
                 op: BinaryOp::Equal,
                 left: Expr::Var { value: pname.clone(), range },
-                right: Expr::Var { value: "None".to_string(), range },
+                right: Expr::Var {
+                    value: "None".to_string(),
+                    range,
+                },
                 range,
             }));
             let fallback_block = Expr::Block(Box::new(BlockExpr {
                 params: Vec::new(),
-                body: vec![Statement::Expr { expr: Expr::Field { value: f.name.clone(), range }, range }],
+                body: vec![Statement::Expr {
+                    expr: Expr::Field { value: f.name.clone(), range },
+                    range,
+                }],
                 expr_body: true,
                 range,
             }));
             let keep_block = Expr::Block(Box::new(BlockExpr {
                 params: Vec::new(),
-                body: vec![Statement::Expr { expr: Expr::Var { value: pname.clone(), range }, range }],
+                body: vec![Statement::Expr {
+                    expr: Expr::Var { value: pname.clone(), range },
+                    range,
+                }],
                 expr_body: true,
                 range,
             }));
             let resolved = Expr::MethodCall(Box::new(MethodCallExpr {
                 object: is_none,
                 method: "ifTrue".to_string(),
-                args: vec![Argument { label: None, expr: fallback_block, range }, Argument { label: Some("ifFalse".to_string()), expr: keep_block, range }],
+                args: vec![
+                    Argument {
+                        label: None,
+                        expr: fallback_block,
+                        range,
+                    },
+                    Argument {
+                        label: Some("ifFalse".to_string()),
+                        expr: keep_block,
+                        range,
+                    },
+                ],
                 range,
             }));
-            Argument { label: Some(pname), expr: resolved, range }
+            Argument {
+                label: Some(pname),
+                expr: resolved,
+                range,
+            }
         })
         .collect();
     Expr::MethodCall(Box::new(MethodCallExpr {
-        object: Expr::Var { value: class_name.to_string(), range },
+        object: Expr::Var {
+            value: class_name.to_string(),
+            range,
+        },
         method: "new".to_string(),
         args,
         range,
@@ -1246,7 +1301,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         })
         .collect();
 
-    let has_new_construct = class.members.iter().any(|m| matches!(m, ClassMember::Method(c) if c.is_constructor && c.name == "new"));
+    let has_new_construct = class
+        .members
+        .iter()
+        .any(|m| matches!(m, ClassMember::Method(c) if c.is_constructor && c.name == "new"));
     if !has_new_construct {
         derive_construct(class, ctx, attr_range)?;
     }
@@ -1269,7 +1327,13 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             if !class_has_selector(class, ctx, &getter_selector) {
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name,
-                    body: vec![Statement::Expr { expr: Expr::Field { value: f.name.clone(), range: attr_range }, range: attr_range }],
+                    body: vec![Statement::Expr {
+                        expr: Expr::Field {
+                            value: f.name.clone(),
+                            range: attr_range,
+                        },
+                        range: attr_range,
+                    }],
                     is_static: false,
                     attributes: Vec::new(),
                     range: attr_range,
@@ -1281,8 +1345,16 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         let eq_body = build_data_eq(&fields, attr_range);
         class.members.push(ClassMember::Method(MethodDef {
             name: "==".to_string(),
-            params: vec![ParameterDef { name: "other".to_string(), label: None, is_rest: false, range: attr_range }],
-            body: vec![Statement::Return(ReturnStatement { value: Some(eq_body), range: attr_range })],
+            params: vec![ParameterDef {
+                name: "other".to_string(),
+                label: None,
+                is_rest: false,
+                range: attr_range,
+            }],
+            body: vec![Statement::Return(ReturnStatement {
+                value: Some(eq_body),
+                range: attr_range,
+            })],
             is_static: false,
             is_constructor: false,
             attributes: Vec::new(),
@@ -1293,7 +1365,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         let hash_body = build_data_hash(&fields, attr_range);
         class.members.push(ClassMember::Getter(GetterDef {
             name: "hash".to_string(),
-            body: vec![Statement::Return(ReturnStatement { value: Some(hash_body), range: attr_range })],
+            body: vec![Statement::Return(ReturnStatement {
+                value: Some(hash_body),
+                range: attr_range,
+            })],
             is_static: false,
             attributes: Vec::new(),
             range: attr_range,
@@ -1306,7 +1381,10 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         let ts_body = build_data_to_string(&class.name, &fields, attr_range);
         class.members.push(ClassMember::Getter(GetterDef {
             name: "toString".to_string(),
-            body: vec![Statement::Return(ReturnStatement { value: Some(ts_body), range: attr_range })],
+            body: vec![Statement::Return(ReturnStatement {
+                value: Some(ts_body),
+                range: attr_range,
+            })],
             is_static: false,
             attributes: Vec::new(),
             range: attr_range,
@@ -1324,13 +1402,21 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                 .iter()
                 .map(|f| {
                     let pname = strip_leading_underscore(&f.name);
-                    ParameterDef { name: pname.clone(), label: Some(pname), is_rest: false, range: f.range }
+                    ParameterDef {
+                        name: pname.clone(),
+                        label: Some(pname),
+                        is_rest: false,
+                        range: f.range,
+                    }
                 })
                 .collect();
             class.members.push(ClassMember::Method(MethodDef {
                 name: "with".to_string(),
                 params: with_params,
-                body: vec![Statement::Return(ReturnStatement { value: Some(with_body), range: attr_range })],
+                body: vec![Statement::Return(ReturnStatement {
+                    value: Some(with_body),
+                    range: attr_range,
+                })],
                 is_static: false,
                 is_constructor: false,
                 attributes: Vec::new(),
@@ -1438,18 +1524,30 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         let own_kw = lower_first(&v.name);
         let params: Vec<ParameterDef> = variant_kw_names
             .iter()
-            .map(|n| ParameterDef { name: n.clone(), label: None, is_rest: false, range: v.range })
+            .map(|n| ParameterDef {
+                name: n.clone(),
+                label: None,
+                is_rest: false,
+                range: v.range,
+            })
             .collect();
         let call_expr = Expr::MethodCall(Box::new(MethodCallExpr {
             object: Expr::Var { value: own_kw, range: v.range },
             method: "call".to_string(),
-            args: vec![Argument { label: None, expr: Expr::SelfVar { range: v.range }, range: v.range }],
+            args: vec![Argument {
+                label: None,
+                expr: Expr::SelfVar { range: v.range },
+                range: v.range,
+            }],
             range: v.range,
         }));
         members.push(ClassMember::Method(MethodDef {
             name: "__matchArm".to_string(),
             params,
-            body: vec![Statement::Return(ReturnStatement { value: Some(call_expr), range: v.range })],
+            body: vec![Statement::Return(ReturnStatement {
+                value: Some(call_expr),
+                range: v.range,
+            })],
             is_static: false,
             is_constructor: false,
             attributes: Vec::new(),
@@ -1459,7 +1557,10 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
 
         siblings.push(Statement::Class(ClassDef {
             name: v.name.clone(),
-            superclass: Some(SuperclassRef { name: class.name.clone(), range: v.range }),
+            superclass: Some(SuperclassRef {
+                name: class.name.clone(),
+                range: v.range,
+            }),
             members,
             attributes: vec![Attribute {
                 kind: AttrKind::Builtin(BuiltinAttr::Data),
@@ -1482,11 +1583,23 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
     let match_range = variants.first().expect("checked non-empty above").range;
     let match_params: Vec<ParameterDef> = variant_kw_names
         .iter()
-        .map(|n| ParameterDef { name: n.clone(), label: Some(n.clone()), is_rest: false, range: match_range })
+        .map(|n| ParameterDef {
+            name: n.clone(),
+            label: Some(n.clone()),
+            is_rest: false,
+            range: match_range,
+        })
         .collect();
     let arm_args: Vec<Argument> = variant_kw_names
         .iter()
-        .map(|n| Argument { label: None, expr: Expr::Var { value: n.clone(), range: match_range }, range: match_range })
+        .map(|n| Argument {
+            label: None,
+            expr: Expr::Var {
+                value: n.clone(),
+                range: match_range,
+            },
+            range: match_range,
+        })
         .collect();
     let arm_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: Expr::SelfVar { range: match_range },
@@ -1497,7 +1610,10 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
     class.members.push(ClassMember::Method(MethodDef {
         name: "match".to_string(),
         params: match_params,
-        body: vec![Statement::Return(ReturnStatement { value: Some(arm_call), range: match_range })],
+        body: vec![Statement::Return(ReturnStatement {
+            value: Some(arm_call),
+            range: match_range,
+        })],
         is_static: false,
         is_constructor: false,
         attributes: Vec::new(),
@@ -1521,7 +1637,13 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
 /// on revisiting an already-seen symbol (a reopen-redefinition back-edge, the
 /// same guard [`crate::compiler::lib::Compiler::inherits_new_construct`]
 /// uses).
-fn resolves_to_attribute_class(class_parents: &HashMap<ClassKey, ClassKey>, interner: &mut crate::interner::Interner, name: &str, module: ObjRef, modules: &HashMap<Symbol, ObjRef>) -> bool {
+fn resolves_to_attribute_class(
+    class_parents: &HashMap<ClassKey, ClassKey>,
+    interner: &mut crate::interner::Interner,
+    name: &str,
+    module: ObjRef,
+    modules: &HashMap<Symbol, ObjRef>,
+) -> bool {
     let attribute_sym = interner.intern("Attribute");
     let mut sym = interner.intern(name);
     let mut visited = std::collections::HashSet::new();
@@ -1554,8 +1676,13 @@ fn resolves_to_attribute_class(class_parents: &HashMap<ClassKey, ClassKey>, inte
 /// The hook selectors reserved for an `Attribute` subclass's tier
 /// declaration ([`validate_attribute_class`]), each paired with the tier
 /// name (as matched against a bare `@On(...)` argument `Var`) it belongs to.
-const RESERVED_HOOKS: &[(&str, &str)] =
-    &[("expand", "Compile"), ("finalizeLayout", "Layout"), ("wrap", "Install"), ("resolveMissing", "Dispatch"), ("aroundSend", "Runtime")];
+const RESERVED_HOOKS: &[(&str, &str)] = &[
+    ("expand", "Compile"),
+    ("finalizeLayout", "Layout"),
+    ("wrap", "Install"),
+    ("resolveMissing", "Dispatch"),
+    ("aroundSend", "Runtime"),
+];
 
 /// The five tier names recognized in a bare `@On(...)` argument position —
 /// matched by `Var` name, not resolved to the runtime [`Tier`] singleton
@@ -1751,7 +1878,10 @@ pub fn expand_class_attributes(
         // distinct class (PDR-0001 — classes are closed) and must not
         // inherit the kernel class's sealed status by name collision.
         let name_sym = ctx.interner.intern(&class.name);
-        let key = ClassKey { module: ctx.module, name: name_sym };
+        let key = ClassKey {
+            module: ctx.module,
+            name: name_sym,
+        };
         ctx.sealed_classes.contains_key(&key)
     };
     let has_sealed = sealed_by_attr || sealed_by_table;
@@ -1759,39 +1889,37 @@ pub fn expand_class_attributes(
         if let Some(expander) = registry.get(&attr.name) {
             let legal = expander.legal_targets().contains(&Target::Class);
             if !legal {
-                    return Err(CompilerError::Message(format!(
-                        "attr.illegal_target: attribute `@{}` is not legal on class targets (method-only)",
+                return Err(CompilerError::Message(format!(
+                    "attr.illegal_target: attribute `@{}` is not legal on class targets (method-only)",
                     attr.name
                 )));
             }
             match &attr.kind {
-                AttrKind::Builtin(b) => {
-                    match b {
-                        BuiltinAttr::Invariant => {
-                            validate_purity(&attr.args)?;
-                            for arg in &attr.args {
-                                class_invariants.push((arg.clone(), attr.range));
-                            }
+                AttrKind::Builtin(b) => match b {
+                    BuiltinAttr::Invariant => {
+                        validate_purity(&attr.args)?;
+                        for arg in &attr.args {
+                            class_invariants.push((arg.clone(), attr.range));
                         }
-                        BuiltinAttr::Construct => {
-                            derive_construct(&mut class, ctx, attr.range)?;
-                        }
-                        BuiltinAttr::Data => {
-                            derive_data(&mut class, ctx, attr.range)?;
-                        }
-                        BuiltinAttr::Sealed
-                        | BuiltinAttr::Constructor
-                        | BuiltinAttr::Class
-                        | BuiltinAttr::Get
-                        | BuiltinAttr::Set
-                        | BuiltinAttr::Variant
-                        | BuiltinAttr::Requires
-                        | BuiltinAttr::Ensures
-                        | BuiltinAttr::On
-                        | BuiltinAttr::Native
-                        | BuiltinAttr::Ignore => {}
                     }
-                }
+                    BuiltinAttr::Construct => {
+                        derive_construct(&mut class, ctx, attr.range)?;
+                    }
+                    BuiltinAttr::Data => {
+                        derive_data(&mut class, ctx, attr.range)?;
+                    }
+                    BuiltinAttr::Sealed
+                    | BuiltinAttr::Constructor
+                    | BuiltinAttr::Class
+                    | BuiltinAttr::Get
+                    | BuiltinAttr::Set
+                    | BuiltinAttr::Variant
+                    | BuiltinAttr::Requires
+                    | BuiltinAttr::Ensures
+                    | BuiltinAttr::On
+                    | BuiltinAttr::Native
+                    | BuiltinAttr::Ignore => {}
+                },
                 AttrKind::User(_) => {}
             }
         } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
@@ -1800,10 +1928,7 @@ pub fn expand_class_attributes(
             // instantiate+attach codegen is emitted separately by
             // `compiler::lib::class_decl::compile_class`, not here.
         } else {
-            return Err(CompilerError::Message(format!(
-                "attr.unknown: unknown attribute `@{}`",
-                attr.name
-            )));
+            return Err(CompilerError::Message(format!("attr.unknown: unknown attribute `@{}`", attr.name)));
         }
     }
 
@@ -1816,7 +1941,9 @@ pub fn expand_class_attributes(
     // Validate standalone invariants for purity too
     for (inv_expr, _) in &class_invariants {
         if !is_pure_expr(inv_expr) {
-            return Err(CompilerError::Message("contract.impure_predicate: predicate contains mutating or side-effecting operations".to_string()));
+            return Err(CompilerError::Message(
+                "contract.impure_predicate: predicate contains mutating or side-effecting operations".to_string(),
+            ));
         }
     }
 
@@ -1891,10 +2018,7 @@ pub fn expand_class_attributes(
             } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
                 // Retained silently — see the class-level branch above.
             } else {
-                return Err(CompilerError::Message(format!(
-                    "attr.unknown: unknown attribute `@{}`",
-                    attr.name
-                )));
+                return Err(CompilerError::Message(format!("attr.unknown: unknown attribute `@{}`", attr.name)));
             }
         }
 
@@ -1913,7 +2037,9 @@ pub fn expand_class_attributes(
             && method.attributes.iter().any(|a| a.name == "constructor")
         {
             if method.attributes.iter().any(|a| a.name == "class") {
-                return Err(CompilerError::Message("attr.illegal_target: `@constructor` cannot combine with `@class`".to_string()));
+                return Err(CompilerError::Message(
+                    "attr.illegal_target: `@constructor` cannot combine with `@class`".to_string(),
+                ));
             }
             method.is_constructor = true;
             method.attributes.retain(|a| a.name != "constructor");
@@ -1971,15 +2097,24 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             .iter()
             .map(|param| Argument {
                 label: param.label.clone(),
-                expr: Expr::Var { value: param.name.clone(), range: param.range },
+                expr: Expr::Var {
+                    value: param.name.clone(),
+                    range: param.range,
+                },
                 range: param.range,
             })
             .collect();
-        let instance = Expr::Var { value: "instance".to_string(), range };
+        let instance = Expr::Var {
+            value: "instance".to_string(),
+            range,
+        };
         let factory_body = vec![
             Statement::Let(LetBinding {
                 kind: BindingKind::Let,
-                pattern: Pattern::Name { name: "instance".to_string(), range },
+                pattern: Pattern::Name {
+                    name: "instance".to_string(),
+                    range,
+                },
                 value: Some(Expr::MethodCall(Box::new(MethodCallExpr {
                     object: Expr::SelfVar { range },
                     method: "new_".to_string(),
@@ -2031,9 +2166,16 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
     // argument, so the message must be baked into a constructed instance
     // first, not passed to `raise` itself.
     let new_instance = Expr::MethodCall(Box::new(MethodCallExpr {
-        object: Expr::Var { value: error_class.to_string(), range },
+        object: Expr::Var {
+            value: error_class.to_string(),
+            range,
+        },
         method: "new".to_string(),
-        args: vec![Argument { label: None, expr: Expr::String { value: err_msg, range }, range }],
+        args: vec![Argument {
+            label: None,
+            expr: Expr::String { value: err_msg, range },
+            range,
+        }],
         range,
     }));
     let error_expr = Expr::MethodCall(Box::new(MethodCallExpr {
@@ -2051,7 +2193,11 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
     let check_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: predicate,
         method: "ifFalse".to_string(),
-        args: vec![Argument { label: None, expr: block_expr, range }],
+        args: vec![Argument {
+            label: None,
+            expr: block_expr,
+            range,
+        }],
         range,
     }));
     Statement::Expr { expr: check_call, range }
@@ -2116,10 +2262,16 @@ fn statement_range(stmt: &Statement) -> SourceRange {
 fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, SourceRange)], class_name: &str, is_construct: bool) {
     let range = body.first().map(statement_range).unwrap_or_default();
 
-    let owner_var = Expr::Var { value: "__invariant_owner".to_string(), range };
+    let owner_var = Expr::Var {
+        value: "__invariant_owner".to_string(),
+        range,
+    };
     let owner_let = Statement::Let(LetBinding {
         kind: BindingKind::Let,
-        pattern: Pattern::Name { name: "__invariant_owner".to_string(), range },
+        pattern: Pattern::Name {
+            name: "__invariant_owner".to_string(),
+            range,
+        },
         value: Some(self_send0("__invariantEnter", range)),
         range,
     });
@@ -2142,7 +2294,12 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
                 method: "ifTrue".to_string(),
                 args: vec![Argument {
                     label: None,
-                    expr: Expr::Block(Box::new(BlockExpr { params: Vec::new(), body: check_stmts(true), expr_body: false, range })),
+                    expr: Expr::Block(Box::new(BlockExpr {
+                        params: Vec::new(),
+                        body: check_stmts(true),
+                        expr_body: false,
+                        range,
+                    })),
                     range,
                 }],
                 range,
@@ -2152,29 +2309,51 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
     }
 
     let original_body = std::mem::take(body);
-    let body_block = Expr::Block(Box::new(BlockExpr { params: Vec::new(), body: original_body, expr_body: true, range }));
+    let body_block = Expr::Block(Box::new(BlockExpr {
+        params: Vec::new(),
+        body: original_body,
+        expr_body: true,
+        range,
+    }));
 
     let mut cleanup_body = check_stmts(false);
-    cleanup_body.push(Statement::Expr { expr: self_send0("__invariantExit", range), range });
+    cleanup_body.push(Statement::Expr {
+        expr: self_send0("__invariantExit", range),
+        range,
+    });
     let cleanup_guard = Statement::Expr {
         expr: Expr::MethodCall(Box::new(MethodCallExpr {
             object: owner_var,
             method: "ifTrue".to_string(),
             args: vec![Argument {
                 label: None,
-                expr: Expr::Block(Box::new(BlockExpr { params: Vec::new(), body: cleanup_body, expr_body: false, range })),
+                expr: Expr::Block(Box::new(BlockExpr {
+                    params: Vec::new(),
+                    body: cleanup_body,
+                    expr_body: false,
+                    range,
+                })),
                 range,
             }],
             range,
         })),
         range,
     };
-    let cleanup_block = Expr::Block(Box::new(BlockExpr { params: Vec::new(), body: vec![cleanup_guard], expr_body: false, range }));
+    let cleanup_block = Expr::Block(Box::new(BlockExpr {
+        params: Vec::new(),
+        body: vec![cleanup_guard],
+        expr_body: false,
+        range,
+    }));
 
     let ensure_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: body_block,
         method: "ensure".to_string(),
-        args: vec![Argument { label: None, expr: cleanup_block, range }],
+        args: vec![Argument {
+            label: None,
+            expr: cleanup_block,
+            range,
+        }],
         range,
     }));
 
@@ -2185,7 +2364,10 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
     if is_construct {
         new_body.push(Statement::Expr { expr: ensure_call, range });
     } else {
-        new_body.push(Statement::Return(phalcom_ast::ast::ReturnStatement { value: Some(ensure_call), range }));
+        new_body.push(Statement::Return(phalcom_ast::ast::ReturnStatement {
+            value: Some(ensure_call),
+            range,
+        }));
     }
     *body = new_body;
 }

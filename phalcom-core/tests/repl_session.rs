@@ -40,9 +40,12 @@ fn statement_cell_echoes_nothing() {
 
     let c_stmt = vm.compile_closure_as(module, "let a = 100\n", UnitKind::Repl).unwrap();
     let res_stmt = vm.run_cell(module, c_stmt).unwrap();
-    assert_eq!(res_stmt, Value::Obj(vm.universe.classes.none_singleton), "Statement cell yields surfaced absence");
+    assert_eq!(
+        res_stmt,
+        Value::Obj(vm.universe.classes.none_singleton),
+        "Statement cell yields surfaced absence"
+    );
 }
-
 
 /// `underscore_binds_last_value`: `_` global holds the prior cell's expression result.
 #[test]
@@ -91,7 +94,11 @@ fn open_upvalue_hygiene_across_cells() {
 
     let c2 = vm.compile_closure_as(module, cell2_src, UnitKind::Repl).expect("cell 2 compiles");
     let res2 = vm.run_cell(module, c2).expect("cell 2 should execute without stack aliasing corruption");
-    assert_eq!(res2, Value::Number(999.0), "captured upvalue secret remains 999 and is not corrupted by cell 2's stack");
+    assert_eq!(
+        res2,
+        Value::Number(999.0),
+        "captured upvalue secret remains 999 and is not corrupted by cell 2's stack"
+    );
 }
 
 /// `class_redefinition_shadows`: Cell 2's `class Foo` shadows cell 1's `class Foo`.
@@ -101,10 +108,14 @@ fn class_redefinition_shadows() {
     let mut vm = VM::new();
     let module = vm.create_module("main", "<repl>");
 
-    let c1 = vm.compile_closure_as(module, "class Foo {\nv() { 1 }\n}\nlet f1 = Foo.new()\n", UnitKind::Repl).unwrap();
+    let c1 = vm
+        .compile_closure_as(module, "class Foo {\nv() { 1 }\n}\nlet f1 = Foo.new()\n", UnitKind::Repl)
+        .unwrap();
     vm.run_cell(module, c1).unwrap();
 
-    let c2 = vm.compile_closure_as(module, "class Foo {\nv() { 2 }\n}\nlet f2 = Foo.new()\n", UnitKind::Repl).unwrap();
+    let c2 = vm
+        .compile_closure_as(module, "class Foo {\nv() { 2 }\n}\nlet f2 = Foo.new()\n", UnitKind::Repl)
+        .unwrap();
     vm.run_cell(module, c2).unwrap();
 
     let c3 = vm.compile_closure_as(module, "[f1.v(), f2.v()]\n", UnitKind::Repl).unwrap();

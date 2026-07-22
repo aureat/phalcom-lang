@@ -72,6 +72,7 @@ consult it once you already know which production you're looking for.
 | [ADR-0064] | `let` (mutable) / `const` (immutable) binding forms; unkeyworded mutable fields — supersedes [ADR-0014] |
 | [ADR-0021] | No truthiness enforcement — condition positions require `Boolean`, no implicit coercion |
 | [ADR-0022] | String interpolation: `\(expr)` sigil, backslash-paren form |
+| [PDR-0029] | String escape, diagnostic, lowering, and range completion; multiline literals deferred |
 | [ADR-0024] | Numeric surface split: `Int` vs `Float` literal forms, `~/` integer division |
 | [ADR-0025] | External/internal parameter names — labeled-argument surface syntax |
 | [ADR-0027] | Modules as files, public-by-default, `import`/`as` |
@@ -84,6 +85,7 @@ consult it once you already know which production you're looking for.
 [ADR-0014]: ../../../adr/0014-let-and-var-bindings.md
 [ADR-0021]: ../../../adr/0021-no-truthiness-enforcement.md
 [ADR-0022]: ../../../adr/0022-string-interpolation-backslash-paren-sigil.md
+[PDR-0029]: ../../../pdr/0029-string-literals-and-interpolation-completion.md
 [ADR-0024]: ../../../adr/0024-numeric-surface-split-int-float-and-division.md
 [ADR-0025]: ../../../adr/0025-external-internal-parameter-names.md
 [ADR-0027]: ../../../adr/0027-modules-as-files-with-public-by-default-imports.md

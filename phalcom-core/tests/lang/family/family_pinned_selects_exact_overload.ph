@@ -16,8 +16,14 @@ class Point {
     return "positional: " + a.toString + " " + b.toString
   }
 }
+
 const p = Point.new(0, 0)
+
 const labeled = p::#move(to,duration)
 const positional = p::#move(_,_)
-System.print(labeled(5, 2))
-System.print(positional(5, 2))
+System.print("(pinned) " + labeled(5, 2))
+System.print("(pinned) " + positional(5, 2))
+
+const f = p::move
+System.print("(open) " + f(to: 5, duration: 2))
+System.print("(open) " + f(5, 2))

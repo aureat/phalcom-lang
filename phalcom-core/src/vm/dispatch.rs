@@ -1,20 +1,20 @@
-use crate::heap::BlockObject;
-use crate::value::{FALSE, TRUE};
 use crate::bytecode::Bytecode;
 use crate::callable::Callable;
-use crate::heap::ClosureObject;
 use crate::diagnostics::print_compile;
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, CallFrame};
-use crate::heap::{ObjRef, Object};
-use crate::method::{decode_selector, SignatureKind};
+use crate::heap::BlockObject;
 use crate::heap::CORE_MODULE_NAME;
+use crate::heap::ClosureObject;
 use crate::heap::Upvalue;
+use crate::heap::{ObjRef, Object};
+use crate::method::{SignatureKind, decode_selector};
 use crate::value::Value;
+use crate::value::{FALSE, TRUE};
 use phalcom_common::range::SourceRange;
 use std::rc::Rc;
 #[cfg(feature = "vm-trace")]
-use tracing::{debug, span, Level};
+use tracing::{Level, debug, span};
 
 use super::VM;
 
@@ -62,7 +62,10 @@ impl VM {
         if let Some(&existing) = self.open_upvalues.get(&stack_index) {
             return existing;
         }
-        let cell = self.heap.alloc(Object::Upvalue(Upvalue::Open { fiber: self.current, slot: stack_index }));
+        let cell = self.heap.alloc(Object::Upvalue(Upvalue::Open {
+            fiber: self.current,
+            slot: stack_index,
+        }));
         self.open_upvalues.insert(stack_index, cell);
         cell
     }
@@ -160,13 +163,7 @@ impl VM {
     /// Always returns `err` (the traceback is a side effect on stderr).
     pub fn runtime_error(&mut self, err: PhError) -> PhResult<()> {
         let config = crate::diagnostics::active_render_config();
-        crate::diagnostics::traceback::render_traceback(
-            self,
-            &err,
-            &config,
-            self.trace_core,
-            self.trace_format_json,
-        );
+        crate::diagnostics::traceback::render_traceback(self, &err, &config, self.trace_core, self.trace_format_json);
         Err(err)
     }
 
@@ -187,9 +184,13 @@ impl VM {
                 crate::compiler::lib::CompilerError::ContinueOutsideLoop(range) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::ThrowNonError(range) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::ClassAlreadyDefined(_, _, range, _, _) => (comp_err.to_string(), Some(*range)),
-                crate::compiler::lib::CompilerError::ClassDuplicateMember(_, _, _, range, _, _) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::DuplicateSelector(_, _, _, range, _, _) => (comp_err.to_string(), Some(*range)),
+                crate::compiler::lib::CompilerError::DuplicateField(_, _, _, range, _, _) => (comp_err.to_string(), Some(*range)),
                 crate::compiler::lib::CompilerError::ClassReservedName(_, range) => (comp_err.to_string(), Some(*range)),
-                crate::compiler::lib::CompilerError::Parse(syntax_err) => (syntax_err.kind.to_string(), Some(phalcom_common::range::SourceRange::from(syntax_err.range.clone()))),
+                crate::compiler::lib::CompilerError::Parse(syntax_err) => (
+                    syntax_err.kind.to_string(),
+                    Some(phalcom_common::range::SourceRange::from(syntax_err.range.clone())),
+                ),
                 _ => (comp_err.to_string(), None),
             };
             if let Some(r) = range {
@@ -197,7 +198,12 @@ impl VM {
                 if let Some(src) = m.source_at(source_id) {
                     let config = crate::diagnostics::active_render_config();
                     let styler = crate::diagnostics::style::Styler::new(&config);
-                    eprintln!("{}{} {}", styler.paint(crate::diagnostics::style::Role::SeverityError, "error"), styler.paint(crate::diagnostics::style::Role::SeverityError, ":"), msg);
+                    eprintln!(
+                        "{}{} {}",
+                        styler.paint(crate::diagnostics::style::Role::SeverityError, "error"),
+                        styler.paint(crate::diagnostics::style::Role::SeverityError, ":"),
+                        msg
+                    );
                     let label = crate::diagnostics::caret::Label {
                         span: r,
                         text: &msg,
@@ -444,7 +450,12 @@ impl VM {
                             } else {
                                 self.capture_parked_frames(failed)
                             };
-                            e = PhError::Runtime(RuntimeError::Raise { error, rendered, traceback: Some(tb), help: None });
+                            e = PhError::Runtime(RuntimeError::Raise {
+                                error,
+                                rendered,
+                                traceback: Some(tb),
+                                help: None,
+                            });
                         }
 
                         if let PhError::Runtime(RuntimeError::Raise { traceback: Some(tb), .. }) = &mut e {
@@ -511,7 +522,10 @@ impl VM {
                 let closure = self.heap.closure(top.closure);
                 let module = self.heap.module(closure.module);
                 let span_index = top.ip.saturating_sub(1);
-                from_line = closure.callable.chunk.line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
+                from_line = closure
+                    .callable
+                    .chunk
+                    .line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
                 from_file = Some(module.name_sym);
                 from_name = Some(closure.callable.name_sym);
             }
@@ -523,7 +537,10 @@ impl VM {
                 let closure = self.heap.closure(top.closure);
                 let module = self.heap.module(closure.module);
                 let span_index = top.ip.saturating_sub(1);
-                to_line = closure.callable.chunk.line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
+                to_line = closure
+                    .callable
+                    .chunk
+                    .line_at(span_index, module.source_at(closure.callable.chunk.source_id).map_or("", |s| s.as_str()));
                 to_file = Some(module.name_sym);
             }
 
@@ -613,9 +630,10 @@ impl VM {
         // needs it for whichever `call_method` / dNU forward it reaches.
         let (cached, source_range) = {
             let chunk = &callable.chunk;
-            let cached = chunk.caches[cache_ip].get().filter(|slot| {
-                slot.class == receiver_class && slot.version == self.world_version
-            }).map(|slot| slot.method);
+            let cached = chunk.caches[cache_ip]
+                .get()
+                .filter(|slot| slot.class == receiver_class && slot.version == self.world_version)
+                .map(|slot| slot.method);
             (cached, chunk.span_at(cache_ip))
         };
 
@@ -628,7 +646,11 @@ impl VM {
             if let Some(method) = receiver.lookup_method(self, selector_sym) {
                 // Refill. Both `receiver_class` and `world_version` are read
                 // AFTER the lookup on purpose — see U-IC §2.3 hazard 2.
-                let entry = crate::chunk::InlineCache { class: receiver_class, method, version: self.world_version };
+                let entry = crate::chunk::InlineCache {
+                    class: receiver_class,
+                    method,
+                    version: self.world_version,
+                };
                 callable.chunk.caches[cache_ip].set(Some(entry));
                 self.call_method(&receiver, method, arity, source_range)?;
             } else {
@@ -1066,12 +1088,18 @@ impl VM {
                     // methods could run, so it is present in `self.classes`.
                     // No superclass ⇒ the walk is empty ⇒ `doesNotUnderstand`.
                     let closure_module = self.heap.closure(closure_id).module;
-                    let defining_key = crate::vm::ClassKey { module: closure_module, name: defining_sym };
+                    let defining_key = crate::vm::ClassKey {
+                        module: closure_module,
+                        name: defining_sym,
+                    };
                     let parent = if let Some(&c) = self.classes.get(&defining_key) {
                         self.heap.class(c).superclass
                     } else if let Some(core_sym) = self.interner.find(crate::heap::CORE_MODULE_NAME) {
                         if let Some(&core_mod) = self.modules.get(&core_sym) {
-                            let core_key = crate::vm::ClassKey { module: core_mod, name: defining_sym };
+                            let core_key = crate::vm::ClassKey {
+                                module: core_mod,
+                                name: defining_sym,
+                            };
                             self.classes.get(&core_key).and_then(|&c| self.heap.class(c).superclass)
                         } else {
                             None
@@ -1134,7 +1162,8 @@ impl VM {
                                 return Err(RuntimeError::AccessFieldsNonInstance {
                                     value: val_str,
                                     found: receiver.type_name(),
-                                }.into());
+                                }
+                                .into());
                             }
                         }
                         _ => {
@@ -1145,7 +1174,8 @@ impl VM {
                             return Err(RuntimeError::AccessFieldsNonInstance {
                                 value: val_str,
                                 found: receiver.type_name(),
-                            }.into());
+                            }
+                            .into());
                         }
                     }
                 }
@@ -1178,7 +1208,8 @@ impl VM {
                                 return Err(RuntimeError::AccessFieldsNonInstance {
                                     value: val_str,
                                     found: receiver.type_name(),
-                                }.into());
+                                }
+                                .into());
                             }
                         }
                         _ => {
@@ -1189,7 +1220,8 @@ impl VM {
                             return Err(RuntimeError::AccessFieldsNonInstance {
                                 value: val_str,
                                 found: receiver.type_name(),
-                            }.into());
+                            }
+                            .into());
                         }
                     }
                 }
@@ -1198,9 +1230,7 @@ impl VM {
                     if let Value::Obj(class_id) = class_val {
                         if self.heap.as_class(class_id).is_some() {
                             let field_count = self.heap.class(class_id).field_count;
-                            let instance_ref = self.heap.alloc(Object::Instance(
-                                crate::heap::InstanceObject::new(class_id, field_count)
-                            ));
+                            let instance_ref = self.heap.alloc(Object::Instance(crate::heap::InstanceObject::new(class_id, field_count)));
                             self.stack.push(Value::Obj(instance_ref));
                         } else if self.heap.as_instance(class_id).is_some() {
                             // Super-construct (U-INH §3.5): a parent initializer
@@ -1219,7 +1249,8 @@ impl VM {
                             return Err(RuntimeError::InstantiateNonClass {
                                 value: val_str,
                                 found: class_val.type_name(),
-                            }.into());
+                            }
+                            .into());
                         }
                     } else {
                         let mut val_str = class_val.to_string(self);
@@ -1229,7 +1260,8 @@ impl VM {
                         return Err(RuntimeError::InstantiateNonClass {
                             value: val_str,
                             found: class_val.type_name(),
-                        }.into());
+                        }
+                        .into());
                     }
                 }
                 Bytecode::Dup => {
@@ -1347,10 +1379,7 @@ impl VM {
                     // method already returned — raise `DeadFrameError` *before*
                     // touching any VM state, so a caught error leaves the stack
                     // consistent.
-                    let is_live = self
-                        .frames
-                        .get(token.frame_index)
-                        .is_some_and(|home| home.generation == token.generation);
+                    let is_live = self.frames.get(token.frame_index).is_some_and(|home| home.generation == token.generation);
                     if !is_live {
                         return Err(RuntimeError::DeadFrameError.into());
                     }

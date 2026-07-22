@@ -8,9 +8,9 @@
 class Point {
   construct new(x, y) { _x = x; _y = y }
   move(to:, duration:) {
-    return "moved to " + to.toString + " over " + duration.toString
+    return "moved to \(to) from \(_x), \(_y) in \(duration)"
   }
 }
-const p = Point.new(0, 0)
+const p = Point.new(1, 0)
 const f = p::move
-System.print(f(to: 5, duration: 2))
+System.print(f(to: 5, duration: 2)) // moved to 5 from 1, 0 in 2

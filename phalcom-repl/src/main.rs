@@ -9,12 +9,11 @@ use phalcom_repl::highlighter::PhalcomHighlighter;
 use phalcom_repl::oracle::ReplOracle;
 use phalcom_repl::repl::{CellOutcome, ReplSession, ValueExt};
 use phalcom_repl::snapshot::ReplSnapshot;
-use phalcom_repl::validator::{classify, explicit_continuation, PhalcomValidator, Verdict};
+use phalcom_repl::validator::{PhalcomValidator, Verdict, classify, explicit_continuation};
 
 use reedline::{
-    default_emacs_keybindings, Color, EditCommand, Emacs, FileBackedHistory, IdeMenu, KeyCode,
-    KeyModifiers, Keybindings, MenuBuilder, PromptEditMode, PromptHistorySearch, Reedline,
-    ReedlineError, ReedlineEvent, ReedlineMenu, Signal,
+    Color, EditCommand, Emacs, FileBackedHistory, IdeMenu, KeyCode, KeyModifiers, Keybindings, MenuBuilder, PromptEditMode, PromptHistorySearch, Reedline,
+    ReedlineError, ReedlineEvent, ReedlineMenu, Signal, default_emacs_keybindings,
 };
 
 use std::borrow::Cow;
@@ -64,10 +63,7 @@ impl reedline::Prompt for PhPrompt {
         Cow::Borrowed(&self.cont)
     }
 
-    fn render_prompt_history_search_indicator(
-        &self,
-        _history_search: PromptHistorySearch,
-    ) -> Cow<'_, str> {
+    fn render_prompt_history_search_indicator(&self, _history_search: PromptHistorySearch) -> Cow<'_, str> {
         Cow::Borrowed("(search)")
     }
 }
@@ -89,32 +85,13 @@ fn main() -> Result<(), ReedlineError> {
     keybindings.add_binding(
         KeyModifiers::NONE,
         KeyCode::Tab,
-        ReedlineEvent::UntilFound(vec![
-            ReedlineEvent::Menu("completion_menu".into()),
-            ReedlineEvent::MenuNext,
-        ]),
+        ReedlineEvent::UntilFound(vec![ReedlineEvent::Menu("completion_menu".into()), ReedlineEvent::MenuNext]),
     );
 
-    keybindings.add_binding(
-        KeyModifiers::SHIFT,
-        KeyCode::Enter,
-        ReedlineEvent::Edit(vec![EditCommand::InsertNewline]),
-    );
-    keybindings.add_binding(
-        KeyModifiers::ALT,
-        KeyCode::Enter,
-        ReedlineEvent::Edit(vec![EditCommand::InsertNewline]),
-    );
-    keybindings.add_binding(
-        KeyModifiers::ALT,
-        KeyCode::Backspace,
-        ReedlineEvent::Edit(vec![EditCommand::BackspaceWord]),
-    );
-    keybindings.add_binding(
-        KeyModifiers::SUPER,
-        KeyCode::Backspace,
-        ReedlineEvent::Edit(vec![EditCommand::KillLine]),
-    );
+    keybindings.add_binding(KeyModifiers::SHIFT, KeyCode::Enter, ReedlineEvent::Edit(vec![EditCommand::InsertNewline]));
+    keybindings.add_binding(KeyModifiers::ALT, KeyCode::Enter, ReedlineEvent::Edit(vec![EditCommand::InsertNewline]));
+    keybindings.add_binding(KeyModifiers::ALT, KeyCode::Backspace, ReedlineEvent::Edit(vec![EditCommand::BackspaceWord]));
+    keybindings.add_binding(KeyModifiers::SUPER, KeyCode::Backspace, ReedlineEvent::Edit(vec![EditCommand::KillLine]));
 
     let edit_mode = Box::new(Emacs::new(keybindings));
 
@@ -154,9 +131,7 @@ fn main() -> Result<(), ReedlineError> {
                             // unable to tell a full reload from a partial one.
                             let complete = session.reload();
                             if !complete {
-                                eprintln!(
-                                    "Reload stopped early; the session is at the state reached before that cell."
-                                );
+                                eprintln!("Reload stopped early; the session is at the state reached before that cell.");
                             }
                             if let Ok(mut snap) = snapshot_cell.lock() {
                                 *snap = ReplSnapshot::capture(&session.vm, session.module);

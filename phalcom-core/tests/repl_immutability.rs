@@ -13,7 +13,9 @@ fn const_rebinds_across_repl_cells() {
     let c1 = vm.compile_closure_as(module, "const x = 1\n", UnitKind::Repl).expect("cell 1 compiles");
     vm.run_cell(module, c1).expect("cell 1 succeeds");
 
-    let c2 = vm.compile_closure_as(module, "x = 2\n", UnitKind::Repl).expect("cell 2 re-assignment compiles in Repl mode");
+    let c2 = vm
+        .compile_closure_as(module, "x = 2\n", UnitKind::Repl)
+        .expect("cell 2 re-assignment compiles in Repl mode");
     let res2 = vm.run_cell(module, c2).expect("cell 2 succeeds");
     assert_eq!(res2, Value::Number(2.0));
 }
@@ -27,11 +29,11 @@ fn const_redeclares_across_repl_cells() {
     let c1 = vm.compile_closure_as(module, "const x = 1\n", UnitKind::Repl).expect("cell 1 compiles");
     vm.run_cell(module, c1).expect("cell 1 succeeds");
 
-    let c2 = vm.compile_closure_as(module, "const x = 2\n", UnitKind::Repl).expect("cell 2 const re-declaration compiles in Repl mode");
+    let c2 = vm
+        .compile_closure_as(module, "const x = 2\n", UnitKind::Repl)
+        .expect("cell 2 const re-declaration compiles in Repl mode");
     let res2 = vm.run_cell(module, c2).expect("cell 2 succeeds");
     assert_eq!(res2, Value::Obj(vm.universe.classes.none_singleton));
-
-
 
     let c3 = vm.compile_closure_as(module, "x\n", UnitKind::Repl).expect("cell 3 compiles");
     let res3 = vm.run_cell(module, c3).expect("cell 3 succeeds");
@@ -72,6 +74,8 @@ fn class_shadows_across_repl_cells() {
     let c1 = vm.compile_closure_as(module, "class Foo {}\n", UnitKind::Repl).expect("cell 1 compiles");
     vm.run_cell(module, c1).expect("cell 1 succeeds");
 
-    let c2 = vm.compile_closure_as(module, "class Foo {}\n", UnitKind::Repl).expect("cell 2 compiles without class definition error");
+    let c2 = vm
+        .compile_closure_as(module, "class Foo {}\n", UnitKind::Repl)
+        .expect("cell 2 compiles without class definition error");
     vm.run_cell(module, c2).expect("cell 2 succeeds");
 }

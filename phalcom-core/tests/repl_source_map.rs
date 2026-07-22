@@ -65,10 +65,7 @@ fn unrecorded_source_id_degrades_to_none() {
 
     vm.compile_closure(module, "let a = 1\n").expect("cell should compile");
 
-    assert!(
-        vm.heap.module(module).source_at(0).is_some(),
-        "compiling records entry 0"
-    );
+    assert!(vm.heap.module(module).source_at(0).is_some(), "compiling records entry 0");
     assert!(
         vm.heap.module(module).source_at(99).is_none(),
         "an out-of-range source id must resolve to None, never panic"

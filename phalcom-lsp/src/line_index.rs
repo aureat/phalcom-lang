@@ -103,17 +103,12 @@ impl LineIndex {
     pub fn offset(&self, position: Position) -> usize {
         let line = (position.line as usize).min(self.line_starts.len() - 1);
         let line_start = self.line_starts[line];
-        let line_end = self
-            .line_starts
-            .get(line + 1)
-            .copied()
-            .unwrap_or(self.text.len());
+        let line_end = self.line_starts.get(line + 1).copied().unwrap_or(self.text.len());
         // Exclude the line's own trailing `\n` from the content scanned: a
         // character offset clamps to just before the newline, not past it
         // (mirrors `position`, which never reports a character position
         // inside the terminator).
-        let content_end = if line_end > line_start && self.text.as_bytes()[line_end - 1] == b'\n'
-        {
+        let content_end = if line_end > line_start && self.text.as_bytes()[line_end - 1] == b'\n' {
             line_end - 1
         } else {
             line_end
@@ -296,11 +291,7 @@ mod tests {
         for (text, byte_offset) in cases {
             let index = LineIndex::new(text);
             let pos = index.position(*byte_offset);
-            assert_eq!(
-                index.offset(pos),
-                *byte_offset,
-                "round-trip failed for text={text:?} offset={byte_offset}"
-            );
+            assert_eq!(index.offset(pos), *byte_offset, "round-trip failed for text={text:?} offset={byte_offset}");
         }
     }
 

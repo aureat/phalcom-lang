@@ -1,1 +1,1 @@
-class.duplicate_member: '_x' is already defined in class 'Point' (first declared at
+class.duplicate_field: '_x' is already defined in class 'Point' (first declared at

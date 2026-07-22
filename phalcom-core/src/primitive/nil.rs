@@ -19,8 +19,8 @@
 //! produced by user code (Invariant 4).
 
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::Object;
 use crate::heap::InstanceObject;
+use crate::heap::Object;
 use crate::primitive::block::block_call;
 use crate::value::Value;
 use crate::vm::VM;
@@ -104,10 +104,7 @@ pub fn option_match(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 
     if class == some_cls {
         let Value::Obj(id) = receiver else { unreachable!("checked above") };
-        let wrapped = vm
-            .heap
-            .instance(*id)
-            .slots[0];
+        let wrapped = vm.heap.instance(*id).slots[0];
         block_call(vm, &args[0], &[wrapped])
     } else if class == none_cls {
         block_call(vm, &args[1], &[])
@@ -118,5 +115,9 @@ pub fn option_match(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 
 /// Builds the "not an Option" [`RuntimeError::Type`] for [`option_match`].
 fn type_error(receiver: &Value) -> crate::error::PhError {
-    RuntimeError::Type { expected: "Option", found: receiver.type_name() }.into()
+    RuntimeError::Type {
+        expected: "Option",
+        found: receiver.type_name(),
+    }
+    .into()
 }

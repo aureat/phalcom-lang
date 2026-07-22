@@ -21,9 +21,9 @@ mod render;
 pub use boolean::{FALSE, TRUE};
 pub use nil::NIL;
 
-use crate::heap::lookup_method_in_hierarchy;
 use crate::frame::CallContext;
-use crate::heap::{ClassId, Object, ObjRef};
+use crate::heap::lookup_method_in_hierarchy;
+use crate::heap::{ClassId, ObjRef, Object};
 use crate::interner::Symbol;
 use crate::vm::VM;
 use std::hash::{Hash, Hasher};
@@ -249,9 +249,7 @@ impl Value {
                 }
                 // Modules were never equal under the pre-heap `PartialEq`
                 // (they fell through to `_ => false`); preserve that.
-                if matches!(heap.get(*a), Object::Module(_))
-                    || matches!(heap.get(*b), Object::Module(_))
-                {
+                if matches!(heap.get(*a), Object::Module(_)) || matches!(heap.get(*b), Object::Module(_)) {
                     return false;
                 }
                 // Instances, classes and methods compare by identity.

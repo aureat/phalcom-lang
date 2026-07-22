@@ -1,0 +1,12 @@
+d1 = <Derived>
+Base.count = 0
+Derived.count = 1
+d2 = <Derived>
+Base.count = 0
+Derived.count = 2
+b1 = <Base>
+Base.count = 1
+Derived.count = 2
+d3 = <Derived>
+Base.count = 1
+Derived.count = 3

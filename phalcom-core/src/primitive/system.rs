@@ -107,9 +107,14 @@ pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Va
 pub fn system_raw_write(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let s = match &args[0] {
         Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str().to_string(),
-        other => return Err(RuntimeError::Type { expected: "String", found: other.type_name() }.into()),
+        other => {
+            return Err(RuntimeError::Type {
+                expected: "String",
+                found: other.type_name(),
+            }
+            .into());
+        }
     };
     print!("{s}");
     Ok(vm.none_value())
 }
-

@@ -5,8 +5,8 @@
 //! and asserting that the expected trace events appear on stderr.
 
 use std::fs;
-use std::process::{Command, Output};
 use std::path::PathBuf;
+use std::process::{Command, Output};
 
 fn phalcom_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_phalcom"))
@@ -18,15 +18,14 @@ fn run_trace(source: &str, format: &str) -> Output {
         "fiber_trace_{}_{}.ph",
         std::process::id(),
         // unique per-call so parallel tests don't collide on same-length sources
-        { use std::time::{SystemTime, UNIX_EPOCH}; SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos() }
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos()
+        }
     ));
     fs::write(&path, source).expect("write temp file");
     let out = Command::new(phalcom_bin())
-        .args([
-            "--trace=fibers",
-            &format!("--trace-format={}", format),
-            path.to_str().unwrap(),
-        ])
+        .args(["--trace=fibers", &format!("--trace-format={}", format), path.to_str().unwrap()])
         .output()
         .expect("failed to spawn `phalcom` binary");
     let _ = fs::remove_file(&path);
@@ -34,11 +33,10 @@ fn run_trace(source: &str, format: &str) -> Output {
 }
 
 fn run_no_trace(source: &str) -> Output {
-    let path = std::env::temp_dir().join(format!(
-        "fiber_no_trace_{}_{}.ph",
-        std::process::id(),
-        { use std::time::{SystemTime, UNIX_EPOCH}; SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos() }
-    ));
+    let path = std::env::temp_dir().join(format!("fiber_no_trace_{}_{}.ph", std::process::id(), {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos()
+    }));
     fs::write(&path, source).expect("write temp file");
     let out = Command::new(phalcom_bin())
         .arg(path.to_str().unwrap())

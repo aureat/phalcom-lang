@@ -14,9 +14,7 @@ use phalcom_ast::token::Token;
 /// Tokenize `src`, returning the tokens (without spans). Panics if the input
 /// does not lex cleanly — these fixtures are all valid Phalcom.
 fn tokens(src: &str) -> Vec<Token> {
-    Lexer::new(src)
-        .map(|spanned| spanned.expect("fixture should lex without error").1)
-        .collect()
+    Lexer::new(src).map(|spanned| spanned.expect("fixture should lex without error").1).collect()
 }
 
 #[test]
@@ -41,9 +39,7 @@ fn function_definition() {
 
 #[test]
 fn class_with_static_method() {
-    insta::assert_debug_snapshot!(tokens(
-        "class Point {\n  static origin { self }\n}"
-    ));
+    insta::assert_debug_snapshot!(tokens("class Point {\n  static origin { self }\n}"));
 }
 
 #[test]
@@ -65,9 +61,7 @@ fn line_comment_is_skipped() {
 fn block_comment_is_skipped() {
     // `/* … */` block comments are trivia (D1). A newline *inside* the block
     // comment is consumed with it and never leaks a `Token::Newline`.
-    insta::assert_debug_snapshot!(tokens(
-        "let x = 1 /* block\n comment */ let y = 2"
-    ));
+    insta::assert_debug_snapshot!(tokens("let x = 1 /* block\n comment */ let y = 2"));
 }
 
 #[test]

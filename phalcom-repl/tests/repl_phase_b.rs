@@ -7,7 +7,7 @@ use phalcom_repl::highlighter::PhalcomHighlighter;
 use phalcom_repl::oracle::ReplOracle;
 use phalcom_repl::repl::{CellOutcome, ReplSession, ValueExt};
 use phalcom_repl::snapshot::ReplSnapshot;
-use phalcom_repl::validator::{classify, explicit_continuation, PhalcomValidator, Verdict};
+use phalcom_repl::validator::{PhalcomValidator, Verdict, classify, explicit_continuation};
 use reedline::{Completer, Highlighter, Validator};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -133,10 +133,7 @@ fn initializer_kind_never_offered() {
     let snap = ReplSnapshot::capture(&vm, module);
     for members in snap.members.values() {
         for m in members {
-            assert!(
-                !m.selector.starts_with("init "),
-                "Initializer kind must never be offered in completion"
-            );
+            assert!(!m.selector.starts_with("init "), "Initializer kind must never be offered in completion");
         }
     }
 }
@@ -172,10 +169,7 @@ fn ranking_puts_own_before_inherited() {
 
     let own = members.iter().position(|m| m.name == "aaa_own").expect("own member missing");
     let inherited = members.iter().position(|m| m.name == "zzz_base").expect("inherited member missing");
-    assert!(
-        own < inherited,
-        "own members must rank before inherited ones regardless of name order"
-    );
+    assert!(own < inherited, "own members must rank before inherited ones regardless of name order");
     assert_eq!(members[own].own_depth, 0, "an own member sits at depth 0");
     assert!(members[inherited].own_depth > 0, "an inherited member sits deeper");
 
@@ -197,10 +191,7 @@ fn arity_zero_inserts_bare_name() {
     assert!(matches!(session.eval("let w = Widget.new()"), CellOutcome::Unit));
 
     let completions = complete_for(&session, "w.sp");
-    assert!(
-        completions.iter().any(|c| c == "spin"),
-        "arity-0 member must insert bare; got {completions:?}"
-    );
+    assert!(completions.iter().any(|c| c == "spin"), "arity-0 member must insert bare; got {completions:?}");
     assert!(
         !completions.iter().any(|c| c == "spin("),
         "arity-0 member must not insert a call opening; got {completions:?}"
@@ -234,11 +225,7 @@ fn arity_n_inserts_call_opening() {
 fn complete_for(session: &ReplSession, line: &str) -> Vec<String> {
     let completer = PhalcomCompleter::new(PathBuf::from("."), oracle_for(session));
     let mut completer = completer;
-    completer
-        .complete(line, line.len())
-        .into_iter()
-        .map(|s| s.value)
-        .collect()
+    completer.complete(line, line.len()).into_iter().map(|s| s.value).collect()
 }
 
 #[test]
@@ -283,10 +270,7 @@ fn layers_only_refine() {
     for line in ["let x = 1 + 2", "class Foo {", "\"a string\"", "unbound_name"] {
         let styled = highlighter.highlight(line, line.len());
         let rendered: String = styled.buffer.iter().map(|(_, text)| text.as_str()).collect();
-        assert_eq!(
-            rendered, line,
-            "highlighting must only add style, never alter the text"
-        );
+        assert_eq!(rendered, line, "highlighting must only add style, never alter the text");
     }
 }
 
@@ -299,18 +283,13 @@ fn value_echo_sends_tostring() {
     // invisible through it. Only a real send can produce this marker.
     let mut session = ReplSession::start(PathBuf::from("."));
 
-    let res1 = session.eval(
-        "class Custom {\n  construct new() {}\n  toString { return \"MARKER-7f3a\" }\n}",
-    );
+    let res1 = session.eval("class Custom {\n  construct new() {}\n  toString { return \"MARKER-7f3a\" }\n}");
     assert!(matches!(res1, CellOutcome::Unit), "class cell should succeed, got {res1:?}");
 
     match session.eval("Custom.new()") {
         CellOutcome::Value(val) => {
             let rendered = val.to_string_guarded(&mut session.vm);
-            assert_eq!(
-                rendered, "MARKER-7f3a",
-                "value echo must send `toString`; got the native rendering instead"
-            );
+            assert_eq!(rendered, "MARKER-7f3a", "value echo must send `toString`; got the native rendering instead");
         }
         other => panic!("expected a Value outcome, got {other:?}"),
     }
@@ -323,9 +302,7 @@ fn value_echo_survives_raising_tostring() {
     // raise needs `Error.new(_).raise()`.
     let mut session = ReplSession::start(PathBuf::from("."));
 
-    let res1 = session.eval(
-        "class BadString {\n  construct new() {}\n  toString { return Error.new(\"boom\").raise() }\n}",
-    );
+    let res1 = session.eval("class BadString {\n  construct new() {}\n  toString { return Error.new(\"boom\").raise() }\n}");
     assert!(matches!(res1, CellOutcome::Unit), "class cell should succeed, got {res1:?}");
 
     match session.eval("BadString.new()") {
@@ -379,15 +356,9 @@ fn reload_stops_at_failing_cell() {
     let mut session = ReplSession::start(PathBuf::from("."));
 
     assert!(matches!(session.eval("let good = 11"), CellOutcome::Unit));
-    assert!(
-        matches!(session.eval("let bad = )"), CellOutcome::Failed),
-        "a syntax error must report Failed"
-    );
+    assert!(matches!(session.eval("let bad = )"), CellOutcome::Failed), "a syntax error must report Failed");
 
-    assert!(
-        !session.reload(),
-        ":reload must return false when a cell in history fails on replay"
-    );
+    assert!(!session.reload(), ":reload must return false when a cell in history fails on replay");
 
     // "leaving the session at the state reached so far" — the pre-failure cell landed.
     let good_sym = session.vm.get_or_intern("good");
@@ -407,10 +378,7 @@ fn colon_prefix_never_parses_as_source() {
     assert_eq!(classify(":quit"), Verdict::Invalid);
     // Being Invalid (not Incomplete) is what lets the surface submit it immediately
     // rather than waiting for more input it will never get.
-    assert!(matches!(
-        PhalcomValidator.validate(":reload"),
-        reedline::ValidationResult::Complete
-    ));
+    assert!(matches!(PhalcomValidator.validate(":reload"), reedline::ValidationResult::Complete));
 }
 
 #[test]

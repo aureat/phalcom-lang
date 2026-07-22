@@ -153,8 +153,7 @@ impl Universe {
     /// The `Bool`-receiver sacred selectors watched by
     /// [`Universe::bool_sacred_pristine`]
     /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
-    pub const BOOL_SACRED_SELECTORS: &'static [&'static str] =
-        &["and(_)", "or(_)", "not()", "ifTrue(_)", "ifFalse(_)", "ifTrue(_,ifFalse)"];
+    pub const BOOL_SACRED_SELECTORS: &'static [&'static str] = &["and(_)", "or(_)", "not()", "ifTrue(_)", "ifFalse(_)", "ifTrue(_,ifFalse)"];
 
     /// The `Block`-receiver sacred selectors watched by
     /// [`Universe::block_sacred_pristine`]
@@ -252,12 +251,18 @@ mod tests {
         let before = vm.world_version;
         vm.heap.class_mut(class).add_method(selector, method);
         vm.world_version += 1;
-        assert_ne!(vm.world_version, before, "world_version must actually move, or a warmed cache would stay valid against the stale method");
+        assert_ne!(
+            vm.world_version, before,
+            "world_version must actually move, or a warmed cache would stay valid against the stale method"
+        );
         vm.universe.note_method_installed(class, selector, &vm.interner);
     }
 
     fn read_global(vm: &VM, module: crate::heap::ObjRef, name: &str) -> Value {
-        let sym = vm.interner.find(name).unwrap_or_else(|| panic!("global `{name}` was never interned — did it compile?"));
+        let sym = vm
+            .interner
+            .find(name)
+            .unwrap_or_else(|| panic!("global `{name}` was never interned — did it compile?"));
         vm.heap.module(module).get(sym).unwrap_or_else(|| panic!("global `{name}` was never bound"))
     }
 
@@ -275,7 +280,10 @@ mod tests {
         // render) and `\(…)` interpolation route through (see its own doc) —
         // testing it directly covers both surfaces at once.
         let mut vm = VM::new();
-        assert!(vm.universe.number_tostring_pristine, "post-bootstrap baseline must start pristine (VM::new calls mark_leaf_tostring_pristine last)");
+        assert!(
+            vm.universe.number_tostring_pristine,
+            "post-bootstrap baseline must start pristine (VM::new calls mark_leaf_tostring_pristine last)"
+        );
         assert_eq!(Value::Number(1.0).to_display_string(&mut vm).unwrap(), "1");
 
         let number_class = vm.universe.classes.number_class;
@@ -283,11 +291,22 @@ mod tests {
         fn returns_n(vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(vm.alloc_string_value("N".to_string()))
         }
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(selector, SignatureKind::Getter, MethodKind::Primitive(returns_n)))));
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            selector,
+            SignatureKind::Getter,
+            MethodKind::Primitive(returns_n),
+        ))));
         install_kernel_method(&mut vm, number_class, selector, method);
 
-        assert!(!vm.universe.number_tostring_pristine, "installing toString on Number must flip the leaf fast-path flag");
-        assert_eq!(Value::Number(1.0).to_display_string(&mut vm).unwrap(), "N", "to_display_string must fall back to the real toString send");
+        assert!(
+            !vm.universe.number_tostring_pristine,
+            "installing toString on Number must flip the leaf fast-path flag"
+        );
+        assert_eq!(
+            Value::Number(1.0).to_display_string(&mut vm).unwrap(),
+            "N",
+            "to_display_string must fall back to the real toString send"
+        );
     }
 
     #[test]
@@ -307,7 +326,11 @@ mod tests {
         fn returns_false(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(Value::Bool(false))
         }
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(and_selector, SignatureKind::Method(1), MethodKind::Primitive(returns_false)))));
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            and_selector,
+            SignatureKind::Method(1),
+            MethodKind::Primitive(returns_false),
+        ))));
         install_kernel_method(&mut vm, bool_class, and_selector, method);
         assert!(!vm.universe.bool_sacred_pristine, "installing `and` (sacred) must flip the Bool guard flag");
 
@@ -344,7 +367,11 @@ let noneCheck = (n < 2).ifTrue({ (n < 4).ifTrue({ \"inner\" }) }).isNone
         fn returns_false(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(Value::Bool(false))
         }
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(and_selector, SignatureKind::Method(1), MethodKind::Primitive(returns_false)))));
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            and_selector,
+            SignatureKind::Method(1),
+            MethodKind::Primitive(returns_false),
+        ))));
         install_kernel_method(&mut vm, bool_class, and_selector, method);
         assert!(!vm.universe.bool_sacred_pristine);
 
@@ -378,9 +405,16 @@ let d = true.ifTrue { }.isSome
         fn returns_sentinel(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(Value::Number(-999.0))
         }
-        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(while_true_selector, SignatureKind::Method(1), MethodKind::Primitive(returns_sentinel)))));
+        let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            while_true_selector,
+            SignatureKind::Method(1),
+            MethodKind::Primitive(returns_sentinel),
+        ))));
         install_kernel_method(&mut vm, block_class, while_true_selector, method);
-        assert!(!vm.universe.block_sacred_pristine, "installing whileTrue (sacred) must flip the Block guard flag");
+        assert!(
+            !vm.universe.block_sacred_pristine,
+            "installing whileTrue (sacred) must flip the Block guard flag"
+        );
 
         let module = vm.create_module("main", "kernel_block_sacred_override_deopts_inline_while_true");
         let source = "
@@ -390,7 +424,11 @@ let r = { i < 3 }.whileTrue { i = i + 1 }
         let closure = vm.compile_closure(module, source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs on the deopt path");
 
-        assert_eq!(read_global(&vm, module, "r"), Value::Number(-999.0), "the inlined whileTrue site must deopt to the real send and honor the override, not the fast loop");
+        assert_eq!(
+            read_global(&vm, module, "r"),
+            Value::Number(-999.0),
+            "the inlined whileTrue site must deopt to the real send and honor the override, not the fast loop"
+        );
     }
 
     #[test]
@@ -441,8 +479,16 @@ let routed = Some.new(1).orElse { Some.new(9) }.match(some: { v => v }, none: { 
         let closure = vm.compile_closure(module, source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs");
 
-        assert_eq!(read_global(&vm, module, "someIsSome"), Value::Bool(false), "a real Some forced through the none: arm must report itself absent");
+        assert_eq!(
+            read_global(&vm, module, "someIsSome"),
+            Value::Bool(false),
+            "a real Some forced through the none: arm must report itself absent"
+        );
         assert_eq!(read_global(&vm, module, "someIsNone"), Value::Bool(true));
-        assert_eq!(read_global(&vm, module, "routed"), Value::Number(-1.0), "the fixture's own trailing explicit .match(...) call must also route through the override");
+        assert_eq!(
+            read_global(&vm, module, "routed"),
+            Value::Number(-1.0),
+            "the fixture's own trailing explicit .match(...) call must also route through the override"
+        );
     }
 }

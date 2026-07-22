@@ -205,7 +205,10 @@ fn parse_labels(inner: &str) -> Vec<Option<String>> {
     if inner.is_empty() {
         return Vec::new();
     }
-    inner.split(',').map(|token| if token == "_" { None } else { Some(token.to_string()) }).collect()
+    inner
+        .split(',')
+        .map(|token| if token == "_" { None } else { Some(token.to_string()) })
+        .collect()
 }
 
 /// Returns whether `s` is a non-empty Phalcom identifier (leading letter or
@@ -262,11 +265,7 @@ mod tests {
     /// A fully-labeled keyword selector recovers each keyword label in order.
     #[test]
     fn decode_labeled_selector() {
-        let encoded = encode_selector(
-            "move",
-            &[Some("to".to_string()), Some("duration".to_string())],
-            SignatureKind::Method(2),
-        );
+        let encoded = encode_selector("move", &[Some("to".to_string()), Some("duration".to_string())], SignatureKind::Method(2));
         let (name, labels, kind) = decode_selector(&encoded);
         assert_eq!(name, "move");
         assert_eq!(labels, vec![Some("to".to_string()), Some("duration".to_string())]);

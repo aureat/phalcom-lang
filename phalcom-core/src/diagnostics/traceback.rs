@@ -27,8 +27,8 @@ use crate::diagnostics::caret::{Label, LabelKind, Snippet};
 use crate::diagnostics::style::{RenderConfig, Role, Styler};
 use crate::error::{FrameRecord, PhError, RuntimeError};
 use crate::interner::Symbol;
-use crate::vm::walk::{FrameName, FrameView};
 use crate::vm::VM;
+use crate::vm::walk::{FrameName, FrameView};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Public entry point
@@ -42,13 +42,7 @@ use crate::vm::VM;
 ///
 /// `config` drives color and glyph selection; `trace_core` expands otherwise-elided
 /// core frames; `trace_format_json` switches to the single-line JSON format (IS §5.4).
-pub fn render_traceback(
-    vm: &mut VM,
-    err: &PhError,
-    config: &RenderConfig,
-    trace_core: bool,
-    trace_format_json: bool,
-) {
+pub fn render_traceback(vm: &mut VM, err: &PhError, config: &RenderConfig, trace_core: bool, trace_format_json: bool) {
     let rendered = if trace_format_json {
         render_json_traceback(vm, err)
     } else {
@@ -65,12 +59,7 @@ pub fn render_traceback(
 ///
 /// Python order: oldest frame first, error message at the bottom.
 /// Innermost frame gets the caret block; all other frames get a one-line echo.
-fn render_human_traceback(
-    vm: &mut VM,
-    err: &PhError,
-    config: &RenderConfig,
-    trace_core: bool,
-) -> String {
+fn render_human_traceback(vm: &mut VM, err: &PhError, config: &RenderConfig, trace_core: bool) -> String {
     let mut out = String::new();
     let styler = Styler::new(config);
 
@@ -111,13 +100,7 @@ fn render_human_traceback(
 }
 
 /// Renders the live VM call stack as human-readable frame lines.
-fn render_live_human(
-    out: &mut String,
-    vm: &mut VM,
-    config: &RenderConfig,
-    trace_core: bool,
-    styler: &Styler,
-) {
+fn render_live_human(out: &mut String, vm: &mut VM, config: &RenderConfig, trace_core: bool, styler: &Styler) {
     // Collect the live walk into an owned vec so we can post-process it
     // (budget + collapse + elision) without keeping a borrow on `vm`.
     let views: Vec<FrameView> = vm.walk().collect();
@@ -127,14 +110,7 @@ fn render_live_human(
 
 /// Renders a captured `FrameRecord` list (from a caught-and-re-raised error) as
 /// human-readable frame lines, including fiber-boundary chain links (IS §5.3).
-fn render_records_human(
-    out: &mut String,
-    vm: &mut VM,
-    records: &[FrameRecord],
-    config: &RenderConfig,
-    trace_core: bool,
-    styler: &Styler,
-) {
+fn render_records_human(out: &mut String, vm: &mut VM, records: &[FrameRecord], config: &RenderConfig, trace_core: bool, styler: &Styler) {
     // Partition into fiber groups separated by FiberBoundary records.
     let groups = partition_records(records, vm);
     let groups_len = groups.len();
@@ -309,10 +285,7 @@ fn elide_core(items: Vec<HumanItem>, trace_core: bool) -> Vec<HumanItem> {
 /// Applies the 40-frame budget: keeps oldest 15 + newest 15, elides the middle (IS §5.2).
 fn apply_budget(items: Vec<HumanItem>) -> Vec<HumanItem> {
     // Count displayable (non-boundary) frames.
-    let normal_count: usize = items
-        .iter()
-        .filter(|i| matches!(i, HumanItem::Frame(_) | HumanItem::Repeated { .. }))
-        .count();
+    let normal_count: usize = items.iter().filter(|i| matches!(i, HumanItem::Frame(_) | HumanItem::Repeated { .. })).count();
     if normal_count <= 40 {
         return items;
     }
@@ -350,14 +323,7 @@ fn apply_budget(items: Vec<HumanItem>) -> Vec<HumanItem> {
 /// `last_group` indicates whether this is the innermost group — only the
 /// very last frame in the very last group skips the source echo, because the
 /// caret block is emitted after the × line by the top-level caller.
-fn emit_human_items(
-    out: &mut String,
-    vm: &mut VM,
-    items: &[HumanItem],
-    _config: &RenderConfig,
-    styler: &Styler,
-    last_group: bool,
-) {
+fn emit_human_items(out: &mut String, vm: &mut VM, items: &[HumanItem], _config: &RenderConfig, styler: &Styler, last_group: bool) {
     let item_count = items.len();
     for (i, item) in items.iter().enumerate() {
         let is_innermost = last_group && i + 1 == item_count;
@@ -374,10 +340,7 @@ fn emit_human_items(
                 emit_source_echo(out, first);
                 out.push_str(&format!(
                     "  {}\n",
-                    styler.paint(
-                        Role::Elision,
-                        &format!("[previous frame repeated {} more times]", count),
-                    )
+                    styler.paint(Role::Elision, &format!("[previous frame repeated {} more times]", count),)
                 ));
             }
             HumanItem::ElidedCore { count } => {
@@ -394,10 +357,7 @@ fn emit_human_items(
                 ));
             }
             HumanItem::ElidedMiddle { count } => {
-                out.push_str(&format!(
-                    "  {}\n",
-                    styler.paint(Role::Elision, &format!("[… {} frames elided …]", count))
-                ));
+                out.push_str(&format!("  {}\n", styler.paint(Role::Elision, &format!("[… {} frames elided …]", count))));
             }
         }
     }
@@ -515,10 +475,7 @@ fn records_to_views(vm: &mut VM, records: &[FrameRecord], fiber_seq: u32) -> Vec
     for rec in records {
         if let FrameRecord::Normal { module, method, line } = rec {
             // Best-effort source resolution via source_id 0.
-            let source = vm
-                .modules
-                .get(module)
-                .and_then(|&mod_ref| vm.heap.module(mod_ref).source_at(0).cloned());
+            let source = vm.modules.get(module).and_then(|&mod_ref| vm.heap.module(mod_ref).source_at(0).cloned());
             let is_core = is_core_module(vm, *module);
             views.push(FrameView {
                 module: *module,
@@ -624,16 +581,9 @@ pub(crate) fn json_str(s: &str) -> String {
 }
 
 /// Computes the optional `help:` suggestion line for human traceback output (IS §9).
-fn get_help_suggestion(
-    vm: &mut VM,
-    err: &PhError,
-    config: &RenderConfig,
-    styler: &Styler,
-) -> Option<String> {
+fn get_help_suggestion(vm: &mut VM, err: &PhError, config: &RenderConfig, styler: &Styler) -> Option<String> {
     match err {
-        PhError::Runtime(RuntimeError::Raise { help: Some(h), .. }) => {
-            Some(format!("  {} {}\n", styler.paint(Role::SeverityHelp, "help:"), h))
-        }
+        PhError::Runtime(RuntimeError::Raise { help: Some(h), .. }) => Some(format!("  {} {}\n", styler.paint(Role::SeverityHelp, "help:"), h)),
         PhError::Runtime(RuntimeError::UndefinedVariable { name }) => {
             let mut candidates = Vec::new();
             // 1. Locals from innermost frame (if present)

@@ -325,7 +325,10 @@ mod tests {
         let before = vm.world_version;
         vm.heap.class_mut(class).add_method(selector, method);
         vm.world_version += 1;
-        assert_ne!(vm.world_version, before, "world_version must actually move, or the cache would stay valid against the stale method");
+        assert_ne!(
+            vm.world_version, before,
+            "world_version must actually move, or the cache would stay valid against the stale method"
+        );
     }
 
     /// Finds the `Bytecode::Invoke` index in `chunk` whose selector constant
@@ -354,7 +357,10 @@ mod tests {
         vm.run_in_module(module, closure).expect("runs");
 
         let val_sym = vm.get_or_intern("val");
-        let a_key = crate::vm::ClassKey { module, name: vm.get_or_intern("A") };
+        let a_key = crate::vm::ClassKey {
+            module,
+            name: vm.get_or_intern("A"),
+        };
         let class_a = *vm.classes.get(&a_key).expect("A must be registered after running its Bytecode::Class");
 
         let chunk = &vm.heap.closure(closure).callable.chunk;
@@ -373,7 +379,10 @@ mod tests {
 
         let installed = *vm.heap.class(class_a).methods.get(&val_sym).expect("val must resolve on A after install");
         assert_ne!(installed, old_entry.method, "the class's installed method must have changed");
-        assert_ne!(old_entry.version, vm.world_version, "the cached entry's version must no longer match — it must be treated as stale");
+        assert_ne!(
+            old_entry.version, vm.world_version,
+            "the cached entry's version must no longer match — it must be treated as stale"
+        );
     }
 
     #[test]
@@ -388,7 +397,10 @@ mod tests {
         vm.run_in_module(module, closure).expect("runs");
 
         let get_sym = vm.get_or_intern("get");
-        let a_key = crate::vm::ClassKey { module, name: vm.get_or_intern("A") };
+        let a_key = crate::vm::ClassKey {
+            module,
+            name: vm.get_or_intern("A"),
+        };
         let class_a = *vm.classes.get(&a_key).expect("A must be registered after running its Bytecode::Class");
 
         let chunk = &vm.heap.closure(closure).callable.chunk;
@@ -406,7 +418,13 @@ mod tests {
         install_and_bump(&mut vm, class_a, get_sym, new_method);
 
         let installed = *vm.heap.class(class_a).methods.get(&get_sym).expect("get must resolve on A after install");
-        assert_ne!(installed, old_entry.method, "a heavily-warmed (10 sends) cache must still see the new method installed");
-        assert_ne!(old_entry.version, vm.world_version, "a heavily-warmed cache must still be busted, not just a lightly-touched one");
+        assert_ne!(
+            installed, old_entry.method,
+            "a heavily-warmed (10 sends) cache must still see the new method installed"
+        );
+        assert_ne!(
+            old_entry.version, vm.world_version,
+            "a heavily-warmed cache must still be busted, not just a lightly-touched one"
+        );
     }
 }

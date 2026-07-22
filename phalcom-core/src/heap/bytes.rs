@@ -28,7 +28,9 @@ impl BytesObject {
     /// Builds a zero-filled buffer of `len` octets (`bytes.md` law 4:
     /// no constructor exposes uninitialized memory).
     pub fn new_zeroed(len: usize) -> Self {
-        Self { data: vec![0u8; len].into_boxed_slice() }
+        Self {
+            data: vec![0u8; len].into_boxed_slice(),
+        }
     }
 
     /// Builds a buffer by taking ownership of `data` — one move, no copy.

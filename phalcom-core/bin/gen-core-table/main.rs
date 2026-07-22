@@ -168,7 +168,9 @@ fn harvest_primitives_rs(path: &PathBuf, classes: &mut BTreeMap<String, Vec<Sele
         let Some(rest) = line.strip_prefix("let ") else { continue };
         let Some((var, rhs)) = rest.split_once('=') else { continue };
         let rhs = rhs.trim().trim_end_matches(';').trim();
-        let Some(class_field) = rhs.strip_prefix("vm.universe.classes.") else { continue };
+        let Some(class_field) = rhs.strip_prefix("vm.universe.classes.") else {
+            continue;
+        };
         let Some(snake_name) = class_field.strip_suffix("_class") else { continue };
         var_to_class.insert(var.trim().to_string(), capitalize(snake_name));
     }
@@ -200,11 +202,7 @@ fn harvest_primitives_rs(path: &PathBuf, classes: &mut BTreeMap<String, Vec<Sele
             let kind_expr = args[3].trim();
 
             let (selector, base_kind) = comma_form_from_signature_kind(selector_name, kind_expr);
-            let kind = if macro_name == "primitive_static!" {
-                "static-method"
-            } else {
-                base_kind
-            };
+            let kind = if macro_name == "primitive_static!" { "static-method" } else { base_kind };
             let entries = classes.entry(class_name.clone()).or_default();
             entries.push(SelectorEntry {
                 selector,

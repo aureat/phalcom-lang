@@ -68,9 +68,7 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
 
     let (service, socket) = LspService::new(Backend::new);
     let server_task = tokio::spawn(async move {
-        Server::new(server_read, server_write, socket)
-            .serve(service)
-            .await;
+        Server::new(server_read, server_write, socket).serve(service).await;
     });
 
     // No workspace root: this test drives the index purely through `didOpen`,
@@ -86,20 +84,10 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
     )
     .await;
     let init_response = read_response(&mut client_end, 1).await;
-    assert!(
-        init_response["result"]["capabilities"]["completionProvider"].is_object(),
-        "{init_response:#?}"
-    );
-    assert_eq!(
-        init_response["result"]["capabilities"]["completionProvider"]["triggerCharacters"],
-        json!(["."])
-    );
+    assert!(init_response["result"]["capabilities"]["completionProvider"].is_object(), "{init_response:#?}");
+    assert_eq!(init_response["result"]["capabilities"]["completionProvider"]["triggerCharacters"], json!(["."]));
 
-    write_message(
-        &mut client_end,
-        &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} }),
-    )
-    .await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
 
     // `Mover` defines `move(_,to)` and getter `speed`; `m` is constructed from
     // it; the last line is the `m.` member access the completion targets.
@@ -140,10 +128,7 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
     .await;
     let response = read_response(&mut client_end, 2).await;
     let items = response["result"].as_array().expect("completion items array");
-    let labels: Vec<&str> = items
-        .iter()
-        .filter_map(|item| item["label"].as_str())
-        .collect();
+    let labels: Vec<&str> = items.iter().filter_map(|item| item["label"].as_str()).collect();
 
     assert!(labels.contains(&"move(_,to)"), "{labels:#?}");
     assert!(labels.contains(&"speed"), "{labels:#?}");
@@ -151,15 +136,8 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
     assert!(!labels.contains(&"ifTrue(_)"), "{labels:#?}");
 
     // The method item carries a snippet insert text with tab-stops.
-    let move_item = items
-        .iter()
-        .find(|item| item["label"] == json!("move(_,to)"))
-        .expect("move item present");
-    assert_eq!(
-        move_item["insertText"],
-        json!("move(${1:_}, to: ${2:_})"),
-        "{move_item:#?}"
-    );
+    let move_item = items.iter().find(|item| item["label"] == json!("move(_,to)")).expect("move item present");
+    assert_eq!(move_item["insertText"], json!("move(${1:_}, to: ${2:_})"), "{move_item:#?}");
 
     drop(client_end);
     let _ = server_task.await;

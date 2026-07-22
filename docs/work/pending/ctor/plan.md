@@ -10,7 +10,7 @@
 > **[U-BINDINGS](../../../forge/units/U-BINDINGS/plan.md) now lands first** — its field grammar is the
 > ground this unit's `@class` fields stand on.
 
-Status: **READY** (2026-07-21), **sequenced after [U-BINDINGS](../../../forge/units/U-BINDINGS/plan.md)**.
+Status: **IMPLEMENTATION COMPLETE (CLOSURE WORK PENDING)** (2026-07-22). Closure authority: [`ctor-completion-implementation-spec.md`](../ctor-completion-implementation-spec.md). Final verification is deferred pending explicit instruction.
 [PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md) is **Accepted**
 and supersedes ADR-0063's target-polymorphic `@constructor` surface. Six sub-units
 land independently, but U-CTOR-5's two-method lowering is required semantics, not a
@@ -273,9 +273,8 @@ at all — `Tuple`, `Block`/`Closure`, `BoundMethod`, `Upvalue`, `Family` — an
 otherwise inherit the allocator and hand back broken objects. **New machinery: no such
 flag exists today.**
 
-**`class.duplicate_selector`** replaces `ConstructStaticCollision`: two members of one
-class body may not install the same selector on the same side, regardless of
-decorators. Runs on the **post-expansion** list. Derived members need provenance back
+**`class.duplicate_selector`** (`DuplicateSelector`) and **`class.duplicate_field`** (`DuplicateField`) replace `ConstructStaticCollision` and generic member collision: two members of one
+class body may not install the same selector on the same side or declare duplicate fields. Runs on the **post-expansion** list. Derived members need provenance back
 to their source member or the message points at synthesized AST.
 
 ### U-CTOR-5 — desugar to two methods (required semantics)
@@ -328,7 +327,7 @@ ordinary instance-side super-send.
 | `phalcom-core/src/compiler/attributes.rs` | 1, 2, 3 | `BuiltinAttr`/`AttrKind` (`Construct`, `Constructor`, `Class`); array registry (`:635`); exhaustive match (`:1550`); class-only `derive_construct`, method-only constructor lowering; `Initializer`→`Method` (`:729`) |
 | `phalcom-core/src/compiler/lib/class_decl.rs` | 3, 4, 5 | `Construct` arm → `MethodDef` path (`:615-650`); `duplicate_selector` pre-pass (`:82`+) |
 | `phalcom-core/src/compiler/lib/expr.rs` | 4 | **delete** the arity guard (`:103`) — DEC-CTOR-H |
-| `phalcom-core/src/compiler/lib/error.rs` | 4 | `ConstructStaticCollision` → `DuplicateSelector`; `ReservedName` |
+| `phalcom-core/src/compiler/lib/error.rs` | 4 | `ConstructStaticCollision` → `DuplicateSelector` / `DuplicateField`; `ReservedName` |
 | `phalcom-core/src/method/mod.rs` | 5 | delete `Initializer` arms of `encode_selector`/`decode_selector` |
 | `phalcom-core/src/vm/dispatch.rs` | 5 | delete super-construct metaclass hop + `Initializer` gate |
 | `phalcom-core/src/primitive/object.rs` | 4 | **delete** `object_class_new` (`:105`) |

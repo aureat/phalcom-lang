@@ -54,7 +54,7 @@
 //! counted as no pair at all. `sum(pairs) < total - 1` is expected, and the deficit
 //! is a real quantity: it is the control-flow-transfer count.
 
-use crate::bytecode::{Bytecode, BYTECODE_NAMES};
+use crate::bytecode::{BYTECODE_NAMES, Bytecode};
 use crate::heap::ObjRef;
 use std::cell::{Cell, RefCell};
 
@@ -173,8 +173,5 @@ fn dump_pairs(total: u64) {
     // of its predecessor was reached by a control-flow transfer. Reporting it keeps
     // the pair shares honest — they are shares of `total`, not of `paired`.
     let transfers = total.saturating_sub(paired).saturating_sub(1);
-    eprintln!(
-        "{:>16}  {paired} pairs over {total} instructions ({transfers} control-flow transfers)",
-        "TOTAL"
-    );
+    eprintln!("{:>16}  {paired} pairs over {total} instructions ({transfers} control-flow transfers)", "TOTAL");
 }

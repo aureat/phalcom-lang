@@ -30,11 +30,11 @@
 
 mod accessors;
 mod block;
+mod bytes;
 mod class;
 mod closure;
 mod fiber;
 mod instance;
-mod bytes;
 mod list;
 mod map;
 mod module;
@@ -47,13 +47,13 @@ mod upvalue;
 
 pub use block::BlockObject;
 pub use bytes::BytesObject;
-pub use class::{lookup_method_in_hierarchy, ClassObject};
+pub use class::{ClassObject, lookup_method_in_hierarchy};
 pub use closure::ClosureObject;
 pub use fiber::{FiberObject, FiberResumeMode, FiberStatus};
 pub use instance::InstanceObject;
 pub use list::ListObject;
 pub use map::MapObject;
-pub use module::{next_module_id, ModuleObject, ModuleId, CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS};
+pub use module::{CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleObject, next_module_id};
 pub use object::{BoundMethodObject, FamilyObject, Object};
 pub use range::RangeObject;
 pub use string::StringObject;
@@ -61,7 +61,7 @@ pub use trace::{trace_frame, trace_object};
 pub use tuple::TupleObject;
 pub use upvalue::Upvalue;
 
-use slotmap::{new_key_type, SecondaryMap, SlotMap};
+use slotmap::{SecondaryMap, SlotMap, new_key_type};
 
 new_key_type! {
     /// A `Copy` generational handle to an [`Object`] stored in the [`Heap`].
@@ -345,8 +345,7 @@ impl Heap {
         // A collection that frees almost nothing has just traced the whole live
         // set for no benefit, and growing by a flat 1.5× schedules the same
         // wasted trace again almost immediately (F11).
-        let reclaimed_fraction =
-            if before > 0 { (before - live) as f64 / before as f64 } else { 1.0 };
+        let reclaimed_fraction = if before > 0 { (before - live) as f64 / before as f64 } else { 1.0 };
         let factor = if reclaimed_fraction < GC_LOW_YIELD {
             GC_UNPRODUCTIVE_GROW_FACTOR
         } else {

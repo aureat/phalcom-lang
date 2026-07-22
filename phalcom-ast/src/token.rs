@@ -104,8 +104,8 @@ pub enum Token {
     /// Produced when a string body contains at least one `\(expr)`
     /// interpolation. The [`StringSegment`]s are in source order — alternating
     /// literal runs and expression runs — and the parser desugars them in place
-    /// to a `+`-chain (`"a " + String.new(x) + …`). See
-    /// `docs/spec/lexical-structure.md` §5.
+    /// to a `+`-chain (`"a " + x.toString + …`). See
+    /// `docs/spec/current/string-interpolation.md`.
     StringInterp(Vec<StringSegment>),
     /// A numeric literal decoded to an [`f64`].
     Number(f64),
@@ -254,16 +254,17 @@ pub enum Token {
 /// absolute spans.
 #[derive(Clone, Debug, PartialEq)]
 pub enum StringSegment {
-    /// A literal run of the string, with `\\` / `\\(` escapes already applied.
+    /// A literal run of the string, with escapes already applied.
     Literal(String),
     /// An interpolated expression run — the source text between `\(` and its
     /// matching `)`.
     Expr {
         /// The raw expression source (without the surrounding `\(` … `)`).
         source: String,
-        /// The byte offset of `source` within the lexer's input, so the parser
-        /// can fold in its own `offset` and re-parse with absolute spans.
-        start: usize,
+        /// The half-open byte range `start..end` of `source` within the lexer's
+        /// input, so the parser can fold in its own `offset` and re-parse with
+        /// absolute spans.
+        range: Range<usize>,
     },
 }
 
@@ -292,6 +293,13 @@ pub enum LexicalError {
     /// by [`crate::parse_source`]. See `docs/spec/lexical-structure.md` and
     /// ADR-0016 (the hand-written scanner treats block comments as trivia).
     UnterminatedBlockComment(Range<usize>),
+    /// An invalid escape sequence in a string literal.
+    InvalidEscape(Range<usize>),
+    /// A string interpolation `\(` was opened but never closed before
+    /// end-of-input.
+    UnterminatedInterpolation(Range<usize>),
+    /// A unescaped physical newline occurred inside a double-quoted string.
+    RawNewlineInString(Range<usize>),
 
     /// Placeholder default; never produced by the scanner.
     #[default]

@@ -42,11 +42,7 @@ impl Document {
     pub fn new(text: String) -> Self {
         let parse = parser::parse(&text, 0);
         let line_index = LineIndex::new(&text);
-        Self {
-            text,
-            parse,
-            line_index,
-        }
+        Self { text, parse, line_index }
     }
 
     /// The [`SyntaxError`]s recovered from the current parse, in discovery

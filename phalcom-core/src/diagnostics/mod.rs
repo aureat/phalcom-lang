@@ -12,15 +12,13 @@
 
 pub mod caret;
 pub mod style;
-pub mod traceback;
 pub mod suggest;
+pub mod traceback;
 
 use phalcom_common::range::SourceRange;
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 use style::{ColorMode, RenderConfig, Role, Styler};
-
-
 
 /// The process-wide [`RenderConfig`], installed once at CLI startup
 /// (`bin/phalcom/main.rs::main`) from the `--color`/`--plain` flags.
@@ -110,21 +108,37 @@ pub fn print_line_information(source: &str, range: Range<usize>) {
 
     let col_end = range.end - lines[..current].iter().map(|l| l.len() + 1).sum::<usize>();
 
-    eprintln!("   {} {}", styler.paint(Role::Rail, "-->"), styler.paint(Role::Location, &format!("Error at {line_number}:{col_start}")));
+    eprintln!(
+        "   {} {}",
+        styler.paint(Role::Rail, "-->"),
+        styler.paint(Role::Location, &format!("Error at {line_number}:{col_start}"))
+    );
     eprintln!("    {}", styler.paint(Role::Rail, "|"));
 
     if current > 0 {
-        eprintln!("{} {}", styler.paint(Role::LineNumber, &format!("{current:>3} |")), lines[current - 1].trim_end());
+        eprintln!(
+            "{} {}",
+            styler.paint(Role::LineNumber, &format!("{current:>3} |")),
+            lines[current - 1].trim_end()
+        );
     }
 
-    eprintln!("{} {}", styler.paint(Role::LineNumber, &format!("{line_number:>3} |")), styler.paint(Role::Source, lines[current].trim_end()));
+    eprintln!(
+        "{} {}",
+        styler.paint(Role::LineNumber, &format!("{line_number:>3} |")),
+        styler.paint(Role::Source, lines[current].trim_end())
+    );
 
     let indent = " ".repeat(col_start);
     let carets = "^".repeat((col_end - col_start).max(1));
     eprintln!("    {} {}{}", styler.paint(Role::Rail, "|"), indent, styler.paint(Role::SpanPrimary, &carets));
 
     if current + 1 < lines.len() {
-        eprintln!("{} {}", styler.paint(Role::LineNumber, &format!("{:>3} |", line_number + 1)), lines[current + 1].trim_end());
+        eprintln!(
+            "{} {}",
+            styler.paint(Role::LineNumber, &format!("{:>3} |", line_number + 1)),
+            lines[current + 1].trim_end()
+        );
     }
 
     eprintln!("    {}", styler.paint(Role::Rail, "|"));
@@ -134,7 +148,12 @@ pub fn print_line_information(source: &str, range: Range<usize>) {
 pub fn print_parse(source: &str, path: Option<&str>, msg: &str, range: Range<usize>) {
     let config = active_render_config();
     let styler = Styler::new(&config);
-    eprintln!("{}{} {}", styler.paint(Role::SeverityError, "error"), styler.paint(Role::SeverityError, ":"), msg);
+    eprintln!(
+        "{}{} {}",
+        styler.paint(Role::SeverityError, "error"),
+        styler.paint(Role::SeverityError, ":"),
+        msg
+    );
 
     let label = caret::Label {
         span: SourceRange::from(range),
@@ -160,7 +179,12 @@ pub fn print_parse(source: &str, path: Option<&str>, msg: &str, range: Range<usi
 /// through first.
 pub fn print_compile(msg: &str) {
     let styler = Styler::new(&active_render_config());
-    eprintln!("{}{} {}", styler.paint(Role::SeverityError, "error"), styler.paint(Role::SeverityError, ":"), msg);
+    eprintln!(
+        "{}{} {}",
+        styler.paint(Role::SeverityError, "error"),
+        styler.paint(Role::SeverityError, ":"),
+        msg
+    );
 }
 
 // `print_rt` and `print_frame` removed in plan.md T4.

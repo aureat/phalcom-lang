@@ -20,10 +20,10 @@ use crate::heap::{ClassId, Heap, ObjRef};
 use crate::interner::{Interner, Symbol};
 use crate::universe::Universe;
 use crate::value::Value;
-use std::time::Instant;
-use std::{collections::BTreeMap, collections::HashMap, collections::VecDeque};
 use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
+use std::time::Instant;
+use std::{collections::BTreeMap, collections::HashMap, collections::VecDeque};
 
 /// Maximum depth of the `.ph` call-frame stack before
 /// [`RuntimeError::DepthExceeded`](crate::error::RuntimeError::DepthExceeded).
@@ -162,7 +162,6 @@ pub struct VM {
     pub(crate) native_reentry_depth: usize,
     // Ceilings for both counters live at module scope — see `MAX_CALL_DEPTH` and
     // `MAX_NATIVE_REENTRY` below.
-
     /// Loaded modules by name [`Symbol`], each a [`ModuleObject`](crate::heap::ModuleObject) handle.
     pub modules: HashMap<Symbol, ObjRef>,
     /// Handle to the program entry module, once known.

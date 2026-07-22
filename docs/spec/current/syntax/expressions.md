@@ -148,7 +148,7 @@ primary := literal | grouping | tuple | list | map | block
 ```
 
 **Literals.** `INT`, `FLOAT` ([ADR-0024]), `STRING` with `\( )` interpolation
-([ADR-0022]), `true` / `false`. There is no `nil` literal — absence is
+([ADR-0022], completed in [PDR-0029](../../../pdr/0029-string-literals-and-interpolation-completion.md)), `true` / `false`. There is no `nil` literal — absence is
 expressed with `Option`, i.e. `None` ([ADR-0007]; [Values & Absence](../values-and-absence.md)).
 
 **Grouping vs. tuple.** A trailing comma disambiguates:

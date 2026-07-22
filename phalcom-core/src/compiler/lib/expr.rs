@@ -1,13 +1,12 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::inliner;
-use crate::method::{encode_selector, make_signature, SignatureKind};
+use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{BinaryOp, BlockExpr, Expr, MethodRefKind, Statement, SymbolLiteralKind, UnaryOp};
 use phalcom_common::range::SourceRange;
 
 use super::error::CompilerError;
 use super::{Compiler, UnitKind};
-
 
 impl<'vm> Compiler<'vm> {
     /// Compiles `expr`, always leaving exactly one value on the stack.
@@ -240,12 +239,15 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::Field { value, range } => {
                 let name_sym = self.vm.interner.intern(&value);
-                let class_key = self.current_class.ok_or_else(|| {
-                    CompilerError::Message(format!("Fields can only be accessed within a class: {}", value))
-                })?;
-                let layout = self.vm.field_layouts.get(&class_key).cloned().ok_or_else(|| {
-                    CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_key.name)))
-                })?;
+                let class_key = self
+                    .current_class
+                    .ok_or_else(|| CompilerError::Message(format!("Fields can only be accessed within a class: {}", value)))?;
+                let layout = self
+                    .vm
+                    .field_layouts
+                    .get(&class_key)
+                    .cloned()
+                    .ok_or_else(|| CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_key.name))))?;
 
                 if let Some(&slot) = layout.static_field_slots.get(&name_sym) {
                     if self.is_static_context {
@@ -289,8 +291,8 @@ impl<'vm> Compiler<'vm> {
                             self.emit(Bytecode::SetUpvalue(upvalue as u16), range);
                         } else {
                             let is_const_this_unit = self.global_bindings.get(&name_sym) == Some(&false);
-                            let is_const_prior_unit = self.unit_kind != UnitKind::Repl
-                                && self.vm.heap.module(self.module).global_bindings.get(&name_sym) == Some(&false);
+                            let is_const_prior_unit =
+                                self.unit_kind != UnitKind::Repl && self.vm.heap.module(self.module).global_bindings.get(&name_sym) == Some(&false);
                             if is_const_this_unit || is_const_prior_unit {
                                 return Err(CompilerError::AssignToImmutable(value));
                             }
@@ -298,16 +300,18 @@ impl<'vm> Compiler<'vm> {
                             let name_idx = self.add_constant(Value::Symbol(name_sym));
                             self.emit(Bytecode::SetGlobal(name_idx), range);
                         }
-
                     }
                     Expr::Field { value, range } => {
                         let name_sym = self.vm.interner.intern(&value);
-                        let class_key = self.current_class.ok_or_else(|| {
-                            CompilerError::Message(format!("Fields can only be accessed within a class: {}", value))
-                        })?;
-                        let layout = self.vm.field_layouts.get(&class_key).cloned().ok_or_else(|| {
-                            CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_key.name)))
-                        })?;
+                        let class_key = self
+                            .current_class
+                            .ok_or_else(|| CompilerError::Message(format!("Fields can only be accessed within a class: {}", value)))?;
+                        let layout = self
+                            .vm
+                            .field_layouts
+                            .get(&class_key)
+                            .cloned()
+                            .ok_or_else(|| CompilerError::Message(format!("No layout registered for class: {}", self.vm.resolve_symbol(class_key.name))))?;
 
                         if let Some(&slot) = layout.static_field_slots.get(&name_sym) {
                             if !self.in_constructor && layout.const_fields.contains(&name_sym) {
@@ -360,14 +364,26 @@ impl<'vm> Compiler<'vm> {
                             return Err(CompilerError::OptionTruthiness);
                         }
                         let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
-                        return self.compile_sacred_call(inliner::SacredCall::And { receiver: binary_expr.left, rhs_block }, range);
+                        return self.compile_sacred_call(
+                            inliner::SacredCall::And {
+                                receiver: binary_expr.left,
+                                rhs_block,
+                            },
+                            range,
+                        );
                     }
                     BinaryOp::Or => {
                         if is_option_literal(&binary_expr.left) {
                             return Err(CompilerError::OptionTruthiness);
                         }
                         let rhs_block = wrap_expr_as_lazy_block(binary_expr.right, range);
-                        return self.compile_sacred_call(inliner::SacredCall::Or { receiver: binary_expr.left, rhs_block }, range);
+                        return self.compile_sacred_call(
+                            inliner::SacredCall::Or {
+                                receiver: binary_expr.left,
+                                rhs_block,
+                            },
+                            range,
+                        );
                     }
                     op => {
                         self.compile_expr(binary_expr.left)?;
@@ -403,18 +419,10 @@ impl<'vm> Compiler<'vm> {
             Expr::Block(block_expr) => {
                 let name_sym = self.vm.interner.intern("<block>");
                 let constructor_name = self.functions.last().unwrap().constructor_name.clone();
-                let closure = self.compile_block(
-                    block_expr.body,
-                    name_sym,
-                    block_expr.params,
-                    false,
-                    false,
-                    constructor_name,
-                )?;
+                let closure = self.compile_block(block_expr.body, name_sym, block_expr.params, false, false, constructor_name)?;
                 let idx = self.add_constant(Value::Obj(closure));
                 self.emit(Bytecode::Closure(idx), block_expr.range);
-            }
-            // Expr::Call(call_expr) => {
+            } // Expr::Call(call_expr) => {
               //     // TODO: Implement function call compilation
               //     self.compile_expr(call_expr.callee)?;
               //     for arg in call_expr.args {
@@ -463,9 +471,7 @@ fn branch_condition_of(sacred: &inliner::SacredCall) -> Option<&Expr> {
 fn is_option_literal(expr: &Expr) -> bool {
     match expr {
         Expr::Var { value, .. } => value == "None",
-        Expr::MethodCall(call) => {
-            call.method == "new" && matches!(&call.object, Expr::Var { value, .. } if value == "Some")
-        }
+        Expr::MethodCall(call) => call.method == "new" && matches!(&call.object, Expr::Var { value, .. } if value == "Some"),
         _ => false,
     }
 }

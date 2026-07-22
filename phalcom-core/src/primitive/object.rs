@@ -13,8 +13,8 @@
 use crate::error::PhResult;
 use crate::error::RuntimeError;
 use crate::expect_value;
-use crate::heap::Object;
 use crate::heap::InstanceObject;
+use crate::heap::Object;
 use crate::primitive::expect_list;
 use crate::value::Value;
 use crate::vm::VM;
@@ -253,7 +253,13 @@ pub fn object_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value])
 
     // Raise it through the unified unwind (NOT the retired native
     // RuntimeError::MessageNotUnderstood variant).
-    Err(RuntimeError::Raise { error: mnu, rendered, traceback: None, help }.into())
+    Err(RuntimeError::Raise {
+        error: mnu,
+        rendered,
+        traceback: None,
+        help,
+    }
+    .into())
 }
 
 /// Reads slot `index` of a `Message` instance `value`, or `None` if `value` is
@@ -267,7 +273,11 @@ fn message_slot(vm: &VM, value: &Value, index: usize) -> Option<Value> {
 
 /// Builds the "not a Message" [`RuntimeError::Type`] for the accessors.
 fn not_a_message(value: &Value) -> crate::error::PhError {
-    RuntimeError::Type { expected: "Message", found: value.type_name() }.into()
+    RuntimeError::Type {
+        expected: "Message",
+        found: value.type_name(),
+    }
+    .into()
 }
 
 /// Signature: `Message::selector` — the interned selector

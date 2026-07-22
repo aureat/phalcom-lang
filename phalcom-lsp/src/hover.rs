@@ -93,10 +93,7 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
         "ensure",
         "Cleanup clause of a `try` statement, sugar for `.ensure{ ... }`, always runs; a contextual keyword, reserved only inside `try`-clauses.",
     ),
-    (
-        "throw",
-        "Prefix statement/expression that raises an `Error` value — sugar for `expr.raise()`.",
-    ),
+    ("throw", "Prefix statement/expression that raises an `Error` value — sugar for `expr.raise()`."),
     (
         "break",
         "Loop-control keyword: leaves the enclosing `for`/`while` loop immediately (lowers to a direct jump, not a block send).",
@@ -109,10 +106,7 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
         "match",
         "Names the Option/Result eliminator selector (`match(some,none)` / `match(ok,err)`) that leaves Option/Result-world with a value; reserved as a keyword for pattern-matching surface syntax.",
     ),
-    (
-        "return",
-        "Returns a value from the enclosing method/constructor/block explicitly.",
-    ),
+    ("return", "Returns a value from the enclosing method/constructor/block explicitly."),
     (
         "while",
         "Loops while its condition evaluates truthy; `for` desugars to a `while` loop over the iteration protocol.",
@@ -147,14 +141,8 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
         "import",
         "Imports a module (file) into scope, optionally under an alias: `import \"./path\" as Name` (modules.md).",
     ),
-    (
-        "in",
-        "Introduces the iterable of a `for` loop: `for (x in coll) { ... }` (iteration.md §2).",
-    ),
-    (
-        "as",
-        "Binds an import under an alias: `import \"path\" as Name` (modules.md).",
-    ),
+    ("in", "Introduces the iterable of a `for` loop: `for (x in coll) { ... }` (iteration.md §2)."),
+    ("as", "Binds an import under an alias: `import \"path\" as Name` (modules.md)."),
     (
         "is",
         "Type-test operator: `x is Type` (and the negated `x is not Type`) test whether `x` is an instance of `Type` (U-IS).",
@@ -208,10 +196,7 @@ fn keyword_spelling(token: &Token) -> Option<&'static str> {
         Token::Construct => Some("construct"),
         Token::Throw => Some("throw"),
         Token::Try => Some("try"),
-        Token::Identifier(name) => CONTEXTUAL_WORDS
-            .iter()
-            .find(|word| **word == name.as_str())
-            .copied(),
+        Token::Identifier(name) => CONTEXTUAL_WORDS.iter().find(|word| **word == name.as_str()).copied(),
         _ => None,
     }
 }
@@ -219,10 +204,7 @@ fn keyword_spelling(token: &Token) -> Option<&'static str> {
 /// Returns the one-line blurb for keyword/contextual-word spelling `word`,
 /// or `None` if `word` is not in the closed keyword-doc table.
 pub fn keyword_blurb(word: &str) -> Option<&'static str> {
-    KEYWORD_DOCS
-        .iter()
-        .find(|(name, _)| *name == word)
-        .map(|(_, blurb)| *blurb)
+    KEYWORD_DOCS.iter().find(|(name, _)| *name == word).map(|(_, blurb)| *blurb)
 }
 
 /// Lexes `text` fresh and finds the keyword (or contextual word) token whose
@@ -313,11 +295,7 @@ fn parse_tags(lines: &[String]) -> Vec<(String, String)> {
             let raw_name = parts.next().unwrap_or("").to_string();
             let mut payload = parts.next().unwrap_or("").trim().to_string();
             i += 1;
-            while i < lines.len()
-                && !lines[i].trim().is_empty()
-                && !lines[i].trim_start().starts_with('@')
-                && indent_width(&lines[i]) > tag_indent
-            {
+            while i < lines.len() && !lines[i].trim().is_empty() && !lines[i].trim_start().starts_with('@') && indent_width(&lines[i]) > tag_indent {
                 if !payload.is_empty() {
                     payload.push(' ');
                 }
@@ -436,12 +414,7 @@ fn top_level_binding_name_at_line(program: &Program, line: usize, line_index: &L
 /// This is Stage 4's "docs key to the selector, not the name" rule (§4):
 /// `foo()` and `foo(_)` immediately above one another each resolve
 /// independently, since each is looked up by its own exact selector string.
-pub fn harvest_doc_for_selector(
-    text: &str,
-    program: &Program,
-    line_index: &LineIndex,
-    selector: &str,
-) -> Option<PhaldocDoc> {
+pub fn harvest_doc_for_selector(text: &str, program: &Program, line_index: &LineIndex, selector: &str) -> Option<PhaldocDoc> {
     let lines: Vec<&str> = text.lines().collect();
     let mut i = 0;
     while i < lines.len() {
@@ -470,8 +443,7 @@ pub fn harvest_doc_for_selector(
             let target = if let Some(pin) = pinned.clone() {
                 Some(pin)
             } else if j < lines.len() && !lines[j].trim().is_empty() {
-                member_selector_at_line(program, j, line_index)
-                    .or_else(|| top_level_binding_name_at_line(program, j, line_index))
+                member_selector_at_line(program, j, line_index).or_else(|| top_level_binding_name_at_line(program, j, line_index))
             } else {
                 // Either the block is at EOF (no following line) or the
                 // following line is blank — a dangling doc (§5).
@@ -479,11 +451,7 @@ pub fn harvest_doc_for_selector(
             };
 
             if target.as_deref() == Some(selector) {
-                let content_lines: &[String] = if pinned.is_some() {
-                    &body_lines[1..]
-                } else {
-                    &body_lines[..]
-                };
+                let content_lines: &[String] = if pinned.is_some() { &body_lines[1..] } else { &body_lines[..] };
                 return Some(parse_doc_block(content_lines));
             }
 
@@ -570,11 +538,7 @@ pub fn render_selector_hover(selector: &str, sites: &[SelectorSite], phaldoc: Op
             sections.push(doc.summary.clone());
         }
         if !doc.tags.is_empty() {
-            let tag_lines: Vec<String> = doc
-                .tags
-                .iter()
-                .map(|(tag, payload)| format!("- **@{tag}** {payload}"))
-                .collect();
+            let tag_lines: Vec<String> = doc.tags.iter().map(|(tag, payload)| format!("- **@{tag}** {payload}")).collect();
             sections.push(tag_lines.join("\n"));
         }
     }
@@ -601,9 +565,37 @@ mod tests {
     #[test]
     fn keyword_blurb_covers_every_token_keyword_and_contextual_word() {
         let all = [
-            "let", "const", "fn", "class", "return", "true", "false", "if", "else", "while", "for",
-            "break", "continue", "import", "self", "super", "in", "as", "is", "and", "or", "not",
-            "static", "construct", "throw", "try", "extends", "on", "catch", "ensure", "match",
+            "let",
+            "const",
+            "fn",
+            "class",
+            "return",
+            "true",
+            "false",
+            "if",
+            "else",
+            "while",
+            "for",
+            "break",
+            "continue",
+            "import",
+            "self",
+            "super",
+            "in",
+            "as",
+            "is",
+            "and",
+            "or",
+            "not",
+            "static",
+            "construct",
+            "throw",
+            "try",
+            "extends",
+            "on",
+            "catch",
+            "ensure",
+            "match",
         ];
         for word in all {
             assert!(keyword_blurb(word).is_some(), "missing blurb for {word:?}");
@@ -638,8 +630,7 @@ mod tests {
     fn phaldoc_adjacency_attaches_to_the_immediately_following_method() {
         let src = "class Point {\n  /// Moves the point.\n  move(x) { }\n}\n";
         let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)")
-            .expect("adjacent doc must attach");
+        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").expect("adjacent doc must attach");
         assert_eq!(doc.summary, "Moves the point.");
     }
 
@@ -647,20 +638,15 @@ mod tests {
     fn phaldoc_blank_line_breaks_adjacency() {
         let src = "class Point {\n  /// Moves the point.\n\n  move(x) { }\n}\n";
         let (program, line_index) = parsed(src);
-        assert_eq!(
-            harvest_doc_for_selector(src, &program, &line_index, "move(_)"),
-            None
-        );
+        assert_eq!(harvest_doc_for_selector(src, &program, &line_index, "move(_)"), None);
     }
 
     #[test]
     fn phaldoc_is_selector_keyed_not_name_keyed() {
         let src = "class Point {\n  /// Zero-arity reset.\n  reset() { }\n  /// Reset with a value.\n  reset(x) { }\n}\n";
         let (program, line_index) = parsed(src);
-        let zero = harvest_doc_for_selector(src, &program, &line_index, "reset()")
-            .expect("reset() has its own doc");
-        let one = harvest_doc_for_selector(src, &program, &line_index, "reset(_)")
-            .expect("reset(_) has its own doc");
+        let zero = harvest_doc_for_selector(src, &program, &line_index, "reset()").expect("reset() has its own doc");
+        let one = harvest_doc_for_selector(src, &program, &line_index, "reset(_)").expect("reset(_) has its own doc");
         assert_eq!(zero.summary, "Zero-arity reset.");
         assert_eq!(one.summary, "Reset with a value.");
         assert_ne!(zero.summary, one.summary);
@@ -670,8 +656,7 @@ mod tests {
     fn phaldoc_detached_pin_overrides_adjacency() {
         let src = "class Point {\n  /// selector: move(_,to)\n  /// A detached doc.\n\n  move(x, to:) { }\n}\n";
         let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_,to)")
-            .expect("pinned selector overrides adjacency");
+        let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_,to)").expect("pinned selector overrides adjacency");
         assert_eq!(doc.summary, "A detached doc.");
     }
 
@@ -694,8 +679,7 @@ mod tests {
     fn phaldoc_attaches_to_a_top_level_let_binding() {
         let src = "/// The application's shared counter.\nlet counter = Counter.new();\n";
         let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "counter")
-            .expect("doc above a top-level let must attach to its bound name");
+        let doc = harvest_doc_for_selector(src, &program, &line_index, "counter").expect("doc above a top-level let must attach to its bound name");
         assert_eq!(doc.summary, "The application's shared counter.");
     }
 
@@ -703,8 +687,7 @@ mod tests {
     fn phaldoc_attaches_to_a_top_level_const_binding() {
         let src = "/// A fixed running total.\nconst total = 0;\n";
         let (program, line_index) = parsed(src);
-        let doc = harvest_doc_for_selector(src, &program, &line_index, "total")
-            .expect("doc above a top-level const must attach to its bound name");
+        let doc = harvest_doc_for_selector(src, &program, &line_index, "total").expect("doc above a top-level const must attach to its bound name");
         assert_eq!(doc.summary, "A fixed running total.");
     }
 
@@ -715,10 +698,7 @@ mod tests {
         let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
         assert_eq!(
             doc.tags,
-            vec![(
-                "param".to_string(),
-                "x how far to move, continued on an indented line".to_string()
-            )]
+            vec![("param".to_string(), "x how far to move, continued on an indented line".to_string())]
         );
     }
 
@@ -730,10 +710,7 @@ mod tests {
         let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move\n  /// not a continuation\n  move(x) { }\n}\n";
         let (program, line_index) = parsed(src);
         let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
-        assert_eq!(
-            doc.tags,
-            vec![("param".to_string(), "x how far to move".to_string())]
-        );
+        assert_eq!(doc.tags, vec![("param".to_string(), "x how far to move".to_string())]);
     }
 
     #[test]

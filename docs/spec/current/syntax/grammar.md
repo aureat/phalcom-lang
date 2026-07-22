@@ -163,7 +163,6 @@ STRING         := '"' { string_char | interpolation } '"'
 string_char    := escape | ANY_CHAR   (* ANY_CHAR: any source character other
                                           than '"', "\", or a raw NEWLINE *)
 escape         := "\\" ( '"' | "\\" | "n" | "t" | "r" )
-                 (* partial set — full escape repertoire unresolved, see Notes *)
 interpolation  := "\(" expr ")"
 
 (* character classes *)
@@ -209,11 +208,10 @@ keyword        := "let" | "const" | "class"
 - **`fn`** — reserved-inactive; no alternate function-declaration keyword is
   active alongside `method_def`. Legacy `construct` declarations are migration
   forms for `@constructor`, not a canonical production. See `../lexical-structure.md`.
-- **Full string-escape set** — the escape production above is illustrative; the
-  only escapes the spec fixes today are `\\` and `\(` (interpolation), and the
-  complete repertoire (unicode escapes, etc.) is unresolved. See
-  `../lexical-structure.md#5` and
-  [ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md).
+- **Strings and interpolation** — the listed escapes are exhaustive; `\(` opens
+  interpolation and every other escape is invalid. Raw LF/CRLF is not a
+  `string_char`; multiline literal syntax is deferred by
+  [PDR-0029](../../../pdr/0029-string-literals-and-interpolation-completion.md).
 - **Default arguments** — `param` has no `= expr` default-value form yet; how
   defaults interact with selector arity encoding is unresolved. See
   `../selectors.md#7`.

@@ -1,6 +1,6 @@
 use crate::error::PhResult;
-use crate::heap::{ClassId, Object};
 use crate::heap::CORE_MODULE_NAME;
+use crate::heap::{ClassId, Object};
 use crate::universe::Universe;
 use crate::value::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -195,13 +195,18 @@ impl VM {
             let core = vm.get_module_from_str(CORE_MODULE_NAME).expect("core module registered by install_core");
             let none_sym = vm.interner.intern("None");
             let none_value = vm.heap.module(core).get(none_sym).expect("None global must be bound by install_core");
-            assert!(matches!(none_value, Value::Obj(id) if id == vm.universe.classes.none_singleton), "None global must resolve to the shared singleton value, not the None class");
-            assert_ne!(none_value, Value::Obj(vm.universe.classes.none_class), "None global must not resolve to the None class object");
+            assert!(
+                matches!(none_value, Value::Obj(id) if id == vm.universe.classes.none_singleton),
+                "None global must resolve to the shared singleton value, not the None class"
+            );
+            assert_ne!(
+                none_value,
+                Value::Obj(vm.universe.classes.none_class),
+                "None global must not resolve to the None class object"
+            );
         }
 
-        vm.universe
-            .verify_invariants(&vm.heap)
-            .expect("kernel invariants (object-model.md §5-6)");
+        vm.universe.verify_invariants(&vm.heap).expect("kernel invariants (object-model.md §5-6)");
 
         vm
     }
@@ -322,7 +327,10 @@ impl VM {
         let none_class = self.universe.classes.none_class;
         let none_class_name = self.heap.class(none_class).name.clone();
         let none_class_sym = self.interner.intern(&none_class_name);
-        let none_class_key = crate::vm::ClassKey { module: m, name: none_class_sym };
+        let none_class_key = crate::vm::ClassKey {
+            module: m,
+            name: none_class_sym,
+        };
         self.classes.insert(none_class_key, none_class);
         // `None` bypasses `add_class!` (its global binds the singleton
         // value, not the class), so it must be reserved (ruling 3) here
@@ -331,7 +339,10 @@ impl VM {
         // Seal `None` to the core module too (see the sealing note above the
         // `Option`/`Some` rows): `class MyNone extends None {}` in user code
         // must raise `attr.sealed_violation` the same as the other two.
-        let none_class_key_sealed = crate::vm::ClassKey { module: m, name: none_class_sym };
+        let none_class_key_sealed = crate::vm::ClassKey {
+            module: m,
+            name: none_class_sym,
+        };
         self.sealed_classes.insert(none_class_key_sealed, m);
 
         // Bind the `None` global to the shared singleton object.

@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/lexer.rs
+assertion_line: 77
 expression: "tokens(\"\\\"hi \\\\(name), you are \\\\(age)\\\"\")"
 ---
 [
@@ -10,14 +11,14 @@ expression: "tokens(\"\\\"hi \\\\(name), you are \\\\(age)\\\"\")"
             ),
             Expr {
                 source: "name",
-                start: 6,
+                range: 6..10,
             },
             Literal(
                 ", you are ",
             ),
             Expr {
                 source: "age",
-                start: 23,
+                range: 23..26,
             },
         ],
     ),

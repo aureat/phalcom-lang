@@ -6,8 +6,8 @@
 //! (the compiled bytecode and its captured upvalues) along with a [`FrameToken`]
 //! identifying the home stack frame where the block was created (used for non-local returns).
 
-use crate::heap::ObjRef;
 use crate::frame::FrameToken;
+use crate::heap::ObjRef;
 
 /// A first-class block (lexical closure) object.
 ///
@@ -25,9 +25,6 @@ pub struct BlockObject {
 impl BlockObject {
     /// Creates a new `BlockObject` wrapping `closure` and stamped with `home_frame_token`.
     pub fn new(closure: ObjRef, home_frame_token: FrameToken) -> Self {
-        BlockObject {
-            closure,
-            home_frame_token,
-        }
+        BlockObject { closure, home_frame_token }
     }
 }

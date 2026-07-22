@@ -30,18 +30,31 @@ enum Verdict {
 
 /// Classifies `src` the way the REPL's validator will.
 ///
-/// `Incomplete` is precisely "some error was an `UnrecognizedEof`". Note the
-/// unterminated-string cases report an `UnterminatedString` *as well*; they
-/// still count as incomplete because strings legitimately span lines
-/// (precondition 8), and the trailing EOF error is what says so.
+/// `Incomplete` means that the input can potentially become valid solely by
+/// appending more source text. Fatal diagnostics take precedence over secondary
+/// EOF diagnostics produced during parser recovery.
+///
+/// An ordinary string that reaches EOF before its closing quote is incomplete:
+/// appending `"` can repair it. Once a physical newline occurs inside the
+/// string, however, the source is irrecoverably malformed and is an error.
 fn classify(src: &str) -> Verdict {
     let parsed = parse(src, 0);
     if parsed.errors.is_empty() {
         return Verdict::Complete;
     }
-    if parsed.errors.iter().any(|e| matches!(e.kind, SyntaxErrorKind::UnrecognizedEof { .. })) {
+    // Fatal lexical errors take precedence over secondary parser EOF errors.
+    if parsed
+        .errors
+        .iter()
+        .any(|error| matches!(error.kind, SyntaxErrorKind::RawNewlineInString { .. }))
+    {
+        return Verdict::Error;
+    }
+    // Secondary parser EOF errors
+    if parsed.errors.iter().any(|error| matches!(error.kind, SyntaxErrorKind::UnrecognizedEof { .. })) {
         return Verdict::Incomplete;
     }
+    // Error otherwise as well
     Verdict::Error
 }
 
@@ -52,7 +65,7 @@ fn classifies_truncated_wrong_and_finished_input() {
         ("let x = 1", Verdict::Complete),
         ("1 + 1", Verdict::Complete),
         ("", Verdict::Complete),
-        ("let s = \"abc\ndef\"", Verdict::Complete),
+        ("let s = \"abcdef\"", Verdict::Complete),
         // Incomplete — the parser reached EOF still wanting more.
         ("class Foo {", Verdict::Incomplete),
         ("class Foo {\n  bar() { 1 }", Verdict::Incomplete),
@@ -61,8 +74,17 @@ fn classifies_truncated_wrong_and_finished_input() {
         ("foo(1,", Verdict::Incomplete),
         ("[1, 2,", Verdict::Incomplete),
         ("if (x) {", Verdict::Incomplete),
+        // String literal incomplete
         ("let s = \"abc", Verdict::Incomplete),
-        ("let s = \"abc\ndef", Verdict::Incomplete),
+        // LF
+        ("let s = \"abc\ndef", Verdict::Error),
+        ("let s = \"abc\ndef\"", Verdict::Error),
+        // CRLF
+        ("let s = \"abc\r\ndef", Verdict::Error),
+        ("let s = \"abc\r\ndef\"", Verdict::Error),
+        // CR
+        ("let s = \"abc\rdef", Verdict::Error),
+        ("let s = \"abc\rdef\"", Verdict::Error),
         // Error — a real token in the wrong place. More input cannot fix these,
         // so a REPL must not sit waiting for it.
         ("let x = )", Verdict::Error),

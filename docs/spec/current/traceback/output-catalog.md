@@ -239,8 +239,8 @@ Whether the incumbent renderer can express multi-label spans is an open decision
 
 ## 7. Compile error — spans exist and are dropped
 
-Five `CompilerError` variants carry a `SourceRange` that is **never rendered**:
-`DestructuringWithoutInitializer`, `ConstructStaticCollision`, `BreakOutsideLoop`,
+Four `CompilerError` variants carry a `SourceRange` that is **never rendered**:
+`DestructuringWithoutInitializer`, `BreakOutsideLoop`,
 `ContinueOutsideLoop`, `ThrowNonError`. `cmd_run` does `vm.compile_closure(...)?` and the `?`
 propagates to `main`, which prints `Display` text only. `print_parse` fires for *parse* errors
 only, via `compile_closure`'s `map_err`.

@@ -1,17 +1,16 @@
 use crate::bytecode::Bytecode;
-use crate::compiler::attributes::{expand_class_attributes, AttributeRegistry, CompileMode, ExpandCtx};
+use crate::compiler::attributes::{AttributeRegistry, CompileMode, ExpandCtx, expand_class_attributes};
 use crate::heap::Object;
 use crate::interner::Symbol;
-use crate::method::{encode_selector, make_signature, MethodKind, MethodObject, SignatureKind};
+use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use crate::vm::ClassKey;
-use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, MethodCallExpr, Statement};
 use indexmap::IndexMap;
+use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, MethodCallExpr, Statement};
 use phalcom_common::range::SourceRange;
 
 use super::error::CompilerError;
 use super::{Compiler, UnitKind};
-
 
 /// Attribute names handled entirely by the compiler itself — the guard weave
 /// (`@requires`/`@ensures`/`@invariant`), the field-derive (`@construct`,
@@ -94,19 +93,13 @@ impl<'vm> Compiler<'vm> {
         let name_sym = self.vm.interner.intern(&class_def.name);
         let name_idx = self.add_constant(Value::Symbol(name_sym));
 
-        // Pass -1: duplicate-member scan (U-CLASSCLOSE §2.2). A repeated
-        // field or method name inside one body is `class.duplicate_member` —
-        // no silent last-writer-wins at any granularity (`add_method` is
-        // `IndexMap::insert`, `heap/class.rs`, so today `bar => 1` then
-        // `bar => 2` would silently yield `2`). Runs over `class_def.members`
-        // before any member compiles, on the member's *encoded identity*
-        // (the same `encode_selector`/`SignatureKind` machinery the runtime
-        // dispatch table itself uses to tell two same-named members apart:
-        // arity, labels, kind, and static-vs-instance side all distinguish
-        // them) — not a new collision rule. `Construct` is excluded:
-        // `ConstructStaticCollision` above already owns the construct-vs-
-        // static case, and `Variant` never appears here (`expand_variants`
-        // already stripped it).
+        // Pass -1: duplicate-member scan (U-CTOR §3.2).
+        // - Duplicate field declarations -> `class.duplicate_field`
+        // - Same-side canonical selector collisions -> `class.duplicate_selector`
+        //
+        // Runs over `class_def.members` post-expansion before any member compiles,
+        // using the member's encoded selector identity (`encode_selector`/`SignatureKind`).
+        // `Variant` never appears here (`expand_variants` already stripped it).
         {
             #[derive(PartialEq, Eq, Hash)]
             enum MemberKey {
@@ -146,14 +139,13 @@ impl<'vm> Compiler<'vm> {
                     let first_range = *first_range;
                     let source = self.source_text();
                     let (line, col) = crate::diagnostics::line_col(&source, first_range.start);
-                    return Err(CompilerError::ClassDuplicateMember(
-                        class_def.name.clone(),
-                        display,
-                        member_name_range,
-                        first_range,
-                        line,
-                        col,
-                    ));
+                    let err = match key {
+                        MemberKey::Field(_) => CompilerError::DuplicateField(class_def.name.clone(), display, member_name_range, first_range, line, col),
+                        MemberKey::Selector(_, _) => {
+                            CompilerError::DuplicateSelector(class_def.name.clone(), display, member_name_range, first_range, line, col)
+                        }
+                    };
+                    return Err(err);
                 }
                 seen.insert(key, (display, member_name_range));
             }
@@ -362,7 +354,13 @@ impl<'vm> Compiler<'vm> {
             let first_range = self.vm.field_layouts[&name_key].declared_at;
             let source = self.source_text();
             let (line, col) = crate::diagnostics::line_col(&source, first_range.start);
-            return Err(CompilerError::ClassAlreadyDefined(class_def.name.clone(), class_def.name_range, first_range, line, col));
+            return Err(CompilerError::ClassAlreadyDefined(
+                class_def.name.clone(),
+                class_def.name_range,
+                first_range,
+                line,
+                col,
+            ));
         }
         // `classes_hit && !field_layouts_hit` is stub completion — reachable
         // only in the core module (`add_class!`/the `None` row both key to
@@ -370,7 +368,10 @@ impl<'vm> Compiler<'vm> {
         // together) outside of a REPL cell. Assert it explicitly: an
         // assertion that can never fire is the cheapest documentation of the
         // invariant ruling 4 asks for.
-        debug_assert!(!classes_hit || field_layouts_hit || is_core_module, "stub completion reachable only in the core module");
+        debug_assert!(
+            !classes_hit || field_layouts_hit || is_core_module,
+            "stub completion reachable only in the core module"
+        );
 
         // A class name colliding with an `import … as Name` already bound
         // in this compilation unit is also `class.already_defined`
@@ -380,7 +381,13 @@ impl<'vm> Compiler<'vm> {
         if let Some(&import_range) = self.import_bindings.get(&name_sym) {
             let source = self.source_text();
             let (line, col) = crate::diagnostics::line_col(&source, import_range.start);
-            return Err(CompilerError::ClassAlreadyDefined(class_def.name.clone(), class_def.name_range, import_range, line, col));
+            return Err(CompilerError::ClassAlreadyDefined(
+                class_def.name.clone(),
+                class_def.name_range,
+                import_range,
+                line,
+                col,
+            ));
         }
 
         // Register in `global_bindings` (PDR-0002 ruling 8) — insertion
@@ -441,7 +448,10 @@ impl<'vm> Compiler<'vm> {
                 // pass: the single-pass top-down discipline already
                 // guarantees a same-unit sealed superclass is recorded
                 // before any of its subclasses reach this point.
-                let sc_key_for_sealed = sc_key.unwrap_or(ClassKey { module: self.module, name: sc_sym });
+                let sc_key_for_sealed = sc_key.unwrap_or(ClassKey {
+                    module: self.module,
+                    name: sc_sym,
+                });
                 if let Some(&sealed_in_module) = self.vm.sealed_classes.get(&sc_key_for_sealed) {
                     if sealed_in_module != self.module {
                         return Err(CompilerError::Message(format!(
@@ -468,10 +478,7 @@ impl<'vm> Compiler<'vm> {
                         candidates.dedup();
                         let cand_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
                         let suggestion = crate::diagnostics::suggest::best_match(&sc_ref.name, cand_refs.into_iter());
-                        let mut msg = format!(
-                            "unknown superclass '{}': it must be a class defined before '{}'",
-                            sc_ref.name, class_def.name
-                        );
+                        let mut msg = format!("unknown superclass '{}': it must be a class defined before '{}'", sc_ref.name, class_def.name);
                         if let Some(sug) = suggestion {
                             msg.push_str(&format!("; did you mean '{}'?", sug));
                         }
@@ -489,10 +496,7 @@ impl<'vm> Compiler<'vm> {
                     candidates.dedup();
                     let cand_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
                     let suggestion = crate::diagnostics::suggest::best_match(&sc_ref.name, cand_refs.into_iter());
-                    let mut msg = format!(
-                        "unknown superclass '{}': it must be a class defined before '{}'",
-                        sc_ref.name, class_def.name
-                    );
+                    let mut msg = format!("unknown superclass '{}': it must be a class defined before '{}'", sc_ref.name, class_def.name);
                     if let Some(sug) = suggestion {
                         msg.push_str(&format!("; did you mean '{}'?", sug));
                     }
@@ -509,7 +513,10 @@ impl<'vm> Compiler<'vm> {
                 // back-edge is a reopen-redefinition within a unit (`class A {}`,
                 // `class B extends A`, then `class A extends B`), which the
                 // `visited` guard in both chain-walks handles without spinning.
-                let sc_key_val = sc_key.unwrap_or(ClassKey { module: self.module, name: sc_sym });
+                let sc_key_val = sc_key.unwrap_or(ClassKey {
+                    module: self.module,
+                    name: sc_sym,
+                });
                 self.vm.class_parents.insert(name_key, sc_key_val);
                 counts
             } else {
@@ -577,7 +584,6 @@ impl<'vm> Compiler<'vm> {
             let class_idx = self.add_constant(Value::Obj(existing_class));
             self.emit(Bytecode::Constant(class_idx), range);
         } else {
-
             // Push the superclass onto the stack for the `Class` handler
             // to consume (vm.rs `Bytecode::Class` pops it and wires both
             // `superclass` and the parallel metaclass via `create_class`,
@@ -669,13 +675,15 @@ impl<'vm> Compiler<'vm> {
                         let layout = self.vm.field_layouts.get(&name_key).unwrap().clone();
                         let field_name_sym = self.vm.interner.intern(&getter_def.name);
                         let slot = if getter_def.is_static {
-                            *layout.static_field_slots.get(&field_name_sym).ok_or_else(|| {
-                                CompilerError::Message(format!("Static field slot not found: {}", getter_def.name))
-                            })?
+                            *layout
+                                .static_field_slots
+                                .get(&field_name_sym)
+                                .ok_or_else(|| CompilerError::Message(format!("Static field slot not found: {}", getter_def.name)))?
                         } else {
-                            *layout.field_slots.get(&field_name_sym).ok_or_else(|| {
-                                CompilerError::Message(format!("Instance field slot not found: {}", getter_def.name))
-                            })?
+                            *layout
+                                .field_slots
+                                .get(&field_name_sym)
+                                .ok_or_else(|| CompilerError::Message(format!("Instance field slot not found: {}", getter_def.name)))?
                         };
 
                         self.emit(Bytecode::Dup, range);
@@ -695,8 +703,11 @@ impl<'vm> Compiler<'vm> {
 
                         tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
-                        let method_obj =
-                            self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(selector_sym, SignatureKind::Getter, MethodKind::Closure(closure)))));
+                        let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                            selector_sym,
+                            SignatureKind::Getter,
+                            MethodKind::Closure(closure),
+                        ))));
 
                         if !strip_metadata {
                             let contracts = self.build_contracts_metadata(&getter_def.attributes)?;
@@ -725,8 +736,11 @@ impl<'vm> Compiler<'vm> {
 
                     tracing::debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
-                    let method_obj =
-                        self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(selector_sym, SignatureKind::Setter, MethodKind::Closure(closure)))));
+                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                        selector_sym,
+                        SignatureKind::Setter,
+                        MethodKind::Closure(closure),
+                    ))));
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&setter_def.attributes)?;
@@ -770,13 +784,7 @@ impl<'vm> Compiler<'vm> {
                         param_names,
                         true,
                         true,
-                        Some(
-                            construct_def
-                                .name
-                                .strip_prefix("init ")
-                                .unwrap_or(&construct_def.name)
-                                .to_string(),
-                        ),
+                        Some(construct_def.name.strip_prefix("init ").unwrap_or(&construct_def.name).to_string()),
                     )?;
                     self.in_constructor = false;
 
@@ -993,9 +1001,20 @@ impl<'vm> Compiler<'vm> {
     fn emit_attribute_attach(&mut self, attr: &Attribute) -> Result<(), CompilerError> {
         let range = attr.range;
         let ctor_call = Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var { value: attr.name.clone(), range },
+            object: Expr::Var {
+                value: attr.name.clone(),
+                range,
+            },
             method: "new".to_string(),
-            args: attr.args.iter().map(|expr| Argument { label: None, expr: expr.clone(), range }).collect(),
+            args: attr
+                .args
+                .iter()
+                .map(|expr| Argument {
+                    label: None,
+                    expr: expr.clone(),
+                    range,
+                })
+                .collect(),
             range,
         }));
         self.compile_expr(ctor_call)?;
@@ -1057,7 +1076,6 @@ impl<'vm> Compiler<'vm> {
         }
         Ok(contracts)
     }
-
 }
 
 fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut crate::interner::Interner) {

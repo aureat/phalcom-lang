@@ -9,14 +9,13 @@
 use crate::compiler::lib::{Compiler, CompilerError, UnitKind};
 use crate::error::{IoError, PhError, PhResult};
 use crate::frame::{CallContext, CallFrame};
-use crate::heap::{Object, ObjRef};
 use crate::heap::ModuleObject;
+use crate::heap::{ObjRef, Object};
 use crate::vm::VM;
 use phalcom_ast::parse_source;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::{fs, io};
-
 
 pub enum ExitCode {
     Success = 0,
@@ -137,15 +136,12 @@ impl VM {
     pub fn compile_closure_as(&mut self, module: ObjRef, source: &str, kind: UnitKind) -> PhResult<ObjRef> {
         self.unit_kind = kind;
         let source_id = self.heap.module_mut(module).push_source(Arc::new(source.to_string()));
-        let program = parse_source(source, 0).map_err(|e| {
-            PhError::Compile(CompilerError::Parse(e))
-        })?;
+        let program = parse_source(source, 0).map_err(|e| PhError::Compile(CompilerError::Parse(e)))?;
 
         let compiler = Compiler::new(self, module, source_id, kind);
         let closure = compiler.compile(program)?;
         Ok(closure)
     }
-
 
     /// Parses and compiles `source` for `module`, returning the top-level
     /// closure [`ObjRef`] allocated on the [`Heap`](crate::heap::Heap).
@@ -163,7 +159,6 @@ impl VM {
     pub fn compile_closure(&mut self, module: ObjRef, source: &str) -> PhResult<ObjRef> {
         self.compile_closure_as(module, source, UnitKind::File)
     }
-
 
     /// Installs `module` and runs its top-level `closure` on a fresh frame.
     ///
@@ -251,11 +246,7 @@ impl VM {
             return Ok(existing);
         }
 
-        let logical_name = Path::new(&canonical)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(import_logical)
-            .to_string();
+        let logical_name = Path::new(&canonical).file_stem().and_then(|s| s.to_str()).unwrap_or(import_logical).to_string();
 
         // Allocate + register the Module *before* compiling/running it — the
         // memo the cyclic-import guard above relies on (see

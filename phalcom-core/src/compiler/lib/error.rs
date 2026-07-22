@@ -105,7 +105,6 @@ pub enum CompilerError {
     #[error("Cannot return a value from an initializer.")]
     ReturnValueFromInitializer,
 
-
     /// A `super.sel(…)` send written where there is no enclosing class body to
     /// anchor the walk (top level, or a free function).
     ///
@@ -180,19 +179,14 @@ pub enum CompilerError {
     #[error("class.already_defined: class '{0}' is already defined in this module (first declared at {3}:{4}).")]
     ClassAlreadyDefined(String, SourceRange, SourceRange, usize, usize),
 
-    /// A repeated field or method name inside one class body (U-CLASSCLOSE
-    /// §2.2).
-    ///
-    /// No silent last-writer-wins at any granularity — `bar => 1` then
-    /// `bar => 2` in one body no longer lets the second definition quietly
-    /// win. "Repeated" is judged by the same encoded-selector identity the
-    /// runtime dispatch table already uses (arity, labels, kind, and
-    /// static-vs-instance side all distinguish two same-named members), not
-    /// a new collision rule; a declared field's own name is its whole
-    /// identity, since a field has no arity. Same both-spans shape as
-    /// [`Self::ClassAlreadyDefined`], for the same reason.
-    #[error("class.duplicate_member: '{1}' is already defined in class '{0}' (first declared at {4}:{5}).")]
-    ClassDuplicateMember(String, String, SourceRange, SourceRange, usize, usize),
+    /// Two post-expansion members install the same canonical selector on the
+    /// same side (U-CTOR §3.2).
+    #[error("class.duplicate_selector: '{1}' is already defined in class '{0}' (first declared at {4}:{5}).")]
+    DuplicateSelector(String, String, SourceRange, SourceRange, usize, usize),
+
+    /// Two field declarations collide in one class body (U-CTOR §3.2).
+    #[error("class.duplicate_field: '{1}' is already defined in class '{0}' (first declared at {4}:{5}).")]
+    DuplicateField(String, String, SourceRange, SourceRange, usize, usize),
 
     /// A kernel class name (e.g. `List`, `Object`, `Number` — the exact set
     /// `VM::install_core`'s `add_class!` binds) declared by a non-core

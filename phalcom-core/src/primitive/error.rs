@@ -33,7 +33,10 @@ pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
         Value::Obj(id) => vm.heap.as_instance(*id).map(|inst| inst.slots[0]),
         _ => None,
     }
-    .ok_or_else(|| RuntimeError::Type { expected: "Error", found: receiver.type_name() })?;
+    .ok_or_else(|| RuntimeError::Type {
+        expected: "Error",
+        found: receiver.type_name(),
+    })?;
     Ok(vm.surface_absence(slot0))
 }
 
@@ -61,5 +64,11 @@ pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 pub fn error_raise(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let message_sym = vm.get_or_intern("message");
     let rendered = vm.send_dynamic(*receiver, message_sym, &[])?.to_string(vm);
-    Err(RuntimeError::Raise { error: *receiver, rendered, traceback: None, help: None }.into())
+    Err(RuntimeError::Raise {
+        error: *receiver,
+        rendered,
+        traceback: None,
+        help: None,
+    }
+    .into())
 }
