@@ -1381,25 +1381,41 @@ impl<'source> Parser<'source> {
         if matches!(self.peek(), Token::LBracket) {
             return self.parse_index_member(start);
         }
-        if self.eat(&Token::Construct) {
-            let name_start = self.cur_start();
-            let name = self.parse_method_name()?;
-            let name_range = (name_start..self.prev_end).into();
-            self.expect(&Token::LParen, &["\"(\""])?;
-            let params = self.parse_param_list()?;
-            self.expect(&Token::RParen, &["\")\""])?;
-            let body = self.parse_method_block()?;
-            let range = (start..self.prev_end).into();
-            return Ok(ClassMember::Method(MethodDef {
-                name,
-                params,
-                body,
-                is_static: false,
-                is_constructor: true,
-                attributes: Vec::new(),
+        if matches!(self.peek(), Token::Construct) {
+            let construct_start = self.cur_start();
+            self.advance(); // consume `construct`
+            let construct_end = self.prev_end;
+            let range = construct_start..construct_end;
+
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::UnrecognizedToken {
+                    token: "construct".to_string(),
+                    expected: vec!["@constructor".to_string()],
+                },
                 range,
-                name_range,
-            }));
+            });
+
+            // DEPRECATED:
+            // `constructor` syntax removed in favor of `@constructor` attribute
+            //
+            // let name_start = self.cur_start();
+            // let name = self.parse_method_name()?;
+            // let name_range = (name_start..self.prev_end).into();
+            // self.expect(&Token::LParen, &["\"(\""])?;
+            // let params = self.parse_param_list()?;
+            // self.expect(&Token::RParen, &["\")\""])?;
+            // let body = self.parse_method_block()?;
+            // let range = (start..self.prev_end).into();
+            // return Ok(ClassMember::Method(MethodDef {
+            //     name,
+            //     params,
+            //     body,
+            //     is_static: false,
+            //     is_constructor: true,
+            //     attributes: Vec::new(),
+            //     range,
+            //     name_range,
+            // }));
         }
         // `class name(...)` is retained as a migration spelling for
         // `@class name(...)`; token `class` remains an expression keyword in

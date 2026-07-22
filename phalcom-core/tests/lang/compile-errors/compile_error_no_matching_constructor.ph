@@ -7,7 +7,7 @@
 // `Object::new` bare-allocation primitive; it is a compile error.
 
 class Widget {
-  construct new(label:) { _label = label }
+  construct new(label:) { _label = label } // did you mean @constructor?
   label => _label
 }
 const w = Widget.new()

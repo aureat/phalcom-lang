@@ -7,5 +7,5 @@ class Derived extends Base {
   new(value) { _value = value }
   value => _value
 }
-System.print(Derived.new().value)
-System.print(Derived.new(5).value)
+System.print(Derived.new().value) // None
+System.print(Derived.new(5).value) // 5

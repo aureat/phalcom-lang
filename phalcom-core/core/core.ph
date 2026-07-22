@@ -46,7 +46,7 @@ class Metaclass {}
 // unset, and — per ADR-0011/U-INH §3.5 "fields stack, never alias" — a `.ph`
 // *subclass* that independently assigns a same-named `_message` field gets
 // its own **fresh** slot, not this one (`subclass_field_offset_stability`).
-// So the only way to reach the native slot 0 from `.ph` is a `construct`
+// So the only way to reach the native slot 0 from `.ph` is an `@constructor`
 // declared on `Error` **itself**: this reopen (recognised at compile time as
 // reopening the already-registered native class, not a fresh `extends`) adds
 // exactly that, giving `Error.new(msg)` a working 1-arg constructor and every
@@ -56,15 +56,17 @@ class Metaclass {}
 class Error {
   // Preserved bare 0-arg form (many pre-U-ERR call sites — `Error.new()` in
   // Fiber/Future fixtures — rely on it; declaring *any* `new`-named
-  // `construct` drops the generic inherited bare allocator, U7, so this must
+  // `@constructor` drops the generic inherited bare allocator, U7, so this must
   // be declared explicitly alongside the 1-arg form below, not left implicit).
-  construct new() {
+  @constructor
+  new() {
     _message = None
     _kind = None
     _cause = None
     _displaced = None
   }
-  construct new(msg) {
+  @constructor
+  new(msg) {
     _message = msg
     _kind = None
     _cause = None
@@ -92,7 +94,7 @@ class InvariantError extends Error {}
 
 // Boundary-guard exception (error-handling.md §1, U-STRING). Raised by library
 // code to indicate invalid argument values or arities. Zero fields — the
-// inherited `Error.construct new(msg)` gives `ArgumentError.new(msg)` a working
+// inherited `Error` `@constructor new(msg)` gives `ArgumentError.new(msg)` a working
 // constructor for `throw ArgumentError.new("msg")` sites (U-INH inherited-ctor
 // resolution).
 class ArgumentError extends Error {}
@@ -379,7 +381,8 @@ class String {
 
 // Byte-level sequence view (U-STRING §2.4, ADR-0048 shaped).
 class StringByteSequence {
-  construct new(s) { _string = s }
+  @constructor
+  new(s) { _string = s }
 
   size => _string.byteCount_
 
@@ -404,7 +407,8 @@ class StringByteSequence {
 
 // Codepoint-level sequence view (U-STRING §2.4, ADR-0048 shaped).
 class StringCodePointSequence {
-  construct new(s) { _string = s }
+  @constructor
+  new(s) { _string = s }
 
   // Codepoint count: full scan (no native "codepoint length").
   size {
@@ -564,8 +568,8 @@ class Some {}
 // `Result`/`Ok`/`Err` (U-ERR, result.md §1-§3; ADR-0008 the error model,
 // ADR-0007 the abstract-root-plus-two-subclasses machinery `Option`/`Some`/
 // `None` already established). Unlike `Some`/`None` — bootstrapped natively
-// because U6 predated U7's user-facing `construct` — `Result`/`Ok`/`Err` are
-// **pure `.ph`**: U7's `construct` + `_`-prefixed instance fields need no
+// because U6 predated U7's user-facing `@constructor` — `Result`/`Ok`/`Err` are
+// **pure `.ph`**: U7's `@constructor` + `_`-prefixed instance fields need no
 // floor primitive at all (net floor delta for this whole file: **0**).
 //
 // `Result` gets its **own** `match(ok:,err:)`, deliberately not reusing
@@ -622,13 +626,15 @@ class Result {
 }
 
 class Ok extends Result {
-  construct new(v) { _value = v }
+  @constructor
+  new(v) { _value = v }
 
   match(ok:, err:) => ok.call(_value)
 }
 
 class Err extends Result {
-  construct new(e) { _error = e }
+  @constructor
+  new(e) { _error = e }
 
   match(ok:, err:) => err.call(_error)
 }
@@ -1377,7 +1383,8 @@ class Bytes {
 }
 
 class OpenMode {
-  construct named_(n) { _name = n }
+  @constructor
+  named_(n) { _name = n }
   static read => OpenMode.named_("read")
   static write => OpenMode.named_("write")
   static append => OpenMode.named_("append")
@@ -1389,7 +1396,8 @@ class OpenMode {
 }
 
 class Path {
-  construct of(s) {
+  @constructor
+  of(s) {
     if (not s.isA(String)) {
       throw ArgumentError.new("Path.of: argument must be a String")
     }
@@ -1397,7 +1405,8 @@ class Path {
     _hash = Path.contentHash(_bytes)
   }
 
-  construct ofBytes(b) {
+  @constructor
+  ofBytes(b) {
     if (not b.isA(Bytes)) {
       throw ArgumentError.new("Path.ofBytes: argument must be a Bytes")
     }
@@ -1536,7 +1545,8 @@ class Path {
 // and every other view work on a view for free.
 
 class MapView extends Iterable {
-  construct new(source, f) {
+  @constructor
+  new(source, f) {
     // Note: validation of f as callable defers to iteratorValue() time to preserve
     // lazy evaluation semantics (no side effects at map construction, only on iteration).
     // Error timing: [1,2,3].map("not-a-function") succeeds at construction time but
@@ -1550,7 +1560,8 @@ class MapView extends Iterable {
 }
 
 class WhereView extends Iterable {
-  construct new(source, pred) {
+  @constructor
+  new(source, pred) {
     _source = source
     _pred = pred
   }
@@ -1571,7 +1582,8 @@ class WhereView extends Iterable {
 }
 
 class SkipView extends Iterable {
-  construct new(source, count) {
+  @constructor
+  new(source, count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
       throw Error("skip: count must be a non-negative Number")
     }
@@ -1592,7 +1604,8 @@ class SkipView extends Iterable {
 }
 
 class TakeView extends Iterable {
-  construct new(source, count) {
+  @constructor
+  new(source, count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
       throw Error("take: count must be a non-negative Number")
     }
@@ -1678,17 +1691,19 @@ class System {
 // `then`/`map`/`catch`, unified by `System.schedule(_)` accepting both.
 class Future {
   // Builds a pending future (U-FUTURE Slice B).
-  construct new() {
+  @constructor
+  new() {
     _state = "pending"
     _value = None
     _waiters = List.new()
   }
 
   // Builds an already-`fulfilled` future wrapping `v` (concurrency.md §2
-  // `construct value(_)`). Goes through the pending→`settleValue` path
+  // `@constructor value(_)`). Goes through the pending→`settleValue` path
   // rather than setting `_state`/`_value` directly so construction and
   // post-construction settlement share one settle-once code path.
-  construct value(v) {
+  @constructor
+  value(v) {
     _state = "pending"
     _value = None
     _waiters = List.new()
@@ -1696,9 +1711,10 @@ class Future {
   }
 
   // Builds an already-`rejected` future wrapping `e` (concurrency.md §2
-  // `construct error(_)`); see `value(_)` for why this routes
+  // `@constructor error(_)`); see `value(_)` for why this routes
   // through `settleError` instead of assigning state directly.
-  construct error(e) {
+  @constructor
+  error(e) {
     _state = "pending"
     _value = None
     _waiters = List.new()
@@ -1955,7 +1971,8 @@ class OffBehavior {
   static fallback(sel) => OffBehavior.new("fallback", Some.new(sel))
   static skip(value) => OffBehavior.new("skip", Some.new(value))
 
-  construct new(kind, payload) { _kind = kind; _payload = payload }
+  @constructor
+  new(kind, payload) { _kind = kind; _payload = payload }
 
   kind => _kind
   payload => _payload
@@ -1976,7 +1993,8 @@ class Backoff {
   static fixed(ms) => Backoff.new("fixed", ms, 0)
   static exponential(base:, max:) => Backoff.new("exponential", base, max)
 
-  construct new(kind, a, b) { _kind = kind; _a = a; _b = b }
+  @constructor
+  new(kind, a, b) { _kind = kind; _a = a; _b = b }
 
   waitBefore(attempt) {
     if (_kind == "none") {
@@ -2023,8 +2041,10 @@ class On extends Attribute {
   _targets
   _tier
 
-  construct new(target) { _targets = target; _tier = None }
-  construct new(target, tier) { _targets = target; _tier = tier }
+  @constructor
+  new(target) { _targets = target; _tier = None }
+  @constructor
+  new(target, tier) { _targets = target; _tier = tier }
 
   targets => _targets
   tier => _tier
@@ -2078,7 +2098,8 @@ class UseAfterCloseError extends Error {}
 class UnflushedError extends Error {}
 
 class BytesReader extends Resource {
-  construct new(source) {
+  @constructor
+  new(source) {
     source.is(Bytes).ifFalse {
       throw ArgumentError.new("BytesReader source must be a Bytes")
     }
@@ -2108,7 +2129,8 @@ class BytesReader extends Resource {
 }
 
 class BytesWriter extends Resource {
-  construct new() {
+  @constructor
+  new() {
     _handle = Resource.register_("BytesWriter")
     _chunks = List.new()
   }
@@ -2142,7 +2164,8 @@ class BytesWriter extends Resource {
 }
 
 class BufferedWriter extends Resource {
-  construct new(inner) {
+  @constructor
+  new(inner) {
     _handle = Resource.register_("BufferedWriter")
     _inner = inner
     _buf = Bytes.new(8192)
@@ -2205,7 +2228,8 @@ class BufferedWriter extends Resource {
 }
 
 class BufferedReader extends Resource {
-  construct new(inner) {
+  @constructor
+  new(inner) {
     _handle = Resource.register_("BufferedReader")
     _inner = inner
     _buf = Bytes.new(8192)
