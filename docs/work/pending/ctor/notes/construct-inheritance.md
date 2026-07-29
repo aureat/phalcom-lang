@@ -33,7 +33,7 @@ must be able to initialize the parent. Rule:
   subclass could read.
 
 ```phalcom
-class Animal { construct new(name:) { _name = name } }   // hand-written parent
+class Animal {@constructor new(name:) { _name = name } }   // hand-written parent
 @construct class Dog : Animal { var _breed }
 // Dog.new(name:, breed:)  ⇒  super.new(name); _breed = breed
 ```
@@ -50,7 +50,8 @@ hierarchy depth without requiring uniform derivation at every level.
 
 ### Collision with a hand-written `construct`
 
-A class carrying `@construct` **and** a hand-written `construct new(...)` of the
+A class carrying `@construct` **and** a hand-written `@constructor
+new(...)` of the
 same selector is a **compile error** (ADR-0012: selector is sole dispatch key, no
 last-wins) — identical policy to the `@get`/`@set` collision rule. `@construct`
 plus a *differently-selectored* hand-written constructor (e.g. `construct

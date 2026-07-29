@@ -53,7 +53,7 @@ class Person {
   species => "Homo sapiens"
 }
 
-class Employee extends Person {}
+class Employee is Person {}
 
 Employee.species   // "Homo sapiens" — inherited, not redefined
 ```

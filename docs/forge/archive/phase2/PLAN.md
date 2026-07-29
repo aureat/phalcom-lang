@@ -280,7 +280,8 @@ The spine U1→U7 is irreducibly serial (shared `vm.rs`/`compiler/`/`bytecode.rs
   `compiler/*` (field collection + slot assignment + read-before-write check + `construct`
   lowering), `phalcom-ast/src/ast.rs` + `parser.lalrpop` (`construct` keyword/node, `_field`
   token per lexical §3), `primitive/*`.
-- **Depends on.** U2 (metaclass for `construct`), U3 (selector for `construct new(name:)`),
+- **Depends on.** U2 (metaclass for `construct`), U3 (selector for `@constructor
+new(name:)`),
   U6 (unassigned field reads `None`).
 - **Design.** Collect fields assigned anywhere in the class body → fix slot offsets at
   class-definition time; `GetField/SetField(slot)` index the `Box<[Value]>`. Read-before-write
@@ -291,7 +292,8 @@ The spine U1→U7 is irreducibly serial (shared `vm.rs`/`compiler/`/`bytecode.rs
   fields non-inherited precisely to keep offsets static — don't design a layout that a later
   mutability decision forces to renumber. Read-before-write analysis must be whole-class, not
   per-method-local.
-- **Test.** Golden `.ph`: `Person` with `construct new(name:age:)`, getters/setters, unassigned
+- **Test.** Golden `.ph`: `Person` with `@constructor
+new(name:age:)`, getters/setters, unassigned
   field reads `None`; a negative golden where `_naem` (typo) is a **compile error**.
 - **Must-not-preclude.** Keep the field table shape open to open-Q7 destructuring binds and to a
   future inheritance-visible-accessor convention.

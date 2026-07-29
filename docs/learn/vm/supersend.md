@@ -31,15 +31,18 @@ Three classes. `C` does not define `greet` at all — it inherits `B`'s.
 
 ```phalcom
 class A {
-  construct new() { }
+  @constructor
+  new() { }
   greet => "A-greet"
 }
-class B extends A {
-  construct new() { }
+class B is A {
+  @constructor
+  new() { }
   greet => super.greet + "-B-greet"
 }
-class C extends B {
-  construct new() { }
+class C is B {
+  @constructor
+  new() { }
 }
 System.print(C.new().greet)
 ```
@@ -219,10 +222,12 @@ Now read an inherited field from a subclass:
 
 ```phalcom
 class Base {
-  construct new(x) { _x = x }
+  @constructor
+  new(x) { _x = x }
 }
-class Derived extends Base {
-  construct new(x) { super.new(x) }
+class Derived is Base {
+  @constructor
+  new(x) { super.new(x) }
   peek => _x
 }
 ```
@@ -238,9 +243,10 @@ the only diagnostic that can fire here — no field-privacy-specific error varia
 So the message tells you the field was never assigned. Its implied remedy is to assign it. Do that:
 
 ```phalcom
-class Base    { construct new(x) { _x = x }              baseSees    => _x }
-class Derived extends Base {
-  construct new(x) { super.new(x); _x = 999 }            derivedSees => _x }
+class Base    {@constructor new(x) { _x = x }              baseSees    => _x }
+class Derived is Base {
+  @constructor
+  new(x) { super.new(x); _x = 999 }            derivedSees => _x }
 
 const d = Derived.new(7)
 System.print("Base sees:    " + d.baseSees.toString)

@@ -1,7 +1,7 @@
 # Forge session state
 
 _**Merged 2026-07-15.** This file absorbed the former `phase-next/STATE.md`, and the
-`phase-next/` folder is deleted (its `INDEX.md` moved up to [`INDEX.md`](INDEX.md); its
+`phase-next/` folder is deleted (its `INDEX.md` moved up to [`INDEX.md`](forge/INDEX.md); its
 `HANDOFF.md` was stale and dropped). The standing conventions below came from it and are
 the durable half; its "Current position" section was stale (dated 2026-07-12, describing
 the U-CORE track as in-flight when U-CORE-1..6 have all landed) and was dropped rather
@@ -36,7 +36,7 @@ design source of truth; redesign-first, not preserve-and-patch.
 
 **`core.ph` / `phalcom-ast` collision rules.** `phalcom-ast` (parser/AST) is a serialization point
 — a unit that edits it must run alone in it. `core.ph` is a single shared file edited additively —
-never co-schedule two `core.ph` editors. Full collision matrix: [`INDEX.md`](INDEX.md) §2.
+never co-schedule two `core.ph` editors. Full collision matrix: [`INDEX.md`](forge/INDEX.md) §2.
 
 ---
 
@@ -93,7 +93,8 @@ U12/U13/U17/U18. Floor → 113. Tip `e85f31a`.
   try/on/catch/ensure=pure parser desugar (no new AST); `Block#on/ensure` native via `VM::unwind_to`;
   Result/Ok/Err pure `.ph`. **Floor +2** (block_class) under ADR-0038 (Accepted), census 109→111.
   Graduated 2 pending + 7 PASS + 2 negatives. Caught+fixed Error-subclass field-aliasing (reopened
-  `Error` w/ `construct new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
+  `Error` w/ `@constructor
+new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
   Verify green. **Reviewer APPROVE** (`ada613e4`) — all 8 focus areas pass (unwind_to order,
   try/on/ensure desugar, throw-reject scope, on isA-match, Error-reopen field layout, floor +2,
   fixture honesty, docs); spot-checks match real binary. **U-ERR ACCEPTED.** 3 non-blocking nits:

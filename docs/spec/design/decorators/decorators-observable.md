@@ -73,7 +73,7 @@ Install-tier `wrap`, and per-receiver `Signal` storage is Layout by
 ```phalcom
 // BUILTIN — Layout + generate. Compiler-owned (tier: Layout is reserved, A-3).
 @On(Field, tier: Layout)
-class Observable extends Attribute {
+class Observable is Attribute {
   finalizeLayout(field) { field.reboxAsSignal }          // slot: _x = Signal.new(value: <init>)
 
   expand(field) {                                         // generate phase — tracked accessors

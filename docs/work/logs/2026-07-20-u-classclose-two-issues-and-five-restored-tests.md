@@ -45,8 +45,9 @@ prescribes "the core-module keys present once `core.ph` has finished running" â€
 That breaks real code the moment you run it:
 
 ```phalcom
-class ArgumentError extends Error {
-  construct new(msg) { super.new(msg) }
+class ArgumentError is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 ```
 

@@ -38,7 +38,8 @@ and normative **[annotations-construct.md](../../../design/experimental/v0.2/ann
 > no `is_constructor` field; that flag is an internal `Compiler::compile_block` parameter
 > (`compiler/lib.rs` L564/L575), not an AST field. The derive must construct a real
 > `ConstructDef` and wrap it `ClassMember::Construct(..)`, matching what a hand-written
-> `construct new(...) { ... }` parses to. Getting this wrong (emitting a `Method` instead) would
+> `@constructor
+new(...) { ... }` parses to. Getting this wrong (emitting a `Method` instead) would
 > silently produce a *plain method* named `new` rather than an actual constructor — no compile
 > error, wrong runtime behavior (skips `SignatureKind::Initializer` encoding, the
 > `constructor_aliases` call-site registration, and `has_new_construct`'s bare-allocator guard
@@ -175,12 +176,15 @@ before the derived body's own assignments**, in field declaration order — prep
 assignments, so a later non-default field's default expression (if any future field ordering
 puts one after) still sees prior defaults already applied. `@get(priv)`... n/a here.
 
-**Collision**: a class carrying both `@construct` and a hand-written `construct new(...)` of the
+**Collision**: a class carrying both `@construct` and a hand-written `@constructor
+new(...)` of the
 same selector is `attr.accessor_collision` (annotations-construct-inheritance.md
-§"Collision"); a differently-selectored hand-written `construct` (e.g. `construct anonymous()`)
+§"Collision"); a differently-selectored hand-written `construct` (e.g. `@constructor
+anonymous()`)
 coexists — the collision check is selector-keyed, not "any hand-written construct present."
 
-**Super-construct chaining (the F-fix, annotations-construct-inheritance.md)**: if
+**Super-@constructor
+chaining (the F-fix, annotations-construct-inheritance.md)**: if
 `class_def.superclass.is_some()`, look up the superclass's compiled `ClassObject.methods` (§2
 precondition) for `SignatureKind::Initializer(_)` entries:
 - **Exactly one** → `decode_selector` its selector to get the label list; synthesized params are
@@ -276,14 +280,16 @@ with a real `Signature`.
 - **`construct.super_ambiguous` needs a *real* ambiguous case to test against**, which requires
   the language to already support two differently-labeled `construct` selectors on one class —
   confirmed possible (`ConstructDef.name` is parser-free-form via `parse_method_name`, so
-  `construct new(x:)` and `construct new(x:,y:)` — wait, same base name `new` with different
+  `@constructor
+new(x:)` and `construct new(x:,y:)` — wait, same base name `new` with different
   labels *does* produce different encoded selectors already (`SignatureKind::Initializer(arity)`
   + labels are part of `encode_selector`'s input) — confirm two same-named-different-arity/label
   constructors don't collide with the **bare-allocator alias** (`has_new_construct`, keyed by
   class only, not selector) before relying on this as the ambiguous-superclass test fixture; if
   `has_new_construct`'s guard logic assumes at most one `"new"`-named constructor per class in
   some other code path, the test fixture needs a *second, differently-named* `construct` (e.g.
-  `construct new(x:)` + `construct fromPair(a:,b:)`) instead — **verify against HEAD's actual
+  `@constructor
+new(x:)` + `construct fromPair(a:,b:)`) instead — **verify against HEAD's actual
   `has_new_construct` consumer (the ctor-inherit guard, per the `ctor-inherit-guard-fix` prior
   session) before writing this golden**, do not assume.
 - **`@variant`'s sibling-statement generation is the one place this tier's `generate` phase

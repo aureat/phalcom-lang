@@ -28,7 +28,7 @@ import_decl    := "import" IDENT
                  | "import" IDENT { "," IDENT } "from" IDENT
                  | "import" IDENT "as" IDENT
 
-class_decl     := "class" IDENT [ "extends" IDENT ] "{" { member } "}"
+class_decl     := "class" IDENT [ "is" IDENT ] "{" { member } "}"
 member         := { attribute } member_body
 attribute      := "@" IDENT [ "(" [ arg { "," arg } ] ")" ]
 member_body    := setter_def | method_def | getter_def | field_init
@@ -179,14 +179,14 @@ block_comment  := "/*" { any_char } "*/"
 (* EOF is a terminal with no further decomposition *)
 
 (* reserved words recognized in the position postfix expects a message/
-   property name (e.g. `.self`, `.and`); "extends", "try", "catch", "on",
-   "ensure" are contextual keywords, only reserved in class/try position;
+   property name (e.g. `.self`, `.and`); "try", "catch", "on",
+   "ensure" are contextual keywords, only reserved in try position;
    "fn" is reserved-inactive, not currently a keyword *)
 keyword        := "let" | "const" | "class"
                  | "self" | "super" | "if" | "else" | "while" | "for" | "in"
                  | "break" | "continue" | "return" | "and" | "or" | "not" | "is"
                  | "true" | "false" | "import" | "as" | "throw"
-                 | "extends" | "try" | "catch" | "on" | "ensure"
+                 | "try" | "catch" | "on" | "ensure"
 
 (* punctuation / operators, used directly as literals above; listed here for
    reference only — not a nonterminal:

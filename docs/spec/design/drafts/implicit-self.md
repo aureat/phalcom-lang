@@ -150,7 +150,8 @@ Both are lints, off the hard-error path, so dynamic idioms (DNU, mixins, runtime
 class Account {
   var _balance
 
-  construct new(balance:) { _balance = balance }
+  @constructor
+  new(balance:) { _balance = balance }
 
   withdraw(amount) {
     ensureOpen()                    // -> self.ensureOpen()  (no local `ensureOpen`)

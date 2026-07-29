@@ -209,7 +209,7 @@ class Shape {
     static Shape make() { return new Shape(defaultColor()); }
 }
 
-class Circle extends Shape {
+class Circle is Shape {
     static String defaultColor() { return "red"; }  // hides Shape's, does not override it
 }
 

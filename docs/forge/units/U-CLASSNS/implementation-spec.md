@@ -286,7 +286,7 @@ before touching a key.**
 
 ### 4.1 The hazard
 
-A user module writes `class Sub extends List`. `List` is a kernel class owned by the core module.
+A user module writes `class Sub is List`. `List` is a kernel class owned by the core module.
 Four sites in `class_decl.rs` read the class tables by name, and **they do not all mean the same
 name**:
 
@@ -327,7 +327,7 @@ Two facts make own-module-then-core the **complete** resolution space, not a heu
 
 1. **A superclass can only ever be a bare identifier.** `SuperclassRef { name: String, range }`
    (`phalcom-ast/src/ast.rs:185-190`), parsed by a single `expect_identifier`
-   (`parser.rs:911-914`). `class Sub extends P.Point` is a **parse error** today ("expected
+   (`parser.rs:911-914`). `class Sub is P.Point` is a **parse error** today ("expected
    `{`"). There is no qualified form to resolve.
 2. **The compiler performs no binding resolution at all.** `expr.rs:242-251`: not-a-local,
    not-an-upvalue ⇒ emit `GetGlobal` unconditionally, without ever checking whether the global
@@ -583,9 +583,10 @@ subclassing a **kernel** class, where the subclass declares its own fields and r
 and an inherited one:
 
 ```phalcom
-class Sub extends List {
+class Sub is List {
   _tag
-  construct new(t) { _tag = t }
+  @constructor
+  new(t) { _tag = t }
   tag => _tag
 }
 ```
@@ -595,10 +596,10 @@ and the read returns the wrong value **with no error anywhere**. Assert the fiel
 that it compiles.
 
 > **Use `List`, not `Option`.** `Option` is registered `@sealed` to the core module at bootstrap
-> (`bootstrap.rs:221-225`), so `class Sub extends Option` is *already* rejected today —
+> (`bootstrap.rs:221-225`), so `class Sub is Option` is *already* rejected today —
 > `attr.sealed_violation: 'Sub' extends '@sealed' class 'Option', but was not declared in the
 > same compilation unit`. A fixture built on it would pass for the wrong reason and prove
-> nothing. `class Sub extends List` compiles and runs at HEAD; verified 2026-07-19.
+> nothing. `class Sub is List` compiles and runs at HEAD; verified 2026-07-19.
 
 **Rust-level invariants** (`tests/invariants.rs`):
 
@@ -671,7 +672,7 @@ Error fixtures go in the **negative** subdir or the suite reddens.
    with a different risk profile.
 
 3. **`Option` cannot be used in any subclassing fixture** (§11). It is `@sealed` to core, so
-   `class Sub extends Option` already errors at HEAD for an unrelated reason. Every doc that
+   `class Sub is Option` already errors at HEAD for an unrelated reason. Every doc that
    reaches for a kernel-subclassing example should use `List`. Worth knowing before writing unit
    B's reserved-name fixtures too.
 

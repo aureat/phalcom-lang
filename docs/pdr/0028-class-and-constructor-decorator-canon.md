@@ -37,7 +37,8 @@ failure.
 6. Legacy forms remain parseable during migration and produce non-fatal hints:
 
    ```text
-   construct new(...) { ... }  → did you mean @constructor?
+   @constructor
+   new(...) { ... }  → did you mean @constructor?
    static foo(...) { ... }      → did you mean @class?
    static _field = ...          → did you mean @class?
    class foo(...) { ... }       → did you mean @class?

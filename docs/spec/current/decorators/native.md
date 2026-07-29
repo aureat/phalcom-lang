@@ -94,7 +94,8 @@ ADR-0022's CB-1 amendment.)
 it.** `ConstructDef` carries no `attributes` field at all (`phalcom-ast/src/ast.rs`
 L321-331), and `Parser::attach_attrs` raises `attr.dangling: attributes cannot be
 attached to a constructor` (`phalcom-ast/src/parser.rs` L1113) before the compiler
-runs. So `@native construct init(…)` fails at *parse* time and never reaches
+runs. So `@native@constructor
+ init(…)` fails at *parse* time and never reaches
 `legal_targets()` — the row is unreachable, not merely untested. It is kept because
 it mirrors `@requires`/`@ensures`'s lists and becomes live for free if
 `ConstructDef` ever grows attributes; it is **not** a claim that the form works

@@ -67,7 +67,7 @@ extra statement-level syntax.
 ## 5. Class declarations
 
 ```
-class_decl  := "class" IDENT [ "extends" IDENT ] "{" { member } "}"
+class_decl  := "class" IDENT [ "is" IDENT ] "{" { member } "}"
 
 member      := { attribute } member_body
 attribute   := "@" IDENT [ "(" [ arg_list_body ] ")" ]
@@ -90,7 +90,7 @@ method_body    := "=>" expr | block
 ```
 
 ```phalcom
-class Point extends Shape {
+class Point is Shape {
   @constructor
   new(x:, y:) { _x = x; _y = y }
 
@@ -104,7 +104,7 @@ class Point extends Shape {
 }
 ```
 
-`extends` is a **contextual keyword**, valid only in the class header; when
+`is` specifies single superclass inheritance in the class header (`class Sub is Super`); when
 absent, the superclass defaults to `Object`
 ([Object Model §5](../object-model.md#5)). Single inheritance only; a class
 naming itself or a supertype ancestor (a cycle) as its own superclass is

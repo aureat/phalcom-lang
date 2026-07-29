@@ -18,7 +18,8 @@ slot mechanism one level up the tower so class objects get their own **stored st
 - **`construct`** is a class-side initializer keyword. Multiple constructors are distinguished
   by **selector** (`new(name:age:)` vs `new(name:)` are two distinct initializers dispatched
   by arity/labels) — no default args, no arity coercion. A `construct` body implicitly
-  `return self`. A class declaring `construct new(...)` has **no** user-visible bare
+  `return self`. A class declaring `@constructor
+new(...)` has **no** user-visible bare
   allocator; a mismatched-arity `new(...)` is a compile error.
 - **`static _count = 0`** declares mutable per-class state stored on the class object, shared
   across all instances (not per-instance).
@@ -27,7 +28,8 @@ slot mechanism one level up the tower so class objects get their own **stored st
 ```phalcom
 class Counter {
   static _count = 0
-  construct new() { _count = _count + 1 }
+  @constructor
+  new() { _count = _count + 1 }
   count => _count
 }
 Counter.new()
@@ -55,7 +57,8 @@ System.print(Counter._count)   // → 2  (shared class state)
   alloc opcode. `disasm.rs` label text updated to slot semantics.
 - **`vm.rs`** — executes slot-indexed field ops (an out-of-range/unwritten slot reads
   `Value::Nil`, surfaced to `None` via U6's helper — the sentinel never leaks); executes
-  `construct`/alloc. **Constructor-dispatch fix:** `construct new()` installs under the
+  `construct`/alloc. **Constructor-dispatch fix:** `@constructor
+new()` installs under the
   `Initializer` selector (`"init new()"`), but the call-site compiler for `Counter.new()`
   always encoded `SignatureKind::Method` (`"new()"`), silently resolving to the inherited
   `Object::new` bare-allocation primitive. A compile-time `VM.constructor_aliases:

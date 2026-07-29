@@ -79,7 +79,7 @@ There is **no prefix `!`**. General boolean negation is `not x`; inequality stay
 > `3 is! Int` example assumes a `Number`/`Int` split that does not exist in this
 > codebase — numeric literals are direct `Number` instances (there is no separate
 > `Int` class over the floor yet), so `3.class == Number` and `3 is! Number` is
-> **`true`**, not `false`. The mechanism is unaffected; the `Dog extends Animal` /
+> **`true`**, not `false`. The mechanism is unaffected; the `Dog is Animal` /
 > `Point is Class` examples are unchanged and are what the golden corpus pins.
 
 ### Grammar & lexing
@@ -154,7 +154,7 @@ metaclass, [object-model.md](../object-model.md)):
 3 is not Number        // false — negation of kind-of (3 IS a kind-of Number)
 3 is! not Number       // true  — 3 is not *exactly* a Number
 
-class Dog extends Animal {}
+class Dog is Animal {}
 let d = Dog.new
 d is Animal            // true  — kind-of
 d is! Animal           // false — exact class is Dog, not Animal

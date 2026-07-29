@@ -46,7 +46,8 @@ instance and class sides are ordinary metaclass methods (ADR-0030 §Consequences
 
 | Signature | Side | Meaning |
 |---|---|---|
-| `construct new(_)` | class | wrap a [`Function`](../../../spec/current/functions.md) as a not-yet-started (`suspended`) fiber |
+| `@constructor
+new(_)` | class | wrap a [`Function`](../../../spec/current/functions.md) as a not-yet-started (`suspended`) fiber |
 | `call` / `call(_)` | instance | resume; the argument becomes the value of the suspended `yield` (or the entry's parameter on first resume). Returns the next yielded/returned value. **Re-raises** if the fiber fails. |
 | `try` / `try(_)` | instance | like `call`, but a failure yields the captured `Error` value (or `None`) instead of propagating |
 | `isDone` | instance | `true` once `done` or `failed` |

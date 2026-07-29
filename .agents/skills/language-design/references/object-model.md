@@ -68,7 +68,7 @@
 | Traits (stateless, conflict-explicit) | Self-traits, Rust, PHP, Pharo traits | Composition requires manual conflict resolution; no implicit override. |
 | Interfaces w/ default methods | Java 8+, Kotlin | Diamond returns for defaults; compiler forces explicit override to break tie. |
 
-**Syntax.** Java `class C extends B implements I` · Ruby `include M` · Rust `impl Trait for C` · Scala `class C extends B with T` · C++ `class C: public A, public B`.
+**Syntax.** Java `class C is B implements I` · Ruby `include M` · Rust `impl Trait for C` · Scala `class C is B with T` · C++ `class C: public A, public B`.
 **Impl.** Single = parent pointer; MI = C3 or virtual-base offset tables; mixin = module spliced into linearization; trait = compile-time flatten with explicit conflict check.
 
 **Hazard — default methods ⊗ diamond.** Two interfaces supplying the same default method reintroduce the diamond the "interfaces-only" model was meant to avoid; caller must override to disambiguate. → overlay

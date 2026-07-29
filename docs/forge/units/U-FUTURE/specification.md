@@ -68,8 +68,10 @@ concurrency primitive stays singular (ADR-0030).
 
 | Signature | Side | Meaning | Needs scheduler? |
 |---|---|---|---|
-| `construct value(_)` | class | an already-`fulfilled` future | no |
-| `construct error(_)` | class | an already-`rejected` future | no |
+| `@constructor
+value(_)` | class | an already-`fulfilled` future | no |
+| `@constructor
+error(_)` | class | an already-`rejected` future | no |
 | `async(_)` | class | run a `Function` on a fresh fiber, returning a future for its result | **yes** |
 | `await` | instance | suspend the current fiber until settled; return the value or re-raise the error | **yes** |
 | `then(_)` | instance | register a continuation; returns a future for the continuation's result | **yes** |

@@ -23,7 +23,7 @@ flags. Promote to `docs/adr/` + `docs/spec/` on ratification.
 | [equality-and-hash.md](equality-and-hash.md) | untracked — `==`/`hash` ladder, NaN keys, mutable keys | Proposed |
 | [numeric-and-string-indexing.md](numeric-and-string-indexing.md) | untracked — integral indices, bitwise, codepoint strings | Proposed |
 | [fiber-ensure-and-limits.md](fiber-ensure-and-limits.md) | untracked — dropped-fiber `ensure`, stack/alloc caps | Proposed |
-| [typing.md](typing.md) | untracked — optional/structural/erasable type layer (design note) | Experimental |
+| [typing.md](spec/design/experimental/typing.md) | untracked — optional/structural/erasable type layer (design note) | Experimental |
 | [typing-initialization.md](typing-initialization.md) | typing.md #1 — typed field/`var` init vs "unassigned ⇒ `None`" | Proposed |
 | [typing-subtyping.md](typing-subtyping.md) | typing.md #2/#3 — conformance termination + override/Liskov | Proposed |
 | [typing-inference.md](typing-inference.md) | typing.md #4/#7 — local type-arg inference + default return | Proposed |

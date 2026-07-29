@@ -2,12 +2,12 @@
 
 - Status: **Proposed** (experimental; not ratified) · **soundness teeth**
 - Axis: typing ⊗ absence ⊗ bindings
-- Resolves: [typing.md](typing.md) Tier-1 gap #1 (typed init vs "unassigned reads as `None`")
+- Resolves: [typing.md](spec/design/experimental/typing.md) Tier-1 gap #1 (typed init vs "unassigned reads as `None`")
 - Related: [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) (Option/None), [ADR-0014](../../../adr/0014-let-and-var-bindings.md) (`let`/`var`), [classes.md](../classes.md) (fields, read-before-write), [values-and-absence.md §3](../values-and-absence.md)
 
 ## Problem
 
-[typing.md](typing.md) never types fields or local bindings, and that silence
+[typing.md](spec/design/experimental/typing.md) never types fields or local bindings, and that silence
 collides with three committed behaviors:
 
 1. **`var x` with no initializer reads as `None`** ([ADR-0014](../../../adr/0014-let-and-var-bindings.md)).
@@ -16,12 +16,12 @@ collides with three committed behaviors:
 
 A typed `var x: Int` (no init) would then have static type `Int` but runtime value
 `None` — the annotation *lies*, which violates the erasure invariant **E**
-([typing.md §5.2](typing.md)): stripping the annotation must not change behavior, but
+([typing.md §5.2](spec/design/experimental/typing.md)): stripping the annotation must not change behavior, but
 here the annotation is already inconsistent with behavior. The same clash hits a
 non-`Option` field `_age: Int` left unassigned.
 
 The doc also conflates two different analyses under "no flow analysis"
-([typing.md §5.12](typing.md)) — see §Clarification.
+([typing.md §5.12](spec/design/experimental/typing.md)) — see §Clarification.
 
 ## Decision
 
@@ -39,7 +39,7 @@ obligation:
   typing adds no new machinery, only a reason.
 - A field legitimately absent-able is typed `Option<T>`. Then unassigned reads as
   `None : Option<Nothing> <: Option<T>` — **consistent**, because `Nothing` is the
-  bottom type and `Option` is covariant ([typing.md §5.4.1](typing.md)).
+  bottom type and `Option` is covariant ([typing.md §5.4.1](spec/design/experimental/typing.md)).
 
 So the "unassigned field is `None`" behavior is *sound precisely for `Option`-typed
 fields* and *rejected for others by a rule that already exists*.
@@ -59,7 +59,7 @@ An author who wants absence writes it: `var x: Option<Int> = None`.
 
 ### Clarification — definite assignment ≠ flow typing
 
-[typing.md §5.12](typing.md)'s "no flow analysis" means **no type narrowing** (no
+[typing.md §5.12](spec/design/experimental/typing.md)'s "no flow analysis" means **no type narrowing** (no
 `if (x is T)` refining `x`'s type). **Definite assignment** — a boolean
 assigned-before-use analysis, already required by read-before-write — is a *separate*
 thing and **is** permitted. The two must not be conflated: the type system rejects
@@ -73,7 +73,7 @@ unions-without-narrowing, but still tracks whether a slot has been written.
 | `_age: Option<Int>`, never assigned | Reads `None`; sound (§Fields). |
 | `var x: Int` no init | Compile error: "a typed `var` must be initialized; use `Option<Int>` for absence." |
 | `var x` no init (un-annotated) | `None`, today's behavior; unchanged. |
-| `self` escaping `construct` before all fields assigned | **Known limitation** — a partially-initialized `self` can defeat field-type soundness (Swift's two-phase-init problem). Deferred; flagged in [typing.md §11](typing.md) T-follow-up. |
+| `self` escaping `construct` before all fields assigned | **Known limitation** — a partially-initialized `self` can defeat field-type soundness (Swift's two-phase-init problem). Deferred; flagged in [typing.md §11](spec/design/experimental/typing.md) T-follow-up. |
 
 ## Precludes
 

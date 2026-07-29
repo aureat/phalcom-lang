@@ -129,7 +129,7 @@ this is real signal, not a guess.
   + `frozen: bool`.
 - **`core.ph` layout for insertion:** `Object` at line 1, `Class` at 36, `Metaclass`
   at 38, `Function` at 286, no existing `Method` class, `System` at 760, tail ends
-  ~969 (`Backoff`, just added). Add `class Attribute {}`, `class On extends Attribute {}`
+  ~969 (`Backoff`, just added). Add `class Attribute {}`, `class On is Attribute {}`
   (minimal/passive for now), a `Tier` value class + 5 singleton instances
   (`Compile`/`Layout`/`Install`/`Dispatch`/`Runtime`), and `Behavior`/`Method` reopen
   blocks for `attributes`/`attributesOfType(_)`. Reopen-with-fields on a bootstrap

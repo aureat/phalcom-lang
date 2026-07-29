@@ -101,8 +101,10 @@ Spec names are authoritative (`concurrency.md §2`). `resolve`/`reject` in the t
 
 | Signature | Side | Slice | Notes |
 |---|---|---|---|
-| `construct value(_)` | class | **A (v1, `.ph`)** | already-`fulfilled` future |
-| `construct error(_)` | class | **A (v1, `.ph`)** | already-`rejected` future |
+| `@constructor
+value(_)` | class | **A (v1, `.ph`)** | already-`fulfilled` future |
+| `@constructor
+error(_)` | class | **A (v1, `.ph`)** | already-`rejected` future |
 | `isReady` | instance | **A (v1, `.ph`)** | `true` once settled; never suspends |
 | `value` | instance | **A (v1, `.ph`)** | `Some(v)` if fulfilled else `None`; never suspends |
 | `then(_)` / `map(_)` / `catch(_)` | instance | **A (v1, `.ph`) — settled-only** | on an already-settled receiver, fire synchronously and return a settled future. On a `pending` receiver they **register a continuation** — which can only ever fire in Slice B, so v1 documents "pending continuations require the scheduler (Slice B)". |

@@ -28,7 +28,8 @@ of a `let` is a compile error. On a *field* that is simply not true. Measured:
 ```phalcom
 class K {
   let _n
-  construct new(n) { _n = n }
+  @constructor
+  new(n) { _n = n }
   clobber(v) { _n = v }      // second write, different method
   n => _n
 }

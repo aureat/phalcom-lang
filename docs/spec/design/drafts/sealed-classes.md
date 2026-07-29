@@ -131,7 +131,7 @@ Full fixture inventory (`grep -rln "@sealed\|@variant" phalcom-core/tests/`):
 |---|---|---|
 | `errors/annotation_variant_visitor_exhaustive.ph` | positive | expansion + visitor + `@data` `toString` |
 | `compile-errors/annotation_variant_requires_sealed.ph` | negative | `@variant` without `@sealed` |
-| `compile-errors/absence_option_sealed_violation.ph` | negative | `class MyOpt extends Option {}` |
+| `compile-errors/absence_option_sealed_violation.ph` | negative | `class MyOpt is Option {}` |
 | `compile-errors/absence_some_sealed_violation.ph` | negative | ditto, `Some` |
 | `compile-errors/absence_none_sealed_violation.ph` | negative | ditto, `None` |
 
@@ -243,7 +243,7 @@ it is right, structurally. This is the Church / Böhm–Berarducci encoding: a s
 sealing compose that way.
 
 **What sealing contributes is narrow and precise:** it keeps the variant set equal to the
-eliminator's label set. Without it, `class Triangle extends Shape {}` would be a `Shape`
+eliminator's label set. Without it, `class Triangle is Shape {}` would be a `Shape`
 for which `match(circle:, rect:)` has no arm — the eliminator silently partial.
 
 ### 3.2 So what would a `match` construct add?

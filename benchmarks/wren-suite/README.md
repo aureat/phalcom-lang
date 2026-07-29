@@ -81,7 +81,8 @@ against Wren, per-row slowdown), or run a single row by name.
 - **`System.clock` unimplemented** (pending fixture) — timing done via shell
   `time`, not in-language; every `elapsed:` print line is dropped.
 - **No `System.gc()`** — dropped from `binary_trees_gc.ph` (see caveat above).
-- Everything else — `_field` instance vars, `construct new(...)`, getters
+- Everything else — `_field` instance vars, `@constructor
+new(...)`, getters
   (`value => _state` / `value { _state }`), setters (`name=(value) { }`),
   `super.propName` (no-paren super property read), closures, `Fiber.new{}`/
   `.call()`, `while`, string `+` concat, `List.new().add(...)`, `Map`'s

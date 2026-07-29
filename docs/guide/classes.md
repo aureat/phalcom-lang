@@ -18,7 +18,7 @@ class Person {
   name => _name
 }
 
-class Employee extends Person {
+class Employee is Person {
   @constructor
   new(name:, age:, title:) {
     super.new(name: name, age: age)
@@ -165,7 +165,7 @@ class, not the receiver's runtime class — so a chain of overrides can each cal
 up one level without knowing how deep the hierarchy actually goes:
 
 ```phalcom
-class Employee extends Person {
+class Employee is Person {
   @constructor
   new(name:, age:, title:) {
     super.new(name: name, age: age)   // Person's constructor

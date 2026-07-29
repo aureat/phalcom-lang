@@ -108,9 +108,10 @@ Error: Read-before-write: field '_x' is used before being assigned anywhere in t
 Its implied remedy is "assign `_x` in this class." Follow it and you get a second slot:
 
 ```phalcom
-class Base    { construct new(x) { _x = x }        baseSees    => _x }
-class Derived extends Base {
-  construct new(x) { super.new(x); _x = 999 }      derivedSees => _x }
+class Base    {@constructor new(x) { _x = x }        baseSees    => _x }
+class Derived is Base {
+  @constructor
+  new(x) { super.new(x); _x = 999 }      derivedSees => _x }
 ```
 ```
 Base sees:    7

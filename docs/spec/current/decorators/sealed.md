@@ -26,7 +26,7 @@ enclosing `@sealed` is a compile error (L1277-1282).
   @variant Circle(r)
   @variant Rect(w, h)
 }
-// -> sibling top-level `class Circle extends Shape` (carrying @data), likewise Rect
+// -> sibling top-level `class Circle is Shape` (carrying @data), likewise Rect
 // -> Shape#match(circle:, rect:)  — the generated visitor
 ```
 
@@ -40,7 +40,7 @@ As built:
   `expand_variants` returns `Vec<Statement>` and `expand_class_attributes`'s return
   type widened to `(ClassDef, Vec<Statement>)` (DEC-ANNOT-G) to carry them. The
   caller compiles each sibling immediately after the enclosing class. Each generated
-  variant `extends` the sealed class and carries `@data` (L1332), so it gets the
+  variant `is` the sealed class and carries `@data` (L1332), so it gets the
   record protocol for free.
 - **Exhaustiveness is free, not checked.** The generated `match(k1:, k2:, ...)` takes
   one keyword per variant, in declaration order, and double-dispatches to each
@@ -65,11 +65,11 @@ As built:
   decorator's advertised purpose, and today it does nothing for user code — verified
   2026-07-15 (DEFERRED CB-3 / [drafts/sealed-classes.md](../drafts/sealed-classes.md) S-2).
   `attr.sealed_violation` cannot fire for a user class on two independent grounds:
-  1. **Ordering.** `extends` resolves its superclass at *compile* time; `import` binds the
+  1. **Ordering.** `is` resolves its superclass at *compile* time; `import` binds the
      module at *runtime*. Give an imported module a `System.print` side effect and it never
      runs — the `Unknown superclass` error fires first. An imported class cannot be a
      superclass at all, sealed or not.
-  2. **Naming.** `extends S.Shape` does not parse (`extends` takes a bare identifier, not a
+  2. **Naming.** `is S.Shape` does not parse (`is` takes a bare identifier, not a
      member access), and [ADR-0045](../../../adr/accepted/0045-module-import-relative-path-whole-module-binding.md)'s
      whole-module binding leaks no globals.
 

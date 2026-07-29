@@ -60,7 +60,7 @@ workers skip cancelled-but-queued jobs. Settlement never moves to Rust; the
 - `cancel()` exactly as [`../stdlib/cancellation.md`](../../spec/current/stdlib/cancellation.md) §3 —
   release **before** `settleError`, flag after; order is normative there, copy it.
 - `isCancelled => _cancelled`.
-- `class CancelledError extends Error` — pure `.ph`, message names the wait it ended;
+- `class CancelledError is Error` — pure `.ph`, message names the wait it ended;
   gains `kind: #cancelled` when T3/T6 land, nothing migrates (the U-RESOURCE §2.4
   posture).
 - Rustdoc/comment sweep: `settleValue`'s settle-once comment gains one line naming the

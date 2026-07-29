@@ -73,10 +73,11 @@ slot, so no Layout, so user-authorable.
 
 ```phalcom
 @On(Method, tier: Install)
-class Memoize extends Attribute {
+class Memoize is Attribute {
   var _cache
   var _max                                     // None = unbounded; Some(n) = LRU bound
-  construct new(max: None) { _cache = Map.new(); _max = max }
+  @constructor
+  new(max: None) { _cache = Map.new(); _max = max }
 
   wrap(m) {
     return Method.fromBlock { args =>
@@ -145,7 +146,7 @@ confirms per-receiver state is Layout-only). `tier: Layout` is compiler-reserved
 ```phalcom
 // BUILTIN — Layout is compiler-owned; shown for semantics, not as user source.
 @On(Getter, tier: Layout)
-class Lazy extends Attribute {
+class Lazy is Attribute {
   finalizeLayout(field) { field.reserveSlot(#__lazy) }   // one reserved slot per receiver
 
   wrap(getter) {
@@ -215,7 +216,7 @@ placement as `@lazy` and per-[ADR-0052](../../../adr/accepted/0052-invariant-ree
 ```phalcom
 // BUILTIN — Layout. Per-receiver cooperative monitor.
 @On(Method, tier: Layout)
-class Synchronized extends Attribute {
+class Synchronized is Attribute {
   finalizeLayout(method) { method.owner.reserveSlot(#__monitor) }   // one monitor per receiver
 
   wrap(m) {
@@ -255,9 +256,10 @@ example (which is the class-wide form under its old name):
 
 ```phalcom
 @On(Method, tier: Install)
-class SynchronizedClassWide extends Attribute {
+class SynchronizedClassWide is Attribute {
   var _mon
-  construct new() { _mon = Monitor.new() }     // ONE monitor, shared by all receivers
+  @constructor
+  new() { _mon = Monitor.new() }     // ONE monitor, shared by all receivers
   wrap(m) { return Method.fromBlock { args => _mon.enter { m.invokeOn(self, args) } } }
 }
 ```
@@ -276,11 +278,12 @@ user-authorable; the stateless row of the scope table.
 
 ```phalcom
 @On(Method, tier: Install)
-class Retry extends Attribute {
+class Retry is Attribute {
   var _times
   var _on                                        // retryable Error type; default Error (all)
   var _backoff                                   // Backoff strategy; default Backoff.none
-  construct new(times:, on: Error, backoff: Backoff.none) {
+  @constructor
+  new(times:, on: Error, backoff: Backoff.none) {
     _times = times; _on = on; _backoff = backoff
   }
 

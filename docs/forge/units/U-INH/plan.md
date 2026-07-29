@@ -21,7 +21,7 @@ dispatch). **New governing ADR required** for the `SuperSend` opcode — see DEC
 ---
 
 ## 1. Mission (one sentence)
-Make single inheritance real end-to-end — the **`class Dog extends Animal { }`** surface (object-model
+Make single inheritance real end-to-end — the **`class Dog is Animal { }`** surface (object-model
 §5.1), the compiler/runtime wiring so a user class's `superclass` **and** its parallel metaclass
 superclass are set per **ADR-0002 rule 4**, and **`super.sel(…)`** sends via a new **`SuperSend`** opcode
 that starts method lookup at the *superclass of the defining class* with the original receiver
@@ -62,7 +62,7 @@ tower's already-green parallel-metaclass invariant.
 
 ## 3. Design (realise the spec — semantics are specified; do not re-litigate)
 
-### 3.1 Surface syntax — `class Name extends Super { … }` (object-model §5.1)
+### 3.1 Surface syntax — `class Name is Super { … }` (object-model §5.1)
 - `extends` is a **contextual keyword** recognised only in the `class` header position (DEC-INH-A), so it
   does not reserve `extends` as an identifier elsewhere. Grammar: `class` IDENT (`extends` IDENT)? `{` … `}`.
 - `ClassDef` gains `superclass: Option<SuperclassRef>` where `SuperclassRef { name: String, range }`
@@ -73,7 +73,7 @@ tower's already-green parallel-metaclass invariant.
 - Compiler: when `ClassDef.superclass` is `Some(name)`, resolve `name` to its class value and push **that**
   (not `Object`) before `emit(Class(name_idx))`. `None` keeps the current `Object` push. **No VM change to
   the pop side** — vm.rs:963 already reads the superclass and guards non-class with `InvalidSuperClass`.
-- **Cycle / self-inheritance** (`class A extends A`, or a chain that loops): reject at class-creation with a
+- **Cycle / self-inheritance** (`class A is A`, or a chain that loops): reject at class-creation with a
   clear diagnostic (span on the `extends` clause). A cycle would make method lookup non-terminating —
   non-negotiable guard.
 
@@ -101,7 +101,8 @@ a new user-class invariant must assert the same rule for a compiled `extends`.
 - **`super` outside any method** (top-level, or a bare `super` with no send) is a **compile error** with a
   clear span (there is no defining class to anchor the walk). Bare `super` no longer silently emits `Nil`.
 
-### 3.5 super-construct chaining (all-in-one scope)
+### 3.5 super-@constructor
+chaining (all-in-one scope)
 `super.construct(…)` (or the constructor selector form on HEAD) uses the **same `SuperSend`** mechanism to
 invoke the superclass constructor on the *same* instance, so the subclass constructor can initialise
 inherited state before its own. Chaining is **explicit** (DEC-INH-C — no implicit auto-chain), matching the
@@ -122,7 +123,7 @@ the parent's slots, never alias the child's. Verify the `construct` selector's e
   `superclass=` (U13) / override-epoch bump (ADR-0018) **invalidates** any SuperSend cache the same way it
   invalidates `Invoke`. Coordinate the seam with U15/U16 — **flag, don't silently diverge**.
 - **Parallel-metaclass must not regress the native tower.** invariants.rs:214 stays green; add a *user-class*
-  analogue (`class B extends A` ⇒ `B.class.superclass == A.class`). A regression here silently breaks
+  analogue (`class B is A` ⇒ `B.class.superclass == A.class`). A regression here silently breaks
   `static`/`construct` inheritance — the exact bug object-model §5 warns about.
 - **Method-lookup termination.** Cycle guard (§3.2) is mandatory; without it `super`/lookup can loop forever.
 - **`super` miss = `MessageNotUnderstood`, not panic** (§3.4) — pin a negative golden.
@@ -140,7 +141,7 @@ the parent's slots, never alias the child's. Verify the `construct` selector's e
 | `phalcom-ast/src/token.rs` | `extends` contextual keyword (DEC-INH-A) | surface |
 | `phalcom-ast/src/lexer.rs` | recognise it in the class-header position | surface |
 | `phalcom-ast/src/ast.rs` | `ClassDef.superclass: Option<SuperclassRef>` (+ the struct), full rustdoc | surface |
-| `phalcom-ast/src/parser.rs` | parse `class N extends S { … }`; confirm `super.m(a)` already parses as a send over `SuperVar` (no change if so) | surface |
+| `phalcom-ast/src/parser.rs` | parse `class N is S { … }`; confirm `super.m(a)` already parses as a send over `SuperVar` (no change if so) | surface |
 | `phalcom-core/src/bytecode.rs` **(SPINE)** | new `SuperSend(u8, u16, u16)` opcode | vm |
 | `phalcom-core/src/bin/phalcom/disasm.rs` | disassemble `SuperSend` | vm |
 | `phalcom-core/src/compiler/lib.rs` **(SPINE — reviewer ON)** | push named superclass (§3.2); `SuperVar`-receiver send ⇒ `SuperSend` (§3.4); bare/`top-level` super ⇒ compile error; super-construct (§3.5); cycle guard | compiler |
@@ -174,7 +175,7 @@ concurrent-session hazard) — roster update is a follow-up docs pass (return co
 1. **Surface** — `extends` token + lexer + `ClassDef.superclass` + parser; parse-only/AST goldens. Green.
    *(collides only in `phalcom-ast`.)*
 2. **Superclass wiring** — compiler pushes named superclass; cycle guard; runtime already consumes it.
-   Golden: `class B extends A` ⇒ `B.superclass == A`, an inherited instance method resolves on a `B`. Green.
+   Golden: `class B is A` ⇒ `B.superclass == A`, an inherited instance method resolves on a `B`. Green.
 3. **Parallel metaclass** — set `B.class.superclass = A.class` in the creation path; new user-class invariant
    + native-tower invariant both green; golden: an inherited `static`/`construct` resolves on `B`. Green.
 4. **`SuperSend`** — opcode + disasm + compiler lowering (`SuperVar` receiver ⇒ `SuperSend`, defining-class
@@ -194,7 +195,7 @@ Each step is a self-verifiable commit (commit-frequently: never leave the tree n
 - **Reviewer ON** (spine + object-model) — `phalcom-reviewer` gates the diff; the writer never self-approves.
 
 ## 7. Test strategy (the green gate must assert) — new `inheritance` label
-- **Superclass wiring (PASS):** `class B extends A` ⇒ `B.superclass == A`; a method defined on `A` resolves
+- **Superclass wiring (PASS):** `class B is A` ⇒ `B.superclass == A`; a method defined on `A` resolves
   on a `B` instance; an override on `B` wins over `A`.
 - **Parallel metaclass (INVARIANT):** user-class analogue of invariants.rs:214 — `B.class.superclass ==
   A.class`; a `static`/`construct` defined on `A` is reachable from `B`. Native-tower invariant still green.
@@ -204,7 +205,7 @@ Each step is a self-verifiable commit (commit-frequently: never leave the tree n
   `Invoke`.
 - **super-construct (PASS):** `B extends A` with `super.construct(…)` initialises `A`'s slots then `B`'s;
   same-named field in both ⇒ two distinct slots, no aliasing.
-- **NEGATIVES:** `class A extends A` (and a longer cycle) ⇒ compile/creation error; `super` at top level or
+- **NEGATIVES:** `class A is A` (and a longer cycle) ⇒ compile/creation error; `super` at top level or
   outside a method ⇒ compile error with span; `super.unknownSel` ⇒ surface `MessageNotUnderstood` (not panic).
 - **Regression:** full `verify_invariants()` + the golden `.ph` corpus stay green (no `Object`-root class
   behaves differently when `extends` is absent).

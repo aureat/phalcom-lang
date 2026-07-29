@@ -143,7 +143,8 @@ let n: Int = 0
 var xs: List<Int> = []
 
 class Point {
-  construct new(x: Int, y: Int) { _x = x; _y = y }
+  @constructor
+  new(x: Int, y: Int) { _x = x; _y = y }
 
   x: Int => _x
   dist(other: Point) -> Float { ... }

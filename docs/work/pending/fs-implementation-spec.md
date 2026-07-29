@@ -87,7 +87,7 @@ for IO outcomes — law 3's channel split).
 
 ### 2.6 `.ph` snapshot types — core.ph
 
-- `class IoError extends Error` with a `name` symbol-ish field (`#notFound`,
+- `class IoError is Error` with a `name` symbol-ish field (`#notFound`,
   `#permissionDenied`, `#alreadyExists`, mapped 1:1 from §2.1's table). The
   class-carries-kind pattern (U-RESOURCE §2.4); migrates to PDR-0010's `kind` when
   T3/T6 land, no surface change.

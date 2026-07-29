@@ -21,7 +21,7 @@ DECIMAL     := INT-TEXT-UNSIGNED [ "." DIGITS ] [ EXPONENT ]
 ```
 
 `INT-TEXT-UNSIGNED`, `DIGITS`, and `EXPONENT` use the literal separator rules in
-[numeric literals](../syntax/numeric-literals.md). `Int.new` accepts only `INT-TEXT`.
+[numeric literals](numeric-literals.md). `Int.new` accepts only `INT-TEXT`.
 `Float.new` accepts `FLOAT-TEXT`; `+Infinity` and signed NaN are rejected. Valid finite decimal
 text whose magnitude overflows binary64 becomes signed infinity. A malformed string raises
 `#numericText`, identifies `Int` or `Float`, and reports a zero-based byte offset within the

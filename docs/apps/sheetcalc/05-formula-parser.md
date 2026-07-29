@@ -73,7 +73,8 @@ import "./ast" as Ast
 import "../grid/ref" as Grid     // for Ref decoding once §6's Ast.RefLit reaches eval/ (06-ast-and-eval.md)
 
 class ParseError {
-  construct at(pos, message) {
+  @constructor
+  at(pos, message) {
     _pos = pos
     _message = message
   }
@@ -86,7 +87,8 @@ class ParseError {
 
 // A binding power plus its associativity, keyed by operator kind (§2).
 class BindingPower {
-  construct new(power, rightAssoc) {
+  @constructor
+  new(power, rightAssoc) {
     _power = power
     _rightAssoc = rightAssoc
   }
@@ -102,21 +104,21 @@ surface the parser needs):
 
 ```phalcom
 // parse/ast.ph
-class NumberLit { construct new(n) { _n = n }              n => _n }
-class TextLit    { construct new(s) { _s = s }              s => _s }
-class BoolLit    { construct new(b) { _b = b }              b => _b }
-class RefLit     { construct new(text) { _text = text }     text => _text }
-class RangeLit   { construct new(from, to) { _from = from; _to = to }
+class NumberLit {@constructor new(n) { _n = n }              n => _n }
+class TextLit    {@constructor new(s) { _s = s }              s => _s }
+class BoolLit    {@constructor new(b) { _b = b }              b => _b }
+class RefLit     {@constructor new(text) { _text = text }     text => _text }
+class RangeLit   {@constructor new(from, to) { _from = from; _to = to }
                     from => _from
                     to   => _to }
-class UnaryOp    { construct new(op, operand) { _op = op; _operand = operand }
+class UnaryOp    {@constructor new(op, operand) { _op = op; _operand = operand }
                     op      => _op
                     operand => _operand }
-class BinOp      { construct new(op, left, right) { _op = op; _left = left; _right = right }
+class BinOp      {@constructor new(op, left, right) { _op = op; _left = left; _right = right }
                     op    => _op
                     left  => _left
                     right => _right }
-class Call       { construct new(name, args) { _name = name; _args = args }
+class Call       {@constructor new(name, args) { _name = name; _args = args }
                     name => _name
                     args => _args }
 ```
@@ -126,7 +128,8 @@ class Call       { construct new(name, args) { _name = name; _args = args }
 ```phalcom
 // parse/parser.ph
 class Parser {
-  construct on(tokens) {
+  @constructor
+  on(tokens) {
     _toks = tokens
     _pos = 0
   }

@@ -86,7 +86,8 @@ class Reactive {
 
 ```phalcom
 class Signal {
-  construct new(value:) { _value = value; _observers = Set.new() }
+  @constructor
+  new(value:) { _value = value; _observers = Set.new() }
 
   value {                                        // tracked READ
     Reactive.current.ifSome { c => c.dependOn(self) }
@@ -107,7 +108,8 @@ class Signal {
 
 ```phalcom
 class Computed {
-  construct new(compute:) {
+  @constructor
+  new(compute:) {
     _compute = compute;  _sources = Set.new();  _observers = Set.new()
     _stale = true;  _value = None
   }
@@ -141,7 +143,8 @@ class Computed {
 
 ```phalcom
 class Effect {
-  construct new(run:) { _run = run; _sources = Set.new(); self.run }
+  @constructor
+  new(run:) { _run = run; _sources = Set.new(); self.run }
   dependOn(src)  { _sources.add(src); src.subscribe(self); return self }
   markStale(src) { Reactive.schedule(self); return self }      // effects are scheduled, not lazy
   run {

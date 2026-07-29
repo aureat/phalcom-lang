@@ -21,7 +21,8 @@ Two problems, one migration:
    none. Verified on HEAD:
    ```phalcom
    class K { let _n
-             construct new(n) { _n = n }
+             @constructor
+             new(n) { _n = n }
              clobber(v) { _n = v } }   // → 99, no error
    ```
 

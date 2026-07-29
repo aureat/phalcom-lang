@@ -28,7 +28,8 @@ import `grid/` for exactly that reason.
 class Token {
   // A structural token: operators, punctuation, EOF. No payload beyond the
   // raw lexeme.
-  construct new(kind, text, pos) {
+  @constructor
+  new(kind, text, pos) {
     _kind = kind
     _text = text
     _pos = pos
@@ -38,7 +39,8 @@ class Token {
   // A literal token: carries a decoded Phalcom value alongside the raw
   // lexeme — a Number for #number, a String for #text (post-unescape), a
   // Bool for #bool.
-  construct literal(kind, text, pos, value) {
+  @constructor
+  literal(kind, text, pos, value) {
     _kind = kind
     _text = text
     _pos = pos
@@ -83,7 +85,8 @@ refs) is a grammar question, not a lexical one.
 ```phalcom
 // lex/lexer.ph (co-located; small enough not to need its own file)
 class LexError {
-  construct at(pos, message) {
+  @constructor
+  at(pos, message) {
     _pos = pos
     _message = message
   }

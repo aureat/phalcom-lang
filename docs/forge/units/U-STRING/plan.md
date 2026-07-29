@@ -44,15 +44,19 @@ after ADR-0048 on HEAD) — the floor amendment for `String::rawByteCount`/`rawB
   resolved **(B)**) — so this unit spells construction as `ArgumentError.new("msg")`, **not**
   the spec-illustrative bare `ArgumentError("msg")` (error-handling.md §1's example is
   illustrative prose, not the landed call form — flag, don't "fix" the spec here).
-- **`class Error` is bootstrapped with `_message` at fixed slot 0** and ships `construct new()`
-  + `construct new(msg) { _message = msg }` (`core.ph` L23–44). **U-INH's inherited-constructor
+- **`class Error` is bootstrapped with `_message` at fixed slot 0** and ships `@constructor
+new()`
+  + `@constructor
+new(msg) { _message = msg }` (`core.ph` L23–44). **U-INH's inherited-constructor
   resolution is confirmed landed** (`docs/forge` memory: "inherited ctors DO resolve"), so a
   **field-less** `.ph` subclass of `Error` needs **no** `construct` of its own — `ArgumentError.new("msg")`
-  resolves to `Error`'s inherited `construct new(msg)`, which sets slot 0 correctly (ADR-0011:
+  resolves to `Error`'s inherited `@constructor
+new(msg)`, which sets slot 0 correctly (ADR-0011:
   a subclass with zero declared fields does not shift the parent's slot layout). **Confirm this
   with a golden in step 1** before relying on it elsewhere in the unit — if inherited-ctor
   resolution has a gap for this exact shape, fall back to the explicit pattern the `Error`
-  class's own doc-comment anticipated: `construct new(msg) { super.new(msg) }`.
+  class's own doc-comment anticipated: `@constructor
+new(msg) { super.new(msg) }`.
 - **`ArgumentError`/`RangeError`/`TypeError` are spec'd but NOT YET realized as classes**
   (confirmed: `object-model.md` L174–179 lists them in the `Error` catalog; `universe.rs`
   registers only `Error`/`MessageNotUnderstood`/`CannotYieldAcrossNativeFrame`; U-ERR's plan
@@ -191,13 +195,14 @@ mechanical.)*
 ```phalcom
 // Realizes the object-model.md §4 catalog row `ArgumentError < Error` — "Bad
 // argument value/arity." Zero fields, zero native code: the inherited
-// `Error.construct new(msg)` (core.ph L43) already gives `ArgumentError.new(msg)`
+// `Error.@constructor
+new(msg)` (core.ph L43) already gives `ArgumentError.new(msg)`
 // a working 1-arg constructor (U-INH inherited-ctor resolution, confirmed §0).
 // `TypeError`/`RangeError` are the spec's siblings but have NO call site in
 // this unit (no indexed `String#at(_)` yet — catalog-delta.md's own "indexing
 // → Option" gap, explicitly out of scope) — do not add them speculatively;
 // see §9 for why the next unit that DOES need them must reuse this pattern.
-class ArgumentError extends Error {}
+class ArgumentError is Error {}
 ```
 Every String argument guard in this unit follows one shape (mirrors Wren's `Fiber.abort`
 1:1, translated to the ratified `throw` surface, error-handling.md §1):
@@ -232,7 +237,8 @@ adequate for the tiny "whitespace charset" case). Reproduce Wren's exact loop sh
 ### 2.4 `bytes`/`codePoints` — standalone sub-accessor classes, `Iterable`-ready but not `Iterable`-dependent (Wren L294–316; §0's soft dependency)
 ```phalcom
 class StringByteSequence {
-  construct new(s) { _string = s }
+  @constructor
+  new(s) { _string = s }
   size => _string.rawByteCount
   at(i) => _string.rawByteAt(i)
   each(f) {
@@ -242,7 +248,8 @@ class StringByteSequence {
 }
 
 class StringCodePointSequence {
-  construct new(s) { _string = s }
+  @constructor
+  new(s) { _string = s }
   // Codepoint count needs a full scan (no native "codepoint length" primitive
   // — deliberately not added, §2.0); acceptable O(n), matches `indexOf`'s
   // accepted cost trade.
@@ -350,7 +357,7 @@ exactly. `printErr(_)`/`readLine`/`clock`/`now`/`args`/`env`/`exit`/`gc`/`versio
 - **`ArgumentError` naming collision with the future native-`RuntimeError` reification.** The
   later unit that wraps `Arity`/`Type`/`RangeError`/`ZeroDivision` into surface classes **must
   bind to this unit's `ArgumentError` class**, not declare a second one — `class` redefinition
-  in `core.ph` is a reopen (additive), so a naive second `class ArgumentError extends Error {}`
+  in `core.ph` is a reopen (additive), so a naive second `class ArgumentError is Error {}`
   is harmless but redundant; a conflicting field/construct would not be. Note in `core-classes.md`
   (or wherever that unit grounds itself) that `ArgumentError` already exists.
 - **Representation/dispatch impact:** none beyond the +4 floor bindings. No `Value` tag change
@@ -368,7 +375,7 @@ exactly. `printErr(_)`/`readLine`/`clock`/`now`/`args`/`env`/`exit`/`gc`/`versio
 | `phalcom-core/src/primitive/string.rs` **(FROZEN FLOOR — reviewer ON)** | `rawByteCount`, `rawByteAt(_)`, `rawSlice(_,_)` (§2.0) | floor |
 | `phalcom-core/src/primitive/system.rs` **(FROZEN FLOOR — reviewer ON)** | `rawWrite(_)` (§2.5) | floor |
 | `phalcom-core/src/universe.rs` **(SERIALIZE — see header)** | register the 4 new primitives; +4 floor census wiring | floor |
-| `phalcom-core/core/core.ph` **(never two editors — currently clean, re-verify before dispatch)** | `String` reopen (§2.1/§2.3/§2.4), `class ArgumentError extends Error {}` (§2.2), `class StringByteSequence`/`StringCodePointSequence` (§2.4), `System` reopen (§2.5, incl. dropping the dead 0-arity `print()` stub) | protocol |
+| `phalcom-core/core/core.ph` **(never two editors — currently clean, re-verify before dispatch)** | `String` reopen (§2.1/§2.3/§2.4), `class ArgumentError is Error {}` (§2.2), `class StringByteSequence`/`StringCodePointSequence` (§2.4), `System` reopen (§2.5, incl. dropping the dead 0-arity `print()` stub) | protocol |
 | `docs/adr/accepted/0049-amend-floor-admit-string-raw-byte-accessors.md` (**new**, claim number at dispatch) | ADR-0019 amendment landing-record for the +4 (mirrors ADR-0037/ADR-0038's per-unit pattern) | ADR |
 | `docs/spec/current/core/floor-census.md` | §2.5 `String` rows (+3), §2.11 `System` rows (+1), §7 audit count 113→117 | ADR-lockstep |
 | `docs/spec/current/core/core-classes.md` | `String` status row ("◐ partial" → the new interface list); note the `Iterable`-deferred `bytes`/`codePoints` shape | docs |
@@ -399,7 +406,7 @@ wanted).
   dispatch, don't trust this plan's line citations blindly.
 
 ## 4. Build order (small, independently-green diffs)
-1. **`ArgumentError` + the inherited-ctor golden** — `class ArgumentError extends Error {}`;
+1. **`ArgumentError` + the inherited-ctor golden** — `class ArgumentError is Error {}`;
    golden: `ArgumentError.new("x").message == "x"`, `ArgumentError.new("x").isA(Error)`,
    uncaught `throw ArgumentError.new("x")` renders/exits like any other `Error`. Green,
    `core.ph`-only, zero Rust. *(Serialize vs any concurrent `core.ph` editor.)*

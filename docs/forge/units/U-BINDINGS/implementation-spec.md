@@ -540,7 +540,8 @@ sessions: commit narrow paths directly on `main`, do **not** branch, and never `
 - `field_mutable_no_keyword.ph` — bare `_x` declaration + mutation
 - `field_mutable_with_default.ph` — `_x = 10` (the form that replaces the deleted getter branch)
 - `field_const_declared_default.ph` — `const _x = 10`
-- `field_const_written_in_ctor.ph` — `const _id` + `construct new(v) { _id = v }`
+- `field_const_written_in_ctor.ph` — `const _id` + `@constructor
+new(v) { _id = v }`
 - `field_attributes_before_const.ph` — `@get @set const _x = 1` (proves §4.2, unblocks U-CTOR)
 
 Do **not** write a `_x => 5`-is-still-a-getter fixture — that form is broken at `de49d3a`

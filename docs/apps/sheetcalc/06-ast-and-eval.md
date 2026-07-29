@@ -49,10 +49,10 @@ never pick `visitBinOp` over `visitCall` unless every node class supplies its
 own `accept` method that hand-writes the second call —
 
 ```phalcom
-class BinOp extends Ast {
+class BinOp is Ast {
   accept(visitor) => visitor.visitBinOp(self)
 }
-class Call extends Ast {
+class Call is Ast {
   accept(visitor) => visitor.visitCall(self)
 }
 ```
@@ -106,11 +106,12 @@ subclass per operator.** The candidates:
 | One `BinOp` class holding a **block** chosen once at parse time | **Chosen.** `eval` is one line with zero branching: `_op.call(_left.eval(ctx), _right.eval(ctx))`. The parser (05) picks the block from a small table keyed by token kind, once, when it builds the node — not on every evaluation. |
 
 ```phalcom
-class BinOp extends Ast {
+class BinOp is Ast {
   // `op` is a 2-arity block, e.g. `{ l, r => l + r }`, selected by the
   // parser from the operator token — see 05-formula-parser.md. Not a Symbol,
   // not a `perform` selector: a plain closure captured once at parse time.
-  construct new(left, right, op) {
+  @constructor
+  new(left, right, op) {
     _left = left
     _right = right
     _op = op
@@ -137,8 +138,9 @@ BinOp.new(RefNode.new(a1), RefNode.new(b1), { l, r => l + r })
 with a 1-arity block:
 
 ```phalcom
-class UnaryOp extends Ast {
-  construct new(operand, op) {
+class UnaryOp is Ast {
+  @constructor
+  new(operand, op) {
     _operand = operand
     _op = op
   }
@@ -166,10 +168,11 @@ Lit
 ```
 
 ```phalcom
-class Lit extends Ast {
+class Lit is Ast {
   // `value` is already a CellValue — CellNum.of(2), CellText.of("x"), etc.
   // built by the parser directly from the token, never a bare native.
-  construct of(value) { _value = value }
+  @constructor
+  of(value) { _value = value }
   eval(ctx) => _value
 }
 ```
@@ -178,7 +181,8 @@ class Lit extends Ast {
 
 ```phalcom
 class EvalContext {
-  construct new(grid, functions, currentRef, visiting) {
+  @constructor
+  new(grid, functions, currentRef, visiting) {
     _grid = grid              // Grid — see 03-references-and-grid.md
     _functions = functions    // FunctionTable — see 08-functions.md
     _currentRef = currentRef  // Ref of the cell currently being evaluated
@@ -217,8 +221,9 @@ returns `ErrorVal(#CIRC)` rather than recursing into a stack overflow. It is
 belt-and-suspenders, not the mechanism — 07 owns the real cycle detection.
 
 ```phalcom
-class RefNode extends Ast {
-  construct new(ref) { _ref = ref }
+class RefNode is Ast {
+  @constructor
+  new(ref) { _ref = ref }
 
   eval(ctx) {
     (ctx.grid.inBounds(_ref)).ifFalse { return ErrorVal.of(#REF) }
@@ -262,9 +267,10 @@ one) automatically gets the singleton-list behavior for free from the root.
 Only `RangeNode` overrides it:
 
 ```phalcom
-class RangeNode extends Ast {
+class RangeNode is Ast {
   // from/to are Ref values — see 03-references-and-grid.md.
-  construct new(from, to) {
+  @constructor
+  new(from, to) {
     _from = from
     _to = to
   }
@@ -296,8 +302,9 @@ class RangeNode extends Ast {
 ### `Call#eval` deliberately does not flatten its arguments
 
 ```phalcom
-class Call extends Ast {
-  construct new(name, args) {
+class Call is Ast {
+  @constructor
+  new(name, args) {
     _name = name    // String, e.g. "SUM"
     _args = args    // List<Ast>
   }

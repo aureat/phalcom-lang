@@ -304,7 +304,8 @@ position; it just needs the ergonomics that make it livable.
 
 The spec documents `@Author(name: "Ada")` and `@On(Method, tier: Install)`.
 Neither parses. The gap is narrow and precisely located: labeled parameters work
-in declarations (`construct new(name:)`) and at normal call sites
+in declarations (`@constructor
+new(name:)`) and at normal call sites
 (`Author.new(name: "Ada")`). **Only the attribute call-site parser lacks them.**
 
 **Fix.** Reuse the existing keyword-argument parser at attribute call sites. The

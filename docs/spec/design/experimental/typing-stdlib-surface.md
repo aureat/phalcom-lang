@@ -2,12 +2,12 @@
 
 - Status: **Proposed** (experimental; not ratified)
 - Axis: typing ⊗ standard-library surface
-- Resolves: [typing.md](typing.md) Tier-2 gaps #5 (variadics), #6 (equality), #8 (catch) and Tier-3 (root protocol, collection literals, interpolation)
+- Resolves: [typing.md](spec/design/experimental/typing.md) Tier-2 gaps #5 (variadics), #6 (equality), #8 (catch) and Tier-3 (root protocol, collection literals, interpolation)
 - Related: [equality-and-hash.md](equality-and-hash.md), [iteration-protocol.md](iteration-protocol.md), [numeric-and-string-indexing.md](numeric-and-string-indexing.md), [error-handling.md](../error-handling.md), [messages-and-selectors.md](../messages-and-selectors.md), [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md)
 
 ## Problem
 
-[typing.md](typing.md) types `List` and the core forms but skips several *committed*
+[typing.md](spec/design/experimental/typing.md) types `List` and the core forms but skips several *committed*
 surface features and the root of the type lattice: the universal `Object` protocol
 (what `Any` can do), how `==` is typed, variadic rest params (`*xs`, ADR-0012), the
 `catch` binding, and the non-`List` collection / interpolation literals. Each is a
@@ -27,7 +27,7 @@ Every value (hence `Any`) understands exactly this minimal protocol:
 | `class` | `Self class` |
 
 Sending anything *else* to an `Any`-typed receiver is a **type error** — this is the
-concrete difference from `?` ([typing.md §4](typing.md)): `Any` remembers it is *some*
+concrete difference from `?` ([typing.md §4](spec/design/experimental/typing.md)): `Any` remembers it is *some*
 value and permits only universal messages; `?` defers all checking to runtime.
 
 ### Equality takes `Any`, not `Self`
@@ -71,7 +71,7 @@ try { … } catch (e: NetworkError) { … } // e : NetworkError; runtime class t
   protocol, where the error *class* is a runtime operand that selects the handler. The
   annotation merely *names* the class the existing dispatch already tests — the class
   test exists with or without the type. The throw *channel* stays an untracked effect
-  ([typing.md §5.11](typing.md)); only the handler *binding* is typed.
+  ([typing.md §5.11](spec/design/experimental/typing.md)); only the handler *binding* is typed.
 
 ### Collection & interpolation literals
 

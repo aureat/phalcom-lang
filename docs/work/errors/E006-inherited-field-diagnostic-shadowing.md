@@ -45,10 +45,12 @@ Both under `target/debug/phalcom`.
 // A — the misleading diagnostic. `_x` IS assigned, by Base's constructor,
 //     and super.new(x) demonstrably runs it (see control C).
 class Base {
-  construct new(x) { _x = x }
+  @constructor
+  new(x) { _x = x }
 }
-class Derived extends Base {
-  construct new(x) { super.new(x) }
+class Derived is Base {
+  @constructor
+  new(x) { super.new(x) }
   peek => _x
 }
 System.print(Derived.new(9).peek)
@@ -58,11 +60,13 @@ System.print(Derived.new(9).peek)
 ```phalcom
 // B — following the message's advice. Compiles; silently two slots.
 class Base {
-  construct new(x) { _x = x }
+  @constructor
+  new(x) { _x = x }
   baseSees => _x
 }
-class Derived extends Base {
-  construct new(x) { super.new(x); _x = 999 }
+class Derived is Base {
+  @constructor
+  new(x) { super.new(x); _x = 999 }
   derivedSees => _x
 }
 const d = Derived.new(7)
@@ -77,11 +81,13 @@ than merely terse):
 
 ```phalcom
 class Base {
-  construct new(x) { _x = x }
+  @constructor
+  new(x) { _x = x }
   x => _x
 }
-class Derived extends Base {
-  construct new(x, y) { super.new(x); _y = y }
+class Derived is Base {
+  @constructor
+  new(x, y) { super.new(x); _y = y }
   sum => self.x + _y
 }
 System.print(Derived.new(3, 4).sum)   // -> 7

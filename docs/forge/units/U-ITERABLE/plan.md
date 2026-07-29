@@ -167,7 +167,7 @@ destructuring-pattern `size` sends, unrelated to this edit; no dead-code fallout
   reopen headers carry **no `extends` clause** today and none is added; the superclass is fixed
   at bootstrap, exactly as `object_class` is today.
 - Add `("Iterable", c.iterable_class)` to the name→global-binding list (**L717–L721**) so `.ph`
-  code (e.g. a future `class Countdown extends Iterable { … }`, iteration.md §1's own example)
+  code (e.g. a future `class Countdown is Iterable { … }`, iteration.md §1's own example)
   can resolve the identifier.
 - `Iterable` itself carries **zero native primitive rows** — it is a bare class+metaclass shell
   in Rust; every method is attached by the `core.ph` reopen below (net floor delta unaffected by

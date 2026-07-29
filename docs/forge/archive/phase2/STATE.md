@@ -391,7 +391,8 @@ _Orchestrator's live status board. Compact by design; detail lives in PLAN.md / 
   `Value::Nil` sentinel (never a constructed `None` — would reintroduce the bootstrap-absence
   cycle U6 solved) and surface as `None` via U6's helper on read. Goldens:
   `class_field_unassigned_reads_none`, `class_static_field_unassigned_reads_none`.
-- **Constructor-dispatch bug found and fixed post-implementation.** `construct new()` installs
+- **Constructor-dispatch bug found and fixed post-implementation.** `@constructor
+new()` installs
   under `"init new()"` (`Initializer`), but the call-site compiler for `Expr::MethodCall`
   *always* encoded `SignatureKind::Method` (`"new()"`) — so `Counter.new()` silently resolved to
   the inherited `Object::new` bare-allocation primitive instead of the constructor (no error;

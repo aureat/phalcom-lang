@@ -45,7 +45,8 @@ together.
 ## The definition surface
 
 A decorator is a class named for its `@sigil`, tagged with its tier, implementing
-that tier's one hook. Args in `@name(args)` are captured in `construct new(...)`;
+that tier's one hook. Args in `@name(args)` are captured in `@constructor
+new(...)`;
 the hook closes over them. Inside a hook `self` is the decorator instance and
 `recv` is the domain receiver.
 
@@ -146,7 +147,8 @@ class timed {
 ```phalcom
 @install
 class synchronized {
-  construct new() { _lock = Mutex.new() }       // one lock per decorated method; lock on `recv` for a monitor
+  @constructor
+  new() { _lock = Mutex.new() }       // one lock per decorated method; lock on `recv` for a monitor
   wrap(method) {
     let lock = _lock
     return { recv, args => lock.hold { method.invokeOn(recv, args) } }
@@ -159,7 +161,8 @@ class synchronized {
 ```phalcom
 @install
 class authorize {
-  construct new(role:) { _role = role }
+  @constructor
+  new(role:) { _role = role }
   wrap(method) {
     let role = _role
     return { recv, args =>
@@ -175,7 +178,8 @@ class authorize {
 ```phalcom
 @install
 class retry {
-  construct new(times:, on:) { _times = times; _type = on }
+  @constructor
+  new(times:, on:) { _times = times; _type = on }
   wrap(method) {
     let max = _times; let type = _type
     return { recv, args => self.attempt(method, recv, args, max, type) }
@@ -206,7 +210,8 @@ class transactional {
 ```phalcom
 @install
 class rateLimit {
-  construct new(perMinute:) { _max = perMinute; _window = Window.minutes(1) }
+  @constructor
+  new(perMinute:) { _max = perMinute; _window = Window.minutes(1) }
   wrap(method) {
     let max = _max; let window = _window
     return { recv, args =>
@@ -249,7 +254,8 @@ Forward a sub-protocol to a component field (composition over inheritance). Runs
 ```phalcom
 @dispatch
 class delegate {
-  construct new(to:) { _slot = to }              // name of the field holding the delegate
+  @constructor
+  new(to:) { _slot = to }              // name of the field holding the delegate
   onMiss(recv, msg) {
     let target = recv.perform(_slot, List.new()) // read recv's delegate field
     return target.perform(msg.selector, msg.args)
@@ -288,7 +294,8 @@ class traced {
 ```phalcom
 @runtime
 class featureFlag {
-  construct new(name:) { _flag = name }
+  @constructor
+  new(name:) { _flag = name }
   aroundSend(recv, msg, proceed) {
     if (Flags.enabled(_flag)) { return proceed.call() }
     return None                                  // gated off -> no-op fallback

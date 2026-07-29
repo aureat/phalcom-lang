@@ -100,7 +100,8 @@ define either name as a declaration, selector family, or attribute class.
 
 `construct` and `static` are retired declaration spellings, not canonical
 keywords. Parsers may recognize their legacy positions long enough for the
-compiler to emit non-fatal migration hints: `construct new(...) { ... }` →
+compiler to emit non-fatal migration hints: `@constructor
+new(...) { ... }` →
 `@constructor`, `static ...` → `@class`. A method-shaped `class name(...) { ... }`
 form receives the same `@class` hint.
 
@@ -111,7 +112,6 @@ ordinary `IDENT` and may be used as identifiers.
 
 | Word | Reserved position |
 |---|---|
-| `extends` | class header (see [`statements-and-declarations.md`](statements-and-declarations.md)) |
 | `try`, `catch`, `on`, `ensure` | error-handling clauses ([ADR-0031]) |
 
 ### 5.3 Reserved-inactive

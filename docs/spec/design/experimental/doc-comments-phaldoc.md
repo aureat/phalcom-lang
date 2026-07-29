@@ -4,7 +4,7 @@
 - Date: 2026-07-11
 - Resolves: untracked — Phalcom has no documentation standard (pydoc / tsdoc / rustdoc analogue)
 - Related: ADR-0012 (selector identity), ADR-0016 (hand-written lexer/parser), ADR-0008 (layered errors), ADR-0007 (Option/absence)
-- Interacts-with: [annotations-core.md](annotations-core.md), [annotations-legality-grammar.md](annotations-legality-grammar.md) (the code-level `@` attribute registry — **disjoint namespace**, see §6), [typing.md](typing.md) (erasable optional types)
+- Interacts-with: [annotations-core.md](annotations-core.md), [annotations-legality-grammar.md](annotations-legality-grammar.md) (the code-level `@` attribute registry — **disjoint namespace**, see §6), [typing.md](spec/design/experimental/typing.md) (erasable optional types)
 - Grounding: `lexical-structure.md` §2 (comments); lexer `skip_trivia` at `phalcom-ast/src/lexer.rs:88`
 
 ## Context

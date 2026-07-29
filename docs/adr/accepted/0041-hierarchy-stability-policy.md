@@ -60,7 +60,7 @@ class may still have methods added or replaced after its first definition
 because that axis costs nothing and does not touch slot layout.
 
 ```phalcom
-class Circle extends Shape { }
+class Circle is Shape { }
 Circle.superclass = Rectangle   // ERROR: Can't set superclass of a class
 ```
 
@@ -83,7 +83,7 @@ and none is added by this ADR). Traits/mixins/full multiple inheritance are
 - **Stateless traits, flattened at class-finalization** (Q10's admissible
   extension) are the *only* pre-approved composition mechanism, should the
   user want one later: a trait is a named bag of methods with **no fields**;
-  `class C extends S with T1, T2` would copy trait methods into `C`'s own
+  `class C is S with T1, T2` would copy trait methods into `C`'s own
   method dictionary at finalization time, with an explicit conflict
   surfacing as a compile error. This preserves both invariants below —
   dispatch never grows a second lookup path, and no trait ever contributes

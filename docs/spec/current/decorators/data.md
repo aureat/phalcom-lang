@@ -18,7 +18,8 @@
 
 ```phalcom
 @data class Money { var _cents; var _currency }
-// derives, in order: construct new(cents:, currency:)
+// derives, in order:@constructor
+ new(cents:, currency:)
 //                    cents / currency  (getter backfill)
 //                    ==(other) · hash · toString · with(cents:, currency:)
 ```

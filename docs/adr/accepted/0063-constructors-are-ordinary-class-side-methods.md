@@ -58,7 +58,8 @@ Three of its claims are false against the tree today:
 |---|---|
 | "There is no user-visible allocator" | `Object class >> new()` is public and 80% of `.ph` classes (532/666) rely on it |
 | "no implicit zero-arg `new`" | that *is* the bare allocator, reachable on every class |
-| "`new` is not special — `construct anonymous()` is equally legitimate" | aspirational; two compiler sites hardcode `"new"` |
+| "`new` is not special — `@constructor
+anonymous()` is equally legitimate" | aspirational; two compiler sites hardcode `"new"` |
 
 The spec is not merely stale here — its **normative direction was never built**, and
 the shipped design is the opposite one. Ratifying this ADR is a deliberate reversal of
@@ -66,7 +67,8 @@ that direction, not a doc fix. See "Alternatives considered".
 
 ### The alias bug, and why it was invisible for so long
 
-Until 2026-07-15, `construct new(x)` installed on the metaclass under the *prefixed*
+Until 2026-07-15, `@constructor
+new(x)` installed on the metaclass under the *prefixed*
 selector `"init new(_)"`, which **no call site encodes**. A compile-time table rewrote
 `Foo.new(1)` → `init new(_)` — but only when the receiver was a bare identifier. Every
 other receiver shape (`var C = Foo; C.new(1)`, `M.Foo.new(1)`, `list[0].new(1)`) kept
@@ -96,14 +98,16 @@ This is why named constructors failed *loudly* under the alias bug while `new` f
 *silently* — and why the reported symptom was always about `new`.
 
 **Named constructors are already load-bearing**: 8 of 148 constructor declarations use
-a non-`new` name, including `Future`'s `construct value(v)` / `construct error(e)` in
+a non-`new` name, including `Future`'s `@constructor
+value(v)` / `construct error(e)` in
 `core.ph` itself, plus `Ref.at`/`Ref.full`, `RefRange.fromTo`, `Cell.of`,
 `Countdown.from`, and `Point2.named` — whose fixture asserts "Both matching-arity
 `new` and named ctors inherit."
 
 ### The keywords buy nothing
 
-`construct` and `static` change **zero grammar**. `construct new(x) {}` and `new(x) {}`
+`construct` and `static` change **zero grammar**. `@constructor
+new(x) {}` and `new(x) {}`
 parse identically after the prefix; `static` is a pure modifier bit. Both are member
 *metadata* — exactly what `@` attributes exist for (`selectors.md` §4: "attributes
 compile to ordinary method-table entries … not new machinery").
@@ -151,7 +155,8 @@ Migration ergonomics come from a **contextual recovery diagnostic**, not reserva
 in class-member position, an identifier `construct`/`static` followed by another name
 token raises
 
-> `member.legacy_keyword: 'construct new(x)' is no longer valid syntax; use the '@constructor' decorator on the member`
+> `member.legacy_keyword: '@constructor
+new(x)' is no longer valid syntax; use the '@constructor' decorator on the member`
 
 ### 2. `@constructor` and `@class` are the surface
 
@@ -227,7 +232,7 @@ special category — it is a placement flag over machinery the tower already has
 class Base { @class _total = 0
              @class bump() { _total = _total + 1 }
              @class total => _total }
-class Derived extends Base {}
+class Derived is Base {}
 
 Base.bump()  Base.bump()
 Base.total      // 2
@@ -517,7 +522,7 @@ subclass overrides — precisely PHP's `self::`/`static::` split, a known wart.
      @class update(n) { _total = _total + n }
      @constructor new(n) { class.update(n) }   // class == self.class == Derived!
    }
-   class Derived extends Base {}
+   class Derived is Base {}
    Base.new(5)      // Base.total == 5     ✓
    Derived.new(7)   // None does not understand '+(_)'
    ```

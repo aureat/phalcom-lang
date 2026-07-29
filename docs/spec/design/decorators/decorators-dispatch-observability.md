@@ -132,9 +132,10 @@ class pays nothing).
 
 ```phalcom
 @On(Method, tier: Runtime)
-class Traced extends Attribute {
+class Traced is Attribute {
   var _entry   var _exit   var _timing   var _errors   var _sink
-  construct new(entry: true, exit: true, timing: false, errors: true, sink: Tracer.stdout) {
+  @constructor
+  new(entry: true, exit: true, timing: false, errors: true, sink: Tracer.stdout) {
     _entry = entry; _exit = exit; _timing = timing; _errors = errors; _sink = sink
   }
 
@@ -200,9 +201,10 @@ bit + the "interceptor-declared bypass" optimization
 
 ```phalcom
 @On(Method, tier: Runtime)
-class FeatureFlag extends Attribute {
+class FeatureFlag is Attribute {
   var _flag   var _whenOff
-  construct new(name:, whenOff: OffBehavior.raise) { _flag = name; _whenOff = whenOff }
+  @constructor
+  new(name:, whenOff: OffBehavior.raise) { _flag = name; _whenOff = whenOff }
 
   aroundSend(inv) {
     return Flags.enabled(_flag)

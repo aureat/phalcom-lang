@@ -32,9 +32,9 @@ Run **Developer: Inspect Editor Tokens and Scopes** (Command Palette) on
 each of these tokens; confirm a distinct, specific scope (not bare
 `source.phalcom`) and correct coloring per your theme:
 
-- [ ] `class extends super self static try catch on ensure throw break
+- [ ] `class is super self static try catch on ensure throw break
       continue return while for var` — keyword scope
-- [ ] `const` / `is` / `in` / `and` / `or` / `not` — nowhere in the file, and
+- [ ] `const` / `in` / `and` / `or` / `not` — nowhere in the file, and
       if you type them ad hoc, NOT colored as keywords (dead 2023 keywords)
 - [ ] `_balance`, `_owner` — field scope, distinct from a bare identifier
 - [ ] `@requires(...)`, `@ensures(...)` — attribute scope

@@ -23,12 +23,14 @@ four named mode values. Everything is derivation over the shipped `Bytes` protoc
 
 ```phalcom
 class Path {
-  construct of(s) {
+  @constructor
+  of(s) {
     // from a String: its UTF-8 bytes — Bytes.fromString already copies
     _bytes = Bytes.fromString(s)
     _hash = Path.contentHash(_bytes)
   }
-  construct ofBytes(b) {
+  @constructor
+  ofBytes(b) {
     // defensive copy IN: b.slice(0, b.size) — the caller's buffer is never
     // the wrapped one (exclusive ownership is what makes the cached hash
     // and the immutability claim true over a mutable backing store)
@@ -93,7 +95,8 @@ identity:
 
 ```phalcom
 class OpenMode {
-  construct named_(n) { _name = n }
+  @constructor
+  named_(n) { _name = n }
   static read => OpenMode.named_("read")
   static write => OpenMode.named_("write")
   static append => OpenMode.named_("append")

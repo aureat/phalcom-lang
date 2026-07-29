@@ -95,7 +95,8 @@ surface. Concretely:
   alongside `core.ph`.
 - **`core.ph` shape confirmed** (`core.ph:1–70`): ordinary
   `class Name { selector(params) { ... } }` / `selector => expr` /
-  `construct new(...) { }` declarations — exactly what `parse_source` produces
+  `@constructor
+new(...) { }` declarations — exactly what `parse_source` produces
   `Program` nodes for.
 
 ## Design

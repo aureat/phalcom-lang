@@ -55,7 +55,8 @@ the target's entire protocol at once.
 
 ```phalcom
 class Proxy {
-  construct on(target:) { _target = target }
+  @constructor
+  on(target:) { _target = target }
   doesNotUnderstand(msg) { return _target.perform(msg.selector, msg.args) }
   respondsTo(sel)        { return _target.respondsTo(sel) }
 }
@@ -80,7 +81,8 @@ Defer building an expensive target until its first message.
 
 ```phalcom
 class Lazy : Proxy {
-  construct from(thunk:) { _thunk = thunk; _built = None }
+  @constructor
+  from(thunk:) { _thunk = thunk; _built = None }
   doesNotUnderstand(msg) { return self.force.perform(msg.selector, msg.args) }
   force {
     return _built.match(
@@ -105,7 +107,8 @@ Log every message crossing the boundary, for any object.
 
 ```phalcom
 class Trace : Proxy {
-  construct on(target:, tag:) { _target = target; _tag = tag }
+  @constructor
+  on(target:, tag:) { _target = target; _tag = tag }
   doesNotUnderstand(msg) {
     System.print("[\(_tag)] -> \(msg.name)\(msg.args)")
     let result = _target.perform(msg.selector, msg.args)
@@ -129,7 +132,8 @@ One wrapper covers every method.
 
 ```phalcom
 class Retry : Proxy {
-  construct on(target:, times:) { _target = target; _times = times }
+  @constructor
+  on(target:, times:) { _target = target; _times = times }
   doesNotUnderstand(msg) { return self.attempt(msg, _times) }
   attempt(msg, left) {
     try { return _target.perform(msg.selector, msg.args) }
@@ -165,18 +169,20 @@ around-send): because the proxy understands nothing, mutators miss too and are
 denied in one place.
 
 ```phalcom
-class AccessDenied  : Error { construct on(selector:) { _selector = selector } }
-class AccessRevoked : Error { construct on(selector:) { _selector = selector } }
+class AccessDenied  : Error {@constructor on(selector:) { _selector = selector } }
+class AccessRevoked : Error {@constructor on(selector:) { _selector = selector } }
 
 // Shared revocation cell — one flip disables an entire membrane subgraph at once.
 class Revoker {
-  construct new() { _live = true }
+  @constructor
+  new() { _live = true }
   revoke { _live = false; return self }
   isLive => _live
 }
 
 class Capability {
-  construct on(target:, allow:, via:) { _target = target; _allow = allow; _via = via }
+  @constructor
+  on(target:, allow:, via:) { _target = target; _allow = allow; _via = via }
 
   static grant(target:, allow:) {
     return Capability.on(target: target, allow: allow, via: Revoker.new())
@@ -225,7 +231,8 @@ delegates to a parent object.
 // Assumes the no-nil Map idiom the core already uses for List/Option:
 //   Map.at(k) -> Option ,  Map.at(k, put: v) -> self
 class Prototype {
-  construct new() {
+  @constructor
+  new() {
     _methods = Map.new()      // name -> block; the block's first param is the receiver
     _fields  = Map.new()      // name -> value
     _parent  = None           // Option<Prototype>

@@ -25,7 +25,8 @@ never receives `+`, `-`, or any arithmetic send.
 class Ref {
   // Bare relative reference. Column and row are 1-indexed, matching A1
   // notation directly: Ref.at(1, 1) is A1.
-  construct at(c, r) {
+  @constructor
+  at(c, r) {
     _col = c
     _row = r
     _colAbs = false
@@ -34,7 +35,8 @@ class Ref {
 
   // Full constructor — used by the A1 decoder and by offset(), which must
   // preserve the absoluteness flags of the ref being shifted.
-  construct full(c, r, colAbs, rowAbs) {
+  @constructor
+  full(c, r, colAbs, rowAbs) {
     _col = c
     _row = r
     _colAbs = colAbs
@@ -426,15 +428,17 @@ class Cell {
   isDirty   => false
 }
 
-class LiteralCell extends Cell {
-  construct of(v) { _value = v }
+class LiteralCell is Cell {
+  @constructor
+  of(v) { _value = v }
 
   // A literal's value IS the source of truth; it is never stale.
   cachedValue => _value
 }
 
-class FormulaCell extends Cell {
-  construct of(source, ast) {
+class FormulaCell is Cell {
+  @constructor
+  of(source, ast) {
     _source = source
     _ast = ast
     _cached = CellEmpty.of()
@@ -481,7 +485,8 @@ bounds-checked value accessor for evaluation.
 
 ```phalcom
 class Grid {
-  construct new() {
+  @constructor
+  new() {
     _cells  = Map.new()
     _minCol = None
     _maxCol = None
@@ -571,10 +576,11 @@ gets `for`, `.toList`, `.where`, `.map` for free once `iterate`/
 `iteratorValue` are defined.
 
 ```phalcom
-class RefRange extends Iterable {
+class RefRange is Iterable {
   // Normalizes either corner order: RefRange.fromTo(B7, A1) is the same
   // range as RefRange.fromTo(A1, B7).
-  construct fromTo(a, b) {
+  @constructor
+  fromTo(a, b) {
     _minCol = Num.min(a.col, b.col)
     _maxCol = Num.max(a.col, b.col)
     _minRow = Num.min(a.row, b.row)

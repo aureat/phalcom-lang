@@ -43,8 +43,9 @@ reader will otherwise "fix" it.
 ### 3.1 `BytesReader`
 
 ```phalcom
-class BytesReader extends Resource {
-  construct new(source) {
+class BytesReader is Resource {
+  @constructor
+  new(source) {
     // snapshot: source is a Bytes, copied — the reader's contents never
     // change under it (slice copies, bytes.md law 6)
     _data = source.slice(0, source.size)
@@ -79,7 +80,8 @@ class BytesReader extends Resource {
 
 ### 3.3 `BufferedWriter` — the §5 contract, exactly
 
-- `construct new(inner)`: accepts any object responding to `write(_)`/`flush` — the
+- `@constructor
+new(inner)`: accepts any object responding to `write(_)`/`flush` — the
   informal Writer protocol, so **no type test** (stream-protocol §1's whole point).
   Fields: `_inner`, `_buf` (a `Bytes` of capacity `8192` — a plain literal, spelled in
   exactly one place with a name comment; no capacity parameter, ADR-0043), `_len`
@@ -105,13 +107,14 @@ class BytesReader extends Resource {
   closing on a failed one (§5.3.5 — "a caller who wants to inspect the flush result
   before closing must be able to": `finish` is the one-call spelling, `flush`+`close`
   the inspectable one).
-- `class UnflushedError extends Error {}` — pure `.ph`, next to `ArgumentError`
+- `class UnflushedError is Error {}` — pure `.ph`, next to `ArgumentError`
   (`core.ph:80`); PDR-0010 is Proposed, so the kind is carried by the class, the
   U-RESOURCE §2.4 pattern.
 
 ### 3.4 `BufferedReader`
 
-`construct new(inner)`, fixed `_buf`, refill-on-empty from `_inner.read(_buf)` chaining
+`@constructor
+new(inner)`, fixed `_buf`, refill-on-empty from `_inner.read(_buf)` chaining
 on its future, serve from the buffer; EOF propagates as settled `0`s (law 1). `close`
 inherited, **no precondition** (§5.5) — discarding read-ahead loses nothing durable.
 

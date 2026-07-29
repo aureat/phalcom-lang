@@ -89,7 +89,7 @@
 | String / code | C `errno`, Go sentinel `errors.New` | Trivial; no structure; string-matching for classification is fragile |
 | Error with cause-chain | Java `getCause`, Rust `source()`, Go `%w` | Preserves layered context; must thread wrapping through every boundary |
 
-**Syntax.** Java `class E extends Exception` + `getCause()` · Rust `enum E { … }` + `#[from]`/`source()` · Go `fmt.Errorf("…: %w", err)` · Python `raise X from cause`.
+**Syntax.** Java `class E is Exception` + `getCause()` · Rust `enum E { … }` + `#[from]`/`source()` · Go `fmt.Errorf("…: %w", err)` · Python `raise X from cause`.
 
 **Hazard — stack-trace capture cost.** Capturing a full backtrace at every `throw`/construction (JVM/Python default) makes exceptions costly enough that they can't be used for expected control flow; if errors *are* control flow (Result, Go), traces must be opt-in or deferred, trading debuggability for speed. → overlay
 **Hazard — open hierarchy ⊗ exhaustiveness.** An open exception hierarchy can't be exhaustively matched; a closed enum can but can't be extended by third parties without a breaking change — you can't have both extensibility and exhaustiveness. → overlay

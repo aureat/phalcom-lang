@@ -2,12 +2,12 @@
 
 - Status: **Proposed** (experimental; not ratified)
 - Axis: typing (inference)
-- Resolves: [typing.md](typing.md) Tier-1 gap #4 (type-argument inference failure modes) and Tier-2 gap #7 (default return type / `Unit`)
+- Resolves: [typing.md](spec/design/experimental/typing.md) Tier-1 gap #4 (type-argument inference failure modes) and Tier-2 gap #7 (default return type / `Unit`)
 - Related: [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md), [blocks.md](../blocks.md), [functions.md](../functions.md)
 
 ## Problem
 
-[typing.md §5.8](typing.md) names "local type-argument inference (Pierce–Turner), no
+[typing.md §5.8](spec/design/experimental/typing.md) names "local type-argument inference (Pierce–Turner), no
 HM" but does not specify how constraints are collected, how they are solved under
 variance, what happens when a type argument is **under-** or **over-constrained**, or
 what an **un-annotated method** returns. As written it is not implementable.
@@ -76,7 +76,7 @@ inference a finite bottom-up pass.
 ## Precludes
 
 - **Global / whole-program inference (HM)** — locked out by subtyping + structural
-  types + label-encoded selectors (restates [typing.md §5.8](typing.md)).
+  types + label-encoded selectors (restates [typing.md §5.8](spec/design/experimental/typing.md)).
 - **Silent `Any` fallback** for under-constrained type arguments — replaced by an
   explicit-annotation requirement, so inference never launders a type error into
   `Any`.

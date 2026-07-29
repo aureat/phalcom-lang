@@ -69,7 +69,7 @@ pairs are designed to ship together in the stdlib.
 
 | Option | Shape | Cost |
 |---|---|---|
-| (a) lowercase attribute classes (`class retry extends Attribute`) | keeps ADR-0057 spelling verbatim | violates the class-naming convention everywhere else; reads as a builtin, is not |
+| (a) lowercase attribute classes (`class retry is Attribute`) | keeps ADR-0057 spelling verbatim | violates the class-naming convention everywhere else; reads as a builtin, is not |
 | (b) **suffix resolution: `@Name` tries `NameAttribute`, then `Name`** | `.NET` precedent (`[Foo]` → `FooAttribute`); proxy keeps `Retry`, decorator class is `RetryAttribute`, surface stays `@Retry` | second lookup on miss (compile-time only); one naming ceremony |
 | (c) rename one side (`@Retryable` / `RetryProxy`) | no mechanism change | re-opens ADR-0057's ruling that both keep their natural names |
 
@@ -132,7 +132,7 @@ Replace `is_attribute_class`'s direct-parent check (`class_decl.rs`,
 `resolves_to_attribute_class` already uses — validation and retention must
 share one predicate or they drift again. A transitive subclass declaring a
 reserved tier then correctly hits `attr.compile_tier_reserved`. Negative
-fixture: `class A extends Attribute {}` + `class B extends A { wrap(m) {…} }`
+fixture: `class A is Attribute {}` + `class B is A { wrap(m) {…} }`
 with no `@On` ⇒ `attr.undeclared_hook`.
 
 ### Plan §3 — honor `inherited:` (DEF-5)

@@ -8,9 +8,9 @@
   `NEW_FLOAT_PROTOCOL = 10`, `NEW_NUMERIC_POWER = 2`; recompute the live census, never add
   prose totals
 - Supersedes: PDR-0012 ruling 14's temporary acceptance of an integral `Float` from `hash`
-- Specs: [tower](../spec/current/numbers/numeric-tower.md),
-  [Float protocol](../spec/current/numbers/float-protocol.md), and
-  [numeric text and errors](../spec/current/numbers/text-and-errors.md)
+- Specs: [tower](numeric-tower.md),
+  [Float protocol](float-protocol.md), and
+  [numeric text and errors](text-and-errors.md)
 
 ## Decision
 

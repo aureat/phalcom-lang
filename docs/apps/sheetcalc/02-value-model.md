@@ -154,8 +154,9 @@ class CellValue {
 ## 3. `ErrorVal` — the propagation engine
 
 ```phalcom
-class ErrorVal extends CellValue {
-  construct of(kind) { _kind = kind }        // #DIV0, #VALUE, #REF, #NAME, #CIRC, #NA
+class ErrorVal is CellValue {
+  @constructor
+  of(kind) { _kind = kind }        // #DIV0, #VALUE, #REF, #NAME, #CIRC, #NA
 
   kind    => _kind
   isError => true
@@ -200,8 +201,9 @@ Error kinds:
 ## 4. `CellNum` — where the real work is
 
 ```phalcom
-class CellNum extends CellValue {
-  construct of(n) { _n = n }
+class CellNum is CellValue {
+  @constructor
+  of(n) { _n = n }
 
   num   => _n
   isNum => true

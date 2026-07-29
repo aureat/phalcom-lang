@@ -98,8 +98,10 @@ here. Re-ground all of this at activation — the substrate does not exist yet.
 ```phalcom
 // Future — a state machine over Fiber (ADR-0030 §1, concurrency.md §2). Pure library.
 class Future {
-  construct value(v) { _state = fulfilled; _value = v }
-  construct error(e) { _state = rejected;  _value = e }
+  @constructor
+  value(v) { _state = fulfilled; _value = v }
+  @constructor
+  error(e) { _state = rejected;  _value = e }
 
   isReady => _state != pending
   value   => _state == fulfilled ? Some(_value) : None    // never suspends

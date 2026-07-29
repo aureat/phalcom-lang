@@ -57,7 +57,8 @@ Only method declarations may carry `@constructor`. A class header uses
 The retired form remains migration-compatible and receives a hint:
 
 ```text
-construct new(...) { ... }
+@constructor
+new(...) { ... }
 hint: did you mean @constructor?
 ```
 

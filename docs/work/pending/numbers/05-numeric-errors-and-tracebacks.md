@@ -16,7 +16,7 @@ traceback caret when current span/source architecture can represent it.
 ## Steps
 
 1. Create one numeric-error builder mapping every condition in
-   [text-and-errors](../../../spec/current/numbers/text-and-errors.md#3-numeric-error-contract)
+   [text-and-errors](text-and-errors.md#3-numeric-error-contract)
    to `Error.kind` and its exact message template. Do not introduce new native exception classes.
 2. Carry source range with numeric binary operations, unary conversion selectors, constructor
    arguments, shifts, bit-index calls, and allocation-triggering powers. Reuse instruction spans;

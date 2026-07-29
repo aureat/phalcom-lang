@@ -2,12 +2,12 @@
 
 - Status: **Proposed** (experimental; not ratified) · **soundness teeth**
 - Axis: typing (subtype relation, variance, inheritance)
-- Resolves: [typing.md](typing.md) Tier-1 gaps #2 (conformance termination) and #3 (override/Liskov)
+- Resolves: [typing.md](spec/design/experimental/typing.md) Tier-1 gaps #2 (conformance termination) and #3 (override/Liskov)
 - Related: [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (selector identity), [object-model.md](../object-model.md) (single inheritance), [method-lookup.md](../method-lookup.md)
 
 ## Problem
 
-[typing.md §5.3](typing.md) states the conformance rule (contravariant params,
+[typing.md §5.3](spec/design/experimental/typing.md) states the conformance rule (contravariant params,
 covariant result) but leaves two things unspecified, both soundness- or
 termination-critical:
 
@@ -36,7 +36,7 @@ Int <: Comparable<Int>              push goal
 ```
 
 - **Recursive types compare by name + type arguments, not by structural unfolding.**
-  Because protocols and classes are *named* ([typing.md §5.3](typing.md)),
+  Because protocols and classes are *named* ([typing.md §5.3](spec/design/experimental/typing.md)),
   `Comparable<Int>` is a single node — isorecursive folding at the name. Equirecursive
   unfolding (which reintroduces non-termination) is **not** used. This also settles
   `class Node { next: Option<Node> }`: `Node` folds at its name.
@@ -61,7 +61,7 @@ protocols — **one rule, two uses.** `Self` stays bound to the actual receiver,
 
 ### Variance positions are validated at class-def time
 
-Declaration-site `out`/`in` ([typing.md §5.4](typing.md)) is *checked*, not trusted:
+Declaration-site `out`/`in` ([typing.md §5.4](spec/design/experimental/typing.md)) is *checked*, not trusted:
 an `out T` parameter appearing in an **input** position (or `in T` in an output
 position) is rejected where the class is defined. This is the check that makes
 `List<out T>` read-only vs `MutableList<T>` invariant an *enforced* distinction

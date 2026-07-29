@@ -15,8 +15,7 @@ the shape of the language:
   objects too. `Int` is an instance of `Int class`, which is an instance of
   `Metaclass`. This is not trivia — it is how `@class` methods and per-class state
   work without a bolted-on mechanism.
-- **The surface looks like JavaScript.** Curly braces, `let`/`var`, `class Foo
-  extends Bar`, `x => x + 1`. A JavaScript programmer can read Phalcom on day one.
+- **The surface looks like JavaScript.** Curly braces, `let`/`var`, `class Foo is Bar`, `x => x + 1`. A JavaScript programmer can read Phalcom on day one.
   Where the semantics differ, the syntax warns you (Invariant 6: nothing surprises
   a JS programmer unless the surprise is signposted).
 

@@ -293,7 +293,7 @@ serialization constraint in the wave schedule (§4).
   cache, `max:` LRU only).
 - **Depends on.** M-INSTALL. Sub-deps: `Map` (LANDED), **`Pair`** (new — `Pair.of(self,args)` key),
   **`Map#evictOldest`** (new — for `max:` LRU).
-- **Write-set.** `phalcom-core/core/core.ph` (`class Memoize extends Attribute`, `class Pair`,
+- **Write-set.** `phalcom-core/core/core.ph` (`class Memoize is Attribute`, `class Pair`,
   `Map#evictOldest`); `phalcom-core/tests/lang/decorators/` goldens. **core.ph chokepoint — serialize.**
 - **Design decision.** Key is `(ObjRef identity, args)`, never `args` alone (spec: sharing across instances is
   silently wrong). Cache lives in the attribute instance (per-class, shared) — the per-method state row, so
@@ -313,7 +313,7 @@ serialization constraint in the wave schedule (§4).
   backoff; new `Backoff` core class (`.none`/`.fixed(ms)`/`.exponential(base:,max:)`, `waitBefore(attempt)`).
   decorators-behavioral.md §"`@retry`" (B-2 resolved: `Backoff` is a ratified core class).
 - **Depends on.** M-INSTALL; `Block#on(_)` (U-ERR, LANDED); `Fiber.yield` for the cooperative wait (LANDED).
-- **Write-set.** `phalcom-core/core/core.ph` (`class Retry extends Attribute`, `class Backoff` + strategy
+- **Write-set.** `phalcom-core/core/core.ph` (`class Retry is Attribute`, `class Backoff` + strategy
   subtypes); `phalcom-core/tests/lang/decorators/` goldens. **core.ph chokepoint — serialize.**
 - **Design decision.** `waitBefore` is a **fiber-yielding** wait (suspends to scheduler, does not busy-block),
   consistent with concurrency.md. `on:` filter defaults to all `Error` (broad — narrow in real code). Retry
@@ -380,7 +380,7 @@ serialization constraint in the wave schedule (§4).
   decorators-dispatch-observability.md §"`@traced`" (D-2 resolved: `Tracer` ratified core protocol).
 - **Depends on.** M-RUNTIME (`aroundSend`/`Invocation`/interceptor bit); `System.print` (LANDED);
   **`Clock.now`** (new — for `timing:`); `Block#on(_)`/`andThen` (U-ERR).
-- **Write-set.** `phalcom-core/core/core.ph` (`class Traced extends Attribute`, `class Tracer`,
+- **Write-set.** `phalcom-core/core/core.ph` (`class Traced is Attribute`, `class Tracer`,
   `Tracer.stdout`, `class Clock` or `Clock.now` surface); `phalcom-core/src/primitive/*` (a `Clock.now`
   native if no monotonic clock exists — verify); `phalcom-core/tests/lang/decorators/` goldens.
   **core.ph chokepoint — serialize.**
@@ -403,8 +403,8 @@ serialization constraint in the wave schedule (§4).
   `FeatureDisabled` error. decorators-dispatch-observability.md §"`@featureFlag`" (D-3 resolved: `Flags`
   ratified ambient core module).
 - **Depends on.** M-RUNTIME.
-- **Write-set.** `phalcom-core/core/core.ph` (`class FeatureFlag extends Attribute`, `module Flags`,
-  `class OffBehavior` + variants, `class FeatureDisabled extends Error`);
+- **Write-set.** `phalcom-core/core/core.ph` (`class FeatureFlag is Attribute`, `module Flags`,
+  `class OffBehavior` + variants, `class FeatureDisabled is Error`);
   `phalcom-core/tests/lang/decorators/` goldens. **core.ph chokepoint — serialize.**
 - **Design decision.** Runtime because the flag flips at runtime and must be **queried per call** (an Install
   wrapper would bake state at boot — wrong). `Flags` is a module singleton (same shape as `System`), queried

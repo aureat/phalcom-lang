@@ -21,7 +21,7 @@ Companion to [`plan.md`](plan.md). Governed by
 > 2. **§4's reserved-name source.** It rejects `add_class!`'s set and prescribes "the core-module
 >    keys present once `core.ph` has finished running" — which also catches ordinary `.ph` library
 >    classes `core.ph` declares, e.g. `ArgumentError`. That made the idiomatic
->    `class ArgumentError extends Error` a `class.reserved_name` error and broke a real golden.
+>    `class ArgumentError is Error` a `class.reserved_name` error and broke a real golden.
 >    **The set is `add_class!`'s**, now `VM::kernel_class_names` (`vm/mod.rs:188`), populated as
 >    each primitive installs plus one explicit `insert` for `None`. That is PDR-0001 ruling 3's
 >    own literal wording; §4's elaboration overreached past the ruling it implements.

@@ -456,7 +456,8 @@ working end to end for both getter and method sends:
 
 ```phalcom
 class TracingProxy {
-  construct on(t) { _t = t }
+  @constructor
+  on(t) { _t = t }
   doesNotUnderstand(msg) {
     System.print("  -> " + msg.name.toString + " args=" + msg.args.toString)
     let r = _t.perform(msg.selector, msg.args)
@@ -508,8 +509,9 @@ would remove it. Minor.
 Retention works and is reflectable:
 
 ```phalcom
-class Test extends Attribute {
-  construct new(n) { _n = n }
+class Test is Attribute {
+  @constructor
+  new(n) { _n = n }
 }
 class Suite {
   @Test("adds two numbers")

@@ -74,7 +74,7 @@ dictionary. This is the design's load-bearing choice:
 
 ```phalcom
 @On(Class, tier: Dispatch)
-class ForwardMissing extends Attribute { ... }
+class ForwardMissing is Attribute { ... }
 
 @ForwardMissing(to: #_inner)
 class LoggingWrapper {

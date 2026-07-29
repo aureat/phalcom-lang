@@ -19,7 +19,8 @@ Measured 2026-07-20 on `c346200`, with
 
 ```phalcom
 class Boom {
-  construct new() {}
+  @constructor
+  new() {}
   go(n) { return self.go(n + 1) }
 }
 Boom.new().go(0)

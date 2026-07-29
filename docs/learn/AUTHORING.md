@@ -64,7 +64,8 @@ briefs. Keep it cheap — a scout, not the survey (that is Agent B's job, and it
    which subsystems the doc must mention (GC, fibers, compiler).
 5. Grep `docs/adr/` for the concept. If an ADR exists, read **only** its *Decision* and
    *Alternatives considered* sections. This is what tells you what was **actually deliberated**
-   versus what you will reconstruct pedagogically (see the honesty guard, §5.2).
+   versus what you will re@constructor
+pedagogically (see the honesty guard, §5.2).
 
 ### `recon.md` must answer four questions and nothing else:
 

@@ -52,7 +52,8 @@ constructor derivation "for free," as part of `@data`'s own generate step.
 ```phalcom
 @data class Money { var _cents; var _currency }
 // generate phase, same field-to-param derivation as @construct:
-//   construct new(cents:, currency:) { _cents = cents; _currency = currency }
+//@constructor
+   new(cents:, currency:) { _cents = cents; _currency = currency }
 // generate phase, @data's own additions:
 //   ==(other)   { return _cents == other.cents and _currency == other.currency }
 //   hash        => _cents.hash.combine(_currency.hash)
@@ -110,7 +111,7 @@ before the enclosing class finalizes:
 ```phalcom
 // @variant Circle(radius:) inside class Shape expands to:
 @data
-class Circle extends Shape { var _radius }
+class Circle is Shape { var _radius }
 ```
 
 **Draft 0.1 scoping — no nested namespace.** `Circle` is registered as an

@@ -44,7 +44,8 @@ The gap is **narrow and precisely located**. The language supports labeled
 parameters everywhere else — both of these work:
 
 ```phalcom
-construct new(name:) { _name = name }    // declaration: parses
+@constructor
+new(name:) { _name = name }    // declaration: parses
 Author.new(name: "Ada")                  // normal call site: works, returns "Ada"
 ```
 
@@ -58,8 +59,9 @@ documented form.
 
 ```phalcom
 @On(Method, Install)
-class Loud extends Attribute {
-  construct new() {}
+class Loud is Attribute {
+  @constructor
+  new() {}
   wrap(m) {
     System.print("  [WRAP HOOK CALLED]")   // never printed
     return m
@@ -115,7 +117,8 @@ is verified working end to end for both getter and method sends:
 
 ```phalcom
 class TracingProxy {
-  construct on(t) { _t = t }
+  @constructor
+  on(t) { _t = t }
 
   doesNotUnderstand(msg) {
     System.print("  -> " + msg.name.toString + " args=" + msg.args.toString)
@@ -181,7 +184,8 @@ without touching evaluator code.
 
 ```phalcom
 class TracingProxy {
-  construct on(target, label) {
+  @constructor
+  on(target, label) {
     _t = target
     _label = label
     _depth = 0
@@ -209,7 +213,8 @@ outside and never recurses on `self`:
 
 ```phalcom
 class MemoProxy {
-  construct on(t) {
+  @constructor
+  on(t) {
     _t = t
     _cache = Map.new()
   }
@@ -238,8 +243,9 @@ The one attribute SheetCalc actually ships, and it works because it is
 from `M-INSTALL`:
 
 ```phalcom
-class Test extends Attribute {
-  construct new(desc) { _desc = desc }
+class Test is Attribute {
+  @constructor
+  new(desc) { _desc = desc }
   desc => _desc
 }
 

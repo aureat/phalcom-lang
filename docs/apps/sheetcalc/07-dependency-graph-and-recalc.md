@@ -50,7 +50,8 @@ is retained only as a note; use `set.includes(r)` directly.
 
 ```phalcom
 class DepGraph {
-  construct new() {
+  @constructor
+  new() {
     _forward = Map.new()       // Ref -> Set<Ref>: cell -> cells it reads
     _reverse = Map.new()       // Ref -> Set<Ref>: cell -> cells that read it
     _formulaRefs = Set.new()   // every ref that currently owns a formula
@@ -112,8 +113,9 @@ class Ast {
 }
 
 // A single-cell reference: A1, $A$1, B12.
-class RefLit extends Ast {
-  construct new(ref) { _ref = ref }
+class RefLit is Ast {
+  @constructor
+  new(ref) { _ref = ref }
 
   dependencies {
     let s = Set.new()
@@ -125,8 +127,9 @@ class RefLit extends Ast {
 // A rectangular range: A1:B3. Only meaningful as a function-call argument
 // (SUM(A1:B3)); see 06/08 for eval semantics. Its dependency set is every
 // Ref in the closed rectangle.
-class RangeLit extends Ast {
-  construct new(topLeft, bottomRight) { _tl = topLeft; _br = bottomRight }
+class RangeLit is Ast {
+  @constructor
+  new(topLeft, bottomRight) { _tl = topLeft; _br = bottomRight }
 
   dependencies {
     let s = Set.new()
@@ -145,8 +148,9 @@ class RangeLit extends Ast {
 
 // Shared base for +, -, *, /, %, and comparisons: union of both operands.
 // Add/Sub/Mul/Div/Mod/Lt/... extend this and add nothing but eval(ctx).
-class BinOp extends Ast {
-  construct new(left, right) { _left = left; _right = right }
+class BinOp is Ast {
+  @constructor
+  new(left, right) { _left = left; _right = right }
 
   dependencies {
     let s = Set.new()
@@ -158,8 +162,9 @@ class BinOp extends Ast {
 
 // A function call: SUM(A1:A3), IF(A1>0, 'yes', 'no'). Union of every arg's
 // dependencies -- this is where a RangeLit's rectangle enters the graph.
-class Call extends Ast {
-  construct new(name, args) { _name = name; _args = args }
+class Call is Ast {
+  @constructor
+  new(name, args) { _name = name; _args = args }
 
   dependencies {
     let s = Set.new()
@@ -175,7 +180,8 @@ Building the whole graph is a single walk over every formula cell:
 
 ```phalcom
 class Engine {
-  construct new(grid, graph) {
+  @constructor
+  new(grid, graph) {
     _grid = grid
     _graph = graph
   }
@@ -484,7 +490,7 @@ exactly the primitives this calls for (findings §8; [01](01-architecture.md)
 
 ```phalcom
 // The design that GAP-FIB-1 blocks -- do not implement this as written.
-class RefLit extends Ast {
+class RefLit is Ast {
   eval(ctx) {
     if (ctx.isComputed(_ref)) { return ctx.valueOf(_ref) }
     Fiber.yield(WaitingOn.new(_ref))   // suspend until _ref is ready

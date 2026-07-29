@@ -72,7 +72,8 @@ amended). Net delta: **+1 opcode, 0 floor primitives.**
 ## Consequences
 
 - `super` is real end-to-end: inherited-method extension, multi-level chains,
-  and explicit super-construct chaining (DEC-INH-C).
+  and explicit super-@constructor
+chaining (DEC-INH-C).
 - **Inline caching (DEC-INH-F):** `SuperSend` has a static per-call-site start
   class, so its cache key differs from a receiver-polymorphic `Invoke`. This
   first cut is **uncached** (correct, simple). **Note (2026-07-14):** the

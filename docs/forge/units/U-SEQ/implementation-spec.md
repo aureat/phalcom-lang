@@ -81,8 +81,9 @@ toList {
 // `None` singleton at exhaustion — never Some-wrapped). `extends Iterable` so §1's combinators, `for`,
 // and every other view work on a view for free.
 
-class MapView extends Iterable {
-  construct new(source, fn) {
+class MapView is Iterable {
+  @constructor
+  new(source, fn) {
     _source = source
     _fn = fn
   }
@@ -90,8 +91,9 @@ class MapView extends Iterable {
   iteratorValue(cursor) => self._fn.call(self._source.iteratorValue(cursor))
 }
 
-class WhereView extends Iterable {
-  construct new(source, pred) {
+class WhereView is Iterable {
+  @constructor
+  new(source, pred) {
     _source = source
     _pred = pred
   }
@@ -106,8 +108,9 @@ class WhereView extends Iterable {
   iteratorValue(cursor) => self._source.iteratorValue(cursor)
 }
 
-class SkipView extends Iterable {
-  construct new(source, count) {
+class SkipView is Iterable {
+  @constructor
+  new(source, count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
       throw Error("skip: count must be a non-negative Number")   // -> ArgumentError once landed
     }
@@ -133,8 +136,9 @@ class SkipView extends Iterable {
 // count INSIDE the cursor (a `(sourceCursor, takenSoFar)` Tuple), so `iterate` stays a pure function of
 // its argument and the SAME TakeView instance can be traversed any number of times with identical
 // results (pin: the repeatability golden, plan.md §7).
-class TakeView extends Iterable {
-  construct new(source, count) {
+class TakeView is Iterable {
+  @constructor
+  new(source, count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
       throw Error("take: count must be a non-negative Number")
     }

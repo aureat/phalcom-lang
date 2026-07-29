@@ -59,8 +59,8 @@ runtime as `attr.frozen`; and `Behavior#attributes`/`Method#attributes`/
    `self.__attributes.filter { a => a.isA(cls) }` with **no superclass chain-walk**.
    `inherited: true` has no effect.
 4. **Validation only reaches *direct* subclasses.** `is_attribute_class` is
-   `superclass.name == "Attribute"` (class_decl.rs L64) — a *direct* `extends
-   Attribute` only. A transitive subclass (`class B extends A`, where `A extends
+   `superclass.name == "Attribute"` (class_decl.rs L64) — a *direct* `is
+   Attribute` only. A transitive subclass (`class B is A`, where `A is
    Attribute`) is retained correctly (retention walks the full chain via
    `resolves_to_attribute_class`) but is **never validated** — it can declare a
    reserved tier or implement a bare hook with no diagnostic.
@@ -101,7 +101,7 @@ Install/Dispatch/Runtime; the compiler owns Compile/Layout).
 
 ## Decision
 
-An **attribute** is a class that extends the core `Attribute` root. Using it as
+An **attribute** is a class that is the core `Attribute` root. Using it as
 `@Name` or `@Name(args)` at a legal target:
 
 1. **instantiates** it — `@Name(args)` desugars to `Name.new(args)` (bare `@Name`
@@ -133,9 +133,10 @@ multi-tier-per-class is deferred to v0.3, see "What this precludes").
 
 ```phalcom
 @On(Method, tier: Install)
-class Memoize extends Attribute {
+class Memoize is Attribute {
   var _cache
-  construct new() { _cache = Map.new() }
+  @constructor
+  new() { _cache = Map.new() }
   wrap(m) { ... }
 }
 ```
@@ -174,9 +175,10 @@ selector is inert metadata:
 ```phalcom
 // class-side legality + tier — replaces the Rust `Target` table row
 @On(Method, tier: Install)
-class Memoize extends Attribute {
+class Memoize is Attribute {
   var _cache
-  construct new() { _cache = Map.new() }
+  @constructor
+  new() { _cache = Map.new() }
 
   // tier: Install declared above; must implement wrap(_) or attr.missing_hook
   wrap(m) {
@@ -209,9 +211,10 @@ annotation, expressed with zero new syntax:
 
 ```phalcom
 @On(Class)
-class Author extends Attribute {
+class Author is Attribute {
   var _name
-  construct new(name:) { _name = name }   // no tier declared, no hook => inert metadata only
+  @constructor
+  new(name:) { _name = name }   // no tier declared, no hook => inert metadata only
   name => _name
 }
 
@@ -307,11 +310,12 @@ class names surface-visible and carry the derivable accessors.
 class Attribute {}
 
 // Builtin attribute carrying legality + tier (recursion bottoms out here).
-class On extends Attribute {
+class On is Attribute {
   var _targets
   var _tier        // None (passive) | Install | Dispatch | Runtime | Compile | Layout (builtin-only)
   var _inherited    // default false (A-2)
-  construct new(targets, tier: None, inherited: false) {
+  @constructor
+  new(targets, tier: None, inherited: false) {
     _targets = targets
     _tier = tier
     _inherited = inherited
@@ -441,9 +445,10 @@ and non-local `return` out of the wrapper on first success:
 
 ```phalcom
 @On(Method, tier: Install)
-class Retry extends Attribute {
+class Retry is Attribute {
   var _times
-  construct new(times:) { _times = times }
+  @constructor
+  new(times:) { _times = times }
 
   wrap(m) {
     return Method.fromBlock { args =>
@@ -465,9 +470,10 @@ put the lock on `self`, a reserved slot — row 3, so it becomes a builtin:
 
 ```phalcom
 @On(Method, tier: Install)
-class Synchronized extends Attribute {
+class Synchronized is Attribute {
   var _lock
-  construct new() { _lock = Lock.new() }
+  @constructor
+  new() { _lock = Lock.new() }
 
   wrap(m) {
     return Method.fromBlock { args =>
@@ -486,7 +492,7 @@ could only cache in the shared attribute instance — class-level, not per-objec
 // tier: Layout is compiler-reserved (A-3) — this class could not be authored in
 // user .ph source; a user attempt would hit attr.compile_tier_reserved.
 @On(Getter, tier: Layout)
-class Lazy extends Attribute {
+class Lazy is Attribute {
   finalizeLayout(field) { field.reserveSlot(#_lazy) }   // Layout hook (builtin-only)
 
   wrap(getter) {

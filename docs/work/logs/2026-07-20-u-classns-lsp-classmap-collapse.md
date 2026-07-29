@@ -83,7 +83,7 @@ carries a stated invariant:
 > so `Object`'s selectors (`==`, `hash`, `isNil`, …) are always eventually walked, closing the
 > "implicit `Object` never offered" gap
 
-Scoping broke it. `class Dog extends Animal` with `Animal` in another file now walked `Dog`, found
+Scoping broke it. `class Dog is Animal` with `Animal` in another file now walked `Dog`, found
 `Animal` unresolvable, and **terminated** — dropping the entire builtin surface. `inheritance_walk_does_not_cross_files`
 failed on exactly that assertion. Restoring the invariant is defending documented behavior, not
 scope creep, so the walk now falls back to `IMPLICIT_ROOT_CLASS` on an unresolvable parent.
@@ -108,7 +108,7 @@ a doc comment, and only a fixture noticed it had been broken — twice, in oppos
 ## 4. Deliberate behavior change
 
 Cross-file inheritance completion stops working, and that is the fix rather than a regression.
-Previously `class Dog extends Animal` in `a.ph` would pick up an `Animal` from `b.ph` — an
+Previously `class Dog is Animal` in `a.ph` would pick up an `Animal` from `b.ph` — an
 unrelated class — and offer its members. Under `(module, name)` identity those are two different
 classes, and the LSP cannot resolve the `import` that would make a real cross-module superclass
 nameable. So the walk stops at the file boundary and falls through to the builtin surface.

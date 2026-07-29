@@ -28,10 +28,10 @@ class EvalVisitor {
 }
 
 // This:
-class BinOp extends Ast {
+class BinOp is Ast {
   eval(ctx) { return _l.eval(ctx).perform(_op, [_r.eval(ctx)]) }
 }
-class Lit extends Ast {
+class Lit is Ast {
   eval(ctx) => _v
 }
 ```
@@ -105,7 +105,7 @@ boilerplate saving in the program.
 ### Singleton → static getters
 
 ```phalcom
-class CellEmpty extends CellValue {
+class CellEmpty is CellValue {
   static instance {
     if (CellEmpty.instance_ == None) { CellEmpty.instance_ = CellEmpty.new() }
     return CellEmpty.instance_
@@ -174,7 +174,8 @@ absent Install tier, and it misses self-sends.
 | Method wrapping / around-advice | No method installation from `.ph`; `M-INSTALL` unlanded |
 | Mixins / traits | No multiple inheritance; no method injection to simulate it |
 | Class-side state (`static var`) | GAP-CLS-1 — no class-side instance variables |
-| Dependency injection by constructor label overloading | Constructors are `construct name(...)`; distinct labels are distinct selectors, which actually works *well* — see below |
+| Dependency injection by constructor label overloading | Constructors are `@constructor
+name(...)`; distinct labels are distinct selectors, which actually works *well* — see below |
 
 ### GAP-CLS-1 — no class-side instance variables
 
@@ -196,8 +197,10 @@ not.
 
 Recorded deliberately, because a document this long about gaps skews the picture.
 
-**Keyword constructors are excellent.** `construct at(c, r)` /
-`construct of(n)` / `construct new(items:)` give named, self-documenting
+**Keyword constructors are excellent.** `@constructor
+at(c, r)` /
+`@constructor
+of(n)` / `construct new(items:)` give named, self-documenting
 construction with no builder pattern and no overload resolution:
 
 ```phalcom

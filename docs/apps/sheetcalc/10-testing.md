@@ -16,8 +16,9 @@ not belong in this document either.
 
 ```phalcom
 // test/framework.ph
-class Test extends Attribute {
-  construct new(desc) { _desc = desc }
+class Test is Attribute {
+  @constructor
+  new(desc) { _desc = desc }
 
   desc => _desc
 }
@@ -30,7 +31,7 @@ of its own.
 A test suite tags its test methods:
 
 ```phalcom
-class ValueFormatSuite extends TestCase {
+class ValueFormatSuite is TestCase {
   @Test("0.1 + 0.2 formats as 0.3, not the raw float noise")
   testFloatNoise() {
     self.assertEqual("0.3", Num.format(0.1 + 0.2))
@@ -150,7 +151,7 @@ raise into an `Err` it records instead of propagating.
 // test/framework.ph (continued)
 
 // Raised by a failing assertion.
-class AssertionError extends Error {}
+class AssertionError is Error {}
 
 // Suites extend this for the assertion surface. There is no way to
 // install a method onto a class from `.ph` (findings §9) — so assertions
@@ -188,8 +189,10 @@ class TestCase {
 // One test's outcome. `name` is the method's Symbol (as returned by
 // Behavior#methods), not a Method or a String.
 class TestResult {
-  construct pass(name, desc) { _name = name; _desc = desc; _ok = true; _error = None }
-  construct fail(name, desc, error) { _name = name; _desc = desc; _ok = false; _error = error }
+  @constructor
+  pass(name, desc) { _name = name; _desc = desc; _ok = true; _error = None }
+  @constructor
+  fail(name, desc, error) { _name = name; _desc = desc; _ok = false; _error = error }
 
   name  => _name
   desc  => _desc
@@ -201,7 +204,7 @@ class TestResult {
 A usage example:
 
 ```phalcom
-class AssertionSuite extends TestCase {
+class AssertionSuite is TestCase {
   @Test("assertError catches the exact kind, not just any Error")
   testAssertError() {
     self.assertError(ArgumentError, { ArgumentError.new("bad arg").raise() })

@@ -81,8 +81,8 @@ Ruby: class-side methods live in singleton classes, created on demand.
 
 ```
 class A            m => "A"
-class B extends A  m => "B:" + super.m()
-class C extends B  (no m of its own)
+class B is A  m => "B:" + super.m()
+class C is B  (no m of its own)
 ```
 
 Evaluate `C.new.m()`.

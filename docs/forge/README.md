@@ -26,7 +26,7 @@ docs/forge/
   archive/        ← closed phases (phase1, phase2, …), kept for provenance.
 ```
 
-**[`STATE.md`](STATE.md)** is the live entry point, with [`INDEX.md`](INDEX.md) (coordination
+**[`STATE.md`](STATE.md)** is the live entry point, with [`INDEX.md`](forge/INDEX.md) (coordination
 map) and [`DEFERRED.md`](DEFERRED.md) (open ledger) beside it. Per-phase handoff prompts live at
 this level as `HANDOFF-<TOPIC>.md`.
 
@@ -56,7 +56,7 @@ checkboxes and a landing-order timeline. A view, not a fork of the roster (see C
 ## Conventions
 
 - Don't fork the roster: status of record is [`STATE.md`](STATE.md) + the as-built specs +
-  [`../spec/current/core/README.md`](../spec/current/core/README.md). [`INDEX.md`](INDEX.md) *points*,
+  [`../spec/current/core/README.md`](../spec/current/core/README.md). [`INDEX.md`](forge/INDEX.md) *points*,
   it does not re-list. [`UNITS-TRACKER.md`](UNITS-TRACKER.md) is a read grouping of that same
   roster, not a second source of truth — update the roster first, then refresh the tracker.
 - **One `STATE.md`, one `DEFERRED.md`, at this level.** Do not create a second copy in a

@@ -164,8 +164,9 @@ implements `iterate`/`iteratorValue` lazily over the bare-cursor contract (§2 i
 // returns `false`, never a dNU or panic — the tagged-`Value` `object_eq` floor compares by variant
 // first (ADR-0010); confirm this still holds on dispatch HEAD before relying on it in a hot loop.
 
-class MapView extends Iterable {
-  construct new(source, fn) {
+class MapView is Iterable {
+  @constructor
+  new(source, fn) {
     _source = source
     _fn = fn
   }
@@ -173,8 +174,9 @@ class MapView extends Iterable {
   iteratorValue(cursor) => self._fn.call(self._source.iteratorValue(cursor))
 }
 
-class WhereView extends Iterable {
-  construct new(source, pred) {
+class WhereView is Iterable {
+  @constructor
+  new(source, pred) {
     _source = source
     _pred = pred
   }
@@ -191,8 +193,9 @@ class WhereView extends Iterable {
   iteratorValue(cursor) => self._source.iteratorValue(cursor)
 }
 
-class SkipView extends Iterable {
-  construct new(source, count) {
+class SkipView is Iterable {
+  @constructor
+  new(source, count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
       throw Error("skip: count must be a non-negative Number")   // -> ArgumentError once landed, §2
     }
@@ -234,8 +237,9 @@ carrying the running "taken so far" count *inside the cursor* rather than in ins
 already-ratified `(a, b)` `Tuple` literal (ADR-0032) as the composite cursor:
 
 ```phalcom
-class TakeView extends Iterable {
-  construct new(source, count) {
+class TakeView is Iterable {
+  @constructor
+  new(source, count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
       throw Error("take: count must be a non-negative Number")
     }

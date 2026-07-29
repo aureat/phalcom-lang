@@ -32,7 +32,7 @@ propagation flag — four maps kept in sync by hand, one per function property.
 ### (b) A class per function, with a common polymorphic `call`
 
 ```phalcom
-class AbsFn extends Fn {
+class AbsFn is Fn {
   minArity => 1
   maxArity => 1
   call(argNodes, ctx) { ... }
@@ -107,7 +107,8 @@ class Fn {
 }
 
 class FunctionTable {
-  construct new() {
+  @constructor
+  new() {
     _table = Map.new()
     _table.at("SUM", put: SumFn.new())
     _table.at("AVERAGE", put: AverageFn.new())
@@ -176,7 +177,7 @@ RIGHT MID UPPER LOWER ISERROR IFERROR VLOOKUP COUNTIF` — 24 functions.
 ### 2.1 `SUM` — where DEC-VM-1's cost becomes visible
 
 ```phalcom
-class SumFn extends Fn {
+class SumFn is Fn {
   minArity => 1
 
   call(argNodes, ctx) {
@@ -238,7 +239,7 @@ plainly.
 > rather than routing through `CellNum`'s own `<` operator at all.
 
 ```phalcom
-class MinFn extends Fn {
+class MinFn is Fn {
   minArity => 1
 
   call(argNodes, ctx) {
@@ -263,7 +264,7 @@ guarding the empty-range case exactly the way `CellNum#/` guards zero
 (REQ-VM-6):
 
 ```phalcom
-class AverageFn extends Fn {
+class AverageFn is Fn {
   minArity => 1
 
   call(argNodes, ctx) {
@@ -289,7 +290,7 @@ propagates" (§4) — `COUNT` simply doesn't count non-numbers (including
 errors), and `COUNTA` counts *everything* non-blank, errors included:
 
 ```phalcom
-class CountFn extends Fn {
+class CountFn is Fn {
   minArity => 1
   propagatesErrors => false
 
@@ -302,7 +303,7 @@ class CountFn extends Fn {
   }
 }
 
-class CountaFn extends Fn {
+class CountaFn is Fn {
   minArity => 1
   propagatesErrors => false
 
@@ -325,7 +326,7 @@ built from that surface, in `support/num.ph` (01-architecture.md §1/§2),
 before `08` can call it.
 
 ```phalcom
-class AbsFn extends Fn {
+class AbsFn is Fn {
   minArity => 1
   maxArity => 1
 
@@ -364,7 +365,7 @@ class Num {
 ```
 
 ```phalcom
-class SqrtFn extends Fn {
+class SqrtFn is Fn {
   minArity => 1
   maxArity => 1
 
@@ -384,7 +385,7 @@ explicit floor-toward-negative-infinity correction because
 `n - (n % 1)` truncates toward zero for negative `n`, per findings §3):
 
 ```phalcom
-class RoundFn extends Fn {
+class RoundFn is Fn {
   minArity => 1
   maxArity => 2
 
@@ -426,7 +427,7 @@ Straightforward over `String`'s verified-present surface (`+`, `size`,
 ASCII. Multi-byte UTF-8 is out of scope for v1.
 
 ```phalcom
-class ConcatFn extends Fn {
+class ConcatFn is Fn {
   minArity => 1
 
   call(argNodes, ctx) {
@@ -441,7 +442,7 @@ class ConcatFn extends Fn {
   }
 }
 
-class LenFn extends Fn {
+class LenFn is Fn {
   minArity => 1
   maxArity => 1
 
@@ -453,7 +454,7 @@ class LenFn extends Fn {
   }
 }
 
-class LeftFn extends Fn {
+class LeftFn is Fn {
   minArity => 1
   maxArity => 2
 
@@ -472,7 +473,7 @@ class LeftFn extends Fn {
   }
 }
 
-class RightFn extends Fn {
+class RightFn is Fn {
   minArity => 1
   maxArity => 2
 
@@ -492,7 +493,7 @@ class RightFn extends Fn {
   }
 }
 
-class MidFn extends Fn {
+class MidFn is Fn {
   minArity => 3
   maxArity => 3
 
@@ -572,7 +573,7 @@ class Str {
 ```
 
 ```phalcom
-class UpperFn extends Fn {
+class UpperFn is Fn {
   minArity => 1
   maxArity => 1
 
@@ -616,7 +617,7 @@ never calls `.eval(ctx)` on the branch it doesn't take, so `=IF(A1=0, 0,
 special to arrange that.
 
 ```phalcom
-class IfFn extends Fn {
+class IfFn is Fn {
   minArity => 2
   maxArity => 3
 
@@ -639,7 +640,7 @@ are the first consumers that need it.)
 propagate the first error found, left to right:
 
 ```phalcom
-class AndFn extends Fn {
+class AndFn is Fn {
   minArity => 1
 
   call(argNodes, ctx) {
@@ -653,7 +654,7 @@ class AndFn extends Fn {
   }
 }
 
-class OrFn extends Fn {
+class OrFn is Fn {
   minArity => 1
 
   call(argNodes, ctx) {
@@ -667,7 +668,7 @@ class OrFn extends Fn {
   }
 }
 
-class NotFn extends Fn {
+class NotFn is Fn {
   minArity => 1
   maxArity => 1
 
@@ -688,7 +689,7 @@ error rather than through it — they are the documented exceptions to §4's
 default rule, not a special case bolted on top of it.
 
 ```phalcom
-class IsErrorFn extends Fn {
+class IsErrorFn is Fn {
   minArity => 1
   maxArity => 1
   propagatesErrors => false
@@ -699,7 +700,7 @@ class IsErrorFn extends Fn {
   }
 }
 
-class IfErrorFn extends Fn {
+class IfErrorFn is Fn {
   minArity => 2
   maxArity => 2
   propagatesErrors => false
@@ -723,7 +724,7 @@ forced that decision; `RangeNode` needs one more evaluation entry point beyond
 
 ```phalcom
 // Addition to RangeNode (06-ast-and-eval.md §5), needed only by VLOOKUP:
-class RangeNode extends Ast {
+class RangeNode is Ast {
   // ... eval, evalRange, dependencies as in 06 §5 ...
 
   evalRows(ctx) {
@@ -742,7 +743,7 @@ class RangeNode extends Ast {
 specified alongside it in 03-references-and-grid.md.)
 
 ```phalcom
-class VlookupFn extends Fn {
+class VlookupFn is Fn {
   minArity => 3
   maxArity => 4    // 4th arg (range-lookup flag) is accepted but ignored -- DEC-FN-3
 
@@ -769,7 +770,7 @@ binary search when the 4th argument is `TRUE`/omitted) is out of scope for v1.
 ### 2.9 `COUNTIF` — exact-match only
 
 ```phalcom
-class CountIfFn extends Fn {
+class CountIfFn is Fn {
   minArity => 2
   maxArity => 2
 

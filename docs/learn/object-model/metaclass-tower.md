@@ -101,7 +101,7 @@ class Shape {
     static String defaultColor() { return "black"; }
     static Shape  make()         { return new Shape(defaultColor()); }
 }
-class Circle extends Shape {
+class Circle is Shape {
     static String defaultColor() { return "red"; } // hides, does not override
 }
 Circle.make(); // a BLACK Shape — not a red Circle
