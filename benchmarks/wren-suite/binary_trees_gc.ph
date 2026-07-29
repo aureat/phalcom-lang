@@ -6,7 +6,8 @@
 // (no `for (i in 1...1000) System.gc()` "give GC a shot" hook is the delta),
 // useful once GC control lands to see if inserting it changes anything.
 class Tree {
-  construct new(item, depth) {
+  @constructor
+  new(item, depth) {
     _item = item
     if (depth > 0) {
       let item2 = item + item

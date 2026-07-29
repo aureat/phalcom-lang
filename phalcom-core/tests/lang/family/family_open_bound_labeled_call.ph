@@ -6,7 +6,8 @@
 // argument labels, then performs an ordinary send (selectors.md §3).
 
 class Point {
-  construct new(x, y) { _x = x; _y = y }
+  @constructor
+  new(x, y) { _x = x; _y = y }
   move(to:, duration:) {
     return "moved to \(to) from \(_x), \(_y) in \(duration)"
   }

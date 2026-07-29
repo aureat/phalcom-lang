@@ -1,5 +1,6 @@
 class A {
-  construct new() {}
+  @constructor
+  new() {}
 }
 const a = A.new()
 a[0]

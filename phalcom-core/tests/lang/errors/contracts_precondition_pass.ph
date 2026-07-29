@@ -4,7 +4,8 @@
 // contract: a @requires-only method called with a valid argument runs normally
 
 class Divider {
-  construct new() { }
+  @constructor
+  new() { }
 
   @requires(divisor > 0)
   divide(value, divisor) {

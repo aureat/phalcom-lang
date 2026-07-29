@@ -12,6 +12,6 @@ class Base {
   }
 }
 
-class Derived extends Base {}
+class Derived is Base {}
 
 let d = Derived.new()

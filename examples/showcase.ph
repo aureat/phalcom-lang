@@ -10,7 +10,8 @@ class Stack {
 
   // Keyword constructor (`construct`): binds instance state directly
   // from labeled arguments.
-  construct new(items:) {
+  @constructor
+  new(items:) {
     _items = items
   }
 

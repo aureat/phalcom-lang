@@ -2,7 +2,7 @@ class Base {
   @constructor
   new() { _value = 1 }
 }
-class Derived extends Base {
+class Derived is Base {
   @constructor
   new(value) { _value = value }
   value => _value

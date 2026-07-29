@@ -1,0 +1,9 @@
+[package]
+name = "typing"
+version = "0.1.0-dev"
+language = "0.2-experimental"
+entry = "src/typing.ph"
+
+[features]
+reflective-types = true
+native-type-application = true

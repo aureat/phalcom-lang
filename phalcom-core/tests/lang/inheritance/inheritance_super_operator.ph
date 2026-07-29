@@ -5,11 +5,12 @@
 // operator methods are overridable and now super-callable too.
 
 class Vec {
-  construct new(x) { _x = x }
+  @constructor
+  new(x) { _x = x }
   x => _x
   +(other) { return Vec.new(_x + other.x) }
 }
-class Vec3 extends Vec {
+class Vec3 is Vec {
   +(other) {
     const r = super.+(other);
     return r.x;

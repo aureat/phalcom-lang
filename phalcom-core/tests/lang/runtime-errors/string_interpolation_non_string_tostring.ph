@@ -3,7 +3,8 @@
 // status: NEGATIVE
 
 class BadToString {
-  construct new() {}
+  @constructor
+  new() {}
 
   toString {
     return 123

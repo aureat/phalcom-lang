@@ -564,7 +564,7 @@ impl<'source> Parser<'source> {
 
     /// Parses `import "path" as Name` (U15, DEC-U15 A+A).
     ///
-    /// `as` is [`Token::As`], a reserved word (unlike `extends`/`on`'s
+    /// `as` is [`Token::As`], a reserved word (unlike `on`'s
     /// contextual-keyword precedent, `as` was already lexed as its own
     /// token, unused until this unit). Grammar: `import` STRING `as` IDENT.
     /// The binding is mandatory in Draft 0.1 (whole-module binding only,
@@ -995,12 +995,10 @@ impl<'source> Parser<'source> {
         let name = self.expect_identifier(&["identifier"])?;
         let name_range = (name_start..self.prev_end).into();
 
-        // Contextual `extends` (DEC-INH-A, U-INH): `extends` is not a reserved
-        // word — it is recognised as a keyword only here, immediately after the
-        // class name. Any other occurrence of `extends` remains an ordinary
-        // identifier. Grammar: `class` IDENT (`extends` IDENT)? `{` … `}`.
-        let superclass = if matches!(self.peek(), Token::Identifier(kw) if kw == "extends") {
-            self.advance(); // 'extends'
+        // Superclass clause: `is` is Token::Is keyword (PDR-0030).
+        // Grammar: `class` IDENT (`is` IDENT)? `{` … `}`.
+        let superclass = if matches!(self.peek(), Token::Is) {
+            self.advance(); // 'is'
             let sc_start = self.cur_start();
             let sc_name = self.expect_identifier(&["superclass name"])?;
             let sc_range = (sc_start..self.prev_end).into();

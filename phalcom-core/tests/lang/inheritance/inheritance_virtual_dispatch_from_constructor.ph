@@ -8,12 +8,14 @@
 // inside `A`'s own constructor body.
 
 class A {
-  construct new() { _tag = self.label }
+  @constructor
+  new() { _tag = self.label }
   label => "A"
   report => _tag
 }
-class B extends A {
-  construct new() { super.new() }
+class B is A {
+  @constructor
+  new() { super.new() }
   label => "B"
 }
 const b = B.new()

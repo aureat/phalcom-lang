@@ -155,11 +155,11 @@ fn ranking_puts_own_before_inherited() {
     // sort ahead of everything it inherits, and ties break by name.
     let mut session = ReplSession::start(PathBuf::from("."));
     assert!(matches!(
-        session.eval("class Base {\n  construct new() {}\n  zzz_base { return 1 }\n}"),
+        session.eval("class Base {\n  @constructor\n  new() {}\n  zzz_base { return 1 }\n}"),
         CellOutcome::Unit
     ));
     assert!(matches!(
-        session.eval("class Derived extends Base {\n  construct new() {}\n  aaa_own { return 2 }\n}"),
+        session.eval("class Derived is Base {\n  @constructor\n  new() {}\n  aaa_own { return 2 }\n}"),
         CellOutcome::Unit
     ));
 
@@ -185,7 +185,7 @@ fn arity_zero_inserts_bare_name() {
     // §S7 — a getter or zero-arity method completes to a bare name, no parens.
     let mut session = ReplSession::start(PathBuf::from("."));
     assert!(matches!(
-        session.eval("class Widget {\n  construct new() {}\n  spin { return 1 }\n}"),
+        session.eval("class Widget {\n  @constructor\n  new() {}\n  spin { return 1 }\n}"),
         CellOutcome::Unit
     ));
     assert!(matches!(session.eval("let w = Widget.new()"), CellOutcome::Unit));
@@ -204,7 +204,7 @@ fn arity_n_inserts_call_opening() {
     // explicitly not to a snippet placeholder like `${1:}`.
     let mut session = ReplSession::start(PathBuf::from("."));
     assert!(matches!(
-        session.eval("class Widget {\n  construct new() {}\n  scale(n) { return n }\n}"),
+        session.eval("class Widget {\n  @constructor\n  new() {}\n  scale(n) { return n }\n}"),
         CellOutcome::Unit
     ));
     assert!(matches!(session.eval("let w = Widget.new()"), CellOutcome::Unit));
@@ -283,7 +283,7 @@ fn value_echo_sends_tostring() {
     // invisible through it. Only a real send can produce this marker.
     let mut session = ReplSession::start(PathBuf::from("."));
 
-    let res1 = session.eval("class Custom {\n  construct new() {}\n  toString { return \"MARKER-7f3a\" }\n}");
+    let res1 = session.eval("class Custom {\n  @constructor\n  new() {}\n  toString { return \"MARKER-7f3a\" }\n}");
     assert!(matches!(res1, CellOutcome::Unit), "class cell should succeed, got {res1:?}");
 
     match session.eval("Custom.new()") {
@@ -302,7 +302,7 @@ fn value_echo_survives_raising_tostring() {
     // raise needs `Error.new(_).raise()`.
     let mut session = ReplSession::start(PathBuf::from("."));
 
-    let res1 = session.eval("class BadString {\n  construct new() {}\n  toString { return Error.new(\"boom\").raise() }\n}");
+    let res1 = session.eval("class BadString {\n  @constructor\n  new() {}\n  toString { return Error.new(\"boom\").raise() }\n}");
     assert!(matches!(res1, CellOutcome::Unit), "class cell should succeed, got {res1:?}");
 
     match session.eval("BadString.new()") {
@@ -338,7 +338,7 @@ fn reload_survives_declarations() {
 
     let r1 = session.eval("let x = 1");
     assert!(matches!(r1, CellOutcome::Unit), "Cell 1 failed: {r1:?}");
-    let r2 = session.eval("class Foo {\n  construct new() {}\n}");
+    let r2 = session.eval("class Foo {\n  @constructor\n  new() {}\n}");
     assert!(matches!(r2, CellOutcome::Unit), "Cell 2 failed: {r2:?}");
     let r3 = session.eval("let f = Foo.new()");
     assert!(matches!(r3, CellOutcome::Unit), "Cell 3 failed: {r3:?}");

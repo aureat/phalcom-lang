@@ -5,8 +5,9 @@
 // the *ratified* ADR-0031 surface (`try`/`on T e {}`/`catch e {}`/`ensure{}`)
 // rather than the placeholder `catch (e: T) {} finally {}` JS-style spelling
 // the pending draft carried before ADR-0031 fixed the actual grammar.
-class ArgumentError extends Error {
-  construct new(msg) { super.new(msg) }
+class ArgumentError is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 
 try {

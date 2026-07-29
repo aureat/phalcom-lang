@@ -7,7 +7,8 @@ import "../support/num" as NumModule
 /// the same col/row are == regardless of $ flags. Immutable (REQ-REF-2).
 class Ref {
   /// Bare relative reference. Column and row are 1-indexed.
-  construct at(c, r) {
+  @constructor
+  at(c, r) {
     _col = c
     _row = r
     _colAbs = false
@@ -15,7 +16,8 @@ class Ref {
   }
 
   /// Full constructor with absoluteness flags. Used by A1 decoder and offset().
-  construct full(c, r, colAbs, rowAbs) {
+  @constructor
+  full(c, r, colAbs, rowAbs) {
     _col = c
     _row = r
     _colAbs = colAbs

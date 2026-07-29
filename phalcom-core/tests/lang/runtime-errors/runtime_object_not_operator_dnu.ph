@@ -12,6 +12,7 @@
 // (U-NEG: prefix `!` retired; `not` is the sole prefix-negation surface.)
 
 class Foo {
-  construct new() {}
+  @constructor
+  new() {}
 }
 System.print(not Foo.new())

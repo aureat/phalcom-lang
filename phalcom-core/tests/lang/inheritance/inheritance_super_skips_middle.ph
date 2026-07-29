@@ -6,14 +6,17 @@
 // `super` does not require the immediate parent to implement it.
 
 class A {
-  construct new() { }
+  @constructor
+  new() { }
   origin => "from A"
 }
-class B extends A {
-  construct new() { }
+class B is A {
+  @constructor
+  new() { }
 }
-class C extends B {
-  construct new() { }
+class C is B {
+  @constructor
+  new() { }
   origin => super.origin + " via C"
 }
 System.print(C.new().origin)

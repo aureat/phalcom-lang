@@ -308,7 +308,7 @@ fn user_subclass_metaclass_parallels_superclass() {
     // `B.class.superclass == A.class`; the second link is what makes `static`
     // and `construct` members inherit across `extends`. `create_class` is the
     // single site that maintains rule 4 (DEC-INH-E), so both a surface
-    // `class B extends A` and a reflective creation stay parallel.
+    // `class B is A` and a reflective creation stay parallel.
     let mut vm = VM::new();
     let module = vm.create_module("main", "test");
     let object_class = vm.universe.classes.object_class;
@@ -540,7 +540,8 @@ fn subclass_field_offset_stability() {
     // 1. Compile and define Base
     let base_code = "
         class Base {
-            construct new() {
+            @constructor
+            new() {
                 _name = \"Base\"
                 _other = 42
             }
@@ -556,8 +557,9 @@ fn subclass_field_offset_stability() {
     // from `vm.field_layouts` once it exists, so no manual copy is needed
     // either; `Bytecode::Class`'s own `create_class` call does it).
     let sub_code = "
-        class Subclass extends Base {
-            construct new() {
+        class Subclass is Base {
+            @constructor
+            new() {
                 _name = \"Subclass\"
             }
         }
@@ -605,7 +607,7 @@ fn subclass_static_field_offset_stability() {
     // from `vm.field_layouts` once it exists, so no manual copy is needed
     // either; `Bytecode::Class`'s own `create_class` call does it).
     let sub_code = "
-        class Subclass extends Base {
+        class Subclass is Base {
             static _count = 20
         }
     ";
@@ -1682,8 +1684,9 @@ fn on_catch_restore_survives_a_deep_throw_and_the_vm_stays_healthy() {
     vm.interpret_source(
         module,
         r#"
-class DeepErr extends Error {
-  construct new(msg) { super.new(msg) }
+class DeepErr is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 class M {
   deep(n) {
@@ -1730,11 +1733,13 @@ fn on_isa_match_walks_the_superclass_chain() {
     vm.interpret_source(
         module,
         r#"
-class BaseErr extends Error {
-  construct new(msg) { super.new(msg) }
+class BaseErr is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
-class SubErr extends BaseErr {
-  construct new(msg) { super.new(msg) }
+class SubErr is BaseErr {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 let r = { throw SubErr.new("leaf") }.on(BaseErr) { e => "caught:" + e.message }
 "#,

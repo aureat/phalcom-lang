@@ -7,19 +7,23 @@
 // defining class arbitrarily deep, not just for 2-3 levels.
 
 class A {
-  construct new() { }
+  @constructor
+  new() { }
   tag => "A"
 }
-class B extends A {
-  construct new() { }
+class B is A {
+  @constructor
+  new() { }
   tag => super.tag + "B"
 }
-class C extends B {
-  construct new() { }
+class C is B {
+  @constructor
+  new() { }
   tag => super.tag + "C"
 }
-class D extends C {
-  construct new() { }
+class D is C {
+  @constructor
+  new() { }
   tag => super.tag + "D"
 }
 System.print(D.new().tag)

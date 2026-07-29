@@ -5,12 +5,14 @@
 // override on the subclass wins over the inherited definition.
 
 class Animal {
-  construct new() { }
+  @constructor
+  new() { }
   legs => 4
   describe => "an animal"
 }
-class Dog extends Animal {
-  construct new() { }
+class Dog is Animal {
+  @constructor
+  new() { }
   describe => "a dog"
 }
 const d = Dog.new()

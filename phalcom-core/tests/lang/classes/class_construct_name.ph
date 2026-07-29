@@ -2,7 +2,8 @@
 // spec: classes.md; object-model.md
 // status: PASS
 class Person {
-  construct new(name:, age:) {
+  @constructor
+  new(name:, age:) {
     _name = name
     _age = age
   }

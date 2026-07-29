@@ -3,7 +3,8 @@
 // status: NEGATIVE
 // U-INH: a class cannot name itself as its superclass — that would make method
 // lookup non-terminating.
-class A extends A {
-  construct new() { }
+class A is A {
+  @constructor
+  new() { }
 }
 System.print(1)

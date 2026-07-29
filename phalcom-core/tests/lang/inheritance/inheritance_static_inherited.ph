@@ -6,10 +6,12 @@
 // the subclass (the parallel-metaclass rule that makes static inheritance work).
 
 class Animal {
-  construct new() { }
+  @constructor
+  new() { }
   static kingdom => "Animalia"
 }
-class Dog extends Animal {
-  construct new() { }
+class Dog is Animal {
+  @constructor
+  new() { }
 }
 System.print(Dog.kingdom)

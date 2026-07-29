@@ -1,5 +1,6 @@
 class TestObj {
-  construct new() {
+  @constructor
+  new() {
     _x = 42
     _m = Map.new()
   }

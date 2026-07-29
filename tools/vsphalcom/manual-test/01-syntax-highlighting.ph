@@ -8,7 +8,7 @@
 
 /// Outer doc: documents the class below (this whole comment block is a
 /// distinct comment.block.documentation scope, not a plain `//` comment).
-class Account extends Object {
+class Account is Object {
   //! Inner doc: documents the enclosing class from inside its body.
 
   // _balance / _owner below are field identifiers (leading underscore) —
@@ -22,7 +22,8 @@ class Account extends Object {
     return self
   }
 
-  construct new(owner) {
+  @constructor
+  new(owner) {
     _owner = owner
     _balance = 0
   }
@@ -84,9 +85,9 @@ class Account extends Object {
   }
 }
 
-// Keyword coverage: class extends super self static try catch on ensure
+// Keyword coverage: class is super self static try catch on ensure
 // throw break continue match return while for let
-class Savings extends Account {
+class Savings is Account {
   static rate { return 0.05 }
 
   applyInterest() {

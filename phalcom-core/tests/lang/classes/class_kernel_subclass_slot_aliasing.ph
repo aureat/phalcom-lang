@@ -1,6 +1,7 @@
-class Sub extends List {
+class Sub is List {
   _tag
-  construct new(t) { _tag = t }
+  @constructor
+  new(t) { _tag = t }
   tag => _tag
 }
 

@@ -7,7 +7,7 @@
 class Animal {
   speak() { return "..." }
 }
-class Dog extends Animal {
+class Dog is Animal {
 }
 const d = Dog.new()
 const f = d::speak

@@ -337,7 +337,7 @@ impl VM {
         // explicitly rather than falling out of that macro.
         self.kernel_class_names.insert(none_class_sym);
         // Seal `None` to the core module too (see the sealing note above the
-        // `Option`/`Some` rows): `class MyNone extends None {}` in user code
+        // `Option`/`Some` rows): `class MyNone is None {}` in user code
         // must raise `attr.sealed_violation` the same as the other two.
         let none_class_key_sealed = crate::vm::ClassKey {
             module: m,

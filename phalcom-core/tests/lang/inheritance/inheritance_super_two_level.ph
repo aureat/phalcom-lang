@@ -5,15 +5,18 @@
 // relative to each method's OWN defining class, so C#tag → B#tag → A#tag.
 
 class A {
-  construct new() { }
+  @constructor
+  new() { }
   tag => "A"
 }
-class B extends A {
-  construct new() { }
+class B is A {
+  @constructor
+  new() { }
   tag => super.tag + "B"
 }
-class C extends B {
-  construct new() { }
+class C is B {
+  @constructor
+  new() { }
   tag => super.tag + "C"
 }
 System.print(C.new().tag)

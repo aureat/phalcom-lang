@@ -3,7 +3,8 @@
 // status: PASS
 
 class Box {
-  construct new(v) {
+  @constructor
+  new(v) {
     _v = v
   }
   value {

@@ -1,0 +1,2 @@
+HEALTH CHECK Health.filtered(_:)
+  too many filtered examples

@@ -7,7 +7,8 @@
 // declaration-order coin flip.
 
 class Foo {
-  construct new() {
+  @constructor
+  new() {
     _x = 1
   }
   static new() {

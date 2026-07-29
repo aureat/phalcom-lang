@@ -3,7 +3,8 @@
 // status: PASS
 
 class Person {
-  construct new(name:) { _name = name }
+  @constructor
+  new(name:) { _name = name }
   name => _name
   age => _age
   age=(v) { _age = v }

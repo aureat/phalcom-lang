@@ -5,11 +5,13 @@
 // (ADR-0031 §3). A typed `on` catches its class (and subclasses); an
 // untyped `catch` is the catch-all, since `Error` is the raisable root.
 
-class ParseError extends Error {
-  construct new(msg) { super.new(msg) }
+class ParseError is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
-class RangeErrorLike extends Error {
-  construct new(msg) { super.new(msg) }
+class RangeErrorLike is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 
 try {

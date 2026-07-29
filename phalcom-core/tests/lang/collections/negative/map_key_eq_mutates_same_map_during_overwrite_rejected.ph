@@ -12,7 +12,8 @@
 let m = Map.new()
 
 class K {
-  construct new() {
+  @constructor
+  new() {
     _triggered = false
   }
   hash { 0 }

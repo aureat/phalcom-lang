@@ -10,7 +10,8 @@
 class Box {
   @invariant(self.val >= 0)
 
-  construct new(init) {
+  @constructor
+  new(init) {
     _val = init
   }
 

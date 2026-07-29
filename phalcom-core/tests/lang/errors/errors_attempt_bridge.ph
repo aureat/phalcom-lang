@@ -5,8 +5,9 @@
 // `throw` becomes `Err(e)`. Composes with `Result`'s combinators
 // (error-handling.md §5's worked example).
 
-class AttErr extends Error {
-  construct new(msg) { super.new(msg) }
+class AttErr is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 
 System.print({ 21 * 2 }.attempt().toString)

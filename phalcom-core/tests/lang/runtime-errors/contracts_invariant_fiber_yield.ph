@@ -12,7 +12,8 @@
 class Guard {
   @invariant(self.n >= 0)
 
-  construct new(n) {
+  @constructor
+  new(n) {
     _n = n
   }
 

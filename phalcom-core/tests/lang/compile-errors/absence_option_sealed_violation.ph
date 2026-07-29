@@ -4,4 +4,4 @@
 // `Option` is sealed to the core module at bootstrap — user code must not
 // extend it.
 
-class MyOpt extends Option {}
+class MyOpt is Option {}

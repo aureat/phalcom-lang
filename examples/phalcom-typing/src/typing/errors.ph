@@ -1,0 +1,10 @@
+class TypeError is Error {}
+class TypeDeclarationError is TypeError {}
+class TypeApplicationError is TypeError {}
+class TypeArgumentCountError is TypeApplicationError {}
+class TypeBoundError is TypeApplicationError {}
+class TypeConstraintError is TypeApplicationError {}
+class TypeParameterOwnerError is TypeDeclarationError {}
+class TypeEnvironmentConflictError is TypeError {}
+class ReservedTypeSelectorError is TypeError {}
+class UnspecializedTypeError is TypeError {}

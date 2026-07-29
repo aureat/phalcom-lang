@@ -765,14 +765,14 @@ fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> State
     }
 }
 
-/// Derives a `construct new(...)` member from `class`'s own declared
+/// Derives a `@constructor` `new(...)` member from `class`'s own declared
 /// [`FieldDef`]s, in declaration order, and appends it to `class.members`
 /// (U-ANNOT-LAYOUT §3.3, `annotations-construct.md` "The derive").
 ///
 /// **Own-fields-only case**: this does not chain a superclass constructor
 /// (the inheritance-aware F-fix, `annotations-construct-inheritance.md`, is a
 /// separate follow-on build-order step, not implemented here) — a `@construct`
-/// class that `extends` a superclass with its own constructor gets only its
+/// class that `is` a superclass with its own constructor gets only its
 /// own fields' assignments, never a `super.new(...)` call.
 ///
 /// A field carrying a `default` expression is omitted from the generated
@@ -788,9 +788,9 @@ fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> State
 /// # Errors
 ///
 /// Returns `attr.accessor_collision` if `class` already carries a
-/// hand-written `construct` of the exact same derived selector (ADR-0012:
+/// hand-written constructor of the exact same derived selector (ADR-0012:
 /// selector is the sole dispatch key, no last-wins) — a differently-
-/// selectored hand-written `construct` (e.g. `construct anonymous()`)
+/// selectored hand-written constructor (e.g. `@constructor anonymous()`)
 /// coexists unaffected, since the collision check is selector-keyed, not
 /// "any hand-written construct present".
 fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRange) -> Result<(), CompilerError> {

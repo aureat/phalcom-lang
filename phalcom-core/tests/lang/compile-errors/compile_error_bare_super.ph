@@ -3,7 +3,8 @@
 // status: NEGATIVE
 // U-INH: a bare `super` is not a value; it only redirects a send's lookup start.
 class X {
-  construct new() { }
+  @constructor
+  new() { }
   m => super
 }
 System.print(X.new().m)

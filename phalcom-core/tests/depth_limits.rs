@@ -35,7 +35,7 @@ fn assert_depth_exceeded(err: PhError, what: &str, limit: usize) {
 #[test]
 fn ph_call_depth_is_bounded() {
     // Unbounded `.ph` recursion: the case that used to hang.
-    let err = run("class Boom {\n  construct new() {}\n  go(n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n")
+    let err = run("class Boom {\n@constructor\nnew() {}\n  go(n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n")
         .expect_err("infinite recursion must fail, not hang");
     assert_depth_exceeded(err, "call depth", MAX_CALL_DEPTH);
 }
@@ -46,7 +46,7 @@ fn native_reentry_is_bounded() {
     // through `send_dynamic`, which drives the dispatch loop recursively on the
     // *Rust* stack — overflowing that aborts the process rather than unwinding, so
     // this ceiling is two orders of magnitude tighter and must fire first.
-    let err = run("class P {\n  construct new() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n").expect_err("unbounded native re-entrancy must fail");
+    let err = run("class P {\n@constructor\nnew() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n").expect_err("unbounded native re-entrancy must fail");
     assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
 }
 
@@ -56,7 +56,7 @@ fn dnu_chain_trips_the_ph_counter_not_the_native_one() {
     // it pushes ordinary `.ph` frames and trips the call-depth ceiling instead.
     // Pinning this stops someone "fixing" the native counter to catch a case that
     // was never on its path.
-    let err = run("class Deep {\n  construct new() {}\n  doesNotUnderstand(msg) { return self.alsoMissing() }\n}\nDeep.new().missing()\n")
+    let err = run("class Deep {\n@constructor\nnew() {}\n  doesNotUnderstand(msg) { return self.alsoMissing() }\n}\nDeep.new().missing()\n")
         .expect_err("a runaway dNU chain must fail");
     assert_depth_exceeded(err, "call depth", MAX_CALL_DEPTH);
 }
@@ -72,7 +72,7 @@ fn depth_error_is_an_ordinary_catchable_raise() {
     // the depth error escaped uncatchable. The unwind now happens first.
     let mut vm = VM::new();
     let module = vm.create_module("main", "<test>");
-    let source = "class Boom {\n  construct new() {}\n  go(n) { return self.go(n + 1) }\n}\n\
+    let source = "class Boom {\n@constructor\nnew() {}\n  go(n) { return self.go(n + 1) }\n}\n\
                   let caught = false\n\
                   try {\n  Boom.new().go(0)\n} catch e {\n  caught = true\n}\n";
     let closure = vm.compile_closure_as(module, source, UnitKind::File).expect("compiles");
@@ -94,7 +94,7 @@ fn traceback_survives_a_frame_that_executed_nothing() {
     // hits it immediately — it panicked with "attempt to subtract with overflow"
     // before `saturating_sub`. A panic reachable from ordinary source is a
     // robustness bug.
-    let err = run("class P {\n  construct new() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n").expect_err("must raise");
+    let err = run("class P {\n@constructor\nnew() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n").expect_err("must raise");
     // Reaching this line at all means the traceback walk did not panic.
     assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
 }

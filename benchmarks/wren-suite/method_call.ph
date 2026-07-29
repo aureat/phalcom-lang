@@ -5,7 +5,8 @@
 // must be named explicitly). `0...n` range-in-for replaced with a
 // while-counter. `this` -> `self` (Phalcom's self-reference keyword).
 class Toggle {
-  construct new(startState) {
+  @constructor
+  new(startState) {
     _state = startState
   }
 
@@ -16,8 +17,9 @@ class Toggle {
   }
 }
 
-class NthToggle extends Toggle {
-  construct new(startState, maxCounter) {
+class NthToggle is Toggle {
+  @constructor
+  new(startState, maxCounter) {
     super.new(startState)
     _countMax = maxCounter
     _count = 0

@@ -3,10 +3,12 @@
 // status: PASS
 
 class Person {
-  construct new(name) {
+  @constructor
+  new(name) {
     _name = name
   }
-  construct new(name, age) {
+  @constructor
+  new(name, age) {
     _name = name
     _age = age
   }

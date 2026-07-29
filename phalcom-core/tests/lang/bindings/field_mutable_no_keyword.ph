@@ -5,7 +5,8 @@
 
 class Counter {
   _n
-  construct new() { _n = 0 }
+  @constructor
+  new() { _n = 0 }
   bump { _n = _n + 1 }
   get { return _n }
 }

@@ -11,11 +11,13 @@
 
 class Box {
   value => _val
-  construct new(v) { _val = v }
+  @constructor
+  new(v) { _val = v }
   +(other) { return Box.new(_val + other.value) }
 }
-class LoudBox extends Box {
-  construct new(v) { super.new(v) }
+class LoudBox is Box {
+  @constructor
+  new(v) { super.new(v) }
 }
 const a = LoudBox.new(2)
 const b = LoudBox.new(3)

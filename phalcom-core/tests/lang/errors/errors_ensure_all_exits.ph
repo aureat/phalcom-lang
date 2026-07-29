@@ -5,8 +5,9 @@
 // non-local `return` unwinding through the protected block, (c) a caught
 // `throw`. Observable side-effect order pins each.
 
-class EErr extends Error {
-  construct new(msg) { super.new(msg) }
+class EErr is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 
 // (a) normal completion

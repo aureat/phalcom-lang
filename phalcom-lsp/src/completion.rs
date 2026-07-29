@@ -85,7 +85,7 @@ pub trait ReceiverResolver {
 ///
 /// Scope/shadowing-aware (U-LSP Stage 3 DEFERRED "dataflow scope" follow-up):
 /// the binding walk is bounded to the lexical scope chain enclosing the
-/// cursor — the nearest enclosing method/getter/setter/construct body (or the
+/// cursor — the nearest enclosing method/getter/setter/@constructor body (or the
 /// top level), plus every nested block/`for` it is itself nested in — never a
 /// sibling scope, another method, or the rest of the document. Within that
 /// chain, both a fresh `let`/`var` binding and a plain reassignment
@@ -408,18 +408,18 @@ fn table_members(table: &CoreTable) -> Vec<ClassMemberInfo> {
         .collect()
 }
 
-/// The class every user class implicitly extends when it writes no `extends`
+/// The class every user class implicitly is when it writes no superclass
 /// clause (object-model.md §5.1).
 const IMPLICIT_ROOT_CLASS: &str = "Object";
 
 /// Collects the members visible on `class`: its own, plus inherited members
-/// up the `extends` chain, stopping at (and including) the first builtin
+/// up the `is` superclass chain, stopping at (and including) the first builtin
 /// ancestor.
 ///
 /// A user class's parent defaults to [`IMPLICIT_ROOT_CLASS`] whenever
-/// [`WorkspaceIndex::class_parent`] reports no explicit `extends` — both for
+/// [`WorkspaceIndex::class_parent`] reports no explicit `is` superclass — both for
 /// a class that never wrote one, and for a chain that ends at a user class
-/// with no further `extends` — so `Object`'s selectors (`==`, `hash`,
+/// with no further superclass — so `Object`'s selectors (`==`, `hash`,
 /// `isNil`, …) are always eventually walked, closing the "implicit `Object`
 /// never offered" gap (`docs/forge/DEFERRED.md`, Stage 3).
 ///
@@ -441,7 +441,7 @@ const IMPLICIT_ROOT_CLASS: &str = "Object";
 ///
 /// This is a deliberate behavior change. The previous name-keyed index would
 /// happily answer with some *other* file's class of the same name — which is
-/// how `class Dog extends Animal` in one file used to pick up an unrelated
+/// how `class Dog is Animal` in one file used to pick up an unrelated
 /// `Animal` from another. Losing that is the fix, not a regression.
 fn collect_class_members(class: &str, uri: &Url, index: &WorkspaceIndex, table: &CoreTable) -> Vec<ClassMemberInfo> {
     let mut out: Vec<ClassMemberInfo> = Vec::new();
@@ -709,7 +709,7 @@ mod tests {
 
     #[test]
     fn completions_walk_user_superclass_chain() {
-        let index = index_with("file:///a.ph", "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n");
+        let index = index_with("file:///a.ph", "class Animal {\n  eat() { }\n}\nclass Dog is Animal {\n  bark() { }\n}\n");
         let items = completions(Some(("Dog", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
@@ -733,9 +733,9 @@ mod tests {
 
     #[test]
     fn completions_walk_implicit_object_parent_past_a_user_superclass_chain() {
-        // `Animal` also writes no `extends`, so `Dog`'s walk must reach
+        // `Animal` also writes no `is` superclass, so `Dog`'s walk must reach
         // `Object` past `Animal`, not stop at `Animal`.
-        let index = index_with("file:///a.ph", "class Animal {\n  eat() { }\n}\nclass Dog extends Animal {\n  bark() { }\n}\n");
+        let index = index_with("file:///a.ph", "class Animal {\n  eat() { }\n}\nclass Dog is Animal {\n  bark() { }\n}\n");
         let items = completions(Some(("Dog", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
@@ -815,7 +815,7 @@ mod tests {
         let b = Url::parse("file:///b.ph").unwrap();
         index.update_file(
             a.clone(),
-            &phalcom_ast::parser::parse("class Dog extends Animal {\n  bark() { }\n}\n", 0).program,
+            &phalcom_ast::parser::parse("class Dog is Animal {\n  bark() { }\n}\n", 0).program,
         );
         index.update_file(b.clone(), &phalcom_ast::parser::parse("class Animal {\n  eat() { }\n}\n", 0).program);
 

@@ -3,16 +3,18 @@
 // status: PASS
 // U-INH follow-on: an inherited `construct` resolves at a subclass call site
 // with NO redeclaration. `Point3` declares no constructor; `Point3.new(x)`
-// redirects to `Point2`'s inherited `construct new(v)` (via the compile-time
+// redirects to `Point2`'s inherited `@constructor new(v)` (via the compile-time
 // superclass-chain alias walk) and runs it on the `Point3` instance, filling
 // the inherited slot. Both matching-arity `new` and named ctors inherit.
 
 class Point2 {
-  construct new(v) { _v = v }
-  construct named(w) { _v = w }
+  @constructor
+  new(v) { _v = v }
+  @constructor
+  named(w) { _v = w }
   v => _v
 }
-class Point3 extends Point2 {
+class Point3 is Point2 {
 }
 const a = Point3.new(11)
 System.print(a.v)

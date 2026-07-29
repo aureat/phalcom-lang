@@ -18,7 +18,7 @@ class Base {
   count => _count
 }
 
-class Derived extends Base {}
+class Derived is Base {}
 
 let d1 = Derived.new()
 System.print("d1 = \(d1)")

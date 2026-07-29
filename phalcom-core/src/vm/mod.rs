@@ -247,7 +247,7 @@ pub struct VM {
     /// Compile-time superclass edges: a class (by [`ClassKey`]) mapped
     /// to the [`ClassKey`] of its `extends` superclass.
     ///
-    /// Populated by the compiler as each `class B extends A { … }` is lowered
+    /// Populated by the compiler as each `class B is A { … }` is lowered
     /// (the superclass is required to be defined earlier in the same pass, so
     /// the edge is always known here). Only user classes appear; the implicit
     /// `Object` root is absent (chain-walks terminate there).

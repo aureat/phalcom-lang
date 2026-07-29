@@ -8,9 +8,11 @@
 // method to an existing class) is unaffected by the seal — see
 // `classes/class_method_reopen_after_definition.ph`.
 class A {
-  construct new() { }
+  @constructor
+  new() { }
 }
-class B extends A {
-  construct new() { }
+class B is A {
+  @constructor
+  new() { }
 }
 B.superclass = Object

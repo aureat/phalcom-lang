@@ -5,11 +5,13 @@
 // instance, so inherited slots are filled before the subclass's own.
 
 class Animal {
-  construct new(name) { _name = name }
+  @constructor
+  new(name) { _name = name }
   name => _name
 }
-class Dog extends Animal {
-  construct new(name, breed) {
+class Dog is Animal {
+  @constructor
+  new(name, breed) {
     super.new(name)
     _breed = breed
   }

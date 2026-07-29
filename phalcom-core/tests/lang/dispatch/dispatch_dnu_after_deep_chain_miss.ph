@@ -9,17 +9,20 @@
 // chain has failed to match.
 
 class A {
-  construct new() { }
+  @constructor
+  new() { }
   doesNotUnderstand(msg) {
     System.print("DNU: " + msg.name)
     return None
   }
 }
-class B extends A {
-  construct new() { }
+class B is A {
+  @constructor
+  new() { }
 }
-class C extends B {
-  construct new() { }
+class C is B {
+  @constructor
+  new() { }
   greet => "hi"
 }
 const c = C.new()

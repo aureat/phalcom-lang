@@ -8,9 +8,9 @@
 
 class Foo {}
 
-class Bar extends Foo {}
+class Bar is Foo {}
 
-class Baz extends Bar {}
+class Baz is Bar {}
 
 // A class with no explicit superclass inherits Object.
 System.print(Foo.superclass == Object)

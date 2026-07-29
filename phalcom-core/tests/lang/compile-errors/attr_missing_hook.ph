@@ -5,7 +5,8 @@
 // method implemented is attr.missing_hook (M-ATTR-ROOT)
 
 @On(Method, Install)
-class Memoize extends Attribute {
+class Memoize is Attribute {
   _cache
-  construct new() { _cache = None }
+  @constructor
+  new() { _cache = None }
 }

@@ -32,7 +32,7 @@ fn test_json_traceback_format() {
     let file_path = std::env::temp_dir().join(format!("traceback_json_{}.ph", std::process::id()));
     fs::write(
         &file_path,
-        "class Test {\n  construct new() {}\n  foo { return self.bar }\n  bar { return 1.missing }\n}\nTest.new().foo\n",
+        "class Test {\n  @constructor new() {}\n  foo { return self.bar }\n  bar { return 1.missing }\n}\nTest.new().foo\n",
     )
     .unwrap();
 
@@ -52,7 +52,7 @@ fn test_recursion_collapse() {
     // In Phalcom, MAX_CALL_DEPTH is 256. 256 > 3, so repeat collapse should trigger.
     fs::write(
         &file_path,
-        "class Boom {\n  construct new() {}\n  go(n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n",
+        "class Boom {\n  @constructor new() {}\n  go(n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n",
     )
     .unwrap();
 
@@ -67,7 +67,7 @@ fn test_recursion_collapse() {
 fn test_budget_elision() {
     let file_path = std::env::temp_dir().join(format!("traceback_budget_{}.ph", std::process::id()));
     let mut code = String::new();
-    code.push_str("class Boom {\n  construct new() {}\n");
+    code.push_str("class Boom {\n  @constructor new() {}\n");
     for i in 0..45 {
         if i == 44 {
             code.push_str(&format!("  f{}(n) {{ return 1.missing }}\n", i));
@@ -142,7 +142,7 @@ fn assert_color_invariance(source: &str, extra_args: &[&str]) {
 #[test]
 fn test_color_invariance_runtime_base() {
     assert_color_invariance(
-        "class Test {\n  construct new() {}\n  foo { return self.bar }\n  bar { return 1.missing }\n}\nTest.new().foo\n",
+        "class Test {\n  @constructor new() {}\n  foo { return self.bar }\n  bar { return 1.missing }\n}\nTest.new().foo\n",
         &[],
     );
 }

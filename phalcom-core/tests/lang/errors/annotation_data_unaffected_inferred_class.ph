@@ -7,7 +7,8 @@
 // unaffected by this unit's changes.
 
 class Counter {
-  construct new(start) {
+  @constructor
+  new(start) {
     _count = start
   }
 

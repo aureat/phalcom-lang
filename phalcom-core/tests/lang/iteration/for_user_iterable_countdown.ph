@@ -1,5 +1,6 @@
-class Countdown extends Iterable {
-  construct from(n:) { _n = n }
+class Countdown is Iterable {
+  @constructor
+  from(n:) { _n = n }
   iterate(cursor) {
     const next = (cursor == None).ifTrue({ _n }, ifFalse: { cursor - 1 })
     return (next >= 0).ifTrue({ next }, ifFalse: { None })

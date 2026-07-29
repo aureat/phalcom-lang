@@ -7,18 +7,21 @@
 // ordering holds transitively, not just for a single super-construct hop.
 
 class A {
-  construct new() { _a = "A" }
+  @constructor
+  new() { _a = "A" }
   a => _a
 }
-class B extends A {
-  construct new() {
+class B is A {
+  @constructor
+  new() {
     super.new()
     _b = "B"
   }
   b => _b
 }
-class C extends B {
-  construct new() {
+class C is B {
+  @constructor
+  new() {
     super.new()
     _c = "C"
   }

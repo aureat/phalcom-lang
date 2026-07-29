@@ -6,7 +6,8 @@
 class B {
   @invariant(self.val >= 0)
 
-  construct new(init) {
+  @constructor
+  new(init) {
     _val = init
   }
 
@@ -18,7 +19,8 @@ class B {
 }
 
 class A {
-  construct new(b) {
+  @constructor
+  new(b) {
     _b = b
   }
 

@@ -4,7 +4,8 @@
 // while-counters (no range-literal parser production). String interpolation
 // `%()` -> `\()` (ADR-0022).
 class Tree {
-  construct new(item, depth) {
+  @constructor
+  new(item, depth) {
     _item = item
     if (depth > 0) {
       let item2 = item + item

@@ -7,7 +7,7 @@
 // terminating the walk with a surface absence value, not a raw sentinel.
 
 class Child {}
-class Grandchild extends Child {}
+class Grandchild is Child {}
 System.print(Grandchild.superclass.name)
 System.print(Grandchild.superclass.superclass.name)
 System.print(Grandchild.superclass.superclass.superclass)

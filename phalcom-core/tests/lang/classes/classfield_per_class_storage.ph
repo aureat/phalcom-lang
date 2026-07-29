@@ -3,7 +3,7 @@ class Base {
   @class bump() { _count = _count + 1 }
   @class count => _count
 }
-class Derived extends Base {}
+class Derived is Base {}
 Base.bump()
 Base.bump()
 System.print(Base.count)

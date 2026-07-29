@@ -8,7 +8,8 @@
 // through its own Family and observing which method body ran.
 
 class Point {
-  construct new(x, y) { _x = x; _y = y }
+  @constructor
+  new(x, y) { _x = x; _y = y }
   move(to:, duration:) {
     return "labeled: to " + to.toString + " over " + duration.toString
   }

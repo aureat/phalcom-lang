@@ -10,7 +10,8 @@
 let m = Map.new()
 
 class BadKey {
-  construct new() {
+  @constructor
+  new() {
     _triggered = false
   }
   hash { 0 }

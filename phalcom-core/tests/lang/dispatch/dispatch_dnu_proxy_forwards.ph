@@ -13,7 +13,8 @@ class Target {
   }
 }
 class Proxy {
-  construct new(t) {
+  @constructor
+  new(t) {
     _target = t
   }
   doesNotUnderstand(msg) {

@@ -4,7 +4,8 @@
 
 class Counter {
   value => _v
-  construct new(v) {
+  @constructor
+  new(v) {
     _v = v
   }
   inc() {

@@ -39,6 +39,11 @@ pub fn explicit_continuation(line: &str) -> Option<String> {
 ///
 /// Ensures statement-terminating newline normalization before classification.
 pub fn classify(src: &str) -> Verdict {
+    let parsed_raw = parse(src, 0);
+    if parsed_raw.errors.iter().any(|e| matches!(e.kind, SyntaxErrorKind::UnrecognizedEof { .. })) {
+        return Verdict::Incomplete;
+    }
+
     let src_norm = if src.ends_with('\n') { src.to_string() } else { format!("{src}\n") };
 
     let parsed = parse(&src_norm, 0);

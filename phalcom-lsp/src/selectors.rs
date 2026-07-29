@@ -180,11 +180,10 @@ mod tests {
 
     #[test]
     fn construct_is_comma_form() {
-        let class_def = parse_class("class Point {\n  construct new(x, y:) { }\n}\n");
+        let class_def = parse_class("class Point {\n  @constructor\n  new(x, y:) { }\n}\n");
         let ClassMember::Method(m) = &class_def.members[0] else {
             panic!("expected method")
         };
-        assert!(m.is_constructor);
         assert_eq!(method_selector(m), "new(_,y)");
     }
 

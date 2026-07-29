@@ -5,7 +5,8 @@
 // renders an instance by sending it `toString`, not a generic default.
 
 class Foo {
-  construct new() {}
+  @constructor
+  new() {}
 
   toString => "Foo.toString"
 }

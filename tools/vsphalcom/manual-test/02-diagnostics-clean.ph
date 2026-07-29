@@ -6,7 +6,8 @@
 // test file, saving this one should clear it for this file's URI.
 
 class Counter {
-  construct new() {
+  @constructor
+  new() {
     _value = 0
   }
 

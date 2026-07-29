@@ -6,7 +6,8 @@
 class Vault {
   @invariant(self.balance >= 0)
 
-  construct new(init) {
+  @constructor
+  new(init) {
     _balance = init
   }
 

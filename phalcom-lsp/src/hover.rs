@@ -42,7 +42,7 @@ use crate::selectors::class_member_selector;
 /// [`Token::Identifier`], not a dedicated `Token` variant
 /// (error-handling.md §4, iteration.md, object-model.md's Option/Result
 /// eliminator).
-const CONTEXTUAL_WORDS: &[&str] = &["extends", "on", "catch", "ensure", "match"];
+const CONTEXTUAL_WORDS: &[&str] = &["on", "catch", "ensure", "match"];
 
 /// One-line blurbs for every keyword [`Token`] variant, plus
 /// [`CONTEXTUAL_WORDS`], keyed by their exact surface spelling.
@@ -59,11 +59,7 @@ const CONTEXTUAL_WORDS: &[&str] = &["extends", "on", "catch", "ensure", "match"]
 const KEYWORD_DOCS: &[(&str, &str)] = &[
     (
         "class",
-        "Declares a class: a name, an optional `extends` superclass, fields (implicitly declared by `_`-prefixed assignment), constructors, and methods.",
-    ),
-    (
-        "extends",
-        "Names a class's single superclass (Phalcom has single inheritance; `Object` is the root of every hierarchy).",
+        "Declares a class: a name, an optional superclass via `is` (e.g. `class Sub is Super`), fields (implicitly declared by `_`-prefixed assignment), constructors, and methods.",
     ),
     (
         "super",
@@ -145,7 +141,7 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
     ("as", "Binds an import under an alias: `import \"path\" as Name` (modules.md)."),
     (
         "is",
-        "Type-test operator: `x is Type` (and the negated `x is not Type`) test whether `x` is an instance of `Type` (U-IS).",
+        "Class inheritance header keyword (`class Sub is Super`) and type-test operator (`x is Type`, `x is not Type`).",
     ),
     (
         "and",
@@ -161,7 +157,7 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
     ),
     (
         "construct",
-        "Introduces a named constructor definition inside a class body (`construct name(...) { ... }`) — Phalcom has no implicit `new`; multiple constructors are distinguished by selector, not arity (classes.md §1, ADR-0011).",
+        "Introduces a named constructor definition inside a class body (`@constructor new(...) { ... }`) — Phalcom has no implicit `new`; multiple constructors are distinguished by selector, not arity (classes.md §1, ADR-0011).",
     ),
 ];
 
@@ -591,7 +587,6 @@ mod tests {
             "construct",
             "throw",
             "try",
-            "extends",
             "on",
             "catch",
             "ensure",
@@ -612,11 +607,11 @@ mod tests {
     }
 
     #[test]
-    fn keyword_at_offset_finds_contextual_extends() {
-        let src = "class Dog extends Animal {\n}\n";
-        let offset = src.find("extends").unwrap();
-        let (word, _) = keyword_at_offset(src, offset).expect("extends is contextual");
-        assert_eq!(word, "extends");
+    fn keyword_at_offset_finds_is_keyword() {
+        let src = "class Dog is Animal {\n}\n";
+        let offset = src.find("is").unwrap();
+        let (word, _) = keyword_at_offset(src, offset).expect("is is a keyword");
+        assert_eq!(word, "is");
     }
 
     #[test]

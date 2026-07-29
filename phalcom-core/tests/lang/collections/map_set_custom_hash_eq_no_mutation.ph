@@ -10,7 +10,8 @@
 class Pt {
   x => _x
   y => _y
-  construct new(x, y) {
+  @constructor
+  new(x, y) {
     _x = x
     _y = y
   }

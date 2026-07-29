@@ -8,16 +8,18 @@
 // grammar has no label form, `docs/forge/DEFERRED.md`).
 
 @On(Class)
-class Author extends Attribute {
+class Author is Attribute {
   _name
-  construct new(name) { _name = name }
+  @constructor
+  new(name) { _name = name }
   name => _name
 }
 
 @On(Method)
-class Tag extends Attribute {
+class Tag is Attribute {
   _label
-  construct new(label) { _label = label }
+  @constructor
+  new(label) { _label = label }
   label => _label
 }
 

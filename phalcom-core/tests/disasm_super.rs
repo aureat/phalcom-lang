@@ -31,11 +31,13 @@ fn method_body_opcodes(vm: &VM, top_closure: phalcom_core::heap::ObjRef) -> Vec<
 fn super_send_emits_supersend_not_invoke() {
     let source = "\
 class Animal {
-  construct new() { }
+  @constructor
+  new() { }
   speak => \"generic\"
 }
-class Dog extends Animal {
-  construct new() { }
+class Dog is Animal {
+  @constructor
+  new() { }
   speak => super.speak
 }
 ";

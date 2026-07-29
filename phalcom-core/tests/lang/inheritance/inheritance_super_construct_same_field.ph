@@ -6,11 +6,13 @@
 // the parent's slot; the subclass writes its own — both survive independently.
 
 class A {
-  construct new() { _slot = "A-slot" }
+  @constructor
+  new() { _slot = "A-slot" }
   aValue => _slot
 }
-class B extends A {
-  construct new() {
+class B is A {
+  @constructor
+  new() {
     super.new()
     _slot = "B-slot"
   }

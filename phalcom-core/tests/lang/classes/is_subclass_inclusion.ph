@@ -6,7 +6,7 @@
 // a kind-of `Animal` but not exactly an `Animal`, and is exactly a `Dog`.
 
 class Animal {}
-class Dog extends Animal {}
+class Dog is Animal {}
 
 let d = Dog.new()
 System.print(d is Animal)

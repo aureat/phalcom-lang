@@ -50,8 +50,9 @@ class CellValue {
 }
 
 /// A numeric cell value. Stores an f64.
-class CellNum extends CellValue {
-  construct new(n) {
+class CellNum is CellValue {
+  @constructor
+  new(n) {
     _n = n
   }
 
@@ -171,8 +172,9 @@ class CellNum extends CellValue {
 }
 
 /// A text cell value. Stores a string.
-class CellText extends CellValue {
-  construct new(s) {
+class CellText is CellValue {
+  @constructor
+  new(s) {
     _s = s
   }
 
@@ -240,8 +242,9 @@ class CellText extends CellValue {
 }
 
 /// A boolean cell value.
-class CellBool extends CellValue {
-  construct new(b) {
+class CellBool is CellValue {
+  @constructor
+  new(b) {
     _b = b
   }
 
@@ -312,8 +315,9 @@ class CellBool extends CellValue {
 }
 
 /// Empty cell (no value entered).
-class CellEmpty extends CellValue {
-  construct new() {
+class CellEmpty is CellValue {
+  @constructor
+  new() {
   }
 
   static of {
@@ -404,8 +408,9 @@ class CellEmpty extends CellValue {
 }
 
 /// An error cell value. Stores a symbol like #DIV0 and display name.
-class ErrorVal extends CellValue {
-  construct new(sym, display) {
+class ErrorVal is CellValue {
+  @constructor
+  new(sym, display) {
     _sym = sym
     _display = display
   }

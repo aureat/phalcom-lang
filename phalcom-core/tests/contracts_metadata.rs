@@ -22,7 +22,8 @@ use phalcom_core::vm::VM;
 fn compiled_foo_has_contracts(mode: CompileMode, strip_contract_metadata: bool) -> bool {
     let source = r#"
         class Box {
-          construct new() { }
+          @constructor
+          new() { }
 
           @requires(x > 0)
           foo(x) {

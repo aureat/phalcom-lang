@@ -86,18 +86,18 @@ class Error {
 // `phalcom-core/src/compiler/attributes.rs`'s `build_check_stmt` — zero Rust,
 // zero new primitive, ordinary `Error` subclasses that inherit `message`/
 // `raise` from the `_message`-slot machinery above.
-class PreconditionError extends Error {}
+class PreconditionError is Error {}
 
-class PostconditionError extends Error {}
+class PostconditionError is Error {}
 
-class InvariantError extends Error {}
+class InvariantError is Error {}
 
 // Boundary-guard exception (error-handling.md §1, U-STRING). Raised by library
 // code to indicate invalid argument values or arities. Zero fields — the
 // inherited `Error` `@constructor new(msg)` gives `ArgumentError.new(msg)` a working
 // constructor for `throw ArgumentError.new("msg")` sites (U-INH inherited-ctor
 // resolution).
-class ArgumentError extends Error {}
+class ArgumentError is Error {}
 
 class Number {}
 
@@ -625,14 +625,14 @@ class Result {
   toString => self.match(ok: { v => "Ok(" + v.toString + ")" }, err: { e => "Err(" + e.toString + ")" })
 }
 
-class Ok extends Result {
+class Ok is Result {
   @constructor
   new(v) { _value = v }
 
   match(ok:, err:) => ok.call(_value)
 }
 
-class Err extends Result {
+class Err is Result {
   @constructor
   new(e) { _error = e }
 
@@ -1544,7 +1544,7 @@ class Path {
 // `None` singleton at exhaustion — never Some-wrapped). `extends Iterable` so combinators, `for`,
 // and every other view work on a view for free.
 
-class MapView extends Iterable {
+class MapView is Iterable {
   @constructor
   new(source, f) {
     // Note: validation of f as callable defers to iteratorValue() time to preserve
@@ -1559,7 +1559,7 @@ class MapView extends Iterable {
   iteratorValue(cursor) => _f.call(_source.iteratorValue(cursor))
 }
 
-class WhereView extends Iterable {
+class WhereView is Iterable {
   @constructor
   new(source, pred) {
     _source = source
@@ -1581,7 +1581,7 @@ class WhereView extends Iterable {
   iteratorValue(cursor) => _source.iteratorValue(cursor)
 }
 
-class SkipView extends Iterable {
+class SkipView is Iterable {
   @constructor
   new(source, count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
@@ -1603,7 +1603,7 @@ class SkipView extends Iterable {
   iteratorValue(cursor) => _source.iteratorValue(cursor)
 }
 
-class TakeView extends Iterable {
+class TakeView is Iterable {
   @constructor
   new(source, count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
@@ -2037,7 +2037,7 @@ class Attribute {}
 // implemented — `attr.undeclared_hook`) or one of the `Tier` marker classes
 // below (`Install`/`Dispatch`/`Runtime` — `Compile`/`Layout` are reserved for
 // compiler-native hooks only, `attr.compile_tier_reserved`).
-class On extends Attribute {
+class On is Attribute {
   _targets
   _tier
 
@@ -2057,11 +2057,11 @@ class On extends Attribute {
 // compiler-native hooks only; `Install`/`Dispatch`/`Runtime` are the
 // user-facing tiers (M-INSTALL/M-DISPATCH/M-RUNTIME, PLAN-DECORATORS.md).
 class Tier {}
-class Compile extends Tier {}
-class Layout extends Tier {}
-class Install extends Tier {}
-class Dispatch extends Tier {}
-class Runtime extends Tier {}
+class Compile is Tier {}
+class Layout is Tier {}
+class Install is Tier {}
+class Dispatch is Tier {}
+class Runtime is Tier {}
 
 // `Behavior#attributes`/`#attributesOfType(_)` (object-model.md's metaclass
 // tower superclass of `Class`+`Metaclass`) — the reflection surface over the
@@ -2093,11 +2093,11 @@ class Resource {
   isClosed => self.isClosed_
 }
 
-class UseAfterCloseError extends Error {}
+class UseAfterCloseError is Error {}
 
-class UnflushedError extends Error {}
+class UnflushedError is Error {}
 
-class BytesReader extends Resource {
+class BytesReader is Resource {
   @constructor
   new(source) {
     source.is(Bytes).ifFalse {
@@ -2128,7 +2128,7 @@ class BytesReader extends Resource {
   }
 }
 
-class BytesWriter extends Resource {
+class BytesWriter is Resource {
   @constructor
   new() {
     _handle = Resource.register_("BytesWriter")
@@ -2163,7 +2163,7 @@ class BytesWriter extends Resource {
   }
 }
 
-class BufferedWriter extends Resource {
+class BufferedWriter is Resource {
   @constructor
   new(inner) {
     _handle = Resource.register_("BufferedWriter")
@@ -2227,7 +2227,7 @@ class BufferedWriter extends Resource {
   }
 }
 
-class BufferedReader extends Resource {
+class BufferedReader is Resource {
   @constructor
   new(inner) {
     _handle = Resource.register_("BufferedReader")

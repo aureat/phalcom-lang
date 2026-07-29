@@ -14,7 +14,8 @@
 let s = Set.new()
 
 class SK {
-  construct new() {
+  @constructor
+  new() {
     _triggered = false
   }
   hash { 0 }

@@ -4,4 +4,4 @@
 // `Some` is sealed to the core module at bootstrap — user code must not
 // extend it.
 
-class MySome extends Some {}
+class MySome is Some {}

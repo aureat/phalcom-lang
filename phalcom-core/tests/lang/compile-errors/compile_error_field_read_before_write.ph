@@ -6,7 +6,8 @@
 // (catches the private-field typo instead of silently reading `None`).
 
 class Typo {
-  construct new(name) { _naem = name }
+  @constructor
+  new(name) { _naem = name }
   name => _name
 }
 System.print(Typo.new("x").name)

@@ -124,7 +124,7 @@ impl SelectorMap {
 /// file is not stored here — it is half of [`ClassMap`]'s key.
 #[derive(Debug, Clone)]
 struct ClassEntry {
-    /// The `extends` superclass name, or `None` for an implicit `Object`
+    /// The `is` superclass name, or `None` for an implicit `Object`
     /// parent (see [`phalcom_ast::ast::ClassDef::superclass`]).
     parent: Option<String>,
     /// The class's own declared members, in declaration order.
@@ -185,7 +185,7 @@ impl ClassMap {
             .unwrap_or_default()
     }
 
-    /// The `extends` parent of `class` **as declared in `uri`**, if it named
+    /// The `is` parent of `class` **as declared in `uri`**, if it named
     /// one.
     fn parent(&self, uri: &Url, class: &str) -> Option<String> {
         self.by_class.get(&(uri.clone(), class.to_string())).and_then(|entry| entry.parent.clone())
@@ -355,7 +355,7 @@ impl WorkspaceIndex {
         self.classes.members(uri, class)
     }
 
-    /// The `extends` superclass name of the user class named `class` **as
+    /// The `is` superclass name of the user class named `class` **as
     /// declared in `uri`**, or `None` if it named no explicit superclass
     /// (implicit `Object`) or `uri` declares no such class.
     pub fn class_parent(&self, uri: &Url, class: &str) -> Option<String> {
@@ -372,7 +372,7 @@ impl WorkspaceIndex {
     }
 }
 
-/// One class declaration harvested by [`Collector`]: its name, `extends`
+/// One class declaration harvested by [`Collector`]: its name, `is`
 /// parent, and own member surface.
 struct CollectedClass {
     name: String,
@@ -640,7 +640,7 @@ impl Collector {
 
     fn walk_class(&mut self, class_def: &ClassDef) {
         // Stage 3: record the class's own member surface (selector + kind)
-        // and its `extends` parent for receiver-aware completion.
+        // and its `is` superclass parent for receiver-aware completion.
         let members = class_def
             .members
             .iter()
@@ -942,7 +942,7 @@ mod tests {
     #[test]
     fn class_parent_reflects_extends() {
         let index = WorkspaceIndex::new();
-        let src = "class Dog extends Animal {\n  bark() { }\n}\n";
+        let src = "class Dog is Animal {\n  bark() { }\n}\n";
         index.update_file(uri("file:///a.ph"), &parse(src, 0).program);
         assert_eq!(index.class_parent(&uri("file:///a.ph"), "Dog").as_deref(), Some("Animal"));
 
@@ -986,7 +986,7 @@ mod tests {
         let a = uri("file:///a.ph");
         let b = uri("file:///b.ph");
         index.update_file(a.clone(), &parse("class Point {\n  aye() { }\n}\n", 0).program);
-        index.update_file(b.clone(), &parse("class Point extends Shape {\n  bee() { }\n}\n", 0).program);
+        index.update_file(b.clone(), &parse("class Point is Shape {\n  bee() { }\n}\n", 0).program);
 
         assert_eq!(index.class_parent(&a, "Point"), None, "a.ph's Point declared no extends");
         assert_eq!(index.class_parent(&b, "Point").as_deref(), Some("Shape"));

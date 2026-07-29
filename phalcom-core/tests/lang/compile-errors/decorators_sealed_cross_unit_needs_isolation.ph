@@ -31,4 +31,4 @@
 
 import "../imports/lib/sealed_shape" as S
 
-class Square extends Shape {}
+class Square is Shape {}

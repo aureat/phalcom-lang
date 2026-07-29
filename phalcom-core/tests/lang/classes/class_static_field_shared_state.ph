@@ -7,7 +7,8 @@
 // construction mutates the one shared slot, not a per-instance field.
 class Counter {
   static _count = 0
-  construct new() { _count = _count + 1 }
+  @constructor
+  new() { _count = _count + 1 }
   static count => _count
 }
 Counter.new()

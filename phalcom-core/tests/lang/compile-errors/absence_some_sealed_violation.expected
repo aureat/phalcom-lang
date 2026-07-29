@@ -1,1 +1,1 @@
-attr.sealed_violation: `MySome` extends `@sealed` class `Some`, but was not declared in the same compilation unit
+attr.sealed_violation: `MySome` is `@sealed` class `Some`, but was not declared in the same compilation unit

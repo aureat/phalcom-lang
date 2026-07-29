@@ -6,7 +6,8 @@
 // boundaries. `\\(` remains literal text.
 
 class Counter {
-  construct new(value) { _value = value }
+  @constructor
+  new(value) { _value = value }
 
   render(prefix) {
     return "\(prefix): \(_value + 1)"

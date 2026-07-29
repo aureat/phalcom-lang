@@ -2,7 +2,7 @@ class Foo {
   test() => class
 }
 
-class Bar extends Foo {}
+class Bar is Foo {}
 
 let f = Foo.new()
 let b = Bar.new()

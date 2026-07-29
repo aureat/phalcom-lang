@@ -6,9 +6,10 @@
 // against it raises `attr.frozen` rather than silently mutating.
 
 @On(Class)
-class Author extends Attribute {
+class Author is Attribute {
   _name
-  construct new(name) { _name = name }
+  @constructor
+  new(name) { _name = name }
   name => _name
 }
 

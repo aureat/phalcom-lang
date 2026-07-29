@@ -44,7 +44,7 @@ struct SelectorEntry {
 /// The current keyword set (matches the U-VSPHALCOM-1 grammar rewrite;
 /// keep in sync with `docs/spec/v0.2/lexical-structure.md`).
 const KEYWORDS: &[&str] = &[
-    "class", "extends", "super", "self", "static", "try", "catch", "on", "ensure", "throw", "break", "continue", "match", "return", "while", "for", "var",
+    "class", "is", "super", "self", "static", "try", "catch", "on", "ensure", "throw", "break", "continue", "match", "return", "while", "for", "var",
 ];
 
 fn main() {

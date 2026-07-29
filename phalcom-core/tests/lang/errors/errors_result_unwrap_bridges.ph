@@ -4,8 +4,9 @@
 // `unwrap` re-throws a caught `Err`; `ok()`/`okOr(_)` round-trip `Result` and
 // `Option` (result.md §5 "absence <-> error").
 
-class UErr extends Error {
-  construct new(msg) { super.new(msg) }
+class UErr is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 
 System.print(Ok.new(7).unwrap)

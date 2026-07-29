@@ -4,7 +4,8 @@
 
 class Person {
   name => _name
-  construct new(n) {
+  @constructor
+  new(n) {
     _name = n
   }
   name=(value) {

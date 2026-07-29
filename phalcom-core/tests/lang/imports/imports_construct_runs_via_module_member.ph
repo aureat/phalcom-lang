@@ -10,7 +10,7 @@
 // (ADR-0002, object-model §5) rather than by any receiver-name-keyed
 // call-site rewrite, which could never fire here. Regression: `M.Shape.new(3)`
 // once silently reached the bare allocator `Class >> new()` and handed back an
-// instance with unset fields instead of running `construct new(sides)`.
+// instance with unset fields instead of running `@constructor new(sides)`.
 
 import "./lib/shape" as M
 

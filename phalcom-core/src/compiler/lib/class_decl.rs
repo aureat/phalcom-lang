@@ -455,7 +455,7 @@ impl<'vm> Compiler<'vm> {
                 if let Some(&sealed_in_module) = self.vm.sealed_classes.get(&sc_key_for_sealed) {
                     if sealed_in_module != self.module {
                         return Err(CompilerError::Message(format!(
-                            "attr.sealed_violation: `{}` extends `@sealed` class `{}`, but was not declared in the same compilation unit",
+                            "attr.sealed_violation: `{}` is `@sealed` class `{}`, but was not declared in the same compilation unit",
                             class_def.name, sc_ref.name
                         )));
                     }
@@ -511,7 +511,7 @@ impl<'vm> Compiler<'vm> {
                 // guard/alias chain-walks spin). Edges normally point only to a
                 // strictly-earlier-defined class; the one residual way to form a
                 // back-edge is a reopen-redefinition within a unit (`class A {}`,
-                // `class B extends A`, then `class A extends B`), which the
+                // `class B is A`, then `class A is B`), which the
                 // `visited` guard in both chain-walks handles without spinning.
                 let sc_key_val = sc_key.unwrap_or(ClassKey {
                     module: self.module,

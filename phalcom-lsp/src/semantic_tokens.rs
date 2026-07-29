@@ -556,13 +556,13 @@ mod tests {
 
     #[test]
     fn getter_and_construct_names_are_method_kind() {
-        use SemanticTokenKind::{Class, Keyword, Method, Number};
-        // `construct new()` and a bare-body getter `greeting { return 1 }` —
+        use SemanticTokenKind::{Class, Keyword, Method, Number, Variable};
+        // `@constructor\n new()` and a bare-body getter `greeting { return 1 }` —
         // both `new` and `greeting` are declaration names, upgraded to
         // Method.
         assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n  construct new() {\n  }\n  greeting {\n    return 1\n  }\n}\n"),
-            vec![Keyword, Class, Keyword, Method, Method, Keyword, Number]
+            kinds_with_decl_overrides("class Foo {\n  @constructor\n  new() {\n  }\n  greeting {\n    return 1\n  }\n}\n"),
+            vec![Keyword, Class, Variable, Method, Method, Keyword, Number]
         );
     }
 
@@ -582,13 +582,11 @@ mod tests {
         // Only the declaration's own `name_range` is upgraded — an ordinary
         // reference to the class name elsewhere in the file (e.g. as a
         // superclass) stays a plain Variable, since it isn't the
-        // *declaring* occurrence. `extends` itself is a contextual keyword
-        // (DEC-INH-A) lexed as an ordinary identifier, so it also stays a
-        // plain Variable here.
+        // *declaring* occurrence. `is` itself is a keyword.
         use SemanticTokenKind::{Class, Keyword, Variable};
         assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n}\nclass Bar extends Foo {\n}\n"),
-            vec![Keyword, Class, Keyword, Class, Variable, Variable]
+            kinds_with_decl_overrides("class Foo {\n}\nclass Bar is Foo {\n}\n"),
+            vec![Keyword, Class, Keyword, Class, Keyword, Variable]
         );
     }
 

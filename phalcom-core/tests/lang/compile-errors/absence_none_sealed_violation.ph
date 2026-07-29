@@ -4,4 +4,4 @@
 // `None` is sealed to the core module at bootstrap — user code must not
 // extend it.
 
-class MyNone extends None {}
+class MyNone is None {}

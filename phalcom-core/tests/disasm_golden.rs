@@ -37,14 +37,14 @@ fn top_level_header_has_slots_and_upvalues() {
 fn method_body_appears_in_disasm() {
     // A class method body is compiled as a Method constant; the disassembler
     // must walk into it and produce a second `bytecode:` section.
-    let src = "class Foo { construct new() {} bar { 1 + 2 } }\n";
+    let src = "class Foo {@constructor new() {} bar { 1 + 2 } }\n";
     let out = disasm_stdout(src);
     assert!(out.contains("└─"), "expected nested closure tree connector '└─'; output:\n{out}");
 }
 
 #[test]
 fn indented_nested_chunk_has_bytecode_section() {
-    let src = "class Foo { construct new() {} bar { 1 + 2 } }\n";
+    let src = "class Foo {@constructor new() {} bar { 1 + 2 } }\n";
     let out = disasm_stdout(src);
     let count = out.matches("bytecode:").count();
     assert!(count >= 2, "expected ≥2 `bytecode:` sections; got {count}; output:\n{out}");
@@ -122,7 +122,7 @@ fn constants_section_present() {
 
 #[test]
 fn method_constant_shows_selector_label() {
-    let src = "class Foo { construct new() {} bar { 1 } }\n";
+    let src = "class Foo {@constructor new() {} bar { 1 } }\n";
     let out = disasm_stdout(src);
     // The constants section should show `<method bar>` for the method body.
     assert!(

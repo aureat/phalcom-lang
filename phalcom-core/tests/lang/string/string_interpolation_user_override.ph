@@ -3,7 +3,8 @@
 // status: PASS
 
 class CustomString {
-  construct new(text) {
+  @constructor
+  new(text) {
     _text = text
   }
 

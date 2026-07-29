@@ -44,7 +44,7 @@ pub enum MemberKind {
     /// (`core-table.json`'s `"static-method"` kind).
     #[serde(rename = "static-method")]
     StaticMethod,
-    /// A `construct name(...)` factory — a class-side constructor. Rendered
+    /// A `@constructor new(...)` factory — a class-side constructor. Rendered
     /// like a [`Method`](Self::Method) (`core-table.json`'s `"construct"`
     /// kind).
     Construct,

@@ -5,7 +5,8 @@ class Person {
     return instance;
   }
 
-  construct new(name:, age:) {
+  @constructor
+  new(name:, age:) {
     _name = name
     _age = age
   }

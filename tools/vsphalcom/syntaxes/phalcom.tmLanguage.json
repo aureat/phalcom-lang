@@ -118,7 +118,7 @@
 			"patterns": [
 				{
 					"name": "keyword.control.phalcom",
-					"match": "\\b(class|extends|super|self|static|try|catch|on|ensure|throw|break|continue|match|return|while|for|var)\\b"
+					"match": "\\b(class|is|super|self|static|try|catch|on|ensure|throw|break|continue|match|return|while|for|var)\\b"
 				},
 				{
 					"name": "keyword.operator.phalcom",

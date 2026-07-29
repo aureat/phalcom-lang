@@ -13,7 +13,8 @@
 // silently bare-allocated an instance with unset fields.
 
 class Counter {
-  construct new(start) {
+  @constructor
+  new(start) {
     _n = start
   }
   n => _n

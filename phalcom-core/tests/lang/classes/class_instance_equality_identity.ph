@@ -4,7 +4,8 @@
 
 class Pt {
   x => _x
-  construct new(x) {
+  @constructor
+  new(x) {
     _x = x
   }
   ==(other) {

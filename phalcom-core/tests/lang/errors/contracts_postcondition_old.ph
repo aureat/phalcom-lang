@@ -4,7 +4,8 @@
 // contract: @ensures's old() captures the pre-state snapshot before the method body mutates it
 
 class Box {
-  construct new(init) {
+  @constructor
+  new(init) {
     _val = init
   }
 

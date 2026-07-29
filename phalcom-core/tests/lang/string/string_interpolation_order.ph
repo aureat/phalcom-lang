@@ -5,7 +5,8 @@
 let trace = List.new()
 
 class Probe {
-  construct new(label, trace) {
+  @constructor
+  new(label, trace) {
     _label = label
     _trace = trace
   }

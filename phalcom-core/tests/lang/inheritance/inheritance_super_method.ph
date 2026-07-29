@@ -5,11 +5,13 @@
 // bound to the subclass instance, so an override can extend inherited behaviour.
 
 class Animal {
-  construct new() { }
+  @constructor
+  new() { }
   speak => "generic"
 }
-class Dog extends Animal {
-  construct new() { }
+class Dog is Animal {
+  @constructor
+  new() { }
   speak => super.speak + " woof"
 }
 System.print(Dog.new().speak)

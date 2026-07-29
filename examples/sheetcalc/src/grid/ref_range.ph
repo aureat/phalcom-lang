@@ -6,9 +6,10 @@ import "./ref" as RefModule
 /// A rectangle of cell references from one corner to another. Normalizes corner
 /// order (B7:A1 == A1:B7). Extends Iterable so it works with for/map/where
 /// (REQ-GRID-7, REQ-GRID-8). Iterates in row-major order.
-class RefRange extends Iterable {
+class RefRange is Iterable {
   /// Construct a range between two corners. Normalizes order.
-  construct fromTo(a, b) {
+  @constructor
+  fromTo(a, b) {
     _minCol = NumModule.Num.min([a.col, b.col])
     _maxCol = NumModule.Num.max([a.col, b.col])
     _minRow = NumModule.Num.min([a.row, b.row])

@@ -14,7 +14,7 @@
 // `VM::sealed_classes`.
 
 @sealed class Shape {}
-class Square extends Shape {
+class Square is Shape {
   area => 4
 }
 

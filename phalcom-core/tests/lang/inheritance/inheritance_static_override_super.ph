@@ -9,10 +9,10 @@
 class Animal {
   static greet => "hi"
 }
-class Dog extends Animal {
+class Dog is Animal {
   static greet => super.greet + "-dog"
 }
-class Puppy extends Dog {
+class Puppy is Dog {
   static greet => super.greet + "-puppy"
 }
 System.print(Dog.greet)

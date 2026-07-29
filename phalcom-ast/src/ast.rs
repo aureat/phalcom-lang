@@ -113,13 +113,12 @@ pub struct ImportStatement {
 #[derive(Debug, Clone)]
 pub struct ClassDef {
     pub name: String,
-    /// The explicit superclass named by an `extends` clause, if any.
+    /// The explicit superclass named by an `is` clause, if any.
     ///
-    /// `None` means no `extends` clause was written, so the class implicitly
+    /// `None` means no `is` clause was written, so the class implicitly
     /// inherits from `Object` (object-model.md §5.1). `Some(_)` carries the
     /// superclass identifier and its span for compile-time resolution and
-    /// diagnostics (U-INH, DEC-INH-A: `extends` is a contextual keyword
-    /// recognised only in this class-header position).
+    /// diagnostics (PDR-0030: `is` specifies superclass).
     pub superclass: Option<SuperclassRef>,
     pub members: Vec<ClassMember>,
     /// `@name(args…)` attributes attached directly to the class header
@@ -143,7 +142,7 @@ pub struct ClassDef {
     pub invariants: Vec<(Expr, SourceRange)>,
     pub range: SourceRange,
     /// The source span of just the class name identifier (e.g. the `Foo` in
-    /// `class Foo extends Bar { … }`), distinct from [`Self::range`]'s
+    /// `class Foo is Bar { … }`), distinct from [`Self::range`]'s
     /// whole-declaration span. Lets a downstream consumer (e.g.
     /// `phalcom-lsp`'s `semanticTokens/full` pass) highlight the declared
     /// name itself with a `class`-token type without heuristically
@@ -249,7 +248,7 @@ pub struct Attribute {
     pub range: SourceRange,
 }
 
-/// A reference to a superclass named in a `class N extends S { … }` header.
+/// A reference to a superclass named in a `class N is S { … }` header.
 ///
 /// Holds the raw identifier `S` and its source span. The name is resolved to a
 /// class value at compile time as an ordinary global lookup (object-model.md

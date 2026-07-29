@@ -8,13 +8,16 @@
 // hop, to find it.
 
 class Grand {
-  construct new() { }
+  @constructor
+  new() { }
   static kingdom => "Animalia"
 }
-class Animal extends Grand {
-  construct new() { }
+class Animal is Grand {
+  @constructor
+  new() { }
 }
-class Dog extends Animal {
-  construct new() { }
+class Dog is Animal {
+  @constructor
+  new() { }
 }
 System.print(Dog.kingdom)

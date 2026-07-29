@@ -3,7 +3,8 @@
 // status: PASS
 
 class Circle {
-  construct new(r) {
+  @constructor
+  new(r) {
     _r = r
   }
   radius => _r

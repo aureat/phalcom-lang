@@ -8,7 +8,8 @@ import "./cell" as CellModule
 /// >= 1 (REQ-GRID-2, REQ-GRID-3). Unset cells in bounds return
 /// LiteralCell(CellEmpty), never None (REQ-GRID-6).
 class Grid {
-  construct new() {
+  @constructor
+  new() {
     _cells  = Map.new()
     _minCol = -1
     _maxCol = -1

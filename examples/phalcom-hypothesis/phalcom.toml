@@ -1,0 +1,18 @@
+[package]
+name = "hypothesis"
+version = "0.1.0"
+edition = "2026"
+description = "Property-based and stateful testing for Phalcom"
+license = "MIT"
+source-root = "src"
+root-module = "hypothesis"
+
+[toolchain]
+minimum-version = "0.1.0"
+
+[test]
+roots = ["tests"]
+default-command = "phalcom test"
+
+[examples]
+roots = ["examples"]

@@ -1,5 +1,6 @@
 class TestGrid {
-  construct new() {
+  @constructor
+  new() {
     System.print("[TestGrid construct] running")
     _cells = Map.new()
     _minCol = -1

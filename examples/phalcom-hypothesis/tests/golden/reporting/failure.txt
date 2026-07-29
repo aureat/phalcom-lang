@@ -1,0 +1,11 @@
+FAIL NoteProperties.failsAtTen(_:)
+
+Falsifying example:
+  value = 10
+
+Notes:
+  candidate=10
+  10
+
+PropertyAssertionError: expected true
+Reproduce: phalcom-hypothesis:v1:

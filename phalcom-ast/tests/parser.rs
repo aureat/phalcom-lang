@@ -61,6 +61,18 @@ fn parse_display(src: &str) -> String {
 // --- Inputs that parse to an AST today ---
 
 #[test]
+fn class_inherits_with_is_compiles() {
+    let result = parse_source("class Child is Parent {}\n", 0);
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn class_inherits_with_extends_produces_syntax_error() {
+    let result = parse_source("class Child extends Parent {}\n", 0);
+    assert!(result.is_err(), "class with extends must produce a syntax error");
+}
+
+#[test]
 fn let_binding() {
     insta::assert_snapshot!(parse("let x = 1 + 2"));
 }

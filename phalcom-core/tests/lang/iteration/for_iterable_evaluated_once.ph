@@ -2,7 +2,8 @@
 // once — bound to a synthetic temporary before the loop — so a side-effecting
 // receiver runs a single time.
 class Source {
-  construct new() { _calls = 0 }
+  @constructor
+  new() { _calls = 0 }
   makeList {
     _calls = _calls + 1
     System.print("built")

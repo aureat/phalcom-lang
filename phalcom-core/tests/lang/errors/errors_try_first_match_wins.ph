@@ -6,14 +6,17 @@
 // then `B` (matches). Neither handler fires for an unrelated `C`, which
 // reaches the outer `catch` (the eventual catch-all).
 
-class AErr extends Error {
-  construct new(msg) { super.new(msg) }
+class AErr is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
-class BErr extends Error {
-  construct new(msg) { super.new(msg) }
+class BErr is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
-class CErr extends Error {
-  construct new(msg) { super.new(msg) }
+class CErr is Error {
+  @constructor
+  new(msg) { super.new(msg) }
 }
 
 try {

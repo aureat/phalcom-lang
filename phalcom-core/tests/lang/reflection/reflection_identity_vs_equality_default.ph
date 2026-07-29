@@ -8,7 +8,8 @@
 // (R-INV-1.3): equal receivers (same object) hash equal.
 
 class Point {
-  construct new(x) { _x = x }
+  @constructor
+  new(x) { _x = x }
 }
 const a = Point.new(1)
 const b = Point.new(1)

@@ -1,5 +1,6 @@
 class MyGrid {
-  construct new() {
+  @constructor
+  new() {
     System.print("[MyGrid construct] running")
     _x = 99
   }

@@ -3,7 +3,7 @@ class Base {
   make(value) { _value = value }
   value => _value
 }
-class Derived extends Base {
+class Derived is Base {
   @constructor
   make(value) { super.make(value) }
 }

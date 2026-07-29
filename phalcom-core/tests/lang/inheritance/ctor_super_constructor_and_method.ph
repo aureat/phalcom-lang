@@ -10,7 +10,7 @@ class Base {
   base => _base
   marked => _marked
 }
-class Derived extends Base {
+class Derived is Base {
   @constructor
   new(value) {
     super.new(value)

@@ -10,9 +10,9 @@
 class A {
   greet => "hi"
 }
-class B extends A {
+class B is A {
 }
-class C extends B {
+class C is B {
 }
 const c = C.new()
 System.print(c.respondsTo(Symbol.new("greet")))

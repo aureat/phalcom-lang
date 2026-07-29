@@ -12,8 +12,9 @@ class Cell {
 
 /// A literal cell stores a CellValue directly. Its value is the source of truth
 /// and never goes stale.
-class LiteralCell extends Cell {
-  construct of(v) {
+class LiteralCell is Cell {
+  @constructor
+  of(v) {
     _value = v
   }
 
@@ -22,8 +23,9 @@ class LiteralCell extends Cell {
 
 /// A formula cell stores source text, parsed AST, a cached value, and a dirty
 /// flag. Only Engine.recalc() writes _cached and _dirty (REQ-GRID-2).
-class FormulaCell extends Cell {
-  construct of(source, ast) {
+class FormulaCell is Cell {
+  @constructor
+  of(source, ast) {
     _source = source
     _ast = ast
     _cached = Value.CellEmpty.of()

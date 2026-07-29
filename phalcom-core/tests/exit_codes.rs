@@ -43,7 +43,7 @@ fn test_syntax_error_exit_code() {
     let file_path = std::env::temp_dir().join(format!("syntax_{}.ph", std::process::id()));
     fs::write(
         &file_path,
-        "class Point {\n  var x\n  var y\n  construct new(x, y) {\n    _x = x\n    _y = y\n  }\n}\nlet p = Point.new(1, 2)\n1 + ",
+        "class Point {\n  var x\n  var y\n@constructor\nnew(x, y) {\n    _x = x\n    _y = y\n  }\n}\nlet p = Point.new(1, 2)\n1 + ",
     )
     .unwrap();
 

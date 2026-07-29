@@ -11,7 +11,7 @@
 class Base {
   foo(x) { return "Base.foo(" + x.toString + ")" }
 }
-class Sub extends Base {
+class Sub is Base {
   foo => "Sub.foo"
 }
 const s = Sub.new()
