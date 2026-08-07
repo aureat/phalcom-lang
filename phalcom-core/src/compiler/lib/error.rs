@@ -5,6 +5,16 @@ use thiserror::Error;
 /// An error raised while lowering the AST to bytecode.
 #[derive(Error, Debug, Clone)]
 pub enum CompilerError {
+    /// A source-level selector or send cannot be represented by bytecode's
+    /// one-byte arity operand.
+    #[error("{subject} has {found} arguments; bytecode supports at most {limit}")]
+    ArityLimit {
+        subject: &'static str,
+        found: usize,
+        limit: u8,
+        span: SourceRange,
+    },
+
     /// A catch-all for otherwise-unclassified compilation failures.
     #[error("Unknown error during compilation.")]
     Unknown,
@@ -201,4 +211,15 @@ pub enum CompilerError {
     /// consequence of two other mechanisms.
     #[error("class.reserved_name: '{0}' is a kernel class name, reserved to the core module; declare a differently-named class instead.")]
     ClassReservedName(String, SourceRange),
+}
+
+/// Converts an AST-sourced arity to the representation used by selectors and
+/// send bytecodes, preserving the original count for diagnostics.
+pub(crate) fn checked_send_arity(subject: &'static str, found: usize, span: SourceRange) -> Result<u8, CompilerError> {
+    u8::try_from(found).map_err(|_| CompilerError::ArityLimit {
+        subject,
+        found,
+        limit: u8::MAX,
+        span,
+    })
 }

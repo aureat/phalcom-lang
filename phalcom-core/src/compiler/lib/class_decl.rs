@@ -9,6 +9,7 @@ use indexmap::IndexMap;
 use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, MethodCallExpr, Statement};
 use phalcom_common::range::SourceRange;
 
+use super::checked_send_arity;
 use super::error::CompilerError;
 use super::{Compiler, UnitKind};
 
@@ -112,10 +113,11 @@ impl<'vm> Compiler<'vm> {
                     ClassMember::Field(f) => (MemberKey::Field(f.name.clone()), f.name.clone(), f.range),
                     ClassMember::Method(m) => {
                         let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
+                        let subject = if m.is_constructor { "constructor declaration" } else { "method declaration" };
                         let kind = if m.params.last().is_some_and(|p| p.is_rest) {
-                            SignatureKind::Variadic((m.params.len() - 1) as u8)
+                            SignatureKind::Variadic(checked_send_arity(subject, m.params.len() - 1, m.range)?)
                         } else {
-                            SignatureKind::Method(m.params.len() as u8)
+                            SignatureKind::Method(checked_send_arity(subject, m.params.len(), m.range)?)
                         };
                         let sel = encode_selector(&m.name, &labels, kind);
                         (MemberKey::Selector(m.is_static, sel.clone()), sel, m.name_range)
@@ -130,7 +132,11 @@ impl<'vm> Compiler<'vm> {
                     }
                     ClassMember::Index(idx) => {
                         let labels: Vec<Option<String>> = idx.params.iter().map(|p| p.label.clone()).collect();
-                        let sel = encode_selector("", &labels, SignatureKind::Subscript(idx.params.len() as u8));
+                        let sel = encode_selector(
+                            "",
+                            &labels,
+                            SignatureKind::Subscript(checked_send_arity("subscript declaration", idx.params.len(), idx.range)?),
+                        );
                         (MemberKey::Selector(false, sel.clone()), sel, idx.name_range)
                     }
                     ClassMember::Variant(_) => continue,
@@ -609,6 +615,7 @@ impl<'vm> Compiler<'vm> {
                     let range = method_def.range;
 
                     let arity = method_def.params.len();
+                    let encoded_arity = checked_send_arity("method declaration", arity, method_def.range)?;
                     // At most one parameter may be the rest parameter, and only
                     // as the list's last entry — enforced by
                     // `parse_param_list` for every OTHER position, but a rest
@@ -631,10 +638,10 @@ impl<'vm> Compiler<'vm> {
                         // U9 corrections §0 point 3 requires for
                         // `SignatureKind::Variadic`, never spelled into the
                         // selector text.
-                        let fixed_arity = (arity - 1) as u8;
+                        let fixed_arity = checked_send_arity("method declaration", arity - 1, method_def.range)?;
                         SignatureKind::Variadic(fixed_arity)
                     } else {
-                        SignatureKind::Method(arity as u8)
+                        SignatureKind::Method(encoded_arity)
                     };
 
                     let labels: Vec<Option<String>> = method_def.params.iter().map(|p| p.label.clone()).collect();
@@ -760,13 +767,13 @@ impl<'vm> Compiler<'vm> {
                 ClassMember::Method(construct_def) => {
                     let range = construct_def.range;
 
-                    let arity = construct_def.params.len();
+                    let arity = checked_send_arity("constructor declaration", construct_def.params.len(), construct_def.range)?;
                     let labels: Vec<Option<String>> = construct_def.params.iter().map(|p| p.label.clone()).collect();
                     // Initializers install as ordinary instance-side methods
                     // under their generated, source-unspellable `init <name>`
                     // selector (ADR-0063). The paired factory is class-side
                     // and dispatches under the original constructor selector.
-                    let selector = encode_selector(&construct_def.name, &labels, SignatureKind::Method(arity as u8));
+                    let selector = encode_selector(&construct_def.name, &labels, SignatureKind::Method(arity));
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     let param_names: Vec<String> = construct_def.params.iter().map(|p| p.name.clone()).collect();
@@ -792,7 +799,7 @@ impl<'vm> Compiler<'vm> {
 
                     let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                         selector_sym,
-                        SignatureKind::Method(arity as u8),
+                        SignatureKind::Method(arity),
                         MethodKind::Closure(closure),
                     ))));
 
@@ -833,9 +840,9 @@ impl<'vm> Compiler<'vm> {
                 // form.
                 ClassMember::Index(index_def) => {
                     let range = index_def.range;
-                    let arity = index_def.params.len();
+                    let arity = checked_send_arity("subscript declaration", index_def.params.len(), index_def.range)?;
                     let labels: Vec<Option<String>> = index_def.params.iter().map(|p| p.label.clone()).collect();
-                    let sig_kind = SignatureKind::Subscript(arity as u8);
+                    let sig_kind = SignatureKind::Subscript(arity);
                     let selector = encode_selector("", &labels, sig_kind);
                     let selector_sym = self.vm.interner.intern(&selector);
 

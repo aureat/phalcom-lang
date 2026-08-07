@@ -18,6 +18,7 @@ mod scope;
 mod state;
 
 pub use error::CompilerError;
+pub(crate) use error::checked_send_arity;
 
 /// Whether a compilation unit is a whole file or a single REPL cell.
 ///

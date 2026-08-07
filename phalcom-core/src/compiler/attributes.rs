@@ -1,4 +1,4 @@
-use crate::compiler::lib::CompilerError;
+use crate::compiler::lib::{CompilerError, checked_send_arity};
 use crate::heap::ObjRef;
 use crate::interner::Symbol;
 use crate::method::{SignatureKind, encode_selector};
@@ -812,7 +812,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
 
     let param_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.default.is_none()).collect();
     let labels: Vec<Option<String>> = param_fields.iter().map(|f| Some(strip_leading_underscore(&f.name))).collect();
-    let arity = param_fields.len() as u8;
+    let arity = checked_send_arity("constructor declaration", param_fields.len(), attr_range)?;
 
     let derived_selector = encode_selector("new", &labels, SignatureKind::Method(arity));
     let derived_sym = ctx.interner.intern(&derived_selector);
@@ -822,7 +822,8 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
             && c.is_constructor
         {
             let c_labels: Vec<Option<String>> = c.params.iter().map(|p| p.label.clone()).collect();
-            let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Method(c.params.len() as u8));
+            let c_arity = checked_send_arity("constructor declaration", c.params.len(), c.range)?;
+            let c_selector = encode_selector(&c.name, &c_labels, SignatureKind::Method(c_arity));
             if ctx.interner.intern(&c_selector) == derived_sym {
                 return Err(CompilerError::Message(format!(
                     "attr.accessor_collision: `@construct` on class `{}` collides with a hand-written `construct {}(...)` of the same selector",
@@ -876,20 +877,29 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
 /// Shared by [`check_selector_collision`]/[`class_has_selector`] — the one
 /// place this module computes "what selector does this existing member
 /// occupy" generically across member kinds.
-fn member_selector(m: &ClassMember) -> Option<String> {
-    match m {
+fn member_selector(m: &ClassMember) -> Result<Option<String>, CompilerError> {
+    Ok(match m {
         ClassMember::Method(md) => {
             let labels: Vec<Option<String>> = md.params.iter().map(|p| p.label.clone()).collect();
-            Some(encode_selector(&md.name, &labels, SignatureKind::Method(md.params.len() as u8)))
+            let subject = if md.is_constructor { "constructor declaration" } else { "method declaration" };
+            Some(encode_selector(
+                &md.name,
+                &labels,
+                SignatureKind::Method(checked_send_arity(subject, md.params.len(), md.range)?),
+            ))
         }
         ClassMember::Getter(g) => Some(encode_selector(&g.name, &[], SignatureKind::Getter)),
         ClassMember::Setter(s) => Some(encode_selector(&s.name, &[], SignatureKind::Setter)),
         ClassMember::Index(ix) => {
             let labels: Vec<Option<String>> = ix.params.iter().map(|p| p.label.clone()).collect();
-            Some(encode_selector("", &labels, SignatureKind::Subscript(ix.params.len() as u8)))
+            Some(encode_selector(
+                "",
+                &labels,
+                SignatureKind::Subscript(checked_send_arity("subscript declaration", ix.params.len(), ix.range)?),
+            ))
         }
         ClassMember::Field(_) | ClassMember::Variant(_) => None,
-    }
+    })
 }
 
 /// Returns `attr.accessor_collision` if `class` already carries a
@@ -903,7 +913,7 @@ fn member_selector(m: &ClassMember) -> Option<String> {
 /// inline construct-vs-construct check is a different member kind and stays
 /// as-is).
 fn check_selector_collision(class: &ClassDef, ctx: &mut ExpandCtx, derived_selector: &str, attr_name: &str) -> Result<(), CompilerError> {
-    if class_has_selector(class, ctx, derived_selector) {
+    if class_has_selector(class, ctx, derived_selector)? {
         return Err(CompilerError::Message(format!(
             "attr.accessor_collision: `@{}` on class `{}` collides with a hand-written member of the same selector",
             attr_name, class.name
@@ -926,16 +936,16 @@ fn check_accessor_collision(class: &ClassDef, ctx: &mut ExpandCtx, base_name: &s
 /// non-erroring existence probe, used where a missing member should be
 /// filled in silently rather than reported as a collision (`@data`'s
 /// no-op-if-already-present derives).
-fn class_has_selector(class: &ClassDef, ctx: &mut ExpandCtx, selector: &str) -> bool {
+fn class_has_selector(class: &ClassDef, ctx: &mut ExpandCtx, selector: &str) -> Result<bool, CompilerError> {
     let sym = ctx.interner.intern(selector);
     for m in &class.members {
-        if let Some(existing) = member_selector(m) {
+        if let Some(existing) = member_selector(m)? {
             if ctx.interner.intern(&existing) == sym {
-                return true;
+                return Ok(true);
             }
         }
     }
-    false
+    Ok(false)
 }
 
 /// Derives `Getter`/`Setter` members for every declared [`FieldDef`]
@@ -1322,8 +1332,8 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
 
     let eq_selector = encode_selector("==", &[None], SignatureKind::Method(1));
     let hash_selector = make_signature_getter("hash");
-    let has_eq = class_has_selector(class, ctx, &eq_selector);
-    let has_hash = class_has_selector(class, ctx, &hash_selector);
+    let has_eq = class_has_selector(class, ctx, &eq_selector)?;
+    let has_hash = class_has_selector(class, ctx, &hash_selector)?;
     if has_eq != has_hash {
         return Err(CompilerError::Message(format!(
             "attr.accessor_collision: `@data` on class `{}` requires `==`/`hash` to be derived together — a hand-written `{}` without the other is a collision",
@@ -1335,7 +1345,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         for f in &fields {
             let base_name = strip_leading_underscore(&f.name);
             let getter_selector = make_signature_getter(&base_name);
-            if !class_has_selector(class, ctx, &getter_selector) {
+            if !class_has_selector(class, ctx, &getter_selector)? {
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name,
                     body: vec![Statement::Expr {
@@ -1388,7 +1398,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
     }
 
     let to_string_selector = make_signature_getter("toString");
-    if !class_has_selector(class, ctx, &to_string_selector) {
+    if !class_has_selector(class, ctx, &to_string_selector)? {
         let ts_body = build_data_to_string(&class.name, &fields, attr_range);
         class.members.push(ClassMember::Getter(GetterDef {
             name: "toString".to_string(),
@@ -1406,8 +1416,9 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
     let param_fields: Vec<&FieldDef> = fields.iter().filter(|f| f.default.is_none()).collect();
     if !param_fields.is_empty() {
         let with_labels: Vec<Option<String>> = param_fields.iter().map(|f| Some(strip_leading_underscore(&f.name))).collect();
-        let with_selector = encode_selector("with", &with_labels, SignatureKind::Method(param_fields.len() as u8));
-        if !class_has_selector(class, ctx, &with_selector) {
+        let with_arity = checked_send_arity("method declaration", param_fields.len(), attr_range)?;
+        let with_selector = encode_selector("with", &with_labels, SignatureKind::Method(with_arity));
+        if !class_has_selector(class, ctx, &with_selector)? {
             let with_body = build_data_with(&class.name, &param_fields, attr_range);
             let with_params: Vec<ParameterDef> = param_fields
                 .iter()
@@ -2077,6 +2088,17 @@ pub fn expand_class_attributes(
                 }
                 _ => {}
             }
+        }
+    }
+
+    // Validate a constructor before lowering duplicates its signature into a
+    // factory and an initializer. Otherwise the generated factory would
+    // report itself as an ordinary method declaration.
+    for member in &class.members {
+        if let ClassMember::Method(method) = member
+            && method.is_constructor
+        {
+            checked_send_arity("constructor declaration", method.params.len(), method.range)?;
         }
     }
 

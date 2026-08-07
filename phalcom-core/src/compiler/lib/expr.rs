@@ -5,6 +5,7 @@ use crate::value::Value;
 use phalcom_ast::ast::{BinaryOp, BlockExpr, Expr, MethodRefKind, Statement, SymbolLiteralKind, UnaryOp};
 use phalcom_common::range::SourceRange;
 
+use super::checked_send_arity;
 use super::error::CompilerError;
 use super::{Compiler, UnitKind};
 
@@ -48,9 +49,10 @@ impl<'vm> Compiler<'vm> {
                         }
                         _ => mc.method.clone(),
                     };
-                    let selector = encode_selector(&method, &labels, SignatureKind::Method(argc as u8));
+                    let argc = checked_send_arity("super send", argc, mc.range)?;
+                    let selector = encode_selector(&method, &labels, SignatureKind::Method(argc));
                     let selector_sym = self.vm.interner.intern(&selector);
-                    return self.compile_super_send(selector_sym, mc.args, argc as u8, mc.range);
+                    return self.compile_super_send(selector_sym, mc.args, argc, mc.range);
                 }
 
                 // U5 Layer 1 (control-flow.md §3, ADR-0018): a sacred
@@ -90,9 +92,9 @@ impl<'vm> Compiler<'vm> {
                             _ => None,
                         };
 
-                        let arity = method_call.args.len();
+                        let arity = checked_send_arity("message send", method_call.args.len(), method_call.range)?;
                         let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
-                        let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity as u8));
+                        let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity));
                         let selector_sym = self.vm.interner.intern(&selector);
 
                         self.compile_expr(method_call.object)?;
@@ -100,7 +102,7 @@ impl<'vm> Compiler<'vm> {
                             self.compile_expr(arg.expr.clone())?;
                         }
                         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
-                        self.emit(Bytecode::Invoke(method_call.args.len() as u8, selector_idx), method_call.range);
+                        self.emit(Bytecode::Invoke(arity, selector_idx), method_call.range);
                     }
                 }
             }
@@ -117,15 +119,15 @@ impl<'vm> Compiler<'vm> {
                 // whether the interned string contains `(` (`VM`'s
                 // `Bytecode::MakeFamily` arm).
                 let method_ref = *method_ref;
-                self.compile_expr(method_ref.receiver)?;
                 let sym = match method_ref.kind {
                     MethodRefKind::Open { name } => self.vm.interner.intern(&name),
                     MethodRefKind::Pinned { name, labels } => {
-                        let arity = labels.len() as u8;
+                        let arity = checked_send_arity("pinned selector", labels.len(), method_ref.range)?;
                         let selector = encode_selector(&name, &labels, SignatureKind::Method(arity));
                         self.vm.interner.intern(&selector)
                     }
                 };
+                self.compile_expr(method_ref.receiver)?;
                 let name_idx = self.add_constant(Value::Symbol(sym));
                 self.emit(Bytecode::MakeFamily(name_idx), method_ref.range);
             }
@@ -159,34 +161,34 @@ impl<'vm> Compiler<'vm> {
                 // path for any arity/label combination without further
                 // compiler changes.
                 let ix = *ix;
-                self.compile_expr(ix.object)?;
-                let argc = ix.args.len();
+                let argc = checked_send_arity("subscript read", ix.args.len(), ix.range)?;
                 let labels: Vec<Option<String>> = ix.args.iter().map(|a| a.label.clone()).collect();
+                self.compile_expr(ix.object)?;
                 for arg in ix.args {
                     self.compile_expr(arg.expr)?;
                 }
-                let selector = encode_selector("", &labels, SignatureKind::Subscript(argc as u8));
+                let selector = encode_selector("", &labels, SignatureKind::Subscript(argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::Symbol(sym));
-                self.emit(Bytecode::Invoke(argc as u8, idx), ix.range);
+                self.emit(Bytecode::Invoke(argc, idx), ix.range);
             }
             Expr::SetIndex(six) => {
                 // U-INDEX (ADR-0060): `xs[a, b, ...] = value` appends `value`
                 // as the selector's trailing `put:` argument — `xs[i] = v`
                 // sends `[_,put]`, `xs[] = v` sends `[put]` — never `at`.
                 let six = *six;
-                self.compile_expr(six.object)?;
                 let mut labels: Vec<Option<String>> = six.args.iter().map(|a| a.label.clone()).collect();
+                labels.push(Some("put".to_string()));
+                let argc = checked_send_arity("subscript write", labels.len(), six.range)?;
+                self.compile_expr(six.object)?;
                 for arg in six.args {
                     self.compile_expr(arg.expr)?;
                 }
                 self.compile_expr(six.value)?;
-                labels.push(Some("put".to_string()));
-                let argc = labels.len();
-                let selector = encode_selector("", &labels, SignatureKind::Subscript(argc as u8));
+                let selector = encode_selector("", &labels, SignatureKind::Subscript(argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::Symbol(sym));
-                self.emit(Bytecode::Invoke(argc as u8, idx), six.range);
+                self.emit(Bytecode::Invoke(argc, idx), six.range);
             }
             Expr::Int { digits, radix, range } => {
                 let val = if radix == 10 {
@@ -238,7 +240,7 @@ impl<'vm> Compiler<'vm> {
                 let canonical = match symbol_expr.kind {
                     SymbolLiteralKind::Name(name) => name,
                     SymbolLiteralKind::Selector { name, labels } => {
-                        let arity = labels.len() as u8;
+                        let arity = checked_send_arity("pinned selector", labels.len(), range)?;
                         encode_selector(&name, &labels, SignatureKind::Method(arity))
                     }
                 };
