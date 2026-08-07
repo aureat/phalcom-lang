@@ -22,9 +22,9 @@ const builtExample = Example.from(
 const pair = Gen.build { draw =>
   const first = draw.from(Gen.int(min: 0, max: 10))
   const second = draw.from(Gen.int(min: first, max: first))
-  return Tuple.fromList(const [first, second])
+  return Tuple.__fromList(const [first, second])
 }.draw(DrawData.replay(example: builtExample, maxChoices: 8))
-Assert.equal(Tuple.fromList(const [4, 4]), pair)
+Assert.equal(Tuple.__fromList(const [4, 4]), pair)
 
 const deferred = Gen.deferred { Gen.just(42) }
 Assert.equal(42, deferred.draw(DrawData.generate(

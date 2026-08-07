@@ -47,7 +47,7 @@ def check_tests_first() -> None:
 
     require(read(required[0]), "Assert.equal(10", "integer boundary fixture")
     require(read(required[1]), "const [1, 2]", "middle deletion fixture")
-    require(read(required[2]), "Tuple.fromList(const [#leaf, #leaf])", "recursive fixture")
+    require(read(required[2]), "Tuple.__fromList(const [#leaf, #leaf])", "recursive fixture")
     require(read(required[3]), ".lessThan(", "complexity fixture")
     require(read(required[4]), "failure.origin.sameSite", "origin fixture")
     require(read(required[5]), "errors._FlakyFailure", "flaky fixture")

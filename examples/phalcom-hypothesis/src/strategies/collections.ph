@@ -171,7 +171,7 @@ class _TupleStrategy is base.StrategyBase<Tuple> {
         values.add(value)
         index++
       }
-      return Tuple.fromList(values)
+      return Tuple.__fromList(values)
     }
   }
 

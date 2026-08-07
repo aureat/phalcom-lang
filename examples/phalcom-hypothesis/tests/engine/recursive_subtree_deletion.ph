@@ -41,7 +41,7 @@ const spec = specification.PropertySpec.check(
 
 const result = engine.SearchEngine.new().check(spec)
 Assert.equal(
-  Tuple.fromList(const [#leaf, #leaf]),
+  Tuple.__fromList(const [#leaf, #leaf]),
   result.args.at(0)
 )
 Assert.equal(4, result.tape.unwrap.size)

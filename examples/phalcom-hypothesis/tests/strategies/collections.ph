@@ -41,7 +41,7 @@ const tupleExample = Example.from(
   generationSize: 2
 )
 Assert.equal(
-  Tuple.fromList(const [true, 3]),
+  Tuple.__fromList(const [true, 3]),
   Gen.tuple(Gen.bool, Gen.int(min: 3, max: 3)).draw(
     DrawData.replay(example: tupleExample, maxChoices: 8)
   )
