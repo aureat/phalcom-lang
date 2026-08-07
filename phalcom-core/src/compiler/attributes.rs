@@ -121,7 +121,7 @@ pub trait AttributeExpander {
     fn expand(&self, ctx: &mut ExpandCtx, member: &mut ClassMember, args: &[Expr]) -> Result<(), CompilerError>;
 }
 
-use phalcom_ast::ast::{Argument, BindingKind, BlockExpr, LetBinding, MethodCallExpr, Pattern, Statement};
+use phalcom_ast::ast::{Argument, BindingKind, BlockExpr, LetBinding, MapLiteralEntry, MapLiteralKey, MethodCallExpr, Pattern, SetLiteralEntry, Statement};
 use phalcom_common::range::SourceRange;
 
 fn is_pure_expr(expr: &Expr) -> bool {
@@ -147,6 +147,20 @@ fn is_pure_expr(expr: &Expr) -> bool {
         }
         Expr::GetProperty(g) => is_pure_expr(&g.object),
         Expr::Index(i) => is_pure_expr(&i.object) && i.args.iter().all(|a| is_pure_expr(&a.expr)),
+        Expr::MapLiteral(map) => map.entries.iter().all(|entry| match entry {
+            MapLiteralEntry::Association { key, value, .. } => {
+                let key_pure = match key {
+                    MapLiteralKey::BareSymbol { .. } => true,
+                    MapLiteralKey::Computed { expr, .. } => is_pure_expr(expr),
+                };
+                key_pure && is_pure_expr(value)
+            }
+            MapLiteralEntry::Expansion { .. } => false,
+        }),
+        Expr::SetLiteral(set) => set.entries.iter().all(|entry| match entry {
+            SetLiteralEntry::Element { expr, .. } => is_pure_expr(expr),
+            SetLiteralEntry::Expansion { .. } => false,
+        }),
         Expr::Block(b) => b.body.iter().all(|s| match s {
             Statement::Expr { expr, .. } => is_pure_expr(expr),
             Statement::Let(l) => l.value.as_ref().is_none_or(is_pure_expr),
@@ -183,6 +197,15 @@ fn contains_old_call(expr: &Expr) -> bool {
         Expr::Binary(b) => contains_old_call(&b.left) || contains_old_call(&b.right),
         Expr::Index(i) => contains_old_call(&i.object) || i.args.iter().any(|a| contains_old_call(&a.expr)),
         Expr::GetProperty(g) => contains_old_call(&g.object),
+        Expr::MapLiteral(map) => map.entries.iter().any(|entry| match entry {
+            MapLiteralEntry::Association { key, value, .. } => {
+                matches!(key, MapLiteralKey::Computed { expr, .. } if contains_old_call(expr)) || contains_old_call(value)
+            }
+            MapLiteralEntry::Expansion { expr, .. } => contains_old_call(expr),
+        }),
+        Expr::SetLiteral(set) => set.entries.iter().any(|entry| match entry {
+            SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => contains_old_call(expr),
+        }),
         _ => false,
     }
 }
@@ -409,6 +432,26 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
             }
         }
         Expr::GetProperty(g) => rewrite_old_calls(&mut g.object, old_lets)?,
+        Expr::MapLiteral(map) => {
+            for entry in &mut map.entries {
+                match entry {
+                    MapLiteralEntry::Association { key, value, .. } => {
+                        if let MapLiteralKey::Computed { expr, .. } = key {
+                            rewrite_old_calls(expr, old_lets)?;
+                        }
+                        rewrite_old_calls(value, old_lets)?;
+                    }
+                    MapLiteralEntry::Expansion { expr, .. } => rewrite_old_calls(expr, old_lets)?,
+                }
+            }
+        }
+        Expr::SetLiteral(set) => {
+            for entry in &mut set.entries {
+                match entry {
+                    SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => rewrite_old_calls(expr, old_lets)?,
+                }
+            }
+        }
         _ => {}
     }
     Ok(())

@@ -1495,6 +1495,39 @@ impl VM {
                         .map_err(|error| RuntimeError::Internal(format!("record construction failed: {error:?}")))?;
                     self.stack.push(product);
                 }
+                Bytecode::BeginMapLiteral => self.stack.push(Value::Obj(self.heap.alloc_map())),
+                Bytecode::MapLiteralInsertUnique => {
+                    let value = self.pop()?;
+                    let key = self.pop()?;
+                    let map = *self
+                        .stack
+                        .last()
+                        .ok_or(RuntimeError::Internal("Stack underflow for MapLiteralInsertUnique".to_string()))?;
+                    let Value::Obj(id) = map else {
+                        return Err(RuntimeError::Internal("Map literal builder is not an object".to_string()).into());
+                    };
+                    if !matches!(self.heap.get(id), crate::heap::Object::Map(_)) {
+                        return Err(RuntimeError::Internal("Map literal builder is not a Map".to_string()).into());
+                    }
+                    crate::primitive::map::map_literal_insert_unique(self, id, key, value)?;
+                }
+                Bytecode::FinishMapLiteral => {}
+                Bytecode::BeginSetLiteral => self.stack.push(Value::Obj(self.heap.alloc_set())),
+                Bytecode::SetLiteralAdd => {
+                    let value = self.pop()?;
+                    let set = *self
+                        .stack
+                        .last()
+                        .ok_or(RuntimeError::Internal("Stack underflow for SetLiteralAdd".to_string()))?;
+                    let Value::Obj(id) = set else {
+                        return Err(RuntimeError::Internal("Set literal builder is not an object".to_string()).into());
+                    };
+                    if !matches!(self.heap.get(id), crate::heap::Object::Set(_)) {
+                        return Err(RuntimeError::Internal("Set literal builder is not a Set".to_string()).into());
+                    }
+                    crate::primitive::set::set_literal_add(self, id, value)?;
+                }
+                Bytecode::FinishSetLiteral => {}
             }
             #[cfg(feature = "vm-trace")]
             debug!("Stack after opcode {:?}: {:?}", opcode, self.stack);

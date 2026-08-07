@@ -102,6 +102,11 @@ class ArgumentError is Error {}
 // Raised by strict Map subscript lookup when no equal key is present.
 class KeyError is Error {}
 
+// Raised while building an association Map literal when a logically equal key
+// was already contributed. Ordinary post-construction Map insertion still
+// overwrites by design.
+class DuplicateKeyError is Error {}
+
 class Number {}
 
 class Int is Number {}

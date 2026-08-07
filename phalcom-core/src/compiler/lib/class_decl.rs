@@ -6,7 +6,7 @@ use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, ma
 use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
-use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, MethodCallExpr, Statement};
+use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, MapLiteralEntry, MapLiteralKey, MethodCallExpr, SetLiteralEntry, Statement};
 use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
@@ -1132,6 +1132,26 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut
         Expr::Block(block) => {
             for stmt in &block.body {
                 collect_assigned_fields_stmt(stmt, fields, interner);
+            }
+        }
+        Expr::MapLiteral(map) => {
+            for entry in &map.entries {
+                match entry {
+                    MapLiteralEntry::Association { key, value, .. } => {
+                        if let MapLiteralKey::Computed { expr, .. } = key {
+                            collect_assigned_fields(expr, fields, interner);
+                        }
+                        collect_assigned_fields(value, fields, interner);
+                    }
+                    MapLiteralEntry::Expansion { expr, .. } => collect_assigned_fields(expr, fields, interner),
+                }
+            }
+        }
+        Expr::SetLiteral(set) => {
+            for entry in &set.entries {
+                match entry {
+                    SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => collect_assigned_fields(expr, fields, interner),
+                }
             }
         }
         _ => {}

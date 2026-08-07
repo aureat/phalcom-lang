@@ -656,6 +656,10 @@ pub enum Expr {
     TupleLiteral(Box<TupleLiteralExpr>),
     /// A record literal written with `#{` `}` product syntax.
     RecordLiteral(Box<RecordLiteralExpr>),
+    /// An association Map literal written with `{ key: value }` syntax.
+    MapLiteral(Box<MapLiteralExpr>),
+    /// A Set literal written with `{ value, ... }` syntax.
+    SetLiteral(Box<SetLiteralExpr>),
 }
 
 impl Expr {
@@ -688,6 +692,8 @@ impl Expr {
             Expr::Symbol(e) => e.range,
             Expr::TupleLiteral(e) => e.range,
             Expr::RecordLiteral(e) => e.range,
+            Expr::MapLiteral(e) => e.range,
+            Expr::SetLiteral(e) => e.range,
         }
     }
 }
@@ -954,6 +960,38 @@ pub struct RecordLiteralField {
     pub value: Expr,
     /// The source span covering the field.
     pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct MapLiteralExpr {
+    pub entries: Vec<MapLiteralEntry>,
+    pub range: SourceRange,
+}
+
+/// `Expansion` reserves a structural seam for Spec F without implementing it.
+#[derive(Debug, Clone)]
+pub enum MapLiteralEntry {
+    Association { key: MapLiteralKey, value: Expr, range: SourceRange },
+    Expansion { expr: Expr, range: SourceRange },
+}
+
+#[derive(Debug, Clone)]
+pub enum MapLiteralKey {
+    BareSymbol { name: String, range: SourceRange },
+    Computed { expr: Expr, range: SourceRange },
+}
+
+#[derive(Debug, Clone)]
+pub struct SetLiteralExpr {
+    pub entries: Vec<SetLiteralEntry>,
+    pub range: SourceRange,
+}
+
+/// `Expansion` is reserved for Spec F, parallel to Map literal entries.
+#[derive(Debug, Clone)]
+pub enum SetLiteralEntry {
+    Element { expr: Expr, range: SourceRange },
+    Expansion { expr: Expr, range: SourceRange },
 }
 
 #[derive(Debug, Clone)]

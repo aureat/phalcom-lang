@@ -22,7 +22,7 @@
 use crate::error::{MapMutationError, PhResult, RuntimeError};
 use crate::heap::ObjRef;
 use crate::primitive::nil::wrap_some;
-use crate::primitive::{expect_map, is_mutable_collection_key, mutable_key_error, send_eq, send_hash};
+use crate::primitive::{expect_class, expect_map, is_mutable_collection_key, mutable_key_error, send_eq, send_hash};
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -161,6 +161,45 @@ pub fn map_raw_put(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
                 .map_err(|err| map_mutation_error(err, "Map"))?;
             Ok(vm.none_value())
         }
+    }
+}
+
+/// Inserts a B.3 literal association. Existing equal keys fail immediately.
+pub(crate) fn map_literal_insert_unique(vm: &mut VM, id: ObjRef, key: Value, value: Value) -> PhResult<()> {
+    if is_mutable_collection_key(vm, &key) {
+        return Err(mutable_key_error(vm, "Map").into());
+    }
+    let (bucket, slot) = locate_key(vm, id, key)?;
+    if slot.is_some() {
+        return Err(duplicate_key_error(vm).into());
+    }
+    vm.heap
+        .map_mut(id)
+        .insert_new(bucket, key, value)
+        .map_err(|err| map_mutation_error(err, "Map"))?;
+    Ok(())
+}
+
+/// Builds B.3's ordinary catchable `DuplicateKeyError`. The class is defined
+/// in `core.ph`, so resolving it from the loaded core module avoids widening
+/// the Rust-installed class floor for one library-level error subtype.
+fn duplicate_key_error(vm: &mut VM) -> RuntimeError {
+    let rendered = "duplicate Map literal key".to_string();
+    let core = vm
+        .get_module_from_str(crate::heap::CORE_MODULE_NAME)
+        .expect("core module is loaded before Map literals execute");
+    let class_name = vm.interner.intern("DuplicateKeyError");
+    let class_value = vm.heap.module(core).get(class_name).expect("DuplicateKeyError is defined by core.ph");
+    let class_id = expect_class(vm, &class_value).expect("DuplicateKeyError global is a class");
+    let field_count = vm.heap.class(class_id).field_count;
+    let mut instance = crate::heap::InstanceObject::new(class_id, field_count);
+    instance.slots[0] = vm.alloc_string_value(rendered.clone());
+    let error = Value::Obj(vm.heap.alloc(crate::heap::Object::Instance(instance)));
+    RuntimeError::Raise {
+        error,
+        rendered,
+        traceback: None,
+        help: None,
     }
 }
 

@@ -127,6 +127,22 @@ pub fn set_raw_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     Ok(*receiver)
 }
 
+/// Inserts one literal element through the same key-admission and re-entrant
+/// hash/equality path as ordinary Set addition. Duplicate values are idempotent.
+pub(crate) fn set_literal_add(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<()> {
+    if is_mutable_collection_key(vm, &key) {
+        return Err(mutable_key_error(vm, "Set").into());
+    }
+    let (bucket, slot) = locate(vm, id, key)?;
+    if slot.is_none() {
+        vm.heap
+            .set_mut(id)
+            .insert_new(bucket, key, Value::Nil)
+            .map_err(|err| set_mutation_error(err, "Set"))?;
+    }
+    Ok(())
+}
+
 /// Signature: `Set::has_(_)` — membership test.
 ///
 /// # Errors

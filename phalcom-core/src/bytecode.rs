@@ -44,6 +44,12 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "GuardSymbol",
     "BuildTuple",
     "BuildRecord",
+    "BeginMapLiteral",
+    "MapLiteralInsertUnique",
+    "FinishMapLiteral",
+    "BeginSetLiteral",
+    "SetLiteralAdd",
+    "FinishSetLiteral",
 ];
 
 // The set of instructions for our VM. This is the language the compiler "speaks".
@@ -368,16 +374,27 @@ pub enum Bytecode {
     GuardSymbol,
 
     /// Finalizes positional values followed by `(Symbol, value)` pairs.
-    BuildTuple { positional: u16, labeled: u16 },
+    BuildTuple {
+        positional: u16,
+        labeled: u16,
+    },
 
     /// Finalizes `(Symbol, value)` pairs into a Record.
-    BuildRecord { fields: u16 },
+    BuildRecord {
+        fields: u16,
+    },
+    BeginMapLiteral,
+    MapLiteralInsertUnique,
+    FinishMapLiteral,
+    BeginSetLiteral,
+    SetLiteralAdd,
+    FinishSetLiteral,
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 40;
+    pub const VARIANTS: usize = 46;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -428,6 +445,12 @@ impl Bytecode {
             Bytecode::GuardSymbol => 37,
             Bytecode::BuildTuple { .. } => 38,
             Bytecode::BuildRecord { .. } => 39,
+            Bytecode::BeginMapLiteral => 40,
+            Bytecode::MapLiteralInsertUnique => 41,
+            Bytecode::FinishMapLiteral => 42,
+            Bytecode::BeginSetLiteral => 43,
+            Bytecode::SetLiteralAdd => 44,
+            Bytecode::FinishSetLiteral => 45,
         }
     }
 

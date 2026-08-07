@@ -11,7 +11,10 @@
 //! name — via `crate::selectors`.
 
 use dashmap::DashMap;
-use phalcom_ast::ast::{Argument, ClassDef, ClassMember, Expr, ForStatement, Pattern, ProductLabel, Program, Statement, TupleLiteralEntry};
+use phalcom_ast::ast::{
+    Argument, ClassDef, ClassMember, Expr, ForStatement, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program, SetLiteralEntry, Statement,
+    TupleLiteralEntry,
+};
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
@@ -601,6 +604,28 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
                 collect_var_occurrences_in_expr(&field.value, names, out);
             }
         }
+        Expr::MapLiteral(map) => {
+            for entry in &map.entries {
+                match entry {
+                    MapLiteralEntry::Association { key, value, .. } => {
+                        if let MapLiteralKey::Computed { expr, .. } = key {
+                            collect_var_occurrences_in_expr(expr, names, out);
+                        }
+                        collect_var_occurrences_in_expr(value, names, out);
+                    }
+                    MapLiteralEntry::Expansion { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
+                }
+            }
+        }
+        Expr::SetLiteral(set) => {
+            for entry in &set.entries {
+                match entry {
+                    SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => {
+                        collect_var_occurrences_in_expr(expr, names, out);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -814,6 +839,26 @@ impl Collector {
                 for field in &record.fields {
                     self.walk_product_label(&field.label);
                     self.walk_expr(&field.value);
+                }
+            }
+            Expr::MapLiteral(map) => {
+                for entry in &map.entries {
+                    match entry {
+                        MapLiteralEntry::Association { key, value, .. } => {
+                            if let MapLiteralKey::Computed { expr, .. } = key {
+                                self.walk_expr(expr);
+                            }
+                            self.walk_expr(value);
+                        }
+                        MapLiteralEntry::Expansion { expr, .. } => self.walk_expr(expr),
+                    }
+                }
+            }
+            Expr::SetLiteral(set) => {
+                for entry in &set.entries {
+                    match entry {
+                        SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => self.walk_expr(expr),
+                    }
                 }
             }
         }

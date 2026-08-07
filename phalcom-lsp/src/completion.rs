@@ -23,7 +23,7 @@
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
-use phalcom_ast::ast::{ClassMember, Expr, Pattern, ProductLabel, Program, Statement, TupleLiteralEntry};
+use phalcom_ast::ast::{ClassMember, Expr, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry};
 
 use crate::core_table::{CoreTable, MemberKind};
 use crate::documents::Document;
@@ -263,6 +263,19 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
             .fields
             .iter()
             .find_map(|field| nested_block_in_product_label(&field.label, offset).or_else(|| nested_block_in_expr(&field.value, offset))),
+        Expr::MapLiteral(map) => map.entries.iter().find_map(|entry| match entry {
+            MapLiteralEntry::Association { key, value, .. } => {
+                let key_block = match key {
+                    MapLiteralKey::BareSymbol { .. } => None,
+                    MapLiteralKey::Computed { expr, .. } => nested_block_in_expr(expr, offset),
+                };
+                key_block.or_else(|| nested_block_in_expr(value, offset))
+            }
+            MapLiteralEntry::Expansion { expr, .. } => nested_block_in_expr(expr, offset),
+        }),
+        Expr::SetLiteral(set) => set.entries.iter().find_map(|entry| match entry {
+            SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => nested_block_in_expr(expr, offset),
+        }),
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::String { .. }

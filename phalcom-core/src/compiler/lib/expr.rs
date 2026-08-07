@@ -2,7 +2,10 @@ use crate::bytecode::Bytecode;
 use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
-use phalcom_ast::ast::{BinaryOp, BlockExpr, Expr, MethodRefKind, ProductLabel, RecordLiteralField, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp};
+use phalcom_ast::ast::{
+    BinaryOp, BlockExpr, Expr, MapLiteralEntry, MapLiteralKey, MethodRefKind, ProductLabel, RecordLiteralField, SetLiteralEntry, Statement, SymbolLiteralKind,
+    TupleLiteralEntry, UnaryOp,
+};
 use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
@@ -293,6 +296,56 @@ impl<'vm> Compiler<'vm> {
                     self.compile_expr(value)?;
                 }
                 self.emit(Bytecode::BuildRecord { fields: fields as u16 }, record_expr.range);
+            }
+            Expr::MapLiteral(map_expr) => {
+                let map_expr = *map_expr;
+                let mut static_symbols = std::collections::HashSet::new();
+                self.emit(Bytecode::BeginMapLiteral, map_expr.range);
+                for entry in map_expr.entries {
+                    match entry {
+                        MapLiteralEntry::Association { key, value, range } => {
+                            match key {
+                                MapLiteralKey::BareSymbol { name, range } => {
+                                    if !static_symbols.insert(name.clone()) {
+                                        return Err(CompilerError::Message(format!("duplicate Map literal key `#{name}`")));
+                                    }
+                                    let symbol = self.vm.interner.intern(&name);
+                                    let idx = self.add_constant(Value::Symbol(symbol));
+                                    self.emit(Bytecode::Constant(idx), range);
+                                }
+                                MapLiteralKey::Computed { expr, .. } => {
+                                    if let Expr::Symbol(symbol_expr) = &expr
+                                        && let SymbolLiteralKind::Name(name) = &symbol_expr.kind
+                                        && !static_symbols.insert(name.clone())
+                                    {
+                                        return Err(CompilerError::Message(format!("duplicate Map literal key `#{name}`")));
+                                    }
+                                    self.compile_expr(expr)?;
+                                }
+                            }
+                            self.compile_expr(value)?;
+                            self.emit(Bytecode::MapLiteralInsertUnique, range);
+                        }
+                        MapLiteralEntry::Expansion { .. } => return Err(CompilerError::Message("Map literal `**` expansion is pending Spec F".to_string())),
+                    }
+                }
+                self.emit(Bytecode::FinishMapLiteral, map_expr.range);
+            }
+            Expr::SetLiteral(set_expr) => {
+                let set_expr = *set_expr;
+                self.emit(Bytecode::BeginSetLiteral, set_expr.range);
+                for entry in set_expr.entries {
+                    match entry {
+                        SetLiteralEntry::Element { expr, range } => {
+                            self.compile_expr(expr)?;
+                            self.emit(Bytecode::SetLiteralAdd, range);
+                        }
+                        SetLiteralEntry::Expansion { .. } => {
+                            return Err(CompilerError::Message("Set literal `*` expansion is pending Spec F".to_string()));
+                        }
+                    }
+                }
+                self.emit(Bytecode::FinishSetLiteral, set_expr.range);
             }
             Expr::Var { value, range } => {
                 if value == "nil" {

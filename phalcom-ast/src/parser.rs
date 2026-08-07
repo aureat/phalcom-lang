@@ -980,12 +980,31 @@ impl<'source> Parser<'source> {
     fn label_name(token: &Token) -> Option<&str> {
         Some(match token {
             Token::Identifier(name) => return Some(name),
-            Token::Let => "let", Token::Const => "const", Token::Fn => "fn", Token::Class => "class",
-            Token::Return => "return", Token::True => "true", Token::False => "false", Token::If => "if",
-            Token::Else => "else", Token::While => "while", Token::For => "for", Token::Break => "break",
-            Token::Continue => "continue", Token::Import => "import", Token::SelfKw => "self", Token::Super => "super",
-            Token::In => "in", Token::As => "as", Token::Is => "is", Token::And => "and", Token::Or => "or",
-            Token::Not => "not", Token::Static => "static", Token::Construct => "construct", Token::Throw => "throw",
+            Token::Let => "let",
+            Token::Const => "const",
+            Token::Fn => "fn",
+            Token::Class => "class",
+            Token::Return => "return",
+            Token::True => "true",
+            Token::False => "false",
+            Token::If => "if",
+            Token::Else => "else",
+            Token::While => "while",
+            Token::For => "for",
+            Token::Break => "break",
+            Token::Continue => "continue",
+            Token::Import => "import",
+            Token::SelfKw => "self",
+            Token::Super => "super",
+            Token::In => "in",
+            Token::As => "as",
+            Token::Is => "is",
+            Token::And => "and",
+            Token::Or => "or",
+            Token::Not => "not",
+            Token::Static => "static",
+            Token::Construct => "construct",
+            Token::Throw => "throw",
             Token::Try => "try",
             _ => return None,
         })
@@ -2654,10 +2673,10 @@ impl<'source> Parser<'source> {
                 let start = self.cur_start();
                 self.advance(); // '{'
 
-                // Spec §6 one-token brace disambiguation: `{ IDENT : … }` is a
-                // map literal; every other `{`-form stays a block and is
-                // handled by the param-scan below (ADR-0032 §3.1).
-                if matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon) {
+                // B.3a keeps the existing block grammar intact. Association
+                // forms are unambiguous; Set and empty-Map classification stay
+                // behind B.3b's brace-grammar decision.
+                if (matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon)) || self.starts_computed_map_literal() {
                     return self.parse_map_literal(start);
                 }
 
@@ -2720,6 +2739,29 @@ impl<'source> Parser<'source> {
             }
             _ => Err(self.error_here(primary_expected())),
         }
+    }
+
+    /// True only for `{ [key]: value }`. `{ [value] }` remains a Block until
+    /// B.3b ratifies its Set-literal spelling.
+    fn starts_computed_map_literal(&self) -> bool {
+        if !matches!(self.peek(), Token::LBracket) {
+            return false;
+        }
+
+        let mut depth = 0usize;
+        for idx in self.pos..self.tokens.len() {
+            match self.tokens[idx].token {
+                Token::LBracket => depth += 1,
+                Token::RBracket => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        return self.tokens.get(idx + 1).is_some_and(|token| matches!(&token.token, Token::Colon));
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Parses a list literal `[e1, …, en]` and desugars it to a `List`
@@ -3081,54 +3123,38 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses a map literal `{ k1: v1, …, kn: vn }` per the spec §6 brace
-    /// disambiguation, where bare-identifier keys are symbols (`{a: 1}` ≡ key
-    /// `#a`), mirroring labeled-argument parsing ([ADR-0032] §3.1).
-    ///
-    /// The disambiguation itself — one token of lookahead, `{ IDENT : }` ⇒ map
-    /// and every other `{`-form ⇒ block — was the hard, shipped part of the
-    /// surface unit (U-COLL). The *runtime* lowering to the native `Map` arm
-    /// (U-COLLTYPES) now resolves each pair to a `Map#at(_, put:)` send —
-    /// see [`Self::map_construction_chain`]. The empty map is spelled
-    /// `Map()`, not `{}` (spec §6: `{}` is the empty block, so there is no
-    /// empty-map literal).
-    ///
-    /// [ADR-0032]: ../../../docs/adr/accepted/0032-collections-representation-and-literals.md
-    ///
-    /// # Errors
-    ///
-    /// Propagates any [`SyntaxError`] from a key or value, or from a missing
-    /// closing `}`.
+    /// Parses B.3a association Map syntax without desugaring through mutation.
     fn parse_map_literal(&mut self, start: usize) -> ParserResult<Expr> {
-        let mut pairs: Vec<(Expr, Expr)> = Vec::new();
+        if self.eat(&Token::RBrace) {
+            return Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
+                entries: Vec::new(),
+                range: (start..self.prev_end).into(),
+            })));
+        }
+        let mut entries = Vec::new();
         loop {
             let key_start = self.cur_start();
-            let key_name = self.expect_identifier(&["map key"])?;
-            let key_range: SourceRange = (key_start..self.prev_end).into();
-            // Bare-identifier key -> a Symbol, built via `Symbol.new("name")`
-            // (ADR-0032 §3.1: `{a: 1}` ≡ key `#a`). There is no `#a` sigil in
-            // the lexer yet (a separate, reserved-inactive surface — see
-            // DEFERRED.md), so the desugar targets the existing interning
-            // constructor directly rather than a literal token.
-            let key = Expr::MethodCall(Box::new(MethodCallExpr {
-                object: Expr::Var {
-                    value: "Symbol".to_string(),
-                    range: key_range,
-                },
-                method: "new".to_string(),
-                args: vec![Argument {
-                    label: None,
-                    expr: Expr::String {
-                        value: key_name,
-                        range: key_range,
-                    },
-                    range: key_range,
-                }],
-                range: key_range,
-            }));
+            let key = if self.eat(&Token::LBracket) {
+                let expr = self.parse_expr()?;
+                self.expect(&Token::RBracket, &["\"]\""])?;
+                MapLiteralKey::Computed {
+                    expr,
+                    range: (key_start..self.prev_end).into(),
+                }
+            } else {
+                let name = self.expect_identifier(&["map key"])?;
+                MapLiteralKey::BareSymbol {
+                    name,
+                    range: (key_start..self.prev_end).into(),
+                }
+            };
             self.expect(&Token::Colon, &["\":\""])?;
             let value = self.parse_expr()?;
-            pairs.push((key, value));
+            entries.push(MapLiteralEntry::Association {
+                key,
+                value,
+                range: (key_start..self.prev_end).into(),
+            });
             if !self.eat(&Token::Comma) {
                 break;
             }
@@ -3138,49 +3164,10 @@ impl<'source> Parser<'source> {
             }
         }
         self.expect(&Token::RBrace, &["\"}\""])?;
-        let range: SourceRange = (start..self.prev_end).into();
-        Ok(Self::map_construction_chain(pairs, range))
-    }
-
-    /// Folds `pairs` into a `Map` construction chain
-    /// `Map.new().at(k1, put: v1)…​.at(kn, put: vn)`, all sharing the
-    /// synthetic `range` — the map-literal analogue of
-    /// [`Self::list_construction_chain`]. Because `Map#at(_, put:)` returns
-    /// `self`, the result is a single expression; `{}`'s empty-map case does
-    /// not exist (spec §6: `{}` is the empty block), so `pairs` is never
-    /// empty at a real call site, but an empty `pairs` still yields the bare
-    /// `Map.new()` receiver for robustness.
-    fn map_construction_chain(pairs: Vec<(Expr, Expr)>, range: SourceRange) -> Expr {
-        let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var {
-                value: "Map".to_string(),
-                range,
-            },
-            method: "new".to_string(),
-            args: Vec::new(),
-            range,
-        }));
-        for (key, value) in pairs {
-            let value_range = value.range();
-            acc = Expr::MethodCall(Box::new(MethodCallExpr {
-                object: acc,
-                method: "at".to_string(),
-                args: vec![
-                    Argument {
-                        label: None,
-                        expr: key,
-                        range: value_range,
-                    },
-                    Argument {
-                        label: Some("put".to_string()),
-                        expr: value,
-                        range: value_range,
-                    },
-                ],
-                range,
-            }));
-        }
-        acc
+        Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
+            entries,
+            range: (start..self.prev_end).into(),
+        })))
     }
 
     /// Parses a comma-separated run of expressions up to (but not consuming)
