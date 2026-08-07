@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "work/pending/collections/A.2-product-runtime-representation.md",
+                "file": "work/analyses/files/a3.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "A.2-product-runtime-representation"
+              "title": "a3"
             }
           }
         ]
@@ -187,8 +187,12 @@
   },
   "active": "e351412831514433",
   "lastOpenFiles": [
-    "work/pending/collections/A.1-product-syntax-and-ast.md",
+    "work/analyses/files/a2.md",
+    "work/analyses/files/a3.md",
+    "work/analyses/files/a1.md",
     "work/pending/collections/A.2-product-runtime-representation.md",
+    "work/analyses/files",
+    "work/pending/collections/A.1-product-syntax-and-ast.md",
     "work/pending/collections/A-README.md",
     "work/pending/send-arity-limit.md",
     "work/pending/collections/F.3-rest-capture-and-dispatch.md",
@@ -210,18 +214,14 @@
     "work/pending/collections/B-README.md",
     "work/pending/collections/B.3-brace-literals-and-atomic-map-construction.md",
     "work/pending/collections/B.2-map-views-entry-record-conversion.md",
-    "work/pending/collections/B.1-map-runtime-contract-migration.md",
-    "work/pending/collections/A.3-product-construction-and-surface.md",
     "work/pending/untitled folder",
     "work/pending/collections",
-    "work/pending/ctor-completion-implementation-spec.md",
     "spec/collections.zip",
     "spec/collections-next.zip",
     "spec/collections-next",
     "spec/untitled folder",
     "spec/impl",
     "spec/numerical",
-    "archive/phalcom-numeric-specification",
-    "archive/numbers"
+    "archive/phalcom-numeric-specification"
   ]
 }
