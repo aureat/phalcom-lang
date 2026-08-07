@@ -1,0 +1,6 @@
+0c7b08b7251f484d21ea9926dbe667f058bc6cb206a9bd1cd5bfde18ccd3b7a2  ./CHANGELOG.md
+952b093be902bbdba645530a710fb849f5f8472672b6830ee18fb21667c35797  ./README.md
+de7bb83702e1d4eaf4a3c01af867171f0cad89783d98379700aaf2bbf61fb061  ./STATUS.md
+34b1533a2ef03a7f2233cdf036e3b2bb9a18d60cba1cf08fb1c70b024b079653  ./docs/spec/design/typing/01-protocol-foundation.md
+63e5aec4f55a3b93aaddd12a5f45e86a04ab2c578b8138c0998d6362a84bfc0f  ./docs/spec/design/typing/02-type-expression-foundation.md
+0668b567e979379a0f46ca65c61d64d28bbbd8b42ee017643d22f49d9675dd40  ./docs/spec/design/typing/03-type-parameters-and-generic-signatures.md

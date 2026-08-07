@@ -4,17 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "dfe5c0fc2f5844c8",
+        "id": "21636d6b2f87362a",
         "type": "tabs",
         "children": [
           {
-            "id": "bc5ad7e9ea8a5022",
+            "id": "125488518349d204",
             "type": "leaf",
             "state": {
-              "type": "empty",
-              "state": {},
+              "type": "markdown",
+              "state": {
+                "file": "drafts.md",
+                "mode": "source",
+                "source": false
+              },
               "icon": "lucide-file",
-              "title": "New tab"
+              "title": "drafts"
             }
           }
         ]
@@ -37,7 +41,9 @@
               "type": "file-explorer",
               "state": {
                 "sortOrder": "alphabetical",
-                "autoReveal": false
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
               },
               "icon": "lucide-folder-closed",
               "title": "Files"
@@ -179,39 +185,43 @@
       "bases:Create new base": false
     }
   },
-  "active": "bc5ad7e9ea8a5022",
+  "active": "125488518349d204",
   "lastOpenFiles": [
-    "spec/phalcom-numeric-specification/text-and-errors.md",
-    "spec/phalcom-numeric-specification/open-decisions.md",
-    "spec/phalcom-numeric-specification/numeric-tower.md",
-    "spec/phalcom-numeric-specification/numeric-literals.md",
-    "spec/phalcom-numeric-specification/float-protocol.md",
-    "spec/phalcom-numeric-specification/migration.md",
-    "spec/phalcom-numeric-specification/implementation.md",
-    "spec/phalcom-numeric-specification/conformance.md",
-    "spec/phalcom-numeric-specification/amendment-map.md",
-    "spec/phalcom-numeric-specification/MANIFEST.md",
-    "spec/phalcom-numeric-specification/bitwise.md",
-    "spec/phalcom-numeric-specification/README.md",
-    "spec/phalcom-numeric-specification/NUMERIC-SPEC-COMBINED.md",
-    "spec/phalcom-numeric-specification",
-    "spec/next/phalcom-numeric-specification/text-and-errors.md",
-    "spec/next/phalcom-numeric-specification/open-decisions.md",
-    "spec/next/phalcom-numeric-specification/numeric-tower.md",
-    "spec/next/phalcom-numeric-specification/numeric-literals.md",
-    "spec/next/phalcom-numeric-specification/migration.md",
-    "spec/next/phalcom-numeric-specification/implementation.md",
-    "spec/next/phalcom-numeric-specification/float-protocol.md",
-    "spec/next/phalcom-numeric-specification/conformance.md",
-    "spec/next/phalcom-numeric-specification/bitwise.md",
-    "spec/next/phalcom-numeric-specification/amendment-map.md",
-    "spec/next/phalcom-numeric-specification/README.md",
-    "spec/next/phalcom-numeric-specification/NUMERIC-SPEC-COMBINED.md",
-    "spec/next/phalcom-numeric-specification/MANIFEST.md",
-    "spec/next/phalcom-numeric-specification",
-    "spec/next/collections",
-    "spec/next/semantics",
-    "spec/next/typing",
-    "spec/next"
+    "spec/numerical/conformance.md",
+    "spec/numerical/README.md",
+    "spec/collections/12-open-questions-and-gap-analysis.md",
+    "spec/collections.zip",
+    "spec/collections-next.zip",
+    "spec/collections-next/ranges-iteration-and-eagerness-spec.md",
+    "spec/collections-next/collections-core-semantics-spec.md",
+    "spec/collections/product-normalization-and-unit-spec.md",
+    "spec/collections-next/tuple-record-and-symbols-spec.md",
+    "spec/collections-next/product-normalization-and-unit-spec.md",
+    "spec/collections-next/collection-literals-and-map-spec.md",
+    "spec/collections-next/argument-packs-and-expansion-spec.md",
+    "spec/collections-next",
+    "spec/untitled folder",
+    "spec/collections/collection-literals-and-map-spec.md",
+    "spec/collections/tuple-record-and-symbols-spec.md",
+    "spec/collections/02-tuples.md",
+    "spec/collections/01-foundations-and-notation.md",
+    "spec/typing/phalcom-tuples-records-sets-maps-spec.md",
+    "spec/collections/argument-packs-and-expansion-spec.md",
+    "drafts.md",
+    "spec/lambda-prompt.md",
+    "spec/impl",
+    "spec/typing/phalcom-type-protocol-record-callable-unit-spec.md",
+    "spec/collections/05-argument-packs.md",
+    "spec/typing/phalcom-collections-argument-packs-combined.md",
+    "spec/typing/Argument-Pack Types.md",
+    "spec/next/phalcom-pattern-matching-spec.md",
+    "spec/next/phalcom-meta-dispatch-and-type-extension-spec.md",
+    "spec/next/Phalcom reflection through protocols, adapters, and contracts.md",
+    "spec/collections/00-index.md",
+    "spec/numerical",
+    "archive/phalcom-numeric-specification",
+    "archive/numbers",
+    "archive",
+    "untitled folder"
   ]
 }
