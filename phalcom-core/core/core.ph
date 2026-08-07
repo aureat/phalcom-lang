@@ -99,6 +99,9 @@ class InvariantError is Error {}
 // resolution).
 class ArgumentError is Error {}
 
+// Raised by strict Map subscript lookup when no equal key is present.
+class KeyError is Error {}
+
 class Number {}
 
 class Int is Number {}
@@ -964,29 +967,41 @@ class Map {
     return s + "}"
   }
 
-  // Total lookup: Some-shaped by convention (raw value on hit, the None
-  // singleton on miss — mirrors List#at's at_ shape, U-CORE-2/ADR-0021).
-  at(k) => self.get_(k)
+  // Safe association lookup: Some(value) on hit, None on absence.
+  get(k) => self.get_(k)
 
-  // Insert/overwrite; returns self so `put` calls chain.
+  // Strict association lookup. Do one lookup so a stored None remains a
+  // value rather than being confused with an absent key.
+  [k] {
+    return self.get(k).match(
+      some: { value => value },
+      none: { KeyError.new("Map key not found").raise() }
+    )
+  }
+
+  // Explicit insert returns the previous value when replacing an association.
+  insert(value, for: key) => self.put_(key, value)
+
+  // Legacy mutation spelling retained only while B.3 still lowers association
+  // literals into chained sends. `get` and `[]` are the lookup surface.
   at(k, put:) {
     self.put_(k, put)
     return self
   }
 
-  // U-INDEX (ADR-0060): `[]` is its own dedicated, user-overridable
-  // selector — a thin delegation to `at`, same shape as `List`'s.
-  // `m[k]` sends `[_]`; `m[k] = v` sends `[_,put]`.
-  [k] { return self.at(k) }
-
-  [k, put:] { return self.at(k, put: put) }
+  // `m[k] = v` shares insert's key identity and encounter-order semantics.
+  [k, put:] => self.put_(k, put)
 
   includes(k) => self.has_(k)
 
-  // Idempotent: removing an absent key is a no-op, still returns self.
-  remove(k) {
-    self.remove_(k)
-    return self
+  // Removes an association and returns its former value when present.
+  remove(k) => self.remove_(k)
+
+  clear {
+    while (self.size > 0) {
+      self.remove_(self.keyAt_(0))
+    }
+    return ()
   }
 
   // A fresh List of keys, in iteration (insertion) order.
@@ -1026,7 +1041,7 @@ class Map {
   iteratorValue(cursor) => self.keyAt_(cursor)
 
   // Structural equality: same key set, pairwise-== values (order-independent
-  // over keys — `includes`/`at` do the membership + value work, not raw
+  // over keys — `includes`/`get` do the membership + value work, not raw
   // index comparison). Guarded by `isA(Map)` so a non-Map is simply unequal.
   ==(other) {
     if (other.isA(Map)) {
@@ -1034,7 +1049,10 @@ class Map {
       let i = 0
       while (same and (i < self.size)) {
         let k = self.keyAt_(i)
-        same = other.includes(k) and (self.valueAt_(i) == other.at(k))
+        same = other.get(k).match(
+          some: { value => self.valueAt_(i) == value },
+          none: { false }
+        )
         i = i + 1
       }
       return same

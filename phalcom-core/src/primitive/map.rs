@@ -21,6 +21,7 @@
 
 use crate::error::{MapMutationError, PhResult, RuntimeError};
 use crate::heap::ObjRef;
+use crate::primitive::nil::wrap_some;
 use crate::primitive::{expect_map, is_mutable_collection_key, mutable_key_error, send_eq, send_hash};
 use crate::value::Value;
 use crate::vm::VM;
@@ -69,7 +70,7 @@ pub fn map_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 /// Propagates any [`crate::error::RuntimeError`] raised by the `hash`/`==` sends
 /// (e.g. a key whose `hash` tries to `Fiber.yield` under this native frame,
 /// which correctly raises `CannotYieldAcrossNativeFrame` — ADR-0030 §4).
-fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)> {
+pub(crate) fn locate_key(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)> {
     vm.heap.map_mut(id).enter_reentrant_send();
     let bucket_result = send_hash(vm, key);
     vm.heap.map_mut(id).exit_reentrant_send();
@@ -106,9 +107,8 @@ fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)>
     Ok((bucket, None))
 }
 
-/// Signature: `Map::get_(_)` — value for `key`, or the `None` singleton if
-/// absent (total, mirroring `list_raw_at`'s `Some`/`None`-free raw shape:
-/// hit returns the raw value, miss returns `vm.none_value()`).
+/// Signature: `Map::get_(_)` — `Some(value)` for a present key, including a
+/// stored surface `None`, or the `None` singleton if absent.
 ///
 /// # Errors
 ///
@@ -116,16 +116,16 @@ fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)>
 /// propagates a `hash`/`==` send failure (see the module-private `locate`).
 pub fn map_raw_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
-    let (_, slot) = locate(vm, id, args[0])?;
+    let (_, slot) = locate_key(vm, id, args[0])?;
     match slot {
-        Some(s) => Ok(vm.heap.map(id).entry_at(s).expect("slot from locate() is live").1),
+        Some(s) => Ok(wrap_some(vm, vm.heap.map(id).entry_at(s).expect("slot from locate() is live").1)),
         None => Ok(vm.none_value()),
     }
 }
 
 /// Signature: `Map::put_(_,_)` — inserts or overwrites the entry for `key`,
-/// returning the receiver (the `.ph` `at(_, put:)` wrapper's chainable
-/// return).
+/// returning `Some(previous_value)` for an existing key and `None` for a new
+/// key.
 ///
 /// Rejects a mutable-collection key (DEC-CT-C, `List`/`Map`/`Set`): its
 /// identity `hash` is inconsistent with structural `==`
@@ -144,22 +144,24 @@ pub fn map_raw_put(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     if is_mutable_collection_key(vm, &key) {
         return Err(mutable_key_error(vm, "Map").into());
     }
-    let (bucket, slot) = locate(vm, id, key)?;
+    let (bucket, slot) = locate_key(vm, id, key)?;
     match slot {
         Some(s) => {
+            let previous = vm.heap.map(id).entry_at(s).expect("slot from locate() is live").1;
             vm.heap
                 .map_mut(id)
                 .set_value_at(s, value)
                 .ok_or_else(|| RuntimeError::Internal("Map slot from locate() was out of range (internal invariant violation)".to_string()))?;
+            Ok(wrap_some(vm, previous))
         }
         None => {
             vm.heap
                 .map_mut(id)
                 .insert_new(bucket, key, value)
                 .map_err(|err| map_mutation_error(err, "Map"))?;
+            Ok(vm.none_value())
         }
     }
-    Ok(*receiver)
 }
 
 /// Signature: `Map::has_(_)` — whether `key` is present.
@@ -170,12 +172,12 @@ pub fn map_raw_put(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 /// propagates a `hash`/`==` send failure.
 pub fn map_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
-    let (_, slot) = locate(vm, id, args[0])?;
+    let (_, slot) = locate_key(vm, id, args[0])?;
     Ok(Value::Bool(slot.is_some()))
 }
 
 /// Signature: `Map::remove_(_)` — deletes the entry for `key` if present;
-/// idempotent (a missing key is a no-op), returning the receiver.
+/// returning `Some(removed_value)` when present and `None` when absent.
 ///
 /// # Errors
 ///
@@ -183,11 +185,13 @@ pub fn map_raw_has(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 /// propagates a `hash`/`==` send failure.
 pub fn map_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_map(vm, receiver)?;
-    let (_, slot) = locate(vm, id, args[0])?;
+    let (_, slot) = locate_key(vm, id, args[0])?;
     if let Some(s) = slot {
-        vm.heap.map_mut(id).remove_at(s).map_err(|err| map_mutation_error(err, "Map"))?;
+        let (_, removed) = vm.heap.map_mut(id).remove_at(s).map_err(|err| map_mutation_error(err, "Map"))?;
+        Ok(wrap_some(vm, removed))
+    } else {
+        Ok(vm.none_value())
     }
-    Ok(*receiver)
 }
 
 /// Extracts a non-negative integer index from `value` (mirrors

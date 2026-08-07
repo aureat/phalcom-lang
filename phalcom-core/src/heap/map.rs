@@ -145,8 +145,9 @@ impl MapObject {
         Ok(())
     }
 
-    /// Removes the entry at `slot` (swap-remove), maintaining the index from
-    /// each entry's own cached bucket — no re-hashing.
+    /// Removes the entry at `slot` while preserving surviving encounter order.
+    /// Every entry shifted left by [`Vec::remove`] has its cached-bucket index
+    /// updated without re-hashing or re-entering the VM.
     ///
     /// # Errors
     ///
@@ -162,8 +163,7 @@ impl MapObject {
         if slot >= self.entries.len() {
             return Err(MapMutationError::OutOfRange);
         }
-        let last = self.entries.len() - 1;
-        let (key, value, bucket) = self.entries.swap_remove(slot);
+        let (key, value, bucket) = self.entries[slot];
 
         if let Some(candidates) = self.index.get_mut(&bucket) {
             candidates.retain(|&s| s != slot);
@@ -172,16 +172,15 @@ impl MapObject {
             }
         }
 
-        // `swap_remove` moved the former last entry into `slot` (unless
-        // `slot` *was* the last entry) — retarget its index row from `last`
-        // to `slot` using its own cached bucket, no rehash needed.
-        if slot != last {
-            let moved_bucket = self.entries[slot].2;
-            if let Some(candidates) = self.index.get_mut(&moved_bucket) {
-                for s in candidates.iter_mut() {
-                    if *s == last {
-                        *s = slot;
-                    }
+        self.entries.remove(slot);
+
+        // `Vec::remove` shifts every later entry left one slot. Each bucket
+        // already records the old slot, so retarget it using the cached bucket.
+        for new_slot in slot..self.entries.len() {
+            let shifted_bucket = self.entries[new_slot].2;
+            if let Some(candidates) = self.index.get_mut(&shifted_bucket) {
+                if let Some(candidate) = candidates.iter_mut().find(|candidate| **candidate == new_slot + 1) {
+                    *candidate = new_slot;
                 }
             }
         }

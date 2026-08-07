@@ -974,6 +974,23 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Returns source text for an identifier or reserved keyword when that
+    /// token occurs in a colon-marked label position. This does not admit a
+    /// keyword as an ordinary variable or expression identifier.
+    fn label_name(token: &Token) -> Option<&str> {
+        Some(match token {
+            Token::Identifier(name) => return Some(name),
+            Token::Let => "let", Token::Const => "const", Token::Fn => "fn", Token::Class => "class",
+            Token::Return => "return", Token::True => "true", Token::False => "false", Token::If => "if",
+            Token::Else => "else", Token::While => "while", Token::For => "for", Token::Break => "break",
+            Token::Continue => "continue", Token::Import => "import", Token::SelfKw => "self", Token::Super => "super",
+            Token::In => "in", Token::As => "as", Token::Is => "is", Token::And => "and", Token::Or => "or",
+            Token::Not => "not", Token::Static => "static", Token::Construct => "construct", Token::Throw => "throw",
+            Token::Try => "try",
+            _ => return None,
+        })
+    }
+
     // ── Class declarations ───────────────────────────────────────────────────
 
     /// Parses an optional run of `@name(args…) class Name { members }`
@@ -1603,8 +1620,21 @@ impl<'source> Parser<'source> {
                 });
             }
             let is_rest = self.eat(&Token::Asterisk);
-            let name = self.expect_identifier(&["identifier"])?;
-            let label = if self.eat(&Token::Colon) { Some(name.clone()) } else { None };
+            let label_token = Self::label_name(self.peek()).map(str::to_owned);
+            let is_labelled = label_token.is_some() && matches!(self.peek_next(), Token::Colon);
+            let (name, label) = if is_labelled {
+                self.advance();
+                self.expect(&Token::Colon, &["\":\""])?;
+                let label = label_token.expect("label token checked above");
+                let name = if matches!(self.peek(), Token::Identifier(_)) {
+                    self.expect_identifier(&["parameter name"])?
+                } else {
+                    label.clone()
+                };
+                (name, Some(label))
+            } else {
+                (self.expect_identifier(&["identifier"])?, None)
+            };
             if is_rest {
                 if label.is_some() {
                     return Err(SyntaxError {
@@ -3252,9 +3282,10 @@ impl<'source> Parser<'source> {
         let mut args = Vec::new();
         loop {
             let start = self.cur_start();
-            let is_labelled = matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon);
+            let is_labelled = Self::label_name(self.peek()).is_some() && matches!(self.peek_next(), Token::Colon);
             let label = if is_labelled {
-                let lbl = self.expect_identifier(&["label"])?;
+                let lbl = Self::label_name(self.peek()).expect("label token checked above").to_string();
+                self.advance();
                 self.expect(&Token::Colon, &["\":\""])?;
                 Some(lbl)
             } else {
