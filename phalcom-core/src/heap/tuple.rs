@@ -12,6 +12,7 @@
 //! later diff cannot accidentally reintroduce mutation the way a missing
 //! selector could.
 
+use crate::interner::Symbol;
 use crate::value::Value;
 
 /// A native, fixed-length immutable slice of [`Value`]s.
@@ -25,24 +26,30 @@ use crate::value::Value;
 pub struct TupleObject {
     /// The tuple's elements, in order — fixed at construction, never resized
     /// or written in place.
-    elements: Box<[Value]>,
+    values: Box<[Value]>,
+    labels: Box<[Symbol]>,
 }
 
 impl TupleObject {
     /// Builds a tuple from an owned, fixed-length element buffer.
-    pub fn new(elements: Box<[Value]>) -> Self {
-        Self { elements }
+    pub(crate) fn new(values: Box<[Value]>, labels: Box<[Symbol]>) -> Self {
+        assert!(!values.is_empty(), "TupleObject must be positive-arity");
+        assert!(labels.len() <= values.len(), "tuple labels must be a values suffix");
+        assert!(labels.iter().enumerate().all(|(i, label)| !labels[..i].contains(label)), "tuple labels must be unique");
+        Self { values, labels }
     }
 
     /// Returns the element count (the tuple's fixed arity).
     pub fn len(&self) -> usize {
-        self.elements.len()
+        self.values.len()
     }
 
-    /// Returns `true` if the tuple is the empty tuple `()`.
-    pub fn is_empty(&self) -> bool {
-        self.elements.is_empty()
-    }
+    pub fn positional_len(&self) -> usize { self.values.len() - self.labels.len() }
+    pub fn labeled_len(&self) -> usize { self.labels.len() }
+    pub fn values(&self) -> &[Value] { &self.values }
+    pub fn positionals(&self) -> &[Value] { &self.values[..self.positional_len()] }
+    pub fn labeled_values(&self) -> &[Value] { &self.values[self.positional_len()..] }
+    pub fn labels(&self) -> &[Symbol] { &self.labels }
 
     /// Returns the element at `index`, or `None` if `index` is out of range.
     ///
@@ -50,11 +57,14 @@ impl TupleObject {
     /// the kernel `None` singleton, never a panic — mirrors
     /// [`crate::heap::ListObject::get`].
     pub fn get(&self, index: usize) -> Option<Value> {
-        self.elements.get(index).copied()
+        self.values.get(index).copied()
     }
 
-    /// Borrows every element, in order.
-    pub fn elements(&self) -> &[Value] {
-        &self.elements
+    pub fn get_label(&self, label: Symbol) -> Option<Value> {
+        self.labels.iter().position(|candidate| *candidate == label).map(|i| self.labeled_values()[i])
+    }
+
+    pub fn labeled_entries(&self) -> impl Iterator<Item = (Symbol, Value)> + '_ {
+        self.labels.iter().copied().zip(self.labeled_values().iter().copied())
     }
 }

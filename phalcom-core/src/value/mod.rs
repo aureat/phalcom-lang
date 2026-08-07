@@ -39,6 +39,8 @@ pub enum Value {
     /// Private uninitialized-slot sentinel. Not surface-visible: it has no class
     /// row and user code can never produce or observe it (Invariant 4).
     Nil,
+    /// The canonical zero-arity product. Unlike `Nil`, this is surface-visible.
+    Unit,
     /// A boolean. One `Bool` class; `True`/`False` are a later dispatch
     /// refinement, not a `Value` arm ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)).
     Bool(bool),
@@ -81,7 +83,7 @@ impl Value {
     pub fn as_obj(&self) -> Option<ObjRef> {
         match self {
             Value::Obj(id) => Some(*id),
-            Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) => None,
+            Value::Nil | Value::Unit | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) => None,
         }
     }
 
@@ -106,6 +108,7 @@ impl Value {
     pub fn type_name(&self) -> &'static str {
         match self {
             Value::Nil => "nil",
+            Value::Unit => "unit",
             Value::Bool(_) => "bool",
             Value::Int(_) => "int",
             Value::Float(_) => "float",
@@ -136,6 +139,7 @@ impl Value {
     pub fn class(&self, vm: &VM) -> ClassId {
         match self {
             Value::Nil => vm.universe.classes.nil_class,
+            Value::Unit => vm.universe.classes.unit_class,
             Value::Bool(b) => {
                 if *b {
                     vm.universe.classes.true_class
@@ -164,6 +168,7 @@ impl Value {
                 Object::Map(_) => vm.universe.classes.map_class,
                 Object::Set(_) => vm.universe.classes.set_class,
                 Object::Tuple(_) => vm.universe.classes.tuple_class,
+                Object::Record(_) => vm.universe.classes.record_class,
                 Object::Range(_) => vm.universe.classes.range_class,
                 // `::` method reference (selectors.md §3, U16-Open) — reached
                 // through `Value::Obj` exactly as `Object::List` is; no
@@ -214,6 +219,7 @@ impl Value {
                 | Object::Map(_)
                 | Object::Set(_)
                 | Object::Tuple(_)
+                | Object::Record(_)
                 | Object::Range(_)
                 | Object::Family(_)
                 | Object::LargeInt(_) => CallContext::Instance { instance: *id },
@@ -221,7 +227,7 @@ impl Value {
                 Object::Module(_) => CallContext::Module { module: *id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),
             },
-            Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) => CallContext::Immediate { value: *self },
+            Value::Nil | Value::Unit | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) => CallContext::Immediate { value: *self },
         }
     }
 
@@ -248,6 +254,7 @@ impl Value {
         use crate::heap::Object;
         match (self, other) {
             (Value::Nil, Value::Nil) => true,
+            (Value::Unit, Value::Unit) => true,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Float(a), Value::Float(b)) => {
@@ -398,6 +405,7 @@ impl Hash for Value {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             Value::Nil => 0u8.hash(state),
+            Value::Unit => 1u8.hash(state),
             Value::Bool(b) => b.hash(state),
             Value::Int(i) => i.hash(state),
             Value::Float(n) => hash_f64(*n, state),

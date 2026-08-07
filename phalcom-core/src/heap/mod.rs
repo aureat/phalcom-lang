@@ -40,6 +40,7 @@ mod map;
 mod module;
 mod object;
 mod range;
+mod record;
 mod string;
 mod trace;
 mod tuple;
@@ -56,6 +57,7 @@ pub use map::MapObject;
 pub use module::{CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleObject, next_module_id};
 pub use object::{BoundMethodObject, FamilyObject, Object};
 pub use range::RangeObject;
+pub use record::RecordObject;
 pub use string::StringObject;
 pub use trace::{trace_frame, trace_object};
 pub use tuple::TupleObject;
@@ -186,10 +188,23 @@ impl Heap {
         }
     }
 
-    /// Allocates an [`Object::Tuple`] from a fixed `elements` slice and
-    /// returns its [`ObjRef`].
-    pub fn alloc_tuple(&mut self, elements: Box<[crate::value::Value]>) -> ObjRef {
-        self.insert(Object::Tuple(TupleObject::new(elements)))
+    /// Allocates a positive-arity [`Object::Tuple`]. Product finalization owns
+    /// zero normalization and duplicate rejection before this boundary.
+    pub(crate) fn alloc_tuple_nonempty(
+        &mut self,
+        values: Box<[crate::value::Value]>,
+        labels: Box<[crate::interner::Symbol]>,
+    ) -> ObjRef {
+        self.insert(Object::Tuple(TupleObject::new(values, labels)))
+    }
+
+    /// Allocates a positive-arity [`Object::Record`].
+    pub(crate) fn alloc_record_nonempty(
+        &mut self,
+        labels: Box<[crate::interner::Symbol]>,
+        values: Box<[crate::value::Value]>,
+    ) -> ObjRef {
+        self.insert(Object::Record(Box::new(RecordObject::new(labels, values))))
     }
 
     /// Allocates an [`Object::Range`] from its three bound fields and returns
@@ -253,6 +268,7 @@ impl Heap {
             Some(Object::Set(_)) => "Set",
             Some(Object::Bytes(_)) => "Bytes",
             Some(Object::Tuple(_)) => "Tuple",
+            Some(Object::Record(_)) => "Record",
             Some(Object::Range(_)) => "Range",
             Some(Object::Family(_)) => "Family",
             Some(Object::LargeInt(_)) => "LargeInt",

@@ -7,6 +7,7 @@ use crate::heap::ListObject;
 use crate::heap::MapObject;
 use crate::heap::ModuleObject;
 use crate::heap::RangeObject;
+use crate::heap::RecordObject;
 use crate::heap::StringObject;
 use crate::heap::TupleObject;
 use crate::heap::Upvalue;
@@ -105,6 +106,8 @@ pub enum Object {
     /// collection-protocol law 4) — the opposite corner of the mutability
     /// axis from [`Object::List`]/[`Object::Map`]/[`Object::Set`].
     Tuple(TupleObject),
+    /// A native immutable labeled product. Boxed to preserve arena slot size.
+    Record(Box<RecordObject>),
     /// A native, lazy numeric interval ([`RangeObject`],
     /// [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).

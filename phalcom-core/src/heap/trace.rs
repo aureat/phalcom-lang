@@ -194,8 +194,13 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
         // the next variant's author is forced to decide (impl/bytes.md §2.3).
         Object::Bytes(_) => {}
         Object::Tuple(tuple) => {
-            for element in tuple.elements() {
+            for element in tuple.values() {
                 trace_value(*element, push);
+            }
+        }
+        Object::Record(record) => {
+            for value in record.values() {
+                trace_value(*value, push);
             }
         }
         Object::Range(range) => {

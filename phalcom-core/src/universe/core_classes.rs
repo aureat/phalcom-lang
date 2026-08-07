@@ -96,6 +96,7 @@ impl Universe {
         heap.class_mut(option_class).is_abstract = true;
         let some_class = make_core_class(heap, "Some", option_class, metaclass_class);
         let none_class = make_core_class(heap, "None", option_class, metaclass_class);
+        let unit_class = make_core_class(heap, "Unit", object_class, metaclass_class);
 
         // The single shared `None`: one heap instance, reused everywhere so
         // `None` is identity-comparable and zero-allocation. The `None` global
@@ -124,6 +125,7 @@ impl Universe {
         // immutable slice — the opposite mutability corner from `List`/`Map`/
         // `Set` (Q5: immutable ⇒ value-hashable, a valid `Map`/`Set` key).
         let tuple_class = make_core_class(heap, "Tuple", iterable_class, metaclass_class);
+        let record_class = make_core_class(heap, "Record", object_class, metaclass_class);
 
         // Kernel `Range` (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a lazy
         // numeric interval, three bound fields, no element storage (RG-2).
@@ -196,12 +198,14 @@ impl Universe {
             option_class,
             some_class,
             none_class,
+            unit_class,
             none_singleton,
             iterable_class,
             list_class,
             map_class,
             set_class,
             tuple_class,
+            record_class,
             range_class,
             bytes_class,
             message_class,
@@ -229,6 +233,8 @@ impl Universe {
             res.map_class,
             res.set_class,
             res.tuple_class,
+            res.record_class,
+            res.unit_class,
             res.range_class,
             res.bytes_class,
             res.fiber_class,
@@ -334,6 +340,8 @@ pub struct CoreClasses {
     /// `None`, the absent-value `Option` subclass. Its sole instance is
     /// [`Self::none_singleton`].
     pub none_class: ClassId,
+    /// `Unit`, the immediate zero-arity product.
+    pub unit_class: ClassId,
     /// The single shared `None` object (an instance of [`Self::none_class`]).
     ///
     /// Reused for every surfaced absence so `None` is identity-comparable and
@@ -367,6 +375,8 @@ pub struct CoreClasses {
     /// [`crate::heap::TupleObject`] — immutable, so it value-hashes and is a
     /// valid `Map`/`Set` key (Q5).
     pub tuple_class: ClassId,
+    /// `Record`, the immutable labeled product representation.
+    pub record_class: ClassId,
     /// `Range`, the native lazy numeric interval
     /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
@@ -463,12 +473,14 @@ impl CoreClasses {
             option_class,
             some_class,
             none_class,
+            unit_class,
             none_singleton,
             iterable_class,
             list_class,
             map_class,
             set_class,
             tuple_class,
+            record_class,
             range_class,
             bytes_class,
             message_class,
@@ -503,12 +515,14 @@ impl CoreClasses {
             option_class,
             some_class,
             none_class,
+            unit_class,
             none_singleton,
             iterable_class,
             list_class,
             map_class,
             set_class,
             tuple_class,
+            record_class,
             range_class,
             bytes_class,
             message_class,

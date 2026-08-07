@@ -1111,15 +1111,20 @@ class Set {
   }
 }
 
+class Unit {
+  toString => "()"
+  hash => 0
+}
+
 // Kernel Tuple (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a native fixed
 // arity immutable slice — Object::Tuple, mirroring List's shape but with NO
 // mutation selector (immutability is structural, TupleObject's Box<[Value]>).
-// This is also the (a, b) literal's construction target (already emitted by
-// U-COLL's parser as `Tuple.fromList(List.new().add(a).add(b))`), so the
-// literal graduates automatically the moment this class exists.
+// Product literals compile directly to native build bytecodes.
 
 class Tuple {
   size => self.size_
+  positionals => self.positionals_
+  labeled => self.labeled_
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Tuple` rendering exactly — `(a, b)`, `()` when empty. Derived over
@@ -1148,8 +1153,13 @@ class Tuple {
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
   ==(other) {
     if (other.isA(Tuple)) {
-      let same = (self.size == other.size)
+      let same = (self.size == other.size) and (self.positionalSize_ == other.positionalSize_)
       let i = 0
+      while (same and (i < self.size - self.positionalSize_)) {
+        same = (self.labelAt_(i) == other.labelAt_(i))
+        i = i + 1
+      }
+      i = 0
       while (same and (i < self.size)) {
         same = (self.at(i) == other.at(i))
         i = i + 1
@@ -1172,10 +1182,52 @@ class Tuple {
   // Bounded by a large prime modulus so the accumulator stays a stable,
   // comparable Number regardless of tuple length.
   hash {
-    let acc = 17
+    let acc = 17 + self.positionalSize_
     let i = 0
     while (i < self.size) {
       acc = (acc * 31 + self.at(i).hash) % 999999937
+      i = i + 1
+    }
+    i = 0
+    while (i < self.size - self.positionalSize_) {
+      acc = (acc * 31 + self.labelAt_(i).hash) % 999999937
+      i = i + 1
+    }
+    return acc
+  }
+}
+
+class Record {
+  size => self.size_
+
+  ==(other) {
+    if (other.isA(Record)) {
+      let same = (self.size == other.size)
+      let i = 0
+      while (same and (i < self.size)) {
+        let label = self.labelAt_(i)
+        let j = 0
+        let found = false
+        while ((not found) and (j < other.size)) {
+          if (other.labelAt_(j) == label) {
+            found = (self.valueAt_(i) == other.valueAt_(j))
+          }
+          j = j + 1
+        }
+        same = found
+        i = i + 1
+      }
+      return same
+    } else {
+      return false
+    }
+  }
+
+  hash {
+    let acc = 101 + self.size
+    let i = 0
+    while (i < self.size) {
+      acc = (acc + ((self.labelAt_(i).hash * 31) + self.valueAt_(i).hash)) % 999999937
       i = i + 1
     }
     return acc
@@ -1410,7 +1462,7 @@ class Bytes {
   // The immutable, value-hashable snapshot — the Map-key escape hatch
   // (PDR-0011 ruling 4; Bytes itself is mutable => identity hash, never a
   // valid Map/Set key).
-  toTuple => Tuple.fromList(self.toList)
+  toTuple => Tuple.__fromList(self.toList)
 
   static fromString(s) {
     if (not s.isA(String)) {

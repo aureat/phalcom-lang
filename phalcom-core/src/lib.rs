@@ -16,6 +16,7 @@ pub mod method;
 #[cfg(feature = "opcode-histogram")]
 pub mod opcode_stats;
 pub mod primitive;
+pub(crate) mod product;
 pub mod resource;
 pub mod universe;
 pub mod value;

@@ -7,6 +7,7 @@ use crate::heap::ListObject;
 use crate::heap::MapObject;
 use crate::heap::ModuleObject;
 use crate::heap::RangeObject;
+use crate::heap::RecordObject;
 use crate::heap::StringObject;
 use crate::heap::TupleObject;
 use crate::heap::Upvalue;
@@ -314,6 +315,23 @@ impl Heap {
     pub fn as_tuple(&self, id: ObjRef) -> Option<&TupleObject> {
         match self.objects.get(id) {
             Some(Object::Tuple(tuple)) => Some(tuple),
+            _ => None,
+        }
+    }
+
+    /// Borrows the immutable [`RecordObject`] behind `id`.
+    pub fn record(&self, id: ObjRef) -> &RecordObject {
+        match self.get(id) {
+            Object::Record(record) => record,
+            _ => panic!("ObjRef {id:?} is not an Object::Record"),
+        }
+    }
+
+    /// Returns the immutable [`RecordObject`] behind `id`, if present.
+    /// There is deliberately no `record_mut`.
+    pub fn as_record(&self, id: ObjRef) -> Option<&RecordObject> {
+        match self.objects.get(id) {
+            Some(Object::Record(record)) => Some(record),
             _ => None,
         }
     }

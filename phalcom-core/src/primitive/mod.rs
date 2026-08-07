@@ -16,6 +16,7 @@ pub mod nil;
 pub mod number;
 pub mod object;
 pub mod range;
+pub mod record;
 pub mod resource;
 pub mod set;
 pub mod string;
@@ -93,6 +94,8 @@ impl ClassName {
     pub const Map: &'static str = "Map";
     pub const Set: &'static str = "Set";
     pub const Tuple: &'static str = "Tuple";
+    pub const Unit: &'static str = "Unit";
+    pub const Record: &'static str = "Record";
     pub const Fiber: &'static str = "Fiber";
     pub const Future: &'static str = "Future";
 }
@@ -323,6 +326,14 @@ pub(crate) fn expect_tuple(vm: &VM, value: &Value) -> PhResult<ObjRef> {
             found: other.type_name(),
         }
         .into()),
+    }
+}
+
+/// Extracts a positive `Record` heap object.
+pub(crate) fn expect_record(vm: &VM, value: &Value) -> PhResult<ObjRef> {
+    match value {
+        Value::Obj(id) if vm.heap.as_record(*id).is_some() => Ok(*id),
+        other => Err(RuntimeError::Type { expected: "Record", found: other.type_name() }.into()),
     }
 }
 

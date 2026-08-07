@@ -41,6 +41,9 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "FinalizeClass",
     "InvokeLocal",
     "InvokeConst",
+    "GuardSymbol",
+    "BuildTuple",
+    "BuildRecord",
 ];
 
 // The set of instructions for our VM. This is the language the compiler "speaks".
@@ -360,12 +363,21 @@ pub enum Bytecode {
     /// Same in-place rewrite, `ip += 2` advance and `ip + 1` cache/span
     /// convention as [`Bytecode::InvokeLocal`].
     InvokeConst(u16, u8, u16),
+
+    /// Requires the top stack value to be a Symbol, without consuming it.
+    GuardSymbol,
+
+    /// Finalizes positional values followed by `(Symbol, value)` pairs.
+    BuildTuple { positional: u16, labeled: u16 },
+
+    /// Finalizes `(Symbol, value)` pairs into a Record.
+    BuildRecord { fields: u16 },
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 37;
+    pub const VARIANTS: usize = 40;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -413,6 +425,9 @@ impl Bytecode {
             Bytecode::FinalizeClass => 34,
             Bytecode::InvokeLocal(..) => 35,
             Bytecode::InvokeConst(..) => 36,
+            Bytecode::GuardSymbol => 37,
+            Bytecode::BuildTuple { .. } => 38,
+            Bytecode::BuildRecord { .. } => 39,
         }
     }
 

@@ -2,7 +2,7 @@ use crate::bytecode::Bytecode;
 use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
-use phalcom_ast::ast::{Argument, BinaryOp, BlockExpr, Expr, MethodCallExpr, MethodRefKind, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp};
+use phalcom_ast::ast::{BinaryOp, BlockExpr, Expr, MethodCallExpr, MethodRefKind, ProductLabel, RecordLiteralField, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp};
 use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
@@ -250,21 +250,39 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::TupleLiteral(tuple_expr) => {
                 let tuple_expr = *tuple_expr;
-                let positional: Vec<Expr> = tuple_expr
-                    .entries
-                    .into_iter()
-                    .map(|entry| match entry {
-                        TupleLiteralEntry::Positional { expr, .. } => Ok(expr),
-                        TupleLiteralEntry::Labeled { .. } => Err(CompilerError::ProductLiteralNotLoweredYet(tuple_expr.range)),
-                    })
-                    .collect::<Result<_, _>>()?;
-                if positional.is_empty() {
-                    return Err(CompilerError::ProductLiteralNotLoweredYet(tuple_expr.range));
+                if tuple_expr.entries.is_empty() {
+                    let idx = self.add_constant(Value::Unit);
+                    self.emit(Bytecode::Constant(idx), tuple_expr.range);
+                    return Ok(());
                 }
-                self.compile_expr(compile_tuple_compat(positional, tuple_expr.range))?;
+                let positional = tuple_expr.entries.iter().filter(|entry| matches!(entry, TupleLiteralEntry::Positional { .. })).count();
+                let labeled = tuple_expr.entries.len() - positional;
+                let mut seen = std::collections::HashSet::new();
+                for entry in tuple_expr.entries {
+                    match entry {
+                        TupleLiteralEntry::Positional { expr, .. } => self.compile_expr(expr)?,
+                        TupleLiteralEntry::Labeled { label, value, range } => {
+                            self.compile_product_label(label, &mut seen, range)?;
+                            self.compile_expr(value)?;
+                        }
+                    }
+                }
+                self.emit(Bytecode::BuildTuple { positional: positional as u16, labeled: labeled as u16 }, tuple_expr.range);
             }
             Expr::RecordLiteral(record_expr) => {
-                return Err(CompilerError::ProductLiteralNotLoweredYet(record_expr.range));
+                let record_expr = *record_expr;
+                if record_expr.fields.is_empty() {
+                    let idx = self.add_constant(Value::Unit);
+                    self.emit(Bytecode::Constant(idx), record_expr.range);
+                    return Ok(());
+                }
+                let mut seen = std::collections::HashSet::new();
+                let fields = record_expr.fields.len();
+                for RecordLiteralField { label, value, range } in record_expr.fields {
+                    self.compile_product_label(label, &mut seen, range)?;
+                    self.compile_expr(value)?;
+                }
+                self.emit(Bytecode::BuildRecord { fields: fields as u16 }, record_expr.range);
             }
             Expr::Var { value, range } => {
                 if value == "nil" {
@@ -480,38 +498,40 @@ impl<'vm> Compiler<'vm> {
     }
 }
 
-fn compile_tuple_compat(elems: Vec<Expr>, range: SourceRange) -> Expr {
-    let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
-        object: Expr::Var {
-            value: "List".to_string(),
-            range,
-        },
-        method: "new".to_string(),
-        args: Vec::new(),
-        range,
-    }));
-    for elem in elems {
-        let elem_range = elem.range();
-        acc = Expr::MethodCall(Box::new(MethodCallExpr {
-            object: acc,
-            method: "add".to_string(),
-            args: vec![Argument {
-                label: None,
-                expr: elem,
-                range: elem_range,
-            }],
-            range,
-        }));
+impl<'vm> Compiler<'vm> {
+    fn compile_product_label(
+        &mut self,
+        label: ProductLabel,
+        seen: &mut std::collections::HashSet<crate::interner::Symbol>,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        match label {
+            ProductLabel::Static { symbol, .. } => {
+                let sym = self.canonical_symbol(symbol, range)?;
+                if !seen.insert(sym) {
+                    return Err(CompilerError::Message(format!("duplicate product label `{}`", self.vm.resolve_symbol(sym))));
+                }
+                let idx = self.add_constant(Value::Symbol(sym));
+                self.emit(Bytecode::Constant(idx), range);
+            }
+            ProductLabel::Computed { expr, range } => {
+                self.compile_expr(*expr)?;
+                self.emit(Bytecode::GuardSymbol, range);
+            }
+        }
+        Ok(())
     }
-    Expr::MethodCall(Box::new(MethodCallExpr {
-        object: Expr::Var {
-            value: "Tuple".to_string(),
-            range,
-        },
-        method: "fromList".to_string(),
-        args: vec![Argument { label: None, expr: acc, range }],
-        range,
-    }))
+
+    fn canonical_symbol(&mut self, kind: SymbolLiteralKind, range: SourceRange) -> Result<crate::interner::Symbol, CompilerError> {
+        let canonical = match kind {
+            SymbolLiteralKind::Name(name) => name,
+            SymbolLiteralKind::Selector { name, labels } => {
+                let arity = checked_send_arity("symbol selector", labels.len(), range)?;
+                encode_selector(&name, &labels, SignatureKind::Method(arity))
+            }
+        };
+        Ok(self.vm.interner.intern(&canonical))
+    }
 }
 
 /// Returns the branch-condition sub-expression of a recognized [`inliner::SacredCall`],

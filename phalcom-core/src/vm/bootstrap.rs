@@ -282,6 +282,7 @@ impl VM {
             self.sealed_classes.insert(option_key, m);
         }
         add_class!(some_class);
+        add_class!(unit_class);
         {
             let some_sym = self.interner.intern(&self.heap.class(self.universe.classes.some_class).name.clone());
             let some_key = crate::vm::ClassKey { module: m, name: some_sym };
@@ -296,6 +297,7 @@ impl VM {
         // `Tuple` (ADR-0039, U-COLLTYPES Phase 2): ordinary class global,
         // native heap arm mirroring `List`.
         add_class!(tuple_class);
+        add_class!(record_class);
         // `Range` (ADR-0039, U-COLLTYPES Phase 3): ordinary class global,
         // native heap arm mirroring `List`.
         add_class!(range_class);
@@ -370,7 +372,7 @@ impl VM {
     /// `Fiber`, …).
     fn finalize_all_core_base_names(&mut self) {
         let c = self.universe.classes;
-        let rows: [ClassId; 30] = [
+        let rows: [ClassId; 32] = [
             c.object_class,
             c.behavior_class,
             c.class_class,
@@ -390,10 +392,12 @@ impl VM {
             c.option_class,
             c.some_class,
             c.none_class,
+            c.unit_class,
             c.list_class,
             c.map_class,
             c.set_class,
             c.tuple_class,
+            c.record_class,
             c.range_class,
             c.message_class,
             c.error_class,

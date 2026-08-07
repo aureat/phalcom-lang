@@ -19,6 +19,7 @@ impl Value {
     pub fn to_string(&self, vm: &VM) -> String {
         match self {
             Value::Nil => "nil".to_string(),
+            Value::Unit => "()".to_string(),
             Value::Bool(b) => bool_literal(*b).to_string(),
             Value::Int(n) => n.to_string(),
             Value::Float(n) => render_float(*n),
@@ -47,13 +48,14 @@ impl Value {
                     format!("Set({})", parts.join(", "))
                 }
                 Object::Tuple(tuple) => {
-                    let parts: Vec<String> = tuple.elements().iter().map(|v| v.to_string(vm)).collect();
+                    let parts: Vec<String> = tuple.values().iter().map(|v| v.to_string(vm)).collect();
                     format!("({})", parts.join(", "))
                 }
                 Object::Range(range) => {
                     let sep = if range.inclusive() { ".." } else { "..." };
                     format!("{}{sep}{}", range.start().to_string(vm), range.end().to_string(vm))
                 }
+                Object::Record(_) => "<record>".to_string(),
                 _ => self.to_debug(vm),
             },
         }
@@ -94,6 +96,7 @@ impl Value {
     pub fn to_debug(&self, vm: &VM) -> String {
         match self {
             Value::Nil => "nil".to_string(),
+            Value::Unit => "()".to_string(),
             Value::Bool(b) => bool_literal(*b).to_string(),
             Value::Int(n) => n.to_string(),
             Value::Float(n) => render_float(*n),
@@ -114,6 +117,7 @@ impl Value {
                 Object::Map(_) => "<map>".to_string(),
                 Object::Set(_) => "<set>".to_string(),
                 Object::Tuple(_) => "<tuple>".to_string(),
+                Object::Record(_) => "<record>".to_string(),
                 Object::Range(_) => "<range>".to_string(),
                 Object::Family(_) => "<family>".to_string(),
                 Object::Upvalue(_) => "<upvalue>".to_string(),
@@ -131,6 +135,7 @@ impl Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Nil => write!(f, "nil"),
+            Self::Unit => write!(f, "()"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Int(i) => write!(f, "{i}"),
             Self::Float(n) => write!(f, "{}", render_float(*n)),
@@ -144,6 +149,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Nil => write!(f, "nil"),
+            Self::Unit => write!(f, "()"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Int(i) => write!(f, "{i}"),
             Self::Float(n) => write!(f, "{}", render_float(*n)),

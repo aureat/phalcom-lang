@@ -5,10 +5,8 @@
 //! native `Tuple`: freeze a `List`'s elements into a fixed slice, length, and
 //! indexed get. These are internal-only (`size_`/`at_`), wrapped by the
 //! `.ph`-defined public protocol (`size`/`at(_)`/`each(_)`/`==`/`hash`) in
-//! `core.ph`, except `fromList(_)`, which is a public static primitive
-//! directly (mirroring `List::new()`) — the construction path until the
-//! `(a, b)` literal's parser lowering (already shipped by U-COLL) resolves
-//! against this class.
+//! `core.ph`. Literal construction uses `BuildTuple`; `__fromList` exists only
+//! as an internal conversion bridge for native-backed library values.
 //!
 //! **No mutation primitive exists** — `Tuple`'s immutability is a
 //! representation guarantee ([`crate::heap::TupleObject`]'s `Box<[Value]>`),
@@ -16,6 +14,7 @@
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::ObjRef;
+use crate::product::finish_tuple;
 use crate::primitive::{expect_list, expect_tuple};
 use crate::value::Value;
 use crate::vm::VM;
@@ -27,7 +26,7 @@ use crate::vm::VM;
 ///
 /// Returns [`RuntimeError::Type`] if `value` is not a non-negative integer
 /// `Number`.
-fn expect_index(value: &Value) -> PhResult<usize> {
+pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
     match value {
         Value::Int(n) => {
             if *n < 0 {
@@ -59,21 +58,15 @@ fn expect_index(value: &Value) -> PhResult<usize> {
     }
 }
 
-/// Signature: `Tuple.class::fromList(_)` — freezes a `List`'s current
-/// elements into a fresh, fixed-length `Tuple`.
-///
-/// The `(a, b)` literal's parser lowering (U-COLL) targets exactly this send
-/// (`Tuple.fromList(List.new().add(a).add(b))`). Copies the source list's
-/// elements rather than aliasing its buffer, so a later mutation of the
-/// source `List` cannot retroactively "mutate" the frozen `Tuple`.
+/// Internal `Tuple.class::__fromList(_)` conversion bridge.
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `args[0]` is not a `List`.
-pub fn tuple_class_from_list(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+pub fn tuple_from_list_internal(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let list_id: ObjRef = expect_list(vm, &args[0])?;
-    let elements: Box<[Value]> = vm.heap.list(list_id).elements().to_vec().into_boxed_slice();
-    Ok(Value::Obj(vm.heap.alloc_tuple(elements)))
+    let elements = vm.heap.list(list_id).elements().to_vec();
+    finish_tuple(vm, elements, Vec::new()).map_err(|error| RuntimeError::Internal(format!("tuple conversion failed: {error:?}")).into())
 }
 
 /// Signature: `Tuple::size_` — the tuple's fixed arity.
@@ -101,4 +94,27 @@ pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
         Some(value) => Ok(value),
         None => Ok(vm.none_value()),
     }
+}
+
+pub fn tuple_raw_positional_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let id = expect_tuple(vm, receiver)?;
+    Ok(Value::Int(vm.heap.tuple(id).positional_len() as i64))
+}
+
+pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let id = expect_tuple(vm, receiver)?;
+    let index = expect_index(&args[0])?;
+    Ok(vm.heap.tuple(id).labels().get(index).copied().map(Value::Symbol).unwrap_or_else(|| vm.none_value()))
+}
+
+pub fn tuple_raw_positionals(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let id = expect_tuple(vm, receiver)?;
+    let values = vm.heap.tuple(id).positionals().to_vec();
+    finish_tuple(vm, values, Vec::new()).map_err(|error| RuntimeError::Internal(format!("tuple projection failed: {error:?}")).into())
+}
+
+pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let id = expect_tuple(vm, receiver)?;
+    let entries = vm.heap.tuple(id).labeled_entries().collect();
+    finish_tuple(vm, Vec::new(), entries).map_err(|error| RuntimeError::Internal(format!("tuple projection failed: {error:?}")).into())
 }

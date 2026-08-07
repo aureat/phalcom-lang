@@ -39,7 +39,8 @@ use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has,
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_raw_write, system_schedule};
-use crate::primitive::tuple::{tuple_class_from_list, tuple_raw_at, tuple_raw_size};
+use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
+use crate::primitive::tuple::{tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size};
 use crate::vm::VM;
 
 use super::Universe;
@@ -389,14 +390,22 @@ impl Universe {
         primitive!(vm, set_cls, "remove_", SignatureKind::Method(1), set_raw_remove);
         primitive!(vm, set_cls, "at_", SignatureKind::Method(1), set_raw_at);
 
-        // Kernel `Tuple` (ADR-0039, U-COLLTYPES Phase 2): 3 native floor
-        // primitives (fromList/size_/at_) — no mutation primitive, since
+        // Kernel `Tuple`: raw immutable lane observations only — no mutation.
         // immutability is structural (TupleObject's Box<[Value]>). `.ph`'s
         // `at(_)`/`size`/`each(_)`/`==`/`!=`/`hash` wrap these in `core.ph`.
         let tuple_cls = vm.universe.classes.tuple_class;
-        primitive_static!(vm, tuple_cls, "fromList", SignatureKind::Method(1), tuple_class_from_list);
+        primitive_static!(vm, tuple_cls, "__fromList", SignatureKind::Method(1), tuple_from_list_internal);
         primitive!(vm, tuple_cls, "size_", SignatureKind::Getter, tuple_raw_size);
         primitive!(vm, tuple_cls, "at_", SignatureKind::Method(1), tuple_raw_at);
+        primitive!(vm, tuple_cls, "positionalSize_", SignatureKind::Getter, tuple_raw_positional_size);
+        primitive!(vm, tuple_cls, "labelAt_", SignatureKind::Method(1), tuple_raw_label_at);
+        primitive!(vm, tuple_cls, "positionals_", SignatureKind::Getter, tuple_raw_positionals);
+        primitive!(vm, tuple_cls, "labeled_", SignatureKind::Getter, tuple_raw_labeled);
+
+        let record_cls = vm.universe.classes.record_class;
+        primitive!(vm, record_cls, "size_", SignatureKind::Getter, record_raw_size);
+        primitive!(vm, record_cls, "labelAt_", SignatureKind::Method(1), record_raw_label_at);
+        primitive!(vm, record_cls, "valueAt_", SignatureKind::Method(1), record_raw_value_at);
 
         // Kernel `Range` (ADR-0039, U-COLLTYPES Phase 3): 4 native floor
         // primitives — the WHOLE floor (three bound-field reads + the

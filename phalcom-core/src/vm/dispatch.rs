@@ -1442,6 +1442,45 @@ impl VM {
                         self.apply_jump_offset(offset);
                     }
                 }
+                Bytecode::GuardSymbol => {
+                    let value = *self.stack.last().ok_or(RuntimeError::Internal("Stack underflow for GuardSymbol".to_string()))?;
+                    if !matches!(value, Value::Symbol(_)) {
+                        return Err(RuntimeError::Type { expected: "Symbol product label", found: value.type_name() }.into());
+                    }
+                }
+                Bytecode::BuildTuple { positional, labeled } => {
+                    let mut entries = Vec::with_capacity(labeled as usize);
+                    for _ in 0..labeled {
+                        let value = self.pop()?;
+                        let label = self.pop()?;
+                        let Value::Symbol(label) = label else {
+                            return Err(RuntimeError::Type { expected: "Symbol tuple label", found: label.type_name() }.into());
+                        };
+                        entries.push((label, value));
+                    }
+                    entries.reverse();
+                    let mut positionals = Vec::with_capacity(positional as usize);
+                    for _ in 0..positional { positionals.push(self.pop()?); }
+                    positionals.reverse();
+                    let product = crate::product::finish_tuple(self, positionals, entries)
+                        .map_err(|error| RuntimeError::Internal(format!("tuple construction failed: {error:?}")))?;
+                    self.stack.push(product);
+                }
+                Bytecode::BuildRecord { fields } => {
+                    let mut entries = Vec::with_capacity(fields as usize);
+                    for _ in 0..fields {
+                        let value = self.pop()?;
+                        let label = self.pop()?;
+                        let Value::Symbol(label) = label else {
+                            return Err(RuntimeError::Type { expected: "Symbol record label", found: label.type_name() }.into());
+                        };
+                        entries.push((label, value));
+                    }
+                    entries.reverse();
+                    let product = crate::product::finish_record(self, entries)
+                        .map_err(|error| RuntimeError::Internal(format!("record construction failed: {error:?}")))?;
+                    self.stack.push(product);
+                }
             }
             #[cfg(feature = "vm-trace")]
             debug!("Stack after opcode {:?}: {:?}", opcode, self.stack);
