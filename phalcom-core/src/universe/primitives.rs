@@ -35,12 +35,14 @@ use crate::primitive::object::{
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
 use crate::primitive::range::{range_class_new, range_raw_end, range_raw_inclusive, range_raw_start};
+use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_raw_write, system_schedule};
-use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
-use crate::primitive::tuple::{tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size};
+use crate::primitive::tuple::{
+    tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size,
+};
 use crate::vm::VM;
 
 use super::Universe;

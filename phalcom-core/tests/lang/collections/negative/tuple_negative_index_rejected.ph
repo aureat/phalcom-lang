@@ -6,5 +6,5 @@
 // index shape at all — `at(_)` raises a Type error rather than silently
 // wrapping/clamping (mirrors List/Map's identical `expect_index` guard).
 
-const t = Tuple.fromList(List.new().add(1).add(2))
+const t = Tuple.__fromList(List.new().add(1).add(2))
 t.at(-1)

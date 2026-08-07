@@ -28,6 +28,9 @@ struct ContractSpec {
     /// structural `==` this unit adds (as-built.md §2.4), so the H2
     /// consistency assertion is skipped for it.
     hashable: bool,
+    /// Lowest arity that remains an instance of this collection family.
+    /// Tuple's zero-arity product normalizes to Unit.
+    min_arity: usize,
 }
 
 /// Sends a nullary selector to `receiver` and returns the result value.
@@ -84,8 +87,8 @@ fn build_list(vm: &mut VM, elems: &[Value]) -> Value {
 /// Panics (via the `send0`/`send1`/`assert*` helpers) on the first law that
 /// fails — this is a test harness, not a `Result`-returning API.
 fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mut VM, &[Value]) -> Value) {
-    // L1/L2: size is a Number, >= 0, and == the element count, for n = 0..3.
-    for n in 0..=3 {
+    // L1/L2: size is a Number, >= 0, and == the element count.
+    for n in spec.min_arity..=3 {
         let elems: Vec<Value> = (0..n).map(|i| Value::Int(i as i64)).collect();
         let collection = build(vm, &elems);
         let size = as_number(send0(vm, collection, "size"));
@@ -191,6 +194,7 @@ fn list_satisfies_sequence_contract() {
         class_name: "List",
         mutable: true,
         hashable: false,
+        min_arity: 0,
     };
     assert_sequence_contract(&mut vm, &spec, build_list);
 }
@@ -223,6 +227,7 @@ fn map_satisfies_sequence_contract() {
         class_name: "Map",
         mutable: false,
         hashable: false,
+        min_arity: 0,
     };
     assert_sequence_contract(&mut vm, &spec, build_map);
 }
@@ -249,6 +254,7 @@ fn set_satisfies_sequence_contract() {
         class_name: "Set",
         mutable: true,
         hashable: false,
+        min_arity: 0,
     };
     assert_sequence_contract(&mut vm, &spec, build_set);
 }
@@ -312,12 +318,12 @@ fn set_add_and_remove_idempotence() {
 }
 
 /// Builds a `Tuple` from element values via the surface freeze path
-/// (`List.new()` + `.add(_)`, then `Tuple.fromList(_)`) — the exact path the
+/// (`List.new()` + `.add(_)`, then `Tuple.__fromList(_)`) — the exact path the
 /// `(a, b)` literal's parser lowering (U-COLL) takes.
 fn build_tuple(vm: &mut VM, elems: &[Value]) -> Value {
     let list = build_list(vm, elems);
     let tuple_class = Value::Obj(vm.universe.classes.tuple_class);
-    send1(vm, tuple_class, "fromList(_)", list)
+    send1(vm, tuple_class, "__fromList(_)", list)
 }
 
 /// `Tuple` satisfies the sequence-protocol contract (as-built.md §3.3(a)):
@@ -331,8 +337,15 @@ fn tuple_satisfies_sequence_contract() {
         class_name: "Tuple",
         mutable: false,
         hashable: true,
+        min_arity: 1,
     };
     assert_sequence_contract(&mut vm, &spec, build_tuple);
+}
+
+#[test]
+fn empty_tuple_construction_normalizes_to_unit() {
+    let mut vm = VM::new();
+    assert_eq!(build_tuple(&mut vm, &[]), Value::Unit);
 }
 
 /// `Tuple` extras (tuple-and-range.md §5): value-hash equality holds across

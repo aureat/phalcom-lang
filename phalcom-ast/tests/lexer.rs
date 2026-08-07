@@ -215,12 +215,12 @@ fn pdr0026_radix_and_float_literals() {
 }
 
 #[test]
-fn pdr0026_power_and_int_div_tokens() {
+fn double_asterisk_and_int_div_tokens() {
     assert_eq!(
         tokens("2 ** 3 ~/ 4"),
         vec![
             Token::Int { digits: "2".into(), radix: 10 },
-            Token::Power,
+            Token::DoubleAsterisk,
             Token::Int { digits: "3".into(), radix: 10 },
             Token::SlashTilde,
             Token::Int { digits: "4".into(), radix: 10 },

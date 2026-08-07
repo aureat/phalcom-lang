@@ -35,7 +35,10 @@ impl TupleObject {
     pub(crate) fn new(values: Box<[Value]>, labels: Box<[Symbol]>) -> Self {
         assert!(!values.is_empty(), "TupleObject must be positive-arity");
         assert!(labels.len() <= values.len(), "tuple labels must be a values suffix");
-        assert!(labels.iter().enumerate().all(|(i, label)| !labels[..i].contains(label)), "tuple labels must be unique");
+        assert!(
+            labels.iter().enumerate().all(|(i, label)| !labels[..i].contains(label)),
+            "tuple labels must be unique"
+        );
         Self { values, labels }
     }
 
@@ -44,12 +47,24 @@ impl TupleObject {
         self.values.len()
     }
 
-    pub fn positional_len(&self) -> usize { self.values.len() - self.labels.len() }
-    pub fn labeled_len(&self) -> usize { self.labels.len() }
-    pub fn values(&self) -> &[Value] { &self.values }
-    pub fn positionals(&self) -> &[Value] { &self.values[..self.positional_len()] }
-    pub fn labeled_values(&self) -> &[Value] { &self.values[self.positional_len()..] }
-    pub fn labels(&self) -> &[Symbol] { &self.labels }
+    pub fn positional_len(&self) -> usize {
+        self.values.len() - self.labels.len()
+    }
+    pub fn labeled_len(&self) -> usize {
+        self.labels.len()
+    }
+    pub fn values(&self) -> &[Value] {
+        &self.values
+    }
+    pub fn positionals(&self) -> &[Value] {
+        &self.values[..self.positional_len()]
+    }
+    pub fn labeled_values(&self) -> &[Value] {
+        &self.values[self.positional_len()..]
+    }
+    pub fn labels(&self) -> &[Symbol] {
+        &self.labels
+    }
 
     /// Returns the element at `index`, or `None` if `index` is out of range.
     ///

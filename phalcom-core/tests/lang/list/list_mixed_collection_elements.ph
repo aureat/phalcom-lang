@@ -6,7 +6,7 @@
 // leaves neighboring elements/kinds untouched.
 
 const l = List.new()
-l.add(Tuple.fromList(List.new().add(1).add(2)))
+l.add(Tuple.__fromList(List.new().add(1).add(2)))
 l.add(Map.new().at("k", put: 1))
 l.add(Set.new().add(1).add(2))
 System.print(l.size)
@@ -15,7 +15,7 @@ System.print(l.at(1))
 System.print(l.at(2).size)
 System.print(l.at(2).includes(1))
 
-l.at(0, put: Tuple.fromList(List.new()))
-System.print(l.at(0).size)
+l.at(0, put: ())
+System.print(l.at(0) == ())
 System.print(l.at(1))
 System.print(l.at(2).size)

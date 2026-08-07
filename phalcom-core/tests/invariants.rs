@@ -45,7 +45,7 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 30] {
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 32] {
     let c = &vm.universe.classes;
     [
         ("Object", c.object_class),
@@ -67,12 +67,14 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 30] {
         ("Option", c.option_class),
         ("Some", c.some_class),
         ("None", c.none_class),
+        ("Unit", c.unit_class),
         ("List", c.list_class),
         // U-COLLTYPES Phase 1 (ADR-0039): Map/Set join the audited census.
         ("Map", c.map_class),
         ("Set", c.set_class),
         // U-COLLTYPES Phase 2 (ADR-0039): Tuple joins the audited census.
         ("Tuple", c.tuple_class),
+        ("Record", c.record_class),
         // U-COLLTYPES Phase 3 (ADR-0039): Range joins the audited census.
         ("Range", c.range_class),
         // U-BYTES (PDR-0011): Bytes joins the audited census at birth — the
@@ -709,6 +711,9 @@ fn floor_census_matches_installed_bindings() {
     // PDR-0013 ruling 4 (ships with U-BYTES, censused to its own record):
     // `utf8Lossy_` (147 -> 148) — total lossy decode for `Path#toString`;
     // display-only, never round-tripped into data.
+    // Spec A product foundations replace the public Tuple.fromList(_) floor
+    // entry with internal __fromList(_), add four lane observers, and admit
+    // three immutable Record observers: +7 (151 -> 158).
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -869,9 +874,17 @@ fn floor_census_matches_installed_bindings() {
         (c.set_class, false, "remove_(_)"),
         (c.set_class, false, "at_(_)"),
         // Tuple (U-COLLTYPES Phase 2, ADR-0039) — NEW_TUPLE
-        (c.tuple_class, true, "fromList(_)"),
+        (c.tuple_class, true, "__fromList(_)"),
         (c.tuple_class, false, "size_"),
         (c.tuple_class, false, "at_(_)"),
+        (c.tuple_class, false, "positionalSize_"),
+        (c.tuple_class, false, "labelAt_(_)"),
+        (c.tuple_class, false, "positionals_"),
+        (c.tuple_class, false, "labeled_"),
+        // Record (Spec A product foundations) — NEW_RECORD
+        (c.record_class, false, "size_"),
+        (c.record_class, false, "labelAt_(_)"),
+        (c.record_class, false, "valueAt_(_)"),
         // Range (U-COLLTYPES Phase 3, ADR-0039) — NEW_RANGE
         (c.range_class, true, "new(_,_,_)"),
         (c.range_class, false, "start_"),
@@ -956,10 +969,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        151,
-        "census must enumerate exactly 151 bindings (150 baseline minus 1 duplicate allocator deleted in U-CTOR-4, plus numeric floor division and power)"
+        158,
+        "census must enumerate exactly 158 bindings after the Spec A Tuple lane and Record floor amendment"
     );
-    assert_eq!(live.len(), 151, "the live floor must be exactly 151 bindings");
+    assert_eq!(live.len(), 158, "the live floor must be exactly 158 bindings");
 }
 
 #[test]

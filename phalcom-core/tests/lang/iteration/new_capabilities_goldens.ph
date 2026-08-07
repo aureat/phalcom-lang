@@ -25,7 +25,7 @@ System.print(s_map.at(0)) // 100
 System.print(s_map.at(1)) // 200
 
 // Tuple capabilities
-const t = Tuple.fromList(List.new().add("hello").add("world"))
+const t = Tuple.__fromList(List.new().add("hello").add("world"))
 System.print(t.isEmpty) // false
 System.print(t.includes("hello")) // true
 System.print(t.includes("world")) // true

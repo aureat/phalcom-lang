@@ -14,8 +14,8 @@
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::ObjRef;
-use crate::product::finish_tuple;
 use crate::primitive::{expect_list, expect_tuple};
+use crate::product::finish_tuple;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -104,7 +104,14 @@ pub fn tuple_raw_positional_size(vm: &mut VM, receiver: &Value, _args: &[Value])
 pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
     let index = expect_index(&args[0])?;
-    Ok(vm.heap.tuple(id).labels().get(index).copied().map(Value::Symbol).unwrap_or_else(|| vm.none_value()))
+    Ok(vm
+        .heap
+        .tuple(id)
+        .labels()
+        .get(index)
+        .copied()
+        .map(Value::Symbol)
+        .unwrap_or_else(|| vm.none_value()))
 }
 
 pub fn tuple_raw_positionals(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {

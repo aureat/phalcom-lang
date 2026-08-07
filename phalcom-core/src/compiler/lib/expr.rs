@@ -2,7 +2,7 @@ use crate::bytecode::Bytecode;
 use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
-use phalcom_ast::ast::{BinaryOp, BlockExpr, Expr, MethodCallExpr, MethodRefKind, ProductLabel, RecordLiteralField, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp};
+use phalcom_ast::ast::{BinaryOp, BlockExpr, Expr, MethodRefKind, ProductLabel, RecordLiteralField, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp};
 use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
@@ -255,7 +255,11 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::Constant(idx), tuple_expr.range);
                     return Ok(());
                 }
-                let positional = tuple_expr.entries.iter().filter(|entry| matches!(entry, TupleLiteralEntry::Positional { .. })).count();
+                let positional = tuple_expr
+                    .entries
+                    .iter()
+                    .filter(|entry| matches!(entry, TupleLiteralEntry::Positional { .. }))
+                    .count();
                 let labeled = tuple_expr.entries.len() - positional;
                 let mut seen = std::collections::HashSet::new();
                 for entry in tuple_expr.entries {
@@ -267,7 +271,13 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
                 }
-                self.emit(Bytecode::BuildTuple { positional: positional as u16, labeled: labeled as u16 }, tuple_expr.range);
+                self.emit(
+                    Bytecode::BuildTuple {
+                        positional: positional as u16,
+                        labeled: labeled as u16,
+                    },
+                    tuple_expr.range,
+                );
             }
             Expr::RecordLiteral(record_expr) => {
                 let record_expr = *record_expr;

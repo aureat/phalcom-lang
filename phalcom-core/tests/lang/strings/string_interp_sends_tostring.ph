@@ -39,7 +39,7 @@ System.print("\(Secret)")
 // Map / Set / Tuple / Range derived in core.ph.
 const m = Map.new()
 m.at("a", put: 1)
-System.print("\(1) \("s") \(true) \([1, 2]) \(m) \(Tuple.fromList([1, 2])) \(Range.new(1, 5, true))")
+System.print("\(1) \("s") \(true) \([1, 2]) \(m) \(Tuple.__fromList([1, 2])) \(Range.new(1, 5, true))")
 
 // Nested: the payload renders via its own toString, not to_debug — because
 // `Option#toString` and the new `Map#toString` are BOTH derived in core.ph, so

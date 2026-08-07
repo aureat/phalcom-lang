@@ -333,7 +333,11 @@ pub(crate) fn expect_tuple(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 pub(crate) fn expect_record(vm: &VM, value: &Value) -> PhResult<ObjRef> {
     match value {
         Value::Obj(id) if vm.heap.as_record(*id).is_some() => Ok(*id),
-        other => Err(RuntimeError::Type { expected: "Record", found: other.type_name() }.into()),
+        other => Err(RuntimeError::Type {
+            expected: "Record",
+            found: other.type_name(),
+        }
+        .into()),
     }
 }
 

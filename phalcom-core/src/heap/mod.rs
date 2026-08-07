@@ -190,20 +190,12 @@ impl Heap {
 
     /// Allocates a positive-arity [`Object::Tuple`]. Product finalization owns
     /// zero normalization and duplicate rejection before this boundary.
-    pub(crate) fn alloc_tuple_nonempty(
-        &mut self,
-        values: Box<[crate::value::Value]>,
-        labels: Box<[crate::interner::Symbol]>,
-    ) -> ObjRef {
+    pub(crate) fn alloc_tuple_nonempty(&mut self, values: Box<[crate::value::Value]>, labels: Box<[crate::interner::Symbol]>) -> ObjRef {
         self.insert(Object::Tuple(TupleObject::new(values, labels)))
     }
 
     /// Allocates a positive-arity [`Object::Record`].
-    pub(crate) fn alloc_record_nonempty(
-        &mut self,
-        labels: Box<[crate::interner::Symbol]>,
-        values: Box<[crate::value::Value]>,
-    ) -> ObjRef {
+    pub(crate) fn alloc_record_nonempty(&mut self, labels: Box<[crate::interner::Symbol]>, values: Box<[crate::value::Value]>) -> ObjRef {
         self.insert(Object::Record(Box::new(RecordObject::new(labels, values))))
     }
 

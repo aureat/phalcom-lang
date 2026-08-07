@@ -19,7 +19,7 @@ s.add(1)
 s.add(2)
 System.print(s)
 
-const t = Tuple.fromList(List.new().add(3).add(4))
+const t = Tuple.__fromList(List.new().add(3).add(4))
 System.print(t)
 
 const r = Range.new(1, 3, true)

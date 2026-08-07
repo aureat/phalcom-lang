@@ -6,11 +6,11 @@
 // key through put/at/includes/remove.
 
 const m = Map.new()
-const k1 = Tuple.fromList(List.new().add(1).add(2))
+const k1 = Tuple.__fromList(List.new().add(1).add(2))
 m.at(k1, put: "pair")
 System.print(m.size)
 System.print(m.includes(k1))
-const k2 = Tuple.fromList(List.new().add(1).add(2))
+const k2 = Tuple.__fromList(List.new().add(1).add(2))
 System.print(m.includes(k2))
 System.print(m.at(k2))
 m.remove(k2)
