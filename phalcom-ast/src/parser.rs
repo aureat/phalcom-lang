@@ -2676,7 +2676,10 @@ impl<'source> Parser<'source> {
                 // B.3a keeps the existing block grammar intact. Association
                 // forms are unambiguous; Set and empty-Map classification stay
                 // behind B.3b's brace-grammar decision.
-                if (matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon)) || self.starts_computed_map_literal() {
+                if (matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon))
+                    || self.starts_computed_map_literal()
+                    || matches!(self.peek(), Token::DoubleAsterisk)
+                {
                     return self.parse_map_literal(start);
                 }
 
@@ -3124,6 +3127,9 @@ impl<'source> Parser<'source> {
     }
 
     /// Parses B.3a association Map syntax without desugaring through mutation.
+    ///
+    /// `**mapping` is represented structurally as an [`MapLiteralEntry::Expansion`]
+    /// so Spec F can lower it later. This parser does not make expansion executable.
     fn parse_map_literal(&mut self, start: usize) -> ParserResult<Expr> {
         if self.eat(&Token::RBrace) {
             return Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
@@ -3134,6 +3140,20 @@ impl<'source> Parser<'source> {
         let mut entries = Vec::new();
         loop {
             let key_start = self.cur_start();
+            if self.eat(&Token::DoubleAsterisk) {
+                let expr = self.parse_expr()?;
+                entries.push(MapLiteralEntry::Expansion {
+                    expr,
+                    range: (key_start..self.prev_end).into(),
+                });
+                if !self.eat(&Token::Comma) {
+                    break;
+                }
+                if matches!(self.peek(), Token::RBrace) {
+                    break;
+                }
+                continue;
+            }
             let key = if self.eat(&Token::LBracket) {
                 let expr = self.parse_expr()?;
                 self.expect(&Token::RBracket, &["\"]\""])?;
@@ -3612,5 +3632,18 @@ mod tests {
         };
         let Expr::Binary(b3) = e3 else { panic!() };
         assert!(matches!(b3.right, Expr::Unary(_)));
+    }
+
+    #[test]
+    fn map_expansion_parses_into_reserved_entry() {
+        let Statement::Expr { expr, .. } = only_statement("{ **mapping, name: value }") else {
+            panic!("expected an expression statement");
+        };
+        let Expr::MapLiteral(map) = expr else {
+            panic!("expected a Map literal, got {expr:?}");
+        };
+        assert_eq!(map.entries.len(), 2);
+        assert!(matches!(map.entries[0], MapLiteralEntry::Expansion { .. }));
+        assert!(matches!(map.entries[1], MapLiteralEntry::Association { .. }));
     }
 }
