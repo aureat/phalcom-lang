@@ -182,6 +182,11 @@ impl<'input> Lexer<'input> {
             b'0'..=b'9' => self.scan_number(),
             b'.' if matches!(self.peek_at(1), Some(b'0'..=b'9')) => self.scan_number(),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => Ok(self.scan_identifier()),
+            b'#' if self.peek_at(1) == Some(b'{') => {
+                self.pos += 2;
+                Ok(Token::RecordLBrace)
+            }
+            b'#' if self.peek_at(1) == Some(b'"') => self.scan_quoted_symbol(),
             b'"' => self.scan_string(),
             b'#' => self.scan_symbol(),
             _ => self.scan_operator(),
@@ -576,6 +581,76 @@ impl<'input> Lexer<'input> {
         }
     }
 
+    /// Scans a quoted symbol literal `#"..."`.
+    fn scan_quoted_symbol(&mut self) -> Result<Token, LexicalError> {
+        let open = self.pos;
+        self.pos += 2;
+        let mut literal = String::new();
+        loop {
+            match self.peek_at(0) {
+                None => return Err(LexicalError::UnterminatedString(open..self.pos)),
+                Some(b'"') => {
+                    self.pos += 1;
+                    return Ok(Token::QuotedSymbol(literal));
+                }
+                Some(b'\n') => {
+                    let start = self.pos;
+                    self.pos += 1;
+                    return Err(LexicalError::RawNewlineInString(start..self.pos));
+                }
+                Some(b'\r') if self.peek_at(1) == Some(b'\n') => {
+                    let start = self.pos;
+                    self.pos += 2;
+                    return Err(LexicalError::RawNewlineInString(start..self.pos));
+                }
+                Some(b'\r') => {
+                    let start = self.pos;
+                    self.pos += 1;
+                    return Err(LexicalError::RawNewlineInString(start..self.pos));
+                }
+                Some(b'\\') => {
+                    let esc_start = self.pos;
+                    match self.peek_at(1) {
+                        Some(b'"') => {
+                            literal.push('"');
+                            self.pos += 2;
+                        }
+                        Some(b'\\') => {
+                            literal.push('\\');
+                            self.pos += 2;
+                        }
+                        Some(b'n') => {
+                            literal.push('\n');
+                            self.pos += 2;
+                        }
+                        Some(b't') => {
+                            literal.push('\t');
+                            self.pos += 2;
+                        }
+                        Some(b'r') => {
+                            literal.push('\r');
+                            self.pos += 2;
+                        }
+                        Some(_) => {
+                            let next_len = self.char_len_at(self.pos + 1);
+                            let end = self.pos + 1 + next_len;
+                            self.pos = end;
+                            return Err(LexicalError::InvalidEscape(esc_start..end));
+                        }
+                        None => {
+                            self.pos += 1;
+                        }
+                    }
+                }
+                Some(_) => {
+                    let len = self.char_len_at(self.pos);
+                    literal.push_str(&self.input[self.pos..self.pos + len]);
+                    self.pos += len;
+                }
+            }
+        }
+    }
+
     /// Returns the UTF-8 byte length of the character starting at byte `at`.
     ///
     /// Used to advance the cursor by whole characters inside a string body so
@@ -618,6 +693,10 @@ impl<'input> Lexer<'input> {
                 self.pos += 1;
                 Ok(operator_selector("-"))
             }
+            Some(b'*') if self.peek_at(1) == Some(b'*') && self.peek_at(2) == Some(b'*') => {
+                self.pos += 3;
+                Ok(operator_selector("***"))
+            }
             Some(b'*') if self.peek_at(1) == Some(b'*') => {
                 self.pos += 2;
                 Ok(operator_selector("**"))
@@ -625,6 +704,10 @@ impl<'input> Lexer<'input> {
             Some(b'*') => {
                 self.pos += 1;
                 Ok(operator_selector("*"))
+            }
+            Some(b'?') => {
+                self.pos += 1;
+                Ok(operator_selector("?"))
             }
             Some(b'~') if self.peek_at(1) == Some(b'/') => {
                 self.pos += 2;
@@ -778,7 +861,8 @@ impl<'input> Lexer<'input> {
             b'-' if next == Some(b'>') => (2, Token::Arrow),
             b'-' => (1, Token::Minus),
             b'*' if next == Some(b'=') => (2, Token::AsteriskEqual),
-            b'*' if next == Some(b'*') => (2, Token::Power),
+            b'*' if next == Some(b'*') && self.peek_at(2) == Some(b'*') => (3, Token::TripleAsterisk),
+            b'*' if next == Some(b'*') => (2, Token::DoubleAsterisk),
             b'*' => (1, Token::Asterisk),
             b'/' if next == Some(b'=') => (2, Token::SlashEqual),
             b'/' => (1, Token::Slash),
@@ -804,6 +888,7 @@ impl<'input> Lexer<'input> {
             b'(' => (1, Token::LParen),
             b')' => (1, Token::RParen),
             b'{' => (1, Token::LBrace),
+            b'#' if next == Some(b'{') => (2, Token::RecordLBrace),
             b'}' => (1, Token::RBrace),
             b'[' => (1, Token::LBracket),
             b']' => (1, Token::RBracket),
@@ -869,6 +954,8 @@ fn suppresses_following_newline(prev: &Token) -> bool {
         Token::Plus
             | Token::Minus
             | Token::Asterisk
+            | Token::DoubleAsterisk
+            | Token::TripleAsterisk
             | Token::Power
             | Token::Slash
             | Token::SlashTilde
@@ -898,6 +985,7 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::Comma
             | Token::LParen
             | Token::LBrace
+            | Token::RecordLBrace
             | Token::LBracket
             | Token::Dot
             | Token::ColonColon

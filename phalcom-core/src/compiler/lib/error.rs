@@ -163,6 +163,15 @@ pub enum CompilerError {
     #[error("`throw` of a non-`Error` literal is a compile error; only `Error` subclasses are throwable.")]
     ThrowNonError(SourceRange),
 
+    /// A product literal whose runtime lowering is still deferred.
+    ///
+    /// A.1 preserves tuple and record syntax in the AST, but only the legacy
+    /// positional tuple compatibility bridge lowers to bytecode here. Any
+    /// empty, labeled, or record product literal reaches this explicit error
+    /// until A.3 installs direct product construction.
+    #[error("product literal lowering is not implemented yet.")]
+    ProductLiteralNotLoweredYet(SourceRange),
+
     /// An `import` statement written anywhere other than a compilation
     /// unit's own top level.
     ///

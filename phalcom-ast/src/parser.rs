@@ -51,6 +51,13 @@ use std::ops::Range;
 /// (DEC-ANNOT-B).
 type ClassBodyParts = (Vec<ClassMember>, Vec<Attribute>, Vec<(Expr, SourceRange)>);
 
+enum ProductLabelStart {
+    Computed,
+    ExplicitSymbol,
+    BareName(String),
+    BareSelector(String),
+}
+
 /// Result of parsing a Phalcom source string with error recovery.
 ///
 /// Carries the [`Program`] built from every statement that parsed successfully,
@@ -1533,7 +1540,8 @@ impl<'source> Parser<'source> {
             Token::Plus => "+".to_string(),
             Token::Minus => "-".to_string(),
             Token::Asterisk => "*".to_string(),
-            Token::Power => "**".to_string(),
+            Token::DoubleAsterisk | Token::Power => "**".to_string(),
+            Token::TripleAsterisk => "***".to_string(),
             Token::Slash => "/".to_string(),
             Token::SlashTilde => "~/".to_string(),
             Token::Percent => "%".to_string(),
@@ -2091,7 +2099,7 @@ impl<'source> Parser<'source> {
     fn parse_power(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         let left = self.parse_call()?;
-        if matches!(self.peek(), Token::Power) {
+        if matches!(self.peek(), Token::DoubleAsterisk | Token::Power) {
             self.advance(); // consume `**`
             let right = self.parse_unary()?;
             let range = (start..self.prev_end).into();
@@ -2564,6 +2572,13 @@ impl<'source> Parser<'source> {
                     range,
                 })))
             }
+            Token::QuotedSymbol(value) => {
+                self.advance();
+                Ok(Expr::Symbol(Box::new(SymbolExpr {
+                    kind: SymbolLiteralKind::Name(value),
+                    range,
+                })))
+            }
             Token::Identifier(value) => {
                 if matches!(self.peek_next(), Token::FatArrow) {
                     let start = self.cur_start();
@@ -2604,6 +2619,7 @@ impl<'source> Parser<'source> {
             }
             Token::LBracket => self.parse_list_literal(),
             Token::LParen => self.parse_paren_or_tuple(),
+            Token::RecordLBrace => self.parse_record_literal(),
             Token::LBrace => {
                 let start = self.cur_start();
                 self.advance(); // '{'
@@ -2708,61 +2724,330 @@ impl<'source> Parser<'source> {
         Ok(Self::list_construction_chain(elems, range))
     }
 
-    /// Parses a parenthesised expression `(e)` or a tuple literal
-    /// `(e1, …, en)` with n ≥ 2 (lexical-structure.md §7; [ADR-0032] §3.2).
-    ///
-    /// A single parenthesised expression stays *grouping* — `(x)` is `x`,
-    /// never a one-tuple — matching prior behaviour and the LALRPOP grammar;
-    /// only a top-level comma promotes the form to a tuple. This is
-    /// unambiguous because unbraced arrows are single-parameter (spec §7), so
-    /// `(` never begins a parameter list and no cover grammar is required.
-    ///
-    /// A tuple desugars to a `Tuple` construction send over an already-built
-    /// `List` (so it depends on no variadic `construct`), reusing the list
-    /// slice's construction chain as its argument. Per [ADR-0032] §1 `Tuple`
-    /// is a native heap arm supplied by the collection-runtime unit
-    /// (U-COLLTYPES); its runtime is therefore deferred, but the surface
-    /// lowering is fixed here:
-    ///
-    /// - `(a, b)` → `Tuple.fromList(List.new().add(a).add(b))`
-    ///
-    /// [ADR-0032]: ../../../docs/adr/accepted/0032-collections-representation-and-literals.md
-    ///
-    /// # Errors
-    ///
-    /// Propagates any [`SyntaxError`] from an element expression, or from a
-    /// missing closing `)`.
+    fn bare_product_label_name(token: &Token) -> Option<&'static str> {
+        Some(match token {
+            Token::Plus => "+",
+            Token::Minus => "-",
+            Token::Asterisk => "*",
+            Token::DoubleAsterisk | Token::Power => "**",
+            Token::TripleAsterisk => "***",
+            Token::Slash => "/",
+            Token::SlashTilde => "~/",
+            Token::Percent => "%",
+            Token::ShiftLeft => "<<",
+            Token::ShiftRight => ">>",
+            Token::Ampersand => "&",
+            Token::Pipe => "|",
+            Token::Caret => "^",
+            Token::Tilde => "~",
+            Token::EqualEqual => "==",
+            Token::BangEqual => "!=",
+            Token::Less => "<",
+            Token::LessEqual => "<=",
+            Token::Greater => ">",
+            Token::GreaterEqual => ">=",
+            Token::And => "and",
+            Token::Or => "or",
+            Token::Is => "is",
+            Token::Question => "?",
+            _ => return None,
+        })
+    }
+
+    fn looks_like_delimited_label(&self, open: &Token, close: &Token) -> bool {
+        if std::mem::discriminant(self.peek()) != std::mem::discriminant(open) {
+            return false;
+        }
+        let mut depth = 0usize;
+        let mut idx = self.pos;
+        while let Some(spanned) = self.tokens.get(idx) {
+            let token = &spanned.token;
+            if std::mem::discriminant(token) == std::mem::discriminant(open) {
+                depth += 1;
+            } else if std::mem::discriminant(token) == std::mem::discriminant(close) {
+                if depth == 0 {
+                    return false;
+                }
+                depth -= 1;
+                if depth == 0 {
+                    return matches!(self.tokens.get(idx + 1).map(|t| &t.token), Some(Token::Colon));
+                }
+            } else if matches!(token, Token::LParen | Token::LBracket | Token::LBrace) {
+                depth += 1;
+            } else if matches!(token, Token::RParen | Token::RBracket | Token::RBrace) {
+                if depth == 0 {
+                    return false;
+                }
+                depth -= 1;
+            }
+            idx += 1;
+        }
+        false
+    }
+
+    fn product_label_start(&self) -> Option<ProductLabelStart> {
+        match self.peek() {
+            Token::LBracket if self.looks_like_delimited_label(&Token::LBracket, &Token::RBracket) => Some(ProductLabelStart::Computed),
+            Token::NameSymbol(_) | Token::SelectorSymbol { .. } | Token::QuotedSymbol(_) if matches!(self.peek_next(), Token::Colon) => {
+                Some(ProductLabelStart::ExplicitSymbol)
+            }
+            Token::Identifier(name) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::BareName(name.clone())),
+            Token::Identifier(name)
+                if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
+            {
+                Some(ProductLabelStart::BareName(format!("{name}?")))
+            }
+            Token::Identifier(name) if matches!(self.peek_next(), Token::LParen) && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) => {
+                Some(ProductLabelStart::BareSelector(name.clone()))
+            }
+            token if Self::bare_product_label_name(token).is_some() && matches!(self.peek_next(), Token::Colon) => {
+                Some(ProductLabelStart::BareName(Self::bare_product_label_name(token).unwrap().to_string()))
+            }
+            token
+                if Self::bare_product_label_name(token).is_some()
+                    && matches!(self.peek_next(), Token::LParen)
+                    && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
+            {
+                Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
+            }
+            _ => None,
+        }
+    }
+
+    fn parse_selector_label_slots(&mut self) -> ParserResult<Vec<Option<String>>> {
+        let mut labels = Vec::new();
+        let mut seen_label = false;
+        loop {
+            if matches!(self.peek(), Token::RParen) {
+                self.advance();
+                break;
+            }
+            let slot = self.expect_identifier(&["label slot"])?;
+            if slot == "_" {
+                if seen_label {
+                    return Err(self.error_here(strs(&["label slot"])));
+                }
+                labels.push(None);
+            } else {
+                seen_label = true;
+                labels.push(Some(slot));
+            }
+
+            match self.peek() {
+                Token::Comma => {
+                    self.advance();
+                }
+                Token::RParen => {
+                    self.advance();
+                    break;
+                }
+                _ => return Err(self.error_here(strs(&["\",\"", "\")\""]))),
+            }
+        }
+        Ok(labels)
+    }
+
+    fn parse_product_label(&mut self) -> ParserResult<Option<ProductLabel>> {
+        let Some(start_kind) = self.product_label_start() else {
+            return Ok(None);
+        };
+        let start = self.cur_start();
+        let label = match start_kind {
+            ProductLabelStart::Computed => {
+                self.advance();
+                let expr = self.parse_expr()?;
+                self.expect(&Token::RBracket, &["]"])?;
+                self.expect(&Token::Colon, &["\":\""])?;
+                ProductLabel::Computed {
+                    expr: Box::new(expr),
+                    range: (start..self.prev_end).into(),
+                }
+            }
+            ProductLabelStart::ExplicitSymbol => {
+                let symbol = match self.peek().clone() {
+                    Token::NameSymbol(name) => {
+                        self.advance();
+                        SymbolLiteralKind::Name(name)
+                    }
+                    Token::SelectorSymbol { name, labels } => {
+                        self.advance();
+                        SymbolLiteralKind::Selector { name, labels }
+                    }
+                    Token::QuotedSymbol(value) => {
+                        self.advance();
+                        SymbolLiteralKind::Name(value)
+                    }
+                    _ => unreachable!("explicit symbol label start must be a symbol token"),
+                };
+                self.expect(&Token::Colon, &["\":\""])?;
+                ProductLabel::Static {
+                    symbol,
+                    syntax: ProductLabelSyntax::ExplicitSymbol,
+                    range: (start..self.prev_end).into(),
+                }
+            }
+            ProductLabelStart::BareName(name) => {
+                self.advance();
+                if matches!(self.peek(), Token::Question) {
+                    self.advance();
+                }
+                self.expect(&Token::Colon, &["\":\""])?;
+                ProductLabel::Static {
+                    symbol: SymbolLiteralKind::Name(name),
+                    syntax: ProductLabelSyntax::Bare,
+                    range: (start..self.prev_end).into(),
+                }
+            }
+            ProductLabelStart::BareSelector(name) => {
+                self.advance();
+                self.expect(&Token::LParen, &["("])?;
+                let labels = self.parse_selector_label_slots()?;
+                self.expect(&Token::Colon, &["\":\""])?;
+                ProductLabel::Static {
+                    symbol: SymbolLiteralKind::Selector { name, labels },
+                    syntax: ProductLabelSyntax::Bare,
+                    range: (start..self.prev_end).into(),
+                }
+            }
+        };
+        Ok(Some(label))
+    }
+
     fn parse_paren_or_tuple(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         self.advance(); // '('
-        let first = self.parse_expr()?;
-        if !matches!(self.peek(), Token::Comma) {
-            // Grouping: behave exactly as the pre-U-COLL `(` arm did.
-            self.expect(&Token::RParen, &["\")\""])?;
-            return Ok(first);
+        if matches!(self.peek(), Token::RParen) {
+            self.advance();
+            return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
+                entries: Vec::new(),
+                range: (start..self.prev_end).into(),
+            })));
         }
-        // Tuple: consume the first comma, then gather any remaining elements.
-        self.advance(); // ','
-        let mut elems = vec![first];
-        // A lone trailing comma `(a,)` still yields a tuple (spec §7).
-        if !matches!(self.peek(), Token::RParen) {
-            elems.extend(self.parse_comma_exprs(&Token::RParen)?);
+
+        let mut entries = Vec::new();
+        let mut seen_label = false;
+
+        if let Some(label) = self.parse_product_label()? {
+            let value = self.parse_expr()?;
+            let label_start = match &label {
+                ProductLabel::Static { range, .. } | ProductLabel::Computed { range, .. } => range.start,
+            };
+            entries.push(TupleLiteralEntry::Labeled {
+                label,
+                value,
+                range: (label_start..self.prev_end).into(),
+            });
+            seen_label = true;
+            if !self.eat(&Token::Comma) {
+                self.expect(&Token::RParen, &[")"])?;
+                return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
+                    entries,
+                    range: (start..self.prev_end).into(),
+                })));
+            }
+            if matches!(self.peek(), Token::RParen) {
+                self.advance();
+                return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
+                    entries,
+                    range: (start..self.prev_end).into(),
+                })));
+            }
+        } else {
+            let expr = self.parse_expr()?;
+            if !self.eat(&Token::Comma) {
+                self.expect(&Token::RParen, &[")"])?;
+                return Ok(expr);
+            }
+            let range = expr.range();
+            entries.push(TupleLiteralEntry::Positional { expr, range });
+            if matches!(self.peek(), Token::RParen) {
+                self.advance();
+                return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
+                    entries,
+                    range: (start..self.prev_end).into(),
+                })));
+            }
         }
-        self.expect(&Token::RParen, &["\")\""])?;
-        let range: SourceRange = (start..self.prev_end).into();
-        let list = Self::list_construction_chain(elems, range);
-        Ok(Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var {
-                value: "Tuple".to_string(),
-                range,
-            },
-            method: "fromList".to_string(),
-            args: vec![Argument {
-                label: None,
-                expr: list,
-                range,
-            }],
-            range,
+
+        loop {
+            if let Some(label) = self.parse_product_label()? {
+                let value = self.parse_expr()?;
+                let label_start = match &label {
+                    ProductLabel::Static { range, .. } | ProductLabel::Computed { range, .. } => range.start,
+                };
+                entries.push(TupleLiteralEntry::Labeled {
+                    label,
+                    value,
+                    range: (label_start..self.prev_end).into(),
+                });
+                seen_label = true;
+            } else {
+                if seen_label {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("positional Tuple entries cannot follow labeled entries".to_string()),
+                        range: self.cur_start()..self.cur_start(),
+                    });
+                }
+                let expr = self.parse_expr()?;
+                let range = expr.range();
+                entries.push(TupleLiteralEntry::Positional { expr, range });
+            }
+
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+            if matches!(self.peek(), Token::RParen) {
+                self.advance();
+                break;
+            }
+        }
+
+        self.expect(&Token::RParen, &[")"])?;
+        Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
+            entries,
+            range: (start..self.prev_end).into(),
+        })))
+    }
+
+    fn parse_record_literal(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // `#{`
+        if matches!(self.peek(), Token::RBrace) {
+            self.advance();
+            return Ok(Expr::RecordLiteral(Box::new(RecordLiteralExpr {
+                fields: Vec::new(),
+                range: (start..self.prev_end).into(),
+            })));
+        }
+
+        let mut fields = Vec::new();
+        loop {
+            let Some(label) = self.parse_product_label()? else {
+                return Err(self.error_here(strs(&["label"])));
+            };
+            let value = self.parse_expr()?;
+            let label_start = match &label {
+                ProductLabel::Static { range, .. } | ProductLabel::Computed { range, .. } => range.start,
+            };
+            fields.push(RecordLiteralField {
+                label,
+                value,
+                range: (label_start..self.prev_end).into(),
+            });
+
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+            if matches!(self.peek(), Token::RBrace) {
+                self.advance();
+                break;
+            }
+        }
+
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        Ok(Expr::RecordLiteral(Box::new(RecordLiteralExpr {
+            fields,
+            range: (start..self.prev_end).into(),
         })))
     }
 
@@ -3003,6 +3288,7 @@ fn binary_op(token: &Token) -> Option<(u8, BinaryOp)> {
         Token::Plus => (5, BinaryOp::Add),
         Token::Minus => (5, BinaryOp::Subtract),
         Token::Asterisk => (6, BinaryOp::Multiply),
+        Token::DoubleAsterisk | Token::Power => (6, BinaryOp::Power),
         Token::Slash => (6, BinaryOp::Divide),
         Token::SlashTilde => (6, BinaryOp::IntegerDivide),
         Token::Percent => (6, BinaryOp::Modulo),

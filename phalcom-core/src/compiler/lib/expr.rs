@@ -2,7 +2,7 @@ use crate::bytecode::Bytecode;
 use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
-use phalcom_ast::ast::{BinaryOp, BlockExpr, Expr, MethodRefKind, Statement, SymbolLiteralKind, UnaryOp};
+use phalcom_ast::ast::{Argument, BinaryOp, BlockExpr, Expr, MethodCallExpr, MethodRefKind, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp};
 use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
@@ -248,6 +248,24 @@ impl<'vm> Compiler<'vm> {
                 let idx = self.add_constant(Value::Symbol(sym));
                 self.emit(Bytecode::Constant(idx), range);
             }
+            Expr::TupleLiteral(tuple_expr) => {
+                let tuple_expr = *tuple_expr;
+                let positional: Vec<Expr> = tuple_expr
+                    .entries
+                    .into_iter()
+                    .map(|entry| match entry {
+                        TupleLiteralEntry::Positional { expr, .. } => Ok(expr),
+                        TupleLiteralEntry::Labeled { .. } => Err(CompilerError::ProductLiteralNotLoweredYet(tuple_expr.range)),
+                    })
+                    .collect::<Result<_, _>>()?;
+                if positional.is_empty() {
+                    return Err(CompilerError::ProductLiteralNotLoweredYet(tuple_expr.range));
+                }
+                self.compile_expr(compile_tuple_compat(positional, tuple_expr.range))?;
+            }
+            Expr::RecordLiteral(record_expr) => {
+                return Err(CompilerError::ProductLiteralNotLoweredYet(record_expr.range));
+            }
             Expr::Var { value, range } => {
                 if value == "nil" {
                     return Err(CompilerError::UndefinedVariable(value.clone()));
@@ -460,6 +478,40 @@ impl<'vm> Compiler<'vm> {
         }
         Ok(())
     }
+}
+
+fn compile_tuple_compat(elems: Vec<Expr>, range: SourceRange) -> Expr {
+    let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
+        object: Expr::Var {
+            value: "List".to_string(),
+            range,
+        },
+        method: "new".to_string(),
+        args: Vec::new(),
+        range,
+    }));
+    for elem in elems {
+        let elem_range = elem.range();
+        acc = Expr::MethodCall(Box::new(MethodCallExpr {
+            object: acc,
+            method: "add".to_string(),
+            args: vec![Argument {
+                label: None,
+                expr: elem,
+                range: elem_range,
+            }],
+            range,
+        }));
+    }
+    Expr::MethodCall(Box::new(MethodCallExpr {
+        object: Expr::Var {
+            value: "Tuple".to_string(),
+            range,
+        },
+        method: "fromList".to_string(),
+        args: vec![Argument { label: None, expr: acc, range }],
+        range,
+    }))
 }
 
 /// Returns the branch-condition sub-expression of a recognized [`inliner::SacredCall`],

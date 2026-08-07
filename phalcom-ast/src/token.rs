@@ -20,7 +20,7 @@ use std::ops::Range;
 /// Produced by [`crate::lexer::Lexer`] and matched by [`crate::parser`]. The
 /// data-carrying variants ([`Token::Identifier`], [`Token::String`],
 /// [`Token::StringInterp`], [`Token::Number`], [`Token::NameSymbol`],
-/// [`Token::SelectorSymbol`]) hold the already-decoded literal value; every
+/// [`Token::SelectorSymbol`], [`Token::QuotedSymbol`]) hold the already-decoded literal value; every
 /// other variant is a fixed keyword, operator, or punctuation mark.
 ///
 /// The [`Debug`] representation is stable and is snapshotted by the lexer tests
@@ -136,6 +136,12 @@ pub enum Token {
         /// placeholder `_`.
         labels: Vec<Option<String>>,
     },
+    /// A double-quoted `#"..."` **quoted symbol**.
+    ///
+    /// Unlike [`Token::String`], quoted symbols never interpolate `\(...)`;
+    /// they only decode ordinary string escapes and preserve any other source
+    /// text verbatim inside the symbol spelling.
+    QuotedSymbol(String),
 
     /// The `(` delimiter.
     LParen,
@@ -143,6 +149,8 @@ pub enum Token {
     RParen,
     /// The `{` delimiter.
     LBrace,
+    /// The `#{` record opener.
+    RecordLBrace,
     /// The `}` delimiter.
     RBrace,
     /// The `[` delimiter.
@@ -232,6 +240,10 @@ pub enum Token {
     Minus,
     /// The `*` multiplication operator.
     Asterisk,
+    /// The `**` double-asterisk operator.
+    DoubleAsterisk,
+    /// The `***` triple-asterisk operator.
+    TripleAsterisk,
     /// The `**` exponentiation operator.
     Power,
     /// The `/` division operator.

@@ -652,6 +652,10 @@ pub enum Expr {
     /// A `#`-prefixed symbol literal (selectors.md §2, U-LEX-HASH). See
     /// [`SymbolExpr`].
     Symbol(Box<SymbolExpr>),
+    /// A tuple literal written with `(` `)` product syntax.
+    TupleLiteral(Box<TupleLiteralExpr>),
+    /// A record literal written with `#{` `}` product syntax.
+    RecordLiteral(Box<RecordLiteralExpr>),
 }
 
 impl Expr {
@@ -682,6 +686,8 @@ impl Expr {
             Expr::Block(e) => e.range,
             Expr::MethodRef(e) => e.range,
             Expr::Symbol(e) => e.range,
+            Expr::TupleLiteral(e) => e.range,
+            Expr::RecordLiteral(e) => e.range,
         }
     }
 }
@@ -868,6 +874,86 @@ pub enum SymbolLiteralKind {
         /// placeholder `_`.
         labels: Vec<Option<String>>,
     },
+}
+
+/// A product-label syntax family for tuple entries and record fields.
+#[derive(Debug, Clone)]
+pub enum ProductLabel {
+    /// A statically-known label symbol.
+    Static {
+        /// The symbol literal shape recorded for the label spelling.
+        symbol: SymbolLiteralKind,
+        /// The syntax family that produced the label.
+        syntax: ProductLabelSyntax,
+        /// The source span covering the label head and trailing `:`.
+        range: SourceRange,
+    },
+    /// A computed label expression written as `[expr]:`.
+    Computed {
+        /// The expression inside the brackets.
+        expr: Box<Expr>,
+        /// The source span covering the full computed label.
+        range: SourceRange,
+    },
+}
+
+/// Describes how a static product label was written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductLabelSyntax {
+    /// A bare label head such as `name:` or `+(other):`.
+    Bare,
+    /// An explicit symbol label such as `#name:` or `#":":`.
+    ExplicitSymbol,
+}
+
+/// A tuple literal written with product syntax.
+#[derive(Debug, Clone)]
+pub struct TupleLiteralExpr {
+    /// The tuple entries in source order.
+    pub entries: Vec<TupleLiteralEntry>,
+    /// The source span covering the full tuple literal.
+    pub range: SourceRange,
+}
+
+/// A tuple entry, either positional or labeled.
+#[derive(Debug, Clone)]
+pub enum TupleLiteralEntry {
+    /// A positional tuple element.
+    Positional {
+        /// The entry expression.
+        expr: Expr,
+        /// The source span of the entry expression.
+        range: SourceRange,
+    },
+    /// A labeled tuple element.
+    Labeled {
+        /// The entry label.
+        label: ProductLabel,
+        /// The entry value.
+        value: Expr,
+        /// The source span covering the labeled entry.
+        range: SourceRange,
+    },
+}
+
+/// A record literal written with `#{...}` product syntax.
+#[derive(Debug, Clone)]
+pub struct RecordLiteralExpr {
+    /// The record fields in source order.
+    pub fields: Vec<RecordLiteralField>,
+    /// The source span covering the full record literal.
+    pub range: SourceRange,
+}
+
+/// A record field entry.
+#[derive(Debug, Clone)]
+pub struct RecordLiteralField {
+    /// The field label.
+    pub label: ProductLabel,
+    /// The field value.
+    pub value: Expr,
+    /// The source span covering the field.
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
