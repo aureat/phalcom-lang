@@ -27,17 +27,22 @@ fn test_number_classes_and_abstract_instantiation() {
     let large_val = normalize_bigint(big, &mut vm.heap);
     assert_eq!(large_val.class(&vm), c.int_class);
 
-    // Instantiation rejection for abstract Number class
-    let new_sym = vm.get_or_intern("new()");
-    let res = vm.send_dynamic(Value::Obj(c.number_class), new_sym, &[]);
-    assert!(res.is_err(), "Number.new() must raise an error");
-    let err = res.unwrap_err();
-    let err_str = err.to_string();
-    assert!(
-        err_str.contains("abstractClass") || err_str.contains("cannot instantiate abstract class"),
-        "error must indicate abstract class: {}",
-        err_str
-    );
+    // Instantiation rejection for abstract Number class at both constructor arities.
+    for (signature, args) in [("new()", &[][..]), ("new(_)", &[Value::Int(1)][..])] {
+        let new_sym = vm.get_or_intern(signature);
+        let res = vm.send_dynamic(Value::Obj(c.number_class), new_sym, args);
+        assert!(res.is_err(), "Number.{signature} must raise an error");
+        let err = res.unwrap_err();
+        let err_str = err.to_string();
+        assert!(
+            err_str.contains("abstractClass") || err_str.contains("cannot instantiate abstract class"),
+            "error must indicate abstract class: {err_str}",
+        );
+    }
+
+    let new_one = vm.get_or_intern("new(_)");
+    assert_eq!(vm.send_dynamic(Value::Obj(c.int_class), new_one, &[Value::Int(1)]).unwrap(), Value::Int(1));
+    assert_eq!(vm.send_dynamic(Value::Obj(c.float_class), new_one, &[Value::Int(1)]).unwrap(), Value::Float(1.0));
 }
 
 #[test]

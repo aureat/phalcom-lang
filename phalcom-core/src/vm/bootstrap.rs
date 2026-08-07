@@ -250,6 +250,8 @@ impl VM {
         add_class!(class_class);
         add_class!(metaclass_class);
         add_class!(number_class);
+        add_class!(int_class);
+        add_class!(float_class);
         add_class!(string_class);
         add_class!(bool_class);
         // The boolean tower (ADR-0004): `True`/`False` are ordinary class
