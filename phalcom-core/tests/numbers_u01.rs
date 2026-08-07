@@ -28,7 +28,7 @@ fn test_number_classes_and_abstract_instantiation() {
     assert_eq!(large_val.class(&vm), c.int_class);
 
     // Instantiation rejection for abstract Number class
-    let new_sym = vm.get_or_intern("new");
+    let new_sym = vm.get_or_intern("new()");
     let res = vm.send_dynamic(Value::Obj(c.number_class), new_sym, &[]);
     assert!(res.is_err(), "Number.new() must raise an error");
     let err = res.unwrap_err();
@@ -84,7 +84,7 @@ fn test_large_int_normalization_and_gc() {
 fn test_negated_i64_min_overflow() {
     let mut vm = VM::new();
     let min_val = Value::Int(i64::MIN);
-    let neg_sym = vm.get_or_intern("negated");
+    let neg_sym = vm.get_or_intern("negated()");
     let neg_res = vm.send_dynamic(min_val, neg_sym, &[]).unwrap();
 
     // -i64::MIN overflows i64 and becomes a LargeInt
