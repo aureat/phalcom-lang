@@ -23,7 +23,7 @@
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
-use phalcom_ast::ast::{ClassMember, Expr, Pattern, Program, Statement};
+use phalcom_ast::ast::{ClassMember, Expr, Pattern, ProductLabel, Program, Statement, TupleLiteralEntry};
 
 use crate::core_table::{CoreTable, MemberKind};
 use crate::documents::Document;
@@ -255,6 +255,14 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
             .or_else(|| si.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset)))
             .or_else(|| nested_block_in_expr(&si.value, offset)),
         Expr::MethodRef(mr) => nested_block_in_expr(&mr.receiver, offset),
+        Expr::TupleLiteral(tuple) => tuple.entries.iter().find_map(|entry| match entry {
+            TupleLiteralEntry::Positional { expr, .. } => nested_block_in_expr(expr, offset),
+            TupleLiteralEntry::Labeled { label, value, .. } => nested_block_in_product_label(label, offset).or_else(|| nested_block_in_expr(value, offset)),
+        }),
+        Expr::RecordLiteral(record) => record
+            .fields
+            .iter()
+            .find_map(|field| nested_block_in_product_label(&field.label, offset).or_else(|| nested_block_in_expr(&field.value, offset))),
         Expr::Int { .. }
         | Expr::Float { .. }
         | Expr::String { .. }
@@ -264,6 +272,13 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. }
         | Expr::Symbol(_) => None,
+    }
+}
+
+fn nested_block_in_product_label(label: &ProductLabel, offset: usize) -> Option<&[Statement]> {
+    match label {
+        ProductLabel::Static { .. } => None,
+        ProductLabel::Computed { expr, .. } => nested_block_in_expr(expr, offset),
     }
 }
 

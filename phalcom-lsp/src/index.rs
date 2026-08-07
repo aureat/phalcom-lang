@@ -11,7 +11,7 @@
 //! name — via `crate::selectors`.
 
 use dashmap::DashMap;
-use phalcom_ast::ast::{Argument, ClassDef, ClassMember, Expr, ForStatement, Pattern, Program, Statement};
+use phalcom_ast::ast::{Argument, ClassDef, ClassMember, Expr, ForStatement, Pattern, ProductLabel, Program, Statement, TupleLiteralEntry};
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
@@ -584,6 +584,29 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
             }
         }
         Expr::MethodRef(mr) => collect_var_occurrences_in_expr(&mr.receiver, names, out),
+        Expr::TupleLiteral(tuple) => {
+            for entry in &tuple.entries {
+                match entry {
+                    TupleLiteralEntry::Positional { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
+                    TupleLiteralEntry::Labeled { label, value, .. } => {
+                        collect_product_label_var_occurrences(label, names, out);
+                        collect_var_occurrences_in_expr(value, names, out);
+                    }
+                }
+            }
+        }
+        Expr::RecordLiteral(record) => {
+            for field in &record.fields {
+                collect_product_label_var_occurrences(&field.label, names, out);
+                collect_var_occurrences_in_expr(&field.value, names, out);
+            }
+        }
+    }
+}
+
+fn collect_product_label_var_occurrences(label: &ProductLabel, names: &std::collections::HashSet<String>, out: &mut Vec<(String, SourceRange)>) {
+    if let ProductLabel::Computed { expr, .. } = label {
+        collect_var_occurrences_in_expr(expr, names, out);
     }
 }
 
@@ -776,6 +799,29 @@ impl Collector {
                     self.references.push((selector, mr.range));
                 }
             }
+            Expr::TupleLiteral(tuple) => {
+                for entry in &tuple.entries {
+                    match entry {
+                        TupleLiteralEntry::Positional { expr, .. } => self.walk_expr(expr),
+                        TupleLiteralEntry::Labeled { label, value, .. } => {
+                            self.walk_product_label(label);
+                            self.walk_expr(value);
+                        }
+                    }
+                }
+            }
+            Expr::RecordLiteral(record) => {
+                for field in &record.fields {
+                    self.walk_product_label(&field.label);
+                    self.walk_expr(&field.value);
+                }
+            }
+        }
+    }
+
+    fn walk_product_label(&mut self, label: &ProductLabel) {
+        if let ProductLabel::Computed { expr, .. } = label {
+            self.walk_expr(expr);
         }
     }
 }

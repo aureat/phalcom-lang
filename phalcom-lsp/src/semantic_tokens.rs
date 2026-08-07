@@ -186,7 +186,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
 
         Token::Int { .. } | Token::Float(_) => Some(Number),
 
-        Token::NameSymbol(_) | Token::SelectorSymbol { .. } => Some(Selector),
+        Token::NameSymbol(_) | Token::SelectorSymbol { .. } | Token::QuotedSymbol(_) => Some(Selector),
 
         Token::Equal
         | Token::EqualEqual
@@ -206,6 +206,8 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Plus
         | Token::Minus
         | Token::Asterisk
+        | Token::DoubleAsterisk
+        | Token::TripleAsterisk
         | Token::Slash
         | Token::Percent
         | Token::Power
@@ -222,6 +224,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         Token::LParen
         | Token::RParen
         | Token::LBrace
+        | Token::RecordLBrace
         | Token::RBrace
         | Token::LBracket
         | Token::RBracket

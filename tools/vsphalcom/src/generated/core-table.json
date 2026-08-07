@@ -1,6 +1,7 @@
 {
   "keywords": [
     "class",
+    "is",
     "super",
     "self",
     "static",
@@ -25,7 +26,7 @@
     "Backoff": [
       {"selector": "exponential(base,max)", "kind": "method", "source": "core.ph"},
       {"selector": "fixed(_)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_,_,_)", "kind": "construct", "source": "core.ph"},
+      {"selector": "new(_,_,_)", "kind": "method", "source": "core.ph"},
       {"selector": "none", "kind": "getter", "source": "core.ph"},
       {"selector": "waitBefore(_)", "kind": "method", "source": "core.ph"}
     ],
@@ -57,9 +58,68 @@
       {"selector": "or(_)", "kind": "method", "source": "native"},
       {"selector": "toString", "kind": "getter", "source": "core.ph"}
     ],
+    "BufferedReader": [
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "read(_)", "kind": "method", "source": "core.ph"}
+    ],
+    "BufferedWriter": [
+      {"selector": "close", "kind": "getter", "source": "core.ph"},
+      {"selector": "finish", "kind": "getter", "source": "core.ph"},
+      {"selector": "flush", "kind": "getter", "source": "core.ph"},
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "pending", "kind": "getter", "source": "core.ph"},
+      {"selector": "write(_)", "kind": "method", "source": "core.ph"}
+    ],
+    "Bytes": [
+      {"selector": "!=(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "==(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "[_,put]", "kind": "method", "source": "core.ph"},
+      {"selector": "[_]", "kind": "method", "source": "core.ph"},
+      {"selector": "at(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "at(_,put)", "kind": "method", "source": "core.ph"},
+      {"selector": "at_(_)", "kind": "method", "source": "native"},
+      {"selector": "concat(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "copyInto(_,_)", "kind": "method", "source": "core.ph"},
+      {"selector": "copyInto_(_,_)", "kind": "method", "source": "native"},
+      {"selector": "equalsConstantTime(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "equalsConstantTime_(_)", "kind": "method", "source": "native"},
+      {"selector": "fill(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "fill_(_)", "kind": "method", "source": "native"},
+      {"selector": "fromList(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "fromString(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "fromString_(_)", "kind": "static-method", "source": "native"},
+      {"selector": "isOctet(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "iteratorValue(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "new(_)", "kind": "static-method", "source": "native"},
+      {"selector": "set(_,_)", "kind": "method", "source": "core.ph"},
+      {"selector": "set_(_,_)", "kind": "method", "source": "native"},
+      {"selector": "size", "kind": "getter", "source": "core.ph"},
+      {"selector": "size_", "kind": "getter", "source": "native"},
+      {"selector": "slice(_,_)", "kind": "method", "source": "core.ph"},
+      {"selector": "slice_(_,_)", "kind": "method", "source": "native"},
+      {"selector": "toList", "kind": "getter", "source": "core.ph"},
+      {"selector": "toString", "kind": "getter", "source": "core.ph"},
+      {"selector": "toTuple", "kind": "getter", "source": "core.ph"},
+      {"selector": "utf8", "kind": "getter", "source": "core.ph"},
+      {"selector": "utf8Lossy", "kind": "getter", "source": "core.ph"},
+      {"selector": "utf8Lossy_", "kind": "getter", "source": "native"},
+      {"selector": "utf8_", "kind": "getter", "source": "native"},
+      {"selector": "zeroize", "kind": "getter", "source": "core.ph"}
+    ],
+    "BytesReader": [
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "read(_)", "kind": "method", "source": "core.ph"}
+    ],
+    "BytesWriter": [
+      {"selector": "flush", "kind": "getter", "source": "core.ph"},
+      {"selector": "new()", "kind": "method", "source": "core.ph"},
+      {"selector": "toBytes", "kind": "getter", "source": "core.ph"},
+      {"selector": "write(_)", "kind": "method", "source": "core.ph"}
+    ],
     "Class": [
       {"selector": "+(_)", "kind": "method", "source": "native"},
-      {"selector": "new()", "kind": "method", "source": "native"}
+      {"selector": "new()", "kind": "method", "source": "core.ph"},
+      {"selector": "new_()", "kind": "method", "source": "native"}
     ],
     "Compile": [
     ],
@@ -67,12 +127,18 @@
     ],
     "Err": [
       {"selector": "match(ok,err)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_)", "kind": "construct", "source": "core.ph"}
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"}
     ],
     "Error": [
+      {"selector": "cause", "kind": "getter", "source": "core.ph"},
+      {"selector": "cause=(_)", "kind": "setter", "source": "core.ph"},
+      {"selector": "displaced", "kind": "getter", "source": "core.ph"},
+      {"selector": "displaced=(_)", "kind": "setter", "source": "core.ph"},
+      {"selector": "kind", "kind": "getter", "source": "core.ph"},
+      {"selector": "kind=(_)", "kind": "setter", "source": "core.ph"},
       {"selector": "message", "kind": "getter", "source": "native"},
-      {"selector": "new()", "kind": "construct", "source": "core.ph"},
-      {"selector": "new(_)", "kind": "construct", "source": "core.ph"},
+      {"selector": "new()", "kind": "method", "source": "core.ph"},
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"},
       {"selector": "raise()", "kind": "method", "source": "native"}
     ],
     "False": [
@@ -87,11 +153,38 @@
       {"selector": "current", "kind": "static-method", "source": "native"},
       {"selector": "error", "kind": "getter", "source": "native"},
       {"selector": "isDone", "kind": "getter", "source": "native"},
+      {"selector": "isRoot", "kind": "getter", "source": "native"},
       {"selector": "new(_)", "kind": "static-method", "source": "native"},
       {"selector": "try()", "kind": "method", "source": "native"},
       {"selector": "try(_)", "kind": "method", "source": "native"},
       {"selector": "yield()", "kind": "static-method", "source": "native"},
       {"selector": "yield(_)", "kind": "static-method", "source": "native"}
+    ],
+    "Float": [
+      {"selector": "abs", "kind": "getter", "source": "core.ph"},
+      {"selector": "abs()", "kind": "method", "source": "native"},
+      {"selector": "ceil", "kind": "getter", "source": "core.ph"},
+      {"selector": "ceil()", "kind": "method", "source": "native"},
+      {"selector": "floor", "kind": "getter", "source": "core.ph"},
+      {"selector": "floor()", "kind": "method", "source": "native"},
+      {"selector": "isFinite", "kind": "getter", "source": "core.ph"},
+      {"selector": "isFinite", "kind": "getter", "source": "native"},
+      {"selector": "isInfinite", "kind": "getter", "source": "core.ph"},
+      {"selector": "isInfinite", "kind": "getter", "source": "native"},
+      {"selector": "isInteger", "kind": "getter", "source": "core.ph"},
+      {"selector": "isInteger", "kind": "getter", "source": "native"},
+      {"selector": "isNaN", "kind": "getter", "source": "core.ph"},
+      {"selector": "isNaN", "kind": "getter", "source": "native"},
+      {"selector": "new()", "kind": "static-method", "source": "native"},
+      {"selector": "new(_)", "kind": "static-method", "source": "native"},
+      {"selector": "rounded", "kind": "getter", "source": "core.ph"},
+      {"selector": "rounded()", "kind": "method", "source": "native"},
+      {"selector": "sign", "kind": "getter", "source": "core.ph"},
+      {"selector": "sign()", "kind": "method", "source": "native"},
+      {"selector": "toIntExact", "kind": "getter", "source": "core.ph"},
+      {"selector": "toIntExact()", "kind": "method", "source": "native"},
+      {"selector": "truncated", "kind": "getter", "source": "core.ph"},
+      {"selector": "truncated()", "kind": "method", "source": "native"}
     ],
     "Function": [
       {"selector": "arity", "kind": "getter", "source": "native"},
@@ -105,17 +198,32 @@
       {"selector": "await", "kind": "getter", "source": "core.ph"},
       {"selector": "catch(_)", "kind": "method", "source": "core.ph"},
       {"selector": "drain()", "kind": "method", "source": "core.ph"},
-      {"selector": "error(_)", "kind": "construct", "source": "core.ph"},
+      {"selector": "error(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "flatten(_)", "kind": "method", "source": "core.ph"},
       {"selector": "isReady", "kind": "getter", "source": "core.ph"},
       {"selector": "map(_)", "kind": "method", "source": "core.ph"},
-      {"selector": "new()", "kind": "construct", "source": "core.ph"},
+      {"selector": "new()", "kind": "method", "source": "core.ph"},
       {"selector": "settleError(_)", "kind": "method", "source": "core.ph"},
       {"selector": "settleValue(_)", "kind": "method", "source": "core.ph"},
       {"selector": "then(_)", "kind": "method", "source": "core.ph"},
       {"selector": "value", "kind": "getter", "source": "core.ph"},
-      {"selector": "value(_)", "kind": "construct", "source": "core.ph"}
+      {"selector": "value(_)", "kind": "method", "source": "core.ph"}
     ],
     "Install": [
+    ],
+    "Int": [
+      {"selector": "&(_)", "kind": "method", "source": "native"},
+      {"selector": "<<(_)", "kind": "method", "source": "native"},
+      {"selector": ">>(_)", "kind": "method", "source": "native"},
+      {"selector": "^(_)", "kind": "method", "source": "native"},
+      {"selector": "bitAt(_)", "kind": "method", "source": "native"},
+      {"selector": "bitCount", "kind": "getter", "source": "native"},
+      {"selector": "bitLength", "kind": "getter", "source": "native"},
+      {"selector": "new()", "kind": "static-method", "source": "native"},
+      {"selector": "new(_)", "kind": "static-method", "source": "native"},
+      {"selector": "trailingZeros", "kind": "getter", "source": "native"},
+      {"selector": "|(_)", "kind": "method", "source": "native"},
+      {"selector": "~()", "kind": "method", "source": "native"}
     ],
     "InvariantError": [
     ],
@@ -185,7 +293,7 @@
     "MapView": [
       {"selector": "iterate(_)", "kind": "method", "source": "core.ph"},
       {"selector": "iteratorValue(_)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_,_)", "kind": "construct", "source": "core.ph"}
+      {"selector": "new(_,_)", "kind": "method", "source": "core.ph"}
     ],
     "Message": [
       {"selector": "args", "kind": "getter", "source": "native"},
@@ -211,6 +319,7 @@
     "Number": [
       {"selector": "%(_)", "kind": "method", "source": "native"},
       {"selector": "*(_)", "kind": "method", "source": "native"},
+      {"selector": "**(_)", "kind": "method", "source": "native"},
       {"selector": "+(_)", "kind": "method", "source": "native"},
       {"selector": "-(_)", "kind": "method", "source": "native"},
       {"selector": "/(_)", "kind": "method", "source": "native"},
@@ -222,7 +331,8 @@
       {"selector": "negated()", "kind": "method", "source": "native"},
       {"selector": "new()", "kind": "static-method", "source": "native"},
       {"selector": "new(_)", "kind": "static-method", "source": "native"},
-      {"selector": "toString", "kind": "getter", "source": "native"}
+      {"selector": "toString", "kind": "getter", "source": "native"},
+      {"selector": "~/(_)", "kind": "method", "source": "native"}
     ],
     "Object": [
       {"selector": "!=(_)", "kind": "method", "source": "native"},
@@ -241,7 +351,6 @@
       {"selector": "isExactly(_)", "kind": "method", "source": "core.ph"},
       {"selector": "methodFor(_)", "kind": "method", "source": "native"},
       {"selector": "name", "kind": "getter", "source": "native"},
-      {"selector": "new()", "kind": "static-method", "source": "native"},
       {"selector": "perform(_)", "kind": "method", "source": "native"},
       {"selector": "perform(_,_)", "kind": "method", "source": "native"},
       {"selector": "respondsTo(_)", "kind": "method", "source": "native"},
@@ -250,20 +359,31 @@
     "OffBehavior": [
       {"selector": "fallback(_)", "kind": "method", "source": "core.ph"},
       {"selector": "kind", "kind": "getter", "source": "core.ph"},
-      {"selector": "new(_,_)", "kind": "construct", "source": "core.ph"},
+      {"selector": "new(_,_)", "kind": "method", "source": "core.ph"},
       {"selector": "payload", "kind": "getter", "source": "core.ph"},
       {"selector": "raise", "kind": "getter", "source": "core.ph"},
       {"selector": "skip(_)", "kind": "method", "source": "core.ph"}
     ],
     "Ok": [
       {"selector": "match(ok,err)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_)", "kind": "construct", "source": "core.ph"}
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"}
     ],
     "On": [
-      {"selector": "new(_)", "kind": "construct", "source": "core.ph"},
-      {"selector": "new(_,_)", "kind": "construct", "source": "core.ph"},
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "new(_,_)", "kind": "method", "source": "core.ph"},
       {"selector": "targets", "kind": "getter", "source": "core.ph"},
       {"selector": "tier", "kind": "getter", "source": "core.ph"}
+    ],
+    "OpenMode": [
+      {"selector": "!=(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "==(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "append", "kind": "getter", "source": "core.ph"},
+      {"selector": "name", "kind": "getter", "source": "core.ph"},
+      {"selector": "named_(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "read", "kind": "getter", "source": "core.ph"},
+      {"selector": "readWrite", "kind": "getter", "source": "core.ph"},
+      {"selector": "toString", "kind": "getter", "source": "core.ph"},
+      {"selector": "write", "kind": "getter", "source": "core.ph"}
     ],
     "Option": [
       {"selector": "filter(_)", "kind": "method", "source": "core.ph"},
@@ -277,6 +397,22 @@
       {"selector": "orElse(_)", "kind": "method", "source": "core.ph"},
       {"selector": "toString", "kind": "getter", "source": "core.ph"},
       {"selector": "unwrapOr(_)", "kind": "method", "source": "core.ph"}
+    ],
+    "Path": [
+      {"selector": "!=(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "==(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "bytes", "kind": "getter", "source": "core.ph"},
+      {"selector": "components", "kind": "getter", "source": "core.ph"},
+      {"selector": "contentHash(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "extension", "kind": "getter", "source": "core.ph"},
+      {"selector": "fileName", "kind": "getter", "source": "core.ph"},
+      {"selector": "hash", "kind": "getter", "source": "core.ph"},
+      {"selector": "isAbsolute", "kind": "getter", "source": "core.ph"},
+      {"selector": "join(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "of(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "ofBytes(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "parent", "kind": "getter", "source": "core.ph"},
+      {"selector": "toString", "kind": "getter", "source": "core.ph"}
     ],
     "PostconditionError": [
     ],
@@ -298,6 +434,21 @@
       {"selector": "start_", "kind": "getter", "source": "native"},
       {"selector": "toList", "kind": "getter", "source": "core.ph"},
       {"selector": "toString", "kind": "getter", "source": "core.ph"}
+    ],
+    "Record": [
+      {"selector": "==(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "hash", "kind": "getter", "source": "core.ph"},
+      {"selector": "labelAt_(_)", "kind": "method", "source": "native"},
+      {"selector": "size", "kind": "getter", "source": "core.ph"},
+      {"selector": "size_", "kind": "getter", "source": "native"},
+      {"selector": "valueAt_(_)", "kind": "method", "source": "native"}
+    ],
+    "Resource": [
+      {"selector": "close", "kind": "getter", "source": "core.ph"},
+      {"selector": "close_()", "kind": "method", "source": "native"},
+      {"selector": "isClosed", "kind": "getter", "source": "core.ph"},
+      {"selector": "isClosed_", "kind": "getter", "source": "native"},
+      {"selector": "register_(_)", "kind": "static-method", "source": "native"}
     ],
     "Result": [
       {"selector": "andThen(_)", "kind": "method", "source": "core.ph"},
@@ -333,7 +484,7 @@
     "SkipView": [
       {"selector": "iterate(_)", "kind": "method", "source": "core.ph"},
       {"selector": "iteratorValue(_)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_,_)", "kind": "construct", "source": "core.ph"}
+      {"selector": "new(_,_)", "kind": "method", "source": "core.ph"}
     ],
     "Some": [
       {"selector": "new(_)", "kind": "static-method", "source": "native"}
@@ -367,14 +518,14 @@
     "StringByteSequence": [
       {"selector": "at(_)", "kind": "method", "source": "core.ph"},
       {"selector": "each(_)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_)", "kind": "construct", "source": "core.ph"},
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"},
       {"selector": "nextCursor_(_)", "kind": "method", "source": "core.ph"},
       {"selector": "size", "kind": "getter", "source": "core.ph"}
     ],
     "StringCodePointSequence": [
       {"selector": "at(_)", "kind": "method", "source": "core.ph"},
       {"selector": "each(_)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_)", "kind": "construct", "source": "core.ph"},
+      {"selector": "new(_)", "kind": "method", "source": "core.ph"},
       {"selector": "nextCursor_(_)", "kind": "method", "source": "core.ph"},
       {"selector": "size", "kind": "getter", "source": "core.ph"}
     ],
@@ -385,11 +536,13 @@
     ],
     "System": [
       {"selector": "gc", "kind": "static-method", "source": "native"},
+      {"selector": "leakReport_", "kind": "static-method", "source": "native"},
       {"selector": "new()", "kind": "static-method", "source": "native"},
       {"selector": "nextScheduled", "kind": "static-method", "source": "native"},
       {"selector": "print(_)", "kind": "static-method", "source": "native"},
       {"selector": "runScheduled()", "kind": "method", "source": "core.ph"},
       {"selector": "schedule(_)", "kind": "static-method", "source": "native"},
+      {"selector": "strictResources_(_)", "kind": "static-method", "source": "native"},
       {"selector": "write(_)", "kind": "method", "source": "core.ph"},
       {"selector": "writeObject_(_)", "kind": "method", "source": "core.ph"},
       {"selector": "write_(_)", "kind": "static-method", "source": "native"}
@@ -397,7 +550,7 @@
     "TakeView": [
       {"selector": "iterate(_)", "kind": "method", "source": "core.ph"},
       {"selector": "iteratorValue(_)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_,_)", "kind": "construct", "source": "core.ph"}
+      {"selector": "new(_,_)", "kind": "method", "source": "core.ph"}
     ],
     "Tier": [
     ],
@@ -413,19 +566,33 @@
       {"selector": "!=(_)", "kind": "method", "source": "core.ph"},
       {"selector": "==(_)", "kind": "method", "source": "core.ph"},
       {"selector": "[_]", "kind": "method", "source": "core.ph"},
+      {"selector": "__fromList(_)", "kind": "static-method", "source": "native"},
       {"selector": "at(_)", "kind": "method", "source": "core.ph"},
       {"selector": "at_(_)", "kind": "method", "source": "native"},
-      {"selector": "fromList(_)", "kind": "static-method", "source": "native"},
       {"selector": "hash", "kind": "getter", "source": "core.ph"},
       {"selector": "iteratorValue(_)", "kind": "method", "source": "core.ph"},
+      {"selector": "labelAt_(_)", "kind": "method", "source": "native"},
+      {"selector": "labeled", "kind": "getter", "source": "core.ph"},
+      {"selector": "labeled_", "kind": "getter", "source": "native"},
+      {"selector": "positionalSize_", "kind": "getter", "source": "native"},
+      {"selector": "positionals", "kind": "getter", "source": "core.ph"},
+      {"selector": "positionals_", "kind": "getter", "source": "native"},
       {"selector": "size", "kind": "getter", "source": "core.ph"},
       {"selector": "size_", "kind": "getter", "source": "native"},
       {"selector": "toString", "kind": "getter", "source": "core.ph"}
     ],
+    "UnflushedError": [
+    ],
+    "Unit": [
+      {"selector": "hash", "kind": "getter", "source": "core.ph"},
+      {"selector": "toString", "kind": "getter", "source": "core.ph"}
+    ],
+    "UseAfterCloseError": [
+    ],
     "WhereView": [
       {"selector": "iterate(_)", "kind": "method", "source": "core.ph"},
       {"selector": "iteratorValue(_)", "kind": "method", "source": "core.ph"},
-      {"selector": "new(_,_)", "kind": "construct", "source": "core.ph"}
+      {"selector": "new(_,_)", "kind": "method", "source": "core.ph"}
     ]
   }
 }
