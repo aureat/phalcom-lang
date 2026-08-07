@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "work/analyses/files/a3.md",
+                "file": "work/analyses/hashbrown-in-phalcom-next-hour.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "a3"
+              "title": "hashbrown-in-phalcom-next-hour"
             }
           }
         ]
@@ -187,8 +187,33 @@
   },
   "active": "e351412831514433",
   "lastOpenFiles": [
-    "work/analyses/files/a2.md",
+    "work/pending/phalcom_a1_a3_fix_package/tests/product_regression_tests.ph",
+    "work/pending/phalcom_a1_a3_fix_package/tests/symbol_label_canonicalization.ph",
+    "work/pending/phalcom_a1_a3_fix_package/tests/record_order_independence.ph",
+    "work/pending/phalcom_a1_a3_fix_package/tests",
+    "work/pending/phalcom_a1_a3_fix_package/A1-A3-product-fix-instructions.md",
+    "work/pending/phalcom_a1_a3_fix_package",
+    "work/pending/fsco/fs-v2-implementation-spec.md",
+    "work/pending/fsco/streams-v2-implementation-spec.md",
+    "work/pending/fsco/path-patch-spec.md",
+    "work/pending/fsco/bytes-v2-implementation-spec.md",
+    "work/pending/fsco/resource-v2-test-spec.md",
+    "work/pending/fsco/resource-v2-implementation-spec.md",
+    "work/pending/fsco",
+    "work/pending/untitled folder",
+    "archive/fs-implementation-spec.md",
     "work/analyses/files/a3.md",
+    "work/completed/numbers/plan.md",
+    "work/completed/numbers/README.md",
+    "work/completed/numbers/06-integration-census-and-verification.md",
+    "work/completed/numbers/05-numeric-errors-and-tracebacks.md",
+    "work/completed/numbers/04-float-protocol-and-text.md",
+    "work/completed/numbers/03-int-and-largeint.md",
+    "work/completed/numbers/02-literals-and-power-syntax.md",
+    "work/completed/numbers/01-value-model-and-classes.md",
+    "work/completed/numbers",
+    "work/completed/send-arity-limit.md",
+    "work/analyses/files/a2.md",
     "work/analyses/files/a1.md",
     "work/pending/collections/A.2-product-runtime-representation.md",
     "work/analyses/files",
@@ -196,32 +221,7 @@
     "work/pending/collections/A-README.md",
     "work/pending/send-arity-limit.md",
     "work/pending/collections/F.3-rest-capture-and-dispatch.md",
-    "work/pending/collections/F.2-outgoing-pack-assembly-and-dynamic-send.md",
-    "work/pending/collections/F.1-pack-syntax-ast-and-selector-encoding.md",
-    "work/pending/collections/F-README.md",
-    "work/pending/collections/E.3-boundedness-and-exhaustor-diagnostics.md",
-    "work/pending/collections/E.2-forward-range-iteration.md",
-    "work/pending/collections/E.1-explicit-iterator-pipeline.md",
-    "work/pending/collections/E-README.md",
-    "work/pending/collections/D.3-grouping-conversions-and-sorting.md",
-    "work/pending/collections/D.2-list-mutation-and-literal-construction.md",
-    "work/pending/collections/D.1-eager-traversal-queries-and-reduction.md",
-    "work/pending/collections/D-README.md",
-    "work/pending/collections/C.3-range-slicing-and-list-replacement.md",
-    "work/pending/collections/C.2-range-syntax-and-representation.md",
-    "work/pending/collections/C.1-indexed-access-and-assignment.md",
-    "work/pending/collections/C-README.md",
-    "work/pending/collections/B-README.md",
-    "work/pending/collections/B.3-brace-literals-and-atomic-map-construction.md",
-    "work/pending/collections/B.2-map-views-entry-record-conversion.md",
-    "work/pending/untitled folder",
     "work/pending/collections",
-    "spec/collections.zip",
-    "spec/collections-next.zip",
-    "spec/collections-next",
-    "spec/untitled folder",
-    "spec/impl",
-    "spec/numerical",
-    "archive/phalcom-numeric-specification"
+    "spec/collections.zip"
   ]
 }
