@@ -4,21 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "21636d6b2f87362a",
+        "id": "9dfb7ee05112b6cc",
         "type": "tabs",
         "children": [
           {
-            "id": "125488518349d204",
+            "id": "e351412831514433",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "drafts.md",
+                "file": "work/pending/collections/A.2-product-runtime-representation.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "drafts"
+              "title": "A.2-product-runtime-representation"
             }
           }
         ]
@@ -185,43 +185,43 @@
       "bases:Create new base": false
     }
   },
-  "active": "125488518349d204",
+  "active": "e351412831514433",
   "lastOpenFiles": [
-    "spec/numerical/conformance.md",
-    "spec/numerical/README.md",
-    "spec/collections/12-open-questions-and-gap-analysis.md",
+    "work/pending/collections/A.1-product-syntax-and-ast.md",
+    "work/pending/collections/A.2-product-runtime-representation.md",
+    "work/pending/collections/A-README.md",
+    "work/pending/send-arity-limit.md",
+    "work/pending/collections/F.3-rest-capture-and-dispatch.md",
+    "work/pending/collections/F.2-outgoing-pack-assembly-and-dynamic-send.md",
+    "work/pending/collections/F.1-pack-syntax-ast-and-selector-encoding.md",
+    "work/pending/collections/F-README.md",
+    "work/pending/collections/E.3-boundedness-and-exhaustor-diagnostics.md",
+    "work/pending/collections/E.2-forward-range-iteration.md",
+    "work/pending/collections/E.1-explicit-iterator-pipeline.md",
+    "work/pending/collections/E-README.md",
+    "work/pending/collections/D.3-grouping-conversions-and-sorting.md",
+    "work/pending/collections/D.2-list-mutation-and-literal-construction.md",
+    "work/pending/collections/D.1-eager-traversal-queries-and-reduction.md",
+    "work/pending/collections/D-README.md",
+    "work/pending/collections/C.3-range-slicing-and-list-replacement.md",
+    "work/pending/collections/C.2-range-syntax-and-representation.md",
+    "work/pending/collections/C.1-indexed-access-and-assignment.md",
+    "work/pending/collections/C-README.md",
+    "work/pending/collections/B-README.md",
+    "work/pending/collections/B.3-brace-literals-and-atomic-map-construction.md",
+    "work/pending/collections/B.2-map-views-entry-record-conversion.md",
+    "work/pending/collections/B.1-map-runtime-contract-migration.md",
+    "work/pending/collections/A.3-product-construction-and-surface.md",
+    "work/pending/untitled folder",
+    "work/pending/collections",
+    "work/pending/ctor-completion-implementation-spec.md",
     "spec/collections.zip",
     "spec/collections-next.zip",
-    "spec/collections-next/ranges-iteration-and-eagerness-spec.md",
-    "spec/collections-next/collections-core-semantics-spec.md",
-    "spec/collections/product-normalization-and-unit-spec.md",
-    "spec/collections-next/tuple-record-and-symbols-spec.md",
-    "spec/collections-next/product-normalization-and-unit-spec.md",
-    "spec/collections-next/collection-literals-and-map-spec.md",
-    "spec/collections-next/argument-packs-and-expansion-spec.md",
     "spec/collections-next",
     "spec/untitled folder",
-    "spec/collections/collection-literals-and-map-spec.md",
-    "spec/collections/tuple-record-and-symbols-spec.md",
-    "spec/collections/02-tuples.md",
-    "spec/collections/01-foundations-and-notation.md",
-    "spec/typing/phalcom-tuples-records-sets-maps-spec.md",
-    "spec/collections/argument-packs-and-expansion-spec.md",
-    "drafts.md",
-    "spec/lambda-prompt.md",
     "spec/impl",
-    "spec/typing/phalcom-type-protocol-record-callable-unit-spec.md",
-    "spec/collections/05-argument-packs.md",
-    "spec/typing/phalcom-collections-argument-packs-combined.md",
-    "spec/typing/Argument-Pack Types.md",
-    "spec/next/phalcom-pattern-matching-spec.md",
-    "spec/next/phalcom-meta-dispatch-and-type-extension-spec.md",
-    "spec/next/Phalcom reflection through protocols, adapters, and contracts.md",
-    "spec/collections/00-index.md",
     "spec/numerical",
     "archive/phalcom-numeric-specification",
-    "archive/numbers",
-    "archive",
-    "untitled folder"
+    "archive/numbers"
   ]
 }
