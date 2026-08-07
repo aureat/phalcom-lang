@@ -107,8 +107,13 @@ pub enum Token {
     /// to a `+`-chain (`"a " + x.toString + …`). See
     /// `docs/spec/current/string-interpolation.md`.
     StringInterp(Vec<StringSegment>),
-    /// A numeric literal decoded to an [`f64`].
-    Number(f64),
+    /// An integer literal with normalized digits string and radix (2, 8, 10, 16).
+    Int {
+        digits: String,
+        radix: u32,
+    },
+    /// A floating-point literal payload.
+    Float(f64),
 
     /// A bare `#name` **name symbol** (selectors.md §2) — identifies a
     /// method-name *family*, not a complete method identity. Used for map
@@ -227,10 +232,20 @@ pub enum Token {
     Minus,
     /// The `*` multiplication operator.
     Asterisk,
+    /// The `**` exponentiation operator.
+    Power,
     /// The `/` division operator.
     Slash,
+    /// The `~/` integer division operator.
+    SlashTilde,
     /// The `%` modulo operator.
     Percent,
+    ShiftLeft,
+    ShiftRight,
+    Ampersand,
+    Pipe,
+    Caret,
+    Tilde,
 
     /// The synthetic end-of-file marker injected once after the last real
     /// token.
@@ -277,6 +292,8 @@ pub enum StringSegment {
 /// scanner.
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum LexicalError {
+    /// A numeric literal was malformed.
+    NumericLiteral(Range<usize>),
     /// An integer literal could not be parsed into its numeric value.
     InvalidInteger(ParseIntError),
     /// A floating-point literal could not be parsed into its numeric value.

@@ -107,6 +107,23 @@ pub fn class_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 pub fn class_new_(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let class_id = expect_class(vm, receiver)?;
     let target_class = vm.heap.class(class_id);
+    if target_class.is_abstract {
+        let error_cls = vm.universe.classes.error_class;
+        let field_count = vm.heap.class(error_cls).field_count;
+        let mut inst = InstanceObject::new(error_cls, field_count);
+        let msg = format!("cannot instantiate abstract class {}", target_class.name);
+        inst.slots[0] = vm.alloc_string_value(msg.clone());
+        let kind_sym = vm.get_or_intern("abstractClass");
+        inst.slots[1] = Value::Symbol(kind_sym);
+        let err_obj = vm.heap.alloc(Object::Instance(inst));
+        return Err(RuntimeError::Raise {
+            error: Value::Obj(err_obj),
+            rendered: msg,
+            traceback: None,
+            help: None,
+        }
+        .into());
+    }
     if target_class.native_repr {
         return Err(RuntimeError::Type {
             expected: "InstanceObject-backed class",

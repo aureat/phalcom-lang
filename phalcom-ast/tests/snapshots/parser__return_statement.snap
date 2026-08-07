@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 97
 expression: "parse(\"return 1\")"
 ---
 Program {
@@ -7,8 +8,9 @@ Program {
         Return(
             ReturnStatement {
                 value: Some(
-                    Number {
-                        value: 1.0,
+                    Int {
+                        digits: "1",
+                        radix: 10,
                         range: CopyRange {
                             start: 7,
                             end: 8,

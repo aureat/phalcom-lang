@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 77
 expression: "parse(\"let x = 1 + 2\")"
 ---
 Program {
@@ -18,15 +19,17 @@ Program {
                     Binary(
                         BinaryExpr {
                             op: Add,
-                            left: Number {
-                                value: 1.0,
+                            left: Int {
+                                digits: "1",
+                                radix: 10,
                                 range: CopyRange {
                                     start: 8,
                                     end: 9,
                                 },
                             },
-                            right: Number {
-                                value: 2.0,
+                            right: Int {
+                                digits: "2",
+                                radix: 10,
                                 range: CopyRange {
                                     start: 12,
                                     end: 13,

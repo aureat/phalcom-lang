@@ -49,7 +49,7 @@ pub fn set_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResul
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`.
 pub fn set_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_set(vm, receiver)?;
-    Ok(Value::Number(vm.heap.set(id).len() as f64))
+    Ok(Value::Int(vm.heap.set(id).len() as i64))
 }
 
 /// Locates `key` in the set at `id` — the `Object::Set` twin of
@@ -72,11 +72,27 @@ fn locate(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, Option<usize>)>
         let Some(candidate_key) = vm.heap.set(id).key_at(slot) else {
             continue;
         };
-        vm.heap.set_mut(id).enter_reentrant_send();
-        let eq_result = send_eq(vm, candidate_key, key);
-        vm.heap.set_mut(id).exit_reentrant_send();
-        if eq_result? {
-            return Ok((bucket, Some(slot)));
+        let is_num_key = match key {
+            Value::Int(_) | Value::Float(_) => true,
+            Value::Obj(oid) => vm.heap.as_large_int(oid).is_some(),
+            _ => false,
+        };
+        let is_num_cand = match candidate_key {
+            Value::Int(_) | Value::Float(_) => true,
+            Value::Obj(oid) => vm.heap.as_large_int(oid).is_some(),
+            _ => false,
+        };
+        if is_num_key || is_num_cand {
+            if crate::value::same_value_zero(candidate_key, key, &vm.heap) {
+                return Ok((bucket, Some(slot)));
+            }
+        } else {
+            vm.heap.set_mut(id).enter_reentrant_send();
+            let eq_result = send_eq(vm, candidate_key, key);
+            vm.heap.set_mut(id).exit_reentrant_send();
+            if eq_result? {
+                return Ok((bucket, Some(slot)));
+            }
         }
     }
     Ok((bucket, None))
@@ -147,18 +163,49 @@ pub fn set_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 ///
 /// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`, or
 /// if `i` is not a non-negative integer.
-pub fn set_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+fn expect_index(value: &Value) -> PhResult<usize> {
     use crate::error::RuntimeError;
-    let id: ObjRef = expect_set(vm, receiver)?;
-    let n = crate::expect_value!(&args[0], Number);
-    if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
-        return Err(RuntimeError::Type {
-            expected: "a non-negative integer index",
-            found: args[0].type_name(),
+    match value {
+        Value::Int(n) => {
+            if *n < 0 {
+                Err(RuntimeError::Type {
+                    expected: "a non-negative integer index",
+                    found: "int",
+                }
+                .into())
+            } else {
+                Ok(*n as usize)
+            }
         }
-        .into());
+        Value::Float(n) => {
+            if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
+                Err(RuntimeError::Type {
+                    expected: "a non-negative integer index",
+                    found: "float",
+                }
+                .into())
+            } else {
+                Ok(*n as usize)
+            }
+        }
+        other => Err(RuntimeError::Type {
+            expected: "a non-negative integer index",
+            found: other.type_name(),
+        }
+        .into()),
     }
-    let index = n as usize;
+}
+
+/// Signature: `Set::keyAt_(_)` — the element at insertion-order slot `i`, or the
+/// `None` singleton if `i` is out of range. Backs `Set#each(_)`.
+///
+/// # Errors
+///
+/// Returns [`crate::error::RuntimeError::Type`] if the receiver is not a `Set`, or
+/// if `i` is not a non-negative integer.
+pub fn set_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let id: ObjRef = expect_set(vm, receiver)?;
+    let index = expect_index(&args[0])?;
     match vm.heap.set(id).key_at(index) {
         Some(k) => Ok(k),
         None => Ok(vm.none_value()),

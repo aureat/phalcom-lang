@@ -11,14 +11,21 @@ use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::family_does_not_understand;
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
+use crate::primitive::float::{
+    float_abs, float_ceil, float_class_new, float_floor, float_is_finite, float_is_infinite, float_is_integer, float_is_nan, float_rounded, float_sign,
+    float_to_int_exact, float_truncated,
+};
+use crate::primitive::int::{
+    int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_not, int_or, int_shl, int_shr, int_trailing_zeros, int_xor,
+};
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::nil::{option_match, some_new};
 use crate::primitive::number::{
-    number_add, number_class_new, number_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul, number_negated, number_sub,
-    number_to_string,
+    number_add, number_class_new, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul,
+    number_negated, number_pow, number_sub, number_to_string,
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
@@ -110,6 +117,8 @@ impl Universe {
         primitive!(vm, number_cls, "*", SignatureKind::Method(1), number_mul);
         primitive!(vm, number_cls, "/", SignatureKind::Method(1), number_div);
         primitive!(vm, number_cls, "%", SignatureKind::Method(1), number_mod);
+        primitive!(vm, number_cls, "~/", SignatureKind::Method(1), number_floor_div);
+        primitive!(vm, number_cls, "**", SignatureKind::Method(1), number_pow);
         primitive!(vm, number_cls, "<", SignatureKind::Method(1), number_lt);
         primitive!(vm, number_cls, "<=", SignatureKind::Method(1), number_le);
         primitive!(vm, number_cls, ">", SignatureKind::Method(1), number_gt);
@@ -124,6 +133,38 @@ impl Universe {
         primitive!(vm, number_cls, "toString", SignatureKind::Getter, number_to_string);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(0), number_class_new);
         primitive_static!(vm, number_cls, "new", SignatureKind::Method(1), number_class_new);
+
+        let int_cls = vm.universe.classes.int_class;
+        primitive!(vm, int_cls, "&", SignatureKind::Method(1), int_and);
+        primitive!(vm, int_cls, "|", SignatureKind::Method(1), int_or);
+        primitive!(vm, int_cls, "^", SignatureKind::Method(1), int_xor);
+        primitive!(vm, int_cls, "~", SignatureKind::Method(0), int_not);
+        primitive!(vm, int_cls, "<<", SignatureKind::Method(1), int_shl);
+        primitive!(vm, int_cls, ">>", SignatureKind::Method(1), int_shr);
+        primitive!(vm, int_cls, "bitAt", SignatureKind::Method(1), int_bit_at);
+        primitive!(vm, int_cls, "bitCount", SignatureKind::Getter, int_bit_count);
+        primitive!(vm, int_cls, "bitLength", SignatureKind::Getter, int_bit_length);
+        primitive!(vm, int_cls, "trailingZeros", SignatureKind::Getter, int_trailing_zeros);
+        primitive_static!(vm, int_cls, "new", SignatureKind::Method(0), int_class_new);
+        primitive_static!(vm, int_cls, "new", SignatureKind::Method(1), int_class_new);
+
+        let float_cls = vm.universe.classes.float_class;
+        primitive_static!(vm, float_cls, "new", SignatureKind::Method(0), float_class_new);
+        primitive_static!(vm, float_cls, "new", SignatureKind::Method(1), float_class_new);
+        // Float protocol primitives (float-semantics spec):
+        // `abs`/`sign` work on any finite-or-not receiver;
+        // `floor`/`ceil`/`truncated`/`rounded`/`toIntExact` require finite.
+        primitive!(vm, float_cls, "abs", SignatureKind::Method(0), float_abs);
+        primitive!(vm, float_cls, "sign", SignatureKind::Method(0), float_sign);
+        primitive!(vm, float_cls, "floor", SignatureKind::Method(0), float_floor);
+        primitive!(vm, float_cls, "ceil", SignatureKind::Method(0), float_ceil);
+        primitive!(vm, float_cls, "truncated", SignatureKind::Method(0), float_truncated);
+        primitive!(vm, float_cls, "rounded", SignatureKind::Method(0), float_rounded);
+        primitive!(vm, float_cls, "toIntExact", SignatureKind::Method(0), float_to_int_exact);
+        primitive!(vm, float_cls, "isInteger", SignatureKind::Getter, float_is_integer);
+        primitive!(vm, float_cls, "isNaN", SignatureKind::Getter, float_is_nan);
+        primitive!(vm, float_cls, "isFinite", SignatureKind::Getter, float_is_finite);
+        primitive!(vm, float_cls, "isInfinite", SignatureKind::Getter, float_is_infinite);
 
         let string_cls = vm.universe.classes.string_class;
         primitive!(vm, string_cls, "+", SignatureKind::Method(1), string_add);

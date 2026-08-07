@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 290
+assertion_line: 302
 expression: "parse(\"class Point {\\n  @requires(x > 0)\\n  set(x) {\\n    self.x = x\\n  }\\n}\\n\")"
 ---
 Program {
@@ -73,8 +73,9 @@ Program {
                                                         end: 27,
                                                     },
                                                 },
-                                                right: Number {
-                                                    value: 0.0,
+                                                right: Int {
+                                                    digits: "0",
+                                                    radix: 10,
                                                     range: CopyRange {
                                                         start: 30,
                                                         end: 31,

@@ -100,8 +100,9 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 30] {
 /// Extracts the `f64` behind a `Number` result (test-local helper).
 fn as_number(value: Value) -> f64 {
     match value {
-        Value::Number(n) => n,
-        other => panic!("expected a Number, got {other:?}"),
+        Value::Int(n) => n as f64,
+        Value::Float(n) => n,
+        other => panic!("expected a number, got {other:?}"),
     }
 }
 
@@ -137,24 +138,19 @@ fn surface_nil_is_unreachable_from_user_code() {
 }
 
 #[test]
-fn sentinel_surfaces_to_none_and_never_survives_as_nil() {
-    // The read-boundary surfacer (`sentinel_to_option`) converts the private
-    // sentinel to the shared `None` singleton, one-directionally. An
-    // uninitialized slot therefore reads as `None`, never the raw `Value::Nil`,
-    // and a non-sentinel value passes through untouched.
+fn sentinel_surfaces_to_none_at_read_boundaries() {
     let vm = VM::new();
     let none = vm.universe.classes.none_singleton;
 
     let surfaced = sentinel_to_option(Value::Nil, none);
-    assert!(!matches!(surfaced, Value::Nil), "the sentinel must not survive surfacing");
     assert!(
         matches!(surfaced, Value::Obj(id) if id == none),
         "the sentinel must surface to the None singleton"
     );
 
-    let passthrough = sentinel_to_option(Value::Number(1.0), none);
+    let passthrough = sentinel_to_option(Value::Int(1), none);
     assert!(
-        matches!(passthrough, Value::Number(n) if n == 1.0),
+        matches!(passthrough, Value::Int(n) if n == 1),
         "non-sentinel values must pass through unchanged"
     );
 }
@@ -182,31 +178,19 @@ fn expression_result_absence_surfaces_to_none() {
         assert!(matches!(value, Value::Obj(id) if id == none), "{label} should yield the None singleton");
     };
 
-    // A dummy block arg that is never invoked: the untaken branch returns
-    // without calling `args[0]`, so any placeholder value is safe here.
-    let unused_block = Value::Number(0.0);
+    let unused_block = Value::Int(0);
 
     // `false.ifTrue { .. }` / `true.ifFalse { .. }` — branch not taken.
     is_none(bool_if_true(&mut vm, &Value::Bool(false), &[unused_block]).expect("ifTrue"), "false.ifTrue");
     is_none(bool_if_false(&mut vm, &Value::Bool(true), &[unused_block]).expect("ifFalse"), "true.ifFalse");
 
     // `System.print(_)` — surface-reachable send result.
-    is_none(
-        system_class_print(&mut vm, &Value::Number(1.0), &[Value::Number(1.0)]).expect("print"),
-        "System.print",
-    );
+    is_none(system_class_print(&mut vm, &Value::Int(1), &[Value::Int(1)]).expect("print"), "System.print");
 
     // `Object.superclass` — the root class has no superclass.
     let object = Value::Obj(vm.universe.classes.object_class);
     is_none(class_superclass(&mut vm, &object, &[]).expect("superclass"), "Object.superclass");
 
-    // A **taken** (invoked) empty block via `block_call`: unlike the untaken
-    // branches above, this actually runs a value-less block body compiled by
-    // `compile_block`, which now pushes a `Bytecode::Nil` before its fallback
-    // `Return` so falling off the end surfaces to the `None` singleton — the
-    // block object left in slot 0 must never leak out (U6-plan.md §4). To reach
-    // a real empty-block `Value` we bind one as a module global (module-level
-    // `let` emits `DefineGlobal`) and read it straight back.
     let module = vm.create_module("blk", "expression_result_absence_surfaces_to_none");
     vm.interpret_source(module, "let blk = { }\n").expect("define an empty block global");
     let blk_sym = vm.interner.intern("blk");
@@ -217,22 +201,15 @@ fn expression_result_absence_surfaces_to_none() {
 #[test]
 #[should_panic(expected = "Invariant 4")]
 fn some_construction_never_wraps_the_sentinel() {
-    // `some_new` asserts its argument is never the private sentinel — `None`
-    // can never end up inside a `Some`. The raw sentinel is only reachable from
-    // a hypothetical internal surfacing bug; feeding it in must trip the guard.
     let mut vm = VM::new();
-    let _ = some_new(&mut vm, &Value::Number(0.0), &[Value::Nil]);
+    let _ = some_new(&mut vm, &Value::Int(0), &[Value::Nil]);
 }
 
 #[test]
 fn some_can_wrap_the_none_singleton() {
-    // The guard forbids only the raw `Value::Nil` sentinel — the `None`
-    // singleton is an ordinary object value, so `Some.new(None)` is legal
-    // (a present `Option` whose payload happens to be absence). This confirms
-    // the guard keys on the sentinel, not on "absence" in the abstract.
     let mut vm = VM::new();
     let none = Value::Obj(vm.universe.classes.none_singleton);
-    let result = some_new(&mut vm, &Value::Number(0.0), &[none]);
+    let result = some_new(&mut vm, &Value::Int(0), &[none]);
     assert!(result.is_ok(), "Some.new(None) must succeed — None is a legal Some payload");
 }
 
@@ -657,21 +634,13 @@ fn floor_census_matches_installed_bindings() {
     // NEW_VALUE_TOSTRING) is U-CORE-4's amendment (`Number#toString`); the
     // fourth +2 (marked NEW_ERROR) is U-CORE-6's amendment (ADR-0037):
     // `Error#message`, `Error#raise`.
-    const BASELINE: usize = 73;
-    const NEW: usize = 7;
-    const NEW_METHOD_REFLECTION: usize = 5;
-    const NEW_VALUE_TOSTRING: usize = 1;
-    const NEW_ERROR: usize = 2;
     // U-COLLTYPES Phase 1 (ADR-0039): Map (8: new/size_/get_/put_/
     // has_/remove_/keyAt_/valueAt_) + Set (6: new/size_/add_/
     // has_/remove_/at_) = +14 (88 -> 102).
-    const NEW_MAP_SET: usize = 14;
     // U-COLLTYPES Phase 2 (ADR-0039): Tuple (3: fromList/size_/at_) = +3
     // (102 -> 105). No mutation primitive — immutability is structural.
-    const NEW_TUPLE: usize = 3;
     // U-COLLTYPES Phase 3 (ADR-0039): Range (4: new/start_/end_/
     // inclusive_) = +4 (105 -> 109).
-    const NEW_RANGE: usize = 4;
     // U-ERR (ADR-0038, this unit's own amendment): `Block#on(_,_)` +
     // `Block#ensure(_)` = +2 (109 -> 111) — the catch protocol `try`/`on`/
     // `catch`/`ensure` (ADR-0031) desugar to. The WHOLE remaining error
@@ -679,44 +648,36 @@ fn floor_census_matches_installed_bindings() {
     // is `.ph`/parser sugar over these two plus the pre-existing `Error#raise`
     // (U-CORE-6/ADR-0037), so this is the floor's final word on error
     // handling.
-    const NEW_ON_ENSURE: usize = 2;
     // U15 (ADR-0045, this unit's own amendment): `Module#doesNotUnderstand(_)`
     // = +1 (111 -> 112) — member access (`math.pi`, `math.distance(1, 2)`) as
     // an ordinary send over the module's own globals table; the only way to
     // reach it from a message send (floor-census.md §2.12).
-    const NEW_IMPORTS: usize = 1;
     // U16-Open (ADR-0047, this unit's own amendment): `Family#doesNotUnderstand(_)`
     // = +1 (112 -> 113) — the uniform `::` call router (selectors.md §3):
     // every bare-call selector shape misses `Family`'s otherwise-empty
     // method table and lands here, which rebuilds the real selector from the
     // family's base name + the missed call's labels and re-dispatches as an
     // ordinary send (floor-census.md §2.16).
-    const NEW_FAMILY: usize = 1;
     // U-SCHED (floor-census.md amendment, ADR-0030 §Consequences): the
     // native ready-queue scheduler seam admits **+2** bindings (113 -> 115):
     // `System::schedule(_)` (`system_schedule`) and `System::nextScheduled`
     // (`system_next_scheduled`), both `primitive/system.rs`.
-    const NEW_SCHED: usize = 2;
     // U-ANNOT-CONTRACTS (ADR-0052 Fix 1, this unit's own amendment): the
     // `@invariant` re-entrancy guard admits **+2** bindings (115 -> 117):
     // `Object::__invariantEnter()` and `Object::__invariantExit()`, both
     // `primitive/object.rs` — the native pair the woven prologue/epilogue
     // call, never `.ph`-authored.
-    const NEW_INVARIANT_GUARD: usize = 2;
     // M-ATTR-ROOT (attribute-classes.md, this unit's own amendment): the
     // attribute-retention mechanism admits **+3** bindings (117 -> 120):
     // `Object#__attach(_)`, `Object#__attributes`, `Object#__freezeAttributes()`,
     // all `primitive/attribute.rs` — the native pair (triple) the compiler's
     // `@Name(args)` desugar (`compiler::attributes`/`compiler::lib::class_decl`)
     // calls, never `.ph`-authored.
-    const NEW_ATTR_ROOT: usize = 3;
     // U-GC Step 3: System.gc = +1 (120 -> 121)
-    const NEW_GC: usize = 1;
     // U-STRING (ADR-0049 amendment): raw byte-level string accessors +
     // raw stdout write = +4 (121 -> 125):
     // `String#byteCount_`, `String#byteAt_(_)`, `String#slice_(_,_)`,
     // `System.write_(_)` — all `primitive/string.rs`/`primitive/system.rs`.
-    const NEW_STRING: usize = 4;
     // `Fiber` (ADR-0030) — admitted to the census 2026-07-15 (DEFERRED CB-5).
     // The first 11 were NOT a floor amendment: they had been installed since the
     // fiber work landed. What changed is that they became *audited*. Before
@@ -738,7 +699,6 @@ fn floor_census_matches_installed_bindings() {
     // Justified against the ADR-0019 freeze on the ground that attempt-and-
     // inspect is unfixable in `.ph` when the attempt changes the answer: no
     // arrangement of library code can observe root-ness without a predicate.
-    const NEW_FIBER: usize = 12;
     // U-BYTES (PDR-0011 ruling 3, this unit's own amendment): the kernel
     // octet buffer admits **+10** bindings (137 -> 147): `Bytes.new(_)`,
     // `Bytes.fromString_(_)`, `size_`, `at_(_)`, `set_(_,_)`, `fill_(_)`,
@@ -746,11 +706,9 @@ fn floor_census_matches_installed_bindings() {
     // all `primitive/bytes.rs`, under the container bulk-op posture (bulk
     // no-user-code ops native; block-taking selectors stay `.ph` so
     // `Fiber#yield` works mid-iteration, bytes.md §3.1).
-    const NEW_BYTES: usize = 10;
     // PDR-0013 ruling 4 (ships with U-BYTES, censused to its own record):
     // `utf8Lossy_` (147 -> 148) — total lossy decode for `Path#toString`;
     // display-only, never round-tripped into data.
-    const NEW_BYTES_LOSSY: usize = 1;
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -791,6 +749,8 @@ fn floor_census_matches_installed_bindings() {
         (c.number_class, false, "*(_)"),
         (c.number_class, false, "/(_)"),
         (c.number_class, false, "%(_)"),
+        (c.number_class, false, "~/(_)"),
+        (c.number_class, false, "**(_)"),
         (c.number_class, false, "<(_)"),
         (c.number_class, false, "<=(_)"),
         (c.number_class, false, ">(_)"),
@@ -996,10 +956,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        149,
-        "census must enumerate exactly 149 bindings (150 baseline minus 1 duplicate allocator deleted in U-CTOR-4)"
+        151,
+        "census must enumerate exactly 151 bindings (150 baseline minus 1 duplicate allocator deleted in U-CTOR-4, plus numeric floor division and power)"
     );
-    assert_eq!(live.len(), 149, "the live floor must be exactly 149 bindings");
+    assert_eq!(live.len(), 151, "the live floor must be exactly 151 bindings");
 }
 
 #[test]
@@ -1010,8 +970,10 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
     // rows. The boot half of this rides `Universe::verify_invariants`.
     let vm = VM::new();
     let c = &vm.universe.classes;
-    let rows: [(&str, ClassId); 19] = [
+    let rows: [(&str, ClassId); 21] = [
         ("Number", c.number_class),
+        ("Int", c.int_class),
+        ("Float", c.float_class),
         ("String", c.string_class),
         ("Nil", c.nil_class),
         ("Bool", c.bool_class),
@@ -1059,18 +1021,12 @@ fn isa_is_reflexive_and_superclass_closed() {
     let class = Value::Obj(vm.universe.classes.class_class);
 
     // Immediate receiver `3`.
+    assert!(matches!(send1(&mut vm, Value::Int(3), "isA(_)", number), Value::Bool(true)), "3.isA(Number)");
     assert!(
-        matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", number), Value::Bool(true)),
-        "3.isA(Number)"
-    );
-    assert!(
-        matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", object), Value::Bool(true)),
+        matches!(send1(&mut vm, Value::Int(3), "isA(_)", object), Value::Bool(true)),
         "3.isA(Object) — reflexive-to-root"
     );
-    assert!(
-        matches!(send1(&mut vm, Value::Number(3.0), "isA(_)", string), Value::Bool(false)),
-        "!3.isA(String)"
-    );
+    assert!(matches!(send1(&mut vm, Value::Int(3), "isA(_)", string), Value::Bool(false)), "!3.isA(String)");
 
     // Class receiver `Number` (walks the metaclass chain, Smalltalk isKindOf:).
     assert!(matches!(send1(&mut vm, number, "isA(_)", class), Value::Bool(true)), "Number.isA(Class)");
@@ -1090,16 +1046,12 @@ fn isa_is_reflexive_and_superclass_closed() {
 
 #[test]
 fn hash_is_consistent_with_equality() {
-    // R-INV-1.3 — `a == b ⇒ a.hash == b.hash`. Number, String (equal content /
-    // distinct handle), Bool, identity objects; Symbol asserted as stability
-    // (two references to one interned symbol agree) since `value_eq` never makes
-    // two symbols surface-`==` today.
     let mut vm = VM::new();
 
     // Number: 3 == 3.
-    let n3a = as_number(number_hash(&mut vm, &Value::Number(3.0), &[]).unwrap());
-    let n3b = as_number(number_hash(&mut vm, &Value::Number(3.0), &[]).unwrap());
-    let n4 = as_number(number_hash(&mut vm, &Value::Number(4.0), &[]).unwrap());
+    let n3a = as_number(number_hash(&mut vm, &Value::Int(3), &[]).unwrap());
+    let n3b = as_number(number_hash(&mut vm, &Value::Int(3), &[]).unwrap());
+    let n4 = as_number(number_hash(&mut vm, &Value::Int(4), &[]).unwrap());
     assert_eq!(n3a, n3b, "3.hash == 3.hash");
     assert_ne!(n3a, n4, "3.hash != 4.hash");
 
@@ -1134,10 +1086,9 @@ fn hash_is_consistent_with_equality() {
 
 #[test]
 fn hash_is_stable_across_repeated_calls() {
-    // R-INV-1.4 — `hash` is stable within a run for each kind.
     let mut vm = VM::new();
     let obj = Value::Obj(vm.universe.classes.none_singleton);
-    let cases: [Value; 4] = [Value::Number(42.0), Value::Bool(true), Value::Symbol(vm.get_or_intern("stable")), obj];
+    let cases: [Value; 4] = [Value::Int(42), Value::Bool(true), Value::Symbol(vm.get_or_intern("stable")), obj];
     for value in cases {
         let first = send0(&mut vm, value, "hash");
         let second = send0(&mut vm, value, "hash");
@@ -1260,7 +1211,7 @@ fn callable_tower_and_reflection_protocol() {
 
     // `arity`/`name` on the bare `Method`.
     assert!(
-        matches!(block_arity(&mut vm, &method_value, &[]).unwrap(), Value::Number(n) if n == 1.0),
+        matches!(block_arity(&mut vm, &method_value, &[]).unwrap(), Value::Int(n) if n == 1),
         "Method#arity should be 1"
     );
     match block_name(&mut vm, &method_value, &[]).unwrap() {
@@ -1271,7 +1222,7 @@ fn callable_tower_and_reflection_protocol() {
     // `arity`/`name` on the `BoundMethod` produced by `bind(_)`.
     let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
     assert!(
-        matches!(block_arity(&mut vm, &bound, &[]).unwrap(), Value::Number(n) if n == 1.0),
+        matches!(block_arity(&mut vm, &bound, &[]).unwrap(), Value::Int(n) if n == 1),
         "BoundMethod#arity should be 1"
     );
     match block_name(&mut vm, &bound, &[]).unwrap() {
@@ -1282,13 +1233,6 @@ fn callable_tower_and_reflection_protocol() {
 
 #[test]
 fn invoke_on_preserves_dead_frame_fencing_for_escaping_blocks() {
-    // R-INV-3.2 — a method invoked via `VM::invoke_method_object` (the engine
-    // behind `Method#invokeOn`/`bound.call`) can still create an escaping
-    // block whose non-local `return` correctly raises `DeadFrameError` once
-    // its home activation is gone. Proves the frame-token generation check
-    // (ADR-0013) still fences the re-entrant `run_until` this unit
-    // introduces, mirroring `runtime_non_local_return_dead_frame.ph` but
-    // driven through `invokeOn` instead of an ordinary send.
     let mut vm = VM::new();
     let module = vm.create_module("main", "invoke_on_preserves_dead_frame_fencing_for_escaping_blocks");
     vm.interpret_source(module, "class Maker {\n  make() { return { return 1 } }\n}\nlet maker = Maker.new()\n")
@@ -1312,16 +1256,6 @@ fn invoke_on_preserves_dead_frame_fencing_for_escaping_blocks() {
 
 #[test]
 fn cross_fiber_non_local_return_raises_dead_frame_error() {
-    // C-FIB-5 (ADR-0030; ADR-0013 frame-token fencing) — a block whose home
-    // frame belongs to a *different* fiber's already-drained activation
-    // still raises `DeadFrameError` when invoked, exactly like the
-    // intra-fiber escaping-block case
-    // (`invoke_on_preserves_dead_frame_fencing_for_escaping_blocks` above).
-    // Proves the frame-token generation check is fiber-agnostic: it fences a
-    // non-local `return` the same way whether the dead home frame belonged
-    // to the currently-running fiber or to a resumer whose own activation
-    // has since ended. Mirrors the golden
-    // `concurrency/negative/fiber_cross_fiber_non_local_return_dead_frame.ph`.
     let mut vm = VM::new();
     let module = vm.create_module("main", "cross_fiber_non_local_return_raises_dead_frame_error");
     vm.interpret_source(module, "class Maker {\n  make() { return { return 1 } }\n}\nlet escaped = Maker.new().make()\n")
@@ -1340,11 +1274,6 @@ fn cross_fiber_non_local_return_raises_dead_frame_error() {
 
 #[test]
 fn invoke_on_and_bind_call_are_equivalent() {
-    // R-INV-3.3 — `method.invokeOn(recv, args)` and
-    // `method.bind(recv).call(args)` produce identical results for the same
-    // `(method, recv, args)`; both funnel through `VM::invoke_method_object`
-    // by construction (`primitive::block::block_call`'s `BoundMethod`
-    // intercept).
     let mut vm = VM::new();
     let module = vm.create_module("main", "invoke_on_and_bind_call_are_equivalent");
     vm.interpret_source(
@@ -1373,9 +1302,6 @@ fn invoke_on_and_bind_call_are_equivalent() {
 
 #[test]
 fn invoke_on_and_bind_call_reject_arity_mismatch() {
-    // R-INV-3.4 — an arity mismatch on either `invokeOn` or `bound.call`
-    // raises `RuntimeError::Arity` (checked once, before the call touches the
-    // stack), not a truncation or a silently wrong value.
     let mut vm = VM::new();
     let module = vm.create_module("main", "invoke_on_and_bind_call_reject_arity_mismatch");
     vm.interpret_source(
@@ -1404,19 +1330,14 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
     );
 }
 
-// R-INV-4.x — U-CORE-4 unit invariants (invariant-requirements.md §4).
-
-/// Builds the value-type sweep R-INV-4.1/4.4 iterate: one representative
-/// [`Value`] per value type in scope for U-CORE-4, plus a `Some`-wrapped
-/// `Number` and the shared `None` singleton.
 fn value_type_sweep(vm: &mut VM) -> Vec<(&'static str, Value)> {
     let string = vm.alloc_string_value("hi".to_string());
     let symbol = Value::Symbol(vm.get_or_intern("foo"));
-    let list = Value::Obj(vm.heap.alloc_list(vec![Value::Number(1.0), Value::Number(2.0)]));
+    let list = Value::Obj(vm.heap.alloc_list(vec![Value::Int(1), Value::Int(2)]));
     let none = Value::Obj(vm.universe.classes.none_singleton);
-    let some = some_new(vm, &Value::Nil, &[Value::Number(42.0)]).expect("Some.new(42) should succeed");
+    let some = some_new(vm, &Value::Nil, &[Value::Int(42)]).expect("Some.new(42) should succeed");
     vec![
-        ("Number", Value::Number(42.0)),
+        ("Number", Value::Int(42)),
         ("String", string),
         ("Symbol", symbol),
         ("Bool", Value::Bool(true)),
@@ -1428,10 +1349,6 @@ fn value_type_sweep(vm: &mut VM) -> Vec<(&'static str, Value)> {
 
 #[test]
 fn value_tostring_message_agrees_with_print_path() {
-    // R-INV-4.1 — for each value type in scope, the `toString` message
-    // (dispatch) equals `Value::to_string` (the `System.print` path). This is
-    // the invariant §2.5's `Value::to_string` extension (`None`/`Some`/`List`)
-    // and §2.4's Symbol-rendering unification both exist to satisfy.
     let mut vm = VM::new();
     for (label, value) in value_type_sweep(&mut vm) {
         let message = send0(&mut vm, value, "toString");
@@ -1443,10 +1360,6 @@ fn value_tostring_message_agrees_with_print_path() {
 
 #[test]
 fn value_object_default_tostring_is_angle_bracket_class_name() {
-    // R-INV-4.2 — a user class `Foo`'s instance `toString` is `"<Foo>"`
-    // (ADR-0015), and a `Number#toString` override elsewhere does not change
-    // it (the default lives on `Object`, `Number` shadows it only for
-    // `Number` receivers).
     let mut vm = VM::new();
     let module = vm.create_module("main", "value_object_default_tostring_is_angle_bracket_class_name");
     vm.interpret_source(module, "class Foo {}\nlet f = Foo.new()\n")
@@ -1457,7 +1370,7 @@ fn value_object_default_tostring_is_angle_bracket_class_name() {
     let rendered = send0(&mut vm, f, "toString");
     assert_eq!(rendered.to_string(&vm), "<Foo>", "a bare user instance should render as `<ClassName>`");
 
-    let number_rendered = send0(&mut vm, Value::Number(42.0), "toString");
+    let number_rendered = send0(&mut vm, Value::Int(42), "toString");
     assert_eq!(
         number_rendered.to_string(&vm),
         "42",
@@ -1467,24 +1380,20 @@ fn value_object_default_tostring_is_angle_bracket_class_name() {
 
 #[test]
 fn option_tostring_matches_none_and_wraps_some() {
-    // R-INV-4.3 — `None.toString == "None"` and
-    // `Some(x).toString == "Some(" + x.toString + ")"`.
     let mut vm = VM::new();
     let none = Value::Obj(vm.universe.classes.none_singleton);
     let none_rendered = send0(&mut vm, none, "toString");
     assert_eq!(none_rendered.to_string(&vm), "None");
 
-    let some = some_new(&mut vm, &Value::Nil, &[Value::Number(42.0)]).expect("Some.new(42) should succeed");
+    let some = some_new(&mut vm, &Value::Nil, &[Value::Int(42)]).expect("Some.new(42) should succeed");
     let some_rendered = send0(&mut vm, some, "toString");
     assert_eq!(some_rendered.to_string(&vm), "Some(42)");
 
-    // Nesting: `Some(None)` and `Some(Some(1))` respect the inner value's own
-    // `toString` (recursive over `match`, not a flat variant check).
     let some_none = some_new(&mut vm, &Value::Nil, &[none]).expect("Some.new(None) should succeed");
     let some_none_rendered = send0(&mut vm, some_none, "toString");
     assert_eq!(some_none_rendered.to_string(&vm), "Some(None)");
 
-    let inner_some = some_new(&mut vm, &Value::Nil, &[Value::Number(1.0)]).expect("Some.new(1) should succeed");
+    let inner_some = some_new(&mut vm, &Value::Nil, &[Value::Int(1)]).expect("Some.new(1) should succeed");
     let nested_some = some_new(&mut vm, &Value::Nil, &[inner_some]).expect("Some.new(Some.new(1)) should succeed");
     let nested_rendered = send0(&mut vm, nested_some, "toString");
     assert_eq!(nested_rendered.to_string(&vm), "Some(Some(1))");
@@ -1492,10 +1401,6 @@ fn option_tostring_matches_none_and_wraps_some() {
 
 #[test]
 fn value_tostring_is_total_and_never_leaks_nil() {
-    // R-INV-4.4 — value `toString` never raises over the value types and
-    // never surfaces the `Nil` sentinel: no rendered output contains the
-    // substring `"nil"`, and an empty-body `ifTrue` renders as `Some(None)`,
-    // never `Some(nil)`.
     let mut vm = VM::new();
     for (label, value) in value_type_sweep(&mut vm) {
         let sym = vm.get_or_intern("toString");
@@ -1505,8 +1410,6 @@ fn value_tostring_is_total_and_never_leaks_nil() {
         assert!(!text.contains("nil"), "{label}: toString rendered the raw `nil` sentinel: {text:?}");
     }
 
-    // The empty-body `ifTrue` case: the taken branch's absent result
-    // Some-lifts to `Some(None)`, and its message `toString` must agree.
     let module = vm.create_module("main", "value_tostring_is_total_and_never_leaks_nil");
     vm.interpret_source(module, "let r = true.ifTrue { }\n")
         .expect("empty ifTrue should compile and run");
@@ -1516,15 +1419,6 @@ fn value_tostring_is_total_and_never_leaks_nil() {
     assert_eq!(rendered.to_string(&vm), "Some(None)");
 }
 
-// ---------------------------------------------------------------------------
-// R-INV-6.x — U-CORE-6 unit invariants (`Error` root + `MessageNotUnderstood`,
-// ADR-0008/ADR-0037).
-// ---------------------------------------------------------------------------
-
-/// Walks `class_id`'s superclass chain, returning whether `target` appears
-/// anywhere on it (reflexive: `is_a(X, X)` holds). Test-local mirror of the
-/// surface `isA(_)` semantics (`core.ph`), used where a raw `ClassId` is more
-/// convenient than a `send_dynamic` round-trip.
 fn is_a(vm: &VM, mut class_id: ClassId, target: ClassId) -> bool {
     loop {
         if class_id == target {
@@ -1539,20 +1433,15 @@ fn is_a(vm: &VM, mut class_id: ClassId, target: ClassId) -> bool {
 
 #[test]
 fn genuine_miss_raises_surface_message_not_understood() {
-    // R-INV-6.2 — a genuine `doesNotUnderstand(_)` miss (not overridden)
-    // raises a *surface* `MessageNotUnderstood` through the unified unwind's
-    // `Raise` payload — not the retired native `RuntimeError::MessageNotUnderstood`.
     let mut vm = VM::new();
     let bogus = vm.get_or_intern("frobnicate");
-    let err = vm.send_dynamic(Value::Number(3.0), bogus, &[]).unwrap_err();
+    let err = vm.send_dynamic(Value::Int(3), bogus, &[]).unwrap_err();
 
-    // (a) It is the `Raise` payload.
     let raised = match err {
         PhError::Runtime(RuntimeError::Raise { error, .. }) => error,
         other => panic!("expected RuntimeError::Raise, got {other:?}"),
     };
 
-    // (b) The raised object isA(Error) and is exactly a MessageNotUnderstood.
     let cls = raised.class(&vm);
     assert_eq!(
         cls, vm.universe.classes.message_not_understood_class,
@@ -1563,7 +1452,6 @@ fn genuine_miss_raises_surface_message_not_understood() {
         "the raised MessageNotUnderstood must be isA(Error)"
     );
 
-    // (c) `Error#message` reads the rendered miss string (slot 0).
     let message = send0(&mut vm, raised, "message");
     assert_eq!(
         message.to_string(&vm),
@@ -1571,10 +1459,6 @@ fn genuine_miss_raises_surface_message_not_understood() {
         "Error#message should read the rendered miss string"
     );
 
-    // (d) Slot 1 carries the reified `Message` (census §2.14); its `selector`
-    // accessor should round-trip the missed selector symbol. `selector` lives
-    // on `Message`, not `Error`/`MessageNotUnderstood`, so read the reified
-    // `Message` out of slot 1 first, then send `selector` to *it*.
     let reified_message = match raised {
         Value::Obj(id) => vm.heap.as_instance(id).expect("MessageNotUnderstood should be an InstanceObject").slots[1],
         other => panic!("expected an Obj, got {other:?}"),
@@ -1593,14 +1477,10 @@ fn genuine_miss_raises_surface_message_not_understood() {
 
 #[test]
 fn only_error_subclasses_respond_to_raise() {
-    // R-INV-6.3 (runtime half) — `raise` is installed on `Error` only, so a
-    // non-`Error` receiver (`Number`, `String`) does not respond to it, while
-    // an `Error` (or subclass) instance does. The compile-time rejection of
-    // `throw 42` is the ADR-0031 error-syntax unit's job, not this one's.
     let mut vm = VM::new();
     let raise_sym = Value::Symbol(vm.get_or_intern("raise()"));
 
-    let responds_to_number = send1(&mut vm, Value::Number(3.0), "respondsTo(_)", raise_sym);
+    let responds_to_number = send1(&mut vm, Value::Int(3), "respondsTo(_)", raise_sym);
     assert!(matches!(responds_to_number, Value::Bool(false)), "a Number should not respond to `raise`");
 
     let error_instance = {
@@ -1615,11 +1495,6 @@ fn only_error_subclasses_respond_to_raise() {
 
 #[test]
 fn error_raise_unwinds_through_the_shared_raise_payload() {
-    // R-INV-6.2/6.3 (mechanism) — sending `raise()` to a bare `Error` instance
-    // raises the same `RuntimeError::Raise` payload as a genuine dNU miss,
-    // carrying the receiver itself as `error` and its own `message` as
-    // `rendered` (D3 — `error_raise` renders via a `message` send, not a
-    // direct slot read).
     let mut vm = VM::new();
     let error_class = vm.universe.classes.error_class;
     let field_count = vm.heap.class(error_class).field_count;
@@ -1644,11 +1519,6 @@ fn error_raise_unwinds_through_the_shared_raise_payload() {
 
 #[test]
 fn overriding_does_not_understand_still_intercepts_before_the_default_raise() {
-    // R-INV-6.4 — a user-defined `doesNotUnderstand(_)` override still runs
-    // *before* the default raise, exactly as before this unit. Guarded here
-    // at the corpus level (the .ph fixture
-    // `tests/lang/dispatch/dispatch_dnu_proxy_forwards.ph` covers the same
-    // proxy/forwarding shape end-to-end and must stay green).
     let mut vm = VM::new();
     let module = vm.create_module("main", "overriding_does_not_understand_still_intercepts_before_the_default_raise");
     vm.interpret_source(
@@ -1670,15 +1540,6 @@ fn overriding_does_not_understand_still_intercepts_before_the_default_raise() {
 
 #[test]
 fn on_catch_restore_survives_a_deep_throw_and_the_vm_stays_healthy() {
-    // U-ERR catch-restore invariant (error-handling.md §2, ADR-0038): after a
-    // deeply nested `throw` is caught by `on(_)`, the VM must have correctly
-    // `close_upvalues_from`-then-truncated back to the pre-`on` snapshot
-    // (`VM::unwind_to`) — not merely leave the *value* right, but leave the
-    // frame/stack machinery healthy enough that (a) the handler can allocate
-    // a fresh local (`let y = ...`) after the restore and (b) the VM can keep
-    // running further, wholly independent top-level code afterward. A missed
-    // upvalue-close or a botched truncate would very likely corrupt one of
-    // these, not just the handler's own return value.
     let mut vm = VM::new();
     let module = vm.create_module("main", "on_catch_restore_survives_a_deep_throw_and_the_vm_stays_healthy");
     vm.interpret_source(
@@ -1717,7 +1578,7 @@ let after = 1 + 2
     let after_sym = vm.interner.intern("after");
     let after_value = vm.heap.module(module).get(after_sym).expect("`after` global should exist");
     assert!(
-        matches!(after_value, Value::Number(n) if n == 3.0),
+        as_number(after_value) == 3.0,
         "the VM must stay healthy enough to keep running top-level code after the deep catch, got {after_value:?}"
     );
 }

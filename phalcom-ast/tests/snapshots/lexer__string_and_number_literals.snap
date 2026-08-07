@@ -16,7 +16,7 @@ expression: "tokens(r#\"let s = \"hello\" let n = 3.14\"#)"
         "n",
     ),
     Equal,
-    Number(
+    Float(
         3.14,
     ),
     Eof,

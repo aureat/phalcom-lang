@@ -36,7 +36,8 @@ pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     match arg {
         Value::Bool(b) => Ok(if *b { TRUE } else { FALSE }),
         Value::Nil => Ok(FALSE),
-        Value::Number(n) => Ok(if *n != 0.0 { TRUE } else { FALSE }),
+        Value::Int(n) => Ok(if *n != 0 { TRUE } else { FALSE }),
+        Value::Float(n) => Ok(if *n != 0.0 { TRUE } else { FALSE }),
         _ => Ok(TRUE),
     }
 }

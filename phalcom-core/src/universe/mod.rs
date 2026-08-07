@@ -67,6 +67,10 @@ pub struct Universe {
     /// cover — see [`crate::value::Value::to_display_string`]'s doc for why containers
     /// must never use this fast path at all).
     pub number_tostring_pristine: bool,
+    /// Override-epoch flag for `Int`'s `toString` getter.
+    pub int_tostring_pristine: bool,
+    /// Override-epoch flag for `Float`'s `toString` getter.
+    pub float_tostring_pristine: bool,
     /// Override-epoch flag for `Symbol`'s `toString` getter.
     ///
     /// Same rules as [`Universe::number_tostring_pristine`], watching the
@@ -111,6 +115,7 @@ impl Universe {
     /// compile rather than silently go unrooted (forge finding F6).
     ///
     /// `bool_sacred_pristine`/`block_sacred_pristine`/`number_tostring_pristine`/
+    /// `int_tostring_pristine`/`float_tostring_pristine`/
     /// `symbol_tostring_pristine`/`str_tostring_pristine` are `bool`
     /// override-epoch flags
     /// ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)),
@@ -121,6 +126,8 @@ impl Universe {
             bool_sacred_pristine: _,
             block_sacred_pristine: _,
             number_tostring_pristine: _,
+            int_tostring_pristine: _,
+            float_tostring_pristine: _,
             symbol_tostring_pristine: _,
             str_tostring_pristine: _,
             module_registry,
@@ -144,6 +151,8 @@ impl Universe {
             // bootstrap even finishes. [`VM::new`](crate::vm::VM::new)
             // snapshots all three to `true` once bootstrap completes.
             number_tostring_pristine: false,
+            int_tostring_pristine: false,
+            float_tostring_pristine: false,
             symbol_tostring_pristine: false,
             str_tostring_pristine: false,
             module_registry: HashMap::new(),
@@ -162,6 +171,8 @@ impl Universe {
 
     /// The `toString` getter selector watched by
     /// [`Universe::number_tostring_pristine`]/
+    /// [`Universe::int_tostring_pristine`]/
+    /// [`Universe::float_tostring_pristine`]/
     /// [`Universe::symbol_tostring_pristine`]/
     /// [`Universe::str_tostring_pristine`] on their respective kernel
     /// classes. A getter encodes to its bare name
@@ -192,6 +203,12 @@ impl Universe {
         if class_id == self.classes.block_class && Self::BLOCK_SACRED_SELECTORS.contains(&name) {
             self.block_sacred_pristine = false;
         }
+        if (class_id == self.classes.number_class || class_id == self.classes.int_class) && Self::LEAF_TOSTRING_SELECTORS.contains(&name) {
+            self.int_tostring_pristine = false;
+        }
+        if (class_id == self.classes.number_class || class_id == self.classes.float_class) && Self::LEAF_TOSTRING_SELECTORS.contains(&name) {
+            self.float_tostring_pristine = false;
+        }
         if class_id == self.classes.number_class && Self::LEAF_TOSTRING_SELECTORS.contains(&name) {
             self.number_tostring_pristine = false;
         }
@@ -205,6 +222,8 @@ impl Universe {
 
     /// Snapshots the leaf `toString` override-epoch flags
     /// ([`Universe::number_tostring_pristine`]/
+    /// [`Universe::int_tostring_pristine`]/
+    /// [`Universe::float_tostring_pristine`]/
     /// [`Universe::symbol_tostring_pristine`]/
     /// [`Universe::str_tostring_pristine`]) to `true`.
     ///
@@ -219,6 +238,8 @@ impl Universe {
     /// flag again.
     pub fn mark_leaf_tostring_pristine(&mut self) {
         self.number_tostring_pristine = true;
+        self.int_tostring_pristine = true;
+        self.float_tostring_pristine = true;
         self.symbol_tostring_pristine = true;
         self.str_tostring_pristine = true;
     }
@@ -284,7 +305,7 @@ mod tests {
             vm.universe.number_tostring_pristine,
             "post-bootstrap baseline must start pristine (VM::new calls mark_leaf_tostring_pristine last)"
         );
-        assert_eq!(Value::Number(1.0).to_display_string(&mut vm).unwrap(), "1");
+        assert_eq!(Value::Int(1).to_display_string(&mut vm).unwrap(), "1");
 
         let number_class = vm.universe.classes.number_class;
         let selector = vm.get_or_intern("toString");
@@ -303,7 +324,7 @@ mod tests {
             "installing toString on Number must flip the leaf fast-path flag"
         );
         assert_eq!(
-            Value::Number(1.0).to_display_string(&mut vm).unwrap(),
+            Value::Int(1).to_display_string(&mut vm).unwrap(),
             "N",
             "to_display_string must fall back to the real toString send"
         );
@@ -403,7 +424,7 @@ let d = true.ifTrue { }.isSome
         let block_class = vm.universe.classes.block_class;
         let while_true_selector = vm.get_or_intern("whileTrue(_)");
         fn returns_sentinel(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
-            Ok(Value::Number(-999.0))
+            Ok(Value::Int(-999))
         }
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             while_true_selector,
@@ -426,7 +447,7 @@ let r = { i < 3 }.whileTrue { i = i + 1 }
 
         assert_eq!(
             read_global(&vm, module, "r"),
-            Value::Number(-999.0),
+            Value::Int(-999),
             "the inlined whileTrue site must deopt to the real send and honor the override, not the fast loop"
         );
     }
@@ -487,7 +508,7 @@ let routed = Some.new(1).orElse { Some.new(9) }.match(some: { v => v }, none: { 
         assert_eq!(read_global(&vm, module, "someIsNone"), Value::Bool(true));
         assert_eq!(
             read_global(&vm, module, "routed"),
-            Value::Number(-1.0),
+            Value::Int(-1),
             "the fixture's own trailing explicit .match(...) call must also route through the override"
         );
     }

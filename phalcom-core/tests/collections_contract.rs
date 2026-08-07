@@ -50,8 +50,9 @@ fn send1(vm: &mut VM, receiver: Value, selector: &str, arg: Value) -> Value {
 /// `tests/invariants.rs::as_number`).
 fn as_number(value: Value) -> f64 {
     match value {
-        Value::Number(n) => n,
-        other => panic!("expected a Number, got {other:?}"),
+        Value::Int(n) => n as f64,
+        Value::Float(n) => n,
+        other => panic!("expected a number, got {other:?}"),
     }
 }
 
@@ -85,7 +86,7 @@ fn build_list(vm: &mut VM, elems: &[Value]) -> Value {
 fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mut VM, &[Value]) -> Value) {
     // L1/L2: size is a Number, >= 0, and == the element count, for n = 0..3.
     for n in 0..=3 {
-        let elems: Vec<Value> = (0..n).map(|i| Value::Number(i as f64)).collect();
+        let elems: Vec<Value> = (0..n).map(|i| Value::Int(i as i64)).collect();
         let collection = build(vm, &elems);
         let size = as_number(send0(vm, collection, "size"));
         assert!(size >= 0.0, "{}: size must be >= 0, got {size}", spec.class_name);
@@ -93,7 +94,7 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
 
         // L3: at(i) recovers each element by its own `==`, for 0 <= i < n.
         for (i, elem) in elems.iter().enumerate() {
-            let got = send1(vm, collection, "at(_)", Value::Number(i as f64));
+            let got = send1(vm, collection, "at(_)", Value::Int(i as i64));
             assert!(
                 as_bool(send1(vm, got, "==(_)", *elem)),
                 "{}: at({i}) should recover the element it was built with",
@@ -103,7 +104,7 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
 
         // L4: at(n) (and beyond) is the `None` singleton — total, never a
         // panic, never the raw `nil` sentinel (Invariant 4).
-        let out_of_range = send1(vm, collection, "at(_)", Value::Number(n as f64));
+        let out_of_range = send1(vm, collection, "at(_)", Value::Int(n as i64));
         assert!(
             matches!(out_of_range, Value::Obj(id) if id == vm.universe.classes.none_singleton),
             "{}: at(size) must surface the None singleton",
@@ -115,14 +116,14 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
     // L5: add(x) grows size by 1 and at(oldSize) == x (mutable collections
     // only); add returns the (chainable) receiver.
     if spec.mutable {
-        let collection = build(vm, &[Value::Number(1.0), Value::Number(2.0)]);
+        let collection = build(vm, &[Value::Int(1), Value::Int(2)]);
         let old_size = as_number(send0(vm, collection, "size"));
-        let returned = send1(vm, collection, "add(_)", Value::Number(42.0));
+        let returned = send1(vm, collection, "add(_)", Value::Int(42));
         let new_size = as_number(send0(vm, collection, "size"));
         assert_eq!(new_size, old_size + 1.0, "{}: add(_) must grow size by 1", spec.class_name);
-        let last = send1(vm, collection, "at(_)", Value::Number(old_size));
+        let last = send1(vm, collection, "at(_)", Value::Int(old_size as i64));
         assert!(
-            as_bool(send1(vm, last, "==(_)", Value::Number(42.0))),
+            as_bool(send1(vm, last, "==(_)", Value::Int(42))),
             "{}: add(x) must place x at the old size index",
             spec.class_name
         );
@@ -135,7 +136,7 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
 
     // E1/E3/E4: A == B (equal elements, same order) is true; A == A is true
     // (reflexive); (A == B) == (B == A) (symmetric).
-    let elems = [Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)];
+    let elems = [Value::Int(1), Value::Int(2), Value::Int(3)];
     let a = build(vm, &elems);
     let b = build(vm, &elems);
     let a_eq_b = as_bool(send1(vm, a, "==(_)", b));
@@ -145,12 +146,12 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
     assert_eq!(a_eq_b, b_eq_a, "{}: == must be symmetric", spec.class_name);
 
     // E2: cross-kind comparison is false, never a dNU.
-    let cross_kind = send1(vm, a, "==(_)", Value::Number(1.0));
+    let cross_kind = send1(vm, a, "==(_)", Value::Int(1));
     assert!(!as_bool(cross_kind), "{}: == must be false across collection kinds", spec.class_name);
 
     // E1/E5: a collection differing at one index is unequal; transitivity
     // via a second equal-to-`b` collection.
-    let differing = [Value::Number(1.0), Value::Number(9.0), Value::Number(3.0)];
+    let differing = [Value::Int(1), Value::Int(9), Value::Int(3)];
     let c = build(vm, &differing);
     assert!(
         !as_bool(send1(vm, a, "==(_)", c)),
@@ -205,7 +206,7 @@ fn build_map(vm: &mut VM, elems: &[Value]) -> Value {
     let map = send0(vm, map_class, "new()");
     for (i, elem) in elems.iter().enumerate() {
         let sym = vm.get_or_intern("at(_,put)");
-        vm.send_dynamic(map, sym, &[Value::Number(i as f64), *elem]).expect("Map#at(_,put) failed");
+        vm.send_dynamic(map, sym, &[Value::Int(i as i64), *elem]).expect("Map#at(_,put) failed");
     }
     map
 }
@@ -263,28 +264,28 @@ fn map_key_overwrite_and_remove_idempotence() {
     let map = send0(&mut vm, map_class, "new()");
     let sym_put = vm.get_or_intern("at(_,put)");
 
-    vm.send_dynamic(map, sym_put, &[Value::Number(1.0), Value::Number(10.0)]).unwrap();
+    vm.send_dynamic(map, sym_put, &[Value::Int(1), Value::Int(10)]).unwrap();
     let size_after_first = as_number(send0(&mut vm, map, "size"));
     assert_eq!(size_after_first, 1.0, "one entry after first put");
 
     // Overwrite: same key, new value — size unchanged, value updated.
-    vm.send_dynamic(map, sym_put, &[Value::Number(1.0), Value::Number(20.0)]).unwrap();
+    vm.send_dynamic(map, sym_put, &[Value::Int(1), Value::Int(20)]).unwrap();
     let size_after_overwrite = as_number(send0(&mut vm, map, "size"));
     assert_eq!(size_after_overwrite, 1.0, "overwrite must not grow size");
-    let got = send1(&mut vm, map, "at(_)", Value::Number(1.0));
+    let got = send1(&mut vm, map, "at(_)", Value::Int(1));
     assert_eq!(as_number(got), 20.0, "overwrite must update the stored value");
 
     // Missing key -> the None singleton (total, never nil, never a raise).
-    let missing = send1(&mut vm, map, "at(_)", Value::Number(999.0));
+    let missing = send1(&mut vm, map, "at(_)", Value::Int(999));
     assert!(matches!(missing, Value::Obj(id) if id == vm.universe.classes.none_singleton));
 
     // remove(absent) is a no-op returning self.
-    let returned = send1(&mut vm, map, "remove(_)", Value::Number(999.0));
+    let returned = send1(&mut vm, map, "remove(_)", Value::Int(999));
     assert_eq!(returned, map, "remove(absent) returns self");
     assert_eq!(as_number(send0(&mut vm, map, "size")), 1.0, "remove(absent) must not shrink size");
 
     // remove(present) actually deletes.
-    send1(&mut vm, map, "remove(_)", Value::Number(1.0));
+    send1(&mut vm, map, "remove(_)", Value::Int(1));
     assert_eq!(as_number(send0(&mut vm, map, "size")), 0.0, "remove(present) must shrink size");
 }
 
@@ -296,18 +297,18 @@ fn set_add_and_remove_idempotence() {
     let set_class = Value::Obj(vm.universe.classes.set_class);
     let set = send0(&mut vm, set_class, "new()");
 
-    send1(&mut vm, set, "add(_)", Value::Number(7.0));
-    send1(&mut vm, set, "add(_)", Value::Number(7.0));
+    send1(&mut vm, set, "add(_)", Value::Int(7));
+    send1(&mut vm, set, "add(_)", Value::Int(7));
     assert_eq!(as_number(send0(&mut vm, set, "size")), 1.0, "duplicate add must not grow size");
-    assert!(as_bool(send1(&mut vm, set, "includes(_)", Value::Number(7.0))));
+    assert!(as_bool(send1(&mut vm, set, "includes(_)", Value::Int(7))));
 
-    let returned = send1(&mut vm, set, "remove(_)", Value::Number(999.0));
+    let returned = send1(&mut vm, set, "remove(_)", Value::Int(999));
     assert_eq!(returned, set, "remove(absent) returns self");
     assert_eq!(as_number(send0(&mut vm, set, "size")), 1.0, "remove(absent) must not shrink size");
 
-    send1(&mut vm, set, "remove(_)", Value::Number(7.0));
+    send1(&mut vm, set, "remove(_)", Value::Int(7));
     assert_eq!(as_number(send0(&mut vm, set, "size")), 0.0, "remove(present) must shrink size");
-    assert!(!as_bool(send1(&mut vm, set, "includes(_)", Value::Number(7.0))));
+    assert!(!as_bool(send1(&mut vm, set, "includes(_)", Value::Int(7))));
 }
 
 /// Builds a `Tuple` from element values via the surface freeze path
@@ -343,19 +344,19 @@ fn tuple_satisfies_sequence_contract() {
 #[test]
 fn tuple_value_hash_and_immutability() {
     let mut vm = VM::new();
-    let a = build_tuple(&mut vm, &[Value::Number(1.0), Value::Number(2.0)]);
-    let b = build_tuple(&mut vm, &[Value::Number(1.0), Value::Number(2.0)]);
+    let a = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
+    let b = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
     assert!(as_bool(send1(&mut vm, a, "==(_)", b)), "independently-built equal tuples must compare ==");
     let hash_a = as_number(send0(&mut vm, a, "hash"));
     let hash_b = as_number(send0(&mut vm, b, "hash"));
     assert_eq!(hash_a, hash_b, "value-equal tuples must hash equal");
 
-    let differing = build_tuple(&mut vm, &[Value::Number(1.0), Value::Number(3.0)]);
+    let differing = build_tuple(&mut vm, &[Value::Int(1), Value::Int(3)]);
     let hash_c = as_number(send0(&mut vm, differing, "hash"));
     assert_ne!(hash_a, hash_c, "differing tuples should (almost certainly) hash differently");
 
     // Cross-kind: a same-content List is never == a Tuple (E2).
-    let list_same_content = build_list(&mut vm, &[Value::Number(1.0), Value::Number(2.0)]);
+    let list_same_content = build_list(&mut vm, &[Value::Int(1), Value::Int(2)]);
     assert!(
         !as_bool(send1(&mut vm, a, "==(_)", list_same_content)),
         "Tuple must never == a List, even same content"
@@ -364,11 +365,11 @@ fn tuple_value_hash_and_immutability() {
     // No mutation selector: `at(_,put)` and `add(_)` both miss (dNU).
     let sym_put = vm.get_or_intern("at(_,put)");
     assert!(
-        vm.send_dynamic(a, sym_put, &[Value::Number(0.0), Value::Number(9.0)]).is_err(),
+        vm.send_dynamic(a, sym_put, &[Value::Int(0), Value::Int(9)]).is_err(),
         "Tuple must not respond to at(_,put)"
     );
     let sym_add = vm.get_or_intern("add(_)");
-    assert!(vm.send_dynamic(a, sym_add, &[Value::Number(9.0)]).is_err(), "Tuple must not respond to add(_)");
+    assert!(vm.send_dynamic(a, sym_add, &[Value::Int(9)]).is_err(), "Tuple must not respond to add(_)");
 }
 
 /// `Tuple` as a valid `Map` key (tuple-and-range.md; the re-entrant
@@ -379,11 +380,11 @@ fn tuple_is_a_valid_map_key() {
     let mut vm = VM::new();
     let map_class = Value::Obj(vm.universe.classes.map_class);
     let map = send0(&mut vm, map_class, "new()");
-    let key1 = build_tuple(&mut vm, &[Value::Number(1.0), Value::Number(2.0)]);
+    let key1 = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
     let sym_put = vm.get_or_intern("at(_,put)");
-    vm.send_dynamic(map, sym_put, &[key1, Value::Number(9.0)]).unwrap();
+    vm.send_dynamic(map, sym_put, &[key1, Value::Int(9)]).unwrap();
 
-    let key2 = build_tuple(&mut vm, &[Value::Number(1.0), Value::Number(2.0)]);
+    let key2 = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
     let got = send1(&mut vm, map, "at(_)", key2);
     assert_eq!(
         as_number(got),
@@ -410,7 +411,7 @@ fn tuple_is_a_valid_map_key() {
 fn build_range(vm: &mut VM, elems: &[Value]) -> Value {
     let range_class = Value::Obj(vm.universe.classes.range_class);
     let sym = vm.get_or_intern("new(_,_,_)");
-    vm.send_dynamic(range_class, sym, &[Value::Number(0.0), Value::Number(elems.len() as f64), Value::Bool(false)])
+    vm.send_dynamic(range_class, sym, &[Value::Int(0), Value::Int(elems.len() as i64), Value::Bool(false)])
         .expect("Range.new failed")
 }
 
@@ -427,15 +428,15 @@ fn range_satisfies_the_applicable_sequence_laws() {
 
     // L1-L4: size/at/None-on-oob, for n = 0..3, exactly as assert_sequence_contract's loop.
     for n in 0..=3 {
-        let elems: Vec<Value> = (0..n).map(|i| Value::Number(i as f64)).collect();
+        let elems: Vec<Value> = (0..n).map(|i| Value::Int(i as i64)).collect();
         let range = build_range(&mut vm, &elems);
         let size = as_number(send0(&mut vm, range, "size"));
         assert_eq!(size, n as f64, "Range: size must equal the element count");
         for i in 0..n {
-            let got = send1(&mut vm, range, "at(_)", Value::Number(i as f64));
+            let got = send1(&mut vm, range, "at(_)", Value::Int(i as i64));
             assert_eq!(as_number(got), i as f64, "Range: at({i}) should recover the generated element");
         }
-        let out_of_range = send1(&mut vm, range, "at(_)", Value::Number(n as f64));
+        let out_of_range = send1(&mut vm, range, "at(_)", Value::Int(n as i64));
         assert!(
             matches!(out_of_range, Value::Obj(id) if id == vm.universe.classes.none_singleton),
             "Range: at(size) must surface the None singleton"
@@ -443,7 +444,7 @@ fn range_satisfies_the_applicable_sequence_laws() {
     }
 
     // E1/E3/E4/E6: two independently-built equal ranges.
-    let elems = [Value::Number(1.0), Value::Number(2.0), Value::Number(3.0)];
+    let elems = [Value::Int(1), Value::Int(2), Value::Int(3)];
     let a = build_range(&mut vm, &elems);
     let b = build_range(&mut vm, &elems);
     assert!(
@@ -457,13 +458,13 @@ fn range_satisfies_the_applicable_sequence_laws() {
     let range_class = Value::Obj(vm.universe.classes.range_class);
     let sym_new = vm.get_or_intern("new(_,_,_)");
     let differing = vm
-        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(9.0), Value::Bool(false)])
+        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(9), Value::Bool(false)])
         .unwrap();
     assert!(!as_bool(send1(&mut vm, a, "==(_)", differing)), "Range: differing bounds must compare unequal");
     assert!(as_bool(send1(&mut vm, a, "!=(_)", differing)), "Range: != must hold where == fails");
 
     // E2: cross-kind is false, never a dNU.
-    assert!(!as_bool(send1(&mut vm, a, "==(_)", Value::Number(1.0))), "Range: == must be false across kinds");
+    assert!(!as_bool(send1(&mut vm, a, "==(_)", Value::Int(1))), "Range: == must be false across kinds");
 
     // H2: value-equal (independently-built) ranges hash equal.
     let hash_a = as_number(send0(&mut vm, a, "hash"));
@@ -483,40 +484,40 @@ fn range_inclusive_exclusive_parity_and_to_list_roundtrip() {
 
     // Range.new(1, 5, true) — inclusive: 1,2,3,4,5.
     let inclusive = vm
-        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(true)])
+        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(5), Value::Bool(true)])
         .unwrap();
     assert_eq!(as_number(send0(&mut vm, inclusive, "size")), 5.0, "inclusive size: 5-1+1 = 5");
     assert_eq!(as_number(send0(&mut vm, inclusive, "first")), 1.0);
     assert_eq!(as_number(send0(&mut vm, inclusive, "last")), 5.0, "inclusive last == end");
     assert!(
-        as_bool(send1(&mut vm, inclusive, "includes(_)", Value::Number(5.0))),
+        as_bool(send1(&mut vm, inclusive, "includes(_)", Value::Int(5))),
         "inclusive range includes its end bound"
     );
 
     let list_inclusive = send0(&mut vm, inclusive, "toList");
     for (i, expected) in [1.0, 2.0, 3.0, 4.0, 5.0].iter().enumerate() {
-        let got = send1(&mut vm, list_inclusive, "at(_)", Value::Number(i as f64));
+        let got = send1(&mut vm, list_inclusive, "at(_)", Value::Int(i as i64));
         assert_eq!(as_number(got), *expected, "toList element {i}");
     }
 
     // Range.new(1, 5, false) — exclusive: 1,2,3,4.
     let exclusive = vm
-        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(false)])
+        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(5), Value::Bool(false)])
         .unwrap();
     assert_eq!(as_number(send0(&mut vm, exclusive, "size")), 4.0, "exclusive size: 5-1 = 4");
     assert_eq!(as_number(send0(&mut vm, exclusive, "last")), 4.0, "exclusive last == end-1");
     assert!(
-        !as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Number(5.0))),
+        !as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Int(5))),
         "exclusive range excludes its end bound"
     );
     assert!(
-        as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Number(4.0))),
+        as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Int(4))),
         "exclusive range includes end-1"
     );
 
     // Value-hash equality + structural == over independently-built ranges.
     let inclusive2 = vm
-        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(5.0), Value::Bool(true)])
+        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(5), Value::Bool(true)])
         .unwrap();
     assert!(as_bool(send1(&mut vm, inclusive, "==(_)", inclusive2)));
     assert_eq!(as_number(send0(&mut vm, inclusive, "hash")), as_number(send0(&mut vm, inclusive2, "hash")));
@@ -536,10 +537,10 @@ fn range_is_lazy_for_a_million_element_bound() {
     let sym_new = vm.get_or_intern("new(_,_,_)");
     let start = std::time::Instant::now();
     let big = vm
-        .send_dynamic(range_class, sym_new, &[Value::Number(1.0), Value::Number(1_000_000.0), Value::Bool(true)])
+        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(1_000_000), Value::Bool(true)])
         .unwrap();
     let size = as_number(send0(&mut vm, big, "size"));
-    let includes = as_bool(send1(&mut vm, big, "includes(_)", Value::Number(500_000.0)));
+    let includes = as_bool(send1(&mut vm, big, "includes(_)", Value::Int(500_000)));
     let elapsed = start.elapsed();
     assert_eq!(size, 1_000_000.0);
     assert!(includes);
@@ -561,7 +562,7 @@ fn mutable_collection_key_is_rejected() {
     let list_class = Value::Obj(vm.universe.classes.list_class);
     let mutable_key = send0(&mut vm, list_class, "new()");
     let sym_put = vm.get_or_intern("at(_,put)");
-    let result = vm.send_dynamic(map, sym_put, &[mutable_key, Value::Number(1.0)]);
+    let result = vm.send_dynamic(map, sym_put, &[mutable_key, Value::Int(1)]);
     assert!(result.is_err(), "Map#at(_,put) with a mutable List key must raise, not silently admit it");
 
     let set_class = Value::Obj(vm.universe.classes.set_class);

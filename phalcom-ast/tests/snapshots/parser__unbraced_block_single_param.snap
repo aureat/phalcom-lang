@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 250
 expression: "parse(\"n => n * 2\")"
 ---
 Program {
@@ -22,8 +23,9 @@ Program {
                                             end: 6,
                                         },
                                     },
-                                    right: Number {
-                                        value: 2.0,
+                                    right: Int {
+                                        digits: "2",
+                                        radix: 10,
                                         range: CopyRange {
                                             start: 9,
                                             end: 10,

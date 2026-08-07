@@ -126,7 +126,8 @@ use phalcom_common::range::SourceRange;
 
 fn is_pure_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Number { .. }
+        Expr::Int { .. }
+        | Expr::Float { .. }
         | Expr::String { .. }
         | Expr::Boolean { .. }
         | Expr::Var { .. }
@@ -148,8 +149,8 @@ fn is_pure_expr(expr: &Expr) -> bool {
         Expr::Index(i) => is_pure_expr(&i.object) && i.args.iter().all(|a| is_pure_expr(&a.expr)),
         Expr::Block(b) => b.body.iter().all(|s| match s {
             Statement::Expr { expr, .. } => is_pure_expr(expr),
-            Statement::Let(l) => l.value.as_ref().map_or(true, |v| is_pure_expr(v)),
-            Statement::Return(r) => r.value.as_ref().map_or(true, |v| is_pure_expr(v)),
+            Statement::Let(l) => l.value.as_ref().is_none_or(is_pure_expr),
+            Statement::Return(r) => r.value.as_ref().is_none_or(is_pure_expr),
             _ => false,
         }),
         _ => true,
@@ -297,7 +298,7 @@ impl AttributeExpander for EnsuresExpander {
 
         for arg in args {
             let mut rewritten_arg = arg.clone();
-            rewrite_old_calls(&mut rewritten_arg, &mut old_lets, &mut new_args, ctx)?;
+            rewrite_old_calls(&mut rewritten_arg, &mut old_lets)?;
             new_args.push(rewritten_arg);
         }
 
@@ -312,7 +313,7 @@ impl AttributeExpander for EnsuresExpander {
         new_body.append(body);
 
         // Append ensures checks at the end if the body doesn't end with an explicit Return
-        let last_is_return = body.last().map_or(false, |s| matches!(s, Statement::Return(_)));
+        let last_is_return = body.last().is_some_and(|s| matches!(s, Statement::Return(_)));
         if !last_is_return {
             // Bind last expression to __result if it's Statement::Expr
             let mut result_stmt = None;
@@ -353,11 +354,11 @@ impl AttributeExpander for EnsuresExpander {
     }
 }
 
-fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>, new_args: &mut Vec<Expr>, ctx: &mut ExpandCtx) -> Result<(), CompilerError> {
+fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(), CompilerError> {
     match expr {
         Expr::MethodCall(m) if as_old_call(m) => {
             let mut inner = m.args[0].expr.clone();
-            rewrite_old_calls(&mut inner, old_lets, new_args, ctx)?;
+            rewrite_old_calls(&mut inner, old_lets)?;
 
             // contract.old_on_mutable: capturing the whole receiver aliases
             // the live, mutable object — `old(self)`/`old(super)` can never
@@ -391,23 +392,23 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>, new_args: &
             *expr = Expr::Var { value: var_name, range };
         }
         Expr::MethodCall(m) => {
-            rewrite_old_calls(&mut m.object, old_lets, new_args, ctx)?;
+            rewrite_old_calls(&mut m.object, old_lets)?;
             for arg in &mut m.args {
-                rewrite_old_calls(&mut arg.expr, old_lets, new_args, ctx)?;
+                rewrite_old_calls(&mut arg.expr, old_lets)?;
             }
         }
-        Expr::Unary(u) => rewrite_old_calls(&mut u.expr, old_lets, new_args, ctx)?,
+        Expr::Unary(u) => rewrite_old_calls(&mut u.expr, old_lets)?,
         Expr::Binary(b) => {
-            rewrite_old_calls(&mut b.left, old_lets, new_args, ctx)?;
-            rewrite_old_calls(&mut b.right, old_lets, new_args, ctx)?;
+            rewrite_old_calls(&mut b.left, old_lets)?;
+            rewrite_old_calls(&mut b.right, old_lets)?;
         }
         Expr::Index(i) => {
-            rewrite_old_calls(&mut i.object, old_lets, new_args, ctx)?;
+            rewrite_old_calls(&mut i.object, old_lets)?;
             for arg in &mut i.args {
-                rewrite_old_calls(&mut arg.expr, old_lets, new_args, ctx)?;
+                rewrite_old_calls(&mut arg.expr, old_lets)?;
             }
         }
-        Expr::GetProperty(g) => rewrite_old_calls(&mut g.object, old_lets, new_args, ctx)?,
+        Expr::GetProperty(g) => rewrite_old_calls(&mut g.object, old_lets)?,
         _ => {}
     }
     Ok(())
@@ -712,8 +713,8 @@ pub struct AttributeRegistry {
     expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 14],
 }
 
-impl AttributeRegistry {
-    pub fn new() -> Self {
+impl Default for AttributeRegistry {
+    fn default() -> Self {
         let mut expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 14] = Default::default();
         expanders[BuiltinAttr::Requires as usize] = Some(Box::new(RequiresExpander));
         expanders[BuiltinAttr::Ensures as usize] = Some(Box::new(EnsuresExpander));
@@ -730,6 +731,12 @@ impl AttributeRegistry {
         expanders[BuiltinAttr::Native as usize] = Some(Box::new(NativeExpander));
         expanders[BuiltinAttr::Ignore as usize] = Some(Box::new(IgnoreExpander));
         Self { expanders }
+    }
+}
+
+impl AttributeRegistry {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn get_builtin(&self, attr: BuiltinAttr) -> Option<&(dyn AttributeExpander + Send + Sync)> {
@@ -1072,7 +1079,11 @@ fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
                 let scaled = Expr::Binary(Box::new(BinaryExpr {
                     op: BinaryOp::Multiply,
                     left,
-                    right: Expr::Number { value: 31.0, range },
+                    right: Expr::Int {
+                        digits: "31".to_string(),
+                        radix: 10,
+                        range,
+                    },
                     range,
                 }));
                 Expr::Binary(Box::new(BinaryExpr {
@@ -1084,7 +1095,7 @@ fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
             }
         });
     }
-    acc.unwrap_or(Expr::Number { value: 0.0, range })
+    acc.unwrap_or(Expr::Float { value: 0.0, range })
 }
 
 /// Builds `@data`'s derived `toString` getter body ([`derive_data`]):

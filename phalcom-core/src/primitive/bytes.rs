@@ -29,7 +29,11 @@ use crate::vm::VM;
 /// fractional, non-finite, negative, or above 255 (`bytes.md` law 2: no path
 /// by which a non-octet enters a buffer).
 fn expect_octet(value: &Value) -> PhResult<u8> {
-    if let Value::Number(n) = value {
+    if let Value::Int(n) = value {
+        if (0..=255).contains(n) {
+            return Ok(*n as u8);
+        }
+    } else if let Value::Float(n) = value {
         if n.is_finite() && n.fract() == 0.0 && (0.0..=255.0).contains(n) {
             return Ok(*n as u8);
         }
@@ -80,7 +84,7 @@ pub fn bytes_class_from_string(vm: &mut VM, _receiver: &Value, args: &[Value]) -
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Bytes`.
 pub fn bytes_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
-    Ok(Value::Number(vm.heap.bytes(id).len() as f64))
+    Ok(Value::Int(vm.heap.bytes(id).len() as i64))
 }
 
 /// Signature: `Bytes::at_(_)` — raw octet read.
@@ -98,7 +102,7 @@ pub fn bytes_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     let id: ObjRef = expect_bytes(vm, receiver)?;
     let index = expect_index(&args[0])?;
     match vm.heap.bytes(id).get(index) {
-        Some(octet) => Ok(Value::Number(octet as f64)),
+        Some(octet) => Ok(Value::Int(octet as i64)),
         None => Ok(vm.none_value()),
     }
 }

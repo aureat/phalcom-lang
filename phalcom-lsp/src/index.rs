@@ -537,7 +537,8 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
                 out.push((value.clone(), *range));
             }
         }
-        Expr::Number { .. }
+        Expr::Int { .. }
+        | Expr::Float { .. }
         | Expr::String { .. }
         | Expr::Boolean { .. }
         | Expr::Field { .. }
@@ -710,7 +711,8 @@ impl Collector {
 
     fn walk_expr(&mut self, expr: &Expr) {
         match expr {
-            Expr::Number { .. }
+            Expr::Int { .. }
+            | Expr::Float { .. }
             | Expr::String { .. }
             | Expr::Boolean { .. }
             | Expr::Var { .. }

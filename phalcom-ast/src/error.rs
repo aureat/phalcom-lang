@@ -137,6 +137,10 @@ pub enum SyntaxErrorKind {
         expected: Vec<String>,
     },
 
+    /// A numeric literal was malformed.
+    #[error("numeric.literal")]
+    NumericLiteral,
+
     /// An integer literal could not be parsed.
     #[error("Invalid integer")]
     InvalidInteger,
@@ -192,6 +196,7 @@ impl SyntaxErrorKind {
             Self::UnexpectedInput { .. } => "syntax.unexpected_input",
             Self::UnrecognizedEof { .. } => "syntax.unrecognized_eof",
             Self::UnrecognizedToken { .. } => "syntax.unrecognized_token",
+            Self::NumericLiteral => "syntax.numeric_literal",
             Self::InvalidInteger => "number.invalid_integer",
             Self::InvalidFloat => "number.invalid_float",
             Self::UnterminatedString => "string.unterminated",

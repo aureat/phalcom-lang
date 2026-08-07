@@ -154,6 +154,43 @@ pub enum RuntimeError {
     #[error("Invalid argument: {0}")]
     ArgumentError(String),
 
+    #[error("Division by zero")]
+    DivideByZero,
+
+    #[error("Non-finite number: {0}")]
+    NonFiniteNumber(String),
+
+    #[error("Numeric limit exceeded: {0}")]
+    NumericLimit(String),
+
+    #[error("Invalid shift count: {0}")]
+    InvalidShift(String),
+
+    #[error("Invalid bit index: {0}")]
+    InvalidBitIndex(String),
+
+    #[error("Undefined numeric operation: {0}")]
+    UndefinedNumericOperation(String),
+
+    #[error("Numeric conversion error: expected {expected}, found {found} (operation: {operation})")]
+    NumericConversion {
+        expected: &'static str,
+        found: &'static str,
+        operation: &'static str,
+    },
+
+    #[error("Numeric overflow in {operation} targeting {target_type}")]
+    NumericOverflow { operation: &'static str, target_type: &'static str },
+
+    #[error("invalid {target_type} text at byte {byte_offset}")]
+    NumericText { target_type: &'static str, byte_offset: usize },
+
+    #[error("cannot instantiate abstract class {class}")]
+    AbstractClass { class: &'static str },
+
+    #[error("hash must return Int, got {actual_type}")]
+    InvalidHash { actual_type: &'static str },
+
     #[error("cannot instantiate from '{value}': it is a {found}, not a class")]
     InstantiateNonClass { value: String, found: &'static str },
 
@@ -259,12 +296,24 @@ macro_rules! expect_value {
             }
         }
     }};
-    ($value:expr, Number) => {{
+    ($value:expr, Int) => {{
         match $value {
-            Value::Number(n) => *n,
+            Value::Int(n) => *n,
             other => {
                 return Err(RuntimeError::Type {
-                    expected: "Number",
+                    expected: "Int",
+                    found: other.type_name(),
+                }
+                .into());
+            }
+        }
+    }};
+    ($value:expr, Float) => {{
+        match $value {
+            Value::Float(n) => *n,
+            other => {
+                return Err(RuntimeError::Type {
+                    expected: "Float",
                     found: other.type_name(),
                 }
                 .into());

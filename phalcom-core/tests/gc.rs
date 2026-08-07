@@ -144,7 +144,7 @@ fn deep_chain_collects_without_stack_overflow() {
 fn surviving_objects_keep_their_handles() {
     let (mut vm, _) = settled_vm();
 
-    let survivor = alloc_instance(&mut vm, vec![Value::Number(42.0)]);
+    let survivor = alloc_instance(&mut vm, vec![Value::Int(42)]);
     vm.push_root_for_test(Value::Obj(survivor));
 
     // Allocate garbage around it so the sweep genuinely has work to do.
@@ -155,7 +155,7 @@ fn surviving_objects_keep_their_handles() {
     vm.force_gc();
 
     match vm.heap.get(survivor) {
-        Object::Instance(inst) => assert_eq!(inst.slots[0], Value::Number(42.0)),
+        Object::Instance(inst) => assert_eq!(inst.slots[0], Value::Int(42)),
         _ => panic!("survivor's handle must still name the same object"),
     }
     vm.pop_root_for_test();

@@ -9,8 +9,9 @@ expression: "tokens(\"#!/usr/bin/env phalcom\\nlet x = 1\")"
         "x",
     ),
     Equal,
-    Number(
-        1.0,
-    ),
+    Int {
+        digits: "1",
+        radix: 10,
+    },
     Eof,
 ]

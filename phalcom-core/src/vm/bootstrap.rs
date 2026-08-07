@@ -59,6 +59,7 @@ impl VM {
             native_class: None,
             resources: crate::resource::ResourceTable::new(),
             strict_resources: false,
+            numeric_policy: crate::value::NumericPolicy::standard(),
 
             #[cfg(feature = "fiber-pool")]
             fiber_pool: Vec::new(),

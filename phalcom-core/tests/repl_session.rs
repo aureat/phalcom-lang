@@ -18,7 +18,7 @@ fn globals_persist_across_cells() {
 
     let c2 = vm.compile_closure_as(module, "x\n", UnitKind::Repl).unwrap();
     let res2 = vm.run_cell(module, c2).unwrap();
-    assert_eq!(res2, Value::Number(42.0), "cell 2 reads global x from cell 1");
+    assert_eq!(res2, Value::Int(42), "cell 2 reads global x from cell 1");
 }
 
 /// `echo_mode_keeps_final_expression`: Repl unit keeps final expression value on stack.
@@ -29,7 +29,7 @@ fn echo_mode_keeps_final_expression() {
 
     let c_repl = vm.compile_closure_as(module, "10 + 20\n", UnitKind::Repl).unwrap();
     let res_repl = vm.run_cell(module, c_repl).unwrap();
-    assert_eq!(res_repl, Value::Number(30.0), "Repl unit returns final expression");
+    assert_eq!(res_repl, Value::Int(30), "Repl unit returns final expression");
 }
 
 /// `statement_cell_echoes_nothing`: A statement cell yields Nil (surfaced as None).
@@ -55,7 +55,7 @@ fn underscore_binds_last_value() {
 
     let c1 = vm.compile_closure_as(module, "100 + 200\n", UnitKind::Repl).unwrap();
     let val1 = vm.run_cell(module, c1).unwrap();
-    assert_eq!(val1, Value::Number(300.0));
+    assert_eq!(val1, Value::Int(300));
 
     let module_sym = vm.heap.module(module).symbol();
     let underscore_sym = vm.get_or_intern("_");
@@ -63,7 +63,7 @@ fn underscore_binds_last_value() {
 
     let c2 = vm.compile_closure_as(module, "_ + 50\n", UnitKind::Repl).unwrap();
     let val2 = vm.run_cell(module, c2).unwrap();
-    assert_eq!(val2, Value::Number(350.0), "_ evaluates to 300");
+    assert_eq!(val2, Value::Int(350), "_ evaluates to 300");
 }
 
 /// `open_upvalue_hygiene_across_cells`: Load-bearing test for §D10.
@@ -96,7 +96,7 @@ fn open_upvalue_hygiene_across_cells() {
     let res2 = vm.run_cell(module, c2).expect("cell 2 should execute without stack aliasing corruption");
     assert_eq!(
         res2,
-        Value::Number(999.0),
+        Value::Int(999),
         "captured upvalue secret remains 999 and is not corrupted by cell 2's stack"
     );
 }
@@ -124,8 +124,8 @@ fn class_redefinition_shadows() {
     if let Value::Obj(id) = res {
         if let Object::List(list) = vm.heap.get(id) {
             let elems = list.elements();
-            assert_eq!(elems[0], Value::Number(1.0), "f1 retains old class method v() -> 1");
-            assert_eq!(elems[1], Value::Number(2.0), "f2 uses new shadowed class method v() -> 2");
+            assert_eq!(elems[0], Value::Int(1), "f1 retains old class method v() -> 1");
+            assert_eq!(elems[1], Value::Int(2), "f2 uses new shadowed class method v() -> 2");
             return;
         }
     }

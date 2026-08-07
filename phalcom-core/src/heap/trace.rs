@@ -206,5 +206,7 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             // `selector` is a `Symbol`, `open` a `bool` — neither is an edge.
             trace_value(family.recv, push);
         }
+        // `LargeInt` holds an arbitrary-precision integer, no `Value` handles.
+        Object::LargeInt(_) => {}
     }
 }

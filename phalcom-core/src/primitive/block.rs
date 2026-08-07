@@ -67,13 +67,13 @@ pub(crate) fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::he
 pub fn block_arity(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     match receiver {
         Value::Obj(id) => match vm.heap.get(*id) {
-            Object::Closure(closure) => Ok(Value::Number(closure.callable.arity as f64)),
+            Object::Closure(closure) => Ok(Value::Int(closure.callable.arity as i64)),
             Object::Block(block) => {
                 let closure = vm.heap.closure(block.closure);
-                Ok(Value::Number(closure.callable.arity as f64))
+                Ok(Value::Int(closure.callable.arity as i64))
             }
-            Object::Method(method) => Ok(Value::Number(method.signature.positional_arity as f64)),
-            Object::BoundMethod(bound) => Ok(Value::Number(vm.heap.method(bound.method).signature.positional_arity as f64)),
+            Object::Method(method) => Ok(Value::Int(method.signature.positional_arity as i64)),
+            Object::BoundMethod(bound) => Ok(Value::Int(vm.heap.method(bound.method).signature.positional_arity as i64)),
             _ => Err(RuntimeError::Type {
                 expected: "Function",
                 found: receiver.type_name(),

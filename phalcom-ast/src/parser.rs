@@ -138,6 +138,10 @@ fn strs(labels: &[&str]) -> Vec<String> {
 /// `offset` to any carried span.
 fn lex_error_to_syntax(err: LexicalError, offset: usize) -> SyntaxError {
     match err {
+        LexicalError::NumericLiteral(span) => SyntaxError {
+            kind: SyntaxErrorKind::NumericLiteral,
+            range: (span.start + offset)..(span.end + offset),
+        },
         LexicalError::InvalidInteger(_) => SyntaxError {
             kind: SyntaxErrorKind::InvalidInteger,
             range: 0..0,
@@ -928,7 +932,8 @@ impl<'source> Parser<'source> {
     fn at_expr_start(&self) -> bool {
         matches!(
             self.peek(),
-            Token::Number(_)
+            Token::Int { .. }
+                | Token::Float(_)
                 | Token::String(_)
                 | Token::StringInterp(_)
                 | Token::True
@@ -1528,8 +1533,16 @@ impl<'source> Parser<'source> {
             Token::Plus => "+".to_string(),
             Token::Minus => "-".to_string(),
             Token::Asterisk => "*".to_string(),
+            Token::Power => "**".to_string(),
             Token::Slash => "/".to_string(),
+            Token::SlashTilde => "~/".to_string(),
             Token::Percent => "%".to_string(),
+            Token::ShiftLeft => "<<".to_string(),
+            Token::ShiftRight => ">>".to_string(),
+            Token::Ampersand => "&".to_string(),
+            Token::Pipe => "|".to_string(),
+            Token::Caret => "^".to_string(),
+            Token::Tilde => "~".to_string(),
             Token::EqualEqual => "==".to_string(),
             Token::BangEqual => "!=".to_string(),
             Token::Less => "<".to_string(),
@@ -2064,13 +2077,32 @@ impl<'source> Parser<'source> {
         let op = match self.peek() {
             Token::Minus => UnaryOp::Negate,
             Token::Not => UnaryOp::Not,
-            _ => return self.parse_call(),
+            Token::Tilde => UnaryOp::BitNot,
+            _ => return self.parse_power(),
         };
         let start = self.cur_start();
         self.advance();
         let expr = self.parse_unary()?;
         let range = (start..self.prev_end).into();
         Ok(Expr::Unary(Box::new(UnaryExpr { op, expr, range })))
+    }
+
+    /// Parses power expression: `power := postfix [ "**" unary ]`
+    fn parse_power(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        let left = self.parse_call()?;
+        if matches!(self.peek(), Token::Power) {
+            self.advance(); // consume `**`
+            let right = self.parse_unary()?;
+            let range = (start..self.prev_end).into();
+            return Ok(Expr::Binary(Box::new(BinaryExpr {
+                op: BinaryOp::Power,
+                left,
+                right,
+                range,
+            })));
+        }
+        Ok(left)
     }
 
     /// Parses postfix `.property` accesses and `.method(args)` calls over a
@@ -2294,9 +2326,17 @@ impl<'source> Parser<'source> {
                 self.advance();
                 Ok("*".to_string())
             }
+            Token::Power => {
+                self.advance();
+                Ok("**".to_string())
+            }
             Token::Slash => {
                 self.advance();
                 Ok("/".to_string())
+            }
+            Token::SlashTilde => {
+                self.advance();
+                Ok("~/".to_string())
             }
             Token::Percent => {
                 self.advance();
@@ -2494,9 +2534,13 @@ impl<'source> Parser<'source> {
                 self.advance();
                 Ok(Expr::Boolean { value: false, range })
             }
-            Token::Number(value) => {
+            Token::Int { digits, radix } => {
                 self.advance();
-                Ok(Expr::Number { value, range })
+                Ok(Expr::Int { digits, radix, range })
+            }
+            Token::Float(value) => {
+                self.advance();
+                Ok(Expr::Float { value, range })
             }
             Token::String(value) => {
                 self.advance();
@@ -2960,7 +3004,13 @@ fn binary_op(token: &Token) -> Option<(u8, BinaryOp)> {
         Token::Minus => (5, BinaryOp::Subtract),
         Token::Asterisk => (6, BinaryOp::Multiply),
         Token::Slash => (6, BinaryOp::Divide),
+        Token::SlashTilde => (6, BinaryOp::IntegerDivide),
         Token::Percent => (6, BinaryOp::Modulo),
+        Token::ShiftLeft => (5, BinaryOp::ShiftLeft),
+        Token::ShiftRight => (5, BinaryOp::ShiftRight),
+        Token::Ampersand => (4, BinaryOp::BitAnd),
+        Token::Caret => (3, BinaryOp::BitXor),
+        Token::Pipe => (2, BinaryOp::BitOr),
         _ => return None,
     })
 }
@@ -3232,5 +3282,31 @@ mod tests {
             panic!("expected the receiver to be a nested map send, got {:?}", outer.object);
         };
         assert_eq!(receiver.method, "map");
+    }
+
+    #[test]
+    fn power_associativity_and_precedence() {
+        // `2 ** 3 ** 2` parses as `2 ** (3 ** 2)` (right-associative)
+        let Statement::Expr { expr, .. } = only_statement("2 ** 3 ** 2") else {
+            panic!()
+        };
+        let Expr::Binary(b1) = expr else { panic!() };
+        assert!(matches!(b1.op, BinaryOp::Power));
+        let Expr::Binary(ref b2) = b1.right else { panic!() };
+        assert!(matches!(b2.op, BinaryOp::Power));
+
+        // `-2 ** 2` parses as `-(2 ** 2)` (unary prefix `-` has lower precedence than `**`)
+        let Statement::Expr { expr: e2, .. } = only_statement("-2 ** 2") else {
+            panic!()
+        };
+        let Expr::Unary(u1) = e2 else { panic!() };
+        assert!(matches!(u1.expr, Expr::Binary(_)));
+
+        // `2 ** -2` parses as `2 ** (-2)`
+        let Statement::Expr { expr: e3, .. } = only_statement("2 ** -2") else {
+            panic!()
+        };
+        let Expr::Binary(b3) = e3 else { panic!() };
+        assert!(matches!(b3.right, Expr::Unary(_)));
     }
 }

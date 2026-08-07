@@ -12,7 +12,6 @@
 //! `toString` is native rather than `.ph`-defined this unit).
 
 use crate::error::{PhResult, RuntimeError};
-use crate::expect_value;
 use crate::heap::ObjRef;
 use crate::primitive::expect_list;
 use crate::value::Value;
@@ -27,15 +26,35 @@ use crate::vm::VM;
 /// non-negative, finite count (`U-LIST-plan.md` §3: a malformed index is a
 /// hard type error, never a silent wrap or truncation).
 pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
-    let n = expect_value!(value, Number);
-    if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
-        return Err(RuntimeError::Type {
-            expected: "a non-negative integer index",
-            found: value.type_name(),
+    match value {
+        Value::Int(n) => {
+            if *n < 0 {
+                Err(RuntimeError::Type {
+                    expected: "a non-negative integer index",
+                    found: "int",
+                }
+                .into())
+            } else {
+                Ok(*n as usize)
+            }
         }
-        .into());
+        Value::Float(n) => {
+            if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
+                Err(RuntimeError::Type {
+                    expected: "a non-negative integer index",
+                    found: "float",
+                }
+                .into())
+            } else {
+                Ok(*n as usize)
+            }
+        }
+        other => Err(RuntimeError::Type {
+            expected: "a non-negative integer index",
+            found: other.type_name(),
+        }
+        .into()),
     }
-    Ok(n as usize)
 }
 
 /// Signature: `List.class::new()` — allocates an empty list.
@@ -55,7 +74,7 @@ pub fn list_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResu
 /// Returns [`RuntimeError::Type`] if the receiver is not a `List`.
 pub fn list_raw_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
-    Ok(Value::Number(vm.heap.list(id).len() as f64))
+    Ok(Value::Int(vm.heap.list(id).len() as i64))
 }
 
 /// Signature: `List::at_(_)` — raw indexed read.

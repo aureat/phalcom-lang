@@ -319,6 +319,8 @@ pub struct VM {
     pub resources: crate::resource::ResourceTable,
     /// Whether unclosed resources at VM teardown produce an exit failure.
     pub strict_resources: bool,
+    /// Numeric budget/resource policy.
+    pub numeric_policy: crate::value::NumericPolicy,
     /// Bounded free-list for recycling fiber stacks/frames to avoid
     /// allocations (U-GC step 5, `fiber-pool` feature). Measured net
     /// negative in whole-process A/B benchmarking (perf-log, 2026-07-14);

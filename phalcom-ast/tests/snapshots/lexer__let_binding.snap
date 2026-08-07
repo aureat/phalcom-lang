@@ -8,8 +8,9 @@ expression: "tokens(\"let x = 42\")"
         "x",
     ),
     Equal,
-    Number(
-        42.0,
-    ),
+    Int {
+        digits: "42",
+        radix: 10,
+    },
     Eof,
 ]

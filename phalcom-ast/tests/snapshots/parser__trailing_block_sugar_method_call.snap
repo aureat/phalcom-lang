@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 255
 expression: "parse(\"numbers.map { n => n * 2 }\")"
 ---
 Program {
@@ -35,8 +36,9 @@ Program {
                                                             end: 20,
                                                         },
                                                     },
-                                                    right: Number {
-                                                        value: 2.0,
+                                                    right: Int {
+                                                        digits: "2",
+                                                        radix: 10,
                                                         range: CopyRange {
                                                             start: 23,
                                                             end: 24,

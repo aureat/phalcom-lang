@@ -124,6 +124,9 @@ pub enum Object {
     ///
     /// [ADR-0047]: ../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md
     Family(FamilyObject),
+    /// An arbitrary-precision integer ([`num_bigint::BigInt`]).
+    /// Normalization guarantees this is never representable as `i64`.
+    LargeInt(num_bigint::BigInt),
 }
 
 /// A bound `::` method reference (selectors.md §3, U16-Open, U16-Pinned).

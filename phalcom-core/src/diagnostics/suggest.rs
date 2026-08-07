@@ -27,11 +27,11 @@ pub fn os_distance(a: &str, b: &str) -> (u32, EditCategory) {
     // d[i][j] stores (distance, category)
     let mut d = vec![vec![(0u32, EditCategory::Transposition); n + 1]; m + 1];
 
-    for i in 0..=m {
-        d[i][0] = (i as u32, if i == 0 { EditCategory::Transposition } else { EditCategory::InsDel });
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = (i as u32, if i == 0 { EditCategory::Transposition } else { EditCategory::InsDel });
     }
-    for j in 0..=n {
-        d[0][j] = (j as u32, if j == 0 { EditCategory::Transposition } else { EditCategory::InsDel });
+    for (j, entry) in d[0].iter_mut().enumerate() {
+        *entry = (j as u32, if j == 0 { EditCategory::Transposition } else { EditCategory::InsDel });
     }
 
     for i in 1..=m {

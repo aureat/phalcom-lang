@@ -99,6 +99,7 @@ impl VM {
             trace_fibers: _,
             resources: _,
             strict_resources: _,
+            numeric_policy: _,
             #[cfg(feature = "fiber-pool")]
                 fiber_pool: _,
         } = self;

@@ -582,7 +582,10 @@ impl<'vm> Compiler<'vm> {
 /// the runtime `doesNotUnderstand` miss on `raise()` instead — deliberately no
 /// flow typing (U-ERR plan §2.2).
 fn is_non_error_literal(expr: &Expr) -> bool {
-    matches!(expr, Expr::Number { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Symbol(_))
+    matches!(
+        expr,
+        Expr::Int { .. } | Expr::Float { .. } | Expr::String { .. } | Expr::Boolean { .. } | Expr::Symbol(_)
+    )
 }
 
 #[cfg(test)]

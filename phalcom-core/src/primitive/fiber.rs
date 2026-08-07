@@ -182,7 +182,7 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
         let span = closure.callable.chunk.span_at(span_index);
         let source = module.source_at(closure.callable.chunk.source_id);
         let line = source.as_ref().map_or(0, |text| closure.callable.chunk.line_at(span_index, text));
-        (Some(module.symbol()), line as u32)
+        (Some(module.symbol()), line)
     } else {
         (None, 0)
     };

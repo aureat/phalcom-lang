@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 295
+assertion_line: 307
 expression: "parse(\"class Point {\\n  @ensures(__result >= 0)\\n  magnitude() {\\n    return 1\\n  }\\n}\\n\")"
 ---
 Program {
@@ -18,8 +18,9 @@ Program {
                                 Return(
                                     ReturnStatement {
                                         value: Some(
-                                            Number {
-                                                value: 1.0,
+                                            Int {
+                                                digits: "1",
+                                                radix: 10,
                                                 range: CopyRange {
                                                     start: 67,
                                                     end: 68,
@@ -52,8 +53,9 @@ Program {
                                                         end: 33,
                                                     },
                                                 },
-                                                right: Number {
-                                                    value: 0.0,
+                                                right: Int {
+                                                    digits: "0",
+                                                    radix: 10,
                                                     range: CopyRange {
                                                         start: 37,
                                                         end: 38,

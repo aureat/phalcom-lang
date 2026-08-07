@@ -1,7 +1,7 @@
 // area: runtime-errors
 // spec: U-LIST-plan.md §3/§7; ADR-0020
 // status: NEGATIVE
-// A non-Number index to `List::at(_:)` is a hard type error, never a silent
+// A non-Int index to `List::at(_:)` is a hard type error, never a silent
 // coercion or panic.
 
 const l = List.new()

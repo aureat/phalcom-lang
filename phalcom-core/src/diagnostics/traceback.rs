@@ -529,6 +529,18 @@ fn is_core_module(vm: &VM, module_sym: Symbol) -> bool {
 /// Returns the `kind` string for an error, or `""` when none applies.
 fn extract_kind_str(vm: &mut VM, err: &PhError) -> String {
     match err {
+        PhError::Runtime(RuntimeError::Raise {
+            error: crate::value::Value::Obj(id),
+            ..
+        }) => vm
+            .heap
+            .as_instance(*id)
+            .and_then(|instance| instance.slots.get(1))
+            .and_then(|kind| match kind {
+                crate::value::Value::Symbol(sym) => Some(vm.resolve_symbol(*sym).to_string()),
+                _ => None,
+            })
+            .unwrap_or_default(),
         PhError::Runtime(rt) => {
             if let Some(crate::value::Value::Symbol(s)) = vm.error_kind_symbol(rt) {
                 return vm.resolve_symbol(s).to_string();
@@ -613,11 +625,8 @@ fn get_help_suggestion(vm: &mut VM, err: &PhError, config: &RenderConfig, styler
             candidates.dedup();
 
             let cand_refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
-            if let Some(sug) = crate::diagnostics::suggest::best_match(name, cand_refs.into_iter()) {
-                Some(format!("  {} did you mean '{}'?\n", styler.paint(Role::SeverityHelp, "help:"), sug))
-            } else {
-                None
-            }
+            crate::diagnostics::suggest::best_match(name, cand_refs.into_iter())
+                .map(|sug| format!("  {} did you mean '{}'?\n", styler.paint(Role::SeverityHelp, "help:"), sug))
         }
         _ => None,
     }

@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 129
 expression: "parse(\"System.print(1); System.print(2)\")"
 ---
 Program {
@@ -18,8 +19,9 @@ Program {
                     args: [
                         Argument {
                             label: None,
-                            expr: Number {
-                                value: 1.0,
+                            expr: Int {
+                                digits: "1",
+                                radix: 10,
                                 range: CopyRange {
                                     start: 13,
                                     end: 14,
@@ -56,8 +58,9 @@ Program {
                     args: [
                         Argument {
                             label: None,
-                            expr: Number {
-                                value: 2.0,
+                            expr: Int {
+                                digits: "2",
+                                radix: 10,
                                 range: CopyRange {
                                     start: 30,
                                     end: 31,

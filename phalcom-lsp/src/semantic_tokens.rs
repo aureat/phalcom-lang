@@ -184,7 +184,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
 
         Token::Identifier(_) => Some(Variable),
 
-        Token::Number(_) => Some(Number),
+        Token::Int { .. } | Token::Float(_) => Some(Number),
 
         Token::NameSymbol(_) | Token::SelectorSymbol { .. } => Some(Selector),
 
@@ -207,7 +207,9 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Minus
         | Token::Asterisk
         | Token::Slash
-        | Token::Percent => Some(Operator),
+        | Token::Percent
+        | Token::Power
+        | Token::SlashTilde => Some(Operator),
 
         // Structural punctuation, left uncolored (judgment call — see
         // `docs/forge/DEFERRED.md`).

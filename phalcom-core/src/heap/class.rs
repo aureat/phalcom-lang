@@ -66,6 +66,9 @@ pub struct ClassObject {
     /// Refusal flag for native representation classes that cannot be allocated
     /// via standard `InstanceObject::new` generic allocator (`new_`).
     pub native_repr: bool,
+    /// Refusal flag for abstract classes (e.g. Number, Bool, Function, Option, Behavior)
+    /// that cannot be allocated via generic InstanceObject::new (new_).
+    pub is_abstract: bool,
 }
 
 /// Walks `class` and its superclasses for a method bound to `selector`.
@@ -106,6 +109,7 @@ impl ClassObject {
             attributes: Vec::new(),
             attributes_frozen: false,
             native_repr: false,
+            is_abstract: false,
         }
     }
 
@@ -113,15 +117,15 @@ impl ClassObject {
     ///
     /// # Errors
     ///
-    /// Returns `Err(())` if [`Self::attributes_frozen`] is set — the caller
+    /// Returns `false` if [`Self::attributes_frozen`] is set — the caller
     /// (`primitive::attribute::attribute_attach`) renders the `attr.frozen`
     /// `RuntimeError`.
-    pub fn attach_attribute(&mut self, attr: Value) -> Result<(), ()> {
+    pub fn attach_attribute(&mut self, attr: Value) -> bool {
         if self.attributes_frozen {
-            return Err(());
+            return false;
         }
         self.attributes.push(attr);
-        Ok(())
+        true
     }
 
     /// Resolves a field name to its slot index (own table only, non-inherited).

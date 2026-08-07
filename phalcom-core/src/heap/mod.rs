@@ -255,6 +255,7 @@ impl Heap {
             Some(Object::Tuple(_)) => "Tuple",
             Some(Object::Range(_)) => "Range",
             Some(Object::Family(_)) => "Family",
+            Some(Object::LargeInt(_)) => "LargeInt",
             None => "<stale>",
         }
     }

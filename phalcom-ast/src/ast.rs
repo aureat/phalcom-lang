@@ -604,7 +604,12 @@ pub struct ForStatement {
 
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Number {
+    Int {
+        digits: String,
+        radix: u32,
+        range: SourceRange,
+    },
+    Float {
         value: f64,
         range: SourceRange,
     },
@@ -658,7 +663,8 @@ impl Expr {
     /// block literal.
     pub fn range(&self) -> SourceRange {
         match self {
-            Expr::Number { range, .. }
+            Expr::Int { range, .. }
+            | Expr::Float { range, .. }
             | Expr::String { range, .. }
             | Expr::Boolean { range, .. }
             | Expr::Var { range, .. }
@@ -877,7 +883,14 @@ pub enum BinaryOp {
     Subtract,
     Multiply,
     Divide,
+    IntegerDivide,
+    Power,
     Modulo,
+    ShiftLeft,
+    ShiftRight,
+    BitAnd,
+    BitXor,
+    BitOr,
     Equal,
     NotEqual,
     LessThan,
@@ -892,6 +905,7 @@ pub enum BinaryOp {
 pub enum UnaryOp {
     Negate,
     Not,
+    BitNot,
 }
 
 #[derive(Debug, Clone)]

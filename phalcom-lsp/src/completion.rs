@@ -255,7 +255,8 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
             .or_else(|| si.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset)))
             .or_else(|| nested_block_in_expr(&si.value, offset)),
         Expr::MethodRef(mr) => nested_block_in_expr(&mr.receiver, offset),
-        Expr::Number { .. }
+        Expr::Int { .. }
+        | Expr::Float { .. }
         | Expr::String { .. }
         | Expr::Boolean { .. }
         | Expr::Var { .. }
@@ -813,10 +814,7 @@ mod tests {
         let index = WorkspaceIndex::new();
         let a = Url::parse("file:///a.ph").unwrap();
         let b = Url::parse("file:///b.ph").unwrap();
-        index.update_file(
-            a.clone(),
-            &phalcom_ast::parser::parse("class Dog is Animal {\n  bark() { }\n}\n", 0).program,
-        );
+        index.update_file(a.clone(), &phalcom_ast::parser::parse("class Dog is Animal {\n  bark() { }\n}\n", 0).program);
         index.update_file(b.clone(), &phalcom_ast::parser::parse("class Animal {\n  eat() { }\n}\n", 0).program);
 
         let items = completions(Some(("Dog", ReceiverKind::Instance)), &a, &index, CoreTable::bundled());

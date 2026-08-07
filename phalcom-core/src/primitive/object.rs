@@ -81,7 +81,8 @@ pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
         // `Fiber`, forward-compat §1) still compiles here and simply inherits
         // this identity digest until it installs its own override.
         Value::Bool(b) => u64::from(*b),
-        Value::Number(n) => n.to_bits(),
+        Value::Int(n) => *n as u64,
+        Value::Float(n) => n.to_bits(),
         Value::Symbol(s) => u64::from(s.0),
         _ => 0,
     };

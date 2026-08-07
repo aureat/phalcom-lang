@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 260
 expression: "parse(\"numbers.reduce(0) { acc, n => acc + n }\")"
 ---
 Program {
@@ -18,8 +19,9 @@ Program {
                     args: [
                         Argument {
                             label: None,
-                            expr: Number {
-                                value: 0.0,
+                            expr: Int {
+                                digits: "0",
+                                radix: 10,
                                 range: CopyRange {
                                     start: 15,
                                     end: 16,

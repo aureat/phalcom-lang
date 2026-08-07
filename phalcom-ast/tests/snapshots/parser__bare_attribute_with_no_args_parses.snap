@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 300
+assertion_line: 312
 expression: "parse(\"class Point {\\n  @pure\\n  x() {\\n    return 1\\n  }\\n}\\n\")"
 ---
 Program {
@@ -18,8 +18,9 @@ Program {
                                 Return(
                                     ReturnStatement {
                                         value: Some(
-                                            Number {
-                                                value: 1.0,
+                                            Int {
+                                                digits: "1",
+                                                radix: 10,
                                                 range: CopyRange {
                                                     start: 41,
                                                     end: 42,

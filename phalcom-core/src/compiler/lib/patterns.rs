@@ -122,7 +122,7 @@ impl<'vm> Compiler<'vm> {
     /// element compiles through (ADR-0020's `at(_)`, ADR-0046 §1).
     fn emit_element_read(&mut self, value_slot: u16, index: usize, range: SourceRange) {
         self.emit(Bytecode::GetLocal(value_slot), range);
-        let idx_const = self.add_constant(Value::Number(index as f64));
+        let idx_const = self.add_constant(Value::Int(index as i64));
         self.emit(Bytecode::Constant(idx_const), range);
         self.emit_operator_send("at", 1, range);
     }
@@ -138,7 +138,7 @@ impl<'vm> Compiler<'vm> {
     fn emit_pattern_arity_check(&mut self, value_slot: u16, expected: usize, at_least: bool, message: String, range: SourceRange) {
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit_getter_send("size", range);
-        let count_idx = self.add_constant(Value::Number(expected as f64));
+        let count_idx = self.add_constant(Value::Int(expected as i64));
         self.emit(Bytecode::Constant(count_idx), range);
         // `size < expected` (rest form) or `size != expected` (exact form) is
         // a mismatch — the condition pushed here is true exactly when the
@@ -203,7 +203,7 @@ impl<'vm> Compiler<'vm> {
 
         // `$i = fixed_count` — scoped to this copy loop only.
         self.begin_scope();
-        let count_idx = self.add_constant(Value::Number(fixed_count as f64));
+        let count_idx = self.add_constant(Value::Int(fixed_count as i64));
         self.emit(Bytecode::Constant(count_idx), range);
         let i_sym = self.fresh_scratch_symbol("$destructure_i");
         self.add_local(i_sym, true)?;
@@ -226,7 +226,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::Pop, range);
 
         self.emit(Bytecode::GetLocal(i_slot), range);
-        let one_idx = self.add_constant(Value::Number(1.0));
+        let one_idx = self.add_constant(Value::Int(1));
         self.emit(Bytecode::Constant(one_idx), range);
         self.emit_operator_send("+", 1, range);
         self.emit(Bytecode::SetLocal(i_slot), range);

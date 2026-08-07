@@ -103,7 +103,7 @@ impl Highlighter for PhalcomHighlighter {
                 Token::True | Token::False => {
                     color(start, end, bool_style);
                 }
-                Token::Number(_) => {
+                Token::Int { .. } | Token::Float(_) => {
                     color(start, end, num_style);
                 }
                 Token::String(_) | Token::StringInterp(_) => {

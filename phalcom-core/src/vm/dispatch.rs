@@ -552,7 +552,7 @@ impl VM {
                 if let Some(f) = to_file {
                     json.push_str(&format!(",\"to_at\":{{\"file\":\"{}.ph\",\"line\":{}}}", self.resolve_symbol(f), to_line));
                 }
-                json.push_str("}");
+                json.push('}');
                 tracing::debug!(target: "fibers", "{}", json);
             } else {
                 let mut from_str = String::new();

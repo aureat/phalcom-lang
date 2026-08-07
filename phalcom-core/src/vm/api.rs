@@ -160,9 +160,20 @@ impl VM {
     /// Maps a native RuntimeError to its surface kind Symbol value, if applicable.
     pub fn error_kind_symbol(&mut self, err: &RuntimeError) -> Option<Value> {
         let sym_str = match err {
+            RuntimeError::DivideByZero => "divideByZero",
+            RuntimeError::NonFiniteNumber(_) => "nonFiniteNumber",
+            RuntimeError::NumericLimit(_) => "numericLimit",
+            RuntimeError::InvalidShift(_) => "invalidShift",
+            RuntimeError::InvalidBitIndex(_) => "invalidBitIndex",
+            RuntimeError::UndefinedNumericOperation(_) => "undefinedNumericOperation",
             RuntimeError::ConcurrentMutation { .. } => "concurrentMutation",
             RuntimeError::DepthExceeded { .. } => "depthExceeded",
             RuntimeError::DeadFrameError => "deadFrame",
+            RuntimeError::NumericConversion { .. } => "numericConversion",
+            RuntimeError::NumericOverflow { .. } => "numericOverflow",
+            RuntimeError::NumericText { .. } => "numericText",
+            RuntimeError::AbstractClass { .. } => "abstractClass",
+            RuntimeError::InvalidHash { .. } => "invalidHash",
             RuntimeError::Type { .. }
             | RuntimeError::TypeConversion { .. }
             | RuntimeError::Arity { .. }
@@ -172,6 +183,31 @@ impl VM {
         };
         let sym = self.interner.intern(sym_str);
         Some(Value::Symbol(sym))
+    }
+
+    /// Converts a native numeric `RuntimeError` into a surface `RuntimeError::Raise`
+    /// carrying an `Error` instance with the correct `kind` symbol.
+    ///
+    /// This is the **single numeric-error construction path** (U-NUMBERS-05 §1):
+    /// every numeric failure goes through here so the surface `error.kind` is
+    /// always set at the moment of raise, not deferred to a fiber-boundary wrap.
+    pub fn raise_numeric_error(&mut self, err: RuntimeError) -> crate::error::PhError {
+        let rendered = err.to_string();
+        let kind_val = self.error_kind_symbol(&err);
+        let error_cls = self.universe.classes.error_class;
+        let field_count = self.heap.class(error_cls).field_count;
+        let mut inst = crate::heap::InstanceObject::new(error_cls, field_count);
+        inst.slots[0] = self.alloc_string_value(rendered.clone());
+        if let Some(k) = kind_val {
+            inst.slots[1] = k;
+        }
+        let error = Value::Obj(self.heap.alloc(crate::heap::Object::Instance(inst)));
+        crate::error::PhError::Runtime(RuntimeError::Raise {
+            error,
+            rendered,
+            traceback: None,
+            help: None,
+        })
     }
 
     /// Pushes a call frame, refusing once the `.ph` call-depth ceiling is reached.
@@ -289,7 +325,7 @@ impl VM {
             records.push(crate::error::FrameRecord::Normal {
                 module: module_sym,
                 method: method_sym,
-                line: line as u32,
+                line,
             });
         }
         records
@@ -333,7 +369,7 @@ impl VM {
             records.push(crate::error::FrameRecord::Normal {
                 module: module_sym,
                 method: method_sym,
-                line: line as u32,
+                line,
             });
         }
         records

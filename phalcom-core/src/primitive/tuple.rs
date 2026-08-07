@@ -28,15 +28,35 @@ use crate::vm::VM;
 /// Returns [`RuntimeError::Type`] if `value` is not a non-negative integer
 /// `Number`.
 fn expect_index(value: &Value) -> PhResult<usize> {
-    let n = crate::expect_value!(value, Number);
-    if !n.is_finite() || n < 0.0 || n.fract() != 0.0 {
-        return Err(RuntimeError::Type {
-            expected: "a non-negative integer index",
-            found: value.type_name(),
+    match value {
+        Value::Int(n) => {
+            if *n < 0 {
+                Err(RuntimeError::Type {
+                    expected: "a non-negative integer index",
+                    found: "int",
+                }
+                .into())
+            } else {
+                Ok(*n as usize)
+            }
         }
-        .into());
+        Value::Float(n) => {
+            if !n.is_finite() || *n < 0.0 || n.fract() != 0.0 {
+                Err(RuntimeError::Type {
+                    expected: "a non-negative integer index",
+                    found: "float",
+                }
+                .into())
+            } else {
+                Ok(*n as usize)
+            }
+        }
+        other => Err(RuntimeError::Type {
+            expected: "a non-negative integer index",
+            found: other.type_name(),
+        }
+        .into()),
     }
-    Ok(n as usize)
 }
 
 /// Signature: `Tuple.class::fromList(_)` — freezes a `List`'s current
@@ -63,7 +83,7 @@ pub fn tuple_class_from_list(vm: &mut VM, _receiver: &Value, args: &[Value]) -> 
 /// Returns [`RuntimeError::Type`] if the receiver is not a `Tuple`.
 pub fn tuple_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_tuple(vm, receiver)?;
-    Ok(Value::Number(vm.heap.tuple(id).len() as f64))
+    Ok(Value::Int(vm.heap.tuple(id).len() as i64))
 }
 
 /// Signature: `Tuple::at_(_)` — raw indexed read, total (mirrors

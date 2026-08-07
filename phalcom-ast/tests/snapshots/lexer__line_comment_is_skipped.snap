@@ -8,17 +8,19 @@ expression: "tokens(\"let x = 1 // trailing comment\\nlet y = 2\")"
         "x",
     ),
     Equal,
-    Number(
-        1.0,
-    ),
+    Int {
+        digits: "1",
+        radix: 10,
+    },
     Newline,
     Let,
     Identifier(
         "y",
     ),
     Equal,
-    Number(
-        2.0,
-    ),
+    Int {
+        digits: "2",
+        radix: 10,
+    },
     Eof,
 ]

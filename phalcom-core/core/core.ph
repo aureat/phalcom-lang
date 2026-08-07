@@ -101,6 +101,60 @@ class ArgumentError is Error {}
 
 class Number {}
 
+class Int is Number {}
+
+class Float is Number {
+  // Absolute value. Returns Float; NaN returns NaN.
+  // Native: float_abs
+  abs => self.abs()
+
+  // Sign: returns Int -1, 0, or 1. -0.0 and +0.0 both return 0.
+  // Raises #nonFiniteNumber if receiver is NaN or infinite.
+  // Native: float_sign
+  sign => self.sign()
+
+  // Greatest Int not greater than receiver (toward -∞).
+  // Raises #nonFiniteNumber if receiver is NaN/infinite.
+  // Native: float_floor
+  floor => self.floor()
+
+  // Least Int not less than receiver (toward +∞).
+  // Raises #nonFiniteNumber if receiver is NaN/infinite.
+  // Native: float_ceil
+  ceil => self.ceil()
+
+  // Int toward zero (truncation).
+  // Raises #nonFiniteNumber if receiver is NaN/infinite.
+  // Native: float_truncated
+  truncated => self.truncated()
+
+  // Nearest Int, ties-to-even.
+  // Raises #nonFiniteNumber if receiver is NaN/infinite.
+  // Native: float_rounded
+  rounded => self.rounded()
+
+  // Exact Int conversion — raises #numericConversion if fractional.
+  // Raises #nonFiniteNumber if receiver is NaN/infinite.
+  // Native: float_to_int_exact
+  toIntExact => self.toIntExact()
+
+  // true iff receiver is finite and has no fractional part.
+  // Native: float_is_integer
+  isInteger => self.isInteger
+
+  // true iff receiver is IEEE 754 NaN.
+  // Native: float_is_nan
+  isNaN => self.isNaN
+
+  // true iff receiver is neither NaN nor infinite.
+  // Native: float_is_finite
+  isFinite => self.isFinite
+
+  // true iff receiver is +Infinity or -Infinity.
+  // Native: float_is_infinite
+  isInfinite => self.isInfinite
+}
+
 class String {
   // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
   // representation read, so this is `.ph`-derivable rather than a floor

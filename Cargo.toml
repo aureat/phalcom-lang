@@ -25,3 +25,4 @@ anyhow = "1.0.98"
 # Already pulled transitively via `reedline` in `phalcom-repl`; pinned here so
 # `phalcom-core` can depend on the same version deliberately. PDR-0014.
 unicode-width = "0.2.1"
+num-bigint = "0.4"

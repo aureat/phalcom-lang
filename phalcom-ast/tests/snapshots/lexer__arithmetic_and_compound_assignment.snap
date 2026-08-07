@@ -19,8 +19,9 @@ expression: "tokens(\"total += a * b - c / 2\")"
         "c",
     ),
     Slash,
-    Number(
-        2.0,
-    ),
+    Int {
+        digits: "2",
+        radix: 10,
+    },
     Eof,
 ]

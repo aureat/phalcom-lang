@@ -10,7 +10,7 @@ pub fn resource_register(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRe
     let site = None;
     let handle = vm.resources.open(ResourceKind::Custom(kind_str), site);
     let packed = ResourceHandle::pack(handle.index, handle.generation);
-    Ok(Value::Number(packed))
+    Ok(Value::Float(packed))
 }
 
 /// Helper to extract ResourceHandle from an Instance instance slot 0.
@@ -19,8 +19,10 @@ fn extract_handle(vm: &VM, instance_val: &Value) -> PhResult<ResourceHandle> {
         let heap_obj = vm.heap.get(obj_ref);
         if let crate::heap::Object::Instance(inst) = heap_obj {
             if let Some(val) = inst.slots.first() {
-                if let Value::Number(n) = val {
-                    return Ok(ResourceHandle::unpack(*n));
+                match val {
+                    Value::Float(n) => return Ok(ResourceHandle::unpack(*n)),
+                    Value::Int(n) => return Ok(ResourceHandle::unpack(*n as f64)),
+                    _ => {}
                 }
             }
         }

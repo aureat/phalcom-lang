@@ -3,10 +3,11 @@ source: phalcom-ast/tests/lexer.rs
 expression: "tokens(\"1_000_000 1_000.500_5\")"
 ---
 [
-    Number(
-        1000000.0,
-    ),
-    Number(
+    Int {
+        digits: "1000000",
+        radix: 10,
+    },
+    Float(
         1000.5005,
     ),
     Eof,

@@ -26,6 +26,7 @@ use crate::heap::lookup_method_in_hierarchy;
 use crate::heap::{ClassId, ObjRef, Object};
 use crate::interner::Symbol;
 use crate::vm::VM;
+use num_traits::{FromPrimitive, Zero};
 use std::hash::{Hash, Hasher};
 
 /// A uniform Phalcom value: an immediate or a handle to a heap [`Object`].
@@ -41,13 +42,25 @@ pub enum Value {
     /// A boolean. One `Bool` class; `True`/`False` are a later dispatch
     /// refinement, not a `Value` arm ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)).
     Bool(bool),
-    /// A flat 64-bit float ([ADR-0005](../../../docs/adr/retired/0005-number-as-flat-f64.md)).
-    Number(f64),
+    /// A small signed integer payload (canonical for representable `i64`).
+    Int(i64),
+    /// A 64-bit IEEE-754 binary floating-point payload.
+    Float(f64),
     /// An interned identifier or selector ([`Symbol`]).
     Symbol(Symbol),
-    /// Any heap object — instance, string, class, method or module — by
+    /// Any heap object — instance, string, class, method, module or large int — by
     /// [`ObjRef`] handle into the [`crate::heap::Heap`].
     Obj(ObjRef),
+}
+
+/// Normalizes a [`num_bigint::BigInt`] into a [`Value`].
+/// Returns [`Value::Int(i64)`] if representable as `i64`, or allocates a heap [`Object::LargeInt`] otherwise.
+pub fn normalize_bigint(bigint: num_bigint::BigInt, heap: &mut crate::heap::Heap) -> Value {
+    if let Ok(small) = i64::try_from(&bigint) {
+        Value::Int(small)
+    } else {
+        Value::Obj(heap.alloc(Object::LargeInt(bigint)))
+    }
 }
 
 impl Value {
@@ -62,13 +75,13 @@ impl Value {
     /// ([ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) §3,
     /// [memory-management.md §2.3](../../../docs/spec/v0.2/memory-management.md)).
     ///
-    /// Immediates (`nil`, `Bool`, `Number`, `Symbol`) hold no handle: symbols live
+    /// Immediates (`nil`, `Bool`, `Int`, `Float`, `Symbol`) hold no handle: symbols live
     /// in the interner rather than the heap and are never collected
     /// ([memory-management.md §2.2](../../../docs/spec/v0.2/memory-management.md)).
     pub fn as_obj(&self) -> Option<ObjRef> {
         match self {
             Value::Obj(id) => Some(*id),
-            Value::Nil | Value::Bool(_) | Value::Number(_) | Value::Symbol(_) => None,
+            Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) => None,
         }
     }
 
@@ -94,7 +107,8 @@ impl Value {
         match self {
             Value::Nil => "nil",
             Value::Bool(_) => "bool",
-            Value::Number(_) => "number",
+            Value::Int(_) => "int",
+            Value::Float(_) => "float",
             Value::Symbol(_) => "symbol",
             Value::Obj(_) => "object",
         }
@@ -129,7 +143,8 @@ impl Value {
                     vm.universe.classes.false_class
                 }
             }
-            Value::Number(_) => vm.universe.classes.number_class,
+            Value::Int(_) => vm.universe.classes.int_class,
+            Value::Float(_) => vm.universe.classes.float_class,
             Value::Symbol(_) => vm.universe.classes.symbol_class,
             Value::Obj(id) => match vm.heap.get(*id) {
                 Object::Instance(instance) => instance.class,
@@ -154,6 +169,7 @@ impl Value {
                 // through `Value::Obj` exactly as `Object::List` is; no
                 // `Value::Family` arm (ADR-0010 keeps `Value` minimal).
                 Object::Family(_) => vm.universe.classes.family_class,
+                Object::LargeInt(_) => vm.universe.classes.int_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
             },
         }
@@ -177,7 +193,7 @@ impl Value {
     /// Builds the [`CallContext`] a closure-backed method call against `self`
     /// runs with.
     ///
-    /// An immediate receiver (`Bool`/`Number`/`Symbol`/the private `Nil`
+    /// An immediate receiver (`Bool`/`Int`/`Float`/`Symbol`/the private `Nil`
     /// sentinel) yields [`CallContext::Immediate`] rather than panicking —
     /// U5 (ADR-0018) needs this so a user-reopened sacred selector on the
     /// kernel `Bool` class (a closure method, unlike the primitive it
@@ -199,12 +215,13 @@ impl Value {
                 | Object::Set(_)
                 | Object::Tuple(_)
                 | Object::Range(_)
-                | Object::Family(_) => CallContext::Instance { instance: *id },
+                | Object::Family(_)
+                | Object::LargeInt(_) => CallContext::Instance { instance: *id },
                 Object::Class(_) => CallContext::Class { class: *id },
                 Object::Module(_) => CallContext::Module { module: *id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),
             },
-            Value::Nil | Value::Bool(_) | Value::Number(_) | Value::Symbol(_) => CallContext::Immediate { value: *self },
+            Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) => CallContext::Immediate { value: *self },
         }
     }
 
@@ -215,7 +232,7 @@ impl Value {
     /// preserved across the handle-arena migration
     /// ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)):
     ///
-    /// - `Nil`, `Bool`, `Number` compare by value.
+    /// - `Nil`, `Bool`, `Int`, `Float` compare by value.
     /// - Two [`Value::Obj`] strings compare by content; instances, classes and
     ///   methods compare by identity ([`ObjRef`] handle equality).
     /// - [`Value::Symbol`] pairs and [`Object::Module`] pairs are **never**
@@ -232,7 +249,39 @@ impl Value {
         match (self, other) {
             (Value::Nil, Value::Nil) => true,
             (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => {
+                if a.is_nan() || b.is_nan() {
+                    false
+                } else {
+                    a == b
+                }
+            }
+            (Value::Int(a), Value::Float(b)) => {
+                if b.is_nan() || b.is_infinite() || b.fract() != 0.0 {
+                    false
+                } else {
+                    num_bigint::BigInt::from_f64(*b).map(|big| big == num_bigint::BigInt::from(*a)).unwrap_or(false)
+                }
+            }
+            (Value::Float(a), Value::Int(b)) => {
+                if a.is_nan() || a.is_infinite() || a.fract() != 0.0 {
+                    false
+                } else {
+                    num_bigint::BigInt::from_f64(*a).map(|big| big == num_bigint::BigInt::from(*b)).unwrap_or(false)
+                }
+            }
+            (Value::Obj(a_ref), Value::Float(b)) | (Value::Float(b), Value::Obj(a_ref)) => {
+                if let Some(large_int) = heap.as_large_int(*a_ref) {
+                    if b.is_nan() || b.is_infinite() || b.fract() != 0.0 {
+                        false
+                    } else {
+                        num_bigint::BigInt::from_f64(*b).map(|big| &big == large_int).unwrap_or(false)
+                    }
+                } else {
+                    false
+                }
+            }
             // Symbols compare by interned identity, not handle — two
             // independently-interned occurrences of the same text share one
             // `Symbol` (the interner is content-addressed), so `a == b` here
@@ -243,6 +292,12 @@ impl Value {
             (Value::Obj(a), Value::Obj(b)) => {
                 // Strings compare by content, regardless of handle.
                 match (heap.as_string(*a), heap.as_string(*b)) {
+                    (Some(x), Some(y)) => return x == y,
+                    (Some(_), None) | (None, Some(_)) => return false,
+                    (None, None) => {}
+                }
+                // LargeInts compare by BigInt content, regardless of handle.
+                match (heap.as_large_int(*a), heap.as_large_int(*b)) {
                     (Some(x), Some(y)) => return x == y,
                     (Some(_), None) | (None, Some(_)) => return false,
                     (None, None) => {}
@@ -258,6 +313,51 @@ impl Value {
             // Every mismatched pair is unequal.
             _ => false,
         }
+    }
+}
+
+pub fn same_value_zero(a: Value, b: Value, heap: &crate::heap::Heap) -> bool {
+    let a_num = is_numeric(a, heap);
+    let b_num = is_numeric(b, heap);
+    if a_num && b_num {
+        let a_nan = match a {
+            Value::Float(f) => f.is_nan(),
+            _ => false,
+        };
+        let b_nan = match b {
+            Value::Float(f) => f.is_nan(),
+            _ => false,
+        };
+        if a_nan || b_nan {
+            return a_nan && b_nan;
+        }
+
+        let a_zero = is_zero(a, heap);
+        let b_zero = is_zero(b, heap);
+        if a_zero || b_zero {
+            return a_zero && b_zero;
+        }
+
+        a.value_eq(&b, heap)
+    } else {
+        a.value_eq(&b, heap)
+    }
+}
+
+fn is_numeric(val: Value, heap: &crate::heap::Heap) -> bool {
+    match val {
+        Value::Int(_) | Value::Float(_) => true,
+        Value::Obj(id) => heap.as_large_int(id).is_some(),
+        _ => false,
+    }
+}
+
+fn is_zero(val: Value, heap: &crate::heap::Heap) -> bool {
+    match val {
+        Value::Int(n) => n == 0,
+        Value::Float(f) => f == 0.0,
+        Value::Obj(id) => heap.as_large_int(id).map(|big| big.is_zero()).unwrap_or(false),
+        _ => false,
     }
 }
 
@@ -299,9 +399,38 @@ impl Hash for Value {
         match self {
             Value::Nil => 0u8.hash(state),
             Value::Bool(b) => b.hash(state),
-            Value::Number(n) => hash_f64(*n, state),
+            Value::Int(i) => i.hash(state),
+            Value::Float(n) => hash_f64(*n, state),
             Value::Symbol(s) => s.0.hash(state),
             Value::Obj(id) => id.hash(state),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NumericPolicy {
+    pub max_source_numeric_digits: Option<usize>,
+    pub max_text_conversion_digits: Option<usize>,
+    pub max_integer_bits: Option<usize>,
+    pub max_numeric_allocation_bytes: Option<usize>,
+}
+
+impl NumericPolicy {
+    pub const fn standard() -> Self {
+        Self {
+            max_source_numeric_digits: Some(100_000),
+            max_text_conversion_digits: Some(100_000),
+            max_integer_bits: Some(8_388_608),
+            max_numeric_allocation_bytes: Some(2_097_152),
+        }
+    }
+
+    pub const fn sandbox() -> Self {
+        Self {
+            max_source_numeric_digits: Some(4_096),
+            max_text_conversion_digits: Some(4_096),
+            max_integer_bits: Some(262_144),
+            max_numeric_allocation_bytes: Some(65_536),
         }
     }
 }

@@ -368,7 +368,7 @@ mod tests {
         let old_entry = chunk.caches[ip].get().unwrap();
 
         fn returns_two(_vm: &mut crate::vm::VM, _recv: &Value, _args: &[Value]) -> crate::error::PhResult<Value> {
-            Ok(Value::Number(2.0))
+            Ok(Value::Int(2))
         }
         let new_method = vm.heap.alloc(crate::heap::Object::Method(Box::new(crate::method::MethodObject::new_single(
             val_sym,
@@ -408,7 +408,7 @@ mod tests {
         let old_entry = chunk.caches[ip].get().unwrap();
 
         fn returns_two(_vm: &mut crate::vm::VM, _recv: &Value, _args: &[Value]) -> crate::error::PhResult<Value> {
-            Ok(Value::Number(2.0))
+            Ok(Value::Int(2))
         }
         let new_method = vm.heap.alloc(crate::heap::Object::Method(Box::new(crate::method::MethodObject::new_single(
             get_sym,

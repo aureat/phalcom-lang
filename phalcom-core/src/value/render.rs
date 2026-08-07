@@ -20,9 +20,11 @@ impl Value {
         match self {
             Value::Nil => "nil".to_string(),
             Value::Bool(b) => bool_literal(*b).to_string(),
-            Value::Number(n) => n.to_string(),
+            Value::Int(n) => n.to_string(),
+            Value::Float(n) => render_float(*n),
             Value::Symbol(s) => s.to_string(vm),
             Value::Obj(id) => match vm.heap.get(*id) {
+                Object::LargeInt(bigint) => bigint.to_string(),
                 Object::Str(string) => string.value(),
                 Object::List(list) => {
                     let parts: Vec<String> = list.elements().iter().map(|v| v.to_string(vm)).collect();
@@ -59,60 +61,13 @@ impl Value {
 
     /// Renders this value for display (`System.print`) by sending it a
     /// `toString` message, unconditionally.
-    ///
-    /// Every value — immediates and heap objects alike — gets a real
-    /// `toString` message send: `Str` resolves to `self` (core.ph), `Number`
-    /// to [`crate::primitive::number::number_to_string`], `List` to
-    /// [`crate::primitive::list::list_to_string`], `Map`/`Set`/`Tuple`/
-    /// `Range` to their `.ph` `toString` overrides, a plain instance to
-    /// `Object#toString`
-    /// ([ADR-0015](../../../docs/adr/accepted/0015-object-default-tostring.md)),
-    /// and a user class that overrides `toString` to that override. This is
-    /// what makes `System.print` and an explicit `.toString` send agree at
-    /// every depth: a container's native renderer (e.g. `list_to_string`)
-    /// itself calls this method per element, so a user `toString` override
-    /// on a nested value is honored no matter how deep it's nested.
-    ///
-    /// Earlier versions of this method special-cased `Str`/`List`/`Map`/
-    /// `Set`/`Tuple`/`Range` as "already handled by [`Value::to_string`]'s
-    /// native formatting" and skipped the send for them. That was wrong:
-    /// once those types grew `.ph` `toString` overrides (or could be
-    /// re-opened by user code), the special case silently bypassed
-    /// dispatch and disagreed with `\(…)` string interpolation on the same
-    /// value (CB-6). Sending unconditionally is what dispatch requires.
-    ///
-    /// # Leaf fast path
-    ///
-    /// `Number`/`Symbol`/`Str` are the exception, and only while their
-    /// override-epoch flag ([`crate::universe::Universe::number_tostring_pristine`]/
-    /// [`crate::universe::Universe::symbol_tostring_pristine`]/
-    /// [`crate::universe::Universe::str_tostring_pristine`]) reads `true`: for these three
-    /// leaf types [`Value::to_string`]'s native formatting is *provably*
-    /// identical to their real `toString` body, because none of the three
-    /// recurses into another value's `toString` — there is nothing for a
-    /// nested override to bypass. This lets `System.print` on a `Number`/
-    /// `Symbol`/`Str` (and, transitively, each element a container's
-    /// `toString` sends this method for) skip the `toString` send and its
-    /// throwaway `Str` allocation entirely.
-    ///
-    /// This is deliberately **not** widened to any other type. `Bool`/`Nil`
-    /// have no override-epoch flag of their own here and always send
-    /// (`Bool` has a `.ph` `toString` in `core.ph`, watched flags for it
-    /// would also need to track `Object#toString` reopens transitively,
-    /// which is unnecessary complexity for two receivers). Containers
-    /// (`List`/`Map`/`Set`/`Tuple`/`Range`) and plain instances must
-    /// *always* send: their real `toString` recurses per element/slot via
-    /// this exact method, so a nested override several levels deep is only
-    /// honored if every level actually sends — fast-pathing a container
-    /// would silently reintroduce CB-6.
-    ///
-    /// # Errors
-    ///
-    /// Propagates any error the `toString` send itself raises (e.g. a user
-    /// override that throws).
     pub fn to_display_string(&self, vm: &mut VM) -> PhResult<String> {
-        if let Value::Number(_) = self {
-            if vm.universe.number_tostring_pristine {
+        if let Value::Int(_) = self {
+            if vm.universe.int_tostring_pristine {
+                return Ok(self.to_string(vm));
+            }
+        } else if let Value::Float(_) = self {
+            if vm.universe.float_tostring_pristine {
                 return Ok(self.to_string(vm));
             }
         } else if let Value::Symbol(_) = self {
@@ -121,6 +76,9 @@ impl Value {
             }
         } else if let Value::Obj(id) = self {
             if vm.universe.str_tostring_pristine && matches!(vm.heap.get(*id), Object::Str(_)) {
+                return Ok(self.to_string(vm));
+            }
+            if vm.universe.int_tostring_pristine && matches!(vm.heap.get(*id), Object::LargeInt(_)) {
                 return Ok(self.to_string(vm));
             }
         }
@@ -137,9 +95,11 @@ impl Value {
         match self {
             Value::Nil => "nil".to_string(),
             Value::Bool(b) => bool_literal(*b).to_string(),
-            Value::Number(n) => n.to_string(),
+            Value::Int(n) => n.to_string(),
+            Value::Float(n) => render_float(*n),
             Value::Symbol(s) => s.to_debug(),
             Value::Obj(id) => match vm.heap.get(*id) {
+                Object::LargeInt(bigint) => bigint.to_string(),
                 Object::Str(string) => string.value(),
                 Object::Instance(instance) => instance.to_debug(&vm.heap),
                 Object::Class(class) => class.to_debug(),
@@ -172,7 +132,8 @@ impl Debug for Value {
         match self {
             Self::Nil => write!(f, "nil"),
             Self::Bool(b) => write!(f, "{b}"),
-            Self::Number(n) => write!(f, "{n}"),
+            Self::Int(i) => write!(f, "{i}"),
+            Self::Float(n) => write!(f, "{}", render_float(*n)),
             Self::Symbol(s) => write!(f, "Symbol({})", s.0),
             Self::Obj(id) => write!(f, "<obj {id:?}>"),
         }
@@ -184,9 +145,31 @@ impl Display for Value {
         match self {
             Self::Nil => write!(f, "nil"),
             Self::Bool(b) => write!(f, "{b}"),
-            Self::Number(n) => write!(f, "{n}"),
+            Self::Int(i) => write!(f, "{i}"),
+            Self::Float(n) => write!(f, "{}", render_float(*n)),
             Self::Symbol(s) => write!(f, "Symbol({})", s.0),
             Self::Obj(id) => write!(f, "<obj {id:?}>"),
         }
+    }
+}
+
+/// Canonical shortest-roundtrip rendering for an `f64` value.
+///
+/// Matches the FLOAT-TEXT grammar from the spec:
+/// - `NaN` for any IEEE 754 NaN.
+/// - `Infinity` / `-Infinity` for positive/negative infinity.
+/// - Shortest decimal that round-trips for all finite values (via `ryu`).
+pub(crate) fn render_float(n: f64) -> String {
+    if n.is_nan() {
+        "NaN".to_string()
+    } else if n.is_infinite() {
+        if n.is_sign_negative() {
+            "-Infinity".to_string()
+        } else {
+            "Infinity".to_string()
+        }
+    } else {
+        let mut buf = ryu::Buffer::new();
+        buf.format(n).to_string()
     }
 }

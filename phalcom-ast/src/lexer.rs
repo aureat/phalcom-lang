@@ -180,6 +180,7 @@ impl<'input> Lexer<'input> {
                 Ok(Token::Newline)
             }
             b'0'..=b'9' => self.scan_number(),
+            b'.' if matches!(self.peek_at(1), Some(b'0'..=b'9')) => self.scan_number(),
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => Ok(self.scan_identifier()),
             b'"' => self.scan_string(),
             b'#' => self.scan_symbol(),
@@ -187,62 +188,194 @@ impl<'input> Lexer<'input> {
         }
     }
 
-    /// Scans a numeric literal (`[0-9]+(\.[0-9]+)?`) and decodes it to [`f64`].
+    /// Scans a numeric literal per PDR-0026, producing either [`Token::Int`] or [`Token::Float`].
     ///
-    /// A `.` is only consumed as a decimal point when it is followed by a digit,
-    /// so `1..2` and `3.method` tokenise correctly.
-    ///
-    /// Underscore digit separators (D2) are accepted **between** digits and
-    /// stripped before parsing, so `1_000_000` reads as `1000000` and
-    /// `1_000.500_5` reads as `1000.5005`. A separator that is not flanked by
-    /// digits on both sides — a trailing `_`, an `_` adjacent to the `.`, or a
-    /// doubled `__` — is rejected as a [`LexicalError::InvalidToken`] rather
-    /// than silently stripped. See `docs/spec/lexical-structure.md`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`LexicalError::InvalidToken`] spanning the offending `_` for a
-    /// misplaced digit separator, or [`LexicalError::InvalidFloat`] if the
-    /// stripped slice fails to parse as an [`f64`] (not reachable for the
-    /// matched grammar, but surfaced rather than panicking).
+    /// Malformed literals return a single [`LexicalError::NumericLiteral`] with a span over
+    /// the full lexeme.
     fn scan_number(&mut self) -> Result<Token, LexicalError> {
         let start = self.pos;
-        self.scan_digits()?;
-        if self.peek_at(0) == Some(b'.') && matches!(self.peek_at(1), Some(b'0'..=b'9')) {
-            self.pos += 1;
-            self.scan_digits()?;
+        let res = self.scan_number_body(start);
+        if res.is_err() {
+            // Consume remaining contiguous alphanumeric/underscore chars to form complete lexeme span
+            while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'.')) {
+                // If dot, only consume if followed by alpha/digit/underscore or end
+                self.pos += 1;
+            }
+            return Err(LexicalError::NumericLiteral(start..self.pos));
         }
-        let slice = &self.input[start..self.pos];
-        let cleaned = slice.replace('_', "");
-        Ok(Token::Number(cleaned.parse::<f64>()?))
+        res
     }
 
-    /// Scans a run of digits with interior `_` separators, leaving the cursor
-    /// just past the last digit.
-    ///
-    /// A `_` is only valid when the previous character is a digit and the next
-    /// is also a digit; the cursor is assumed to be on the first digit of the
-    /// run on entry.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`LexicalError::InvalidToken`] spanning a `_` that is not flanked
-    /// by digits on both sides (trailing, doubled, or adjacent to a `.`).
-    fn scan_digits(&mut self) -> Result<(), LexicalError> {
-        while matches!(self.peek_at(0), Some(b'0'..=b'9')) {
-            self.pos += 1;
-            // A separator is valid only immediately between two digits.
+    fn scan_number_body(&mut self, start: usize) -> Result<Token, LexicalError> {
+        let first_byte = self.bytes[self.pos];
+
+        // 1. Radix Prefixes: 0b, 0o, 0x
+        if first_byte == b'0' && matches!(self.peek_at(1), Some(b'b' | b'B' | b'o' | b'O' | b'x' | b'X')) {
+            let prefix_char = self.bytes[self.pos + 1].to_ascii_lowercase();
+            let radix = match prefix_char {
+                b'b' => 2,
+                b'o' => 8,
+                b'x' => 16,
+                _ => unreachable!(),
+            };
+            self.pos += 2; // skip 0b/0o/0x
+
+            // Allow one underscore immediately after base prefix (`0x_FF`)
             if self.peek_at(0) == Some(b'_') {
-                if matches!(self.peek_at(1), Some(b'0'..=b'9')) {
-                    self.pos += 1;
-                } else {
-                    let span = self.pos..self.pos + 1;
-                    self.pos += 1;
-                    return Err(LexicalError::InvalidToken(span));
-                }
+                self.pos += 1;
+            }
+
+            let digits = self.scan_radix_digits(radix)?;
+            if digits.is_empty() {
+                return Err(LexicalError::NumericLiteral(start..self.pos));
+            }
+            return Ok(Token::Int { digits, radix });
+        }
+
+        // 2. Leading Dot Float (`.5`)
+        if first_byte == b'.' {
+            self.pos += 1; // skip '.'
+            let frac = self.scan_decimal_digits()?;
+            if frac.is_empty() {
+                return Err(LexicalError::NumericLiteral(start..self.pos));
+            }
+            let mut exponent = None;
+            if matches!(self.peek_at(0), Some(b'e' | b'E')) {
+                exponent = Some(self.scan_exponent()?);
+            }
+            let raw_str = format!("0.{}", frac);
+            let val = parse_float_val(&raw_str, exponent)?;
+            return Ok(Token::Float(val));
+        }
+
+        // 3. Leading Zero Decimal check (`0123` rejected, zero-only forms like `0`, `0_0` valid)
+        if first_byte == b'0' {
+            // Check if followed by digits or underscore
+            let mut peek_idx = 1;
+            while matches!(self.peek_at(peek_idx), Some(b'0'..=b'9' | b'_')) {
+                peek_idx += 1;
+            }
+            let run = &self.input[self.pos..self.pos + peek_idx];
+            let cleaned = run.replace('_', "");
+            // If run contains digits other than '0' after leading zero, e.g., '0123'
+            if cleaned.len() > 1 && cleaned.chars().any(|c| c != '0') {
+                return Err(LexicalError::NumericLiteral(start..self.pos + peek_idx));
             }
         }
-        Ok(())
+
+        // 4. Decimal Int / Float
+        let int_part = self.scan_decimal_digits()?;
+        if int_part.is_empty() {
+            return Err(LexicalError::NumericLiteral(start..self.pos));
+        }
+
+        // A trailing decimal point is not a Float literal. Preserve `5.foo`
+        // and `5..6` as ordinary member/range tokenization, but reject a
+        // numeric candidate ending at `5.` atomically.
+        if self.peek_at(0) == Some(b'.') && !matches!(self.peek_at(1), Some(b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'.')) {
+            return Err(LexicalError::NumericLiteral(start..self.pos + 1));
+        }
+
+        let has_dot = self.peek_at(0) == Some(b'.') && matches!(self.peek_at(1), Some(b'0'..=b'9'));
+        let mut frac_part = None;
+        if has_dot {
+            self.pos += 1; // consume '.'
+            let frac = self.scan_decimal_digits()?;
+            if frac.is_empty() {
+                return Err(LexicalError::NumericLiteral(start..self.pos));
+            }
+            frac_part = Some(frac);
+        }
+
+        let has_exp = matches!(self.peek_at(0), Some(b'e' | b'E'));
+        let mut exponent = None;
+        if has_exp {
+            exponent = Some(self.scan_exponent()?);
+        }
+
+        if has_dot || has_exp {
+            let raw_str = if let Some(frac) = frac_part {
+                format!("{}.{}", int_part, frac)
+            } else {
+                int_part
+            };
+            let val = parse_float_val(&raw_str, exponent)?;
+            Ok(Token::Float(val))
+        } else {
+            Ok(Token::Int { digits: int_part, radix: 10 })
+        }
+    }
+
+    /// Scans decimal digits with single underscore separators between digits.
+    fn scan_decimal_digits(&mut self) -> Result<String, LexicalError> {
+        let mut digits = String::new();
+        while let Some(b) = self.peek_at(0) {
+            if b.is_ascii_digit() {
+                digits.push(b as char);
+                self.pos += 1;
+                if self.peek_at(0) == Some(b'_') {
+                    if self.peek_at(1).is_some_and(|next| next.is_ascii_digit()) {
+                        self.pos += 1; // skip valid '_'
+                    } else {
+                        // Malformed separator (e.g., doubled `__`, trailing `_`, or before `.`)
+                        return Err(LexicalError::NumericLiteral(self.pos..self.pos + 1));
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        Ok(digits)
+    }
+
+    /// Scans radix digits for binary (2), octal (8), or hex (16).
+    fn scan_radix_digits(&mut self, radix: u32) -> Result<String, LexicalError> {
+        let mut digits = String::new();
+        while let Some(b) = self.peek_at(0) {
+            let valid = match radix {
+                2 => matches!(b, b'0' | b'1'),
+                8 => matches!(b, b'0'..=b'7'),
+                16 => b.is_ascii_hexdigit(),
+                _ => false,
+            };
+            if valid {
+                digits.push((b as char).to_ascii_lowercase());
+                self.pos += 1;
+                if self.peek_at(0) == Some(b'_') {
+                    let next_valid = self.peek_at(1).is_some_and(|nb| match radix {
+                        2 => matches!(nb, b'0' | b'1'),
+                        8 => matches!(nb, b'0'..=b'7'),
+                        16 => nb.is_ascii_hexdigit(),
+                        _ => false,
+                    });
+                    if next_valid {
+                        self.pos += 1; // skip valid '_'
+                    } else {
+                        return Err(LexicalError::NumericLiteral(self.pos..self.pos + 1));
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+        Ok(digits)
+    }
+
+    /// Scans decimal exponent `e[+-]?digits`.
+    fn scan_exponent(&mut self) -> Result<String, LexicalError> {
+        let mut exp = String::new();
+        // Skip 'e' or 'E'
+        self.pos += 1;
+        if matches!(self.peek_at(0), Some(b'+' | b'-')) {
+            exp.push(self.bytes[self.pos] as char);
+            self.pos += 1;
+        }
+        let digits = self.scan_decimal_digits()?;
+        if digits.is_empty() {
+            return Err(LexicalError::NumericLiteral(self.pos..self.pos));
+        }
+        exp.push_str(&digits);
+        Ok(exp)
     }
 
     /// Scans an identifier (`[A-Za-z_][A-Za-z0-9_]*`), resolving keywords.
@@ -485,9 +618,17 @@ impl<'input> Lexer<'input> {
                 self.pos += 1;
                 Ok(operator_selector("-"))
             }
+            Some(b'*') if self.peek_at(1) == Some(b'*') => {
+                self.pos += 2;
+                Ok(operator_selector("**"))
+            }
             Some(b'*') => {
                 self.pos += 1;
                 Ok(operator_selector("*"))
+            }
+            Some(b'~') if self.peek_at(1) == Some(b'/') => {
+                self.pos += 2;
+                Ok(operator_selector("~/"))
             }
             Some(b'/') => {
                 self.pos += 1;
@@ -637,11 +778,14 @@ impl<'input> Lexer<'input> {
             b'-' if next == Some(b'>') => (2, Token::Arrow),
             b'-' => (1, Token::Minus),
             b'*' if next == Some(b'=') => (2, Token::AsteriskEqual),
+            b'*' if next == Some(b'*') => (2, Token::Power),
             b'*' => (1, Token::Asterisk),
             b'/' if next == Some(b'=') => (2, Token::SlashEqual),
             b'/' => (1, Token::Slash),
+            b'~' if next == Some(b'/') => (2, Token::SlashTilde),
             b'%' if next == Some(b'=') => (2, Token::PercentEqual),
             b'%' => (1, Token::Percent),
+            b'<' if next == Some(b'<') => (2, Token::ShiftLeft),
             b'=' if next == Some(b'=') => (2, Token::EqualEqual),
             b'=' if next == Some(b'>') => (2, Token::FatArrow),
             b'=' => (1, Token::Equal),
@@ -649,6 +793,7 @@ impl<'input> Lexer<'input> {
             b'!' => (1, Token::Bang),
             b'<' if next == Some(b'=') => (2, Token::LessEqual),
             b'<' => (1, Token::Less),
+            b'>' if next == Some(b'>') => (2, Token::ShiftRight),
             b'>' if next == Some(b'=') => (2, Token::GreaterEqual),
             b'>' => (1, Token::Greater),
             b':' if next == Some(b':') => (2, Token::ColonColon),
@@ -670,6 +815,10 @@ impl<'input> Lexer<'input> {
             b'?' if next == Some(b'.') => (2, Token::QuestionDot),
             b'?' => (1, Token::Question),
             b'@' => (1, Token::At),
+            b'&' => (1, Token::Ampersand),
+            b'|' => (1, Token::Pipe),
+            b'^' => (1, Token::Caret),
+            b'~' => (1, Token::Tilde),
             _ => {
                 // Unknown character: advance past the whole UTF-8 scalar so the
                 // iterator makes progress, and report its exact byte span.
@@ -720,7 +869,9 @@ fn suppresses_following_newline(prev: &Token) -> bool {
         Token::Plus
             | Token::Minus
             | Token::Asterisk
+            | Token::Power
             | Token::Slash
+            | Token::SlashTilde
             | Token::Percent
             // Comparison.
             | Token::EqualEqual
@@ -755,6 +906,15 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::Arrow
             | Token::FatArrow
     )
+}
+
+fn parse_float_val(raw_str: &str, exponent: Option<String>) -> Result<f64, LexicalError> {
+    let full_str = if let Some(exp) = exponent {
+        format!("{}e{}", raw_str, exp)
+    } else {
+        raw_str.to_string()
+    };
+    full_str.parse::<f64>().map_err(LexicalError::InvalidFloat)
 }
 
 impl Iterator for Lexer<'_> {
@@ -848,7 +1008,21 @@ mod tests {
     fn line_comment_is_skipped_but_its_newline_survives() {
         let toks = spans("1 // c\n2");
         let kinds: Vec<Token> = toks.into_iter().map(|(t, _, _)| t).collect();
-        assert_eq!(kinds, vec![Token::Number(1.0), Token::Newline, Token::Number(2.0), Token::Eof]);
+        assert_eq!(
+            kinds,
+            vec![
+                Token::Int {
+                    digits: "1".to_string(),
+                    radix: 10
+                },
+                Token::Newline,
+                Token::Int {
+                    digits: "2".to_string(),
+                    radix: 10
+                },
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
@@ -864,7 +1038,21 @@ mod tests {
     fn number_dot_dot_is_not_a_decimal() {
         // `1..2` must be Number, DotDot, Number — never `1.` then `.2`.
         let kinds: Vec<Token> = spans("1..2").into_iter().map(|(t, _, _)| t).collect();
-        assert_eq!(kinds, vec![Token::Number(1.0), Token::DotDot, Token::Number(2.0), Token::Eof]);
+        assert_eq!(
+            kinds,
+            vec![
+                Token::Int {
+                    digits: "1".to_string(),
+                    radix: 10
+                },
+                Token::DotDot,
+                Token::Int {
+                    digits: "2".to_string(),
+                    radix: 10
+                },
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]

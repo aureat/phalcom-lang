@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 277
 expression: "parse(\"for (item in makeList(3)) { total = total + item }\")"
 ---
 Program {
@@ -20,8 +21,9 @@ Program {
                         args: [
                             Argument {
                                 label: None,
-                                expr: Number {
-                                    value: 3.0,
+                                expr: Int {
+                                    digits: "3",
+                                    radix: 10,
                                     range: CopyRange {
                                         start: 22,
                                         end: 23,

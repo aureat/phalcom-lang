@@ -87,18 +87,10 @@ pub fn string_raw_byte_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> 
             .into());
         }
     };
-    Ok(Value::Number(s.len() as f64))
+    Ok(Value::Int(s.len() as i64))
 }
 
 /// Signature: `String::byteAt_(_)` — read a single raw byte from the buffer.
-///
-/// Derives from ADR-0019 (minimal native floor); byte-level access is not derivable
-/// in `.ph` code. Returns a `Number` (0–255) on hit; returns the `None` singleton
-/// on out-of-bounds access (mirrors `list_raw_at`'s pattern, ADR-0007 Invariant 4).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a string.
 pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let s = match receiver {
         Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
@@ -112,7 +104,13 @@ pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     };
 
     let idx = match &args[0] {
-        Value::Number(n) => {
+        Value::Int(n) => {
+            if *n < 0 {
+                return Ok(vm.none_value());
+            }
+            *n as usize
+        }
+        Value::Float(n) => {
             if n.fract() != 0.0 || *n < 0.0 {
                 return Ok(vm.none_value());
             }
@@ -122,24 +120,13 @@ pub fn string_raw_byte_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     };
 
     if idx < s.len() {
-        Ok(Value::Number(s.as_bytes()[idx] as f64))
+        Ok(Value::Int(s.as_bytes()[idx] as i64))
     } else {
         Ok(vm.none_value())
     }
 }
 
 /// Signature: `String::slice_(_,_)` — extract a substring by byte range `[start, end)`.
-///
-/// Derives from ADR-0019 (minimal native floor); string allocation from computed byte
-/// offsets is not derivable in `.ph` (no way to construct a String from raw bytes).
-/// Returns a new `String`. Validates UTF-8 char-boundary alignment via
-/// [`str::is_char_boundary`]; returns [`RuntimeError::Type`] on misaligned boundaries
-/// (never panics on a malformed slice attempt).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a string, or if `start`/`end`
-/// are not valid integers, out of range, or not aligned to UTF-8 char boundaries.
 pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let s = match receiver {
         Value::Obj(id) if vm.heap.as_string(*id).is_some() => vm.heap.string(*id).as_str(),
@@ -153,7 +140,17 @@ pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     };
 
     let start = match &args[0] {
-        Value::Number(n) => {
+        Value::Int(n) => {
+            if *n < 0 {
+                return Err(RuntimeError::Type {
+                    expected: "valid index",
+                    found: "invalid number",
+                }
+                .into());
+            }
+            *n as usize
+        }
+        Value::Float(n) => {
             if n.fract() != 0.0 || *n < 0.0 {
                 return Err(RuntimeError::Type {
                     expected: "valid index",
@@ -165,7 +162,7 @@ pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
         }
         _ => {
             return Err(RuntimeError::Type {
-                expected: "Number",
+                expected: "number",
                 found: args[0].type_name(),
             }
             .into());
@@ -173,7 +170,17 @@ pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
     };
 
     let end = match &args[1] {
-        Value::Number(n) => {
+        Value::Int(n) => {
+            if *n < 0 {
+                return Err(RuntimeError::Type {
+                    expected: "valid index",
+                    found: "invalid number",
+                }
+                .into());
+            }
+            *n as usize
+        }
+        Value::Float(n) => {
             if n.fract() != 0.0 || *n < 0.0 {
                 return Err(RuntimeError::Type {
                     expected: "valid index",
@@ -185,7 +192,7 @@ pub fn string_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
         }
         _ => {
             return Err(RuntimeError::Type {
-                expected: "Number",
+                expected: "number",
                 found: args[1].type_name(),
             }
             .into());

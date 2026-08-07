@@ -60,6 +60,10 @@ anyhow = "1.0.98"
 color-print = "0.3.7"
 slotmap = "1"
 unicode-width = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = "0.2"
+num-integer = "0.1"
+ryu = "1"
 
 [dev-dependencies]
 # Tier 0 instrumentation (U-BENCH, performance.md §4). Micro-benches only —

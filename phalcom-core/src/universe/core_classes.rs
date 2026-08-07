@@ -52,9 +52,14 @@ impl Universe {
         // 5. The remaining core classes, each with its own metaclass wired by
         //    the same parallel rule (§6 step 5).
         let number_class = make_core_class(heap, "Number", object_class, metaclass_class);
+        let int_class = make_core_class(heap, "Int", number_class, metaclass_class);
+        let float_class = make_core_class(heap, "Float", number_class, metaclass_class);
+        heap.class_mut(number_class).is_abstract = true;
+        heap.class_mut(behavior_class).is_abstract = true;
         let string_class = make_core_class(heap, "String", object_class, metaclass_class);
         let nil_class = make_core_class(heap, "Nil", object_class, metaclass_class);
         let bool_class = make_core_class(heap, "Bool", object_class, metaclass_class);
+        heap.class_mut(bool_class).is_abstract = true;
         // The boolean tower (ADR-0004): `Bool` is abstract — no value is ever
         // *directly* an instance of it. Its two concrete singleton subclasses,
         // `True` and `False`, are the surface classes of the `true`/`false`
@@ -74,6 +79,7 @@ impl Universe {
         // re-parents from `Object` to `Function` and inherits the call protocol
         // (`arity`/`name`/`call…`/`callWith`) rather than redefining it.
         let function_class = make_core_class(heap, "Function", object_class, metaclass_class);
+        heap.class_mut(function_class).is_abstract = true;
         let block_class = make_core_class(heap, "Block", function_class, metaclass_class);
         let method_class = make_core_class(heap, "Method", function_class, metaclass_class);
         let symbol_class = make_core_class(heap, "Symbol", object_class, metaclass_class);
@@ -87,6 +93,7 @@ impl Universe {
         // `nil` class — the private `Value::Nil` sentinel (ADR-0010) is surfaced
         // to `None` at read boundaries and can never be produced by user code.
         let option_class = make_core_class(heap, "Option", object_class, metaclass_class);
+        heap.class_mut(option_class).is_abstract = true;
         let some_class = make_core_class(heap, "Some", option_class, metaclass_class);
         let none_class = make_core_class(heap, "None", option_class, metaclass_class);
 
@@ -173,6 +180,8 @@ impl Universe {
             class_class,
             metaclass_class,
             number_class,
+            int_class,
+            float_class,
             string_class,
             nil_class,
             bool_class,
@@ -208,6 +217,8 @@ impl Universe {
         // Mark native representation classes that cannot be allocated via generic InstanceObject::new (new_).
         let native_repr_classes = [
             res.number_class,
+            res.int_class,
+            res.float_class,
             res.string_class,
             res.nil_class,
             res.bool_class,
@@ -279,6 +290,10 @@ pub struct CoreClasses {
     pub metaclass_class: ClassId,
     /// `Number`.
     pub number_class: ClassId,
+    /// `Int`.
+    pub int_class: ClassId,
+    /// `Float`.
+    pub float_class: ClassId,
     /// `String`.
     pub string_class: ClassId,
     /// `Nil`.
@@ -432,6 +447,8 @@ impl CoreClasses {
             class_class,
             metaclass_class,
             number_class,
+            int_class,
+            float_class,
             string_class,
             nil_class,
             bool_class,
@@ -470,6 +487,8 @@ impl CoreClasses {
             class_class,
             metaclass_class,
             number_class,
+            int_class,
+            float_class,
             string_class,
             nil_class,
             bool_class,

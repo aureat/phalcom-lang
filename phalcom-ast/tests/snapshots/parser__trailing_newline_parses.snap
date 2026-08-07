@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 146
 expression: "parse(\"let x = 1\\n\")"
 ---
 Program {
@@ -15,8 +16,9 @@ Program {
                     },
                 },
                 value: Some(
-                    Number {
-                        value: 1.0,
+                    Int {
+                        digits: "1",
+                        radix: 10,
                         range: CopyRange {
                             start: 8,
                             end: 9,

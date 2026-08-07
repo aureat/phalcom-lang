@@ -79,7 +79,7 @@ fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut Ha
 
     // Scan for nested closures:
     // (a) `Closure` bytecode instructions referencing a constant index.
-    for (_ip, instr) in chunk.code.iter().enumerate() {
+    for instr in &chunk.code {
         if let Bytecode::Closure(idx) = *instr {
             let val = chunk.constants[idx as usize];
             if let Some(id) = val.as_obj() {
@@ -168,7 +168,7 @@ fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut Ha
         let prefix = "  ".repeat(indent);
         let closure = vm.heap.closure(id);
 
-        let block_prefix = if (name.contains("<block") || name.is_empty() || name == parent_name) as bool {
+        let block_prefix = if name.contains("<block") || name.is_empty() || name == parent_name {
             format!("<block in {}>", parent_name)
         } else {
             format!("{}.{}", parent_name, name)

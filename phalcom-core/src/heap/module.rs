@@ -129,13 +129,13 @@ impl ModuleObject {
     ///
     /// # Errors
     ///
-    /// Returns `Err(())` if [`Self::attributes_frozen`] is set.
-    pub fn attach_attribute(&mut self, attr: Value) -> Result<(), ()> {
+    /// Returns `false` if [`Self::attributes_frozen`] is set.
+    pub fn attach_attribute(&mut self, attr: Value) -> bool {
         if self.attributes_frozen {
-            return Err(());
+            return false;
         }
         self.attributes.push(attr);
-        Ok(())
+        true
     }
 
     /// Returns the module's name symbol.

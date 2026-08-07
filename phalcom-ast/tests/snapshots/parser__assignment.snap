@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 82
 expression: "parse(\"x = 1\")"
 ---
 Program {
@@ -14,8 +15,9 @@ Program {
                             end: 1,
                         },
                     },
-                    value: Number {
-                        value: 1.0,
+                    value: Int {
+                        digits: "1",
+                        radix: 10,
                         range: CopyRange {
                             start: 4,
                             end: 5,

@@ -1,207 +1,482 @@
 //! Native primitives on `Number`.
 
 use crate::error::{PhResult, RuntimeError};
-use crate::expect_value;
-use crate::value::Value;
+use crate::value::{Value, normalize_bigint};
 use crate::vm::VM;
+use num_bigint::BigInt;
+use num_integer::Integer;
+use num_traits::FromPrimitive;
+use num_traits::cast::ToPrimitive;
+use num_traits::identities::Zero;
+use num_traits::sign::Signed;
 
-/// The number `0`, as a constant [`Value`].
-pub const NUM_0: Value = Value::Number(0.0);
-/// The number `1`, as a constant [`Value`].
-pub const NUM_1: Value = Value::Number(1.0);
+pub const NUM_0: Value = Value::Int(0);
+pub const NUM_1: Value = Value::Int(1);
 
-/// Signature: `Number.class::new(_)` — coerces its argument to a number.
-///
-/// Accepts a number (identity), a numeric string (parsed), or a boolean
-/// (`1`/`0`). With no argument, returns `0`.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::TypeConversion`] if the argument is a non-numeric
-/// string or an otherwise non-convertible value.
-pub fn number_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+fn integer_bits(n: &BigInt) -> usize {
+    if n.is_zero() { 0 } else { n.bits() as usize }
+}
+
+fn extract_int(val: &Value, vm: &VM) -> Option<BigInt> {
+    match val {
+        Value::Int(n) => Some(BigInt::from(*n)),
+        Value::Obj(id) => vm.heap.as_large_int(*id).cloned(),
+        _ => None,
+    }
+}
+
+enum EitherIntOrFloat {
+    Int(BigInt),
+    Float(f64),
+}
+
+fn expect_number_big_or_float(val: &Value, vm: &VM) -> PhResult<EitherIntOrFloat> {
+    if let Some(big) = extract_int(val, vm) {
+        Ok(EitherIntOrFloat::Int(big))
+    } else if let Value::Float(f) = val {
+        Ok(EitherIntOrFloat::Float(*f))
+    } else {
+        Err(RuntimeError::Type {
+            expected: "number",
+            found: val.type_name(),
+        }
+        .into())
+    }
+}
+
+enum PromotedPair {
+    Int(i64, i64),
+    Big(BigInt, BigInt),
+    Float(f64, f64),
+}
+
+fn promote_pair(a: &Value, b: &Value, vm: &VM) -> PhResult<PromotedPair> {
+    let a_parsed = expect_number_big_or_float(a, vm)?;
+    let b_parsed = expect_number_big_or_float(b, vm)?;
+    match (a_parsed, b_parsed) {
+        (EitherIntOrFloat::Float(af), EitherIntOrFloat::Float(bf)) => Ok(PromotedPair::Float(af, bf)),
+        (EitherIntOrFloat::Float(af), EitherIntOrFloat::Int(bi)) => Ok(PromotedPair::Float(af, bi.to_f64().unwrap_or(f64::NAN))),
+        (EitherIntOrFloat::Int(ai), EitherIntOrFloat::Float(bf)) => Ok(PromotedPair::Float(ai.to_f64().unwrap_or(f64::NAN), bf)),
+        (EitherIntOrFloat::Int(ai), EitherIntOrFloat::Int(bi)) => {
+            if let (Value::Int(a_i), Value::Int(b_i)) = (a, b) {
+                Ok(PromotedPair::Int(*a_i, *b_i))
+            } else {
+                Ok(PromotedPair::Big(ai, bi))
+            }
+        }
+    }
+}
+
+fn check_limit_bigint(n: &BigInt, vm: &mut VM) -> PhResult<()> {
+    let limit = vm.numeric_policy.max_integer_bits.unwrap_or(8_388_608);
+    if integer_bits(n) > limit {
+        return Err(vm.raise_numeric_error(RuntimeError::NumericLimit("Integer bit length exceeds configured limit".to_string())));
+    }
+    Ok(())
+}
+
+fn floor_div_i64(a: i64, b: i64) -> i64 {
+    let res = a / b;
+    let rem = a % b;
+    if (rem > 0 && b < 0) || (rem < 0 && b > 0) { res - 1 } else { res }
+}
+
+fn floor_mod_i64(a: i64, b: i64) -> i64 {
+    let rem = a % b;
+    if (rem > 0 && b < 0) || (rem < 0 && b > 0) { rem + b } else { rem }
+}
+
+fn pow_bigint(base: &BigInt, exp: &BigInt, limit: usize, vm: &mut VM) -> PhResult<BigInt> {
+    let mut res = BigInt::from(1);
+    let mut temp_base = base.clone();
+    let mut temp_exp = exp.clone();
+    while !temp_exp.is_zero() {
+        if temp_exp.bit(0) {
+            res = &res * &temp_base;
+            if integer_bits(&res) > limit {
+                return Err(vm.raise_numeric_error(RuntimeError::NumericLimit("Exponentiation exceeds bit limit".to_string())));
+            }
+        }
+        temp_base = &temp_base * &temp_base;
+        if !temp_exp.is_zero() && integer_bits(&temp_base) > limit {
+            return Err(vm.raise_numeric_error(RuntimeError::NumericLimit("Exponentiation exceeds bit limit".to_string())));
+        }
+        temp_exp >>= 1;
+    }
+    Ok(res)
+}
+
+/// Signature: `Number.class::new(_)` — raises `#abstractClass`.
+pub fn number_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let error_cls = vm.universe.classes.error_class;
+    let field_count = vm.heap.class(error_cls).field_count;
+    let mut inst = crate::heap::InstanceObject::new(error_cls, field_count);
+    let msg = "cannot instantiate abstract class Number".to_string();
+    inst.slots[0] = vm.alloc_string_value(msg.clone());
+    let kind_sym = vm.get_or_intern("abstractClass");
+    inst.slots[1] = Value::Symbol(kind_sym);
+    let err_obj = vm.heap.alloc(crate::heap::Object::Instance(inst));
+    Err(RuntimeError::Raise {
+        error: Value::Obj(err_obj),
+        rendered: msg,
+        traceback: None,
+        help: None,
+    }
+    .into())
+}
+
+/// Signature: `Float.class::new(_)` — coerces/constructs a `Float`.
+pub fn float_class_new(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(arg) = args.first() else {
-        return Ok(Value::Number(0.0));
+        return Ok(Value::Float(0.0));
     };
     match arg {
-        Value::Number(n) => Ok(Value::Number(*n)),
-        Value::Bool(b) => Ok(Value::Number(if *b { 1.0 } else { 0.0 })),
-        Value::Obj(id) if vm.heap.as_string(*id).is_some() => {
-            let text = vm.heap.string(*id).value();
-            text.parse::<f64>().map(Value::Number).map_err(|_| {
-                RuntimeError::TypeConversion {
-                    expected: "number",
-                    found: "value", // TODO: base this on arg.type_name() once granular.
+        Value::Float(n) => Ok(Value::Float(*n)),
+        Value::Int(n) => Ok(Value::Float(*n as f64)),
+        Value::Obj(id) => {
+            if let Some(b) = vm.heap.as_large_int(*id) {
+                Ok(Value::Float(b.to_f64().unwrap_or(f64::NAN)))
+            } else if let Some(s) = vm.heap.as_string(*id) {
+                let text = s.value();
+                if let Ok(f) = text.parse::<f64>() {
+                    Ok(Value::Float(f))
+                } else {
+                    Err(RuntimeError::TypeConversion {
+                        expected: "Float",
+                        found: "String",
+                    }
+                    .into())
                 }
-                .into()
-            })
+            } else {
+                Err(RuntimeError::TypeConversion {
+                    expected: "Float",
+                    found: arg.type_name(),
+                }
+                .into())
+            }
         }
         _ => Err(RuntimeError::TypeConversion {
-            expected: "number",
+            expected: "Float",
             found: arg.type_name(),
         }
         .into()),
     }
 }
 
-/// Signature: `Number::hash` — a digest of the mathematical value.
-///
-/// Digests the *value*, class-agnostically (forward-compat §4;
-/// [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)):
-/// an integral number hashes to its integer, so a future `Integer 2` and
-/// `Float 2.0` agree (open-Q2); `-0.0` is normalized to `0.0`; non-integral /
-/// infinite values hash by their canonical IEEE-754 bits. `a == b ⇒
-/// a.hash == b.hash` (R-INV-1.3) and the digest is stable within a run
-/// (R-INV-1.4). Underivable — `.ph` has no bit access to an `f64`.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a number.
-pub fn number_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let n = expect_value!(receiver, Number);
-    let bits = if n == 0.0 {
-        // Unify +0.0 and -0.0 (which are `==` but have distinct bit patterns).
-        0
-    } else if n.is_finite() && n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {
-        // Integral and in the safe-integer range → hash as that integer.
-        (n as i64) as u64
-    } else {
-        // Non-integral or non-finite → canonical bits.
-        n.to_bits()
-    };
-    Ok(crate::primitive::hash_code(bits))
+/// Signature: `Number::hash` — digest of the mathematical value.
+pub fn number_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    match receiver {
+        Value::Int(n) => Ok(crate::primitive::hash_code(*n as u64)),
+        Value::Float(n) => {
+            let val = *n;
+            let bits = if val == 0.0 {
+                0
+            } else if val.is_finite() && val.fract() == 0.0 && val.abs() < 9_007_199_254_740_992.0 {
+                (val as i64) as u64
+            } else {
+                val.to_bits()
+            };
+            Ok(crate::primitive::hash_code(bits))
+        }
+        Value::Obj(id) => {
+            if let Some(b) = vm.heap.as_large_int(*id) {
+                // Hash of BigInt content
+                let mut state = std::collections::hash_map::DefaultHasher::new();
+                std::hash::Hash::hash(b, &mut state);
+                use std::hash::Hasher;
+                Ok(crate::primitive::hash_code(state.finish()))
+            } else {
+                Err(RuntimeError::Type {
+                    expected: "Number",
+                    found: receiver.type_name(),
+                }
+                .into())
+            }
+        }
+        _ => Err(RuntimeError::Type {
+            expected: "Number",
+            found: receiver.type_name(),
+        }
+        .into()),
+    }
 }
 
-/// Signature: `Number::toString` — the numeric value as a decimal string
-/// (U-CORE-4).
-///
-/// Delegates to the shared native renderer ([`Value::to_string`]) so
-/// `n.toString` is byte-identical to `System.print(n)` (R-INV-4.1). Reads the
-/// receiver's `f64` representation, which is unreachable from `.ph` — hence a
-/// floor primitive ([ADR-0019](../../../docs/adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
-/// amendment; cf. [`number_hash`], decisions.md Q1). Bound on `Number` (the
-/// abstract numeric root), not a concrete f64 path, so a future `Integer`/
-/// `Float` split (forward-compat §4) can refine this per-subclass without
-/// breaking dispatch identity.
-///
-/// Always succeeds: [`Value::to_string`] is total over every `Value` variant.
+/// Signature: `Number::toString`
 pub fn number_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let text = receiver.to_string(vm); // immutable borrow ends before the alloc below
+    let text = receiver.to_string(vm);
     Ok(vm.alloc_string_value(text))
 }
 
-/// Signature: `Number::+(_)` — numeric addition.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_add(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(_receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Number(this + other))
+/// Signature: `Number::+(_)`
+pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => {
+            if let Some(res) = a.checked_add(b) {
+                Ok(Value::Int(res))
+            } else {
+                let res = BigInt::from(a) + BigInt::from(b);
+                check_limit_bigint(&res, vm)?;
+                Ok(normalize_bigint(res, &mut vm.heap))
+            }
+        }
+        PromotedPair::Big(a, b) => {
+            let res = a + b;
+            check_limit_bigint(&res, vm)?;
+            Ok(normalize_bigint(res, &mut vm.heap))
+        }
+        PromotedPair::Float(a, b) => Ok(Value::Float(a + b)),
+    }
 }
 
-/// Signature: `Number::/(_)` — numeric division.
-///
-/// Follows IEEE-754 `f64` division: `1 / 0` is `inf`, `-1 / 0` is `-inf`,
-/// `0 / 0` is `NaN` (control-flow.md/arithmetic goldens pin this — Phalcom's
-/// flat `Number` never special-cases the divisor,
-/// [ADR-0005](../../../docs/adr/retired/0005-number-as-flat-f64.md)).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_div(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(_receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Number(this / other))
+/// Signature: `Number::-(_)`
+pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => {
+            if let Some(res) = a.checked_sub(b) {
+                Ok(Value::Int(res))
+            } else {
+                let res = BigInt::from(a) - BigInt::from(b);
+                check_limit_bigint(&res, vm)?;
+                Ok(normalize_bigint(res, &mut vm.heap))
+            }
+        }
+        PromotedPair::Big(a, b) => {
+            let res = a - b;
+            check_limit_bigint(&res, vm)?;
+            Ok(normalize_bigint(res, &mut vm.heap))
+        }
+        PromotedPair::Float(a, b) => Ok(Value::Float(a - b)),
+    }
 }
 
-/// Signature: `Number::-(_)` — numeric subtraction.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_sub(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Number(this - other))
+/// Signature: `Number::*(_)`
+pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => {
+            if let Some(res) = a.checked_mul(b) {
+                Ok(Value::Int(res))
+            } else {
+                let res = BigInt::from(a) * BigInt::from(b);
+                check_limit_bigint(&res, vm)?;
+                Ok(normalize_bigint(res, &mut vm.heap))
+            }
+        }
+        PromotedPair::Big(a, b) => {
+            let res = a * b;
+            check_limit_bigint(&res, vm)?;
+            Ok(normalize_bigint(res, &mut vm.heap))
+        }
+        PromotedPair::Float(a, b) => Ok(Value::Float(a * b)),
+    }
 }
 
-/// Signature: `Number::*(_)` — numeric multiplication.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_mul(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Number(this * other))
+/// Signature: `Number::/(_)` — true division.
+pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    let (a, b) = match pair {
+        PromotedPair::Int(a, b) => (a as f64, b as f64),
+        PromotedPair::Big(a, b) => (a.to_f64().unwrap_or(f64::NAN), b.to_f64().unwrap_or(f64::NAN)),
+        PromotedPair::Float(a, b) => (a, b),
+    };
+    Ok(Value::Float(a / b))
 }
 
-/// Signature: `Number::%(_)` — floating-point remainder (Rust `%`/IEEE-754
-/// `fmod` semantics, sign follows the dividend).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_mod(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Number(this % other))
+/// Signature: `Number::~/(_)` — floor division.
+pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => {
+            if b == 0 {
+                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
+            }
+            Ok(Value::Int(floor_div_i64(a, b)))
+        }
+        PromotedPair::Big(a, b) => {
+            if b.is_zero() {
+                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
+            }
+            let res = a.div_floor(&b);
+            check_limit_bigint(&res, vm)?;
+            Ok(normalize_bigint(res, &mut vm.heap))
+        }
+        PromotedPair::Float(a, b) => {
+            if b == 0.0 {
+                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
+            }
+            if !a.is_finite() || !b.is_finite() {
+                return Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite operand".to_string())));
+            }
+            let q = a / b;
+            if !q.is_finite() {
+                return Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite quotient".to_string())));
+            }
+            if let Some(big) = BigInt::from_f64(q.floor()) {
+                check_limit_bigint(&big, vm)?;
+                Ok(normalize_bigint(big, &mut vm.heap))
+            } else {
+                Err(vm.raise_numeric_error(RuntimeError::NonFiniteNumber("non-finite quotient".to_string())))
+            }
+        }
+    }
 }
 
-/// Signature: `Number::<(_)` — less-than comparison.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_lt(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Bool(this < other))
+/// Signature: `Number::%(_)`
+pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => {
+            if b == 0 {
+                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
+            }
+            Ok(Value::Int(floor_mod_i64(a, b)))
+        }
+        PromotedPair::Big(a, b) => {
+            if b.is_zero() {
+                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
+            }
+            let res = a.mod_floor(&b);
+            check_limit_bigint(&res, vm)?;
+            Ok(normalize_bigint(res, &mut vm.heap))
+        }
+        PromotedPair::Float(a, b) => Ok(Value::Float(a % b)),
+    }
 }
 
-/// Signature: `Number::<=(_)` — less-than-or-equal comparison.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_le(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Bool(this <= other))
+/// Signature: `Number::**(_)`
+pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let base_val = receiver;
+    let exp_val = &args[0];
+
+    // Identity check 1: 1 ** y = 1 (or 1.0)
+    if base_val == &Value::Int(1) {
+        return Ok(if let Value::Float(_) = exp_val { Value::Float(1.0) } else { Value::Int(1) });
+    }
+    // Identity check 2: x ** 0 = 1 (or 1.0)
+    if exp_val == &Value::Int(0) {
+        return Ok(if let Value::Float(_) = base_val { Value::Float(1.0) } else { Value::Int(1) });
+    }
+
+    let base_parsed = expect_number_big_or_float(base_val, vm)?;
+    let exp_parsed = expect_number_big_or_float(exp_val, vm)?;
+
+    match (base_parsed, exp_parsed) {
+        (EitherIntOrFloat::Int(base), EitherIntOrFloat::Int(exp)) => {
+            if exp.is_negative() {
+                // Negative exponent promotes to Float
+                let base_f = base.to_f64().unwrap_or(f64::NAN);
+                let exp_f = exp.to_f64().unwrap_or(f64::NAN);
+                if base_f == 0.0 {
+                    return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
+                }
+                Ok(Value::Float(base_f.powf(exp_f)))
+            } else {
+                if base.is_zero() {
+                    return Ok(Value::Int(0));
+                }
+                // Preflight estimated bits
+                let limit = vm.numeric_policy.max_integer_bits.unwrap_or(8_388_608);
+                let exp_usize = match exp.to_usize() {
+                    Some(u) if u <= limit => u,
+                    _ => return Err(vm.raise_numeric_error(RuntimeError::NumericLimit("Power exponent exceeds limit".to_string()))),
+                };
+                let est_bits = integer_bits(&base) * exp_usize;
+                if est_bits > limit {
+                    return Err(vm.raise_numeric_error(RuntimeError::NumericLimit("Power result exceeds bit limit".to_string())));
+                }
+                let res = pow_bigint(&base, &exp, limit, vm)?;
+                Ok(normalize_bigint(res, &mut vm.heap))
+            }
+        }
+        (base, exp) => {
+            let base_f = match base {
+                EitherIntOrFloat::Int(b) => b.to_f64().unwrap_or(f64::NAN),
+                EitherIntOrFloat::Float(f) => f,
+            };
+            let exp_f = match exp {
+                EitherIntOrFloat::Int(b) => b.to_f64().unwrap_or(f64::NAN),
+                EitherIntOrFloat::Float(f) => f,
+            };
+            if base_f == 0.0 && exp_f < 0.0 {
+                return Err(vm.raise_numeric_error(RuntimeError::DivideByZero));
+            }
+            Ok(Value::Float(base_f.powf(exp_f)))
+        }
+    }
 }
 
-/// Signature: `Number::>(_)` — greater-than comparison.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_gt(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Bool(this > other))
+/// Signature: `Number::<(_)`
+pub fn number_lt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => Ok(Value::Bool(a < b)),
+        PromotedPair::Big(a, b) => Ok(Value::Bool(a < b)),
+        PromotedPair::Float(a, b) => Ok(Value::Bool(a < b)),
+    }
 }
 
-/// Signature: `Number::>=(_)` — greater-than-or-equal comparison.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if either operand is not a number.
-pub fn number_ge(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(receiver, Number);
-    let other = expect_value!(&args[0], Number);
-    Ok(Value::Bool(this >= other))
+/// Signature: `Number::<=(_)`
+pub fn number_le(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => Ok(Value::Bool(a <= b)),
+        PromotedPair::Big(a, b) => Ok(Value::Bool(a <= b)),
+        PromotedPair::Float(a, b) => Ok(Value::Bool(a <= b)),
+    }
 }
 
-/// Signature: `Number::negated()` — unary numeric negation (surface `-x`,
-/// control-flow.md §1, [ADR-0012](../../../docs/adr/accepted/0012-selector-encoding-and-dispatch.md)).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a number.
-pub fn number_negated(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    let this = expect_value!(receiver, Number);
-    Ok(Value::Number(-this))
+/// Signature: `Number::>(_)`
+pub fn number_gt(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => Ok(Value::Bool(a > b)),
+        PromotedPair::Big(a, b) => Ok(Value::Bool(a > b)),
+        PromotedPair::Float(a, b) => Ok(Value::Bool(a > b)),
+    }
+}
+
+/// Signature: `Number::>=(_)`
+pub fn number_ge(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let pair = promote_pair(receiver, &args[0], vm)?;
+    match pair {
+        PromotedPair::Int(a, b) => Ok(Value::Bool(a >= b)),
+        PromotedPair::Big(a, b) => Ok(Value::Bool(a >= b)),
+        PromotedPair::Float(a, b) => Ok(Value::Bool(a >= b)),
+    }
+}
+
+/// Signature: `Number::negated()`
+pub fn number_negated(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    match receiver {
+        Value::Int(n) => {
+            if let Some(neg) = n.checked_neg() {
+                Ok(Value::Int(neg))
+            } else {
+                let big = -BigInt::from(*n);
+                check_limit_bigint(&big, vm)?;
+                Ok(normalize_bigint(big, &mut vm.heap))
+            }
+        }
+        Value::Float(n) => Ok(Value::Float(-n)),
+        Value::Obj(id) => {
+            if let Some(big) = vm.heap.as_large_int(*id) {
+                let neg = -big.clone();
+                check_limit_bigint(&neg, vm)?;
+                Ok(normalize_bigint(neg, &mut vm.heap))
+            } else {
+                Err(RuntimeError::Type {
+                    expected: "number",
+                    found: receiver.type_name(),
+                }
+                .into())
+            }
+        }
+        _ => Err(RuntimeError::Type {
+            expected: "number",
+            found: receiver.type_name(),
+        }
+        .into()),
+    }
 }

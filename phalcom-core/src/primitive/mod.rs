@@ -6,6 +6,8 @@ pub mod class;
 pub mod error;
 pub mod family;
 pub mod fiber;
+pub mod float;
+pub mod int;
 pub mod list;
 pub mod map;
 pub mod method;
@@ -153,8 +155,7 @@ use crate::vm::VM;
 /// masked to 53 bits so the `as f64` cast is lossless and round-trips
 /// (`object-model.md` §8; [ADR-0023](../../../docs/adr/accepted/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
 pub(crate) fn hash_code(bits: u64) -> Value {
-    // Mask to 53 bits so the cast is lossless and the value round-trips as f64.
-    Value::Number((bits & 0x1F_FFFF_FFFF_FFFF) as f64)
+    Value::Int((bits & 0x1F_FFFF_FFFF_FFFF) as i64)
 }
 
 /// Extracts a class handle from a receiver value.
@@ -360,10 +361,9 @@ pub(crate) fn expect_range(vm: &VM, value: &Value) -> PhResult<ObjRef> {
 pub(crate) fn send_hash(vm: &mut VM, value: Value) -> PhResult<i64> {
     let sym = vm.get_or_intern("hash");
     match vm.send_dynamic(value, sym, &[])? {
-        Value::Number(n) => Ok(n as i64),
-        other => Err(RuntimeError::Type {
-            expected: "Number",
-            found: other.type_name(),
+        Value::Int(n) => Ok(n),
+        other => Err(RuntimeError::InvalidHash {
+            actual_type: other.type_name(),
         }
         .into()),
     }

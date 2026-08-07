@@ -396,7 +396,7 @@ fn reload_rebuilds_session_from_history() {
     let val = module_obj.globals[slot];
 
     match val {
-        Value::Number(n) => assert_eq!(n, 150.0),
-        _ => panic!("Expected number value for val_b"),
+        Value::Int(n) => assert_eq!(n, 150),
+        _ => panic!("Expected int value for val_b"),
     }
 }

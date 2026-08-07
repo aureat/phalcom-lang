@@ -3,19 +3,22 @@ source: phalcom-ast/tests/lexer.rs
 expression: "tokens(\"10 % 3 total %= 2\")"
 ---
 [
-    Number(
-        10.0,
-    ),
+    Int {
+        digits: "10",
+        radix: 10,
+    },
     Percent,
-    Number(
-        3.0,
-    ),
+    Int {
+        digits: "3",
+        radix: 10,
+    },
     Identifier(
         "total",
     ),
     PercentEqual,
-    Number(
-        2.0,
-    ),
+    Int {
+        digits: "2",
+        radix: 10,
+    },
     Eof,
 ]

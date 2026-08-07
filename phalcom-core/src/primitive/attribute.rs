@@ -5,7 +5,7 @@
 //! module object sits under `Object` in the metaclass tower (ADR-0002), one
 //! registration site covers all three receiver kinds.
 
-use crate::error::{PhError, PhResult, RuntimeError};
+use crate::error::{PhResult, RuntimeError};
 use crate::heap::Object;
 use crate::value::Value;
 use crate::vm::VM;
@@ -30,7 +30,7 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
         }
         .into());
     };
-    let result = match vm.heap.get_mut(id) {
+    let attached = match vm.heap.get_mut(id) {
         Object::Class(c) => c.attach_attribute(attr),
         Object::Method(m) => m.attach_attribute(attr),
         Object::Module(m) => m.attach_attribute(attr),
@@ -42,7 +42,9 @@ pub fn attribute_attach(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             .into());
         }
     };
-    result.map_err(|()| PhError::from(RuntimeError::NotAllowed("attr.frozen: attribute store is frozen".to_string())))?;
+    if !attached {
+        return Err(RuntimeError::NotAllowed("attr.frozen: attribute store is frozen".to_string()).into());
+    }
     Ok(vm.none_value())
 }
 

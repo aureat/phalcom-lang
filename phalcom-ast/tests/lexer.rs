@@ -167,3 +167,76 @@ fn hash_not_at_offset_zero_is_a_symbol_not_a_shebang() {
     let items: Vec<_> = Lexer::new("let x = 1\n#!oops").collect();
     assert!(items.iter().any(std::result::Result::is_err));
 }
+
+#[test]
+fn pdr0026_radix_and_float_literals() {
+    assert_eq!(
+        tokens("0b1010"),
+        vec![
+            Token::Int {
+                digits: "1010".into(),
+                radix: 2
+            },
+            Token::Eof
+        ]
+    );
+    assert_eq!(
+        tokens("0o755"),
+        vec![
+            Token::Int {
+                digits: "755".into(),
+                radix: 8
+            },
+            Token::Eof
+        ]
+    );
+    assert_eq!(
+        tokens("0xFF"),
+        vec![
+            Token::Int {
+                digits: "ff".into(),
+                radix: 16
+            },
+            Token::Eof
+        ]
+    );
+    assert_eq!(
+        tokens("1_000"),
+        vec![
+            Token::Int {
+                digits: "1000".into(),
+                radix: 10
+            },
+            Token::Eof
+        ]
+    );
+    assert_eq!(tokens(".5"), vec![Token::Float(0.5), Token::Eof]);
+    assert_eq!(tokens("6e2"), vec![Token::Float(600.0), Token::Eof]);
+}
+
+#[test]
+fn pdr0026_power_and_int_div_tokens() {
+    assert_eq!(
+        tokens("2 ** 3 ~/ 4"),
+        vec![
+            Token::Int { digits: "2".into(), radix: 10 },
+            Token::Power,
+            Token::Int { digits: "3".into(), radix: 10 },
+            Token::SlashTilde,
+            Token::Int { digits: "4".into(), radix: 10 },
+            Token::Eof
+        ]
+    );
+}
+
+#[test]
+fn pdr0026_malformed_literals_atomic_error() {
+    let inputs = vec!["0x_G", "1__0", "0123", "5.", "1e"];
+    for inp in inputs {
+        let items: Vec<_> = Lexer::new(inp).collect();
+        assert!(
+            matches!(items[0], Err(phalcom_ast::token::LexicalError::NumericLiteral(_))),
+            "Expected NumericLiteral error for input: {inp}"
+        );
+    }
+}

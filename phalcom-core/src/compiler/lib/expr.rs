@@ -188,8 +188,31 @@ impl<'vm> Compiler<'vm> {
                 let idx = self.add_constant(Value::Symbol(sym));
                 self.emit(Bytecode::Invoke(argc as u8, idx), six.range);
             }
-            Expr::Number { value, range } => {
-                let idx = self.add_constant(Value::Number(value));
+            Expr::Int { digits, radix, range } => {
+                let val = if radix == 10 {
+                    if let Ok(i) = digits.parse::<i64>() {
+                        Value::Int(i)
+                    } else if let Some(big) = num_bigint::BigInt::parse_bytes(digits.as_bytes(), 10) {
+                        let obj = self.vm.heap.alloc(crate::heap::Object::LargeInt(big));
+                        Value::Obj(obj)
+                    } else {
+                        return Err(CompilerError::Message(format!("Invalid integer literal: {digits}")));
+                    }
+                } else {
+                    if let Ok(i) = i64::from_str_radix(&digits, radix) {
+                        Value::Int(i)
+                    } else if let Some(big) = num_bigint::BigInt::parse_bytes(digits.as_bytes(), radix) {
+                        let obj = self.vm.heap.alloc(crate::heap::Object::LargeInt(big));
+                        Value::Obj(obj)
+                    } else {
+                        return Err(CompilerError::Message(format!("Invalid radix integer literal: {digits}")));
+                    }
+                };
+                let idx = self.add_constant(val);
+                self.emit(Bytecode::Constant(idx), range);
+            }
+            Expr::Float { value, range } => {
+                let idx = self.add_constant(Value::Float(value));
                 self.emit(Bytecode::Constant(idx), range);
             }
             Expr::String { value, range } => {
@@ -403,6 +426,7 @@ impl<'vm> Compiler<'vm> {
                 let name = match unary_expr.op {
                     UnaryOp::Negate => "negated",
                     UnaryOp::Not => "not",
+                    UnaryOp::BitNot => "~",
                 };
                 self.emit_operator_send(name, 0, range);
             }
@@ -502,7 +526,14 @@ fn binary_op_selector_name(op: &BinaryOp) -> &'static str {
         BinaryOp::Subtract => "-",
         BinaryOp::Multiply => "*",
         BinaryOp::Divide => "/",
+        BinaryOp::IntegerDivide => "~/",
+        BinaryOp::Power => "**",
         BinaryOp::Modulo => "%",
+        BinaryOp::ShiftLeft => "<<",
+        BinaryOp::ShiftRight => ">>",
+        BinaryOp::BitAnd => "&",
+        BinaryOp::BitXor => "^",
+        BinaryOp::BitOr => "|",
         BinaryOp::Equal => "==",
         BinaryOp::NotEqual => "!=",
         BinaryOp::LessThan => "<",

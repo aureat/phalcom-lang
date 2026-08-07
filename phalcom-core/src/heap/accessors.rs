@@ -468,4 +468,24 @@ impl Heap {
             _ => None,
         }
     }
+
+    /// Borrows the [`num_bigint::BigInt`] behind `id`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `id` is stale or does not refer to an [`Object::LargeInt`].
+    pub fn large_int(&self, id: ObjRef) -> &num_bigint::BigInt {
+        match self.get(id) {
+            Object::LargeInt(val) => val,
+            _ => panic!("ObjRef {id:?} is not a LargeInt"),
+        }
+    }
+
+    /// Returns the [`num_bigint::BigInt`] behind `id`, or `None` if it is not one.
+    pub fn as_large_int(&self, id: ObjRef) -> Option<&num_bigint::BigInt> {
+        match self.objects.get(id) {
+            Some(Object::LargeInt(val)) => Some(val),
+            _ => None,
+        }
+    }
 }
