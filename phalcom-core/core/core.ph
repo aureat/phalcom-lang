@@ -1004,24 +1004,27 @@ class Map {
     return ()
   }
 
-  // A fresh List of keys, in iteration (insertion) order.
-  keys {
-    let result = List.new()
-    let i = 0
-    while (i < self.size) {
-      result.add(self.keyAt_(i))
-      i = i + 1
-    }
-    return result
-  }
+  // Lightweight live encounter-order views. They retain the Map and read its
+  // current slots; they never copy associations into a List.
+  keys => MapKeysView.new(self)
 
-  // A fresh List of values, in iteration (insertion) order.
-  values {
-    let result = List.new()
-    let i = 0
-    while (i < self.size) {
-      result.add(self.valueAt_(i))
-      i = i + 1
+  values => MapValuesView.new(self)
+
+  entries => MapEntriesView.new(self)
+
+  // Copies a positive Record's Symbol labels and values into a fresh mutable
+  // Map. `#{}` canonicalizes to Unit, which represents the empty Record form.
+  static from(record: record) {
+    if ((not record.isA(Record)) and (not record.isA(Unit))) {
+      throw ArgumentError.new("Map.from: argument must be a Record or Unit")
+    }
+    let result = Map.new()
+    if (record.isA(Record)) {
+      let i = 0
+      while (i < record.size_) {
+        result.insert(record.valueAt_(i), for: record.labelAt_(i))
+        i = i + 1
+      }
     }
     return result
   }
@@ -1250,6 +1253,50 @@ class Record {
     }
     return acc
   }
+}
+
+// Map projections are ordinary retained-source Iterable views. They inherit
+// the generic cursor walk and deliberately leave active-iteration mutation
+// behavior unspecified.
+class MapKeysView is Iterable {
+  @constructor
+  new(map) { _map = map }
+
+  size => _map.size
+
+  iteratorValue(cursor) => _map.keyAt_(cursor)
+}
+
+class MapValuesView is Iterable {
+  @constructor
+  new(map) { _map = map }
+
+  size => _map.size
+
+  iteratorValue(cursor) => _map.valueAt_(cursor)
+}
+
+// Immutable-by-surface association value for MapEntriesView. No setters or
+// value-object equality/hash protocol are part of this phase.
+class Entry {
+  @constructor
+  new(key, value) {
+    _key = key
+    _value = value
+  }
+
+  key => _key
+
+  value => _value
+}
+
+class MapEntriesView is Iterable {
+  @constructor
+  new(map) { _map = map }
+
+  size => _map.size
+
+  iteratorValue(cursor) => Entry.new(_map.keyAt_(cursor), _map.valueAt_(cursor))
 }
 
 // Kernel Range (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a native lazy
