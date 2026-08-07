@@ -209,7 +209,13 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Slash
         | Token::Percent
         | Token::Power
-        | Token::SlashTilde => Some(Operator),
+        | Token::SlashTilde
+        | Token::ShiftLeft
+        | Token::ShiftRight
+        | Token::Ampersand
+        | Token::Pipe
+        | Token::Caret
+        | Token::Tilde => Some(Operator),
 
         // Structural punctuation, left uncolored (judgment call — see
         // `docs/forge/DEFERRED.md`).
@@ -488,6 +494,17 @@ mod tests {
     fn keyword_identifier_number_string_operator() {
         use SemanticTokenKind::{Keyword, Number, Operator, String, Variable};
         assert_eq!(kinds("let x = 1 + \"a\""), vec![Keyword, Variable, Operator, Number, Operator, String]);
+    }
+
+    #[test]
+    fn bitwise_operators_are_operators() {
+        use SemanticTokenKind::{Operator, Variable};
+        assert_eq!(
+            kinds("x << y >> z & a | b ^ c ~ d"),
+            vec![
+                Variable, Operator, Variable, Operator, Variable, Operator, Variable, Operator, Variable, Operator, Variable, Operator, Variable,
+            ]
+        );
     }
 
     #[test]
