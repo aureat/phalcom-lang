@@ -57,3 +57,33 @@ const removedCount: Int = users
 	
 })
 ```
+
+```typescript
+
+predicate
+	.ifTrue(|| { ... }, 
+		ifFalse: || { ... })
+
+predicate
+	.ifTrue || { ... } 
+		ifFalse: || { ... }
+
+predicate.match(
+	true: || ...,
+	false: || ...
+)
+
+predicate.match
+	true: || { ... },
+	false: || { ... }
+
+result.match
+	ok: |v| {
+		...
+	},
+	err: |e| {
+		...
+	}
+	
+result.match(ok: |v| ..., err: |e| ...)
+```
