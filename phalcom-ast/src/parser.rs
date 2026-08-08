@@ -1494,36 +1494,34 @@ impl<'source> Parser<'source> {
                 name_range,
             }));
         }
-        let params = if self.eat(&Token::LParen) {
-            let list = self.parse_param_list()?;
-            self.expect(&Token::RParen, &["\")\""])?;
-            Some(list)
-        } else {
-            None
-        };
-        let body = self.parse_method_block()?;
-        let range = (start..self.prev_end).into();
         if has_equal {
-            let param = if let Some(ref list) = params {
-                if !list.is_empty() {
-                    list[0].clone()
-                } else {
-                    ParameterDef {
-                        name: "value".to_string(),
-                        label: None,
-                        is_rest: false,
-                        range: name_range,
-                    }
-                }
-            } else {
-                ParameterDef {
-                    name: "value".to_string(),
-                    label: None,
-                    is_rest: false,
-                    range: name_range,
-                }
+            self.expect(&Token::LParen, &["\"(\""])?;
+            let start_put = self.cur_start();
+            let put_str = self.expect_identifier(&["\"put\""])?;
+            if put_str != "put" {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
+                    range: start_put..self.prev_end,
+                });
+            }
+            if matches!(self.peek(), Token::Colon) {
+                let err_start = self.cur_start();
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("parameter declaration labels no longer use `;`; write `label local`, or `label` when the external and local names are identical".to_string()),
+                    range: start_put..err_start,
+                });
+            }
+            let local_name = self.expect_identifier(&["parameter name"])?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            let param = ParameterDef {
+                name: local_name,
+                label: None,
+                is_rest: false,
+                range: (start_put..self.prev_end).into(),
             };
-            Ok(ClassMember::Setter(SetterDef {
+            let body = self.parse_method_block()?;
+            let range = (start..self.prev_end).into();
+            return Ok(ClassMember::Setter(SetterDef {
                 name,
                 param,
                 body,
@@ -1531,8 +1529,18 @@ impl<'source> Parser<'source> {
                 attributes: Vec::new(),
                 range,
                 name_range,
-            }))
-        } else if let Some(params) = params {
+            }));
+        }
+        let params = if self.eat(&Token::LParen) {
+            let list = self.parse_selector_params(Token::RParen)?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            Some(list)
+        } else {
+            None
+        };
+        let body = self.parse_method_block()?;
+        let range = (start..self.prev_end).into();
+        if let Some(params) = params {
             Ok(ClassMember::Method(MethodDef {
                 name,
                 params,
@@ -1574,18 +1582,40 @@ impl<'source> Parser<'source> {
     fn parse_index_member(&mut self, start: usize) -> ParserResult<ClassMember> {
         let name_start = self.cur_start();
         self.expect(&Token::LBracket, &["\"[\""])?;
-        let params = self.parse_param_list()?;
+        let params = self.parse_selector_params(Token::RBracket)?;
         self.expect(&Token::RBracket, &["\"]\""])?;
         let name_range = (name_start..self.prev_end).into();
-        let body = self.parse_method_block()?;
-        let range = (start..self.prev_end).into();
-        let mut params = params;
-        let accessor = if params.last().and_then(|p| p.label.as_deref()) == Some("put") {
-            let put = params.pop().unwrap();
+        let accessor = if self.eat(&Token::Equal) {
+            self.expect(&Token::LParen, &["\"(\""])?;
+            let start_put = self.cur_start();
+            let put_str = self.expect_identifier(&["\"put\""])?;
+            if put_str != "put" {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
+                    range: start_put..self.prev_end,
+                });
+            }
+            if matches!(self.peek(), Token::Colon) {
+                let err_start = self.cur_start();
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("parameter declaration labels no longer use `;`; write `label local`, or `label` when the external and local names are identical".to_string()),
+                    range: start_put..err_start,
+                });
+            }
+            let local_name = self.expect_identifier(&["parameter name"])?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            let put = ParameterDef {
+                name: local_name,
+                label: None,
+                is_rest: false,
+                range: (start_put..self.prev_end).into(),
+            };
             IndexAccessor::Set { put }
         } else {
             IndexAccessor::Get
         };
+        let body = self.parse_method_block()?;
+        let range = (start..self.prev_end).into();
         Ok(ClassMember::Index(IndexMethodDef {
             params,
             accessor,
@@ -1659,9 +1689,9 @@ impl<'source> Parser<'source> {
     /// parameters would produce a selector that call sites could never
     /// exactly match, since [`crate`]-side selector encoding for a variadic
     /// method ignores labels entirely — U9 corrections §0 point 3).
-    fn parse_param_list(&mut self) -> ParserResult<Vec<ParameterDef>> {
+    fn parse_selector_params(&mut self, end: Token) -> ParserResult<Vec<ParameterDef>> {
         self.skip_newlines();
-        if matches!(self.peek(), Token::RParen | Token::RBracket) {
+        if self.peek() == &end {
             return Ok(Vec::new());
         }
         let mut params: Vec<ParameterDef> = Vec::new();
@@ -1676,44 +1706,79 @@ impl<'source> Parser<'source> {
                 });
             }
             let is_rest = self.eat(&Token::Asterisk);
-            let label_token = Self::label_name(self.peek()).map(str::to_owned);
-            let is_labelled = label_token.is_some() && matches!(self.peek_next(), Token::Colon);
-            let (name, label) = if is_labelled {
-                self.advance();
-                self.expect(&Token::Colon, &["\":\""])?;
-                let label = label_token.expect("label token checked above");
-                let name = if matches!(self.peek(), Token::Identifier(_)) {
-                    self.expect_identifier(&["parameter name"])?
-                } else {
-                    label.clone()
-                };
-                (name, Some(label))
-            } else {
-                (self.expect_identifier(&["identifier"])?, None)
-            };
             if is_rest {
-                if label.is_some() {
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("a rest parameter (\"*name\") cannot have a label".to_string()),
-                        range: start..self.prev_end,
-                    });
-                }
+                let name = self.expect_identifier(&["parameter name"])?;
                 if any_labeled {
                     return Err(SyntaxError {
                         kind: SyntaxErrorKind::Message("a rest parameter cannot follow a labeled parameter".to_string()),
                         range: start..self.prev_end,
                     });
                 }
+                let range = (start..self.prev_end).into();
+                params.push(ParameterDef {
+                    name,
+                    label: None,
+                    is_rest: true,
+                    range,
+                });
+            } else if self.eat(&Token::Underscore) {
+                let name = self.expect_identifier(&["parameter name"])?;
+                if any_labeled {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("positional parameters must precede labeled parameters".to_string()),
+                        range: start..self.prev_end,
+                    });
+                }
+                let range = (start..self.prev_end).into();
+                params.push(ParameterDef {
+                    name,
+                    label: None,
+                    is_rest: false,
+                    range,
+                });
+            } else {
+                let first_ident = self.expect_identifier(&["parameter name", "_", "*"])?;
+                if matches!(self.peek(), Token::Colon) {
+                    let err_start = self.cur_start();
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("parameter declaration labels no longer use `;`; write `label local`, or `label` when the external and local names are identical".to_string()),
+                        range: start..err_start,
+                    });
+                }
+                let (name, label) = if matches!(self.peek(), Token::Identifier(_)) {
+                    let local_ident = self.expect_identifier(&["parameter name"])?;
+                    (local_ident, Some(first_ident))
+                } else {
+                    (first_ident.clone(), Some(first_ident))
+                };
+                any_labeled = true;
+                let range = (start..self.prev_end).into();
+                params.push(ParameterDef {
+                    name,
+                    label,
+                    is_rest: false,
+                    range,
+                });
             }
-            any_labeled |= label.is_some();
-            let range = (start..self.prev_end).into();
-            params.push(ParameterDef { name, label, is_rest, range });
             self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
             }
         }
         self.skip_newlines();
+        Ok(params)
+    }
+
+    fn parse_block_params(&mut self) -> ParserResult<Vec<String>> {
+        let mut params = Vec::new();
+        while !matches!(self.peek(), Token::FatArrow) {
+            let param = self.expect_identifier(&["parameter name"])?;
+            params.push(param);
+            if !self.eat(&Token::Comma) && !matches!(self.peek(), Token::FatArrow) {
+                return Err(self.error_here(strs(&["\",\"", "\"=>\""])));
+            }
+        }
+        self.expect(&Token::FatArrow, &["\"=>\""])?;
         Ok(params)
     }
 
@@ -2843,14 +2908,7 @@ impl<'source> Parser<'source> {
                 }
 
                 if has_arrow {
-                    while !matches!(self.peek(), Token::FatArrow) {
-                        let param = self.expect_identifier(&["parameter name"])?;
-                        params.push(param);
-                        if !self.eat(&Token::Comma) && !matches!(self.peek(), Token::FatArrow) {
-                            return Err(self.error_here(strs(&["\",\"", "\"=>\""])));
-                        }
-                    }
-                    self.expect(&Token::FatArrow, &["\"=>\""])?;
+                    params = self.parse_block_params()?;
                 }
 
                 let body = self.parse_block_statements()?;

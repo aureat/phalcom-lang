@@ -152,7 +152,8 @@ impl ReplSnapshot {
                     SignatureKind::Getter => (MemberKind::Getter, 0),
                     SignatureKind::Setter => (MemberKind::Setter, 1),
                     SignatureKind::Method(n) => (MemberKind::Method, n),
-                    SignatureKind::Subscript(n) => (MemberKind::Subscript, n),
+                    SignatureKind::SubscriptGet(n) => (MemberKind::Subscript, n),
+                    SignatureKind::SubscriptSet(n) => (MemberKind::Subscript, n + 1),
                     SignatureKind::Variadic(n) => (MemberKind::Variadic, n),
                 };
 

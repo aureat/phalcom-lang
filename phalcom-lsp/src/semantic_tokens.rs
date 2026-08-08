@@ -182,7 +182,10 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Throw
         | Token::Try => Some(Keyword),
 
-        Token::Identifier(_) => Some(Variable),
+        Token::Identifier(_)
+        | Token::FieldIdentifier(_)
+        | Token::ImplementationFieldIdentifier(_)
+        | Token::ImplementationSelectorIdentifier(_) => Some(Variable),
 
         Token::Int { .. } | Token::Float(_) => Some(Number),
 
@@ -241,6 +244,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::FatArrow
         | Token::Question
         | Token::At
+        | Token::Underscore
         | Token::Eof => None,
 
         // Handled by the caller before `classify` is reached.
