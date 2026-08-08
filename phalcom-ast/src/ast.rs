@@ -419,9 +419,32 @@ pub struct ParameterDef {
     /// trailing positional argument into a single `List` (U9). At most one
     /// parameter per list may set this, and only as the list's last entry
     /// (enforced by the parser); it may not also carry a [`label`](Self::label).
-    pub is_rest: bool,
+    pub rest_mode: RestMode,
     /// The parameter's source span.
     pub range: SourceRange,
+}
+
+impl ParameterDef {
+    pub fn is_rest(&self) -> bool {
+        self.rest_mode != RestMode::None
+    }
+}
+
+/// The expansion lane of a pack contribution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpansionMode {
+    Positional,
+    Labeled,
+    Complete,
+}
+
+/// A parameter's rest-binding lane. Binding semantics remain deferred to F.3.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestMode {
+    None,
+    Positional,
+    Labeled,
+    Complete,
 }
 
 #[derive(Debug, Clone)]
@@ -785,7 +808,7 @@ pub struct IndexExpr {
     pub object: Expr,
     /// The bracketed argument list — positional and/or `label:` arguments,
     /// in source order.
-    pub args: Vec<Argument>,
+    pub args: Vec<PackItem>,
     /// Source span from `object` start through `]`.
     pub range: SourceRange,
 }
@@ -805,7 +828,7 @@ pub struct SetIndexExpr {
     /// The bracketed argument list — positional and/or `label:` arguments,
     /// in source order (the index/key side only; `value` is appended as the
     /// selector's trailing `put:` argument by the compiler, not stored here).
-    pub args: Vec<Argument>,
+    pub args: Vec<PackItem>,
     /// The new value.
     pub value: Expr,
     /// Source span from `object` start through the RHS.
@@ -830,22 +853,29 @@ pub struct CallExpr {
 #[derive(Debug, Clone)]
 pub struct UnqualifiedCallExpr {
     pub name: String,
-    pub args: Vec<Argument>,
+    pub args: Vec<PackItem>,
     pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
-pub struct Argument {
-    pub label: Option<String>,
-    pub expr: Expr,
-    pub range: SourceRange,
+pub enum PackItem {
+    Positional { expr: Expr, range: SourceRange },
+    Labeled { label: PackLabel, value: Expr, range: SourceRange },
+    Expand { mode: ExpansionMode, expr: Expr, range: SourceRange },
+}
+
+/// A label contributed by a call/subscript argument pack.
+#[derive(Debug, Clone)]
+pub enum PackLabel {
+    Static { text: String, range: SourceRange },
+    Computed { expr: Box<Expr>, range: SourceRange },
 }
 
 #[derive(Debug, Clone)]
 pub struct MethodCallExpr {
     pub object: Expr,
     pub method: String,
-    pub args: Vec<Argument>,
+    pub args: Vec<PackItem>,
     pub range: SourceRange,
 }
 
@@ -996,6 +1026,8 @@ pub enum TupleLiteralEntry {
         /// The source span covering the labeled entry.
         range: SourceRange,
     },
+    /// An expansion contribution. Runtime assembly is deferred to F.2.
+    Expand { mode: ExpansionMode, expr: Expr, range: SourceRange },
 }
 
 /// A record literal written with `#{...}` product syntax.

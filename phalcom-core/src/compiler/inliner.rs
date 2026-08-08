@@ -94,7 +94,7 @@ use super::lib::Compiler;
 use crate::bytecode::Bytecode;
 use crate::method::{SignatureKind, encode_selector};
 use crate::value::Value;
-use phalcom_ast::ast::{Argument, BlockExpr, Expr, MethodCallExpr, Statement};
+use phalcom_ast::ast::{BlockExpr, Expr, MethodCallExpr, PackItem, PackLabel, Statement};
 use phalcom_common::range::SourceRange;
 
 use super::lib::CompilerError;
@@ -136,26 +136,29 @@ pub(crate) enum SacredCall {
 /// through to the ordinary send path with no cloning on the common
 /// (non-sacred) case.
 pub(crate) fn recognize(call: MethodCallExpr) -> Result<SacredCall, MethodCallExpr> {
-    let is_literal_block = |a: &Argument| a.label.is_none() && matches!(a.expr, Expr::Block(_));
+    let is_literal_block = |a: &PackItem| matches!(a, PackItem::Positional { expr: Expr::Block(_), .. });
     match (call.method.as_str(), call.args.len()) {
         ("ifTrue", 1) if is_literal_block(&call.args[0]) => {
             let mut args = call.args;
             Ok(SacredCall::IfTrue {
                 receiver: call.object,
-                then_block: args.remove(0).expr,
+                then_block: pack_positional_block(args.remove(0)),
             })
         }
         ("ifFalse", 1) if is_literal_block(&call.args[0]) => {
             let mut args = call.args;
             Ok(SacredCall::IfFalse {
                 receiver: call.object,
-                else_block: args.remove(0).expr,
+                else_block: pack_positional_block(args.remove(0)),
             })
         }
-        ("ifTrue", 2) if is_literal_block(&call.args[0]) && call.args[1].label.as_deref() == Some("ifFalse") && matches!(call.args[1].expr, Expr::Block(_)) => {
+        ("ifTrue", 2)
+            if is_literal_block(&call.args[0])
+                && matches!(&call.args[1], PackItem::Labeled { label: PackLabel::Static { text, .. }, value: Expr::Block(_), .. } if text == "ifFalse") =>
+        {
             let mut args = call.args;
-            let else_block = args.remove(1).expr;
-            let then_block = args.remove(0).expr;
+            let else_block = pack_labeled_block(args.remove(1));
+            let then_block = pack_positional_block(args.remove(0));
             Ok(SacredCall::IfTrueIfFalse {
                 receiver: call.object,
                 then_block,
@@ -166,24 +169,38 @@ pub(crate) fn recognize(call: MethodCallExpr) -> Result<SacredCall, MethodCallEx
             let mut args = call.args;
             Ok(SacredCall::And {
                 receiver: call.object,
-                rhs_block: args.remove(0).expr,
+                rhs_block: pack_positional_block(args.remove(0)),
             })
         }
         ("or", 1) if is_literal_block(&call.args[0]) => {
             let mut args = call.args;
             Ok(SacredCall::Or {
                 receiver: call.object,
-                rhs_block: args.remove(0).expr,
+                rhs_block: pack_positional_block(args.remove(0)),
             })
         }
         ("whileTrue", 1) if is_literal_block(&call.args[0]) && matches!(call.object, Expr::Block(_)) => {
             let mut args = call.args;
             Ok(SacredCall::WhileTrue {
                 cond_block: call.object,
-                body_block: args.remove(0).expr,
+                body_block: pack_positional_block(args.remove(0)),
             })
         }
         _ => Err(call),
+    }
+}
+
+fn pack_positional_block(item: PackItem) -> Expr {
+    match item {
+        PackItem::Positional { expr, .. } => expr,
+        _ => unreachable!("recognized positional block changed shape"),
+    }
+}
+
+fn pack_labeled_block(item: PackItem) -> Expr {
+    match item {
+        PackItem::Labeled { value, .. } => value,
+        _ => unreachable!("recognized labeled block changed shape"),
     }
 }
 

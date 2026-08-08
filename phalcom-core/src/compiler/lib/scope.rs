@@ -3,7 +3,7 @@ use crate::callable::UpvalueDescriptor;
 use crate::interner::Symbol;
 use crate::method::{SignatureKind, encode_selector};
 use crate::value::Value;
-use phalcom_ast::ast::Argument;
+use phalcom_ast::ast::PackItem;
 use phalcom_common::range::SourceRange;
 
 use super::error::CompilerError;
@@ -57,7 +57,7 @@ impl<'vm> Compiler<'vm> {
     /// class at dispatch time (DEC-INH-B). A `super` with no enclosing class —
     /// at top level or in a free function — has no defining class to anchor the
     /// walk and is rejected with [`CompilerError::SuperOutsideMethod`].
-    pub(super) fn compile_super_send(&mut self, selector_sym: Symbol, args: Vec<Argument>, argc: u8, range: SourceRange) -> Result<(), CompilerError> {
+    pub(super) fn compile_super_send(&mut self, selector_sym: Symbol, args: Vec<PackItem>, argc: u8, range: SourceRange) -> Result<(), CompilerError> {
         let class_key = self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
         // Class-side `super` (U-ERR-FIX SUPER-STATIC): inside a `static`
         // member, `self` is the class object, whose own class is the
@@ -75,7 +75,7 @@ impl<'vm> Compiler<'vm> {
         };
         self.emit_self(range);
         for arg in args {
-            self.compile_expr(arg.expr)?;
+            self.compile_pack_item(arg)?;
         }
         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
         let defining_idx = self.add_constant(Value::Symbol(defining));

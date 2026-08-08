@@ -719,8 +719,7 @@ impl<'source> Parser<'source> {
             acc = Expr::MethodCall(Box::new(MethodCallExpr {
                 object: acc,
                 method: "ensure".to_string(),
-                args: vec![Argument {
-                    label: None,
+                args: vec![PackItem::Positional {
                     expr: cleanup,
                     range: cleanup_range,
                 }],
@@ -747,13 +746,11 @@ impl<'source> Parser<'source> {
             object: protected,
             method: "on".to_string(),
             args: vec![
-                Argument {
-                    label: None,
+                PackItem::Positional {
                     expr: class,
                     range: class_range,
                 },
-                Argument {
-                    label: None,
+                PackItem::Positional {
                     expr: handler,
                     range: handler_range,
                 },
@@ -1496,7 +1493,7 @@ impl<'source> Parser<'source> {
             let param = ParameterDef {
                 name: local_name,
                 label: None,
-                is_rest: false,
+                rest_mode: RestMode::None,
                 range: (start_put..self.prev_end).into(),
             };
             let body = self.parse_method_block()?;
@@ -1591,7 +1588,7 @@ impl<'source> Parser<'source> {
             let put = ParameterDef {
                 name: local_name,
                 label: None,
-                is_rest: false,
+                rest_mode: RestMode::None,
                 range: (start_put..self.prev_end).into(),
             };
             IndexAccessor::Set { put }
@@ -1620,9 +1617,7 @@ impl<'source> Parser<'source> {
         let name = match self.peek() {
             Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_) => {
                 return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message(
-                        "a field identifier cannot be used as a method name".to_string(),
-                    ),
+                    kind: SyntaxErrorKind::Message("a field identifier cannot be used as a method name".to_string()),
                     range: self.tokens[self.pos].start..self.tokens[self.pos].end,
                 });
             }
@@ -1685,14 +1680,22 @@ impl<'source> Parser<'source> {
         loop {
             self.skip_newlines();
             let start = self.cur_start();
-            if params.last().is_some_and(|p| p.is_rest) {
+            if params.last().is_some_and(ParameterDef::is_rest) {
                 return Err(SyntaxError {
                     kind: SyntaxErrorKind::Message("a rest parameter (\"*name\") must be the last parameter".to_string()),
                     range: start..start,
                 });
             }
-            let is_rest = self.eat(&Token::Asterisk);
-            if is_rest {
+            let rest_mode = if self.eat(&Token::TripleAsterisk) {
+                Some(RestMode::Complete)
+            } else if self.eat(&Token::DoubleAsterisk) {
+                Some(RestMode::Labeled)
+            } else if self.eat(&Token::Asterisk) {
+                Some(RestMode::Positional)
+            } else {
+                None
+            };
+            if let Some(rest_mode) = rest_mode {
                 let name = self.expect_identifier(&["parameter name"])?;
                 if any_labeled {
                     return Err(SyntaxError {
@@ -1704,7 +1707,7 @@ impl<'source> Parser<'source> {
                 params.push(ParameterDef {
                     name,
                     label: None,
-                    is_rest: true,
+                    rest_mode,
                     range,
                 });
             } else if self.eat(&Token::Underscore) {
@@ -1719,7 +1722,7 @@ impl<'source> Parser<'source> {
                 params.push(ParameterDef {
                     name,
                     label: None,
-                    is_rest: false,
+                    rest_mode: RestMode::None,
                     range,
                 });
             } else {
@@ -1758,7 +1761,7 @@ impl<'source> Parser<'source> {
                 params.push(ParameterDef {
                     name,
                     label,
-                    is_rest: false,
+                    rest_mode: RestMode::None,
                     range,
                 });
             }
@@ -2084,11 +2087,7 @@ impl<'source> Parser<'source> {
             return Ok(Expr::MethodCall(Box::new(MethodCallExpr {
                 object: left,
                 method: "orElse".to_string(),
-                args: vec![Argument {
-                    label: None,
-                    expr: block,
-                    range,
-                }],
+                args: vec![PackItem::Positional { expr: block, range }],
                 range,
             })));
         }
@@ -2300,7 +2299,7 @@ impl<'source> Parser<'source> {
         let base = Expr::MethodCall(Box::new(MethodCallExpr {
             object: left,
             method,
-            args: vec![Argument { label: None, expr: rhs, range }],
+            args: vec![PackItem::Positional { expr: rhs, range }],
             range,
         }));
         let result = if negate {
@@ -2553,9 +2552,7 @@ impl<'source> Parser<'source> {
     }
 
     fn starts_labelled_braced_closure_literal(&self, pos: usize) -> bool {
-        self.tokens
-            .get(pos)
-            .is_some_and(|lexeme| Self::label_name(&lexeme.token).is_some())
+        self.tokens.get(pos).is_some_and(|lexeme| Self::label_name(&lexeme.token).is_some())
             && matches!(self.tokens.get(pos + 1).map(|lexeme| &lexeme.token), Some(Token::Colon))
             && self.starts_braced_closure_literal(pos + 2)
     }
@@ -2563,7 +2560,7 @@ impl<'source> Parser<'source> {
     /// Parses the closure-only, unparenthesized arguments attached to an
     /// explicit member send. A positional clause may be followed by labeled
     /// clauses; subsequent positional clauses are deliberately unsupported.
-    fn parse_trailing_closure_arguments(&mut self) -> ParserResult<Option<(Vec<Argument>, usize)>> {
+    fn parse_trailing_closure_arguments(&mut self) -> ParserResult<Option<(Vec<PackItem>, usize)>> {
         let mut args = Vec::new();
         let positional = self.starts_braced_closure_literal(self.pos);
         let labelled = self.starts_labelled_braced_closure_literal(self.pos);
@@ -2575,17 +2572,21 @@ impl<'source> Parser<'source> {
             let start = parser.cur_start();
             let label = if labelled {
                 let label = Self::label_name(parser.peek()).expect("validated trailing label").to_string();
+                let label_start = parser.cur_start();
                 parser.advance();
                 parser.expect(&Token::Colon, &["\":\""])?;
-                Some(label)
+                Some(PackLabel::Static {
+                    text: label,
+                    range: (label_start..parser.prev_end).into(),
+                })
             } else {
                 None
             };
             let expr = parser.parse_closure_literal(ClosureBodyRequirement::Braced)?;
-            args.push(Argument {
-                label,
-                range: (start..parser.prev_end).into(),
-                expr,
+            let range = (start..parser.prev_end).into();
+            args.push(match label {
+                Some(label) => PackItem::Labeled { label, value: expr, range },
+                None => PackItem::Positional { expr, range },
             });
             Ok(())
         };
@@ -2601,7 +2602,7 @@ impl<'source> Parser<'source> {
         Ok(Some((args, self.prev_end)))
     }
 
-    fn attach_trailing_arguments(&self, expr: Expr, args: Vec<Argument>, end: usize) -> ParserResult<Expr> {
+    fn attach_trailing_arguments(&self, expr: Expr, args: Vec<PackItem>, end: usize) -> ParserResult<Expr> {
         match expr {
             Expr::GetProperty(get) => Ok(Expr::MethodCall(Box::new(MethodCallExpr {
                 object: get.object,
@@ -2668,11 +2669,7 @@ impl<'source> Parser<'source> {
         Ok(Expr::MethodCall(Box::new(MethodCallExpr {
             object,
             method: "map".to_string(),
-            args: vec![Argument {
-                label: None,
-                expr: mapper,
-                range,
-            }],
+            args: vec![PackItem::Positional { expr: mapper, range }],
             range,
         })))
     }
@@ -2846,8 +2843,7 @@ impl<'source> Parser<'source> {
         let then_arm = self.parse_brace_block()?;
         let then_range = then_arm.range();
 
-        let mut args = vec![Argument {
-            label: None,
+        let mut args = vec![PackItem::Positional {
             expr: then_arm,
             range: then_range,
         }];
@@ -2859,9 +2855,12 @@ impl<'source> Parser<'source> {
                 self.parse_brace_block()?
             };
             let else_range = else_arm.range();
-            args.push(Argument {
-                label: Some("ifFalse".to_string()),
-                expr: else_arm,
+            args.push(PackItem::Labeled {
+                label: PackLabel::Static {
+                    text: "ifFalse".to_string(),
+                    range: else_range,
+                },
+                value: else_arm,
                 range: else_range,
             });
         }
@@ -2896,11 +2895,7 @@ impl<'source> Parser<'source> {
         Ok(Expr::MethodCall(Box::new(MethodCallExpr {
             object: cond_block,
             method: "whileTrue".to_string(),
-            args: vec![Argument {
-                label: None,
-                expr: body,
-                range: body_range,
-            }],
+            args: vec![PackItem::Positional { expr: body, range: body_range }],
             range,
         })))
     }
@@ -3101,10 +3096,13 @@ impl<'source> Parser<'source> {
         let elems = self.parse_comma_exprs(&Token::RBracket)?;
         self.expect(&Token::RBracket, &["\"]\""])?;
         let range: SourceRange = (start..self.prev_end).into();
-        let elements = elems.into_iter().map(|expr| {
-            let r = expr.range();
-            ListLiteralElement::Element { expr, range: r }
-        }).collect();
+        let elements = elems
+            .into_iter()
+            .map(|expr| {
+                let r = expr.range();
+                ListLiteralElement::Element { expr, range: r }
+            })
+            .collect();
         Ok(Expr::ListLiteral(Box::new(ListLiteralExpr { elements, range })))
     }
 
@@ -3303,6 +3301,69 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         self.advance(); // '('
         self.skip_newlines();
+        if let Some(mode) = match self.peek() {
+            Token::Asterisk => Some(ExpansionMode::Positional),
+            Token::DoubleAsterisk => Some(ExpansionMode::Labeled),
+            Token::TripleAsterisk => Some(ExpansionMode::Complete),
+            _ => None,
+        } {
+            self.advance();
+            let expr = self.parse_expr()?;
+            let range = (start..self.prev_end).into();
+            self.expect(&Token::Comma, &["\",\""])?;
+            let mut entries = vec![TupleLiteralEntry::Expand { mode, expr, range }];
+            let mut seen_label = mode == ExpansionMode::Labeled;
+            loop {
+                self.skip_newlines();
+                if matches!(self.peek(), Token::RParen) {
+                    self.advance();
+                    break;
+                }
+                let item_start = self.cur_start();
+                if let Some(label) = self.parse_product_label()? {
+                    let value = self.parse_expr()?;
+                    entries.push(TupleLiteralEntry::Labeled {
+                        label,
+                        value,
+                        range: (item_start..self.prev_end).into(),
+                    });
+                    seen_label = true;
+                } else if let Some(mode) = match self.peek() {
+                    Token::Asterisk => Some(ExpansionMode::Positional),
+                    Token::DoubleAsterisk => Some(ExpansionMode::Labeled),
+                    Token::TripleAsterisk => Some(ExpansionMode::Complete),
+                    _ => None,
+                } {
+                    if seen_label && mode != ExpansionMode::Labeled {
+                        return Err(self.error_message_here("positional expansion cannot follow a labeled Tuple entry"));
+                    }
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    entries.push(TupleLiteralEntry::Expand {
+                        mode,
+                        expr,
+                        range: (item_start..self.prev_end).into(),
+                    });
+                    seen_label |= mode == ExpansionMode::Labeled;
+                } else {
+                    if seen_label {
+                        return Err(self.error_message_here("positional Tuple entries cannot follow labeled entries"));
+                    }
+                    let expr = self.parse_expr()?;
+                    let range = expr.range();
+                    entries.push(TupleLiteralEntry::Positional { expr, range });
+                }
+                self.skip_newlines();
+                if !self.eat(&Token::Comma) {
+                    self.expect(&Token::RParen, &[")"])?;
+                    break;
+                }
+            }
+            return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
+                entries,
+                range: (start..self.prev_end).into(),
+            })));
+        }
         if matches!(self.peek(), Token::RParen) {
             self.advance();
             return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
@@ -3566,7 +3627,6 @@ impl<'source> Parser<'source> {
         Ok(elems)
     }
 
-
     /// Builds a free-form [`SyntaxErrorKind::Message`] diagnostic anchored at
     /// the current token's span. Used for surface features whose *syntax* is
     /// recognised but whose runtime lowering is deferred to a follow-on unit
@@ -3586,27 +3646,68 @@ impl<'source> Parser<'source> {
     /// The short-circuit below checks for either closing delimiter so a
     /// zero-arg list (`f()`, `xs[]`) parses to an empty `Vec` regardless of
     /// which one the caller is about to [`Parser::expect`].
-    fn parse_arg_list(&mut self) -> ParserResult<Vec<Argument>> {
+    fn parse_arg_list(&mut self) -> ParserResult<Vec<PackItem>> {
         self.skip_newlines();
         if matches!(self.peek(), Token::RParen | Token::RBracket) {
             return Ok(Vec::new());
         }
         let mut args = Vec::new();
+        let mut labeled_phase = false;
         loop {
             self.skip_newlines();
             let start = self.cur_start();
-            let is_labelled = Self::label_name(self.peek()).is_some() && matches!(self.peek_next(), Token::Colon);
-            let label = if is_labelled {
-                let lbl = Self::label_name(self.peek()).expect("label token checked above").to_string();
+            let item = if let Some(mode) = match self.peek() {
+                Token::Asterisk => Some(ExpansionMode::Positional),
+                Token::DoubleAsterisk => Some(ExpansionMode::Labeled),
+                Token::TripleAsterisk => Some(ExpansionMode::Complete),
+                _ => None,
+            } {
+                if labeled_phase && mode != ExpansionMode::Labeled {
+                    return Err(self.error_message_here(match mode {
+                        ExpansionMode::Positional => "positional expansion cannot follow a labeled argument",
+                        ExpansionMode::Complete => "complete expansion cannot follow a labeled argument",
+                        ExpansionMode::Labeled => unreachable!(),
+                    }));
+                }
                 self.advance();
-                self.expect(&Token::Colon, &["\":\""])?;
-                Some(lbl)
+                let expr = self.parse_expr()?;
+                if mode == ExpansionMode::Labeled {
+                    labeled_phase = true;
+                }
+                PackItem::Expand {
+                    mode,
+                    expr,
+                    range: (start..self.prev_end).into(),
+                }
             } else {
-                None
+                let label = self.parse_product_label()?;
+                if let Some(label) = label {
+                    labeled_phase = true;
+                    let label = match label {
+                        ProductLabel::Static { symbol, range, .. } => PackLabel::Static {
+                            text: symbol_text(&symbol),
+                            range,
+                        },
+                        ProductLabel::Computed { expr, range } => PackLabel::Computed { expr, range },
+                    };
+                    let value = self.parse_expr()?;
+                    PackItem::Labeled {
+                        label,
+                        value,
+                        range: (start..self.prev_end).into(),
+                    }
+                } else {
+                    if labeled_phase {
+                        return Err(self.error_message_here("positional argument cannot follow a labeled argument"));
+                    }
+                    let expr = self.parse_expr()?;
+                    PackItem::Positional {
+                        expr,
+                        range: (start..self.prev_end).into(),
+                    }
+                }
             };
-            let expr = self.parse_expr()?;
-            let range = (start..self.prev_end).into();
-            args.push(Argument { label, expr, range });
+            args.push(item);
             self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
@@ -3614,6 +3715,20 @@ impl<'source> Parser<'source> {
         }
         self.skip_newlines();
         Ok(args)
+    }
+}
+
+fn symbol_text(symbol: &SymbolLiteralKind) -> String {
+    match symbol {
+        SymbolLiteralKind::Name(text) => text.clone(),
+        SymbolLiteralKind::Selector { name, labels } => {
+            let slots = labels
+                .iter()
+                .map(|label| label.clone().unwrap_or_else(|| "_".to_string()))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{name}({slots})")
+        }
     }
 }
 

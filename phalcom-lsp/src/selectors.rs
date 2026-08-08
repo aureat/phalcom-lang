@@ -25,7 +25,11 @@ pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
     if params.is_empty() {
         return format!("{name}()");
     }
-    let inner = params.iter().map(|p| p.label.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
+    let inner = params
+        .iter()
+        .map(|param| param.label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
+        .collect::<Vec<_>>()
+        .join(",");
     format!("{name}({inner})")
 }
 
@@ -37,8 +41,39 @@ pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
     if labels.is_empty() {
         return format!("{name}()");
     }
-    let inner = labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
+    let inner = labels
+        .iter()
+        .map(|label| label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
+        .collect::<Vec<_>>()
+        .join(",");
     format!("{name}({inner})")
+}
+
+/// Mirrors `phalcom-core::method::encode_label_component`. The LSP does not
+/// link the runtime crate, but its definition/reference index must spell the
+/// same reversible selector slots.
+fn encode_label_component(text: &str) -> String {
+    let safe = !text.is_empty()
+        && !text.starts_with('~')
+        && !matches!(text, "_" | "*" | "**" | "***")
+        && text.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'_' | b'?' | b'!' | b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'&' | b'|' | b'^' | b'~' | b'%'
+                )
+        });
+    if safe {
+        text.to_string()
+    } else {
+        let mut encoded = String::with_capacity(1 + text.len() * 2);
+        encoded.push('~');
+        for byte in text.bytes() {
+            use std::fmt::Write;
+            write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        encoded
+    }
 }
 
 /// The comma-form selector a getter's bare-name access resolves to.
@@ -91,7 +126,11 @@ pub fn field_selector(f: &FieldDef) -> String {
 /// encoding** — same spelling, independently reimplemented here per this
 /// module's top-level doc (`phalcom-lsp` never links `phalcom-core`).
 pub fn index_selector(ix: &IndexMethodDef) -> String {
-    let labels = ix.params.iter().map(|p| p.label.as_deref().unwrap_or("_")).collect::<Vec<_>>();
+    let labels = ix
+        .params
+        .iter()
+        .map(|param| param.label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
+        .collect::<Vec<_>>();
     let inner = labels.join(",");
     match &ix.accessor {
         IndexAccessor::Get => {

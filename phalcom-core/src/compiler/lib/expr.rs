@@ -3,8 +3,8 @@ use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, ProductLabel, RecordLiteralField, SetLiteralEntry, Statement, SymbolLiteralKind,
-    TupleLiteralEntry, UnaryOp,
+    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, ProductLabel, RecordLiteralField,
+    SetLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
 
@@ -14,6 +14,42 @@ use super::scope::BareNameResolution;
 use super::{Compiler, UnitKind};
 
 impl<'vm> Compiler<'vm> {
+    /// Builds static selector slots, rejecting F.2-only dynamic pack forms
+    /// before any bytecode is emitted for a send.
+    pub(super) fn pack_labels(&self, items: &[PackItem]) -> Result<Vec<Option<String>>, CompilerError> {
+        items
+            .iter()
+            .map(|item| match item {
+                PackItem::Positional { .. } => Ok(None),
+                PackItem::Labeled {
+                    label: PackLabel::Static { text, .. },
+                    ..
+                } => Ok(Some(text.clone())),
+                PackItem::Labeled {
+                    label: PackLabel::Computed { range, .. },
+                    ..
+                } => Err(CompilerError::ComputedLabelNotYetSupported(*range)),
+                PackItem::Expand { range, .. } => Err(CompilerError::PackExpansionNotYetSupported(*range)),
+            })
+            .collect()
+    }
+
+    /// Lowers a statically shaped F.1 pack contribution.
+    pub(super) fn compile_pack_item(&mut self, item: PackItem) -> Result<(), CompilerError> {
+        match item {
+            PackItem::Positional { expr, .. } => self.compile_expr(expr),
+            PackItem::Labeled {
+                label: PackLabel::Static { .. },
+                value,
+                ..
+            } => self.compile_expr(value),
+            PackItem::Labeled {
+                label: PackLabel::Computed { range, .. },
+                ..
+            } => Err(CompilerError::ComputedLabelNotYetSupported(range)),
+            PackItem::Expand { range, .. } => Err(CompilerError::PackExpansionNotYetSupported(range)),
+        }
+    }
     /// Compiles `expr`, always leaving exactly one value on the stack.
     /// Equivalent to `compile_expr_want(expr, true)` — see that method for
     /// `want_value`.
@@ -44,12 +80,12 @@ impl<'vm> Compiler<'vm> {
                     }
                     BareNameResolution::ImplicitSelf => {
                         let arity = checked_send_arity("implicit message send", call.args.len(), call.range)?;
-                        let labels: Vec<Option<String>> = call.args.iter().map(|arg| arg.label.clone()).collect();
+                        let labels = self.pack_labels(&call.args)?;
                         let selector = encode_selector(&call.name, &labels, SignatureKind::Method(arity));
                         let selector_sym = self.vm.interner.intern(&selector);
                         self.emit_self(call.range);
                         for arg in call.args {
-                            self.compile_expr(arg.expr)?;
+                            self.compile_pack_item(arg)?;
                         }
                         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                         self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
@@ -57,9 +93,9 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
                 let arity = checked_send_arity("callable call", call.args.len(), call.range)?;
-                let labels: Vec<Option<String>> = call.args.iter().map(|arg| arg.label.clone()).collect();
+                let labels = self.pack_labels(&call.args)?;
                 for arg in call.args {
-                    self.compile_expr(arg.expr)?;
+                    self.compile_pack_item(arg)?;
                 }
                 let selector = encode_selector("call", &labels, SignatureKind::Method(arity));
                 let selector_sym = self.vm.interner.intern(&selector);
@@ -81,7 +117,7 @@ impl<'vm> Compiler<'vm> {
                 if matches!(&method_call.object, Expr::SuperVar { .. }) {
                     let mc = *method_call;
                     let argc = mc.args.len();
-                    let labels: Vec<Option<String>> = mc.args.iter().map(|a| a.label.clone()).collect();
+                    let labels = self.pack_labels(&mc.args)?;
                     // ADR-0063 splits a source constructor into a class-side
                     // factory and an instance-side `init <name>` method.
                     // Rewrite only the matching super-constructor send:
@@ -137,13 +173,13 @@ impl<'vm> Compiler<'vm> {
                         };
 
                         let arity = checked_send_arity("message send", method_call.args.len(), method_call.range)?;
-                        let labels: Vec<Option<String>> = method_call.args.iter().map(|a| a.label.clone()).collect();
+                        let labels = self.pack_labels(&method_call.args)?;
                         let selector = encode_selector(&method_call.method, &labels, SignatureKind::Method(arity));
                         let selector_sym = self.vm.interner.intern(&selector);
 
                         self.compile_expr(method_call.object)?;
-                        for arg in &method_call.args {
-                            self.compile_expr(arg.expr.clone())?;
+                        for arg in method_call.args {
+                            self.compile_pack_item(arg)?;
                         }
                         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
                         let opcode = if internal_call {
@@ -212,10 +248,10 @@ impl<'vm> Compiler<'vm> {
                 // compiler changes.
                 let ix = *ix;
                 let argc = checked_send_arity("subscript read", ix.args.len(), ix.range)?;
-                let labels: Vec<Option<String>> = ix.args.iter().map(|a| a.label.clone()).collect();
+                let labels = self.pack_labels(&ix.args)?;
                 self.compile_expr(ix.object)?;
                 for arg in ix.args {
-                    self.compile_expr(arg.expr)?;
+                    self.compile_pack_item(arg)?;
                 }
                 let selector = encode_selector("", &labels, SignatureKind::SubscriptGet(argc));
                 let sym = self.vm.interner.intern(&selector);
@@ -225,11 +261,15 @@ impl<'vm> Compiler<'vm> {
             Expr::SetIndex(six) => {
                 let six = *six;
                 // Reject duplicate "put" label before dispatch
-                if six.args.iter().any(|a| a.label.as_deref() == Some("put")) {
+                if six
+                    .args
+                    .iter()
+                    .any(|a| matches!(a, PackItem::Labeled { label: PackLabel::Static { text, .. }, .. } if text == "put"))
+                {
                     return Err(CompilerError::Message("Duplicate label 'put' in subscript assignment".to_string()));
                 }
 
-                let labels: Vec<Option<String>> = six.args.iter().map(|a| a.label.clone()).collect();
+                let labels = self.pack_labels(&six.args)?;
                 let index_argc = six.args.len() as u8;
                 let invoke_argc = checked_send_arity("subscript write", six.args.len() + 1, six.range)?;
 
@@ -244,7 +284,7 @@ impl<'vm> Compiler<'vm> {
 
                 // 3. Compile subscript arguments in lexical order
                 for arg in six.args {
-                    self.compile_expr(arg.expr)?;
+                    self.compile_pack_item(arg)?;
                 }
 
                 // 4. Compile RHS
@@ -365,6 +405,7 @@ impl<'vm> Compiler<'vm> {
                             self.compile_product_label(label, &mut seen, range)?;
                             self.compile_expr(value)?;
                         }
+                        TupleLiteralEntry::Expand { range, .. } => return Err(CompilerError::PackExpansionNotYetSupported(range)),
                     }
                 }
                 self.emit(

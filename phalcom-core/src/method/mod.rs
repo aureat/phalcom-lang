@@ -115,7 +115,66 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
 /// Joins `labels` into a comma-form slot list: `_` for a positional
 /// argument, the label text for a keyword argument.
 fn comma_form_slots(labels: &[Option<String>]) -> String {
-    labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",")
+    labels
+        .iter()
+        .map(|label| match label {
+            None => "_".to_string(),
+            Some(text) => encode_label_component(text),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Encodes a Symbol label for safe embedding in comma-form selector slots.
+///
+/// The escape transport is deliberately total and UTF-8 byte based: labels
+/// that could be mistaken for slot markers or delimiters are `~` + lowercase
+/// hexadecimal bytes, while legacy self-delimiting labels remain readable.
+pub fn encode_label_component(symbol_text: &str) -> String {
+    let reserved = matches!(symbol_text, "_" | "*" | "**" | "***");
+    let safe = !symbol_text.is_empty()
+        && !symbol_text.starts_with('~')
+        && !reserved
+        && symbol_text.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || matches!(
+                    byte,
+                    b'_' | b'?' | b'!' | b'+' | b'-' | b'*' | b'/' | b'<' | b'>' | b'=' | b'&' | b'|' | b'^' | b'~' | b'%'
+                )
+        });
+    if safe {
+        symbol_text.to_string()
+    } else {
+        let mut encoded = String::with_capacity(1 + symbol_text.len() * 2);
+        encoded.push('~');
+        for byte in symbol_text.bytes() {
+            use std::fmt::Write;
+            write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
+        }
+        encoded
+    }
+}
+
+/// Decodes an escaped selector-label component. Malformed components remain
+/// raw, keeping selector reflection total for arbitrary user Symbols.
+pub fn decode_label_component(component: &str) -> String {
+    let Some(hex) = component.strip_prefix('~') else {
+        return component.to_string();
+    };
+    if hex.is_empty() || hex.len() % 2 != 0 {
+        return component.to_string();
+    }
+    let mut bytes = Vec::with_capacity(hex.len() / 2);
+    for pair in hex.as_bytes().chunks_exact(2) {
+        let Some(high) = (pair[0] as char).to_digit(16) else {
+            return component.to_string();
+        };
+        let Some(low) = (pair[1] as char).to_digit(16) else {
+            return component.to_string();
+        };
+        bytes.push((high * 16 + low) as u8);
+    }
+    String::from_utf8(bytes).unwrap_or_else(|_| component.to_string())
 }
 
 /// Decomposes an encoded selector string back into `(name, labels, kind)` —
@@ -210,7 +269,10 @@ fn parse_labels(inner: &str) -> Vec<Option<String>> {
     }
     inner
         .split(',')
-        .map(|token| if token == "_" { None } else { Some(token.to_string()) })
+        .map(|token| match token {
+            "_" | "*" | "**" | "***" => None,
+            _ => Some(decode_label_component(token)),
+        })
         .collect()
 }
 
@@ -274,6 +336,24 @@ mod tests {
         assert_eq!(name, "move");
         assert_eq!(labels, vec![Some("to".to_string()), Some("duration".to_string())]);
         assert_eq!(kind, SignatureKind::Method(2));
+    }
+
+    #[test]
+    fn label_component_escape_is_reversible_and_rest_safe() {
+        for label in ["timeout", "+", "*", "**", "***", "_", "a,b", "x)", "~raw", "λ"] {
+            let encoded = encode_label_component(label);
+            assert_eq!(decode_label_component(&encoded), label, "{label}");
+        }
+        assert_eq!(encode_label_component("*"), "~2a");
+        assert_eq!(encode_selector("foo", &[Some("*".to_string())], SignatureKind::Method(1)), "foo(~2a)");
+        assert_eq!(decode_selector("foo(*)").2, SignatureKind::Variadic(0));
+    }
+
+    #[test]
+    fn malformed_label_escape_is_total() {
+        for raw in ["~", "~f", "~zz", "~ff"] {
+            assert_eq!(decode_label_component(raw), raw);
+        }
     }
 
     /// A setter is distinguished from an operator that merely ends in `=`.

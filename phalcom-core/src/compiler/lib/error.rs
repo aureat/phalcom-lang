@@ -230,6 +230,18 @@ pub enum CompilerError {
     /// immutable binding facts (Spec E.3).
     #[error("cannot exhaust a provably unbounded source with `{operation}`")]
     ProvablyUnboundedExhaustion { operation: String, span: SourceRange },
+
+    /// Pack expansion needs F.2's runtime outgoing-pack assembly.
+    #[error("pack expansion is not supported until F.2.")]
+    PackExpansionNotYetSupported(SourceRange),
+
+    /// Computed labels need F.2's runtime Symbol guard and dynamic dispatch.
+    #[error("computed pack labels are not supported until F.2.")]
+    ComputedLabelNotYetSupported(SourceRange),
+
+    /// Labeled and complete rest parameters are introduced by F.1 but bind in F.3.
+    #[error("this rest-parameter mode is not supported until F.3.")]
+    RestModeNotYetSupported(SourceRange),
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

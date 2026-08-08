@@ -12,14 +12,34 @@
 
 use dashmap::DashMap;
 use phalcom_ast::ast::{
-    Argument, AttrKind, BuiltinAttr, ClassDef, ClassMember, Expr, ForStatement, ListLiteralExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program,
-    SetLiteralEntry, Statement, TupleLiteralEntry,
+    AttrKind, BuiltinAttr, ClassDef, ClassMember, Expr, ForStatement, ListLiteralElement, ListLiteralExpr, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel,
+    Pattern, ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
 use crate::core_table::MemberKind;
 use crate::selectors::{class_member_selector, comma_form_from_labels, setter_selector_from_name};
+
+/// Dynamic labels and expansions have no F.1 compile-time selector.  Avoid
+/// indexing a fabricated reference until F.2 supplies outgoing-pack lowering.
+fn static_pack_labels(items: &[PackItem]) -> Option<Vec<Option<String>>> {
+    items
+        .iter()
+        .map(|item| match item {
+            PackItem::Positional { .. } => Some(None),
+            PackItem::Labeled {
+                label: PackLabel::Static { text, .. },
+                ..
+            } => Some(Some(text.clone())),
+            PackItem::Labeled {
+                label: PackLabel::Computed { .. },
+                ..
+            }
+            | PackItem::Expand { .. } => None,
+        })
+        .collect()
+}
 
 /// One occurrence of a selector at a source location within a single file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -635,12 +655,12 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
         Expr::MethodCall(m) => {
             collect_var_occurrences_in_expr(&m.object, names, out);
             for arg in &m.args {
-                collect_var_occurrences_in_expr(&arg.expr, names, out);
+                collect_var_occurrences_in_pack_item(arg, names, out);
             }
         }
         Expr::UnqualifiedCall(m) => {
             for arg in &m.args {
-                collect_var_occurrences_in_expr(&arg.expr, names, out);
+                collect_var_occurrences_in_pack_item(arg, names, out);
             }
         }
         Expr::GetProperty(g) => collect_var_occurrences_in_expr(&g.object, names, out),
@@ -651,13 +671,13 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
         Expr::Index(i) => {
             collect_var_occurrences_in_expr(&i.object, names, out);
             for arg in &i.args {
-                collect_var_occurrences_in_expr(&arg.expr, names, out);
+                collect_var_occurrences_in_pack_item(arg, names, out);
             }
         }
         Expr::SetIndex(si) => {
             collect_var_occurrences_in_expr(&si.object, names, out);
             for arg in &si.args {
-                collect_var_occurrences_in_expr(&arg.expr, names, out);
+                collect_var_occurrences_in_pack_item(arg, names, out);
             }
             collect_var_occurrences_in_expr(&si.value, names, out);
         }
@@ -675,6 +695,7 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
                         collect_product_label_var_occurrences(label, names, out);
                         collect_var_occurrences_in_expr(value, names, out);
                     }
+                    TupleLiteralEntry::Expand { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
                 }
             }
         }
@@ -714,6 +735,18 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
                     }
                 }
             }
+        }
+    }
+}
+
+fn collect_var_occurrences_in_pack_item(item: &PackItem, names: &std::collections::HashSet<String>, out: &mut Vec<SourceRange>) {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
+        PackItem::Labeled { label, value, .. } => {
+            if let PackLabel::Computed { expr, .. } = label {
+                collect_var_occurrences_in_expr(expr, names, out);
+            }
+            collect_var_occurrences_in_expr(value, names, out);
         }
     }
 }
@@ -843,9 +876,17 @@ impl Collector {
         }
     }
 
-    fn walk_args(&mut self, args: &[Argument]) {
+    fn walk_args(&mut self, args: &[PackItem]) {
         for arg in args {
-            self.walk_expr(&arg.expr);
+            match arg {
+                PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => self.walk_expr(expr),
+                PackItem::Labeled { label, value, .. } => {
+                    if let PackLabel::Computed { expr, .. } = label {
+                        self.walk_expr(expr);
+                    }
+                    self.walk_expr(value);
+                }
+            }
         }
     }
 
@@ -880,14 +921,15 @@ impl Collector {
             }
             Expr::MethodCall(m) => {
                 self.walk_expr(&m.object);
-                let labels: Vec<Option<String>> = m.args.iter().map(|a| a.label.clone()).collect();
-                let selector = comma_form_from_labels(&m.method, &labels);
-                self.references.push((selector, m.range));
+                if let Some(labels) = static_pack_labels(&m.args) {
+                    self.references.push((comma_form_from_labels(&m.method, &labels), m.range));
+                }
                 self.walk_args(&m.args);
             }
             Expr::UnqualifiedCall(m) => {
-                let labels: Vec<Option<String>> = m.args.iter().map(|a| a.label.clone()).collect();
-                self.references.push((comma_form_from_labels(&m.name, &labels), m.range));
+                if let Some(labels) = static_pack_labels(&m.args) {
+                    self.references.push((comma_form_from_labels(&m.name, &labels), m.range));
+                }
                 self.walk_args(&m.args);
             }
             Expr::GetProperty(g) => {
@@ -938,6 +980,7 @@ impl Collector {
                             self.walk_product_label(label);
                             self.walk_expr(value);
                         }
+                        TupleLiteralEntry::Expand { expr, .. } => self.walk_expr(expr),
                     }
                 }
             }

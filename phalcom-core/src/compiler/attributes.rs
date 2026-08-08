@@ -121,7 +121,10 @@ pub trait AttributeExpander {
     fn expand(&self, ctx: &mut ExpandCtx, member: &mut ClassMember, args: &[Expr]) -> Result<(), CompilerError>;
 }
 
-use phalcom_ast::ast::{Argument, BindingKind, BlockExpr, LetBinding, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, Pattern, SetLiteralEntry, Statement};
+use phalcom_ast::ast::{
+    BindingKind, BlockExpr, LetBinding, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, Pattern, RestMode,
+    SetLiteralEntry, Statement,
+};
 use phalcom_common::range::SourceRange;
 
 fn is_pure_expr(expr: &Expr) -> bool {
@@ -140,15 +143,27 @@ fn is_pure_expr(expr: &Expr) -> bool {
         Expr::Binary(b) => is_pure_expr(&b.left) && is_pure_expr(&b.right),
         Expr::MethodCall(m) => {
             // impure list: mutable sends like add, remove, put, or setter name=
-            let impure_names = ["add", "remove", "put", "append", "prepend", "clear", "insert", "popFirst", "popLast", "removeAll", "swap"];
+            let impure_names = [
+                "add",
+                "remove",
+                "put",
+                "append",
+                "prepend",
+                "clear",
+                "insert",
+                "popFirst",
+                "popLast",
+                "removeAll",
+                "swap",
+            ];
             if impure_names.contains(&m.method.as_str()) || m.method.ends_with('=') {
                 return false;
             }
-            is_pure_expr(&m.object) && m.args.iter().all(|a| is_pure_expr(&a.expr))
+            is_pure_expr(&m.object) && m.args.iter().all(is_pure_pack_item)
         }
-        Expr::UnqualifiedCall(m) => m.args.iter().all(|a| is_pure_expr(&a.expr)),
+        Expr::UnqualifiedCall(m) => m.args.iter().all(is_pure_pack_item),
         Expr::GetProperty(g) => is_pure_expr(&g.object),
-        Expr::Index(i) => is_pure_expr(&i.object) && i.args.iter().all(|a| is_pure_expr(&a.expr)),
+        Expr::Index(i) => is_pure_expr(&i.object) && i.args.iter().all(is_pure_pack_item),
         Expr::MapLiteral(map) => map.entries.iter().all(|entry| match entry {
             MapLiteralEntry::Association { key, value, .. } => {
                 let key_pure = match key {
@@ -177,6 +192,13 @@ fn is_pure_expr(expr: &Expr) -> bool {
     }
 }
 
+fn is_pure_pack_item(item: &PackItem) -> bool {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => is_pure_expr(expr),
+        PackItem::Labeled { label, value, .. } => !matches!(label, PackLabel::Computed { expr, .. } if !is_pure_expr(expr)) && is_pure_expr(value),
+    }
+}
+
 /// Recognizes the `old(sub)` pseudo-selector call shape. `old` is a reserved
 /// name meaningful only inside `@ensures` (annotations-contracts.md); it is
 /// not an ordinary method — the parser has no bare-call grammar (calls
@@ -192,17 +214,17 @@ fn as_old_call(m: &MethodCallExpr) -> bool {
 
 fn contains_old_call(expr: &Expr) -> bool {
     match expr {
-        Expr::UnqualifiedCall(m) => m.name == "old" && m.args.len() == 1 || m.args.iter().any(|arg| contains_old_call(&arg.expr)),
+        Expr::UnqualifiedCall(m) => m.name == "old" && m.args.len() == 1 || m.args.iter().any(contains_old_call_in_pack_item),
         Expr::MethodCall(m) => {
             if as_old_call(m) {
                 true
             } else {
-                contains_old_call(&m.object) || m.args.iter().any(|a| contains_old_call(&a.expr))
+                contains_old_call(&m.object) || m.args.iter().any(contains_old_call_in_pack_item)
             }
         }
         Expr::Unary(u) => contains_old_call(&u.expr),
         Expr::Binary(b) => contains_old_call(&b.left) || contains_old_call(&b.right),
-        Expr::Index(i) => contains_old_call(&i.object) || i.args.iter().any(|a| contains_old_call(&a.expr)),
+        Expr::Index(i) => contains_old_call(&i.object) || i.args.iter().any(contains_old_call_in_pack_item),
         Expr::GetProperty(g) => contains_old_call(&g.object),
         Expr::MapLiteral(map) => map.entries.iter().any(|entry| match entry {
             MapLiteralEntry::Association { key, value, .. } => {
@@ -217,6 +239,13 @@ fn contains_old_call(expr: &Expr) -> bool {
             ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => contains_old_call(expr),
         }),
         _ => false,
+    }
+}
+
+fn contains_old_call_in_pack_item(item: &PackItem) -> bool {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => contains_old_call(expr),
+        PackItem::Labeled { label, value, .. } => matches!(label, PackLabel::Computed { expr, .. } if contains_old_call(expr)) || contains_old_call(value),
     }
 }
 
@@ -390,7 +419,7 @@ impl AttributeExpander for EnsuresExpander {
 fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(), CompilerError> {
     match expr {
         Expr::UnqualifiedCall(m) if m.name == "old" && m.args.len() == 1 => {
-            let mut inner = m.args[0].expr.clone();
+            let mut inner = pack_item_value(&m.args[0]).clone();
             rewrite_old_calls(&mut inner, old_lets)?;
             if matches!(&inner, Expr::SelfVar { .. } | Expr::SuperVar { .. }) {
                 return Err(CompilerError::Message(
@@ -409,11 +438,11 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
         }
         Expr::UnqualifiedCall(m) => {
             for arg in &mut m.args {
-                rewrite_old_calls(&mut arg.expr, old_lets)?;
+                rewrite_old_calls_in_pack_item(arg, old_lets)?;
             }
         }
         Expr::MethodCall(m) if as_old_call(m) => {
-            let mut inner = m.args[0].expr.clone();
+            let mut inner = pack_item_value(&m.args[0]).clone();
             rewrite_old_calls(&mut inner, old_lets)?;
 
             // contract.old_on_mutable: capturing the whole receiver aliases
@@ -450,7 +479,7 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
         Expr::MethodCall(m) => {
             rewrite_old_calls(&mut m.object, old_lets)?;
             for arg in &mut m.args {
-                rewrite_old_calls(&mut arg.expr, old_lets)?;
+                rewrite_old_calls_in_pack_item(arg, old_lets)?;
             }
         }
         Expr::Unary(u) => rewrite_old_calls(&mut u.expr, old_lets)?,
@@ -461,7 +490,7 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
         Expr::Index(i) => {
             rewrite_old_calls(&mut i.object, old_lets)?;
             for arg in &mut i.args {
-                rewrite_old_calls(&mut arg.expr, old_lets)?;
+                rewrite_old_calls_in_pack_item(arg, old_lets)?;
             }
         }
         Expr::GetProperty(g) => rewrite_old_calls(&mut g.object, old_lets)?,
@@ -495,6 +524,25 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
         _ => {}
     }
     Ok(())
+}
+
+fn pack_item_value(item: &PackItem) -> &Expr {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => expr,
+        PackItem::Labeled { value, .. } => value,
+    }
+}
+
+fn rewrite_old_calls_in_pack_item(item: &mut PackItem, old_lets: &mut Vec<Statement>) -> Result<(), CompilerError> {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => rewrite_old_calls(expr, old_lets),
+        PackItem::Labeled { label, value, .. } => {
+            if let PackLabel::Computed { expr, .. } = label {
+                rewrite_old_calls(expr, old_lets)?;
+            }
+            rewrite_old_calls(value, old_lets)
+        }
+    }
 }
 
 fn rewrite_returns(body: &mut Vec<Statement>, ensures_args: &[Expr], method_name: &str) {
@@ -952,7 +1000,7 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
             ParameterDef {
                 name: pname.clone(),
                 label: Some(pname),
-                is_rest: false,
+                rest_mode: RestMode::None,
                 range: f.range,
             }
         })
@@ -1124,7 +1172,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     param: ParameterDef {
                         name: "value".to_string(),
                         label: None,
-                        is_rest: false,
+                        rest_mode: RestMode::None,
                         range: attr.range,
                     },
                     body: vec![field_assign_stmt(
@@ -1287,8 +1335,7 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
                 range,
             },
             method: "new".to_string(),
-            args: vec![Argument {
-                label: None,
+            args: vec![PackItem::Positional {
                 expr: Expr::Field {
                     value: f.name.clone(),
                     kind: if f.name.starts_with("__") {
@@ -1333,7 +1380,7 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
 /// (`annotations-data.md`'s explicit "standard functional-update semantics,
 /// not a deep clone").
 fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRange) -> Expr {
-    let args: Vec<Argument> = param_fields
+    let args: Vec<PackItem> = param_fields
         .iter()
         .map(|f| {
             let pname = strip_leading_underscore(&f.name);
@@ -1389,22 +1436,21 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
                 object: is_none,
                 method: "ifTrue".to_string(),
                 args: vec![
-                    Argument {
-                        label: None,
-                        expr: fallback_block,
-                        range,
-                    },
-                    Argument {
-                        label: Some("ifFalse".to_string()),
-                        expr: keep_block,
+                    PackItem::Positional { expr: fallback_block, range },
+                    PackItem::Labeled {
+                        label: PackLabel::Static {
+                            text: "ifFalse".to_string(),
+                            range,
+                        },
+                        value: keep_block,
                         range,
                     },
                 ],
                 range,
             }));
-            Argument {
-                label: Some(pname),
-                expr: resolved,
+            PackItem::Labeled {
+                label: PackLabel::Static { text: pname, range },
+                value: resolved,
                 range,
             }
         })
@@ -1534,7 +1580,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             params: vec![ParameterDef {
                 name: "other".to_string(),
                 label: None,
-                is_rest: false,
+                rest_mode: RestMode::None,
                 range: attr_range,
             }],
             body: vec![Statement::Return(ReturnStatement {
@@ -1592,7 +1638,7 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                     ParameterDef {
                         name: pname.clone(),
                         label: Some(pname),
-                        is_rest: false,
+                        rest_mode: RestMode::None,
                         range: f.range,
                     }
                 })
@@ -1714,15 +1760,14 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             .map(|n| ParameterDef {
                 name: n.clone(),
                 label: None,
-                is_rest: false,
+                rest_mode: RestMode::None,
                 range: v.range,
             })
             .collect();
         let call_expr = Expr::MethodCall(Box::new(MethodCallExpr {
             object: Expr::Var { value: own_kw, range: v.range },
             method: "call".to_string(),
-            args: vec![Argument {
-                label: None,
+            args: vec![PackItem::Positional {
                 expr: Expr::SelfVar { range: v.range },
                 range: v.range,
             }],
@@ -1773,14 +1818,13 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         .map(|n| ParameterDef {
             name: n.clone(),
             label: Some(n.clone()),
-            is_rest: false,
+            rest_mode: RestMode::None,
             range: match_range,
         })
         .collect();
-    let arm_args: Vec<Argument> = variant_kw_names
+    let arm_args: Vec<PackItem> = variant_kw_names
         .iter()
-        .map(|n| Argument {
-            label: None,
+        .map(|n| PackItem::Positional {
             expr: Expr::Var {
                 value: n.clone(),
                 range: match_range,
@@ -2332,13 +2376,25 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
         let args = method
             .params
             .iter()
-            .map(|param| Argument {
-                label: param.label.clone(),
-                expr: Expr::Var {
-                    value: param.name.clone(),
+            .map(|param| match &param.label {
+                Some(label) => PackItem::Labeled {
+                    label: PackLabel::Static {
+                        text: label.clone(),
+                        range: param.range,
+                    },
+                    value: Expr::Var {
+                        value: param.name.clone(),
+                        range: param.range,
+                    },
                     range: param.range,
                 },
-                range: param.range,
+                None => PackItem::Positional {
+                    expr: Expr::Var {
+                        value: param.name.clone(),
+                        range: param.range,
+                    },
+                    range: param.range,
+                },
             })
             .collect();
         let instance = Expr::Var {
@@ -2415,8 +2471,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
             range,
         },
         method: "new".to_string(),
-        args: vec![Argument {
-            label: None,
+        args: vec![PackItem::Positional {
             expr: Expr::String { value: err_msg, range },
             range,
         }],
@@ -2437,11 +2492,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
     let check_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: predicate,
         method: "ifFalse".to_string(),
-        args: vec![Argument {
-            label: None,
-            expr: block_expr,
-            range,
-        }],
+        args: vec![PackItem::Positional { expr: block_expr, range }],
         range,
     }));
     Statement::Expr { expr: check_call, range }
@@ -2536,8 +2587,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
             expr: Expr::MethodCall(Box::new(MethodCallExpr {
                 object: owner_var.clone(),
                 method: "ifTrue".to_string(),
-                args: vec![Argument {
-                    label: None,
+                args: vec![PackItem::Positional {
                     expr: Expr::Block(Box::new(BlockExpr {
                         params: Vec::new(),
                         body: check_stmts(true),
@@ -2569,8 +2619,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
         expr: Expr::MethodCall(Box::new(MethodCallExpr {
             object: owner_var,
             method: "ifTrue".to_string(),
-            args: vec![Argument {
-                label: None,
+            args: vec![PackItem::Positional {
                 expr: Expr::Block(Box::new(BlockExpr {
                     params: Vec::new(),
                     body: cleanup_body,
@@ -2593,11 +2642,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
     let ensure_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: body_block,
         method: "ensure".to_string(),
-        args: vec![Argument {
-            label: None,
-            expr: cleanup_block,
-            range,
-        }],
+        args: vec![PackItem::Positional { expr: cleanup_block, range }],
         range,
     }));
 

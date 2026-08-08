@@ -7,8 +7,8 @@ use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
 use phalcom_ast::ast::{
-    Argument, AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, Expr, IndexAccessor, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, SetLiteralEntry,
-    Statement,
+    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, Expr, IndexAccessor, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem,
+    PackLabel, RestMode, SetLiteralEntry, Statement,
 };
 use phalcom_common::range::SourceRange;
 
@@ -162,7 +162,7 @@ impl<'vm> Compiler<'vm> {
                     ClassMember::Method(m) => {
                         let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
                         let subject = if m.is_constructor { "constructor declaration" } else { "method declaration" };
-                        let kind = if m.params.last().is_some_and(|p| p.is_rest) {
+                        let kind = if m.params.last().is_some_and(|p| p.rest_mode == RestMode::Positional) {
                             SignatureKind::Variadic(checked_send_arity(subject, m.params.len() - 1, m.range)?)
                         } else {
                             SignatureKind::Method(checked_send_arity(subject, m.params.len(), m.range)?)
@@ -661,13 +661,16 @@ impl<'vm> Compiler<'vm> {
                     // guards the compiler's own invariant defensively, per U9's
                     // write-set: "reject any other param in the list with
                     // is_rest set").
-                    if let Some(bad) = method_def.params.iter().take(arity.saturating_sub(1)).find(|p| p.is_rest) {
+                    if let Some(bad) = method_def.params.iter().find(|p| matches!(p.rest_mode, RestMode::Labeled | RestMode::Complete)) {
+                        return Err(CompilerError::RestModeNotYetSupported(bad.range));
+                    }
+                    if let Some(bad) = method_def.params.iter().take(arity.saturating_sub(1)).find(|p| p.rest_mode != RestMode::None) {
                         return Err(CompilerError::Message(format!(
                             "rest parameter \"*{}\" must be the last parameter of \"{}\"",
                             bad.name, method_def.name
                         )));
                     }
-                    let is_variadic = method_def.params.last().is_some_and(|p| p.is_rest);
+                    let is_variadic = method_def.params.last().is_some_and(|p| p.rest_mode == RestMode::Positional);
 
                     let sig_kind = if is_variadic {
                         // The rest parameter itself occupies one local slot
@@ -691,8 +694,7 @@ impl<'vm> Compiler<'vm> {
                     self.compiler_internal = method_def
                         .attributes
                         .iter()
-                        .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor))
-                            || attr.name == "__synthetic");
+                        .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor)) || attr.name == "__synthetic");
                     let closure_result = self.compile_block(method_def.body, selector_sym, param_names, true, false, None);
                     self.compiler_internal = prior_compiler_internal;
                     let closure = closure_result?;
@@ -1047,15 +1049,7 @@ impl<'vm> Compiler<'vm> {
                 range,
             },
             method: "new".to_string(),
-            args: attr
-                .args
-                .iter()
-                .map(|expr| Argument {
-                    label: None,
-                    expr: expr.clone(),
-                    range,
-                })
-                .collect(),
+            args: attr.args.iter().map(|expr| PackItem::Positional { expr: expr.clone(), range }).collect(),
             range,
         }));
         self.compile_expr(ctor_call)?;
@@ -1140,12 +1134,12 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut
         Expr::MethodCall(call) => {
             collect_assigned_fields(&call.object, fields, interner);
             for arg in &call.args {
-                collect_assigned_fields(&arg.expr, fields, interner);
+                collect_assigned_fields_pack(arg, fields, interner);
             }
         }
         Expr::UnqualifiedCall(call) => {
             for arg in &call.args {
-                collect_assigned_fields(&arg.expr, fields, interner);
+                collect_assigned_fields_pack(arg, fields, interner);
             }
         }
         Expr::GetProperty(get_prop) => {
@@ -1158,13 +1152,13 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut
         Expr::Index(ix) => {
             collect_assigned_fields(&ix.object, fields, interner);
             for arg in &ix.args {
-                collect_assigned_fields(&arg.expr, fields, interner);
+                collect_assigned_fields_pack(arg, fields, interner);
             }
         }
         Expr::SetIndex(six) => {
             collect_assigned_fields(&six.object, fields, interner);
             for arg in &six.args {
-                collect_assigned_fields(&arg.expr, fields, interner);
+                collect_assigned_fields_pack(arg, fields, interner);
             }
             collect_assigned_fields(&six.value, fields, interner);
         }
@@ -1201,6 +1195,18 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut
             }
         }
         _ => {}
+    }
+}
+
+fn collect_assigned_fields_pack(item: &PackItem, fields: &mut Vec<Symbol>, interner: &mut crate::interner::Interner) {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => collect_assigned_fields(expr, fields, interner),
+        PackItem::Labeled { label, value, .. } => {
+            if let PackLabel::Computed { expr, .. } = label {
+                collect_assigned_fields(expr, fields, interner);
+            }
+            collect_assigned_fields(value, fields, interner);
+        }
     }
 }
 

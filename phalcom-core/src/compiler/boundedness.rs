@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use phalcom_ast::ast::{Expr, MethodCallExpr};
+use phalcom_ast::ast::{Expr, MethodCallExpr, PackItem, PackLabel};
 use phalcom_common::range::SourceRange;
 
 use crate::method::{SignatureKind, encode_selector};
@@ -145,7 +145,24 @@ fn infer_method_call_facts(call: &MethodCallExpr, const_env: &HashMap<String, So
 }
 
 fn canonical_method_selector(call: &MethodCallExpr) -> String {
-    let labels = call.args.iter().map(|arg| arg.label.clone()).collect::<Vec<_>>();
+    // Dynamic pack forms are rejected by lowering; keep them distinct here so
+    // boundedness never treats them as a known ordinary selector.
+    let labels = call
+        .args
+        .iter()
+        .map(|arg| match arg {
+            PackItem::Positional { .. } => None,
+            PackItem::Labeled {
+                label: PackLabel::Static { text, .. },
+                ..
+            } => Some(text.clone()),
+            PackItem::Labeled {
+                label: PackLabel::Computed { .. },
+                ..
+            }
+            | PackItem::Expand { .. } => Some("~dynamic-pack".into()),
+        })
+        .collect::<Vec<_>>();
     encode_selector(&call.method, &labels, SignatureKind::Method(call.args.len() as u8))
 }
 
@@ -165,7 +182,7 @@ fn is_eager_method_selector(selector: &str, mode: IterationMode) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use phalcom_ast::ast::{Argument, GetPropertyExpr, RangeExpr};
+    use phalcom_ast::ast::{GetPropertyExpr, RangeExpr};
     use phalcom_common::range::EmptySourceRange;
 
     fn range(lower: bool, upper: bool) -> Expr {
@@ -197,8 +214,7 @@ mod tests {
         Expr::MethodCall(Box::new(MethodCallExpr {
             object,
             method: method.into(),
-            args: vec![Argument {
-                label: None,
+            args: vec![PackItem::Positional {
                 expr: Expr::Block(Box::new(phalcom_ast::ast::BlockExpr {
                     params: vec![],
                     body: vec![],

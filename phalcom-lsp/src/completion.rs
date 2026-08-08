@@ -23,7 +23,10 @@
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
-use phalcom_ast::ast::{ClassMember, Expr, ListLiteralExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry};
+use phalcom_ast::ast::{
+    ClassMember, Expr, ListLiteralElement, ListLiteralExpr, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, Program,
+    SetLiteralEntry, Statement, TupleLiteralEntry,
+};
 
 use crate::core_table::{CoreTable, CoreVisibility, MemberKind};
 use crate::documents::Document;
@@ -243,6 +246,16 @@ fn nested_block_in_statement(statement: &Statement, offset: usize) -> Option<&[S
 /// `offset`. Stops at the first (outermost) block found along the path — any
 /// deeper nesting inside that block is picked up by [`descend_scope_chain`]'s
 /// own recursion into the returned body.
+fn nested_block_in_pack_item(item: &PackItem, offset: usize) -> Option<&[Statement]> {
+    match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => nested_block_in_expr(expr, offset),
+        PackItem::Labeled { label, value, .. } => match label {
+            PackLabel::Static { .. } => nested_block_in_expr(value, offset),
+            PackLabel::Computed { expr, .. } => nested_block_in_expr(expr, offset).or_else(|| nested_block_in_expr(value, offset)),
+        },
+    }
+}
+
 fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
     if !expr.range().contains(offset) {
         return None;
@@ -257,18 +270,19 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
             .or_else(|| range.upper.as_ref().and_then(|upper| nested_block_in_expr(upper, offset))),
         Expr::Unary(u) => nested_block_in_expr(&u.expr, offset),
         Expr::Binary(b) => nested_block_in_expr(&b.left, offset).or_else(|| nested_block_in_expr(&b.right, offset)),
-        Expr::UnqualifiedCall(m) => m.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset)),
-        Expr::MethodCall(m) => nested_block_in_expr(&m.object, offset).or_else(|| m.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
+        Expr::UnqualifiedCall(m) => m.args.iter().find_map(|a| nested_block_in_pack_item(a, offset)),
+        Expr::MethodCall(m) => nested_block_in_expr(&m.object, offset).or_else(|| m.args.iter().find_map(|a| nested_block_in_pack_item(a, offset))),
         Expr::GetProperty(g) => nested_block_in_expr(&g.object, offset),
         Expr::SetProperty(s) => nested_block_in_expr(&s.object, offset).or_else(|| nested_block_in_expr(&s.value, offset)),
-        Expr::Index(i) => nested_block_in_expr(&i.object, offset).or_else(|| i.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
+        Expr::Index(i) => nested_block_in_expr(&i.object, offset).or_else(|| i.args.iter().find_map(|a| nested_block_in_pack_item(a, offset))),
         Expr::SetIndex(si) => nested_block_in_expr(&si.object, offset)
-            .or_else(|| si.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset)))
+            .or_else(|| si.args.iter().find_map(|a| nested_block_in_pack_item(a, offset)))
             .or_else(|| nested_block_in_expr(&si.value, offset)),
         Expr::MethodRef(mr) => nested_block_in_expr(&mr.receiver, offset),
         Expr::TupleLiteral(tuple) => tuple.entries.iter().find_map(|entry| match entry {
             TupleLiteralEntry::Positional { expr, .. } => nested_block_in_expr(expr, offset),
             TupleLiteralEntry::Labeled { label, value, .. } => nested_block_in_product_label(label, offset).or_else(|| nested_block_in_expr(value, offset)),
+            TupleLiteralEntry::Expand { expr, .. } => nested_block_in_expr(expr, offset),
         }),
         Expr::RecordLiteral(record) => record
             .fields
@@ -451,7 +465,6 @@ pub fn completions(
     items.sort_by(|a, b| a.label.cmp(&b.label));
     items
 }
-
 
 /// Completion for an editor position, including implicit-self members and
 /// visible bare bindings when no explicit `receiver.` prefix is present.
@@ -1021,11 +1034,25 @@ mod tests {
         let outside = completions(Some(("Base", ReceiverKind::Instance)), None, false, &a_uri(), &index, CoreTable::bundled());
         assert!(!outside.iter().any(|item| item.label == "secret()" || item.label == "family()"));
 
-        let base = completions(Some(("Base", ReceiverKind::Instance)), Some("Base"), false, &a_uri(), &index, CoreTable::bundled());
+        let base = completions(
+            Some(("Base", ReceiverKind::Instance)),
+            Some("Base"),
+            false,
+            &a_uri(),
+            &index,
+            CoreTable::bundled(),
+        );
         assert!(base.iter().any(|item| item.label == "secret()"));
         assert!(base.iter().any(|item| item.label == "family()"));
 
-        let child = completions(Some(("Child", ReceiverKind::Instance)), Some("Child"), false, &a_uri(), &index, CoreTable::bundled());
+        let child = completions(
+            Some(("Child", ReceiverKind::Instance)),
+            Some("Child"),
+            false,
+            &a_uri(),
+            &index,
+            CoreTable::bundled(),
+        );
         assert!(!child.iter().any(|item| item.label == "secret()"));
         assert!(child.iter().any(|item| item.label == "family()"));
         assert!(!child.iter().any(|item| item.label.starts_with("_$")));
