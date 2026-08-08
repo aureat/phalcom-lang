@@ -35,7 +35,7 @@ fn assert_depth_exceeded(err: PhError, what: &str, limit: usize) {
 #[test]
 fn ph_call_depth_is_bounded() {
     // Unbounded `.ph` recursion: the case that used to hang.
-    let err = run("class Boom {\n@constructor\nnew() {}\n  go(n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n")
+    let err = run("class Boom {\n@constructor\nnew() {}\n  go(_ n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n")
         .expect_err("infinite recursion must fail, not hang");
     assert_depth_exceeded(err, "call depth", MAX_CALL_DEPTH);
 }
@@ -56,7 +56,7 @@ fn dnu_chain_trips_the_ph_counter_not_the_native_one() {
     // it pushes ordinary `.ph` frames and trips the call-depth ceiling instead.
     // Pinning this stops someone "fixing" the native counter to catch a case that
     // was never on its path.
-    let err = run("class Deep {\n@constructor\nnew() {}\n  doesNotUnderstand(msg) { return self.alsoMissing() }\n}\nDeep.new().missing()\n")
+    let err = run("class Deep {\n@constructor\nnew() {}\n  doesNotUnderstand(_ msg) { return self.alsoMissing() }\n}\nDeep.new().missing()\n")
         .expect_err("a runaway dNU chain must fail");
     assert_depth_exceeded(err, "call depth", MAX_CALL_DEPTH);
 }
@@ -72,7 +72,7 @@ fn depth_error_is_an_ordinary_catchable_raise() {
     // the depth error escaped uncatchable. The unwind now happens first.
     let mut vm = VM::new();
     let module = vm.create_module("main", "<test>");
-    let source = "class Boom {\n@constructor\nnew() {}\n  go(n) { return self.go(n + 1) }\n}\n\
+    let source = "class Boom {\n@constructor\nnew() {}\n  go(_ n) { return self.go(n + 1) }\n}\n\
                   let caught = false\n\
                   try {\n  Boom.new().go(0)\n} catch e {\n  caught = true\n}\n";
     let closure = vm.compile_closure_as(module, source, UnitKind::File).expect("compiles");

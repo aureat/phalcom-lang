@@ -336,10 +336,10 @@ mod tests {
         let module = vm.create_module("main", "walk_orders_oldest_first_with_selector_shaped_names");
         let source = "\
 class Cart {
-  total(items) { items.reduce(0) { acc, it => acc + it.missingSelector } }
+  total(_ items) { items.reduce(0) { acc, it => acc + it.missingSelector } }
 }
 const cart = Cart.new()
-const _ = cart.total([1, 2, 3])
+const result = cart.total([1, 2, 3])
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         let result = vm.run_in_module(module, closure);

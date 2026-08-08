@@ -8,8 +8,8 @@
 class Point {
   @constructor
   new(_ x, _ y) { _x = x; _y = y }
-  move(_ to, _ duration) {
-    return "moved to " + to.toString + " over " + duration.toString
+  move(to target, duration d) {
+    return "moved to " + target.toString + " over " + d.toString
   }
 }
 const p = Point.new(0, 0)

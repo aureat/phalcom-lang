@@ -9,7 +9,7 @@
 class Point {
   @constructor
   new(_ x, _ y) { _x = x; _y = y }
-  move(_ to, _ duration) {
+  move(to, duration) {
     return "moved to " + to.toString + " over " + duration.toString
   }
 }

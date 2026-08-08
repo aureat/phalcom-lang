@@ -22,7 +22,7 @@ System.print(m.iteratorValue(c))
 // value (there is no MapEntry snapshot object in Phalcom — the value was
 // simply read once above).
 m.at("one", put: "updated")
-System.print(m.at("one"))
+System.print(m["one"])
 
 // Full traversal to the end.
 const m2 = Map.new()

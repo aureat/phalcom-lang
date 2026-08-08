@@ -351,7 +351,7 @@ mod tests {
         let closure = vm
             .compile_closure(
                 module,
-                "class A {\n  val => 1\n}\nconst a = A.new()\nconst _ = a.val\nconst _ = a.val\nconst _ = a.val\n",
+                "class A {\n  val => 1\n}\nconst a = A.new()\nconst first = a.val\nconst second = a.val\nconst third = a.val\n",
             )
             .expect("compiles");
         vm.run_in_module(module, closure).expect("runs");
@@ -390,8 +390,8 @@ mod tests {
         let mut vm = crate::vm::VM::new();
         let module = vm.create_module("main", "ic_override_after_caching");
         let mut source = "class A {\n  get => 1\n}\nconst a = A.new()\n".to_string();
-        for _ in 0..10 {
-            source.push_str("const _ = a.get\n");
+        for index in 0..10 {
+            source.push_str(&format!("const cached{index} = a.get\n"));
         }
         let closure = vm.compile_closure(module, &source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs");

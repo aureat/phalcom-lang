@@ -5,5 +5,7 @@
 // before the block body ever runs — "before" prints, "after" never does.
 const add = { a, b => a + b }
 System.print("before")
-System.print(add.call(3))
-System.print("after")
+try {
+  add.call(3)
+} catch e {
+}

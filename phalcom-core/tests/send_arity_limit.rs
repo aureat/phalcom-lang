@@ -15,7 +15,7 @@ fn positional_arguments(count: usize) -> String {
 }
 
 fn parameters(count: usize) -> String {
-    comma_separated("arg", count)
+    (0..count).map(|i| format!("_ arg{i}")).collect::<Vec<_>>().join(", ")
 }
 
 fn placeholders(count: usize) -> String {

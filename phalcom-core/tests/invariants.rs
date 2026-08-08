@@ -573,7 +573,7 @@ fn subclass_static_field_offset_stability() {
     // 1. Compile and define Base
     let base_code = "
         class Base {
-            static _count = 10
+            @class _count = 10
         }
     ";
     vm.interpret_source(module, base_code).expect("Base definition should succeed");
@@ -587,7 +587,7 @@ fn subclass_static_field_offset_stability() {
     // either; `Bytecode::Class`'s own `create_class` call does it).
     let sub_code = "
         class Subclass is Base {
-            static _count = 20
+            @class _count = 20
         }
     ";
     let closure = vm.compile_closure(module, sub_code).expect("Subclass compilation should succeed");
@@ -641,8 +641,9 @@ fn floor_census_matches_installed_bindings() {
     // has_/remove_/at_) = +14 (88 -> 102).
     // U-COLLTYPES Phase 2 (ADR-0039): Tuple (3: fromList/size_/at_) = +3
     // (102 -> 105). No mutation primitive — immutability is structural.
-    // U-COLLTYPES Phase 3 (ADR-0039): Range (4: new/start_/end_/
-    // inclusive_) = +4 (105 -> 109).
+    // U-COLLTYPES Phase 3 (ADR-0039): Range originally contributed four
+    // bindings. C.2 superseded that construction surface with direct
+    // `BuildRange` bytecode and three raw observers.
     // U-ERR (ADR-0038, this unit's own amendment): `Block#on(_,_)` +
     // `Block#ensure(_)` = +2 (109 -> 111) — the catch protocol `try`/`on`/
     // `catch`/`ensure` (ADR-0031) desugar to. The WHOLE remaining error
@@ -714,10 +715,10 @@ fn floor_census_matches_installed_bindings() {
     // Spec A product foundations replace the public Tuple.fromList(_) floor
     // entry with internal __fromList(_), add four lane observers, and admit
     // three immutable Record observers: +7 (151 -> 158).
-    // C.3 range slicing admits only two underivable operations: Tuple#slice_
-    // reconstructs a label-preserving immutable product, and List#replaceSlice_
-    // mutates a variable-length span while preserving receiver identity:
-    // +2 (158 -> 160).
+    // C.2 retires `Range class#new(_,_,_)`; C.3 admits two underivable
+    // operations: Tuple#slice_ reconstructs a label-preserving immutable
+    // product, and List#replaceSlice_ mutates a variable-length span while
+    // preserving receiver identity. Combined delta: +1 (158 -> 159).
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -729,7 +730,7 @@ fn floor_census_matches_installed_bindings() {
         // §2.1 Object
         (c.object_class, false, "name"),
         (c.object_class, false, "class"),
-        (c.object_class, false, "class=(_)"),
+        (c.object_class, false, "class=(put)"),
         (c.object_class, false, "toString"),
         (c.object_class, false, "hash"), // NEW (ADR-0023)
         (c.object_class, false, "==(_)"),
@@ -746,7 +747,7 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "_$freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
-        (c.behavior_class, false, "superclass=(_)"),
+        (c.behavior_class, false, "superclass=(put)"),
         (c.behavior_class, false, "name"),    // NEW (ADR-0023)
         (c.behavior_class, false, "methods"), // NEW (ADR-0023)
         // §2.3 Class
@@ -891,8 +892,8 @@ fn floor_census_matches_installed_bindings() {
         (c.record_class, false, "_$size"),
         (c.record_class, false, "_$labelAt(_)"),
         (c.record_class, false, "_$valueAt(_)"),
-        // Range (U-COLLTYPES Phase 3, ADR-0039) — NEW_RANGE
-        (c.range_class, true, "new(_,_,_)"),
+        // Range construction is direct `BuildRange` bytecode; only these
+        // native observers belong to the floor.
         (c.range_class, false, "_$lower"),
         (c.range_class, false, "_$upper"),
         (c.range_class, false, "_$upperInclusive"),
@@ -975,10 +976,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        160,
-        "census must enumerate exactly 160 bindings after the C.3 range-slicing floor amendment"
+        159,
+        "census must enumerate exactly 159 bindings after the C.2/C.3 Range floor amendments"
     );
-    assert_eq!(live.len(), 160, "the live floor must be exactly 160 bindings");
+    assert_eq!(live.len(), 159, "the live floor must be exactly 159 bindings");
 }
 
 #[test]
@@ -1215,7 +1216,7 @@ fn callable_tower_and_reflection_protocol() {
     let module = vm.create_module("main", "callable_tower_and_reflection_protocol");
     vm.interpret_source(
         module,
-        "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
+        "class Greeter {\n  greet(_ name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
     )
     .expect("class + instance should compile and run");
     let g_sym = vm.interner.intern("g");
@@ -1297,7 +1298,7 @@ fn invoke_on_and_bind_call_are_equivalent() {
     let module = vm.create_module("main", "invoke_on_and_bind_call_are_equivalent");
     vm.interpret_source(
         module,
-        "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
+        "class Greeter {\n  greet(_ name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
     )
     .expect("class + instance should compile and run");
     let g_sym = vm.interner.intern("g");
@@ -1325,7 +1326,7 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
     let module = vm.create_module("main", "invoke_on_and_bind_call_reject_arity_mismatch");
     vm.interpret_source(
         module,
-        "class Greeter {\n  greet(name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
+        "class Greeter {\n  greet(_ name) { return \"Hello, \" + name }\n}\nlet g = Greeter.new()\n",
     )
     .expect("class + instance should compile and run");
     let g_sym = vm.interner.intern("g");
@@ -1542,7 +1543,7 @@ fn overriding_does_not_understand_still_intercepts_before_the_default_raise() {
     let module = vm.create_module("main", "overriding_does_not_understand_still_intercepts_before_the_default_raise");
     vm.interpret_source(
         module,
-        "class Proxy {\n  doesNotUnderstand(msg) { return \"intercepted: \" + msg.name }\n}\nlet p = Proxy.new()\n",
+        "class Proxy {\n  doesNotUnderstand(_ msg) { return \"intercepted: \" + msg.name }\n}\nlet p = Proxy.new()\n",
     )
     .expect("class + instance should compile and run");
     let p_sym = vm.interner.intern("p");
@@ -1569,7 +1570,7 @@ class DeepErr is Error {
   new(msg) { super.new(msg) }
 }
 class M {
-  deep(n) {
+  deep(_ n) {
     (n <= 0).ifTrue { return self.boom() }
     return self.deep(n - 1)
   }

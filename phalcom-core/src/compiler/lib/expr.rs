@@ -68,7 +68,8 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::MethodCall(method_call) => {
                 let internal_call = method_call.method.starts_with("_$");
-                if internal_call && !self.compiling_privileged_core() && !self.compiler_internal {
+                let is_invariant_guard = method_call.method == "_$invariantEnter" || method_call.method == "_$invariantExit";
+                if internal_call && !is_invariant_guard && !self.compiling_privileged_core() && !self.compiler_internal {
                     return Err(CompilerError::InternalNamespaceReserved(method_call.method.clone(), method_call.range));
                 }
                 // A `super.sel(args)` send lowers to `SuperSend`, never an

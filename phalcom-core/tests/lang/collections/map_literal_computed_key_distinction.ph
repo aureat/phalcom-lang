@@ -6,5 +6,5 @@
 
 const m = { name: 1, ["name"]: 2 }
 System.print(m.size)
-System.print(m.at(#name))
-System.print(m.at("name"))
+System.print(m[#name])
+System.print(m["name"])

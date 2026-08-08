@@ -26,7 +26,7 @@ fn compiled_foo_has_contracts(mode: CompileMode, strip_contract_metadata: bool) 
           new() { }
 
           @requires(x > 0)
-          foo(x) {
+          foo(_ x) {
             return x
           }
         }

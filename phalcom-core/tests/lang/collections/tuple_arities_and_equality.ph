@@ -9,16 +9,16 @@
 const t0 = ()
 System.print(t0 == ())
 
-const t1 = Tuple.__fromList(List.new().add(9))
+const t1 = (9,)
 System.print(t1.size)
 System.print(t1.at(0))
 
-const t2a = Tuple.__fromList(List.new().add(1).add(2))
-const t2b = Tuple.__fromList(List.new().add(1).add(2))
+const t2a = (1, 2)
+const t2b = (1, 2)
 System.print(t2a == t2b)
 System.print(t2a != t2b)
 
-const t3 = Tuple.__fromList(List.new().add(1).add(2).add(3))
+const t3 = (1, 2, 3)
 System.print(t3.size)
 System.print(t3 == t2a)
 System.print(t3 != t2a)

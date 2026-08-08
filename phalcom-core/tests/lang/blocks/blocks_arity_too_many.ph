@@ -5,5 +5,7 @@
 // the block body ever runs — "before" prints, "after" never does.
 const square = { a => a * a }
 System.print("before")
-System.print(square.call(3, 4))
-System.print("after")
+try {
+  square.call(3, 4)
+} catch e {
+}

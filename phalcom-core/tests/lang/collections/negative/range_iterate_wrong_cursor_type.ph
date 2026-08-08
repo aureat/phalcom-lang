@@ -9,5 +9,5 @@
 // bespoke "Iterator must be a number" diagnostic (Wren has no `Option`,
 // hence its own type-check message).
 
-const r = Range.new(1, 3, true)
+const r = 1..=3
 r.iterate("")

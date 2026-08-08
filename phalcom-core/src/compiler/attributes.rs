@@ -1780,6 +1780,12 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         args: arm_args,
         range: match_range,
     }));
+    let synthetic_attr = Attribute {
+        name: "__synthetic".to_string(),
+        kind: AttrKind::User("__synthetic".to_string()),
+        args: Vec::new(),
+        range: match_range,
+    };
     class.members.push(ClassMember::Method(MethodDef {
         name: "match".to_string(),
         params: match_params,
@@ -1789,7 +1795,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         })],
         is_static: false,
         is_constructor: false,
-        attributes: Vec::new(),
+        attributes: vec![synthetic_attr],
         range: match_range,
         name_range: match_range,
     }));
@@ -2097,7 +2103,7 @@ pub fn expand_class_attributes(
                 },
                 AttrKind::User(_) => {}
             }
-        } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
+        } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
             // M-ATTR-ROOT: an unrecognized name that resolves to a user
             // `Attribute` subclass is retained silently — its runtime
             // instantiate+attach codegen is emitted separately by
@@ -2190,7 +2196,7 @@ pub fn expand_class_attributes(
                     )));
                 }
                 expander.expand(ctx, member, &attr.args)?;
-            } else if resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
+            } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.modules) {
                 // Retained silently — see the class-level branch above.
             } else {
                 return Err(CompilerError::Message(format!("attr.unknown: unknown attribute `@{}`", attr.name)));

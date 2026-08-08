@@ -5,7 +5,7 @@
 //! native `Tuple`: freeze a `List`'s elements into a fixed slice, length, and
 //! indexed get. These are internal-only (`size_`/`at_`), wrapped by the
 //! `.ph`-defined public protocol (`size`/`at(_)`/`each(_)`/`==`/`hash`) in
-//! `core.ph`. Literal construction uses `BuildTuple`; `__fromList` exists only
+//! `core.ph`. Literal construction uses `BuildTuple`; `_$fromList` exists only
 //! as an internal conversion bridge for native-backed library values.
 //!
 //! **No mutation primitive exists** — `Tuple`'s immutability is a
@@ -58,7 +58,7 @@ pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
     }
 }
 
-/// Internal `Tuple.class::__fromList(_)` conversion bridge.
+/// Internal `Tuple.class::_$fromList(_)` conversion bridge.
 ///
 /// # Errors
 ///

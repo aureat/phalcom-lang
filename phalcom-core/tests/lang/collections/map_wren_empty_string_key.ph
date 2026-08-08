@@ -6,4 +6,4 @@
 
 const m = Map.new()
 m.at("", put: "empty string")
-System.print(m.at(""))
+System.print(m[""])

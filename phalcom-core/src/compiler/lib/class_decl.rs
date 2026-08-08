@@ -39,6 +39,7 @@ const COMPILER_ONLY_ATTRS: &[&str] = &[
     "sealed",
     "private",
     "protected",
+    "__synthetic",
 ];
 
 fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisibility {
@@ -690,7 +691,8 @@ impl<'vm> Compiler<'vm> {
                     self.compiler_internal = method_def
                         .attributes
                         .iter()
-                        .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor)));
+                        .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor))
+                            || attr.name == "__synthetic");
                     let closure_result = self.compile_block(method_def.body, selector_sym, param_names, true, false, None);
                     self.compiler_internal = prior_compiler_internal;
                     let closure = closure_result?;

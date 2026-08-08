@@ -4,12 +4,11 @@
 // A `Tuple` is immutable ⇒ hashable ⇒ a valid Set element (DEC-CT-C):
 // two independently-built value-equal tuples dedup to one member.
 
-const s = Set.new()
-const t1 = Tuple.__fromList(List.new().add(1).add(2))
-const t2 = Tuple.__fromList(List.new().add(1).add(2))
-const t3 = Tuple.__fromList(List.new().add(3).add(4))
-s.add(t1).add(t2).add(t3)
+const t1 = (1, 2)
+const t2 = (1, 2)
+const t3 = (3, 4)
+const s = Set.new().add(t1).add(t2).add(t3)
 System.print(s.size)
 System.print(s.includes(t1))
-System.print(s.includes(t2))
-System.print(s.includes(Tuple.__fromList(List.new().add(9).add(9))))
+System.print(s.includes(t3))
+System.print(s.includes((9, 9)))

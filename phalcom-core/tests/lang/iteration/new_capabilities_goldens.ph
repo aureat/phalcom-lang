@@ -25,7 +25,7 @@ System.print(s_map.at(0)) // 100
 System.print(s_map.at(1)) // 200
 
 // Tuple capabilities
-const t = Tuple.__fromList(List.new().add("hello").add("world"))
+const t = ("hello", "world")
 System.print(t.isEmpty) // false
 System.print(t.includes("hello")) // true
 System.print(t.includes("world")) // true
@@ -36,7 +36,7 @@ System.print(t_map.at(1)) // "world!"
 
 // Range capabilities
 // Range.new(1, 3, true) is inclusive on both ends: 1, 2, 3 (size 3).
-const r = Range.new(1, 3, true)
+const r = 1..=3
 System.print(r.isEmpty) // false
 const r_map = r.map { x => x * 2 }.toList
 System.print(r_map.at(0)) // 2

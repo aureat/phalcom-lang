@@ -24,7 +24,7 @@ System.print(p1 != p2)
 
 let map = Map.new()
 map.at(p1, put: "entry1")
-System.print(map.at(p4))
+System.print(map[p4])
 
 // Lexical operations
 System.print(Path.of("/a/b").isAbsolute)

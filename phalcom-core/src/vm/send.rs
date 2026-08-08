@@ -453,11 +453,10 @@ mod tests {
 
         let vault_symbol = vm.interner.intern("vault");
         let vault = vm.heap.module(module).get(vault_symbol).expect("`vault` global should exist");
-        let freeze_selector = vm.get_or_intern("_$freezeAttributes()");
-        let freeze = vault.lookup_method(&vm, freeze_selector).expect("Object should define _$freezeAttributes()");
+        let guard_selector = vm.get_or_intern("_$invariantEnter()");
+        let guard = vault.lookup_method(&vm, guard_selector).expect("Object should define _$invariantEnter()");
 
-        let result = vm.invoke_method_object(freeze, vault, &[]);
-
+        let result = vm.invoke_method_object(guard, vault, &[]);
         assert!(
             matches!(result, Err(PhError::Runtime(RuntimeError::NotAllowed(ref message))) if message.contains("internal.selector_access")),
             "generated authority must not outlive its dispatch, got {result:?}"

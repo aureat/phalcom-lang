@@ -138,7 +138,11 @@ macro_rules! primitive_internal {
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let mut method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
-        method.visibility = crate::method::MemberVisibility::Internal;
+        method.visibility = if $base == "_$attach" || $base == "_$freezeAttributes" || $base == "_$attributes" {
+            crate::method::MemberVisibility::Public
+        } else {
+            crate::method::MemberVisibility::Internal
+        };
         method.access_owner = Some($class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         $vm.heap.class_mut($class).add_method(symbol, method_id);

@@ -33,7 +33,7 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **160** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **159** |
 | Distinct native Rust functions | **131** |
 | Classes carrying floor primitives | **23** (of 29 audited kernel classes) |
 | Sacred selectors (§5) | **7** |

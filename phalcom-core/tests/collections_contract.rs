@@ -79,6 +79,18 @@ fn build_list(vm: &mut VM, elems: &[Value]) -> Value {
     list
 }
 
+/// Evaluates a collection literal through the compiler, then retrieves its
+/// module-global result. Tuple and Range deliberately expose literal syntax,
+/// rather than public constructor selectors.
+fn eval_literal(vm: &mut VM, literal: &str) -> Value {
+    let module = vm.create_module("collections-contract", "collections-contract");
+    let source = format!("const built = {literal}\n");
+    let closure = vm.compile_closure(module, &source).expect("literal compiles");
+    vm.run_in_module(module, closure).expect("literal runs");
+    let built = vm.get_or_intern("built");
+    vm.heap.module(module).get(built).expect("literal binds built")
+}
+
 /// Runs the full R-INV-5.x sequence + equality contract against whatever
 /// `build` produces, parameterized by `spec` (as-built.md §2, §3.3(a)).
 ///
@@ -287,13 +299,22 @@ fn set_add_and_remove_idempotence() {
     assert!(!as_bool(send1(&mut vm, set, "includes(_)", Value::Int(7))));
 }
 
-/// Builds a `Tuple` from element values via the surface freeze path
-/// (`List.new()` + `.add(_)`, then `Tuple.__fromList(_)`) — the exact path the
-/// `(a, b)` literal's parser lowering (U-COLL) takes.
+/// Builds a `Tuple` through its public product-literal syntax. The internal
+/// `Tuple._$fromList(_)` bridge is intentionally inaccessible to callers.
 fn build_tuple(vm: &mut VM, elems: &[Value]) -> Value {
-    let list = build_list(vm, elems);
-    let tuple_class = Value::Obj(vm.universe.classes.tuple_class);
-    send1(vm, tuple_class, "_$fromList(_)", list)
+    let elements = elems
+        .iter()
+        .map(|value| match value {
+            Value::Int(value) => value.to_string(),
+            other => panic!("Tuple contract fixture only uses integer literals, got {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    let literal = match elements.len() {
+        0 => "()".to_string(),
+        1 => format!("({},)", elements[0]),
+        _ => format!("({})", elements.join(", ")),
+    };
+    eval_literal(vm, &literal)
 }
 
 /// `Tuple` satisfies the sequence-protocol contract (as-built.md §3.3(a)):
@@ -377,160 +398,27 @@ fn tuple_is_a_valid_map_key() {
     assert_eq!(as_number(send0(&mut vm, map, "size")), 1.0, "only one entry — key1/key2 are the SAME key");
 }
 
-/// Builds an exclusive `Range.new(0, n, false)` — a `0..n-1` interval whose
-/// `n` generated elements are exactly `0, 1, …, n-1`.
-///
-/// Unlike every other `build_*` closure, this does **not** faithfully encode
-/// arbitrary `elems` **content** — a `Range` holds no element storage
-/// (RG-2): it can only represent an arithmetic run from a start bound, never
-/// arbitrary per-index values. `elems.len()` is the only signal used. This is
-/// why `Range` gets its own hand-rolled law-by-law test below
-/// (`range_satisfies_the_applicable_sequence_laws`) instead of the shared
-/// [`assert_sequence_contract`]: that harness's E5 ("differing elements
-/// compare unequal") assumes a build closure that can encode two same-length,
-/// same-first-element arrays as genuinely different collections, which is
-/// exactly what a `Range` cannot do — the representational trade-off RG-2
-/// laziness makes (`docs/spec/v0.2/core/tuple-and-range.md` §2).
-fn build_range(vm: &mut VM, elems: &[Value]) -> Value {
-    let range_class = Value::Obj(vm.universe.classes.range_class);
-    let sym = vm.get_or_intern("new(_,_,_)");
-    vm.send_dynamic(range_class, sym, &[Value::Int(0), Value::Int(elems.len() as i64), Value::Bool(false)])
-        .expect("Range.new failed")
-}
-
-/// `Range` satisfies every sequence-protocol law the shared harness checks
-/// **except** E5 (see [`build_range`]'s doc for why that one law does not
-/// transfer to a storage-less collection): L1-L4 totality (via
-/// [`build_range`], `0..n`), E1/E3/E4/E6 (equality reflexive/symmetric,
-/// `!=` routes through `==`), and H2 (immutable ⇒ value-hash consistency,
-/// Q5) — using two **independently-built**, structurally-equal ranges (not
-/// the same object) so H2 actually exercises value-hashing, not identity.
+/// `Range` is a public slice-bounds descriptor, not an iterable collection.
+/// Both literal forms must therefore route through a collection's `[_]`
+/// implementation with the correct exclusive or inclusive upper boundary.
 #[test]
-fn range_satisfies_the_applicable_sequence_laws() {
+fn range_literals_drive_collection_slices() {
     let mut vm = VM::new();
+    let list = build_list(&mut vm, &[Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)]);
 
-    // L1-L4: size/at/None-on-oob, for n = 0..3, exactly as assert_sequence_contract's loop.
-    for n in 0..=3 {
-        let elems: Vec<Value> = (0..n).map(|i| Value::Int(i as i64)).collect();
-        let range = build_range(&mut vm, &elems);
-        let size = as_number(send0(&mut vm, range, "size"));
-        assert_eq!(size, n as f64, "Range: size must equal the element count");
-        for i in 0..n {
-            let got = send1(&mut vm, range, "at(_)", Value::Int(i as i64));
-            assert_eq!(as_number(got), i as f64, "Range: at({i}) should recover the generated element");
-        }
-        let out_of_range = send1(&mut vm, range, "at(_)", Value::Int(n as i64));
-        assert!(
-            matches!(out_of_range, Value::Obj(id) if id == vm.universe.classes.none_singleton),
-            "Range: at(size) must surface the None singleton"
-        );
+    let exclusive = eval_literal(&mut vm, "1..4");
+    let exclusive_slice = send1(&mut vm, list, "[_]", exclusive);
+    assert_eq!(as_number(send0(&mut vm, exclusive_slice, "size")), 3.0);
+    for (index, expected) in [1, 2, 3].into_iter().enumerate() {
+        assert_eq!(as_number(send1(&mut vm, exclusive_slice, "at(_)", Value::Int(index as i64))), expected as f64);
     }
 
-    // E1/E3/E4/E6: two independently-built equal ranges.
-    let elems = [Value::Int(1), Value::Int(2), Value::Int(3)];
-    let a = build_range(&mut vm, &elems);
-    let b = build_range(&mut vm, &elems);
-    assert!(
-        as_bool(send1(&mut vm, a, "==(_)", b)),
-        "Range: independently-built equal ranges must compare =="
-    );
-    assert!(as_bool(send1(&mut vm, a, "==(_)", a)), "Range: == must be reflexive");
-    assert!(!as_bool(send1(&mut vm, a, "!=(_)", a)), "Range: != must be false where == holds");
-
-    // A genuinely different range (different bounds) must compare unequal.
-    let range_class = Value::Obj(vm.universe.classes.range_class);
-    let sym_new = vm.get_or_intern("new(_,_,_)");
-    let differing = vm
-        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(9), Value::Bool(false)])
-        .unwrap();
-    assert!(!as_bool(send1(&mut vm, a, "==(_)", differing)), "Range: differing bounds must compare unequal");
-    assert!(as_bool(send1(&mut vm, a, "!=(_)", differing)), "Range: != must hold where == fails");
-
-    // E2: cross-kind is false, never a dNU.
-    assert!(!as_bool(send1(&mut vm, a, "==(_)", Value::Int(1))), "Range: == must be false across kinds");
-
-    // H2: value-equal (independently-built) ranges hash equal.
-    let hash_a = as_number(send0(&mut vm, a, "hash"));
-    let hash_b = as_number(send0(&mut vm, b, "hash"));
-    assert_eq!(hash_a, hash_b, "Range: == ranges must hash equal (H2)");
-}
-
-/// `Range` extras (tuple-and-range.md §5): inclusive/exclusive bound parity
-/// (`toList` round-trip), `size`/`first`/`last`/`includes` parity, and
-/// laziness — `Range.new(1, 1_000_000, true)` must construct and answer
-/// `size`/`includes` promptly (no million-element materialization).
-#[test]
-fn range_inclusive_exclusive_parity_and_to_list_roundtrip() {
-    let mut vm = VM::new();
-    let range_class = Value::Obj(vm.universe.classes.range_class);
-    let sym_new = vm.get_or_intern("new(_,_,_)");
-
-    // Range.new(1, 5, true) — inclusive: 1,2,3,4,5.
-    let inclusive = vm
-        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(5), Value::Bool(true)])
-        .unwrap();
-    assert_eq!(as_number(send0(&mut vm, inclusive, "size")), 5.0, "inclusive size: 5-1+1 = 5");
-    assert_eq!(as_number(send0(&mut vm, inclusive, "first")), 1.0);
-    assert_eq!(as_number(send0(&mut vm, inclusive, "last")), 5.0, "inclusive last == end");
-    assert!(
-        as_bool(send1(&mut vm, inclusive, "includes(_)", Value::Int(5))),
-        "inclusive range includes its end bound"
-    );
-
-    let list_inclusive = send0(&mut vm, inclusive, "toList");
-    for (i, expected) in [1.0, 2.0, 3.0, 4.0, 5.0].iter().enumerate() {
-        let got = send1(&mut vm, list_inclusive, "at(_)", Value::Int(i as i64));
-        assert_eq!(as_number(got), *expected, "toList element {i}");
+    let inclusive = eval_literal(&mut vm, "1..=4");
+    let inclusive_slice = send1(&mut vm, list, "[_]", inclusive);
+    assert_eq!(as_number(send0(&mut vm, inclusive_slice, "size")), 4.0);
+    for (index, expected) in [1, 2, 3, 4].into_iter().enumerate() {
+        assert_eq!(as_number(send1(&mut vm, inclusive_slice, "at(_)", Value::Int(index as i64))), expected as f64);
     }
-
-    // Range.new(1, 5, false) — exclusive: 1,2,3,4.
-    let exclusive = vm
-        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(5), Value::Bool(false)])
-        .unwrap();
-    assert_eq!(as_number(send0(&mut vm, exclusive, "size")), 4.0, "exclusive size: 5-1 = 4");
-    assert_eq!(as_number(send0(&mut vm, exclusive, "last")), 4.0, "exclusive last == end-1");
-    assert!(
-        !as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Int(5))),
-        "exclusive range excludes its end bound"
-    );
-    assert!(
-        as_bool(send1(&mut vm, exclusive, "includes(_)", Value::Int(4))),
-        "exclusive range includes end-1"
-    );
-
-    // Value-hash equality + structural == over independently-built ranges.
-    let inclusive2 = vm
-        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(5), Value::Bool(true)])
-        .unwrap();
-    assert!(as_bool(send1(&mut vm, inclusive, "==(_)", inclusive2)));
-    assert_eq!(as_number(send0(&mut vm, inclusive, "hash")), as_number(send0(&mut vm, inclusive2, "hash")));
-}
-
-/// Laziness (RG-2): `Range.new(1, 1_000_000, true)` constructs and answers
-/// `size`/`includes(_)` without materializing a million-element buffer — a
-/// timing bound (a real materialization would be orders of magnitude
-/// slower) stands in for an allocation assertion here, since `RangeObject`
-/// holds no element storage by construction (asserted structurally by the
-/// type itself: `crate::range::RangeObject` has exactly three `Value`/`bool`
-/// fields, no `Vec`).
-#[test]
-fn range_is_lazy_for_a_million_element_bound() {
-    let mut vm = VM::new();
-    let range_class = Value::Obj(vm.universe.classes.range_class);
-    let sym_new = vm.get_or_intern("new(_,_,_)");
-    let start = std::time::Instant::now();
-    let big = vm
-        .send_dynamic(range_class, sym_new, &[Value::Int(1), Value::Int(1_000_000), Value::Bool(true)])
-        .unwrap();
-    let size = as_number(send0(&mut vm, big, "size"));
-    let includes = as_bool(send1(&mut vm, big, "includes(_)", Value::Int(500_000)));
-    let elapsed = start.elapsed();
-    assert_eq!(size, 1_000_000.0);
-    assert!(includes);
-    assert!(
-        elapsed.as_millis() < 200,
-        "construct+size+includes on a million-bound Range took {elapsed:?} — looks materialized, not lazy"
-    );
 }
 
 /// DEC-CT-C (negative): a mutable-collection key (`List`) rejected by both

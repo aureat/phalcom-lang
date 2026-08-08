@@ -8,8 +8,8 @@
 class Point {
   @constructor
   new(_ x, _ y) { _x = x; _y = y }
-  move(_ to, _ duration) {
-    return "moved to \(to) from \(_x), \(_y) in \(duration)"
+  move(to target, duration dur) {
+    return "moved to \(target) from \(_x), \(_y) in \(dur)"
   }
 }
 const p = Point.new(1, 0)

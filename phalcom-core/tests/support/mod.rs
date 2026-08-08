@@ -110,6 +110,16 @@ fn assert_no_panic(label: &str, output: &Output) {
     assert!(!stderr.contains("panicked at"), "{label} panicked. stderr:\n{stderr}");
 }
 
+fn assert_success(label: &str, output: &Output) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "{label} failed with {}. stdout:\n{stdout}\nstderr:\n{stderr}",
+        output.status
+    );
+}
+
 fn assert_stdout_exact(label: &str, output: &Output, expected: &[u8]) {
     let mut actual = output.stdout.clone();
     let mut expected = expected.to_vec();
@@ -177,6 +187,7 @@ fn check_cases(label: &str, pending: bool, negative: bool) {
             let note = fs::read_to_string(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
             assert_negative_output(&case_label, &output, note.trim());
         } else {
+            assert_success(&case_label, &output);
             let expected_bytes = fs::read(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
             assert_stdout_exact(&case_label, &output, &expected_bytes);
         }

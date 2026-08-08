@@ -29,5 +29,5 @@
 // `attr.unknown`-adjacent "reserved kernel name" error instead.
 
 class Option {
-  @variant Foo(x)
+  @variant Foo(x:)
 }

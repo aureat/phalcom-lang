@@ -6,7 +6,7 @@
 // leaves neighboring elements/kinds untouched.
 
 const l = List.new()
-l.add(Tuple.__fromList(List.new().add(1).add(2)))
+l.add((1, 2))
 l.add(Map.new().at("k", put: 1))
 l.add(Set.new().add(1).add(2))
 System.print(l.size)

@@ -16,4 +16,4 @@ class Author is Attribute {
 @Author("Ada")
 class Engine {}
 
-Engine.__attach(Author.new("Bob"))
+Engine.perform(#"_$attach(_)", [Author.new("Bob")])

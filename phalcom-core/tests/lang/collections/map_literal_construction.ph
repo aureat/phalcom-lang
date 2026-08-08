@@ -18,8 +18,8 @@
 const m = {a: 1, b: 2}
 System.print(m)
 System.print(m.size)
-System.print(m.keys)
-System.print(m.values)
+System.print(m.keys.toList)
+System.print(m.values.toList)
 m.each { k, v =>
   System.print(k)
   System.print(v)

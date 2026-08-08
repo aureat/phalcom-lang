@@ -136,7 +136,6 @@ class String {
   // Number of leading bytes in the UTF-8 sequence starting at byte offset `i`.
   // Read purely from the lead byte's numeric range: 1/2/3/4-byte sequences are
   // encoded by the lead byte's numeric value (no bitmask needed).
-  @private
   leadByteLen(_ i) {
     const b = self._$byteAt(i)
     return (b == None).ifTrue({ None }, ifFalse: {
@@ -586,6 +585,16 @@ class Option {
   okOr(_ err) {
     return self.match(some: { v => Ok.new(v) }, none: { Err.new(err) })
   }
+
+  ==(_ other) {
+    other.isA(Option).ifFalse { return false }
+    return self.match(
+      some: { v => other.match(some: { ov => v == ov }, none: { false }) },
+      none: { other.isNone }
+    )
+  }
+
+  hash => self.match(some: { v => v.hash }, none: { 0 })
 }
 
 class Some {}
@@ -845,7 +854,7 @@ class List {
 
   @private
   sliceByRange(_ range) {
-    return range.sliceBounds(self.size).match(
+    return range._$sliceBounds(self.size).match(
       ok: { bounds =>
         let start = bounds[0]
         let end = bounds[1]
@@ -924,7 +933,7 @@ class List {
     let norm = i
     if (norm < 0) { norm = len + norm }
     if (norm < 0 or norm >= len) {
-      throw IndexError.new("List index out of range")
+      throw IndexError.new("Expected an in-range index, got an out-of-range Number")
     }
     self._$set(i, put)
     return self
@@ -939,7 +948,7 @@ class List {
     if (not replacements.isA(List)) {
       return Err.new(SliceError.new("List#replace: replacement must be a List"))
     }
-    return range.sliceBounds(self.size).match(
+    return range._$sliceBounds(self.size).match(
       ok: { bounds =>
         let start = bounds[0]
         let end = bounds[1]
@@ -1291,7 +1300,7 @@ class Tuple {
 
   [_ key] {
     if (key.isA(Range)) {
-      return key.sliceBounds(self.size).match(
+      return key._$sliceBounds(self.size).match(
         ok: { bounds =>
           let start = bounds[0]
           let end = bounds[1]
@@ -1486,7 +1495,17 @@ class MapEntriesView is Iterable {
 // Range is a native bounds descriptor. Its lower_/upper_/upperInclusive_
 // observations preserve omitted endpoints. Progression, equality, hashing,
 // and traversal are deliberately deferred.
-class Range {
+class Range is Iterable {
+  @class
+  new(_ lower, _ upper, _ upperInclusive) {
+    if (lower == None) {
+      if (upper == None) { return .. }
+      return upperInclusive.ifTrue({ ..=upper }, ifFalse: { ..upper })
+    }
+    if (upper == None) { return lower.. }
+    return upperInclusive.ifTrue({ lower..=upper }, ifFalse: { lower..upper })
+  }
+
   @private
   isSliceCoordinate(_ value) {
     // TODO(NUMERIC-TOWER): require Int once the tower is fully landed.
@@ -1517,8 +1536,7 @@ class Range {
 
   // Normalizes this bound descriptor for a finite sequence of `size` elements.
   // Omitted endpoints are distinct from a supplied None, which is malformed.
-  @private
-  sliceBounds(_ size) {
+  _$sliceBounds(_ size) {
     let start = 0
     let end = size
     let lower = self._$lower
@@ -1542,6 +1560,143 @@ class Range {
       }
     }
     return Ok.new((start, end))
+  }
+
+  // iterate and iteratorValue for forward integer iteration (E.2)
+  iterate(_ previous) {
+    let lowerOpt = self._$lower
+    let upperOpt = self._$upper
+
+    // lower is required for iteration
+    lowerOpt.isNone.ifTrue {
+      throw Error.new("Range iteration unsupported when lower bound is absent")
+    }
+    let lower = lowerOpt.unwrapOr(None)
+    (self.isSliceCoordinate(lower)).ifFalse {
+      throw Error.new("Range iteration unsupported: lower bound must be an integer")
+    }
+
+    let hasUpper = upperOpt.isSome
+    let upper = hasUpper.ifTrue({ upperOpt.unwrapOr(None) }, ifFalse: { None })
+    hasUpper.ifTrue {
+      (self.isSliceCoordinate(upper)).ifFalse {
+        throw Error.new("Range iteration unsupported: upper bound must be an integer")
+      }
+    }
+
+    // empty ascending check: return None if lower > upper (or lower == upper for exclusive)
+    let inclusive = self._$upperInclusive
+    let isEmpty = hasUpper.ifTrue({
+      inclusive.ifTrue({ lower > upper }, ifFalse: { lower >= upper })
+    }, ifFalse: { false })
+    if (isEmpty) {
+      return None
+    }
+
+    let nextCursor = (previous == None).ifTrue({ 0 }, ifFalse: { previous + 1 })
+
+    hasUpper.ifFalse {
+      return nextCursor
+    }
+
+    let currentVal = lower + nextCursor
+    let live = inclusive.ifTrue({ currentVal <= upper }, ifFalse: { currentVal < upper })
+    return live.ifTrue({ nextCursor }, ifFalse: { None })
+  }
+
+  iteratorValue(_ cursor) {
+    let lowerOpt = self._$lower
+    lowerOpt.isNone.ifTrue {
+      throw Error.new("Range has no lower bound")
+    }
+    return lowerOpt.unwrapOr(None) + cursor
+  }
+
+  // first, last, size, includes (Spec E.2 / Range specs)
+  first {
+    let lowerOpt = self._$lower
+    lowerOpt.isNone.ifTrue {
+      throw Error.new("Range has no first element because lower bound is absent")
+    }
+    return lowerOpt.unwrapOr(None)
+  }
+
+  last {
+    let upperOpt = self._$upper
+    upperOpt.isNone.ifTrue {
+      throw Error.new("Range has no last element because upper bound is absent")
+    }
+    let upper = upperOpt.unwrapOr(None)
+    return self._$upperInclusive.ifTrue({ upper }, ifFalse: { upper - 1 })
+  }
+
+  size {
+    let lowerOpt = self._$lower
+    let upperOpt = self._$upper
+    (lowerOpt.isNone or upperOpt.isNone).ifTrue {
+      throw Error.new("Unbounded Range has no size")
+    }
+    let lower = lowerOpt.unwrapOr(None)
+    let upper = upperOpt.unwrapOr(None)
+    (lower > upper).ifTrue {
+      return 0
+    }
+    let diff = upper - lower
+    return self._$upperInclusive.ifTrue({ diff + 1 }, ifFalse: { diff })
+  }
+
+  includes(_ x) {
+    let lowerOpt = self._$lower
+    let upperOpt = self._$upper
+
+    let lowerOk = lowerOpt.isNone.ifTrue({ true }, ifFalse: { x >= lowerOpt.unwrapOr(None) })
+    let upperOk = upperOpt.isNone.ifTrue({ true }, ifFalse: {
+      self._$upperInclusive.ifTrue({ x <= upperOpt.unwrapOr(None) }, ifFalse: { x < upperOpt.unwrapOr(None) })
+    })
+    return lowerOk and upperOk
+  }
+
+  at(_ i) {
+    let lowerOpt = self._$lower
+    lowerOpt.isNone.ifTrue {
+      throw Error.new("Range index out of range (lower bound is absent)")
+    }
+    let lower = lowerOpt.unwrapOr(None)
+    let index = i
+    // Support negative indexing
+    (index < 0).ifTrue {
+      let sz = self.size
+      index = sz + index
+    }
+    // Check range bounds
+    let sz = self.size
+    (index < 0 or index >= sz).ifTrue {
+      throw Error.new("Range index out of range")
+    }
+    return lower + index
+  }
+
+  ==(_ other) {
+    other.isA(Range).ifFalse { return false }
+    return (self._$lower == other._$lower) and
+           (self._$upper == other._$upper) and
+           (self._$upperInclusive == other._$upperInclusive)
+  }
+
+  toString {
+    let lowerOpt = self._$lower
+    let upperOpt = self._$upper
+    let lowerStr = lowerOpt.isNone.ifTrue({ "" }, ifFalse: { lowerOpt.unwrapOr(None).toString })
+    let upperStr = upperOpt.isNone.ifTrue({ "" }, ifFalse: { upperOpt.unwrapOr(None).toString })
+    let op = self._$upperInclusive.ifTrue({ ".." }, ifFalse: { "..." })
+    return lowerStr + op + upperStr
+  }
+
+  hash {
+    let h1 = self._$lower.isSome.ifTrue({ self._$lower.unwrapOr(None).hash }, ifFalse: { 17 })
+    let h2 = self._$upper.isSome.ifTrue({ self._$upper.unwrapOr(None).hash }, ifFalse: { 31 })
+    let h3 = self._$upperInclusive.ifTrue({ 1 }, ifFalse: { 0 })
+    return h1 + h2 * 37 + h3 * 97
   }
 }
 
@@ -1569,7 +1724,7 @@ class Bytes {
 
   [_ index] {
     if (index.isA(Range)) {
-      return index.sliceBounds(self.size).match(
+      return index._$sliceBounds(self.size).match(
         ok: { bounds =>
           let start = bounds[0]
           let end = bounds[1]

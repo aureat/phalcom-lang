@@ -7,8 +7,8 @@
 // inherits `Object#hash` (identity), so two structurally equal-but-distinct
 // lists hash UNEQUAL even though `==` reports them equal.
 
-const t1 = Tuple.__fromList(List.new().add(1).add(2))
-const t2 = Tuple.__fromList(List.new().add(1).add(2))
+const t1 = (1, 2)
+const t2 = (1, 2)
 System.print(t1 == t2)
 System.print(t1.hash == t2.hash)
 

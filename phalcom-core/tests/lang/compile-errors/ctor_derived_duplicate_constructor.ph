@@ -2,5 +2,5 @@
 class Foo {
   _value
   @constructor
-  new(_ value) { _value = value }
+  new(value) { _value = value }
 }

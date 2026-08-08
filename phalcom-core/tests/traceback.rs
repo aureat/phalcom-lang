@@ -52,7 +52,7 @@ fn test_recursion_collapse() {
     // In Phalcom, MAX_CALL_DEPTH is 256. 256 > 3, so repeat collapse should trigger.
     fs::write(
         &file_path,
-        "class Boom {\n  @constructor new() {}\n  go(n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n",
+        "class Boom {\n  @constructor new() {}\n  go(_ n) { return self.go(n + 1) }\n}\nBoom.new().go(0)\n",
     )
     .unwrap();
 
@@ -70,9 +70,9 @@ fn test_budget_elision() {
     code.push_str("class Boom {\n  @constructor new() {}\n");
     for i in 0..45 {
         if i == 44 {
-            code.push_str(&format!("  f{}(n) {{ return 1.missing }}\n", i));
+            code.push_str(&format!("  f{}(_ n) {{ return 1.missing }}\n", i));
         } else {
-            code.push_str(&format!("  f{}(n) {{ return self.f{}(n) }}\n", i, i + 1));
+            code.push_str(&format!("  f{}(_ n) {{ return self.f{}(n) }}\n", i, i + 1));
         }
     }
     code.push_str("}\nBoom.new().f0(0)\n");

@@ -959,6 +959,11 @@ impl<'source> Parser<'source> {
                 | Token::LBrace
                 | Token::If
                 | Token::While
+                // Range endpoints may be omitted; accept `..` / `..=` as
+                // expression starts so constructs like `return ..` parse
+                // as a Range expression with an omitted lower bound.
+                | Token::DotDot
+                | Token::DotDotEqual
         )
     }
 
@@ -1602,6 +1607,14 @@ impl<'source> Parser<'source> {
     /// operator usable as a selector.
     fn parse_method_name(&mut self) -> ParserResult<String> {
         let name = match self.peek() {
+            Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_) => {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(
+                        "a field identifier cannot be used as a method name".to_string(),
+                    ),
+                    range: self.tokens[self.pos].start..self.tokens[self.pos].end,
+                });
+            }
             Token::Identifier(n) | Token::ImplementationSelectorIdentifier(n) => n.clone(),
             Token::Plus => "+".to_string(),
             Token::Minus => "-".to_string(),
@@ -2360,10 +2373,15 @@ impl<'source> Parser<'source> {
                 let range = (start..self.prev_end).into();
                 expr = Expr::MethodRef(Box::new(MethodRefExpr { receiver: expr, kind, range }));
             } else if self.eat(&Token::Dot) {
-                let field_kind = match self.peek() {
-                    Token::FieldIdentifier(_) => Some(FieldKind::Source),
-                    Token::ImplementationFieldIdentifier(_) => Some(FieldKind::Implementation),
-                    _ => None,
+                let is_method_call = matches!(self.peek_next(), Token::LParen);
+                let field_kind = if is_method_call {
+                    None
+                } else {
+                    match self.peek() {
+                        Token::FieldIdentifier(_) => Some(FieldKind::Source),
+                        Token::ImplementationFieldIdentifier(_) => Some(FieldKind::Implementation),
+                        _ => None,
+                    }
                 };
                 if let Some(kind) = field_kind {
                     if !matches!(expr, Expr::SelfVar { .. }) {
@@ -2822,6 +2840,10 @@ impl<'source> Parser<'source> {
                     kind: FieldKind::Implementation,
                     range,
                 })
+            }
+            Token::Underscore => {
+                self.advance();
+                Ok(Expr::Var { value: "_".to_string(), range })
             }
             Token::Identifier(value) => {
                 if matches!(self.peek_next(), Token::FatArrow) {

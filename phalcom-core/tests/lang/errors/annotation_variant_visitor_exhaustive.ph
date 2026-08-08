@@ -9,8 +9,8 @@
 @sealed
 @data
 class Shape {
-  @variant Circle(radius)
-  @variant Rect(w, h)
+  @variant Circle(radius:)
+  @variant Rect(w:, h:)
 }
 
 const c = Circle.new(radius: 3)
