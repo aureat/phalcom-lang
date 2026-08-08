@@ -84,6 +84,7 @@ materially amended. At that point it receives a fresh PDR number, the ADR's stat
 |---|---|---|
 | [ADR-0026](../adr/accepted/0026-class-hierarchy-mutability.md) | [PDR-0001](0001-classes-are-closed.md) | Axis 1 (reopening) only; Axis 2 (reparenting sealed) kept |
 | [ADR-0063](../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) | [PDR-0028](0028-class-and-constructor-decorator-canon.md) | replaces target-polymorphic `@constructor`; keeps ordinary class-side dispatch and `new_` allocator rules where not contradicted |
+| [ADR-0061](../adr/proposed/0061-underscore-prefix-reservation-fields-internals-reserved.md) | [PDR-0032](0032-transition-1-language-surface-convergence.md) | replaces prefix conventions with structural field/internal namespaces and runtime-enforced visibility |
 
 A PDR that supersedes an ADR must update the ADR in **both** places — the ADR file's own
 status line, and its row in `../adr/STATUS.md` — and add a row here.

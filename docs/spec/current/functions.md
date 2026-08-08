@@ -21,6 +21,23 @@ Object
 
 ---
 
+## 0. Declaration parameters and selector identity
+
+Method declarations separate external selector labels from body-local names:
+
+```phalcom
+foo(_ x)                    // selector foo(_), local x
+foo(label)                  // selector foo(label), local label
+foo(label local)            // selector foo(label), local local
+foo(_ x, label y)           // selector foo(_,label), locals x and y
+foo(_ x, *rest)             // variadic tail; local rest
+```
+
+Standalone `_` marks a positional selector slot; it is not a local binding.
+Call-site labeled syntax is unchanged: `foo(label: value)`. Declaration forms
+such as `foo(x)` for a positional parameter, `foo(label:)`, and
+`foo(label: local)` are invalid.
+
 ## 1. `Function` — the abstract callable
 
 `Function` is abstract ([Object Model §2](object-model.md)): no value has

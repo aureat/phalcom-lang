@@ -22,18 +22,14 @@ machine, not parser lookahead.
 
 ## 3. Identifiers
 
-- **Regular:** `[a-zA-Z][a-zA-Z0-9]*`
-- **Field:** `_[a-zA-Z][a-zA-Z0-9]*` — the leading underscore is significant; a
-  field is private state of the declaring class (see [Classes](classes.md)).
+- **Regular:** `[a-zA-Z][a-zA-Z0-9_]*`
+- **Source field:** `_[a-zA-Z][a-zA-Z0-9_]*`
+- **Implementation field:** `__[a-zA-Z][a-zA-Z0-9_]*`
+- **Implementation selector:** `_$[a-zA-Z][a-zA-Z0-9_]*`
+- **Positional declaration marker:** standalone `_`
 
-The two are distinct token classes: a field reference is only legal inside a class
-body.
-
-- **Convention — trailing `_`:** a selector ending in `_` (e.g. `at_`, `size_`,
-  `keyAt_`) is not a distinct token class, just a naming convention (Wren-style):
-  it marks a native/private primitive selector — internal floor plumbing wrapped
-  by a public `.ph` method of the same base name (`at_` vs. `at`) — not meant to
-  be sent directly from user code (U-NATIVE-MARKER).
+These are distinct token classes. Fields are receiver-local state; implementation
+names are privileged. Trailing `_` has no privacy or native meaning.
 
 ## 4. Literals
 
@@ -171,8 +167,9 @@ references).
 Member metadata lives here rather than in the keyword space. `@construct` derives
 constructors from classes, `@constructor` marks constructor methods, and `@class`
 places fields and methods on the class side ([PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md)).
-The retired `construct` and `static` declaration forms remain recognizable during
-migration so the compiler can emit non-fatal replacement hints. `construct` and
+The retired `construct` and `static` declaration forms are recognized only long
+enough for targeted parser errors naming `@constructor` and `@class`; they are
+never lowered as aliases. `construct` and
 `constructor` are reserved names and cannot be user-defined declaration names,
 selector families, or attribute classes.
 
@@ -209,11 +206,11 @@ single index for free:
 | Source | Selector sent |
 |---|---|
 | `expr[idx]` | `[_]` |
-| `expr[idx] = value` | `[_,put]` |
+| `expr[idx] = value` | `[_]=(put)` |
 | `expr[i, j]` | `[_,_]` |
 | `expr[key, default: fallback]` | `[_,default]` |
 | `expr[]` | `[]` |
-| `expr[] = value` | `[put]` |
+| `expr[] = value` | `[]=(put)` |
 
 A collection opts into `[]`/`[]=` explicitly — implementing `at(_)` does not
 automatically make a class indexable (collection-protocol.md §2 governs
@@ -226,10 +223,11 @@ ordinary `(`/`)`:
 
 ```
 class Example {
-  [idx] { ... }           // read, one positional arg — selector [_]
-  [idx, put:] { ... }     // write — selector [_,put]
+  [_ idx] { ... }                    // read — selector [_]
+  [_ idx]=(put value) { ... }        // write — selector [_]=(put)
+  [_ key, default fallback] { ... }  // read — selector [_,default]
   [] { ... }              // zero-arity read — selector []
-  [put:] { ... }          // zero-arity write — selector [put]
+  []=(put value) { ... }  // zero-arity write — selector []=(put)
 }
 ```
 

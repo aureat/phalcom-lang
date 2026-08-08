@@ -61,7 +61,7 @@ expr_statement := expr
 ```
 
 Assignments (`x = v`, `obj.prop = v` — the latter desugaring to a send of
-`prop=(_)`) and message sends are both expression statements; neither needs
+`prop=(put)`) and message sends are both expression statements; neither needs
 extra statement-level syntax.
 
 ## 5. Class declarations
@@ -92,10 +92,10 @@ method_body    := "=>" expr | block
 ```phalcom
 class Point is Shape {
   @constructor
-  new(x:, y:) { _x = x; _y = y }
+  new(_ x, _ y) { _x = x; _y = y }
 
   x => _x                    // getter — selector `x`, distinct from `x()`
-  y=(value) { _y = value }   // setter — selector `y=(_)`
+  y=(put value) { _y = value } // setter — selector `y=(put)`
 
   +(other) => Point.new(x: _x + other.x, y: _y + other.y)
 
@@ -120,15 +120,15 @@ for the semantics.
   compilation ([PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md)).
 - `@class` puts the member on the metaclass rather than the instance side (methods) or on the class object (fields).
 - **Constructor**: `@constructor` on a `method_decl` allocates a fresh instance via
-  `new_`, runs the body with `self` bound to it, and returns the instance implicitly.
+  internal `_$new`, runs the body with `self` bound to it, and returns the instance implicitly.
   Multiple constructors on one class are distinguished by **selector**, not arity, and
   the name need not be `new` ([Classes §1](../classes.md#1-constructors)).
 - **Method**: `method_name` may be an ordinary identifier or one of the
   operator spellings above — operators are ordinary methods with ordinary
   dispatch.
 - **Getter**: no parameter list. `name` and `name()` are different selectors.
-- **Setter**: `IDENT "=" param_list method_body` — selector `name=(_)`. If the
-  parameter list is empty the parameter defaults to `value`.
+- **Setter**: `IDENT "=" param_list method_body` — the single parameter is
+  written `put` or `put local`, and selector identity is always `name=(put)`.
 - **Field declaration**: `[ "const" ] FIELD [ "=" expr ]` ([ADR-0064]). A mutable
   field takes **no keyword** (`_x`, or `_x = e` for a declaration default); `const _x = e`
   is immutable and defined at the declaration; `const _id` defers its one value to a
@@ -148,21 +148,20 @@ for the semantics.
 param_list := "(" [ param { "," param } ] ")"
 param      := positional | labeled | rest
 
-positional := IDENT
-labeled    := IDENT ":"
-            | IDENT IDENT ":"
+positional := "_" IDENT
+labeled    := IDENT [ IDENT ]
 rest       := "*" IDENT
 ```
 
 ```phalcom
-@constructor new(name:, age:) { ... }     // labeled: label == binding
-method move(to target:) { ... }           // labeled: external `to:`, body sees `target`
-method sum(*values) { ... }               // rest: collects trailing positionals into a List
+@constructor new(name, age) { ... }       // labels equal local names
+move(to target) { ... }                   // external `to`, body sees `target`
+sum(_ initial, *values) { ... }           // rest collects trailing positionals
 ```
 
-- **Positional**: bare `IDENT`.
-- **Labeled**: `IDENT ":"` binds the label as its own name in the body; the
-  two-identifier form `IDENT IDENT ":"` splits **external label** from
+- **Positional**: standalone `_` followed by the local `IDENT`.
+- **Labeled**: `IDENT` binds the label as its own name in the body; the
+  two-identifier form `IDENT IDENT` splits **external label** from
   **internal binding** — callers pass `to:`, the body reads `target`. The
   label, not the internal name, is part of selector identity
   ([Messages & Selectors](../messages-and-selectors.md)).

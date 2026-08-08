@@ -83,12 +83,12 @@ recv.name                       // name
 recv.add(1, 2)                  // add(_,_)
 recv.move(to: p, duration: 2)   // move(to,duration)
 a + b                           // +(_)
-recv.name = v                   // name=(_)
+recv.name = v                   // name=(put)
 ```
 
 ```
 send      := postfix "." ( IDENT | keyword ) [ arg_list ]
-assign_send := postfix "." IDENT "=" expr        (* property assignment, name=(_) *)
+assign_send := postfix "." IDENT "=" expr        (* property assignment, name=(put) *)
 keyword   := IDENT { IDENT ":" }                  (* one or more labeled parts *)
 ```
 

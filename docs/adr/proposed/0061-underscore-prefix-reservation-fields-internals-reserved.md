@@ -1,7 +1,8 @@
 # 61. Underscore prefixes are reserved: `_` fields, `_$` language internals, `__` reserved
 
-- Status: Proposed (needs user ratification)
+- Status: Retired — superseded by PDR-0032 on 2026-08-08
 - Date: 2026-07-14
+- Superseded by: [PDR-0032](../../pdr/0032-transition-1-language-surface-convergence.md)
 - Related: [ADR-0052](../accepted/0052-annotation-contracts.md) (`@construct`/`@get`/`@variant`
   derivation — this ADR makes `strip_leading_underscore` total);
   [ADR-0002](../accepted/0002-metaclass-tower.md) (why `Object#__attach` is registered once,
@@ -10,6 +11,10 @@
   `attribute-classes.md` (M-ATTR-ROOT — the mechanism whose selectors this ADR renames)
 
 ## Context
+
+> Historical proposal. PDR-0032 assigns `__name` to implementation fields,
+> keeps `_$name` for implementation selectors, and uses `@private`/`@protected`
+> for source visibility. Those later rules are authoritative.
 
 Phalcom has no implicit-`self` message send. A bare `foo(...)` in a method body
 parses as a *variable/field read* followed by a `.call` send

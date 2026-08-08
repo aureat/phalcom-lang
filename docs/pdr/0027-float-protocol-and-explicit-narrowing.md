@@ -5,7 +5,7 @@
   [PDR-0025](0025-numeric-tower-residue-rulings.md), and
   [PDR-0026](0026-numeric-literals.md)
 - Amends: [ADR-0019](../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md):
-  `NEW_FLOAT_PROTOCOL = 10`, `NEW_NUMERIC_POWER = 2`; recompute the live census, never add
+  `NEW_FLOAT_PROTOCOL = 11`, `NEW_NUMERIC_POWER = 2`; recompute the live census, never add
   prose totals
 - Supersedes: PDR-0012 ruling 14's temporary acceptance of an integral `Float` from `hash`
 - Specs: [tower](../spec/library/numbers/numeric-tower.md),
@@ -33,9 +33,9 @@
    `hash` must return `Int`; any other return, including integral `Float`, raises `#invalidHash`.
 
 4. **Ratify Float classification and explicit narrowing.** `abs`, `sign`, `floor`, `ceil`,
-   `truncated`, `rounded`, `isInteger`, `isNaN`, `isFinite`, and `isInfinite` are the protocol.
+   `truncated`, `rounded`, `toIntExact`, `isInteger`, `isNaN`, `isFinite`, and `isInfinite` are the protocol.
    Narrowing returns exact `Int` through `BigInt` normalization; non-finite inputs raise.
-   `rounded` ties away from zero. The ten native bindings are Float-only; Int behavior is
+   `rounded` ties away from zero. The eleven native bindings are Float-only; Int behavior is
    derivable in `core.ph`.
 
 5. **Add `**` as right-associative power.** It is a normal overridable selector `**(_)`.

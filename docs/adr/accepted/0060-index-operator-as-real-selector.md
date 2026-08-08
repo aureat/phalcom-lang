@@ -4,6 +4,23 @@
 
 Accepted
 
+Amended by [PDR-0032](../../pdr/0032-transition-1-language-surface-convergence.md)
+on 2026-08-08 for setter identity.
+
+### 2026-08-08 setter amendment
+
+Bracket slots now describe index arguments only. Assignment value occupies the fixed
+setter role `(put)`:
+
+```text
+getter: [_,default]
+setter: [_,default]=(put)
+```
+
+Canonical declarations are `[_ index] { ... }` and
+`[_ index, default fallback]=(put value) { ... }`. Historical `[_,put]` examples below
+record the original motivation but no longer define current selector identity.
+
 ## Context
 
 ADR-0055 lowered `expr[idx]` / `expr[idx] = value` to ordinary `at(_)` /

@@ -1,14 +1,13 @@
 # Placement decorators — `@class` and `@constructor`
 
-> **Surface superseded by PDR-0028 (2026-07-21).** Current canon splits
+> **Historical design, superseded by PDR-0028 and PDR-0032.** Current canon splits
 > `@construct` (class-only) from `@constructor` (method-only); see
 > [`docs/spec/current/decorators/`](../../../current/decorators/).
 
-- Status: **Ratified design (ADR-0063, 2026-07-15, amended DEC-CTOR-F/G/H/I),
-  entirely unbuilt.** The tree at HEAD still has `construct`/`static` keywords,
-  `ConstructDef`, and the `@construct` derive. Implementation is U-CTOR
-  (after U-BINDINGS). This file is the decorator-system view of that ADR —
-  read ADR-0063 for the full constructor-model rationale.
+- Status: **Superseded historical rationale.** It describes ADR-0063's rejected
+  target-polymorphic `@constructor` design and must not be used as implementation
+  guidance. Canonical implementation uses `@construct` on classes, `@constructor`
+  on methods, and `@class` for class-side placement.
 - Verification: this family was checked against the metaclass tower (ADR-0002),
   selector identity (ADR-0012), and the `@construct` collision — it is the one
   place the user-facing decorator surface intersects the object model's core.

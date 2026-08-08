@@ -44,7 +44,7 @@ Each class entry gives:
 - **Status.** ✅ landed · ◐ partial · ❌ absent, plus the owning unit for any gap.
 
 **Selector notation.** Human-facing per [floor-census §1.2](./floor-census.md): a
-getter is a bare name (`size`), a setter `name=(_)`, an arity-*n* method
+getter is a bare name (`size`), a setter `name=(put)`, an arity-*n* method
 `name(_, …)`, labeled args named (`match(some, none)`). The interner currently
 emits the colon form (`match(some:none:)`); migrating it to the canonical comma
 form is [U-CORE-4](../../../forge/units/U-CORE-4/as-built.md) (BD-CORE4-2).
@@ -85,7 +85,7 @@ with it, and the metaclass hierarchy *parallels* the class hierarchy:
 (X class).superclass == (X.superclass) class      anchored by   (Object class).superclass == Class
 ```
 
-This is what makes `static`/`construct` methods inherit uniformly (no class is
+This is what makes `@class`/`@constructor` methods inherit uniformly (no class is
 special-cased to lack a metaclass). The apex closes with `Metaclass.class ==
 Metaclass class` and `(Metaclass class).class == Metaclass`. The exact
 apex relationships and the boot wiring order are in
@@ -105,13 +105,13 @@ asserts them is `Universe::verify_invariants` (`universe.rs`), extended by
 | Representation | every value answers it; `x.class` is total |
 | Status | ◐ partial (universal protocol landed through U-CORE-1; `toString` still class-name default until U-CORE-4) |
 
-**Interface — floor** ([census §2.1](./floor-census.md)): `class` · `class=(_)` ·
+**Interface — floor** ([census §2.1](./floor-census.md)): `class` · `class=(put)` ·
 `==(_)` · `!=(_)` (identity by default; value types override) · `name` ·
 `toString` (aliases `name`, [ADR-0015](../../../adr/0015-object-default-tostring.md)) ·
 `hash` (identity digest of the heap handle — **landed U-CORE-1**,
 [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)) ·
 `perform(_)` / `perform(_, _)` · `respondsTo(_)` (pure probe) ·
-`doesNotUnderstand(_)` (overridable miss hook — **U8**) · `new()` (static
+`doesNotUnderstand(_)` (overridable miss hook — **U8**) · `new()` (class-side
 `object_class_new`, the default allocator — see §9.2).
 
 **Interface — `.ph`**: `isA(_)` — **landed U-CORE-1**, derived purely over
@@ -138,7 +138,7 @@ Surface `MessageNotUnderstood` for dNU to raise — U-CORE-6.
 | Status | ◐ partial |
 
 **Interface — floor** ([census §2.2](./floor-census.md)): `superclass` ·
-`superclass=(_)` · `name` (the receiver class's **own** name — **shadows**
+`superclass=(put)` · `name` (the receiver class's **own** name — **shadows**
 `Object#name` for class receivers, **landed U-CORE-1**) · `methods` (own method-dict
 selector `Symbol`s as a fresh `List` — **landed U-CORE-1**).
 
@@ -189,7 +189,7 @@ reflection — U-STD (derivable over `methods` + `superclass`). Full allocation 
 
 **Interface — floor on `Bool`** ([census §2.6](./floor-census.md), inherited by
 `True`/`False`): `not()` · `and(_)` · `or(_)` · `ifTrue(_)` · `ifFalse(_)` ·
-`ifTrue(_, ifFalse)` · `hash` (1/0 — **landed U-CORE-1**) · static `new()`/`new(_)`.
+`ifTrue(_, ifFalse)` · `hash` (1/0 — **landed U-CORE-1**) · class-side `new()`/`new(_)`.
 `True`/`False` carry **zero** own bindings — all behaviour is reached by
 inheritance; their `.ph` bodies are empty.
 
@@ -217,7 +217,7 @@ sacred inliner mirrors (elided in statement position). The paired
 **Interface — floor** ([census §2.4](./floor-census.md)): `+(_)` `-(_)` `*(_)`
 `/(_)` `%(_)` · `<(_)` `<=(_)` `>(_)` `>=(_)` · `negated()` · `hash` (digest of the
 **mathematical value**, class-agnostic, so a future `Int 2` and `Float 2.0` hash
-equal — **landed U-CORE-1**) · static `new()`/`new(_)`. Arithmetic operators are
+equal — **landed U-CORE-1**) · class-side `new()`/`new(_)`. Arithmetic operators are
 **ordinary sends**, never opcodes ([control-flow.md](../control-flow.md) §1).
 
 **Divergence ([catalog-delta §4.4](./catalog-delta.md)).** `Number#toString` (the
@@ -240,11 +240,11 @@ substrate — U-CORE-4 / deferred.
 
 **Interface — floor** ([census §2.5](./floor-census.md)): `+(_)` (concatenation) ·
 `hash` (cached djb2 **content** hash — equal content ⇒ equal hash, **landed
-U-CORE-1**) · static `new()`/`new(_)` · `rawByteCount`/`rawByteAt(_)`/`rawSlice(_,_)`
+U-CORE-1**) · class-side `new()`/`new(_)` · internal `_$byteCount`/`_$byteAt(_)`/`_$slice(_,_)`
 (UTF-8 byte access, **landed U-STRING**, [ADR-0062](../../../adr/accepted/0062-amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md)).
 
 **Interface — `.ph`-derived** (U-STRING, over the floor above):
-`size`/`isEmpty` · `at(_) → Option` · `codePointAt(_)`/`leadByteLen_(_)` (UTF-8
+`size`/`isEmpty` · `slice(_,_)` · `codePointAt(_)`/private `leadByteLen(_)` (UTF-8
 decode via division/modulo, no bitwise ops per ADR-0024) · `indexOf(_)` ·
 `split(_)` · `replace(_,_)` · `trim()`/`trimStart()`/`trimEnd()` and their
 custom-charset forms `trim(_)`/`trimStart(_)`/`trimEnd(_)` · `*(count)` ·
@@ -269,7 +269,7 @@ past U-STRING (see `deferred-work.md`).
 
 **Interface — floor** ([census §2.7](./floor-census.md)): `toString` ·
 `hash` (digest of the interned id — equal symbols agree, **landed U-CORE-1**) ·
-static `new(_)` (interning constructor). **Caveat:** `value_eq` makes distinct
+class-side `new(_)` (interning constructor). **Caveat:** `value_eq` makes distinct
 symbol values never `==` today ([catalog-delta §2.3](./catalog-delta.md)); U-CORE-4
 owns the `==`/interning-identity protocol.
 
@@ -284,7 +284,7 @@ owns the `==`/interning-identity protocol.
 | `None` | `Option` · a **shared singleton value** — bound as a *value* global, not a class global; carries no floor primitives |
 | Status | ✅ combinator surface complete |
 
-**Interface — floor** ([census §2.8](./floor-census.md)): `Some.new(_)` (static,
+**Interface — floor** ([census §2.8](./floor-census.md)): `Some.new(_)` (class-side,
 present-value construction) · `Option#match(some, none)` (the eliminator, on
 abstract `Option`).
 
@@ -318,7 +318,7 @@ comment). There is **no `nil` surface** — forbidden by Invariant 4.
 `Function` and `Block` (identical native fns, so a `Function` responds without a
 `Block`): `arity` · `name` · `callWith(_)` · `call()` … `call(_,_,_,_)` (arities
 **0–4**, `MAX_CALL_ARITY = 4`; dispatch keys on arity). `Block` adds `whileTrue(_)`
-(**sacred** loop fallback). `Method` carries only static `new(_)` and **inherits**
+(**sacred** loop fallback). `Method` carries only class-side `new(_)` and **inherits**
 the call protocol from `Function` after the re-parent.
 
 **Architecture** ([ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md),
@@ -345,14 +345,14 @@ receiver, so raw `call` on it is an error — you must `bind` or `invokeOn`.
 | Superclass · Kind | `Object` · U · a native array-backed heap object (`ListObject`), **not** an `InstanceObject` ([ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md)) |
 | Status | ◐ partial — combinator layer ✅ landed; only **literal syntax `[a,b,c]`** remains deferred |
 
-**Interface — floor** ([census §2.13](./floor-census.md)): static `new()` ·
-`length_` · `at_(_)` · `set_(_, _)` · `push_(_)` · `toString` (native this
+**Interface — floor** ([census §2.13](./floor-census.md)): class-side `new()` ·
+`_$length` · `_$at(_)` · `_$set(_, _)` · `_$push(_)` · `_$replaceSlice(_,_,_)` · `toString` (native this
 unit — element stringification was blocked on U-CORE-4).
 
 **Interface — `.ph`** ([`core.ph`](../../../../phalcom-core/core/core.ph) L142–212, all
 over the raw floor): `size` · `at(_)` · `add(_)` · `each(_)` (**U-LIST**) ·
 `map(_)` · `filter(_)` · `reduce(_, _)` · `includes(_)` · `isEmpty` ·
-`at(_, put:)` (wraps `set_`) (**U-STD**).
+`at(_,put)` (wraps `_$set`) · `[_]` · `[_,default]` · `[_]=(put)` (**U-STD**).
 
 **Architecture.** The hybrid pattern in miniature: five raw native primitives that
 touch the backing `Vec`, everything else self-hosted. `List` is **mutable ⇒ not
@@ -376,7 +376,7 @@ zero floor primitives and makes `List` the reference implementation (`.ph`
 | | |
 |---|---|
 | Superclass · Kind | `Object` · U · a compilation unit / namespace |
-| Interface — floor | static `new()` ([census §2.12](./floor-census.md)) |
+| Interface — floor | class-side `new()` ([census §2.12](./floor-census.md)) |
 | Status · Planned | ◐ — namespace/import surface deferred ([ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md) rules modules-as-files, public-by-default) |
 
 ### `System`
@@ -384,8 +384,8 @@ zero floor primitives and makes `List` the reference implementation (`.ph`
 | | |
 |---|---|
 | Superclass · Kind | `Object` · U · the runtime service surface (class-side) |
-| Interface — floor | static `print(_)` (the **sole I/O primitive**) · static `new()` ([census §2.11](./floor-census.md)) |
-| Interface — `.ph` | an empty `static print()` shell backed by the native primitive |
+| Interface — floor | class-side `print(_)` (the **sole I/O primitive**) · class-side `new()` ([census §2.11](./floor-census.md)) |
+| Interface — `.ph` | an empty `@class print()` shell backed by the native primitive |
 | Status · Planned | ◐ — `clock` / `gc` / scheduler are **out of core scope** |
 
 ---
@@ -446,9 +446,9 @@ selectors. The count is **machine-checked** — `floor_census_matches_installed_
 `class_new` on **`Class`**. For `Foo.new`, the metaclass chain
 `Foo class → Object class → Class → Behavior → Object` reaches `Object class`
 **first**, so `object_class_new` is the effective default allocator and `class_new`
-is a deeper fallback. Specialized static `new`s (`Number`, `String`, `Bool`,
+is a deeper fallback. Specialized class-side `new`s (`Number`, `String`, `Bool`,
 `Symbol`, `Method`, `List`, `System`, `Module`) override on their own metaclass. This
-ordering is **load-bearing for `construct`** (U7 / ADR-0011) — preserve it.
+ordering is **load-bearing for `@constructor`** (U7 / ADR-0011) — preserve it.
 
 ### 9.3 Sacred selectors (R-SACRED, [census §5](./floor-census.md), [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md))
 

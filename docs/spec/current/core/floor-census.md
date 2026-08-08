@@ -148,32 +148,32 @@ row, not the count, is what makes the freeze real.
 
 > **U-COLLTYPES Phase 1 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
 > The `Map`/`Set` hash-collection floor admits **+14** bindings (88 → 102) and
-> **+14** distinct fns (73 → 87): `Map` — `new()`, `size_`, `get_(_)`,
-> `put_(_,_)`, `has_(_)`, `remove_(_)`, `keyAt_(_)`, `valueAt_(_)`
-> (8, `primitive/map.rs`); `Set` — `new()`, `size_`, `add_(_)`, `has_(_)`,
-> `remove_(_)`, `at_(_)` (6, `primitive/set.rs`). `Set` shares `Map`'s Rust
+> **+14** distinct fns (73 → 87): `Map` — `new()`, `_$size`, `_$get(_)`,
+> `_$put(_,_)`, `_$has(_)`, `_$remove(_)`, `_$keyAt(_)`, `_$valueAt(_)`
+> (8, `primitive/map.rs`); `Set` — `new()`, `_$size`, `_$add(_)`, `_$has(_)`,
+> `_$remove(_)`, `_$at(_)` (6, `primitive/set.rs`). `Set` shares `Map`'s Rust
 > backing struct ([`MapObject`](../../../../phalcom-core/src/map.rs), DEC-CT-B)
 > but every binding is its own distinct native fn — no rehome subtlety.
 > Floor-carrying classes move **17 → 19** (`Map`/`Set` are new rows, neither
-> previously carrying a primitive). `get_`/`put_`/`has_`/`remove_`
+> previously carrying a primitive). `_$get`/`_$put`/`_$has`/`_$remove`
 > re-enter the VM to send Phalcom `hash`/`==` on keys (not Rust `Value: Hash`)
-> and `put_`/`add_` reject a mutable-collection key (DEC-CT-C,
+> and `_$put`/`_$add` reject a mutable-collection key (DEC-CT-C,
 > collection-protocol.md law 4). R-INV-0.1 (`tests/invariants.rs`) audits this
 > set from a live `VM::new()` and fails on drift.
 
 > **U-COLLTYPES Phase 2 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
 > The `Tuple` floor admits **+3** bindings (102 → 105) and **+3** distinct fns
-> (87 → 90): `fromList(_)` (static, `tuple_class_from_list`), `size_`
-> (`tuple_raw_size`), `at_(_)` (`tuple_raw_at`) — all in `primitive/tuple.rs`.
+> (87 → 90): `_$fromList(_)` (class-side, `tuple_from_list_internal`), `_$size`
+> (`tuple_raw_size`), `_$at(_)` (`tuple_raw_at`) — all in `primitive/tuple.rs`.
 > **No mutation primitive** — immutability is a representation guarantee
 > ([`TupleObject`](../../../../phalcom-core/src/tuple.rs)'s `Box<[Value]>`, no
 > mutable accessor exists). Floor-carrying classes move **19 → 20**. `hash`
-> stays `.ph` (DEC-CT-D: an order-sensitive fold over `at_`+element `.hash`,
+> stays `.ph` (DEC-CT-D: an order-sensitive fold over `_$at`+element `.hash`,
 > zero new floor) — it is **not** a binding here. R-INV-0.1 audits this set.
 
 > **U-COLLTYPES Phase 3 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
 > **Superseded for Range by C.2.** Direct `BuildRange` bytecode constructs the
-> bounds descriptor; only `lower_`, `upper_`, and `upperInclusive_` remain as
+> bounds descriptor; only `_$lower`, `_$upper`, and `_$upperInclusive` remain as
 > native observations. They surface omission as `Option`, preserving a present
 > `None` endpoint. Progression and Range equality/hash remain deferred.
 
@@ -239,7 +239,7 @@ row, not the count, is what makes the freeze real.
 > **U-ANNOT-CONTRACTS amendment ([ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1).**
 > The `@invariant` re-entrancy guard admits **+2** bindings (115 → 117) and **+2** distinct
 > fns (100 → 102), both instance-side on `Object` and both `primitive/object.rs`:
-> `Object#__invariantEnter()` (`object_invariant_enter`) and `Object#__invariantExit()`
+> `Object#_$invariantEnter()` (`object_invariant_enter`) and `Object#_$invariantExit()`
 > (`object_invariant_exit`). The woven prologue/epilogue call them; they are never
 > `.ph`-authored and are not part of any public protocol. They sit on `Object` because any
 > receiver can carry an `@invariant`. Floor-carrying classes stay **22**. See §2.1.
@@ -247,8 +247,8 @@ row, not the count, is what makes the freeze real.
 > **M-ATTR-ROOT amendment** (no ADR — the unit's own amendment).
 > The attribute-retention store admits **+3** bindings (117 → 120) and **+3** distinct fns
 > (102 → 105), all instance-side on `Object`, all `primitive/attribute.rs`:
-> `Object#__attributes` (`attribute_attributes`), `Object#__attach(_)`
-> (`attribute_attach`), `Object#__freezeAttributes()` (`attribute_freeze`). The compiler's
+> `Object#_$attributes` (`attribute_attributes`), `Object#_$attach(_)`
+> (`attribute_attach`), `Object#_$freezeAttributes()` (`attribute_freeze`). The compiler's
 > `@Name(args)` desugar (`compiler::attributes`, `compiler::lib::class_decl`) calls them;
 > never `.ph`-authored. On `Object` because every class and method row *is* an `Object`.
 > Floor-carrying classes stay **22**. See §2.1.
@@ -270,10 +270,9 @@ row, not the count, is what makes the freeze real.
 > **U-STRING amendment ([ADR-0049](../../../adr/accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)).**
 > Raw byte-level string access plus raw stdout write admit **+4** bindings (121 → 125) and
 > **+4** distinct fns (106 → 110) — the amendment that takes the floor to its current
-> figure. Instance-side on `String` (`primitive/string.rs`): `String#byteCount_`
-> (`string_raw_byte_count`, getter), `String#byteAt_(_)` (`string_raw_byte_at`), and
-> `String#slice_(_,_)` (`string_raw_slice`). Class-side on `System`
-> (`primitive/system.rs`): `System.write_(_)` (`system_raw_write`), stdout with no newline
+> figure. Instance-side on `String`: `String#_$byteCount`,
+> `String#_$byteAt(_)`, and `String#_$slice(_,_)`. Class-side on `System`:
+> `System._$write(_)`, stdout with no newline
 > and no `toString` send. All four are floor because they touch the UTF-8 representation or
 > the I/O boundary directly; the `.ph` `String` surface (`trim`, `split`, `startsWith`, …)
 > is derived over them. The trailing `_` marks them native-raw and not-for-surface-use
@@ -336,7 +335,7 @@ row, not the count, is what makes the freeze real.
 ### 1.2 Selector notation
 
 Selectors are shown in **human-facing notation**: a getter is a bare name
-(`size`), a setter is `name=(_)`, an arity-*n* method is `name(_, …)` with *n*
+(`size`), a setter is `name=(put)`, an arity-*n* method is `name(_, …)` with *n*
 positional holes (`+(_)`, `new()`), and labeled arguments are named
 (`ifTrue(_, ifFalse)`, `match(some, none)`).
 
@@ -345,7 +344,7 @@ positional holes (`+(_)`, `new()`), and labeled arguments are named
 > ([`method.rs`](../../../../phalcom-core/src/method.rs),
 > [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md))
 > actually intern, which writes each positional hole as `_:` and each label as
-> `label:`. So `+(_)` interns as `+(_:)`, `class=(_)` as `class=(_:)`, and
+> `label:`. So `+(_)` interns as `+(_:)`, `class=(put)` as `class=(_:)`, and
 > `match(some, none)` as `match(some:none:)` — the same selector, different
 > surface. The `_:` form is what you will find in `Universe::BOOL_SACRED_SELECTORS`
 > and on the heap. (Heads-up: the `Sig` constants in
@@ -377,7 +376,7 @@ Ordered as `install_primitives` installs them
 |---|---|---|---|
 | `name` | instance | `object_name` | class-name string ([ADR-0015](../../../adr/0015-object-default-tostring.md)) |
 | `class` | instance | `object_class` | |
-| `class=(_)` | instance | `object_set_class` | reflective class reassignment |
+| `class=(put)` | instance | `object_set_class` | reflective class reassignment |
 | `toString` | instance | `object_to_string` | default display, `"<ClassName>"` for an instance / own name for a class receiver (ADR-0015; U-CORE-4 re-home off `object_name`, fixes DEFERRED F4) |
 | `==(_)` | instance | `object_eq` | ordinary send, **not** an opcode (control-flow.md §1) |
 | `!=(_)` | instance | `object_neq` | ordinary send |
@@ -387,18 +386,18 @@ Ordered as `install_primitives` installs them
 | `doesNotUnderstand(_)` | instance | `object_does_not_understand` | terminal miss handler; overridable so a proxy subclass can intercept |
 | `hash` | instance | `object_hash` | identity digest of the heap handle (ADR-0023); immediates override below |
 | `methodFor(_)` | instance | `object_method_for` | reifies the resolved `Method` for a selector; `None` on a miss; pure probe, never fires dNU (U-CORE-3, ADR-0028) |
-| `__invariantEnter()` | instance | `object_invariant_enter` | `@invariant` re-entrancy guard entry (U-ANNOT-CONTRACTS, [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1); returns whether this call owns the receiver's `checking` entry |
-| `__invariantExit()` | instance | `object_invariant_exit` | `@invariant` re-entrancy guard exit; unconditionally removes the receiver from `checking` |
-| `__attributes` | instance | `attribute_attributes` | attribute-retention read (M-ATTR-ROOT); `Object` carries it because every class/method row is an `Object` |
-| `__attach(_)` | instance | `attribute_attach` | attribute-retention write; called by the compiler's `@Name(args)` desugar (`compiler::attributes`, `compiler::lib::class_decl`), never `.ph`-authored |
-| `__freezeAttributes()` | instance | `attribute_freeze` | seals the retention store once the declaring unit finishes |
+| `_$invariantEnter()` | instance | `object_invariant_enter` | internal `@invariant` re-entrancy guard entry |
+| `_$invariantExit()` | instance | `object_invariant_exit` | internal `@invariant` re-entrancy guard exit |
+| `_$attributes` | instance | `attribute_attributes` | internal attribute-retention read |
+| `_$attach(_)` | instance | `attribute_attach` | compiler-owned attribute-retention write |
+| `_$freezeAttributes()` | instance | `attribute_freeze` | compiler-owned retention-store seal |
 
 ### 2.2 `Behavior` — class-side reflection
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `superclass` | instance | `class_superclass` | on `Behavior` so `Class` and `Metaclass` both inherit it ([ADR-0003](../../../adr/0003-introduce-behavior-kernel-class.md)) |
-| `superclass=(_)` | instance | `class_set_superclass` | |
+| `superclass=(put)` | instance | `class_set_superclass` | |
 | `name` | instance | `behavior_name` | the receiver class's OWN name; **shadows** `Object#name` for class receivers (ADR-0023) |
 | `methods` | instance | `behavior_methods` | own method-dictionary selector Symbols, as a fresh `List` (ADR-0023) |
 
@@ -407,7 +406,7 @@ Ordered as `install_primitives` installs them
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `+(_)` | instance | `class_add` | |
-| `new_()` | instance | `class_new_` | generic bare allocator reachable through the metaclass chain apex (U-CTOR-4) |
+| `_$new()` | instance | `class_new_` | internal generic bare allocator reachable through the metaclass chain apex |
 
 ### 2.4 `Number` — flat `f64` ([ADR-0005](../../../adr/0005-number-as-flat-f64.md))
 
@@ -427,9 +426,9 @@ Ordered as `install_primitives` installs them
 | `+(_)` | instance | `string_add` | concatenation |
 | `hash` | instance | `string_hash` | cached djb2 **content** hash — equal content ⇒ equal hash (ADR-0023) |
 | `new()` , `new(_)` | static | `string_class_new` | |
-| `byteCount_` | instance | `string_raw_byte_count` | UTF-8 buffer length in bytes (ADR-0049, U-STRING; renamed from `rawByteCount` 2026-07-15 — U-NATIVE-MARKER) |
-| `byteAt_(_)` | instance | `string_raw_byte_at` | raw byte at a byte offset, or `None` out of bounds (ADR-0049, U-STRING; renamed from `rawByteAt` 2026-07-15) |
-| `slice_(_,_)` | instance | `string_raw_slice` | substring by byte range `[start, end)`, validates UTF-8 char boundaries, never panics (ADR-0049, U-STRING; renamed from `rawSlice` 2026-07-15) |
+| `_$byteCount` | instance | `string_raw_byte_count` | internal UTF-8 byte length |
+| `_$byteAt(_)` | instance | `string_raw_byte_at` | internal raw byte read |
+| `_$slice(_,_)` | instance | `string_raw_slice` | internal validated byte-range slice |
 
 The rest of the `String` protocol (`split`, `replace`, `trim`/`trimStart`/`trimEnd`,
 `*(count)`, `indexOf`, `codePointAt`, `bytes`/`codePoints`) is `.ph`-derived over these
@@ -537,7 +536,7 @@ construction (R-INV-3.3).
 |---|---|---|---|
 | `print(_)` | static | `system_class_print` | the sole I/O primitive |
 | `new()` | static | `system_class_new` | |
-| `write_(_)` | static | `system_raw_write` | raw stdout write, no newline; `write(_)`/`writeObject_(_)` are `.ph`-derived over it (ADR-0049, U-STRING; renamed from `rawWrite` 2026-07-15) |
+| `_$write(_)` | class-side | `system_raw_write` | internal raw stdout write; public wrappers are `.ph`-derived |
 
 > Also present but not yet catalogued in this table: `schedule(_)`/`system_schedule`,
 > `nextScheduled`/`system_next_scheduled` (U-SCHED), `gc()`/`system_gc` (U-GC step 3).
@@ -559,11 +558,11 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `new()` | static | `list_class_new` | |
-| `length_` | instance | `list_raw_length` | internal; wrapped by `size` |
-| `at_(_)` | instance | `list_raw_at` | internal; wrapped by `at(_)` |
-| `set_(_, _)` | instance | `list_raw_set` | **installed but unwrapped** — no `at(_, put)` yet (§6) |
-| `push_(_)` | instance | `list_raw_push` | internal; wrapped by `add(_)`; amortized growth folds into `Vec::push` |
-| `replaceSlice_(_, _, _)` | instance | `list_replace_slice` | C.3 only; normalized variable-length replacement from a snapshot List |
+| `_$length` | instance | `list_raw_length` | internal; wrapped by `size` |
+| `_$at(_)` | instance | `list_raw_at` | internal; wrapped by `at(_)` |
+| `_$set(_, _)` | instance | `list_raw_set` | internal; wrapped by `at(_,put)` and `[_]=(put)` |
+| `_$push(_)` | instance | `list_raw_push` | internal; wrapped by `add(_)` |
+| `_$replaceSlice(_, _, _)` | instance | `list_replace_slice` | internal variable-length replacement |
 | `toString` | instance | `list_to_string` | native this unit (see U-LIST return contract) |
 
 ### 2.13a `Map`/`Set` — native hash collections (U-COLLTYPES Phase 1, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
@@ -572,9 +571,9 @@ Dedicated `Object::Map`/`Object::Set` heap variants over the shared
 `crate::map::MapObject` ordered-hash backing struct (DEC-CT-B: `Set` is a
 keys-only sibling, distinct heap variant, distinct bindings). Both are
 **mutable** ⇒ inherit identity `Object#hash` (Q5) — neither installs its own
-`hash`, so neither is a valid `Map`/`Set` key. `get_`/`put_`/`has_`/
-`remove_`/`add_` re-enter the VM to send **Phalcom** `hash`/`==` on keys
-(`primitive/map.rs`'s `locate`); `put_`/`add_` reject a mutable-collection
+`hash`, so neither is a valid `Map`/`Set` key. `_$get`/`_$put`/`_$has`/
+`_$remove`/`_$add` re-enter the VM to send **Phalcom** `hash`/`==` on keys
+(`primitive/map.rs`'s `locate`); `_$put`/`_$add` reject a mutable-collection
 key (`List`/`Map`/`Set`, DEC-CT-C) with a raised catchable `Error`. The public
 protocol (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
 `values`/`each(_)` for `Map`; `add(_)`/`includes(_)`/`size`/`remove(_)`/
@@ -583,19 +582,19 @@ protocol (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
 | Selector | Side | Class | Native fn | Notes |
 |---|---|---|---|---|
 | `new()` | static | `Map` | `map_class_new` | |
-| `size_` | instance | `Map` | `map_raw_size` | wrapped by `size` |
-| `get_(_)` | instance | `Map` | `map_raw_get` | wrapped by `at(_)`; total (raw value on hit, `None` on miss) |
-| `put_(_, _)` | instance | `Map` | `map_raw_put` | wrapped by `at(_, put:)`; DEC-CT-C mutable-key rejection |
-| `has_(_)` | instance | `Map` | `map_raw_has` | wrapped by `includes(_)` |
-| `remove_(_)` | instance | `Map` | `map_raw_remove` | wrapped by `remove(_)`; idempotent |
-| `keyAt_(_)` | instance | `Map` | `map_raw_key_at` | backs `keys`/`each(_)`/`iteratorValue(_)` |
-| `valueAt_(_)` | instance | `Map` | `map_raw_value_at` | backs `values`/`each(_)` |
+| `_$size` | instance | `Map` | `map_raw_size` | wrapped by `size` |
+| `_$get(_)` | instance | `Map` | `map_raw_get` | wrapped by `at(_)` |
+| `_$put(_, _)` | instance | `Map` | `map_raw_put` | wrapped by `at(_,put)` |
+| `_$has(_)` | instance | `Map` | `map_raw_has` | wrapped by `includes(_)` |
+| `_$remove(_)` | instance | `Map` | `map_raw_remove` | wrapped by `remove(_)` |
+| `_$keyAt(_)` | instance | `Map` | `map_raw_key_at` | internal iteration support |
+| `_$valueAt(_)` | instance | `Map` | `map_raw_value_at` | internal iteration support |
 | `new()` | static | `Set` | `set_class_new` | |
-| `size_` | instance | `Set` | `set_raw_size` | wrapped by `size` |
-| `add_(_)` | instance | `Set` | `set_raw_add` | wrapped by `add(_)`; idempotent; DEC-CT-C mutable-key rejection |
-| `has_(_)` | instance | `Set` | `set_raw_has` | wrapped by `includes(_)` |
-| `remove_(_)` | instance | `Set` | `set_raw_remove` | wrapped by `remove(_)`; idempotent |
-| `at_(_)` | instance | `Set` | `set_raw_at` | wrapped by `at(_)`/`each(_)`; insertion-order indexed read |
+| `_$size` | instance | `Set` | `set_raw_size` | wrapped by `size` |
+| `_$add(_)` | instance | `Set` | `set_raw_add` | wrapped by `add(_)` |
+| `_$has(_)` | instance | `Set` | `set_raw_has` | wrapped by `includes(_)` |
+| `_$remove(_)` | instance | `Set` | `set_raw_remove` | wrapped by `remove(_)` |
+| `_$at(_)` | instance | `Set` | `set_raw_at` | internal indexed read |
 
 ### 2.13b `Tuple` — native fixed-arity immutable product (U-COLLTYPES Phase 2, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
 
@@ -605,18 +604,18 @@ primitives — **no mutation primitive**, since immutability is structural (no
 `at(_, put:)`/`add(_)` accessor exists at all). Immutable ⇒ value-hashable and
 a valid `Map`/`Set` key (Q5). The public protocol (`size`/`at(_)`/`each(_)`/
 `==`/`!=`/`hash`) is `core.ph` over these (§3); `hash` is a `.ph` fold over
-`at_`+element `.hash` (DEC-CT-D), not a floor primitive.
+`_$at`+element `.hash` (DEC-CT-D), not a floor primitive.
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
-| `__fromList(_)` | static | `tuple_from_list_internal` | internal conversion bridge; source tuple literals use `BuildTuple` |
-| `size_` | instance | `tuple_raw_size` | wrapped by `size` |
-| `at_(_)` | instance | `tuple_raw_at` | wrapped by `at(_)`/`each(_)`; total (raw value on hit, `None` on miss) |
-| `positionalSize_` | instance | `tuple_raw_positional_size` | positional lane length |
-| `labelAt_(_)` | instance | `tuple_raw_label_at` | label-lane observation |
-| `positionals_` | instance | `tuple_raw_positionals` | canonical positional projection |
-| `labeled_` | instance | `tuple_raw_labeled` | canonical labeled projection |
-| `slice_(_, _)` | instance | `tuple_raw_slice` | C.3 label-preserving total-order slice; empty result canonicalizes to Unit |
+| `_$fromList(_)` | class-side | `tuple_from_list_internal` | internal conversion bridge |
+| `_$size` | instance | `tuple_raw_size` | wrapped by `size` |
+| `_$at(_)` | instance | `tuple_raw_at` | wrapped by `at(_)`/`each(_)` |
+| `_$positionalSize` | instance | `tuple_raw_positional_size` | positional lane length |
+| `_$labelAt(_)` | instance | `tuple_raw_label_at` | label-lane observation |
+| `_$positionals` | instance | `tuple_raw_positionals` | positional projection |
+| `_$labeled` | instance | `tuple_raw_labeled` | labeled projection |
+| `_$slice(_, _)` | instance | `tuple_raw_slice` | internal label-preserving slice |
 
 ### 2.13c `Range` — native lazy numeric interval (U-COLLTYPES Phase 3, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
 
@@ -628,9 +627,9 @@ yet part of the Range protocol.
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
-| `lower_` | instance | `range_raw_lower` | `Option` distinguishes omission from present `None` |
-| `upper_` | instance | `range_raw_upper` | `Option` distinguishes omission from present `None` |
-| `upperInclusive_` | instance | `range_raw_upper_inclusive` | true only for `..=` with upper bound |
+| `_$lower` | instance | `range_raw_lower` | `Option` distinguishes omitted lower bound |
+| `_$upper` | instance | `range_raw_upper` | `Option` distinguishes omitted upper bound |
+| `_$upperInclusive` | instance | `range_raw_upper_inclusive` | true only for `..=` with upper bound |
 
 ### 2.14 `Message` — reified miss-send ([messages-and-selectors.md](../messages-and-selectors.md) §5, U8)
 
@@ -724,10 +723,10 @@ Two classes now carry `.ph` surface protocol self-hosted over the floor
 **`List`** (ADR-0020) —
 
 ```
-size    => self.length_
-at(i)   { return self.at_(i) }
-add(v)  { self.push_(v); return self }
-each(f) { var i = 0; while (i < self.size) { f.call(self.at(i)); i = i + 1 } }
+size       => self._$length
+at(_ i)    { return self._$at(i) }
+add(_ v)   { self._$push(v); return self }
+each(_ f)  { let i = 0; while (i < self.size) { f.call(self.at(i)); i = i + 1 } }
 ```
 
 `each` closes over three floor capabilities — `Block#call(_)`, `Number#<(_)`,
@@ -812,7 +811,7 @@ the interned `_:` form: `and(_:)`, `ifTrue(_:ifFalse:)`, `whileTrue(_:)`).
 
 | Item | State | Owner |
 |---|---|---|
-| `List#at(_, put)` (wrap `set_`) | primitive exists, unwrapped | U-STD |
+| `List#at(_,put)` (wrap `_$set`) | landed | U-STD |
 | `List` `map`/`reduce`/`filter`/literal syntax | derivable over floor | U-STD |
 | `Option` combinators (`map`/`flatMap`/`orElse`/`ifSome`/`unwrapOr`) | derivable over `match` | U-STD / U-CORE-2 |
 | `Block#repeat(_)` | receiver/semantics unpinned | deferred (U5-plan BD-U5-2) |

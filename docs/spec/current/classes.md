@@ -13,13 +13,13 @@ Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 ```phalcom
 class Person {
   @constructor
-  new(name:, age:) {
+  new(name, age) {
     _name = name
     _age = age
   }
 
   @constructor
-  new(name:) { _name = name }
+  new(name) { _name = name }
 
   @constructor
   anonymous() { _name = "Anonymous" }
@@ -44,12 +44,13 @@ What the decorator buys over a hand-written class-side method is sugar. It expan
 two ordinary methods: a class-side one that allocates and returns, and an instance-side
 initializer holding the body.
 
-1. Allocates a fresh instance via `new_` (§1.2).
+1. Allocates a fresh instance via internal `_$new` (§1.2).
 2. Runs the body with `self` bound to it.
 3. Returns the instance implicitly.
 
 Multiple constructors are distinguished by **selector**, not arity hacks:
-`new(name:, age:)` and `new(name:)` are simply two different selectors.
+`new(name, age)` and `new(name)` are simply two different selectors. Calls retain
+their colons: `new(name: value, age: value)`.
 
 ### 1.1 `new` is a convention, not a rule
 
@@ -62,17 +63,18 @@ root, so `Ref.at(1, 2)` either finds the constructor or raises `doesNotUnderstan
 `Class >> new()` occupies it as a default (§1.2) — and even that is ordinary
 inheritance, not constructor-specific dispatch (PDR-0028).
 
-### 1.2 The allocator: `new_`
+### 1.2 The allocator: `_$new`
 
-`Class >> new_()` is the sole primitive allocator — arity 0, uninitialized instance,
-reserved (declaring `new_` in a user class is an error). Every class object reaches it
-through the tower.
+`Class >> _$new()` is the sole primitive allocator — arity 0, uninitialized
+instance, and internal to privileged core/runtime source. Ordinary modules cannot
+declare, call, or reflectively invoke it. Every class object reaches it through the
+tower for compiler-generated constructor factories.
 
 `Class >> new()` is **ordinary Phalcom**, a default at the tower root:
 
 ```phalcom
 class Class {
-  new() => self.new_()
+  new() => self._$new()
 }
 ```
 
@@ -80,19 +82,19 @@ It is shadowed by ordinary lookup like any other method — which is all a class
 declaring its own `new` does. A class with no constructor inherits it, which is why
 `Point.new()` works on a constructor-less class.
 
-Because `new_` is public, a constructor can be written by hand, with no decorator, as
-an ordinary pair of methods — this is exactly what `@constructor` desugars to:
+The long-form pair below is implementation-equivalent to `@constructor`, but only
+privileged core source may write it because allocation uses `_$new`:
 
 ```phalcom
 class Point {
   @class
-  new(x, y) {
-    let instance = self.new_()
+  new(_ x, _ y) {
+    let instance = self._$new()
     instance.init(x, y)
     return instance
   }
 
-  init(x, y) {
+  init(_ x, _ y) {
     _x = x
     _y = y
     return self

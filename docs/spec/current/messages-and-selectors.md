@@ -16,7 +16,7 @@ receiver.move(to: p, duration: 2)  //               -> selector `move(to,duratio
 a + b                              // binary        -> selector `+(_)`
 a & b                              // binary        -> selector `&(_)`
 ~a                                 // unary         -> selector `~()`
-a.name = v                         // assignment    -> selector `name=(_)`
+a.name = v                         // assignment    -> selector `name=(put)`
 ```
 
 ## 2. Selector identity
@@ -31,7 +31,7 @@ for the full canonical-form grammar and rules R1–R5.
 | `p.add(1, 2)` | `add(_,_)` |
 | `p.move(to: a, duration: b)` | `move(to,duration)` |
 | `p.move(a, b)` | `move(_,_)` |
-| `p.name = v` | `name=(_)` |
+| `p.name = v` | `name=(put)` |
 | `a + b` | `+(_)` |
 | `a & b` | `&(_)` |
 | `~a` | `~()` |
@@ -42,18 +42,19 @@ symbol, lookup stays a single hashmap probe.
 
 ## 3. Declaration
 
-Labels are declared with a trailing colon on the parameter:
+Declarations separate selector labels from body-local bindings:
 
 ```phalcom
-move(to:, duration:) { ... }       // selector: move(to,duration)
-move(x, y) { ... }                 // selector: move(_,_)
+move(to, duration) { ... }              // labels and locals share names
+move(to target, duration seconds) { ... } // separate external/local names
+move(_ x, _ y) { ... }                  // selector: move(_,_)
 ```
 
 A labeled parameter may declare a **separate internal binding** — this is
 **decided** ([ADR-0025](../../adr/0025-external-internal-parameter-names.md)).
-`move(to target:)` has external label `to` and internal binding `target`: callers
+`move(to target)` has external label `to` and internal binding `target`: callers
 pass `to: value`, and the body refers to it as `target`. The single-word form
-(`to:`) is sugar for the label==binding case. Selector identity is unchanged — the
+(`to`) is sugar for the label==binding case. Selector identity is unchanged — the
 **label**, not the internal binding, is what is encoded into the selector symbol
 (`move(to,duration)`), so the internal name is a purely local concern.
 

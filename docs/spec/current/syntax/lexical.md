@@ -61,24 +61,30 @@ in §2.1). Block comments do not nest — the first `*/` closes the comment.
 ## 4. Identifiers and fields
 
 ```
-IDENT := ALPHA { ALPHA | DIGIT }
-FIELD := "_" { ALPHA | DIGIT }
-ALPHA := "A".."Z" | "a".."z"
-DIGIT := "0".."9"
+IDENT              := ALPHA { ALPHA | DIGIT | "_" }
+FIELD              := "_" ALPHA { ALPHA | DIGIT | "_" }
+IMPLEMENTATION_FIELD := "__" ALPHA { ALPHA | DIGIT | "_" }
+IMPLEMENTATION_SELECTOR := "_$" ALPHA { ALPHA | DIGIT | "_" }
+POSITIONAL_MARKER  := "_"
+ALPHA              := "A".."Z" | "a".."z"
+DIGIT              := "0".."9"
 ```
 
-`FIELD` (a leading underscore) denotes a private field when used inside a
-class body, and a module-private top-level name when used at module scope
-([ADR-0027]). Capitalizing a class name's initial letter is a project
-convention enforced by style, not a distinct token class — `Person` and
-`person` both lex as `IDENT`.
+`name` is an ordinary lexical name or selector. `_name` is a source field,
+`__name` an implementation field, and `_$name` an implementation selector.
+These token kinds determine their namespaces structurally; spelling does not
+imply method visibility. Standalone `_` is only the positional declaration
+marker. `___name`, `__$name`, `_$`, and `__` are malformed reserved sequences
+and produce lexical errors. Capitalizing a class name's initial letter is a
+project convention enforced by style, not a distinct token class — `Person`
+and `person` both lex as `IDENT`.
 
 ## 5. Keywords
 
 | Keyword | | Keyword | | Keyword |
 |---|---|---|---|---|
 | `let` | | `while` | | `and` |
-| `var` | | `for` | | `or` |
+| `throw` | | `for` | | `or` |
 | `class` | | `in` | | `not` |
 | `const` | | `break` | | `is` |
 | `continue` | | `true` | | `false` |
@@ -99,11 +105,9 @@ KEYWORD :=
 define either name as a declaration, selector family, or attribute class.
 
 `construct` and `static` are retired declaration spellings, not canonical
-keywords. Parsers may recognize their legacy positions long enough for the
-compiler to emit non-fatal migration hints: `@constructor
-new(...) { ... }` →
-`@constructor`, `static ...` → `@class`. A method-shaped `class name(...) { ... }`
-form receives the same `@class` hint.
+keywords. In a declaration position, the parser rejects either spelling with a
+targeted diagnostic pointing to `@constructor` or `@class`; it does not lower
+legacy source. A method-shaped `class name(...) { ... }` is likewise invalid.
 
 ### 5.2 Contextual keywords
 

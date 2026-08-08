@@ -6,6 +6,10 @@
 - Amends: ADR-0054's `@construct` target scope and PDR-0021's constructor-name collision rationale
 - Related: [current Classes spec](../spec/current/classes.md), [current decorator specs](../spec/current/decorators/README.md), [pending ctor unit](../work/pending/ctor/plan.md)
 
+> **Implemented and compatibility policy amended (2026-08-08).** PDR-0032 keeps
+> the placement/constructor split but makes retired `static` a targeted error,
+> not a non-fatal lowering alias.
+
 ## Context
 
 The current documentation has two competing constructor models. ADR-0063 and the
@@ -34,7 +38,7 @@ failure.
    `@class` and `@constructor`.
 5. `construct` and `constructor` are reserved names. They cannot be introduced as
    user-defined declaration names, selector families, or attribute classes.
-6. Legacy forms remain parseable during migration and produce non-fatal hints:
+6. Legacy forms are rejected with targeted migration diagnostics:
 
    ```text
    @constructor
@@ -44,8 +48,8 @@ failure.
    class foo(...) { ... }       → did you mean @class?
    ```
 
-   Hints point at the legacy spelling, use help severity, and preserve the
-   declaration's existing meaning. They are not “deprecated” errors.
+   Diagnostics point at the legacy spelling and name the canonical decorator.
+   No compatibility lowering preserves the declaration's old meaning.
 
 7. `docs/spec/current` is authoritative. The former forge unit is pending
    implementation material, and experimental constructor notes are retained under
@@ -56,20 +60,18 @@ failure.
 - `@construct` and `@constructor` remain distinct names with distinct legal targets.
 - `@class` owns both class-side fields and class-side behavior; no `@classField`
   or `static` spelling is needed.
-- Parser and compiler migration can be staged: recognize legacy forms, emit hints,
-  then remove compatibility only in a later decision.
-- Existing code, fixtures, and implementation names remain stale until the future
-  implementation migration; this record does not change them.
-- The cost is a temporary compatibility path and a larger diagnostic surface while
-  old source is still accepted.
+- Parser owns concise errors for legacy spellings; compiler receives only the
+  canonical decorated declaration forms.
+- Source, fixtures, implementation names, tooling metadata, and documentation
+  converge on the canonical surface under PDR-0032.
 
 ## Alternatives rejected
 
 - **Target-polymorphic `@constructor`:** rejected because one decorator would mean
   “derive from fields” on a class and “mark this method” on a member.
-- **Hard deprecation errors:** rejected because the migration is mechanical and the
-  compiler can preserve execution while teaching the canonical spelling.
+- **Silent compatibility lowering:** rejected by PDR-0032 because it retains a
+  second language surface and lets stale source escape migration audits.
 - **Keeping `static` as an alias:** rejected; it preserves a second name for the
   same placement axis and keeps field/method terminology split.
-- **Removing legacy syntax immediately:** rejected; hints provide migration value
-  without blocking existing source.
+- **Generic parse errors:** rejected; retired spellings receive focused replacement
+  guidance.

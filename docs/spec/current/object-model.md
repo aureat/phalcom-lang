@@ -51,6 +51,26 @@ abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../../adr/0004-boolea
   values in a non-`Instance` VM representation (e.g. `Float` → `f64`, `Int` →
   tagged `i64` / heap `LargeInt`).
 
+### 2.1 Member namespaces and access
+
+Inside a member body, `_field` and `self._field` denote the same source field;
+`__field` and `self.__field` likewise denote the same privileged implementation
+field. Field access is receiver-local: `other._field` and `other.__field` are
+rejected rather than converted into sends. Implementation fields and `_$name`
+selectors are available only to privileged core/runtime source.
+
+Ordinary unresolved names use `local → upvalue → known global → implicit self`
+resolution. Namespace-directed `_field`, `__field`, and `_$name` forms always
+target `self`; nested blocks retain the enclosing member's lexical receiver and
+access class.
+
+`@private` and `@protected` control selector access, never naming. Private
+members are callable only from their defining source class. Protected members
+are callable from that class and its subclasses. Lookup, cached dispatch,
+`perform`, `respondsTo`, `methodFor`, and invocation through a reified method all
+apply the same access check. Physical method enumeration may expose that a
+selector exists, but it does not grant invocation authority.
+
 ---
 
 ## 3. Value representation
@@ -102,7 +122,7 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 > `Behavior` is an object-model refinement ratified by [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md);
 > the top-level spec is silent on it and neither requires nor forbids it. It exists
-> to give `Class` and `Metaclass` a shared home for `new_`/`new`/reflection
+> to give `Class` and `Metaclass` a shared home for `_$new`/`new`/reflection
 > and to keep the tower uniform.
 
 ### Primitives & singletons
@@ -330,7 +350,7 @@ Defined on `Object`, overridable everywhere:
 | `doesNotUnderstand(_)` | hook on failed lookup, given a `Message` |
 
 `Behavior` adds (inherited by `Class` and `Metaclass`): `name`, `superclass`,
-`methods`, and allocation — `new_`, over which the `new()` default and every
+`methods`, and allocation — internal `_$new`, over which the `new()` default and every
 constructor are ordinary methods ([classes](classes.md)).
 
 ---
