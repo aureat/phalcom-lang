@@ -2,8 +2,7 @@
 // spec: selectors.md
 // status: PENDING
 
-class Point {
-  x => _x
+class Point x => _x
   @class
   new(_ x) {
     const p = self.new();

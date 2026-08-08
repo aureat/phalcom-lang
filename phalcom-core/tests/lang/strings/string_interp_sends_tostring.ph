@@ -20,8 +20,7 @@
 // enriching it (an ordinary debug convenience someone will want) would have
 // turned every interpolation site into a field-disclosure bug.
 
-class Secret {
-  toString => "<redacted>"
+class Secret toString => "<redacted>"
 }
 const p = Secret.new()
 

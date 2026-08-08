@@ -27,4 +27,4 @@
 // by U-STRING's own corpus once it lands.
 const cps = "a€🎉".codePoints
 System.print(cps.size)
-cps.each { cp => System.print(cp) }
+cps.each |cp| { System.print(cp) }

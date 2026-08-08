@@ -89,53 +89,53 @@ class Choice {
 
   value -> Any {
     return self.match(
-      integer: { item => item.value },
-      boolean: { item => item.value },
-      index: { item => item.value },
-      bytes: { item => _ChoiceBytes.copy(item.value) }
+      integer: |item| { item.value },
+      boolean: |item| { item.value },
+      index: |item| { item.value },
+      bytes: |item| { _ChoiceBytes.copy(item.value) }
     )
   }
 
   label -> Option<Symbol> {
     return self.match(
-      integer: { item => item.label },
-      boolean: { item => item.label },
-      index: { item => item.label },
-      bytes: { item => item.label }
+      integer: |item| { item.label },
+      boolean: |item| { item.label },
+      index: |item| { item.label },
+      bytes: |item| { item.label }
     )
   }
 
   shrinkTarget -> Any {
     return self.match(
-      integer: { item => item.shrinkTowards },
-      boolean: { item => item.shrinkTowards },
-      index: { item => item.shrinkTowards },
-      bytes: { item => _ChoiceBytes.copy(item.shrinkTowards) }
+      integer: |item| { item.shrinkTowards },
+      boolean: |item| { item.shrinkTowards },
+      index: |item| { item.shrinkTowards },
+      bytes: |item| { _ChoiceBytes.copy(item.shrinkTowards) }
     )
   }
 
   // Compatibility getters used by the temporary integer-only shrinker.
   min -> Int {
     return self.match(
-      integer: { item => item.min },
-      boolean: { _ => 0 },
-      index: { _ => 0 },
-      bytes: { item => item.minSize }
+      integer: |item| { item.min },
+      boolean: |_| { 0 },
+      index: |_| { 0 },
+      bytes: |item| { item.minSize }
     )
   }
 
   max -> Int {
     return self.match(
-      integer: { item => item.max },
-      boolean: { _ => 1 },
-      index: { item => item.size - 1 },
-      bytes: { item => item.maxSize }
+      integer: |item| { item.max },
+      boolean: |_| { 1 },
+      index: |item| { item.size - 1 },
+      bytes: |item| { item.maxSize }
     )
   }
 
   withValue(value: Any) -> Choice {
     return self.match(
-      integer: { item =>
+      integer: |item| {
         Choice.integer(
           value: value,
           min: item.min,
@@ -144,14 +144,14 @@ class Choice {
           label: item.label
         )
       },
-      boolean: { item =>
+      boolean: |item| {
         Choice.boolean(
           value: value,
           shrinkTowards: item.shrinkTowards,
           label: item.label
         )
       },
-      index: { item =>
+      index: |item| {
         Choice.index(
           value: value,
           size: item.size,
@@ -159,7 +159,7 @@ class Choice {
           label: item.label
         )
       },
-      bytes: { item =>
+      bytes: |item| {
         Choice.bytes(
           value: value,
           minSize: item.minSize,
@@ -173,7 +173,7 @@ class Choice {
 
   simplifications -> List<Any> {
     return self.match(
-      integer: { item =>
+      integer: |item| {
         _ChoiceSimplifier.integers(
           value: item.value,
           min: item.min,
@@ -181,14 +181,14 @@ class Choice {
           target: item.shrinkTowards
         )
       },
-      boolean: { item =>
+      boolean: |item| {
         const values = List.new()
         if item.value != item.shrinkTowards {
           values.add(item.shrinkTowards)
         }
         return values
       },
-      index: { item =>
+      index: |item| {
         _ChoiceSimplifier.integers(
           value: item.value,
           min: 0,
@@ -196,7 +196,7 @@ class Choice {
           target: item.shrinkTowards
         )
       },
-      bytes: { item =>
+      bytes: |item| {
         const values = List.new()
         if item.value != item.shrinkTowards {
           values.add(item.shrinkTowards)
@@ -208,10 +208,10 @@ class Choice {
 
   signaturePart -> String {
     return self.match(
-      integer: { item => "i:" + item.value.toString },
-      boolean: { item => "b:" + item.value.toString },
-      index: { item => "x:" + item.value.toString },
-      bytes: { item => "y:" + item.value.toString }
+      integer: |item| { "i:" + item.value.toString },
+      boolean: |item| { "b:" + item.value.toString },
+      index: |item| { "x:" + item.value.toString },
+      bytes: |item| { "y:" + item.value.toString }
     )
   }
 }

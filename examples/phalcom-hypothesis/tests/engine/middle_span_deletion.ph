@@ -32,7 +32,7 @@ const seedExample = Example.from(
 )
 const spec = specification.PropertySpec.check(
   id: #middleDeletion,
-  target: { values =>
+  target: |values| {
     Assert.isFalse(
       values.size >= 2 and values.at(0) == 1 and values.at(values.size - 1) == 2
     )

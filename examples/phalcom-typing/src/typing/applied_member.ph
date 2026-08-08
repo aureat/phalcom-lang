@@ -19,7 +19,7 @@ class AppliedParameter {
   }
 
   type -> Option<Type> {
-    return _parameter.type.map { annotation =>
+    return _parameter.type.map |annotation| {
       annotation.substitute(using: _environment)
     }
   }
@@ -48,7 +48,7 @@ class AppliedMethod {
   }
 
   parameters -> const List<AppliedParameter> {
-    return _method.parameters.map { parameter =>
+    return _method.parameters.map |parameter| {
       AppliedParameter.new(
         parameter: parameter,
         environment: _environment
@@ -57,7 +57,7 @@ class AppliedMethod {
   }
 
   returnType -> Option<Type> {
-    return _method.returnType.map { annotation =>
+    return _method.returnType.map |annotation| {
       annotation.substitute(using: _environment)
     }
   }
@@ -82,7 +82,7 @@ class AppliedField {
   }
 
   type -> Option<Type> {
-    return _field.type.map { annotation =>
+    return _field.type.map |annotation| {
       annotation.substitute(using: _environment)
     }
   }

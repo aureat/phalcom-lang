@@ -7,8 +7,7 @@
 // arity-family variants are already exercised in metaclass/ and dispatch/,
 // not duplicated here.
 
-class Widget {
-  render => "drawn"
+class Widget render => "drawn"
 }
 const w = Widget.new()
 System.print(w.isA(Widget))

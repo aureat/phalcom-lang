@@ -5,5 +5,5 @@
 // raised inside a called block's body propagates out of `call` unchanged —
 // here, `+` sent to a `Bool` receiver is a plain does-not-understand.
 
-const f1 = { a, b => a + b }
+const f1 = |a, b| { a + b }
 f1.call(true, false)

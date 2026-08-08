@@ -41,21 +41,21 @@ class _StrategyInference {
     const parameters = _ReflectedParameter.all(method)
 
     return given.mode.match(
-      inferred: { _ =>
+      inferred: |_| {
         self.inferAll(
           parameters: parameters,
           registry: registry,
           propertyName: propertyName
         )
       },
-      explicit: { value =>
+      explicit: |value| {
         self.explicit(
           strategies: value.strategies,
           parameters: parameters,
           propertyName: propertyName
         )
       },
-      overrides: { value =>
+      overrides: |value| {
         self.withOverrides(
           arguments: value.arguments,
           parameters: parameters,
@@ -134,8 +134,8 @@ class _StrategyInference {
     const strategies = List.new()
     for parameter in parameters {
       arguments.strategyFor(parameter.name).match(
-        some: { strategy => strategies.add(strategy) },
-        none: { _ =>
+        some: |strategy| { strategies.add(strategy) },
+        none: |_| {
           strategies.add(
             self.inferParameter(
               parameter: parameter,
@@ -156,12 +156,12 @@ class _StrategyInference {
     propertyName: String
   ) -> Strategy<Any> {
     return parameter.annotation.match(
-      some: { type =>
+      some: |type| {
         {
           registry.forType(type)
         }.attempt().match(
-          ok: { strategy => strategy },
-          error: { error =>
+          ok: |strategy| { strategy },
+          error: |error| {
             throw errors.StrategyResolutionError.new(
               "cannot resolve parameter '" + parameter.name.toString +
               "' of " + propertyName + ": " +
@@ -170,7 +170,7 @@ class _StrategyInference {
           }
         )
       },
-      none: { _ =>
+      none: |_| {
         throw errors.StrategyResolutionError.new(
           "cannot resolve parameter '" + parameter.name.toString +
           "' of " + propertyName + ": no type annotation"

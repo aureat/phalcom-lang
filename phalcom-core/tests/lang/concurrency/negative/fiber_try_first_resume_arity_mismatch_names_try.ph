@@ -6,5 +6,5 @@
 // (fiber.rs). A first resume via `try(_)` with the wrong argument count must
 // name "try", not "call", in the diagnostic.
 
-const inner = Fiber.new { x => x }
+const inner = Fiber.new |x| { x }
 inner.try()

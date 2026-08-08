@@ -40,53 +40,53 @@ class RuleArgument {
 
   name -> Symbol {
     return self.match(
-      draw: { value => value.name },
-      select: { value => value.name },
-      consume: { value => value.name }
+      draw: |value| { value.name },
+      select: |value| { value.name },
+      consume: |value| { value.name }
     )
   }
 
   label -> Option<Symbol> {
     return self.match(
-      draw: { value => value.label },
-      select: { value => value.label },
-      consume: { value => value.label }
+      draw: |value| { value.label },
+      select: |value| { value.label },
+      consume: |value| { value.label }
     )
   }
 
   requiresBundle -> Bool {
     return self.match(
-      draw: { _ => false },
-      select: { _ => true },
-      consume: { _ => true }
+      draw: |_| { false },
+      select: |_| { true },
+      consume: |_| { true }
     )
   }
 
   bundleValue -> Option<Bundle<Any>> {
     return self.match(
-      draw: { _ => None },
-      select: { value => Some.new(value.bundle) },
-      consume: { value => Some.new(value.bundle) }
+      draw: |_| { None },
+      select: |value| { Some.new(value.bundle) },
+      consume: |value| { Some.new(value.bundle) }
     )
   }
 
   consuming -> Bool {
     return self.match(
-      draw: { _ => false },
-      select: { _ => false },
-      consume: { _ => true }
+      draw: |_| { false },
+      select: |_| { false },
+      consume: |_| { true }
     )
   }
 
   fingerprint -> String {
     return self.match(
-      draw: { value =>
+      draw: |value| {
         "draw(" + value.name.toString + ":" + value.strategy.fingerprint + ")"
       },
-      select: { value =>
+      select: |value| {
         "select(" + value.name.toString + ":" + value.bundle.fingerprint + ")"
       },
-      consume: { value =>
+      consume: |value| {
         "consume(" + value.name.toString + ":" + value.bundle.fingerprint + ")"
       }
     )

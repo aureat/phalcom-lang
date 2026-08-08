@@ -8,7 +8,7 @@ import Settings from hypothesis
 const result = Property
   .given(Gen.int(min: 0, max: 100))
   .using(Settings.standard.examples(25).seed(20260723))
-  .check { value =>
+  .check |value| {
     Assert.true(value >= 0)
   }
 

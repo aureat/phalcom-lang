@@ -4,7 +4,7 @@
 // Lazy map: closure does NOT run at .map call time, only when iterated
 
 let counter = 0
-let f = { x => counter = counter + 1; x * 2 }
+let f = |x| { counter = counter + 1; x * 2 }
 let view = [1, 2, 3].map(f)
 System.print(counter)
 for (x in view) {

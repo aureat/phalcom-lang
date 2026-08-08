@@ -14,8 +14,8 @@ class Property {
   @class
   current -> Any {
     return coreContext._propertyContexts.current.match(
-      some: { context => context },
-      none: { _ =>
+      some: |context| { context },
+      none: |_| {
         throw errors._MissingPropertyContext.new(
           "Property context used outside a running example"
         )

@@ -11,8 +11,8 @@ const inner = List.new()
 inner.add(10)
 inner.add(20)
 let total = 0
-outer.each { x =>
-  inner.each { y =>
+outer.each |x| {
+  inner.each |y| {
     total = total + (x * y)
   }
 }

@@ -78,19 +78,19 @@ class ExampleStatus {
 
   passed -> Bool {
     return self.match(
-      valid: { _ => true },
-      invalid: { _ => false },
-      overrun: { _ => false },
-      interesting: { _ => false }
+      valid: |_| { true },
+      invalid: |_| { false },
+      overrun: |_| { false },
+      interesting: |_| { false }
     )
   }
 
   rejected -> Bool {
     return self.match(
-      valid: { _ => false },
-      invalid: { _ => true },
-      overrun: { _ => false },
-      interesting: { _ => false }
+      valid: |_| { false },
+      invalid: |_| { true },
+      overrun: |_| { false },
+      interesting: |_| { false }
     )
   }
 
@@ -98,55 +98,55 @@ class ExampleStatus {
 
   overrun -> Bool {
     return self.match(
-      valid: { _ => false },
-      invalid: { _ => false },
-      overrun: { _ => true },
-      interesting: { _ => false }
+      valid: |_| { false },
+      invalid: |_| { false },
+      overrun: |_| { true },
+      interesting: |_| { false }
     )
   }
 
   failed -> Bool {
     return self.match(
-      valid: { _ => false },
-      invalid: { _ => false },
-      overrun: { _ => false },
-      interesting: { _ => true }
+      valid: |_| { false },
+      invalid: |_| { false },
+      overrun: |_| { false },
+      interesting: |_| { true }
     )
   }
 
   tape -> Any {
     return self.match(
-      valid: { value => value.example },
-      invalid: { value => value.example },
-      overrun: { value => value.example },
-      interesting: { value => value.example }
+      valid: |value| { value.example },
+      invalid: |value| { value.example },
+      overrun: |value| { value.example },
+      interesting: |value| { value.example }
     )
   }
 
   args -> List<Any> {
     return self.match(
-      valid: { value => value.arguments },
-      invalid: { value => value.arguments },
-      overrun: { value => value.arguments },
-      interesting: { value => value.arguments }
+      valid: |value| { value.arguments },
+      invalid: |value| { value.arguments },
+      overrun: |value| { value.arguments },
+      interesting: |value| { value.arguments }
     )
   }
 
   error -> Any {
     return self.match(
-      valid: { _ => None },
-      invalid: { value => value.reason },
-      overrun: { value => value.reason },
-      interesting: { value => value.failure.error }
+      valid: |_| { None },
+      invalid: |value| { value.reason },
+      overrun: |value| { value.reason },
+      interesting: |value| { value.failure.error }
     )
   }
 
   context -> Any {
     return self.match(
-      valid: { value => value.context },
-      invalid: { value => value.context },
-      overrun: { value => value.context },
-      interesting: { value => value.context }
+      valid: |value| { value.context },
+      invalid: |value| { value.context },
+      overrun: |value| { value.context },
+      interesting: |value| { value.context }
     )
   }
 }
@@ -203,69 +203,69 @@ class PropertyResult {
 
   passed -> Bool {
     return self.match(
-      passed: { _ => true },
-      falsified: { _ => false },
-      inconclusive: { _ => false },
-      errored: { _ => false }
+      passed: |_| { true },
+      falsified: |_| { false },
+      inconclusive: |_| { false },
+      errored: |_| { false }
     )
   }
 
   failed -> Bool {
     return self.match(
-      passed: { _ => false },
-      falsified: { _ => true },
-      inconclusive: { _ => false },
-      errored: { _ => true }
+      passed: |_| { false },
+      falsified: |_| { true },
+      inconclusive: |_| { false },
+      errored: |_| { true }
     )
   }
 
   name -> Any {
     return self.match(
-      passed: { value => value.id },
-      falsified: { value => value.id },
-      inconclusive: { value => value.id },
-      errored: { value => value.id }
+      passed: |value| { value.id },
+      falsified: |value| { value.id },
+      inconclusive: |value| { value.id },
+      errored: |value| { value.id }
     )
   }
 
   stats -> Statistics {
     return self.match(
-      passed: { value => value.statistics },
-      falsified: { value => value.statistics },
-      inconclusive: { value => value.statistics },
-      errored: { value => value.statistics }
+      passed: |value| { value.statistics },
+      falsified: |value| { value.statistics },
+      inconclusive: |value| { value.statistics },
+      errored: |value| { value.statistics }
     )
   }
 
   error -> Any {
     return self.match(
-      passed: { _ => None },
-      falsified: { value => value.failure.error },
-      inconclusive: { value =>
+      passed: |_| { None },
+      falsified: |value| { value.failure.error },
+      inconclusive: |value| {
         if value.reason.isA(Error) {
           return value.reason
         }
         return errors._InconclusiveProperty.new(value.reason.toString)
       },
-      errored: { value => value.error }
+      errored: |value| { value.error }
     )
   }
 
   args -> List<Any> {
     return self.match(
-      passed: { _ => const [] },
-      falsified: { value => value.failure.arguments },
-      inconclusive: { _ => const [] },
-      errored: { _ => const [] }
+      passed: |_| { const [] },
+      falsified: |value| { value.failure.arguments },
+      inconclusive: |_| { const [] },
+      errored: |_| { const [] }
     )
   }
 
   tape -> Any {
     return self.match(
-      passed: { _ => None },
-      falsified: { value => Some.new(value.failure.example) },
-      inconclusive: { _ => None },
-      errored: { _ => None }
+      passed: |_| { None },
+      falsified: |value| { Some.new(value.failure.example) },
+      inconclusive: |_| { None },
+      errored: |_| { None }
     )
   }
 }

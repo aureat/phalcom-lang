@@ -43,17 +43,17 @@ class Simpson {
 }
 
 // --- a rational integrand whose exact integral is pi ----------------------
-System.print(Check.approx(Simpson.integrate(x => 4 / (1 + x * x), 0, 1, 1000),
+System.print(Check.approx(Simpson.integrate( |x| 4 / (1 + x * x), 0, 1, 1000),
                           3.141592653589793))                 // true
 
 // --- polynomials: Simpson is exact for degree <= 3 ------------------------
-System.print(Check.approx(Simpson.integrate(x => 3 * x * x, 0, 1, 100), 1))      // true
-System.print(Check.approx(Simpson.integrate(x => x, 0, 2, 100), 2))              // true
-System.print(Check.approx(Simpson.integrate(x => x * x * x, 0, 2, 100), 4))      // true (2^4/4)
-System.print(Check.approx(Simpson.integrate(x => x * x, 0, 1, 1000), 1 / 3))     // true
+System.print(Check.approx(Simpson.integrate( |x| 3 * x * x, 0, 1, 100), 1))      // true
+System.print(Check.approx(Simpson.integrate( |x| x, 0, 2, 100), 2))              // true
+System.print(Check.approx(Simpson.integrate( |x| x * x * x, 0, 2, 100), 4))      // true (2^4/4)
+System.print(Check.approx(Simpson.integrate( |x| x * x, 0, 1, 1000), 1 / 3))     // true
 
 // --- linearity: integral(f) + integral(g) == integral(f+g) ----------------
-const a = Simpson.integrate(x => x * x, 0, 1, 500)
-const b = Simpson.integrate(x => x, 0, 1, 500)
-const ab = Simpson.integrate(x => x * x + x, 0, 1, 500)
+const a = Simpson.integrate( |x| x * x, 0, 1, 500)
+const b = Simpson.integrate( |x| x, 0, 1, 500)
+const ab = Simpson.integrate( |x| x * x + x, 0, 1, 500)
 System.print(Check.approx(a + b, ab))                          // true

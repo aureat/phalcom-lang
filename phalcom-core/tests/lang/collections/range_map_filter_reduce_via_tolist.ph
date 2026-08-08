@@ -11,13 +11,13 @@
 // catalog-delta.md) — `filter` is Phalcom's name for Wren's `where`.
 
 const r = Range.new(1, 3, true)
-const mapped = r.toList.map { x => x + 1 }.toList
+const mapped = r.toList.map |x| { x + 1 }.toList
 System.print(mapped)
-const filtered = r.toList.filter { x => x > 1 }
+const filtered = r.toList.filter |x| { x > 1 }
 System.print(filtered)
-const emptyFiltered = r.toList.filter { x => x > 10 }
+const emptyFiltered = r.toList.filter |x| { x > 10 }
 System.print(emptyFiltered)
-const summed = Range.new(1, 10, true).toList.reduce(0) { acc, x => acc + x }
+const summed = Range.new(1, 10, true).toList.reduce(0) |acc, x| { acc + x }
 System.print(summed)
-const smallest = Range.new(1, 10, true).toList.reduce(100) { acc, x => (acc < x).ifTrue({ acc }, ifFalse: { x }) }
+const smallest = Range.new(1, 10, true).toList.reduce(100) |acc, x| { (acc < x).ifTrue({ acc }, ifFalse: { x }) }
 System.print(smallest)

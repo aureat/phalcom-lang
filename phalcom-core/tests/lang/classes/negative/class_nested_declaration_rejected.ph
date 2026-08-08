@@ -3,8 +3,7 @@
 // error carries a real span) and is then rejected with
 // `class.nested_declaration` — the ban is a syntax rule enforced by position,
 // not a compile-time invariant.
-class Outer {
-    make => {
+class Outer make => {
         class Inner {}
         Inner.new()
     }

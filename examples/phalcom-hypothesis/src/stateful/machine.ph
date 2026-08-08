@@ -97,7 +97,7 @@ class _StatefulDiscovery {
 
   @class
   stableSelectors(machineClass: Class) -> List<Symbol> {
-    return machineClass.methods.toList.sorted { left, right =>
+    return machineClass.methods.toList.sorted |left, right| {
       left.toString < right.toString
     }
   }

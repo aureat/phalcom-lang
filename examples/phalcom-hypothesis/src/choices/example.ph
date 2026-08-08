@@ -155,7 +155,7 @@ class Example {
   }
 
   toString -> String {
-    return "[" + _choiceValues.map { choice => choice.value }.join(", ") + "]"
+    return "[" + _choiceValues.map |choice| { choice.value }.join(", ") + "]"
   }
 }
 

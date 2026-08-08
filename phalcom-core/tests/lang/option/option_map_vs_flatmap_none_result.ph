@@ -7,5 +7,5 @@
 // block returning `None` propagates as the bare `None` (`isSome` false).
 // This is the one-level-flatten distinction between the two combinators.
 
-System.print(Some.new(5).map { v => None }.isSome)
-System.print(Some.new(5).flatMap { v => None }.isSome)
+System.print(Some.new(5).map |v| { None }.isSome)
+System.print(Some.new(5).flatMap |v| { None }.isSome)

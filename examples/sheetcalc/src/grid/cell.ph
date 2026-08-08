@@ -5,8 +5,7 @@ import "../value/cell_value" as Value
 /// Base Cell class. Two variants: LiteralCell (value is source of truth) or
 /// FormulaCell (value is cached, may go stale). Evaluation is driven externally
 /// by Engine.recalc(), not by the Cell itself (REQ-GRID-1, REQ-GRID-2).
-class Cell {
-  isFormula => false
+class Cell isFormula => false
   isDirty   => false
 }
 

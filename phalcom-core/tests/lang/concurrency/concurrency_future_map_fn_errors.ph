@@ -9,13 +9,13 @@
 // otherwise-uncaught raise is captured via `try()` instead of escaping to
 // the top level.
 const f = Fiber.new {
-  Future.value(1).map { v => v.frobnicate() }
+  Future.value(1).map |v| { v.frobnicate() }
 }
 const r = f.try()
 System.print(r.class.name)
 
 const g = Fiber.new {
-  Future.value(1).then { v => v.frobnicate() }
+  Future.value(1).then |v| { v.frobnicate() }
 }
 const r2 = g.try()
 System.print(r2.class.name)

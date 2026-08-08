@@ -23,10 +23,10 @@ const labels = List.new()
 for item in choices {
   labels.add(
     item.match(
-      integer: { value => value.label.unwrap },
-      boolean: { value => value.label.unwrap },
-      index: { value => value.label.unwrap },
-      bytes: { value => value.label.unwrap }
+      integer: |value| { value.label.unwrap },
+      boolean: |value| { value.label.unwrap },
+      index: |value| { value.label.unwrap },
+      bytes: |value| { value.label.unwrap }
     )
   )
 }

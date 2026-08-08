@@ -48,7 +48,7 @@ class StrategyRegistry {
   register(provider: Class) -> StrategyRegistry {
     const receiver = provider.new()
     const declaredTargets = Map.new()
-    const selectors = provider.methods.toList.sorted { left, right =>
+    const selectors = provider.methods.toList.sorted |left, right| {
       left.toString < right.toString
     }
     for selector in selectors {
@@ -234,8 +234,8 @@ class StrategyRegistry {
       self.forType(type)
       true
     }.attempt().match(
-      ok: { value => value },
-      error: { _ => false }
+      ok: |value| { value },
+      error: |_| { false }
     )
   }
 

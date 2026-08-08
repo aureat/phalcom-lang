@@ -28,4 +28,4 @@ const failing = Fiber.new {
 System.print(failing.error)
 const result = failing.try()
 System.print(result.message)
-System.print(failing.error.match(some: { e => e.message }, none: { "none" }))
+System.print(failing.error.match(some: |e| { e.message }, none: { "none" }))

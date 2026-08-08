@@ -27,7 +27,7 @@ const settings = Settings.standard.phases(
 )
 const spec = PropertySpec.check(
   id: #integerMinimum,
-  target: { n => Assert.isTrue(n < 10) },
+  target: |n| { Assert.isTrue(n < 10) },
   strategies: const [Gen.int(min: 0, max: 100)],
   explicitExamples: const [],
   reuseExamples: const [seedExample],

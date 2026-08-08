@@ -25,7 +25,7 @@
 /// checked at every public call boundary and harvested into the doc's contract
 /// view. This class is the classic Eiffel example, which is the point: contracts
 /// are the specification, Phaldoc supplies only the intent around them.
-@invariant(() => _balance >= 0)
+@invariant(|| _balance >= 0)
 class BankAccount {
   /// Add funds. The precondition and postcondition are the spec; this `///`
   /// only says *why* the method exists. Note the absence of a prose
@@ -115,5 +115,5 @@ class Cart {
   /// The running total. `@computed` memoizes and recomputes when `_items` goes
   /// dirty; the glitch policy (recompute once after inputs settle) is a
   /// documented semantic, not an accident.
-  @computed total => _items.fold(0) { s, it => s + it.price }
+  @computed total => _items.fold(0) |s, it| { s + it.price }
 }

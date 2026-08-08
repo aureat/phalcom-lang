@@ -6,5 +6,5 @@
 // The `Some` case prints the value (7) then chains `map`+`unwrapOr` (-> 8);
 // the `None` case prints nothing and falls through to the default (99).
 
-System.print(Some.new(7).ifSome { v => System.print(v) }.map { v => v + 1 }.unwrapOr(0))
-System.print(None.ifSome { v => System.print(v) }.unwrapOr(99))
+System.print(Some.new(7).ifSome |v| { System.print(v) }.map |v| { v + 1 }.unwrapOr(0))
+System.print(None.ifSome |v| { System.print(v) }.unwrapOr(99))

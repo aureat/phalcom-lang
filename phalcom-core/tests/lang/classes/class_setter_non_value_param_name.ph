@@ -2,8 +2,7 @@
 // spec: classes.md; selectors.md
 // status: PASS
 
-class Person {
-  name => _name
+class Person name => _name
   @constructor
   new(_ n) {
     _name = n

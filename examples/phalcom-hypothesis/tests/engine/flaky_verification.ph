@@ -42,10 +42,10 @@ const spec = specification.PropertySpec.check(
 )
 const result = engine.SearchEngine.new().check(spec)
 Assert.isTrue(result.match(
-  passed: { _ => false },
-  falsified: { _ => false },
-  inconclusive: { _ => false },
-  errored: { value => value.error.isA(errors._FlakyFailure) }
+  passed: |_| { false },
+  falsified: |_| { false },
+  inconclusive: |_| { false },
+  errored: |value| { value.error.isA(errors._FlakyFailure) }
 ))
 
 System.print("PASS engine flaky verification")

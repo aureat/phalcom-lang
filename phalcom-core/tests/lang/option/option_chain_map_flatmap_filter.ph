@@ -6,5 +6,5 @@
 // `unwrapOr`; the second gets collapsed to `None` by `filter`'s predicate
 // partway through, so `unwrapOr` falls back to its default.
 
-System.print(Some.new(5).map { v => v + 1 }.flatMap { v => Some.new(v * 2) }.filter { v => v > 10 }.unwrapOr(-1))
-System.print(Some.new(1).map { v => v + 1 }.flatMap { v => Some.new(v * 2) }.filter { v => v > 10 }.unwrapOr(-1))
+System.print(Some.new(5).map |v| { v + 1 }.flatMap |v| { Some.new(v * 2) }.filter |v| { v > 10 }.unwrapOr(-1))
+System.print(Some.new(1).map |v| { v + 1 }.flatMap |v| { Some.new(v * 2) }.filter |v| { v > 10 }.unwrapOr(-1))

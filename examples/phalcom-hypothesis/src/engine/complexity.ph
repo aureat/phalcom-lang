@@ -69,15 +69,15 @@ class _ComplexityWeights {
   @class
   choice(choice: Choice) -> Int {
     return choice.match(
-      integer: { value => self.abs(value.value - value.shrinkTowards) },
-      boolean: { value =>
+      integer: |value| { self.abs(value.value - value.shrinkTowards) },
+      boolean: |value| {
         if value.value == value.shrinkTowards {
           return 0
         }
         return 1
       },
-      index: { value => self.abs(value.value - value.shrinkTowards) },
-      bytes: { value => self.bytes(value.value, target: value.shrinkTowards) }
+      index: |value| { self.abs(value.value - value.shrinkTowards) },
+      bytes: |value| { self.bytes(value.value, target: value.shrinkTowards) }
     )
   }
 

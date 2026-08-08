@@ -147,7 +147,7 @@ System.print(Check.within(MC.eEstimate(g5, 200000), 2.718281828459045, 0.02))  /
 
 // --- Monte Carlo integration cross-checked against exact integrals --------
 const g6 = Rng.seed(555)
-System.print(Check.within(MC.integrate(g6, x => 3 * x * x, 300000), 1, 0.02))  // true (int 3x^2 = 1)
+System.print(Check.within(MC.integrate(g6, |x| 3 * x * x, 300000), 1, 0.02))  // true (int 3x^2 = 1)
 const g7 = Rng.seed(777)
-System.print(Check.within(MC.integrate(g7, x => 4 / (1 + x * x), 300000),
+System.print(Check.within(MC.integrate(g7, |x| 4 / (1 + x * x), 300000),
                           3.141592653589793, 0.02))                            // true (-> pi)

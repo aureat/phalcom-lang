@@ -2,8 +2,7 @@
 // spec: classes.md; messages-and-selectors.md
 // status: PASS
 
-class Pt {
-  x => _x
+class Pt x => _x
   @constructor
   new(_ x) {
     _x = x

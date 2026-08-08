@@ -33,6 +33,6 @@ Assert.true(token.text.startsWith("phalcom-hypothesis:v1:"))
 const result = Reproduction.replay(
   token: token,
   strategies: const [Gen.int(min: 0, max: 100)],
-  target: { value => Assert.true(value < 10) }
+  target: |value| { Assert.true(value < 10) }
 )
 Assert.true(result.failed)

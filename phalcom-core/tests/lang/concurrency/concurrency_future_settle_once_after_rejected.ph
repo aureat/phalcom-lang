@@ -16,5 +16,5 @@ f.settleError(secondErr)
 f.settleValue(1)
 System.print(f.isReady)
 System.print(f.value)
-const caught = f.catch { e => (e == firstErr) }
+const caught = f.catch |e| { (e == firstErr) }
 System.print(caught.value)

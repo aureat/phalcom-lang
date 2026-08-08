@@ -9,8 +9,8 @@
 // both `then` and `catch` and observing the identical captured `Error`.
 const boom = Error.new()
 const rejected = Future.error(boom)
-const skipped = rejected.then { v => v + 1 }
+const skipped = rejected.then |v| { v + 1 }
 System.print(skipped.isReady)
 System.print(skipped.value)
-const recovered = rejected.catch { e => (e == boom) }
+const recovered = rejected.catch |e| { (e == boom) }
 System.print(recovered.value)

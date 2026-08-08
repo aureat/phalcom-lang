@@ -14,7 +14,7 @@ class Adder {
   }
   sum(*numbers) {
     let total = 0
-    numbers.each({ n => total = total + n })
+    numbers.each(|n| { total = total + n })
     return total
   }
 }

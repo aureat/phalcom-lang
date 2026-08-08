@@ -18,4 +18,4 @@ const key = DatabaseKey.create(
 )
 const database = MemoryDatabase.new(maxEntries: 3)
 for value in [1, 2, 3, 4, 5] { database.save(key, example(value)) }
-Assert.equal(const [5, 4, 3], database.fetch(key).map { item => item.at(0).value })
+Assert.equal(const [5, 4, 3], database.fetch(key).map |item| { item.at(0).value })

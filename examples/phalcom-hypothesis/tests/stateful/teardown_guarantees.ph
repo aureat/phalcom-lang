@@ -13,7 +13,7 @@ import Stateful from hypothesis
 
 const TeardownRecords = List.new()
 const RejectingInt = Gen.int.filter(
-  { _ => false },
+  |_| { false },
   maxAttempts: 1
 )
 const DependencyValues = Bundle<Int>.new(#dependency)

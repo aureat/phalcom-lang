@@ -16,10 +16,10 @@ const suite = PropertyRunner.run(
   reporter: reporter
 )
 const failure = suite.runs.at(0).result.match(
-  passed: { _ => throw Error.new("expected failure") },
-  falsified: { value => value.failure },
-  inconclusive: { value => throw value.reason },
-  errored: { value => throw value.error }
+  passed: |_| { throw Error.new("expected failure") },
+  falsified: |value| { value.failure },
+  inconclusive: |value| { throw value.reason },
+  errored: |value| { throw value.error }
 )
 Assert.equal(2, failure.notes.size)
 Assert.equal(10, failure.notes.at(1))

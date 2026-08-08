@@ -5,4 +5,4 @@
 // which receives no argument — the substrate eliminator that every U-STD
 // combinator (`unwrapOr`/`orElse`/…) is later defined over.
 
-System.print(None.match(some: { v => v }, none: { 0 }))
+System.print(None.match(some: |v| { v }, none: { 0 }))

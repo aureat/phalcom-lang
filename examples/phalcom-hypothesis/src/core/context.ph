@@ -22,7 +22,7 @@ class _PropertyContext {
 
   events -> Map<Symbol, Int> {
     const copied = Map.new()
-    _events.each { label, count =>
+    _events.each |label, count| {
       copied.at(label, put: count)
     }
     return copied

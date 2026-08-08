@@ -6,5 +6,5 @@
 // strict — too few arguments also raises `RuntimeError::Arity`, matching
 // the extra-arguments case (`functions_call_extra_arguments.ph`).
 
-const f2 = { a, b => System.print(a + b) }
+const f2 = |a, b| { System.print(a + b) }
 f2.call("a")

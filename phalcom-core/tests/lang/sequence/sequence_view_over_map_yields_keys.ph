@@ -4,7 +4,7 @@
 // Views over Map correctly yield keys (Map's for yields keys, not values)
 
 let map = {a: 1, b: 2, c: 3}
-let view = MapView.new(map, { x => x })
+let view = MapView.new(map, |x| { x })
 let result = []
 for (x in view) {
   result.add(x)

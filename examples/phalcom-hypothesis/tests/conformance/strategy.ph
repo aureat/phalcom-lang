@@ -11,7 +11,7 @@ class ConstantStrategy is StrategyBase<Int> {
 }
 
 const strategy: Strategy<Int> = ConstantStrategy.new()
-const mapped = strategy.map { value => value + 1 }
+const mapped = strategy.map |value| { value + 1 }
 const data = DrawData.new(
   provider: ScriptedChoiceProvider.new(const []),
   generationSize: 0,

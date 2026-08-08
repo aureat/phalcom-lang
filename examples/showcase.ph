@@ -40,14 +40,14 @@ class Stack {
 
   // Higher-order method: fold with a caller-supplied 2-arity block.
   fold(_ seed, _ f) {
-    return _items.reduce(seed) { acc, x => f.call(acc, x) }
+    return _items.reduce(seed) |acc, x| { f.call(acc, x) }
   }
 
   // Operator overloading: `+` concatenates two stacks.
   +(_ other) {
     let out = List.new()
-    _items.each { x => out.add(x) }
-    other.eachItem { x => out.add(x) }
+    _items.each |x| { out.add(x) }
+    other.eachItem |x| { out.add(x) }
     return Stack.new(items: out)
   }
 
@@ -79,11 +79,11 @@ System.print(s.toString)                 // Stack(size: 3)
 System.print("empty? \(s.isEmpty)")      // empty? false
 
 // Option-returning peek, handled without nil.
-s.top.ifSome { v => System.print("top is \(v)") }        // top is 30
+s.top.ifSome |v| { System.print("top is \(v)") }        // top is 30
 Stack.empty.top.ifNone { System.print("nothing to peek") } // nothing to peek
 
 // Higher-order fold with a two-argument block.
-const sum = s.fold(0) { acc, x => acc + x }
+const sum = s.fold(0) |acc, x| { acc + x }
 System.print("sum = \(sum)")             // sum = 60
 
 // Operator overloading: concatenation.

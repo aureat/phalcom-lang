@@ -33,8 +33,8 @@ class PropertyRun {
 
   explicitFailure -> Bool {
     return _result.match(
-      passed: { _ => false },
-      falsified: { value =>
+      passed: |_| { false },
+      falsified: |value| {
         if value.failure.example != Example.empty {
           return false
         }
@@ -43,8 +43,8 @@ class PropertyRun {
           target: value.failure.arguments
         )
       },
-      inconclusive: { _ => false },
-      errored: { _ => false }
+      inconclusive: |_| { false },
+      errored: |_| { false }
     )
   }
 
@@ -83,10 +83,10 @@ class PropertySuiteResult {
     const lines = List.new()
     for run in _runs {
       run.result.match(
-        passed: { _ => lines.add("PASS " + run.id.toString) },
-        falsified: { _ => lines.add("FAIL " + run.id.toString) },
-        inconclusive: { _ => lines.add("INCONCLUSIVE " + run.id.toString) },
-        errored: { _ => lines.add("ERROR " + run.id.toString) }
+        passed: |_| { lines.add("PASS " + run.id.toString) },
+        falsified: |_| { lines.add("FAIL " + run.id.toString) },
+        inconclusive: |_| { lines.add("INCONCLUSIVE " + run.id.toString) },
+        errored: |_| { lines.add("ERROR " + run.id.toString) }
       )
     }
     lines.add("")
@@ -214,8 +214,8 @@ class _PropertyReuse {
     const database = settings.databaseValue.unwrap
     const key = definition.databaseKey
     result.match(
-      passed: { _ => self.deleteStale(database: database, key: key, stale: reused) },
-      falsified: { value =>
+      passed: |_| { self.deleteStale(database: database, key: key, stale: reused) },
+      falsified: |value| {
         const accepted = value.failure.example
         if accepted == Example.empty and _RunnerLists.includes(
           values: definition.explicitExamples,
@@ -236,8 +236,8 @@ class _PropertyReuse {
         }
         self.deleteStale(database: database, key: key, stale: stale)
       },
-      inconclusive: { _ => self.deleteStale(database: database, key: key, stale: reused) },
-      errored: { _ => self.deleteStale(database: database, key: key, stale: reused) }
+      inconclusive: |_| { self.deleteStale(database: database, key: key, stale: reused) },
+      errored: |_| { self.deleteStale(database: database, key: key, stale: reused) }
     )
   }
 

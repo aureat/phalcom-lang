@@ -9,5 +9,5 @@ l.add(1)
 l.add(2)
 l.add(3)
 let sum = 0
-l.each({ v => sum = sum + v })
+l.each(|v| { sum = sum + v })
 System.print(sum)

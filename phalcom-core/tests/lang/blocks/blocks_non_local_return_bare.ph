@@ -8,7 +8,7 @@
 // re-entrant `block_call` just like the value-carrying case.
 class Finder {
   firstNeg(_ numbers) {
-    numbers.each { n =>
+    numbers.each |n| {
       (n < 0).ifTrue { return }
     }
     return 99

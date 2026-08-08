@@ -7,4 +7,4 @@
 // branch and yields the wrapped value.
 
 const o = Some.new(42)
-System.print(o.match(some: { v => v }, none: { 0 }))
+System.print(o.match(some: |v| { v }, none: { 0 }))

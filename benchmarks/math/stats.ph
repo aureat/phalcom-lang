@@ -9,8 +9,8 @@
 //   [a, b, c]           list literal
 //   xs.size             element count
 //   xs[i]               indexing (returns element; see U-INDEX and ADR-0060)
-//   for (x in xs) {..}  === xs.each { x => .. }
-//   xs.reduce(init) { acc, x => .. }   left fold
+//   for (x in xs) {..}  === xs.each |x| { .. }
+//   xs.reduce(init) |acc, x| { .. }   left fold
 // Verifies via identities (independent of hardcoded results):
 //   sum via reduce == sum via for-loop
 //   two-pass variance == E[x^2] - E[x]^2
@@ -30,7 +30,7 @@ class Check {
 class Stats {
   @class
   sum(_ xs) {
-    return xs.reduce(0) { acc, x => acc + x }
+    return xs.reduce(0) |acc, x| { acc + x }
   }
 
   @class
@@ -99,6 +99,6 @@ System.print(Stats.variance(data) >= 0)                        // true
 System.print(Stats.median(data) == (15 + 16) / 2)              // true  (== 15.5)
 
 // --- shifting all data by c shifts the mean by c, variance unchanged ------
-const shifted = data.map { x => x + 100 }
+const shifted = data.map |x| { x + 100 }
 System.print(Stats.mean(shifted) == Stats.mean(data) + 100)                    // true
 System.print(Check.approx(Stats.variance(shifted), Stats.variance(data)))      // true

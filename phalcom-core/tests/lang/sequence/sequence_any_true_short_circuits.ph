@@ -4,7 +4,7 @@
 // any(f) short-circuits when predicate succeeds, proven by counter
 
 let counter = 0
-let pred = { x =>
+let pred = |x| {
   counter = counter + 1
   x > 3
 }

@@ -25,16 +25,16 @@ class ConsoleReporter {
 
   handle(event: ReportEvent) -> None {
     event.match(
-      suiteStarted: { _ => None },
-      propertyStarted: { _ => None },
-      phaseStarted: { _ => None },
-      exampleAccepted: { _ => None },
-      exampleRejected: { _ => None },
-      failureFound: { _ => None },
-      shrinkAccepted: { _ => None },
-      healthCheckFailed: { _ => None },
-      propertyFinished: { value => self.renderRun(value.run) },
-      suiteFinished: { value => self.renderSuiteSummary(value.result) }
+      suiteStarted: |_| { None },
+      propertyStarted: |_| { None },
+      phaseStarted: |_| { None },
+      exampleAccepted: |_| { None },
+      exampleRejected: |_| { None },
+      failureFound: |_| { None },
+      shrinkAccepted: |_| { None },
+      healthCheckFailed: |_| { None },
+      propertyFinished: |value| { self.renderRun(value.run) },
+      suiteFinished: |value| { self.renderSuiteSummary(value.result) }
     )
   }
 
@@ -53,40 +53,40 @@ class ConsoleReporter {
 
   handlePropertyResult(result: Any) -> None {
     result.match(
-      passed: { value => self.line("PASS " + value.id.toString) },
-      falsified: { value =>
+      passed: |value| { self.line("PASS " + value.id.toString) },
+      falsified: |value| {
         self.line("FAIL " + value.id.toString)
         self.renderFailure(value.failure, names: const [])
       },
-      inconclusive: { value =>
+      inconclusive: |value| {
         self.line("INCONCLUSIVE " + value.id.toString)
         self.line("  " + value.reason.toString)
       },
-      errored: { value => self.renderError(id: value.id, error: value.error) }
+      errored: |value| { self.renderError(id: value.id, error: value.error) }
     )
   }
 
   renderRun(run: Any) -> None {
     run.result.match(
-      passed: { value =>
+      passed: |value| {
         self.line("PASS " + run.id.toString)
         self.renderStatistics(value.statistics)
       },
-      falsified: { value =>
+      falsified: |value| {
         self.line("FAIL " + run.id.toString)
         self.renderFailure(value.failure, names: run.parameterNames)
         self.renderObservations(value.statistics)
         reproduction.Reproduction.fromRun(run).match(
-          some: { token => self.line("Reproduce: " + token.text) },
-          none: { _ => None }
+          some: |token| { self.line("Reproduce: " + token.text) },
+          none: |_| { None }
         )
       },
-      inconclusive: { value =>
+      inconclusive: |value| {
         self.line("INCONCLUSIVE " + run.id.toString)
         self.line("  " + value.reason.toString)
         self.renderStatistics(value.statistics)
       },
-      errored: { value =>
+      errored: |value| {
         self.renderError(id: run.id, error: value.error)
         self.renderStatistics(value.statistics)
       }
@@ -252,7 +252,7 @@ class PropertyReporter {
 class _ConsoleOrdering {
   @class
   symbols(values: Map<Symbol, Int>) -> List<Symbol> {
-    return values.keys.toList.sorted { left, right =>
+    return values.keys.toList.sorted |left, right| {
       left.toString < right.toString
     }
   }

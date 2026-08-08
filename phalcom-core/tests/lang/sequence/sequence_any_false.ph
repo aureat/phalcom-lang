@@ -3,5 +3,5 @@
 // status: PASS
 // any(f) returns false when predicate is false for all elements
 
-System.print([1, 2, 3].any { x => x > 5 })
-System.print([1, 2, 3].any { x => x == 10 })
+System.print([1, 2, 3].any |x| { x > 5 })
+System.print([1, 2, 3].any |x| { x == 10 })

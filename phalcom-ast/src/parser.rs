@@ -966,6 +966,7 @@ impl<'source> Parser<'source> {
                 | Token::Not
                 | Token::Minus
                 | Token::LBrace
+                | Token::Pipe
                 | Token::If
                 | Token::While
                 // Range endpoints may be omitted; accept `..` / `..=` as
@@ -2512,7 +2513,7 @@ impl<'source> Parser<'source> {
                         range,
                     })),
                 };
-                trailing_target = false;
+                trailing_target = true;
             } else if self.eat(&Token::LBracket) {
                 // U-INDEX (ADR-0060): the bracket's contents are a full
                 // call-shaped argument list — positional + `label:`,
@@ -4164,5 +4165,18 @@ mod tests {
         };
         assert_eq!(call.method, "map");
         assert!(matches!(call.args[0].expr, Expr::Block(ref block) if block.expr_body));
+
+        let Statement::Return(return_statement) = only_statement("return || { 1 }.on(Error) |e| { e }") else {
+            panic!("expected return statement");
+        };
+        let Some(expr) = return_statement.value else {
+            panic!("expected return value");
+        };
+        let Expr::MethodCall(call) = expr else {
+            panic!("expected method call");
+        };
+        assert_eq!(call.method, "on");
+        assert_eq!(call.args.len(), 2);
+        assert!(matches!(call.args[1].expr, Expr::Block(_)));
     }
 }

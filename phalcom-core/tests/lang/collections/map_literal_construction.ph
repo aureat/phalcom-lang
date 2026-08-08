@@ -20,7 +20,7 @@ System.print(m)
 System.print(m.size)
 System.print(m.keys.toList)
 System.print(m.values.toList)
-m.each { k, v =>
+m.each |k, v| {
   System.print(k)
   System.print(v)
 }

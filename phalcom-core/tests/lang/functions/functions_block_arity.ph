@@ -6,5 +6,5 @@
 // values already (`{ }`), with no `Fn.new` wrapper needed.
 
 System.print({ 0 }.arity)
-System.print({ a => a }.arity)
-System.print({ a, b => a }.arity)
+System.print(|a| { a }.arity)
+System.print(|a, b| { a }.arity)

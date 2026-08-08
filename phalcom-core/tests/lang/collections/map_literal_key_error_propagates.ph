@@ -20,7 +20,7 @@ const caught = {
     [ExplodingKey.new()]: value.call(),
     [#later]: later.call(),
   }
-}.on(Error) { e => e.message }
+}.on(Error) |e| { e.message }
 
 System.print(caught)
 System.print(trace)

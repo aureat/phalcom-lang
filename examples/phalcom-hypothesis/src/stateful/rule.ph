@@ -64,8 +64,8 @@ class RuleDefinition {
 
   initializer -> Bool {
     return _kind.match(
-      initializer: { _ => true },
-      normal: { _ => false }
+      initializer: |_| { true },
+      normal: |_| { false }
     )
   }
 

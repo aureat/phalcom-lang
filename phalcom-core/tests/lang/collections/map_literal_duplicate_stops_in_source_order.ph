@@ -19,7 +19,7 @@ const caught = {
     [key2.call()]: value2.call(),
     [laterKey.call()]: laterValue.call(),
   }
-}.on(DuplicateKeyError) { e => e.message }
+}.on(DuplicateKeyError) |e| { e.message }
 
 System.print(caught)
 System.print(trace)

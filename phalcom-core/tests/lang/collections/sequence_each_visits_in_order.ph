@@ -7,4 +7,4 @@ const l = List.new()
 l.add(10)
 l.add(20)
 l.add(30)
-l.each { x => System.print(x) }
+l.each |x| { System.print(x) }

@@ -11,7 +11,7 @@
 // invokes through the re-entrant `block_call` path.
 
 const f = Fiber.new {
-  { throw Error.new("boom") }.on(Error) { e => Fiber.yield(1) }
+  { throw Error.new("boom") }.on(Error) |e| { Fiber.yield(1) }
 }
 const result = f.try()
 System.print(result.class.name)

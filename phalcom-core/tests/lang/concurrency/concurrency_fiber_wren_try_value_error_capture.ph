@@ -6,7 +6,7 @@
 // uncaught `doesNotUnderstand` failure raised partway through as the
 // delivered `Error`, letting the caller resume normally afterward.
 
-const fiber = Fiber.new { v =>
+const fiber = Fiber.new |v| {
   System.print("before")
   System.print(v)
   true.unknownMethod

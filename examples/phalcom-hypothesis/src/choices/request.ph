@@ -78,19 +78,19 @@ class ChoiceRequest {
 
   label -> Option<Symbol> {
     return self.match(
-      integer: { value => value.label },
-      boolean: { value => value.label },
-      index: { value => value.label },
-      bytes: { value => value.label }
+      integer: |value| { value.label },
+      boolean: |value| { value.label },
+      index: |value| { value.label },
+      bytes: |value| { value.label }
     )
   }
 
   shrinkTarget -> Any {
     return self.match(
-      integer: { value => value.shrinkTowards },
-      boolean: { value => value.shrinkTowards },
-      index: { value => value.shrinkTowards },
-      bytes: { value => _ChoiceRequestBytes.copy(value.shrinkTowards) }
+      integer: |value| { value.shrinkTowards },
+      boolean: |value| { value.shrinkTowards },
+      index: |value| { value.shrinkTowards },
+      bytes: |value| { _ChoiceRequestBytes.copy(value.shrinkTowards) }
     )
   }
 }

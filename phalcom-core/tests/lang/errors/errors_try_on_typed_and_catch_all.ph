@@ -1,7 +1,7 @@
 // area: errors
 // spec: error-handling.md §2; ADR-0031
 // status: PASS
-// `try`/`on T e {}`/`catch e {}` desugar to `.on(T){e=>}`/`.on(Error){e=>}`
+// `try`/`on T e {}`/`catch e {}` desugar to `.on(T)|e| {}`/`.on(Error)|e| {}`
 // (ADR-0031 §3). A typed `on` catches its class (and subclasses); an
 // untyped `catch` is the catch-all, since `Error` is the raisable root.
 

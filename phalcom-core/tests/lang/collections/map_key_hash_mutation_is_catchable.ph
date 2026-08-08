@@ -27,7 +27,7 @@ class BadKey {
 const a = BadKey.new()
 const b = BadKey.new()
 m.at(a, put: 1)
-const caught = { m.at(b, put: 2) }.on(Error) { e => e.message }
+const caught = { m.at(b, put: 2) }.on(Error) |e| { e.message }
 System.print(caught)
 System.print(m.size)
 System.print(m.includes(a))

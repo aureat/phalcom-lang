@@ -14,7 +14,7 @@ const Choice = choice.Choice
 const Example = example.Example
 const tree = Gen.recursive(
   base: Gen.just(#leaf),
-  extend: { child => Gen.build { draw =>
+  extend: |child| { Gen.build |draw| {
     draw.from(Gen.int(min: 0, max: 9))
     return draw.from(Gen.tuple(child, child))
   } }
@@ -32,7 +32,7 @@ const seedExample = Example.from(
 )
 const spec = specification.PropertySpec.check(
   id: #recursiveSubtree,
-  target: { value => Assert.isFalse(value.isA(Tuple)) },
+  target: |value| { Assert.isFalse(value.isA(Tuple)) },
   strategies: const [tree],
   explicitExamples: const [],
   reuseExamples: const [seedExample],

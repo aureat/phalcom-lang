@@ -40,7 +40,7 @@ class SystemRandomChoiceProvider {
   choose(request: ChoiceRequest) -> Choice {
     _consumedChoices++
     const source = request.match(
-      integer: { value =>
+      integer: |value| {
         Choice.integer(
           value: _random.nextIntIn(value.min, value.max),
           min: value.min,
@@ -49,14 +49,14 @@ class SystemRandomChoiceProvider {
           label: value.label
         )
       },
-      boolean: { value =>
+      boolean: |value| {
         Choice.boolean(
           value: _random.nextIntIn(0, 1) == 1,
           shrinkTowards: value.shrinkTowards,
           label: value.label
         )
       },
-      index: { value =>
+      index: |value| {
         Choice.index(
           value: _random.nextIntIn(0, value.size - 1),
           size: value.size,
@@ -64,7 +64,7 @@ class SystemRandomChoiceProvider {
           label: value.label
         )
       },
-      bytes: { value =>
+      bytes: |value| {
         const length = _random.nextIntIn(value.minSize, value.maxSize)
         const bytes = Bytes.zeroed(length)
         let position = 0
@@ -166,9 +166,9 @@ class _ChoiceNormalization {
   @class
   normalize(request: ChoiceRequest, source: Choice) -> Choice {
     return request.match(
-      integer: { expected =>
+      integer: |expected| {
         source.match(
-          integer: { actual =>
+          integer: |actual| {
             if actual.value < expected.min or actual.value > expected.max {
               throw errors._InvalidReplayChoice.new(
                 "integer provider value is outside the current request bounds"
@@ -182,30 +182,30 @@ class _ChoiceNormalization {
               label: expected.label
             )
           },
-          boolean: { _ => self.typeMismatch(#integer) },
-          index: { _ => self.typeMismatch(#integer) },
-          bytes: { _ => self.typeMismatch(#integer) }
+          boolean: |_| { self.typeMismatch(#integer) },
+          index: |_| { self.typeMismatch(#integer) },
+          bytes: |_| { self.typeMismatch(#integer) }
         )
       },
-      boolean: { expected =>
+      boolean: |expected| {
         source.match(
-          integer: { _ => self.typeMismatch(#boolean) },
-          boolean: { actual =>
+          integer: |_| { self.typeMismatch(#boolean) },
+          boolean: |actual| {
             return Choice.boolean(
               value: actual.value,
               shrinkTowards: expected.shrinkTowards,
               label: expected.label
             )
           },
-          index: { _ => self.typeMismatch(#boolean) },
-          bytes: { _ => self.typeMismatch(#boolean) }
+          index: |_| { self.typeMismatch(#boolean) },
+          bytes: |_| { self.typeMismatch(#boolean) }
         )
       },
-      index: { expected =>
+      index: |expected| {
         source.match(
-          integer: { _ => self.typeMismatch(#index) },
-          boolean: { _ => self.typeMismatch(#index) },
-          index: { actual =>
+          integer: |_| { self.typeMismatch(#index) },
+          boolean: |_| { self.typeMismatch(#index) },
+          index: |actual| {
             if actual.value < 0 or actual.value >= expected.size {
               throw errors._InvalidReplayChoice.new(
                 "index provider value is outside the current request domain"
@@ -218,15 +218,15 @@ class _ChoiceNormalization {
               label: expected.label
             )
           },
-          bytes: { _ => self.typeMismatch(#index) }
+          bytes: |_| { self.typeMismatch(#index) }
         )
       },
-      bytes: { expected =>
+      bytes: |expected| {
         source.match(
-          integer: { _ => self.typeMismatch(#bytes) },
-          boolean: { _ => self.typeMismatch(#bytes) },
-          index: { _ => self.typeMismatch(#bytes) },
-          bytes: { actual =>
+          integer: |_| { self.typeMismatch(#bytes) },
+          boolean: |_| { self.typeMismatch(#bytes) },
+          index: |_| { self.typeMismatch(#bytes) },
+          bytes: |actual| {
             if actual.value.size < expected.minSize or actual.value.size > expected.maxSize {
               throw errors._InvalidReplayChoice.new(
                 "bytes provider value violates the current size bounds"

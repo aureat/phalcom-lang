@@ -4,8 +4,8 @@
 // Lazy pipeline: where(p).map(f).take(3) composes view wrappers, allocates only wrappers until iteration
 
 let coll = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-let view = coll.where { x => x > 3 }
-let mapped = view.map { x => x * 2 }
+let view = coll.where |x| { x > 3 }
+let mapped = view.map |x| { x * 2 }
 let limited = mapped.take(3)
 let result = []
 for (x in limited) {

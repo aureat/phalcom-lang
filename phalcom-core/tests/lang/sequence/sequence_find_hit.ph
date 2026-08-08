@@ -3,6 +3,6 @@
 // status: PASS
 // find(f) returns Some(x) when element is found
 
-let result = [1, 2, 3, 4].find { x => x == 3 }
+let result = [1, 2, 3, 4].find |x| { x == 3 }
 System.print(result.class.name)
-result.match(some: { x => System.print(x) }, none: { System.print("not found") })
+result.match(some: |x| { System.print(x) }, none: { System.print("not found") })

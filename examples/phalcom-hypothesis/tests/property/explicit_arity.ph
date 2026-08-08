@@ -20,8 +20,8 @@ const outcome = {
 }.attempt()
 
 outcome.match(
-  ok: { _ => Assert.fail("expected explicit strategy arity failure") },
-  error: { error =>
+  ok: |_| { Assert.fail("expected explicit strategy arity failure") },
+  error: |error| {
     Assert.true(error.isA(PropertyDiscoveryError))
     Assert.true(error.message.unwrap.includes("expected 2 strategies, received 1"))
   }

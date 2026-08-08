@@ -35,7 +35,7 @@ const doomed = Fiber.new {
 }
 doomed.try()
 System.print("doomed died: " + doomed.isDone.toString)
-g.then { v => System.print("healthy waiter still ran with " + v.toString) }
+g.then |v| { System.print("healthy waiter still ran with " + v.toString) }
 g.settleValue(7)
 System.runScheduled()
 

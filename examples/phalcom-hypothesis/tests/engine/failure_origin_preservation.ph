@@ -46,7 +46,7 @@ const seedExample = example.Example.from(
 )
 const spec = specification.PropertySpec.check(
   id: #originBoundary,
-  target: { n =>
+  target: |n| {
     if n >= 20 {
       throw OriginError.new(late)
     }
@@ -63,10 +63,10 @@ const spec = specification.PropertySpec.check(
 const result = engine.SearchEngine.new().check(spec)
 Assert.equal(20, result.args.at(0))
 Assert.isTrue(result.match(
-  passed: { _ => false },
-  falsified: { value => value.failure.origin.sameSite(late) },
-  inconclusive: { _ => false },
-  errored: { _ => false }
+  passed: |_| { false },
+  falsified: |value| { value.failure.origin.sameSite(late) },
+  inconclusive: |_| { false },
+  errored: |_| { false }
 ))
 
 System.print("PASS engine failure origin preservation")

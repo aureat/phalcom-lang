@@ -22,7 +22,7 @@ class AppliedType is Descriptors.TypeDescriptor {
 
   displayName -> String {
     const rendered = _arguments
-      .map { argument => argument.displayName }
+      .map |argument| { argument.displayName }
       .joined(", ")
 
     return "\(_origin.displayName)<\(rendered)>"
@@ -47,8 +47,8 @@ class AppliedType is Descriptors.TypeDescriptor {
   freeParameters -> const List<TypeParameter> {
     let result = const []
 
-    _arguments.each { argument =>
-      argument.freeParameters.each { parameter =>
+    _arguments.each |argument| {
+      argument.freeParameters.each |parameter| {
         if result.includes(parameter).not {
           result = result.appending(parameter).freeze
         }
@@ -67,7 +67,7 @@ class AppliedType is Descriptors.TypeDescriptor {
   }
 
   substitute(using: TypeEnvironment) -> Type {
-    const substituted = _arguments.map { argument =>
+    const substituted = _arguments.map |argument| {
       argument.substitute(using: using)
     }.freeze
 
@@ -106,7 +106,7 @@ class AppliedType is Descriptors.TypeDescriptor {
   }
 
   methodFor(selector: Selector) -> Option<AppliedMethod> {
-    return _origin.methodFor(selector).map { method =>
+    return _origin.methodFor(selector).map |method| {
       Members.AppliedMethod.new(
         method: method,
         environment: _environment
@@ -115,7 +115,7 @@ class AppliedType is Descriptors.TypeDescriptor {
   }
 
   fields -> const List<AppliedField> {
-    return _origin.fields.map { field =>
+    return _origin.fields.map |field| {
       Members.AppliedField.new(
         field: field,
         environment: _environment

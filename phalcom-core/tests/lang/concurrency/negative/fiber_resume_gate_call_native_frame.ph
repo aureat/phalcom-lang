@@ -10,4 +10,4 @@
 // inside a native primitive, here an `.on(_)` error handler.
 
 const f = Fiber.new { 1 }
-{ throw Error.new("boom") }.on(Error) { e => f.call() }
+{ throw Error.new("boom") }.on(Error) |e| { f.call() }

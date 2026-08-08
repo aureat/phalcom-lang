@@ -388,10 +388,10 @@ class SearchEngine {
 
   failure(status: Any) -> Any {
     return status.match(
-      valid: { _ => throw Error.new("valid example has no failure") },
-      invalid: { _ => throw Error.new("invalid example has no failure") },
-      overrun: { _ => throw Error.new("overrun example has no failure") },
-      interesting: { value => value.failure }
+      valid: |_| { throw Error.new("valid example has no failure") },
+      invalid: |_| { throw Error.new("invalid example has no failure") },
+      overrun: |_| { throw Error.new("overrun example has no failure") },
+      interesting: |value| { value.failure }
     )
   }
 }

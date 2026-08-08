@@ -8,8 +8,8 @@
 // chain is still `fulfilled`). From a `rejected` start, `map`/`then` are
 // both skipped (the rejection propagates through them unchanged) and only
 // the trailing `catch` fires, recovering to `fulfilled`.
-const chained = Future.value(2).map { v => v + 1 }.then { v => v * 2 }.catch { e => -1 }
+const chained = Future.value(2).map |v| { v + 1 }.then |v| { v * 2 }.catch |e| { -1 }
 System.print(chained.value)
 
-const rejectedChain = Future.error(Error.new()).map { v => v + 1 }.then { v => v * 2 }.catch { e => -1 }
+const rejectedChain = Future.error(Error.new()).map |v| { v + 1 }.then |v| { v * 2 }.catch |e| { -1 }
 System.print(rejectedChain.value)

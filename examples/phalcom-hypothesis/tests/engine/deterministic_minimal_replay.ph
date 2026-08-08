@@ -20,7 +20,7 @@ const seedExample = example.Example.from(
 )
 const spec = specification.PropertySpec.check(
   id: #deterministicMinimalReplay,
-  target: { n => Assert.isTrue(n < 10) },
+  target: |n| { Assert.isTrue(n < 10) },
   strategies: const [Gen.int(min: 0, max: 100)],
   explicitExamples: const [],
   reuseExamples: const [seedExample],
@@ -32,14 +32,14 @@ const first = worker.replay(result.tape.unwrap).status
 const second = worker.replay(result.tape.unwrap).status
 Assert.equal(first.args, second.args)
 Assert.isTrue(first.match(
-  valid: { _ => false },
-  invalid: { _ => false },
-  overrun: { _ => false },
-  interesting: { value => second.match(
-    valid: { _ => false },
-    invalid: { _ => false },
-    overrun: { _ => false },
-    interesting: { other => value.failure.sameOrigin(other.failure) }
+  valid: |_| { false },
+  invalid: |_| { false },
+  overrun: |_| { false },
+  interesting: |value| { second.match(
+    valid: |_| { false },
+    invalid: |_| { false },
+    overrun: |_| { false },
+    interesting: |other| { value.failure.sameOrigin(other.failure) }
   ) }
 ))
 

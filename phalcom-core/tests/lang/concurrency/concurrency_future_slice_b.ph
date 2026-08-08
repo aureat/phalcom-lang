@@ -35,15 +35,15 @@ System.print(f3.await)
 // waiter before returning. Nothing is dropped; the remaining waiters run on the
 // next pump.
 const f4 = Future.new()
-const f5 = f4.then { v =>
+const f5 = f4.then |v| {
   System.print("then run: " + v)
   "then result"
 }
-const f6 = f4.map { v =>
+const f6 = f4.map |v| {
   System.print("map run: " + v)
   "map result"
 }
-const f7 = f4.catch { e =>
+const f7 = f4.catch |e| {
   System.print("catch run: " + e.message)
   "catch result"
 }
@@ -54,7 +54,7 @@ System.print(f6.await)
 System.print(f7.await) // should pass through fulfilled value without running catch
 
 const f8 = Future.new()
-const f9 = f8.catch { e =>
+const f9 = f8.catch |e| {
   System.print("catch run error: " + e.message)
   "catch recovered"
 }
@@ -63,9 +63,9 @@ System.print(f9.await)
 
 // C-FUT-8: callbacks returning a Future are assimilated, rather than wrapped
 // as a Future value. This exercises fulfilled, pending, and rejected paths.
-System.print(Future.value("then").then { v => Future.value(v + " flattened") }.await)
-System.print(Future.value("map").map { v => Future.value(v + " flattened") }.await)
-System.print(Future.error(Error.new("catch")).catch { e => Future.value(e.message + " flattened") }.await)
+System.print(Future.value("then").then |v| { Future.value(v + " flattened") }.await)
+System.print(Future.value("map").map |v| { Future.value(v + " flattened") }.await)
+System.print(Future.error(Error.new("catch")).catch |e| { Future.value(e.message + " flattened") }.await)
 
 // C-FUT-7: await under native frame raises CannotYieldAcrossNativeFrame
 const f10 = Future.new()

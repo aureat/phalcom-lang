@@ -52,16 +52,16 @@ class _MinimizeBranchIndices {
     while index < current.size {
       const choice = current.at(index)
       choice.match(
-        integer: { _ => None },
-        boolean: { _ => None },
-        index: { value =>
+        integer: |_| { None },
+        boolean: |_| { None },
+        index: |value| {
           if value.label == Some.new(#branch) or value.value != value.shrinkTowards {
             for replacement in choice.simplifications {
               out.add(current.replace(index, choice.withValue(replacement)))
             }
           }
         },
-        bytes: { _ => None }
+        bytes: |_| { None }
       )
       index++
     }
@@ -78,18 +78,18 @@ class _MinimizeIntegerChoices {
     while index < current.size {
       const choice = current.at(index)
       choice.match(
-        integer: { _ =>
+        integer: |_| {
           for replacement in choice.simplifications {
             out.add(current.replace(index, choice.withValue(replacement)))
           }
         },
-        boolean: { value =>
+        boolean: |value| {
           if value.value != value.shrinkTowards {
             out.add(current.replace(index, choice.withValue(value.shrinkTowards)))
           }
         },
-        index: { _ => None },
-        bytes: { _ => None }
+        index: |_| { None },
+        bytes: |_| { None }
       )
       index++
     }
@@ -110,10 +110,10 @@ class _MinimizeIntegerBlocks {
       while index < current.size {
         const choice = candidate.at(index)
         const replacement = choice.match(
-          integer: { value => Some.new(value.shrinkTowards) },
-          boolean: { _ => None },
-          index: { _ => None },
-          bytes: { _ => None }
+          integer: |value| { Some.new(value.shrinkTowards) },
+          boolean: |_| { None },
+          index: |_| { None },
+          bytes: |_| { None }
         )
         if replacement.isNone {
           break
@@ -145,10 +145,10 @@ class _SimplifyBytesAndText {
     while index < current.size {
       const choice = current.at(index)
       choice.match(
-        integer: { _ => None },
-        boolean: { _ => None },
-        index: { _ => None },
-        bytes: { value =>
+        integer: |_| { None },
+        boolean: |_| { None },
+        index: |_| { None },
+        bytes: |value| {
           if value.value != value.shrinkTowards {
             out.add(
               current.replace(index, choice.withValue(value.shrinkTowards))
@@ -192,8 +192,8 @@ class _MinimizeRecursiveStructures {
         const decisionIndex = span.start - 1
         const decision = current.at(decisionIndex)
         decision.match(
-          integer: { _ => None },
-          boolean: { value =>
+          integer: |_| { None },
+          boolean: |value| {
             if value.label == Some.new(#recursive) and value.value {
               const collapsed = current.replace(
                 decisionIndex,
@@ -204,8 +204,8 @@ class _MinimizeRecursiveStructures {
               )
             }
           },
-          index: { _ => None },
-          bytes: { _ => None }
+          index: |_| { None },
+          bytes: |_| { None }
         )
       }
     }
@@ -226,15 +226,15 @@ class _SpanDeletion {
       const index = lengthIndex.unwrap
       const lengthChoice = candidate.at(index)
       const reduced = lengthChoice.match(
-        integer: { value =>
+        integer: |value| {
           if value.value <= value.min {
             return None
           }
           return Some.new(value.value - 1)
         },
-        boolean: { _ => None },
-        index: { _ => None },
-        bytes: { _ => None }
+        boolean: |_| { None },
+        index: |_| { None },
+        bytes: |_| { None }
       )
       if reduced.isNone {
         return None

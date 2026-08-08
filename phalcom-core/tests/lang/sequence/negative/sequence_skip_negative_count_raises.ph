@@ -6,6 +6,6 @@
 try {
   SkipView.new([1, 2, 3], -1)
   System.print("ERROR: no exception")
-} on (Error) { e =>
+} on (Error) |e| {
   System.print(e.class.name)
 }

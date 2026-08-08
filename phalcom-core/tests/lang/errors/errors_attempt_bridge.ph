@@ -12,5 +12,5 @@ class AttErr is Error {
 
 System.print({ 21 * 2 }.attempt().toString)
 System.print({ throw AttErr.new("x") }.attempt().toString)
-System.print({ 21 * 2 }.attempt().map { n => n + 1 }.unwrapOr(0))
-System.print({ throw AttErr.new("x") }.attempt().map { n => n + 1 }.unwrapOr(0))
+System.print({ 21 * 2 }.attempt().map |n| { n + 1 }.unwrapOr(0))
+System.print({ throw AttErr.new("x") }.attempt().map |n| { n + 1 }.unwrapOr(0))

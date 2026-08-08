@@ -6,5 +6,5 @@
 let list = [10, 20, 30, 40]
 System.print(list.count)
 
-let view = WhereView.new(list, { x => x > 15 })
+let view = WhereView.new(list, |x| { x > 15 })
 System.print(view.count)

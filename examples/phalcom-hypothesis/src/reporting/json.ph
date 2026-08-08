@@ -40,31 +40,31 @@ class _JsonEvent {
     const record = Map.new()
     record.at("schemaVersion", put: 1)
     event.match(
-      suiteStarted: { value =>
+      suiteStarted: |value| {
         record.at("type", put: "suite_started")
         record.at("total", put: value.total)
       },
-      propertyStarted: { value =>
+      propertyStarted: |value| {
         record.at("type", put: "property_started")
         record.at("property", put: value.id.toString)
       },
-      phaseStarted: { value =>
+      phaseStarted: |value| {
         record.at("type", put: "phase_started")
         record.at("property", put: value.id.toString)
         record.at("phase", put: value.phase.toString)
       },
-      exampleAccepted: { value =>
+      exampleAccepted: |value| {
         record.at("type", put: "example_accepted")
         record.at("property", put: value.id.toString)
         record.at("index", put: value.index)
       },
-      exampleRejected: { value =>
+      exampleRejected: |value| {
         record.at("type", put: "example_rejected")
         record.at("property", put: value.id.toString)
         record.at("index", put: value.index)
         record.at("reason", put: value.reason.toString)
       },
-      failureFound: { value =>
+      failureFound: |value| {
         record.at("type", put: "failure_found")
         record.at("property", put: value.id.toString)
         record.at("error", put: value.failure.error.class.name.toString)
@@ -79,23 +79,23 @@ class _JsonEvent {
           )
         }
       },
-      shrinkAccepted: { value =>
+      shrinkAccepted: |value| {
         record.at("type", put: "shrink_accepted")
         record.at("property", put: value.id.toString)
         record.at("before", put: value.before.signature)
         record.at("after", put: value.after.signature)
       },
-      healthCheckFailed: { value =>
+      healthCheckFailed: |value| {
         record.at("type", put: "health_check_failed")
         record.at("property", put: value.id.toString)
         record.at("message", put: value.error.message.unwrapOr(value.error.toString))
       },
-      propertyFinished: { value =>
+      propertyFinished: |value| {
         record.at("type", put: "property_finished")
         record.at("property", put: value.run.id.toString)
         record.at("outcome", put: self.outcome(value.run.result))
       },
-      suiteFinished: { value =>
+      suiteFinished: |value| {
         record.at("type", put: "suite_finished")
         record.at("passed", put: value.result.passedCount)
         record.at("failed", put: value.result.failedCount)
@@ -120,10 +120,10 @@ class _JsonEvent {
   @class
   outcome(result: Any) -> String {
     return result.match(
-      passed: { _ => "passed" },
-      falsified: { _ => "falsified" },
-      inconclusive: { _ => "inconclusive" },
-      errored: { value =>
+      passed: |_| { "passed" },
+      falsified: |_| { "falsified" },
+      inconclusive: |_| { "inconclusive" },
+      errored: |value| {
         let error = value.error
         if error.respondsTo(#primaryError) {
           error = error.primaryError
@@ -172,6 +172,6 @@ class _Json {
 class _JsonOrdering {
   @class
   keys(values: Map<String, Any>) -> List<String> {
-    return values.keys.toList.sorted { left, right => left < right }
+    return values.keys.toList.sorted |left, right| { left < right }
   }
 }

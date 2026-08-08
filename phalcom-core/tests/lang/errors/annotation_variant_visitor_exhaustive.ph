@@ -16,7 +16,7 @@ class Shape {
 const c = Circle.new(radius: 3)
 const r = Rect.new(w: 4, h: 5)
 
-System.print(c.match(circle: { circ => 3 * circ.radius }, rect: { rec => rec.w * rec.h }))
-System.print(r.match(circle: { circ => 3 * circ.radius }, rect: { rec => rec.w * rec.h }))
+System.print(c.match(circle: |circ| { 3 * circ.radius }, rect: |rec| { rec.w * rec.h }))
+System.print(r.match(circle: |circ| { 3 * circ.radius }, rect: |rec| { rec.w * rec.h }))
 System.print(c.toString)
 System.print(r.toString)

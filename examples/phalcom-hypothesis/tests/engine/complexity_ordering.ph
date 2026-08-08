@@ -22,7 +22,7 @@ const seedExample = Example.from(
 )
 const spec = specification.PropertySpec.check(
   id: #complexityOrdering,
-  target: { n => Assert.isTrue(n < 10) },
+  target: |n| { Assert.isTrue(n < 10) },
   strategies: const [Gen.int(min: 0, max: 100)],
   explicitExamples: const [],
   reuseExamples: const [seedExample],

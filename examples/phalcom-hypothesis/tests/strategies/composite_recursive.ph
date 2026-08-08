@@ -19,7 +19,7 @@ const builtExample = Example.from(
   spans: const [],
   generationSize: 4
 )
-const pair = Gen.build { draw =>
+const pair = Gen.build |draw| {
   const first = draw.from(Gen.int(min: 0, max: 10))
   const second = draw.from(Gen.int(min: first, max: first))
   return Tuple.__fromList(const [first, second])
@@ -35,7 +35,7 @@ Assert.equal(42, deferred.draw(DrawData.generate(
 
 const recursive = Gen.recursive(
   base: Gen.just(0),
-  extend: { child => Gen.tuple(child, child) }
+  extend: |child| { Gen.tuple(child, child) }
 )
 Assert.equal(
   0,

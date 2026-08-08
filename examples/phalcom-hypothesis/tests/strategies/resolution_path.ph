@@ -16,8 +16,8 @@ class Envelope {
 
 const outcome = { StrategyRegistry.standard.forType(Envelope) }.attempt()
 outcome.match(
-  ok: { _ => Assert.fail("expected derivation to fail") },
-  error: { error =>
+  ok: |_| { Assert.fail("expected derivation to fail") },
+  error: |error| {
     Assert.true(error.isA(StrategyResolutionError))
     Assert.true(error.message.unwrap.includes("resolution path"))
     Assert.true(error.message.unwrap.includes("Envelope"))

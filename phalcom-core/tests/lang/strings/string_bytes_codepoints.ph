@@ -10,4 +10,4 @@ System.print(s.size)
 System.print(s.bytes.size)
 System.print(s.codePoints.size)
 
-s.codePoints.each({ cp => System.print(cp) })
+s.codePoints.each(|cp| { System.print(cp) })

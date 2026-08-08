@@ -21,8 +21,8 @@ class Interval {
 
 const outcome = { StrategyRegistry.standard.forType(Interval) }.attempt()
 outcome.match(
-  ok: { _ => Assert.fail("expected constrained derivation to fail") },
-  error: { error =>
+  ok: |_| { Assert.fail("expected constrained derivation to fail") },
+  error: |error| {
     Assert.true(error.isA(StrategyResolutionError))
     Assert.true(error.message.unwrap.includes("constrained constructor"))
     Assert.true(error.message.unwrap.includes("custom strategy"))

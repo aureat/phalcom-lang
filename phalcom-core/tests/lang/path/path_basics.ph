@@ -55,7 +55,7 @@ System.print(Path.of("a/b").extension) // None
 
 let comps = Path.of("//a///b//c/").components
 let compStr = List.new()
-comps.each { c => compStr.add(c.toString) }
+comps.each |c| { compStr.add(c.toString) }
 System.print(compStr.join(","))
 
 System.print(Path.of("a/../b") != Path.of("b"))

@@ -55,8 +55,8 @@ class Reproduction {
     }
 
     return run.result.match(
-      passed: { _ => None },
-      falsified: { value =>
+      passed: |_| { None },
+      falsified: |value| {
         Some.new(
           ReproductionToken.create(
             propertyId: run.id,
@@ -65,8 +65,8 @@ class Reproduction {
           )
         )
       },
-      inconclusive: { _ => None },
-      errored: { _ => None }
+      inconclusive: |_| { None },
+      errored: |_| { None }
     )
   }
 

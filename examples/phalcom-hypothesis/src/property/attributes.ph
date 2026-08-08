@@ -121,9 +121,9 @@ class Given is Attribute {
   // been resolved before method reflection.
   strategies -> List<Strategy<Any>> {
     return _mode.match(
-      inferred: { _ => const [] },
-      explicit: { value => _AttributeCopies.list(value.strategies) },
-      overrides: { _ => const [] }
+      inferred: |_| { const [] },
+      explicit: |value| { _AttributeCopies.list(value.strategies) },
+      overrides: |_| { const [] }
     )
   }
 }

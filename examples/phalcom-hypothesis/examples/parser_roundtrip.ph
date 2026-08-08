@@ -38,7 +38,7 @@ const tokens = Gen.list(
 )
 const spec = specification.PropertySpec.check(
   id: #parserRoundTrip,
-  target: { values =>
+  target: |values| {
     const broken = values.size >= 2 and
       values.at(0) == #open and
       values.at(values.size - 1) == #close

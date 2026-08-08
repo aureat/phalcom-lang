@@ -12,11 +12,11 @@ const second = {
 }.attempt()
 
 first.match(
-  ok: { _ => Assert.fail("first assertion should fail") },
-  error: { firstError =>
+  ok: |_| { Assert.fail("first assertion should fail") },
+  error: |firstError| {
     second.match(
-      ok: { _ => Assert.fail("second assertion should fail") },
-      error: { secondError =>
+      ok: |_| { Assert.fail("second assertion should fail") },
+      error: |secondError| {
         Assert.true(firstError.isA(PropertyAssertionError))
         Assert.true(secondError.isA(PropertyAssertionError))
         Assert.false(

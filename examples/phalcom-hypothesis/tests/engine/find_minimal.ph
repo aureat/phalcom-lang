@@ -18,7 +18,7 @@ const seedExample = example.Example.from(
 )
 const found = engine.SearchEngine.new().find(
   strategy: Gen.int(min: 0, max: 100),
-  predicate: { n => n >= 10 },
+  predicate: |n| { n >= 10 },
   settings: Settings.standard.phases(const [Phase.Reuse, Phase.Shrink]),
   reuseExamples: const [seedExample]
 )

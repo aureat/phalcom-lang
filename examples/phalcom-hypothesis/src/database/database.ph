@@ -80,21 +80,21 @@ class _DatabaseSignatures {
   @class
   choice(value: Any) -> String {
     return value.match(
-      integer: { item =>
+      integer: |item| {
         "i(" + item.value.toString + "," + item.min.toString + "," +
           item.max.toString + "," + item.shrinkTowards.toString + "," +
           self.optionSymbol(item.label) + ")"
       },
-      boolean: { item =>
+      boolean: |item| {
         "b(" + item.value.toString + "," + item.shrinkTowards.toString +
           "," + self.optionSymbol(item.label) + ")"
       },
-      index: { item =>
+      index: |item| {
         "x(" + item.value.toString + "," + item.size.toString + "," +
           item.shrinkTowards.toString + "," +
           self.optionSymbol(item.label) + ")"
       },
-      bytes: { item =>
+      bytes: |item| {
         "y(" + self.bytes(item.value) + "," + item.minSize.toString +
           "," + item.maxSize.toString + "," +
           self.bytes(item.shrinkTowards) + "," +

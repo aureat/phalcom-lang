@@ -7,7 +7,7 @@
 // frames AND the native `each` frame to the enclosing method activation.
 class Finder {
   findFirstEven(_ numbers) {
-    numbers.each { n =>
+    numbers.each |n| {
       (n > 0).ifTrue {
         (n % 2 == 0).ifTrue { return n }
       }

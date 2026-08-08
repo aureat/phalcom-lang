@@ -9,7 +9,7 @@
 // Lua/Python "cannot yield across native boundary" wall, gone for this path.
 
 const f = Fiber.new {
-  [1, 2, 3].each { x => Fiber.yield(x) }
+  [1, 2, 3].each |x| { Fiber.yield(x) }
   "end"
 }
 System.print(f.call())

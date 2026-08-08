@@ -3,5 +3,5 @@
 // status: PASS
 // all(f) returns true when predicate is true for all elements
 
-System.print([1, 2, 3].all { x => x > 0 })
-System.print([1, 2, 3].all { x => x < 5 })
+System.print([1, 2, 3].all |x| { x > 0 })
+System.print([1, 2, 3].all |x| { x < 5 })

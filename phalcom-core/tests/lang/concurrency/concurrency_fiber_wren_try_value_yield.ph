@@ -6,7 +6,7 @@
 // `Fiber.yield`; a second `try(_)` delivers its argument as the `yield`'s
 // return value and then captures the subsequent uncaught failure.
 
-const fiber = Fiber.new { v =>
+const fiber = Fiber.new |v| {
   System.print("before")
   System.print(v)
   let w = Fiber.yield()

@@ -6,4 +6,4 @@
 // exercises the non-inlined `block_call` fall-off-end path, mirroring the
 // inliner's `Nil` placeholder.
 
-System.print(None.match(some: { v => v }, none: { }))
+System.print(None.match(some: |v| { v }, none: { }))

@@ -4,7 +4,7 @@
 // WhereView iterates only elements matching predicate
 
 let source = [1, 2, 3, 4, 5]
-let view = WhereView.new(source, { x => x > 2 })
+let view = WhereView.new(source, |x| { x > 2 })
 let result = []
 for (x in view) {
   result.add(x)

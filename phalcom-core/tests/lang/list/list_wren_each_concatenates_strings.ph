@@ -11,5 +11,5 @@ l.add("One")
 l.add("Two")
 l.add("Three")
 let words = ""
-l.each { word => words = words + word }
+l.each |word| { words = words + word }
 System.print(words)

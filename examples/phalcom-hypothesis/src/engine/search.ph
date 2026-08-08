@@ -33,43 +33,43 @@ class _SearchResult<T> {
 
   found -> Bool {
     return self.match(
-      evaluated: { _ => false },
-      found: { _ => true }
+      evaluated: |_| { false },
+      found: |_| { true }
     )
   }
 
   status -> ExampleStatus {
     return self.match(
-      evaluated: { value => value.status },
-      found: { _ => throw Error.new("a found search result has no ExampleStatus") }
+      evaluated: |value| { value.status },
+      found: |_| { throw Error.new("a found search result has no ExampleStatus") }
     )
   }
 
   example -> Example {
     return self.match(
-      evaluated: { value => value.status.tape },
-      found: { value => value.example }
+      evaluated: |value| { value.status.tape },
+      found: |value| { value.example }
     )
   }
 
   value -> T {
     return self.match(
-      evaluated: { _ => throw Error.new("an evaluated search result has no found value") },
-      found: { value => value.value }
+      evaluated: |_| { throw Error.new("an evaluated search result has no found value") },
+      found: |value| { value.value }
     )
   }
 
   arguments -> List<Any> {
     return self.match(
-      evaluated: { value => value.status.args },
-      found: { value => value.arguments }
+      evaluated: |value| { value.status.args },
+      found: |value| { value.arguments }
     )
   }
 
   context -> Any {
     return self.match(
-      evaluated: { value => value.status.context },
-      found: { value => value.context }
+      evaluated: |value| { value.status.context },
+      found: |value| { value.context }
     )
   }
 }

@@ -9,8 +9,7 @@
 // `super.<name>` production only accepts an identifier or `class` after the
 // dot, not an operator token — see returned-report suspected gap.)
 
-class Box {
-  value => _val
+class Box value => _val
   @constructor
   new(_ v) { _val = v }
   +(_ other) { return Box.new(_val + other.value) }

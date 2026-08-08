@@ -5,7 +5,7 @@
 // Tier 2 (needs U6 `let` + collections + stdlib). Grounded in the spec surface;
 // stdlib selectors still DEFERRED (typing-stdlib-surface.md) so names may shift.
 // Assumed list API:  [..] literal, xs.size, xs[i], for (x in xs){..},
-//                    xs.reduce(init){acc,x=>..}, xs.map{x=>..}
+//                    xs.reduce(init)|acc,x| {..}, xs.map|x| {..}
 // Verifies via linear-algebra identities (no hardcoded magnitudes):
 //   dot(a, a) == norm(a)^2
 //   Cauchy–Schwarz:  |dot(a,b)| <= norm(a)*norm(b)

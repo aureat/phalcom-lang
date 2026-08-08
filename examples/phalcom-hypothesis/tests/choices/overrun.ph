@@ -8,7 +8,7 @@ import example from "choices/example"
 const exhausted = data.DrawData.replay(
   example: example.Example.empty,
   maxChoices: 10
-).attempt { draw =>
+).attempt |draw| {
   draw.drawInt(min: 0, max: 1, shrinkTowards: 0, label: None)
 }
 
@@ -16,7 +16,7 @@ const limited = data.DrawData.generate(
   random: Random.new(seed: 1),
   generationSize: 0,
   maxChoices: 1
-).attempt { draw =>
+).attempt |draw| {
   draw.drawInt(min: 0, max: 1, shrinkTowards: 0, label: None)
   draw.drawInt(min: 0, max: 1, shrinkTowards: 0, label: None)
 }
@@ -27,10 +27,10 @@ for status in const [exhausted, limited] {
   Assert.equal(
     #overrun,
     status.match(
-      valid: { _ => #valid },
-      invalid: { _ => #invalid },
-      overrun: { _ => #overrun },
-      interesting: { _ => #interesting }
+      valid: |_| { #valid },
+      invalid: |_| { #invalid },
+      overrun: |_| { #overrun },
+      interesting: |_| { #interesting }
     )
   )
 }

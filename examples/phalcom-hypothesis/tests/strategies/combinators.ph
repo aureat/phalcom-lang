@@ -21,9 +21,9 @@ const composedExample = Example.from(
 )
 const composedData = DrawData.replay(example: composedExample, maxChoices: 16)
 const value = Gen.int(min: -2, max: 2)
-  .filter { candidate => candidate > 0 }
-  .map { candidate => candidate * 2 }
-  .flatMap { candidate => Gen.int(min: candidate, max: candidate) }
+  .filter |candidate| { candidate > 0 }
+  .map |candidate| { candidate * 2 }
+  .flatMap |candidate| { Gen.int(min: candidate, max: candidate) }
   .draw(composedData)
 
 Assert.equal(4, value)

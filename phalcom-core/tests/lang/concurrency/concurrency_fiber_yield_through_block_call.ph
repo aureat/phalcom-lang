@@ -24,7 +24,7 @@ System.print(f.call())
 // resumes correctly to completion.
 const b = Bytes.fromList([10, 20])
 const g = Fiber.new {
-  b.each { x => Fiber.yield(x) }
+  b.each |x| { Fiber.yield(x) }
   "done"
 }
 System.print(g.call())

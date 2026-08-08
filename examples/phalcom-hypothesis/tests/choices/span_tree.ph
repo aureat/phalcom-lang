@@ -30,7 +30,7 @@ choices.withSpan(label: #composite, discardable: false) {
 const example = choices.freeze
 Assert.equal(3, example.spans.size)
 
-Assert.equal(const [0, 1, 2], example.spans.map { span => span.id })
+Assert.equal(const [0, 1, 2], example.spans.map |span| { span.id })
 
 const root = example.spanWithId(0).unwrap
 const first = example.spanWithId(1).unwrap

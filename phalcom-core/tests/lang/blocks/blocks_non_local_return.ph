@@ -10,7 +10,7 @@
 // never exercise it (U10-implementation-spec.md §2, §5).
 class Finder {
   findNegative(_ numbers) {
-    numbers.each { n =>
+    numbers.each |n| {
       (n < 0).ifTrue { return n }
     }
     return None

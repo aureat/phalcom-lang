@@ -94,16 +94,16 @@ class ReportEvent {
 
   isSuiteStarted -> Bool {
     return self.match(
-      suiteStarted: { _ => true },
-      propertyStarted: { _ => false },
-      phaseStarted: { _ => false },
-      exampleAccepted: { _ => false },
-      exampleRejected: { _ => false },
-      failureFound: { _ => false },
-      shrinkAccepted: { _ => false },
-      healthCheckFailed: { _ => false },
-      propertyFinished: { _ => false },
-      suiteFinished: { _ => false }
+      suiteStarted: |_| { true },
+      propertyStarted: |_| { false },
+      phaseStarted: |_| { false },
+      exampleAccepted: |_| { false },
+      exampleRejected: |_| { false },
+      failureFound: |_| { false },
+      shrinkAccepted: |_| { false },
+      healthCheckFailed: |_| { false },
+      propertyFinished: |_| { false },
+      suiteFinished: |_| { false }
     )
   }
 
@@ -120,16 +120,16 @@ class ReportEvent {
   @private
   is(expected: Symbol) -> Bool {
     return self.match(
-      suiteStarted: { _ => expected == #suiteStarted },
-      propertyStarted: { _ => expected == #propertyStarted },
-      phaseStarted: { _ => expected == #phaseStarted },
-      exampleAccepted: { _ => expected == #exampleAccepted },
-      exampleRejected: { _ => expected == #exampleRejected },
-      failureFound: { _ => expected == #failureFound },
-      shrinkAccepted: { _ => expected == #shrinkAccepted },
-      healthCheckFailed: { _ => expected == #healthCheckFailed },
-      propertyFinished: { _ => expected == #propertyFinished },
-      suiteFinished: { _ => expected == #suiteFinished }
+      suiteStarted: |_| { expected == #suiteStarted },
+      propertyStarted: |_| { expected == #propertyStarted },
+      phaseStarted: |_| { expected == #phaseStarted },
+      exampleAccepted: |_| { expected == #exampleAccepted },
+      exampleRejected: |_| { expected == #exampleRejected },
+      failureFound: |_| { expected == #failureFound },
+      shrinkAccepted: |_| { expected == #shrinkAccepted },
+      healthCheckFailed: |_| { expected == #healthCheckFailed },
+      propertyFinished: |_| { expected == #propertyFinished },
+      suiteFinished: |_| { expected == #suiteFinished }
     )
   }
 }

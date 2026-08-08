@@ -22,8 +22,8 @@ const outcome = {
 }.attempt()
 
 outcome.match(
-  ok: { _ => Assert.fail("expected strategy inference to fail") },
-  error: { error =>
+  ok: |_| { Assert.fail("expected strategy inference to fail") },
+  error: |error| {
     Assert.true(error.isA(StrategyResolutionError))
     Assert.true(error.message.unwrap.includes("parameter 'value'"))
     Assert.true(error.message.unwrap.includes("MissingAnnotationProperties.missing"))

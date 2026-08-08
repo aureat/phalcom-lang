@@ -7,5 +7,5 @@
 
 const empty = List.new()
 let count = 0
-empty.each { item => count = count + 1 }
+empty.each |item| { count = count + 1 }
 System.print(count)

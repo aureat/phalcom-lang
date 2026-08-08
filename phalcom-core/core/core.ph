@@ -17,7 +17,7 @@ class Object {
   is(_ cls) {
     let c = self.class
     while (c != None) {
-      (c == cls).ifTrue { return true }
+      (c == cls).ifTrue || { return true }
       c = c.superclass
     }
     return false
@@ -138,10 +138,10 @@ class String {
   // encoded by the lead byte's numeric value (no bitmask needed).
   leadByteLen(_ i) {
     const b = self._$byteAt(i)
-    return (b == None).ifTrue({ None }, ifFalse: {
-      (b < 128).ifTrue({ 1 }, ifFalse: {
-        (b < 224).ifTrue({ 2 }, ifFalse: {
-          (b < 240).ifTrue({ 3 }, ifFalse: { 4 }) }) })
+    return (b == None).ifTrue(|| { None }, ifFalse: || {
+      (b < 128).ifTrue(|| { 1 }, ifFalse: || {
+        (b < 224).ifTrue(|| { 2 }, ifFalse: || {
+          (b < 240).ifTrue(|| { 3 }, ifFalse: || { 4 }) }) })
     })
   }
 
@@ -149,36 +149,36 @@ class String {
   // or mid-sequence. UTF-8 decode via division/modulo (no bitwise ops).
   codePointAt(_ i) {
     const b0 = self._$byteAt(i)
-    return (b0 == None).ifTrue({ None }, ifFalse: {
-      (b0 < 128).ifTrue({
+    return (b0 == None).ifTrue(|| { None }, ifFalse: || {
+      (b0 < 128).ifTrue(|| {
         // ASCII single byte (0xxxxxxx)
         b0
-      }, ifFalse: {
-        (b0 < 192).ifTrue({
+      }, ifFalse: || {
+        (b0 < 192).ifTrue(|| {
           // Continuation byte (10xxxxxx), not a start byte
           None
-        }, ifFalse: {
-          (b0 < 224).ifTrue({
+        }, ifFalse: || {
+          (b0 < 224).ifTrue(|| {
             // 2-byte sequence (110xxxxx 10xxxxxx)
             const b1 = self._$byteAt(i + 1)
-            (b1 == None).ifTrue({ None }, ifFalse: {
-              (b1 < 128).ifTrue({ None }, ifFalse: {
-                (b1 >= 192).ifTrue({ None }, ifFalse: {
+            (b1 == None).ifTrue(|| { None }, ifFalse: || {
+              (b1 < 128).ifTrue(|| { None }, ifFalse: || {
+                (b1 >= 192).ifTrue(|| { None }, ifFalse: || {
                   ((b0 - 192) * 64) + (b1 - 128)
                 })
               })
             })
-          }, ifFalse: {
-            (b0 < 240).ifTrue({
+          }, ifFalse: || {
+            (b0 < 240).ifTrue(|| {
               // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
               const b1 = self._$byteAt(i + 1)
               const b2 = self._$byteAt(i + 2)
-              (b1 == None).ifTrue({ None }, ifFalse: {
-                (b2 == None).ifTrue({ None }, ifFalse: {
-                  (b1 < 128).ifTrue({ None }, ifFalse: {
-                    (b1 >= 192).ifTrue({ None }, ifFalse: {
-                      (b2 < 128).ifTrue({ None }, ifFalse: {
-                        (b2 >= 192).ifTrue({ None }, ifFalse: {
+              (b1 == None).ifTrue(|| { None }, ifFalse: || {
+                (b2 == None).ifTrue(|| { None }, ifFalse: || {
+                  (b1 < 128).ifTrue(|| { None }, ifFalse: || {
+                    (b1 >= 192).ifTrue(|| { None }, ifFalse: || {
+                      (b2 < 128).ifTrue(|| { None }, ifFalse: || {
+                        (b2 >= 192).ifTrue(|| { None }, ifFalse: || {
                           ((b0 - 224) * 4096) + ((b1 - 128) * 64) + (b2 - 128)
                         })
                       })
@@ -186,21 +186,21 @@ class String {
                   })
                 })
               })
-            }, ifFalse: {
-              (b0 < 248).ifTrue({
+            }, ifFalse: || {
+              (b0 < 248).ifTrue(|| {
                 // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
                 const b1 = self._$byteAt(i + 1)
                 const b2 = self._$byteAt(i + 2)
                 const b3 = self._$byteAt(i + 3)
-                (b1 == None).ifTrue({ None }, ifFalse: {
-                  (b2 == None).ifTrue({ None }, ifFalse: {
-                    (b3 == None).ifTrue({ None }, ifFalse: {
-                      (b1 < 128).ifTrue({ None }, ifFalse: {
-                        (b1 >= 192).ifTrue({ None }, ifFalse: {
-                          (b2 < 128).ifTrue({ None }, ifFalse: {
-                            (b2 >= 192).ifTrue({ None }, ifFalse: {
-                              (b3 < 128).ifTrue({ None }, ifFalse: {
-                                (b3 >= 192).ifTrue({ None }, ifFalse: {
+                (b1 == None).ifTrue(|| { None }, ifFalse: || {
+                  (b2 == None).ifTrue(|| { None }, ifFalse: || {
+                    (b3 == None).ifTrue(|| { None }, ifFalse: || {
+                      (b1 < 128).ifTrue(|| { None }, ifFalse: || {
+                        (b1 >= 192).ifTrue(|| { None }, ifFalse: || {
+                          (b2 < 128).ifTrue(|| { None }, ifFalse: || {
+                            (b2 >= 192).ifTrue(|| { None }, ifFalse: || {
+                              (b3 < 128).ifTrue(|| { None }, ifFalse: || {
+                                (b3 >= 192).ifTrue(|| { None }, ifFalse: || {
                                   ((b0 - 240) * 262144) + ((b1 - 128) * 4096) + ((b2 - 128) * 64) + (b3 - 128)
                                 })
                               })
@@ -211,7 +211,7 @@ class String {
                     })
                   })
                 })
-              }, ifFalse: {
+              }, ifFalse: || {
                 // Invalid UTF-8 start byte
                 None
               })
@@ -225,10 +225,10 @@ class String {
   // Find first occurrence of a substring, scanning left-to-right by byte.
   // O(n·m) naive search. Returns the byte offset, or -1 if not found.
   indexOf(_ needle) {
-    (needle.isA(String)).ifTrue({}, ifFalse: {
+    (needle.isA(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("indexOf: needle must be a String")
     })
-    (needle.isEmpty).ifTrue({
+    (needle.isEmpty).ifTrue(|| {
       throw ArgumentError.new("indexOf: needle must be non-empty")
     })
 
@@ -237,12 +237,12 @@ class String {
       let match = true
       let j = 0
       while (j < needle._$byteCount) {
-        (self._$byteAt(i + j) == needle._$byteAt(j)).ifTrue({}, ifFalse: {
+        (self._$byteAt(i + j) == needle._$byteAt(j)).ifTrue(|| {}, ifFalse: || {
           match = false
         })
-        (match).ifTrue({ j = j + 1 }, ifFalse: { j = needle._$byteCount })
+        (match).ifTrue(|| { j = j + 1 }, ifFalse: || { j = needle._$byteCount })
       }
-      (match).ifTrue({ return i })
+      (match).ifTrue(|| { return i })
       i = i + 1
     }
     return -1
@@ -250,10 +250,10 @@ class String {
 
   // Split by delimiter substring. Returns a List of String segments.
   split(_ delimiter) {
-    (delimiter.isA(String)).ifTrue({}, ifFalse: {
+    (delimiter.isA(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("split: delimiter must be a String")
     })
-    (delimiter.isEmpty).ifTrue({
+    (delimiter.isEmpty).ifTrue(|| {
       throw ArgumentError.new("split: delimiter must be non-empty")
     })
 
@@ -266,7 +266,7 @@ class String {
       // Search for next occurrence after this delimiter
       let rest = self._$slice(prev, self._$byteCount)
       let nextIdx = rest.indexOf(delimiter)
-      (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
+      (nextIdx == -1).ifTrue(|| { i = -1 }, ifFalse: || { i = prev + nextIdx })
     }
     result.add(self._$slice(prev, self._$byteCount))
     return result
@@ -274,13 +274,13 @@ class String {
 
   // Replace all occurrences of `from` with `to`.
   replace(_ from, _ to) {
-    (from.isA(String)).ifTrue({}, ifFalse: {
+    (from.isA(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("replace: from must be a String")
     })
-    (to.isA(String)).ifTrue({}, ifFalse: {
+    (to.isA(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("replace: to must be a String")
     })
-    (from.isEmpty).ifTrue({
+    (from.isEmpty).ifTrue(|| {
       throw ArgumentError.new("replace: from must be non-empty")
     })
 
@@ -292,7 +292,7 @@ class String {
       prev = i + from._$byteCount
       let rest = self._$slice(prev, self._$byteCount)
       let nextIdx = rest.indexOf(from)
-      (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
+      (nextIdx == -1).ifTrue(|| { i = -1 }, ifFalse: || { i = prev + nextIdx })
     }
     result = result + self._$slice(prev, self._$byteCount)
     return result
@@ -313,24 +313,24 @@ class String {
 
   // Trim from the start using the given charset.
   trimStart(_ chars) {
-    (chars.isA(String)).ifTrue({}, ifFalse: {
+    (chars.isA(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("trimStart: chars must be a String")
     })
 
     let i = 0
     let stop = false
-    while ((i < self._$byteCount).and({ not stop })) {
+    while ((i < self._$byteCount).and(|| { not stop })) {
       const cp = self.codePointAt(i)
       let found = false
       let j = 0
       while (j < chars._$byteCount) {
-        (chars.codePointAt(j) == cp).ifTrue({ found = true })
+        (chars.codePointAt(j) == cp).ifTrue(|| { found = true })
         const len = chars.leadByteLen(j)
-        (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
+        (len == None).ifTrue(|| { j = j + 1 }, ifFalse: || { j = j + len })
       }
-      (found).ifTrue({
+      (found).ifTrue(|| {
         i = i + self.leadByteLen(i)
-      }, ifFalse: {
+      }, ifFalse: || {
         stop = true  // exit loop, keeping i at the first non-trimmed byte
       })
     }
@@ -339,28 +339,28 @@ class String {
 
   // Trim from the end using the given charset.
   trimEnd(_ chars) {
-    (chars.isA(String)).ifTrue({}, ifFalse: {
+    (chars.isA(String)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("trimEnd: chars must be a String")
     })
 
     let i = self._$byteCount
     let stop = false
-    while ((i > 0).and({ not stop })) {
+    while ((i > 0).and(|| { not stop })) {
       // Scan backward one byte at a time to find the previous lead byte
       i = i - 1
       let cp = self.codePointAt(i)
-      (cp == None).ifTrue({
+      (cp == None).ifTrue(|| {
         // Not a lead byte, keep scanning back
-      }, ifFalse: {
+      }, ifFalse: || {
         // Found a lead byte; check if it's in the trim set
         let found = false
         let j = 0
         while (j < chars._$byteCount) {
-          (chars.codePointAt(j) == cp).ifTrue({ found = true })
+          (chars.codePointAt(j) == cp).ifTrue(|| { found = true })
           const len = chars.leadByteLen(j)
-          (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
+          (len == None).ifTrue(|| { j = j + 1 }, ifFalse: || { j = j + len })
         }
-        (found).ifTrue({}, ifFalse: {
+        (found).ifTrue(|| {}, ifFalse: || {
           // Not in the set; keep this whole character and stop scanning
           i = i + self.leadByteLen(i)
           stop = true
@@ -372,18 +372,18 @@ class String {
 
   // Repeat the string `count` times.
   *(_ count) {
-    (count.isA(Number)).ifTrue({}, ifFalse: {
+    (count.isA(Number)).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("*: count must be a Number")
     })
-    (count >= 0).ifTrue({}, ifFalse: {
+    (count >= 0).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("*: count must be >= 0")
     })
-    (count % 1 == 0).ifTrue({}, ifFalse: {
+    (count % 1 == 0).ifTrue(|| {}, ifFalse: || {
       throw ArgumentError.new("*: count must be an integer")
     })
 
-    (count == 0).ifTrue({ return "" })
-    (count == 1).ifTrue({ return self })
+    (count == 0).ifTrue(|| { return "" })
+    (count == 1).ifTrue(|| { return self })
 
     let result = ""
     let i = 0
@@ -421,10 +421,10 @@ class StringByteSequence {
   // Iterate over byte offsets: cursor steps to next lead byte.
   @private
   nextCursor(_ cursor) {
-    const next = (cursor == None).ifTrue({ 0 }, ifFalse: {
+    const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || {
       cursor + 1
     })
-    return (next < _string._$byteCount).ifTrue({ next }, ifFalse: { None })
+    return (next < _string._$byteCount).ifTrue(|| { next }, ifFalse: || { None })
   }
 }
 
@@ -457,10 +457,10 @@ class StringCodePointSequence {
   // Iterate over byte offsets: cursor steps by UTF-8 char boundary.
   @private
   nextCursor(_ cursor) {
-    const next = (cursor == None).ifTrue({ 0 }, ifFalse: {
+    const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || {
       cursor + _string.leadByteLen(cursor)
     })
-    return (next < _string._$byteCount).ifTrue({ next }, ifFalse: { None })
+    return (next < _string._$byteCount).ifTrue(|| { next }, ifFalse: || { None })
   }
 }
 
@@ -472,7 +472,7 @@ class Bool {
   // the six original selectors), so adding it does not trip the inliner
   // deopt.
   toString {
-    return self.ifTrue({ "true" }, ifFalse: { "false" })
+    return self.ifTrue(|| { "true" }, ifFalse: || { "false" })
   }
 }
 
@@ -522,79 +522,79 @@ class Option {
   // `Some` through untouched. Never extracts — returns `self` so calls chain
   // (values-and-absence.md §3.3's "Effect" group).
   ifNone(_ f) {
-    return self.match(some: { v => self }, none: { f.call(); self })
+    return self.match(some: |v| { self }, none: || { f.call(); self })
   }
 
   // `Some` passes through unchanged; `None` becomes `f`'s (0-arity) `Option`
   // result (values-and-absence.md §3.3's "Transform" group). This is the
   // `??` operator's target (§3.4: `a ?? b` === `a.orElse { b }`).
   orElse(_ f) {
-    return self.match(some: { v => self }, none: { f.call() })
+    return self.match(some: |v| { self }, none: || { f.call() })
   }
 
-  isSome => self.match(some: { v => true }, none: { false })
+  isSome => self.match(some: |v| { true }, none: || { false })
 
-  isNone => self.match(some: { v => false }, none: { true })
+  isNone => self.match(some: |v| { false }, none: || { true })
 
   // U-STD (values-and-absence.md §3.3's "Transform" group; catalog-delta §2.2):
   // `Some(v)` becomes `Some(f(v))`; `None` passes through untouched. `f` is a
   // 1-arity block over the wrapped value; the result is re-wrapped so the
   // chain stays an `Option`.
   map(_ f) {
-    return self.match(some: { v => Some.new(f.call(v)) }, none: { self })
+    return self.match(some: |v| { Some.new(f.call(v)) }, none: || { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Transform" group): like `map`, but `f`
   // already returns an `Option`, so its result is used directly rather than
   // re-wrapped — the monadic bind (`>>=`). `None` short-circuits to `self`.
   flatMap(_ f) {
-    return self.match(some: { v => f.call(v) }, none: { self })
+    return self.match(some: |v| { f.call(v) }, none: || { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Filter" group): `Some(v)` stays `Some(v)`
   // when `pred(v)` is `true`, otherwise collapses to the shared `None` singleton;
   // `None` passes through. `pred` must return a real `Bool` (ADR-0021).
   filter(_ pred) {
-    return self.match(some: { v => if (pred.call(v)) { self } else { None } }, none: { self })
+    return self.match(some: |v| { if (pred.call(v)) { self } else { None } }, none: || { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Effect" group; mirror of `ifNone`): runs
   // the 1-arity block `f` for its side effect on the wrapped value when `Some`,
   // then returns `self` so calls chain; a `None` is passed through untouched.
   ifSome(_ f) {
-    return self.match(some: { v => f.call(v); self }, none: { self })
+    return self.match(some: |v| { f.call(v); self }, none: || { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Extract" group): unwraps a `Some` to its
   // value, or yields `default` for a `None`. The eager sibling of `orElse`
   // (which takes a block); here `default` is an already-evaluated fallback value.
   unwrapOr(_ default) {
-    return self.match(some: { v => v }, none: { default })
+    return self.match(some: |v| { v }, none: || { default })
   }
 
   // Display (values-and-absence §3, U-CORE-4, R-INV-4.3). Derived over
   // `match`, so a user-overridden `match` is respected (R-INV-2.4) and the
   // inner value is rendered via its OWN `toString` message (so a
   // value-typed payload agrees with the print path, R-INV-4.1).
-  toString => self.match(some: { v => "Some(" + v.toString + ")" }, none: { "None" })
+  toString => self.match(some: |v| { "Some(" + v.toString + ")" }, none: || { "None" })
 
   // absence -> error bridge (error-handling.md §5, result.md §2, ADR-0007):
   // `Some(v)` already carries a real value, so no reason is needed; `None`
   // has no value, so `err` fills in the failure reason. Round-trips with
   // `Result#ok()` below (`Some(v).okOr(_)` -> `Ok(v)` -> `.ok()` -> `Some(v)`).
   okOr(_ err) {
-    return self.match(some: { v => Ok.new(v) }, none: { Err.new(err) })
+    return self.match(some: |v| { Ok.new(v) }, none: || { Err.new(err) })
   }
 
   ==(_ other) {
-    other.isA(Option).ifFalse { return false }
+    other.isA(Option).ifFalse || { return false }
     return self.match(
-      some: { v => other.match(some: { ov => v == ov }, none: { false }) },
+      some: |v| { other.match(some: |ov| { v == ov }, none: || { false }) },
       none: { other.isNone }
     )
   }
 
-  hash => self.match(some: { v => v.hash }, none: { 0 })
+  hash => self.match(some: |v| { v.hash }, none: || { 0 })
 }
 
 class Some {}
@@ -611,26 +611,26 @@ class Some {}
 // future migration of `Option` to `.ph` stays symmetric and doesn't touch
 // `Result`).
 class Result {
-  isOk => self.match(ok: { v => true }, err: { e => false })
+  isOk => self.match(ok: |v| { true }, err: |e| { false })
 
-  isErr => self.match(ok: { v => false }, err: { e => true })
+  isErr => self.match(ok: |v| { false }, err: |e| { true })
 
   // Transforms the `Ok` value; an `Err` passes through unchanged (never
   // raises — a pure value transform, result.md §2).
   map(_ f) {
-    return self.match(ok: { v => Ok.new(f.call(v)) }, err: { e => self })
+    return self.match(ok: |v| { Ok.new(f.call(v)) }, err: |e| { self })
   }
 
   // Transforms the `Err` reason; an `Ok` passes through unchanged — the
   // symmetric counterpart of `map` (result.md §2).
   mapErr(_ f) {
-    return self.match(ok: { v => self }, err: { e => Err.new(f.call(e)) })
+    return self.match(ok: |v| { self }, err: |e| { Err.new(f.call(e)) })
   }
 
   // Chains an `Ok` -> `Result` function (flat-map/monadic bind); short-
   // circuits on `Err` (result.md §2).
   andThen(_ f) {
-    return self.match(ok: { v => f.call(v) }, err: { e => self })
+    return self.match(ok: |v| { f.call(v) }, err: |e| { self })
   }
 
   // The `Ok` value, or **re-`throw`** the `Err` reason (`throw expr` ===
@@ -639,24 +639,24 @@ class Result {
   // an `Error` (a user built `Err.new(42)`), `raise` misses and this
   // surfaces the ordinary `doesNotUnderstand` miss — consistent with the
   // only-`Error`-throwable rule, not special-cased here.
-  unwrap => self.match(ok: { v => v }, err: { e => e.raise() })
+  unwrap => self.match(ok: |v| { v }, err: |e| { e.raise() })
 
   unwrapOr(_ default) {
-    return self.match(ok: { v => v }, err: { e => default })
+    return self.match(ok: |v| { v }, err: |e| { default })
   }
 
   // The `Err` reason, or re-`throw` if `Ok` — symmetric to `unwrap`.
-  unwrapErr => self.match(ok: { v => v.raise() }, err: { e => e })
+  unwrapErr => self.match(ok: |v| { v.raise() }, err: |e| { e })
 
   // `Result` -> `Option`: drops the failure reason (result.md §2/§5). Round-
   // trips with `Option#okOr(_)` above.
   ok() {
-    return self.match(ok: { v => Some.new(v) }, err: { e => None })
+    return self.match(ok: |v| { Some.new(v) }, err: |e| { None })
   }
 
   // Display: each arm renders its payload via its OWN `toString` (agrees
   // with `Option#toString`'s pattern, R-INV-4.1).
-  toString => self.match(ok: { v => "Ok(" + v.toString + ")" }, err: { e => "Err(" + e.toString + ")" })
+  toString => self.match(ok: |v| { "Ok(" + v.toString + ")" }, err: |e| { "Err(" + e.toString + ")" })
 }
 
 class Ok is Result {
@@ -683,7 +683,7 @@ class Function {
   // …`) so the call-site selector encodes as `attempt()`, matching the
   // spec's `{ risky() }.attempt()` call form (error-handling.md §5) exactly.
   attempt() {
-    return { Ok.new(self.call()) }.on(Error) { e => Err.new(e) }
+    return || { Ok.new(self.call()) }.on(Error) |e| { Err.new(e) }
   }
 }
 
@@ -705,8 +705,8 @@ class Iterable {
   // Generic index-cursor walk over `self.size` (ADR-0048 §1/§3). A subclass whose
   // cursor is not a 0..size index (none in-kernel today) overrides this.
   iterate(_ cursor) {
-    const next = (cursor == None).ifTrue({ 0 }, ifFalse: { cursor + 1 })
-    return (next < self.size).ifTrue({ next }, ifFalse: { None })
+    const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || { cursor + 1 })
+    return (next < self.size).ifTrue(|| { next }, ifFalse: || { None })
   }
 
   each(_ f) {
@@ -733,7 +733,7 @@ class Iterable {
     let c = self.iterate(None)
     while (c != None) {
       let x = self.iteratorValue(c)
-      pred.call(x).ifTrue({ result.add(x) }, ifFalse: { None })
+      pred.call(x).ifTrue(|| { result.add(x) }, ifFalse: || { None })
       c = self.iterate(c)
     }
     return result
@@ -753,7 +753,7 @@ class Iterable {
     let found = false
     let c = self.iterate(None)
     while (c != None) {
-      (self.iteratorValue(c) == x).ifTrue({ found = true }, ifFalse: { None })
+      (self.iteratorValue(c) == x).ifTrue(|| { found = true }, ifFalse: || { None })
       c = self.iterate(c)
     }
     return found
@@ -767,14 +767,14 @@ class Iterable {
 
   all(_ f) {
     for (x in self) {
-      f.call(x).ifFalse { return false }
+      f.call(x).ifFalse || { return false }
     }
     return true
   }
 
   any(_ f) {
     for (x in self) {
-      f.call(x).ifTrue { return true }
+      f.call(x).ifTrue || { return true }
     }
     return false
   }
@@ -787,13 +787,13 @@ class Iterable {
 
   count(_ f) {
     let n = 0
-    for (x in self) { f.call(x).ifTrue { n = n + 1 } }
+    for (x in self) { f.call(x).ifTrue || { n = n + 1 } }
     return n
   }
 
   find(_ f) {
     for (x in self) {
-      f.call(x).ifTrue { return Some.new(x) }
+      f.call(x).ifTrue || { return Some.new(x) }
     }
     return None
   }
@@ -808,7 +808,7 @@ class Iterable {
     let first = true
     let result = ""
     for (x in self) {
-      first.ifFalse { result = result + sep }
+      first.ifFalse || { result = result + sep }
       first = false
       result = result + x.toString
     }
@@ -855,7 +855,7 @@ class List {
   @private
   sliceByRange(_ range) {
     return range._$sliceBounds(self.size).match(
-      ok: { bounds =>
+      ok: |bounds| {
         let start = bounds[0]
         let end = bounds[1]
         // C.3's consumer-local rule: a reversed normalized interval selects
@@ -869,7 +869,7 @@ class List {
         }
         result
       },
-      err: { error => error.raise() }
+      err: |error| { error.raise() }
     )
   }
 
@@ -949,14 +949,14 @@ class List {
       return Err.new(SliceError.new("List#replace: replacement must be a List"))
     }
     return range._$sliceBounds(self.size).match(
-      ok: { bounds =>
+      ok: |bounds| {
         let start = bounds[0]
         let end = bounds[1]
         if (start > end) { end = start }
         self._$replaceSlice(start, end, replacements)
         Ok.new(())
       },
-      err: { error => Err.new(error) }
+      err: |error| { Err.new(error) }
     )
   }
 
@@ -1031,7 +1031,7 @@ class Map {
     let s = "{"
     let i = 0
     while (i < self._$size) {
-      s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
+      s = s + (i > 0).ifTrue(|| { ", " }, ifFalse: || { "" })
       s = s + self._$keyAt(i).toString + ": " + self._$valueAt(i).toString
       i = i + 1
     }
@@ -1045,28 +1045,28 @@ class Map {
   // value rather than being confused with an absent key.
   [_ k] {
     return self.get(k).match(
-      some: { value => value },
+      some: |value| { value },
       none: { KeyError.new("Map key not found").raise() }
     )
   }
 
   [_ key, default fallback] {
     return self.get(key).match(
-      some: { value => value },
+      some: |value| { value },
       none: { fallback }
     )
   }
 
   get(_ key, orElse block) {
     return self.get(key).match(
-      some: { value => value },
+      some: |value| { value },
       none: { block.call(key) }
     )
   }
 
   get(_ key, orPut block) {
     return self.get(key).match(
-      some: { value => value },
+      some: |value| { value },
       none: {
         let value = block.call(key)
         self.insert(value, for: key)
@@ -1130,7 +1130,7 @@ class Map {
     return result
   }
 
-  // 2-arg block `{ k, v => ... }` per entry, in iteration order.
+  // 2-arg block `|k, v| { ... }` per entry, in iteration order.
   each(_ f) {
     let i = 0
     while (i < self.size) {
@@ -1154,7 +1154,7 @@ class Map {
       while (same and (i < self.size)) {
         let k = self._$keyAt(i)
         same = other.get(k).match(
-          some: { value => self._$valueAt(i) == value },
+          some: |value| { self._$valueAt(i) == value },
           none: { false }
         )
         i = i + 1
@@ -1182,7 +1182,7 @@ class Set {
     let s = "Set("
     let i = 0
     while (i < self._$size) {
-      s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
+      s = s + (i > 0).ifTrue(|| { ", " }, ifFalse: || { "" })
       s = s + self._$at(i).toString
       i = i + 1
     }
@@ -1256,7 +1256,7 @@ class Tuple {
     let s = "("
     let i = 0
     while (i < self._$size) {
-      s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
+      s = s + (i > 0).ifTrue(|| { ", " }, ifFalse: || { "" })
       s = s + self._$at(i).toString
       i = i + 1
     }
@@ -1282,7 +1282,7 @@ class Tuple {
   access(_ key) {
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
-        some: { idx => Some.new(self._$at(idx)) },
+        some: |idx| { Some.new(self._$at(idx)) },
         none: { None }
       )
     }
@@ -1301,18 +1301,18 @@ class Tuple {
   [_ key] {
     if (key.isA(Range)) {
       return key._$sliceBounds(self.size).match(
-        ok: { bounds =>
+        ok: |bounds| {
           let start = bounds[0]
           let end = bounds[1]
           if (start > end) { end = start }
           self._$slice(start, end)
         },
-        err: { error => error.raise() }
+        err: |error| { error.raise() }
       )
     }
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
-        some: { idx => self._$at(idx) },
+        some: |idx| { self._$at(idx) },
         none: { throw KeyError.new("Tuple label not found") }
       )
     }
@@ -1329,7 +1329,7 @@ class Tuple {
   [_ key, default] {
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
-        some: { idx => self._$at(idx) },
+        some: |idx| { self._$at(idx) },
         none: { default }
       )
     }
@@ -1346,7 +1346,7 @@ class Tuple {
   get(_ key, orElse) {
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
-        some: { idx => self._$at(idx) },
+        some: |idx| { self._$at(idx) },
         none: { orElse.call(key) }
       )
     }
@@ -1500,10 +1500,10 @@ class Range is Iterable {
   new(_ lower, _ upper, _ upperInclusive) {
     if (lower == None) {
       if (upper == None) { return .. }
-      return upperInclusive.ifTrue({ ..=upper }, ifFalse: { ..upper })
+      return upperInclusive.ifTrue(|| { ..=upper }, ifFalse: || { ..upper })
     }
     if (upper == None) { return lower.. }
-    return upperInclusive.ifTrue({ lower..=upper }, ifFalse: { lower..upper })
+    return upperInclusive.ifTrue(|| { lower..=upper }, ifFalse: || { lower..upper })
   }
 
   @private
@@ -1568,45 +1568,45 @@ class Range is Iterable {
     let upperOpt = self._$upper
 
     // lower is required for iteration
-    lowerOpt.isNone.ifTrue {
+    lowerOpt.isNone.ifTrue || {
       throw Error.new("Range iteration unsupported when lower bound is absent")
     }
     let lower = lowerOpt.unwrapOr(None)
-    (self.isSliceCoordinate(lower)).ifFalse {
+    (self.isSliceCoordinate(lower)).ifFalse || {
       throw Error.new("Range iteration unsupported: lower bound must be an integer")
     }
 
     let hasUpper = upperOpt.isSome
-    let upper = hasUpper.ifTrue({ upperOpt.unwrapOr(None) }, ifFalse: { None })
-    hasUpper.ifTrue {
-      (self.isSliceCoordinate(upper)).ifFalse {
+    let upper = hasUpper.ifTrue(|| { upperOpt.unwrapOr(None) }, ifFalse: || { None })
+    hasUpper.ifTrue || {
+      (self.isSliceCoordinate(upper)).ifFalse || {
         throw Error.new("Range iteration unsupported: upper bound must be an integer")
       }
     }
 
     // empty ascending check: return None if lower > upper (or lower == upper for exclusive)
     let inclusive = self._$upperInclusive
-    let isEmpty = hasUpper.ifTrue({
-      inclusive.ifTrue({ lower > upper }, ifFalse: { lower >= upper })
-    }, ifFalse: { false })
+    let isEmpty = hasUpper.ifTrue(|| {
+      inclusive.ifTrue(|| { lower > upper }, ifFalse: || { lower >= upper })
+    }, ifFalse: || { false })
     if (isEmpty) {
       return None
     }
 
-    let nextCursor = (previous == None).ifTrue({ 0 }, ifFalse: { previous + 1 })
+    let nextCursor = (previous == None).ifTrue(|| { 0 }, ifFalse: || { previous + 1 })
 
-    hasUpper.ifFalse {
+    hasUpper.ifFalse || {
       return nextCursor
     }
 
     let currentVal = lower + nextCursor
-    let live = inclusive.ifTrue({ currentVal <= upper }, ifFalse: { currentVal < upper })
-    return live.ifTrue({ nextCursor }, ifFalse: { None })
+    let live = inclusive.ifTrue(|| { currentVal <= upper }, ifFalse: || { currentVal < upper })
+    return live.ifTrue(|| { nextCursor }, ifFalse: || { None })
   }
 
   iteratorValue(_ cursor) {
     let lowerOpt = self._$lower
-    lowerOpt.isNone.ifTrue {
+    lowerOpt.isNone.ifTrue || {
       throw Error.new("Range has no lower bound")
     }
     return lowerOpt.unwrapOr(None) + cursor
@@ -1615,7 +1615,7 @@ class Range is Iterable {
   // first, last, size, includes (Spec E.2 / Range specs)
   first {
     let lowerOpt = self._$lower
-    lowerOpt.isNone.ifTrue {
+    lowerOpt.isNone.ifTrue || {
       throw Error.new("Range has no first element because lower bound is absent")
     }
     return lowerOpt.unwrapOr(None)
@@ -1623,61 +1623,61 @@ class Range is Iterable {
 
   last {
     let upperOpt = self._$upper
-    upperOpt.isNone.ifTrue {
+    upperOpt.isNone.ifTrue || {
       throw Error.new("Range has no last element because upper bound is absent")
     }
     let upper = upperOpt.unwrapOr(None)
-    return self._$upperInclusive.ifTrue({ upper }, ifFalse: { upper - 1 })
+    return self._$upperInclusive.ifTrue(|| { upper }, ifFalse: || { upper - 1 })
   }
 
   size {
     let lowerOpt = self._$lower
     let upperOpt = self._$upper
-    (lowerOpt.isNone or upperOpt.isNone).ifTrue {
+    (lowerOpt.isNone or upperOpt.isNone).ifTrue || {
       throw Error.new("Unbounded Range has no size")
     }
     let lower = lowerOpt.unwrapOr(None)
     let upper = upperOpt.unwrapOr(None)
-    (lower > upper).ifTrue {
+    (lower > upper).ifTrue || {
       return 0
     }
     let diff = upper - lower
-    return self._$upperInclusive.ifTrue({ diff + 1 }, ifFalse: { diff })
+    return self._$upperInclusive.ifTrue(|| { diff + 1 }, ifFalse: || { diff })
   }
 
   includes(_ x) {
     let lowerOpt = self._$lower
     let upperOpt = self._$upper
 
-    let lowerOk = lowerOpt.isNone.ifTrue({ true }, ifFalse: { x >= lowerOpt.unwrapOr(None) })
-    let upperOk = upperOpt.isNone.ifTrue({ true }, ifFalse: {
-      self._$upperInclusive.ifTrue({ x <= upperOpt.unwrapOr(None) }, ifFalse: { x < upperOpt.unwrapOr(None) })
+    let lowerOk = lowerOpt.isNone.ifTrue(|| { true }, ifFalse: || { x >= lowerOpt.unwrapOr(None) })
+    let upperOk = upperOpt.isNone.ifTrue(|| { true }, ifFalse: || {
+      self._$upperInclusive.ifTrue(|| { x <= upperOpt.unwrapOr(None) }, ifFalse: || { x < upperOpt.unwrapOr(None) })
     })
     return lowerOk and upperOk
   }
 
   at(_ i) {
     let lowerOpt = self._$lower
-    lowerOpt.isNone.ifTrue {
+    lowerOpt.isNone.ifTrue || {
       throw Error.new("Range index out of range (lower bound is absent)")
     }
     let lower = lowerOpt.unwrapOr(None)
     let index = i
     // Support negative indexing
-    (index < 0).ifTrue {
+    (index < 0).ifTrue || {
       let sz = self.size
       index = sz + index
     }
     // Check range bounds
     let sz = self.size
-    (index < 0 or index >= sz).ifTrue {
+    (index < 0 or index >= sz).ifTrue || {
       throw Error.new("Range index out of range")
     }
     return lower + index
   }
 
   ==(_ other) {
-    other.isA(Range).ifFalse { return false }
+    other.isA(Range).ifFalse || { return false }
     return (self._$lower == other._$lower) and
            (self._$upper == other._$upper) and
            (self._$upperInclusive == other._$upperInclusive)
@@ -1686,16 +1686,16 @@ class Range is Iterable {
   toString {
     let lowerOpt = self._$lower
     let upperOpt = self._$upper
-    let lowerStr = lowerOpt.isNone.ifTrue({ "" }, ifFalse: { lowerOpt.unwrapOr(None).toString })
-    let upperStr = upperOpt.isNone.ifTrue({ "" }, ifFalse: { upperOpt.unwrapOr(None).toString })
-    let op = self._$upperInclusive.ifTrue({ ".." }, ifFalse: { "..." })
+    let lowerStr = lowerOpt.isNone.ifTrue(|| { "" }, ifFalse: || { lowerOpt.unwrapOr(None).toString })
+    let upperStr = upperOpt.isNone.ifTrue(|| { "" }, ifFalse: || { upperOpt.unwrapOr(None).toString })
+    let op = self._$upperInclusive.ifTrue(|| { ".." }, ifFalse: || { "..." })
     return lowerStr + op + upperStr
   }
 
   hash {
-    let h1 = self._$lower.isSome.ifTrue({ self._$lower.unwrapOr(None).hash }, ifFalse: { 17 })
-    let h2 = self._$upper.isSome.ifTrue({ self._$upper.unwrapOr(None).hash }, ifFalse: { 31 })
-    let h3 = self._$upperInclusive.ifTrue({ 1 }, ifFalse: { 0 })
+    let h1 = self._$lower.isSome.ifTrue(|| { self._$lower.unwrapOr(None).hash }, ifFalse: || { 17 })
+    let h2 = self._$upper.isSome.ifTrue(|| { self._$upper.unwrapOr(None).hash }, ifFalse: || { 31 })
+    let h3 = self._$upperInclusive.ifTrue(|| { 1 }, ifFalse: || { 0 })
     return h1 + h2 * 37 + h3 * 97
   }
 }
@@ -1725,13 +1725,13 @@ class Bytes {
   [_ index] {
     if (index.isA(Range)) {
       return index._$sliceBounds(self.size).match(
-        ok: { bounds =>
+        ok: |bounds| {
           let start = bounds[0]
           let end = bounds[1]
           if (start > end) { end = start }
           self._$slice(start, end)
         },
-        err: { error => error.raise() }
+        err: |error| { error.raise() }
       )
     }
     let raw = self._$at(index)
@@ -2115,8 +2115,8 @@ class WhereView is Iterable {
     let cur = cursor
     while (true) {
       cur = _source.iterate(cur)
-      (cur == None).ifTrue { return None }
-      _pred.call(_source.iteratorValue(cur)).ifTrue { return cur }
+      (cur == None).ifTrue || { return None }
+      _pred.call(_source.iteratorValue(cur)).ifTrue || { return cur }
     }
   }
   iteratorValue(_ cursor) => _source.iteratorValue(cursor)
@@ -2125,14 +2125,14 @@ class WhereView is Iterable {
 class SkipView is Iterable {
   @constructor
   new(_ source, _ count) {
-    (count.isA(Number) and (count >= 0)).ifFalse {
+    (count.isA(Number) and (count >= 0)).ifFalse || {
       throw Error("skip: count must be a non-negative Number")
     }
     _source = source
     _count = count
   }
   iterate(_ cursor) {
-    (cursor != None).ifTrue { return _source.iterate(cursor) }
+    (cursor != None).ifTrue || { return _source.iterate(cursor) }
     let cur = _source.iterate(None)
     let n = _count
     while ((n > 0) and (cur != None)) {
@@ -2147,7 +2147,7 @@ class SkipView is Iterable {
 class TakeView is Iterable {
   @constructor
   new(_ source, _ count) {
-    (count.isA(Number) and (count >= 0)).ifFalse {
+    (count.isA(Number) and (count >= 0)).ifFalse || {
       throw Error("take: count must be a non-negative Number")
     }
     _source = source
@@ -2156,13 +2156,13 @@ class TakeView is Iterable {
   iterate(_ cursor) {
     let srcCursor = None
     let taken = 0
-    (cursor != None).ifTrue {
+    (cursor != None).ifTrue || {
       srcCursor = cursor.at(0)
       taken = cursor.at(1)
     }
-    ((taken + 1) > _count).ifTrue { return None }
+    ((taken + 1) > _count).ifTrue || { return None }
     let next = _source.iterate(srcCursor)
-    (next == None).ifTrue { return None }
+    (next == None).ifTrue || { return None }
     return (next, taken + 1)
   }
   iteratorValue(_ cursor) => _source.iteratorValue(cursor.at(0))
@@ -2183,9 +2183,9 @@ class System {
   @class
   writeObject(_ obj) {
     const s = obj.toString
-    (s.isA(String)).ifTrue({
+    (s.isA(String)).ifTrue(|| {
       System._$write(s)
-    }, ifFalse: {
+    }, ifFalse: || {
       System._$write("invalid toString")
     })
     return obj
@@ -2310,7 +2310,7 @@ class Future {
   // finished fiber aborts the whole run, taking every other waiter on this
   // future down with it, so skip those rather than scheduling a corpse.
   drain() {
-    _waiters.each { w =>
+    _waiters.each |w| {
       const dead = w.isA(Fiber) and w.isDone
       if (not dead) {
         System.schedule(w)
@@ -2322,7 +2322,7 @@ class Future {
   // The settled value as an `Option` (concurrency.md §2): `Some(v)` once
   // `fulfilled`, `None` while `pending` or once `rejected` (the rejection
   // reason is reached via `catch(_)`/`then(_)`, not `value`).
-  value => (_state == "fulfilled").ifTrue({ Some.new(_value) }, ifFalse: { None })
+  value => (_state == "fulfilled").ifTrue(|| { Some.new(_value) }, ifFalse: || { None })
 
   // Suspends the current fiber until settled (U-FUTURE Slice B). On the root
   // fiber — which has no resumer and so cannot yield — degrades to driving the
@@ -2375,7 +2375,7 @@ class Future {
   @class
   async(_ action) {
     const f = Future.new()
-    const driver = Fiber.new {
+    const driver = Fiber.new || {
       const fib = Fiber.new(action)
       const res = fib.try()
       if (fib.error.isSome) {
@@ -2411,16 +2411,16 @@ class Future {
       }
     } else {
       const f_next = Future.new()
-      _waiters.add({
+      _waiters.add(|| {
         if (_state == "fulfilled") {
-          const fib = Fiber.new({ f.call(_value) })
+          const fib = Fiber.new(|| { f.call(_value) })
           const res = fib.try()
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
             const flattened = Future.flatten(res)
-            flattened.then { value => f_next.settleValue(value) }
-            flattened.catch { error => f_next.settleError(error) }
+            flattened.then |value| { f_next.settleValue(value) }
+            flattened.catch |error| { f_next.settleError(error) }
           }
         } else {
           f_next.settleError(_value)
@@ -2440,16 +2440,16 @@ class Future {
       }
     } else {
       const f_next = Future.new()
-      _waiters.add({
+      _waiters.add(|| {
         if (_state == "fulfilled") {
-          const fib = Fiber.new({ f.call(_value) })
+          const fib = Fiber.new(|| { f.call(_value) })
           const res = fib.try()
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
             const flattened = Future.flatten(res)
-            flattened.then { value => f_next.settleValue(value) }
-            flattened.catch { error => f_next.settleError(error) }
+            flattened.then |value| { f_next.settleValue(value) }
+            flattened.catch |error| { f_next.settleError(error) }
           }
         } else {
           f_next.settleError(_value)
@@ -2470,16 +2470,16 @@ class Future {
       }
     } else {
       const f_next = Future.new()
-      _waiters.add({
+      _waiters.add(|| {
         if (_state == "rejected") {
-          const fib = Fiber.new({ f.call(_value) })
+          const fib = Fiber.new(|| { f.call(_value) })
           const res = fib.try()
           if (fib.error.isSome) {
             f_next.settleError(fib.error.unwrapOr(None))
           } else {
             const flattened = Future.flatten(res)
-            flattened.then { value => f_next.settleValue(value) }
-            flattened.catch { error => f_next.settleError(error) }
+            flattened.then |value| { f_next.settleValue(value) }
+            flattened.catch |error| { f_next.settleError(error) }
           }
         } else {
           f_next.settleValue(_value)
@@ -2624,7 +2624,7 @@ class Runtime is Tier {}
 // reopen-with-fields would trip read-before-write).
 class Behavior {
   attributes => self._$attributes
-  attributesOfType(_ cls) => self._$attributes.filter { a => a.isA(cls) }
+  attributesOfType(_ cls) => self._$attributes.filter |a| { a.isA(cls) }
 }
 
 // `Method#attributes`/`#attributesOfType(_)` — the same reflection surface
@@ -2632,7 +2632,7 @@ class Behavior {
 // dictionary holds.
 class Method {
   attributes => self._$attributes
-  attributesOfType(_ cls) => self._$attributes.filter { a => a.isA(cls) }
+  attributesOfType(_ cls) => self._$attributes.filter |a| { a.isA(cls) }
 }
 
 // ============================================================================
@@ -2654,7 +2654,7 @@ class UnflushedError is Error {}
 class BytesReader is Resource {
   @constructor
   new(_ source) {
-    source.is(Bytes).ifFalse {
+    source.is(Bytes).ifFalse || {
       throw ArgumentError.new("BytesReader source must be a Bytes")
     }
     _handle = Resource._$register("BytesReader")
@@ -2664,16 +2664,16 @@ class BytesReader is Resource {
   }
 
   read(_ dst) {
-    dst.is(Bytes).ifFalse {
+    dst.is(Bytes).ifFalse || {
       throw ArgumentError.new("dst must be a Bytes")
     }
-    self.isClosed.ifTrue {
+    self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot read from closed BytesReader")
     }
     let remaining = _data.size - _pos
     let n = dst.size
-    (remaining < n).ifTrue { n = remaining }
-    (n > 0).ifTrue {
+    (remaining < n).ifTrue || { n = remaining }
+    (n > 0).ifTrue || {
       _data.slice(_pos, _pos + n).copyInto(dst, 0)
       _pos = _pos + n
     }
@@ -2690,10 +2690,10 @@ class BytesWriter is Resource {
   }
 
   write(_ src) {
-    src.is(Bytes).ifFalse {
+    src.is(Bytes).ifFalse || {
       throw ArgumentError.new("src must be a Bytes")
     }
-    self.isClosed.ifTrue {
+    self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot write to closed BytesWriter")
     }
     _chunks.add(src.slice(0, src.size))
@@ -2706,10 +2706,10 @@ class BytesWriter is Resource {
 
   toBytes {
     let total = 0
-    _chunks.each { c => total = total + c.size }
+    _chunks.each |c| { total = total + c.size }
     let res = Bytes.new(total)
     let offset = 0
-    _chunks.each { c =>
+    _chunks.each |c| {
       c.copyInto(res, offset)
       offset = offset + c.size
     }
@@ -2729,21 +2729,21 @@ class BufferedWriter is Resource {
   pending => _len
 
   write(_ src) {
-    src.is(Bytes).ifFalse {
+    src.is(Bytes).ifFalse || {
       throw ArgumentError.new("src must be a Bytes")
     }
-    self.isClosed.ifTrue {
+    self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot write to closed BufferedWriter")
     }
 
     if (src.size >= _buf.size) {
-      return self.flush.then { _ =>
+      return self.flush.then |_| {
         _inner.write(src)
       }
     }
 
     if ((_len + src.size) > _buf.size) {
-      return self.flush.then { _ =>
+      return self.flush.then |_| {
         src.copyInto(_buf, _len)
         _len = _len + src.size
         Future.value(src.size)
@@ -2760,7 +2760,7 @@ class BufferedWriter is Resource {
       return Future.value(None)
     }
     let chunk = _buf.slice(0, _len)
-    return _inner.write(chunk).then { bytesWritten =>
+    return _inner.write(chunk).then |bytesWritten| {
       _len = 0
       Future.value(None)
     }
@@ -2775,7 +2775,7 @@ class BufferedWriter is Resource {
   }
 
   finish {
-    return self.flush.then { _ =>
+    return self.flush.then |_| {
       self.close
     }
   }
@@ -2792,23 +2792,23 @@ class BufferedReader is Resource {
   }
 
   read(_ dst) {
-    dst.is(Bytes).ifFalse {
+    dst.is(Bytes).ifFalse || {
       throw ArgumentError.new("dst must be a Bytes")
     }
-    self.isClosed.ifTrue {
+    self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot read from closed BufferedReader")
     }
 
     if (_pos < _len) {
       let avail = _len - _pos
       let n = dst.size
-      (avail < n).ifTrue { n = avail }
+      (avail < n).ifTrue || { n = avail }
       _buf.slice(_pos, _pos + n).copyInto(dst, 0)
       _pos = _pos + n
       return Future.value(n)
     }
 
-    return _inner.read(_buf).then { count =>
+    return _inner.read(_buf).then |count| {
       if (count == 0) {
         return Future.value(0)
       }
@@ -2816,7 +2816,7 @@ class BufferedReader is Resource {
       _len = count
       let avail = _len
       let n = dst.size
-      (avail < n).ifTrue { n = avail }
+      (avail < n).ifTrue || { n = avail }
       _buf.slice(_pos, _pos + n).copyInto(dst, 0)
       _pos = _pos + n
       Future.value(n)

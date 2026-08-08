@@ -158,7 +158,7 @@ class ExampleCodec {
   @class
   writeChoice(writer: _CodecWriter, choice: Choice) -> None {
     choice.match(
-      integer: { value =>
+      integer: |value| {
         writer.byte(_ChoiceTag.integer) // Choice.Integer
         writer.int(value.value)
         writer.int(value.min)
@@ -166,20 +166,20 @@ class ExampleCodec {
         writer.int(value.shrinkTowards)
         writer.optionSymbol(value.label)
       },
-      boolean: { value =>
+      boolean: |value| {
         writer.byte(_ChoiceTag.boolean) // Choice.Boolean
         writer.bool(value.value)
         writer.bool(value.shrinkTowards)
         writer.optionSymbol(value.label)
       },
-      index: { value =>
+      index: |value| {
         writer.byte(_ChoiceTag.index) // Choice.Index
         writer.int(value.value)
         writer.int(value.size)
         writer.int(value.shrinkTowards)
         writer.optionSymbol(value.label)
       },
-      bytes: { value =>
+      bytes: |value| {
         writer.byte(_ChoiceTag.bytes) // Choice.Bytes
         writer.bytes(value.value)
         writer.int(value.minSize)

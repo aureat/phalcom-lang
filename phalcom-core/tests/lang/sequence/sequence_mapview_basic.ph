@@ -4,7 +4,7 @@
 // MapView iterates with function applied to each element
 
 let source = [1, 2, 3]
-let view = MapView.new(source, { x => x * 2 })
+let view = MapView.new(source, |x| { x * 2 })
 let result = []
 for (x in view) {
   result.add(x)

@@ -370,7 +370,7 @@ class _StatefulExecutor {
 
     for argument in definition.arguments {
       argument.match(
-        draw: { source =>
+        draw: |source| {
           const value = source.strategy.draw(data)
           values.add(value)
           descriptions.add(
@@ -381,7 +381,7 @@ class _StatefulExecutor {
             )
           )
         },
-        select: { source =>
+        select: |source| {
           const reference = _context.selectReference(
             bundle: source.bundle,
             consuming: false,
@@ -396,7 +396,7 @@ class _StatefulExecutor {
             )
           )
         },
-        consume: { source =>
+        consume: |source| {
           const reference = _context.consumeReference(
             bundle: source.bundle,
             data: data
@@ -637,8 +637,8 @@ class _StatefulReuse {
     const database = definition.settings.databaseValue.unwrap
     const key = definition.databaseKey
     result.match(
-      passed: { _ => self.deleteStale(database: database, key: key, stale: reused) },
-      falsified: { value =>
+      passed: |_| { self.deleteStale(database: database, key: key, stale: reused) },
+      falsified: |value| {
         database.save(
           key,
           value.failure.example,
@@ -652,8 +652,8 @@ class _StatefulReuse {
         }
         self.deleteStale(database: database, key: key, stale: stale)
       },
-      inconclusive: { _ => self.deleteStale(database: database, key: key, stale: reused) },
-      errored: { _ => self.deleteStale(database: database, key: key, stale: reused) }
+      inconclusive: |_| { self.deleteStale(database: database, key: key, stale: reused) },
+      errored: |_| { self.deleteStale(database: database, key: key, stale: reused) }
     )
   }
 

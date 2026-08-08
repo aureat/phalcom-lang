@@ -1,17 +1,13 @@
-class A {
-  v => "A"
+class A v => "A"
 }
 
-class B {
-  v => "B"
+class B v => "B"
 }
 
-class C {
-  v => "C"
+class C v => "C"
 }
 
-class D {
-  v => "D"
+class D v => "D"
 }
 
 // One call site hit with different receiver classes

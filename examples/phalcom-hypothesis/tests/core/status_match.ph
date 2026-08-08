@@ -39,10 +39,10 @@ const statusLabels = List.new()
 for item in statuses {
   statusLabels.add(
     item.match(
-      valid: { _ => #valid },
-      invalid: { _ => #invalid },
-      overrun: { _ => #overrun },
-      interesting: { _ => #interesting }
+      valid: |_| { #valid },
+      invalid: |_| { #invalid },
+      overrun: |_| { #overrun },
+      interesting: |_| { #interesting }
     )
   )
 }
@@ -63,10 +63,10 @@ const resultLabels = List.new()
 for item in results {
   resultLabels.add(
     item.match(
-      passed: { _ => #passed },
-      falsified: { _ => #falsified },
-      inconclusive: { _ => #inconclusive },
-      errored: { _ => #errored }
+      passed: |_| { #passed },
+      falsified: |_| { #falsified },
+      inconclusive: |_| { #inconclusive },
+      errored: |_| { #errored }
     )
   )
 }

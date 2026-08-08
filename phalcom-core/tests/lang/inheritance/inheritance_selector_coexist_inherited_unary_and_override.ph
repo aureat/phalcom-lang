@@ -11,8 +11,7 @@
 class Base {
   foo(_ x) { return "Base.foo(" + x.toString + ")" }
 }
-class Sub is Base {
-  foo => "Sub.foo"
+class Sub is Base foo => "Sub.foo"
 }
 const s = Sub.new()
 System.print(s.foo)

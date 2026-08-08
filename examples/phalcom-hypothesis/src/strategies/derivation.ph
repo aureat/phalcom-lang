@@ -245,7 +245,7 @@ class _Derivation {
 
     const recursive = Gen.recursive(
       base: terminal,
-      extend: { child =>
+      extend: |child| {
         const choices = _DerivationCopies.list(terminalStrategies)
         for variant in recursiveVariants {
           choices.add(
@@ -276,7 +276,7 @@ class _Derivation {
     } else if type.respondsTo(#subclasses) {
       reflected = type.subclasses.toList
     }
-    return reflected.sorted { left, right =>
+    return reflected.sorted |left, right| {
       left.name.toString < right.name.toString
     }
   }
@@ -476,7 +476,7 @@ class _Derivation {
   @class
   constructors(type: Any) -> List<Method> {
     if type.respondsTo(#constructors) {
-      return type.constructors.toList.sorted { left, right =>
+      return type.constructors.toList.sorted |left, right| {
         left.selector.toString < right.selector.toString
       }
     }
@@ -490,7 +490,7 @@ class _Derivation {
         }
       }
     }
-    return reflected.sorted { left, right =>
+    return reflected.sorted |left, right| {
       left.selector.toString < right.selector.toString
     }
   }
