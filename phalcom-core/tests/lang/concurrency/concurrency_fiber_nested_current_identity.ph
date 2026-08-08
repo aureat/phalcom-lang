@@ -10,9 +10,9 @@
 // `call()` return, never sees `inner`'s intermediate yield.
 let outer = None
 let inner = None
-outer = Fiber.new {
+outer = Fiber.new || {
   System.print(Fiber.current == outer)
-  inner = Fiber.new {
+  inner = Fiber.new || {
     System.print(Fiber.current == inner)
     System.print(Fiber.current == outer)
     Fiber.yield("inner-yield")

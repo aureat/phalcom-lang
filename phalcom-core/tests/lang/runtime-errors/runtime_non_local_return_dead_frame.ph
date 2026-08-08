@@ -7,7 +7,7 @@
 // the frame-token generation compare fails and raises `DeadFrameError`
 // (Smalltalk's `BlockCannotReturn`) rather than corrupting the stack.
 class Maker {
-  make() { return { return 1 } }
+  make() { return || { return 1 } }
 }
 const escaped = Maker.new().make()
 System.print(escaped.call())

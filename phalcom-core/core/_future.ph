@@ -21,8 +21,8 @@ class System {
   writeObject(_ obj) {
     const s = obj.toString
     (s is String)
-      .ifTrue({ _$write(s) },
-       ifFalse: { _$write("invalid toString") })
+      .ifTrue(|| { _$write(s) },
+       ifFalse: || { _$write("invalid toString") })
     obj
   }
 

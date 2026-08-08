@@ -5,8 +5,8 @@
 // ONE open upvalue cell — mutating through `inc` must be visible when reading
 // through `show`, proving the cell is aliased, not copied per-closure.
 let count = 0
-const inc = { count = count + 1 }
-const show = { count }
+const inc = || { count = count + 1 }
+const show = || { count }
 
 inc.call()
 inc.call()

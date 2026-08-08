@@ -15,7 +15,7 @@ class ArityProperties is PropertySuite {
   }
 }
 
-const outcome = {
+const outcome = || {
   PropertyRunner.run(const [ArityProperties], with: Settings.standard)
 }.attempt()
 

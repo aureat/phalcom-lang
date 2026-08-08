@@ -5,7 +5,7 @@
 // `Fiber#isDone` is `false` while the receiver is mid-generator (yielded,
 // not finished) — only `Done`/`Failed` flip it `true`.
 
-const f = Fiber.new {
+const f = Fiber.new || {
   Fiber.yield(1)
   2
 }

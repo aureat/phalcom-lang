@@ -44,10 +44,10 @@ class ExampleCodec {
     payload: Bytes,
     expectedKey: DatabaseKey
   ) -> Result<List<databaseModel._DatabaseRecord>, databaseModel._DatabaseDecodeError> {
-    const attempted = {
+    const attempted = || {
       self.decodeChecked(payload: payload, expectedKey: expectedKey)
     }.attempt()
-    if attempted.isErr {
+    if attempted.isErr || {
       return Err.new(
         databaseModel._DatabaseDecodeError.because(
           attempted.unwrapErr.message.unwrapOr(attempted.unwrapErr.toString)
@@ -76,13 +76,13 @@ class ExampleCodec {
     }
 
     const reader = _CodecReader.new(body)
-    if reader.string != self.magic {
+    if reader.string != self.magic || {
       throw databaseModel._DatabaseDecodeError.because("wrong database magic")
     }
-    if reader.int != self.schemaVersion {
+    if reader.int != self.schemaVersion || {
       throw databaseModel._DatabaseDecodeError.because("unsupported schema version")
     }
-    if reader.string != expectedKey.canonical {
+    if reader.string != expectedKey.canonical || {
       throw databaseModel._DatabaseDecodeError.because("database key mismatch")
     }
 
@@ -93,7 +93,7 @@ class ExampleCodec {
       records.add(self.readRecord(reader))
       index++
     }
-    if not reader.finished {
+    if not reader.finished || {
       throw databaseModel._DatabaseDecodeError.because("trailing bytes")
     }
     return records
@@ -108,18 +108,18 @@ class ExampleCodec {
     writer.string(record.signature)
     writer.int(example.generationSize)
     writer.int(example.choices.size)
-    for choice in example.choices {
+    for choice in example.choices || {
       self.writeChoice(writer: writer, choice: choice)
     }
     writer.int(example.spans.size)
-    for span in example.spans {
+    for span in example.spans || {
       self.writeSpan(writer: writer, span: span)
     }
     self.writeOrigin(writer: writer, origin: record.failureOrigin)
   }
 
   @class
-  readRecord(reader: _CodecReader) -> databaseModel._DatabaseRecord {
+  readRecord(reader: _CodecReader) -> databaseModel._DatabaseRecord || {
     const signature = reader.string
     const generationSize = reader.nonNegativeInt("generationSize")
     const choiceCount = reader.count(max: 100000, label: "choice count")
@@ -193,7 +193,7 @@ class ExampleCodec {
   @class
   readChoice(reader: _CodecReader) -> Choice {
     const tag = reader.byte
-    if tag == _ChoiceTag.integer {
+    if tag == _ChoiceTag.integer || {
       return Choice.integer(
         value: reader.int,
         min: reader.int,
@@ -202,14 +202,14 @@ class ExampleCodec {
         label: reader.optionSymbol
       )
     }
-    if tag == _ChoiceTag.boolean {
+    if tag == _ChoiceTag.boolean || {
       return Choice.boolean(
         value: reader.bool,
         shrinkTowards: reader.bool,
         label: reader.optionSymbol
       )
     }
-    if tag == _ChoiceTag.index {
+    if tag == _ChoiceTag.index || {
       return Choice.index(
         value: reader.int,
         size: reader.int,
@@ -217,7 +217,7 @@ class ExampleCodec {
         label: reader.optionSymbol
       )
     }
-    if tag == _ChoiceTag.bytes {
+    if tag == _ChoiceTag.bytes || {
       return Choice.bytes(
         value: reader.bytes(max: 16777216),
         minSize: reader.nonNegativeInt("minimum bytes size"),
@@ -261,7 +261,7 @@ class ExampleCodec {
     origin: Option<FailureOrigin>
   ) -> None {
     writer.bool(origin.isSome)
-    if origin.isNone {
+    if origin.isNone || {
       return
     }
     const value = origin.unwrap
@@ -275,7 +275,7 @@ class ExampleCodec {
 
   @class
   readOrigin(reader: _CodecReader) -> Option<FailureOrigin> {
-    if not reader.bool {
+    if not reader.bool || {
       return None
     }
     const errorTypeName = reader.string
@@ -329,12 +329,12 @@ class _CodecWriter {
 
   optionInt(value: Option<Int>) -> None {
     self.bool(value.isSome)
-    if value.isSome { self.int(value.unwrap) }
+    if value.isSome || { self.int(value.unwrap) }
   }
 
   optionSymbol(value: Option<Symbol>) -> None {
     self.bool(value.isSome)
-    if value.isSome { self.symbol(value.unwrap) }
+    if value.isSome || { self.symbol(value.unwrap) }
   }
 
   string(value: String) -> None {
@@ -350,7 +350,7 @@ class _CodecWriter {
 
   raw(value: Bytes) -> None {
     let index = 0
-    while index < value.size {
+    while index < value.size || {
       self.byte(value[index])
       index++
     }
@@ -359,7 +359,7 @@ class _CodecWriter {
   freeze -> Bytes {
     const bytes = Bytes.zeroed(_values.size)
     let index = 0
-    while index < _values.size {
+    while index < _values.size || {
       bytes[index] = _values.at(index)
       index++
     }
@@ -421,12 +421,12 @@ class _CodecReader {
   symbol -> Symbol => Symbol.intern(self.string)
 
   optionInt -> Option<Int> {
-    if self.bool { return Some.new(self.int) }
+    if self.bool || { return Some.new(self.int) }
     return None
   }
 
   optionSymbol -> Option<Symbol> {
-    if self.bool { return Some.new(self.symbol) }
+    if self.bool || { return Some.new(self.symbol) }
     return None
   }
 
@@ -460,7 +460,7 @@ class _CodecReader {
   }
 
   require(count: Int) -> None {
-    if _position + count > _bytes.size {
+    if _position + count > _bytes.size || {
       throw databaseModel._DatabaseDecodeError.because("payload is truncated")
     }
   }
@@ -480,15 +480,15 @@ class _CodecValidation {
       }
     }
     for span in spans {
-      if span.parent.isSome {
+      if span.parent.isSome || {
         const parent = self.spanWithId(spans: spans, id: span.parent.unwrap)
-        if parent.isNone {
+        if parent.isNone || {
           throw databaseModel._DatabaseDecodeError.because("unknown span parent")
         }
-        if parent.unwrap.id == span.id {
+        if parent.unwrap.id == span.id || {
           throw databaseModel._DatabaseDecodeError.because("span is its own parent")
         }
-        if parent.unwrap.start > span.start or parent.unwrap.end < span.end {
+        if parent.unwrap.start > span.start or parent.unwrap.end < span.end || {
           throw databaseModel._DatabaseDecodeError.because("parent does not contain child span")
         }
       }
@@ -508,13 +508,13 @@ class _CodecValidation {
   noParentCycle(spans: List<Span>, span: Span) -> None {
     const visited = Set.new()
     let current = Some.new(span)
-    while current.isSome {
+    while current.isSome || {
       const value = current.unwrap
       if visited.includes(value.id) {
         throw databaseModel._DatabaseDecodeError.because("span parent cycle")
       }
       visited.add(value.id)
-      if value.parent.isNone { return }
+      if value.parent.isNone || { return }
       current = self.spanWithId(spans: spans, id: value.parent.unwrap)
     }
   }
@@ -525,7 +525,7 @@ class _CodecChecksum {
   checksum(value: Bytes) -> Int {
     let hash = 2166136261
     let index = 0
-    while index < value.size {
+    while index < value.size || {
       hash = ((hash ^ value[index]) * 16777619) % 4294967296
       index++
     }
@@ -553,7 +553,7 @@ class _DatabaseTypes {
   @class
   resolve(name: String) -> Class {
     const found = System.classNamed(Symbol.intern(name))
-    if found.isSome { return found.unwrap }
+    if found.isSome || { return found.unwrap }
     return Error
   }
 }

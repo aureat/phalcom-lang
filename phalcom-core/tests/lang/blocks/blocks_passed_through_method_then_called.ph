@@ -16,6 +16,6 @@ class Box {
   }
 }
 const box = Box.new()
-box.store({ 6 * 7 })
+box.store(|| { 6 * 7 })
 const retrieved = box.fetch()
 System.print(retrieved.call())

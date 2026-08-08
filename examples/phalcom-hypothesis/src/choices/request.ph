@@ -100,7 +100,7 @@ class _ChoiceRequestBytes {
   copy(value: Bytes) -> Bytes {
     const copied = Bytes.zeroed(value.size)
     let position = 0
-    while position < value.size {
+    while position < value.size || {
       copied[position] = value[position]
       position++
     }

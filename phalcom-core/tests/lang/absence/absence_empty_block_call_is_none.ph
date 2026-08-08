@@ -5,4 +5,4 @@
 // which surfaces to the `None` singleton rather than the block object left in
 // slot 0. Without the fix this printed `<block>`.
 
-System.print({ }.call())
+System.print(|| { }.call())

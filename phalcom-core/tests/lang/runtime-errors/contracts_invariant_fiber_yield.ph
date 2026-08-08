@@ -5,7 +5,7 @@
 // method body currently hard-errors, because `__invariantEnter`/
 // `__invariantExit` are native primitives wrapping the body call, and the
 // interpreter forbids a fiber switch across a native call frame (same
-// restriction as `.each { }`). ADR-0052 never named this hazard. This test
+// restriction as `.each || { }`). ADR-0052 never named this hazard. This test
 // pins CURRENT (broken) behavior so a fix is visible as a diff here, not a
 // silent regression.
 
@@ -29,7 +29,7 @@ class Guard {
 
 const x = Guard.new(1)
 
-const fiberA = Fiber.new {
+const fiberA = Fiber.new || {
   x.bump(true)
 }
 

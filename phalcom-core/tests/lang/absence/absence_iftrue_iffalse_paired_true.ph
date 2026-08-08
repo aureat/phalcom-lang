@@ -7,5 +7,5 @@
 // `true` receiver, `ifTrue(_, ifFalse:_)` returns the TAKEN arm's raw value
 // directly — no `Some` wrapper, no `.unwrapOr`/`.match` needed to extract it.
 
-System.print(true.ifTrue({ "yes" }, ifFalse: { "no" }))
-System.print(true.ifTrue({ 1 + 1 }, ifFalse: { 0 }))
+System.print(true.ifTrue(|| { "yes" }, ifFalse: || { "no" }))
+System.print(true.ifTrue(|| { 1 + 1 }, ifFalse: || { 0 }))

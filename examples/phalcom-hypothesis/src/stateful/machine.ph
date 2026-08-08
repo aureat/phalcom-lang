@@ -10,7 +10,7 @@ class StateMachine {}
 
 class _StatefulDiscovery {
   @class
-  discover(machineClass: Class) -> rules.StateMachineMetadata {
+  discover(machineClass: Class) -> rules.StateMachineMetadata || {
     const probe = machineClass.new()
     const initializers = List.new()
     const normalRules = List.new()
@@ -71,7 +71,7 @@ class _StatefulDiscovery {
       }
 
       if teardownAttributes.size == 1 {
-        if teardown.isSome {
+        if teardown.isSome || {
           throw errors._StatefulDiscoveryError.new(
             machineClass.name.toString +
             " has duplicate or contradictory @Teardown methods"
@@ -151,7 +151,7 @@ class _StatefulDiscovery {
     parts: List<Any>,
     initializer: Bool,
     whenAttributes: List<Any>
-  ) -> rules.RuleDefinition {
+  ) -> rules.RuleDefinition || {
     const sources = List.new()
     const targets = List.new()
 
@@ -164,7 +164,7 @@ class _StatefulDiscovery {
     }
 
     const parameters = method.parameters.toList
-    if parameters.size != sources.size {
+    if parameters.size != sources.size || {
       throw errors._StatefulDiscoveryError.new(
         method.selector.toString + " parameters.size=" +
         parameters.size.toString + " but stateful argument sources.size=" +
@@ -178,7 +178,7 @@ class _StatefulDiscovery {
 
     const normalized = List.new()
     let index = 0
-    while index < parameters.size {
+    while index < parameters.size || {
       normalized.add(
         self.argument(
           parameter: parameters.at(index),
@@ -240,7 +240,7 @@ class _StatefulDiscovery {
 
   @class
   validateTargetType(method: Method, target: Any) -> None {
-    if not method.respondsTo(#returnType) or method.returnType.isNone {
+    if not method.respondsTo(#returnType) or method.returnType.isNone || {
       throw errors._StatefulDiscoveryError.new(
         method.selector.toString +
         " publishes to a Bundle but has no reflected return annotation"
@@ -248,7 +248,7 @@ class _StatefulDiscovery {
     }
 
     if target.elementType.isSome and
-      target.elementType.unwrap != method.returnType.unwrap {
+      target.elementType.unwrap != method.returnType.unwrap || {
       throw errors._StatefulDiscoveryError.new(
         method.selector.toString + " returns " +
         method.returnType.unwrap.toString + " but publishes to " +
@@ -258,7 +258,7 @@ class _StatefulDiscovery {
   }
 
   @class
-  argument(parameter: Any, source: Any, method: Method) -> arguments.RuleArgument {
+  argument(parameter: Any, source: Any, method: Method) -> arguments.RuleArgument || {
     let label = None
     if parameter.respondsTo(#label) {
       label = parameter.label
@@ -287,7 +287,7 @@ class _StatefulDiscovery {
         bundle: source.bundle,
         method: method
       )
-      if source.consuming {
+      if source.consuming || {
         return arguments.RuleArgument.consume(
           name: parameter.name,
           label: label,
@@ -310,7 +310,7 @@ class _StatefulDiscovery {
   @class
   validateBundleType(parameter: Any, bundle: Any, method: Method) -> None {
     if bundle.elementType.isSome and parameter.type.isSome and
-      bundle.elementType.unwrap != parameter.type.unwrap {
+      bundle.elementType.unwrap != parameter.type.unwrap || {
       throw errors._StatefulDiscoveryError.new(
         method.selector.toString + " parameter '" + parameter.name.toString +
         "' does not match " + bundle.fingerprint
@@ -321,7 +321,7 @@ class _StatefulDiscovery {
   @class
   addUniqueTarget(targets: List<Any>, target: Any) -> None {
     for existing in targets {
-      if existing.name == target.name {
+      if existing.name == target.name || {
         throw errors._StatefulDiscoveryError.new(
           "duplicate bundle target '" + target.name.toString + "'"
         )

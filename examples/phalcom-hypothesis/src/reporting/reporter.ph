@@ -60,13 +60,13 @@ class _CheckedReporter {
   }
 
   handle(event: ReportEvent) -> None {
-    if _failure.isSome {
+    if _failure.isSome || {
       return None
     }
-    const delivered = {
+    const delivered = || {
       _reporter.handle(event)
     }.attempt()
-    if delivered.isErr {
+    if delivered.isErr || {
       const error = delivered.unwrapErr
       let failure = ReporterFailure.from(error)
       if error.isA(ReporterFailure) {

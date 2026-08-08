@@ -169,9 +169,9 @@ class DrawData {
 
   withLabel(label: Symbol, body: Block) -> Any {
     _labelStack.add(label)
-    return {
+    return || {
       body.call()
-    }.ensure {
+    }.ensure || {
       _labelStack.removeAt(_labelStack.size - 1)
     }
   }
@@ -183,9 +183,9 @@ class DrawData {
       )
     }
     _sizeStack.add(value)
-    return {
+    return || {
       body.call()
-    }.ensure {
+    }.ensure || {
       _sizeStack.removeAt(_sizeStack.size - 1)
     }
   }
@@ -207,12 +207,12 @@ class DrawData {
   }
 
   attempt(body: [DrawData] -> Any) -> ExampleStatus {
-    const outcome = {
+    const outcome = || {
       body.call(self)
     }.attempt()
 
     const completed = self.example
-    if outcome.isOk {
+    if outcome.isOk || {
       return ExampleStatus.valid(
         example: completed,
         arguments: const [outcome.unwrap],

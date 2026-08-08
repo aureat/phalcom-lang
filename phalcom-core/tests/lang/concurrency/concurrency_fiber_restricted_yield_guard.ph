@@ -10,7 +10,7 @@
 // primitive: here, an `.on(_)` error handler, which the unwind machinery
 // invokes through the re-entrant `block_call` path.
 
-const f = Fiber.new {
+const f = Fiber.new || {
   { throw Error.new("boom") }.on(Error) |e| { Fiber.yield(1) }
 }
 const result = f.try()

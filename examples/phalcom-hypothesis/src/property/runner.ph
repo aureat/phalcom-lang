@@ -24,7 +24,7 @@ class PropertyRun {
     const named = Map.new()
     const arguments = _result.args
     let index = 0
-    while index < _parameterNames.size and index < arguments.size {
+    while index < _parameterNames.size and index < arguments.size || {
       named.at(_parameterNames.at(index), put: arguments.at(index))
       index++
     }
@@ -35,7 +35,7 @@ class PropertyRun {
     return _result.match(
       passed: |_| { false },
       falsified: |value| {
-        if value.failure.example != Example.empty {
+        if value.failure.example != Example.empty || {
           return false
         }
         return _RunnerLists.includes(
@@ -69,7 +69,7 @@ class PropertySuiteResult {
   passedCount -> Int {
     let count = 0
     for run in _runs {
-      if run.passed {
+      if run.passed || {
         count++
       }
     }
@@ -194,7 +194,7 @@ class _PropertyReuse {
   @class
   fetch(definition: discovery.PropertyDefinition) -> List<Example> {
     const settings = definition.settings
-    if not settings.reuseEnabled or settings.databaseValue.isNone {
+    if not settings.reuseEnabled or settings.databaseValue.isNone || {
       return const []
     }
     return settings.databaseValue.unwrap.fetch(definition.databaseKey)
@@ -207,7 +207,7 @@ class _PropertyReuse {
     result: PropertyResult
   ) -> None {
     const settings = definition.settings
-    if settings.databaseValue.isNone {
+    if settings.databaseValue.isNone || {
       return
     }
 
@@ -230,7 +230,7 @@ class _PropertyReuse {
         )
         const stale = List.new()
         for example in reused {
-          if example.signature != accepted.signature {
+          if example.signature != accepted.signature || {
             stale.add(example)
           }
         }

@@ -110,7 +110,7 @@ class Settings {
   }
 
   resolvedChoiceProviderFactory -> ChoiceProviderFactory {
-    if _choiceProviderFactory.isSome {
+    if _choiceProviderFactory.isSome || {
       return _choiceProviderFactory.unwrap
     }
     return providers.SystemRandomProviderFactory.new(seed: self.resolvedSeed)

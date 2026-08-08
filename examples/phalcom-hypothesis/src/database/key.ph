@@ -58,7 +58,7 @@ class _DatabaseKeyHash {
   @class
   fnv1a(value: String) -> Int {
     let hash = 2166136261
-    for point in value.codePoints {
+    for point in value.codePoints || {
       hash = ((hash ^ point) * 16777619) % 4294967296
     }
     if hash < 0 {

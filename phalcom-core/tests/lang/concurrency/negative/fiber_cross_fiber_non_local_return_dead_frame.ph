@@ -9,7 +9,7 @@
 // does, proving the fencing is fiber-agnostic (ADR-0013).
 
 class Maker {
-  make() { return { return 1 } }
+  make() { return || { return 1 } }
 }
 const escaped = Maker.new().make()
 const f = Fiber.new(escaped)

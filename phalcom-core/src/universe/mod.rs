@@ -358,15 +358,15 @@ mod tests {
         let module = vm.create_module("main", "kernel_bool_sacred_override_deopts_nested_iftrue");
         let source = "
 let n = 3
-let r = (n < 1).ifTrue({ \"one\" }, ifFalse: {
-  (n < 2).ifTrue({ \"two\" }, ifFalse: {
-    (n < 3).ifTrue({ \"three\" }, ifFalse: {
-      (n < 4).ifTrue({ \"four\" }, ifFalse: { \"big\" })
+let r = (n < 1).ifTrue(|| { \"one\" }, ifFalse: || {
+  (n < 2).ifTrue(|| { \"two\" }, ifFalse: || {
+    (n < 3).ifTrue(|| { \"three\" }, ifFalse: || {
+      (n < 4).ifTrue(|| { \"four\" }, ifFalse: || { \"big\" })
     })
   })
 })
-let someCheck = (n < 4).ifTrue({ (n < 2).ifTrue({ \"inner\" }) }).isSome
-let noneCheck = (n < 2).ifTrue({ (n < 4).ifTrue({ \"inner\" }) }).isNone
+let someCheck = (n < 4).ifTrue(|| { (n < 2).ifTrue(|| { \"inner\" }) }).isSome
+let noneCheck = (n < 2).ifTrue(|| { (n < 4).ifTrue(|| { \"inner\" }) }).isNone
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs on the deopt path");
@@ -398,10 +398,10 @@ let noneCheck = (n < 2).ifTrue({ (n < 4).ifTrue({ \"inner\" }) }).isNone
 
         let module = vm.create_module("main", "kernel_bool_sacred_override_deopts_some_lift");
         let source = "
-let a = true.ifTrue { 42 }.isSome
-let b = false.ifTrue { 42 }.isSome
-let c = false.ifTrue { 42 }.isNone
-let d = true.ifTrue { }.isSome
+let a = true.ifTrue || { 42 }.isSome
+let b = false.ifTrue || { 42 }.isSome
+let c = false.ifTrue || { 42 }.isNone
+let d = true.ifTrue || { }.isSome
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs on the deopt path");
@@ -440,7 +440,7 @@ let d = true.ifTrue { }.isSome
         let module = vm.create_module("main", "kernel_block_sacred_override_deopts_inline_while_true");
         let source = "
 let i = 0
-let r = { i < 3 }.whileTrue { i = i + 1 }
+let r = || { i < 3 }.whileTrue || { i = i + 1 }
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs on the deopt path");
@@ -495,7 +495,7 @@ let baselineNone = None.isNone
         let source = "
 let someIsSome = Some.new(1).isSome
 let someIsNone = Some.new(1).isNone
-let routed = Some.new(1).orElse { Some.new(9) }.match(some: { v => v }, none: { -1 })
+let routed = Some.new(1).orElse || { Some.new(9) }.match(some: |v| { v }, none: || { -1 })
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs");

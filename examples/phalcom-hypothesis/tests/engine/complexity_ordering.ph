@@ -40,7 +40,7 @@ shrinking.shrinkFailure(
 
 const accepted = shrinking.acceptedComplexities
 let index = 1
-while index < accepted.size {
+while index < accepted.size || {
   Assert.isTrue(accepted.at(index).lessThan(accepted.at(index - 1)))
   index++
 }

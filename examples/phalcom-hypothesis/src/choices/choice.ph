@@ -183,7 +183,7 @@ class Choice {
       },
       boolean: |item| {
         const values = List.new()
-        if item.value != item.shrinkTowards {
+        if item.value != item.shrinkTowards || {
           values.add(item.shrinkTowards)
         }
         return values
@@ -198,7 +198,7 @@ class Choice {
       },
       bytes: |item| {
         const values = List.new()
-        if item.value != item.shrinkTowards {
+        if item.value != item.shrinkTowards || {
           values.add(item.shrinkTowards)
         }
         return values
@@ -268,7 +268,7 @@ class _ChoiceBytes {
   copy(value: Bytes) -> Bytes {
     const copied = Bytes.zeroed(value.size)
     let position = 0
-    while position < value.size {
+    while position < value.size || {
       copied[position] = value[position]
       position++
     }

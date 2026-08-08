@@ -5,4 +5,4 @@
 // effect is still observed because `VM::run`'s root-drive pump drains
 // `VM::ready_queue` once the top-level program's own activation ends.
 
-System.schedule({ System.print("ran-at-exit") })
+System.schedule(|| { System.print("ran-at-exit") })

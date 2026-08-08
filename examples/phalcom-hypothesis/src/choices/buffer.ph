@@ -83,9 +83,9 @@ class ChoiceBuffer {
 
   withSpan(label: Symbol, discardable: Bool, body: Block) -> Any {
     const id = self.beginSpan(label: label, discardable: discardable)
-    return {
+    return || {
       body.call()
-    }.ensure {
+    }.ensure || {
       self.endSpan(id)
     }
   }
@@ -101,7 +101,7 @@ class ChoiceBuffer {
   spans -> List<Span> {
     const ordered = List.new()
     for closed in _closedSpans {
-      if closed.isSome {
+      if closed.isSome || {
         ordered.add(closed.unwrap)
       }
     }

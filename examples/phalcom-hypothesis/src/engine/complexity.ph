@@ -16,15 +16,15 @@ class ExampleComplexity {
   @class
   of(example: Example) -> ExampleComplexity {
     let structuralWeight = example.generationSize
-    for span in example.spans {
+    for span in example.spans || {
       structuralWeight += span.length
-      if span.discardable {
+      if span.discardable || {
         structuralWeight++
       }
     }
 
     let choiceWeight = 0
-    for choice in example.choices {
+    for choice in example.choices || {
       choiceWeight += _ComplexityWeights.choice(choice)
     }
 
@@ -71,7 +71,7 @@ class _ComplexityWeights {
     return choice.match(
       integer: |value| { self.abs(value.value - value.shrinkTowards) },
       boolean: |value| {
-        if value.value == value.shrinkTowards {
+        if value.value == value.shrinkTowards || {
           return 0
         }
         return 1
@@ -85,7 +85,7 @@ class _ComplexityWeights {
   bytes(value: Bytes, target: Bytes) -> Int {
     let weight = self.abs(value.size - target.size) * 257
     let index = 0
-    while index < value.size {
+    while index < value.size || {
       weight += value[index]
       index++
     }

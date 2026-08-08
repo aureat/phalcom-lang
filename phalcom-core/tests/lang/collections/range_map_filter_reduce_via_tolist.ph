@@ -19,5 +19,5 @@ const emptyFiltered = r.toList.filter |x| { x > 10 }
 System.print(emptyFiltered)
 const summed = Range.new(1, 10, true).toList.reduce(0) |acc, x| { acc + x }
 System.print(summed)
-const smallest = Range.new(1, 10, true).toList.reduce(100) |acc, x| { (acc < x).ifTrue({ acc }, ifFalse: { x }) }
+const smallest = Range.new(1, 10, true).toList.reduce(100) |acc, x| { (acc < x).ifTrue(|| { acc }, ifFalse: || { x }) }
 System.print(smallest)

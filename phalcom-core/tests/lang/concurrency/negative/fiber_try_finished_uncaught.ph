@@ -5,7 +5,7 @@
 // `Done` fiber shares the same "cannot resume a finished fiber" guard as
 // `call()` (fiber.rs `fiber_resume`), uncaught here.
 
-const fiber = Fiber.new {
+const fiber = Fiber.new || {
   System.print("try")
 }
 

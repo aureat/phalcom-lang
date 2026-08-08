@@ -5,7 +5,7 @@ class TypeRuntime {
   @class
   @native
   apply(origin: TypeConstructor, arguments: const List<Type>) -> AppliedType {
-    const signature = origin.genericSignature.orElse {
+    const signature = origin.genericSignature.orElse || {
       throw TypeApplicationError.new(
         "\(origin) is not a generic type constructor"
       )
@@ -61,7 +61,7 @@ class TypeRuntime {
       return true
     }
 
-    if candidate.isA(Class).not or of.isA(Class).not {
+    if candidate.isA(Class).not or of.isA(Class).not || {
       return false
     }
 

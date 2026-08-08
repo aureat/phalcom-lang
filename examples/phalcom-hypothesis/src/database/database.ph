@@ -54,11 +54,11 @@ class _DatabaseSignatures {
   @class
   example(value: Example) -> String {
     const parts = List.new()
-    for choice in value.choices {
+    for choice in value.choices || {
       parts.add(self.choice(choice))
     }
     const spanParts = List.new()
-    for span in value.spans {
+    for span in value.spans || {
       spanParts.add(
         span.id.toString + "," + span.label.toString + "," +
         span.start.toString + "," + span.end.toString + "," +
@@ -107,7 +107,7 @@ class _DatabaseSignatures {
   bytes(value: Bytes) -> String {
     const parts = List.new()
     let index = 0
-    while index < value.size {
+    while index < value.size || {
       parts.add(value[index].toString)
       index++
     }
@@ -116,13 +116,13 @@ class _DatabaseSignatures {
 
   @class
   optionInt(value: Option<Int>) -> String {
-    if value.isNone { return "-" }
+    if value.isNone || { return "-" }
     return value.unwrap.toString
   }
 
   @class
   optionSymbol(value: Option<Symbol>) -> String {
-    if value.isNone { return "-" }
+    if value.isNone || { return "-" }
     return value.unwrap.toString
   }
 }

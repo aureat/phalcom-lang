@@ -51,7 +51,7 @@ class MemoryDatabase {
     const kept = List.new()
     kept.add(record)
     for existing in self.bucket(key) {
-      if existing.signature != record.signature {
+      if existing.signature != record.signature || {
         kept.add(existing)
       }
     }
@@ -76,7 +76,7 @@ class MemoryDatabase {
 
   entryCount -> Int {
     let total = 0
-    for key in _entries.keys {
+    for key in _entries.keys || {
       total += _entries.at(key).size
     }
     return total

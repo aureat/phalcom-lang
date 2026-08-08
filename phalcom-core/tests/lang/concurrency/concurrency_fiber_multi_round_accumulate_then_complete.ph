@@ -11,7 +11,7 @@
 // *nested* driver fiber (so the failure is reachable via `try()` rather than
 // escaping uncaught to the top level) raises `NotAllowed`
 // ("cannot resume a finished fiber"), pinned via its caught class/message.
-const acc = Fiber.new {
+const acc = Fiber.new || {
   let total = 0
   total = total + Fiber.yield(total)
   total = total + Fiber.yield(total)
@@ -22,7 +22,7 @@ System.print(acc.call())
 System.print(acc.call(1))
 System.print(acc.call(2))
 System.print(acc.call(3))
-const driver = Fiber.new {
+const driver = Fiber.new || {
   acc.call(99)
 }
 const r = driver.try()

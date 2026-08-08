@@ -16,7 +16,7 @@ class GenericSignature {
   @constructor
   new(owner: TypeParameterOwner, parameters: const List<TypeParameter>) {
     let index = 0
-    while index < parameters.size {
+    while index < parameters.size || {
       const parameter = parameters.at(index)
 
       if parameter.owner !== owner {
@@ -47,14 +47,14 @@ class GenericSignature {
   }
 
   validate(arguments: const List<Type>) -> None {
-    if arguments.size != _parameters.size {
+    if arguments.size != _parameters.size || {
       throw Errors.TypeArgumentCountError.new(
         "\(_owner) expects \(_parameters.size) type arguments, received \(arguments.size)"
       )
     }
 
     let index = 0
-    while index < _parameters.size {
+    while index < _parameters.size || {
       _parameters.at(index).validate(arguments.at(index))
       index++
     }
@@ -66,7 +66,7 @@ class GenericSignature {
     let environment = Environments.TypeEnvironment.empty
     let index = 0
 
-    while index < _parameters.size {
+    while index < _parameters.size || {
       environment = environment.bind(
         parameter: _parameters.at(index),
         to: arguments.at(index)

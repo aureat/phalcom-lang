@@ -7,4 +7,4 @@
 // `Bytecode::Nil` result site (and the `bool_if_true` fallback) must already be
 // `None`. Prints `None`, not `nil`.
 
-System.print(false.ifTrue { 1 })
+System.print(false.ifTrue || { 1 })

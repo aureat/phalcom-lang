@@ -11,8 +11,8 @@
 // CannotYieldAcrossNativeFrame, someone re-routed block calls through the
 // re-entrant native path — see vm/send.rs `call_method`'s flat-entry fork.
 
-const f = Fiber.new {
-  const inner = { Fiber.yield(41) }
+const f = Fiber.new || {
+  const inner = || { Fiber.yield(41) }
   inner.call()
   99
 }
@@ -23,7 +23,7 @@ System.print(f.call())
 // mid-iteration"): each octet is yielded out of the fiber and the fiber
 // resumes correctly to completion.
 const b = Bytes.fromList([10, 20])
-const g = Fiber.new {
+const g = Fiber.new || {
   b.each |x| { Fiber.yield(x) }
   "done"
 }

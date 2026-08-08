@@ -7,7 +7,7 @@
 // outer slot (a fresh local, not an upvalue alias).
 
 const x = 1
-const show = {
+const show = || {
   const x = 2
   System.print(x)
 }

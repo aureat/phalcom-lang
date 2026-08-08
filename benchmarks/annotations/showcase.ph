@@ -47,7 +47,7 @@ class BankAccount {
   @requires(amount > 0)
   @ensures(_balance == old(_balance) - amount)
   withdraw(_ amount) {
-    (amount > _balance).ifTrue { InsufficientFunds.raise("overdraw") }
+    (amount > _balance).ifTrue || { InsufficientFunds.raise("overdraw") }
     _balance = _balance - amount
   }
 
@@ -99,7 +99,7 @@ class Shape {
   /// Area of the shape, by exhaustive match over the sealed variant set.
   /// @returns the area as a `Number`
   area {
-    return self.match {
+    return self.match || {
       Circle(_ r)  => 3.14159 * r * r ;
       Rect(w, h) => w * h
     }

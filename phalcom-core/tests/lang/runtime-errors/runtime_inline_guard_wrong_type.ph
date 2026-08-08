@@ -6,4 +6,4 @@
 // real message send — which Number does not implement — so the program
 // fails with a clean "not found" rather than mis-executing the inline path.
 
-System.print(5.ifTrue({ "a" }, ifFalse: { "b" }))
+System.print(5.ifTrue(|| { "a" }, ifFalse: || { "b" }))

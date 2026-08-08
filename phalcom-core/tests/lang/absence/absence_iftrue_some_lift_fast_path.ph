@@ -8,10 +8,10 @@
 // guarded fast path observationally identical to the primitive deopt path
 // (see the twin `absence_iftrue_some_lift_deopt_path.ph`). Also folds in the
 // empty-body taken-arm case: `Bytecode::Nil` pushes the `None` singleton, so
-// `true.ifTrue { }` inlines to `Nil; WrapSome` -> `Some(None)`, a legal
+// `true.ifTrue || { }` inlines to `Nil; WrapSome` -> `Some(None)`, a legal
 // `Some` that never trips the Invariant-4 sentinel-wrap assert.
 
-System.print(true.ifTrue { 42 }.isSome)
-System.print(false.ifTrue { 42 }.isSome)
-System.print(false.ifTrue { 42 }.isNone)
-System.print(true.ifTrue { }.isSome)
+System.print(true.ifTrue || { 42 }.isSome)
+System.print(false.ifTrue || { 42 }.isSome)
+System.print(false.ifTrue || { 42 }.isNone)
+System.print(true.ifTrue || { }.isSome)

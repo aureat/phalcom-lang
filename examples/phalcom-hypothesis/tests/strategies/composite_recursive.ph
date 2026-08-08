@@ -26,7 +26,7 @@ const pair = Gen.build |draw| {
 }.draw(DrawData.replay(example: builtExample, maxChoices: 8))
 Assert.equal(Tuple.__fromList(const [4, 4]), pair)
 
-const deferred = Gen.deferred { Gen.just(42) }
+const deferred = Gen.deferred || { Gen.just(42) }
 Assert.equal(42, deferred.draw(DrawData.generate(
   random: Random.new(seed: 1),
   generationSize: 0,

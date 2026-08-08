@@ -14,7 +14,7 @@ class Envelope {
   const _payload: List<Opaque>
 }
 
-const outcome = { StrategyRegistry.standard.forType(Envelope) }.attempt()
+const outcome = || { StrategyRegistry.standard.forType(Envelope) }.attempt()
 outcome.match(
   ok: |_| { Assert.fail("expected derivation to fail") },
   error: |error| {

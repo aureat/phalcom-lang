@@ -9,7 +9,7 @@
 class Scanner {
   firstOver(_ numbers, _ limit) {
     for (n in numbers) {
-      (n > limit).ifTrue { return n }
+      (n > limit).ifTrue || { return n }
     }
     return None
   }

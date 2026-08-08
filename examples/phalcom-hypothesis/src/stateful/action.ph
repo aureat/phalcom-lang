@@ -82,7 +82,7 @@ class StateAction {
       rendered.add(argument.executable)
     }
     const call = "state." + _selector.toString + "(" + rendered.join(", ") + ")"
-    if _resultReference.isSome {
+    if _resultReference.isSome || {
       return _resultReference.unwrap.executable + " = " + call
     }
     return call

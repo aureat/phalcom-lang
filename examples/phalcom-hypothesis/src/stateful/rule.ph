@@ -81,11 +81,11 @@ class RuleDefinition {
       targetParts.add(target.fingerprint)
     }
     let whenPart = "always"
-    if _whenSelector.isSome {
+    if _whenSelector.isSome || {
       whenPart = _whenSelector.unwrap.toString
     }
     let kindPart = "rule"
-    if self.initializer {
+    if self.initializer || {
       kindPart = "initialize"
     }
     return kindPart + "(" + _selector.toString + ")" +
@@ -125,7 +125,7 @@ class StateMachineMetadata {
       invariantParts.add(invariant.selector.toString)
     }
     let teardownPart = "none"
-    if teardown.isSome {
+    if teardown.isSome || {
       teardownPart = teardown.unwrap.selector.toString
     }
     return StateMachineMetadata.new(

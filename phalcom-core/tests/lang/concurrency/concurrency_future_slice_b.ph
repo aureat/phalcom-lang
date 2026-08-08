@@ -19,7 +19,7 @@ try {
 // non-root fiber that parks on a pending future and resumes — is
 // `concurrency_future_await_suspends.ph` (E004); until that landed, this case
 // was labelled "suspending" while exercising only the fallback.
-const f3 = Future.async {
+const f3 = Future.async || {
   System.print("async running")
   "async result"
 }
@@ -69,7 +69,7 @@ System.print(Future.error(Error.new("catch")).catch |e| { Future.value(e.message
 
 // C-FUT-7: await under native frame raises CannotYieldAcrossNativeFrame
 const f10 = Future.new()
-const helper = Fiber.new {
+const helper = Fiber.new || {
   try {
     // some body
   } ensure {

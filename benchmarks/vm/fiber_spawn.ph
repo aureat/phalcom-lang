@@ -18,7 +18,7 @@
 let i = 0
 let acc = 0
 while (i < 20000) {
-  let f = Fiber.new { Fiber.yield(0) }
+  let f = Fiber.new || { Fiber.yield(0) }
   acc = f.call()
   i = i + 1
 }

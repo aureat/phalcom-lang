@@ -3,11 +3,11 @@
 import PropertyAssertionError from hypothesis
 import Assert from hypothesis
 
-const first = {
+const first = || {
   Assert.true(false)
 }.attempt()
 
-const second = {
+const second = || {
   Assert.false(true)
 }.attempt()
 

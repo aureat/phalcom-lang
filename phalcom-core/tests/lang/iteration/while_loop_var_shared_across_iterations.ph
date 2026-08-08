@@ -8,7 +8,7 @@
 let closures = List.new()
 let i = 0
 while (i < 3) {
-  closures.add({ i })
+  closures.add(|| { i })
   i = i + 1
 }
 for (c in closures) {

@@ -16,7 +16,7 @@ a.add(2)
 a.add(1)
 a.add(5)
 
-const max = |x, y| { (x > y).ifTrue({ x }, ifFalse: { y }) }
+const max = |x, y| { (x > y).ifTrue(|| { x }, ifFalse: || { y }) }
 const sum = |x, y| { x + y }
 
 System.print(a.reduce(0) |acc, x| { max.call(acc, x) })

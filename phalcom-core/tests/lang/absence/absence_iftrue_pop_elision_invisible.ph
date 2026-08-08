@@ -13,10 +13,10 @@
 // observable `Some` (`isSome == true`).
 
 // statement position -> WrapSome elided; body must still run exactly once
-true.ifTrue  { System.print("taken") }
-false.ifTrue { System.print("skip")  }
-true.ifFalse { System.print("skip")  }
+true.ifTrue || { System.print("taken") }
+false.ifTrue || { System.print("skip")  }
+true.ifFalse || { System.print("skip")  }
 false.ifFalse{ System.print("takenF") }
 // value position (WrapSome present) over the SAME shape of body: side
 // effect fires once, Some still observable
-System.print(true.ifTrue { System.print("effect"); 1 }.isSome)
+System.print(true.ifTrue || { System.print("effect"); 1 }.isSome)

@@ -9,5 +9,5 @@
 // and is legal; the guard's remaining territory is block invocation from
 // inside a native primitive, here an `.on(_)` error handler.
 
-const f = Fiber.new { 1 }
+const f = Fiber.new || { 1 }
 { throw Error.new("boom") }.on(Error) |e| { f.call() }

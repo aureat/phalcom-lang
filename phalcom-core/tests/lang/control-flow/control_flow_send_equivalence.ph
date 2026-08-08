@@ -6,7 +6,7 @@
 // (`if/else` === `ifTrue(_:ifFalse:)`, `while` === `whileTrue(_:)`).
 
 System.print(if (3 > 2) { "yes" } else { "no" })
-System.print((3 > 2).ifTrue({ "yes" }, ifFalse: { "no" }))
+System.print((3 > 2).ifTrue(|| { "yes" }, ifFalse: || { "no" }))
 
 let i = 0
 while (i < 2) {
@@ -15,7 +15,7 @@ while (i < 2) {
 }
 
 let j = 0
-{ j < 2 }.whileTrue {
+{ j < 2 }.whileTrue || {
   System.print(j)
   j = j + 1
 }

@@ -8,7 +8,7 @@
 
 let fiber = None
 
-fiber = Fiber.new {
+fiber = Fiber.new || {
   fiber.call()
 }
 

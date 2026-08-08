@@ -18,6 +18,6 @@ class UserId {
 }
 registry.register(UserId, use: Gen.just(UserId.new()))
 Assert.equal("just(UserId)", registry.forType(UserId).fingerprint)
-Assert.isTrue({ registry.forType(List) }.attempt().isErr)
+Assert.isTrue(|| { registry.forType(List) }.attempt().isErr)
 
 System.print("PASS strategy registry")

@@ -879,7 +879,7 @@ mod tests {
     fn construct_resolver_nested_block_binding_does_not_leak_to_outer_scope() {
         // The `Truck` binding lives only inside the nested block; the outer
         // `m.` after the block still sees the outer `Car` binding.
-        let src = "let m = Car.new();\n{\n  let m = Truck.new();\n};\nm.\n";
+        let src = "let m = Car.new();\nlet nested = || {\n  let m = Truck.new();\n};\nm.\n";
         let doc = Document::new(src.to_string());
         let pos = Position { line: 4, character: 2 };
         assert_eq!(ConstructResolver.resolve(&doc, pos), Some(("Car".to_string(), ReceiverKind::Instance)));

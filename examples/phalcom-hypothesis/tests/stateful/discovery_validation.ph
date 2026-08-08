@@ -37,7 +37,7 @@ class InvalidTargetMachine is StateMachine {
   create(value: String) -> String { return value }
 }
 
-Assert.true({ Stateful.check(MissingPredicateMachine) }.attempt().isErr)
-Assert.true({ Stateful.check(PredicateArityMachine) }.attempt().isErr)
-Assert.true({ Stateful.check(PredicateTypeMachine) }.attempt().isErr)
-Assert.true({ Stateful.check(InvalidTargetMachine) }.attempt().isErr)
+Assert.true(|| { Stateful.check(MissingPredicateMachine) }.attempt().isErr)
+Assert.true(|| { Stateful.check(PredicateArityMachine) }.attempt().isErr)
+Assert.true(|| { Stateful.check(PredicateTypeMachine) }.attempt().isErr)
+Assert.true(|| { Stateful.check(InvalidTargetMachine) }.attempt().isErr)

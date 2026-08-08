@@ -6,7 +6,7 @@
 for (a in List.new().add(1).add(2)) {
   for (b in List.new().add(1).add(2)) {
     for (c in List.new().add(1).add(2).add(3)) {
-      (c == 2).ifTrue { break }
+      (c == 2).ifTrue || { break }
       System.print(a)
       System.print(b)
       System.print(c)

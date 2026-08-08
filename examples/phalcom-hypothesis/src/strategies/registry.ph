@@ -107,7 +107,7 @@ class StrategyRegistry {
     }
 
     const applied = self.applied(type: type, path: path)
-    if applied.isSome {
+    if applied.isSome || {
       return applied.unwrap
     }
 
@@ -119,7 +119,7 @@ class StrategyRegistry {
     }
 
     _resolving.at(type, put: true)
-    return {
+    return || {
       const generated = derivation._Derivation.derive(
         type: type,
         registry: self,
@@ -127,7 +127,7 @@ class StrategyRegistry {
       )
       _derived.at(type, put: generated)
       generated
-    }.ensure {
+    }.ensure || {
       _resolving.remove(type)
     }
   }
@@ -230,7 +230,7 @@ class StrategyRegistry {
   }
 
   includes(type: Any) -> Bool {
-    return {
+    return || {
       self.forType(type)
       true
     }.attempt().match(

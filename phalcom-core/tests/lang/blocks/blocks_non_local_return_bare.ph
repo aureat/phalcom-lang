@@ -9,7 +9,7 @@
 class Finder {
   firstNeg(_ numbers) {
     numbers.each |n| {
-      (n < 0).ifTrue { return }
+      (n < 0).ifTrue || { return }
     }
     return 99
   }

@@ -24,10 +24,10 @@ class SearchEngine {
   check(spec: Any, reporter: Any) -> PropertyResult {
     const stats = statistics._StatisticsCollector.new()
     const checkedReporter = reportingReporter._CheckedReporter.new(reporter)
-    const outcome = {
+    const outcome = || {
       self.check(spec, reporter: checkedReporter, statistics: stats)
     }.attempt()
-    if outcome.isOk {
+    if outcome.isOk || {
       return outcome.unwrap
     }
     const error = outcome.unwrapErr
@@ -50,9 +50,9 @@ class SearchEngine {
     // 1. Explicit examples are mandatory, run first, and never shrink.
     if self.phaseEnabled(spec.settings, Phase.Explicit) {
       reporter.handle(ReportEvent.phaseStarted(id: spec.id, phase: Phase.Explicit))
-      for arguments in spec.explicitExamples {
+      for arguments in spec.explicitExamples || {
         const status = worker.explicit(arguments).status
-        if status.passed {
+        if status.passed || {
           reporter.handle(
             ReportEvent.exampleAccepted(
               id: spec.id,
@@ -62,7 +62,7 @@ class SearchEngine {
               context: status.context
             )
           )
-        } else if status.failed {
+        } else if status.failed || {
           stats.recordFailure(status.context)
           reporter.handle(
             ReportEvent.failureFound(
@@ -75,7 +75,7 @@ class SearchEngine {
             failure: self.failure(status),
             statistics: stats.snapshot
           )
-        } else if status.invalid {
+        } else if status.invalid || {
           stats.recordReject(status.context)
           reporter.handle(
             ReportEvent.exampleRejected(
@@ -94,7 +94,7 @@ class SearchEngine {
             ),
             statistics: stats.snapshot
           )
-        } else if status.overrun {
+        } else if status.overrun || {
           self.reportOverrun(id: spec.id, status: status, reporter: reporter)
           return PropertyResult.errored(
             id: spec.id,
@@ -112,10 +112,10 @@ class SearchEngine {
     // are cache misses and are not ordinary counterexamples.
     if self.phaseEnabled(spec.settings, Phase.Reuse) {
       reporter.handle(ReportEvent.phaseStarted(id: spec.id, phase: Phase.Reuse))
-      for example in spec.reuseExamples {
+      for example in spec.reuseExamples || {
         stats.recordReplay()
         const status = worker.replay(example).status
-        if status.failed {
+        if status.failed || {
           stats.recordFailure(status.context)
           reporter.handle(
             ReportEvent.failureFound(
@@ -138,12 +138,12 @@ class SearchEngine {
       let discarded = 0
       let generatedIndex = 0
 
-      while valid < spec.settings.maxExamples and interesting.isNone {
+      while valid < spec.settings.maxExamples and interesting.isNone || {
         const size = (valid * 100) ~/ spec.settings.maxExamples
-        const created = {
+        const created = || {
           factory.create(exampleIndex: generatedIndex, generationSize: size)
         }.attempt()
-        if created.isErr {
+        if created.isErr || {
           return PropertyResult.errored(
             id: spec.id,
             error: created.unwrapErr,
@@ -152,7 +152,7 @@ class SearchEngine {
         }
         const status = worker.generated(created.unwrap, size).status
 
-        if status.passed {
+        if status.passed || {
           valid++
           stats.recordPass(status.context)
           reporter.handle(
@@ -164,7 +164,7 @@ class SearchEngine {
               context: status.context
             )
           )
-        } else if status.invalid {
+        } else if status.invalid || {
           discarded++
           stats.recordReject(status.context)
           reporter.handle(
@@ -177,7 +177,7 @@ class SearchEngine {
               context: status.context
             )
           )
-          if discarded > spec.settings.maxDiscards {
+          if discarded > spec.settings.maxDiscards || {
             return PropertyResult.inconclusive(
               id: spec.id,
               reason: errors._UnsatisfiedAssumptions.new(
@@ -186,7 +186,7 @@ class SearchEngine {
               statistics: stats.snapshot
             )
           }
-        } else if status.overrun {
+        } else if status.overrun || {
           self.reportOverrun(id: spec.id, status: status, reporter: reporter)
           return PropertyResult.errored(
             id: spec.id,
@@ -208,7 +208,7 @@ class SearchEngine {
       }
     }
 
-    if interesting.isNone {
+    if interesting.isNone || {
       return PropertyResult.passed(
         id: spec.id,
         statistics: stats.snapshot
@@ -236,7 +236,7 @@ class SearchEngine {
       evaluator: worker,
       statistics: stats
     )
-    if verified.isNone {
+    if verified.isNone || {
       return PropertyResult.errored(
         id: spec.id,
         error: errors._FlakyFailure.new(
@@ -273,12 +273,12 @@ class SearchEngine {
       for example in reuseExamples {
         stats.recordReplay()
         const result = worker.replay(example)
-        if result.found {
+        if result.found || {
           found = Some.new(result)
           break
         }
         const status = result.status
-        if status.failed {
+        if status.failed || {
           self.failure(status).error.raise()
         }
       }
@@ -289,27 +289,27 @@ class SearchEngine {
       let attempts = 0
       let discarded = 0
 
-      while attempts < settings.maxExamples and found.isNone {
+      while attempts < settings.maxExamples and found.isNone || {
         const size = (attempts * 100) ~/ settings.maxExamples
-        const created = {
+        const created = || {
           factory.create(exampleIndex: attempts, generationSize: size)
         }.attempt()
-        if created.isErr {
+        if created.isErr || {
           created.unwrapErr.raise()
         }
         const result = worker.generated(created.unwrap, size)
-        if result.found {
+        if result.found || {
           found = Some.new(result)
         } else {
           const status = result.status
-          if status.invalid {
+          if status.invalid || {
             discarded++
-            if discarded > settings.maxDiscards {
+            if discarded > settings.maxDiscards || {
               return None
             }
-          } else if status.overrun {
+          } else if status.overrun || {
             status.error.raise()
-          } else if status.failed {
+          } else if status.failed || {
             self.failure(status).error.raise()
           }
         }
@@ -317,7 +317,7 @@ class SearchEngine {
       }
     }
 
-    if found.isNone {
+    if found.isNone || {
       return None
     }
 
@@ -335,7 +335,7 @@ class SearchEngine {
     while verification < 2 {
       stats.recordReplay()
       const replay = worker.replay(minimal.example)
-      if not replay.found {
+      if not replay.found || {
         throw errors._FlakyFailure.new(
           "minimal satisfying example did not reproduce"
         )
@@ -358,7 +358,7 @@ class SearchEngine {
     while replay < 2 {
       statistics.recordReplay()
       const candidate = evaluator.replay(verified.tape).status
-      if not candidate.failed {
+      if not candidate.failed || {
         return None
       }
       if not expected.sameOrigin(self.failure(candidate)) {

@@ -5,7 +5,7 @@
 let i = 0
 let acc = 0
 while (i < 500000) {
-  let f = Fiber.new { i }
+  let f = Fiber.new || { i }
   acc = acc + f.call()
   i = i + 1
 }

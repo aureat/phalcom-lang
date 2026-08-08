@@ -7,8 +7,8 @@
 // dispatch.rs GetUpvalue). Printing 42 proves the upvalue was closed
 // (promoted to a heap cell holding x) before the fiber's stack was
 // discarded.
-let leak = { 0 }
-let b = Fiber.new {
+let leak = || { 0 }
+let b = Fiber.new || {
   let x = 42
   leak = { x }
   Fiber.abort(Error.new())

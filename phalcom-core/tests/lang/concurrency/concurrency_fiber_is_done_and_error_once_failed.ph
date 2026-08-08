@@ -8,9 +8,9 @@
 // delivered — not a re-wrapped copy (`Object#==` identity, unwrapped via
 // `match`, since `Some`/`Option` have no custom `==` override).
 
-const f = Fiber.new { Error.new("boom").raise() }
+const f = Fiber.new || { Error.new("boom").raise() }
 
 System.print(f.error)
 const e = f.try()
 System.print(f.isDone)
-System.print(f.error.match(some: |v| { v == e }, none: { false }))
+System.print(f.error.match(some: |v| { v == e }, none: || { false }))

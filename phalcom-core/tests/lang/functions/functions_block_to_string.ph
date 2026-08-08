@@ -5,4 +5,4 @@
 // `Fn` as `<fn>`; Phalcom's `Block` renders as `<Block>` (values.md's
 // per-type `toString` catalog).
 
-System.print({})
+System.print(|| {})

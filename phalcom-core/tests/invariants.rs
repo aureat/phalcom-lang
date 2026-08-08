@@ -194,7 +194,7 @@ fn expression_result_absence_surfaces_to_none() {
     is_none(class_superclass(&mut vm, &object, &[]).expect("superclass"), "Object.superclass");
 
     let module = vm.create_module("blk", "expression_result_absence_surfaces_to_none");
-    vm.interpret_source(module, "let blk = { }\n").expect("define an empty block global");
+    vm.interpret_source(module, "let blk = || { }\n").expect("define an empty block global");
     let blk_sym = vm.interner.intern("blk");
     let empty_block = vm.heap.module(module).get(blk_sym).expect("the `blk` global must exist");
     is_none(block_call(&mut vm, &empty_block, &[]).expect("empty block call"), "{ }.call()");
@@ -1255,7 +1255,7 @@ fn callable_tower_and_reflection_protocol() {
 fn invoke_on_preserves_dead_frame_fencing_for_escaping_blocks() {
     let mut vm = VM::new();
     let module = vm.create_module("main", "invoke_on_preserves_dead_frame_fencing_for_escaping_blocks");
-    vm.interpret_source(module, "class Maker {\n  make() { return { return 1 } }\n}\nlet maker = Maker.new()\n")
+    vm.interpret_source(module, "class Maker {\n  make() { return || { return 1 } }\n}\nlet maker = Maker.new()\n")
         .expect("class + instance should compile and run");
 
     let maker_sym = vm.interner.intern("maker");
@@ -1278,7 +1278,7 @@ fn invoke_on_preserves_dead_frame_fencing_for_escaping_blocks() {
 fn cross_fiber_non_local_return_raises_dead_frame_error() {
     let mut vm = VM::new();
     let module = vm.create_module("main", "cross_fiber_non_local_return_raises_dead_frame_error");
-    vm.interpret_source(module, "class Maker {\n  make() { return { return 1 } }\n}\nlet escaped = Maker.new().make()\n")
+    vm.interpret_source(module, "class Maker {\n  make() { return || { return 1 } }\n}\nlet escaped = Maker.new().make()\n")
         .expect("class + escaping block should compile and run");
 
     let result = vm.interpret_source(module, "let f = Fiber.new(escaped)\nf.call()\n");
@@ -1431,7 +1431,7 @@ fn value_tostring_is_total_and_never_leaks_nil() {
     }
 
     let module = vm.create_module("main", "value_tostring_is_total_and_never_leaks_nil");
-    vm.interpret_source(module, "let r = true.ifTrue { }\n")
+    vm.interpret_source(module, "let r = true.ifTrue || { }\n")
         .expect("empty ifTrue should compile and run");
     let r_sym = vm.interner.intern("r");
     let result = vm.heap.module(module).get(r_sym).expect("`r` global should exist");
@@ -1571,14 +1571,14 @@ class DeepErr is Error {
 }
 class M {
   deep(_ n) {
-    (n <= 0).ifTrue { return self.boom() }
+    (n <= 0).ifTrue || { return self.boom() }
     return self.deep(n - 1)
   }
   boom() {
     throw DeepErr.new("deep")
   }
 }
-let r = { M.new().deep(30) }.on(Error) { e =>
+let r = || { M.new().deep(30) }.on(Error) |e| {
   let y = "handled:" + e.message
   y
 }
@@ -1622,7 +1622,7 @@ class SubErr is BaseErr {
   @constructor
   new(msg) { super.new(msg) }
 }
-let r = { throw SubErr.new("leaf") }.on(BaseErr) { e => "caught:" + e.message }
+let r = || { throw SubErr.new("leaf") }.on(BaseErr) |e| { "caught:" + e.message }
 "#,
     )
     .expect("on(Super) should catch a thrown Sub instance");

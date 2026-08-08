@@ -67,6 +67,15 @@
 "?"
 "!"
 "@"
+"|"
+
+# --- closure literals and trailing closures ---
+"|| {}"
+"|x| x"
+"|x| { x }"
+"|x,y| { x }"
+".map |x| { x }"
+"where: |x| { x }"
 
 # --- literal shapes ---
 "\"str\""

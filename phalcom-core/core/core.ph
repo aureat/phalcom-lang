@@ -527,7 +527,7 @@ class Option {
 
   // `Some` passes through unchanged; `None` becomes `f`'s (0-arity) `Option`
   // result (values-and-absence.md §3.3's "Transform" group). This is the
-  // `??` operator's target (§3.4: `a ?? b` === `a.orElse { b }`).
+  // `??` operator's target (§3.4: `a ?? b` === `a.orElse || { b }`).
   orElse(_ f) {
     return self.match(some: |v| { self }, none: || { f.call() })
   }
@@ -590,7 +590,7 @@ class Option {
     other.isA(Option).ifFalse || { return false }
     return self.match(
       some: |v| { other.match(some: |ov| { v == ov }, none: || { false }) },
-      none: { other.isNone }
+      none: || { other.isNone }
     )
   }
 
@@ -762,7 +762,7 @@ class Iterable {
   isEmpty => self.size == 0
 
   // U-SEQ (iteration.md §5 extension, wren_core.wren Sequence L7-119 precedent): combinator breadth
-  // Phalcom lacked. All written over `for (x in self)`, never `self.each { }` (Map's `each(f)` is 2-arg —
+  // Phalcom lacked. All written over `for (x in self)`, never `self.each || { }` (Map's `each(f)` is 2-arg —
   // see plan.md §3.1) and never index math. Zero new floor primitives.
 
   all(_ f) {
@@ -1046,28 +1046,28 @@ class Map {
   [_ k] {
     return self.get(k).match(
       some: |value| { value },
-      none: { KeyError.new("Map key not found").raise() }
+      none: || { KeyError.new("Map key not found").raise() }
     )
   }
 
   [_ key, default fallback] {
     return self.get(key).match(
       some: |value| { value },
-      none: { fallback }
+      none: || { fallback }
     )
   }
 
   get(_ key, orElse block) {
     return self.get(key).match(
       some: |value| { value },
-      none: { block.call(key) }
+      none: || { block.call(key) }
     )
   }
 
   get(_ key, orPut block) {
     return self.get(key).match(
       some: |value| { value },
-      none: {
+      none: || {
         let value = block.call(key)
         self.insert(value, for: key)
         value
@@ -1155,7 +1155,7 @@ class Map {
         let k = self._$keyAt(i)
         same = other.get(k).match(
           some: |value| { self._$valueAt(i) == value },
-          none: { false }
+          none: || { false }
         )
         i = i + 1
       }
@@ -1283,7 +1283,7 @@ class Tuple {
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { Some.new(self._$at(idx)) },
-        none: { None }
+        none: || { None }
       )
     }
     let raw = self._$at(key)
@@ -1313,7 +1313,7 @@ class Tuple {
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
-        none: { throw KeyError.new("Tuple label not found") }
+        none: || { throw KeyError.new("Tuple label not found") }
       )
     }
     let raw = self._$at(key)
@@ -1330,7 +1330,7 @@ class Tuple {
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
-        none: { default }
+        none: || { default }
       )
     }
     let raw = self._$at(key)
@@ -1347,7 +1347,7 @@ class Tuple {
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
         some: |idx| { self._$at(idx) },
-        none: { orElse.call(key) }
+        none: || { orElse.call(key) }
       )
     }
     let raw = self._$at(key)

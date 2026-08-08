@@ -113,7 +113,7 @@ class LiteralArgument {
 
   executable -> String {
     const rendered = _value.toString
-    if _label.isSome {
+    if _label.isSome || {
       return _label.unwrap.toString + ": " + rendered
     }
     return rendered
@@ -129,7 +129,7 @@ class ReferenceArgument {
 
   executable -> String {
     const rendered = _reference.executable
-    if _label.isSome {
+    if _label.isSome || {
       return _label.unwrap.toString + ": " + rendered
     }
     return rendered

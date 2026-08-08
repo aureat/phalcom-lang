@@ -6,9 +6,9 @@
 // mid-drain (`System.nextScheduled` is re-read every loop iteration), before
 // control returns to `main`.
 
-System.schedule({
+System.schedule(|| {
   System.print("outer")
-  System.schedule({ System.print("nested") })
+  System.schedule(|| { System.print("nested") })
 })
 System.runScheduled()
 System.print("after-run-scheduled")

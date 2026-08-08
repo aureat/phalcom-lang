@@ -16,7 +16,7 @@ class _ReflectedParameter {
   all(method: Method) -> List<_ReflectedParameter> {
     const reflected = List.new()
     let position = 0
-    for parameter in method.parameters {
+    for parameter in method.parameters || {
       reflected.add(
         _ReflectedParameter.new(
           name: parameter.name,
@@ -69,7 +69,7 @@ class _StrategyInference {
   @class
   parameterNames(method: Method) -> List<Symbol> {
     const names = List.new()
-    for parameter in method.parameters {
+    for parameter in method.parameters || {
       names.add(parameter.name)
     }
     return names
@@ -100,7 +100,7 @@ class _StrategyInference {
     parameters: List<_ReflectedParameter>,
     propertyName: String
   ) -> List<Strategy<Any>> {
-    if strategies.size != parameters.size {
+    if strategies.size != parameters.size || {
       throw errors.PropertyDiscoveryError.new(
         propertyName + " expected " + parameters.size.toString +
         " strategies, received " + strategies.size.toString
@@ -116,7 +116,7 @@ class _StrategyInference {
     registry: StrategyRegistry,
     propertyName: String
   ) -> List<Strategy<Any>> {
-    for name in arguments.names {
+    for name in arguments.names || {
       let known = false
       for parameter in parameters {
         if parameter.name == name {

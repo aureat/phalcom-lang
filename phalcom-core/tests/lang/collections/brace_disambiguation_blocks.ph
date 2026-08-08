@@ -13,7 +13,7 @@ const two = |x, y| { x + y }
 System.print(two.call(3, 4))
 const one = |x| { x }
 System.print(one.call(5))
-const empty = {}
+const empty = || {}
 System.print(empty.class)
-const zero = { 1 + 1 }
+const zero = || { 1 + 1 }
 System.print(zero.call())

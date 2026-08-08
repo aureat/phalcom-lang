@@ -21,7 +21,7 @@ class _DerivedParameter {
 
   fingerprint -> String {
     let label = "_"
-    if _label.isSome {
+    if _label.isSome || {
       label = _label.unwrap.toString
     }
     return _name.toString + ":" + label + ":" +
@@ -131,8 +131,8 @@ class _Derivation {
 
     const parameters = List.new()
     const fingerprintParts = List.new()
-    for parameter in constructor.parameters {
-      if parameter.respondsTo(#isRest) and parameter.isRest {
+    for parameter in constructor.parameters || {
+      if parameter.respondsTo(#isRest) and parameter.isRest || {
         throw self.failure(
           message: "unsafe automatic derivation for rest parameter '" +
             parameter.name.toString + "'; register a custom strategy",
@@ -140,7 +140,7 @@ class _Derivation {
         )
       }
 
-      if parameter.type.isNone {
+      if parameter.type.isNone || {
         throw self.failure(
           message: "constructor parameter '" + parameter.name.toString +
             "' has no reflected type annotation",
@@ -288,7 +288,7 @@ class _Derivation {
     path: List<String>
   ) -> Bool {
     const constructor = self.primaryConstructor(type: variant, path: path)
-    for parameter in constructor.parameters {
+    for parameter in constructor.parameters || {
       if parameter.type.isSome and self.containsType(parameter.type.unwrap, root: root) {
         return true
       }
@@ -302,7 +302,7 @@ class _Derivation {
       return true
     }
     if type.respondsTo(#origin) and type.respondsTo(#arguments) {
-      for argument in type.arguments {
+      for argument in type.arguments || {
         if self.containsType(argument, root: root) {
           return true
         }
@@ -319,7 +319,7 @@ class _Derivation {
     recursiveRoot: Option<Any>,
     recursiveReplacement: Option<Strategy<Any>>
   ) -> Strategy<Any> {
-    if recursiveRoot.isSome and type == recursiveRoot.unwrap {
+    if recursiveRoot.isSome and type == recursiveRoot.unwrap || {
       return recursiveReplacement.unwrap
     }
 
@@ -483,9 +483,9 @@ class _Derivation {
 
     const reflected = List.new()
     if type.respondsTo(#methods) and type.respondsTo(#methodFor) {
-      for selector in type.methods {
+      for selector in type.methods || {
         const method = type.methodFor(selector)
-        if method.respondsTo(#isConstructor) and method.isConstructor {
+        if method.respondsTo(#isConstructor) and method.isConstructor || {
           reflected.add(method)
         }
       }
@@ -523,7 +523,7 @@ class _Derivation {
       return true
     }
     if constructor.respondsTo(#attributes) {
-      for attribute in constructor.attributes {
+      for attribute in constructor.attributes || {
         const name = attribute.class.name.toString
         if name == "requires" or name == "Requires" {
           return true
@@ -557,7 +557,7 @@ class _Derivation {
   }
 
   @class
-  failure(message: String, path: List<String>) -> errors.StrategyResolutionError {
+  failure(message: String, path: List<String>) -> errors.StrategyResolutionError || {
     return errors.StrategyResolutionError.new(
       message + "; resolution path: " + path.join(" -> ")
     )

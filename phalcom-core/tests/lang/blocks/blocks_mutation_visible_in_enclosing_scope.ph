@@ -5,7 +5,7 @@
 // enclosing scope reads — the upvalue is still open (block never escapes),
 // so the enclosing scope observes the mutation immediately after `call()`.
 let total = 10
-const addFive = { total = total + 5 }
+const addFive = || { total = total + 5 }
 
 addFive.call()
 System.print(total)

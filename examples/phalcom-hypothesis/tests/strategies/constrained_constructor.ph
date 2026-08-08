@@ -19,7 +19,7 @@ class Interval {
   }
 }
 
-const outcome = { StrategyRegistry.standard.forType(Interval) }.attempt()
+const outcome = || { StrategyRegistry.standard.forType(Interval) }.attempt()
 outcome.match(
   ok: |_| { Assert.fail("expected constrained derivation to fail") },
   error: |error| {

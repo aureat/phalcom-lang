@@ -13,6 +13,6 @@ const key = DatabaseKey.create(
   directory.DirectoryDatabase.new(root: root).save(key, Example.empty)
   const nextProcess = directory.DirectoryDatabase.new(root: root)
   Assert.equal(1, nextProcess.fetch(key).size)
-}.ensure {
+}.ensure || {
   if FS.exists(root) { FS.removeTree(root) }
 }

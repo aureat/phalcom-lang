@@ -14,7 +14,7 @@
 // keeps running, and the message correctly says "try" as the signature.
 
 const inner = Fiber.new |x| { x }
-const outer = Fiber.new {
+const outer = Fiber.new || {
   inner.call()
   System.print("unreachable: outer body continues past inner.call")
 }

@@ -52,7 +52,7 @@ class _StatefulContext {
     return _StatefulLists.copy(_actions)
   }
 
-  scenario -> scenarioModel.StateScenario {
+  scenario -> scenarioModel.StateScenario || {
     return scenarioModel.StateScenario.from(
       machineClass: _machineClass,
       actions: _actions
@@ -95,7 +95,7 @@ class _StatefulContext {
     bundle: bundleModel.Bundle<Any>,
     consuming: Bool,
     data: DrawData
-  ) -> argumentModel.ResultReference {
+  ) -> argumentModel.ResultReference || {
     const values = _bundles.at(bundle.name)
     if values == None or values.size == 0 {
       throw errors._InvalidStatefulReplay.new(
@@ -122,7 +122,7 @@ class _StatefulContext {
   consumeReference(
     bundle: bundleModel.Bundle<Any>,
     data: DrawData
-  ) -> argumentModel.ResultReference {
+  ) -> argumentModel.ResultReference || {
     return self.selectReference(
       bundle: bundle,
       consuming: true,
@@ -191,7 +191,7 @@ class _StatefulScenarioStrategy is strategyCombinators.StrategyBase<scenarioMode
     _maxSteps = maxSteps
   }
 
-  draw(data: DrawData) -> scenarioModel.StateScenario {
+  draw(data: DrawData) -> scenarioModel.StateScenario || {
     return _StatefulExecutor.new(metadata: _metadata).run(
       data: data,
       maxSteps: _maxSteps
@@ -212,8 +212,8 @@ class _StatefulExecutor {
     _context = _StatefulContext.new(machineClass: metadata.machineClass)
   }
 
-  run(data: DrawData, maxSteps: Int) -> scenarioModel.StateScenario {
-    const executionResult = {
+  run(data: DrawData, maxSteps: Int) -> scenarioModel.StateScenario || {
+    const executionResult = || {
       data.withSpan(label: #stateScenario, discardable: false) {
         self.runInitializers(data)
         self.runInvariants()
@@ -253,7 +253,7 @@ class _StatefulExecutor {
 
     // Structural result capture guarantees one teardown attempt after execution
     // begins, including rejection, replay invalidation, overrun, and failure.
-    const teardownResult = {
+    const teardownResult = || {
       self.runTeardown()
     }.attempt()
 
@@ -264,7 +264,7 @@ class _StatefulExecutor {
   }
 
   runInitializers(data: DrawData) -> None {
-    for initializer in _metadata.initializers {
+    for initializer in _metadata.initializers || {
       data.withSpan(label: #stateInitializer, discardable: false) {
         self.executeDefinition(definition: initializer, data: data)
       }
@@ -272,20 +272,20 @@ class _StatefulExecutor {
   }
 
   runInvariants() -> None {
-    for invariant in _metadata.invariants {
+    for invariant in _metadata.invariants || {
       invariant.invokeOn(_machine, const [])
     }
   }
 
   runTeardown() -> None {
-    if _metadata.teardown.isSome {
+    if _metadata.teardown.isSome || {
       _metadata.teardown.unwrap.invokeOn(_machine, const [])
     }
   }
 
   applicableRules -> List<ruleModel.RuleDefinition> {
     const available = List.new()
-    for rule in _metadata.rules {
+    for rule in _metadata.rules || {
       if self.argumentsAvailable(rule) and self.whenAllows(rule) {
         available.add(rule)
       }
@@ -295,8 +295,8 @@ class _StatefulExecutor {
 
   argumentsAvailable(rule: ruleModel.RuleDefinition) -> Bool {
     const remaining = Map.new()
-    for argument in rule.arguments {
-      if argument.requiresBundle {
+    for argument in rule.arguments || {
+      if argument.requiresBundle || {
         const bundle = argument.bundleValue.unwrap
         let count = remaining.at(bundle.name)
         if count == None {
@@ -305,7 +305,7 @@ class _StatefulExecutor {
         if count <= 0 {
           return false
         }
-        if argument.consuming {
+        if argument.consuming || {
           count--
         }
         remaining.at(bundle.name, put: count)
@@ -315,7 +315,7 @@ class _StatefulExecutor {
   }
 
   whenAllows(rule: ruleModel.RuleDefinition) -> Bool {
-    if rule.whenSelector.isNone {
+    if rule.whenSelector.isNone || {
       return true
     }
     const predicate = _machine.methodFor(rule.whenSelector.unwrap)
@@ -340,7 +340,7 @@ class _StatefulExecutor {
       selector: definition.selector,
       arguments: drawn.descriptions
     )
-    if definition.initializer {
+    if definition.initializer || {
       action = actionModel.StateAction.initializer(
         index: actionIndex,
         selector: definition.selector,
@@ -368,7 +368,7 @@ class _StatefulExecutor {
     const values = List.new()
     const descriptions = List.new()
 
-    for argument in definition.arguments {
+    for argument in definition.arguments || {
       argument.match(
         draw: |source| {
           const value = source.strategy.draw(data)
@@ -422,9 +422,9 @@ class _StatefulExecutor {
   finish(
     executionResult: Result<scenarioModel.StateScenario, Error>,
     teardownResult: Result<Any, Error>
-  ) -> scenarioModel.StateScenario {
-    if executionResult.isOk {
-      if teardownResult.isOk {
+  ) -> scenarioModel.StateScenario || {
+    if executionResult.isOk || {
+      if teardownResult.isOk || {
         return executionResult.unwrap
       }
       throw _StatefulFailure.new(
@@ -436,7 +436,7 @@ class _StatefulExecutor {
 
     const primary = executionResult.unwrapErr
     let secondaryError = None
-    if not teardownResult.isOk {
+    if not teardownResult.isOk || {
       secondaryError = Some.new(teardownResult.unwrapErr)
     }
 
@@ -490,7 +490,7 @@ class _StatefulFailure is Error {
   }
 }
 
-class _StatefulRejected is errors._RejectedExample {
+class _StatefulRejected is errors._RejectedExample || {
   @constructor
   new(
     primaryError: Error,
@@ -508,7 +508,7 @@ class _StatefulRejected is errors._RejectedExample {
   secondaryError -> Option<Error> => _secondaryError
 }
 
-class _StatefulOverrun is errors._EngineOverrun {
+class _StatefulOverrun is errors._EngineOverrun || {
   @constructor
   new(
     primaryError: Error,
@@ -617,7 +617,7 @@ class _StatefulReuse {
   @class
   fetch(definition: _StatefulDefinition) -> List<Example> {
     if not definition.settings.reuseEnabled or
-      definition.settings.databaseValue.isNone {
+      definition.settings.databaseValue.isNone || {
       return const []
     }
     const database = definition.settings.databaseValue.unwrap
@@ -630,7 +630,7 @@ class _StatefulReuse {
     reused: List<Example>,
     result: PropertyResult
   ) -> None {
-    if definition.settings.databaseValue.isNone {
+    if definition.settings.databaseValue.isNone || {
       return
     }
 
@@ -646,7 +646,7 @@ class _StatefulReuse {
         )
         const stale = List.new()
         for example in reused {
-          if example.signature != value.failure.example.signature {
+          if example.signature != value.failure.example.signature || {
             stale.add(example)
           }
         }
@@ -734,7 +734,7 @@ class _StatefulLists {
   withoutIndex<T>(values: List<T>, index: Int) -> List<T> {
     const copied = List.new()
     let position = 0
-    while position < values.size {
+    while position < values.size || {
       if position != index {
         copied.add(values.at(position))
       }

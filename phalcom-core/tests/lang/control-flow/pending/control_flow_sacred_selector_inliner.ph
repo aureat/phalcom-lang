@@ -3,7 +3,7 @@
 // status: PENDING
 
 let i = 0
-{ i < 3 }.whileTrue {
+{ i < 3 }.whileTrue || {
   System.print(i)
   i = i + 1
 }

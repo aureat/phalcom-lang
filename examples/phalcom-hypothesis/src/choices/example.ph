@@ -54,7 +54,7 @@ class Example {
   replace(index: Int, choice: Choice) -> Example {
     const next = List.new()
     let position = 0
-    while position < _choiceValues.size {
+    while position < _choiceValues.size || {
       if position == index {
         next.add(choice)
       } else {
@@ -111,7 +111,7 @@ class Example {
 
     const nextChoices = List.new()
     let position = 0
-    while position < _choiceValues.size {
+    while position < _choiceValues.size || {
       if position < start or position >= end {
         nextChoices.add(_choiceValues.at(position))
       }
@@ -267,7 +267,7 @@ class _ExampleSpans {
 class _ExampleSpanText {
   @class
   parent(value: Option<Int>) -> String {
-    if value.isNone { return "-" }
+    if value.isNone || { return "-" }
     return value.unwrap.toString
   }
 }

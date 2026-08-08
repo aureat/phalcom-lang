@@ -5,6 +5,6 @@
 // via `fiber_try` (capture, not propagate), so the second scheduled fiber
 // still runs and the host program still exits cleanly.
 
-System.schedule({ throw Error.new() })
-System.schedule({ System.print("second-ran") })
+System.schedule(|| { throw Error.new() })
+System.schedule(|| { System.print("second-ran") })
 System.print("main-exits-cleanly")

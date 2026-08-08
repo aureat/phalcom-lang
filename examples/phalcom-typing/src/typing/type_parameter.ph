@@ -7,7 +7,7 @@ import "./type_runtime" as Runtime
 // identity: owner object plus zero-based index. The source name is descriptive.
 @data
 @immutable
-class TypeParameter is Descriptors.TypeDescriptor {
+class TypeParameter is Descriptors.TypeDescriptor || {
   const _name: Symbol
   const _owner: TypeParameterOwner
   const _index: Int
@@ -30,13 +30,13 @@ class TypeParameter is Descriptors.TypeDescriptor {
       )
     }
 
-    if bound != None and constraints.isEmpty.not {
+    if bound != None and constraints.isEmpty.not || {
       throw Errors.TypeDeclarationError.new(
         "a type parameter cannot declare both a bound and constraints"
       )
     }
 
-    if constraints.duplicates.isEmpty.not {
+    if constraints.duplicates.isEmpty.not || {
       throw Errors.TypeDeclarationError.new(
         "type parameter constraints must be unique"
       )
@@ -71,11 +71,11 @@ class TypeParameter is Descriptors.TypeDescriptor {
   }
 
   substitute(using: TypeEnvironment) -> Type {
-    return using.resolve(self).orElse { self }
+    return using.resolve(self).orElse || { self }
   }
 
   equivalentTo(other: Type) -> Bool {
-    if other.isA(TypeParameter).not {
+    if other.isA(TypeParameter).not || {
       return false
     }
 
@@ -96,19 +96,19 @@ class TypeParameter is Descriptors.TypeDescriptor {
 
   validate(argument: Type) -> None {
     if _bound != None {
-      if Runtime.TypeRuntime.isSubtype(argument, of: _bound.unwrap).not {
+      if Runtime.TypeRuntime.isSubtype(argument, of: _bound.unwrap).not || {
         throw Errors.TypeBoundError.new(
           "\(argument) does not satisfy bound \(_bound.unwrap) for \(self)"
         )
       }
     }
 
-    if _constraints.isEmpty.not {
+    if _constraints.isEmpty.not || {
       const accepted = _constraints.any |constraint| {
         argument.equivalentTo(constraint)
       }
 
-      if accepted.not {
+      if accepted.not || {
         throw Errors.TypeConstraintError.new(
           "\(argument) is not an allowed argument for \(self)"
         )

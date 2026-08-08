@@ -69,7 +69,7 @@ class TypeEnvironment {
     let result = self
     let index = 0
 
-    while index < other.bindings.size {
+    while index < other.bindings.size || {
       const binding = other.bindings.at(index)
       result = result.bind(
         parameter: binding.parameter,

@@ -50,7 +50,7 @@ class Reproduction {
 
   @class
   fromRun(run: Any) -> Option<ReproductionToken> {
-    if run.explicitFailure {
+    if run.explicitFailure || {
       return None
     }
 

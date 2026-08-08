@@ -4,7 +4,7 @@ import "./type_runtime" as Runtime
 
 @data
 @immutable
-class AppliedType is Descriptors.TypeDescriptor {
+class AppliedType is Descriptors.TypeDescriptor || {
   const _origin: TypeConstructor
   const _arguments: const List<Type>
   const _environment: TypeEnvironment
@@ -49,7 +49,7 @@ class AppliedType is Descriptors.TypeDescriptor {
 
     _arguments.each |argument| {
       argument.freeParameters.each |parameter| {
-        if result.includes(parameter).not {
+        if result.includes(parameter).not || {
           result = result.appending(parameter).freeze
         }
       }
@@ -82,21 +82,21 @@ class AppliedType is Descriptors.TypeDescriptor {
   }
 
   equivalentTo(other: Type) -> Bool {
-    if other.isA(AppliedType).not {
+    if other.isA(AppliedType).not || {
       return false
     }
 
-    if _origin !== other.origin {
+    if _origin !== other.origin || {
       return false
     }
 
-    if _arguments.size != other.arguments.size {
+    if _arguments.size != other.arguments.size || {
       return false
     }
 
     let index = 0
-    while index < _arguments.size {
-      if _arguments.at(index).equivalentTo(other.arguments.at(index)).not {
+    while index < _arguments.size || {
+      if _arguments.at(index).equivalentTo(other.arguments.at(index)).not || {
         return false
       }
       index++

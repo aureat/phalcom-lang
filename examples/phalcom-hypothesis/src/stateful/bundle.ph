@@ -33,7 +33,7 @@ class Bundle<T> {
 
   fingerprint -> String {
     let typePart = "dynamic"
-    if _elementType.isSome {
+    if _elementType.isSome || {
       typePart = _elementType.unwrap.toString
     }
     return "bundle(" + _name.toString + ":" + typePart + ")"

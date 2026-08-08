@@ -2,4 +2,4 @@
 // spec: lexical-structure.md; values-and-absence.md
 // status: PENDING
 
-System.print({a: 1, b: 2})
+System.print(|| {a: 1, b: 2})

@@ -7,7 +7,7 @@
 // of the pre-U-CORE-2 half-Option, which left a raw non-`Option` value on the
 // taken arm with no `isSome`/`isNone` to send.
 
-System.print(true.ifTrue { 1 }.isSome)
-System.print(true.ifTrue { 1 }.isNone)
-System.print(false.ifTrue { 1 }.isSome)
-System.print(false.ifTrue { 1 }.isNone)
+System.print(true.ifTrue || { 1 }.isSome)
+System.print(true.ifTrue || { 1 }.isNone)
+System.print(false.ifTrue || { 1 }.isSome)
+System.print(false.ifTrue || { 1 }.isNone)

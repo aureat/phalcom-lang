@@ -16,15 +16,15 @@ let n = 3
 // 4-deep nest, the shape `String.codePointAt` has: each level's `ifFalse` arm
 // carries the next conditional, so only the innermost taken arm produces a
 // value.
-let r = (n < 1).ifTrue({ "one" }, ifFalse: {
-  (n < 2).ifTrue({ "two" }, ifFalse: {
-    (n < 3).ifTrue({ "three" }, ifFalse: {
-      (n < 4).ifTrue({ "four" }, ifFalse: { "big" })
+let r = (n < 1).ifTrue(|| { "one" }, ifFalse: || {
+  (n < 2).ifTrue(|| { "two" }, ifFalse: || {
+    (n < 3).ifTrue(|| { "three" }, ifFalse: || {
+      (n < 4).ifTrue(|| { "four" }, ifFalse: || { "big" })
     })
   })
 })
 System.print(r)
 
 // One-armed nesting: the untaken arms surface `None`.
-System.print((n < 4).ifTrue({ (n < 2).ifTrue({ "inner" }) }).isSome)
-System.print((n < 2).ifTrue({ (n < 4).ifTrue({ "inner" }) }).isNone)
+System.print((n < 4).ifTrue(|| { (n < 2).ifTrue(|| { "inner" }) }).isSome)
+System.print((n < 2).ifTrue(|| { (n < 4).ifTrue(|| { "inner" }) }).isNone)

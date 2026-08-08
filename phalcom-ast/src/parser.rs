@@ -1770,23 +1770,6 @@ impl<'source> Parser<'source> {
         Ok(params)
     }
 
-    fn parse_block_params(&mut self) -> ParserResult<Vec<String>> {
-        let mut params = Vec::new();
-        while !matches!(self.peek(), Token::FatArrow) {
-            let param = if self.eat(&Token::Underscore) {
-                "_".to_string()
-            } else {
-                self.expect_identifier(&["parameter name"])?
-            };
-            params.push(param);
-            if !self.eat(&Token::Comma) && !matches!(self.peek(), Token::FatArrow) {
-                return Err(self.error_here(strs(&["\",\"", "\"=>\""])));
-            }
-        }
-        self.expect(&Token::FatArrow, &["\"=>\""])?;
-        Ok(params)
-    }
-
     /// Parses `|params| expression` or `|params| { statements }` into the
     /// existing block AST node. This is shared by ordinary primary expressions
     /// and structurally-confirmed trailing closure arguments.
@@ -1798,7 +1781,12 @@ impl<'source> Parser<'source> {
         let mut params = Vec::new();
         if !self.eat(&Token::Pipe) {
             loop {
-                params.push(self.expect_identifier(&["closure parameter name"])?);
+                let param = if self.eat(&Token::Underscore) {
+                    "_".to_string()
+                } else {
+                    self.expect_identifier(&["closure parameter name"])?
+                };
+                params.push(param);
                 self.skip_newlines();
                 if self.eat(&Token::Pipe) {
                     break;
@@ -2419,7 +2407,7 @@ impl<'source> Parser<'source> {
 
             if !matches!(
                 self.peek(),
-                Token::Dot | Token::QuestionDot | Token::LParen | Token::LBrace | Token::ColonColon | Token::LBracket
+                Token::Dot | Token::QuestionDot | Token::LParen | Token::ColonColon | Token::LBracket
             ) {
                 break;
             }
@@ -2527,41 +2515,6 @@ impl<'source> Parser<'source> {
                 let range = (start..self.prev_end).into();
                 expr = Expr::Index(Box::new(IndexExpr { object: expr, args, range }));
                 trailing_target = false;
-            } else if matches!(self.peek(), Token::LBrace) {
-                // Kept through Task 2's executable-source migration. Phase C
-                // removes this legacy trailing-block form once no source uses it.
-                let block = self.parse_primary()?;
-                let range = (start..self.prev_end).into();
-                let arg = Argument {
-                    label: None,
-                    expr: block,
-                    range: (self.prev_end..self.prev_end).into(),
-                };
-                expr = match expr {
-                    Expr::UnqualifiedCall(mut call) => {
-                        call.args.push(arg);
-                        call.range = range;
-                        Expr::UnqualifiedCall(call)
-                    }
-                    Expr::MethodCall(mut call) => {
-                        call.args.push(arg);
-                        call.range = range;
-                        Expr::MethodCall(call)
-                    }
-                    Expr::GetProperty(get) => Expr::MethodCall(Box::new(MethodCallExpr {
-                        object: get.object,
-                        method: get.property,
-                        args: vec![arg],
-                        range,
-                    })),
-                    object => Expr::MethodCall(Box::new(MethodCallExpr {
-                        object,
-                        method: "call".to_string(),
-                        args: vec![arg],
-                        range,
-                    })),
-                };
-                trailing_target = false;
             }
         }
         Ok(expr)
@@ -2586,7 +2539,7 @@ impl<'source> Parser<'source> {
             return matches!(self.tokens.get(self.skip_newlines_at(pos + 1)).map(|lexeme| &lexeme.token), Some(Token::LBrace));
         }
         loop {
-            if !matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Identifier(_))) {
+            if !matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Identifier(_) | Token::Underscore)) {
                 return false;
             }
             pos = self.skip_newlines_at(pos + 1);
@@ -3035,18 +2988,10 @@ impl<'source> Parser<'source> {
             }
             Token::Identifier(value) => {
                 if matches!(self.peek_next(), Token::FatArrow) {
-                    let start = self.cur_start();
-                    self.advance(); // identifier
-                    self.advance(); // =>
-                    let body_expr = self.parse_expr()?;
-                    let range = (start..self.prev_end).into();
-                    let stmt = Statement::Expr { expr: body_expr, range };
-                    return Ok(Expr::Block(Box::new(BlockExpr {
-                        params: vec![value],
-                        body: vec![stmt],
-                        expr_body: true,
-                        range,
-                    })));
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("anonymous `=>` closures were removed; write `|x| expression`".to_string()),
+                        range: range.start..range.end,
+                    });
                 }
                 self.advance();
                 Ok(Expr::Var { value, range })
@@ -3089,55 +3034,15 @@ impl<'source> Parser<'source> {
                     return self.parse_map_literal(start);
                 }
 
-                let mut params = Vec::new();
-                let mut has_arrow = false;
-
-                let mut scan_idx = self.pos;
-                loop {
-                    if scan_idx >= self.tokens.len() {
-                        break;
-                    }
-                    match &self.tokens[scan_idx].token {
-                        Token::Identifier(_) | Token::Underscore => {
-                            scan_idx += 1;
-                            if scan_idx < self.tokens.len() {
-                                if matches!(self.tokens[scan_idx].token, Token::Comma) {
-                                    scan_idx += 1;
-                                } else if matches!(self.tokens[scan_idx].token, Token::FatArrow) {
-                                    has_arrow = true;
-                                    break;
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-                        Token::Comma => {
-                            break;
-                        }
-                        Token::FatArrow => {
-                            has_arrow = true;
-                            break;
-                        }
-                        _ => {
-                            break;
-                        }
-                    }
-                }
-
-                if has_arrow {
-                    params = self.parse_block_params()?;
-                }
-
-                let body = self.parse_block_statements()?;
-                self.expect(&Token::RBrace, &["\"}\""])?;
-                let range = (start..self.prev_end).into();
-
-                Ok(Expr::Block(Box::new(BlockExpr {
-                    params,
-                    body,
-                    expr_body: false,
-                    range,
-                })))
+                let message = if matches!(self.peek(), Token::Identifier(_) | Token::Underscore) && matches!(self.peek_next(), Token::FatArrow) {
+                    "brace block literals were removed; write `|x| { ... }`"
+                } else {
+                    "bare brace block literals were removed; write `|| { ... }` for a closure"
+                };
+                Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(message.to_string()),
+                    range: (start..self.prev_end).into(),
+                })
             }
             _ => Err(self.error_here(primary_expected())),
         }

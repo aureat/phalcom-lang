@@ -1,6 +1,6 @@
-const makeCounter = {
+const makeCounter = || {
   let count = 0
-  { count = count + 1 }
+  || { count = count + 1 }
 }
 
 const counter = makeCounter.call()

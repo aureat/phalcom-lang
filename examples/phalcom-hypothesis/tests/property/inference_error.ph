@@ -14,7 +14,7 @@ class MissingAnnotationProperties is PropertySuite {
   }
 }
 
-const outcome = {
+const outcome = || {
   PropertyRunner.run(
     const [MissingAnnotationProperties],
     with: Settings.standard

@@ -90,7 +90,7 @@ class Shrinker {
                 candidate = replayed.status
               }
 
-              if not candidate.invalid and not candidate.overrun {
+              if not candidate.invalid and not candidate.overrun || {
                 if candidate.failed and self.failure(current).sameOrigin(self.failure(candidate)) {
                   const candidateComplexity = ExampleComplexity.of(candidate.tape)
                   if candidateComplexity.lessThan(currentComplexity) {
@@ -148,7 +148,7 @@ class Shrinker {
             const proposalComplexity = ExampleComplexity.of(proposal)
             if proposalComplexity.lessThan(currentComplexity) {
               const candidate = evaluator.replay(proposal)
-              if candidate.found {
+              if candidate.found || {
                 const candidateComplexity = ExampleComplexity.of(candidate.example)
                 if candidateComplexity.lessThan(currentComplexity) {
                   current = candidate

@@ -10,7 +10,7 @@ class UErr is Error {
 }
 
 System.print(Ok.new(7).unwrap)
-const caught = { Err.new(UErr.new("nope")).unwrap }.on(Error) |e| { e.message }
+const caught = || { Err.new(UErr.new("nope")).unwrap }.on(Error) |e| { e.message }
 System.print(caught)
 
 System.print(Ok.new(9).ok().toString)

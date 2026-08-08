@@ -7,4 +7,4 @@
 
 const a = 3
 const b = 4
-System.print((a > b).ifTrue({ a }, ifFalse: { b }) + 10)
+System.print((a > b).ifTrue(|| { a }, ifFalse: || { b }) + 10)

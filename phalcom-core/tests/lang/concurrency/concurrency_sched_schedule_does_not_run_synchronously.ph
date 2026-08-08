@@ -5,5 +5,5 @@
 // only enqueued (`VM::ready_queue`) — so no side effect is observed until
 // the next drain point (here, the implicit root-drive at program exit).
 
-System.schedule({ System.print("scheduled") })
+System.schedule(|| { System.print("scheduled") })
 System.print("main")

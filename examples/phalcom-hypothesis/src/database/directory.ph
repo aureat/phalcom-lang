@@ -34,9 +34,9 @@ class _DirectoryLockTable {
       )
     }
     _active.add(key)
-    return {
+    return || {
       body.call()
-    }.ensure {
+    }.ensure || {
       _active.remove(key)
     }
   }
@@ -131,7 +131,7 @@ class DirectoryDatabase {
   ) -> DirectoryDatabase {
     // merge-on-write: acquire the shared process-local path lock, then read the
     // latest visible records before constructing the replacement payload.
-    const locked = {
+    const locked = || {
       _directoryLocks.withPathLock(self.path(key)) {
         self.saveMerged(
           key: key,
@@ -159,7 +159,7 @@ class DirectoryDatabase {
     const records = List.new()
     records.add(record)
     for existing in self.records(key) {
-      if existing.signature != record.signature {
+      if existing.signature != record.signature || {
         records.add(existing)
       }
     }
@@ -167,7 +167,7 @@ class DirectoryDatabase {
   }
 
   delete(key: DatabaseKey, example: Example) -> DirectoryDatabase {
-    const locked = {
+    const locked = || {
       _directoryLocks.withPathLock(self.path(key)) {
         self.deleteMerged(key: key, example: example)
       }
@@ -182,7 +182,7 @@ class DirectoryDatabase {
   deleteMerged(key: DatabaseKey, example: Example) -> None {
     const records = List.new()
     for existing in self.records(key) {
-      if existing.signature != example.signature {
+      if existing.signature != example.signature || {
         records.add(existing)
       }
     }
@@ -201,7 +201,7 @@ class DirectoryDatabase {
     }
 
     const read = _files.read(path)
-    if read.isErr {
+    if read.isErr || {
       return List.new()
     }
 
@@ -215,7 +215,7 @@ class DirectoryDatabase {
       payload: payload,
       expectedKey: key
     )
-    if decoded.isErr {
+    if decoded.isErr || {
       _files.quarantine(path)
       return List.new()
     }
@@ -246,32 +246,32 @@ class DirectoryDatabase {
     const temporary = destination + ".tmp-" + Random.system.nextInt.toString
 
     const created = _files.createDirectories(directory)
-    if created.isErr {
+    if created.isErr || {
       return
     }
 
     const opened = _files.writeTemporary(temporary, payload)
-    if opened.isErr {
+    if opened.isErr || {
       _files.remove(temporary)
       return
     }
     const file = opened.unwrap
 
     const flushed = _files.flush(file)
-    if flushed.isErr {
+    if flushed.isErr || {
       _files.close(file)
       _files.remove(temporary)
       return
     }
 
     const closed = _files.close(file)
-    if closed.isErr {
+    if closed.isErr || {
       _files.remove(temporary)
       return
     }
 
     const replaced = _files.replaceAtomic(temporary, destination)
-    if replaced.isErr {
+    if replaced.isErr || {
       _files.remove(temporary)
     }
   }
@@ -290,15 +290,15 @@ class _SystemDatabaseFileSystem {
   exists(path: Any) -> Bool => FS.exists(path)
 
   read(path: Any) -> Result<Bytes, Error> {
-    return { FS.readBytes(path) }.attempt()
+    return || { FS.readBytes(path) }.attempt()
   }
 
   createDirectories(path: Any) -> Result<None, Error> {
-    return { FS.createDirectories(path); None }.attempt()
+    return || { FS.createDirectories(path); None }.attempt()
   }
 
   writeTemporary(path: Any, payload: Bytes) -> Result<Any, Error> {
-    return {
+    return || {
       const file = FS.open(path, mode: #writeExclusive)
       file.write(payload)
       return file
@@ -306,19 +306,19 @@ class _SystemDatabaseFileSystem {
   }
 
   flush(file: Any) -> Result<None, Error> {
-    return { file.flush; None }.attempt()
+    return || { file.flush; None }.attempt()
   }
 
   close(file: Any) -> Result<None, Error> {
-    return { file.close; None }.attempt()
+    return || { file.close; None }.attempt()
   }
 
   replaceAtomic(source: Any, destination: Any) -> Result<None, Error> {
-    return { FS.replace(source, with: destination); None }.attempt()
+    return || { FS.replace(source, with: destination); None }.attempt()
   }
 
   quarantine(path: Any) -> Result<None, Error> {
-    return {
+    return || {
       const destination = path.toString + ".corrupt-" +
         Random.system.nextInt.toString
       FS.move(path, to: destination)
@@ -327,7 +327,7 @@ class _SystemDatabaseFileSystem {
   }
 
   remove(path: Any) -> Result<None, Error> {
-    return {
+    return || {
       if FS.exists(path) { FS.remove(path) }
       return None
     }.attempt()

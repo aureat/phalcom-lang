@@ -96,7 +96,7 @@ class ScriptedChoiceProvider {
   consumedChoices -> Int => _cursor
 
   choose(request: ChoiceRequest) -> Choice {
-    if _cursor >= _choices.size {
+    if _cursor >= _choices.size || {
       throw errors._ScriptedProviderExhausted.new(
         "scripted provider ended before the draw sequence completed"
       )
@@ -130,7 +130,7 @@ class ScriptedProviderFactory {
   }
 
   create(exampleIndex: Int, generationSize: Int) -> ChoiceProvider {
-    if exampleIndex < 0 or exampleIndex >= _scripts.size {
+    if exampleIndex < 0 or exampleIndex >= _scripts.size || {
       throw errors._ScriptedProviderExhausted.new(
         "no scripted choice sequence exists for generated example " +
         exampleIndex.toString
@@ -150,7 +150,7 @@ class _ReplayChoiceProvider {
   consumedChoices -> Int => _cursor
 
   choose(request: ChoiceRequest) -> Choice {
-    if _cursor >= _example.size {
+    if _cursor >= _example.size || {
       throw errors._ReplayExhausted.new(
         "recorded example ended before the draw sequence completed"
       )
@@ -169,7 +169,7 @@ class _ChoiceNormalization {
       integer: |expected| {
         source.match(
           integer: |actual| {
-            if actual.value < expected.min or actual.value > expected.max {
+            if actual.value < expected.min or actual.value > expected.max || {
               throw errors._InvalidReplayChoice.new(
                 "integer provider value is outside the current request bounds"
               )
@@ -206,7 +206,7 @@ class _ChoiceNormalization {
           integer: |_| { self.typeMismatch(#index) },
           boolean: |_| { self.typeMismatch(#index) },
           index: |actual| {
-            if actual.value < 0 or actual.value >= expected.size {
+            if actual.value < 0 or actual.value >= expected.size || {
               throw errors._InvalidReplayChoice.new(
                 "index provider value is outside the current request domain"
               )
@@ -227,7 +227,7 @@ class _ChoiceNormalization {
           boolean: |_| { self.typeMismatch(#bytes) },
           index: |_| { self.typeMismatch(#bytes) },
           bytes: |actual| {
-            if actual.value.size < expected.minSize or actual.value.size > expected.maxSize {
+            if actual.value.size < expected.minSize or actual.value.size > expected.maxSize || {
               throw errors._InvalidReplayChoice.new(
                 "bytes provider value violates the current size bounds"
               )

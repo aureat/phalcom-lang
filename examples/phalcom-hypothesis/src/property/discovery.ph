@@ -95,7 +95,7 @@ class PropertyDiscovery {
   ) -> List<PropertyDefinition> {
     const definitions = List.new()
 
-    for symbol in suiteClass.methods {
+    for symbol in suiteClass.methods || {
       const method = receiver.methodFor(symbol)
       const givens = method.attributesOfType(attributes.Given).toList
       if givens.size > 0 {
@@ -181,7 +181,7 @@ class PropertyDiscovery {
     }
 
     const configured = local.at(0).settings
-    if configured.databaseValue.isNone and defaults.databaseValue.isSome {
+    if configured.databaseValue.isNone and defaults.databaseValue.isSome || {
       return configured.withDatabase(defaults.databaseValue.unwrap)
     }
     return configured

@@ -24,7 +24,7 @@ class _IntStrategy is base.StrategyBase<Int> {
   }
 
   draw(data: DrawData) -> Int {
-    if _min.isSome {
+    if _min.isSome || {
       return data.drawInt(
         min: _min.unwrap,
         max: _max.unwrap,
@@ -46,7 +46,7 @@ class _IntStrategy is base.StrategyBase<Int> {
   }
 
   fingerprint -> String {
-    if _min.isNone {
+    if _min.isNone || {
       return "int"
     }
     return "int(" + _min.unwrap.toString + "," + _max.unwrap.toString + ")"

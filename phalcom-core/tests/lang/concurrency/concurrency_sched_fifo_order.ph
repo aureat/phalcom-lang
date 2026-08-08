@@ -4,6 +4,6 @@
 // Three scheduled fibers run in enqueue order once drained — `VM::ready_queue`
 // is a plain FIFO (`VecDeque`), no priority.
 
-System.schedule({ System.print("a") })
-System.schedule({ System.print("b") })
-System.schedule({ System.print("c") })
+System.schedule(|| { System.print("a") })
+System.schedule(|| { System.print("b") })
+System.schedule(|| { System.print("c") })

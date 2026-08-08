@@ -9,19 +9,19 @@
 // loop iterations are still each their own allocation, so unequal.
 
 // Not structurally equal.
-System.print({ 123 } == { 123 })
-System.print({ 123 } != { 123 })
+System.print(|| { 123 } == { 123 })
+System.print(|| { 123 } != { 123 })
 
 // Not equal to other types.
-System.print({ 123 } == 1)
-System.print({ 123 } == false)
-System.print({ 123 } == "fn 123")
-System.print({ 123 } != 1)
-System.print({ 123 } != false)
-System.print({ 123 } != "fn 123")
+System.print(|| { 123 } == 1)
+System.print(|| { 123 } == false)
+System.print(|| { 123 } == "fn 123")
+System.print(|| { 123 } != 1)
+System.print(|| { 123 } != false)
+System.print(|| { 123 } != "fn 123")
 
 // Equal by identity.
-const f = { 123 }
+const f = || { 123 }
 System.print(f == f)
 System.print(f != f)
 
@@ -29,7 +29,7 @@ System.print(f != f)
 const fns = List.new()
 let i = 0
 while (i < 2) {
-  fns.add({ 123 })
+  fns.add(|| { 123 })
   i = i + 1
 }
 System.print(fns.at(0) == fns.at(1))

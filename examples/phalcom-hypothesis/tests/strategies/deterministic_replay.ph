@@ -31,7 +31,7 @@ const strategies = const [
     const value = draw.from(Gen.int(min: 0, max: 4))
     return Tuple.__fromList(const [value, value])
   },
-  Gen.deferred { Gen.just(#deferred) },
+  Gen.deferred || { Gen.just(#deferred) },
   Gen.recursive(
     base: Gen.just(0),
     extend: |child| { Gen.tuple(child, child) }

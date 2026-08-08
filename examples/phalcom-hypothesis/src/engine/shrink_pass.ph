@@ -14,13 +14,13 @@ class _DeleteDiscardableSpans {
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()
-    for span in current.spans {
+    for span in current.spans || {
       if span.discardable and span.label != #recursiveBranch {
         const candidate = _SpanDeletion.delete(
           example: current,
           span: span
         )
-        if candidate.isSome {
+        if candidate.isSome || {
           out.add(candidate.unwrap)
         }
       }
@@ -49,14 +49,14 @@ class _MinimizeBranchIndices {
   candidates(current: Example) -> List<Example> {
     const out = List.new()
     let index = 0
-    while index < current.size {
+    while index < current.size || {
       const choice = current.at(index)
       choice.match(
         integer: |_| { None },
         boolean: |_| { None },
         index: |value| {
-          if value.label == Some.new(#branch) or value.value != value.shrinkTowards {
-            for replacement in choice.simplifications {
+          if value.label == Some.new(#branch) or value.value != value.shrinkTowards || {
+            for replacement in choice.simplifications || {
               out.add(current.replace(index, choice.withValue(replacement)))
             }
           }
@@ -75,16 +75,16 @@ class _MinimizeIntegerChoices {
   candidates(current: Example) -> List<Example> {
     const out = List.new()
     let index = 0
-    while index < current.size {
+    while index < current.size || {
       const choice = current.at(index)
       choice.match(
         integer: |_| {
-          for replacement in choice.simplifications {
+          for replacement in choice.simplifications || {
             out.add(current.replace(index, choice.withValue(replacement)))
           }
         },
         boolean: |value| {
-          if value.value != value.shrinkTowards {
+          if value.value != value.shrinkTowards || {
             out.add(current.replace(index, choice.withValue(value.shrinkTowards)))
           }
         },
@@ -103,11 +103,11 @@ class _MinimizeIntegerBlocks {
   candidates(current: Example) -> List<Example> {
     const out = List.new()
     let start = 0
-    while start < current.size {
+    while start < current.size || {
       let candidate = current
       let changed = false
       let index = start
-      while index < current.size {
+      while index < current.size || {
         const choice = candidate.at(index)
         const replacement = choice.match(
           integer: |value| { Some.new(value.shrinkTowards) },
@@ -115,10 +115,10 @@ class _MinimizeIntegerBlocks {
           index: |_| { None },
           bytes: |_| { None }
         )
-        if replacement.isNone {
+        if replacement.isNone || {
           break
         }
-        if choice.value != replacement.unwrap {
+        if choice.value != replacement.unwrap || {
           candidate = candidate.replace(
             index,
             choice.withValue(replacement.unwrap)
@@ -142,21 +142,21 @@ class _SimplifyBytesAndText {
   candidates(current: Example) -> List<Example> {
     const out = List.new()
     let index = 0
-    while index < current.size {
+    while index < current.size || {
       const choice = current.at(index)
       choice.match(
         integer: |_| { None },
         boolean: |_| { None },
         index: |_| { None },
         bytes: |value| {
-          if value.value != value.shrinkTowards {
+          if value.value != value.shrinkTowards || {
             out.add(
               current.replace(index, choice.withValue(value.shrinkTowards))
             )
           }
 
           let size = value.value.size - 1
-          while size >= value.minSize {
+          while size >= value.minSize || {
             out.add(
               current.replace(
                 index,
@@ -187,14 +187,14 @@ class _MinimizeRecursiveStructures {
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()
-    for span in current.spans {
+    for span in current.spans || {
       if span.label == #recursiveBranch and span.start > 0 {
         const decisionIndex = span.start - 1
         const decision = current.at(decisionIndex)
         decision.match(
           integer: |_| { None },
           boolean: |value| {
-            if value.label == Some.new(#recursive) and value.value {
+            if value.label == Some.new(#recursive) and value.value || {
               const collapsed = current.replace(
                 decisionIndex,
                 decision.withValue(false)
@@ -222,12 +222,12 @@ class _SpanDeletion {
       span: span
     )
 
-    if lengthIndex.isSome {
+    if lengthIndex.isSome || {
       const index = lengthIndex.unwrap
       const lengthChoice = candidate.at(index)
       const reduced = lengthChoice.match(
         integer: |value| {
-          if value.value <= value.min {
+          if value.value <= value.min || {
             return None
           }
           return Some.new(value.value - 1)
@@ -236,7 +236,7 @@ class _SpanDeletion {
         index: |_| { None },
         bytes: |_| { None }
       )
-      if reduced.isNone {
+      if reduced.isNone || {
         return None
       }
       candidate = candidate.replace(
@@ -252,17 +252,17 @@ class _SpanDeletion {
 
   @class
   lengthChoiceIndex(example: Example, span: Span) -> Option<Int> {
-    if span.parent.isNone {
+    if span.parent.isNone || {
       return None
     }
 
     const parent = example.spanWithId(span.parent.unwrap)
-    if parent.isNone {
+    if parent.isNone || {
       return None
     }
 
     let index = parent.unwrap.start
-    while index < span.start {
+    while index < span.start || {
       const choice = example.at(index)
       if choice.label == Some.new(#length) {
         return Some.new(index)

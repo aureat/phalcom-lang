@@ -80,7 +80,7 @@ System.print("empty? \(s.isEmpty)")      // empty? false
 
 // Option-returning peek, handled without nil.
 s.top.ifSome |v| { System.print("top is \(v)") }        // top is 30
-Stack.empty.top.ifNone { System.print("nothing to peek") } // nothing to peek
+Stack.empty.top.ifNone || { System.print("nothing to peek") } // nothing to peek
 
 // Higher-order fold with a two-argument block.
 const sum = s.fold(0) |acc, x| { acc + x }

@@ -297,7 +297,7 @@ async fn builtin_hover_has_kind_and_selector_but_no_phaldoc_section() {
     // `ifTrue(_)` is a core-table (`Bool`) selector with no local
     // declaration in this file, so it must resolve purely from the builtin
     // table with no Phaldoc section.
-    let text = "let x = true.ifTrue { 1 };\n";
+    let text = "let x = true.ifTrue || { 1 };\n";
     did_open(&mut client_end, uri, text).await;
 
     let response = hover_at(&mut client_end, 2, uri, text, "ifTrue").await;

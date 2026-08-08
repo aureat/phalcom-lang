@@ -7,7 +7,7 @@ let sum = 0
 let i = 0
 while (i < 100000) {
   let captured = i
-  fibers.add(Fiber.new {
+  fibers.add(Fiber.new || {
     sum = sum + captured
     if (captured < 99999) { fibers.at(captured + 1).call() }
   })

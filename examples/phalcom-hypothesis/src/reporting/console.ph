@@ -39,7 +39,7 @@ class ConsoleReporter {
   }
 
   report(suite: Any) -> Any {
-    for run in suite.runs {
+    for run in suite.runs || {
       self.renderRun(run)
     }
     self.renderSuiteSummary(suite)
@@ -102,9 +102,9 @@ class ConsoleReporter {
     self.line("")
     self.line("Falsifying example:")
     let index = 0
-    while index < failure.arguments.size {
+    while index < failure.arguments.size || {
       let name = "argument" + index.toString
-      if index < names.size {
+      if index < names.size || {
         name = names.at(index).toString
       }
       self.line("  " + name + " = " + failure.arguments.at(index).toString)
@@ -114,7 +114,7 @@ class ConsoleReporter {
     if failure.notes.size > 0 {
       self.line("")
       self.line("Notes:")
-      for note in failure.notes {
+      for note in failure.notes || {
         self.line("  " + note.toString)
       }
     }
@@ -137,7 +137,7 @@ class ConsoleReporter {
     if failure.notes.size > 0 {
       self.line("")
       self.line("Notes:")
-      for note in failure.notes {
+      for note in failure.notes || {
         self.line("  " + note.toString)
       }
     }
@@ -149,7 +149,7 @@ class ConsoleReporter {
       primary.message.unwrapOr("(no message)")
     )
 
-    if failure.error.secondaryError.isSome {
+    if failure.error.secondaryError.isSome || {
       const secondary = failure.error.secondaryError.unwrap
       self.line("")
       self.line("Secondary teardown failure:")
@@ -183,7 +183,7 @@ class ConsoleReporter {
         "  Primary: " + classified.class.name.toString + ": " +
         classified.message.unwrapOr(classified.toString)
       )
-      if error.secondaryError.isSome {
+      if error.secondaryError.isSome || {
         const secondary = error.secondaryError.unwrap
         self.line("Secondary teardown failure:")
         self.line(

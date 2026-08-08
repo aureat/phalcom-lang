@@ -8,4 +8,4 @@
 // branch was taken. Prints `Some(None)` (U-CORE-4's `Option#toString`), not
 // `None` — the old half-Option behavior this fixture pinned before U-CORE-2.
 
-System.print(true.ifTrue { })
+System.print(true.ifTrue || { })

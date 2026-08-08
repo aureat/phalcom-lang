@@ -13,10 +13,10 @@ class ExplodingKey {
   }
 }
 
-const value = { trace.add("value"); 1 }
-const later = { trace.add("later"); 2 }
-const caught = {
-  const ignored = {
+const value = || { trace.add("value"); 1 }
+const later = || { trace.add("later"); 2 }
+const caught = || {
+  const ignored = || {
     [ExplodingKey.new()]: value.call(),
     [#later]: later.call(),
   }

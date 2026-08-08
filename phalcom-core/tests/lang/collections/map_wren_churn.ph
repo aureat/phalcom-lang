@@ -11,7 +11,7 @@ const m = Map.new()
 let i = 0
 while (i < 100) {
   m.at(i, put: i)
-  (i >= 10).ifTrue { m.remove(i - 10) }
+  (i >= 10).ifTrue || { m.remove(i - 10) }
   i = i + 1
 }
 System.print(m.size)

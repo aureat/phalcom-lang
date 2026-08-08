@@ -73,9 +73,9 @@ class _PropertyContextStack {
 
   with(context: _PropertyContext, body: Block) -> Any {
     self.push(context)
-    return {
+    return || {
       body.call()
-    }.ensure {
+    }.ensure || {
       self.pop()
     }
   }

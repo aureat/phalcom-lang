@@ -8,7 +8,7 @@
 // own cell before rebinding, so calling them afterward prints [0, 1, 2].
 let closures = List.new()
 for (x in List.new().add(0).add(1).add(2)) {
-  closures.add({ x })
+  closures.add(|| { x })
 }
 for (c in closures) {
   System.print(c.call())

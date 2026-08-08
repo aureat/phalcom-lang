@@ -24,7 +24,7 @@ class StateScenario {
   normalActionCount -> Int {
     let count = 0
     for action in _actions {
-      if action.normal {
+      if action.normal || {
         count++
       }
     }

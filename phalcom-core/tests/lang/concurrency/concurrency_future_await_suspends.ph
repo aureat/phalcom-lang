@@ -10,7 +10,7 @@
 
 // E004(a): a non-root fiber awaiting a pending future must PARK, not fail.
 const f = Future.new()
-const worker = Fiber.new {
+const worker = Fiber.new || {
   System.print("worker: awaiting")
   System.print("worker: got " + f.await.toString)
   "worker done"
@@ -30,7 +30,7 @@ System.print("after settle: isDone = " + worker.isDone.toString)
 // `ensure` block — a real native frame, so it correctly raises and dies with
 // its registration still in `_waiters`. The healthy block waiter must still run.
 const g = Future.new()
-const doomed = Fiber.new {
+const doomed = Fiber.new || {
   try { } ensure { g.await }
 }
 doomed.try()
@@ -51,7 +51,7 @@ try {
 
 // The guard itself must remain intact: a yield under a native frame is still
 // refused. The fix removed `await`'s self-inflicted frame, not the rule.
-const guarded = Fiber.new { { Fiber.yield(None) }.attempt() }
+const guarded = Fiber.new || { { Fiber.yield(None) }.attempt() }
 System.schedule(guarded)
 System.runScheduled()
 System.print("guard intact: " + guarded.isDone.toString)

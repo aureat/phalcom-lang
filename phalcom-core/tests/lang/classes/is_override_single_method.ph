@@ -10,7 +10,7 @@ class Drawable {}
 
 class Shape {
   is(_ cls) {
-    (cls == Drawable).ifTrue { return true }
+    (cls == Drawable).ifTrue || { return true }
     return super.is(cls)
   }
 }

@@ -90,6 +90,6 @@ const result = Stateful.check(
     .seed(20260723)
 )
 
-if result.failed {
+if result.failed || {
   System.print(result.error.statefulScenario.executable)
 }

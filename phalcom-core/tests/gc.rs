@@ -306,7 +306,7 @@ fn suspended_fiber_roots_its_stack() {
 
     vm.interpret_source(
         module,
-        "class RootItem {}\nlet fiber = Fiber.new {\nlet item = RootItem.new()\nFiber.yield(item)\n}\nfiber.call()\n",
+        "class RootItem {}\nlet fiber = Fiber.new || {\nlet item = RootItem.new()\nFiber.yield(item)\n}\nfiber.call()\n",
     )
     .expect("interpret_source failed");
 
@@ -400,11 +400,11 @@ fn ensure_outcome_survives_collecting_cleanup() {
     vm.interpret_source(
         module,
         r#"
-        let result = {
+        let result = || {
           let protectedList = List.new()
           protectedList.add(7)
           protectedList
-        }.ensure({
+        }.ensure(|| {
           let i = 0
           while (i < 6000) {
             List.new()
@@ -441,17 +441,17 @@ fn ensure_raised_error_survives_collecting_cleanup() {
     vm.interpret_source(
         module,
         r#"
-        let caught = {
-          {
+        let caught = || {
+          || {
             Error.new("boom").raise()
-          }.ensure({
+          }.ensure(|| {
             let i = 0
             while (i < 6000) {
               List.new()
               i = i + 1
             }
           })
-        }.on(Error, { e => e.message })
+        }.on(Error, |e| { e.message })
 
         System.print(caught)
         "#,

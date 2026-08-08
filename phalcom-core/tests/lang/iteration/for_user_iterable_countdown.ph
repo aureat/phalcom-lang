@@ -2,8 +2,8 @@ class Countdown is Iterable {
   @constructor
   from(n) { _n = n }
   iterate(_ cursor) {
-    const next = (cursor == None).ifTrue({ _n }, ifFalse: { cursor - 1 })
-    return (next >= 0).ifTrue({ next }, ifFalse: { None })
+    const next = (cursor == None).ifTrue(|| { _n }, ifFalse: || { cursor - 1 })
+    return (next >= 0).ifTrue(|| { next }, ifFalse: || { None })
   }
   iteratorValue(_ cursor) => cursor
 }

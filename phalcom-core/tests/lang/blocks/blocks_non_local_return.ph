@@ -11,7 +11,7 @@
 class Finder {
   findNegative(_ numbers) {
     numbers.each |n| {
-      (n < 0).ifTrue { return n }
+      (n < 0).ifTrue || { return n }
     }
     return None
   }

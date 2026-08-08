@@ -18,7 +18,7 @@ class _Evaluator {
 
   explicit(arguments: List<Any>) -> search._SearchResult<Any> {
     const context = coreContext._PropertyContext.new()
-    const outcome = {
+    const outcome = || {
       coreContext._propertyContexts.with(context) {
         self.invokeTarget(arguments)
       }
@@ -63,13 +63,13 @@ class _Evaluator {
   withData(data: DrawData) -> search._SearchResult<Any> {
     const context = coreContext._PropertyContext.new()
     const arguments = List.new()
-    const outcome = {
-      for strategy in _spec.strategies {
+    const outcome = || {
+      for strategy in _spec.strategies || {
         arguments.add(strategy.draw(data))
       }
 
       return coreContext._propertyContexts.with(context) {
-        if _spec.findMode {
+        if _spec.findMode || {
           return _spec.predicate.call(arguments.at(0))
         }
         return self.invokeTarget(arguments)
@@ -77,7 +77,7 @@ class _Evaluator {
     }.attempt()
 
     const completed = data.example
-    if _spec.findMode and outcome.isOk and outcome.unwrap {
+    if _spec.findMode and outcome.isOk and outcome.unwrap || {
       return search._SearchResult.found(
         value: arguments.at(0),
         example: completed,
@@ -109,7 +109,7 @@ class _Evaluator {
     arguments: List<Any>,
     context: Any
   ) -> ExampleStatus {
-    if outcome.isOk {
+    if outcome.isOk || {
       return ExampleStatus.valid(
         example: example,
         arguments: arguments,

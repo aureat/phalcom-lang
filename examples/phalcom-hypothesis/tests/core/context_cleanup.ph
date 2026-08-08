@@ -15,7 +15,7 @@ const value = stack.with(outer) {
 Assert.equal(42, value)
 Assert.isTrue(stack.current.isNone)
 
-const outcome = {
+const outcome = || {
   stack.with(outer) {
     stack.with(inner) {
       Assert.equal(inner, stack.current.unwrap)

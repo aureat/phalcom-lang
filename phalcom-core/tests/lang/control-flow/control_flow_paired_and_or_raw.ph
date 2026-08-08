@@ -11,8 +11,8 @@
 // `compile_and`, `compile_or`), which emit no `WrapSome`, matching the
 // `bool_if_true_if_false`/`bool_and`/`bool_or` primitives.
 
-System.print((3 > 2).ifTrue({ 10 }, ifFalse: { 20 }) + 1)
-System.print((2 > 3).ifTrue({ 10 }, ifFalse: { 20 }) + 1)
+System.print((3 > 2).ifTrue(|| { 10 }, ifFalse: || { 20 }) + 1)
+System.print((2 > 3).ifTrue(|| { 10 }, ifFalse: || { 20 }) + 1)
 System.print((true and 5) + 1)
 System.print((false or 7) + 1)
 System.print(true and 5)

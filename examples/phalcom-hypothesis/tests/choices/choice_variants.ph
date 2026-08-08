@@ -47,16 +47,16 @@ Assert.equal(false, requests.at(1).shrinkTarget)
 Assert.equal(0, requests.at(2).shrinkTarget)
 Assert.equal(Bytes.zeroed(0), requests.at(3).shrinkTarget)
 
-Assert.isTrue({
+Assert.isTrue(|| {
   ChoiceRequest.integer(min: 4, max: 3, shrinkTowards: 4, label: None)
 }.attempt().isErr)
-Assert.isTrue({
+Assert.isTrue(|| {
   ChoiceRequest.integer(min: 0, max: 3, shrinkTowards: 4, label: None)
 }.attempt().isErr)
-Assert.isTrue({
+Assert.isTrue(|| {
   ChoiceRequest.index(size: 0, shrinkTowards: 0, label: None)
 }.attempt().isErr)
-Assert.isTrue({
+Assert.isTrue(|| {
   ChoiceRequest.bytes(minSize: 4, maxSize: 3, shrinkTowards: Bytes.zeroed(4), label: None)
 }.attempt().isErr)
 

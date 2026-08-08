@@ -6,7 +6,7 @@ for (a in List.new().add(1).add(2)) {
   System.print(a)
   let count = 0
   while (count < 5) {
-    (count == 2).ifTrue { break }
+    (count == 2).ifTrue || { break }
     System.print(count)
     count = count + 1
   }

@@ -233,31 +233,26 @@ fn error_unexpected_token() {
     insta::assert_snapshot!(parse("let = )"));
 }
 
-// --- Block Parsing Tests (U4) ---
+// --- Retired closure syntax diagnostics ---
 
 #[test]
-fn braced_block_zero_params() {
-    insta::assert_snapshot!(parse("{ System.print(\"hi\") }"));
+fn bare_brace_closure_is_rejected() {
+    assert!(parse_display("{ System.print(\"hi\") }").starts_with("bare brace block literals were removed; write `|| { ... }` for a closure"));
 }
 
 #[test]
-fn braced_block_params() {
-    insta::assert_snapshot!(parse("{ acc, n => acc + n }"));
+fn braced_parameter_closure_is_rejected() {
+    assert!(parse_display("{ x => x + 1 }").starts_with("brace block literals were removed; write `|x| { ... }`"));
 }
 
 #[test]
-fn unbraced_block_single_param() {
-    insta::assert_snapshot!(parse("n => n * 2"));
+fn arrow_closure_is_rejected() {
+    assert!(parse_display("x => x + 1").starts_with("anonymous `=>` closures were removed; write `|x| expression"));
 }
 
 #[test]
-fn trailing_block_sugar_method_call() {
-    insta::assert_snapshot!(parse("numbers.map { n => n * 2 }"));
-}
-
-#[test]
-fn trailing_block_sugar_chained() {
-    insta::assert_snapshot!(parse("numbers.reduce(0) { acc, n => acc + n }"));
+fn trailing_brace_closure_is_rejected() {
+    assert!(parse_source("numbers.map { n => n * 2 }", 0).is_err());
 }
 
 #[test]

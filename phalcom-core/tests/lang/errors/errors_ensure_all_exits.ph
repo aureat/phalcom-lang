@@ -11,12 +11,12 @@ class EErr is Error {
 }
 
 // (a) normal completion
-{ System.print("normal-body") }.ensure { System.print("normal-cleanup") }
+{ System.print("normal-body") }.ensure || { System.print("normal-cleanup") }
 
 // (b) non-local return through the protected block
 class M {
   run() {
-    { return "early" }.ensure { System.print("return-cleanup") }
+    { return "early" }.ensure || { System.print("return-cleanup") }
     return "unreached"
   }
 }
@@ -24,7 +24,7 @@ System.print(M.new().run())
 
 // (c) a caught throw (ensure runs, then the outer `on` catches)
 try {
-  { throw EErr.new("boom") }.ensure { System.print("throw-cleanup") }
+  { throw EErr.new("boom") }.ensure || { System.print("throw-cleanup") }
 } catch e {
   System.print("caught: " + e.message)
 }
