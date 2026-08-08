@@ -1,13 +1,77 @@
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::{ObjRef, Object};
+use crate::heap::{ClassId, ObjRef, Object};
 use crate::interner::Symbol;
-use crate::method::{MethodKind, SignatureKind};
+use crate::method::{MemberVisibility, MethodKind, SignatureKind};
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 
 use super::VM;
 
 impl VM {
+    /// Returns the lexical authority of code currently executing in this VM.
+    /// Blocks carry their defining method's source class on their closure, so
+    /// this remains stable across nested closure calls.
+    fn current_access_class(&self) -> Option<ClassId> {
+        self.frames.last().and_then(|frame| self.heap.closure(frame.closure).lexical_class)
+    }
+
+    /// True only while executing code compiled from the bootstrap core module.
+    /// Module-handle identity, rather than a mutable source name, is the
+    /// authority boundary. Nested blocks retain their defining module.
+    fn current_has_internal_privilege(&self) -> bool {
+        let Some(frame) = self.frames.last() else {
+            return false;
+        };
+        let closure_module = self.heap.closure(frame.closure).module;
+        let Some(core_name) = self.interner.find(crate::heap::CORE_MODULE_NAME) else {
+            return false;
+        };
+        self.modules.get(&core_name).is_some_and(|&core_module| core_module == closure_module)
+    }
+
+    fn is_subclass_of(&self, mut class: ClassId, ancestor: ClassId) -> bool {
+        loop {
+            if class == ancestor {
+                return true;
+            }
+            match self.heap.class(class).superclass {
+                Some(parent) => class = parent,
+                None => return false,
+            }
+        }
+    }
+
+    /// Enforces member visibility for every invocation path. Lookup remains
+    /// separate: an existing inaccessible selector is an access violation,
+    /// never a `doesNotUnderstand` miss.
+    pub(crate) fn authorize_method_access(&self, method: ObjRef) -> PhResult<()> {
+        let (visibility, owner, selector) = {
+            let method = self.heap.method(method);
+            (method.visibility, method.access_owner, method.signature.selector)
+        };
+        let caller = self.current_access_class();
+        let allowed = match visibility {
+            MemberVisibility::Public => true,
+            MemberVisibility::Private => caller == owner,
+            MemberVisibility::Protected => owner.is_some_and(|owner| caller.is_some_and(|caller| self.is_subclass_of(caller, owner))),
+            MemberVisibility::Internal => self.current_has_internal_privilege(),
+        };
+        if allowed {
+            return Ok(());
+        }
+
+        let category = match visibility {
+            MemberVisibility::Private => "member.private_access",
+            MemberVisibility::Protected => "member.protected_access",
+            MemberVisibility::Internal => "internal.selector_access",
+            MemberVisibility::Public => unreachable!("public methods are authorized"),
+        };
+        let selector = self.resolve_symbol(selector);
+        let owner = owner.map(|id| self.heap.class(id).name.as_str()).unwrap_or("<unbound>");
+        let caller = caller.map(|id| self.heap.class(id).name.as_str()).unwrap_or("<top-level>");
+        Err(RuntimeError::NotAllowed(format!("{category}: `{selector}` is owned by `{owner}` and cannot be called from `{caller}`")).into())
+    }
+
     /// Dispatches a call to `method` on `callee` with `arity` arguments.
     ///
     /// A primitive runs its native function in place; a closure pushes a new
@@ -17,6 +81,7 @@ impl VM {
     ///
     /// Propagates errors returned by a primitive implementation.
     pub(super) fn call_method(&mut self, callee: &Value, method: ObjRef, arity: usize, source_range: SourceRange) -> PhResult<()> {
+        self.authorize_method_access(method)?;
         let kind = self.heap.method(method).kind;
         match kind {
             MethodKind::Primitive(native_fn) => {
@@ -307,9 +372,9 @@ impl VM {
     /// **no lookup**: `method_id` is already resolved, so a mismatched
     /// receiver misbehaves inside the method body rather than raising
     /// `doesNotUnderstand(_)` (the caller is responsible for receiver
-    /// compatibility, functions.md §3). Arity is validated **before** the
-    /// receiver/args are pushed onto the stack, so a mismatch leaves the stack
-    /// exactly as it was found (R-INV-3.4).
+    /// compatibility, functions.md §3). Arity and visibility authorization are
+    /// validated **before** the receiver/args are pushed onto the stack, so a
+    /// rejected invocation leaves the stack exactly as it was found (R-INV-3.4).
     ///
     /// # Errors
     ///
@@ -332,6 +397,7 @@ impl VM {
             }
             .into());
         }
+        self.authorize_method_access(method_id)?;
 
         self.stack.push(receiver);
         self.stack.extend_from_slice(args);
@@ -345,5 +411,33 @@ impl VM {
         let result = self.run_until(base_frames);
         self.native_reentry_depth -= 1;
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::error::{PhError, RuntimeError};
+    use crate::vm::VM;
+
+    #[test]
+    fn invoke_method_object_rejects_inaccessible_method_without_stack_mutation() {
+        let mut vm = VM::new();
+        let module = vm.create_module("main", "invoke_method_object_access_check");
+        vm.interpret_source(module, "class Vault {\n  @private\n  secret => 42\n}\nlet vault = Vault.new()\n")
+            .expect("class and instance should compile and run");
+
+        let vault_symbol = vm.interner.intern("vault");
+        let vault = vm.heap.module(module).get(vault_symbol).expect("`vault` global should exist");
+        let secret_selector = vm.get_or_intern("secret()");
+        let method = vault.lookup_method(&vm, secret_selector).expect("Vault should define secret()");
+        let before = vm.stack.clone();
+
+        let result = vm.invoke_method_object(method, vault, &[]);
+
+        assert!(
+            matches!(result, Err(PhError::Runtime(RuntimeError::NotAllowed(ref message))) if message.contains("member.private_access")),
+            "expected private access error, got {result:?}"
+        );
+        assert_eq!(vm.stack, before, "rejected invokeOn must not mutate the value stack");
     }
 }
