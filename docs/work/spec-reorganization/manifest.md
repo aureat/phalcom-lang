@@ -41,7 +41,7 @@ No path becomes authoritative merely because this manifest calls it a candidate.
 | `current/decorators/{accessors,data,ensures,ignore,invariant,native,on,requires,sealed}.md` | M | `spec/extensions/decorators/` | Reconcile effective decorator semantics; extract per-expander implementation evidence. |
 | `current/decorators/constructor.md` | M | `spec/foundations/classes.md` + `spec/extensions/decorators/constructor.md` | Canonical constructor rule, reconciled with PDR-0028. |
 | `current/decorators/construct.md` | A | `archive/spec-reorg-2026-08/spec/current/decorators/construct.md` | Legacy derivation surface after constructor migration; retain replacement link. |
-| `current/stdlib/index.md` | I | `implementation/roadmap/stdlib.md` | Declares itself a program index, not a normative spec. |
+| `current/stdlib/index.md` | I | `implementation/roadmap/stdlib-program.md` | Declares itself a program index, not a normative spec. |
 | `current/stdlib/{bytes,cancellation,filesystem,map-and-set,net,process,reactor,stream-protocol,tuple-and-range}.md` | M | `spec/library/` | Promote only ratified contracts; leave proposals in design. |
 | `current/traceback/{index,color,output-catalog}.md` | M | `spec/semantics/traceback/` + `implementation/roadmap/traceback.md` | Separate diagnostic contract from renderer design target and implementation plan. |
 | `numerical/README.md` | P | `spec/library/numbers/README.md` | Existing authoritative numeric-module index. |
@@ -113,3 +113,11 @@ is complete.
   documents. Existing archive copies were intentionally left unchanged.
 - Governing records retained: ADR-0024 and PDR-0012, PDR-0020, PDR-0026, and
   PDR-0027.
+
+### 2026-08-08 — Standard-library build program
+
+- `docs/spec/current/stdlib/index.md` moved to
+  `docs/implementation/roadmap/stdlib-program.md`.
+- Rewrote its links to the actual draft and current-spec sources.
+- No public standard-library contract moved or changed; those chapters remain
+  candidates for later reconciliation into `docs/spec/library/`.

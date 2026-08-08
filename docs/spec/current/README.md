@@ -31,7 +31,7 @@ silently invented.
 | [System](system.md) | The runtime service surface: console, clock, process, scheduler |
 | [Numbers](../library/numbers/) | Numeric tower and floating-point protocol |
 | [Bitwise operators](../library/numbers/bitwise.md) | Integer bitwise semantics |
-| [Standard library](stdlib/README.md) | Public library surfaces extending the core |
+| [Standard library](../library/README.md) | Public library surfaces extending the core |
 | [Traceback](traceback/README.md) | Diagnostic rendering contract |
 | [Modules & Imports](modules.md) | `import "./path" as Name`, the `Module` namespace object, canonical-path memoization, cyclic imports |
 | [Implementation Status](../../forge/spec-status.md) | Divergence between this spec and the current tree |
