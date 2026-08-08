@@ -19,6 +19,9 @@ impl VM {
     /// Module-handle identity, rather than a mutable source name, is the
     /// authority boundary. Nested blocks retain their defining module.
     fn current_has_internal_privilege(&self) -> bool {
+        if self.compiler_internal_dispatch_depth != 0 {
+            return true;
+        }
         let Some(frame) = self.frames.last() else {
             return false;
         };
@@ -439,5 +442,25 @@ mod tests {
             "expected private access error, got {result:?}"
         );
         assert_eq!(vm.stack, before, "rejected invokeOn must not mutate the value stack");
+    }
+
+    #[test]
+    fn compiler_internal_authority_does_not_escape_generated_dispatch() {
+        let mut vm = VM::new();
+        let module = vm.create_module("main", "compiler_internal_authority");
+        vm.interpret_source(module, "class Vault {}\nlet vault = Vault.new()\n")
+            .expect("class compilation should use and release its internal authority");
+
+        let vault_symbol = vm.interner.intern("vault");
+        let vault = vm.heap.module(module).get(vault_symbol).expect("`vault` global should exist");
+        let freeze_selector = vm.get_or_intern("_$freezeAttributes()");
+        let freeze = vault.lookup_method(&vm, freeze_selector).expect("Object should define _$freezeAttributes()");
+
+        let result = vm.invoke_method_object(freeze, vault, &[]);
+
+        assert!(
+            matches!(result, Err(PhError::Runtime(RuntimeError::NotAllowed(ref message))) if message.contains("internal.selector_access")),
+            "generated authority must not outlive its dispatch, got {result:?}"
+        );
     }
 }

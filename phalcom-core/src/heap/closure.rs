@@ -8,7 +8,7 @@
 use std::rc::Rc;
 
 use crate::callable::Callable;
-use crate::heap::ObjRef;
+use crate::heap::{ClassId, ObjRef};
 
 /// A compiled closure: its code, its defining module handle, and its upvalues.
 ///
@@ -33,4 +33,7 @@ pub struct ClosureObject {
     /// [`Heap`](crate::heap::Heap). Indexed by the callable's upvalue
     /// descriptors ([`UpvalueDescriptor`](crate::callable::UpvalueDescriptor)).
     pub upvalues: Vec<ObjRef>,
+    /// Source class whose lexical privileges this code carries. Blocks copy
+    /// this from their template closure when materialized.
+    pub lexical_class: Option<ClassId>,
 }

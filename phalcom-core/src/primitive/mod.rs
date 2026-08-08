@@ -46,11 +46,11 @@ impl Sig {
     pub const NOT: &'static str = "not";
 
     pub const name: &'static str = "name";
-    pub const name_set: &'static str = "name=(_)";
+    pub const name_set: &'static str = "name=(put)";
     pub const class: &'static str = "class";
-    pub const class_set: &'static str = "class=(_)";
+    pub const class_set: &'static str = "class=(put)";
     pub const superclass: &'static str = "superclass";
-    pub const superclass_set: &'static str = "superclass=(_)";
+    pub const superclass_set: &'static str = "superclass=(put)";
 
     pub const toString: &'static str = "toString";
     pub const toNumber: &'static str = "toNumber";
@@ -117,9 +117,29 @@ impl ObjectName {
 /// binds it under the encoded selector directly on `$class`.
 macro_rules! primitive {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
+        debug_assert!(!$base.starts_with("_$"), "internal primitive selectors require `primitive_internal!`");
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
+        $vm.heap.class_mut($class).add_method(symbol, method_id);
+        $vm.world_version += 1;
+    };
+}
+
+/// Installs an implementation-only native instance method.
+///
+/// Internal selectors use the `_$` namespace and share the ordinary method
+/// table with public methods. Their protection is therefore enforced by normal
+/// dispatch visibility checks rather than by a parallel lookup mechanism.
+macro_rules! primitive_internal {
+    ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
+        debug_assert!($base.starts_with("_$"), "internal primitive selectors must start with `_$`");
+        let sig_str = crate::method::make_signature($base, $sig_kind);
+        let symbol = $vm.get_or_intern(&sig_str);
+        let mut method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        method.visibility = crate::method::MemberVisibility::Internal;
+        method.access_owner = Some($class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
         $vm.heap.class_mut($class).add_method(symbol, method_id);
         $vm.world_version += 1;
@@ -132,6 +152,7 @@ macro_rules! primitive {
 /// `class`), where static methods live.
 macro_rules! primitive_static {
     ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
+        debug_assert!(!$base.starts_with("_$"), "internal primitive selectors require `primitive_static_internal!`");
         let sig_str = crate::method::make_signature($base, $sig_kind);
         let symbol = $vm.get_or_intern(&sig_str);
         let method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
@@ -142,8 +163,26 @@ macro_rules! primitive_static {
     };
 }
 
+/// Static counterpart to [`primitive_internal!`].
+macro_rules! primitive_static_internal {
+    ($vm:expr, $class:expr, $base:expr, $sig_kind: expr, $func:expr) => {
+        debug_assert!($base.starts_with("_$"), "internal primitive selectors must start with `_$`");
+        let sig_str = crate::method::make_signature($base, $sig_kind);
+        let symbol = $vm.get_or_intern(&sig_str);
+        let mut method = MethodObject::new_primitive(symbol, $sig_kind, $func, $class);
+        method.visibility = crate::method::MemberVisibility::Internal;
+        method.access_owner = Some($class);
+        let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
+        let meta = $vm.heap.class($class).class;
+        $vm.heap.class_mut(meta).add_method(symbol, method_id);
+        $vm.world_version += 1;
+    };
+}
+
 pub(crate) use primitive;
+pub(crate) use primitive_internal;
 pub(crate) use primitive_static;
+pub(crate) use primitive_static_internal;
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ClassId, ObjRef};

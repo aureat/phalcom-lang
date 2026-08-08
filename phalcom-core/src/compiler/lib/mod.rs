@@ -89,6 +89,10 @@ pub(crate) struct Compiler<'vm> {
     /// map's *redeclaration check* entirely (`class_decl.rs` never calls
     /// `declare_global`), it only ever gains an entry.
     global_bindings: std::collections::HashMap<Symbol, bool>,
+    /// All top-level names declared anywhere in this compilation unit.
+    /// Pre-scanned so implicit-self fallback cannot steal a forward global
+    /// reference; kept separate from `global_bindings` redeclaration state.
+    known_globals: std::collections::HashSet<Symbol>,
     /// `import … as Name` bindings declared so far in this compilation
     /// unit, keyed by the bound name, carrying the `import` statement's own
     /// span (U-CLASSCLOSE §8). Consulted by `class_decl.rs`'s redefinition
@@ -142,6 +146,9 @@ pub(crate) struct Compiler<'vm> {
     /// a constructor's own nested blocks still counts (no attempt is made to
     /// track "inside a block passed to something else").
     in_constructor: bool,
+    /// True only while lowering a compiler-generated method that must send an
+    /// internal runtime selector. This marker is never sourced from user AST.
+    compiler_internal: bool,
     /// Monotonic counter minting unique names for compiler-synthesized
     /// destructuring scratch locals (`$destructure…`, ruling L-9).
     ///
@@ -168,18 +175,31 @@ impl<'vm> Compiler<'vm> {
         Compiler {
             vm,
             module,
-            functions: vec![FunctionState::new(false, false, None)],
+            functions: vec![FunctionState::new(false, false, false, None)],
             global_bindings: std::collections::HashMap::new(),
+            known_globals: std::collections::HashSet::new(),
             import_bindings: std::collections::HashMap::new(),
             current_class: None,
             is_static_context: false,
             loop_contexts: Vec::new(),
             deopt_fallback_depth: 0,
             in_constructor: false,
+            compiler_internal: false,
             scratch_counter: 0,
             source_id,
             unit_kind,
         }
+    }
+
+    /// The bootstrap core module is the sole source module permitted to spell
+    /// implementation selectors and fields. Compare handles so a user module
+    /// named `core` cannot acquire this authority.
+    pub(crate) fn compiling_privileged_core(&self) -> bool {
+        self.vm
+            .interner
+            .find(crate::heap::CORE_MODULE_NAME)
+            .and_then(|name| self.vm.modules.get(&name).copied())
+            == Some(self.module)
     }
 
     /// Whether compilation is currently inside a sacred call's deopt-fallback
@@ -278,7 +298,8 @@ impl<'vm> Compiler<'vm> {
         let dummy_sym = self.vm.interner.intern("<block-receiver>");
 
         // Push a fresh function-compilation state for this body.
-        self.functions.push(FunctionState::new(is_constructor, !is_method, constructor_name));
+        let has_self = is_method || self.functions.last().is_some_and(|function| function.has_self);
+        self.functions.push(FunctionState::new(is_constructor, !is_method, has_self, constructor_name));
         self.begin_scope();
 
         if is_method {
@@ -351,11 +372,13 @@ impl<'vm> Compiler<'vm> {
             callable,
             module: self.module,
             upvalues: Vec::new(),
+            lexical_class: None,
         })));
         Ok(closure)
     }
 
     pub(crate) fn compile(mut self, program: Program) -> PhResult<ObjRef> {
+        self.predeclare_known_globals(&program);
         let len = program.statements.len();
         let mut last_is_return = false;
         let mut leaves_value = false;
@@ -396,12 +419,48 @@ impl<'vm> Compiler<'vm> {
             callable,
             module: self.module,
             upvalues: Vec::new(),
+            lexical_class: None,
         })));
 
         let module_obj = self.vm.heap.module_mut(self.module);
         module_obj.merge_global_bindings(&self.global_bindings);
 
         Ok(closure)
+    }
+
+    fn predeclare_known_globals(&mut self, program: &Program) {
+        fn collect_pattern(pattern: &phalcom_ast::ast::Pattern, out: &mut Vec<String>) {
+            match pattern {
+                phalcom_ast::ast::Pattern::Name { name, .. } => out.push(name.clone()),
+                phalcom_ast::ast::Pattern::Tuple { elements, .. } => {
+                    for element in elements {
+                        collect_pattern(element, out);
+                    }
+                }
+                phalcom_ast::ast::Pattern::List { elements, rest, .. } => {
+                    for element in elements {
+                        collect_pattern(element, out);
+                    }
+                    if let Some(rest) = rest {
+                        collect_pattern(rest, out);
+                    }
+                }
+            }
+        }
+
+        let mut names = Vec::new();
+        for statement in &program.statements {
+            match statement {
+                Statement::Class(class) => names.push(class.name.clone()),
+                Statement::Import(import) => names.push(import.binding.clone()),
+                Statement::Let(binding) => collect_pattern(&binding.pattern, &mut names),
+                _ => {}
+            }
+        }
+        for name in names {
+            let symbol = self.vm.interner.intern(&name);
+            self.known_globals.insert(symbol);
+        }
     }
 
     pub(crate) fn compile_statement_with_pop_control(&mut self, statement: Statement, emit_pop: bool) -> Result<(), CompilerError> {

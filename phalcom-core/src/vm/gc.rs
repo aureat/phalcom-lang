@@ -84,6 +84,7 @@ impl VM {
             variadic_selector_cache: _,
             switch_pending: _,
             native_reentry_depth: _,
+            compiler_internal_dispatch_depth: _,
             next_frame_generation: _,
             // A `u32` counter, no object handles — not a GC root.
             next_fiber_seq: _,

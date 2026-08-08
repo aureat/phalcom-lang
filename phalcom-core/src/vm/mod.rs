@@ -160,6 +160,10 @@ pub struct VM {
     /// `Fiber#yield`'s restricted-yield guard and `Fiber#call`/`#try`'s
     /// resume gate both check this against 0.
     pub(crate) native_reentry_depth: usize,
+    /// Nesting depth of a compiler-emitted internal helper send currently
+    /// being authorized. This is nonzero for the single dispatch operation
+    /// only; called code never inherits it as ambient authority.
+    pub(crate) compiler_internal_dispatch_depth: usize,
     // Ceilings for both counters live at module scope — see `MAX_CALL_DEPTH` and
     // `MAX_NATIVE_REENTRY` below.
     /// Loaded modules by name [`Symbol`], each a [`ModuleObject`](crate::heap::ModuleObject) handle.

@@ -167,7 +167,10 @@ pub fn object_perform_with(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
 /// Returns [`RuntimeError::Type`] if `args[0]` is not a `Symbol`.
 pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let selector = *expect_value!(&args[0], Symbol);
-    Ok(Value::Bool(receiver.lookup_method(vm, selector).is_some()))
+    let responds = receiver
+        .lookup_method(vm, selector)
+        .is_some_and(|method| vm.authorize_method_access(method).is_ok());
+    Ok(Value::Bool(responds))
 }
 
 /// Signature: `Object::methodFor(_)` — reifies the
@@ -187,8 +190,9 @@ pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let selector = *expect_value!(&args[0], Symbol);
     match receiver.lookup_method(vm, selector) {
-        Some(method_id) => Ok(Value::Obj(method_id)),
+        Some(method_id) if vm.authorize_method_access(method_id).is_ok() => Ok(Value::Obj(method_id)),
         None => Ok(vm.none_value()),
+        Some(_) => Ok(vm.none_value()),
     }
 }
 

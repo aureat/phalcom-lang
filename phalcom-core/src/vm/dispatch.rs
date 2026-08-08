@@ -692,6 +692,18 @@ impl VM {
         Ok(())
     }
 
+    /// Executes a compiler-emitted call to an internal runtime helper.
+    ///
+    /// The capability covers method authorization only. It is removed before
+    /// any callee frame executes, so generated helpers cannot confer ambient
+    /// internal authority to ordinary user code.
+    fn invoke_compiler_internal_at(&mut self, callable: &Callable, cache_ip: usize, arity: u8, selector_idx: u16) -> PhResult<()> {
+        self.compiler_internal_dispatch_depth += 1;
+        let result = self.invoke_at(callable, cache_ip, arity, selector_idx);
+        self.compiler_internal_dispatch_depth -= 1;
+        result
+    }
+
     /// The inner dispatch loop, unaware of fibers: drains bytecode until
     /// [`Self::frames`] shrinks to `base_frames`, or a [`RuntimeError`]
     /// propagates out. [`Self::run_until`] wraps this with the fiber-floor
@@ -815,6 +827,11 @@ impl VM {
                     let descriptors = self.heap.closure(template_id).callable.upvalues.clone();
                     let callable = Rc::clone(&self.heap.closure(template_id).callable);
                     let module = self.heap.closure(template_id).module;
+                    // Block templates are compiled before their enclosing
+                    // method is installed, so inherit the active closure's
+                    // already-bound source class when the template itself
+                    // has none.
+                    let lexical_class = self.heap.closure(template_id).lexical_class.or(self.heap.closure(closure_id).lexical_class);
 
                     let mut upvalues = Vec::with_capacity(descriptors.len());
                     for desc in &descriptors {
@@ -826,7 +843,12 @@ impl VM {
                         upvalues.push(cell);
                     }
 
-                    let new_closure = self.heap.alloc(Object::Closure(Box::new(ClosureObject { callable, module, upvalues })));
+                    let new_closure = self.heap.alloc(Object::Closure(Box::new(ClosureObject {
+                        callable,
+                        module,
+                        upvalues,
+                        lexical_class,
+                    })));
                     let token = self.current_frame_token().expect("closure created inside a frame");
                     let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
                     self.stack.push(Value::Obj(block));
@@ -1039,6 +1061,9 @@ impl VM {
                     } else {
                         crate::heap::lookup_method_in_hierarchy(&self.heap, class_id, sym).is_some()
                     };
+                    if !open && let Some(method) = crate::heap::lookup_method_in_hierarchy(&self.heap, class_id, sym) {
+                        self.authorize_method_access(method)?;
+                    }
                     if !responds {
                         let dnu_str = crate::method::encode_selector("doesNotUnderstand", &[None], SignatureKind::Method(1));
                         let dnu_sym = self.get_or_intern(&dnu_str);
@@ -1122,12 +1147,35 @@ impl VM {
                     let method_val = self.stack.pop().unwrap();
                     let class_val = *self.stack.last().unwrap();
                     if let (Value::Obj(method_id), Value::Obj(class_id)) = (method_val, class_val) {
-                        self.heap.method_mut(method_id).set_holder(class_id);
                         if is_static {
                             let meta = self.heap.class(class_id).class;
+                            let closure = {
+                                let method = self.heap.method_mut(method_id);
+                                method.set_holder(meta);
+                                method.access_owner = Some(class_id);
+                                match method.kind {
+                                    crate::method::MethodKind::Closure(closure) => Some(closure),
+                                    crate::method::MethodKind::Primitive(_) => None,
+                                }
+                            };
+                            if let Some(closure) = closure {
+                                self.heap.closure_mut(closure).lexical_class = Some(class_id);
+                            }
                             self.heap.class_mut(meta).add_method(selector, method_id);
                             self.world_version += 1;
                         } else {
+                            let closure = {
+                                let method = self.heap.method_mut(method_id);
+                                method.set_holder(class_id);
+                                method.access_owner = Some(class_id);
+                                match method.kind {
+                                    crate::method::MethodKind::Closure(closure) => Some(closure),
+                                    crate::method::MethodKind::Primitive(_) => None,
+                                }
+                            };
+                            if let Some(closure) = closure {
+                                self.heap.closure_mut(closure).lexical_class = Some(class_id);
+                            }
                             self.heap.class_mut(class_id).add_method(selector, method_id);
                             self.world_version += 1;
                             // Sacred-selector override-epoch tracking (ADR-0018):
@@ -1275,6 +1323,9 @@ impl VM {
                 }
                 Bytecode::Invoke(arity, selector_idx) => {
                     self.invoke_at(callable, ip, arity, selector_idx)?;
+                }
+                Bytecode::InvokeCompilerInternal(arity, selector_idx) => {
+                    self.invoke_compiler_internal_at(callable, ip, arity, selector_idx)?;
                 }
                 // The fused pairs (cut 008). Each does its first half's work inline,
                 // then steps `ip` past the dead `Invoke` the fusion left at `ip + 1`

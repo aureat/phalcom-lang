@@ -132,6 +132,7 @@ fn is_pure_expr(expr: &Expr) -> bool {
         | Expr::Boolean { .. }
         | Expr::Var { .. }
         | Expr::Field { .. }
+        | Expr::ImplementationSelector { .. }
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. } => true,
         Expr::Assignment(_) | Expr::SetProperty(_) | Expr::SetIndex(_) => false,
@@ -145,6 +146,7 @@ fn is_pure_expr(expr: &Expr) -> bool {
             }
             is_pure_expr(&m.object) && m.args.iter().all(|a| is_pure_expr(&a.expr))
         }
+        Expr::UnqualifiedCall(m) => m.args.iter().all(|a| is_pure_expr(&a.expr)),
         Expr::GetProperty(g) => is_pure_expr(&g.object),
         Expr::Index(i) => is_pure_expr(&i.object) && i.args.iter().all(|a| is_pure_expr(&a.expr)),
         Expr::MapLiteral(map) => map.entries.iter().all(|entry| match entry {
@@ -186,6 +188,7 @@ fn as_old_call(m: &MethodCallExpr) -> bool {
 
 fn contains_old_call(expr: &Expr) -> bool {
     match expr {
+        Expr::UnqualifiedCall(m) => m.name == "old" && m.args.len() == 1 || m.args.iter().any(|arg| contains_old_call(&arg.expr)),
         Expr::MethodCall(m) => {
             if as_old_call(m) {
                 true
@@ -379,6 +382,29 @@ impl AttributeExpander for EnsuresExpander {
 
 fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(), CompilerError> {
     match expr {
+        Expr::UnqualifiedCall(m) if m.name == "old" && m.args.len() == 1 => {
+            let mut inner = m.args[0].expr.clone();
+            rewrite_old_calls(&mut inner, old_lets)?;
+            if matches!(&inner, Expr::SelfVar { .. } | Expr::SuperVar { .. }) {
+                return Err(CompilerError::Message(
+                    "contract.old_on_mutable: old() operand must not be the whole receiver (aliases the live, mutable object)".to_string(),
+                ));
+            }
+            let var_name = format!("__old_{}", old_lets.len());
+            let range = m.range;
+            old_lets.push(Statement::Let(LetBinding {
+                kind: BindingKind::Let,
+                pattern: Pattern::Name { name: var_name.clone(), range },
+                value: Some(inner),
+                range,
+            }));
+            *expr = Expr::Var { value: var_name, range };
+        }
+        Expr::UnqualifiedCall(m) => {
+            for arg in &mut m.args {
+                rewrite_old_calls(&mut arg.expr, old_lets)?;
+            }
+        }
         Expr::MethodCall(m) if as_old_call(m) => {
             let mut inner = m.args[0].expr.clone();
             rewrite_old_calls(&mut inner, old_lets)?;
@@ -755,7 +781,7 @@ impl AttributeExpander for ClassExpander {
 pub struct PrivateExpander;
 impl AttributeExpander for PrivateExpander {
     fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Method, Target::Getter, Target::Setter, Target::Field, Target::Construct, Target::Index]
+        &[Target::Method, Target::Getter, Target::Setter, Target::Index]
     }
 
     fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
@@ -766,7 +792,7 @@ impl AttributeExpander for PrivateExpander {
 pub struct ProtectedExpander;
 impl AttributeExpander for ProtectedExpander {
     fn legal_targets(&self) -> &'static [Target] {
-        &[Target::Method, Target::Getter, Target::Setter, Target::Field, Target::Construct, Target::Index]
+        &[Target::Method, Target::Getter, Target::Setter, Target::Index]
     }
 
     fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
@@ -964,16 +990,17 @@ fn member_selector(m: &ClassMember) -> Result<Option<String>, CompilerError> {
         ClassMember::Setter(s) => Some(encode_selector(&s.name, &[], SignatureKind::Setter)),
         ClassMember::Index(ix) => {
             let labels: Vec<Option<String>> = ix.params.iter().map(|p| p.label.clone()).collect();
-            let arity = checked_send_arity("subscript declaration", ix.params.len(), ix.range)?;
             let kind = match &ix.accessor {
-                IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
-                IndexAccessor::Set { .. } => SignatureKind::SubscriptSet(arity),
+                IndexAccessor::Get => {
+                    let arity = checked_send_arity("subscript declaration", ix.params.len(), ix.range)?;
+                    SignatureKind::SubscriptGet(arity)
+                }
+                IndexAccessor::Set { .. } => {
+                    checked_send_arity("subscript declaration", ix.params.len() + 1, ix.range)?;
+                    SignatureKind::SubscriptSet(ix.params.len() as u8)
+                }
             };
-            Some(encode_selector(
-                "",
-                &labels,
-                kind,
-            ))
+            Some(encode_selector("", &labels, kind))
         }
         ClassMember::Field(_) | ClassMember::Variant(_) => None,
     })
@@ -1661,7 +1688,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             }));
         }
 
-        // `__matchArm(k1, k2, ...) { return <ownKeyword>.call(self) }` — every
+        // `_$matchArm(k1, k2, ...) { return <ownKeyword>.call(self) }` — every
         // variant implements the identical selector (same keyword-name list,
         // positional, in `@variant` declaration order across the *whole*
         // sealed family), overriding only which positional block it calls —
@@ -1688,7 +1715,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             range: v.range,
         }));
         members.push(ClassMember::Method(MethodDef {
-            name: "__matchArm".to_string(),
+            name: "_$matchArm".to_string(),
             params,
             body: vec![Statement::Return(ReturnStatement {
                 value: Some(call_expr),
@@ -1720,7 +1747,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         }));
     }
 
-    // `match(k1:, k2:, ...) { return self.__matchArm(k1, k2, ...) }` on the
+    // `match(k1, k2, ...) { return self._$matchArm(k1, k2, ...) }` on the
     // enclosing sealed class — the keyword-argument list is exactly the
     // declared `@variant` names, in declaration order (`annotations-data.md`:
     // "exhaustiveness for free" — a call site omitting or misnaming an arm
@@ -1749,7 +1776,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         .collect();
     let arm_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: Expr::SelfVar { range: match_range },
-        method: "__matchArm".to_string(),
+        method: "_$matchArm".to_string(),
         args: arm_args,
         range: match_range,
     }));
@@ -2170,6 +2197,37 @@ pub fn expand_class_attributes(
             }
         }
 
+        let visibility_count = attrs
+            .iter()
+            .filter(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private | BuiltinAttr::Protected)))
+            .count();
+        if visibility_count > 1 {
+            return Err(CompilerError::Message(
+                "member.visibility_conflict: `@private` and `@protected` cannot be combined".to_string(),
+            ));
+        }
+        if attrs
+            .iter()
+            .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private | BuiltinAttr::Protected)))
+        {
+            let implementation_selector = match member {
+                ClassMember::Method(method) => method.name.starts_with("_$"),
+                ClassMember::Getter(getter) => getter.name.starts_with("_$"),
+                ClassMember::Setter(setter) => setter.name.starts_with("_$"),
+                _ => false,
+            };
+            if implementation_selector {
+                return Err(CompilerError::Message(
+                    "member.invalid_visibility_target: implementation selectors use internal visibility".to_string(),
+                ));
+            }
+            if matches!(member, ClassMember::Method(method) if method.is_constructor) {
+                return Err(CompilerError::Message(
+                    "member.invalid_visibility_target: `@private` and `@protected` are not supported on `@constructor`".to_string(),
+                ));
+            }
+        }
+
         match member {
             ClassMember::Method(m) => m.attributes = attrs,
             ClassMember::Getter(g) => g.attributes = attrs,
@@ -2276,7 +2334,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
                 },
                 value: Some(Expr::MethodCall(Box::new(MethodCallExpr {
                     object: Expr::SelfVar { range },
-                    method: "new_".to_string(),
+                    method: "_$new".to_string(),
                     args: Vec::new(),
                     range,
                 }))),
@@ -2300,7 +2358,14 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
             body: factory_body,
             is_static: true,
             is_constructor: false,
-            attributes: Vec::new(),
+            // This marker is consumed only by `class_decl` while compiling
+            // the generated `_$new` send. It never becomes runtime metadata.
+            attributes: vec![Attribute {
+                kind: AttrKind::Builtin(BuiltinAttr::Constructor),
+                name: "constructor".to_string(),
+                args: Vec::new(),
+                range,
+            }],
             range,
             name_range: method.name_range,
         }));
@@ -2363,7 +2428,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
 }
 
 /// Builds `self.<method>()` — a zero-arg send on the implicit receiver, used
-/// for the `__invariantEnter`/`__invariantExit` re-entrancy-guard primitives.
+/// for the `_$invariantEnter`/`_$invariantExit` re-entrancy-guard primitives.
 fn self_send0(method: &str, range: SourceRange) -> Expr {
     Expr::MethodCall(Box::new(MethodCallExpr {
         object: Expr::SelfVar { range },
@@ -2397,12 +2462,12 @@ fn statement_range(stmt: &Statement) -> SourceRange {
 /// Fix 1) around `body`, replacing it in place:
 ///
 /// ```text
-/// let __invariant_owner = self.__invariantEnter()
+/// let __invariant_owner = self._$invariantEnter()
 /// __invariant_owner.ifTrue { <entry checks> }   // skipped for constructors
 /// return Block.new { <original body> }.ensure {
 ///     __invariant_owner.ifTrue {
 ///         <exit checks>
-///         self.__invariantExit()
+///         self._$invariantExit()
 ///     }
 /// }
 /// ```
@@ -2431,7 +2496,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
             name: "__invariant_owner".to_string(),
             range,
         },
-        value: Some(self_send0("__invariantEnter", range)),
+        value: Some(self_send0("_$invariantEnter", range)),
         range,
     });
 
@@ -2477,7 +2542,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
 
     let mut cleanup_body = check_stmts(false);
     cleanup_body.push(Statement::Expr {
-        expr: self_send0("__invariantExit", range),
+        expr: self_send0("_$invariantExit", range),
         range,
     });
     let cleanup_guard = Statement::Expr {

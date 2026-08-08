@@ -2,11 +2,14 @@ use crate::bytecode::Bytecode;
 use crate::compiler::attributes::{AttributeRegistry, CompileMode, ExpandCtx, expand_class_attributes};
 use crate::heap::Object;
 use crate::interner::Symbol;
-use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
+use crate::method::{MemberVisibility, MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
-use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, IndexAccessor, MapLiteralEntry, MapLiteralKey, MethodCallExpr, SetLiteralEntry, Statement};
+use phalcom_ast::ast::{
+    Argument, AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, Expr, IndexAccessor, MapLiteralEntry, MapLiteralKey, MethodCallExpr, SetLiteralEntry,
+    Statement,
+};
 use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
@@ -25,7 +28,30 @@ use super::{Compiler, UnitKind};
 /// never reaches this set at all — it is stripped from `class.members`
 /// entirely by `compiler::attributes::expand_variants` before this point, so
 /// it can never appear in `class_level_attrs`.
-const COMPILER_ONLY_ATTRS: &[&str] = &["requires", "ensures", "invariant", "construct", "constructor", "class", "data", "sealed"];
+const COMPILER_ONLY_ATTRS: &[&str] = &[
+    "requires",
+    "ensures",
+    "invariant",
+    "construct",
+    "constructor",
+    "class",
+    "data",
+    "sealed",
+    "private",
+    "protected",
+];
+
+fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisibility {
+    if name.is_some_and(|name| name.starts_with("_$")) {
+        MemberVisibility::Internal
+    } else if attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private))) {
+        MemberVisibility::Private
+    } else if attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Protected))) {
+        MemberVisibility::Protected
+    } else {
+        MemberVisibility::Public
+    }
+}
 
 impl<'vm> Compiler<'vm> {
     /// Lowers a `class Name [extends Super] { members }` declaration
@@ -51,11 +77,32 @@ impl<'vm> Compiler<'vm> {
     /// ADR-0018/U13), an unknown or self-referential superclass, or a
     /// malformed rest parameter.
     pub(super) fn compile_class(&mut self, class_def: ClassDef) -> Result<(), CompilerError> {
+        self.compile_class_impl(class_def, false)
+    }
+
+    fn compile_class_impl(&mut self, class_def: ClassDef, allow_synthetic_internal: bool) -> Result<(), CompilerError> {
         let strip_metadata = match self.vm.compile_mode {
             CompileMode::Debug => false,
             CompileMode::Release => self.vm.strip_contract_metadata,
             CompileMode::Unchecked => true,
         };
+        // Validate the source AST before attribute expansion. Expansion may
+        // synthesize compiler-owned `_$...` hooks; source must never be able
+        // to forge the same namespace.
+        if !allow_synthetic_internal && !self.compiling_privileged_core() {
+            for member in &class_def.members {
+                let reserved = match member {
+                    ClassMember::Method(m) if m.name.starts_with("_$") => Some((&m.name, m.name_range)),
+                    ClassMember::Getter(g) if g.name.starts_with("_$") => Some((&g.name, g.name_range)),
+                    ClassMember::Setter(s) if s.name.starts_with("_$") => Some((&s.name, s.name_range)),
+                    ClassMember::Field(f) if f.name.starts_with("__") => Some((&f.name, f.range)),
+                    _ => None,
+                };
+                if let Some((name, range)) = reserved {
+                    return Err(CompilerError::InternalNamespaceReserved(name.clone(), range));
+                }
+            }
+        }
         // M-ATTR-ROOT: whether this class itself is a would-be `Attribute`
         // subclass — a direct `extends Attribute` (transitively-inherited
         // `On`/tier declarations are v0.3, `attribute-classes.md`'s A-1 "at
@@ -177,12 +224,6 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
                 ClassMember::Getter(g) if g.is_static => {
-                    if g.name.starts_with('_') {
-                        let f = self.vm.interner.intern(&g.name);
-                        if !own_static_fields.contains(&f) {
-                            own_static_fields.push(f);
-                        }
-                    }
                     let mut fields = Vec::new();
                     for stmt in &g.body {
                         collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
@@ -268,12 +309,6 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
                     ClassMember::Getter(g) if !g.is_static => {
-                        if g.name.starts_with('_') {
-                            let f = self.vm.interner.intern(&g.name);
-                            if !own_static_fields.contains(&f) && !own_instance_fields.contains(&f) {
-                                own_instance_fields.push(f);
-                            }
-                        }
                         let mut fields = Vec::new();
                         for stmt in &g.body {
                             collect_assigned_fields_stmt(stmt, &mut fields, &mut self.vm.interner);
@@ -651,7 +686,14 @@ impl<'vm> Compiler<'vm> {
 
                     let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
                     self.is_static_context = method_def.is_static;
-                    let closure = self.compile_block(method_def.body, selector_sym, param_names, true, false, None)?;
+                    let prior_compiler_internal = self.compiler_internal;
+                    self.compiler_internal = method_def
+                        .attributes
+                        .iter()
+                        .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor)));
+                    let closure_result = self.compile_block(method_def.body, selector_sym, param_names, true, false, None);
+                    self.compiler_internal = prior_compiler_internal;
+                    let closure = closure_result?;
 
                     tracing::debug!("[Compiler] Compiling method: {} (static: {})", selector, method_def.is_static);
 
@@ -660,6 +702,7 @@ impl<'vm> Compiler<'vm> {
                         sig_kind,
                         MethodKind::Closure(closure),
                     ))));
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&method_def.name), &method_def.attributes);
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&method_def.attributes)?;
@@ -679,59 +722,35 @@ impl<'vm> Compiler<'vm> {
                 ClassMember::Getter(getter_def) => {
                     let range = getter_def.range;
 
-                    if getter_def.name.starts_with('_') {
-                        let layout = self.vm.field_layouts.get(&name_key).unwrap().clone();
-                        let field_name_sym = self.vm.interner.intern(&getter_def.name);
-                        let slot = if getter_def.is_static {
-                            *layout
-                                .static_field_slots
-                                .get(&field_name_sym)
-                                .ok_or_else(|| CompilerError::Message(format!("Static field slot not found: {}", getter_def.name)))?
-                        } else {
-                            *layout
-                                .field_slots
-                                .get(&field_name_sym)
-                                .ok_or_else(|| CompilerError::Message(format!("Instance field slot not found: {}", getter_def.name)))?
-                        };
+                    let selector = make_signature(&getter_def.name, SignatureKind::Getter);
+                    let selector_sym = self.vm.interner.intern(&selector);
 
-                        self.emit(Bytecode::Dup, range);
-                        if let Statement::Expr { expr, .. } = &getter_def.body[0] {
-                            self.compile_expr(expr.clone())?;
-                        } else {
-                            return Err(CompilerError::Message("Invalid field initializer body".to_string()));
+                    self.is_static_context = getter_def.is_static;
+                    let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), true, false, None)?;
+
+                    tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
+
+                    let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+                        selector_sym,
+                        SignatureKind::Getter,
+                        MethodKind::Closure(closure),
+                    ))));
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&getter_def.name), &getter_def.attributes);
+
+                    if !strip_metadata {
+                        let contracts = self.build_contracts_metadata(&getter_def.attributes)?;
+                        if !contracts.is_empty() {
+                            self.vm.heap.method_mut(method_obj).contracts = Some(contracts);
                         }
-                        self.emit(Bytecode::SetField(slot), range);
-                        self.emit(Bytecode::Pop, range);
-                    } else {
-                        let selector = make_signature(&getter_def.name, SignatureKind::Getter);
-                        let selector_sym = self.vm.interner.intern(&selector);
-
-                        self.is_static_context = getter_def.is_static;
-                        let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), true, false, None)?;
-
-                        tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
-
-                        let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
-                            selector_sym,
-                            SignatureKind::Getter,
-                            MethodKind::Closure(closure),
-                        ))));
-
-                        if !strip_metadata {
-                            let contracts = self.build_contracts_metadata(&getter_def.attributes)?;
-                            if !contracts.is_empty() {
-                                self.vm.heap.method_mut(method_obj).contracts = Some(contracts);
-                            }
-                        }
-
-                        let method_obj_idx = self.add_constant(Value::Obj(method_obj));
-                        self.emit(Bytecode::Constant(method_obj_idx), range);
-
-                        let selector_idx = self.add_constant(Value::Symbol(selector_sym));
-                        self.emit(Bytecode::Method(selector_idx, getter_def.is_static), range);
-
-                        self.emit_member_attribute_attaches(&getter_def.attributes, method_obj_idx, range)?;
                     }
+
+                    let method_obj_idx = self.add_constant(Value::Obj(method_obj));
+                    self.emit(Bytecode::Constant(method_obj_idx), range);
+
+                    let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                    self.emit(Bytecode::Method(selector_idx, getter_def.is_static), range);
+
+                    self.emit_member_attribute_attaches(&getter_def.attributes, method_obj_idx, range)?;
                 }
                 ClassMember::Setter(setter_def) => {
                     let range = setter_def.range;
@@ -749,6 +768,7 @@ impl<'vm> Compiler<'vm> {
                         SignatureKind::Setter,
                         MethodKind::Closure(closure),
                     ))));
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&setter_def.name), &setter_def.attributes);
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&setter_def.attributes)?;
@@ -803,6 +823,7 @@ impl<'vm> Compiler<'vm> {
                         SignatureKind::Method(arity),
                         MethodKind::Closure(closure),
                     ))));
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&construct_def.name), &construct_def.attributes);
 
                     let method_obj_idx = self.add_constant(Value::Obj(method_obj));
                     self.emit(Bytecode::Constant(method_obj_idx), range);
@@ -843,11 +864,12 @@ impl<'vm> Compiler<'vm> {
                     let range = index_def.range;
                     let arity = checked_send_arity("subscript declaration", index_def.params.len(), index_def.range)?;
                     let labels: Vec<Option<String>> = index_def.params.iter().map(|p| p.label.clone()).collect();
-                    
+
                     let mut param_names: Vec<String> = index_def.params.iter().map(|p| p.name.clone()).collect();
                     let sig_kind = match &index_def.accessor {
                         IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
                         IndexAccessor::Set { put } => {
+                            checked_send_arity("subscript declaration", index_def.params.len() + 1, index_def.range)?;
                             param_names.push(put.name.clone());
                             SignatureKind::SubscriptSet(arity)
                         }
@@ -866,6 +888,7 @@ impl<'vm> Compiler<'vm> {
                         sig_kind,
                         MethodKind::Closure(closure),
                     ))));
+                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(None, &index_def.attributes);
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&index_def.attributes)?;
@@ -964,7 +987,7 @@ impl<'vm> Compiler<'vm> {
         // `@variant` arms in Draft 0.1).
         for sibling in sibling_classes {
             if let Statement::Class(sibling_def) = sibling {
-                self.compile_class(sibling_def)?;
+                self.compile_class_impl(sibling_def, true)?;
             }
         }
 
@@ -1035,10 +1058,10 @@ impl<'vm> Compiler<'vm> {
         }));
         self.compile_expr(ctor_call)?;
 
-        let attach_selector = make_signature("__attach", SignatureKind::Method(1));
+        let attach_selector = make_signature("_$attach", SignatureKind::Method(1));
         let attach_sym = self.vm.interner.intern(&attach_selector);
         let attach_idx = self.add_constant(Value::Symbol(attach_sym));
-        self.emit(Bytecode::Invoke(1, attach_idx), range);
+        self.emit(Bytecode::InvokeCompilerInternal(1, attach_idx), range);
         self.emit(Bytecode::Pop, range);
         Ok(())
     }
@@ -1048,10 +1071,10 @@ impl<'vm> Compiler<'vm> {
     /// [`Self::emit_attribute_attach`] for the receiver-already-pushed
     /// convention.
     fn emit_freeze_attributes(&mut self, range: SourceRange) {
-        let freeze_selector = make_signature("__freezeAttributes", SignatureKind::Method(0));
+        let freeze_selector = make_signature("_$freezeAttributes", SignatureKind::Method(0));
         let freeze_sym = self.vm.interner.intern(&freeze_selector);
         let freeze_idx = self.add_constant(Value::Symbol(freeze_sym));
-        self.emit(Bytecode::Invoke(0, freeze_idx), range);
+        self.emit(Bytecode::InvokeCompilerInternal(0, freeze_idx), range);
         self.emit(Bytecode::Pop, range);
     }
 
@@ -1114,6 +1137,11 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut
         }
         Expr::MethodCall(call) => {
             collect_assigned_fields(&call.object, fields, interner);
+            for arg in &call.args {
+                collect_assigned_fields(&arg.expr, fields, interner);
+            }
+        }
+        Expr::UnqualifiedCall(call) => {
             for arg in &call.args {
                 collect_assigned_fields(&arg.expr, fields, interner);
             }

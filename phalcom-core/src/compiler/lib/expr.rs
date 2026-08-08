@@ -10,6 +10,7 @@ use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
 use super::error::CompilerError;
+use super::scope::BareNameResolution;
 use super::{Compiler, UnitKind};
 
 impl<'vm> Compiler<'vm> {
@@ -31,7 +32,45 @@ impl<'vm> Compiler<'vm> {
     /// ignores `want_value` — it still pushes its one value as normal.
     pub(crate) fn compile_expr_want(&mut self, expr: Expr, want_value: bool) -> Result<(), CompilerError> {
         match expr {
+            Expr::UnqualifiedCall(call) => {
+                let call = *call;
+                let name_sym = self.vm.interner.intern(&call.name);
+                match self.resolve_bare_name(name_sym) {
+                    BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
+                    BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
+                    BareNameResolution::Global | BareNameResolution::Unresolved => {
+                        let name_idx = self.add_constant(Value::Symbol(name_sym));
+                        self.emit(Bytecode::GetGlobal(name_idx), call.range);
+                    }
+                    BareNameResolution::ImplicitSelf => {
+                        let arity = checked_send_arity("implicit message send", call.args.len(), call.range)?;
+                        let labels: Vec<Option<String>> = call.args.iter().map(|arg| arg.label.clone()).collect();
+                        let selector = encode_selector(&call.name, &labels, SignatureKind::Method(arity));
+                        let selector_sym = self.vm.interner.intern(&selector);
+                        self.emit_self(call.range);
+                        for arg in call.args {
+                            self.compile_expr(arg.expr)?;
+                        }
+                        let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                        self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
+                        return Ok(());
+                    }
+                }
+                let arity = checked_send_arity("callable call", call.args.len(), call.range)?;
+                let labels: Vec<Option<String>> = call.args.iter().map(|arg| arg.label.clone()).collect();
+                for arg in call.args {
+                    self.compile_expr(arg.expr)?;
+                }
+                let selector = encode_selector("call", &labels, SignatureKind::Method(arity));
+                let selector_sym = self.vm.interner.intern(&selector);
+                let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
+            }
             Expr::MethodCall(method_call) => {
+                let internal_call = method_call.method.starts_with("_$");
+                if internal_call && !self.compiling_privileged_core() && !self.compiler_internal {
+                    return Err(CompilerError::InternalNamespaceReserved(method_call.method.clone(), method_call.range));
+                }
                 // A `super.sel(args)` send lowers to `SuperSend`, never an
                 // ordinary `Invoke` — and must be intercepted *before* the
                 // sacred inliner, so a `super.ifTrue { … }` is a real dispatch
@@ -105,7 +144,12 @@ impl<'vm> Compiler<'vm> {
                             self.compile_expr(arg.expr.clone())?;
                         }
                         let selector_idx = self.add_constant(Value::Symbol(selector_sym));
-                        self.emit(Bytecode::Invoke(arity, selector_idx), method_call.range);
+                        let opcode = if internal_call {
+                            Bytecode::InvokeCompilerInternal(arity, selector_idx)
+                        } else {
+                            Bytecode::Invoke(arity, selector_idx)
+                        };
+                        self.emit(opcode, method_call.range);
                     }
                 }
             }
@@ -398,16 +442,33 @@ impl<'vm> Compiler<'vm> {
                     return Err(CompilerError::UndefinedVariable(value.clone()));
                 }
                 let name_sym = self.vm.interner.intern(&value);
-                if let Some(slot) = self.resolve_local(name_sym) {
-                    self.emit(Bytecode::GetLocal(slot as u16), range);
-                } else if let Some(upvalue) = self.resolve_upvalue(name_sym) {
-                    self.emit(Bytecode::GetUpvalue(upvalue as u16), range);
-                } else {
-                    let name_idx = self.add_constant(Value::Symbol(name_sym));
-                    self.emit(Bytecode::GetGlobal(name_idx), range);
+                match self.resolve_bare_name(name_sym) {
+                    BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), range),
+                    BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), range),
+                    BareNameResolution::Global | BareNameResolution::Unresolved => {
+                        let name_idx = self.add_constant(Value::Symbol(name_sym));
+                        self.emit(Bytecode::GetGlobal(name_idx), range);
+                    }
+                    BareNameResolution::ImplicitSelf => {
+                        self.emit_self(range);
+                        let selector_idx = self.add_constant(Value::Symbol(name_sym));
+                        self.emit(Bytecode::Invoke(0, selector_idx), range);
+                    }
                 }
             }
-            Expr::Field { value, range, .. } => {
+            Expr::ImplementationSelector { value, range } => {
+                if !self.compiling_privileged_core() {
+                    return Err(CompilerError::InternalNamespaceReserved(value, range));
+                }
+                self.emit_self(range);
+                let selector_sym = self.vm.interner.intern(&value);
+                let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                self.emit(Bytecode::Invoke(0, selector_idx), range);
+            }
+            Expr::Field { value, kind, range } => {
+                if matches!(kind, phalcom_ast::ast::FieldKind::Implementation) && !self.compiling_privileged_core() {
+                    return Err(CompilerError::InternalNamespaceReserved(value, range));
+                }
                 let name_sym = self.vm.interner.intern(&value);
                 let class_key = self
                     .current_class
@@ -459,7 +520,7 @@ impl<'vm> Compiler<'vm> {
                             }
                             self.compile_expr(assign_expr.value)?;
                             self.emit(Bytecode::SetUpvalue(upvalue as u16), range);
-                        } else {
+                        } else if self.resolves_known_global(name_sym) {
                             let is_const_this_unit = self.global_bindings.get(&name_sym) == Some(&false);
                             let is_const_prior_unit =
                                 self.unit_kind != UnitKind::Repl && self.vm.heap.module(self.module).global_bindings.get(&name_sym) == Some(&false);
@@ -469,9 +530,23 @@ impl<'vm> Compiler<'vm> {
                             self.compile_expr(assign_expr.value)?;
                             let name_idx = self.add_constant(Value::Symbol(name_sym));
                             self.emit(Bytecode::SetGlobal(name_idx), range);
+                        } else if self.functions.last().is_some_and(|function| function.has_self) {
+                            self.emit_self(range);
+                            self.compile_expr(assign_expr.value)?;
+                            let selector = make_signature(&value, SignatureKind::Setter);
+                            let selector_sym = self.vm.interner.intern(&selector);
+                            let selector_idx = self.add_constant(Value::Symbol(selector_sym));
+                            self.emit(Bytecode::Invoke(1, selector_idx), range);
+                        } else {
+                            self.compile_expr(assign_expr.value)?;
+                            let name_idx = self.add_constant(Value::Symbol(name_sym));
+                            self.emit(Bytecode::SetGlobal(name_idx), range);
                         }
                     }
-                    Expr::Field { value, range, .. } => {
+                    Expr::Field { value, kind, range } => {
+                        if matches!(kind, phalcom_ast::ast::FieldKind::Implementation) && !self.compiling_privileged_core() {
+                            return Err(CompilerError::InternalNamespaceReserved(value, range));
+                        }
                         let name_sym = self.vm.interner.intern(&value);
                         let class_key = self
                             .current_class
