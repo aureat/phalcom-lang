@@ -13,16 +13,19 @@ The documents are authoritative as a set. Public semantics do not depend on host
 | [`numeric-literals.md`](numeric-literals.md) | Source grammar, token boundaries, classification, oversized constants, limits, and diagnostics. |
 | [`text-and-errors.md`](text-and-errors.md) | Text constructors, correctly rounded parsing, canonical rendering, and structured numeric errors. |
 | [`bitwise.md`](bitwise.md) | Infinite-two's-complement Int operations, syntax, huge-count behavior, and primitive floor. |
-| [`implementation.md`](implementation.md) | Runtime representation, semantic kernels, constants, hashing, limits, closed-kernel intrinsics, and landing architecture. |
-| [`conformance.md`](conformance.md) | Reference models, properties, edge corpora, differential tests, and release gates. |
-| [`migration.md`](migration.md) | Breaking changes, source and native migration, bytecode incompatibility, and atomic pre-1.0 release policy. |
+| [Conformance](../../conformance/numbers.md) | Reference models, properties, edge corpora, differential tests, and release gates. |
 
 ## Normative hierarchy
 
 1. `numeric-tower.md`, `float-protocol.md`, `numeric-literals.md`, `text-and-errors.md`, and `bitwise.md` define public language behavior.
-2. `conformance.md` defines what every implementation must prove.
-3. `implementation.md` defines required architecture while keeping private representations unobservable.
-4. `migration.md` defines the compatibility boundary of the numeric update.
+2. [Conformance](../../conformance/numbers.md) defines what every implementation must prove.
+
+## Implementation records
+
+The numeric [runtime implementation plan](../../../implementation/roadmap/numbers-runtime-implementation.md)
+and [migration record](../../../implementation/roadmap/numbers-migration.md) are
+outside the language specification. They describe landing work and the transition
+from the old numeric model; neither changes the public rules in this module.
 
 The words **must**, **must not**, **shall**, and **shall not** are normative. **Should** records a strong implementation default. **May** grants permission.
 

@@ -25,9 +25,9 @@ document says which it is in its own header:
 - **Forward implementation specs** — a design contract *and* its implementation detail in
   one document, for work that is ruled but unbuilt. These supersede the older
   `docs/forge/units/<UNIT>/plan.md` + `IMPL-SPEC-*.md` two-document convention for new
-  work. Current: [`numeric-tower.md`](./numeric-tower.md) (the `Int`/`Float` split,
-  ADR-0024), [`bitwise.md`](./bitwise.md) (accepted `Int` bitwise surface), and
-  [`float-protocol.md`](./float-protocol.md) (proposed explicit Float narrowing).
+  work. Current: [numeric tower](../../library/numbers/numeric-tower.md) (the
+  `Int`/`Float` split, ADR-0024), [bitwise](../../library/numbers/bitwise.md)
+  (accepted `Int` bitwise surface), and the [Float protocol](../../library/numbers/float-protocol.md).
 
 A forward spec's baseline pin is its own, stated in its header, and does **not** ride the
 directory-wide pin below.

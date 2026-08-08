@@ -4,7 +4,7 @@
 unit files below are compact execution cards; they do not replace the plan's requirements,
 invariants, write-set, gates, and scope boundary.
 
-Implements [numeric specs](../../../spec/current/numbers/README.md) and ratified
+Implements [numeric specs](../../../spec/library/numbers/README.md) and ratified
 [PDR-0027](../../../pdr/0027-float-protocol-and-explicit-narrowing.md). This is one dependency
 chain; do not merge a later phase over a red earlier phase.
 

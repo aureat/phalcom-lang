@@ -1,5 +1,8 @@
 # Numeric Runtime and Compiler Implementation Contract
 
+**Status:** Implementation planning record. Public numeric behavior is specified
+in [`docs/spec/library/numbers/`](../../spec/library/numbers/README.md).
+
 This document defines the mandatory private architecture that realizes the public numeric semantics without exposing representation tiers or duplicating semantic algorithms.
 
 ## 1. Architectural requirements
@@ -233,7 +236,8 @@ After Float-domain conversion of any Int operand:
 4. round once to binary64, ties to even;
 5. force a zero result to carry the divisor's sign.
 
-Non-finite dispatch follows the complete Float remainder table in `float-protocol.md`.
+Non-finite dispatch follows the complete Float remainder table in the
+[numeric Float protocol](../../spec/library/numbers/float-protocol.md).
 
 ## 12. Power implementation
 

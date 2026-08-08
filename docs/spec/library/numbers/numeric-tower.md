@@ -1,6 +1,6 @@
 # The Numeric Tower: `Int`, `Float`, and `Number`
 
-This document defines the public numeric types and all representation-independent numeric semantics. Runtime layout and intrinsic execution are specified in [`implementation.md`](implementation.md).
+This document defines the public numeric types and all representation-independent numeric semantics. Runtime layout and intrinsic execution are specified in the [numeric runtime implementation plan](../../../implementation/roadmap/numbers-runtime-implementation.md).
 
 ## 1. Tower and value domains
 
@@ -419,4 +419,3 @@ Subject to ordinary error conditions and configured resource policy:
 ## 14. Non-goals
 
 This specification does not add Decimal, Rational, Complex, fixed-width integers, unsigned integers, implicit user-defined numeric coercion, reverse numeric operators, a public canonical-exact-value protocol, persistent hash values, or a public `LargeInt` class. No placeholder selector names are reserved for future numeric extension.
-

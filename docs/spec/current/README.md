@@ -29,8 +29,8 @@ silently invented.
 | [Result](result.md) | `Result`/`Ok`/`Err` — the value channel for expected failure; bridges to exceptions |
 | [Fibers & Futures](concurrency.md) | Cooperative concurrency: the `Fiber` primitive, `Future`, the scheduler |
 | [System](system.md) | The runtime service surface: console, clock, process, scheduler |
-| [Numbers](numbers/) | Numeric tower and floating-point protocol |
-| [Bitwise operators](bitwise.md) | Integer bitwise semantics |
+| [Numbers](../library/numbers/) | Numeric tower and floating-point protocol |
+| [Bitwise operators](../library/numbers/bitwise.md) | Integer bitwise semantics |
 | [Standard library](stdlib/README.md) | Public library surfaces extending the core |
 | [Traceback](traceback/README.md) | Diagnostic rendering contract |
 | [Modules & Imports](modules.md) | `import "./path" as Name`, the `Module` namespace object, canonical-path memoization, cyclic imports |

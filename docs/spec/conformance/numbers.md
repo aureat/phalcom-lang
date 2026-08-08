@@ -276,7 +276,8 @@ Compare shared operations against Python for a corpus containing all signs and r
 
 ### BIT-2 — Algebraic laws
 
-Generate arbitrary Ints and counts under resource policy and assert every law in `bitwise.md`.
+Generate arbitrary Ints and counts under resource policy and assert every law in
+[the bitwise specification](../library/numbers/bitwise.md).
 
 ### BIT-3 — Huge count behavior
 
@@ -376,4 +377,3 @@ The numeric release may ship only when:
 7. the primitive census and kernel-freeze invariants pass;
 8. migration documentation and diagnostics describe the atomic break;
 9. all modified golden outputs carry an understood semantic reason.
-

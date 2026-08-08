@@ -219,7 +219,7 @@ magnitude: minimal nonempty unsigned big-endian bytes
 
 The first magnitude byte is nonzero. Zero, negative zero, empty magnitudes, redundant leading zeroes, and values representable as signed 64-bit immediate Int are forbidden in `LargeIntV1`.
 
-The compiler deduplicates equal large constants within a module after numeric canonicalization, independent of source radix or separators. Runtime materialization and validation are defined in [`implementation.md`](implementation.md).
+The compiler deduplicates equal large constants within a module after numeric canonicalization, independent of source radix or separators. Runtime materialization and validation are defined in the [numeric runtime implementation plan](../../../implementation/roadmap/numbers-runtime-implementation.md).
 
 ## 10. Overflow, underflow, and policy limits
 

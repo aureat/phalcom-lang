@@ -12,7 +12,7 @@ Every claim carries a warrant tag — **`[V]`** verified by opening the named ar
 
 Related: [`../spec/current/stdlib/map-and-set.md`](../spec/current/stdlib/map-and-set.md) §4 (which already
 ruled the adjacent question), [`../spec/current/stdlib/bytes.md`](../spec/current/stdlib/bytes.md),
-[`../spec/current/numbers/numeric-tower.md`](../spec/current/numbers/numeric-tower.md),
+[`../../spec/library/numbers/numeric-tower.md`](../../spec/library/numbers/numeric-tower.md),
 [`../pdr/0012-numeric-tower-implementation-and-floor-amendment.md`](../pdr/0012-numeric-tower-implementation-and-floor-amendment.md),
 [`../spec/current/memory-management.md`](../spec/current/memory-management.md),
 [`../forge/perf-log/SCOREBOARD.md`](../forge/perf-log/SCOREBOARD.md).

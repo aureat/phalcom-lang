@@ -128,7 +128,7 @@ lexical token for it ([ADR-0007]).
 
 ## 6. Numeric literals
 
-Numeric syntax is specified by [Numeric literals](numeric-literals.md), ratified by
+Numeric syntax is specified by [Numeric literals](../../library/numbers/numeric-literals.md), ratified by
 PDR-0026. It supplies exact radix `Int` literals, decimal exponent `Float` literals,
 separator rules, and atomic malformed-literal diagnostics.
 

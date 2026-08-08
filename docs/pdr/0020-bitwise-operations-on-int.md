@@ -3,7 +3,7 @@
 - Status: **Accepted** (ratified 2026-07-21)
 - Amends: [ADR-0019](../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md) (floor +10 on `Int`)
 - Depends on: [PDR-0012](0012-numeric-tower-implementation-and-floor-amendment.md) and [PDR-0025](0025-numeric-tower-residue-rulings.md); every selector here lives on unimplemented `Int`
-- Spec: [`docs/spec/current/bitwise.md`](bitwise.md)
+- Spec: [`docs/spec/library/numbers/bitwise.md`](../spec/library/numbers/bitwise.md)
 
 ## Decision
 

@@ -66,7 +66,7 @@ Float:
 ```text
 phalcom-core/src/primitive/float.rs
 phalcom-core/src/universe/primitives.rs
-docs/spec/numerical/float-protocol.md
+docs/spec/library/numbers/float-protocol.md
 docs/pdr/0027-float-protocol-and-explicit-narrowing.md
 ```
 

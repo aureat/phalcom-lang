@@ -20,7 +20,7 @@
   [PDR-0001](0001-classes-are-closed.md) (reserved kernel names — ruling 15),
   [PDR-0011](0011-admit-bytes-native-octet-buffer.md) (**also amends ADR-0019**; the two
   compose — ruling 14)
-- Spec: [`docs/spec/current/numbers/numeric-tower.md`](numeric-tower.md) holds the
+- Spec: [`docs/spec/library/numbers/numeric-tower.md`](../spec/library/numbers/numeric-tower.md) holds the
   full implementation detail, phase order, write set, and test matrix. Normative upon
   ratification.
 

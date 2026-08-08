@@ -1,5 +1,8 @@
 # Numeric Update Migration and Compatibility
 
+**Status:** Migration record. Public numeric behavior is specified in
+[`docs/spec/library/numbers/`](../../spec/library/numbers/README.md).
+
 This document defines the breaking-change inventory and the single supported transition from the old flat numeric model to the canonical Int/Float model.
 
 ## 1. Migration principle

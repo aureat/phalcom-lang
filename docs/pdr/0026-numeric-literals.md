@@ -2,7 +2,7 @@
 
 - Status: **Accepted** (ratified 2026-07-21)
 - Depends on: [ADR-0024](../adr/accepted/0024-numeric-surface-split-int-float-and-division.md), [PDR-0012](0012-numeric-tower-implementation-and-floor-amendment.md)
-- Spec: [`docs/spec/current/syntax/numeric-literals.md`](numeric-literals.md)
+- Spec: [`docs/spec/library/numbers/numeric-literals.md`](../spec/library/numbers/numeric-literals.md)
 
 ## Decision
 

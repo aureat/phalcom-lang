@@ -100,3 +100,16 @@ Each batch adds a short entry here containing:
 
 This manifest moves to `docs/archive/spec-reorg-2026-08/` when the reorganization
 is complete.
+
+### 2026-08-08 — Numeric module
+
+- `docs/spec/numerical/README.md` and its five public chapters moved to
+  `docs/spec/library/numbers/`.
+- `docs/spec/numerical/conformance.md` moved to
+  `docs/spec/conformance/numbers.md`.
+- `implementation.md` and `migration.md` moved to
+  `docs/implementation/roadmap/` as non-normative landing records.
+- Rewrote live numeric references in PDR, current-spec, work, and transition
+  documents. Existing archive copies were intentionally left unchanged.
+- Governing records retained: ADR-0024 and PDR-0012, PDR-0020, PDR-0026, and
+  PDR-0027.
