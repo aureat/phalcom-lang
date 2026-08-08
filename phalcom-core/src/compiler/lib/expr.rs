@@ -176,22 +176,68 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::Invoke(argc, idx), ix.range);
             }
             Expr::SetIndex(six) => {
-                // U-INDEX (ADR-0060): `xs[a, b, ...] = value` appends `value`
-                // as the selector's trailing `put:` argument — `xs[i] = v`
-                // sends `[_,put]`, `xs[] = v` sends `[put]` — never `at`.
                 let six = *six;
+                // Reject duplicate "put" label before dispatch
+                if six.args.iter().any(|a| a.label.as_deref() == Some("put")) {
+                    return Err(CompilerError::Message("Duplicate label 'put' in subscript assignment".to_string()));
+                }
+
                 let mut labels: Vec<Option<String>> = six.args.iter().map(|a| a.label.clone()).collect();
                 labels.push(Some("put".to_string()));
                 let argc = checked_send_arity("subscript write", labels.len(), six.range)?;
+
+                // 1. Reserve hidden slot (push placeholder)
+                let scratch_sym = self.fresh_scratch_symbol("$setindex_rhs");
+                self.add_local(scratch_sym, true)?;
+                let slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+                self.emit(Bytecode::Nil, six.range);
+
+                // 2. Compile receiver
                 self.compile_expr(six.object)?;
+
+                // 3. Compile subscript arguments in lexical order
                 for arg in six.args {
                     self.compile_expr(arg.expr)?;
                 }
+
+                // 4. Compile RHS
                 self.compile_expr(six.value)?;
+
+                // 5. Copy RHS into hidden slot using SetLocal
+                self.emit(Bytecode::SetLocal(slot), six.range);
+
+                // 6. Invoke setter
                 let selector = encode_selector("", &labels, SignatureKind::Subscript(argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::Symbol(sym));
                 self.emit(Bytecode::Invoke(argc, idx), six.range);
+
+                // 7. Pop setter result
+                self.emit(Bytecode::Pop, six.range);
+
+                // 8. Remove compiler-local metadata without emitting Pop
+                let func = self.functions.last_mut().unwrap();
+                func.locals.pop();
+                func.num_locals -= 1;
+            }
+            Expr::Range(range) => {
+                let range = *range;
+                let has_lower = range.lower.is_some();
+                let has_upper = range.upper.is_some();
+                if let Some(lower) = range.lower {
+                    self.compile_expr(lower)?;
+                }
+                if let Some(upper) = range.upper {
+                    self.compile_expr(upper)?;
+                }
+                self.emit(
+                    Bytecode::BuildRange {
+                        has_lower,
+                        has_upper,
+                        upper_inclusive: range.upper_inclusive,
+                    },
+                    range.range,
+                );
             }
             Expr::Int { digits, radix, range } => {
                 let val = if radix == 10 {

@@ -100,14 +100,17 @@ pub fn bytes_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
 /// index is not a non-negative integer `Number`.
 pub fn bytes_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
-    let index = expect_index(&args[0])?;
-    match vm.heap.bytes(id).get(index) {
-        Some(octet) => Ok(Value::Int(octet as i64)),
-        None => Ok(vm.none_value()),
+    let len = vm.heap.bytes(id).len();
+    match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
+        super::index::NormalizedIndex::Valid(idx) => match vm.heap.bytes(id).get(idx) {
+            Some(octet) => Ok(Value::Int(octet as i64)),
+            None => Ok(vm.none_value()),
+        },
+        super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
     }
 }
 
-/// Signature: `Bytes::set_(_,_)` — raw octet write.
+/// Signature: `Bytes::set_(_,_)` — raw indexed write.
 ///
 /// `list_raw_set`'s exact convention: a bad write is a hard type error, and
 /// success returns the kernel `None` (`.ph`'s `set` lifts the error into a
@@ -119,16 +122,20 @@ pub fn bytes_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 /// index is malformed or out of range, or the value is not an octet.
 pub fn bytes_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_bytes(vm, receiver)?;
-    let index = expect_index(&args[0])?;
-    let octet = expect_octet(&args[1])?;
-    if !vm.heap.bytes_mut(id).set(index, octet) {
-        return Err(RuntimeError::Type {
-            expected: "an in-range index",
-            found: "an out-of-range Number",
+    let len = vm.heap.bytes(id).len();
+    let index = match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
+        super::index::NormalizedIndex::Valid(idx) => idx,
+        super::index::NormalizedIndex::OutOfRange => {
+            return Err(RuntimeError::Type {
+                expected: "an in-range index",
+                found: "an out-of-range Number",
+            }
+            .into());
         }
-        .into());
-    }
-    Ok(vm.none_value())
+    };
+    let octet = expect_octet(&args[1])?;
+    vm.heap.bytes_mut(id).set(index, octet);
+    Ok(Value::Unit)
 }
 
 /// Signature: `Bytes::fill_(_)` — overwrite every octet (one memset).

@@ -52,8 +52,10 @@ impl Value {
                     format!("({})", parts.join(", "))
                 }
                 Object::Range(range) => {
-                    let sep = if range.inclusive() { ".." } else { "..." };
-                    format!("{}{sep}{}", range.start().to_string(vm), range.end().to_string(vm))
+                    let lower = range.lower().map_or_else(String::new, |value| value.to_string(vm));
+                    let upper = range.upper().map_or_else(String::new, |value| value.to_string(vm));
+                    let sep = if range.upper_inclusive() { "..=" } else { ".." };
+                    format!("{lower}{sep}{upper}")
                 }
                 Object::Record(_) => "<record>".to_string(),
                 _ => self.to_debug(vm),

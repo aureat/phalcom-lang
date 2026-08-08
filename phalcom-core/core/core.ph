@@ -102,6 +102,12 @@ class ArgumentError is Error {}
 // Raised by strict Map subscript lookup when no equal key is present.
 class KeyError is Error {}
 
+// Raised when a sequence index is out of bounds.
+class IndexError is Error {}
+
+// Raised when a Range cannot describe a sequence slice or replacement.
+class SliceError is Error {}
+
 // Raised while building an association Map literal when a logically equal key
 // was already contributed. Ordinary post-construction Map insertion still
 // overwrites by design.
@@ -869,6 +875,71 @@ class List {
     return self.at_(i)
   }
 
+  get(index) {
+    let raw = self.at_(index)
+    let len = self.size
+    let i = index
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return Some.new(raw)
+    }
+    return None
+  }
+
+  _sliceByRange_(range) {
+    return range.sliceBounds_(self.size).match(
+      ok: { bounds =>
+        let start = bounds[0]
+        let end = bounds[1]
+        // C.3's consumer-local rule: a reversed normalized interval selects
+        // no ascending elements. Range itself gains no descending semantics.
+        if (start > end) { end = start }
+        let result = List.new()
+        let i = start
+        while (i < end) {
+          result.add(self.at_(i))
+          i = i + 1
+        }
+        result
+      },
+      err: { error => error.raise() }
+    )
+  }
+
+  [index] {
+    if (index.isA(Range)) { return self._sliceByRange_(index) }
+    let raw = self.at_(index)
+    let len = self.size
+    let i = index
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    throw IndexError.new("List index out of range")
+  }
+
+  [index, default:] {
+    let raw = self.at_(index)
+    let len = self.size
+    let i = index
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    return default
+  }
+
+  get(index, orElse:) {
+    let raw = self.at_(index)
+    let len = self.size
+    let i = index
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    return orElse.call(index)
+  }
+
   add(v) {
     self.push_(v)
     return self
@@ -891,17 +962,45 @@ class List {
   // chain (mirrors `add`). Selector `at(_:put:)` matches `set_`'s 2 args;
   // the labeled parameter is named `put` (label == name, parser convention).
   at(i, put:) {
+    let len = self.size
+    let norm = i
+    if (norm < 0) { norm = len + norm }
+    if (norm < 0 or norm >= len) {
+      throw IndexError.new("List index out of range")
+    }
     self.set_(i, put)
     return self
+  }
+
+  // C.3 deliberately accepts only a finite List replacement source. General
+  // Iterable replacement waits for Spec E's boundedness and re-entrancy rules.
+  replace(range, with: replacements) {
+    if (not range.isA(Range)) {
+      return Err.new(SliceError.new("List#replace: first argument must be a Range"))
+    }
+    if (not replacements.isA(List)) {
+      return Err.new(SliceError.new("List#replace: replacement must be a List"))
+    }
+    return range.sliceBounds_(self.size).match(
+      ok: { bounds =>
+        let start = bounds[0]
+        let end = bounds[1]
+        if (start > end) { end = start }
+        self.replaceSlice_(start, end, replacements)
+        Ok.new(())
+      },
+      err: { error => Err.new(error) }
+    )
   }
 
   // U-INDEX (ADR-0060): `[]` is its own dedicated, user-overridable
   // selector — not `at`'s call-site sugar — so `List` must opt in
   // explicitly with a thin delegation, same as any other collection
   // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_,put]`.
-  [i] { return self.at(i) }
-
-  [i, put:] { return self.at(i, put: put) }
+  [i, put:] {
+    if (i.isA(Range)) { return self.replace(i, with: put).unwrap }
+    return self.at(i, put: put)
+  }
 
   // U-CORE-5 (decisions.md Q5, R-INV-5.3 E1-E5): structural equality —
   // element-wise, order-sensitive, via each element's own `==`. Guarded by
@@ -984,6 +1083,31 @@ class Map {
     )
   }
 
+  [key, default: fallback] {
+    return self.get(key).match(
+      some: { value => value },
+      none: { fallback }
+    )
+  }
+
+  get(key, orElse: block) {
+    return self.get(key).match(
+      some: { value => value },
+      none: { block.call(key) }
+    )
+  }
+
+  get(key, orPut: block) {
+    return self.get(key).match(
+      some: { value => value },
+      none: {
+        let value = block.call(key)
+        self.insert(value, for: key)
+        value
+      }
+    )
+  }
+
   // Explicit insert returns the previous value when replacing an association.
   insert(value, for: key) => self.put_(key, value)
 
@@ -999,8 +1123,12 @@ class Map {
 
   includes(k) => self.has_(k)
 
-  // Removes an association and returns its former value when present.
-  remove(k) => self.remove_(k)
+  // Removes an association. The raw primitive returns its former value, but
+  // the public mutable-collection protocol is chainable.
+  remove(k) {
+    self.remove_(k)
+    return self
+  }
 
   clear {
     while (self.size > 0) {
@@ -1168,10 +1296,98 @@ class Tuple {
 
   at(i) => self.at_(i)
 
-  // U-INDEX (ADR-0060): read-only — `tup[i]` sends `[_]`. No `[_,put]`
-  // wrapper: `Tuple` is immutable (no `at(_,put:)` either), so `tup[i] = v`
-  // correctly `doesNotUnderstand` rather than raising a bespoke error.
-  [i] { return self.at(i) }
+  _findLabel(sym) {
+    let num_labeled = self.size - self.positionalSize_
+    let i = 0
+    while (i < num_labeled) {
+      if (self.labelAt_(i) == sym) {
+        return Some.new(self.positionalSize_ + i)
+      }
+      i = i + 1
+    }
+    return None
+  }
+
+  _access(key) {
+    if (key.isA(Symbol)) {
+      return self._findLabel(key).match(
+        some: { idx => Some.new(self.at_(idx)) },
+        none: { None }
+      )
+    }
+    let raw = self.at_(key)
+    let len = self.size
+    let i = key
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return Some.new(raw)
+    }
+    return None
+  }
+
+  get(key) => self._access(key)
+
+  [key] {
+    if (key.isA(Range)) {
+      return key.sliceBounds_(self.size).match(
+        ok: { bounds =>
+          let start = bounds[0]
+          let end = bounds[1]
+          if (start > end) { end = start }
+          self.slice_(start, end)
+        },
+        err: { error => error.raise() }
+      )
+    }
+    if (key.isA(Symbol)) {
+      return self._findLabel(key).match(
+        some: { idx => self.at_(idx) },
+        none: { throw KeyError.new("Tuple label not found") }
+      )
+    }
+    let raw = self.at_(key)
+    let len = self.size
+    let i = key
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    throw IndexError.new("Tuple index out of range")
+  }
+
+  [key, default:] {
+    if (key.isA(Symbol)) {
+      return self._findLabel(key).match(
+        some: { idx => self.at_(idx) },
+        none: { default }
+      )
+    }
+    let raw = self.at_(key)
+    let len = self.size
+    let i = key
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    return default
+  }
+
+  get(key, orElse:) {
+    if (key.isA(Symbol)) {
+      return self._findLabel(key).match(
+        some: { idx => self.at_(idx) },
+        none: { orElse.call(key) }
+      )
+    }
+    let raw = self.at_(key)
+    let len = self.size
+    let i = key
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    return orElse.call(key)
+  }
 
   iteratorValue(cursor) => self.at_(cursor)
 
@@ -1304,96 +1520,61 @@ class MapEntriesView is Iterable {
   iteratorValue(cursor) => Entry.new(_map.keyAt_(cursor), _map.valueAt_(cursor))
 }
 
-// Kernel Range (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 3): a native lazy
-// numeric interval — Object::Range, three native bound-field getters and NOTHING
-// else on the floor. `each`/`toList`/`size`/`includes`/`first`/`last` are all
-// derived here over `start_`/`end_`/`inclusive_` + Number arithmetic —
-// `each` GENERATES elements, never allocates (RG-2 laziness), so
-// `Range.new(1, 1000000, true)` stays O(1) to construct and each step of
-// `each` is O(1). Bound convention (RG-1): `a..b` inclusive (`inclusive_`
-// true), `a...b` exclusive (false) — the reserved `..`/`...` literal's
-// committed meaning, honored now via the explicit constructor.
-
+// Range is a native bounds descriptor. Its lower_/upper_/upperInclusive_
+// observations preserve omitted endpoints. Progression, equality, hashing,
+// and traversal are deliberately deferred.
 class Range {
-  first => self.start_
-
-  // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
-  // native `Range` rendering exactly. Note the separator is NOT the intuitive
-  // one: `..` is the INCLUSIVE range and `...` the exclusive (Ruby's spelling,
-  // not Rust's) — `value/render.rs` reads
-  // `if range.inclusive() { ".." } else { "..." }`, and this must not drift
-  // from it.
-  toString {
-    let sep = self.inclusive_.ifTrue({ ".." }, ifFalse: { "..." })
-    return self.start_.toString + sep + self.end_.toString
+  _isSliceCoordinate_(value) {
+    // TODO(NUMERIC-TOWER): require Int once the tower is fully landed.
+    return value.isA(Number) and ((value % 1) == 0)
   }
 
-  last {
-    return self.inclusive_.ifTrue({ self.end_ }, ifFalse: { self.end_ - 1 })
-  }
-
-  size {
-    let n = self.inclusive_.ifTrue({ self.end_ - self.start_ + 1 }, ifFalse: { self.end_ - self.start_ })
-    return (n < 0).ifTrue({ 0 }, ifFalse: { n })
-  }
-
-  includes(n) {
-    let upper = self.inclusive_.ifTrue({ n <= self.end_ }, ifFalse: { n < self.end_ })
-    return (self.start_ <= n) and upper
-  }
-
-  // Total indexed read (mirrors every other collection's `at(_)`): raw value
-  // on hit, the None singleton on miss — not part of map-and-set.md's/
-  // tuple-and-range.md's enumerated Range selector table, but a direct,
-  // zero-floor-cost derivation the U-CORE-5 conformance harness (every
-  // collection instantiates it) needs (U-COLLTYPES plan.md §7).
-  at(i) {
-    return (i >= 0 and (i < self.size)).ifTrue({ self.start_ + i }, ifFalse: { None })
-  }
-
-  // Generates start, start+1, … up to the bound — no allocation (RG-2).
-
-
-  // The explicit materialization escape hatch (RG-2).
-  toList {
-    let result = List.new()
-    self.each { x => result.add(x) }
-    return result
-  }
-
-  // Cursor iteration protocol (ADR-0035 §1) — identical shape to List's;
-  // `iteratorValue` is `start + cursor`, never a materialized index into an
-  // element buffer (there is none).
-
-
-  iteratorValue(cursor) => self.start_ + cursor
-
-  // Structural equality over the normalized bound fields (start/end/
-  // inclusive) — not the generated sequence, which would defeat laziness for
-  // a large range. Guarded by isA(Range).
-  ==(other) {
-    if (other.isA(Range)) {
-      let sameStart = (self.start_ == other.start_)
-      let sameEnd = (self.end_ == other.end_)
-      let sameBound = (self.inclusive_ == other.inclusive_)
-      return sameStart and sameEnd and sameBound
-    } else {
-      return false
+  _sliceBoundary_(coordinate, size) {
+    if (coordinate < 0) {
+      if (coordinate < -size) { return 0 }
+      return size + coordinate
     }
+    if (coordinate > size) { return size }
+    return coordinate
   }
 
-  !=(other) {
-    return not (self == other)
+  _sliceInclusiveEnd_(coordinate, size) {
+    if (coordinate < 0) {
+      if (coordinate < -size) { return 0 }
+      // Here -size <= coordinate < 0, so adding one cannot overflow and
+      // denotes the exclusive boundary after the included element.
+      return size + coordinate + 1
+    }
+    if (coordinate >= size) { return size }
+    return coordinate + 1
   }
 
-  // Value hash (immutable ⇒ hashable, Q5): a .ph fold over the three bound
-  // fields' own `hash` — zero new floor, consistent with == by construction.
-  hash {
-    let acc = 17
-    acc = (acc * 31 + self.start_.hash) % 999999937
-    acc = (acc * 31 + self.end_.hash) % 999999937
-    acc = (acc * 31 + self.inclusive_.hash) % 999999937
-    return acc
+  // Normalizes this bound descriptor for a finite sequence of `size` elements.
+  // Omitted endpoints are distinct from a supplied None, which is malformed.
+  sliceBounds_(size) {
+    let start = 0
+    let end = size
+    let lower = self.lower_
+    if (lower.isSome) {
+      let coordinate = lower.unwrapOr(None)
+      if (not self._isSliceCoordinate_(coordinate)) {
+        return Err.new(SliceError.new("Range lower bound must be an integer coordinate"))
+      }
+      start = self._sliceBoundary_(coordinate, size)
+    }
+    let upper = self.upper_
+    if (upper.isSome) {
+      let coordinate = upper.unwrapOr(None)
+      if (not self._isSliceCoordinate_(coordinate)) {
+        return Err.new(SliceError.new("Range upper bound must be an integer coordinate"))
+      }
+      if (self.upperInclusive_) {
+        end = self._sliceInclusiveEnd_(coordinate, size)
+      } else {
+        end = self._sliceBoundary_(coordinate, size)
+      }
+    }
+    return Ok.new((start, end))
   }
 }
 
@@ -1406,9 +1587,62 @@ class Range {
 class Bytes {
   size => self.size_
 
-  // Bare-or-None passthrough (List#at's shape). Unlike List, the union is
-  // unambiguous: an octet is never None (bytes.md §3).
   at(i) => self.at_(i)
+
+  get(index) {
+    let raw = self.at_(index)
+    let len = self.size
+    let i = index
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return Some.new(raw)
+    }
+    return None
+  }
+
+  [index] {
+    if (index.isA(Range)) {
+      return index.sliceBounds_(self.size).match(
+        ok: { bounds =>
+          let start = bounds[0]
+          let end = bounds[1]
+          if (start > end) { end = start }
+          self.slice_(start, end)
+        },
+        err: { error => error.raise() }
+      )
+    }
+    let raw = self.at_(index)
+    let len = self.size
+    let i = index
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    throw IndexError.new("Bytes index out of range")
+  }
+
+  [index, default:] {
+    let raw = self.at_(index)
+    let len = self.size
+    let i = index
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    return default
+  }
+
+  get(index, orElse:) {
+    let raw = self.at_(index)
+    let len = self.size
+    let i = index
+    if (i < 0) { i = len + i }
+    if (i >= 0 and i < len) {
+      return raw
+    }
+    return orElse.call(index)
+  }
 
   iteratorValue(cursor) => self.at_(cursor)
 
@@ -1426,16 +1660,17 @@ class Bytes {
     if (not self.isOctet(v)) {
       throw ArgumentError.new("Bytes#set: value must be an integer in 0..255")
     }
-    if ((i < 0) or (i >= self.size)) {
-      throw ArgumentError.new("Bytes#set: index out of range")
+    let len = self.size
+    let norm = i
+    if (norm < 0) { norm = len + norm }
+    if ((norm < 0) or (norm >= len)) {
+      throw IndexError.new("Bytes index out of range")
     }
     self.set_(i, v)
     return self
   }
 
   at(i, put:) { return self.set(i, put) }
-
-  [i] { return self.at(i) }
 
   [i, put:] { return self.at(i, put: put) }
 

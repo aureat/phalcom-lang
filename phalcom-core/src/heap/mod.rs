@@ -199,10 +199,9 @@ impl Heap {
         self.insert(Object::Record(Box::new(RecordObject::new(labels, values))))
     }
 
-    /// Allocates an [`Object::Range`] from its three bound fields and returns
-    /// its [`ObjRef`].
-    pub fn alloc_range(&mut self, start: crate::value::Value, end: crate::value::Value, inclusive: bool) -> ObjRef {
-        self.insert(Object::Range(RangeObject::new(start, end, inclusive)))
+    /// Allocates an [`Object::Range`] from optional endpoint values.
+    pub fn alloc_range(&mut self, lower: Option<crate::value::Value>, upper: Option<crate::value::Value>, upper_inclusive: bool) -> ObjRef {
+        self.insert(Object::Range(RangeObject::new(lower, upper, upper_inclusive)))
     }
 
     /// Borrows the [`Object`] behind `id`.

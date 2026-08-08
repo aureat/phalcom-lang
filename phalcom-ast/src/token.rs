@@ -199,6 +199,8 @@ pub enum Token {
     Dot,
     /// The `..` range punctuation mark.
     DotDot,
+    /// The `..=` inclusive-upper range punctuation mark.
+    DotDotEqual,
     /// The `...` spread punctuation mark.
     DotDotDot,
     /// The `->` arrow punctuation mark.

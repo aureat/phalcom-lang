@@ -90,10 +90,13 @@ pub fn list_raw_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 /// index is not a non-negative integer `Number`.
 pub fn list_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
-    let index = expect_index(&args[0])?;
-    match vm.heap.list(id).get(index) {
-        Some(value) => Ok(value),
-        None => Ok(vm.none_value()),
+    let len = vm.heap.list(id).len();
+    match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
+        super::index::NormalizedIndex::Valid(idx) => match vm.heap.list(id).get(idx) {
+            Some(value) => Ok(value),
+            None => Ok(vm.none_value()),
+        },
+        super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
     }
 }
 
@@ -109,17 +112,19 @@ pub fn list_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
 /// is not a non-negative integer `Number`, or the index is out of range.
 pub fn list_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
-    let index = expect_index(&args[0])?;
-    let list = vm.heap.list_mut(id);
-    if index >= list.len() {
-        return Err(RuntimeError::Type {
-            expected: "an in-range index",
-            found: "an out-of-range Number",
+    let len = vm.heap.list(id).len();
+    let index = match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
+        super::index::NormalizedIndex::Valid(idx) => idx,
+        super::index::NormalizedIndex::OutOfRange => {
+            return Err(RuntimeError::Type {
+                expected: "an in-range index",
+                found: "an out-of-range Number",
+            }
+            .into());
         }
-        .into());
-    }
-    list.set(index, args[1]);
-    Ok(vm.none_value())
+    };
+    vm.heap.list_mut(id).set(index, args[1]);
+    Ok(Value::Unit)
 }
 
 /// Signature: `List::push_(_)` — appends one element.
@@ -135,7 +140,38 @@ pub fn list_raw_set(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 pub fn list_raw_push(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_list(vm, receiver)?;
     vm.heap.list_mut(id).push(args[0]);
-    Ok(vm.none_value())
+    Ok(Value::Unit)
+}
+
+/// Signature: `List::replaceSlice_(_,_,_)` — replace a canonical half-open span.
+///
+/// The bounds have already been normalized by `Range#sliceBounds_` in `core.ph`.
+/// Replacement is deliberately restricted to `List` for C.3: accepting an arbitrary
+/// iterable would require a boundedness and re-entrant iteration policy. Snapshotting
+/// before the mutable borrow also makes `list.replaceSlice_(..., list)` safe when the
+/// replacement and destination are the same list.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] when either receiver is not a `List`, either bound
+/// is not a non-negative integer, or the bounds do not satisfy `start <= end <= len`.
+pub fn list_replace_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let destination: ObjRef = expect_list(vm, receiver)?;
+    let replacement: ObjRef = expect_list(vm, &args[2])?;
+    let start = expect_index(&args[0])?;
+    let end = expect_index(&args[1])?;
+    let len = vm.heap.list(destination).len();
+    if start > end || end > len {
+        return Err(RuntimeError::Type {
+            expected: "slice bounds satisfying 0 <= start <= end <= list size",
+            found: "invalid slice bounds",
+        }
+        .into());
+    }
+
+    let replacements = vm.heap.list(replacement).elements().to_vec();
+    vm.heap.list_mut(destination).replace_slice(start, end, replacements);
+    Ok(Value::Unit)
 }
 
 /// Signature: `List::toString` — renders as `"[e1, e2, e3]"`.

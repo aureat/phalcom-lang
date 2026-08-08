@@ -883,6 +883,7 @@ impl<'input> Lexer<'input> {
             b':' if next == Some(b':') => (2, Token::ColonColon),
             b':' => (1, Token::Colon),
             b'.' if next == Some(b'.') && self.peek_at(2) == Some(b'.') => (3, Token::DotDotDot),
+            b'.' if next == Some(b'.') && self.peek_at(2) == Some(b'=') => (3, Token::DotDotEqual),
             b'.' if next == Some(b'.') => (2, Token::DotDot),
             b'.' => (1, Token::Dot),
             b'(' => (1, Token::LParen),

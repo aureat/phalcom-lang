@@ -1,4 +1,4 @@
-//! A native, heap-backed lazy numeric interval.
+//! A native, heap-backed range bound descriptor.
 //!
 //! Realizes [ADR-0032 §1](../../../docs/adr/accepted/0032-collections-representation-and-literals.md)
 //! (native heap-arm representation) and
@@ -6,51 +6,46 @@
 //! (the raw-primitive floor amendment): `Range` is a dedicated
 //! [`crate::heap::Object::Range`] heap variant, mirroring
 //! [`crate::heap::ListObject`] — **not** an [`crate::heap::InstanceObject`].
-//! Unlike every other native collection arm this unit builds, `Range` holds
-//! **no element storage at all** — just its three bound fields
-//! (`docs/spec/v0.2/core/tuple-and-range.md` §2 RG-2, laziness): `each`/
-//! `toList` *generate* `start, start+1, …` in `.ph` over these getters +
-//! `Number` arithmetic, so `Range.new(1, 1000000, true)` is O(1) to construct
-//! regardless of its logical size.
+//! It records optional bounds and upper inclusion only. Progression and
+//! iteration semantics are deliberately deferred.
 
 use crate::value::Value;
 
-/// A native, lazy numeric interval — three fields, no element buffer.
-///
-/// The three VM-blessed floor primitives
-/// ([ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md),
-/// `phalcom-core/src/primitive/range.rs`) are raw field reads; the surfaced
-/// `size`/`at(_)`/`includes(_)`/`first`/`last`/`each(_)`/`toList` protocol is
-/// defined in `.ph` over them (`tuple-and-range.md` §2).
+/// A native range descriptor. `Value::Nil` is private and means an omitted
+/// endpoint, avoiding an arena-wide size increase from two `Option<Value>`s.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RangeObject {
-    /// The range's start bound (`Range#first`).
-    start: Value,
-    /// The range's end bound — inclusive or exclusive per [`Self::inclusive`]
-    /// (RG-1, the `a..b`/`a...b` bound convention).
-    end: Value,
-    /// `true` for `a..b` (inclusive of `end`), `false` for `a...b` (exclusive).
-    inclusive: bool,
+    lower: Value,
+    upper: Value,
+    upper_inclusive: bool,
 }
 
 impl RangeObject {
-    /// Builds a range from its three bound fields.
-    pub fn new(start: Value, end: Value, inclusive: bool) -> Self {
-        Self { start, end, inclusive }
+    /// Builds a range, canonicalizing omitted endpoints to `Value::Nil`.
+    pub fn new(lower: Option<Value>, upper: Option<Value>, upper_inclusive: bool) -> Self {
+        assert!(!upper_inclusive || upper.is_some(), "an inclusive upper bound must be present");
+        if let Some(lower) = lower {
+            assert!(!matches!(lower, Value::Nil), "a present lower bound cannot be Value::Nil");
+        }
+        if let Some(upper) = upper {
+            assert!(!matches!(upper, Value::Nil), "a present upper bound cannot be Value::Nil");
+        }
+        Self {
+            lower: lower.unwrap_or(Value::Nil),
+            upper: upper.unwrap_or(Value::Nil),
+            upper_inclusive,
+        }
     }
 
-    /// Returns the start bound.
-    pub fn start(&self) -> Value {
-        self.start
+    pub fn lower(&self) -> Option<Value> {
+        (!matches!(self.lower, Value::Nil)).then_some(self.lower)
     }
 
-    /// Returns the end bound.
-    pub fn end(&self) -> Value {
-        self.end
+    pub fn upper(&self) -> Option<Value> {
+        (!matches!(self.upper, Value::Nil)).then_some(self.upper)
     }
 
-    /// Returns whether `end` is included (`a..b`) or excluded (`a...b`).
-    pub fn inclusive(&self) -> bool {
-        self.inclusive
+    pub fn upper_inclusive(&self) -> bool {
+        self.upper_inclusive
     }
 }

@@ -199,39 +199,6 @@ fn list_satisfies_sequence_contract() {
     assert_sequence_contract(&mut vm, &spec, build_list);
 }
 
-/// Builds a `Map` keyed `0 -> elems[0], 1 -> elems[1], …` through the surface
-/// protocol (`Map.new()` + `.at(_,put)`) — the numeric index doubles as the
-/// key, so the generic `at(i)` sequence-protocol check (as-built.md §3.3(a))
-/// exercises `Map#at(_)`'s real keyed-lookup path (`get_`, re-entering the
-/// VM to send `hash`/`==` on the `Number` key) rather than a synthetic index
-/// read (U-COLLTYPES plan.md §7).
-fn build_map(vm: &mut VM, elems: &[Value]) -> Value {
-    let map_class = Value::Obj(vm.universe.classes.map_class);
-    let map = send0(vm, map_class, "new()");
-    for (i, elem) in elems.iter().enumerate() {
-        let sym = vm.get_or_intern("at(_,put)");
-        vm.send_dynamic(map, sym, &[Value::Int(i as i64), *elem]).expect("Map#at(_,put) failed");
-    }
-    map
-}
-
-/// `Map` satisfies the sequence-protocol contract (as-built.md §3.3(a)):
-/// `mutable: false` skips the L5 `add(_)` growth check (`Map` has no
-/// positional `add` — it is keyed, not indexed; DEC-CT-C is exercised
-/// separately below); `hashable: false` skips H2 (Q5: `Map` is mutable ⇒
-/// identity `hash`, not value-hashable).
-#[test]
-fn map_satisfies_sequence_contract() {
-    let mut vm = VM::new();
-    let spec = ContractSpec {
-        class_name: "Map",
-        mutable: false,
-        hashable: false,
-        min_arity: 0,
-    };
-    assert_sequence_contract(&mut vm, &spec, build_map);
-}
-
 /// Builds a `Set` from element values through the surface protocol
 /// (`Set.new()` + `.add(_)`).
 fn build_set(vm: &mut VM, elems: &[Value]) -> Value {
@@ -278,11 +245,14 @@ fn map_key_overwrite_and_remove_idempotence() {
     vm.send_dynamic(map, sym_put, &[Value::Int(1), Value::Int(20)]).unwrap();
     let size_after_overwrite = as_number(send0(&mut vm, map, "size"));
     assert_eq!(size_after_overwrite, 1.0, "overwrite must not grow size");
-    let got = send1(&mut vm, map, "at(_)", Value::Int(1));
+    let got = send1(&mut vm, map, "[_]", Value::Int(1));
     assert_eq!(as_number(got), 20.0, "overwrite must update the stored value");
 
-    // Missing key -> the None singleton (total, never nil, never a raise).
-    let missing = send1(&mut vm, map, "at(_)", Value::Int(999));
+    // Missing key -> KeyError on strict [_] lookup, None on safe get(_) lookup.
+    let sym_at = vm.get_or_intern("[_]");
+    let result = vm.send_dynamic(map, sym_at, &[Value::Int(999)]);
+    assert!(result.is_err(), "strict lookup of absent key must raise KeyError");
+    let missing = send1(&mut vm, map, "get(_)", Value::Int(999));
     assert!(matches!(missing, Value::Obj(id) if id == vm.universe.classes.none_singleton));
 
     // remove(absent) is a no-op returning self.
@@ -398,7 +368,7 @@ fn tuple_is_a_valid_map_key() {
     vm.send_dynamic(map, sym_put, &[key1, Value::Int(9)]).unwrap();
 
     let key2 = build_tuple(&mut vm, &[Value::Int(1), Value::Int(2)]);
-    let got = send1(&mut vm, map, "at(_)", key2);
+    let got = send1(&mut vm, map, "[_]", key2);
     assert_eq!(
         as_number(got),
         9.0,

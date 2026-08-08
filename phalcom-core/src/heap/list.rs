@@ -73,4 +73,13 @@ impl ListObject {
     pub fn push(&mut self, value: Value) {
         self.elements.push(value);
     }
+
+    /// Replaces a validated half-open span with owned replacement elements.
+    ///
+    /// Callers validate `start <= end <= self.len()` before reaching this
+    /// representation operation. Keeping the splice here confines List storage
+    /// mutation to its heap type.
+    pub fn replace_slice(&mut self, start: usize, end: usize, replacements: Vec<Value>) {
+        self.elements.splice(start..end, replacements);
+    }
 }

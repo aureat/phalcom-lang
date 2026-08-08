@@ -1528,6 +1528,16 @@ impl VM {
                     crate::primitive::set::set_literal_add(self, id, value)?;
                 }
                 Bytecode::FinishSetLiteral => {}
+                Bytecode::BuildRange {
+                    has_lower,
+                    has_upper,
+                    upper_inclusive,
+                } => {
+                    let upper = if has_upper { Some(self.pop()?) } else { None };
+                    let lower = if has_lower { Some(self.pop()?) } else { None };
+                    let range = self.heap.alloc_range(lower, upper, upper_inclusive);
+                    self.stack.push(Value::Obj(range));
+                }
             }
             #[cfg(feature = "vm-trace")]
             debug!("Stack after opcode {:?}: {:?}", opcode, self.stack);

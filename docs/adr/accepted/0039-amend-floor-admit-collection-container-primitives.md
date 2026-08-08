@@ -1,5 +1,10 @@
 # 39. Amend the frozen floor — admit collection-container primitives (`Map`/`Set`/`Tuple`/`Range`)
 
+> **Supersession note (C.2 Range syntax and representation):** the Range row
+> is superseded: direct bytecode constructs Range, and its native floor is now
+> `lower_`, `upper_`, and `upperInclusive_`. Map, Set, and Tuple rows remain
+> historical and unchanged.
+
 - Status: Accepted
 - Date: 2026-07-12
 - Ratified by user 2026-07-12; landing record for U-COLLTYPES.

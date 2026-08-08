@@ -18,7 +18,7 @@ use crate::primitive::float::{
 use crate::primitive::int::{
     int_and, int_bit_at, int_bit_count, int_bit_length, int_class_new, int_not, int_or, int_shl, int_shr, int_trailing_zeros, int_xor,
 };
-use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_to_string};
+use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
@@ -34,7 +34,7 @@ use crate::primitive::object::{
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_static;
-use crate::primitive::range::{range_class_new, range_raw_end, range_raw_inclusive, range_raw_start};
+use crate::primitive::range::{range_raw_lower, range_raw_upper, range_raw_upper_inclusive};
 use crate::primitive::record::{record_raw_label_at, record_raw_size, record_raw_value_at};
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
@@ -42,6 +42,7 @@ use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_tostring};
 use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_raw_write, system_schedule};
 use crate::primitive::tuple::{
     tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size,
+    tuple_raw_slice,
 };
 use crate::vm::VM;
 
@@ -342,6 +343,7 @@ impl Universe {
         primitive!(vm, list_cls, "at_", SignatureKind::Method(1), list_raw_at);
         primitive!(vm, list_cls, "set_", SignatureKind::Method(2), list_raw_set);
         primitive!(vm, list_cls, "push_", SignatureKind::Method(1), list_raw_push);
+        primitive!(vm, list_cls, "replaceSlice_", SignatureKind::Method(3), list_replace_slice);
         primitive!(vm, list_cls, "toString", SignatureKind::Getter, list_to_string);
 
         // Kernel `Bytes` (PDR-0011 ruling 3, U-BYTES; the trailing `_` marks
@@ -403,22 +405,19 @@ impl Universe {
         primitive!(vm, tuple_cls, "labelAt_", SignatureKind::Method(1), tuple_raw_label_at);
         primitive!(vm, tuple_cls, "positionals_", SignatureKind::Getter, tuple_raw_positionals);
         primitive!(vm, tuple_cls, "labeled_", SignatureKind::Getter, tuple_raw_labeled);
+        primitive!(vm, tuple_cls, "slice_", SignatureKind::Method(2), tuple_raw_slice);
 
         let record_cls = vm.universe.classes.record_class;
         primitive!(vm, record_cls, "size_", SignatureKind::Getter, record_raw_size);
         primitive!(vm, record_cls, "labelAt_", SignatureKind::Method(1), record_raw_label_at);
         primitive!(vm, record_cls, "valueAt_", SignatureKind::Method(1), record_raw_value_at);
 
-        // Kernel `Range` (ADR-0039, U-COLLTYPES Phase 3): 4 native floor
-        // primitives — the WHOLE floor (three bound-field reads + the
-        // allocator). `.ph`'s `size`/`at(_)`/`includes(_)`/`first`/`last`/
-        // `each(_)`/`toList`/`==`/`hash` are all derived over these +
-        // `Number` arithmetic in `core.ph`.
+        // Range syntax uses BuildRange directly. The floor only observes its
+        // optional bounds and inclusion bit.
         let range_cls = vm.universe.classes.range_class;
-        primitive_static!(vm, range_cls, "new", SignatureKind::Method(3), range_class_new);
-        primitive!(vm, range_cls, "start_", SignatureKind::Getter, range_raw_start);
-        primitive!(vm, range_cls, "end_", SignatureKind::Getter, range_raw_end);
-        primitive!(vm, range_cls, "inclusive_", SignatureKind::Getter, range_raw_inclusive);
+        primitive!(vm, range_cls, "lower_", SignatureKind::Getter, range_raw_lower);
+        primitive!(vm, range_cls, "upper_", SignatureKind::Getter, range_raw_upper);
+        primitive!(vm, range_cls, "upperInclusive_", SignatureKind::Getter, range_raw_upper_inclusive);
 
         // `Error` root (U-CORE-6, ADR-0008): `message` is a native slot-0
         // accessor (mirrors `Message`'s accessors — a `.ph` getter over this

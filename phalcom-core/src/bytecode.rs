@@ -50,6 +50,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "BeginSetLiteral",
     "SetLiteralAdd",
     "FinishSetLiteral",
+    "BuildRange",
 ];
 
 // The set of instructions for our VM. This is the language the compiler "speaks".
@@ -389,12 +390,18 @@ pub enum Bytecode {
     BeginSetLiteral,
     SetLiteralAdd,
     FinishSetLiteral,
+    /// Builds a native Range directly from present lower-then-upper endpoints.
+    BuildRange {
+        has_lower: bool,
+        has_upper: bool,
+        upper_inclusive: bool,
+    },
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 46;
+    pub const VARIANTS: usize = 47;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -451,6 +458,7 @@ impl Bytecode {
             Bytecode::BeginSetLiteral => 43,
             Bytecode::SetLiteralAdd => 44,
             Bytecode::FinishSetLiteral => 45,
+            Bytecode::BuildRange { .. } => 46,
         }
     }
 

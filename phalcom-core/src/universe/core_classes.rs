@@ -377,13 +377,12 @@ pub struct CoreClasses {
     pub tuple_class: ClassId,
     /// `Record`, the immutable labeled product representation.
     pub record_class: ClassId,
-    /// `Range`, the native lazy numeric interval
+    /// `Range`, the native bounds descriptor
     /// ([ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
     /// A dedicated [`crate::heap::Object::Range`] heap variant over
-    /// [`crate::heap::RangeObject`] — three bound fields, no element
-    /// storage (RG-2 laziness). Immutable ⇒ value-hashable, a valid
-    /// `Map`/`Set` key (Q5).
+    /// [`crate::heap::RangeObject`] — optional lower/upper bounds plus upper
+    /// inclusion. Progression and equality semantics are deferred.
     pub range_class: ClassId,
     /// `Bytes`, the native fixed-length mutable octet buffer
     /// ([PDR-0011](../../../docs/decisions/0011-admit-bytes-native-octet-buffer.md)).

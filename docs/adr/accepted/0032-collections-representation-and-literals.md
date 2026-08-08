@@ -1,5 +1,11 @@
 # 32. Collections: native representation, shared protocol, and literal surface
 
+> **Supersession note (C.2 Range syntax and representation):** the historical
+> Range rows below are superseded for Range only. Range now records optional
+> lower/upper bounds, `..` is upper-exclusive, `..=` is upper-inclusive, and
+> direct bytecode replaces the public three-argument constructor. `...` is not
+> Range syntax.
+
 - Status: Accepted
 - Date: 2026-07-12
 - Related: [ADR-0020](0020-kernel-list-native-array-protocol.md) (native `List`);

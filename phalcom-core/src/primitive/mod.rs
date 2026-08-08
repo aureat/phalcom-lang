@@ -7,6 +7,7 @@ pub mod error;
 pub mod family;
 pub mod fiber;
 pub mod float;
+pub mod index;
 pub mod int;
 pub mod list;
 pub mod map;

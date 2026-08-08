@@ -714,6 +714,10 @@ fn floor_census_matches_installed_bindings() {
     // Spec A product foundations replace the public Tuple.fromList(_) floor
     // entry with internal __fromList(_), add four lane observers, and admit
     // three immutable Record observers: +7 (151 -> 158).
+    // C.3 range slicing admits only two underivable operations: Tuple#slice_
+    // reconstructs a label-preserving immutable product, and List#replaceSlice_
+    // mutates a variable-length span while preserving receiver identity:
+    // +2 (158 -> 160).
 
     let mut vm = VM::new();
     let c = vm.universe.classes;
@@ -837,6 +841,7 @@ fn floor_census_matches_installed_bindings() {
         (c.list_class, false, "at_(_)"),
         (c.list_class, false, "set_(_,_)"),
         (c.list_class, false, "push_(_)"),
+        (c.list_class, false, "replaceSlice_(_,_,_)"),
         (c.list_class, false, "toString"),
         // §2.x Bytes (PDR-0011 ruling 3 + PDR-0013 ruling 4, U-BYTES)
         (c.bytes_class, true, "new(_)"),
@@ -881,6 +886,7 @@ fn floor_census_matches_installed_bindings() {
         (c.tuple_class, false, "labelAt_(_)"),
         (c.tuple_class, false, "positionals_"),
         (c.tuple_class, false, "labeled_"),
+        (c.tuple_class, false, "slice_(_,_)"),
         // Record (Spec A product foundations) — NEW_RECORD
         (c.record_class, false, "size_"),
         (c.record_class, false, "labelAt_(_)"),
@@ -969,10 +975,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        158,
-        "census must enumerate exactly 158 bindings after the Spec A Tuple lane and Record floor amendment"
+        160,
+        "census must enumerate exactly 160 bindings after the C.3 range-slicing floor amendment"
     );
-    assert_eq!(live.len(), 158, "the live floor must be exactly 158 bindings");
+    assert_eq!(live.len(), 160, "the live floor must be exactly 160 bindings");
 }
 
 #[test]

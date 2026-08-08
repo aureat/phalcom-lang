@@ -46,6 +46,7 @@ PDR supersedes lives in [`README.md`](README.md#adr--pdr-mapping).
 | [0028](0028-class-and-constructor-decorator-canon.md) | `@class` placement and `@constructor` method canon; `@construct` class derive; retired-spelling hints | Accepted (ratified 2026-07-21) | supersedes ADR-0063's target-polymorphic `@constructor`; amends ADR-0054 and PDR-0021 | | ❌ unimplemented — docs canon only; decorator split and legacy hints remain implementation work |
 | [0029](0029-string-literals-and-interpolation-completion.md) | Complete string interpolation; defer multiline literals | Accepted | amends ADR-0022 completion details; preserves `\(expr)` | | ❌ ruled 2026-07-22, unimplemented |
 | [0030](0030-replace-extends-keyword-with-is.md) | Replace `extends` keyword with `is` for class inheritance (`class Sub is Super`) | Accepted (ratified 2026-07-22) | | | ❌ ratified 2026-07-22, implementation in progress |
+| [0031](0031-range-slicing-floor-amendment.md) | Range slicing uses normalized bounds with two native collection seams | Accepted | amends ADR-0019 and ADR-0039 | | ? implementation added 2026-08-08; verification intentionally deferred |
 
 ## Cross-tracker obligations
 

@@ -552,6 +552,14 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
             collect_var_occurrences_in_expr(&a.name, names, out);
             collect_var_occurrences_in_expr(&a.value, names, out);
         }
+        Expr::Range(range) => {
+            if let Some(lower) = &range.lower {
+                collect_var_occurrences_in_expr(lower, names, out);
+            }
+            if let Some(upper) = &range.upper {
+                collect_var_occurrences_in_expr(upper, names, out);
+            }
+        }
         Expr::Unary(u) => collect_var_occurrences_in_expr(&u.expr, names, out),
         Expr::Binary(b) => {
             collect_var_occurrences_in_expr(&b.left, names, out);
@@ -771,6 +779,14 @@ impl Collector {
             Expr::Assignment(a) => {
                 self.walk_expr(&a.name);
                 self.walk_expr(&a.value);
+            }
+            Expr::Range(range) => {
+                if let Some(lower) = &range.lower {
+                    self.walk_expr(lower);
+                }
+                if let Some(upper) = &range.upper {
+                    self.walk_expr(upper);
+                }
             }
             Expr::Unary(u) => self.walk_expr(&u.expr),
             Expr::Binary(b) => {

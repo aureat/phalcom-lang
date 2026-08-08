@@ -1625,12 +1625,14 @@ impl<'source> Parser<'source> {
     /// exactly match, since [`crate`]-side selector encoding for a variadic
     /// method ignores labels entirely — U9 corrections §0 point 3).
     fn parse_param_list(&mut self) -> ParserResult<Vec<ParameterDef>> {
+        self.skip_newlines();
         if matches!(self.peek(), Token::RParen | Token::RBracket) {
             return Ok(Vec::new());
         }
         let mut params: Vec<ParameterDef> = Vec::new();
         let mut any_labeled = false;
         loop {
+            self.skip_newlines();
             let start = self.cur_start();
             if params.last().is_some_and(|p| p.is_rest) {
                 return Err(SyntaxError {
@@ -1671,10 +1673,12 @@ impl<'source> Parser<'source> {
             any_labeled |= label.is_some();
             let range = (start..self.prev_end).into();
             params.push(ParameterDef { name, label, is_rest, range });
+            self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
             }
         }
+        self.skip_newlines();
         Ok(params)
     }
 
@@ -1808,7 +1812,7 @@ impl<'source> Parser<'source> {
     /// Propagates any error from the operand expressions.
     fn parse_assignment(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
-        let left = self.parse_coalesce()?;
+        let left = self.parse_range()?;
 
         if let Some(op) = compound_op(self.peek()) {
             self.advance();
@@ -1853,6 +1857,67 @@ impl<'source> Parser<'source> {
         }
 
         Ok(left)
+    }
+
+    /// Parses the non-associative Range tier immediately above assignment.
+    /// Endpoint expressions use the existing non-assignment tier, leaving this
+    /// layer reversible when a full precedence table is ratified.
+    fn parse_range(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        let lower = if matches!(self.peek(), Token::DotDot | Token::DotDotEqual) {
+            None
+        } else {
+            Some(self.parse_coalesce()?)
+        };
+
+        let upper_inclusive = match self.peek() {
+            Token::DotDot => false,
+            Token::DotDotEqual => true,
+            _ => return Ok(lower.expect("range parser reaches this branch only after parsing an expression")),
+        };
+        self.advance();
+        let upper = self.starts_expression().then(|| self.parse_coalesce()).transpose()?;
+        if upper_inclusive && upper.is_none() {
+            return Err(self.error_here(strs(&["an upper bound after `..=`"])));
+        }
+        if matches!(self.peek(), Token::DotDot | Token::DotDotEqual) {
+            return Err(self.error_here(strs(&["end of Range expression (Range operators are non-associative)"])));
+        }
+        Ok(Expr::Range(Box::new(RangeExpr {
+            lower,
+            upper,
+            upper_inclusive,
+            range: (start..self.prev_end).into(),
+        })))
+    }
+
+    /// Determines endpoint presence from grammar, not whitespace.
+    fn starts_expression(&self) -> bool {
+        matches!(
+            self.peek(),
+            Token::If
+                | Token::While
+                | Token::True
+                | Token::False
+                | Token::Int { .. }
+                | Token::Float(_)
+                | Token::String(_)
+                | Token::StringInterp(_)
+                | Token::NameSymbol(_)
+                | Token::SelectorSymbol { .. }
+                | Token::QuotedSymbol(_)
+                | Token::Identifier(_)
+                | Token::SelfKw
+                | Token::Class
+                | Token::Super
+                | Token::LBracket
+                | Token::LParen
+                | Token::RecordLBrace
+                | Token::LBrace
+                | Token::Minus
+                | Token::Not
+                | Token::Tilde
+        )
     }
 
     /// Parses a `??` null-coalescing chain (right-associative), desugaring to
@@ -2893,6 +2958,7 @@ impl<'source> Parser<'source> {
         let mut labels = Vec::new();
         let mut seen_label = false;
         loop {
+            self.skip_newlines();
             if matches!(self.peek(), Token::RParen) {
                 self.advance();
                 break;
@@ -2908,6 +2974,7 @@ impl<'source> Parser<'source> {
                 labels.push(Some(slot));
             }
 
+            self.skip_newlines();
             match self.peek() {
                 Token::Comma => {
                     self.advance();
@@ -2991,6 +3058,7 @@ impl<'source> Parser<'source> {
     fn parse_paren_or_tuple(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         self.advance(); // '('
+        self.skip_newlines();
         if matches!(self.peek(), Token::RParen) {
             self.advance();
             return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
@@ -3002,6 +3070,7 @@ impl<'source> Parser<'source> {
         let mut entries = Vec::new();
         let mut seen_label = false;
 
+        self.skip_newlines();
         if let Some(label) = self.parse_product_label()? {
             let value = self.parse_expr()?;
             let label_start = match &label {
@@ -3013,13 +3082,16 @@ impl<'source> Parser<'source> {
                 range: (label_start..self.prev_end).into(),
             });
             seen_label = true;
+            self.skip_newlines();
             if !self.eat(&Token::Comma) {
+                self.skip_newlines();
                 self.expect(&Token::RParen, &[")"])?;
                 return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
                     entries,
                     range: (start..self.prev_end).into(),
                 })));
             }
+            self.skip_newlines();
             if matches!(self.peek(), Token::RParen) {
                 self.advance();
                 return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
@@ -3029,12 +3101,15 @@ impl<'source> Parser<'source> {
             }
         } else {
             let expr = self.parse_expr()?;
+            self.skip_newlines();
             if !self.eat(&Token::Comma) {
+                self.skip_newlines();
                 self.expect(&Token::RParen, &[")"])?;
                 return Ok(expr);
             }
             let range = expr.range();
             entries.push(TupleLiteralEntry::Positional { expr, range });
+            self.skip_newlines();
             if matches!(self.peek(), Token::RParen) {
                 self.advance();
                 return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
@@ -3045,6 +3120,7 @@ impl<'source> Parser<'source> {
         }
 
         loop {
+            self.skip_newlines();
             if let Some(label) = self.parse_product_label()? {
                 let value = self.parse_expr()?;
                 let label_start = match &label {
@@ -3068,15 +3144,18 @@ impl<'source> Parser<'source> {
                 entries.push(TupleLiteralEntry::Positional { expr, range });
             }
 
+            self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
             }
+            self.skip_newlines();
             if matches!(self.peek(), Token::RParen) {
                 self.advance();
                 break;
             }
         }
 
+        self.skip_newlines();
         self.expect(&Token::RParen, &[")"])?;
         Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
             entries,
@@ -3131,6 +3210,7 @@ impl<'source> Parser<'source> {
     /// `**mapping` is represented structurally as an [`MapLiteralEntry::Expansion`]
     /// so Spec F can lower it later. This parser does not make expansion executable.
     fn parse_map_literal(&mut self, start: usize) -> ParserResult<Expr> {
+        self.skip_newlines();
         if self.eat(&Token::RBrace) {
             return Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
                 entries: Vec::new(),
@@ -3139,6 +3219,7 @@ impl<'source> Parser<'source> {
         }
         let mut entries = Vec::new();
         loop {
+            self.skip_newlines();
             let key_start = self.cur_start();
             if self.eat(&Token::DoubleAsterisk) {
                 let expr = self.parse_expr()?;
@@ -3146,9 +3227,11 @@ impl<'source> Parser<'source> {
                     expr,
                     range: (key_start..self.prev_end).into(),
                 });
+                self.skip_newlines();
                 if !self.eat(&Token::Comma) {
                     break;
                 }
+                self.skip_newlines();
                 if matches!(self.peek(), Token::RBrace) {
                     break;
                 }
@@ -3169,20 +3252,24 @@ impl<'source> Parser<'source> {
                 }
             };
             self.expect(&Token::Colon, &["\":\""])?;
+            self.skip_newlines();
             let value = self.parse_expr()?;
             entries.push(MapLiteralEntry::Association {
                 key,
                 value,
                 range: (key_start..self.prev_end).into(),
             });
+            self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
             }
+            self.skip_newlines();
             // Permit a trailing comma before the closing brace.
             if matches!(self.peek(), Token::RBrace) {
                 break;
             }
         }
+        self.skip_newlines();
         self.expect(&Token::RBrace, &["\"}\""])?;
         Ok(Expr::MapLiteral(Box::new(MapLiteralExpr {
             entries,
@@ -3211,22 +3298,27 @@ impl<'source> Parser<'source> {
     /// "pending" diagnostic.
     fn parse_comma_exprs(&mut self, terminator: &Token) -> ParserResult<Vec<Expr>> {
         let mut elems = Vec::new();
+        self.skip_newlines();
         if self.peek() == terminator {
             return Ok(elems);
         }
         loop {
+            self.skip_newlines();
             if matches!(self.peek(), Token::Asterisk) {
                 return Err(self.error_message_here("spread element (`*x`) in a collection literal is not yet supported"));
             }
             elems.push(self.parse_expr()?);
+            self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
             }
+            self.skip_newlines();
             // Allow a trailing comma directly before the terminator.
             if self.peek() == terminator {
                 break;
             }
         }
+        self.skip_newlines();
         Ok(elems)
     }
 
@@ -3283,11 +3375,13 @@ impl<'source> Parser<'source> {
     /// zero-arg list (`f()`, `xs[]`) parses to an empty `Vec` regardless of
     /// which one the caller is about to [`Parser::expect`].
     fn parse_arg_list(&mut self) -> ParserResult<Vec<Argument>> {
+        self.skip_newlines();
         if matches!(self.peek(), Token::RParen | Token::RBracket) {
             return Ok(Vec::new());
         }
         let mut args = Vec::new();
         loop {
+            self.skip_newlines();
             let start = self.cur_start();
             let is_labelled = Self::label_name(self.peek()).is_some() && matches!(self.peek_next(), Token::Colon);
             let label = if is_labelled {
@@ -3301,10 +3395,12 @@ impl<'source> Parser<'source> {
             let expr = self.parse_expr()?;
             let range = (start..self.prev_end).into();
             args.push(Argument { label, expr, range });
+            self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
             }
         }
+        self.skip_newlines();
         Ok(args)
     }
 }

@@ -204,8 +204,12 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             }
         }
         Object::Range(range) => {
-            trace_value(range.start(), push);
-            trace_value(range.end(), push);
+            if let Some(lower) = range.lower() {
+                trace_value(lower, push);
+            }
+            if let Some(upper) = range.upper() {
+                trace_value(upper, push);
+            }
         }
         Object::Family(family) => {
             // `selector` is a `Symbol`, `open` a `bool` — neither is an edge.

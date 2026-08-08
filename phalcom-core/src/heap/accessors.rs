@@ -351,8 +351,7 @@ impl Heap {
     /// Returns the [`RangeObject`] behind `id`, or `None` if it is not an
     /// [`Object::Range`].
     ///
-    /// There is deliberately no `range_mut` — `Range`'s three bound fields
-    /// are fixed at construction (immutable, `docs/spec/v0.2/core/tuple-and-range.md` §2).
+    /// There is deliberately no `range_mut`: bound descriptors are immutable.
     pub fn as_range(&self, id: ObjRef) -> Option<&RangeObject> {
         match self.objects.get(id) {
             Some(Object::Range(range)) => Some(range),

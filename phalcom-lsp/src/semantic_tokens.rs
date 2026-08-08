@@ -235,6 +235,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Comma
         | Token::Dot
         | Token::DotDot
+        | Token::DotDotEqual
         | Token::DotDotDot
         | Token::Arrow
         | Token::FatArrow

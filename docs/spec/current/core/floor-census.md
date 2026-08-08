@@ -33,8 +33,8 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **147** |
-| Distinct native Rust functions | **129** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **160** |
+| Distinct native Rust functions | **131** |
 | Classes carrying floor primitives | **23** (of 29 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
@@ -172,16 +172,10 @@ row, not the count, is what makes the freeze real.
 > zero new floor) — it is **not** a binding here. R-INV-0.1 audits this set.
 
 > **U-COLLTYPES Phase 3 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
-> The `Range` floor admits **+4** bindings (105 → 109) and **+4** distinct fns
-> (90 → 94): `new(_,_,_)` (static, `range_class_new`), `start_`
-> (`range_raw_start`), `end_` (`range_raw_end`), `inclusive_`
-> (`range_raw_inclusive`) — all in `primitive/range.rs`. This is the **whole**
-> floor for `Range` — three field reads plus the allocator; everything else
-> (`size`/`at(_)`/`includes(_)`/`first`/`last`/`each(_)`/`toList`/`==`/`hash`/
-> `iterate`/`iteratorValue`) is `.ph` over these + `Number` arithmetic
-> ([`RangeObject`](../../../../phalcom-core/src/range.rs) holds **no** element
-> storage — RG-2 laziness). Floor-carrying classes move **20 → 21**. R-INV-0.1
-> audits this set.
+> **Superseded for Range by C.2.** Direct `BuildRange` bytecode constructs the
+> bounds descriptor; only `lower_`, `upper_`, and `upperInclusive_` remain as
+> native observations. They surface omission as `Option`, preserving a present
+> `None` endpoint. Progression and Range equality/hash remain deferred.
 
 > **U-ERR amendment ([ADR-0038](../../../adr/0038-amend-floor-admit-block-on-ensure.md)).**
 > The error-handling catch protocol admits **+2** bindings (109 → 111) and
@@ -569,6 +563,7 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 | `at_(_)` | instance | `list_raw_at` | internal; wrapped by `at(_)` |
 | `set_(_, _)` | instance | `list_raw_set` | **installed but unwrapped** — no `at(_, put)` yet (§6) |
 | `push_(_)` | instance | `list_raw_push` | internal; wrapped by `add(_)`; amortized growth folds into `Vec::push` |
+| `replaceSlice_(_, _, _)` | instance | `list_replace_slice` | C.3 only; normalized variable-length replacement from a snapshot List |
 | `toString` | instance | `list_to_string` | native this unit (see U-LIST return contract) |
 
 ### 2.13a `Map`/`Set` — native hash collections (U-COLLTYPES Phase 1, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
@@ -614,26 +609,28 @@ a valid `Map`/`Set` key (Q5). The public protocol (`size`/`at(_)`/`each(_)`/
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
-| `fromList(_)` | static | `tuple_class_from_list` | freezes a `List`'s current elements into a fresh `Tuple`; the `(a, b)` literal's construction target |
+| `__fromList(_)` | static | `tuple_from_list_internal` | internal conversion bridge; source tuple literals use `BuildTuple` |
 | `size_` | instance | `tuple_raw_size` | wrapped by `size` |
 | `at_(_)` | instance | `tuple_raw_at` | wrapped by `at(_)`/`each(_)`; total (raw value on hit, `None` on miss) |
+| `positionalSize_` | instance | `tuple_raw_positional_size` | positional lane length |
+| `labelAt_(_)` | instance | `tuple_raw_label_at` | label-lane observation |
+| `positionals_` | instance | `tuple_raw_positionals` | canonical positional projection |
+| `labeled_` | instance | `tuple_raw_labeled` | canonical labeled projection |
+| `slice_(_, _)` | instance | `tuple_raw_slice` | C.3 label-preserving total-order slice; empty result canonicalizes to Unit |
 
 ### 2.13c `Range` — native lazy numeric interval (U-COLLTYPES Phase 3, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
 
 A dedicated `Object::Range` heap variant (`crate::range::RangeObject`) — three
 fields (`start`/`end`/`inclusive`), **no element storage** (RG-2 laziness).
-The floor is the allocator plus the three field reads — the smallest floor of
-the four container arms. The public protocol (`size`/`at(_)`/`includes(_)`/
-`first`/`last`/`each(_)`/`toList`/`==`/`!=`/`hash`/`iterate`/`iteratorValue`)
-is entirely `.ph` over these + `Number` arithmetic (§3); `each`/`toList`
-*generate* elements, never allocate a buffer up front.
+Range construction is direct `BuildRange` bytecode. Its three native observers
+surface optional bounds; progression, equality, hashing, and traversal are not
+yet part of the Range protocol.
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
-| `new(_, _, _)` | static | `range_class_new` | `(start, end, inclusive)`; RG-1's bound convention |
-| `start_` | instance | `range_raw_start` | wrapped by `first` |
-| `end_` | instance | `range_raw_end` | wrapped by `last`/`size` |
-| `inclusive_` | instance | `range_raw_inclusive` | wrapped by `size`/`includes(_)`/`last` |
+| `lower_` | instance | `range_raw_lower` | `Option` distinguishes omission from present `None` |
+| `upper_` | instance | `range_raw_upper` | `Option` distinguishes omission from present `None` |
+| `upperInclusive_` | instance | `range_raw_upper_inclusive` | true only for `..=` with upper bound |
 
 ### 2.14 `Message` — reified miss-send ([messages-and-selectors.md](../messages-and-selectors.md) §5, U8)
 

@@ -79,20 +79,15 @@ pub fn tuple_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
     Ok(Value::Int(vm.heap.tuple(id).len() as i64))
 }
 
-/// Signature: `Tuple::at_(_)` — raw indexed read, total (mirrors
-/// `list_raw_at`: hit returns the raw element, miss returns the `None`
-/// singleton — never a panic, never the raw `nil` sentinel).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if the receiver is not a `Tuple`, or if the
-/// index is not a non-negative integer `Number`.
 pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_tuple(vm, receiver)?;
-    let index = expect_index(&args[0])?;
-    match vm.heap.tuple(id).get(index) {
-        Some(value) => Ok(value),
-        None => Ok(vm.none_value()),
+    let len = vm.heap.tuple(id).len();
+    match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
+        super::index::NormalizedIndex::Valid(idx) => match vm.heap.tuple(id).get(idx) {
+            Some(value) => Ok(value),
+            None => Ok(vm.none_value()),
+        },
+        super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
     }
 }
 
@@ -103,15 +98,18 @@ pub fn tuple_raw_positional_size(vm: &mut VM, receiver: &Value, _args: &[Value])
 
 pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
-    let index = expect_index(&args[0])?;
-    Ok(vm
-        .heap
-        .tuple(id)
-        .labels()
-        .get(index)
-        .copied()
-        .map(Value::Symbol)
-        .unwrap_or_else(|| vm.none_value()))
+    let len = vm.heap.tuple(id).labels().len();
+    match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
+        super::index::NormalizedIndex::Valid(idx) => Ok(vm
+            .heap
+            .tuple(id)
+            .labels()
+            .get(idx)
+            .copied()
+            .map(Value::Symbol)
+            .unwrap_or_else(|| vm.none_value())),
+        super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
+    }
 }
 
 pub fn tuple_raw_positionals(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -124,4 +122,43 @@ pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
     let id = expect_tuple(vm, receiver)?;
     let entries = vm.heap.tuple(id).labeled_entries().collect();
     finish_tuple(vm, Vec::new(), entries).map_err(|error| RuntimeError::Internal(format!("tuple projection failed: {error:?}")).into())
+}
+
+/// Signature: `Tuple::slice_(_,_)` — rebuild a canonical half-open total-order slice.
+///
+/// `Range#sliceBounds_` owns bound interpretation. This primitive receives only
+/// canonical coordinates and reconstructs through [`finish_tuple`] so a zero-length
+/// result is the canonical `Unit` value. Values selected from the labeled suffix retain
+/// their labels and encounter order.
+///
+/// # Errors
+///
+/// Returns [`RuntimeError::Type`] when the receiver is not a `Tuple`, either bound is
+/// malformed, or the bounds do not satisfy `0 <= start <= end <= tuple size`.
+pub fn tuple_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let id = expect_tuple(vm, receiver)?;
+    let start = expect_index(&args[0])?;
+    let end = expect_index(&args[1])?;
+    let tuple = vm.heap.tuple(id);
+    if start > end || end > tuple.len() {
+        return Err(RuntimeError::Type {
+            expected: "slice bounds satisfying 0 <= start <= end <= tuple size",
+            found: "invalid slice bounds",
+        }
+        .into());
+    }
+
+    let positional_len = tuple.positional_len();
+    let values = tuple.values();
+    let labels = tuple.labels();
+    let mut positionals = Vec::with_capacity(end.saturating_sub(start).min(positional_len.saturating_sub(start)));
+    let mut labeled = Vec::with_capacity(end.saturating_sub(positional_len).min(labels.len()));
+    for index in start..end {
+        if index < positional_len {
+            positionals.push(values[index]);
+        } else {
+            labeled.push((labels[index - positional_len], values[index]));
+        }
+    }
+    finish_tuple(vm, positionals, labeled).map_err(|error| RuntimeError::Internal(format!("tuple slice failed: {error:?}")).into())
 }

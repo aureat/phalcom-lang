@@ -245,6 +245,11 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
     match expr {
         Expr::Block(b) => Some(&b.body),
         Expr::Assignment(a) => nested_block_in_expr(&a.name, offset).or_else(|| nested_block_in_expr(&a.value, offset)),
+        Expr::Range(range) => range
+            .lower
+            .as_ref()
+            .and_then(|lower| nested_block_in_expr(lower, offset))
+            .or_else(|| range.upper.as_ref().and_then(|upper| nested_block_in_expr(upper, offset))),
         Expr::Unary(u) => nested_block_in_expr(&u.expr, offset),
         Expr::Binary(b) => nested_block_in_expr(&b.left, offset).or_else(|| nested_block_in_expr(&b.right, offset)),
         Expr::MethodCall(m) => nested_block_in_expr(&m.object, offset).or_else(|| m.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),

@@ -108,13 +108,12 @@ pub enum Object {
     Tuple(TupleObject),
     /// A native immutable labeled product. Boxed to preserve arena slot size.
     Record(Box<RecordObject>),
-    /// A native, lazy numeric interval ([`RangeObject`],
+    /// A native range bounds descriptor ([`RangeObject`],
     /// [ADR-0032](../../../docs/adr/accepted/0032-collections-representation-and-literals.md) §1,
     /// [ADR-0039](../../../docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md)).
-    /// Three bound fields, **no element storage** (RG-2 laziness,
-    /// `docs/spec/v0.2/core/tuple-and-range.md` §2) — `each`/`toList`
-    /// generate elements in `.ph` over the raw getters. Immutable ⇒
-    /// value-hashable, a valid `Map`/`Set` key (Q5).
+    /// Omitted endpoints use the private `Value::Nil` sentinel, preserving the
+    /// compact two-Value-plus-flag layout. Progression and equality semantics
+    /// are deferred.
     Range(RangeObject),
     /// A bound `::` method reference — the callable **Family** value
     /// produced by `obj::name` (Open) or `obj::#name(...)` (Pinned)

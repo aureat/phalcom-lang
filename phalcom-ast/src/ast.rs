@@ -636,6 +636,9 @@ pub enum Expr {
         range: SourceRange,
     },
     Assignment(Box<AssignmentExpr>),
+    /// A native range bound descriptor. It stays explicit until direct bytecode
+    /// construction and never desugars through overridable class creation.
+    Range(Box<RangeExpr>),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
     MethodCall(Box<MethodCallExpr>),
@@ -680,6 +683,7 @@ impl Expr {
             | Expr::SelfVar { range }
             | Expr::SuperVar { range } => *range,
             Expr::Assignment(e) => e.range,
+            Expr::Range(e) => e.range,
             Expr::Unary(e) => e.range,
             Expr::Binary(e) => e.range,
             Expr::MethodCall(e) => e.range,
@@ -696,6 +700,16 @@ impl Expr {
             Expr::SetLiteral(e) => e.range,
         }
     }
+}
+
+/// Range bounds as written in source. Omitted bounds are structurally absent,
+/// never a surface `None` expression.
+#[derive(Debug, Clone)]
+pub struct RangeExpr {
+    pub lower: Option<Expr>,
+    pub upper: Option<Expr>,
+    pub upper_inclusive: bool,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
