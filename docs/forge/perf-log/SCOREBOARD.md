@@ -186,8 +186,8 @@ budget per op, not a cycle-accurate figure.
 
 ### 3a. Criterion micro-benches (`phalcom-core/benches/vm_bench.rs`)
 
-**At `5254586` (HEAD, cuts 006 + 007 landed)**, `cargo bench -p phalcom-core --bench
-vm_bench`. Rows re-measured 2026-07-14; the `39d9042` column is the previous run,
+**At `5254586` (HEAD, cuts 006 + 007 landed)**, `cargo bench -p phalcom-core --features
+benchmarks --bench vm_bench`. Rows re-measured 2026-07-14; the `39d9042` column is the previous run,
 kept per rule 4 (mark stale, never delete):
 
 | Benchmark | Program | Ops | Mean | **Per-op** | Criterion CI | `39d9042` | Origin | **Δ vs origin** |

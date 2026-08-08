@@ -7,7 +7,19 @@ members = [
     "phalcom-lsp",
 ]
 resolver = "2"
-default-members = ["phalcom-core"]
+default-members = [
+    "phalcom-ast",
+    "phalcom-common",
+    "phalcom-core",
+    "phalcom-repl",
+    "phalcom-lsp",
+]
+
+[profile.test]
+# Preserve line-level panic locations while reducing debug-info generation and
+# test-binary link work. Incremental artifacts are essential to edit-test loops.
+debug = 1
+incremental = true
 
 [workspace.dependencies]
 thiserror = "2.0.12"

@@ -50,11 +50,13 @@ if (( run_build )); then
   cargo build --workspace
 fi
 
-step "cargo test --workspace"
-# Includes phalcom-ast lexer/parser Insta snapshots, the phalcom-core golden
-# .ph corpus and object-model invariants, plus all other unit/integration/doc
-# tests in the workspace.
-cargo test --workspace
+step "cargo nextest run --workspace --no-fail-fast"
+# Nextest runs Rust unit and integration tests across binaries concurrently.
+# Doctests are not supported by nextest, so retain Cargo's dedicated doc lane.
+cargo nextest run --workspace --no-fail-fast
+
+step "cargo test --workspace --doc"
+cargo test --workspace --doc
 
 step "cargo clippy --workspace --all-targets"
 cargo clippy --workspace --all-targets

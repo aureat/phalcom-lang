@@ -7,10 +7,12 @@ default-run = "phalcom"
 [[bin]]
 name = "phalcom"
 path = "bin/phalcom/main.rs"
+test = false
 
 [[bin]]
 name = "gen-core-table"
 path = "bin/gen-core-table/main.rs"
+test = false
 
 [features]
 default = []
@@ -45,6 +47,9 @@ fiber-pool = []
 # build, wall-clock from a default build, divided. That keeps the counter's own cost
 # out of the number it produces. `benchmarks/vm/opcode-cost.py` does exactly this.
 opcode-histogram = []
+# Criterion is only used by `benches/vm_bench.rs`. Keep its sizable dependency
+# graph out of ordinary test builds; opt in with `--features benchmarks`.
+benchmarks = ["dep:criterion"]
 
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
@@ -64,14 +69,9 @@ num-bigint = { workspace = true }
 num-traits = "0.2"
 num-integer = "0.1"
 ryu = "1"
-
-[dev-dependencies]
-# Tier 0 instrumentation (U-BENCH, performance.md §4). Micro-benches only —
-# whole-process Skynet is measured by benchmarks/vm/run.sh instead, since
-# criterion's iteration/warmup model would mask whole-process cost
-# (performance.md §2, "whole-process lifetime is the unit of measurement").
-criterion = "0.5"
+criterion = { version = "0.5", optional = true }
 
 [[bench]]
 name = "vm_bench"
 harness = false
+required-features = ["benchmarks"]

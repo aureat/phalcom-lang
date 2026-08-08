@@ -1,0 +1,4 @@
+[build]
+# macOS frontend stability: `-Zthreads=8` repeatedly hangs fresh builds here.
+# Two workers complete reliably; retain until a newer pinned nightly proves safe.
+rustflags = ["-Zthreads=2"]
