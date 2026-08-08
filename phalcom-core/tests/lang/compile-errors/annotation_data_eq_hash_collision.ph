@@ -8,7 +8,7 @@
 class Money {
   _cents
 
-  ==(other) {
+  ==(_ other) {
     return _cents == other.cents
   }
 }

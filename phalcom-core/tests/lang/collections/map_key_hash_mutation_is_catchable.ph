@@ -15,7 +15,7 @@ class BadKey {
     _triggered = false
   }
   hash { 0 }
-  ==(other) {
+  ==(_ other) {
     if (not _triggered) {
       _triggered = true
       m.remove(other)

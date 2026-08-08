@@ -3,7 +3,7 @@
 // status: PENDING
 
 class Proxy {
-  doesNotUnderstand(msg) {
+  doesNotUnderstand(_ msg) {
     return "missing: " + msg.name;
   }
 }

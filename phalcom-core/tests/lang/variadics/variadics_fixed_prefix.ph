@@ -7,7 +7,7 @@
 // `List`. Called with 1 and 3 trailing args.
 
 class Formatter {
-  format(fmt, *args) {
+  format(_ fmt, *args) {
     return args.size
   }
 }

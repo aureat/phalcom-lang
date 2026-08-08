@@ -4,10 +4,10 @@
 
 class Person {
   @constructor
-  new(name:) { _name = name }
+  new(name) { _name = name }
   name => _name
   age => _age
-  age=(v) { _age = v }
+  age=(put v) { _age = v }
 }
 const p = Person.new(name: "Ada")
 System.print(p.age)

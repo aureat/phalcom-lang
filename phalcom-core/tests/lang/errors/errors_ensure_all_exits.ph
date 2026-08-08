@@ -7,7 +7,7 @@
 
 class EErr is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 
 // (a) normal completion

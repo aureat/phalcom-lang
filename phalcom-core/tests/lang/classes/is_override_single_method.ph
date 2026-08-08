@@ -9,7 +9,7 @@
 class Drawable {}
 
 class Shape {
-  is(cls) {
+  is(_ cls) {
     (cls == Drawable).ifTrue { return true }
     return super.is(cls)
   }

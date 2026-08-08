@@ -7,7 +7,7 @@
 // correctly. A clean parser diagnostic, not a panic.
 
 class Bad {
-  foo(to:, *rest) {
+  foo(to, *rest) {
     return rest
   }
 }

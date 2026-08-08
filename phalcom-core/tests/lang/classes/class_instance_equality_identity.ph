@@ -5,10 +5,10 @@
 class Pt {
   x => _x
   @constructor
-  new(x) {
+  new(_ x) {
     _x = x
   }
-  ==(other) {
+  ==(_ other) {
     return true
   }
 }

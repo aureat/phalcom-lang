@@ -12,6 +12,6 @@ const result = failing.try()
 System.print(result.class.name)
 
 const g = Fiber.new {
-  System.print(Fiber.current == g)
+  System.print(Fiber.current==g)
 }
 g.call()

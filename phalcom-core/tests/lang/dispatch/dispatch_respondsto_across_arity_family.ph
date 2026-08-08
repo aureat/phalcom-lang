@@ -9,8 +9,8 @@
 
 class Overload {
   m() { return 0; }
-  m(a) { return a; }
-  m(a, b) { return a + b; }
+  m(_ a) { return a; }
+  m(_ a, _ b) { return a + b; }
 }
 const o = Overload.new()
 System.print(o.respondsTo(Symbol.new("m()")))

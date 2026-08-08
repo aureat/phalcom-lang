@@ -7,7 +7,7 @@
 // tripped through the object, proving blocks are ordinary first-class values
 // across method-call boundaries.
 class Box {
-  store(block) {
+  store(_ block) {
     _block = block
     return self
   }

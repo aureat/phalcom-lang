@@ -8,15 +8,15 @@
 
 class AErr is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 class BErr is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 class CErr is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 
 try {

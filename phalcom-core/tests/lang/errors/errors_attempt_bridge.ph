@@ -7,7 +7,7 @@
 
 class AttErr is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 
 System.print({ 21 * 2 }.attempt().toString)

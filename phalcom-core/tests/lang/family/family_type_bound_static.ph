@@ -6,7 +6,7 @@
 // resolves against `MathUtil class`'s own `square(_)`.
 
 class MathUtil {
-  static square(n) { return n * n }
+  static square(_ n) { return n * n }
 }
 const f = MathUtil::square
 System.print(f(6))

@@ -3,7 +3,7 @@
 // status: PENDING
 
 class Adder {
-  add(a, b, c) {
+  add(_ a, _ b, _ c) {
     return a + b + c;
   }
 }

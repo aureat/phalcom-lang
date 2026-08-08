@@ -8,7 +8,7 @@
 // this also proves `::` composes as an ordinary postfix over any expression.
 
 class Adder {
-  move(a, b) { return a + b }
+  move(_ a, _ b) { return a + b }
 }
 const f = Adder.new()::move
 System.print(f(3, 4))

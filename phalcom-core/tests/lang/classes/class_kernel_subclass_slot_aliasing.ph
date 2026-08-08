@@ -1,7 +1,7 @@
 class Sub is List {
   _tag
   @constructor
-  new(t) { _tag = t }
+  new(_ t) { _tag = t }
   tag => _tag
 }
 

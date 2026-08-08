@@ -12,7 +12,7 @@
 // NEGATIVE lane (U-REOPEN-FIX graduation from `iteration/pending`): the
 // process exits non-zero with the diagnostic on stdout/stderr.
 class Truthy {
-    ifTrue(block) { return block.call() }
+    ifTrue(_ block) { return block.call() }
 }
 
 for (x in List.new().add(1).add(2).add(3)) {

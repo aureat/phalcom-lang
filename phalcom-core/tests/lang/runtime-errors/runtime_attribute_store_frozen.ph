@@ -9,7 +9,7 @@
 class Author is Attribute {
   _name
   @constructor
-  new(name) { _name = name }
+  new(_ name) { _name = name }
   name => _name
 }
 

@@ -9,7 +9,7 @@
 // one-arg definition.
 
 class Base {
-  foo(x) { return "Base.foo(" + x.toString + ")" }
+  foo(_ x) { return "Base.foo(" + x.toString + ")" }
 }
 class Sub is Base {
   foo => "Sub.foo"

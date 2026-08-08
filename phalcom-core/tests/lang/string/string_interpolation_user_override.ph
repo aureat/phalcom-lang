@@ -4,7 +4,7 @@
 
 class CustomString {
   @constructor
-  new(text) {
+  new(_ text) {
     _text = text
   }
 

@@ -8,16 +8,16 @@
 
 class Target {
   greet => "hello"
-  add(x, y) {
+  add(_ x, _ y) {
     return x + y
   }
 }
 class Proxy {
   @constructor
-  new(t) {
+  new(_ t) {
     _target = t
   }
-  doesNotUnderstand(msg) {
+  doesNotUnderstand(_ msg) {
     return _target.perform(msg.selector, msg.args)
   }
 }

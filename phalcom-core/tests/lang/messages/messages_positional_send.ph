@@ -3,7 +3,7 @@
 // status: PASS
 
 class Adder {
-  static add(a, b) {
+  static add(_ a, _ b) {
     return a + b;
   }
 }

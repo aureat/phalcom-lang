@@ -5,7 +5,7 @@
 
 class Math {
   @bogus(1)
-  abs(x) {
+  abs(_ x) {
     return x
   }
 }

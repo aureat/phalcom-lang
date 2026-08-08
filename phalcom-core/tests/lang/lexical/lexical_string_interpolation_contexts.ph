@@ -7,9 +7,9 @@
 
 class Counter {
   @constructor
-  new(value) { _value = value }
+  new(_ value) { _value = value }
 
-  render(prefix) {
+  render(_ prefix) {
     return "\(prefix): \(_value + 1)"
   }
 }

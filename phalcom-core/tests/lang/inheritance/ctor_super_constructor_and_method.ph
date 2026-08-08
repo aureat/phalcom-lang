@@ -5,14 +5,14 @@
 // an unrelated `super.mark` remains an ordinary instance-side super-send.
 class Base {
   @constructor
-  new(value) { _base = value }
-  mark(value) { _marked = value + 10 }
+  new(_ value) { _base = value }
+  mark(_ value) { _marked = value + 10 }
   base => _base
   marked => _marked
 }
 class Derived is Base {
   @constructor
-  new(value) {
+  new(_ value) {
     super.new(value)
     super.mark(value)
   }

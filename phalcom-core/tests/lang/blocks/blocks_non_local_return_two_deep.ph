@@ -6,7 +6,7 @@
 // `block_call` re-entry. The non-local return must unwind past both block
 // frames AND the native `each` frame to the enclosing method activation.
 class Finder {
-  findFirstEven(numbers) {
+  findFirstEven(_ numbers) {
     numbers.each { n =>
       (n > 0).ifTrue {
         (n % 2 == 0).ifTrue { return n }

@@ -6,7 +6,7 @@
 
 class UErr is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 
 System.print(Ok.new(7).unwrap)

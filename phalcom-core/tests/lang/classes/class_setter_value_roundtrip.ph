@@ -5,10 +5,10 @@
 class Person {
   name => _name
   @constructor
-  new(n) {
+  new(_ n) {
     _name = n
   }
-  name=(value) {
+  name=(put value) {
     _name = value
   }
 }

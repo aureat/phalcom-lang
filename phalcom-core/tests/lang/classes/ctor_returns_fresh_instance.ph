@@ -1,6 +1,6 @@
 class Box {
   @constructor
-  new(value) {
+  new(_ value) {
     _value = value
     "body value"
   }

@@ -7,7 +7,7 @@
 // `empty && no DNU hook`, so `p::typo` is NOT an error here.
 
 class Proxy {
-  doesNotUnderstand(msg) {
+  doesNotUnderstand(_ msg) {
     return "caught " + msg.name
   }
 }

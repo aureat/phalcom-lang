@@ -7,5 +7,5 @@
 
 @data
 class Shape {
-  @variant Circle(radius:)
+  @variant Circle(radius)
 }

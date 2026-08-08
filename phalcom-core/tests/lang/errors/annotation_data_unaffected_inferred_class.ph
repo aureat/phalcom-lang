@@ -8,7 +8,7 @@
 
 class Counter {
   @constructor
-  new(start) {
+  new(_ start) {
     _count = start
   }
 

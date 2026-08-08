@@ -9,9 +9,9 @@
 
 class Point2 {
   @constructor
-  new(v) { _v = v }
+  new(_ v) { _v = v }
   @constructor
-  named(w) { _v = w }
+  named(_ w) { _v = w }
   v => _v
 }
 class Point3 is Point2 {

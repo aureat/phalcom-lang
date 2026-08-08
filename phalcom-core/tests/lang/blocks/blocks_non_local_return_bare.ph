@@ -7,7 +7,7 @@
 // handling. The `return` lives inside an `each` block, so it crosses a
 // re-entrant `block_call` just like the value-carrying case.
 class Finder {
-  firstNeg(numbers) {
+  firstNeg(_ numbers) {
     numbers.each { n =>
       (n < 0).ifTrue { return }
     }

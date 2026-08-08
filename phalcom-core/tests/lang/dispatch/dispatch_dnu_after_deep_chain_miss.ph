@@ -11,7 +11,7 @@
 class A {
   @constructor
   new() { }
-  doesNotUnderstand(msg) {
+  doesNotUnderstand(_ msg) {
     System.print("DNU: " + msg.name)
     return None
   }

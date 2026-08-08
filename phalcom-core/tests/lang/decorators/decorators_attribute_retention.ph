@@ -11,7 +11,7 @@
 class Author is Attribute {
   _name
   @constructor
-  new(name) { _name = name }
+  new(_ name) { _name = name }
   name => _name
 }
 
@@ -19,7 +19,7 @@ class Author is Attribute {
 class Tag is Attribute {
   _label
   @constructor
-  new(label) { _label = label }
+  new(_ label) { _label = label }
   label => _label
 }
 

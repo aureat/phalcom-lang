@@ -6,10 +6,10 @@ class Overload {
   m() {
     return 0;
   }
-  m(a) {
+  m(_ a) {
     return a;
   }
-  m(a, b) {
+  m(_ a, _ b) {
     return a + b;
   }
 }

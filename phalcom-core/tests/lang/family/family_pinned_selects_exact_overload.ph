@@ -9,11 +9,11 @@
 
 class Point {
   @constructor
-  new(x, y) { _x = x; _y = y }
-  move(to:, duration:) {
+  new(_ x, _ y) { _x = x; _y = y }
+  move(to, duration) {
     return "labeled: to " + to.toString + " over " + duration.toString
   }
-  move(a, b) {
+  move(_ a, _ b) {
     return "positional: " + a.toString + " " + b.toString
   }
 }

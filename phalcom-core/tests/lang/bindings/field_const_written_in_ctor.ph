@@ -7,7 +7,7 @@ class Id {
   const _id
 
   @constructor
-  new(v) {
+  new(_ v) {
     _id = v
   }
 

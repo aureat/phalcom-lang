@@ -1,6 +1,6 @@
 class Point {
   @constructor
-  new(x, y) { _x = x; _y = y }
+  new(_ x, _ y) { _x = x; _y = y }
   x => _x
   y => _y
 }

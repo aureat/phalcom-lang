@@ -8,7 +8,7 @@
 class Origin {
   const _x = 10
   @constructor
-  new(v) { _x = v }
+  new(_ v) { _x = v }
   get { return _x }
 }
 

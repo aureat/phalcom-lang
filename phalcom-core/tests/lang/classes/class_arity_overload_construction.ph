@@ -4,11 +4,11 @@
 
 class Person {
   @constructor
-  new(name) {
+  new(_ name) {
     _name = name
   }
   @constructor
-  new(name, age) {
+  new(_ name, _ age) {
     _name = name
     _age = age
   }

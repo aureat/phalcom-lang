@@ -7,7 +7,7 @@
 // `functions_method_reflection.ph`).
 
 class Greeter {
-  greet(name) {
+  greet(_ name) {
     return "Hello, " + name;
   }
 }

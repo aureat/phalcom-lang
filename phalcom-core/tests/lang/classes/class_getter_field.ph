@@ -4,7 +4,7 @@
 
 class Box {
   @constructor
-  new(v) {
+  new(_ v) {
     _v = v
   }
   value {

@@ -2,7 +2,7 @@
 class OnlyIndex {
   @constructor
   new() {}
-  [i] { return i * 2 }
+  [_ i] { return i * 2 }
 }
 const obj = OnlyIndex.new()
 System.print(obj[3])

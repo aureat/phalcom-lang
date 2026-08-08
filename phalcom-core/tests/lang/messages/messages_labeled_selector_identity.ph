@@ -3,10 +3,10 @@
 // status: PASS
 
 class Point {
-  move(to, duration) {
+  move(_ to, _ duration) {
     return "positional";
   }
-  move(to:, duration:) {
+  move(to, duration) {
     return "labeled";
   }
 }

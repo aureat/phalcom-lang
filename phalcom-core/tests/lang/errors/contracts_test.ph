@@ -7,7 +7,7 @@ class Counter {
   @invariant(self.val >= 0)
   
   @constructor
-  new(init) {
+  new(_ init) {
     _val = init
   }
   
@@ -15,13 +15,13 @@ class Counter {
   
   @requires(amount > 0)
   @ensures(self.val == old(self.val) + amount)
-  increment(amount) {
+  increment(_ amount) {
     _val = _val + amount
   }
   
   @requires(amount > 0)
   @ensures(self.val == old(self.val) - amount)
-  decrement(amount) {
+  decrement(_ amount) {
     _val = _val - amount
   }
 }

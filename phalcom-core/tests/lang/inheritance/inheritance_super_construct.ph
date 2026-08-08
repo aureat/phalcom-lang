@@ -6,12 +6,12 @@
 
 class Animal {
   @constructor
-  new(name) { _name = name }
+  new(_ name) { _name = name }
   name => _name
 }
 class Dog is Animal {
   @constructor
-  new(name, breed) {
+  new(_ name, _ breed) {
     super.new(name)
     _breed = breed
   }

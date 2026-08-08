@@ -9,7 +9,7 @@
 // happened. A sibling member on the same class must still compile and work.
 
 class Draft {
-  @ignore halfFinished(x) {
+  @ignore halfFinished(_ x) {
     System.print("SHOULD NEVER RUN")
     x.someMethodThatDoesNotExistYet()
   }

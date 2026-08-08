@@ -6,7 +6,7 @@
 // so the constructor result can be messaged directly.
 class Box {
   @constructor
-  new(v:) { _v = v }
+  new(v) { _v = v }
   v => _v
 }
 System.print(Box.new(v: "packed").v)

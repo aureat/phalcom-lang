@@ -14,7 +14,7 @@
 
 class Counter {
   @constructor
-  new(start) {
+  new(_ start) {
     _n = start
   }
   n => _n

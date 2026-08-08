@@ -3,7 +3,7 @@
 // status: PASS
 class Person {
   @constructor
-  new(name:, age:) {
+  new(name, age) {
     _name = name
     _age = age
   }

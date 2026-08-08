@@ -48,6 +48,7 @@ Program {
                                                 op: GreaterThanOrEqual,
                                                 left: Field {
                                                     value: "__result",
+                                                    kind: Implementation,
                                                     range: CopyRange {
                                                         start: 25,
                                                         end: 33,

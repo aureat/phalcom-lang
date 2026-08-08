@@ -12,12 +12,12 @@
 class Box {
   value => _val
   @constructor
-  new(v) { _val = v }
-  +(other) { return Box.new(_val + other.value) }
+  new(_ v) { _val = v }
+  +(_ other) { return Box.new(_val + other.value) }
 }
 class LoudBox is Box {
   @constructor
-  new(v) { super.new(v) }
+  new(_ v) { super.new(v) }
 }
 const a = LoudBox.new(2)
 const b = LoudBox.new(3)

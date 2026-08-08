@@ -19,7 +19,7 @@ class SK {
     _triggered = false
   }
   hash { 0 }
-  ==(other) {
+  ==(_ other) {
     if (not _triggered) {
       _triggered = true
       s.remove(other)

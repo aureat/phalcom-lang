@@ -6,7 +6,7 @@
 // as before — proves the variadic probe doesn't swallow the dNU fallback.
 
 class Proxy3 {
-  doesNotUnderstand(msg) {
+  doesNotUnderstand(_ msg) {
     return "proxied"
   }
 }

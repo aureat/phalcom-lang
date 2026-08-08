@@ -11,11 +11,11 @@ class Pt {
   x => _x
   y => _y
   @constructor
-  new(x, y) {
+  new(_ x, _ y) {
     _x = x
     _y = y
   }
-  ==(other) {
+  ==(_ other) {
     return _x == other.x and _y == other.y
   }
   hash {

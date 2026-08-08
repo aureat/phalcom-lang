@@ -15,7 +15,7 @@ class Box {
   @invariant(self.val >= 0)
 
   @constructor
-  new(init) {
+  new(_ init) {
     _val = init
   }
 
@@ -23,7 +23,7 @@ class Box {
 
   @requires(amount > 0)
   @ensures(false)
-  badSet(amount) {
+  badSet(_ amount) {
     _val = amount
   }
 

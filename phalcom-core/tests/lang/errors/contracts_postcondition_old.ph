@@ -5,7 +5,7 @@
 
 class Box {
   @constructor
-  new(init) {
+  new(_ init) {
     _val = init
   }
 

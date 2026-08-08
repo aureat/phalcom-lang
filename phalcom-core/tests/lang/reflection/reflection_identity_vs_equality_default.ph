@@ -9,7 +9,7 @@
 
 class Point {
   @constructor
-  new(x) { _x = x }
+  new(_ x) { _x = x }
 }
 const a = Point.new(1)
 const b = Point.new(1)

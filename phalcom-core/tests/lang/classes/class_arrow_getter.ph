@@ -4,7 +4,7 @@
 
 class Circle {
   @constructor
-  new(r) {
+  new(_ r) {
     _r = r
   }
   radius => _r

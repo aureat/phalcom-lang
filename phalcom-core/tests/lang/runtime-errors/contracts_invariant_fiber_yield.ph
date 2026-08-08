@@ -13,13 +13,13 @@ class Guard {
   @invariant(self.n >= 0)
 
   @constructor
-  new(n) {
+  new(_ n) {
     _n = n
   }
 
   n => _n
 
-  bump(shouldYield) {
+  bump(_ shouldYield) {
     if (shouldYield) {
       Fiber.yield(0)
     }

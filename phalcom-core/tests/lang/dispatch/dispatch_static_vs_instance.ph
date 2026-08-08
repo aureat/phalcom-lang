@@ -3,10 +3,10 @@
 // status: PASS
 
 class Calc {
-  static double(n) {
+  static double(_ n) {
     return n * 2;
   }
-  triple(n) {
+  triple(_ n) {
     return n * 3;
   }
 }

@@ -4,13 +4,13 @@
 
 class Vec {
   @constructor
-  new(x, y) {
+  new(_ x, _ y) {
     _x = x
     _y = y
   }
   x => _x
   y => _y
-  +(other) {
+  +(_ other) {
     return Vec.new(_x + other.x, _y + other.y)
   }
 }

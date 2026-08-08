@@ -5,16 +5,16 @@
 class Vec {
   x => _x
   y => _y
-  static new(x, y) {
+  static new(_ x, _ y) {
     const v = self.new();
     v.init(x, y);
     return v;
   }
-  init(x, y) {
+  init(_ x, _ y) {
     _x = x;
     _y = y;
   }
-  +(other) {
+  +(_ other) {
     return Vec.new(_x + other.x, _y + other.y);
   }
 }

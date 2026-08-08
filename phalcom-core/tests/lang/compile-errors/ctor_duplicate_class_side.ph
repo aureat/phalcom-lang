@@ -1,6 +1,6 @@
 class Foo {
   @class
-  new(value) { 1 }
+  new(_ value) { 1 }
   @class
-  new(value) { 2 }
+  new(_ value) { 2 }
 }

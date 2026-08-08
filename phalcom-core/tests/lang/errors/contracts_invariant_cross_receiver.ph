@@ -7,24 +7,24 @@ class B {
   @invariant(self.val >= 0)
 
   @constructor
-  new(init) {
+  new(_ init) {
     _val = init
   }
 
   val => _val
 
-  drain(amount) {
+  drain(_ amount) {
     _val = _val - amount
   }
 }
 
 class A {
   @constructor
-  new(b) {
+  new(_ b) {
     _b = b
   }
 
-  poke(amount) {
+  poke(_ amount) {
     _b.drain(amount)
   }
 }

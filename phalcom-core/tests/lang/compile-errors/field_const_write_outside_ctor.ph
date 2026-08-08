@@ -5,5 +5,5 @@
 
 class Account {
   const _n = 0
-  clobber(v) { _n = v }
+  clobber(_ v) { _n = v }
 }

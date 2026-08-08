@@ -7,11 +7,11 @@
 
 class ParseError is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 class RangeErrorLike is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 
 try {

@@ -7,8 +7,8 @@
 
 class Point {
   @constructor
-  new(x, y) { _x = x; _y = y }
-  move(to:, duration:) {
+  new(_ x, _ y) { _x = x; _y = y }
+  move(to, duration) {
     return "moved to \(to) from \(_x), \(_y) in \(duration)"
   }
 }

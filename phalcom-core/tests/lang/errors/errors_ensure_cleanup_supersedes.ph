@@ -6,11 +6,11 @@
 
 class FirstErr is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 class SecondErr is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 
 const r = { { throw FirstErr.new("first") }.ensure { throw SecondErr.new("second") } }.on(Error) { e => e.message }

@@ -5,7 +5,7 @@
 
 class Math {
   @requires(x = 10)
-  abs(x) {
+  abs(_ x) {
     return x
   }
 }

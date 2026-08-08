@@ -7,7 +7,7 @@
 // this is a full non-local return crossing the method boundary. `"after"`
 // must never print.
 class Scanner {
-  firstOver(numbers, limit) {
+  firstOver(_ numbers, _ limit) {
     for (n in numbers) {
       (n > limit).ifTrue { return n }
     }

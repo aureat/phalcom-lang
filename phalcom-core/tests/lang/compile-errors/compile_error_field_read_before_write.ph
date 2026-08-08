@@ -7,7 +7,7 @@
 
 class Typo {
   @constructor
-  new(name) { _naem = name }
+  new(_ name) { _naem = name }
   name => _name
 }
 System.print(Typo.new("x").name)

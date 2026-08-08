@@ -7,13 +7,13 @@ class Vault {
   @invariant(self.balance >= 0)
 
   @constructor
-  new(init) {
+  new(_ init) {
     _balance = init
   }
 
   balance => _balance
 
-  withdraw(amount) {
+  withdraw(_ amount) {
     if (amount > _balance) {
       throw Error.new("insufficient funds")
     }

@@ -7,7 +7,7 @@ class Divider {
   @constructor new() { }
 
   @requires(divisor > 0)
-  divide(value, divisor) {
+  divide(_ value, _ divisor) {
     return value / divisor
   }
 }

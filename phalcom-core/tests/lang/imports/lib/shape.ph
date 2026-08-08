@@ -2,7 +2,7 @@
 // test driver.
 class Shape {
   @constructor
-  new(sides) {
+  new(_ sides) {
     _sides = sides
   }
   sides => _sides

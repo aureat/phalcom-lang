@@ -8,7 +8,7 @@
 // index-aligned with `args`.
 
 class Recorder {
-  doesNotUnderstand(msg) {
+  doesNotUnderstand(_ msg) {
     System.print(msg.selector)
     System.print(msg.name)
     System.print(msg.labels.toString)

@@ -5,7 +5,7 @@
 // diagnostic, not a panic.
 
 class Bad {
-  foo(*rest, x) {
+  foo(*rest, _ x) {
     return x
   }
 }

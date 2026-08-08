@@ -9,7 +9,7 @@
 // the variadic probe.
 
 class Adder {
-  sum(a, b) {
+  sum(_ a, _ b) {
     return -1
   }
   sum(*numbers) {

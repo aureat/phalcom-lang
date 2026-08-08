@@ -4,15 +4,15 @@
 
 class Point {
   x => _x
-  static new(x) {
+  static new(_ x) {
     const p = self.new();
     p.init(x);
     return p;
   }
-  init(x) {
+  init(_ x) {
     _x = x;
   }
-  move(to) {
+  move(_ to) {
     return Point.new(_x + to);
   }
 }

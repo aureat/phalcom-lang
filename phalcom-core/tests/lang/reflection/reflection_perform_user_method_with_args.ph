@@ -8,7 +8,7 @@
 // the program.
 
 class Adder {
-  add(a, b) => a + b
+  add(_ a, _ b) => a + b
   zero() => 0
 }
 const obj = Adder.new()

@@ -7,7 +7,7 @@
 // registers — `methodFor` hits with no reflection-side re-encoding needed.
 
 class Mover {
-  move(p, to:, duration:) {
+  move(_ p, to, duration) {
     return p + " to " + to + " in " + duration.toString
   }
 }

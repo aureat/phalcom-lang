@@ -1,6 +1,6 @@
 class Foo {
   @constructor
-  new(value) { _value = value }
+  new(_ value) { _value = value }
   @class
-  new(value) { 1 }
+  new(_ value) { 1 }
 }

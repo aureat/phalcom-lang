@@ -12,7 +12,7 @@
 // needed (those are U-LEX-gated, see the `pending/` fixtures in this
 // directory).
 class Greeter {
-  greet(name) {
+  greet(_ name) {
     return "Hello, " + name
   }
 }

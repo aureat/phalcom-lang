@@ -6,11 +6,11 @@ class Point {
   x => _x
   y => _y
   @constructor
-  new(x, y) {
+  new(_ x, _ y) {
     _x = x
     _y = y
   }
-  move(to:, at:) {
+  move(to, at) {
     return Point.new(to, at)
   }
 }

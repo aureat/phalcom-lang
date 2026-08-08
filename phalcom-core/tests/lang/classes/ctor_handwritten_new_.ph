@@ -1,7 +1,7 @@
 class Person {
-  init(name) { _name = name }
+  init(_ name) { _name = name }
   @class
-  make(name) {
+  make(_ name) {
     let instance = self.new_()
     instance.init(name)
     return instance

@@ -11,7 +11,7 @@ class Speaker {
   say => "hi"
 }
 class Proxy2 {
-  doesNotUnderstand(msg) {
+  doesNotUnderstand(_ msg) {
     return "proxied"
   }
 }

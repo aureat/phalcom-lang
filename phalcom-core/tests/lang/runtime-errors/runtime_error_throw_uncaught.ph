@@ -5,6 +5,6 @@
 // non-zero — the runtime half of the unified unwind (ADR-0008 §4.3).
 class MyError is Error {
   @constructor
-  new(msg) { super.new(msg) }
+  new(_ msg) { super.new(msg) }
 }
 throw MyError.new("boom")

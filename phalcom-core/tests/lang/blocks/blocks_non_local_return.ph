@@ -9,7 +9,7 @@
 // multi-level unwind U10 exists for: a single-level `{ return x }.call()` would
 // never exercise it (U10-implementation-spec.md §2, §5).
 class Finder {
-  findNegative(numbers) {
+  findNegative(_ numbers) {
     numbers.each { n =>
       (n < 0).ifTrue { return n }
     }
