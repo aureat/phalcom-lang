@@ -67,6 +67,7 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
             }
             Expr::MethodCall(method_call) => {
+                self.check_bounded_method_call(&method_call)?;
                 let internal_call = method_call.method.starts_with("_$");
                 let is_invariant_guard = method_call.method == "_$invariantEnter" || method_call.method == "_$invariantExit";
                 if internal_call && !is_invariant_guard && !self.compiling_privileged_core() && !self.compiler_internal {
@@ -180,6 +181,7 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::MakeFamily(name_idx), method_ref.range);
             }
             Expr::GetProperty(get_prop) => {
+                self.check_bounded_property(&get_prop.property, &get_prop.object, get_prop.range)?;
                 // `super.prop` is a zero-arg super send (U-INH §3.4); the
                 // getter/no-arg selector is the bare property name, matching the
                 // ordinary getter dispatch below.

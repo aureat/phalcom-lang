@@ -225,6 +225,11 @@ pub enum CompilerError {
     /// consequence of two other mechanisms.
     #[error("class.reserved_name: '{0}' is a kernel class name, reserved to the core module; declare a differently-named class instead.")]
     ClassReservedName(String, SourceRange),
+
+    /// A full traversal whose unbounded source is proven from syntax and
+    /// immutable binding facts (Spec E.3).
+    #[error("cannot exhaust a provably unbounded source with `{operation}`")]
+    ProvablyUnboundedExhaustion { operation: String, span: SourceRange },
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

@@ -85,6 +85,7 @@ impl<'vm> Compiler<'vm> {
 
     pub(crate) fn begin_scope(&mut self) {
         self.functions.last_mut().unwrap().scope_depth += 1;
+        self.const_fact_scopes.push(std::collections::HashMap::new());
     }
 
     /// Closes the innermost scope, promoting captured locals to heap cells.
@@ -98,6 +99,7 @@ impl<'vm> Compiler<'vm> {
     /// ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)); the VM's
     /// `Return` closes them again idempotently for the explicit-return path.
     pub(crate) fn end_scope(&mut self, range: SourceRange) {
+        self.const_fact_scopes.pop();
         let func = self.functions.last_mut().unwrap();
         func.scope_depth -= 1;
         let scope_depth = func.scope_depth;
