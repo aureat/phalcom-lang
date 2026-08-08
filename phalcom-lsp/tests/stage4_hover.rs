@@ -204,11 +204,11 @@ async fn phaldoc_adjacency_attaches_and_blank_line_breaks_it() {
     initialize(&mut client_end, None).await;
 
     let uri = "file:///workspace/main.ph";
-    let text = "class Point {\n  /// Moves the point.\n  move(x) { }\n\n  /// Detached, not adjacent.\n\n  reset() { }\n}\n";
+    let text = "class Point {\n  /// Moves the point.\n  move(_ x) { }\n\n  /// Detached, not adjacent.\n\n  reset() { }\n}\n";
     did_open(&mut client_end, uri, text).await;
 
     // Adjacent doc attaches.
-    let response = hover_at(&mut client_end, 2, uri, text, "move(x)").await;
+    let response = hover_at(&mut client_end, 2, uri, text, "move(_ x)").await;
     let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
     assert!(value.contains("Moves the point."), "{value:?}");
     assert!(value.contains("move(_)"), "{value:?}");
@@ -231,7 +231,7 @@ async fn selector_keying_gives_each_arity_its_own_doc() {
     initialize(&mut client_end, None).await;
 
     let uri = "file:///workspace/main.ph";
-    let text = "class Greeter {\n  /// Zero-arg greeting.\n  greet() { }\n  /// Greeting with a name.\n  greet(name) { }\n}\n";
+    let text = "class Greeter {\n  /// Zero-arg greeting.\n  greet() { }\n  /// Greeting with a name.\n  greet(_ name) { }\n}\n";
     did_open(&mut client_end, uri, text).await;
 
     let zero = hover_at(&mut client_end, 2, uri, text, "greet()").await;
@@ -239,7 +239,7 @@ async fn selector_keying_gives_each_arity_its_own_doc() {
     assert!(zero_value.contains("Zero-arg greeting."), "{zero_value:?}");
     assert!(!zero_value.contains("Greeting with a name."), "{zero_value:?}");
 
-    let one_offset = text.rfind("greet(name)").unwrap();
+    let one_offset = text.rfind("greet(_ name)").unwrap();
     let line = text[..one_offset].matches('\n').count();
     let col = one_offset - text[..one_offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
     write_message(
@@ -267,7 +267,7 @@ async fn selector_keying_gives_each_arity_its_own_doc() {
 #[tokio::test]
 async fn cross_file_hover_resolves_the_doc_from_the_declaring_file() {
     let workspace = ScratchWorkspace::new("cross-file");
-    workspace.write("mover.ph", "class Mover {\n  /// Moves the mover by `x`.\n  move(x) { }\n}\n");
+    workspace.write("mover.ph", "class Mover {\n  /// Moves the mover by `x`.\n  move(_ x) { }\n}\n");
     let main_text = "let m = Mover.new();\nm.move(1);\n";
     workspace.write("main.ph", main_text);
 
@@ -318,13 +318,13 @@ async fn selector_hover_sets_range_to_the_resolved_selector_span() {
     initialize(&mut client_end, None).await;
 
     let uri = "file:///workspace/main.ph";
-    let text = "class Point {\n  move(x) { }\n}\n";
+    let text = "class Point {\n  move(_ x) { }\n}\n";
     did_open(&mut client_end, uri, text).await;
 
-    let response = hover_at(&mut client_end, 2, uri, text, "move(x)").await;
+    let response = hover_at(&mut client_end, 2, uri, text, "move(_ x)").await;
     let range = &response["result"]["range"];
     assert!(!range.is_null(), "{response:#?}");
-    let (line, character) = position_of(text, "move(x)");
+    let (line, character) = position_of(text, "move(_ x)");
     assert_eq!(range["start"]["line"].as_u64(), Some(line as u64));
     assert_eq!(range["start"]["character"].as_u64(), Some(character as u64));
 

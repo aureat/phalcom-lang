@@ -92,7 +92,7 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
     // `Mover` defines `move(_,to)` and getter `speed`; `m` is constructed from
     // it; the last line is the `m.` member access the completion targets.
     let uri = "file:///workspace/main.ph";
-    let text = "class Mover {\n  move(x, to:) { }\n  speed { }\n}\nlet m = Mover.new();\nm.\n";
+    let text = "class Mover {\n  move(_ x, to) { }\n  speed { }\n}\nlet m = Mover.new();\nm.\n";
     write_message(
         &mut client_end,
         &json!({

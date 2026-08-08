@@ -408,16 +408,16 @@ pub fn completions(
     index: &WorkspaceIndex,
     table: &CoreTable,
 ) -> Vec<CompletionItem> {
-    let members = match resolved {
+    let (members, kind_opt) = match resolved {
         Some((class, kind)) => {
             let collected = collect_class_members(class, uri, index, table);
             if collected.is_empty() {
-                table_members(table)
+                (table_members(table), Some(kind))
             } else {
-                filter_by_receiver_kind(collected, kind)
+                (filter_by_receiver_kind(collected, kind), Some(kind))
             }
         }
-        None => table_members(table),
+        None => (table_members(table), None),
     };
 
     let mut items: Vec<CompletionItem> = members
@@ -430,9 +430,25 @@ pub fn completions(
         })
         .map(to_completion_item)
         .collect();
+
+    // Every class object implicitly has `new()` (Class#new) — guarantee it is
+    // offered even when the builtin ancestor chain does not walk up to `Class`.
+    if kind_opt == Some(ReceiverKind::ClassObject) {
+        if !items.iter().any(|item| item.label == "new()") {
+            items.push(CompletionItem {
+                label: "new()".to_string(),
+                kind: Some(CompletionItemKind::METHOD),
+                insert_text: Some("new()".to_string()),
+                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                ..CompletionItem::default()
+            });
+        }
+    }
+
     items.sort_by(|a, b| a.label.cmp(&b.label));
     items
 }
+
 
 /// Completion for an editor position, including implicit-self members and
 /// visible bare bindings when no explicit `receiver.` prefix is present.

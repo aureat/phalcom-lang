@@ -111,7 +111,7 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     let workspace = ScratchWorkspace::new("defs");
     // `Mover` defines `move(_,to,duration)`; `main.ph` calls it. Both are
     // on disk before `initialize` runs, so the startup scan indexes both.
-    let def_path = workspace.write("mover.ph", "class Mover {\n  move(x, to:, duration:) { }\n}\n");
+    let def_path = workspace.write("mover.ph", "class Mover {\n  move(_ x, to, duration) { }\n}\n");
     workspace.write("main.ph", "let m = Mover.new();\nm.move(1, to: 2, duration: 3);\n");
 
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
