@@ -12,8 +12,8 @@
 
 use dashmap::DashMap;
 use phalcom_ast::ast::{
-    Argument, ClassDef, ClassMember, Expr, ForStatement, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program, SetLiteralEntry, Statement,
-    TupleLiteralEntry,
+    Argument, AttrKind, BuiltinAttr, ClassDef, ClassMember, Expr, ForStatement, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program,
+    SetLiteralEntry, Statement, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
@@ -43,6 +43,25 @@ pub struct ClassMemberInfo {
     pub selector: String,
     /// Whether the member is a getter, setter, or method.
     pub kind: MemberKind,
+    /// Class that declares this member. Used for lexical visibility checks.
+    pub owner: String,
+    /// Source-level access category.
+    pub visibility: MemberVisibility,
+    /// True for `@class` placement and constructors.
+    pub is_class_side: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Source-level member access category used by completion filtering.
+pub enum MemberVisibility {
+    /// Accessible from ordinary source.
+    Public,
+    /// Accessible only in defining lexical class.
+    Private,
+    /// Accessible in defining class and subclasses.
+    Protected,
+    /// Accessible only to privileged core/runtime source.
+    Internal,
 }
 
 /// One definition site of a selector, enriched with the class it is declared
@@ -365,6 +384,22 @@ impl WorkspaceIndex {
         self.classes.parent(uri, class)
     }
 
+    /// Whether `class` is `ancestor` or inherits from it in this document.
+    pub fn is_same_or_subclass(&self, uri: &Url, class: &str, ancestor: &str) -> bool {
+        let mut current = Some(class.to_string());
+        let mut seen = std::collections::HashSet::new();
+        while let Some(name) = current {
+            if name == ancestor {
+                return true;
+            }
+            if !seen.insert(name.clone()) {
+                return false;
+            }
+            current = self.class_parent(uri, &name);
+        }
+        false
+    }
+
     /// Whether `uri` declares a user class named `class`.
     ///
     /// Used by the completion path to decide whether a resolved receiver type
@@ -386,14 +421,11 @@ struct CollectedClass {
 /// Maps an AST [`ClassMember`] to the [`MemberKind`] the completion path
 /// renders it under.
 ///
-/// An instance [`MethodDef`]/[`GetterDef`]/[`SetterDef`] (`is_static: false`)
-/// maps to the matching instance-side kind; a `static` one maps to
-/// [`MemberKind::StaticMethod`] regardless of its declaration shape, so the
-/// receiver-kind filter in [`crate::completion`] can tell class-side members
-/// apart from instance-side ones for **user** classes too (previously only
-/// `core-table.json`'s builtin members carried this distinction).
+/// Declaration shape determines `MemberKind`. Class-side placement is stored
+/// separately in [`ClassMemberInfo::is_class_side`], so an `@class` getter
+/// remains a getter for snippet rendering.
 ///
-/// A `construct` is a class-side factory — [`MemberKind::Construct`], never
+/// A constructor is a class-side factory — [`MemberKind::Construct`], never
 /// dispatched on an instance.
 ///
 /// A declared field (U-ANNOT-LAYOUT §3.1) renders like a getter — bare name,
@@ -405,18 +437,52 @@ struct CollectedClass {
 /// shape rather than being silently dropped.
 fn member_kind(member: &ClassMember) -> MemberKind {
     match member {
-        ClassMember::Method(m) if m.is_constructor => MemberKind::Construct,
-        ClassMember::Method(m) if m.is_static => MemberKind::StaticMethod,
+        ClassMember::Method(m) if m.is_constructor || m.attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor))) => {
+            MemberKind::Construct
+        }
         ClassMember::Method(_) => MemberKind::Method,
-        ClassMember::Getter(g) if g.is_static => MemberKind::StaticMethod,
         ClassMember::Getter(_) => MemberKind::Getter,
-        ClassMember::Setter(s) if s.is_static => MemberKind::StaticMethod,
         ClassMember::Setter(_) => MemberKind::Setter,
         ClassMember::Field(_) | ClassMember::Variant(_) => MemberKind::Getter,
         // A bracket subscript method (U-INDEX, ADR-0060: `[idx] { ... }`) is
         // an ordinary dispatchable instance method, just with no name token
         // — closest existing completion shape is `MemberKind::Method`.
         ClassMember::Index(_) => MemberKind::Method,
+    }
+}
+
+fn member_is_class_side(member: &ClassMember) -> bool {
+    let (intrinsic, attrs) = match member {
+        ClassMember::Method(m) => (m.is_static || m.is_constructor, m.attributes.as_slice()),
+        ClassMember::Getter(g) => (g.is_static, g.attributes.as_slice()),
+        ClassMember::Setter(s) => (s.is_static, s.attributes.as_slice()),
+        ClassMember::Index(ix) => (false, ix.attributes.as_slice()),
+        ClassMember::Field(f) => (f.is_static, f.attributes.as_slice()),
+        ClassMember::Variant(v) => (false, v.attributes.as_slice()),
+    };
+    intrinsic
+        || attrs
+            .iter()
+            .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Class | BuiltinAttr::Constructor)))
+}
+
+fn member_visibility(member: &ClassMember) -> MemberVisibility {
+    let (name, attrs, is_field) = match member {
+        ClassMember::Method(m) => (Some(m.name.as_str()), m.attributes.as_slice(), false),
+        ClassMember::Getter(g) => (Some(g.name.as_str()), g.attributes.as_slice(), false),
+        ClassMember::Setter(s) => (Some(s.name.as_str()), s.attributes.as_slice(), false),
+        ClassMember::Index(ix) => (None, ix.attributes.as_slice(), false),
+        ClassMember::Field(f) => (Some(f.name.as_str()), f.attributes.as_slice(), true),
+        ClassMember::Variant(v) => (Some(v.name.as_str()), v.attributes.as_slice(), false),
+    };
+    if name.is_some_and(|name| name.starts_with("_$")) {
+        MemberVisibility::Internal
+    } else if attrs.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private))) || is_field {
+        MemberVisibility::Private
+    } else if attrs.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Protected))) {
+        MemberVisibility::Protected
+    } else {
+        MemberVisibility::Public
     }
 }
 
@@ -545,6 +611,7 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
         | Expr::String { .. }
         | Expr::Boolean { .. }
         | Expr::Field { .. }
+        | Expr::ImplementationSelector { .. }
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. }
         | Expr::Symbol(_) => {}
@@ -567,6 +634,11 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
         }
         Expr::MethodCall(m) => {
             collect_var_occurrences_in_expr(&m.object, names, out);
+            for arg in &m.args {
+                collect_var_occurrences_in_expr(&arg.expr, names, out);
+            }
+        }
+        Expr::UnqualifiedCall(m) => {
             for arg in &m.args {
                 collect_var_occurrences_in_expr(&arg.expr, names, out);
             }
@@ -704,6 +776,9 @@ impl Collector {
             .map(|member| ClassMemberInfo {
                 selector: class_member_selector(member),
                 kind: member_kind(member),
+                owner: class_def.name.clone(),
+                visibility: member_visibility(member),
+                is_class_side: member_is_class_side(member),
             })
             .collect();
         self.classes.push(CollectedClass {
@@ -773,6 +848,7 @@ impl Collector {
             | Expr::Boolean { .. }
             | Expr::Var { .. }
             | Expr::Field { .. }
+            | Expr::ImplementationSelector { .. }
             | Expr::SelfVar { .. }
             | Expr::SuperVar { .. }
             | Expr::Symbol(_) => {}
@@ -798,6 +874,11 @@ impl Collector {
                 let labels: Vec<Option<String>> = m.args.iter().map(|a| a.label.clone()).collect();
                 let selector = comma_form_from_labels(&m.method, &labels);
                 self.references.push((selector, m.range));
+                self.walk_args(&m.args);
+            }
+            Expr::UnqualifiedCall(m) => {
+                let labels: Vec<Option<String>> = m.args.iter().map(|a| a.label.clone()).collect();
+                self.references.push((comma_form_from_labels(&m.name, &labels), m.range));
                 self.walk_args(&m.args);
             }
             Expr::GetProperty(g) => {
@@ -898,7 +979,7 @@ mod tests {
 
     #[test]
     fn definition_and_reference_land_at_the_right_selector() {
-        let src = "class Point {\n  move(x, to:, duration:) { }\n}\n\nlet p = Point.new();\np.move(1, to: 2, duration: 3);\n";
+        let src = "class Point {\n  move(_ x, to, duration) { }\n}\n\nlet p = Point.new();\np.move(1, to: 2, duration: 3);\n";
         let parsed = parse(src, 0);
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 
@@ -959,7 +1040,7 @@ mod tests {
     fn reparsing_unchanged_file_is_deterministic() {
         let index = WorkspaceIndex::new();
         let a = uri("file:///a.ph");
-        let src = "class A {\n  greet(x, to:) { }\n}\nlet a = A.new();\na.greet(1, to: 2);\n";
+        let src = "class A {\n  greet(_ x, to) { }\n}\nlet a = A.new();\na.greet(1, to: 2);\n";
         let program = parse(src, 0).program;
 
         index.update_file(a.clone(), &program);
@@ -978,7 +1059,7 @@ mod tests {
     fn selector_at_offset_finds_the_innermost_call() {
         // `p.move(1, to: 2, duration: 3)` — cursor placed on `move`, inside
         // the outer call, must resolve to the call's own selector.
-        let src = "class Point {\n  move(x, to:, duration:) { }\n}\n\nlet p = Point.new();\np.move(1, to: 2, duration: 3);\n";
+        let src = "class Point {\n  move(_ x, to, duration) { }\n}\n\nlet p = Point.new();\np.move(1, to: 2, duration: 3);\n";
         let parsed = parse(src, 0);
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 
@@ -990,7 +1071,7 @@ mod tests {
 
     #[test]
     fn selector_at_offset_prefers_the_innermost_nested_call() {
-        let src = "class A {\n  outer(x) { }\n  inner() { }\n}\n\nlet a = A.new();\na.outer(a.inner());\n";
+        let src = "class A {\n  outer(_ x) { }\n  inner() { }\n}\n\nlet a = A.new();\na.outer(a.inner());\n";
         let parsed = parse(src, 0);
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 
@@ -1025,7 +1106,7 @@ mod tests {
     fn workspace_symbol_matches_substring_case_insensitively() {
         let index = WorkspaceIndex::new();
         let a = uri("file:///a.ph");
-        let src = "class A {\n  moveTo(x) { }\n}\n";
+        let src = "class A {\n  moveTo(_ x) { }\n}\n";
         index.update_file(a, &parse(src, 0).program);
 
         let matches = index.symbols_matching("moveto");
@@ -1036,14 +1117,14 @@ mod tests {
     #[test]
     fn class_members_records_selectors_and_kinds() {
         let index = WorkspaceIndex::new();
-        let src = "class Point {\n  move(x, to:) { }\n  size { }\n  size=(v) { }\n}\n";
+        let src = "class Point {\n  move(_ x, to) { }\n  size { }\n  size=(put v) { }\n}\n";
         index.update_file(uri("file:///a.ph"), &parse(src, 0).program);
 
         let a = uri("file:///a.ph");
         let members = index.class_members(&a, "Point");
         assert!(members.iter().any(|m| m.selector == "move(_,to)" && m.kind == MemberKind::Method));
         assert!(members.iter().any(|m| m.selector == "size" && m.kind == MemberKind::Getter));
-        assert!(members.iter().any(|m| m.selector == "size=(_)" && m.kind == MemberKind::Setter));
+        assert!(members.iter().any(|m| m.selector == "size=(put)" && m.kind == MemberKind::Setter));
         assert!(index.has_class(&a, "Point"));
         assert!(!index.has_class(&a, "Nope"));
     }
@@ -1153,7 +1234,7 @@ mod tests {
 
     #[test]
     fn pinned_method_ref_is_recorded_as_a_reference() {
-        let src = "class Point {\n  move(x, to:) { }\n}\n\nlet p = Point.new();\nlet f = p::#move(_,to);\n";
+        let src = "class Point {\n  move(_ x, to) { }\n}\n\nlet p = Point.new();\nlet f = p::#move(_,to);\n";
         let parsed = parse(src, 0);
         assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
 

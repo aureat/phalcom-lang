@@ -182,10 +182,9 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Throw
         | Token::Try => Some(Keyword),
 
-        Token::Identifier(_)
-        | Token::FieldIdentifier(_)
-        | Token::ImplementationFieldIdentifier(_)
-        | Token::ImplementationSelectorIdentifier(_) => Some(Variable),
+        Token::Identifier(_) | Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_) => Some(Variable),
+
+        Token::ImplementationSelectorIdentifier(_) => Some(Selector),
 
         Token::Int { .. } | Token::Float(_) => Some(Number),
 
@@ -572,11 +571,11 @@ mod tests {
     #[test]
     fn method_declaration_name_is_method_kind() {
         use SemanticTokenKind::{Class, Keyword, Method, Variable};
-        // `class Foo { bar(x) { return x } }` — `bar` is the method name
+        // `class Foo { bar(_ x) { return x } }` — `bar` is the method name
         // (Method), `x` in the parameter list and body is an ordinary
         // Variable, untouched by the refinement pass.
         assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n  bar(x) {\n    return x\n  }\n}\n"),
+            kinds_with_decl_overrides("class Foo {\n  bar(_ x) {\n    return x\n  }\n}\n"),
             vec![Keyword, Class, Method, Variable, Keyword, Variable]
         );
     }
@@ -596,11 +595,11 @@ mod tests {
     #[test]
     fn setter_name_is_method_kind() {
         use SemanticTokenKind::{Class, Keyword, Method, Operator, Variable};
-        // `greeting = (v) { }` — a setter: `greeting` is the declaration
+        // `greeting=(put v) { }` — a setter: `greeting` is the declaration
         // name (Method); `v` is an ordinary parameter binding, untouched.
         assert_eq!(
-            kinds_with_decl_overrides("class Foo {\n  greeting = (v) {\n  }\n}\n"),
-            vec![Keyword, Class, Method, Operator, Variable]
+            kinds_with_decl_overrides("class Foo {\n  greeting=(put v) {\n  }\n}\n"),
+            vec![Keyword, Class, Method, Operator, Variable, Variable]
         );
     }
 

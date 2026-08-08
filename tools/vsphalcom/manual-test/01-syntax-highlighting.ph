@@ -17,13 +17,13 @@ class Account is Object {
 
   @requires(amount > 0)                 // @ attribute token
   @ensures(self._balance == old(self._balance) + amount)
-  deposit(amount) {
+  deposit(_ amount) {
     self._balance = self._balance + amount
     return self
   }
 
   @constructor
-  new(owner) {
+  new(_ owner) {
     _owner = owner
     _balance = 0
   }
@@ -53,21 +53,21 @@ class Account is Object {
   }
 
   // Option operators
-  maybeOwner(opt) {
+  maybeOwner(_ opt) {
     let name = opt?.name
     let fallback = opt ?? "unknown"
     return name ?? fallback
   }
 
   // Index sugar
-  firstTransaction(list) {
+  firstTransaction(_ list) {
     let first = list[0]
     list[0] = "replaced"
     return first
   }
 
   // Error-handling keywords
-  safeWithdraw(amount) {
+  safeWithdraw(_ amount) {
     try {
       self.withdraw(amount)
     } on InsufficientFunds e {
@@ -79,7 +79,7 @@ class Account is Object {
     }
   }
 
-  withdraw(amount) {
+  withdraw(_ amount) {
     (amount > self._balance).ifTrue { throw InsufficientFunds.new("not enough funds") }
     self._balance = self._balance - amount
   }
@@ -88,7 +88,8 @@ class Account is Object {
 // Keyword coverage: class is super self static try catch on ensure
 // throw break continue match return while for let
 class Savings is Account {
-  static rate { return 0.05 }
+  @class
+  rate { return 0.05 }
 
   applyInterest() {
     let i = 0

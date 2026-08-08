@@ -50,10 +50,10 @@ pub fn getter_selector(g: &GetterDef) -> String {
     g.name.clone()
 }
 
-/// The comma-form selector a `name=(_)` write resolves to, given just the
+/// The comma-form selector a `name=(put)` write resolves to, given just the
 /// bare property name.
 ///
-/// Always single-param with no label: literal `name=(_)` — never
+/// Always the fixed setter role: literal `name=(put)` — never
 /// comma-joined, since a setter takes exactly one argument and it is never
 /// labeled. The single spelling both [`setter_selector`] (declaration side)
 /// and `index.rs`'s `SetProperty` reference-site walk route through, so the
@@ -82,7 +82,7 @@ pub fn field_selector(f: &FieldDef) -> String {
 }
 
 /// The bracket-form selector a bracket subscript method declaration defines
-/// (U-INDEX, ADR-0060) — `[_]`, `[_,put]`, `[]`, `[put]`, ... . Mirrors
+/// (U-INDEX, ADR-0060) — `[_]`, `[_,default]`, `[_]=(put)`, ... . Mirrors
 /// [`comma_form`]'s label-joining exactly, just bracket- rather than
 /// paren-delimited and with no leading name (a bracket method carries no
 /// name token at all — see [`IndexMethodDef`]'s doc).
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn method_with_positional_and_labeled_params() {
-        let class_def = parse_class("class Point {\n  move(x, to:, duration:) { }\n}\n");
+        let class_def = parse_class("class Point {\n  move(_ x, to, duration) { }\n}\n");
         let ClassMember::Method(m) = &class_def.members[0] else {
             panic!("expected method")
         };
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn setter_is_literal_single_slot() {
-        let class_def = parse_class("class Point {\n  x=(v) { }\n}\n");
+        let class_def = parse_class("class Point {\n  x=(put v) { }\n}\n");
         let ClassMember::Setter(s) = &class_def.members[0] else {
             panic!("expected setter")
         };
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn construct_is_comma_form() {
-        let class_def = parse_class("class Point {\n  @constructor\n  new(x, y:) { }\n}\n");
+        let class_def = parse_class("class Point {\n  @constructor\n  new(_ x, y) { }\n}\n");
         let ClassMember::Method(m) = &class_def.members[0] else {
             panic!("expected method")
         };
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn subscript_get_and_set() {
-        let class_def = parse_class("class Arr {\n  [idx] { }\n  [idx, put:] { }\n}\n");
+        let class_def = parse_class("class Arr {\n  [_ idx] { }\n  [_ idx]=(put value) { }\n}\n");
         let ClassMember::Index(g) = &class_def.members[0] else {
             panic!("expected index get")
         };

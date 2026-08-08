@@ -34,7 +34,7 @@ use serde::Deserialize;
 pub enum MemberKind {
     /// A bare-name getter (`size`) — no parens, no argument slots.
     Getter,
-    /// A `name=(_)` setter — a single-argument write, rendered `name = value`.
+    /// A `name=(put)` setter — a single-argument write, rendered `name = value`.
     Setter,
     /// A method (`move(_,to,duration)`) — parenthesized, zero or more slots.
     Method,
@@ -71,6 +71,27 @@ pub struct CoreMember {
     pub selector: String,
     /// Whether the member is a getter, setter, or method.
     pub kind: MemberKind,
+    /// Whether the receiver is the class object rather than an instance.
+    #[serde(default, rename = "classSide")]
+    pub class_side: bool,
+    /// Source/runtime visibility carried by generated metadata.
+    #[serde(default)]
+    pub visibility: CoreVisibility,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+/// Visibility encoded in generated core metadata.
+pub enum CoreVisibility {
+    /// Accessible from ordinary source.
+    #[default]
+    Public,
+    /// Accessible only in defining lexical class.
+    Private,
+    /// Accessible in defining class and subclasses.
+    Protected,
+    /// Accessible only to privileged core/runtime source.
+    Internal,
 }
 
 /// The parsed builtin core-class table: `class name -> member list`.
@@ -124,13 +145,20 @@ impl CoreTable {
     /// surface, matching the pre-LSP `completions.ts` behavior so Stage 3 is
     /// never worse than the status quo when it cannot resolve a receiver.
     pub fn all_members(&self) -> Vec<CoreMember> {
-        let mut merged: std::collections::BTreeMap<String, MemberKind> = std::collections::BTreeMap::new();
+        let mut merged: std::collections::BTreeMap<String, CoreMember> = std::collections::BTreeMap::new();
         for members in self.classes.values() {
             for member in members {
-                merged.entry(member.selector.clone()).or_insert(member.kind);
+                merged
+                    .entry(member.selector.clone())
+                    .and_modify(|existing| {
+                        if existing.visibility != CoreVisibility::Public && member.visibility == CoreVisibility::Public {
+                            *existing = member.clone();
+                        }
+                    })
+                    .or_insert_with(|| member.clone());
             }
         }
-        merged.into_iter().map(|(selector, kind)| CoreMember { selector, kind }).collect()
+        merged.into_values().collect()
     }
 }
 
@@ -150,9 +178,9 @@ mod tests {
     fn member_kinds_deserialize_from_lowercase_strings() {
         let table = CoreTable::bundled();
         let behavior = table.class_members("Behavior").expect("Behavior present");
-        // `name` is a getter, `superclass=(_)` is a setter (per the fixture).
+        // `name` is a getter, `superclass=(put)` is a setter (per the fixture).
         assert!(behavior.iter().any(|m| m.selector == "name" && m.kind == MemberKind::Getter));
-        assert!(behavior.iter().any(|m| m.selector == "superclass=(_)" && m.kind == MemberKind::Setter));
+        assert!(behavior.iter().any(|m| m.selector == "superclass=(put)" && m.kind == MemberKind::Setter));
     }
 
     #[test]

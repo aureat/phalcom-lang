@@ -17,7 +17,7 @@
 //
 // SELECTOR TEST:
 class Probe {
-  check(obj) {
+  check(_ obj) {
 
   }
 }
@@ -31,7 +31,7 @@ class Probe {
 //
 // MOVE TEST:
 class Probe2 {
-  check2(obj) {
+  check2(_ obj) {
     self
   }
 }

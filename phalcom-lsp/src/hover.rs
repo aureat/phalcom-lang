@@ -59,7 +59,7 @@ const CONTEXTUAL_WORDS: &[&str] = &["on", "catch", "ensure", "match"];
 const KEYWORD_DOCS: &[(&str, &str)] = &[
     (
         "class",
-        "Declares a class: a name, an optional superclass via `is` (e.g. `class Sub is Super`), fields (implicitly declared by `_`-prefixed assignment), constructors, and methods.",
+        "Declares a class: a name, an optional superclass via `is` (e.g. `class Sub is Super`), fields, constructors, and methods.",
     ),
     (
         "super",
@@ -71,7 +71,7 @@ const KEYWORD_DOCS: &[(&str, &str)] = &[
     ),
     (
         "static",
-        "Declares a member on the class's metaclass rather than on instances (a class-side method or field), per the metaclass tower (Object Model §5).",
+        "Retired class-side member syntax. Use the `@class` placement attribute on the following member.",
     ),
     (
         "try",
@@ -490,14 +490,14 @@ pub struct SelectorSite {
 }
 
 /// Renders a member kind as the lowercase word `render_selector_hover` shows
-/// (`"method"`, `"getter"`, `"setter"`, `"static method"`, `"construct"`).
+/// (`"method"`, `"getter"`, `"setter"`, `"class method"`, `"construct"`).
 fn kind_word(kind: crate::core_table::MemberKind) -> &'static str {
     use crate::core_table::MemberKind;
     match kind {
         MemberKind::Getter => "getter",
         MemberKind::Setter => "setter",
         MemberKind::Method => "method",
-        MemberKind::StaticMethod => "static method",
+        MemberKind::StaticMethod => "class method",
         MemberKind::Construct => "construct",
     }
 }
@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn phaldoc_adjacency_attaches_to_the_immediately_following_method() {
-        let src = "class Point {\n  /// Moves the point.\n  move(x) { }\n}\n";
+        let src = "class Point {\n  /// Moves the point.\n  move(_ x) { }\n}\n";
         let (program, line_index) = parsed(src);
         let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").expect("adjacent doc must attach");
         assert_eq!(doc.summary, "Moves the point.");
@@ -631,14 +631,14 @@ mod tests {
 
     #[test]
     fn phaldoc_blank_line_breaks_adjacency() {
-        let src = "class Point {\n  /// Moves the point.\n\n  move(x) { }\n}\n";
+        let src = "class Point {\n  /// Moves the point.\n\n  move(_ x) { }\n}\n";
         let (program, line_index) = parsed(src);
         assert_eq!(harvest_doc_for_selector(src, &program, &line_index, "move(_)"), None);
     }
 
     #[test]
     fn phaldoc_is_selector_keyed_not_name_keyed() {
-        let src = "class Point {\n  /// Zero-arity reset.\n  reset() { }\n  /// Reset with a value.\n  reset(x) { }\n}\n";
+        let src = "class Point {\n  /// Zero-arity reset.\n  reset() { }\n  /// Reset with a value.\n  reset(_ x) { }\n}\n";
         let (program, line_index) = parsed(src);
         let zero = harvest_doc_for_selector(src, &program, &line_index, "reset()").expect("reset() has its own doc");
         let one = harvest_doc_for_selector(src, &program, &line_index, "reset(_)").expect("reset(_) has its own doc");
@@ -649,7 +649,7 @@ mod tests {
 
     #[test]
     fn phaldoc_detached_pin_overrides_adjacency() {
-        let src = "class Point {\n  /// selector: move(_,to)\n  /// A detached doc.\n\n  move(x, to:) { }\n}\n";
+        let src = "class Point {\n  /// selector: move(_,to)\n  /// A detached doc.\n\n  move(_ x, to) { }\n}\n";
         let (program, line_index) = parsed(src);
         let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_,to)").expect("pinned selector overrides adjacency");
         assert_eq!(doc.summary, "A detached doc.");
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn phaldoc_parses_tags() {
-        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move\n  /// @returns the new position\n  move(x) { }\n}\n";
+        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move\n  /// @returns the new position\n  move(_ x) { }\n}\n";
         let (program, line_index) = parsed(src);
         let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
         assert_eq!(doc.summary, "Moves the point.");
@@ -688,7 +688,7 @@ mod tests {
 
     #[test]
     fn phaldoc_indented_continuation_line_folds_into_the_tag() {
-        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move,\n  ///   continued on an indented line\n  move(x) { }\n}\n";
+        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move,\n  ///   continued on an indented line\n  move(_ x) { }\n}\n";
         let (program, line_index) = parsed(src);
         let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
         assert_eq!(
@@ -702,7 +702,7 @@ mod tests {
         // The second `///` line sits at the *same* indentation as the `@param`
         // line's own body text — per §3 it is not a continuation, so it must
         // not fold into the tag's payload.
-        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move\n  /// not a continuation\n  move(x) { }\n}\n";
+        let src = "class Point {\n  /// Moves the point.\n  ///\n  /// @param x how far to move\n  /// not a continuation\n  move(_ x) { }\n}\n";
         let (program, line_index) = parsed(src);
         let doc = harvest_doc_for_selector(src, &program, &line_index, "move(_)").unwrap();
         assert_eq!(doc.tags, vec![("param".to_string(), "x how far to move".to_string())]);

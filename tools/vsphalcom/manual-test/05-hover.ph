@@ -22,12 +22,12 @@
 //    which is expected/documented scope).
 
 class Inspector {
-  riskyOperation(x) {
+  riskyOperation(_ x) {
     (x < 0).ifTrue { throw ArgumentError.new("x must be >= 0") }
     return x
   }
 
-  checkType(obj) {
+  checkType(_ obj) {
     return obj.isA(Number)
   }
 

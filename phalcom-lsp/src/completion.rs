@@ -25,9 +25,9 @@ use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat,
 
 use phalcom_ast::ast::{ClassMember, Expr, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry};
 
-use crate::core_table::{CoreTable, MemberKind};
+use crate::core_table::{CoreTable, CoreVisibility, MemberKind};
 use crate::documents::Document;
-use crate::index::{ClassMemberInfo, WorkspaceIndex};
+use crate::index::{ClassMemberInfo, MemberVisibility, WorkspaceIndex};
 
 /// Whether a resolved receiver is an **instance** of its class or the
 /// **class object** itself (a bare class-name reference used as a receiver,
@@ -201,6 +201,11 @@ fn enclosing_scope_chain(program: &Program, offset: usize) -> (Vec<&[Statement]>
     (chain, None)
 }
 
+/// Defining lexical class at a document position, if any.
+pub fn lexical_class_at(program: &Program, offset: usize) -> Option<String> {
+    enclosing_scope_chain(program, offset).1
+}
+
 /// Extends `chain` with every nested block/`for` body that lexically contains
 /// `offset`, recursing as deep as the AST goes (innermost pushed last).
 fn descend_scope_chain<'a>(statements: &'a [Statement], offset: usize, chain: &mut Vec<&'a [Statement]>) {
@@ -252,6 +257,7 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
             .or_else(|| range.upper.as_ref().and_then(|upper| nested_block_in_expr(upper, offset))),
         Expr::Unary(u) => nested_block_in_expr(&u.expr, offset),
         Expr::Binary(b) => nested_block_in_expr(&b.left, offset).or_else(|| nested_block_in_expr(&b.right, offset)),
+        Expr::UnqualifiedCall(m) => m.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset)),
         Expr::MethodCall(m) => nested_block_in_expr(&m.object, offset).or_else(|| m.args.iter().find_map(|a| nested_block_in_expr(&a.expr, offset))),
         Expr::GetProperty(g) => nested_block_in_expr(&g.object, offset),
         Expr::SetProperty(s) => nested_block_in_expr(&s.object, offset).or_else(|| nested_block_in_expr(&s.value, offset)),
@@ -287,6 +293,7 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
         | Expr::Boolean { .. }
         | Expr::Var { .. }
         | Expr::Field { .. }
+        | Expr::ImplementationSelector { .. }
         | Expr::SelfVar { .. }
         | Expr::SuperVar { .. }
         | Expr::Symbol(_) => None,
@@ -385,16 +392,22 @@ fn class_of_construct(expr: &Expr) -> Option<String> {
 ///   ancestors' members up to (and including) the first builtin ancestor
 ///   whose members come from [`CoreTable`] — de-duplicated by selector,
 ///   most-derived winning — then filtered by `kind` (see
-///   `filter_by_receiver_kind`) so an instance receiver never sees a
-///   `static`/`construct` member and a class-object receiver sees *only*
-///   those.
+///   `filter_by_receiver_kind`) so instance and class-object receivers see
+///   only their matching placement side.
 /// - `Some((class, _))` but no members resolve at all, or `None`: the full
 ///   builtin surface ([`CoreTable::all_members`]), unfiltered — the graceful
 ///   "receiver type unknown" fallback (never worse than pre-Stage-3
 ///   completion).
 ///
 /// Items are returned sorted by label for a deterministic order.
-pub fn completions(resolved: Option<(&str, ReceiverKind)>, uri: &Url, index: &WorkspaceIndex, table: &CoreTable) -> Vec<CompletionItem> {
+pub fn completions(
+    resolved: Option<(&str, ReceiverKind)>,
+    lexical_class: Option<&str>,
+    privileged: bool,
+    uri: &Url,
+    index: &WorkspaceIndex,
+    table: &CoreTable,
+) -> Vec<CompletionItem> {
     let members = match resolved {
         Some((class, kind)) => {
             let collected = collect_class_members(class, uri, index, table);
@@ -407,25 +420,137 @@ pub fn completions(resolved: Option<(&str, ReceiverKind)>, uri: &Url, index: &Wo
         None => table_members(table),
     };
 
-    let mut items: Vec<CompletionItem> = members.iter().map(to_completion_item).collect();
+    let mut items: Vec<CompletionItem> = members
+        .iter()
+        .filter(|member| match member.visibility {
+            MemberVisibility::Public => true,
+            MemberVisibility::Private => lexical_class == Some(member.owner.as_str()),
+            MemberVisibility::Protected => lexical_class.is_some_and(|caller| index.is_same_or_subclass(uri, caller, &member.owner)),
+            MemberVisibility::Internal => privileged,
+        })
+        .map(to_completion_item)
+        .collect();
     items.sort_by(|a, b| a.label.cmp(&b.label));
     items
 }
 
+/// Completion for an editor position, including implicit-self members and
+/// visible bare bindings when no explicit `receiver.` prefix is present.
+pub fn contextual_completions(
+    resolved: Option<(&str, ReceiverKind)>,
+    program: &Program,
+    text: &str,
+    offset: usize,
+    privileged: bool,
+    uri: &Url,
+    index: &WorkspaceIndex,
+    table: &CoreTable,
+) -> Vec<CompletionItem> {
+    let lexical_class = lexical_class_at(program, offset);
+    let mut items = completions(resolved, lexical_class.as_deref(), privileged, uri, index, table);
+    if receiver_prefix(text, offset).is_none() {
+        if let Some(class) = lexical_class.as_deref() {
+            let self_members = filter_by_receiver_kind(collect_class_members(class, uri, index, table), ReceiverKind::Instance);
+            items.extend(
+                self_members
+                    .iter()
+                    .filter(|member| match member.visibility {
+                        MemberVisibility::Public => true,
+                        MemberVisibility::Private => member.owner == class,
+                        MemberVisibility::Protected => index.is_same_or_subclass(uri, class, &member.owner),
+                        MemberVisibility::Internal => privileged,
+                    })
+                    .map(to_completion_item),
+            );
+        }
+        items.extend(visible_names_at(program, offset).into_iter().map(|name| CompletionItem {
+            label: name.clone(),
+            kind: Some(CompletionItemKind::VARIABLE),
+            insert_text: Some(name),
+            ..CompletionItem::default()
+        }));
+    }
+    items.sort_by(|a, b| a.label.cmp(&b.label));
+    items.dedup_by(|a, b| a.label == b.label);
+    items
+}
+
+fn visible_names_at(program: &Program, offset: usize) -> Vec<String> {
+    let mut names = Vec::new();
+    for statement in &program.statements {
+        match statement {
+            Statement::Class(class) => names.push(class.name.clone()),
+            Statement::Import(import) => names.push(import.binding.clone()),
+            Statement::Let(binding) if binding.range.start < offset => collect_pattern_names(&binding.pattern, &mut names),
+            _ => {}
+        }
+    }
+
+    for statement in &program.statements {
+        let Statement::Class(class) = statement else { continue };
+        if !class.range.contains(offset) {
+            continue;
+        }
+        for member in &class.members {
+            match member {
+                ClassMember::Method(method) if method.range.contains(offset) => {
+                    names.extend(method.params.iter().map(|param| param.name.clone()));
+                }
+                ClassMember::Setter(setter) if setter.range.contains(offset) => names.push(setter.param.name.clone()),
+                ClassMember::Index(index) if index.range.contains(offset) => {
+                    names.extend(index.params.iter().map(|param| param.name.clone()));
+                    if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor {
+                        names.push(put.name.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let (chain, _) = enclosing_scope_chain(program, offset);
+    for scope in chain {
+        for statement in scope {
+            match statement {
+                Statement::Let(binding) if binding.range.start < offset => collect_pattern_names(&binding.pattern, &mut names),
+                Statement::For(for_stmt) if for_stmt.range.contains(offset) => names.push(for_stmt.binding.clone()),
+                _ => {}
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
+    match pattern {
+        Pattern::Name { name, .. } => out.push(name.clone()),
+        Pattern::Tuple { elements, .. } => {
+            for element in elements {
+                collect_pattern_names(element, out);
+            }
+        }
+        Pattern::List { elements, rest, .. } => {
+            for element in elements {
+                collect_pattern_names(element, out);
+            }
+            if let Some(rest) = rest {
+                collect_pattern_names(rest, out);
+            }
+        }
+    }
+}
+
 /// Filters `members` down to the ones dispatchable on a receiver of `kind`:
-/// an [`ReceiverKind::Instance`] receiver keeps only instance-side members
-/// (drops [`MemberKind::StaticMethod`]/[`MemberKind::Construct`]); a
-/// [`ReceiverKind::ClassObject`] receiver keeps *only* those class-side
-/// members.
+/// an [`ReceiverKind::Instance`] receiver keeps only instance-side members;
+/// a [`ReceiverKind::ClassObject`] receiver keeps only class-side members.
 fn filter_by_receiver_kind(members: Vec<ClassMemberInfo>, kind: ReceiverKind) -> Vec<ClassMemberInfo> {
     members
         .into_iter()
-        .filter(|member| {
-            let is_class_side = matches!(member.kind, MemberKind::StaticMethod | MemberKind::Construct);
-            match kind {
-                ReceiverKind::Instance => !is_class_side,
-                ReceiverKind::ClassObject => is_class_side,
-            }
+        .filter(|member| match kind {
+            ReceiverKind::Instance => !member.is_class_side,
+            ReceiverKind::ClassObject => member.is_class_side,
         })
         .collect()
 }
@@ -435,9 +560,19 @@ fn table_members(table: &CoreTable) -> Vec<ClassMemberInfo> {
     table
         .all_members()
         .into_iter()
-        .map(|m| ClassMemberInfo {
-            selector: m.selector,
-            kind: m.kind,
+        .map(|m| {
+            let visibility = if m.selector.starts_with("_$") {
+                MemberVisibility::Internal
+            } else {
+                core_visibility(m.visibility)
+            };
+            ClassMemberInfo {
+                selector: m.selector,
+                kind: m.kind,
+                owner: String::new(),
+                visibility,
+                is_class_side: m.class_side || matches!(m.kind, MemberKind::StaticMethod | MemberKind::Construct),
+            }
         })
         .collect()
 }
@@ -507,6 +642,13 @@ fn collect_class_members(class: &str, uri: &Url, index: &WorkspaceIndex, table: 
                     out.push(ClassMemberInfo {
                         selector: member.selector.clone(),
                         kind: member.kind,
+                        owner: name.clone(),
+                        visibility: if member.selector.starts_with("_$") {
+                            MemberVisibility::Internal
+                        } else {
+                            core_visibility(member.visibility)
+                        },
+                        is_class_side: member.class_side || matches!(member.kind, MemberKind::StaticMethod | MemberKind::Construct),
                     });
                 }
             }
@@ -538,6 +680,15 @@ fn collect_class_members(class: &str, uri: &Url, index: &WorkspaceIndex, table: 
         }
     }
     out
+}
+
+fn core_visibility(visibility: CoreVisibility) -> MemberVisibility {
+    match visibility {
+        CoreVisibility::Public => MemberVisibility::Public,
+        CoreVisibility::Private => MemberVisibility::Private,
+        CoreVisibility::Protected => MemberVisibility::Protected,
+        CoreVisibility::Internal => MemberVisibility::Internal,
+    }
 }
 
 /// Renders one class member as a snippet [`CompletionItem`].
@@ -588,11 +739,11 @@ fn method_snippet(selector: &str) -> String {
 
 /// Renders a setter selector's snippet insert text.
 ///
-/// `x=(_)` becomes `x = ${1:value}` — a bare-name write with a single
+/// `x=(put)` becomes `x = ${1:value}` — a bare-name write with a single
 /// tab-stop, no parens. Falls back to the raw selector if it is not in the
-/// expected `name=(_)` shape.
+/// expected `name=(put)` shape.
 fn setter_snippet(selector: &str) -> String {
-    match selector.strip_suffix("=(_)") {
+    match selector.strip_suffix("=(put)") {
         Some(base) => format!("{base} = ${{1:value}}"),
         None => selector.to_string(),
     }
@@ -727,13 +878,13 @@ mod tests {
 
     #[test]
     fn setter_snippet_renders_bare_name_write() {
-        assert_eq!(setter_snippet("x=(_)"), "x = ${1:value}");
+        assert_eq!(setter_snippet("x=(put)"), "x = ${1:value}");
     }
 
     #[test]
     fn completions_for_resolved_user_class_only_that_class() {
-        let index = index_with("file:///a.ph", "class Point {\n  move(x, to:) { }\n  size { }\n}\n");
-        let items = completions(Some(("Point", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
+        let index = index_with("file:///a.ph", "class Point {\n  move(_ x, to) { }\n  size { }\n}\n");
+        let items = completions(Some(("Point", ReceiverKind::Instance)), None, false, &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"move(_,to)"));
         assert!(labels.contains(&"size"));
@@ -744,7 +895,7 @@ mod tests {
     #[test]
     fn completions_walk_user_superclass_chain() {
         let index = index_with("file:///a.ph", "class Animal {\n  eat() { }\n}\nclass Dog is Animal {\n  bark() { }\n}\n");
-        let items = completions(Some(("Dog", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
+        let items = completions(Some(("Dog", ReceiverKind::Instance)), None, false, &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
         assert!(labels.contains(&"eat()"));
@@ -755,7 +906,7 @@ mod tests {
         // `Point` writes no `extends` clause; its implicit parent is `Object`,
         // whose own members (`hash`, `toString`, …) must be offered too.
         let index = index_with("file:///a.ph", "class Point {\n  size { }\n}\n");
-        let items = completions(Some(("Point", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
+        let items = completions(Some(("Point", ReceiverKind::Instance)), None, false, &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"size"));
         assert!(labels.contains(&"hash"), "{labels:#?}");
@@ -770,7 +921,7 @@ mod tests {
         // `Animal` also writes no `is` superclass, so `Dog`'s walk must reach
         // `Object` past `Animal`, not stop at `Animal`.
         let index = index_with("file:///a.ph", "class Animal {\n  eat() { }\n}\nclass Dog is Animal {\n  bark() { }\n}\n");
-        let items = completions(Some(("Dog", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
+        let items = completions(Some(("Dog", ReceiverKind::Instance)), None, false, &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"));
         assert!(labels.contains(&"eat()"));
@@ -780,7 +931,7 @@ mod tests {
     #[test]
     fn completions_for_builtin_class() {
         let index = WorkspaceIndex::new();
-        let items = completions(Some(("Bool", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
+        let items = completions(Some(("Bool", ReceiverKind::Instance)), None, false, &a_uri(), &index, CoreTable::bundled());
         assert!(!items.is_empty());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"ifTrue(_)"));
@@ -792,7 +943,7 @@ mod tests {
         // members (`new()` static, per `core-table.json`); an instance
         // receiver must drop the class-side ones.
         let index = WorkspaceIndex::new();
-        let items = completions(Some(("Object", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
+        let items = completions(Some(("Object", ReceiverKind::Instance)), None, false, &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"name"), "{labels:#?}");
         assert!(!labels.contains(&"new()"), "{labels:#?}");
@@ -801,7 +952,7 @@ mod tests {
     #[test]
     fn completions_class_object_receiver_offers_only_static_and_construct_members() {
         let index = WorkspaceIndex::new();
-        let items = completions(Some(("Object", ReceiverKind::ClassObject)), &a_uri(), &index, CoreTable::bundled());
+        let items = completions(Some(("Object", ReceiverKind::ClassObject)), None, false, &a_uri(), &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"new()"), "{labels:#?}");
         // Instance-side members must not leak onto the class-object side.
@@ -810,14 +961,55 @@ mod tests {
     }
 
     #[test]
-    fn completions_class_object_receiver_offers_user_static_method_only() {
-        // A user class with a `static` method and an instance method: the
-        // class-object receiver must see only the `static` one.
-        let index = index_with("file:///a.ph", "class Counter {\n  static make() { }\n  next() { }\n}\n");
-        let items = completions(Some(("Counter", ReceiverKind::ClassObject)), &a_uri(), &index, CoreTable::bundled());
+    fn completions_class_object_receiver_offers_user_class_method_only() {
+        // A user class with an `@class` method and an instance method: the
+        // class-object receiver must see only the class-side one.
+        let index = index_with("file:///a.ph", "class Counter {\n  @class\n  make() { }\n  next() { }\n}\n");
+        let items = completions(
+            Some(("Counter", ReceiverKind::ClassObject)),
+            None,
+            false,
+            &a_uri(),
+            &index,
+            CoreTable::bundled(),
+        );
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"make()"), "{labels:#?}");
         assert!(!labels.contains(&"next()"), "{labels:#?}");
+    }
+
+    #[test]
+    fn class_side_getter_keeps_getter_snippet_shape() {
+        let index = index_with("file:///a.ph", "class Counter {\n  @class\n  count => 1\n}\n");
+        let items = completions(
+            Some(("Counter", ReceiverKind::ClassObject)),
+            None,
+            false,
+            &a_uri(),
+            &index,
+            CoreTable::bundled(),
+        );
+        let count = items.iter().find(|item| item.label == "count").expect("class getter completion");
+        assert_eq!(count.insert_text.as_deref(), Some("count"));
+    }
+
+    #[test]
+    fn visibility_filters_private_protected_and_internal_members() {
+        let index = index_with(
+            "file:///a.ph",
+            "class Base {\n  @private\n  secret() {}\n  @protected\n  family() {}\n}\nclass Child is Base {\n  own() {}\n}\n",
+        );
+        let outside = completions(Some(("Base", ReceiverKind::Instance)), None, false, &a_uri(), &index, CoreTable::bundled());
+        assert!(!outside.iter().any(|item| item.label == "secret()" || item.label == "family()"));
+
+        let base = completions(Some(("Base", ReceiverKind::Instance)), Some("Base"), false, &a_uri(), &index, CoreTable::bundled());
+        assert!(base.iter().any(|item| item.label == "secret()"));
+        assert!(base.iter().any(|item| item.label == "family()"));
+
+        let child = completions(Some(("Child", ReceiverKind::Instance)), Some("Child"), false, &a_uri(), &index, CoreTable::bundled());
+        assert!(!child.iter().any(|item| item.label == "secret()"));
+        assert!(child.iter().any(|item| item.label == "family()"));
+        assert!(!child.iter().any(|item| item.label.starts_with("_$")));
     }
 
     /// Completion for `Point` in `a.ph` must not offer `b.ph`'s same-named
@@ -833,7 +1025,7 @@ mod tests {
         index.update_file(a.clone(), &phalcom_ast::parser::parse("class Point {\n  aye() { }\n}\n", 0).program);
         index.update_file(b.clone(), &phalcom_ast::parser::parse("class Point {\n  bee() { }\n}\n", 0).program);
 
-        let items = completions(Some(("Point", ReceiverKind::Instance)), &a, &index, CoreTable::bundled());
+        let items = completions(Some(("Point", ReceiverKind::Instance)), None, false, &a, &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"aye()"), "{labels:#?}");
         assert!(!labels.contains(&"bee()"), "b.ph's member leaked: {labels:#?}");
@@ -850,7 +1042,7 @@ mod tests {
         index.update_file(a.clone(), &phalcom_ast::parser::parse("class Dog is Animal {\n  bark() { }\n}\n", 0).program);
         index.update_file(b.clone(), &phalcom_ast::parser::parse("class Animal {\n  eat() { }\n}\n", 0).program);
 
-        let items = completions(Some(("Dog", ReceiverKind::Instance)), &a, &index, CoreTable::bundled());
+        let items = completions(Some(("Dog", ReceiverKind::Instance)), None, false, &a, &index, CoreTable::bundled());
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"bark()"), "{labels:#?}");
         assert!(
@@ -866,17 +1058,24 @@ mod tests {
     #[test]
     fn completions_unknown_receiver_falls_back_to_full_builtin_surface() {
         let index = WorkspaceIndex::new();
-        let none = completions(None, &a_uri(), &index, CoreTable::bundled());
+        let none = completions(None, None, false, &a_uri(), &index, CoreTable::bundled());
         assert!(!none.is_empty());
         // Unresolvable class name also falls back rather than returning empty.
-        let unknown = completions(Some(("Nonexistent", ReceiverKind::Instance)), &a_uri(), &index, CoreTable::bundled());
+        let unknown = completions(
+            Some(("Nonexistent", ReceiverKind::Instance)),
+            None,
+            false,
+            &a_uri(),
+            &index,
+            CoreTable::bundled(),
+        );
         assert_eq!(none.len(), unknown.len());
     }
 
     #[test]
     fn completions_are_sorted_by_label() {
         let index = WorkspaceIndex::new();
-        let items = completions(None, &a_uri(), &index, CoreTable::bundled());
+        let items = completions(None, None, false, &a_uri(), &index, CoreTable::bundled());
         for pair in items.windows(2) {
             assert!(pair[0].label <= pair[1].label);
         }
