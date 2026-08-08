@@ -29,7 +29,8 @@ class Rational {
   /// @see #init(_,_)
   /// @example
   /// System.print(Rational.of(2, 4) == Rational.of(1, 2))   // true
-  static of(n, d) {
+  @class
+  of(_ n, _ d) {
     const r = self.new()
     r.init(n, d)
     return r
@@ -38,7 +39,7 @@ class Rational {
   /// Sign-normalise and reduce this rational in place. Internal — prefer `of(_,_)`.
   /// @param n — the raw numerator
   /// @param d — the raw denominator (may be negative)
-  init(n, d) {
+  init(_ n, _ d) {
     let nn = n
     let dd = d
     if (dd < 0) { nn = 0 - nn; dd = 0 - dd }   // keep denominator positive
@@ -54,26 +55,28 @@ class Rational {
   den { return _den }
 
   /// Sum. @param o — the addend `Rational`. @returns a reduced `Rational`.
-  +(o) { return Rational.of(_num * o.den + o.num * _den, _den * o.den) }
+  +(_ o) { return Rational.of(_num * o.den + o.num * _den, _den * o.den) }
   /// Difference. @param o — the subtrahend. @returns a reduced `Rational`.
-  -(o) { return Rational.of(_num * o.den - o.num * _den, _den * o.den) }
+  -(_ o) { return Rational.of(_num * o.den - o.num * _den, _den * o.den) }
   /// Product. @param o — the multiplicand. @returns a reduced `Rational`.
-  *(o) { return Rational.of(_num * o.num, _den * o.den) }
+  *(_ o) { return Rational.of(_num * o.num, _den * o.den) }
   /// Quotient. @param o — the divisor. @returns a reduced `Rational`.
-  /(o) { return Rational.of(_num * o.den, _den * o.num) }
+  /(_ o) { return Rational.of(_num * o.den, _den * o.num) }
   /// Structural equality — sound because both operands are kept canonical.
   /// @param o — the `Rational` to compare against. @returns a `Bool`.
-  ==(o) { return _num == o.num and _den == o.den }
+  ==(_ o) { return _num == o.num and _den == o.den }
 
   /// Euclid's algorithm. @param a @param b — non-negative integers.
   /// @returns their greatest common divisor.
-  static gcd(a, b) {
+  @class
+  gcd(_ a, _ b) {
     if (b == 0) { return a }
     return Rational.gcd(b, a % b)
   }
 
   /// Integer absolute value. @param x — a Number. @returns `|x|`.
-  static absi(x) {
+  @class
+  absi(_ x) {
     if (x < 0) { return 0 - x }
     return x
   }

@@ -91,10 +91,11 @@ class StrategyRegistry {
   forType(type: Any) -> Strategy<Any> {
     const path = List.new()
     path.add(type.toString)
-    return self._resolve(type: type, path: path)
+    return self.resolve(type: type, path: path)
   }
 
-  _resolve(type: Any, path: List<String>) -> Strategy<Any> {
+  @private
+  resolve(type: Any, path: List<String>) -> Strategy<Any> {
     const exact = _entries.at(type)
     if exact != None {
       return exact
@@ -143,7 +144,7 @@ class StrategyRegistry {
       self.requireArity(type: type, arguments: arguments, expected: 1, path: path)
       return Some.new(
         Gen.option(
-          self._resolve(
+          self.resolve(
             type: arguments.at(0),
             path: self.extend(path: path, segment: "Option value " + arguments.at(0).toString)
           )
@@ -155,7 +156,7 @@ class StrategyRegistry {
       self.requireArity(type: type, arguments: arguments, expected: 1, path: path)
       return Some.new(
         Gen.list(
-          of: self._resolve(
+          of: self.resolve(
             type: arguments.at(0),
             path: self.extend(path: path, segment: "List element " + arguments.at(0).toString)
           )
@@ -168,7 +169,7 @@ class StrategyRegistry {
       let index = 0
       for argument in arguments {
         strategies.add(
-          self._resolve(
+          self.resolve(
             type: argument,
             path: self.extend(
               path: path,
@@ -185,7 +186,7 @@ class StrategyRegistry {
       self.requireArity(type: type, arguments: arguments, expected: 1, path: path)
       return Some.new(
         Gen.set(
-          of: self._resolve(
+          of: self.resolve(
             type: arguments.at(0),
             path: self.extend(path: path, segment: "Set element " + arguments.at(0).toString)
           )
@@ -197,11 +198,11 @@ class StrategyRegistry {
       self.requireArity(type: type, arguments: arguments, expected: 2, path: path)
       return Some.new(
         Gen.map(
-          keys: self._resolve(
+          keys: self.resolve(
             type: arguments.at(0),
             path: self.extend(path: path, segment: "Map key " + arguments.at(0).toString)
           ),
-          values: self._resolve(
+          values: self.resolve(
             type: arguments.at(1),
             path: self.extend(path: path, segment: "Map value " + arguments.at(1).toString)
           )
@@ -213,11 +214,11 @@ class StrategyRegistry {
       self.requireArity(type: type, arguments: arguments, expected: 2, path: path)
       return Some.new(
         Gen.result(
-          ok: self._resolve(
+          ok: self.resolve(
             type: arguments.at(0),
             path: self.extend(path: path, segment: "Result ok " + arguments.at(0).toString)
           ),
-          error: self._resolve(
+          error: self.resolve(
             type: arguments.at(1),
             path: self.extend(path: path, segment: "Result error " + arguments.at(1).toString)
           )

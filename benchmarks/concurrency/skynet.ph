@@ -26,7 +26,8 @@
 // ============================================================
 
 class Skynet {
-  static makeFiber(num, size, div) {
+  @class
+  makeFiber(_ num, _ size, _ div) {
     return Fiber.new {
       if (size == 1) {
         Fiber.yield(num)

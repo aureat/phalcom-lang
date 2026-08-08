@@ -4,7 +4,8 @@ import "./src/grid/grid" as Grid
 import "./src/value/cell_value" as Value
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("Simple Grid test")
     const grid = Grid.Grid.new()
     System.print("Grid created, type: " + grid.toString)

@@ -19,7 +19,8 @@
 // ============================================================
 
 class Check {
-  static approx(a, b) {
+  @class
+  approx(_ a, _ b) {
     let d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.0000001
@@ -27,16 +28,19 @@ class Check {
 }
 
 class Stats {
-  static sum(xs) {
+  @class
+  sum(_ xs) {
     return xs.reduce(0) { acc, x => acc + x }
   }
 
-  static mean(xs) {
+  @class
+  mean(_ xs) {
     return Stats.sum(xs) / xs.size
   }
 
   // Two-pass variance: (1/n) * sum (x - mean)^2
-  static variance(xs) {
+  @class
+  variance(_ xs) {
     const m = Stats.mean(xs)
     let acc = 0
     for (x in xs) {
@@ -46,14 +50,16 @@ class Stats {
   }
 
   // Alternate route: E[x^2] - (E[x])^2. Must match variance() up to rounding.
-  static varianceMoment(xs) {
+  @class
+  varianceMoment(_ xs) {
     const m = Stats.mean(xs)
     let sq = 0
     for (x in xs) { sq = sq + x * x }
     return sq / xs.size - m * m
   }
 
-  static median(xs) {
+  @class
+  median(_ xs) {
     let s = List.new()
     for (x in xs) { s.add(x) }
     let i = 0

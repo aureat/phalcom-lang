@@ -6,7 +6,7 @@
 // while-counter. `this` -> `self` (Phalcom's self-reference keyword).
 class Toggle {
   @constructor
-  new(startState) {
+  new(_ startState) {
     _state = startState
   }
 
@@ -19,7 +19,7 @@ class Toggle {
 
 class NthToggle is Toggle {
   @constructor
-  new(startState, maxCounter) {
+  new(_ startState, _ maxCounter) {
     super.new(startState)
     _countMax = maxCounter
     _count = 0

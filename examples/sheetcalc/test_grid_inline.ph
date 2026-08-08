@@ -9,7 +9,7 @@ class TestGrid {
   minCol => _minCol
   cells => _cells
 
-  set(ref, cell) {
+  set(_ ref, _ cell) {
     System.print("[TestGrid.set] called")
     _cells.at(ref, put: cell)
     System.print("[TestGrid.set] done")
@@ -17,7 +17,8 @@ class TestGrid {
 }
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("Test inline Grid")
     const g = TestGrid.new()
     System.print("Grid created, minCol = " + g.minCol.toString)

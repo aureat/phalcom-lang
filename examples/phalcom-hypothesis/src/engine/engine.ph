@@ -25,7 +25,7 @@ class SearchEngine {
     const stats = statistics._StatisticsCollector.new()
     const checkedReporter = reportingReporter._CheckedReporter.new(reporter)
     const outcome = {
-      self._check(spec, reporter: checkedReporter, statistics: stats)
+      self.check(spec, reporter: checkedReporter, statistics: stats)
     }.attempt()
     if outcome.isOk {
       return outcome.unwrap
@@ -41,7 +41,8 @@ class SearchEngine {
     error.raise()
   }
 
-  _check(spec: Any, reporter: Any, statistics: Any) -> PropertyResult {
+  @private
+  check(spec: Any, reporter: Any, statistics: Any) -> PropertyResult {
     const stats = statistics
     const worker = evaluator._Evaluator.new(spec)
     let exampleIndex = 0

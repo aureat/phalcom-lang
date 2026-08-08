@@ -9,7 +9,8 @@ class MyGrid {
 }
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("About to call MyGrid.new()")
     const g = MyGrid.new()
     System.print("Called MyGrid.new()")

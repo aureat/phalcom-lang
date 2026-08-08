@@ -7,7 +7,7 @@
 // useful once GC control lands to see if inserting it changes anything.
 class Tree {
   @constructor
-  new(item, depth) {
+  new(_ item, _ depth) {
     _item = item
     if (depth > 0) {
       let item2 = item + item

@@ -11,7 +11,8 @@
 // ============================================================
 
 class Check {
-  static approx(a, b) {
+  @class
+  approx(_ a, _ b) {
     const d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.0000001
@@ -19,7 +20,8 @@ class Check {
 }
 
 class CF {
-  static sqrt(a) {
+  @class
+  sqrt(_ a) {
     const g = a
     const i = 0
     while (i < 50) { g = (g + a / g) / 2; i = i + 1 }
@@ -27,7 +29,8 @@ class CF {
   }
 
   // phi = 1 + 1/(1 + 1/(1 + ...)); iterate x = 1 + 1/x to the fixed point.
-  static golden {
+  @class
+  golden {
     const x = 1
     const i = 0
     while (i < 90) { x = 1 + 1 / x; i = i + 1 }
@@ -35,7 +38,8 @@ class CF {
   }
 
   // sqrt(2) via CF [1; 2,2,2,...]: iterate y = 2 + 1/y (-> 1 + sqrt 2), so sqrt2 = y - 1.
-  static rootTwo {
+  @class
+  rootTwo {
     const y = 2
     const i = 0
     while (i < 90) { y = 2 + 1 / y; i = i + 1 }

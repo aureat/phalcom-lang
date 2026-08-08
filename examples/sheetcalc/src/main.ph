@@ -7,7 +7,8 @@ import "./support/sort" as Sort
 import "./value/cell_value" as Value
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("SheetCalc phase 1: support + value model")
     System.print("")
 

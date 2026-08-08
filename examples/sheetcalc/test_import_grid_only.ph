@@ -1,7 +1,8 @@
 import "./src/grid/grid" as GridMod
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("Testing Grid import")
     const g = GridMod.Grid.new()
     System.print("Grid created: " + g.toString)

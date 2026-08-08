@@ -9,7 +9,7 @@ import "./ref" as RefModule
 class RefRange is Iterable {
   /// Construct a range between two corners. Normalizes order.
   @constructor
-  fromTo(a, b) {
+  fromTo(_ a, _ b) {
     _minCol = NumModule.Num.min([a.col, b.col])
     _maxCol = NumModule.Num.max([a.col, b.col])
     _minRow = NumModule.Num.min([a.row, b.row])
@@ -23,14 +23,14 @@ class RefRange is Iterable {
 
   /// Row-major iteration. Inherited Iterable.iterate walks 0..size; we map
   /// each cursor to a Ref via iteratorValue.
-  iteratorValue(cursor) {
+  iteratorValue(_ cursor) {
     let dc = cursor % _width
     let dr = (cursor - dc) / _width
     return RefModule.Ref.at(_minCol + dc, _minRow + dr)
   }
 
   /// Test whether a Ref is in this range.
-  contains(ref) {
+  contains(_ ref) {
     return (ref.col >= _minCol) and (ref.col <= _maxCol) and (ref.row >= _minRow) and (ref.row <= _maxRow)
   }
 
@@ -39,7 +39,8 @@ class RefRange is Iterable {
   }
 
   /// Parse A1:B7 notation into a RefRange.
-  static fromA1(text) {
+  @class
+  fromA1(_ text) {
     let parts = text.split(":")
     return RefRange.fromTo(RefModule.Ref.fromA1(parts.at(0)), RefModule.Ref.fromA1(parts.at(1)))
   }

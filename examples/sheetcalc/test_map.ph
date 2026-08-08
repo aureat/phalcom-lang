@@ -1,5 +1,6 @@
 class Main {
-  static main {
+  @class
+  main {
     System.print("Testing Map")
     const m = Map.new()
     System.print("Map.new() created")

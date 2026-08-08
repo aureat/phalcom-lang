@@ -14,7 +14,7 @@ class Cell {
 /// and never goes stale.
 class LiteralCell is Cell {
   @constructor
-  of(v) {
+  of(_ v) {
     _value = v
   }
 
@@ -25,7 +25,7 @@ class LiteralCell is Cell {
 /// flag. Only Engine.recalc() writes _cached and _dirty (REQ-GRID-2).
 class FormulaCell is Cell {
   @constructor
-  of(source, ast) {
+  of(_ source, _ ast) {
     _source = source
     _ast = ast
     _cached = Value.CellEmpty.of()
@@ -39,7 +39,7 @@ class FormulaCell is Cell {
   isDirty     => _dirty
 
   /// Called ONLY by Engine.recalc() to store a fresh value after ast.eval().
-  store(v) {
+  store(_ v) {
     _cached = v
     _dirty = false
   }

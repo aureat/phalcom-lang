@@ -5,7 +5,8 @@ import "./src/grid/ref_range" as RefRange
 import "./src/value/cell_value" as Value
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("L2 Grid layer tests")
     System.print("")
 
@@ -13,11 +14,6 @@ class Main {
     System.print("Ref.encodeCol(1) = " + Ref.Ref.encodeCol(1))
     System.print("Ref.encodeCol(26) = " + Ref.Ref.encodeCol(26))
     System.print("Ref.encodeCol(27) = " + Ref.Ref.encodeCol(27))
-    System.print("Ref.decodeCol_('A') = " + Ref.Ref.decodeCol_("A").toString)
-    System.print("Ref.decodeCol_('Z') = " + Ref.Ref.decodeCol_("Z").toString)
-    System.print("Ref.decodeCol_('AA') = " + Ref.Ref.decodeCol_("AA").toString)
-    System.print("")
-
     /// Test Ref fromA1
     const r1 = Ref.Ref.fromA1("A1")
     System.print("Ref.fromA1('A1') col=" + r1.col.toString + " row=" + r1.row.toString)

@@ -131,7 +131,7 @@ class PropertyBuilder<T...> {
 
 class PropertySuite {
   assertEqual(expected: Any, actual: Any) -> None {
-    assertion.Assert._equalAt(
+    assertion.Assert.equalAt(
       expected: expected,
       actual: actual,
       location: SourceLocation.caller(skip: 1),
@@ -140,7 +140,7 @@ class PropertySuite {
   }
 
   assertTrue(condition: Bool) -> None {
-    assertion.Assert._trueAt(
+    assertion.Assert.trueAt(
       condition: condition,
       location: SourceLocation.caller(skip: 1),
       label: None
@@ -148,7 +148,7 @@ class PropertySuite {
   }
 
   assertFalse(condition: Bool) -> None {
-    assertion.Assert._falseAt(
+    assertion.Assert.falseAt(
       condition: condition,
       location: SourceLocation.caller(skip: 1),
       label: None
@@ -156,7 +156,7 @@ class PropertySuite {
   }
 
   fail(message: String) -> None {
-    assertion.Assert._failAt(
+    assertion.Assert.failAt(
       message: message,
       location: SourceLocation.caller(skip: 1),
       label: None

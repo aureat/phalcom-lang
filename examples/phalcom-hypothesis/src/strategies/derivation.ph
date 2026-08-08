@@ -334,7 +334,7 @@ class _Derivation {
       )
     }
 
-    return registry._resolve(type: type, path: path)
+    return registry.resolve(type: type, path: path)
   }
 
   @class

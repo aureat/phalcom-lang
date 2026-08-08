@@ -18,7 +18,8 @@ class Check {
   /// @param a — first Number
   /// @param b — second Number
   /// @returns a `Bool`: `true` iff `|a - b| < 1e-6`
-  static approx(a, b) {
+  @class
+  approx(_ a, _ b) {
     const d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.000001
@@ -28,7 +29,8 @@ class Check {
 /// Pure static numeric routines. Stateless — every method is a `static`.
 class Math {
   /// @param x — a Number. @returns `|x|`.
-  static abs(x) {
+  @class
+  abs(_ x) {
     if (x < 0) { return 0 - x }
     return x
   }
@@ -39,7 +41,8 @@ class Math {
   /// @returns an approximation of `√a` accurate to `Check.approx` tolerance
   /// @example
   /// System.print(Check.approx(Math.sqrt(2) * Math.sqrt(2), 2))   // true
-  static sqrt(a) {
+  @class
+  sqrt(_ a) {
     if (a == 0) { return 0 }
     const g = a
     const i = 0
@@ -51,16 +54,19 @@ class Math {
   }
 
   // Euclid's algorithm.
-  static gcd(a, b) {
+  @class
+  gcd(_ a, _ b) {
     if (b == 0) { return a }
     return Math.gcd(b, a % b)
   }
 
-  static lcm(a, b) {
+  @class
+  lcm(_ a, _ b) {
     return a * b / Math.gcd(a, b)
   }
 
-  static factIter(n) {
+  @class
+  factIter(_ n) {
     const acc = 1
     const k = 2
     while (k <= n) {
@@ -70,13 +76,15 @@ class Math {
     return acc
   }
 
-  static factRec(n) {
+  @class
+  factRec(_ n) {
     if (n < 2) { return 1 }
     return n * Math.factRec(n - 1)
   }
 
   // Exponentiation by squaring: O(log e) multiplications.
-  static ipow(base, e) {
+  @class
+  ipow(_ base, _ e) {
     if (e == 0) { return 1 }
     const half = Math.ipow(base, (e - (e % 2)) / 2)
     const sq = half * half
@@ -85,7 +93,8 @@ class Math {
   }
 
   // Trial division; O(sqrt n).
-  static isPrime(n) {
+  @class
+  isPrime(_ n) {
     if (n < 2) { return false }
     const d = 2
     while (d * d <= n) {

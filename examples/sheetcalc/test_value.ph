@@ -2,7 +2,8 @@ import "./src/support/num" as Num
 import "./src/value/cell_value" as Value
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("CellValue tests")
 
     const n1 = Value.CellNum.of(5)

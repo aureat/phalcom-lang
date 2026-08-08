@@ -36,7 +36,7 @@ class BankAccount {
   /// a.deposit(0 - 1)              // raises PreconditionError
   @requires(amount > 0)
   @ensures(_balance == old(_balance) + amount)
-  deposit(amount) { _balance = _balance + amount }
+  deposit(_ amount) { _balance = _balance + amount }
 
   /// Withdraw funds, refusing to overdraw.
   ///
@@ -46,7 +46,7 @@ class BankAccount {
   /// @throws InsufficientFunds — when `amount` exceeds the balance
   @requires(amount > 0)
   @ensures(_balance == old(_balance) - amount)
-  withdraw(amount) {
+  withdraw(_ amount) {
     (amount > _balance).ifTrue { InsufficientFunds.raise("overdraw") }
     _balance = _balance - amount
   }
@@ -73,7 +73,7 @@ class Point {
   /// Euclidean distance to another point.
   /// @param o — the other `Point`
   /// @returns the distance as a `Number`
-  distanceTo(o) {
+  distanceTo(_ o) {
     const dx = _x - o.x
     const dy = _y - o.y
     return Math.sqrt(dx * dx + dy * dy)
@@ -100,7 +100,7 @@ class Shape {
   /// @returns the area as a `Number`
   area {
     return self.match {
-      Circle(r)  => 3.14159 * r * r ;
+      Circle(_ r)  => 3.14159 * r * r ;
       Rect(w, h) => w * h
     }
   }

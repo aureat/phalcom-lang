@@ -107,17 +107,18 @@ class ReportEvent {
     )
   }
 
-  isPropertyStarted -> Bool => self._is(#propertyStarted)
-  isPhaseStarted -> Bool => self._is(#phaseStarted)
-  isExampleAccepted -> Bool => self._is(#exampleAccepted)
-  isExampleRejected -> Bool => self._is(#exampleRejected)
-  isFailureFound -> Bool => self._is(#failureFound)
-  isShrinkAccepted -> Bool => self._is(#shrinkAccepted)
-  isHealthCheckFailed -> Bool => self._is(#healthCheckFailed)
-  isPropertyFinished -> Bool => self._is(#propertyFinished)
-  isSuiteFinished -> Bool => self._is(#suiteFinished)
+  isPropertyStarted -> Bool => self.is(#propertyStarted)
+  isPhaseStarted -> Bool => self.is(#phaseStarted)
+  isExampleAccepted -> Bool => self.is(#exampleAccepted)
+  isExampleRejected -> Bool => self.is(#exampleRejected)
+  isFailureFound -> Bool => self.is(#failureFound)
+  isShrinkAccepted -> Bool => self.is(#shrinkAccepted)
+  isHealthCheckFailed -> Bool => self.is(#healthCheckFailed)
+  isPropertyFinished -> Bool => self.is(#propertyFinished)
+  isSuiteFinished -> Bool => self.is(#suiteFinished)
 
-  _is(expected: Symbol) -> Bool {
+  @private
+  is(expected: Symbol) -> Bool {
     return self.match(
       suiteStarted: { _ => expected == #suiteStarted },
       propertyStarted: { _ => expected == #propertyStarted },

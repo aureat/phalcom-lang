@@ -1,31 +1,34 @@
 class Person {
   // Named Constructor 1: Anonymous
-  static anonymous() {
+  @class
+  anonymous() {
     const instance = self.new();
     instance.init("Anonymous", -1);
     return instance;
   }
 
   // Named Constructor 2: With name
-  static new(name) {
+  @class
+  new(_ name) {
     const instance = self.new();
     instance.init(name);
     return instance;
   }
 
   // Named Constructor 3: With name and age
-  static new(name, age) {
+  @class
+  new(_ name, _ age) {
     const instance = self.new();
     instance.init(name, age);
     return instance;
   }
 
-  init(name, age) {
+  init(_ name, _ age) {
     _name = name;
     _age = age;
   }
 
-  init(name) {
+  init(_ name) {
     _name = name;
   }
 
@@ -35,7 +38,7 @@ class Person {
   }
 
   // Setter for name
-  name=(value) {
+  name=(put value) {
     _name = value;
   }
 
@@ -45,12 +48,12 @@ class Person {
   }
 
   // Setter for age
-  age=(value) {
+  age=(put value) {
     _age = value;
   }
 
   // Example of operator overloading: equality check
-  ==(other) {
+  ==(_ other) {
     return self.name == other.name and self.age == other.age;
   }
 }

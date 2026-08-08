@@ -23,13 +23,15 @@ class Grid {
   }
 
   /// Check whether a Ref is in bounds (col >= 1, row >= 1).
-  static isInBounds_(ref) {
+  @class
+  @private
+  isInBounds(_ ref) {
     return ref.col >= 1 and ref.row >= 1
   }
 
   /// Store a cell at a Ref. Bounds-checked. Updates min/max bounds.
-  set(ref, cell) {
-    if (not Grid.isInBounds_(ref)) {
+  set(_ ref, _ cell) {
+    if (not Grid.isInBounds(ref)) {
       return Value.ErrorVal.nameError
     }
     _cells.at(ref, put: cell)
@@ -59,8 +61,8 @@ class Grid {
   /// Retrieve the Cell object at a Ref (used by Engine and renderer).
   /// Returns LiteralCell(CellEmpty) for unset in-bounds cells.
   /// Returns ErrorVal.ref if out of bounds.
-  cellAt(ref) {
-    if (not Grid.isInBounds_(ref)) {
+  cellAt(_ ref) {
+    if (not Grid.isInBounds(ref)) {
       return Value.ErrorVal.nameError
     }
     const cell = _cells.at(ref)
@@ -72,8 +74,8 @@ class Grid {
 
   /// Retrieve the cached CellValue at a Ref (used by eval).
   /// Bounds-checked; out-of-bounds is a value-level error (REQ-GRID-3).
-  valueAt(ref) {
-    if (not Grid.isInBounds_(ref)) {
+  valueAt(_ ref) {
+    if (not Grid.isInBounds(ref)) {
       return Value.ErrorVal.nameError
     }
     const cell = _cells.at(ref)
@@ -90,7 +92,7 @@ class Grid {
   isEmpty => _minCol == -1
 
   /// Iterate over all occupied cells (Ref, Cell) pairs. Used by renderer.
-  each(f) {
+  each(_ f) {
     _cells.each { k, v => f.call(k, v) }
   }
 }

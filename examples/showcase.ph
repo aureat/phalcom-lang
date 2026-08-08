@@ -11,12 +11,13 @@ class Stack {
   // Keyword constructor (`construct`): binds instance state directly
   // from labeled arguments.
   @constructor
-  new(items:) {
+  new(items) {
     _items = items
   }
 
   // Static named constructor — the idiomatic factory pattern.
-  static empty {
+  @class
+  empty {
     return Stack.new(items: List.new())
   }
 
@@ -25,7 +26,7 @@ class Stack {
   isEmpty => _items.isEmpty
 
   // Block-bodied method returning `self` so calls chain.
-  push(v) {
+  push(_ v) {
     _items.add(v)
     return self
   }
@@ -38,23 +39,23 @@ class Stack {
   }
 
   // Higher-order method: fold with a caller-supplied 2-arity block.
-  fold(seed, f) {
+  fold(_ seed, _ f) {
     return _items.reduce(seed) { acc, x => f.call(acc, x) }
   }
 
   // Operator overloading: `+` concatenates two stacks.
-  +(other) {
+  +(_ other) {
     let out = List.new()
     _items.each { x => out.add(x) }
     other.eachItem { x => out.add(x) }
     return Stack.new(items: out)
   }
 
-  eachItem(f) { _items.each(f) }
-  itemAt(i)   => _items.at(i)
+  eachItem(_ f) { _items.each(f) }
+  itemAt(_ i)   => _items.at(i)
 
   // Structural equality via operator overload.
-  ==(other) {
+  ==(_ other) {
     if (self.size != other.size) { return false }
     let eq = true
     let i = 0

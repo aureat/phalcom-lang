@@ -21,7 +21,8 @@ class GivenArgs {
   }
 
   @constructor
-  _from(overrides: List<_GivenOverride>) {
+  @private
+  from(overrides: List<_GivenOverride>) {
     _overrides = _AttributeCopies.list(overrides)
   }
 
@@ -42,7 +43,7 @@ class GivenArgs {
 
     const next = _AttributeCopies.list(_overrides)
     next.add(_GivenOverride.new(name: name, strategy: use))
-    return GivenArgs._from(overrides: next)
+    return GivenArgs.from(overrides: next)
   }
 
   strategyFor(name: Symbol) -> Option<Strategy<Any>> {

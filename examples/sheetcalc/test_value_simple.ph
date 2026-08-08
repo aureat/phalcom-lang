@@ -1,7 +1,8 @@
 import "./src/value/cell_value" as Value
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("Testing CellNum")
     const n1 = Value.CellNum.of(5)
     System.print("Created CellNum(5)")

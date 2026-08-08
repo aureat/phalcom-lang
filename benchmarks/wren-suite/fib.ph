@@ -2,7 +2,8 @@
 // Phalcom parser production (DotDot lexed, never consumed) — replaced with a
 // while-counter. System.clock unimplemented — time externally.
 class Fib {
-  static get(n) {
+  @class
+  get(_ n) {
     if (n < 2) { return n }
     return Fib.get(n - 1) + Fib.get(n - 2)
   }

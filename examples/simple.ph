@@ -3,16 +3,18 @@ class Test {
   _age
 
   @construct
-  init(name, age) {
+  init(_ name, _ age) {
     _name = name
     _age = age
   }
 
-  static method {
+  @class
+  method {
     self.method2 and "hello"
   }
 
-  static method2 {
+  @class
+  method2 {
     System.new()
   }
 }

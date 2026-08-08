@@ -11,7 +11,8 @@
 // ============================================================
 
 class Check {
-  static approx(a, b) {
+  @class
+  approx(_ a, _ b) {
     const d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.0000001
@@ -20,7 +21,8 @@ class Check {
 
 class Fn {
   // exp(x) = sum_{k>=0} x^k / k!   (term_k = term_{k-1} * x / k)
-  static exp(x) {
+  @class
+  exp(_ x) {
     const term = 1
     const sum = 1
     const k = 1
@@ -33,7 +35,8 @@ class Fn {
   }
 
   // sin(x) = x - x^3/3! + x^5/5! - ...
-  static sin(x) {
+  @class
+  sin(_ x) {
     const term = x
     const sum = x
     const k = 1
@@ -46,7 +49,8 @@ class Fn {
   }
 
   // cos(x) = 1 - x^2/2! + x^4/4! - ...
-  static cos(x) {
+  @class
+  cos(_ x) {
     const term = 1
     const sum = 1
     const k = 1
@@ -59,7 +63,8 @@ class Fn {
   }
 
   // atan(x) = x - x^3/3 + x^5/5 - ...   (converges for |x| < 1)
-  static atan(x) {
+  @class
+  atan(_ x) {
     const power = x
     const sum = x
     const k = 1
@@ -72,7 +77,8 @@ class Fn {
   }
 
   // Machin's formula: pi = 16*atan(1/5) - 4*atan(1/239). Fast convergence.
-  static pi {
+  @class
+  pi {
     return 16 * Fn.atan(1 / 5) - 4 * Fn.atan(1 / 239)
   }
 }

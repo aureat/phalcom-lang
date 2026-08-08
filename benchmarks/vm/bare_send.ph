@@ -16,7 +16,8 @@
 // the bench reads both back after the run and fails on a wrong answer, so a
 // "fast" build that mis-dispatches or skips the loop cannot post a number.
 class Empty {
-  static noop { return 0 }
+  @class
+  noop { return 0 }
 }
 
 let i = 0

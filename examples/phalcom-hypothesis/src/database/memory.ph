@@ -23,7 +23,7 @@ class MemoryDatabase {
   }
 
   fetch(key: DatabaseKey) -> List<Example> {
-    const bucket = self._bucket(key)
+    const bucket = self.bucket(key)
     const examples = List.new()
     for record in bucket {
       examples.add(record.example)
@@ -50,7 +50,7 @@ class MemoryDatabase {
     )
     const kept = List.new()
     kept.add(record)
-    for existing in self._bucket(key) {
+    for existing in self.bucket(key) {
       if existing.signature != record.signature {
         kept.add(existing)
       }
@@ -65,7 +65,7 @@ class MemoryDatabase {
   delete(key: DatabaseKey, example: Example) -> MemoryDatabase {
     const kept = List.new()
     const signature = example.signature
-    for existing in self._bucket(key) {
+    for existing in self.bucket(key) {
       if existing.signature != signature {
         kept.add(existing)
       }
@@ -82,7 +82,8 @@ class MemoryDatabase {
     return total
   }
 
-  _bucket(key: DatabaseKey) -> List<databaseModel._DatabaseRecord> {
+  @private
+  bucket(key: DatabaseKey) -> List<databaseModel._DatabaseRecord> {
     const found = _entries.at(key.canonical)
     if found == None {
       return List.new()

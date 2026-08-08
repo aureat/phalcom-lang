@@ -12,7 +12,8 @@
 // ============================================================
 
 class Check {
-  static approx(a, b) {
+  @class
+  approx(_ a, _ b) {
     const d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.00001
@@ -23,7 +24,8 @@ class Simpson {
   // Composite Simpson's rule over [a, b] with n (even) subintervals:
   //   h/3 * [ f(x0) + 4 f(x1) + 2 f(x2) + 4 f(x3) + ... + f(xn) ]
   // `f` is any block taking one number and returning a number.
-  static integrate(f, a, b, n) {
+  @class
+  integrate(_ f, _ a, _ b, _ n) {
     const h = (b - a) / n
     const s = f.call(a) + f.call(b)
     const k = 1

@@ -68,7 +68,8 @@ class DirectoryDatabase {
   }
 
   @constructor
-  _withFileSystem(
+  @private
+  withFileSystem(
     root: Any,
     maxEntries: Int,
     maxFileBytes: Int,
@@ -91,7 +92,7 @@ class DirectoryDatabase {
     maxFileBytes: Int,
     files: _DatabaseFileSystem
   ) -> DirectoryDatabase {
-    return DirectoryDatabase._withFileSystem(
+    return DirectoryDatabase.withFileSystem(
       root: root,
       maxEntries: maxEntries,
       maxFileBytes: maxFileBytes,
@@ -113,7 +114,7 @@ class DirectoryDatabase {
 
   fetch(key: DatabaseKey) -> List<Example> {
     const examples = List.new()
-    for record in self._records(key) {
+    for record in self.records(key) {
       examples.add(record.example)
     }
     return examples
@@ -131,8 +132,8 @@ class DirectoryDatabase {
     // merge-on-write: acquire the shared process-local path lock, then read the
     // latest visible records before constructing the replacement payload.
     const locked = {
-      _directoryLocks.withPathLock(self._path(key)) {
-        self._saveMerged(
+      _directoryLocks.withPathLock(self.path(key)) {
+        self.saveMerged(
           key: key,
           example: example,
           failureOrigin: failureOrigin
@@ -145,7 +146,8 @@ class DirectoryDatabase {
     return self
   }
 
-  _saveMerged(
+  @private
+  saveMerged(
     key: DatabaseKey,
     example: Example,
     failureOrigin: Option<FailureOrigin>
@@ -156,18 +158,18 @@ class DirectoryDatabase {
     )
     const records = List.new()
     records.add(record)
-    for existing in self._records(key) {
+    for existing in self.records(key) {
       if existing.signature != record.signature {
         records.add(existing)
       }
     }
-    self._write(key: key, records: records)
+    self.write(key: key, records: records)
   }
 
   delete(key: DatabaseKey, example: Example) -> DirectoryDatabase {
     const locked = {
-      _directoryLocks.withPathLock(self._path(key)) {
-        self._deleteMerged(key: key, example: example)
+      _directoryLocks.withPathLock(self.path(key)) {
+        self.deleteMerged(key: key, example: example)
       }
     }.attempt()
     if locked.isErr and not locked.unwrapErr.isA(errors._DatabaseLockUnavailable) {
@@ -176,22 +178,24 @@ class DirectoryDatabase {
     return self
   }
 
-  _deleteMerged(key: DatabaseKey, example: Example) -> None {
+  @private
+  deleteMerged(key: DatabaseKey, example: Example) -> None {
     const records = List.new()
-    for existing in self._records(key) {
+    for existing in self.records(key) {
       if existing.signature != example.signature {
         records.add(existing)
       }
     }
     if records.size == 0 {
-      _files.remove(self._path(key))
+      _files.remove(self.path(key))
       return None
     }
-    self._write(key: key, records: records)
+    self.write(key: key, records: records)
   }
 
-  _records(key: DatabaseKey) -> List<databaseModel._DatabaseRecord> {
-    const path = self._path(key)
+  @private
+  records(key: DatabaseKey) -> List<databaseModel._DatabaseRecord> {
+    const path = self.path(key)
     if not _files.exists(path) {
       return List.new()
     }
@@ -218,7 +222,8 @@ class DirectoryDatabase {
     return _DirectoryCopies.records(decoded.unwrap)
   }
 
-  _write(
+  @private
+  write(
     key: DatabaseKey,
     records: List<databaseModel._DatabaseRecord>
   ) -> None {
@@ -237,7 +242,7 @@ class DirectoryDatabase {
     }
 
     const directory = self._directory
-    const destination = self._path(key)
+    const destination = self.path(key)
     const temporary = destination + ".tmp-" + Random.system.nextInt.toString
 
     const created = _files.createDirectories(directory)
@@ -275,7 +280,8 @@ class DirectoryDatabase {
     return _root.toString + "/v" + ExampleCodec.schemaVersion.toString
   }
 
-  _path(key: DatabaseKey) -> String {
+  @private
+  path(key: DatabaseKey) -> String {
     return self._directory + "/" + key.fileStem + ".phdb"
   }
 }

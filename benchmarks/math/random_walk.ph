@@ -12,13 +12,15 @@
 // ============================================================
 
 class Check {
-  static within(a, b, tol) {
+  @class
+  within(_ a, _ b, _ tol) {
     const d = a - b
     if (d < 0) { d = 0 - d }
     return d < tol
   }
   // relative tolerance for quantities that scale with n
-  static withinRel(a, b, rel) {
+  @class
+  withinRel(_ a, _ b, _ rel) {
     const d = a - b
     if (d < 0) { d = 0 - d }
     const scale = b
@@ -28,12 +30,13 @@ class Check {
 }
 
 class Rng {
-  static seed(s) {
+  @class
+  seed(_ s) {
     const r = self.new()
     r.setState(s)
     return r
   }
-  setState(s) { _state = s }
+  setState(_ s) { _state = s }
   nextInt {
     _state = (16807 * _state) % 2147483647
     return _state
@@ -45,7 +48,8 @@ class Rng {
 
 class Walk {
   // Fraction of heads over n fair coin flips.
-  static headRate(rng, n) {
+  @class
+  headRate(_ rng, _ n) {
     const heads = 0
     const i = 0
     while (i < n) {
@@ -56,7 +60,8 @@ class Walk {
   }
 
   // Average final position over `trials` 1D walks of `steps` each. -> 0.
-  static meanEndpoint(rng, trials, steps) {
+  @class
+  meanEndpoint(_ rng, _ trials, _ steps) {
     const total = 0
     const t = 0
     while (t < trials) {
@@ -70,7 +75,8 @@ class Walk {
   }
 
   // Mean of S_n^2 over `trials` 1D walks of `steps` each. -> steps.
-  static meanSquare1D(rng, trials, steps) {
+  @class
+  meanSquare1D(_ rng, _ trials, _ steps) {
     const total = 0
     const t = 0
     while (t < trials) {
@@ -84,7 +90,8 @@ class Walk {
   }
 
   // Mean squared displacement of a 2D walk (independent x,y steps). -> 2*steps.
-  static meanSquare2D(rng, trials, steps) {
+  @class
+  meanSquare2D(_ rng, _ trials, _ steps) {
     const total = 0
     const t = 0
     while (t < trials) {

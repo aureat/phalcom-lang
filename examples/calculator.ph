@@ -1,25 +1,27 @@
 class Calculator {
 
-  static new(ignored) {
+  @class
+  new(_ ignored) {
     // a;
     return self.new();
   }
 
-  add(a, b) {
+  add(_ a, _ b) {
     return a + b;
   }
 
-  subtract(a, b) {
+  subtract(_ a, _ b) {
     return a - b;
   }
 
-  static pi => 3.1415
+  @class
+  pi => 3.1415
 
-  +(other) {
+  +(_ other) {
     return 10 + other;
   }
 
-  and(other) {
+  and(_ other) {
     return "and " + other;
   }
 

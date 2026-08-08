@@ -132,20 +132,21 @@ class Settings {
   shrinkingEnabled -> Bool => _phases.includes(Phase.Shrink)
 
   reuse(flag: Bool) -> Settings {
-    return self._phase(Phase.Reuse, enabled: flag)
+    return self.phase(Phase.Reuse, enabled: flag)
   }
 
   generation(flag: Bool) -> Settings {
-    return self._phase(Phase.Generate, enabled: flag)
+    return self.phase(Phase.Generate, enabled: flag)
   }
 
   shrinking(flag: Bool) -> Settings {
-    return self._phase(Phase.Shrink, enabled: flag)
+    return self.phase(Phase.Shrink, enabled: flag)
   }
 
   resolvedSeed -> Int => _seed.unwrapOr(Random.system.nextInt)
 
-  _phase(target: Phase, enabled: Bool) -> Settings {
+  @private
+  phase(target: Phase, enabled: Bool) -> Settings {
     const next = List.new()
     for existing in _phases {
       if existing != target {

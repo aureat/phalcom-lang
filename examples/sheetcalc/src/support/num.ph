@@ -3,7 +3,8 @@
 class Num {
   /// Floor of n, rounded down toward negative infinity.
   /// n - (n % 1) truncates toward zero, so negative numbers need correction.
-  static floor(n) {
+  @class
+  floor(_ n) {
     const t = n - (n % 1)
     if (n < 0 and (n % 1) != 0) {
       return t - 1
@@ -12,7 +13,8 @@ class Num {
   }
 
   /// Ceiling of n, rounded up toward positive infinity.
-  static ceil(n) {
+  @class
+  ceil(_ n) {
     const t = n - (n % 1)
     if (n > 0 and (n % 1) != 0) {
       return t + 1
@@ -21,7 +23,8 @@ class Num {
   }
 
   /// Round n to nearest integer, ties away from zero.
-  static round(n) {
+  @class
+  round(_ n) {
     if (n >= 0) {
       return Num.floor(n + 0.5)
     }
@@ -29,7 +32,8 @@ class Num {
   }
 
   /// Absolute value of n.
-  static abs(n) {
+  @class
+  abs(_ n) {
     if (n < 0) {
       return n.negated()
     }
@@ -37,7 +41,8 @@ class Num {
   }
 
   /// Minimum of all given numbers.
-  static min(nums) {
+  @class
+  min(_ nums) {
     if (nums.isEmpty) {
       return nil
     }
@@ -51,7 +56,8 @@ class Num {
   }
 
   /// Maximum of all given numbers.
-  static max(nums) {
+  @class
+  max(_ nums) {
     if (nums.isEmpty) {
       return nil
     }
@@ -65,7 +71,8 @@ class Num {
   }
 
   /// Test whether n is an integer (has no fractional part).
-  static isInt(n) {
+  @class
+  isInt(_ n) {
     return n == (n - (n % 1))
   }
 }

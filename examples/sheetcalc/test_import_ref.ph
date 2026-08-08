@@ -1,7 +1,8 @@
 import "./src/grid/ref" as Ref
 
 class Main {
-  static main {
+  @class
+  main {
     System.print("Testing Ref import")
     const r = Ref.Ref.at(1, 1)
     System.print("Ref created: " + r.toString)

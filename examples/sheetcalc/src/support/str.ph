@@ -1,7 +1,8 @@
 /// String utilities missing from the core String class.
 class Str {
   /// Pad str on the left to width characters, using padChar (default space).
-  static padLeft(str, width, padChar) {
+  @class
+  padLeft(_ str, _ width, _ padChar) {
     const pc = if (padChar == nil) { " " } else { padChar }
     const current = str.size
     if (current >= width) {
@@ -12,7 +13,8 @@ class Str {
   }
 
   /// Pad str on the right to width characters, using padChar (default space).
-  static padRight(str, width, padChar) {
+  @class
+  padRight(_ str, _ width, _ padChar) {
     const pc = if (padChar == nil) { " " } else { padChar }
     const current = str.size
     if (current >= width) {
@@ -23,7 +25,8 @@ class Str {
   }
 
   /// Repeat str count times.
-  static repeat(str, count) {
+  @class
+  repeat(_ str, _ count) {
     let result = ""
     let i = 0
     while (i < count) {
@@ -34,21 +37,23 @@ class Str {
   }
 
   /// Test whether str starts with prefix.
-  static startsWith(str, prefix) {
+  @class
+  startsWith(_ str, _ prefix) {
     if (prefix.size > str.size) {
       return false
     }
-    const check = str.slice_(0, prefix.size)
+    const check = str.slice(0, prefix.size)
     return check == prefix
   }
 
   /// Test whether str ends with suffix.
-  static endsWith(str, suffix) {
+  @class
+  endsWith(_ str, _ suffix) {
     if (suffix.size > str.size) {
       return false
     }
     const start = str.size - suffix.size
-    const check = str.slice_(start, str.size)
+    const check = str.slice(start, str.size)
     return check == suffix
   }
 }

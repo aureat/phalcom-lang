@@ -8,39 +8,39 @@
 /// comparisons, and rendering.
 class CellValue {
   /// Subclasses must override all arithmetic operations.
-  plus(other) {
+  plus(_ other) {
     return ErrorVal.typeError
   }
 
-  minus(other) {
+  minus(_ other) {
     return ErrorVal.typeError
   }
 
-  times(other) {
+  times(_ other) {
     return ErrorVal.typeError
   }
 
-  dividedBy(other) {
+  dividedBy(_ other) {
     return ErrorVal.typeError
   }
 
-  modulo(other) {
+  modulo(_ other) {
     return ErrorVal.typeError
   }
 
-  lessThan(other) {
+  lessThan(_ other) {
     return ErrorVal.typeError
   }
 
-  lessThanOrEqual(other) {
+  lessThanOrEqual(_ other) {
     return ErrorVal.typeError
   }
 
-  greaterThan(other) {
+  greaterThan(_ other) {
     return ErrorVal.typeError
   }
 
-  greaterThanOrEqual(other) {
+  greaterThanOrEqual(_ other) {
     return ErrorVal.typeError
   }
 
@@ -52,11 +52,12 @@ class CellValue {
 /// A numeric cell value. Stores an f64.
 class CellNum is CellValue {
   @constructor
-  new(n) {
+  new(_ n) {
     _n = n
   }
 
-  static of(n) {
+  @class
+  of(_ n) {
     return CellNum.new(n)
   }
 
@@ -64,7 +65,7 @@ class CellNum is CellValue {
     return _n
   }
 
-  plus(other) {
+  plus(_ other) {
     if (other.isError) {
       return other
     }
@@ -74,7 +75,7 @@ class CellNum is CellValue {
     return CellNum.of(_n + other.value)
   }
 
-  minus(other) {
+  minus(_ other) {
     if (other.isError) {
       return other
     }
@@ -84,7 +85,7 @@ class CellNum is CellValue {
     return CellNum.of(_n - other.value)
   }
 
-  times(other) {
+  times(_ other) {
     if (other.isError) {
       return other
     }
@@ -94,7 +95,7 @@ class CellNum is CellValue {
     return CellNum.of(_n * other.value)
   }
 
-  dividedBy(other) {
+  dividedBy(_ other) {
     if (other.isError) {
       return other
     }
@@ -108,7 +109,7 @@ class CellNum is CellValue {
     return CellNum.of(_n / on)
   }
 
-  modulo(other) {
+  modulo(_ other) {
     if (other.isError) {
       return other
     }
@@ -122,28 +123,28 @@ class CellNum is CellValue {
     return CellNum.of(_n % on)
   }
 
-  lessThan(other) {
+  lessThan(_ other) {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
     return _n < other.value
   }
 
-  lessThanOrEqual(other) {
+  lessThanOrEqual(_ other) {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
     return _n <= other.value
   }
 
-  greaterThan(other) {
+  greaterThan(_ other) {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
     return _n > other.value
   }
 
-  greaterThanOrEqual(other) {
+  greaterThanOrEqual(_ other) {
     if (not (other is CellNum)) {
       return ErrorVal.typeError
     }
@@ -163,7 +164,7 @@ class CellNum is CellValue {
     return _n.hash
   }
 
-  ==(other) {
+  ==(_ other) {
     if (not (other is CellNum)) {
       return false
     }
@@ -174,11 +175,12 @@ class CellNum is CellValue {
 /// A text cell value. Stores a string.
 class CellText is CellValue {
   @constructor
-  new(s) {
+  new(_ s) {
     _s = s
   }
 
-  static of(s) {
+  @class
+  of(_ s) {
     return CellText.new(s)
   }
 
@@ -186,42 +188,42 @@ class CellText is CellValue {
     return _s
   }
 
-  plus(other) {
+  plus(_ other) {
     if (other.isError) {
       return other
     }
     return CellText.of(_s + other.toString)
   }
 
-  minus(other) {
+  minus(_ other) {
     return ErrorVal.typeError
   }
 
-  times(other) {
+  times(_ other) {
     return ErrorVal.typeError
   }
 
-  dividedBy(other) {
+  dividedBy(_ other) {
     return ErrorVal.typeError
   }
 
-  modulo(other) {
+  modulo(_ other) {
     return ErrorVal.typeError
   }
 
-  lessThan(other) {
+  lessThan(_ other) {
     return ErrorVal.typeError
   }
 
-  lessThanOrEqual(other) {
+  lessThanOrEqual(_ other) {
     return ErrorVal.typeError
   }
 
-  greaterThan(other) {
+  greaterThan(_ other) {
     return ErrorVal.typeError
   }
 
-  greaterThanOrEqual(other) {
+  greaterThanOrEqual(_ other) {
     return ErrorVal.typeError
   }
 
@@ -233,7 +235,7 @@ class CellText is CellValue {
     return _s.hash
   }
 
-  ==(other) {
+  ==(_ other) {
     if (not (other is CellText)) {
       return false
     }
@@ -244,11 +246,12 @@ class CellText is CellValue {
 /// A boolean cell value.
 class CellBool is CellValue {
   @constructor
-  new(b) {
+  new(_ b) {
     _b = b
   }
 
-  static of(b) {
+  @class
+  of(_ b) {
     return CellBool.new(b)
   }
 
@@ -256,39 +259,39 @@ class CellBool is CellValue {
     return _b
   }
 
-  plus(other) {
+  plus(_ other) {
     return ErrorVal.typeError
   }
 
-  minus(other) {
+  minus(_ other) {
     return ErrorVal.typeError
   }
 
-  times(other) {
+  times(_ other) {
     return ErrorVal.typeError
   }
 
-  dividedBy(other) {
+  dividedBy(_ other) {
     return ErrorVal.typeError
   }
 
-  modulo(other) {
+  modulo(_ other) {
     return ErrorVal.typeError
   }
 
-  lessThan(other) {
+  lessThan(_ other) {
     return ErrorVal.typeError
   }
 
-  lessThanOrEqual(other) {
+  lessThanOrEqual(_ other) {
     return ErrorVal.typeError
   }
 
-  greaterThan(other) {
+  greaterThan(_ other) {
     return ErrorVal.typeError
   }
 
-  greaterThanOrEqual(other) {
+  greaterThanOrEqual(_ other) {
     return ErrorVal.typeError
   }
 
@@ -303,7 +306,7 @@ class CellBool is CellValue {
     return _b.hash
   }
 
-  ==(other) {
+  ==(_ other) {
     if (other == nil) {
       return false
     }
@@ -320,11 +323,12 @@ class CellEmpty is CellValue {
   new() {
   }
 
-  static of {
+  @class
+  of {
     return CellEmpty.new()
   }
 
-  plus(other) {
+  plus(_ other) {
     if (other.isError) {
       return other
     }
@@ -334,7 +338,7 @@ class CellEmpty is CellValue {
     return other
   }
 
-  minus(other) {
+  minus(_ other) {
     if (other.isError) {
       return other
     }
@@ -344,14 +348,14 @@ class CellEmpty is CellValue {
     return ErrorVal.typeError
   }
 
-  times(other) {
+  times(_ other) {
     if (other.isError) {
       return other
     }
     return CellNum.of(0)
   }
 
-  dividedBy(other) {
+  dividedBy(_ other) {
     if (other.isError) {
       return other
     }
@@ -368,26 +372,26 @@ class CellEmpty is CellValue {
     return CellNum.of(0)
   }
 
-  modulo(other) {
+  modulo(_ other) {
     if (other.isError) {
       return other
     }
     return CellNum.of(0)
   }
 
-  lessThan(other) {
+  lessThan(_ other) {
     return ErrorVal.typeError
   }
 
-  lessThanOrEqual(other) {
+  lessThanOrEqual(_ other) {
     return ErrorVal.typeError
   }
 
-  greaterThan(other) {
+  greaterThan(_ other) {
     return ErrorVal.typeError
   }
 
-  greaterThanOrEqual(other) {
+  greaterThanOrEqual(_ other) {
     return ErrorVal.typeError
   }
 
@@ -399,7 +403,7 @@ class CellEmpty is CellValue {
     return 0
   }
 
-  ==(other) {
+  ==(_ other) {
     if (other == nil) {
       return false
     }
@@ -410,24 +414,28 @@ class CellEmpty is CellValue {
 /// An error cell value. Stores a symbol like #DIV0 and display name.
 class ErrorVal is CellValue {
   @constructor
-  new(sym, display) {
+  new(_ sym, _ display) {
     _sym = sym
     _display = display
   }
 
-  static typeError {
+  @class
+  typeError {
     return ErrorVal.new(#TYPE, "#VALUE!")
   }
 
-  static divByZero {
+  @class
+  divByZero {
     return ErrorVal.new(#DIV0, "#DIV/0!")
   }
 
-  static circRef {
+  @class
+  circRef {
     return ErrorVal.new(#CIRC, "#CIRC!")
   }
 
-  static nameError {
+  @class
+  nameError {
     return ErrorVal.new(#NAME, "#NAME?")
   }
 
@@ -443,39 +451,39 @@ class ErrorVal is CellValue {
     return true
   }
 
-  plus(other) {
+  plus(_ other) {
     return self
   }
 
-  minus(other) {
+  minus(_ other) {
     return self
   }
 
-  times(other) {
+  times(_ other) {
     return self
   }
 
-  dividedBy(other) {
+  dividedBy(_ other) {
     return self
   }
 
-  modulo(other) {
+  modulo(_ other) {
     return self
   }
 
-  lessThan(other) {
+  lessThan(_ other) {
     return self
   }
 
-  lessThanOrEqual(other) {
+  lessThanOrEqual(_ other) {
     return self
   }
 
-  greaterThan(other) {
+  greaterThan(_ other) {
     return self
   }
 
-  greaterThanOrEqual(other) {
+  greaterThanOrEqual(_ other) {
     return self
   }
 
@@ -487,7 +495,7 @@ class ErrorVal is CellValue {
     return _sym.hash
   }
 
-  ==(other) {
+  ==(_ other) {
     if (other == nil) {
       return false
     }

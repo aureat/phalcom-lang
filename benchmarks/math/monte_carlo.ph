@@ -16,7 +16,8 @@
 // ============================================================
 
 class Check {
-  static within(a, b, tol) {
+  @class
+  within(_ a, _ b, _ tol) {
     const d = a - b
     if (d < 0) { d = 0 - d }
     return d < tol
@@ -25,12 +26,13 @@ class Check {
 
 // MINSTD (Park–Miller) linear congruential generator.
 class Rng {
-  static seed(s) {
+  @class
+  seed(_ s) {
     const r = self.new()
     r.setState(s)
     return r
   }
-  setState(s) { _state = s }
+  setState(_ s) { _state = s }
 
   // Advance and return the raw integer in [1, 2^31 - 2].
   nextInt {
@@ -46,7 +48,8 @@ class Rng {
 
 class MC {
   // Law of large numbers: mean of n uniforms.
-  static sampleMean(rng, n) {
+  @class
+  sampleMean(_ rng, _ n) {
     const acc = 0
     const i = 0
     while (i < n) { acc = acc + rng.uniform; i = i + 1 }
@@ -54,7 +57,8 @@ class MC {
   }
 
   // Population variance of n uniforms via E[x^2] - E[x]^2.
-  static sampleVariance(rng, n) {
+  @class
+  sampleVariance(_ rng, _ n) {
     const sum = 0
     const sumSq = 0
     const i = 0
@@ -69,7 +73,8 @@ class MC {
   }
 
   // pi/4 = P[(x,y) in unit quarter-disk], so pi ~ 4 * inside/n.
-  static piDarts(rng, n) {
+  @class
+  piDarts(_ rng, _ n) {
     const inside = 0
     const i = 0
     while (i < n) {
@@ -82,7 +87,8 @@ class MC {
   }
 
   // Volume of unit ball / volume of [0,1]^3 cube octant = pi/6, so pi ~ 6*inside/n.
-  static piBall(rng, n) {
+  @class
+  piBall(_ rng, _ n) {
     const inside = 0
     const i = 0
     while (i < n) {
@@ -96,7 +102,8 @@ class MC {
   }
 
   // Expected number of uniforms drawn until the running sum first exceeds 1 is e.
-  static eEstimate(rng, trials) {
+  @class
+  eEstimate(_ rng, _ trials) {
     const total = 0
     const t = 0
     while (t < trials) {
@@ -113,7 +120,8 @@ class MC {
   }
 
   // Monte Carlo integral of block f over [0,1]: mean of f at uniform samples.
-  static integrate(rng, f, n) {
+  @class
+  integrate(_ rng, _ f, _ n) {
     const acc = 0
     const i = 0
     while (i < n) { acc = acc + f.call(rng.uniform); i = i + 1 }

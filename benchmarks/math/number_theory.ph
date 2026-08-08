@@ -13,7 +13,8 @@
 
 class NT {
   // Fast modular exponentiation: (base^e) mod m, keeping intermediates small.
-  static modpow(base, e, m) {
+  @class
+  modpow(_ base, _ e, _ m) {
     if (e == 0) { return 1 }
     const half = NT.modpow(base, (e - (e % 2)) / 2, m)
     const sq = (half * half) % m
@@ -21,7 +22,8 @@ class NT {
     return sq
   }
 
-  static isPrime(n) {
+  @class
+  isPrime(_ n) {
     if (n < 2) { return false }
     const d = 2
     while (d * d <= n) {
@@ -31,7 +33,8 @@ class NT {
     return true
   }
 
-  static countPrimesBelow(n) {
+  @class
+  countPrimesBelow(_ n) {
     const count = 0
     const k = 2
     while (k < n) {
@@ -42,7 +45,8 @@ class NT {
   }
 
   // Sum of proper divisors (aliquot sum). n is perfect iff this equals n.
-  static aliquot(n) {
+  @class
+  aliquot(_ n) {
     const sum = 0
     const d = 1
     while (d < n) {
@@ -53,7 +57,8 @@ class NT {
   }
 
   // Number of Collatz steps to reach 1.
-  static collatz(start) {
+  @class
+  collatz(_ start) {
     const n = start
     const steps = 0
     while (n > 1) {

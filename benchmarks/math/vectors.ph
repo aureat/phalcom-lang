@@ -15,7 +15,8 @@
 // ============================================================
 
 class Check {
-  static approx(a, b) {
+  @class
+  approx(_ a, _ b) {
     let d = a - b
     if (d < 0) { d = 0 - d }
     return d < 0.0000001
@@ -23,7 +24,8 @@ class Check {
 }
 
 class Vec {
-  static sqrt(a) {
+  @class
+  sqrt(_ a) {
     if (a == 0) { return 0 }
     let g = a
     let i = 0
@@ -32,7 +34,8 @@ class Vec {
   }
 
   // Index-wise fold; assumes equal length.
-  static dot(a, b) {
+  @class
+  dot(_ a, _ b) {
     let acc = 0
     let i = 0
     while (i < a.size) {
@@ -42,7 +45,8 @@ class Vec {
     return acc
   }
 
-  static add(a, b) {
+  @class
+  add(_ a, _ b) {
     let out = []
     let i = 0
     while (i < a.size) {
@@ -52,11 +56,13 @@ class Vec {
     return out
   }
 
-  static norm(a) {
+  @class
+  norm(_ a) {
     return Vec.sqrt(Vec.dot(a, a))
   }
 
-  static cosine(a, b) {
+  @class
+  cosine(_ a, _ b) {
     return Vec.dot(a, b) / (Vec.norm(a) * Vec.norm(b))
   }
 }

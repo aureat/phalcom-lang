@@ -15,7 +15,7 @@ class PropertyAssertionError is Error {
 class Assert {
   @class
   equal(expected: Any, actual: Any) -> None {
-    self._equalAt(
+    self.equalAt(
       expected: expected,
       actual: actual,
       location: SourceLocation.caller(skip: 1),
@@ -25,7 +25,7 @@ class Assert {
 
   @class
   equal(expected: Any, actual: Any, because: Symbol) -> None {
-    self._equalAt(
+    self.equalAt(
       expected: expected,
       actual: actual,
       location: SourceLocation.caller(skip: 1),
@@ -35,7 +35,7 @@ class Assert {
 
   @class
   true(condition: Bool) -> None {
-    self._trueAt(
+    self.trueAt(
       condition: condition,
       location: SourceLocation.caller(skip: 1),
       label: None
@@ -44,7 +44,7 @@ class Assert {
 
   @class
   true(condition: Bool, because: Symbol) -> None {
-    self._trueAt(
+    self.trueAt(
       condition: condition,
       location: SourceLocation.caller(skip: 1),
       label: Some.new(because)
@@ -53,7 +53,7 @@ class Assert {
 
   @class
   false(condition: Bool) -> None {
-    self._falseAt(
+    self.falseAt(
       condition: condition,
       location: SourceLocation.caller(skip: 1),
       label: None
@@ -62,7 +62,7 @@ class Assert {
 
   @class
   false(condition: Bool, because: Symbol) -> None {
-    self._falseAt(
+    self.falseAt(
       condition: condition,
       location: SourceLocation.caller(skip: 1),
       label: Some.new(because)
@@ -77,7 +77,7 @@ class Assert {
 
   @class
   fail(message: String) -> None {
-    self._failAt(
+    self.failAt(
       message: message,
       location: SourceLocation.caller(skip: 1),
       label: None
@@ -86,7 +86,7 @@ class Assert {
 
   @class
   fail(message: String, because: Symbol) -> None {
-    self._failAt(
+    self.failAt(
       message: message,
       location: SourceLocation.caller(skip: 1),
       label: Some.new(because)
@@ -94,14 +94,15 @@ class Assert {
   }
 
   @class
-  _equalAt(
+  @private
+  equalAt(
     expected: Any,
     actual: Any,
     location: SourceLocation,
     label: Option<Symbol>
   ) -> None {
     if expected != actual {
-      self._raise(
+      self.raise(
         message: "expected " + expected.toString +
           " but got " + actual.toString,
         location: location,
@@ -111,38 +112,42 @@ class Assert {
   }
 
   @class
-  _trueAt(
+  @private
+  trueAt(
     condition: Bool,
     location: SourceLocation,
     label: Option<Symbol>
   ) -> None {
     if not condition {
-      self._raise(message: "expected true", location: location, label: label)
+      self.raise(message: "expected true", location: location, label: label)
     }
   }
 
   @class
-  _falseAt(
+  @private
+  falseAt(
     condition: Bool,
     location: SourceLocation,
     label: Option<Symbol>
   ) -> None {
     if condition {
-      self._raise(message: "expected false", location: location, label: label)
+      self.raise(message: "expected false", location: location, label: label)
     }
   }
 
   @class
-  _failAt(
+  @private
+  failAt(
     message: String,
     location: SourceLocation,
     label: Option<Symbol>
   ) -> None {
-    self._raise(message: message, location: location, label: label)
+    self.raise(message: message, location: location, label: label)
   }
 
   @class
-  _raise(
+  @private
+  raise(
     message: String,
     location: SourceLocation,
     label: Option<Symbol>
