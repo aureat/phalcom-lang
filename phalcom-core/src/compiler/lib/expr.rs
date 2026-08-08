@@ -170,7 +170,7 @@ impl<'vm> Compiler<'vm> {
                 for arg in ix.args {
                     self.compile_expr(arg.expr)?;
                 }
-                let selector = encode_selector("", &labels, SignatureKind::Subscript(argc));
+                let selector = encode_selector("", &labels, SignatureKind::SubscriptGet(argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::Symbol(sym));
                 self.emit(Bytecode::Invoke(argc, idx), ix.range);
@@ -182,9 +182,9 @@ impl<'vm> Compiler<'vm> {
                     return Err(CompilerError::Message("Duplicate label 'put' in subscript assignment".to_string()));
                 }
 
-                let mut labels: Vec<Option<String>> = six.args.iter().map(|a| a.label.clone()).collect();
-                labels.push(Some("put".to_string()));
-                let argc = checked_send_arity("subscript write", labels.len(), six.range)?;
+                let labels: Vec<Option<String>> = six.args.iter().map(|a| a.label.clone()).collect();
+                let index_argc = six.args.len() as u8;
+                let invoke_argc = checked_send_arity("subscript write", six.args.len() + 1, six.range)?;
 
                 // 1. Reserve hidden slot (push placeholder)
                 let scratch_sym = self.fresh_scratch_symbol("$setindex_rhs");
@@ -207,10 +207,10 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::SetLocal(slot), six.range);
 
                 // 6. Invoke setter
-                let selector = encode_selector("", &labels, SignatureKind::Subscript(argc));
+                let selector = encode_selector("", &labels, SignatureKind::SubscriptSet(index_argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::Symbol(sym));
-                self.emit(Bytecode::Invoke(argc, idx), six.range);
+                self.emit(Bytecode::Invoke(invoke_argc, idx), six.range);
 
                 // 7. Pop setter result
                 self.emit(Bytecode::Pop, six.range);
@@ -407,7 +407,7 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::GetGlobal(name_idx), range);
                 }
             }
-            Expr::Field { value, range } => {
+            Expr::Field { value, range, .. } => {
                 let name_sym = self.vm.interner.intern(&value);
                 let class_key = self
                     .current_class
@@ -471,7 +471,7 @@ impl<'vm> Compiler<'vm> {
                             self.emit(Bytecode::SetGlobal(name_idx), range);
                         }
                     }
-                    Expr::Field { value, range } => {
+                    Expr::Field { value, range, .. } => {
                         let name_sym = self.vm.interner.intern(&value);
                         let class_key = self
                             .current_class

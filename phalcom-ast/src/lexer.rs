@@ -181,7 +181,7 @@ impl<'input> Lexer<'input> {
             }
             b'0'..=b'9' => self.scan_number(),
             b'.' if matches!(self.peek_at(1), Some(b'0'..=b'9')) => self.scan_number(),
-            b'a'..=b'z' | b'A'..=b'Z' | b'_' => Ok(self.scan_identifier()),
+            b'a'..=b'z' | b'A'..=b'Z' | b'_' => self.scan_identifier(),
             b'#' if self.peek_at(1) == Some(b'{') => {
                 self.pos += 2;
                 Ok(Token::RecordLBrace)
@@ -387,41 +387,81 @@ impl<'input> Lexer<'input> {
     ///
     /// Field names (a leading `_`) also lex as [`Token::Identifier`]; the parser
     /// decides between a variable and a field reference.
-    fn scan_identifier(&mut self) -> Token {
+    fn scan_identifier(&mut self) -> Result<Token, LexicalError> {
         let start = self.pos;
-        while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
+        if self.peek_at(0) != Some(b'_') {
+            while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
+                self.pos += 1;
+            }
+            let slice = &self.input[start..self.pos];
+            return Ok(match slice {
+                "let" => Token::Let,
+                "const" => Token::Const,
+                "fn" => Token::Fn,
+                "class" => Token::Class,
+                "return" => Token::Return,
+                "true" => Token::True,
+                "false" => Token::False,
+                "if" => Token::If,
+                "else" => Token::Else,
+                "while" => Token::While,
+                "for" => Token::For,
+                "break" => Token::Break,
+                "continue" => Token::Continue,
+                "import" => Token::Import,
+                "self" => Token::SelfKw,
+                "super" => Token::Super,
+                "in" => Token::In,
+                "as" => Token::As,
+                "is" => Token::Is,
+                "and" => Token::And,
+                "or" => Token::Or,
+                "not" => Token::Not,
+                "static" => Token::Static,
+                "construct" => Token::Construct,
+                "throw" => Token::Throw,
+                "try" => Token::Try,
+                _ => Token::Identifier(slice.to_string()),
+            });
+        }
+
+        // Starts with '_'
+        if self.peek_at(1) == Some(b'_') {
+            if matches!(self.peek_at(2), Some(b'a'..=b'z' | b'A'..=b'Z')) {
+                self.pos += 2;
+                while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
+                    self.pos += 1;
+                }
+                let slice = &self.input[start..self.pos];
+                return Ok(Token::ImplementationFieldIdentifier(slice.to_string()));
+            }
+        } else if self.peek_at(1) == Some(b'$') {
+            if matches!(self.peek_at(2), Some(b'a'..=b'z' | b'A'..=b'Z')) {
+                self.pos += 2;
+                while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
+                    self.pos += 1;
+                }
+                let slice = &self.input[start..self.pos];
+                return Ok(Token::ImplementationSelectorIdentifier(slice.to_string()));
+            }
+        } else if matches!(self.peek_at(1), Some(b'a'..=b'z' | b'A'..=b'Z')) {
+            self.pos += 1;
+            while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_')) {
+                self.pos += 1;
+            }
+            let slice = &self.input[start..self.pos];
+            return Ok(Token::FieldIdentifier(slice.to_string()));
+        } else if !matches!(self.peek_at(1), Some(b'0'..=b'9' | b'_' | b'$')) {
+            // A standalone `_` positional-slot marker.
+            self.pos += 1;
+            return Ok(Token::Underscore);
+        }
+
+        // Malformed/reserved sequence starting with '_'
+        while matches!(self.peek_at(0), Some(b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'$')) {
             self.pos += 1;
         }
-        let slice = &self.input[start..self.pos];
-        match slice {
-            "let" => Token::Let,
-            "const" => Token::Const,
-            "fn" => Token::Fn,
-            "class" => Token::Class,
-            "return" => Token::Return,
-            "true" => Token::True,
-            "false" => Token::False,
-            "if" => Token::If,
-            "else" => Token::Else,
-            "while" => Token::While,
-            "for" => Token::For,
-            "break" => Token::Break,
-            "continue" => Token::Continue,
-            "import" => Token::Import,
-            "self" => Token::SelfKw,
-            "super" => Token::Super,
-            "in" => Token::In,
-            "as" => Token::As,
-            "is" => Token::Is,
-            "and" => Token::And,
-            "or" => Token::Or,
-            "not" => Token::Not,
-            "static" => Token::Static,
-            "construct" => Token::Construct,
-            "throw" => Token::Throw,
-            "try" => Token::Try,
-            _ => Token::Identifier(slice.to_string()),
-        }
+        Err(LexicalError::InvalidToken(start..self.pos))
     }
 
     /// Scans a double-quoted string literal, stripping the surrounding quotes.

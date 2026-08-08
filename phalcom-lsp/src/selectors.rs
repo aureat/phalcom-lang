@@ -13,7 +13,7 @@
 //! crate never links `phalcom-core` (ADR-0056 §2) — this module is the sole
 //! source of selector spelling here, deliberately independent.
 
-use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
+use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
 
 /// Builds the comma-form selector string from a method/constructor name and
 /// its parameter list: `name(_,label,...)`, or `name()` for zero-arity.
@@ -59,7 +59,7 @@ pub fn getter_selector(g: &GetterDef) -> String {
 /// and `index.rs`'s `SetProperty` reference-site walk route through, so the
 /// two can never drift apart.
 pub fn setter_selector_from_name(name: &str) -> String {
-    format!("{name}=(_)")
+    format!("{name}=(put)")
 }
 
 /// The comma-form selector a setter's `recv.name = value` write resolves to.
@@ -91,11 +91,16 @@ pub fn field_selector(f: &FieldDef) -> String {
 /// encoding** — same spelling, independently reimplemented here per this
 /// module's top-level doc (`phalcom-lsp` never links `phalcom-core`).
 pub fn index_selector(ix: &IndexMethodDef) -> String {
-    if ix.params.is_empty() {
-        return "[]".to_string();
+    let labels = ix.params.iter().map(|p| p.label.as_deref().unwrap_or("_")).collect::<Vec<_>>();
+    let inner = labels.join(",");
+    match &ix.accessor {
+        IndexAccessor::Get => {
+            format!("[{inner}]")
+        }
+        IndexAccessor::Set { .. } => {
+            format!("[{inner}]=(put)")
+        }
     }
-    let inner = ix.params.iter().map(|p| p.label.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
-    format!("[{inner}]")
 }
 
 /// The comma-form selector any [`ClassMember`] declaration defines.
@@ -175,7 +180,7 @@ mod tests {
         let ClassMember::Setter(s) = &class_def.members[0] else {
             panic!("expected setter")
         };
-        assert_eq!(setter_selector(s), "x=(_)");
+        assert_eq!(setter_selector(s), "x=(put)");
     }
 
     #[test]
@@ -194,5 +199,18 @@ mod tests {
             "move(_,to,duration)"
         );
         assert_eq!(comma_form_from_labels("reset", &[]), "reset()");
+    }
+
+    #[test]
+    fn subscript_get_and_set() {
+        let class_def = parse_class("class Arr {\n  [idx] { }\n  [idx, put:] { }\n}\n");
+        let ClassMember::Index(g) = &class_def.members[0] else {
+            panic!("expected index get")
+        };
+        let ClassMember::Index(s) = &class_def.members[1] else {
+            panic!("expected index set")
+        };
+        assert_eq!(index_selector(g), "[_]");
+        assert_eq!(index_selector(s), "[_]=(put)");
     }
 }

@@ -30,6 +30,10 @@ pub struct MethodObject {
     pub signature: Signature,
     /// Handle to the class that owns this method, once bound (`None` until set).
     pub holder: Option<ClassId>,
+    /// Member visibility.
+    pub visibility: super::MemberVisibility,
+    /// Lexical source class controlling @private/@protected access.
+    pub access_owner: Option<ClassId>,
     /// Reflectable `@requires`/`@ensures` predicate metadata (U-ANNOT-CONTRACTS
     /// plan §3.5 "Contracts are reflectable", D-contract-1).
     ///
@@ -65,6 +69,8 @@ impl MethodObject {
             kind,
             signature,
             holder,
+            visibility: super::MemberVisibility::Public,
+            access_owner: holder,
             contracts: None,
             attributes: Vec::new(),
             attributes_frozen: false,

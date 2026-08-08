@@ -1,7 +1,7 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;
-use crate::method::MethodKind;
+use crate::method::{MethodKind, SignatureKind};
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 
@@ -195,7 +195,10 @@ impl VM {
     /// not spec-pinned.
     pub fn new_message(&mut self, selector: Symbol, args: &[Value]) -> Value {
         let selector_str = self.resolve_symbol(selector).to_string();
-        let (name, labels, _kind) = crate::method::decode_selector(&selector_str);
+        let (name, mut labels, kind) = crate::method::decode_selector(&selector_str);
+        if let SignatureKind::SubscriptSet(_) = kind {
+            labels.push(Some("put".to_string()));
+        }
 
         let name_val = self.alloc_string_value(name);
 

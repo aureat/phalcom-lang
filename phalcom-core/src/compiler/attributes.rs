@@ -4,8 +4,8 @@ use crate::interner::Symbol;
 use crate::method::{SignatureKind, encode_selector};
 use crate::vm::ClassKey;
 use phalcom_ast::ast::{
-    AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, GetPropertyExpr, GetterDef, MethodDef,
-    ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
+    AssignmentExpr, AttrKind, Attribute, BinaryExpr, BinaryOp, BuiltinAttr, ClassDef, ClassMember, Expr, FieldDef, FieldKind, GetPropertyExpr, GetterDef,
+    IndexAccessor, MethodDef, ParameterDef, ReturnStatement, SetterDef, SuperclassRef, VariantDef,
 };
 use std::collections::HashMap;
 
@@ -752,13 +752,35 @@ impl AttributeExpander for ClassExpander {
     }
 }
 
+pub struct PrivateExpander;
+impl AttributeExpander for PrivateExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method, Target::Getter, Target::Setter, Target::Field, Target::Construct, Target::Index]
+    }
+
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
+pub struct ProtectedExpander;
+impl AttributeExpander for ProtectedExpander {
+    fn legal_targets(&self) -> &'static [Target] {
+        &[Target::Method, Target::Getter, Target::Setter, Target::Field, Target::Construct, Target::Index]
+    }
+
+    fn expand(&self, _ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
+        Ok(())
+    }
+}
+
 pub struct AttributeRegistry {
-    expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 14],
+    expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 16],
 }
 
 impl Default for AttributeRegistry {
     fn default() -> Self {
-        let mut expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 14] = Default::default();
+        let mut expanders: [Option<Box<dyn AttributeExpander + Send + Sync>>; 16] = Default::default();
         expanders[BuiltinAttr::Requires as usize] = Some(Box::new(RequiresExpander));
         expanders[BuiltinAttr::Ensures as usize] = Some(Box::new(EnsuresExpander));
         expanders[BuiltinAttr::Invariant as usize] = Some(Box::new(InvariantExpander));
@@ -773,6 +795,8 @@ impl Default for AttributeRegistry {
         expanders[BuiltinAttr::On as usize] = Some(Box::new(OnExpander));
         expanders[BuiltinAttr::Native as usize] = Some(Box::new(NativeExpander));
         expanders[BuiltinAttr::Ignore as usize] = Some(Box::new(IgnoreExpander));
+        expanders[BuiltinAttr::Private as usize] = Some(Box::new(PrivateExpander));
+        expanders[BuiltinAttr::Protected as usize] = Some(Box::new(ProtectedExpander));
         Self { expanders }
     }
 }
@@ -806,6 +830,11 @@ fn field_assign_stmt(field_name: &str, value: Expr, range: SourceRange) -> State
         expr: Expr::Assignment(Box::new(AssignmentExpr {
             name: Box::new(Expr::Field {
                 value: field_name.to_string(),
+                kind: if field_name.starts_with("__") {
+                    FieldKind::Implementation
+                } else {
+                    FieldKind::Source
+                },
                 range,
             }),
             value,
@@ -935,10 +964,15 @@ fn member_selector(m: &ClassMember) -> Result<Option<String>, CompilerError> {
         ClassMember::Setter(s) => Some(encode_selector(&s.name, &[], SignatureKind::Setter)),
         ClassMember::Index(ix) => {
             let labels: Vec<Option<String>> = ix.params.iter().map(|p| p.label.clone()).collect();
+            let arity = checked_send_arity("subscript declaration", ix.params.len(), ix.range)?;
+            let kind = match &ix.accessor {
+                IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
+                IndexAccessor::Set { .. } => SignatureKind::SubscriptSet(arity),
+            };
             Some(encode_selector(
                 "",
                 &labels,
-                SignatureKind::Subscript(checked_send_arity("subscript declaration", ix.params.len(), ix.range)?),
+                kind,
             ))
         }
         ClassMember::Field(_) | ClassMember::Variant(_) => None,
@@ -1028,6 +1062,11 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     body: vec![Statement::Expr {
                         expr: Expr::Field {
                             value: field.name.clone(),
+                            kind: if field.name.starts_with("__") {
+                                FieldKind::Implementation
+                            } else {
+                                FieldKind::Source
+                            },
                             range: attr.range,
                         },
                         range: attr.range,
@@ -1041,7 +1080,12 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                 check_accessor_collision(class, ctx, &base_name, SignatureKind::Setter, "set")?;
                 class.members.push(ClassMember::Setter(SetterDef {
                     name: base_name.clone(),
-                    param: "value".to_string(),
+                    param: ParameterDef {
+                        name: "value".to_string(),
+                        label: None,
+                        is_rest: false,
+                        range: attr.range,
+                    },
                     body: vec![field_assign_stmt(
                         &field.name,
                         Expr::Var {
@@ -1078,7 +1122,15 @@ fn build_data_eq(fields: &[FieldDef], range: SourceRange) -> Expr {
     let mut acc: Option<Expr> = None;
     for f in fields {
         let base_name = strip_leading_underscore(&f.name);
-        let field_read = Expr::Field { value: f.name.clone(), range };
+        let field_read = Expr::Field {
+            value: f.name.clone(),
+            kind: if f.name.starts_with("__") {
+                FieldKind::Implementation
+            } else {
+                FieldKind::Source
+            },
+            range,
+        };
         let other_read = Expr::GetProperty(Box::new(GetPropertyExpr {
             object: Expr::Var {
                 value: "other".to_string(),
@@ -1122,7 +1174,15 @@ fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
     let mut acc: Option<Expr> = None;
     for f in fields {
         let hash_read = Expr::GetProperty(Box::new(GetPropertyExpr {
-            object: Expr::Field { value: f.name.clone(), range },
+            object: Expr::Field {
+                value: f.name.clone(),
+                kind: if f.name.starts_with("__") {
+                    FieldKind::Implementation
+                } else {
+                    FieldKind::Source
+                },
+                range,
+            },
             property: "hash".to_string(),
             range,
         }));
@@ -1188,7 +1248,15 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
             method: "new".to_string(),
             args: vec![Argument {
                 label: None,
-                expr: Expr::Field { value: f.name.clone(), range },
+                expr: Expr::Field {
+                    value: f.name.clone(),
+                    kind: if f.name.starts_with("__") {
+                        FieldKind::Implementation
+                    } else {
+                        FieldKind::Source
+                    },
+                    range,
+                },
                 range,
             }],
             range,
@@ -1253,7 +1321,15 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
             let fallback_block = Expr::Block(Box::new(BlockExpr {
                 params: Vec::new(),
                 body: vec![Statement::Expr {
-                    expr: Expr::Field { value: f.name.clone(), range },
+                    expr: Expr::Field {
+                        value: f.name.clone(),
+                        kind: if f.name.starts_with("__") {
+                            FieldKind::Implementation
+                        } else {
+                            FieldKind::Source
+                        },
+                        range,
+                    },
                     range,
                 }],
                 expr_body: true,
@@ -1394,6 +1470,11 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                     body: vec![Statement::Expr {
                         expr: Expr::Field {
                             value: f.name.clone(),
+                            kind: if f.name.starts_with("__") {
+                                FieldKind::Implementation
+                            } else {
+                                FieldKind::Source
+                            },
                             range: attr_range,
                         },
                         range: attr_range,
@@ -1983,7 +2064,9 @@ pub fn expand_class_attributes(
                     | BuiltinAttr::Ensures
                     | BuiltinAttr::On
                     | BuiltinAttr::Native
-                    | BuiltinAttr::Ignore => {}
+                    | BuiltinAttr::Ignore
+                    | BuiltinAttr::Private
+                    | BuiltinAttr::Protected => {}
                 },
                 AttrKind::User(_) => {}
             }

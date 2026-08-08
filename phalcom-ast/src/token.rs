@@ -94,6 +94,18 @@ pub enum Token {
 
     /// An identifier lexeme, e.g. `foo` or a field name like `_bar`.
     Identifier(String),
+
+    /// The standalone `_` positional-slot marker.
+    Underscore,
+
+    /// `_name`: source/object field namespace.
+    FieldIdentifier(String),
+
+    /// `__name`: implementation-field namespace.
+    ImplementationFieldIdentifier(String),
+
+    /// `_$name`: implementation-selector namespace.
+    ImplementationSelectorIdentifier(String),
     /// A double-quoted string literal, with the surrounding quotes stripped.
     ///
     /// A string with no `\(…)` interpolation lexes to this variant; one with at

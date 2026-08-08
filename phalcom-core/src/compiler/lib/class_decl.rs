@@ -6,7 +6,7 @@ use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, ma
 use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
-use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, MapLiteralEntry, MapLiteralKey, MethodCallExpr, SetLiteralEntry, Statement};
+use phalcom_ast::ast::{Argument, Attribute, ClassDef, ClassMember, Expr, IndexAccessor, MapLiteralEntry, MapLiteralKey, MethodCallExpr, SetLiteralEntry, Statement};
 use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
@@ -132,11 +132,12 @@ impl<'vm> Compiler<'vm> {
                     }
                     ClassMember::Index(idx) => {
                         let labels: Vec<Option<String>> = idx.params.iter().map(|p| p.label.clone()).collect();
-                        let sel = encode_selector(
-                            "",
-                            &labels,
-                            SignatureKind::Subscript(checked_send_arity("subscript declaration", idx.params.len(), idx.range)?),
-                        );
+                        let arity = checked_send_arity("subscript declaration", idx.params.len(), idx.range)?;
+                        let kind = match &idx.accessor {
+                            IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
+                            IndexAccessor::Set { .. } => SignatureKind::SubscriptSet(arity),
+                        };
+                        let sel = encode_selector("", &labels, kind);
                         (MemberKey::Selector(false, sel.clone()), sel, idx.name_range)
                     }
                     ClassMember::Variant(_) => continue,
@@ -739,7 +740,7 @@ impl<'vm> Compiler<'vm> {
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     self.is_static_context = setter_def.is_static;
-                    let closure = self.compile_block(setter_def.body, selector_sym, vec![setter_def.param.clone()], true, false, None)?;
+                    let closure = self.compile_block(setter_def.body, selector_sym, vec![setter_def.param.name.clone()], true, false, None)?;
 
                     tracing::debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
@@ -842,11 +843,19 @@ impl<'vm> Compiler<'vm> {
                     let range = index_def.range;
                     let arity = checked_send_arity("subscript declaration", index_def.params.len(), index_def.range)?;
                     let labels: Vec<Option<String>> = index_def.params.iter().map(|p| p.label.clone()).collect();
-                    let sig_kind = SignatureKind::Subscript(arity);
+                    
+                    let mut param_names: Vec<String> = index_def.params.iter().map(|p| p.name.clone()).collect();
+                    let sig_kind = match &index_def.accessor {
+                        IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
+                        IndexAccessor::Set { put } => {
+                            param_names.push(put.name.clone());
+                            SignatureKind::SubscriptSet(arity)
+                        }
+                    };
+
                     let selector = encode_selector("", &labels, sig_kind);
                     let selector_sym = self.vm.interner.intern(&selector);
 
-                    let param_names: Vec<String> = index_def.params.iter().map(|p| p.name.clone()).collect();
                     self.is_static_context = false;
                     let closure = self.compile_block(index_def.body, selector_sym, param_names, true, false, None)?;
 

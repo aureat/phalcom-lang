@@ -182,6 +182,8 @@ pub enum BuiltinAttr {
     On,
     Native,
     Ignore,
+    Private,
+    Protected,
 }
 
 impl BuiltinAttr {
@@ -201,6 +203,8 @@ impl BuiltinAttr {
             BuiltinAttr::On => "On",
             BuiltinAttr::Native => "native",
             BuiltinAttr::Ignore => "ignore",
+            BuiltinAttr::Private => "private",
+            BuiltinAttr::Protected => "protected",
         }
     }
 
@@ -220,6 +224,8 @@ impl BuiltinAttr {
             "On" => Some(BuiltinAttr::On),
             "native" => Some(BuiltinAttr::Native),
             "ignore" => Some(BuiltinAttr::Ignore),
+            "private" => Some(BuiltinAttr::Private),
+            "protected" => Some(BuiltinAttr::Protected),
             _ => None,
         }
     }
@@ -297,11 +303,18 @@ pub enum ClassMember {
 /// `[put]`, etc., mirroring `comma_form_slots` but bracket-delimited instead
 /// of `name(...)`-delimited.
 #[derive(Debug, Clone)]
+pub enum IndexAccessor {
+    Get,
+    Set {
+        put: ParameterDef,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct IndexMethodDef {
-    /// The bracketed parameter list — positional and/or `label:` parameters,
-    /// in source order (e.g. `[idx, put:]`'s `idx` positional, `put`
-    /// labeled).
+    /// Indexing arguments only. The assignment value is not included here.
     pub params: Vec<ParameterDef>,
+    pub accessor: IndexAccessor,
     /// The method body.
     pub body: Vec<Statement>,
     /// `@name(args…)` attributes attached to this member, in declaration
@@ -455,7 +468,7 @@ pub struct GetterDef {
 #[derive(Debug, Clone)]
 pub struct SetterDef {
     pub name: String,
-    pub param: String,
+    pub param: ParameterDef,
     pub body: Vec<Statement>,
     pub is_static: bool,
     /// `@name(args…)` attributes attached to this setter, in declaration
@@ -602,6 +615,12 @@ pub struct ForStatement {
     pub range: SourceRange,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FieldKind {
+    Source,
+    Implementation,
+}
+
 #[derive(Debug, Clone)]
 pub enum Expr {
     Int {
@@ -627,6 +646,7 @@ pub enum Expr {
     },
     Field {
         value: String,
+        kind: FieldKind,
         range: SourceRange,
     },
     SelfVar {

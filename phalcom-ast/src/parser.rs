@@ -946,6 +946,8 @@ impl<'source> Parser<'source> {
                 | Token::True
                 | Token::False
                 | Token::Identifier(_)
+                | Token::FieldIdentifier(_)
+                | Token::ImplementationFieldIdentifier(_)
                 | Token::NameSymbol(_)
                 | Token::SelectorSymbol { .. }
                 | Token::SelfKw
@@ -1299,12 +1301,20 @@ impl<'source> Parser<'source> {
     /// declaration is not followed by a newline, `}`, or end-of-file.
     fn parse_field_decl(&mut self, start: usize, is_const: bool) -> ParserResult<ClassMember> {
         let name_start = self.cur_start();
-        let name = self.expect_identifier(&["field name"])?;
-        let mut chars = name.chars();
-        let ok = chars.next() == Some('_') && chars.next().is_some_and(|c| c.is_alphabetic());
+        let name = match self.peek().clone() {
+            Token::FieldIdentifier(n)
+            | Token::ImplementationFieldIdentifier(n)
+            | Token::Identifier(n) => {
+                self.advance();
+                n
+            }
+            _ => return Err(self.error_here(strs(&["field name"]))),
+        };
+        let ok = (name.starts_with('_') && name.chars().nth(1).is_some_and(|c| c.is_alphabetic()))
+            || (name.starts_with("__") && name.chars().nth(2).is_some_and(|c| c.is_alphabetic()));
         if !ok {
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message(format!("field name '{name}' must start with `_` followed by a letter")),
+                kind: SyntaxErrorKind::Message(format!("field name '{name}' must start with `_` or `__` followed by a letter")),
                 range: name_start..self.prev_end,
             });
         }
@@ -1413,8 +1423,8 @@ impl<'source> Parser<'source> {
                 range,
             });
         }
-        if let Token::Identifier(name) = self.peek() {
-            if name.starts_with('_') && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal) {
+        if let Token::Identifier(name) | Token::FieldIdentifier(name) | Token::ImplementationFieldIdentifier(name) = self.peek() {
+            if (name.starts_with('_') || name.starts_with("__")) && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal) {
                 return self.parse_field_decl(start, false);
             }
         }
@@ -1495,9 +1505,23 @@ impl<'source> Parser<'source> {
         let range = (start..self.prev_end).into();
         if has_equal {
             let param = if let Some(ref list) = params {
-                if !list.is_empty() { list[0].name.clone() } else { "value".to_string() }
+                if !list.is_empty() {
+                    list[0].clone()
+                } else {
+                    ParameterDef {
+                        name: "value".to_string(),
+                        label: None,
+                        is_rest: false,
+                        range: name_range,
+                    }
+                }
             } else {
-                "value".to_string()
+                ParameterDef {
+                    name: "value".to_string(),
+                    label: None,
+                    is_rest: false,
+                    range: name_range,
+                }
             };
             Ok(ClassMember::Setter(SetterDef {
                 name,
@@ -1555,8 +1579,16 @@ impl<'source> Parser<'source> {
         let name_range = (name_start..self.prev_end).into();
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
+        let mut params = params;
+        let accessor = if params.last().and_then(|p| p.label.as_deref()) == Some("put") {
+            let put = params.pop().unwrap();
+            IndexAccessor::Set { put }
+        } else {
+            IndexAccessor::Get
+        };
         Ok(ClassMember::Index(IndexMethodDef {
             params,
+            accessor,
             body,
             attributes: Vec::new(),
             range,
@@ -1572,7 +1604,10 @@ impl<'source> Parser<'source> {
     /// operator usable as a selector.
     fn parse_method_name(&mut self) -> ParserResult<String> {
         let name = match self.peek() {
-            Token::Identifier(n) => n.clone(),
+            Token::Identifier(n)
+            | Token::FieldIdentifier(n)
+            | Token::ImplementationFieldIdentifier(n)
+            | Token::ImplementationSelectorIdentifier(n) => n.clone(),
             Token::Plus => "+".to_string(),
             Token::Minus => "-".to_string(),
             Token::Asterisk => "*".to_string(),
@@ -2420,7 +2455,10 @@ impl<'source> Parser<'source> {
     /// Returns an error if the token following `.` is none of the above.
     fn parse_property_name(&mut self) -> ParserResult<String> {
         match self.peek().clone() {
-            Token::Identifier(name) => {
+            Token::Identifier(name)
+            | Token::FieldIdentifier(name)
+            | Token::ImplementationFieldIdentifier(name)
+            | Token::ImplementationSelectorIdentifier(name) => {
                 self.advance();
                 Ok(name)
             }
@@ -2693,6 +2731,22 @@ impl<'source> Parser<'source> {
                     range,
                 })))
             }
+            Token::FieldIdentifier(value) => {
+                self.advance();
+                Ok(Expr::Field {
+                    value,
+                    kind: FieldKind::Source,
+                    range,
+                })
+            }
+            Token::ImplementationFieldIdentifier(value) => {
+                self.advance();
+                Ok(Expr::Field {
+                    value,
+                    kind: FieldKind::Implementation,
+                    range,
+                })
+            }
             Token::Identifier(value) => {
                 if matches!(self.peek_next(), Token::FatArrow) {
                     let start = self.cur_start();
@@ -2710,7 +2764,12 @@ impl<'source> Parser<'source> {
                 }
                 self.advance();
                 if value.starts_with('_') && value != "_" {
-                    Ok(Expr::Field { value, range })
+                    let kind = if value.starts_with("__") {
+                        FieldKind::Implementation
+                    } else {
+                        FieldKind::Source
+                    };
+                    Ok(Expr::Field { value, kind, range })
                 } else {
                     Ok(Expr::Var { value, range })
                 }
