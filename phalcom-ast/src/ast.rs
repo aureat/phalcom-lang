@@ -273,8 +273,8 @@ pub enum ClassMember {
     Method(MethodDef),
     Getter(GetterDef),
     Setter(SetterDef),
-    /// A declared field (`let`/`var` at class-body position, U-ANNOT-LAYOUT
-    /// §3.1). See [`FieldDef`].
+    /// A declared source/implementation field at class-body position. See
+    /// [`FieldDef`].
     Field(FieldDef),
     /// A `@variant Name(labels...)` arm inside a `@sealed` class body
     /// (U-ANNOT-LAYOUT §3.4, `annotations-data.md` §"`@variant`"). See
@@ -282,15 +282,15 @@ pub enum ClassMember {
     /// sibling top-level [`Statement::Class`] by `phalcom-core`'s
     /// `compiler::attributes::expand_class_attributes`.
     Variant(VariantDef),
-    /// A bracket-delimited subscript method — `[idx] { ... }` (read) or
-    /// `[idx, put:] { ... }` (write), U-INDEX,
+    /// A bracket-delimited subscript method — `[_ idx] { ... }` (read) or
+    /// `[_ idx]=(put value) { ... }` (write), U-INDEX,
     /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md).
     /// See [`IndexMethodDef`].
     Index(IndexMethodDef),
 }
 
-/// A bracket-delimited subscript method definition — `[idx] { ... }` /
-/// `[idx, put:] { ... }` / `[] { ... }` / `[put:] { ... }` (U-INDEX,
+/// A bracket-delimited subscript method definition — `[_ idx] { ... }` /
+/// `[_ idx]=(put value) { ... }` / `[] { ... }` / `[]=(put value) { ... }` (U-INDEX,
 /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
 ///
 /// Unlike every other [`ClassMember`], this selector carries no separate name
@@ -298,16 +298,13 @@ pub enum ClassMember {
 /// grammar, and `params` (parsed by the ordinary `Parser::parse_param_list`,
 /// substituting `[`/`]` for `(`/`)`) live *inside* them rather than in a
 /// following `(...)` slot.
-/// Identity is arity + labels alone: `phalcom-core`'s
-/// `SignatureKind::Subscript` encodes this to `[_]`, `[_,put]`, `[]`,
-/// `[put]`, etc., mirroring `comma_form_slots` but bracket-delimited instead
-/// of `name(...)`-delimited.
+/// Getter identity is bracket arity + labels; setter identity appends the
+/// fixed assignment role. Thus `[_ idx, default fallback]=(put value)` is
+/// `[_,default]=(put)`.
 #[derive(Debug, Clone)]
 pub enum IndexAccessor {
     Get,
-    Set {
-        put: ParameterDef,
-    },
+    Set { put: ParameterDef },
 }
 
 #[derive(Debug, Clone)]
@@ -661,7 +658,19 @@ pub enum Expr {
     Range(Box<RangeExpr>),
     Unary(Box<UnaryExpr>),
     Binary(Box<BinaryExpr>),
+    /// A call written without an explicit receiver, e.g. `foo(value)`.
+    ///
+    /// This remains distinct from a call to a value's `call` protocol until
+    /// compilation, where lexical bindings take precedence over an implicit
+    /// receiver send.
+    UnqualifiedCall(Box<UnqualifiedCallExpr>),
     MethodCall(Box<MethodCallExpr>),
+    /// An implementation selector written without an explicit receiver,
+    /// e.g. `_$rawAt`.
+    ImplementationSelector {
+        value: String,
+        range: SourceRange,
+    },
     GetProperty(Box<GetPropertyExpr>),
     SetProperty(Box<SetPropertyExpr>),
     /// A postfix subscript read `object[index]` (U-INDEX). See [`IndexExpr`].
@@ -706,7 +715,9 @@ impl Expr {
             Expr::Range(e) => e.range,
             Expr::Unary(e) => e.range,
             Expr::Binary(e) => e.range,
+            Expr::UnqualifiedCall(e) => e.range,
             Expr::MethodCall(e) => e.range,
+            Expr::ImplementationSelector { range, .. } => *range,
             Expr::GetProperty(e) => e.range,
             Expr::SetProperty(e) => e.range,
             Expr::Index(e) => e.range,
@@ -780,8 +791,8 @@ pub struct IndexExpr {
 /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
 ///
 /// Sends the bracket-write selector `args`' arity/labels encode with `put:
-/// value` appended (e.g. `xs[i] = v` sends `[_,put]`, `xs[] = v` sends
-/// `[put]`) — **no** `at(_,put:)` lowering (ADR-0060 supersedes ADR-0055).
+/// value` appended in the fixed setter role (e.g. `xs[i] = v` sends
+/// `[_]=(put)`) — **no** `at(_,put)` lowering (ADR-0060 supersedes ADR-0055).
 /// Produced by `parse_assignment` when it sees an `Expr::Index` on the left
 /// of `=`, parallel to `SetProperty`'s production from `GetProperty`.
 #[derive(Debug, Clone)]
@@ -809,6 +820,14 @@ pub struct AssignmentExpr {
 pub struct CallExpr {
     pub callee: Expr,
     pub args: Vec<Expr>,
+    pub range: SourceRange,
+}
+
+/// An unqualified call whose receiver resolution is deferred to the compiler.
+#[derive(Debug, Clone)]
+pub struct UnqualifiedCallExpr {
+    pub name: String,
+    pub args: Vec<Argument>,
     pub range: SourceRange,
 }
 

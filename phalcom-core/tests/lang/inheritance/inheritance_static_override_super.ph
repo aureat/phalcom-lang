@@ -7,13 +7,16 @@
 // walk starts at the *metaclass's* superclass.
 
 class Animal {
-  static greet => "hi"
+  @class
+  greet => "hi"
 }
 class Dog is Animal {
-  static greet => super.greet + "-dog"
+  @class
+  greet => super.greet + "-dog"
 }
 class Puppy is Dog {
-  static greet => super.greet + "-puppy"
+  @class
+  greet => super.greet + "-puppy"
 }
 System.print(Dog.greet)
 System.print(Puppy.greet)

@@ -16,7 +16,9 @@ Program {
                             params: [
                                 ParameterDef {
                                     name: "x",
-                                    label: None,
+                                    label: Some(
+                                        "x",
+                                    ),
                                     is_rest: false,
                                     range: CopyRange {
                                         start: 60,

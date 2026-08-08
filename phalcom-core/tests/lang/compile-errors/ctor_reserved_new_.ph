@@ -1,4 +1,3 @@
 class Foo {
-  @class
-  new_() { 1 }
+  _$new() { 1 }
 }

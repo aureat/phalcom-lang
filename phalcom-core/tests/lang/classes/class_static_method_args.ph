@@ -3,7 +3,8 @@
 // status: PASS
 
 class MathUtil {
-  static square(_ n) {
+  @class
+  square(_ n) {
     return n * n;
   }
 }

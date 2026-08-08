@@ -4,7 +4,8 @@
 // `Open { fiber, slot }`). Regression for the cross-fiber open-upvalue panic:
 // `gen`'s frame is parked while `f` is resumed, so `x` is reached across fibers.
 class Gen {
-  static run() {
+  @class
+  run() {
     let x = 7
     const f = Fiber.new {
       Fiber.yield(x)   // read x across the fiber boundary (gen's frame parked)

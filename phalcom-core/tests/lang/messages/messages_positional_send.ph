@@ -3,7 +3,8 @@
 // status: PASS
 
 class Adder {
-  static add(_ a, _ b) {
+  @class
+  add(_ a, _ b) {
     return a + b;
   }
 }

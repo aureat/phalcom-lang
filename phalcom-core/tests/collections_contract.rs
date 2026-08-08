@@ -293,7 +293,7 @@ fn set_add_and_remove_idempotence() {
 fn build_tuple(vm: &mut VM, elems: &[Value]) -> Value {
     let list = build_list(vm, elems);
     let tuple_class = Value::Obj(vm.universe.classes.tuple_class);
-    send1(vm, tuple_class, "__fromList(_)", list)
+    send1(vm, tuple_class, "_$fromList(_)", list)
 }
 
 /// `Tuple` satisfies the sequence-protocol contract (as-built.md §3.3(a)):

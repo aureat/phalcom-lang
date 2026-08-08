@@ -8,16 +8,9 @@ Program {
         For(
             ForStatement {
                 binding: "item",
-                iter: MethodCall(
-                    MethodCallExpr {
-                        object: Var {
-                            value: "makeList",
-                            range: CopyRange {
-                                start: 13,
-                                end: 21,
-                            },
-                        },
-                        method: "call",
+                iter: UnqualifiedCall(
+                    UnqualifiedCallExpr {
+                        name: "makeList",
                         args: [
                             Argument {
                                 label: None,

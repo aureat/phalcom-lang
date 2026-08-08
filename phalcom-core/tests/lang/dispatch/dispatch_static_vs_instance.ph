@@ -3,7 +3,8 @@
 // status: PASS
 
 class Calc {
-  static double(_ n) {
+  @class
+  double(_ n) {
     return n * 2;
   }
   triple(_ n) {

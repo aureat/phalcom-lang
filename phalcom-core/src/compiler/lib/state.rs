@@ -59,6 +59,9 @@ pub(crate) struct FunctionState {
     /// `return` in a method body keeps [`crate::bytecode::Bytecode::Return`] (blocks.md §5,
     /// [ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)).
     pub(super) is_block: bool,
+    /// Whether this lexical body can reach a member receiver. Blocks inherit
+    /// this from their enclosing body and access it through the usual upvalue.
+    pub(super) has_self: bool,
     /// All local variable names declared inside this function.
     pub(super) local_names: Vec<Symbol>,
 }
@@ -100,7 +103,7 @@ impl FunctionState {
     /// constructor initializer (`is_constructor`) and/or a block literal
     /// (`is_block`); a plain method body and the top-level module body pass
     /// `false` for both.
-    pub(super) fn new(is_constructor: bool, is_block: bool, constructor_name: Option<String>) -> Self {
+    pub(super) fn new(is_constructor: bool, is_block: bool, has_self: bool, constructor_name: Option<String>) -> Self {
         FunctionState {
             chunk: Chunk::default(),
             locals: Vec::new(),
@@ -111,6 +114,7 @@ impl FunctionState {
             is_constructor,
             constructor_name,
             is_block,
+            has_self,
             local_names: Vec::new(),
         }
     }

@@ -7,7 +7,8 @@
 let count = 0
 
 class Producer {
-  static counterTuple() {
+  @class
+  counterTuple() {
     count = count + 1
     return (1, 2)
   }

@@ -5,7 +5,8 @@
 class Vec {
   x => _x
   y => _y
-  static new(_ x, _ y) {
+  @class
+  new(_ x, _ y) {
     const v = self.new();
     v.init(x, y);
     return v;

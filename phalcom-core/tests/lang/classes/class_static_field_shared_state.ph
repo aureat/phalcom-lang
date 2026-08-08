@@ -6,10 +6,12 @@
 // class object's own slot vector, shared across all instances. Each
 // construction mutates the one shared slot, not a per-instance field.
 class Counter {
-  static _count = 0
+  @class
+  _count = 0
   @constructor
   new() { _count = _count + 1 }
-  static count => _count
+  @class
+  count => _count
 }
 Counter.new()
 Counter.new()

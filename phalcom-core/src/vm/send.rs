@@ -431,8 +431,8 @@ mod tests {
 
         let vault_symbol = vm.interner.intern("vault");
         let vault = vm.heap.module(module).get(vault_symbol).expect("`vault` global should exist");
-        let secret_selector = vm.get_or_intern("secret()");
-        let method = vault.lookup_method(&vm, secret_selector).expect("Vault should define secret()");
+        let secret_selector = vm.get_or_intern("secret");
+        let method = vault.lookup_method(&vm, secret_selector).expect("Vault should define secret");
         let before = vm.stack.clone();
 
         let result = vm.invoke_method_object(method, vault, &[]);

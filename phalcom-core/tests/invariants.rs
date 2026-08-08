@@ -739,11 +739,11 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "respondsTo(_)"),
         (c.object_class, false, "doesNotUnderstand(_)"),
         (c.object_class, false, "methodFor(_)"),         // NEW (ADR-0028)
-        (c.object_class, false, "__invariantEnter()"),   // NEW_INVARIANT_GUARD (ADR-0052)
-        (c.object_class, false, "__invariantExit()"),    // NEW_INVARIANT_GUARD (ADR-0052)
-        (c.object_class, false, "__attach(_)"),          // NEW_ATTR_ROOT (M-ATTR-ROOT)
-        (c.object_class, false, "__attributes"),         // NEW_ATTR_ROOT (M-ATTR-ROOT)
-        (c.object_class, false, "__freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "_$invariantEnter()"),   // NEW_INVARIANT_GUARD (ADR-0052)
+        (c.object_class, false, "_$invariantExit()"),    // NEW_INVARIANT_GUARD (ADR-0052)
+        (c.object_class, false, "_$attach(_)"),          // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "_$attributes"),         // NEW_ATTR_ROOT (M-ATTR-ROOT)
+        (c.object_class, false, "_$freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
         (c.behavior_class, false, "superclass=(_)"),
@@ -751,7 +751,7 @@ fn floor_census_matches_installed_bindings() {
         (c.behavior_class, false, "methods"), // NEW (ADR-0023)
         // §2.3 Class
         (c.class_class, false, "+(_)"),
-        (c.class_class, false, "new_()"),
+        (c.class_class, false, "_$new()"),
         // §2.4 Number
         (c.number_class, false, "+(_)"),
         (c.number_class, false, "-(_)"),
@@ -775,9 +775,9 @@ fn floor_census_matches_installed_bindings() {
         (c.string_class, true, "new()"),
         (c.string_class, true, "new(_)"),
         // U-STRING raw byte accessors (ADR-0049 amendment)
-        (c.string_class, false, "byteCount_"),  // NEW (ADR-0049)
-        (c.string_class, false, "byteAt_(_)"),  // NEW (ADR-0049)
-        (c.string_class, false, "slice_(_,_)"), // NEW (ADR-0049)
+        (c.string_class, false, "_$byteCount"),  // NEW (ADR-0049)
+        (c.string_class, false, "_$byteAt(_)"),  // NEW (ADR-0049)
+        (c.string_class, false, "_$slice(_,_)"), // NEW (ADR-0049)
         // §2.6 Bool
         (c.bool_class, true, "new()"),
         (c.bool_class, true, "new(_)"),
@@ -831,30 +831,30 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "nextScheduled"),
         (c.system_class, true, "gc"),
         // U-STRING raw I/O seam (ADR-0049 amendment)
-        (c.system_class, true, "write_(_)"), // NEW (ADR-0049)
+        (c.system_class, true, "_$write(_)"), // NEW (ADR-0049)
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
         (c.module_class, false, "doesNotUnderstand(_)"),
         // §2.13 List
         (c.list_class, true, "new()"),
-        (c.list_class, false, "length_"),
-        (c.list_class, false, "at_(_)"),
-        (c.list_class, false, "set_(_,_)"),
-        (c.list_class, false, "push_(_)"),
-        (c.list_class, false, "replaceSlice_(_,_,_)"),
+        (c.list_class, false, "_$length"),
+        (c.list_class, false, "_$at(_)"),
+        (c.list_class, false, "_$set(_,_)"),
+        (c.list_class, false, "_$push(_)"),
+        (c.list_class, false, "_$replaceSlice(_,_,_)"),
         (c.list_class, false, "toString"),
         // §2.x Bytes (PDR-0011 ruling 3 + PDR-0013 ruling 4, U-BYTES)
         (c.bytes_class, true, "new(_)"),
-        (c.bytes_class, true, "fromString_(_)"),
-        (c.bytes_class, false, "size_"),
-        (c.bytes_class, false, "at_(_)"),
-        (c.bytes_class, false, "set_(_,_)"),
-        (c.bytes_class, false, "fill_(_)"),
-        (c.bytes_class, false, "slice_(_,_)"),
-        (c.bytes_class, false, "copyInto_(_,_)"),
-        (c.bytes_class, false, "utf8_"),
-        (c.bytes_class, false, "utf8Lossy_"),
-        (c.bytes_class, false, "equalsConstantTime_(_)"),
+        (c.bytes_class, true, "_$fromString(_)"),
+        (c.bytes_class, false, "_$size"),
+        (c.bytes_class, false, "_$at(_)"),
+        (c.bytes_class, false, "_$set(_,_)"),
+        (c.bytes_class, false, "_$fill(_)"),
+        (c.bytes_class, false, "_$slice(_,_)"),
+        (c.bytes_class, false, "_$copyInto(_,_)"),
+        (c.bytes_class, false, "_$utf8"),
+        (c.bytes_class, false, "_$utf8Lossy"),
+        (c.bytes_class, false, "_$equalsConstantTime(_)"),
         // §2.14 Message
         (c.message_class, false, "selector"),
         (c.message_class, false, "name"),
@@ -865,37 +865,37 @@ fn floor_census_matches_installed_bindings() {
         (c.error_class, false, "raise()"),
         // Map/Set (U-COLLTYPES Phase 1, ADR-0039) — NEW_MAP_SET
         (c.map_class, true, "new()"),
-        (c.map_class, false, "size_"),
-        (c.map_class, false, "get_(_)"),
-        (c.map_class, false, "put_(_,_)"),
-        (c.map_class, false, "has_(_)"),
-        (c.map_class, false, "remove_(_)"),
-        (c.map_class, false, "keyAt_(_)"),
-        (c.map_class, false, "valueAt_(_)"),
+        (c.map_class, false, "_$size"),
+        (c.map_class, false, "_$get(_)"),
+        (c.map_class, false, "_$put(_,_)"),
+        (c.map_class, false, "_$has(_)"),
+        (c.map_class, false, "_$remove(_)"),
+        (c.map_class, false, "_$keyAt(_)"),
+        (c.map_class, false, "_$valueAt(_)"),
         (c.set_class, true, "new()"),
-        (c.set_class, false, "size_"),
-        (c.set_class, false, "add_(_)"),
-        (c.set_class, false, "has_(_)"),
-        (c.set_class, false, "remove_(_)"),
-        (c.set_class, false, "at_(_)"),
+        (c.set_class, false, "_$size"),
+        (c.set_class, false, "_$add(_)"),
+        (c.set_class, false, "_$has(_)"),
+        (c.set_class, false, "_$remove(_)"),
+        (c.set_class, false, "_$at(_)"),
         // Tuple (U-COLLTYPES Phase 2, ADR-0039) — NEW_TUPLE
-        (c.tuple_class, true, "__fromList(_)"),
-        (c.tuple_class, false, "size_"),
-        (c.tuple_class, false, "at_(_)"),
-        (c.tuple_class, false, "positionalSize_"),
-        (c.tuple_class, false, "labelAt_(_)"),
-        (c.tuple_class, false, "positionals_"),
-        (c.tuple_class, false, "labeled_"),
-        (c.tuple_class, false, "slice_(_,_)"),
+        (c.tuple_class, true, "_$fromList(_)"),
+        (c.tuple_class, false, "_$size"),
+        (c.tuple_class, false, "_$at(_)"),
+        (c.tuple_class, false, "_$positionalSize"),
+        (c.tuple_class, false, "_$labelAt(_)"),
+        (c.tuple_class, false, "_$positionals"),
+        (c.tuple_class, false, "_$labeled"),
+        (c.tuple_class, false, "_$slice(_,_)"),
         // Record (Spec A product foundations) — NEW_RECORD
-        (c.record_class, false, "size_"),
-        (c.record_class, false, "labelAt_(_)"),
-        (c.record_class, false, "valueAt_(_)"),
+        (c.record_class, false, "_$size"),
+        (c.record_class, false, "_$labelAt(_)"),
+        (c.record_class, false, "_$valueAt(_)"),
         // Range (U-COLLTYPES Phase 3, ADR-0039) — NEW_RANGE
         (c.range_class, true, "new(_,_,_)"),
-        (c.range_class, false, "start_"),
-        (c.range_class, false, "end_"),
-        (c.range_class, false, "inclusive_"),
+        (c.range_class, false, "_$lower"),
+        (c.range_class, false, "_$upper"),
+        (c.range_class, false, "_$upperInclusive"),
         // Family (U16-Open, ADR-0047) — NEW_FAMILY
         (c.family_class, false, "doesNotUnderstand(_)"),
         // Fiber (ADR-0030) — NEW_FIBER. Installed since the fiber work landed;
@@ -914,8 +914,8 @@ fn floor_census_matches_installed_bindings() {
         (c.fiber_class, false, "isRoot"),
         (c.fiber_class, false, "error"),
         // System (Resource tracking primitives)
-        (c.system_class, true, "leakReport_"),
-        (c.system_class, true, "strictResources_(_)"),
+        (c.system_class, true, "_$leakReport"),
+        (c.system_class, true, "_$strictResources(_)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).

@@ -1,4 +1,5 @@
 class Legacy {
-  static answer() { 7 }
+  @class
+  answer() { 7 }
 }
 System.print(Legacy.answer())

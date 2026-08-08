@@ -7,7 +7,8 @@
 // `firstMatch` immediately at i == 3, so the trailing `return 0 - 1` is dead.
 
 class Runner {
-  static firstMatch {
+  @class
+  firstMatch {
     let i = 0
     while (i < 10) {
       if (i == 3) { return i }

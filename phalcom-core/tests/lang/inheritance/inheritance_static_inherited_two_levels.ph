@@ -10,7 +10,8 @@
 class Grand {
   @constructor
   new() { }
-  static kingdom => "Animalia"
+  @class
+  kingdom => "Animalia"
 }
 class Animal is Grand {
   @constructor

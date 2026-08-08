@@ -6,7 +6,9 @@
 // same absence helper as instance fields — the private Nil sentinel never leaks.
 // `_last` is in the static layout (assigned in `register`), but never written.
 class Registry {
-  static register(_ v) { _last = v }
-  static last => _last
+  @class
+  register(_ v) { _last = v }
+  @class
+  last => _last
 }
 System.print(Registry.last)

@@ -23,7 +23,7 @@
 // are read as UTF-8 already (confirmed working today via non-ASCII content,
 // string_equality.ph's "vålue" case).
 // The raw byte-sequence half (`.bytes`) is not ported separately — it is a
-// dense `0..byteCount_` walk with no unicode subtlety, adequately covered
+// dense `0..size` walk with no unicode subtlety, adequately covered
 // by U-STRING's own corpus once it lands.
 const cps = "a€🎉".codePoints
 System.print(cps.size)

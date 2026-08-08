@@ -8,7 +8,8 @@
 class Animal {
   @constructor
   new() { }
-  static kingdom => "Animalia"
+  @class
+  kingdom => "Animalia"
 }
 class Dog is Animal {
   @constructor

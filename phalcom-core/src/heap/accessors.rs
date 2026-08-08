@@ -141,6 +141,14 @@ impl Heap {
         }
     }
 
+    /// Mutably borrows the [`ClosureObject`] behind `id`.
+    pub fn closure_mut(&mut self, id: ObjRef) -> &mut ClosureObject {
+        match self.get_mut(id) {
+            Object::Closure(closure) => closure,
+            _ => panic!("ObjRef {id:?} is not a ClosureObject"),
+        }
+    }
+
     /// Borrows the [`StringObject`] behind `id`.
     ///
     /// # Panics

@@ -261,7 +261,7 @@ fn trailing_block_sugar_chained() {
 }
 
 #[test]
-fn postfix_call_desugars_to_call_method() {
+fn postfix_call_preserves_unqualified_call() {
     insta::assert_snapshot!(parse("f(1, 2)"));
 }
 
@@ -330,4 +330,68 @@ fn standalone_invariant_diverts_to_class_invariants() {
 fn dangling_attribute_at_end_of_class_is_error() {
     // `@requires(...)` with nothing following it before `}` is `attr.dangling`.
     insta::assert_snapshot!(parse("class Point {\n  @requires(x > 0)\n}\n"));
+}
+
+// --- Declaration Grammar & Parameter Parser Verification ---
+
+#[test]
+fn parse_param_underscore_label_and_shorthand() {
+    // 1. Position-only underscore value parameter
+    let res = parse_source("class Foo {\n  bar(_ val) {}\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse `_ val`: {:?}", res.err());
+
+    // 2. Labeled parameter `label value`
+    let res = parse_source("class Foo {\n  move(to dest, duration d) {}\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse `to dest`: {:?}", res.err());
+
+    // 3. Labeled shorthand `label` (external name == local name)
+    let res = parse_source("class Foo {\n  move(to, duration) {}\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse label shorthand: {:?}", res.err());
+}
+
+#[test]
+fn parse_setter_name_put_value() {
+    let res = parse_source("class Foo {\n  width=(put val) {\n    self.width = val\n  }\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse `width=(put val)`: {:?}", res.err());
+}
+
+#[test]
+fn parse_subscript_getter_and_setter() {
+    // Getter: [_ index]
+    let res = parse_source("class Foo {\n  [_ index] {\n    return self.items[index]\n  }\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse subscript getter `[_ index]`: {:?}", res.err());
+
+    // Setter: [_ index]=(put value)
+    let res = parse_source("class Foo {\n  [_ index]=(put val) {\n    self.items[index] = val\n  }\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse subscript setter `[_ index]=(put val)`: {:?}", res.err());
+}
+
+#[test]
+fn parse_rejects_legacy_label_colon_syntax() {
+    let err = parse_display("class Foo {\n  move(to: dest) {}\n}\n");
+    assert!(
+        err.contains("parameter declaration labels no longer use `:`"),
+        "unexpected error message: {err}"
+    );
+}
+
+#[test]
+fn parse_rejects_positional_after_labeled_parameter() {
+    let err = parse_display("class Foo {\n  move(to dest, _ other) {}\n}\n");
+    assert!(
+        err.contains("positional parameters must precede labeled parameters"),
+        "unexpected error message: {err}"
+    );
+}
+
+#[test]
+fn parse_reserved_word_as_external_label() {
+    let res = parse_source("class Map {\n  insert(_ value, for key) {}\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse reserved external label `for key`: {:?}", res.err());
+}
+
+#[test]
+fn parse_rejects_field_spelling_as_method_name() {
+    let err = parse_display("class Foo {\n  _helper(_ value) { value }\n}\n");
+    assert!(err.contains("method name"), "unexpected error message: {err}");
 }

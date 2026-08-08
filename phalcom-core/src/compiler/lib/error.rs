@@ -27,6 +27,11 @@ pub enum CompilerError {
     #[error("Invalid assignment target.")]
     InvalidAssignmentTarget,
 
+    /// The implementation selector/field namespaces are reserved to the
+    /// bootstrap core and compiler-generated runtime hooks.
+    #[error("internal.namespace_reserved: '{0}' is reserved to the core/runtime implementation.")]
+    InternalNamespaceReserved(String, SourceRange),
+
     /// A reassignment of a `const`-bound name (local, upvalue or global), or
     /// a captured write to a `const` through a closure (L-3).
     ///

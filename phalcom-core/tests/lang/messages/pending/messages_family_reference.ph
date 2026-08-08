@@ -4,7 +4,8 @@
 
 class Point {
   x => _x
-  static new(_ x) {
+  @class
+  new(_ x) {
     const p = self.new();
     p.init(x);
     return p;

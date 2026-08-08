@@ -87,7 +87,11 @@ fn run_program(src: &str, checks: &[(&str, f64)]) {
             _ => panic!("main module handle is not a Module"),
         };
         match module.get(sym) {
-            Some(Value::Number(got)) => assert_eq!(
+            Some(Value::Int(got)) => assert_eq!(
+                got as f64, expected,
+                "benchmark program computed the wrong answer: `{name}` = {got}, expected {expected}"
+            ),
+            Some(Value::Float(got)) => assert_eq!(
                 got, expected,
                 "benchmark program computed the wrong answer: `{name}` = {got}, expected {expected}"
             ),

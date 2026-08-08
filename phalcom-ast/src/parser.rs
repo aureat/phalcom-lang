@@ -129,6 +129,7 @@ fn primary_expected() -> Vec<String> {
         "\"(\"",
         "\"not\"",
         "\"-\"",
+        "\"|\"",
         "\"{\"",
     ]
     .iter()
@@ -1266,58 +1267,28 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses a declared field (`let`/`var _name [= expr]`) at class-body
-    /// position (U-ANNOT-LAYOUT §3.1).
-    ///
-    /// `start` is the position of the already-peeked `let`/`var` token
-    /// (captured by the caller before dispatching here, matching the sibling
-    /// member-parsing methods' convention). Terminated by a newline, or — with
-    /// no explicit terminator consumed — the closing `}`/end-of-file, mirroring
-    /// how every other [`ClassMember`] variant needs no trailing separator of
-    /// its own (a method/getter/setter/constructor's `{ … }` body is
-    /// self-delimiting; a field declaration has no braces, so a newline plays
-    /// that role instead).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the field name is missing, the initializer
-    /// expression is malformed, or the declaration is not followed by a
-    /// newline, `}`, or end-of-file.
     /// Parses a field declaration: `const`-prefixed (immutable) or bare
     /// (mutable) — ADR-0064 §3, L-2. `is_const` records whether the caller
     /// already consumed a leading `Token::Const`; a bare field has no keyword
     /// to consume at all, so [`Self::parse_class_member`] dispatches here
     /// without advancing past anything first.
     ///
-    /// L-8: the field name must start with `_` followed by a letter — this is
-    /// enforced here, not in the lexer or `parse_primary`, so the rule stays
-    /// scoped to field-declaration position (bare `_` remains a legal binding
-    /// name elsewhere).
+    /// Field eligibility is structural: lexer emits `FieldIdentifier` or
+    /// `ImplementationFieldIdentifier`. Parser does not repeat prefix tests.
     ///
     /// # Errors
     ///
-    /// Returns an error if the field name is missing, does not start with
-    /// `_` + a letter, the initializer expression is malformed, or the
+    /// Returns an error if the field name is missing, the initializer
+    /// expression is malformed, or the
     /// declaration is not followed by a newline, `}`, or end-of-file.
     fn parse_field_decl(&mut self, start: usize, is_const: bool) -> ParserResult<ClassMember> {
-        let name_start = self.cur_start();
         let name = match self.peek().clone() {
-            Token::FieldIdentifier(n)
-            | Token::ImplementationFieldIdentifier(n)
-            | Token::Identifier(n) => {
+            Token::FieldIdentifier(n) | Token::ImplementationFieldIdentifier(n) => {
                 self.advance();
                 n
             }
             _ => return Err(self.error_here(strs(&["field name"]))),
         };
-        let ok = (name.starts_with('_') && name.chars().nth(1).is_some_and(|c| c.is_alphabetic()))
-            || (name.starts_with("__") && name.chars().nth(2).is_some_and(|c| c.is_alphabetic()));
-        if !ok {
-            return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message(format!("field name '{name}' must start with `_` or `__` followed by a letter")),
-                range: name_start..self.prev_end,
-            });
-        }
         let default = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
         match self.peek() {
@@ -1388,8 +1359,8 @@ impl<'source> Parser<'source> {
 
     /// Parses a single class member: a method, getter, or setter.
     ///
-    /// A trailing `=` after the name marks a setter (whose parameter is always
-    /// named `value`); an explicit parameter list marks a method; neither marks
+    /// A trailing `=` after the name marks a setter (whose external parameter
+    /// label is always `put`); an explicit parameter list marks a method; neither marks
     /// a getter. Mirrors the LALRPOP `ClassMember` rule.
     ///
     /// # Errors
@@ -1401,9 +1372,9 @@ impl<'source> Parser<'source> {
         // Field grammar (ADR-0064 §4, U-BINDINGS §4.1), in dispatch order:
         // `const` unambiguously starts a field; `let` at field position is a
         // hard error (L-2 — there is no mutable-with-keyword field form);
-        // a leading-`_` identifier not followed by `(`, `=>`, or `{` is the
-        // bare mutable field form. Everything else falls through to the
-        // ordinary method/getter/setter path below.
+        // a field token followed by a terminator or initializer is the bare
+        // mutable field form. Field tokens in method-shaped positions fall
+        // through and are rejected as non-selector names below.
         if matches!(self.peek(), Token::Const) {
             self.advance();
             return self.parse_field_decl(start, true);
@@ -1423,13 +1394,13 @@ impl<'source> Parser<'source> {
                 range,
             });
         }
-        if let Token::Identifier(name) | Token::FieldIdentifier(name) | Token::ImplementationFieldIdentifier(name) = self.peek() {
-            if (name.starts_with('_') || name.starts_with("__")) && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal) {
-                return self.parse_field_decl(start, false);
-            }
+        if matches!(self.peek(), Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_))
+            && matches!(self.peek_next(), Token::Newline | Token::RBrace | Token::Eof | Token::Equal)
+        {
+            return self.parse_field_decl(start, false);
         }
-        // U-INDEX (ADR-0060): a bracket subscript method (`[idx] { ... }` /
-        // `[idx, put:] { ... }`) is a distinct grammar production, not
+        // U-INDEX (ADR-0060): a bracket subscript method (`[_ idx] { ... }` /
+        // `[_ idx]=(put value) { ... }`) is a distinct grammar production, not
         // routed through `parse_method_name` — there is no separate name
         // token at all, the brackets themselves are the whole of this
         // member's identity. Must be checked before the `Construct`/name
@@ -1473,27 +1444,17 @@ impl<'source> Parser<'source> {
             //     name_range,
             // }));
         }
-        // `class name(...)` is retained as a migration spelling for
-        // `@class name(...)`; token `class` remains an expression keyword in
-        // primary position, so this branch is unambiguous inside a class.
-        let is_static = self.eat(&Token::Static) || self.eat(&Token::Class);
+        if self.eat(&Token::Static) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("`static` member syntax is retired; use `@class`".to_string()),
+                range: start..self.prev_end,
+            });
+        }
+        let is_static = false;
         let name_start = self.cur_start();
         let name = self.parse_method_name()?;
         let name_range = (name_start..self.prev_end).into();
         let has_equal = self.eat(&Token::Equal);
-        if has_equal && name.starts_with('_') {
-            let expr = self.parse_expr()?;
-            self.expect(&Token::Newline, &["newline"])?;
-            let range = (start..self.prev_end).into();
-            return Ok(ClassMember::Getter(GetterDef {
-                name,
-                body: vec![Statement::Expr { expr, range }],
-                is_static,
-                attributes: Vec::new(),
-                range,
-                name_range,
-            }));
-        }
         if has_equal {
             self.expect(&Token::LParen, &["\"(\""])?;
             let start_put = self.cur_start();
@@ -1507,7 +1468,10 @@ impl<'source> Parser<'source> {
             if matches!(self.peek(), Token::Colon) {
                 let err_start = self.cur_start();
                 return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("parameter declaration labels no longer use `;`; write `label local`, or `label` when the external and local names are identical".to_string()),
+                    kind: SyntaxErrorKind::Message(
+                        "parameter declaration labels no longer use `:`; write `label local`, or `label` when the external and local names are identical"
+                            .to_string(),
+                    ),
                     range: start_put..err_start,
                 });
             }
@@ -1563,15 +1527,16 @@ impl<'source> Parser<'source> {
         }
     }
 
-    /// Parses a bracket subscript method — `[idx] { ... }` / `[idx, put:] {
-    /// ... }` / `[] { ... }` / `[put:] { ... }` (U-INDEX,
+    /// Parses a bracket subscript method — `[_ idx] { ... }` /
+    /// `[_ idx]=(put value) { ... }` / `[] { ... }` / `[]=(put value) { ... }` (U-INDEX,
     /// [ADR-0060](../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
     ///
     /// `start` is the position of the already-peeked `[` (captured by the
     /// caller before dispatching here, matching the sibling member-parsing
     /// methods' convention). Reuses [`Parser::parse_param_list`] verbatim for
     /// the bracketed parameter list — the *only* structural difference from
-    /// an ordinary `(params)` method is the delimiter, so `[idx, put:]`
+    /// an ordinary `(params)` method is the delimiter; the assignment value
+    /// follows the brackets as `=(put value)`
     /// parses exactly like `(idx, put:)` would, just bracket-closed instead
     /// of paren-closed.
     ///
@@ -1598,7 +1563,10 @@ impl<'source> Parser<'source> {
             if matches!(self.peek(), Token::Colon) {
                 let err_start = self.cur_start();
                 return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("parameter declaration labels no longer use `;`; write `label local`, or `label` when the external and local names are identical".to_string()),
+                    kind: SyntaxErrorKind::Message(
+                        "parameter declaration labels no longer use `:`; write `label local`, or `label` when the external and local names are identical"
+                            .to_string(),
+                    ),
                     range: start_put..err_start,
                 });
             }
@@ -1634,10 +1602,7 @@ impl<'source> Parser<'source> {
     /// operator usable as a selector.
     fn parse_method_name(&mut self) -> ParserResult<String> {
         let name = match self.peek() {
-            Token::Identifier(n)
-            | Token::FieldIdentifier(n)
-            | Token::ImplementationFieldIdentifier(n)
-            | Token::ImplementationSelectorIdentifier(n) => n.clone(),
+            Token::Identifier(n) | Token::ImplementationSelectorIdentifier(n) => n.clone(),
             Token::Plus => "+".to_string(),
             Token::Minus => "-".to_string(),
             Token::Asterisk => "*".to_string(),
@@ -1664,9 +1629,6 @@ impl<'source> Parser<'source> {
             _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
         };
         self.advance();
-        if name == "new_" {
-            return Err(self.error_here(strs(&["method name (new_ is reserved for native class allocator)"])));
-        }
         Ok(name)
     }
 
@@ -1737,17 +1699,33 @@ impl<'source> Parser<'source> {
                     range,
                 });
             } else {
-                let first_ident = self.expect_identifier(&["parameter name", "_", "*"])?;
+                // Reserved words remain illegal local names, but are valid
+                // external labels when followed by an ordinary local name
+                // (`for key`). Calls already accept the same contextual label
+                // vocabulary through `label_name`.
+                let first_is_identifier = matches!(self.peek(), Token::Identifier(_));
+                let first_ident = if let Some(name) = Self::label_name(self.peek()) {
+                    let name = name.to_string();
+                    self.advance();
+                    name
+                } else {
+                    return Err(self.error_here(strs(&["parameter name", "_", "*"])));
+                };
                 if matches!(self.peek(), Token::Colon) {
                     let err_start = self.cur_start();
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("parameter declaration labels no longer use `;`; write `label local`, or `label` when the external and local names are identical".to_string()),
+                        kind: SyntaxErrorKind::Message(
+                            "parameter declaration labels no longer use `:`; write `label local`, or `label` when the external and local names are identical"
+                                .to_string(),
+                        ),
                         range: start..err_start,
                     });
                 }
                 let (name, label) = if matches!(self.peek(), Token::Identifier(_)) {
                     let local_ident = self.expect_identifier(&["parameter name"])?;
                     (local_ident, Some(first_ident))
+                } else if !first_is_identifier {
+                    return Err(self.error_here(strs(&["local parameter name after reserved label"])));
                 } else {
                     (first_ident.clone(), Some(first_ident))
                 };
@@ -1772,7 +1750,11 @@ impl<'source> Parser<'source> {
     fn parse_block_params(&mut self) -> ParserResult<Vec<String>> {
         let mut params = Vec::new();
         while !matches!(self.peek(), Token::FatArrow) {
-            let param = self.expect_identifier(&["parameter name"])?;
+            let param = if self.eat(&Token::Underscore) {
+                "_".to_string()
+            } else {
+                self.expect_identifier(&["parameter name"])?
+            };
             params.push(param);
             if !self.eat(&Token::Comma) && !matches!(self.peek(), Token::FatArrow) {
                 return Err(self.error_here(strs(&["\",\"", "\"=>\""])));
@@ -2014,6 +1996,7 @@ impl<'source> Parser<'source> {
                 | Token::LParen
                 | Token::RecordLBrace
                 | Token::LBrace
+                | Token::Pipe
                 | Token::Minus
                 | Token::Not
                 | Token::Tilde
@@ -2377,6 +2360,20 @@ impl<'source> Parser<'source> {
                 let range = (start..self.prev_end).into();
                 expr = Expr::MethodRef(Box::new(MethodRefExpr { receiver: expr, kind, range }));
             } else if self.eat(&Token::Dot) {
+                let field_kind = match self.peek() {
+                    Token::FieldIdentifier(_) => Some(FieldKind::Source),
+                    Token::ImplementationFieldIdentifier(_) => Some(FieldKind::Implementation),
+                    _ => None,
+                };
+                if let Some(kind) = field_kind {
+                    if !matches!(expr, Expr::SelfVar { .. }) {
+                        return Err(self.error_here(strs(&["a field on `self` (fields are direct receiver state; only `self._field` is valid)"])));
+                    }
+                    let value = self.parse_property_name()?;
+                    let range = (start..self.prev_end).into();
+                    expr = Expr::Field { value, kind, range };
+                    continue;
+                }
                 let property = self.parse_property_name()?;
                 if self.eat(&Token::LParen) {
                     let args = self.parse_arg_list()?;
@@ -2396,12 +2393,21 @@ impl<'source> Parser<'source> {
                 let args = self.parse_arg_list()?;
                 self.expect(&Token::RParen, &["\")\""])?;
                 let range = (start..self.prev_end).into();
-                expr = Expr::MethodCall(Box::new(MethodCallExpr {
-                    object: expr,
-                    method: "call".to_string(),
-                    args,
-                    range,
-                }));
+                expr = match expr {
+                    Expr::Var { value, .. } => Expr::UnqualifiedCall(Box::new(UnqualifiedCallExpr { name: value, args, range })),
+                    Expr::ImplementationSelector { value, .. } => Expr::MethodCall(Box::new(MethodCallExpr {
+                        object: Expr::SelfVar { range },
+                        method: value,
+                        args,
+                        range,
+                    })),
+                    expr => Expr::MethodCall(Box::new(MethodCallExpr {
+                        object: expr,
+                        method: "call".to_string(),
+                        args,
+                        range,
+                    })),
+                };
             } else if self.eat(&Token::LBracket) {
                 // U-INDEX (ADR-0060): the bracket's contents are a full
                 // call-shaped argument list — positional + `label:`,
@@ -2423,6 +2429,11 @@ impl<'source> Parser<'source> {
                     range: (self.prev_end..self.prev_end).into(),
                 };
                 match expr {
+                    Expr::UnqualifiedCall(mut call) => {
+                        call.args.push(arg);
+                        call.range = range;
+                        expr = Expr::UnqualifiedCall(call);
+                    }
                     Expr::MethodCall(mut mc) => {
                         mc.args.push(arg);
                         mc.range = range;
@@ -2828,16 +2839,11 @@ impl<'source> Parser<'source> {
                     })));
                 }
                 self.advance();
-                if value.starts_with('_') && value != "_" {
-                    let kind = if value.starts_with("__") {
-                        FieldKind::Implementation
-                    } else {
-                        FieldKind::Source
-                    };
-                    Ok(Expr::Field { value, kind, range })
-                } else {
-                    Ok(Expr::Var { value, range })
-                }
+                Ok(Expr::Var { value, range })
+            }
+            Token::ImplementationSelectorIdentifier(value) => {
+                self.advance();
+                Ok(Expr::ImplementationSelector { value, range })
             }
             Token::SelfKw => {
                 self.advance();
@@ -2881,7 +2887,7 @@ impl<'source> Parser<'source> {
                         break;
                     }
                     match &self.tokens[scan_idx].token {
-                        Token::Identifier(_) => {
+                        Token::Identifier(_) | Token::Underscore => {
                             scan_idx += 1;
                             if scan_idx < self.tokens.len() {
                                 if matches!(self.tokens[scan_idx].token, Token::Comma) {

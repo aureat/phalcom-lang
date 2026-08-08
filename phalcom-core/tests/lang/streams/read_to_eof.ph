@@ -1,15 +1,15 @@
-let reader = BytesReader.new(Bytes.fromString_("hello world"))
+let reader = BytesReader.new(Bytes.fromString("hello world"))
 let dst = Bytes.new(5)
 let f1 = reader.read(dst)
 let n1 = f1.await
 System.print(n1.toString)
-System.print(dst.utf8_)
+System.print(dst.utf8)
 
 let dst2 = Bytes.new(10)
 let f2 = reader.read(dst2)
 let n2 = f2.await
 System.print(n2.toString)
-System.print(dst2.slice(0, n2).utf8_)
+System.print(dst2.slice(0, n2).utf8)
 
 let dst3 = Bytes.new(5)
 let f3 = reader.read(dst3)

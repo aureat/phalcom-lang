@@ -6,7 +6,8 @@
 // class as the receiver (mirrors `family_type_bound_static.ph`'s Open case).
 
 class Point {
-  static square() { return "Point.square" }
+  @class
+  square() { return "Point.square" }
 }
 const f = Point::#square()
 System.print(f())

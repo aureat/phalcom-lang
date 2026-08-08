@@ -14,7 +14,7 @@ class Object {
   // would recurse through the `isA` alias below forever, and it would target
   // `Behavior`, which is not bootstrapped in this codebase (ADR-0003 designs
   // it; core.ph has only `Object`/`Class`/`Metaclass`).
-  is(cls) {
+  is(_ cls) {
     let c = self.class
     while (c != None) {
       (c == cls).ifTrue { return true }
@@ -25,16 +25,16 @@ class Object {
 
   // Exact test: true iff `cls` is the receiver's *live, direct* class —
   // no superclass walk. Backs the `x is! T` surface (is-tests.md).
-  isExactly(cls) => self.class == cls
+  isExactly(_ cls) => self.class == cls
 
   // Back-compat alias (U-CORE-1) — `is(_)` is now the primary kind-of test;
   // `isA` is retained so existing internal (`List#==` etc.) and user callers
   // keep working unchanged.
-  isA(cls) => self.is(cls)
+  isA(_ cls) => self.is(cls)
 }
 
 class Class {
-  new() => self.new_()
+  new() => self._$new()
 }
 
 class Metaclass {}
@@ -66,18 +66,18 @@ class Error {
     _displaced = None
   }
   @constructor
-  new(msg) {
+  new(_ msg) {
     _message = msg
     _kind = None
     _cause = None
     _displaced = None
   }
   kind => _kind
-  kind=(val) { _kind = val }
+  kind=(put val) { _kind = val }
   cause => _cause
-  cause=(val) { _cause = val }
+  cause=(put val) { _cause = val }
   displaced => _displaced
-  displaced=(val) { _displaced = val }
+  displaced=(put val) { _displaced = val }
 }
 
 // Design-by-Contract failure classes (U-ANNOT-CONTRACTS,
@@ -117,57 +117,7 @@ class Number {}
 
 class Int is Number {}
 
-class Float is Number {
-  // Absolute value. Returns Float; NaN returns NaN.
-  // Native: float_abs
-  abs => self.abs()
-
-  // Sign: returns Int -1, 0, or 1. -0.0 and +0.0 both return 0.
-  // Raises #nonFiniteNumber if receiver is NaN or infinite.
-  // Native: float_sign
-  sign => self.sign()
-
-  // Greatest Int not greater than receiver (toward -∞).
-  // Raises #nonFiniteNumber if receiver is NaN/infinite.
-  // Native: float_floor
-  floor => self.floor()
-
-  // Least Int not less than receiver (toward +∞).
-  // Raises #nonFiniteNumber if receiver is NaN/infinite.
-  // Native: float_ceil
-  ceil => self.ceil()
-
-  // Int toward zero (truncation).
-  // Raises #nonFiniteNumber if receiver is NaN/infinite.
-  // Native: float_truncated
-  truncated => self.truncated()
-
-  // Nearest Int, ties-to-even.
-  // Raises #nonFiniteNumber if receiver is NaN/infinite.
-  // Native: float_rounded
-  rounded => self.rounded()
-
-  // Exact Int conversion — raises #numericConversion if fractional.
-  // Raises #nonFiniteNumber if receiver is NaN/infinite.
-  // Native: float_to_int_exact
-  toIntExact => self.toIntExact()
-
-  // true iff receiver is finite and has no fractional part.
-  // Native: float_is_integer
-  isInteger => self.isInteger
-
-  // true iff receiver is IEEE 754 NaN.
-  // Native: float_is_nan
-  isNaN => self.isNaN
-
-  // true iff receiver is neither NaN nor infinite.
-  // Native: float_is_finite
-  isFinite => self.isFinite
-
-  // true iff receiver is +Infinity or -Infinity.
-  // Native: float_is_infinite
-  isInfinite => self.isInfinite
-}
+class Float is Number {}
 
 class String {
   // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
@@ -176,14 +126,19 @@ class String {
   toString => self
 
   // Byte count. UTF-8 buffer length in bytes (not codepoints).
-  size => self.byteCount_
-  isEmpty => self.byteCount_ == 0
+  size => self._$byteCount
+  isEmpty => self._$byteCount == 0
+
+  // Byte-range slice. Native storage operation stays internal; public wrapper
+  // preserves existing bounds/UTF-8-boundary diagnostics.
+  slice(_ start, _ end) => self._$slice(start, end)
 
   // Number of leading bytes in the UTF-8 sequence starting at byte offset `i`.
   // Read purely from the lead byte's numeric range: 1/2/3/4-byte sequences are
   // encoded by the lead byte's numeric value (no bitmask needed).
-  leadByteLen_(i) {
-    const b = self.byteAt_(i)
+  @private
+  leadByteLen(_ i) {
+    const b = self._$byteAt(i)
     return (b == None).ifTrue({ None }, ifFalse: {
       (b < 128).ifTrue({ 1 }, ifFalse: {
         (b < 224).ifTrue({ 2 }, ifFalse: {
@@ -193,8 +148,8 @@ class String {
 
   // The Unicode scalar value at byte offset `i`, or `None` if out-of-range
   // or mid-sequence. UTF-8 decode via division/modulo (no bitwise ops).
-  codePointAt(i) {
-    const b0 = self.byteAt_(i)
+  codePointAt(_ i) {
+    const b0 = self._$byteAt(i)
     return (b0 == None).ifTrue({ None }, ifFalse: {
       (b0 < 128).ifTrue({
         // ASCII single byte (0xxxxxxx)
@@ -206,7 +161,7 @@ class String {
         }, ifFalse: {
           (b0 < 224).ifTrue({
             // 2-byte sequence (110xxxxx 10xxxxxx)
-            const b1 = self.byteAt_(i + 1)
+            const b1 = self._$byteAt(i + 1)
             (b1 == None).ifTrue({ None }, ifFalse: {
               (b1 < 128).ifTrue({ None }, ifFalse: {
                 (b1 >= 192).ifTrue({ None }, ifFalse: {
@@ -217,8 +172,8 @@ class String {
           }, ifFalse: {
             (b0 < 240).ifTrue({
               // 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
-              const b1 = self.byteAt_(i + 1)
-              const b2 = self.byteAt_(i + 2)
+              const b1 = self._$byteAt(i + 1)
+              const b2 = self._$byteAt(i + 2)
               (b1 == None).ifTrue({ None }, ifFalse: {
                 (b2 == None).ifTrue({ None }, ifFalse: {
                   (b1 < 128).ifTrue({ None }, ifFalse: {
@@ -235,9 +190,9 @@ class String {
             }, ifFalse: {
               (b0 < 248).ifTrue({
                 // 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
-                const b1 = self.byteAt_(i + 1)
-                const b2 = self.byteAt_(i + 2)
-                const b3 = self.byteAt_(i + 3)
+                const b1 = self._$byteAt(i + 1)
+                const b2 = self._$byteAt(i + 2)
+                const b3 = self._$byteAt(i + 3)
                 (b1 == None).ifTrue({ None }, ifFalse: {
                   (b2 == None).ifTrue({ None }, ifFalse: {
                     (b3 == None).ifTrue({ None }, ifFalse: {
@@ -270,7 +225,7 @@ class String {
 
   // Find first occurrence of a substring, scanning left-to-right by byte.
   // O(n·m) naive search. Returns the byte offset, or -1 if not found.
-  indexOf(needle) {
+  indexOf(_ needle) {
     (needle.isA(String)).ifTrue({}, ifFalse: {
       throw ArgumentError.new("indexOf: needle must be a String")
     })
@@ -279,14 +234,14 @@ class String {
     })
 
     let i = 0
-    while (i <= self.byteCount_ - needle.byteCount_) {
+    while (i <= self._$byteCount - needle._$byteCount) {
       let match = true
       let j = 0
-      while (j < needle.byteCount_) {
-        (self.byteAt_(i + j) == needle.byteAt_(j)).ifTrue({}, ifFalse: {
+      while (j < needle._$byteCount) {
+        (self._$byteAt(i + j) == needle._$byteAt(j)).ifTrue({}, ifFalse: {
           match = false
         })
-        (match).ifTrue({ j = j + 1 }, ifFalse: { j = needle.byteCount_ })
+        (match).ifTrue({ j = j + 1 }, ifFalse: { j = needle._$byteCount })
       }
       (match).ifTrue({ return i })
       i = i + 1
@@ -295,7 +250,7 @@ class String {
   }
 
   // Split by delimiter substring. Returns a List of String segments.
-  split(delimiter) {
+  split(_ delimiter) {
     (delimiter.isA(String)).ifTrue({}, ifFalse: {
       throw ArgumentError.new("split: delimiter must be a String")
     })
@@ -307,19 +262,19 @@ class String {
     let prev = 0
     let i = self.indexOf(delimiter)
     while (i != -1) {
-      result.add(self.slice_(prev, i))
-      prev = i + delimiter.byteCount_
+      result.add(self._$slice(prev, i))
+      prev = i + delimiter._$byteCount
       // Search for next occurrence after this delimiter
-      let rest = self.slice_(prev, self.byteCount_)
+      let rest = self._$slice(prev, self._$byteCount)
       let nextIdx = rest.indexOf(delimiter)
       (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
     }
-    result.add(self.slice_(prev, self.byteCount_))
+    result.add(self._$slice(prev, self._$byteCount))
     return result
   }
 
   // Replace all occurrences of `from` with `to`.
-  replace(from, to) {
+  replace(_ from, _ to) {
     (from.isA(String)).ifTrue({}, ifFalse: {
       throw ArgumentError.new("replace: from must be a String")
     })
@@ -334,13 +289,13 @@ class String {
     let prev = 0
     let i = self.indexOf(from)
     while (i != -1) {
-      result = result + self.slice_(prev, i) + to
-      prev = i + from.byteCount_
-      let rest = self.slice_(prev, self.byteCount_)
+      result = result + self._$slice(prev, i) + to
+      prev = i + from._$byteCount
+      let rest = self._$slice(prev, self._$byteCount)
       let nextIdx = rest.indexOf(from)
       (nextIdx == -1).ifTrue({ i = -1 }, ifFalse: { i = prev + nextIdx })
     }
-    result = result + self.slice_(prev, self.byteCount_)
+    result = result + self._$slice(prev, self._$byteCount)
     return result
   }
 
@@ -355,41 +310,41 @@ class String {
     return self.trimEnd(" \t\n\r")
   }
 
-  trim(chars) => self.trimStart(chars).trimEnd(chars)
+  trim(_ chars) => self.trimStart(chars).trimEnd(chars)
 
   // Trim from the start using the given charset.
-  trimStart(chars) {
+  trimStart(_ chars) {
     (chars.isA(String)).ifTrue({}, ifFalse: {
       throw ArgumentError.new("trimStart: chars must be a String")
     })
 
     let i = 0
     let stop = false
-    while ((i < self.byteCount_).and({ not stop })) {
+    while ((i < self._$byteCount).and({ not stop })) {
       const cp = self.codePointAt(i)
       let found = false
       let j = 0
-      while (j < chars.byteCount_) {
+      while (j < chars._$byteCount) {
         (chars.codePointAt(j) == cp).ifTrue({ found = true })
-        const len = chars.leadByteLen_(j)
+        const len = chars.leadByteLen(j)
         (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
       }
       (found).ifTrue({
-        i = i + self.leadByteLen_(i)
+        i = i + self.leadByteLen(i)
       }, ifFalse: {
         stop = true  // exit loop, keeping i at the first non-trimmed byte
       })
     }
-    return self.slice_(i, self.byteCount_)
+    return self._$slice(i, self._$byteCount)
   }
 
   // Trim from the end using the given charset.
-  trimEnd(chars) {
+  trimEnd(_ chars) {
     (chars.isA(String)).ifTrue({}, ifFalse: {
       throw ArgumentError.new("trimEnd: chars must be a String")
     })
 
-    let i = self.byteCount_
+    let i = self._$byteCount
     let stop = false
     while ((i > 0).and({ not stop })) {
       // Scan backward one byte at a time to find the previous lead byte
@@ -401,23 +356,23 @@ class String {
         // Found a lead byte; check if it's in the trim set
         let found = false
         let j = 0
-        while (j < chars.byteCount_) {
+        while (j < chars._$byteCount) {
           (chars.codePointAt(j) == cp).ifTrue({ found = true })
-          const len = chars.leadByteLen_(j)
+          const len = chars.leadByteLen(j)
           (len == None).ifTrue({ j = j + 1 }, ifFalse: { j = j + len })
         }
         (found).ifTrue({}, ifFalse: {
           // Not in the set; keep this whole character and stop scanning
-          i = i + self.leadByteLen_(i)
+          i = i + self.leadByteLen(i)
           stop = true
         })
       })
     }
-    return self.slice_(0, i)
+    return self._$slice(0, i)
   }
 
   // Repeat the string `count` times.
-  *(count) {
+  *(_ count) {
     (count.isA(Number)).ifTrue({}, ifFalse: {
       throw ArgumentError.new("*: count must be a Number")
     })
@@ -450,13 +405,13 @@ class String {
 // Byte-level sequence view (U-STRING §2.4, ADR-0048 shaped).
 class StringByteSequence {
   @constructor
-  new(s) { _string = s }
+  new(_ s) { _string = s }
 
-  size => _string.byteCount_
+  size => _string._$byteCount
 
-  at(i) => _string.byteAt_(i)
+  at(_ i) => _string._$byteAt(i)
 
-  each(f) {
+  each(_ f) {
     let i = 0
     while (i < self.size) {
       f.call(self.at(i))
@@ -465,46 +420,48 @@ class StringByteSequence {
   }
 
   // Iterate over byte offsets: cursor steps to next lead byte.
-  nextCursor_(cursor) {
+  @private
+  nextCursor(_ cursor) {
     const next = (cursor == None).ifTrue({ 0 }, ifFalse: {
       cursor + 1
     })
-    return (next < _string.byteCount_).ifTrue({ next }, ifFalse: { None })
+    return (next < _string._$byteCount).ifTrue({ next }, ifFalse: { None })
   }
 }
 
 // Codepoint-level sequence view (U-STRING §2.4, ADR-0048 shaped).
 class StringCodePointSequence {
   @constructor
-  new(s) { _string = s }
+  new(_ s) { _string = s }
 
   // Codepoint count: full scan (no native "codepoint length").
   size {
     let n = 0
-    let i = self.nextCursor_(None)
+    let i = self.nextCursor(None)
     while (i != None) {
       n = n + 1
-      i = self.nextCursor_(i)
+      i = self.nextCursor(i)
     }
     return n
   }
 
-  at(byteOffset) => _string.codePointAt(byteOffset)
+  at(_ byteOffset) => _string.codePointAt(byteOffset)
 
-  each(f) {
-    let i = self.nextCursor_(None)
+  each(_ f) {
+    let i = self.nextCursor(None)
     while (i != None) {
       f.call(self.at(i))
-      i = self.nextCursor_(i)
+      i = self.nextCursor(i)
     }
   }
 
   // Iterate over byte offsets: cursor steps by UTF-8 char boundary.
-  nextCursor_(cursor) {
+  @private
+  nextCursor(_ cursor) {
     const next = (cursor == None).ifTrue({ 0 }, ifFalse: {
-      cursor + _string.leadByteLen_(cursor)
+      cursor + _string.leadByteLen(cursor)
     })
-    return (next < _string.byteCount_).ifTrue({ next }, ifFalse: { None })
+    return (next < _string._$byteCount).ifTrue({ next }, ifFalse: { None })
   }
 }
 
@@ -565,14 +522,14 @@ class Option {
   // Runs `f` (0-arity) for its side effect when `self` is `None`; passes
   // `Some` through untouched. Never extracts — returns `self` so calls chain
   // (values-and-absence.md §3.3's "Effect" group).
-  ifNone(f) {
+  ifNone(_ f) {
     return self.match(some: { v => self }, none: { f.call(); self })
   }
 
   // `Some` passes through unchanged; `None` becomes `f`'s (0-arity) `Option`
   // result (values-and-absence.md §3.3's "Transform" group). This is the
   // `??` operator's target (§3.4: `a ?? b` === `a.orElse { b }`).
-  orElse(f) {
+  orElse(_ f) {
     return self.match(some: { v => self }, none: { f.call() })
   }
 
@@ -584,35 +541,35 @@ class Option {
   // `Some(v)` becomes `Some(f(v))`; `None` passes through untouched. `f` is a
   // 1-arity block over the wrapped value; the result is re-wrapped so the
   // chain stays an `Option`.
-  map(f) {
+  map(_ f) {
     return self.match(some: { v => Some.new(f.call(v)) }, none: { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Transform" group): like `map`, but `f`
   // already returns an `Option`, so its result is used directly rather than
   // re-wrapped — the monadic bind (`>>=`). `None` short-circuits to `self`.
-  flatMap(f) {
+  flatMap(_ f) {
     return self.match(some: { v => f.call(v) }, none: { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Filter" group): `Some(v)` stays `Some(v)`
   // when `pred(v)` is `true`, otherwise collapses to the shared `None` singleton;
   // `None` passes through. `pred` must return a real `Bool` (ADR-0021).
-  filter(pred) {
+  filter(_ pred) {
     return self.match(some: { v => if (pred.call(v)) { self } else { None } }, none: { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Effect" group; mirror of `ifNone`): runs
   // the 1-arity block `f` for its side effect on the wrapped value when `Some`,
   // then returns `self` so calls chain; a `None` is passed through untouched.
-  ifSome(f) {
+  ifSome(_ f) {
     return self.match(some: { v => f.call(v); self }, none: { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Extract" group): unwraps a `Some` to its
   // value, or yields `default` for a `None`. The eager sibling of `orElse`
   // (which takes a block); here `default` is an already-evaluated fallback value.
-  unwrapOr(default) {
+  unwrapOr(_ default) {
     return self.match(some: { v => v }, none: { default })
   }
 
@@ -626,7 +583,7 @@ class Option {
   // `Some(v)` already carries a real value, so no reason is needed; `None`
   // has no value, so `err` fills in the failure reason. Round-trips with
   // `Result#ok()` below (`Some(v).okOr(_)` -> `Ok(v)` -> `.ok()` -> `Some(v)`).
-  okOr(err) {
+  okOr(_ err) {
     return self.match(some: { v => Ok.new(v) }, none: { Err.new(err) })
   }
 }
@@ -651,19 +608,19 @@ class Result {
 
   // Transforms the `Ok` value; an `Err` passes through unchanged (never
   // raises — a pure value transform, result.md §2).
-  map(f) {
+  map(_ f) {
     return self.match(ok: { v => Ok.new(f.call(v)) }, err: { e => self })
   }
 
   // Transforms the `Err` reason; an `Ok` passes through unchanged — the
   // symmetric counterpart of `map` (result.md §2).
-  mapErr(f) {
+  mapErr(_ f) {
     return self.match(ok: { v => self }, err: { e => Err.new(f.call(e)) })
   }
 
   // Chains an `Ok` -> `Result` function (flat-map/monadic bind); short-
   // circuits on `Err` (result.md §2).
-  andThen(f) {
+  andThen(_ f) {
     return self.match(ok: { v => f.call(v) }, err: { e => self })
   }
 
@@ -675,7 +632,7 @@ class Result {
   // only-`Error`-throwable rule, not special-cased here.
   unwrap => self.match(ok: { v => v }, err: { e => e.raise() })
 
-  unwrapOr(default) {
+  unwrapOr(_ default) {
     return self.match(ok: { v => v }, err: { e => default })
   }
 
@@ -695,16 +652,16 @@ class Result {
 
 class Ok is Result {
   @constructor
-  new(v) { _value = v }
+  new(_ v) { _value = v }
 
-  match(ok:, err:) => ok.call(_value)
+  match(ok, err) => ok.call(_value)
 }
 
 class Err is Result {
   @constructor
-  new(e) { _error = e }
+  new(_ e) { _error = e }
 
-  match(ok:, err:) => err.call(_error)
+  match(ok, err) => err.call(_error)
 }
 
 // The throw -> value bridge (error-handling.md §5): runs `self` (0-arity),
@@ -723,7 +680,7 @@ class Function {
 
 // Kernel List (ADR-0020): a native array-backed heap object (ListObject),
 // not an InstanceObject — bootstrapped in Rust (universe.rs) with five floor
-// primitives (length_/at_/set_/push_, plus native `new()`). This
+// implementation primitives (`_$length`/`_$at`/`_$set`/`_$push`, plus native `new()`). This
 // skeleton reopens that bootstrapped row to define the public protocol over
 // those primitives (ADR-0019's "hybrid: native primitives, self-defined
 // control"). `toString` is ALSO a native primitive this unit, not defined
@@ -731,19 +688,19 @@ class Function {
 // is blocked on U-CORE-4; DEFERRED.md #19). U-STD (catalog-delta §2.4;
 // DEFERRED.md #18/#20/#25) discharges the deferral for the combinator layer:
 // `map`/`reduce`/`filter`/`includes`/`isEmpty` and the `at(_:put:)` wrapper
-// over `set_` now live below, all pure `.ph` over the floor. Only
+// over `_$set` now live below, all pure `.ph` over the floor. Only
 // **list-literal syntax** `[a, b, c]` remains deferred (it needs a new ADR +
 // parser work; DEFERRED.md #6) — do not add that here.
 
 class Iterable {
   // Generic index-cursor walk over `self.size` (ADR-0048 §1/§3). A subclass whose
   // cursor is not a 0..size index (none in-kernel today) overrides this.
-  iterate(cursor) {
+  iterate(_ cursor) {
     const next = (cursor == None).ifTrue({ 0 }, ifFalse: { cursor + 1 })
     return (next < self.size).ifTrue({ next }, ifFalse: { None })
   }
 
-  each(f) {
+  each(_ f) {
     for (x in self) {
       f.call(x)
     }
@@ -758,11 +715,11 @@ class Iterable {
   // test fixtures. Note: benchmarks/ outside audit scope; any broken .map() calls there require
   // manual .toList() repair. `filter` is NOT touched (stays the eager U-ITERABLE selector);
   // `where` is the new Wren-parity lazy filter. `.toList` is the materializer for all of them.
-  map(f) {
+  map(_ f) {
     return MapView.new(self, f)
   }
 
-  filter(pred) {
+  filter(_ pred) {
     let result = List.new()
     let c = self.iterate(None)
     while (c != None) {
@@ -773,7 +730,7 @@ class Iterable {
     return result
   }
 
-  reduce(init, f) {
+  reduce(_ init, _ f) {
     let acc = init
     let c = self.iterate(None)
     while (c != None) {
@@ -783,7 +740,7 @@ class Iterable {
     return acc
   }
 
-  includes(x) {
+  includes(_ x) {
     let found = false
     let c = self.iterate(None)
     while (c != None) {
@@ -799,14 +756,14 @@ class Iterable {
   // Phalcom lacked. All written over `for (x in self)`, never `self.each { }` (Map's `each(f)` is 2-arg —
   // see plan.md §3.1) and never index math. Zero new floor primitives.
 
-  all(f) {
+  all(_ f) {
     for (x in self) {
       f.call(x).ifFalse { return false }
     }
     return true
   }
 
-  any(f) {
+  any(_ f) {
     for (x in self) {
       f.call(x).ifTrue { return true }
     }
@@ -819,13 +776,13 @@ class Iterable {
     return n
   }
 
-  count(f) {
+  count(_ f) {
     let n = 0
     for (x in self) { f.call(x).ifTrue { n = n + 1 } }
     return n
   }
 
-  find(f) {
+  find(_ f) {
     for (x in self) {
       f.call(x).ifTrue { return Some.new(x) }
     }
@@ -834,7 +791,7 @@ class Iterable {
 
   join => self.join("")
 
-  join(sep) {
+  join(_ sep) {
     // Note: O(N²) allocation cost due to naive string concatenation. Each `result = result + ...`
     // allocates a new string and copies all prior content. For N elements, total work is ~N²/2.
     // This is acceptable for Phalcom's interpreter domain (collections stay small) but users
@@ -855,28 +812,28 @@ class Iterable {
     return result
   }
 
-  where(pred) {
+  where(_ pred) {
     return WhereView.new(self, pred)
   }
 
-  skip(n) {
+  skip(_ n) {
     return SkipView.new(self, n)
   }
 
-  take(n) {
+  take(_ n) {
     return TakeView.new(self, n)
   }
 }
 
 class List {
-  size => self.length_
+  size => self._$length
 
-  at(i) {
-    return self.at_(i)
+  at(_ i) {
+    return self._$at(i)
   }
 
-  get(index) {
-    let raw = self.at_(index)
+  get(_ index) {
+    let raw = self._$at(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -886,8 +843,9 @@ class List {
     return None
   }
 
-  _sliceByRange_(range) {
-    return range.sliceBounds_(self.size).match(
+  @private
+  sliceByRange(_ range) {
+    return range.sliceBounds(self.size).match(
       ok: { bounds =>
         let start = bounds[0]
         let end = bounds[1]
@@ -897,7 +855,7 @@ class List {
         let result = List.new()
         let i = start
         while (i < end) {
-          result.add(self.at_(i))
+          result.add(self._$at(i))
           i = i + 1
         }
         result
@@ -906,9 +864,9 @@ class List {
     )
   }
 
-  [index] {
-    if (index.isA(Range)) { return self._sliceByRange_(index) }
-    let raw = self.at_(index)
+  [_ index] {
+    if (index.isA(Range)) { return self.sliceByRange(index) }
+    let raw = self._$at(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -918,8 +876,8 @@ class List {
     throw IndexError.new("List index out of range")
   }
 
-  [index, default:] {
-    let raw = self.at_(index)
+  [_ index, default] {
+    let raw = self._$at(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -929,8 +887,8 @@ class List {
     return default
   }
 
-  get(index, orElse:) {
-    let raw = self.at_(index)
+  get(_ index, orElse) {
+    let raw = self._$at(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -940,8 +898,8 @@ class List {
     return orElse.call(index)
   }
 
-  add(v) {
-    self.push_(v)
+  add(_ v) {
+    self._$push(v)
     return self
   }
 
@@ -955,38 +913,38 @@ class List {
   // Given a live cursor, yields the element there (ADR-0035 §1,
   // iteration.md §1). Only ever called with an in-range index, so it defers to
   // `at(_)` directly.
-  iteratorValue(cursor) => self.at(cursor)
+  iteratorValue(_ cursor) => self.at(cursor)
 
-  // U-STD (DEFERRED.md #18): the public `.ph` wrapper over the `set_(_,_)`
+  // U-STD (DEFERRED.md #18): the public `.ph` wrapper over `_$set(_,_)`
   // floor primitive — writes `put` at index `i` and returns `self` so writes
-  // chain (mirrors `add`). Selector `at(_:put:)` matches `set_`'s 2 args;
+  // chain (mirrors `add`). Selector `at(_,put)` matches `_$set`'s 2 args;
   // the labeled parameter is named `put` (label == name, parser convention).
-  at(i, put:) {
+  at(_ i, put) {
     let len = self.size
     let norm = i
     if (norm < 0) { norm = len + norm }
     if (norm < 0 or norm >= len) {
       throw IndexError.new("List index out of range")
     }
-    self.set_(i, put)
+    self._$set(i, put)
     return self
   }
 
   // C.3 deliberately accepts only a finite List replacement source. General
   // Iterable replacement waits for Spec E's boundedness and re-entrancy rules.
-  replace(range, with: replacements) {
+  replace(_ range, with replacements) {
     if (not range.isA(Range)) {
       return Err.new(SliceError.new("List#replace: first argument must be a Range"))
     }
     if (not replacements.isA(List)) {
       return Err.new(SliceError.new("List#replace: replacement must be a List"))
     }
-    return range.sliceBounds_(self.size).match(
+    return range.sliceBounds(self.size).match(
       ok: { bounds =>
         let start = bounds[0]
         let end = bounds[1]
         if (start > end) { end = start }
-        self.replaceSlice_(start, end, replacements)
+        self._$replaceSlice(start, end, replacements)
         Ok.new(())
       },
       err: { error => Err.new(error) }
@@ -996,10 +954,10 @@ class List {
   // U-INDEX (ADR-0060): `[]` is its own dedicated, user-overridable
   // selector — not `at`'s call-site sugar — so `List` must opt in
   // explicitly with a thin delegation, same as any other collection
-  // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_,put]`.
-  [i, put:] {
-    if (i.isA(Range)) { return self.replace(i, with: put).unwrap }
-    return self.at(i, put: put)
+  // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_]=(put)`.
+  [_ i]=(put val) {
+    if (i.isA(Range)) { return self.replace(i, with: val).unwrap }
+    return self.at(i, put: val)
   }
 
   // U-CORE-5 (decisions.md Q5, R-INV-5.3 E1-E5): structural equality —
@@ -1010,7 +968,7 @@ class List {
   // language's infix/prefix operator forms (`Bool#and(_:)`/`Bool#not()`
   // dispatched by the compiler, not dotted-call syntax — `and`/`not` are
   // reserved words and cannot follow `.` as a bare identifier).
-  ==(other) {
+  ==(_ other) {
     if (other.isA(List)) {
       let same = (self.size == other.size)
       let i = 0
@@ -1032,7 +990,7 @@ class List {
   // `self.==` — without this override `list != other` would stay
   // identity-based and contradict the structural `==` above (the `==`⊗`!=`
   // decoupling hazard).
-  !=(other) {
+  !=(_ other) {
     return not (self == other)
   }
 }
@@ -1049,7 +1007,7 @@ class List {
 // key (List/Map/Set) with a raised Error.
 
 class Map {
-  size => self.size_
+  size => self._$size
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Map` rendering exactly — `{k: v, k2: v2}`, `{}` when empty — so the
@@ -1063,41 +1021,41 @@ class Map {
   toString {
     let s = "{"
     let i = 0
-    while (i < self.size_) {
+    while (i < self._$size) {
       s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
-      s = s + self.keyAt_(i).toString + ": " + self.valueAt_(i).toString
+      s = s + self._$keyAt(i).toString + ": " + self._$valueAt(i).toString
       i = i + 1
     }
     return s + "}"
   }
 
   // Safe association lookup: Some(value) on hit, None on absence.
-  get(k) => self.get_(k)
+  get(_ k) => self._$get(k)
 
   // Strict association lookup. Do one lookup so a stored None remains a
   // value rather than being confused with an absent key.
-  [k] {
+  [_ k] {
     return self.get(k).match(
       some: { value => value },
       none: { KeyError.new("Map key not found").raise() }
     )
   }
 
-  [key, default: fallback] {
+  [_ key, default fallback] {
     return self.get(key).match(
       some: { value => value },
       none: { fallback }
     )
   }
 
-  get(key, orElse: block) {
+  get(_ key, orElse block) {
     return self.get(key).match(
       some: { value => value },
       none: { block.call(key) }
     )
   }
 
-  get(key, orPut: block) {
+  get(_ key, orPut block) {
     return self.get(key).match(
       some: { value => value },
       none: {
@@ -1109,30 +1067,30 @@ class Map {
   }
 
   // Explicit insert returns the previous value when replacing an association.
-  insert(value, for: key) => self.put_(key, value)
+  insert(_ value, for key) => self._$put(key, value)
 
   // Legacy mutation spelling retained only while B.3 still lowers association
   // literals into chained sends. `get` and `[]` are the lookup surface.
-  at(k, put:) {
-    self.put_(k, put)
+  at(_ k, put) {
+    self._$put(k, put)
     return self
   }
 
   // `m[k] = v` shares insert's key identity and encounter-order semantics.
-  [k, put:] => self.put_(k, put)
+  [_ k]=(put val) => self._$put(k, val)
 
-  includes(k) => self.has_(k)
+  includes(_ k) => self._$has(k)
 
   // Removes an association. The raw primitive returns its former value, but
   // the public mutable-collection protocol is chainable.
-  remove(k) {
-    self.remove_(k)
+  remove(_ k) {
+    self._$remove(k)
     return self
   }
 
   clear {
     while (self.size > 0) {
-      self.remove_(self.keyAt_(0))
+      self._$remove(self._$keyAt(0))
     }
     return ()
   }
@@ -1147,15 +1105,16 @@ class Map {
 
   // Copies a positive Record's Symbol labels and values into a fresh mutable
   // Map. `#{}` canonicalizes to Unit, which represents the empty Record form.
-  static from(record: record) {
+  @class
+  from(_ record) {
     if ((not record.isA(Record)) and (not record.isA(Unit))) {
       throw ArgumentError.new("Map.from: argument must be a Record or Unit")
     }
     let result = Map.new()
     if (record.isA(Record)) {
       let i = 0
-      while (i < record.size_) {
-        result.insert(record.valueAt_(i), for: record.labelAt_(i))
+      while (i < record._$size) {
+        result.insert(record._$valueAt(i), for: record._$labelAt(i))
         i = i + 1
       }
     }
@@ -1163,10 +1122,10 @@ class Map {
   }
 
   // 2-arg block `{ k, v => ... }` per entry, in iteration order.
-  each(f) {
+  each(_ f) {
     let i = 0
     while (i < self.size) {
-      f.call(self.keyAt_(i), self.valueAt_(i))
+      f.call(self._$keyAt(i), self._$valueAt(i))
       i = i + 1
     }
   }
@@ -1174,19 +1133,19 @@ class Map {
   // DEC-CT-E: the cursor value `iteratorValue` yields is the KEY (both Map and Set yield keys);
   // `each(_)` above remains the 2-arg entry form for Map.
 
-  iteratorValue(cursor) => self.keyAt_(cursor)
+  iteratorValue(_ cursor) => self._$keyAt(cursor)
 
   // Structural equality: same key set, pairwise-== values (order-independent
   // over keys — `includes`/`get` do the membership + value work, not raw
   // index comparison). Guarded by `isA(Map)` so a non-Map is simply unequal.
-  ==(other) {
+  ==(_ other) {
     if (other.isA(Map)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {
-        let k = self.keyAt_(i)
+        let k = self._$keyAt(i)
         same = other.get(k).match(
-          some: { value => self.valueAt_(i) == value },
+          some: { value => self._$valueAt(i) == value },
           none: { false }
         )
         i = i + 1
@@ -1199,13 +1158,13 @@ class Map {
 
   // MUST route through == (the ==/!= decoupling hazard) — Object#!= negates
   // identity, not this structural ==.
-  !=(other) {
+  !=(_ other) {
     return not (self == other)
   }
 }
 
 class Set {
-  size => self.size_
+  size => self._$size
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Set` rendering exactly — `Set(a, b)`, `Set()` when empty. Derived
@@ -1213,23 +1172,23 @@ class Set {
   toString {
     let s = "Set("
     let i = 0
-    while (i < self.size_) {
+    while (i < self._$size) {
       s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
-      s = s + self.at_(i).toString
+      s = s + self._$at(i).toString
       i = i + 1
     }
     return s + ")"
   }
 
-  add(v) {
-    self.add_(v)
+  add(_ v) {
+    self._$add(v)
     return self
   }
 
-  includes(v) => self.has_(v)
+  includes(_ v) => self._$has(v)
 
-  remove(v) {
-    self.remove_(v)
+  remove(_ v) {
+    self._$remove(v)
     return self
   }
 
@@ -1237,21 +1196,21 @@ class Set {
   // table, but a direct, zero-floor-cost derivation over at_ that the
   // U-CORE-5 conformance harness (collection-protocol.md §2) needs, and a
   // natural extension of the sequence protocol every collection instantiates.
-  at(i) => self.at_(i)
+  at(_ i) => self._$at(i)
 
 
 
-  iteratorValue(cursor) => self.at_(cursor)
+  iteratorValue(_ cursor) => self._$at(cursor)
 
   // Structural equality: same members, order-independent. Same-size plus
   // "every element of self is in other" is sufficient since neither set
   // holds duplicates (add_ is idempotent).
-  ==(other) {
+  ==(_ other) {
     if (other.isA(Set)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {
-        same = other.includes(self.at_(i))
+        same = other.includes(self._$at(i))
         i = i + 1
       }
       return same
@@ -1260,7 +1219,7 @@ class Set {
     }
   }
 
-  !=(other) {
+  !=(_ other) {
     return not (self == other)
   }
 }
@@ -1276,9 +1235,10 @@ class Unit {
 // Product literals compile directly to native build bytecodes.
 
 class Tuple {
-  size => self.size_
-  positionals => self.positionals_
-  labeled => self.labeled_
+  size => self._$size
+  positionals => self._$positionals
+  labeled => self._$labeled
+  labelAt(_ index) => self._$labelAt(index)
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Tuple` rendering exactly — `(a, b)`, `()` when empty. Derived over
@@ -1286,36 +1246,38 @@ class Tuple {
   toString {
     let s = "("
     let i = 0
-    while (i < self.size_) {
+    while (i < self._$size) {
       s = s + (i > 0).ifTrue({ ", " }, ifFalse: { "" })
-      s = s + self.at_(i).toString
+      s = s + self._$at(i).toString
       i = i + 1
     }
     return s + ")"
   }
 
-  at(i) => self.at_(i)
+  at(_ i) => self._$at(i)
 
-  _findLabel(sym) {
-    let num_labeled = self.size - self.positionalSize_
+  @private
+  findLabel(_ sym) {
+    let num_labeled = self.size - self._$positionalSize
     let i = 0
     while (i < num_labeled) {
-      if (self.labelAt_(i) == sym) {
-        return Some.new(self.positionalSize_ + i)
+      if (self._$labelAt(i) == sym) {
+        return Some.new(self._$positionalSize + i)
       }
       i = i + 1
     }
     return None
   }
 
-  _access(key) {
+  @private
+  access(_ key) {
     if (key.isA(Symbol)) {
-      return self._findLabel(key).match(
-        some: { idx => Some.new(self.at_(idx)) },
+      return self.findLabel(key).match(
+        some: { idx => Some.new(self._$at(idx)) },
         none: { None }
       )
     }
-    let raw = self.at_(key)
+    let raw = self._$at(key)
     let len = self.size
     let i = key
     if (i < 0) { i = len + i }
@@ -1325,27 +1287,27 @@ class Tuple {
     return None
   }
 
-  get(key) => self._access(key)
+  get(_ key) => self.access(key)
 
-  [key] {
+  [_ key] {
     if (key.isA(Range)) {
-      return key.sliceBounds_(self.size).match(
+      return key.sliceBounds(self.size).match(
         ok: { bounds =>
           let start = bounds[0]
           let end = bounds[1]
           if (start > end) { end = start }
-          self.slice_(start, end)
+          self._$slice(start, end)
         },
         err: { error => error.raise() }
       )
     }
     if (key.isA(Symbol)) {
-      return self._findLabel(key).match(
-        some: { idx => self.at_(idx) },
+      return self.findLabel(key).match(
+        some: { idx => self._$at(idx) },
         none: { throw KeyError.new("Tuple label not found") }
       )
     }
-    let raw = self.at_(key)
+    let raw = self._$at(key)
     let len = self.size
     let i = key
     if (i < 0) { i = len + i }
@@ -1355,14 +1317,14 @@ class Tuple {
     throw IndexError.new("Tuple index out of range")
   }
 
-  [key, default:] {
+  [_ key, default] {
     if (key.isA(Symbol)) {
-      return self._findLabel(key).match(
-        some: { idx => self.at_(idx) },
+      return self.findLabel(key).match(
+        some: { idx => self._$at(idx) },
         none: { default }
       )
     }
-    let raw = self.at_(key)
+    let raw = self._$at(key)
     let len = self.size
     let i = key
     if (i < 0) { i = len + i }
@@ -1372,14 +1334,14 @@ class Tuple {
     return default
   }
 
-  get(key, orElse:) {
+  get(_ key, orElse) {
     if (key.isA(Symbol)) {
-      return self._findLabel(key).match(
-        some: { idx => self.at_(idx) },
+      return self.findLabel(key).match(
+        some: { idx => self._$at(idx) },
         none: { orElse.call(key) }
       )
     }
-    let raw = self.at_(key)
+    let raw = self._$at(key)
     let len = self.size
     let i = key
     if (i < 0) { i = len + i }
@@ -1389,16 +1351,16 @@ class Tuple {
     return orElse.call(key)
   }
 
-  iteratorValue(cursor) => self.at_(cursor)
+  iteratorValue(_ cursor) => self._$at(cursor)
 
   // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
-  ==(other) {
+  ==(_ other) {
     if (other.isA(Tuple)) {
-      let same = (self.size == other.size) and (self.positionalSize_ == other.positionalSize_)
+      let same = (self.size == other.size) and (self._$positionalSize == other._$positionalSize)
       let i = 0
-      while (same and (i < self.size - self.positionalSize_)) {
-        same = (self.labelAt_(i) == other.labelAt_(i))
+      while (same and (i < self.size - self._$positionalSize)) {
+        same = (self._$labelAt(i) == other._$labelAt(i))
         i = i + 1
       }
       i = 0
@@ -1412,7 +1374,7 @@ class Tuple {
     }
   }
 
-  !=(other) {
+  !=(_ other) {
     return not (self == other)
   }
 
@@ -1424,15 +1386,15 @@ class Tuple {
   // Bounded by a large prime modulus so the accumulator stays a stable,
   // comparable Number regardless of tuple length.
   hash {
-    let acc = 17 + self.positionalSize_
+    let acc = 17 + self._$positionalSize
     let i = 0
     while (i < self.size) {
       acc = (acc * 31 + self.at(i).hash) % 999999937
       i = i + 1
     }
     i = 0
-    while (i < self.size - self.positionalSize_) {
-      acc = (acc * 31 + self.labelAt_(i).hash) % 999999937
+    while (i < self.size - self._$positionalSize) {
+      acc = (acc * 31 + self._$labelAt(i).hash) % 999999937
       i = i + 1
     }
     return acc
@@ -1440,19 +1402,20 @@ class Tuple {
 }
 
 class Record {
-  size => self.size_
+  size => self._$size
+  labelAt(_ index) => self._$labelAt(index)
 
-  ==(other) {
+  ==(_ other) {
     if (other.isA(Record)) {
       let same = (self.size == other.size)
       let i = 0
       while (same and (i < self.size)) {
-        let label = self.labelAt_(i)
+        let label = self._$labelAt(i)
         let j = 0
         let found = false
         while ((not found) and (j < other.size)) {
-          if (other.labelAt_(j) == label) {
-            found = (self.valueAt_(i) == other.valueAt_(j))
+          if (other._$labelAt(j) == label) {
+            found = (self._$valueAt(i) == other._$valueAt(j))
           }
           j = j + 1
         }
@@ -1469,7 +1432,7 @@ class Record {
     let acc = 101 + self.size
     let i = 0
     while (i < self.size) {
-      acc = (acc + ((self.labelAt_(i).hash * 31) + self.valueAt_(i).hash)) % 999999937
+      acc = (acc + ((self._$labelAt(i).hash * 31) + self._$valueAt(i).hash)) % 999999937
       i = i + 1
     }
     return acc
@@ -1481,27 +1444,27 @@ class Record {
 // behavior unspecified.
 class MapKeysView is Iterable {
   @constructor
-  new(map) { _map = map }
+  new(_ map) { _map = map }
 
   size => _map.size
 
-  iteratorValue(cursor) => _map.keyAt_(cursor)
+  iteratorValue(_ cursor) => _map._$keyAt(cursor)
 }
 
 class MapValuesView is Iterable {
   @constructor
-  new(map) { _map = map }
+  new(_ map) { _map = map }
 
   size => _map.size
 
-  iteratorValue(cursor) => _map.valueAt_(cursor)
+  iteratorValue(_ cursor) => _map._$valueAt(cursor)
 }
 
 // Immutable-by-surface association value for MapEntriesView. No setters or
 // value-object equality/hash protocol are part of this phase.
 class Entry {
   @constructor
-  new(key, value) {
+  new(_ key, _ value) {
     _key = key
     _value = value
   }
@@ -1513,23 +1476,25 @@ class Entry {
 
 class MapEntriesView is Iterable {
   @constructor
-  new(map) { _map = map }
+  new(_ map) { _map = map }
 
   size => _map.size
 
-  iteratorValue(cursor) => Entry.new(_map.keyAt_(cursor), _map.valueAt_(cursor))
+  iteratorValue(_ cursor) => Entry.new(_map._$keyAt(cursor), _map._$valueAt(cursor))
 }
 
 // Range is a native bounds descriptor. Its lower_/upper_/upperInclusive_
 // observations preserve omitted endpoints. Progression, equality, hashing,
 // and traversal are deliberately deferred.
 class Range {
-  _isSliceCoordinate_(value) {
+  @private
+  isSliceCoordinate(_ value) {
     // TODO(NUMERIC-TOWER): require Int once the tower is fully landed.
     return value.isA(Number) and ((value % 1) == 0)
   }
 
-  _sliceBoundary_(coordinate, size) {
+  @private
+  sliceBoundary(_ coordinate, _ size) {
     if (coordinate < 0) {
       if (coordinate < -size) { return 0 }
       return size + coordinate
@@ -1538,7 +1503,8 @@ class Range {
     return coordinate
   }
 
-  _sliceInclusiveEnd_(coordinate, size) {
+  @private
+  sliceInclusiveEnd(_ coordinate, _ size) {
     if (coordinate < 0) {
       if (coordinate < -size) { return 0 }
       // Here -size <= coordinate < 0, so adding one cannot overflow and
@@ -1551,27 +1517,28 @@ class Range {
 
   // Normalizes this bound descriptor for a finite sequence of `size` elements.
   // Omitted endpoints are distinct from a supplied None, which is malformed.
-  sliceBounds_(size) {
+  @private
+  sliceBounds(_ size) {
     let start = 0
     let end = size
-    let lower = self.lower_
+    let lower = self._$lower
     if (lower.isSome) {
       let coordinate = lower.unwrapOr(None)
-      if (not self._isSliceCoordinate_(coordinate)) {
+      if (not self.isSliceCoordinate(coordinate)) {
         return Err.new(SliceError.new("Range lower bound must be an integer coordinate"))
       }
-      start = self._sliceBoundary_(coordinate, size)
+      start = self.sliceBoundary(coordinate, size)
     }
-    let upper = self.upper_
+    let upper = self._$upper
     if (upper.isSome) {
       let coordinate = upper.unwrapOr(None)
-      if (not self._isSliceCoordinate_(coordinate)) {
+      if (not self.isSliceCoordinate(coordinate)) {
         return Err.new(SliceError.new("Range upper bound must be an integer coordinate"))
       }
-      if (self.upperInclusive_) {
-        end = self._sliceInclusiveEnd_(coordinate, size)
+      if (self._$upperInclusive) {
+        end = self.sliceInclusiveEnd(coordinate, size)
       } else {
-        end = self._sliceBoundary_(coordinate, size)
+        end = self.sliceBoundary(coordinate, size)
       }
     }
     return Ok.new((start, end))
@@ -1585,12 +1552,12 @@ class Range {
 // ABSENT — inherited from `Iterable` so `Fiber.yield` works mid-iteration
 // (law 8); adding native or local overrides is a spec violation.
 class Bytes {
-  size => self.size_
+  size => self._$size
 
-  at(i) => self.at_(i)
+  at(_ i) => self._$at(i)
 
-  get(index) {
-    let raw = self.at_(index)
+  get(_ index) {
+    let raw = self._$at(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -1600,19 +1567,19 @@ class Bytes {
     return None
   }
 
-  [index] {
+  [_ index] {
     if (index.isA(Range)) {
-      return index.sliceBounds_(self.size).match(
+      return index.sliceBounds(self.size).match(
         ok: { bounds =>
           let start = bounds[0]
           let end = bounds[1]
           if (start > end) { end = start }
-          self.slice_(start, end)
+          self._$slice(start, end)
         },
         err: { error => error.raise() }
       )
     }
-    let raw = self.at_(index)
+    let raw = self._$at(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -1622,8 +1589,8 @@ class Bytes {
     throw IndexError.new("Bytes index out of range")
   }
 
-  [index, default:] {
-    let raw = self.at_(index)
+  [_ index, default] {
+    let raw = self._$at(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -1633,8 +1600,8 @@ class Bytes {
     return default
   }
 
-  get(index, orElse:) {
-    let raw = self.at_(index)
+  get(_ index, orElse) {
+    let raw = self._$at(index)
     let len = self.size
     let i = index
     if (i < 0) { i = len + i }
@@ -1644,19 +1611,19 @@ class Bytes {
     return orElse.call(index)
   }
 
-  iteratorValue(cursor) => self.at_(cursor)
+  iteratorValue(_ cursor) => self._$at(cursor)
 
   // An octet is an integer Number in 0..255 (bytes.md §2). `and` is lazy,
   // so the arithmetic tests never run on a non-Number. (No trailing `_`:
   // that marker is reserved for native primitives, and this is pure .ph.)
-  isOctet(v) {
+  isOctet(_ v) {
     return v.isA(Number) and (v >= 0) and (v <= 255) and ((v % 1) == 0)
   }
 
   // Raise-lifting writes (bytes.md law 1: precondition violations raise,
   // reads stay total). The floor's set_ reports a bad write as a native
   // type error; the .ph surface names the contract instead.
-  set(i, v) {
+  set(_ i, _ v) {
     if (not self.isOctet(v)) {
       throw ArgumentError.new("Bytes#set: value must be an integer in 0..255")
     }
@@ -1666,19 +1633,19 @@ class Bytes {
     if ((norm < 0) or (norm >= len)) {
       throw IndexError.new("Bytes index out of range")
     }
-    self.set_(i, v)
+    self._$set(i, v)
     return self
   }
 
-  at(i, put:) { return self.set(i, put) }
+  at(_ i, put) { return self.set(i, put) }
 
-  [i, put:] { return self.at(i, put: put) }
+  [_ i]=(put val) { return self.set(i, val) }
 
-  fill(v) {
+  fill(_ v) {
     if (not self.isOctet(v)) {
       throw ArgumentError.new("Bytes#fill: value must be an integer in 0..255")
     }
-    self.fill_(v)
+    self._$fill(v)
     return self
   }
 
@@ -1687,52 +1654,52 @@ class Bytes {
   // with `ensure`. A getter so the call reads `key.zeroize` (ADR-0012:
   // `zeroize` and `zeroize()` are different selectors).
   zeroize {
-    self.fill_(0)
+    self._$fill(0)
     return self
   }
 
-  utf8 => self.utf8_
+  utf8 => self._$utf8
 
   // Display decode: total, lossy (invalid sequences become U+FFFD). Never
   // round-trip the result into data (PDR-0013 ruling 4).
-  utf8Lossy => self.utf8Lossy_
+  utf8Lossy => self._$utf8Lossy
 
-  slice(start, end) {
+  slice(_ start, _ end) {
     if ((start < 0) or (end < start) or (end > self.size)) {
       throw ArgumentError.new("Bytes#slice: range must satisfy 0 <= start <= end <= size")
     }
-    return self.slice_(start, end)
+    return self._$slice(start, end)
   }
 
-  copyInto(dst, offset) {
+  copyInto(_ dst, _ offset) {
     if (not dst.isA(Bytes)) {
       throw ArgumentError.new("Bytes#copyInto: destination must be a Bytes")
     }
     if ((offset < 0) or ((offset + self.size) > dst.size)) {
       throw ArgumentError.new("Bytes#copyInto: offset + size must fit the destination")
     }
-    self.copyInto_(dst, offset)
+    self._$copyInto(dst, offset)
     return self
   }
 
   // Derivability with teeth (bytes.md §3.1): new + two native memmoves,
   // zero per-byte loops.
-  concat(other) {
+  concat(_ other) {
     if (not other.isA(Bytes)) {
       throw ArgumentError.new("Bytes#concat: argument must be a Bytes")
     }
     const out = Bytes.new(self.size + other.size)
-    self.copyInto_(out, 0)
-    other.copyInto_(out, self.size)
+    self._$copyInto(out, 0)
+    other._$copyInto(out, self.size)
     return out
   }
 
-  equalsConstantTime(other) => self.equalsConstantTime_(other)
+  equalsConstantTime(_ other) => self._$equalsConstantTime(other)
 
   // Structural equality, List#=='s exact shape (collection-protocol §4).
   // Short-circuits — correct here, and exactly why it must never be the
   // secret-comparison spelling (bytes.md §8).
-  ==(other) {
+  ==(_ other) {
     if (other.isA(Bytes)) {
       let same = (self.size == other.size)
       let i = 0
@@ -1750,7 +1717,7 @@ class Bytes {
 
   // MUST route through == (the ==/!= decoupling hazard) — Object#!= negates
   // identity, not this structural ==.
-  !=(other) {
+  !=(_ other) {
     return not (self == other)
   }
 
@@ -1767,19 +1734,21 @@ class Bytes {
   // The immutable, value-hashable snapshot — the Map-key escape hatch
   // (PDR-0011 ruling 4; Bytes itself is mutable => identity hash, never a
   // valid Map/Set key).
-  toTuple => Tuple.__fromList(self.toList)
+  toTuple => Tuple._$fromList(self.toList)
 
-  static fromString(s) {
+  @class
+  fromString(_ s) {
     if (not s.isA(String)) {
       throw ArgumentError.new("Bytes.fromString: argument must be a String")
     }
-    return Bytes.fromString_(s)
+    return Bytes._$fromString(s)
   }
 
   // The builder story (bytes.md law 3 forecloses growth): build in a List,
   // freeze into Bytes — Tuple.fromList's shape. `set` (not `set_`) so a
   // non-octet element raises the named contract error.
-  static fromList(list) {
+  @class
+  fromList(_ list) {
     if (not list.isA(List)) {
       throw ArgumentError.new("Bytes.fromList: argument must be a List")
     }
@@ -1795,20 +1764,25 @@ class Bytes {
 
 class OpenMode {
   @constructor
-  named_(n) { _name = n }
-  static read => OpenMode.named_("read")
-  static write => OpenMode.named_("write")
-  static append => OpenMode.named_("append")
-  static readWrite => OpenMode.named_("readWrite")
+  @private
+  named(_ n) { _name = n }
+  @class
+  read => OpenMode.named("read")
+  @class
+  write => OpenMode.named("write")
+  @class
+  append => OpenMode.named("append")
+  @class
+  readWrite => OpenMode.named("readWrite")
   name => _name
-  ==(other) { return other.isA(OpenMode) and (_name == other.name) }
-  !=(other) { return not (self == other) }
+  ==(_ other) { return other.isA(OpenMode) and (_name == other.name) }
+  !=(_ other) { return not (self == other) }
   toString => "OpenMode." + _name
 }
 
 class Path {
   @constructor
-  of(s) {
+  of(_ s) {
     if (not s.isA(String)) {
       throw ArgumentError.new("Path.of: argument must be a String")
     }
@@ -1817,7 +1791,7 @@ class Path {
   }
 
   @constructor
-  ofBytes(b) {
+  ofBytes(_ b) {
     if (not b.isA(Bytes)) {
       throw ArgumentError.new("Path.ofBytes: argument must be a Bytes")
     }
@@ -1825,7 +1799,8 @@ class Path {
     _hash = Path.contentHash(_bytes)
   }
 
-  static contentHash(bytes) {
+  @class
+  contentHash(_ bytes) {
     let acc = 1
     let i = 0
     while (i < bytes.size) {
@@ -1838,17 +1813,17 @@ class Path {
   bytes => _bytes.slice(0, _bytes.size)
   hash => _hash
 
-  ==(other) {
+  ==(_ other) {
     if (not other.isA(Path)) { return false }
     if (_hash != other.hash) { return false }
     return _bytes == other.bytes
   }
 
-  !=(other) { return not (self == other) }
+  !=(_ other) { return not (self == other) }
 
   isAbsolute => (_bytes.size > 0) and (_bytes.at(0) == 47)
 
-  join(other) {
+  join(_ other) {
     if (not other.isA(Path)) {
       throw ArgumentError.new("Path#join: argument must be a Path")
     }
@@ -1957,7 +1932,7 @@ class Path {
 
 class MapView is Iterable {
   @constructor
-  new(source, f) {
+  new(_ source, _ f) {
     // Note: validation of f as callable defers to iteratorValue() time to preserve
     // lazy evaluation semantics (no side effects at map construction, only on iteration).
     // Error timing: [1,2,3].map("not-a-function") succeeds at construction time but
@@ -1966,17 +1941,17 @@ class MapView is Iterable {
     _source = source
     _f = f
   }
-  iterate(cursor) => _source.iterate(cursor)
-  iteratorValue(cursor) => _f.call(_source.iteratorValue(cursor))
+  iterate(_ cursor) => _source.iterate(cursor)
+  iteratorValue(_ cursor) => _f.call(_source.iteratorValue(cursor))
 }
 
 class WhereView is Iterable {
   @constructor
-  new(source, pred) {
+  new(_ source, _ pred) {
     _source = source
     _pred = pred
   }
-  iterate(cursor) {
+  iterate(_ cursor) {
     // Cost: O(selectivity) per element returned. The while-loop scans through non-matching
     // source elements to find each match. For highly selective predicates, scanning cost
     // compounds: [1..1M].where(x > 999900).take(10) requires ~999k inner iterations.
@@ -1989,19 +1964,19 @@ class WhereView is Iterable {
       _pred.call(_source.iteratorValue(cur)).ifTrue { return cur }
     }
   }
-  iteratorValue(cursor) => _source.iteratorValue(cursor)
+  iteratorValue(_ cursor) => _source.iteratorValue(cursor)
 }
 
 class SkipView is Iterable {
   @constructor
-  new(source, count) {
+  new(_ source, _ count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
       throw Error("skip: count must be a non-negative Number")
     }
     _source = source
     _count = count
   }
-  iterate(cursor) {
+  iterate(_ cursor) {
     (cursor != None).ifTrue { return _source.iterate(cursor) }
     let cur = _source.iterate(None)
     let n = _count
@@ -2011,19 +1986,19 @@ class SkipView is Iterable {
     }
     return cur
   }
-  iteratorValue(cursor) => _source.iteratorValue(cursor)
+  iteratorValue(_ cursor) => _source.iteratorValue(cursor)
 }
 
 class TakeView is Iterable {
   @constructor
-  new(source, count) {
+  new(_ source, _ count) {
     (count.isA(Number) and (count >= 0)).ifFalse {
       throw Error("take: count must be a non-negative Number")
     }
     _source = source
     _count = count
   }
-  iterate(cursor) {
+  iterate(_ cursor) {
     let srcCursor = None
     let taken = 0
     (cursor != None).ifTrue {
@@ -2035,7 +2010,7 @@ class TakeView is Iterable {
     (next == None).ifTrue { return None }
     return (next, taken + 1)
   }
-  iteratorValue(cursor) => _source.iteratorValue(cursor.at(0))
+  iteratorValue(_ cursor) => _source.iteratorValue(cursor.at(0))
 }
 
 class System {
@@ -2043,17 +2018,20 @@ class System {
   // native `write_(_)` and the `toString` message. Additive-only: does not
   // touch the native `print(_)` pathway (pre-existing divergence between
   // `Value::to_string` and the `.toString` message is out of scope).
-  static write(obj) {
-    System.writeObject_(obj)
+  @class
+  write(_ obj) {
+    System.writeObject(obj)
     return obj
   }
 
-  static writeObject_(obj) {
+  @private
+  @class
+  writeObject(_ obj) {
     const s = obj.toString
     (s.isA(String)).ifTrue({
-      System.write_(s)
+      System._$write(s)
     }, ifFalse: {
-      System.write_("invalid toString")
+      System._$write("invalid toString")
     })
     return obj
   }
@@ -2071,7 +2049,8 @@ class System {
   // native primitive is driving, so the receiver is unwrapped via
   // `unwrapOr(_)` into a plain local first, and `try()` sent as its own
   // statement.
-  static runScheduled() {
+  @class
+  runScheduled() {
     let next = System.nextScheduled
     while (next.isSome) {
       let f = next.unwrapOr(None)
@@ -2114,7 +2093,7 @@ class Future {
   // rather than setting `_state`/`_value` directly so construction and
   // post-construction settlement share one settle-once code path.
   @constructor
-  value(v) {
+  value(_ v) {
     _state = "pending"
     _value = None
     _waiters = List.new()
@@ -2125,7 +2104,7 @@ class Future {
   // `@constructor error(_)`); see `value(_)` for why this routes
   // through `settleError` instead of assigning state directly.
   @constructor
-  error(e) {
+  error(_ e) {
     _state = "pending"
     _value = None
     _waiters = List.new()
@@ -2140,7 +2119,7 @@ class Future {
   // once, C-FUT-3): a `self.isReady` receiver is a no-op that returns `self`
   // unchanged, so a second `settleValue`/`settleError` can never clobber the
   // first result. Returns `self` either way so callers can chain.
-  settleValue(v) {
+  settleValue(_ v) {
     if (self.isReady) {
       return self
     } else {
@@ -2154,7 +2133,7 @@ class Future {
   // Settles `self` as `rejected` with `e` (an `Error`), unless already
   // settled — the rejection sibling of `settleValue(_)`; see it for
   // the settle-once contract (C-FUT-3).
-  settleError(e) {
+  settleError(_ e) {
     if (self.isReady) {
       return self
     } else {
@@ -2238,7 +2217,8 @@ class Future {
 
   // Runs `action` on a fresh fiber and settles the returned future with its
   // result (or captured error if it fails).
-  static async(action) {
+  @class
+  async(_ action) {
     const f = Future.new()
     const driver = Fiber.new {
       const fib = Fiber.new(action)
@@ -2256,7 +2236,8 @@ class Future {
   // Normalizes a continuation result into a single Future layer. A callback
   // returning a Future is adopted; a plain value becomes an already-fulfilled
   // Future. This is the Future assimilation rule used by then/map/catch.
-  static flatten(value) {
+  @class
+  flatten(_ value) {
     if (value.isA(Future)) {
       return value
     }
@@ -2266,7 +2247,7 @@ class Future {
   // Registers a continuation on the settled/fulfilled path (concurrency.md
   // §2 `then(_)`). If pending, registers a continuation that will settle
   // the returned future when this receiver settles.
-  then(f) {
+  then(_ f) {
     if (self.isReady) {
       if (_state == "fulfilled") {
         return Future.flatten(f.call(_value))
@@ -2295,7 +2276,7 @@ class Future {
   }
 
   // `then(_)` restricted to the fulfilled path (concurrency.md §2 `map(_)`).
-  map(f) {
+  map(_ f) {
     if (self.isReady) {
       if (_state == "fulfilled") {
         return Future.flatten(f.call(_value))
@@ -2325,7 +2306,7 @@ class Future {
 
   // Registers an error handler on the rejected path (concurrency.md §2
   // `catch(_)`).
-  catch(f) {
+  catch(_ f) {
     if (self.isReady) {
       if (_state == "rejected") {
         return Future.flatten(f.call(_value))
@@ -2363,11 +2344,12 @@ class Future {
 // decorator-mechanism work, not yet built (see PLAN-DECORATORS.md), so this
 // class has no caller yet — the sink protocol is ready when it lands.
 class Tracer {
-  static stdout => Tracer.new()
+  @class
+  stdout => Tracer.new()
 
-  enter(name, args) { System.print("-> " + name.toString + " " + args.toString) }
-  exit(name, result, elapsed) { System.print("<- " + name.toString + " = " + result.toString) }
-  threw(name, err) { System.print("!! " + name.toString + " threw " + err.toString) }
+  enter(_ name, _ args) { System.print("-> " + name.toString + " " + args.toString) }
+  exit(_ name, _ result, _ elapsed) { System.print("<- " + name.toString + " = " + result.toString) }
+  threw(_ name, _ err) { System.print("!! " + name.toString + " threw " + err.toString) }
 }
 
 // `OffBehavior` (decorators-dispatch-observability.md D-3, ratified
@@ -2378,12 +2360,15 @@ class Tracer {
 // this class ships now as pure value semantics only; wiring it to a real
 // interception envelope is Install/Dispatch/Runtime mechanism work.
 class OffBehavior {
-  static raise => OffBehavior.new("raise", None)
-  static fallback(sel) => OffBehavior.new("fallback", Some.new(sel))
-  static skip(value) => OffBehavior.new("skip", Some.new(value))
+  @class
+  raise => OffBehavior.new("raise", None)
+  @class
+  fallback(_ sel) => OffBehavior.new("fallback", Some.new(sel))
+  @class
+  skip(_ value) => OffBehavior.new("skip", Some.new(value))
 
   @constructor
-  new(kind, payload) { _kind = kind; _payload = payload }
+  new(_ kind, _ payload) { _kind = kind; _payload = payload }
 
   kind => _kind
   payload => _payload
@@ -2400,14 +2385,17 @@ class OffBehavior {
 // `waitBefore` raises until that primitive exists — a real gap, not a stub
 // pretending to work.
 class Backoff {
-  static none => Backoff.new("none", 0, 0)
-  static fixed(ms) => Backoff.new("fixed", ms, 0)
-  static exponential(base:, max:) => Backoff.new("exponential", base, max)
+  @class
+  none => Backoff.new("none", 0, 0)
+  @class
+  fixed(_ ms) => Backoff.new("fixed", ms, 0)
+  @class
+  exponential(base, max) => Backoff.new("exponential", base, max)
 
   @constructor
-  new(kind, a, b) { _kind = kind; _a = a; _b = b }
+  new(_ kind, _ a, _ b) { _kind = kind; _a = a; _b = b }
 
-  waitBefore(attempt) {
+  waitBefore(_ attempt) {
     if (_kind == "none") {
       return None
     } else {
@@ -2453,9 +2441,9 @@ class On is Attribute {
   _tier
 
   @constructor
-  new(target) { _targets = target; _tier = None }
+  new(_ target) { _targets = target; _tier = None }
   @constructor
-  new(target, tier) { _targets = target; _tier = tier }
+  new(_ target, _ tier) { _targets = target; _tier = tier }
 
   targets => _targets
   tier => _tier
@@ -2480,16 +2468,16 @@ class Runtime is Tier {}
 // Method-only reopen (no new fields) — safe on a bootstrap class (a
 // reopen-with-fields would trip read-before-write).
 class Behavior {
-  attributes => self.__attributes
-  attributesOfType(cls) => self.__attributes.filter { a => a.isA(cls) }
+  attributes => self._$attributes
+  attributesOfType(_ cls) => self._$attributes.filter { a => a.isA(cls) }
 }
 
 // `Method#attributes`/`#attributesOfType(_)` — the same reflection surface
 // as `Behavior` above, for the reified `Method` object a class's method
 // dictionary holds.
 class Method {
-  attributes => self.__attributes
-  attributesOfType(cls) => self.__attributes.filter { a => a.isA(cls) }
+  attributes => self._$attributes
+  attributesOfType(_ cls) => self._$attributes.filter { a => a.isA(cls) }
 }
 
 // ============================================================================
@@ -2498,10 +2486,10 @@ class Method {
 
 class Resource {
   close {
-    self.close_()
+    self._$close()
     return Ok.new(None)
   }
-  isClosed => self.isClosed_
+  isClosed => self._$isClosed
 }
 
 class UseAfterCloseError is Error {}
@@ -2510,17 +2498,17 @@ class UnflushedError is Error {}
 
 class BytesReader is Resource {
   @constructor
-  new(source) {
+  new(_ source) {
     source.is(Bytes).ifFalse {
       throw ArgumentError.new("BytesReader source must be a Bytes")
     }
-    _handle = Resource.register_("BytesReader")
+    _handle = Resource._$register("BytesReader")
     // snapshot: source is a Bytes, copied — the reader's contents never change under it
     _data = source.slice(0, source.size)
     _pos = 0
   }
 
-  read(dst) {
+  read(_ dst) {
     dst.is(Bytes).ifFalse {
       throw ArgumentError.new("dst must be a Bytes")
     }
@@ -2542,11 +2530,11 @@ class BytesReader is Resource {
 class BytesWriter is Resource {
   @constructor
   new() {
-    _handle = Resource.register_("BytesWriter")
+    _handle = Resource._$register("BytesWriter")
     _chunks = List.new()
   }
 
-  write(src) {
+  write(_ src) {
     src.is(Bytes).ifFalse {
       throw ArgumentError.new("src must be a Bytes")
     }
@@ -2576,8 +2564,8 @@ class BytesWriter is Resource {
 
 class BufferedWriter is Resource {
   @constructor
-  new(inner) {
-    _handle = Resource.register_("BufferedWriter")
+  new(_ inner) {
+    _handle = Resource._$register("BufferedWriter")
     _inner = inner
     _buf = Bytes.new(8192)
     _len = 0
@@ -2585,7 +2573,7 @@ class BufferedWriter is Resource {
 
   pending => _len
 
-  write(src) {
+  write(_ src) {
     src.is(Bytes).ifFalse {
       throw ArgumentError.new("src must be a Bytes")
     }
@@ -2640,15 +2628,15 @@ class BufferedWriter is Resource {
 
 class BufferedReader is Resource {
   @constructor
-  new(inner) {
-    _handle = Resource.register_("BufferedReader")
+  new(_ inner) {
+    _handle = Resource._$register("BufferedReader")
     _inner = inner
     _buf = Bytes.new(8192)
     _pos = 0
     _len = 0
   }
 
-  read(dst) {
+  read(_ dst) {
     dst.is(Bytes).ifFalse {
       throw ArgumentError.new("dst must be a Bytes")
     }

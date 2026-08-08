@@ -11,7 +11,8 @@ class Foo {
   new() {
     _x = 1
   }
-  static new() {
+  @class
+  new() {
     return "shadowed"
   }
   x => _x

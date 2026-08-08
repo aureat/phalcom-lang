@@ -42,7 +42,10 @@ fn test_number_classes_and_abstract_instantiation() {
 
     let new_one = vm.get_or_intern("new(_)");
     assert_eq!(vm.send_dynamic(Value::Obj(c.int_class), new_one, &[Value::Int(1)]).unwrap(), Value::Int(1));
-    assert_eq!(vm.send_dynamic(Value::Obj(c.float_class), new_one, &[Value::Int(1)]).unwrap(), Value::Float(1.0));
+    assert_eq!(
+        vm.send_dynamic(Value::Obj(c.float_class), new_one, &[Value::Int(1)]).unwrap(),
+        Value::Float(1.0)
+    );
 }
 
 #[test]

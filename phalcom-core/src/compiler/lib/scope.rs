@@ -10,6 +10,15 @@ use super::error::CompilerError;
 use super::state::Local;
 use super::{Compiler, UnitKind};
 
+/// Binding class for syntax that omits a receiver.
+pub(super) enum BareNameResolution {
+    Local(usize),
+    Upvalue(usize),
+    Global,
+    ImplicitSelf,
+    Unresolved,
+}
+
 impl<'vm> Compiler<'vm> {
     /// Emits `opcode` into the current function's chunk.
     pub(crate) fn emit(&mut self, opcode: Bytecode, range: SourceRange) {
@@ -222,6 +231,35 @@ impl<'vm> Compiler<'vm> {
     /// ([ADR-0013](../../../docs/adr/accepted/0013-block-closure-upvalues.md)).
     pub(super) fn resolve_upvalue(&mut self, name: Symbol) -> Option<usize> {
         self.resolve_upvalue_in(self.functions.len() - 1, name)
+    }
+
+    pub(super) fn resolve_bare_name(&mut self, name: Symbol) -> BareNameResolution {
+        if let Some(slot) = self.resolve_local(name) {
+            BareNameResolution::Local(slot)
+        } else if let Some(upvalue) = self.resolve_upvalue(name) {
+            BareNameResolution::Upvalue(upvalue)
+        } else if self.resolves_known_global(name) {
+            BareNameResolution::Global
+        } else if self.functions.last().is_some_and(|function| function.has_self) {
+            BareNameResolution::ImplicitSelf
+        } else {
+            BareNameResolution::Unresolved
+        }
+    }
+
+    /// Same visibility order as runtime `GetGlobal`, but only recognizes
+    /// bindings already known during compilation.
+    pub(super) fn resolves_known_global(&self, name: Symbol) -> bool {
+        self.known_globals.contains(&name)
+            || self.global_bindings.contains_key(&name)
+            || self.import_bindings.contains_key(&name)
+            || self.vm.heap.module(self.module).slot_of(name).is_some()
+            || self
+                .vm
+                .interner
+                .find(crate::heap::CORE_MODULE_NAME)
+                .and_then(|core_name| self.vm.modules.get(&core_name))
+                .is_some_and(|&core_module| self.vm.heap.module(core_module).slot_of(name).is_some())
     }
 
     /// Resolves `name` as an upvalue of the function at `func_idx`, recursing

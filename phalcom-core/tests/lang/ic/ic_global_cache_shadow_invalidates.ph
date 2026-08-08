@@ -11,7 +11,8 @@
 // fixture is what fails if that regresses.
 
 class C {
-  static get { return List }
+  @class
+  get { return List }
 }
 
 // Resolve through the core fallback, repeatedly, so any cache is warm.

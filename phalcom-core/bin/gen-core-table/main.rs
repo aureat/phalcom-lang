@@ -24,7 +24,7 @@
 //! Output is deterministic (sorted class/selector order) so a re-run on an
 //! unchanged tree produces a byte-identical file.
 
-use phalcom_ast::ast::{ClassMember, Statement};
+use phalcom_ast::ast::{AttrKind, BuiltinAttr, ClassMember, IndexAccessor, Statement};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
@@ -37,6 +37,10 @@ struct SelectorEntry {
     selector: String,
     /// `"method"`, `"getter"`, `"setter"`, or `"construct"`.
     kind: &'static str,
+    /// Whether dispatch targets the class object rather than an instance.
+    class_side: bool,
+    /// `"public"`, `"private"`, `"protected"`, or `"internal"`.
+    visibility: &'static str,
     /// `"core.ph"` or `"native"`.
     source: &'static str,
 }
@@ -44,7 +48,36 @@ struct SelectorEntry {
 /// The current keyword set (matches the U-VSPHALCOM-1 grammar rewrite;
 /// keep in sync with `docs/spec/v0.2/lexical-structure.md`).
 const KEYWORDS: &[&str] = &[
-    "class", "is", "super", "self", "static", "try", "catch", "on", "ensure", "throw", "break", "continue", "match", "return", "while", "for", "var",
+    "let",
+    "const",
+    "fn",
+    "class",
+    "is",
+    "super",
+    "self",
+    "static",
+    "try",
+    "catch",
+    "on",
+    "ensure",
+    "throw",
+    "break",
+    "continue",
+    "match",
+    "return",
+    "while",
+    "for",
+    "in",
+    "import",
+    "as",
+    "if",
+    "else",
+    "true",
+    "false",
+    "and",
+    "or",
+    "not",
+    "construct",
 ];
 
 fn main() {
@@ -85,11 +118,19 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
         let entries = classes.entry(class_def.name.clone()).or_default();
 
         for member in &class_def.members {
+            let class_side = member_is_class_side(member);
+            let visibility = member_visibility(member);
             match member {
                 ClassMember::Method(m) => {
                     entries.push(SelectorEntry {
                         selector: comma_form(&m.name, &m.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>()),
-                        kind: "method",
+                        kind: if m.is_constructor || m.attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor))) {
+                            "construct"
+                        } else {
+                            "method"
+                        },
+                        class_side,
+                        visibility,
                         source: "core.ph",
                     });
                 }
@@ -97,13 +138,17 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                     entries.push(SelectorEntry {
                         selector: g.name.clone(),
                         kind: "getter",
+                        class_side,
+                        visibility,
                         source: "core.ph",
                     });
                 }
                 ClassMember::Setter(s) => {
                     entries.push(SelectorEntry {
-                        selector: format!("{}=(_)", s.name),
+                        selector: format!("{}=(put)", s.name),
                         kind: "setter",
+                        class_side,
+                        visibility,
                         source: "core.ph",
                     });
                 }
@@ -121,8 +166,13 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
                 // `[_,put]`, `[]`, `[put]`).
                 ClassMember::Index(ix) => {
                     entries.push(SelectorEntry {
-                        selector: bracket_form(&ix.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>()),
+                        selector: bracket_form(
+                            &ix.params.iter().map(|p| p.label.clone()).collect::<Vec<_>>(),
+                            matches!(&ix.accessor, IndexAccessor::Set { .. }),
+                        ),
                         kind: "method",
+                        class_side,
+                        visibility,
                         source: "core.ph",
                     });
                 }
@@ -131,16 +181,49 @@ fn harvest_core_ph(path: &PathBuf, classes: &mut BTreeMap<String, Vec<SelectorEn
     }
 }
 
+fn member_is_class_side(member: &ClassMember) -> bool {
+    let (intrinsic, attrs) = match member {
+        ClassMember::Method(m) => (m.is_static || m.is_constructor, m.attributes.as_slice()),
+        ClassMember::Getter(g) => (g.is_static, g.attributes.as_slice()),
+        ClassMember::Setter(s) => (s.is_static, s.attributes.as_slice()),
+        ClassMember::Index(ix) => (false, ix.attributes.as_slice()),
+        ClassMember::Field(f) => (f.is_static, f.attributes.as_slice()),
+        ClassMember::Variant(v) => (false, v.attributes.as_slice()),
+    };
+    intrinsic
+        || attrs
+            .iter()
+            .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Class | BuiltinAttr::Constructor)))
+}
+
+fn member_visibility(member: &ClassMember) -> &'static str {
+    let (name, attrs) = match member {
+        ClassMember::Method(m) => (Some(m.name.as_str()), m.attributes.as_slice()),
+        ClassMember::Getter(g) => (Some(g.name.as_str()), g.attributes.as_slice()),
+        ClassMember::Setter(s) => (Some(s.name.as_str()), s.attributes.as_slice()),
+        ClassMember::Index(ix) => (None, ix.attributes.as_slice()),
+        ClassMember::Field(f) => (Some(f.name.as_str()), f.attributes.as_slice()),
+        ClassMember::Variant(v) => (Some(v.name.as_str()), v.attributes.as_slice()),
+    };
+    if name.is_some_and(|name| name.starts_with("_$")) {
+        "internal"
+    } else if attrs.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private))) {
+        "private"
+    } else if attrs.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Protected))) {
+        "protected"
+    } else {
+        "public"
+    }
+}
+
 /// Builds the bracket-form selector string for a subscript method (U-INDEX,
 /// ADR-0060): `[_]`, `[_,put]`, `[]`, `[put]`, ... . Mirrors [`comma_form`]'s
 /// label-joining, just bracket- rather than paren-delimited and with no
 /// leading name (a bracket method carries no name token at all).
-fn bracket_form(labels: &[Option<String>]) -> String {
-    if labels.is_empty() {
-        return "[]".to_string();
-    }
+fn bracket_form(labels: &[Option<String>], setter: bool) -> String {
     let inner = labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
-    format!("[{inner}]")
+    let base = format!("[{inner}]");
+    if setter { format!("{base}=(put)") } else { base }
 }
 
 /// Builds the comma-form selector string: `name(_,label,...)`, or `name()`
@@ -178,7 +261,7 @@ fn harvest_primitives_rs(path: &PathBuf, classes: &mut BTreeMap<String, Vec<Sele
     // Pass 2: every `primitive!(...)` / `primitive_static!(...)` call, which
     // may span multiple lines, so scan the whole source for each macro
     // invocation by locating `macro_name!(` and matching the closing `)`.
-    for macro_name in ["primitive!", "primitive_static!"] {
+    for macro_name in ["primitive!", "primitive_internal!", "primitive_static!", "primitive_static_internal!"] {
         let mut search_from = 0;
         while let Some(start) = source[search_from..].find(macro_name) {
             let abs_start = search_from + start + macro_name.len();
@@ -202,11 +285,14 @@ fn harvest_primitives_rs(path: &PathBuf, classes: &mut BTreeMap<String, Vec<Sele
             let kind_expr = args[3].trim();
 
             let (selector, base_kind) = comma_form_from_signature_kind(selector_name, kind_expr);
-            let kind = if macro_name == "primitive_static!" { "static-method" } else { base_kind };
+            let class_side = macro_name.contains("static");
+            let visibility = if macro_name.contains("internal") { "internal" } else { "public" };
             let entries = classes.entry(class_name.clone()).or_default();
             entries.push(SelectorEntry {
                 selector,
-                kind,
+                kind: base_kind,
+                class_side,
+                visibility,
                 source: "native",
             });
         }
@@ -225,7 +311,7 @@ fn comma_form_from_signature_kind(name: &str, kind_expr: &str) -> (String, &'sta
         return (name.to_string(), "getter");
     }
     if kind_expr.starts_with("SignatureKind::Setter") {
-        return (format!("{name}=(_)"), "setter");
+        return (format!("{name}=(put)"), "setter");
     }
     if let Some(n) = extract_arity(kind_expr, "SignatureKind::Method") {
         return (positional_comma_form(name, n), "method");
@@ -237,7 +323,7 @@ fn comma_form_from_signature_kind(name: &str, kind_expr: &str) -> (String, &'sta
         return ("[]".to_string(), "method");
     }
     if kind_expr.starts_with("SignatureKind::SubscriptSet") {
-        return ("[]=(_)".to_string(), "method");
+        return ("[]=(put)".to_string(), "method");
     }
     // Unrecognized kind expression (future SignatureKind variant): fall back
     // to the bare name rather than panic — a codegen tool must not crash on
@@ -368,6 +454,24 @@ fn assert_no_legacy_names(classes: &BTreeMap<String, Vec<SelectorEntry>>) {
     for legacy in ["Null", "Void", "ObjectType", "NullType", "VoidType"] {
         assert!(!classes.contains_key(legacy), "harvested table contains a legacy 2023-era class name: {legacy}");
     }
+    for entries in classes.values() {
+        for entry in entries {
+            if let Some(eq) = entry.selector.find("=(_)") {
+                let preceding = entry.selector[..eq].chars().last();
+                assert!(
+                    !preceding.is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == ']'),
+                    "legacy setter selector: {}",
+                    entry.selector
+                );
+            }
+            assert!(!entry.selector.starts_with("__"), "legacy implementation selector: {}", entry.selector);
+            if let Some(close) = entry.selector.find(']') {
+                assert!(!entry.selector[..close].contains("put"), "legacy subscript put slot: {}", entry.selector);
+            }
+            let base = entry.selector.split(['(', '[', '=']).next().unwrap_or("");
+            assert!(!base.ends_with('_'), "legacy trailing-underscore selector: {}", entry.selector);
+        }
+    }
 }
 
 /// Hand-rolled JSON serialization (no `serde_json` dependency) — the output
@@ -400,6 +504,10 @@ fn render_json(classes: &BTreeMap<String, Vec<SelectorEntry>>) -> String {
             out.push_str(&json_escape(entry.kind));
             out.push_str(", \"source\": ");
             out.push_str(&json_escape(entry.source));
+            out.push_str(", \"classSide\": ");
+            out.push_str(if entry.class_side { "true" } else { "false" });
+            out.push_str(", \"visibility\": ");
+            out.push_str(&json_escape(entry.visibility));
             out.push('}');
             if ei + 1 < entries.len() {
                 out.push(',');

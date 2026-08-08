@@ -12,17 +12,17 @@ class System {
   /// touch the native `print(_)` pathway (pre-existing divergence between
   /// `Value::to_string` and the `.toString` message is out of scope).
   @native @class
-  write(obj) {
-    System.writeObject_(obj)
+  write(_ obj) {
+    System.writeObject(obj)
     obj
   }
 
-  @native @class
-  writeObject_(obj) {
+  @native @private @class
+  writeObject(_ obj) {
     const s = obj.toString
     (s is String)
-      .ifTrue({ write_(s) }, 
-       ifFalse: { write_("invalid toString") })
+      .ifTrue({ _$write(s) },
+       ifFalse: { _$write("invalid toString") })
     obj
   }
 

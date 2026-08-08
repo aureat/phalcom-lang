@@ -1,10 +1,7 @@
 class Person {
-  init(_ name) { _name = name }
-  @class
+  @constructor
   make(_ name) {
-    let instance = self.new_()
-    instance.init(name)
-    return instance
+    _name = name
   }
   name => _name
 }

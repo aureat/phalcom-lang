@@ -6,16 +6,9 @@ expression: "parse(\"f(1, 2)\")"
 Program {
     statements: [
         Expr {
-            expr: MethodCall(
-                MethodCallExpr {
-                    object: Var {
-                        value: "f",
-                        range: CopyRange {
-                            start: 0,
-                            end: 1,
-                        },
-                    },
-                    method: "call",
+            expr: UnqualifiedCall(
+                UnqualifiedCallExpr {
+                    name: "f",
                     args: [
                         Argument {
                             label: None,

@@ -1,4 +1,4 @@
-let reader = BytesReader.new(Bytes.fromString_("abc"))
+let reader = BytesReader.new(Bytes.fromString("abc"))
 System.print(reader.close.toString)
 System.print(reader.close.toString)
 try {
@@ -11,7 +11,7 @@ let writer = BytesWriter.new()
 writer.close
 System.print(writer.close.toString)
 try {
-  writer.write(Bytes.fromString_("x"))
+  writer.write(Bytes.fromString("x"))
 } catch e {
   System.print(e.class.name)
 }
