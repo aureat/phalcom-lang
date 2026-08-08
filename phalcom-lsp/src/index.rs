@@ -12,7 +12,7 @@
 
 use dashmap::DashMap;
 use phalcom_ast::ast::{
-    Argument, AttrKind, BuiltinAttr, ClassDef, ClassMember, Expr, ForStatement, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program,
+    Argument, AttrKind, BuiltinAttr, ClassDef, ClassMember, Expr, ForStatement, ListLiteralExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program,
     SetLiteralEntry, Statement, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
@@ -706,6 +706,15 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
                 }
             }
         }
+        Expr::ListLiteral(list) => {
+            for element in &list.elements {
+                match element {
+                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => {
+                        collect_var_occurrences_in_expr(expr, names, out);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -955,6 +964,13 @@ impl Collector {
                 for entry in &set.entries {
                     match entry {
                         SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => self.walk_expr(expr),
+                    }
+                }
+            }
+            Expr::ListLiteral(list) => {
+                for element in &list.elements {
+                    match element {
+                        ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => self.walk_expr(expr),
                     }
                 }
             }

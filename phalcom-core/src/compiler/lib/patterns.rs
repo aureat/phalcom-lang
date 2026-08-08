@@ -173,7 +173,7 @@ impl<'vm> Compiler<'vm> {
     ///
     /// Realized as an inlined `while` copy loop — `List`/`Tuple` expose no
     /// slice/tail selector, so this reuses only the existing `List.new()`/
-    /// `add(_)`/`size`/`at(_)` sends, mirroring [`super::loops`]'s own
+    /// `append(_)`/`size`/`at(_)` sends, mirroring [`super::loops`]'s own
     /// `compile_for` hand-rolled loop skeleton. The loop counter is a synthetic local
     /// scoped away once the copy finishes (it never needs to outlive this
     /// call); the built `List` itself is claimed as a scratch local that
@@ -210,7 +210,7 @@ impl<'vm> Compiler<'vm> {
         let i_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
         self.emit(Bytecode::SetLocal(i_slot), range);
 
-        // `while ($i < value.size) { $rest.add(value.at($i)); $i = $i + 1 }`
+        // `while ($i < value.size) { $rest.append(value.at($i)); $i = $i + 1 }`
         let loop_start = self.chunk_len();
         self.emit(Bytecode::GetLocal(i_slot), range);
         self.emit(Bytecode::GetLocal(value_slot), range);
@@ -222,7 +222,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit(Bytecode::GetLocal(i_slot), range);
         self.emit_operator_send("at", 1, range);
-        self.emit_operator_send("add", 1, range);
+        self.emit_operator_send("append", 1, range);
         self.emit(Bytecode::Pop, range);
 
         self.emit(Bytecode::GetLocal(i_slot), range);

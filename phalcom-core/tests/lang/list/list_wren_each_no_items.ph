@@ -5,7 +5,7 @@
 // empty list never invokes the block — zero iterations, not a panic on a
 // zero-length receiver.
 
-const empty = List.new()
+const empty = []
 let count = 0
 empty.each |item| { count = count + 1 }
 System.print(count)

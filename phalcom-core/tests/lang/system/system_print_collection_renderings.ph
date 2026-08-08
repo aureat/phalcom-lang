@@ -6,9 +6,9 @@
 // `#sym: val` rendering, `Set(...)`, tuple parens, and `Range`'s `a..b`
 // syntax-literal-shaped render, plus `None`/`Some(_)` for good measure.
 
-const l = List.new()
-l.add(1)
-l.add(2)
+const l = []
+l.append(1)
+l.append(2)
 System.print(l)
 
 const m = {a: 1, b: 2}

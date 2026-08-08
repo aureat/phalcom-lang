@@ -7,7 +7,7 @@ class Source {
   makeList {
     _calls = _calls + 1
     System.print("built")
-    return List.new().add(1).add(2)
+    return [1, 2]
   }
   calls => _calls
 }

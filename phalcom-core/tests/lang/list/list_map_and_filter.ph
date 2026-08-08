@@ -6,9 +6,9 @@
 // (safe path — element values via `list_to_string`), never the `toString`
 // *message* on an individual element (the class-name trap, DEFERRED.md #19).
 
-const l = List.new()
-l.add(1)
-l.add(2)
-l.add(3)
+const l = []
+l.append(1)
+l.append(2)
+l.append(3)
 System.print(l.map |x| { x * 2 }.toList.toString)
 System.print(l.filter |x| { x > 1 }.toString)

@@ -9,12 +9,12 @@
 // `max`/`sum` `Fn` objects (stored here as blocks instead, `Fn`'s Phalcom
 // analog).
 
-const a = List.new()
-a.add(1)
-a.add(4)
-a.add(2)
-a.add(1)
-a.add(5)
+const a = []
+a.append(1)
+a.append(4)
+a.append(2)
+a.append(1)
+a.append(5)
 
 const max = |x, y| { (x > y).ifTrue(|| { x }, ifFalse: || { y }) }
 const sum = |x, y| { x + y }
@@ -24,15 +24,15 @@ System.print(a.reduce(10) |acc, x| { max.call(acc, x) })
 System.print(a.reduce(0) |acc, x| { sum.call(acc, x) })
 System.print(a.reduce(-1) |acc, x| { sum.call(acc, x) })
 
-const b = List.new()
-b.add("W")
-b.add("o")
-b.add("r")
-b.add("l")
-b.add("d")
+const b = []
+b.append("W")
+b.append("o")
+b.append("r")
+b.append("l")
+b.append("d")
 System.print(b.reduce("Hello ") |acc, x| { sum.call(acc, x) })
 
 // An empty seed list still applies `f` zero times, returning `init` as-is —
 // the Phalcom `reduce(init, f)` shape always requires an explicit seed, so
 // there is no "empty sequence" raise (unlike Wren's no-init `reduce(_:)`).
-System.print(List.new().reduce(1) |acc, x| { 42 })
+System.print([].reduce(1) |acc, x| { 42 })

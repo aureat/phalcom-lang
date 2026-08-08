@@ -6,7 +6,7 @@
 let w = 0
 while (w < 2) {
   System.print("outer")
-  for (n in List.new().add(10).add(20).add(30)) {
+  for (n in [10, 20, 30]) {
     (n == 20).ifTrue || { continue }
     System.print(n)
   }

@@ -8,12 +8,12 @@
 // match, never a sentinel `-1`, ADR-0007/Invariant 4). Not yet landed
 // (`List` has no `find` selector).
 
-const list = List.new()
-list.add(0)
-list.add(1)
-list.add(2)
-list.add(3)
-list.add(4)
+const list = []
+list.append(0)
+list.append(1)
+list.append(2)
+list.append(3)
+list.append(4)
 System.print(list.find |x| { x == 4 })
 System.print(list.find |x| { x == 2 })
 System.print(list.find |x| { x == 100 })

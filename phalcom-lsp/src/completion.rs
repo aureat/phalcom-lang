@@ -23,7 +23,7 @@
 
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
-use phalcom_ast::ast::{ClassMember, Expr, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry};
+use phalcom_ast::ast::{ClassMember, Expr, ListLiteralExpr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, Pattern, ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry};
 
 use crate::core_table::{CoreTable, CoreVisibility, MemberKind};
 use crate::documents::Document;
@@ -286,6 +286,9 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
         }),
         Expr::SetLiteral(set) => set.entries.iter().find_map(|entry| match entry {
             SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => nested_block_in_expr(expr, offset),
+        }),
+        Expr::ListLiteral(list) => list.elements.iter().find_map(|element| match element {
+            ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => nested_block_in_expr(expr, offset),
         }),
         Expr::Int { .. }
         | Expr::Float { .. }

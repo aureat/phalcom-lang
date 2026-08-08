@@ -14,7 +14,7 @@
 // `VM::sealed_classes`.
 
 @sealed class Shape {}
-class Square is Shape area => 4
+class Square is Shape { area => 4
 }
 
 System.print(Square.new().area)

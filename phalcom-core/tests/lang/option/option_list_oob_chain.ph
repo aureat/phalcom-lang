@@ -7,9 +7,9 @@
 // in-range read returns the raw element value directly (NOT `Some`-wrapped),
 // so it is printed as-is and does not itself support `.map`/`.isNone`.
 
-const xs = List.new()
-xs.add(10)
-xs.add(20)
+const xs = []
+xs.append(10)
+xs.append(20)
 System.print(xs.at(0))
 System.print(xs.at(5))
 System.print(xs.at(5).map |v| { v + 1 }.unwrapOr(-1))

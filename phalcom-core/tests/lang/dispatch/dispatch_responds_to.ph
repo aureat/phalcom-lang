@@ -5,7 +5,7 @@
 // selector, false for an unknown one — and it NEVER triggers
 // `doesNotUnderstand(_:)` (the false branch would otherwise raise).
 
-class Widget render => "drawn"
+class Widget { render => "drawn"
 }
 const w = Widget.new()
 System.print(w.respondsTo(Symbol.new("render")))

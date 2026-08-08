@@ -5,18 +5,18 @@
 // routes through it rather than staying identity-based (the `==`/`!=`
 // decoupling hazard).
 
-const a = List.new()
-a.add(1)
-a.add(2)
-a.add(3)
-const b = List.new()
-b.add(1)
-b.add(2)
-b.add(3)
-const c = List.new()
-c.add(1)
-c.add(9)
-c.add(3)
+const a = []
+a.append(1)
+a.append(2)
+a.append(3)
+const b = []
+b.append(1)
+b.append(2)
+b.append(3)
+const c = []
+c.append(1)
+c.append(9)
+c.append(3)
 System.print(a == b)
 System.print(a == c)
 System.print(a != c)

@@ -5,5 +5,5 @@
 // class-level `@native` is `attr.illegal_target`.
 
 @native
-class Foo bar => 1
+class Foo { bar => 1
 }

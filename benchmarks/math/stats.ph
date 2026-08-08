@@ -30,7 +30,7 @@ class Check {
 class Stats {
   @class
   sum(_ xs) {
-    return xs.reduce(0) |acc, x| { acc + x }
+    return xs.fold(initial: 0) |acc, x| { acc + x }
   }
 
   @class

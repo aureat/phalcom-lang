@@ -5,11 +5,11 @@
 // retrieved reference is visible on the next lookup (Map stores a reference,
 // not a snapshot).
 
-const inner = List.new().add(1).add(2)
+const inner = [1, 2]
 const m = Map.new()
 m.at("nums", put: inner)
 System.print(m["nums"])
-m["nums"].add(3)
+m["nums"].append(3)
 System.print(m["nums"])
 System.print(m["nums"].size)
 

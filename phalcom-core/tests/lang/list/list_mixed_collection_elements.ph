@@ -5,10 +5,10 @@
 // (Tuple, Map, Set) — `at(_, put:)` overwriting one slot's element type
 // leaves neighboring elements/kinds untouched.
 
-const l = List.new()
-l.add((1, 2))
-l.add(Map.new().at("k", put: 1))
-l.add(Set.new().add(1).add(2))
+const l = []
+l.append((1, 2))
+l.append(Map.new().at("k", put: 1))
+l.append(Set.new().add(1).add(2))
 System.print(l.size)
 System.print(l.at(0))
 System.print(l.at(1))

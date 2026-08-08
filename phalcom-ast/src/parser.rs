@@ -963,6 +963,7 @@ impl<'source> Parser<'source> {
                 | Token::SelfKw
                 | Token::Super
                 | Token::LParen
+                | Token::LBracket
                 | Token::Not
                 | Token::Minus
                 | Token::LBrace
@@ -3100,7 +3101,11 @@ impl<'source> Parser<'source> {
         let elems = self.parse_comma_exprs(&Token::RBracket)?;
         self.expect(&Token::RBracket, &["\"]\""])?;
         let range: SourceRange = (start..self.prev_end).into();
-        Ok(Self::list_construction_chain(elems, range))
+        let elements = elems.into_iter().map(|expr| {
+            let r = expr.range();
+            ListLiteralElement::Element { expr, range: r }
+        }).collect();
+        Ok(Expr::ListLiteral(Box::new(ListLiteralExpr { elements, range })))
     }
 
     fn bare_product_label_name(token: &Token) -> Option<&'static str> {
@@ -3561,38 +3566,6 @@ impl<'source> Parser<'source> {
         Ok(elems)
     }
 
-    /// Folds `elems` into a `List` construction chain
-    /// `List.new().add(e1)…​.add(en)`, all sharing the synthetic `range`
-    /// ([ADR-0029]). Because `List#add(_)` returns `self`, the result is a
-    /// single expression; `[]`/`()` with no elements yields the bare
-    /// `List.new()` receiver.
-    ///
-    /// [ADR-0029]: ../../../docs/adr/accepted/0029-list-literal-syntax.md
-    fn list_construction_chain(elems: Vec<Expr>, range: SourceRange) -> Expr {
-        let mut acc = Expr::MethodCall(Box::new(MethodCallExpr {
-            object: Expr::Var {
-                value: "List".to_string(),
-                range,
-            },
-            method: "new".to_string(),
-            args: Vec::new(),
-            range,
-        }));
-        for elem in elems {
-            let elem_range = elem.range();
-            acc = Expr::MethodCall(Box::new(MethodCallExpr {
-                object: acc,
-                method: "add".to_string(),
-                args: vec![Argument {
-                    label: None,
-                    expr: elem,
-                    range: elem_range,
-                }],
-                range,
-            }));
-        }
-        acc
-    }
 
     /// Builds a free-form [`SyntaxErrorKind::Message`] diagnostic anchored at
     /// the current token's span. Used for surface features whose *syntax* is

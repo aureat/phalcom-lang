@@ -12,9 +12,9 @@ class Adder {
   zero() => 0
 }
 const obj = Adder.new()
-const args = List.new()
-args.add(3)
-args.add(4)
+const args = []
+args.append(3)
+args.append(4)
 System.print(obj.perform(Symbol.new("add(_,_)"), args))
-System.print(obj.perform(Symbol.new("zero()"), List.new()))
+System.print(obj.perform(Symbol.new("zero()"), []))
 System.print(obj.perform(Symbol.new("add(_,_)"), args) == 7)

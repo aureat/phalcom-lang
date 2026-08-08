@@ -2,7 +2,7 @@
 // spec: method-lookup.md; messages-and-selectors.md
 // status: PASS
 
-class Vec x => _x
+class Vec { x => _x
   y => _y
   @class
   new(_ x, _ y) {

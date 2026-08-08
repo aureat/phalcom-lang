@@ -6,5 +6,5 @@
 // catchable Error, never silently identity-key it.
 
 const m = Map.new()
-const key = List.new()
+const key = []
 m.at(key, put: 1)

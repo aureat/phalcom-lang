@@ -386,6 +386,16 @@ fn sequence() {
 }
 
 #[test]
+fn iterator() {
+    support::check_pass("iterator");
+}
+
+#[test]
+fn iterator_negative() {
+    support::check_negative("iterator/negative");
+}
+
+#[test]
 fn sequence_negative() {
     // U-SEQ: guard clauses raise `Error` for negative/non-number counts in
     // `SkipView`/`TakeView` construction.

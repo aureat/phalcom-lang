@@ -51,7 +51,7 @@ try {
 
 // The guard itself must remain intact: a yield under a native frame is still
 // refused. The fix removed `await`'s self-inflicted frame, not the rule.
-const guarded = Fiber.new || { { Fiber.yield(None) }.attempt() }
+const guarded = Fiber.new || { || { Fiber.yield(None) }.attempt() }
 System.schedule(guarded)
 System.runScheduled()
 System.print("guard intact: " + guarded.isDone.toString)

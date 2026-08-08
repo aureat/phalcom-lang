@@ -6,8 +6,8 @@
 // argument. This is the exact accumulator shape `blocks_argument_to_method`
 // was waiting on.
 
-const l = List.new()
-l.add(1)
-l.add(2)
-l.add(3)
+const l = []
+l.append(1)
+l.append(2)
+l.append(3)
 System.print(l.reduce(0) |acc, x| { acc + x })

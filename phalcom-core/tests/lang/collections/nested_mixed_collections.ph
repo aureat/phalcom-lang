@@ -5,17 +5,17 @@
 // Tuple whose elements are a Range and a Set — every combinator composes
 // with every other native collection with no special-casing.
 
-const pairs = List.new()
-pairs.add((1, 2))
-pairs.add((3, 4))
+const pairs = []
+pairs.append((1, 2))
+pairs.append((3, 4))
 System.print(pairs.size)
 System.print(pairs.at(0).at(0))
 System.print(pairs.at(1).at(1))
 System.print(pairs)
 
 const byGroup = Map.new()
-byGroup.at("evens", put: List.new().add(2).add(4))
-byGroup.at("odds", put: List.new().add(1).add(3))
+byGroup.at("evens", put: [2, 4])
+byGroup.at("odds", put: [1, 3])
 System.print(byGroup["evens"])
 System.print(byGroup["odds"].size)
 

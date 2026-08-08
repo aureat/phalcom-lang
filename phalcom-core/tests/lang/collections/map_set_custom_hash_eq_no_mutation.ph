@@ -7,7 +7,7 @@
 // work through the locked window, and a Set built over the same key class
 // behaves identically.
 
-class Pt x => _x
+class Pt { x => _x
   y => _y
   @constructor
   new(_ x, _ y) {

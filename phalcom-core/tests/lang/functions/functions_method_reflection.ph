@@ -8,7 +8,7 @@
 // (R-INV-3.3), and `arity`/`name`/`selector` read its reflective surface.
 // Written entirely in already-supported syntax: `Symbol.new("...")` interns
 // the same symbol the compiler produced (so `methodFor` hits), and
-// `List.new().add(_)` builds the argument list — no `#...`/`[...]` literals
+// `[_]` builds the argument list — no `#...`/`[...]` literals
 // needed (those are U-LEX-gated, see the `pending/` fixtures in this
 // directory).
 class Greeter {
@@ -18,7 +18,7 @@ class Greeter {
 }
 const g = Greeter.new()
 const m = g.methodFor(Symbol.new("greet(_)"))
-const args = List.new().add("World")
+const args = ["World"]
 System.print(m.invokeOn(g, args))
 const bound = m.bind(g)
 System.print(bound.call("World"))

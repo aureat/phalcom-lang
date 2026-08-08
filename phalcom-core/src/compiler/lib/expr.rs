@@ -3,7 +3,7 @@ use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    BinaryOp, BlockExpr, Expr, MapLiteralEntry, MapLiteralKey, MethodRefKind, ProductLabel, RecordLiteralField, SetLiteralEntry, Statement, SymbolLiteralKind,
+    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, ProductLabel, RecordLiteralField, SetLiteralEntry, Statement, SymbolLiteralKind,
     TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
@@ -437,6 +437,24 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
                 self.emit(Bytecode::FinishSetLiteral, set_expr.range);
+            }
+            Expr::ListLiteral(list_expr) => {
+                let list_expr = *list_expr;
+                let count = list_expr.elements.len();
+                if count > u16::MAX as usize {
+                    return Err(CompilerError::Message("List literal elements exceed maximum count".to_string()));
+                }
+                for element in list_expr.elements {
+                    match element {
+                        ListLiteralElement::Element { expr, .. } => {
+                            self.compile_expr(expr)?;
+                        }
+                        ListLiteralElement::Expansion { .. } => {
+                            return Err(CompilerError::Message("List literal `*` expansion is pending Spec F".to_string()));
+                        }
+                    }
+                }
+                self.emit(Bytecode::BuildList(count as u16), list_expr.range);
             }
             Expr::Var { value, range } => {
                 if value == "nil" {

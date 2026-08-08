@@ -7,10 +7,10 @@
 // and the outer binding is untouched once the loop finishes.
 
 const x = 100
-let seen = List.new()
-for (i in List.new().add(1).add(2)) {
+let seen = []
+for (i in [1, 2]) {
   const x = i
-  seen.add(x)
+  seen.append(x)
 }
 System.print(seen)
 System.print(x)

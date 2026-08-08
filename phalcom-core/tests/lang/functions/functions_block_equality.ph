@@ -9,8 +9,8 @@
 // loop iterations are still each their own allocation, so unequal.
 
 // Not structurally equal.
-System.print(|| { 123 } == { 123 })
-System.print(|| { 123 } != { 123 })
+System.print(|| { 123 } == || { 123 })
+System.print(|| { 123 } != || { 123 })
 
 // Not equal to other types.
 System.print(|| { 123 } == 1)
@@ -26,10 +26,10 @@ System.print(f == f)
 System.print(f != f)
 
 // Closures for the same literal are not equal.
-const fns = List.new()
+const fns = []
 let i = 0
 while (i < 2) {
-  fns.add(|| { 123 })
+  fns.append(|| { 123 })
   i = i + 1
 }
 System.print(fns.at(0) == fns.at(1))

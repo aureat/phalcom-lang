@@ -5,9 +5,11 @@
 // reference implementation: `size`/`at(_:)`/`add(_:)` round-trip and `add`
 // returns `self` for chaining.
 
-const l = List.new()
+const l = []
 System.print(l.size)
-l.add(1).add(2).add(3)
+l.append(1)
+l.append(2)
+l.append(3)
 System.print(l.size)
 System.print(l.at(0))
 System.print(l.at(1))

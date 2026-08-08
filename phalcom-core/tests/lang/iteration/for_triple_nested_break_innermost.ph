@@ -3,9 +3,9 @@
 // outer loops are unaffected. Over a=[1,2], b=[1,2], c=[1,2,3]: the
 // innermost breaks at c==2 every time, so c==3 never prints, but middle/outer
 // still run their full ranges.
-for (a in List.new().add(1).add(2)) {
-  for (b in List.new().add(1).add(2)) {
-    for (c in List.new().add(1).add(2).add(3)) {
+for (a in [1, 2]) {
+  for (b in [1, 2]) {
+    for (c in [1, 2, 3]) {
       (c == 2).ifTrue || { break }
       System.print(a)
       System.print(b)

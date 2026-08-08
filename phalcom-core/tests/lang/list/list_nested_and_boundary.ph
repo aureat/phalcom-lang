@@ -6,17 +6,17 @@
 // reference); empty-list boundary for `each`/`map`/`filter`/`reduce`
 // (all must be no-ops/identity, never a panic on a zero-length receiver).
 
-const outer = List.new()
-outer.add(List.new().add(1).add(2))
-outer.add(List.new().add(3))
+const outer = []
+outer.append([1, 2])
+outer.append([3])
 System.print(outer.size)
 System.print(outer.at(0).size)
-outer.at(0).add(99)
+outer.at(0).append(99)
 System.print(outer.at(0))
 System.print(outer.at(0).size)
 System.print(outer)
 
-const empty = List.new()
+const empty = []
 System.print(empty.isEmpty)
 let sum = 0
 empty.each |x| { sum = sum + x }

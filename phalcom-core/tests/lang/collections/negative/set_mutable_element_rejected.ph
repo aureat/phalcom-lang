@@ -7,5 +7,5 @@
 // `map_mutable_key_rejected.ph`).
 
 const s = Set.new()
-const elem = List.new()
+const elem = []
 s.add(elem)

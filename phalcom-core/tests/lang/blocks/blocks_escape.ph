@@ -6,7 +6,7 @@
 // the escaped block keeps working and keeps incrementing shared state.
 const makeCounter = || {
   let count = 0
-  { count = count + 1 }
+  || { count = count + 1 }
 }
 
 const counter = makeCounter.call()

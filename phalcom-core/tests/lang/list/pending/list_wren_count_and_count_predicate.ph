@@ -9,13 +9,13 @@
 // not today's behavior — `List` has no `count` selector yet (`size` is the
 // only element-count getter currently defined).
 
-System.print(List.new().count)
-System.print(List.new().add(1).count)
+System.print([].count)
+System.print([1].count)
 
-const a = List.new()
-a.add(1)
-a.add(2)
-a.add(3)
+const a = []
+a.append(1)
+a.append(2)
+a.append(3)
 System.print(a.count |x| { x > 3 })
 System.print(a.count |x| { x > 1 })
-System.print(List.new().count |x| { true })
+System.print([].count |x| { true })

@@ -401,8 +401,8 @@ fn ensure_outcome_survives_collecting_cleanup() {
         module,
         r#"
         let result = || {
-          let protectedList = List.new()
-          protectedList.add(7)
+          let protectedList = []
+          protectedList.append(7)
           protectedList
         }.ensure(|| {
           let i = 0

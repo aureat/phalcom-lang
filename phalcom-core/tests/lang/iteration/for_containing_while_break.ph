@@ -2,7 +2,7 @@
 // `for` — `break` inside the `while` body leaves only the `while`; the `for`
 // keeps iterating its own elements. Over a=[1,2]: each `a` prints, then the
 // nested `while` counts up and breaks at count==2, then "outer" prints.
-for (a in List.new().add(1).add(2)) {
+for (a in [1, 2]) {
   System.print(a)
   let count = 0
   while (count < 5) {

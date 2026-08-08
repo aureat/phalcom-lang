@@ -40,7 +40,7 @@ class Stack {
 
   // Higher-order method: fold with a caller-supplied 2-arity block.
   fold(_ seed, _ f) {
-    return _items.reduce(seed) |acc, x| { f.call(acc, x) }
+    return _items.fold(initial: seed) |acc, x| { f.call(acc, x) }
   }
 
   // Operator overloading: `+` concatenates two stacks.

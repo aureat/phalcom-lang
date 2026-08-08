@@ -14,4 +14,4 @@ class Mover {
 const m = Mover.new()
 const method = m.methodFor(#move(_,to,duration))
 System.print(method.selector.toString)
-System.print(method.invokeOn(m, List.new().add("A").add("B").add(3)))
+System.print(method.invokeOn(m, ["A", "B", 3]))

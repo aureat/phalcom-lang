@@ -1589,6 +1589,15 @@ impl VM {
                     let range = self.heap.alloc_range(lower, upper, upper_inclusive);
                     self.stack.push(Value::Obj(range));
                 }
+                Bytecode::BuildList(count) => {
+                    let mut elements = Vec::with_capacity(count as usize);
+                    for _ in 0..count {
+                        elements.push(self.pop()?);
+                    }
+                    elements.reverse();
+                    let list = self.heap.alloc_list(elements);
+                    self.stack.push(Value::Obj(list));
+                }
             }
             #[cfg(feature = "vm-trace")]
             debug!("Stack after opcode {:?}: {:?}", opcode, self.stack);

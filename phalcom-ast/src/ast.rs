@@ -692,6 +692,8 @@ pub enum Expr {
     MapLiteral(Box<MapLiteralExpr>),
     /// A Set literal written with `{ value, ... }` syntax.
     SetLiteral(Box<SetLiteralExpr>),
+    /// A List literal written with `[ value, ... ]` syntax.
+    ListLiteral(Box<ListLiteralExpr>),
 }
 
 impl Expr {
@@ -729,6 +731,7 @@ impl Expr {
             Expr::RecordLiteral(e) => e.range,
             Expr::MapLiteral(e) => e.range,
             Expr::SetLiteral(e) => e.range,
+            Expr::ListLiteral(e) => e.range,
         }
     }
 }
@@ -1043,6 +1046,19 @@ pub struct SetLiteralExpr {
 /// `Expansion` is reserved for Spec F, parallel to Map literal entries.
 #[derive(Debug, Clone)]
 pub enum SetLiteralEntry {
+    Element { expr: Expr, range: SourceRange },
+    Expansion { expr: Expr, range: SourceRange },
+}
+
+#[derive(Debug, Clone)]
+pub struct ListLiteralExpr {
+    pub elements: Vec<ListLiteralElement>,
+    pub range: SourceRange,
+}
+
+/// `Expansion` is reserved for Spec F, parallel to Map/Set literal elements/entries.
+#[derive(Debug, Clone)]
+pub enum ListLiteralElement {
     Element { expr: Expr, range: SourceRange },
     Expansion { expr: Expr, range: SourceRange },
 }

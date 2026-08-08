@@ -14,10 +14,10 @@ class Scanner {
     return None
   }
 }
-const numbers = List.new()
-numbers.add(1)
-numbers.add(5)
-numbers.add(9)
-numbers.add(2)
+const numbers = []
+numbers.append(1)
+numbers.append(5)
+numbers.append(9)
+numbers.append(2)
 System.print(Scanner.new().firstOver(numbers, 4))
 System.print("after")

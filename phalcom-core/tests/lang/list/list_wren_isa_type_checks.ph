@@ -6,7 +6,7 @@
 // not extend a shared `Iterable` root in this build, so the `Sequence`
 // membership check has no Phalcom analog and is dropped here).
 
-const l = List.new()
+const l = []
 System.print(l.isA(List))
 System.print(l.isA(Object))
 System.print(l.isA(Bool))

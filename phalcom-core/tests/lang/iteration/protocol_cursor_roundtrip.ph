@@ -3,7 +3,7 @@
 // `while` over `iterate(_)`/`iteratorValue(_)`. Proves the `.ph` contract:
 // `iterate(None)` starts at 0, advances, and reports `None` past the
 // end; `iteratorValue(_)` round-trips `at(_)`.
-const xs = List.new().add(7).add(8)
+const xs = [7, 8]
 System.print(xs.iterate(None))          // 0
 System.print(xs.iterate(0))             // 1
 System.print(xs.iterate(1))             // None (past end)

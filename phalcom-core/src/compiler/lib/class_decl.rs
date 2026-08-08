@@ -7,7 +7,7 @@ use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
 use phalcom_ast::ast::{
-    Argument, AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, Expr, IndexAccessor, MapLiteralEntry, MapLiteralKey, MethodCallExpr, SetLiteralEntry,
+    Argument, AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, Expr, IndexAccessor, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, SetLiteralEntry,
     Statement,
 };
 use phalcom_common::range::SourceRange;
@@ -1190,6 +1190,13 @@ fn collect_assigned_fields(expr: &Expr, fields: &mut Vec<Symbol>, interner: &mut
             for entry in &set.entries {
                 match entry {
                     SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => collect_assigned_fields(expr, fields, interner),
+                }
+            }
+        }
+        Expr::ListLiteral(list) => {
+            for element in &list.elements {
+                match element {
+                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => collect_assigned_fields(expr, fields, interner),
                 }
             }
         }

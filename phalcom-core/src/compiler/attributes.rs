@@ -121,7 +121,7 @@ pub trait AttributeExpander {
     fn expand(&self, ctx: &mut ExpandCtx, member: &mut ClassMember, args: &[Expr]) -> Result<(), CompilerError>;
 }
 
-use phalcom_ast::ast::{Argument, BindingKind, BlockExpr, LetBinding, MapLiteralEntry, MapLiteralKey, MethodCallExpr, Pattern, SetLiteralEntry, Statement};
+use phalcom_ast::ast::{Argument, BindingKind, BlockExpr, LetBinding, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, Pattern, SetLiteralEntry, Statement};
 use phalcom_common::range::SourceRange;
 
 fn is_pure_expr(expr: &Expr) -> bool {
@@ -140,7 +140,7 @@ fn is_pure_expr(expr: &Expr) -> bool {
         Expr::Binary(b) => is_pure_expr(&b.left) && is_pure_expr(&b.right),
         Expr::MethodCall(m) => {
             // impure list: mutable sends like add, remove, put, or setter name=
-            let impure_names = ["add", "remove", "put"];
+            let impure_names = ["add", "remove", "put", "append", "prepend", "clear", "insert", "popFirst", "popLast", "removeAll", "swap"];
             if impure_names.contains(&m.method.as_str()) || m.method.ends_with('=') {
                 return false;
             }
@@ -162,6 +162,10 @@ fn is_pure_expr(expr: &Expr) -> bool {
         Expr::SetLiteral(set) => set.entries.iter().all(|entry| match entry {
             SetLiteralEntry::Element { expr, .. } => is_pure_expr(expr),
             SetLiteralEntry::Expansion { .. } => false,
+        }),
+        Expr::ListLiteral(list) => list.elements.iter().all(|element| match element {
+            ListLiteralElement::Element { expr, .. } => is_pure_expr(expr),
+            ListLiteralElement::Expansion { .. } => false,
         }),
         Expr::Block(b) => b.body.iter().all(|s| match s {
             Statement::Expr { expr, .. } => is_pure_expr(expr),
@@ -208,6 +212,9 @@ fn contains_old_call(expr: &Expr) -> bool {
         }),
         Expr::SetLiteral(set) => set.entries.iter().any(|entry| match entry {
             SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => contains_old_call(expr),
+        }),
+        Expr::ListLiteral(list) => list.elements.iter().any(|element| match element {
+            ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => contains_old_call(expr),
         }),
         _ => false,
     }
@@ -475,6 +482,13 @@ fn rewrite_old_calls(expr: &mut Expr, old_lets: &mut Vec<Statement>) -> Result<(
             for entry in &mut set.entries {
                 match entry {
                     SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => rewrite_old_calls(expr, old_lets)?,
+                }
+            }
+        }
+        Expr::ListLiteral(list) => {
+            for element in &mut list.elements {
+                match element {
+                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => rewrite_old_calls(expr, old_lets)?,
                 }
             }
         }

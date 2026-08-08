@@ -1,11 +1,6 @@
 // area: sequence
 // spec: iteration.md §5; ADR-0035
 // status: PASS
-// SkipView raises Error when count is negative
+// Iterator skip rejects a negative count
 
-try {
-  SkipView.new([1, 2, 3], -1)
-  System.print("ERROR: no exception")
-} on (Error) |e| {
-  System.print(e.class.name)
-}
+[1, 2, 3].iter.skip(-1)

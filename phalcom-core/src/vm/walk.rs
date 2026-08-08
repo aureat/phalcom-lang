@@ -336,13 +336,16 @@ mod tests {
         let module = vm.create_module("main", "walk_orders_oldest_first_with_selector_shaped_names");
         let source = "\
 class Cart {
-  total(_ items) { items.reduce(0) |acc, it| { acc + it.missingSelector } }
+  total(_ items) { items.fold(initial: 0) |acc, it| { acc + it.missingSelector } }
 }
 const cart = Cart.new()
 const result = cart.total([1, 2, 3])
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         let result = vm.run_in_module(module, closure);
+        if let Err(ref e) = result {
+            println!("WALK TEST ERROR: {:?}", e);
+        }
         assert!(result.is_err(), "the block's `it.missingSelector` send must raise");
 
         let views: Vec<FrameView> = vm.walk().collect();

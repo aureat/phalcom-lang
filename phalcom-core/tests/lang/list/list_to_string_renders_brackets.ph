@@ -4,8 +4,8 @@
 // `toString` renders as `"[e1, e2, e3]"`. A native primitive this unit (not
 // `.ph`-defined over `each`) — see the U-LIST return contract for why.
 
-const l = List.new()
-l.add(1)
-l.add(2)
-l.add(3)
+const l = []
+l.append(1)
+l.append(2)
+l.append(3)
 System.print(l.toString)

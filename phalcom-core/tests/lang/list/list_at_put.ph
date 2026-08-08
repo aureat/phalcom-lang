@@ -5,10 +5,10 @@
 // primitive — selector `at(_:put:)`, matching `set_`'s arity — writing
 // `put` at index `i` and returning `self` so writes chain.
 
-const l = List.new()
-l.add(10)
-l.add(20)
-l.add(30)
+const l = []
+l.append(10)
+l.append(20)
+l.append(30)
 l.at(1, put: 99)
 System.print(l.at(1))
 System.print(l.at(0))

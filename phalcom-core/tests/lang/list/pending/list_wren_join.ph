@@ -8,11 +8,11 @@
 // Pinning the Wren-mirrored default (no-arg `join` behaves as `join("")`)
 // as the intended surface.
 
-System.print(List.new().join(",") == "")
+System.print([].join(",") == "")
 
-const a = List.new()
-a.add(1)
-a.add(2)
-a.add(3)
+const a = []
+a.append(1)
+a.append(2)
+a.append(3)
 System.print(a.join(""))
 System.print(a.join())

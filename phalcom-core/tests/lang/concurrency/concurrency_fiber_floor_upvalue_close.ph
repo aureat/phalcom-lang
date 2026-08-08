@@ -10,7 +10,7 @@
 let leak = || { 0 }
 let b = Fiber.new || {
   let x = 42
-  leak = { x }
+  leak = || { x }
   Fiber.abort(Error.new())
 }
 b.try()

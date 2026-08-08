@@ -8,4 +8,4 @@ class Adder {
   }
 }
 const args = [1, 2, 3]
-System.print(Adder.new().add(*args))
+System.print(Adder.new().append(*args))

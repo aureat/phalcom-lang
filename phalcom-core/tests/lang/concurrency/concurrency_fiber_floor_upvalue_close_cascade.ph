@@ -12,7 +12,7 @@ let inner = Fiber.new || {
 }
 let outer = Fiber.new || {
   let z = 7
-  leak = { z }
+  leak = || { z }
   inner.call()
 }
 outer.try()

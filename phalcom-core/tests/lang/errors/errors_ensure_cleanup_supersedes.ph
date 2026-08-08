@@ -13,5 +13,5 @@ class SecondErr is Error {
   new(_ msg) { super.new(msg) }
 }
 
-const r = || { { throw FirstErr.new("first") }.ensure || { throw SecondErr.new("second") } }.on(Error) |e| { e.message }
+const r = || { || { throw FirstErr.new("first") }.ensure || { throw SecondErr.new("second") } }.on(Error) |e| { e.message }
 System.print(r)

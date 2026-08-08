@@ -6,9 +6,9 @@
 // instead of shared across calls). Before this fix all three closures shared
 // one open upvalue cell and printed [3, 3, 3]; each iteration now closes its
 // own cell before rebinding, so calling them afterward prints [0, 1, 2].
-let closures = List.new()
-for (x in List.new().add(0).add(1).add(2)) {
-  closures.add(|| { x })
+let closures = []
+for (x in [0, 1, 2]) {
+  closures.append(|| { x })
 }
 for (c in closures) {
   System.print(c.call())

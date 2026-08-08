@@ -1,13 +1,13 @@
 // area: sequence
 // spec: iteration.md §5; ADR-0035
 // status: PASS
-// SkipView skips first n elements
+// Iterator skip skips first n elements
 
 let source = [1, 2, 3, 4, 5]
-let view = SkipView.new(source, 2)
+let view = source.iter.skip(2)
 let result = []
 for (x in view) {
-  result.add(x)
+  result.append(x)
 }
 System.print(result.at(0))
 System.print(result.at(1))

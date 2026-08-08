@@ -13,13 +13,13 @@ class Basket {
   _owner
 }
 
-const items = List.new()
-items.add("apple")
+const items = []
+items.append("apple")
 
 const source = Basket.new(items: items, owner: "alice")
 const copy = source.with(items: None, owner: "bob")
 
-copy.items.add("banana")
+copy.items.append("banana")
 
 System.print(source.items)
 System.print(copy.items)

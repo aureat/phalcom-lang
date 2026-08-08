@@ -1,0 +1,46 @@
+--- fold ---
+10
+20
+--- group(by:) ---
+0
+2
+[2, 4, 6]
+[1, 3, 5]
+6
+--- partition(where:) ---
+0
+0
+true
+[1, 2, 3]
+[]
+[]
+[1, 2, 3]
+[2, 4]
+[1, 3]
+--- toList ---
+true
+3
+4
+--- toSet ---
+4
+true
+true
+true
+true
+false
+--- toMap ---
+true
+2
+1
+2
+true
+true
+a
+Duplicate key: a
+true
+true
+--- toMap(merging:) ---
+{a: 11, b: 22, c: 3}
+11
+22
+3

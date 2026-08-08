@@ -5,16 +5,16 @@
 // duplicate second key aborts construction before either expression in the
 // third association can run.
 
-let trace = List.new()
-const key1 = || { trace.add("key1"); #same }
-const value1 = || { trace.add("value1"); 1 }
-const key2 = || { trace.add("key2"); #same }
-const value2 = || { trace.add("value2"); 2 }
-const laterKey = || { trace.add("later-key"); #later }
-const laterValue = || { trace.add("later-value"); 3 }
+let trace = []
+const key1 = || { trace.append("key1"); #same }
+const value1 = || { trace.append("value1"); 1 }
+const key2 = || { trace.append("key2"); #same }
+const value2 = || { trace.append("value2"); 2 }
+const laterKey = || { trace.append("later-key"); #later }
+const laterValue = || { trace.append("later-value"); 3 }
 
 const caught = || {
-  const ignored = || {
+  const ignored = {
     [key1.call()]: value1.call(),
     [key2.call()]: value2.call(),
     [laterKey.call()]: laterValue.call(),

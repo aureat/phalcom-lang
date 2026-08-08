@@ -5,10 +5,10 @@
 // iteration, exactly like `blocks_shared_mutation.ph`. Closures captured over
 // it all alias the SAME open upvalue cell, so calling them after the loop
 // prints the counter's FINAL value three times ([3, 3, 3]), not [0, 1, 2].
-let closures = List.new()
+let closures = []
 let i = 0
 while (i < 3) {
-  closures.add(|| { i })
+  closures.append(|| { i })
   i = i + 1
 }
 for (c in closures) {

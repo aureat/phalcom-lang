@@ -4,11 +4,11 @@
 // U-STD: `includes(_)` is `true` iff some element is `== x`; `isEmpty` is
 // `self.size == 0`. Both conditions are well-formed `Bool`s (ADR-0021).
 
-const l = List.new()
-l.add(1)
-l.add(2)
-l.add(3)
+const l = []
+l.append(1)
+l.append(2)
+l.append(3)
 System.print(l.includes(2))
 System.print(l.includes(9))
-System.print(List.new().isEmpty)
+System.print([].isEmpty)
 System.print(l.isEmpty)

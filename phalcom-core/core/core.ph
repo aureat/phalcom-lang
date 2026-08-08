@@ -111,7 +111,14 @@ class SliceError is Error {}
 // Raised while building an association Map literal when a logically equal key
 // was already contributed. Ordinary post-construction Map insertion still
 // overwrites by design.
-class DuplicateKeyError is Error {}
+class DuplicateKeyError is Error {
+  @constructor
+  new(_ key) {
+    super.new("Duplicate key: " + key.toString)
+    _key = key
+  }
+  key => _key
+}
 
 class Number {}
 
@@ -261,14 +268,14 @@ class String {
     let prev = 0
     let i = self.indexOf(delimiter)
     while (i != -1) {
-      result.add(self._$slice(prev, i))
+      result._$push(self._$slice(prev, i))
       prev = i + delimiter._$byteCount
       // Search for next occurrence after this delimiter
       let rest = self._$slice(prev, self._$byteCount)
       let nextIdx = rest.indexOf(delimiter)
       (nextIdx == -1).ifTrue(|| { i = -1 }, ifFalse: || { i = prev + nextIdx })
     }
-    result.add(self._$slice(prev, self._$byteCount))
+    result._$push(self._$slice(prev, self._$byteCount))
     return result
   }
 
@@ -719,13 +726,31 @@ class Iterable {
   // `self.each` — `Map` overrides `each` with an incompatible 2-arity (k, v)
   // selector (DEC-CT-E); routing these through `self.each` would silently call a
   // 1-arity block with 2 arguments the moment `Map` inherits them. See the rubric.
-  // U-SEQ DEC-SEQ-A branch (A): `map` is redefined lazy (was eager List-returning under U-ITERABLE —
-  // BREAKING, see plan.md §8 migration-audit gate). Migration audit scope: core.ph, examples/*.ph,
-  // test fixtures. Note: benchmarks/ outside audit scope; any broken .map() calls there require
-  // manual .toList() repair. `filter` is NOT touched (stays the eager U-ITERABLE selector);
-  // `where` is the new Wren-parity lazy filter. `.toList` is the materializer for all of them.
+  // Concrete Iterable transforms are eager. Lazy transforms live behind `.iter`,
+  // so the receiver makes evaluation timing visible at every call site.
   map(_ f) {
-    return MapView.new(self, f)
+    let result = List.new()
+    let c = self.iterate(None)
+    while (c != None) {
+      result.append(f.call(self.iteratorValue(c)))
+      c = self.iterate(c)
+    }
+    return result
+  }
+
+  flatMap(_ f) {
+    let result = List.new()
+    let outer = self.iterate(None)
+    while (outer != None) {
+      let inner = f.call(self.iteratorValue(outer))
+      let ic = inner.iterate(None)
+      while (ic != None) {
+        result.append(inner.iteratorValue(ic))
+        ic = inner.iterate(ic)
+      }
+      outer = self.iterate(outer)
+    }
+    return result
   }
 
   filter(_ pred) {
@@ -733,7 +758,7 @@ class Iterable {
     let c = self.iterate(None)
     while (c != None) {
       let x = self.iteratorValue(c)
-      pred.call(x).ifTrue(|| { result.add(x) }, ifFalse: || { None })
+      pred.call(x).ifTrue(|| { result.append(x) }, ifFalse: || { None })
       c = self.iterate(c)
     }
     return result
@@ -815,23 +840,99 @@ class Iterable {
     return result
   }
 
-  toList {
-    let result = List.new()
-    for (x in self) { result.add(x) }
+  fold(_ initial, _ f) {
+    let acc = initial
+    for (x in self) {
+      acc = f.call(acc, x)
+    }
+    return acc
+  }
+
+  fold(_ initial, using block) => self.fold(initial, block)
+
+  group(by block) {
+    let result = Map.new()
+    for (x in self) {
+      let key = block.call(x)
+      let list = result.get(key).match(
+        some: |list| { list },
+        none: || {
+          let new_list = List.new()
+          result.insert(new_list, for: key)
+          new_list
+        }
+      )
+      list.append(x)
+    }
     return result
   }
 
-  where(_ pred) {
-    return WhereView.new(self, pred)
+  partition(where predicate) {
+    let accepted = List.new()
+    let rejected = List.new()
+    for (x in self) {
+      predicate.call(x).ifTrue(|| { accepted.append(x) }, ifFalse: || { rejected.append(x) })
+    }
+    return (accepted, rejected)
   }
 
-  skip(_ n) {
-    return SkipView.new(self, n)
+  toSet {
+    let result = Set.new()
+    for (x in self) {
+      result.add(x)
+    }
+    return result
   }
 
-  take(_ n) {
-    return TakeView.new(self, n)
+  toMap {
+    let result = Map.new()
+    for (entry in self) {
+      let key = entry.key
+      if (result.includes(key)) {
+        return Err.new(DuplicateKeyError.new(key))
+      }
+      result.insert(entry.value, for: key)
+    }
+    return Ok.new(result)
   }
+
+  toMap(merging block) {
+    let result = Map.new()
+    for (entry in self) {
+      let key = entry.key
+      let val = entry.value
+      result.get(key).match(
+        some: |existingVal| {
+          let merged = block.call(existingVal, val)
+          result.insert(merged, for: key)
+        },
+        none: || {
+          result.insert(val, for: key)
+        }
+      )
+    }
+    return result
+  }
+
+  toList {
+    let result = List.new()
+    for (x in self) { result.append(x) }
+    return result
+  }
+
+  iter => SourceIterator.new(self)
+}
+
+// Stateless lazy pipeline root. Traversal state is carried only in cursors,
+// allowing one pipeline instance to be traversed independently and repeatedly.
+class Iterator is Iterable {
+  iter => self
+  map(_ f) => MapIterator.new(self, f)
+  filter(_ pred) => FilterIterator.new(self, pred)
+  flatMap(_ f) => FlatMapIterator.new(self, f)
+  skip(_ n) => SkipIterator.new(self, n)
+  take(_ n) => TakeIterator.new(self, n)
+  takeWhile(_ pred) => TakeWhileIterator.new(self, pred)
 }
 
 class List {
@@ -864,7 +965,7 @@ class List {
         let result = List.new()
         let i = start
         while (i < end) {
-          result.add(self._$at(i))
+          result._$push(self._$at(i))
           i = i + 1
         }
         result
@@ -907,9 +1008,100 @@ class List {
     return orElse.call(index)
   }
 
-  add(_ v) {
-    self._$push(v)
-    return self
+  append(_ value) {
+    self._$push(value)
+    return ()
+  }
+
+  prepend(_ value) {
+    let oneElementList = [value]
+    self._$replaceSlice(0, 0, oneElementList)
+    return ()
+  }
+
+  clear {
+    let emptyList = []
+    self._$replaceSlice(0, self.size, emptyList)
+    return ()
+  }
+
+  insert(_ value, at index) {
+    let n = self.size
+    let p = index
+    if (p < 0) { p = n + p }
+    if (p < 0 or p > n) {
+      return Err.new(IndexError.new("List#insert: index out of bounds"))
+    }
+    let oneElementList = [value]
+    self._$replaceSlice(p, p, oneElementList)
+    return Ok.new(())
+  }
+
+  remove(at index) {
+    let n = self.size
+    let p = index
+    if (p < 0) { p = n + p }
+    if (p < 0 or p >= n) {
+      return Err.new(IndexError.new("List#remove: index out of bounds"))
+    }
+    let captured = self._$at(p)
+    let emptyList = []
+    self._$replaceSlice(p, p + 1, emptyList)
+    return Ok.new(captured)
+  }
+
+  popFirst {
+    let n = self.size
+    if (n == 0) { return None }
+    let captured = self._$at(0)
+    let emptyList = []
+    self._$replaceSlice(0, 1, emptyList)
+    return Some.new(captured)
+  }
+
+  popLast {
+    let n = self.size
+    if (n == 0) { return None }
+    let captured = self._$at(n - 1)
+    let emptyList = []
+    self._$replaceSlice(n - 1, n, emptyList)
+    return Some.new(captured)
+  }
+
+  removeAll(where predicate) {
+    let retained = List.new()
+    let count = 0
+    for (x in self) {
+      if (predicate.call(x)) {
+        count = count + 1
+      } else {
+        retained._$push(x)
+      }
+    }
+    self._$replaceSlice(0, self.size, retained)
+    return count
+  }
+
+  swap(first a, second b) {
+    let n = self.size
+    let idxA = a
+    if (idxA < 0) { idxA = n + idxA }
+    if (idxA < 0 or idxA >= n) {
+      return Err.new(IndexError.new("List#swap: first index out of bounds"))
+    }
+    let idxB = b
+    if (idxB < 0) { idxB = n + idxB }
+    if (idxB < 0 or idxB >= n) {
+      return Err.new(IndexError.new("List#swap: second index out of bounds"))
+    }
+    if (idxA == idxB) {
+      return Ok.new(())
+    }
+    let valA = self._$at(idxA)
+    let valB = self._$at(idxB)
+    self._$set(idxA, valB)
+    self._$set(idxB, valA)
+    return Ok.new(())
   }
 
   // U-STD item 4 (U-ITER-FIX plan §"Not in this unit", DEC-ITER-A resolved):
@@ -1562,55 +1754,44 @@ class Range is Iterable {
     return Ok.new((start, end))
   }
 
-  // iterate and iteratorValue for forward integer iteration (E.2)
+  // iterate and iteratorValue for forward integer iteration (E.2).
+  // The cursor is the current yielded integer value, not an offset from lower.
   iterate(_ previous) {
     let lowerOpt = self._$lower
     let upperOpt = self._$upper
 
     // lower is required for iteration
     lowerOpt.isNone.ifTrue || {
-      throw Error.new("Range iteration unsupported when lower bound is absent")
+      throw ArgumentError.new("Range iteration unsupported when lower bound is absent")
     }
     let lower = lowerOpt.unwrapOr(None)
     (self.isSliceCoordinate(lower)).ifFalse || {
-      throw Error.new("Range iteration unsupported: lower bound must be an integer")
+      throw ArgumentError.new("Range iteration unsupported: lower bound must be an integer")
     }
 
     let hasUpper = upperOpt.isSome
     let upper = hasUpper.ifTrue(|| { upperOpt.unwrapOr(None) }, ifFalse: || { None })
     hasUpper.ifTrue || {
       (self.isSliceCoordinate(upper)).ifFalse || {
-        throw Error.new("Range iteration unsupported: upper bound must be an integer")
+        throw ArgumentError.new("Range iteration unsupported: upper bound must be an integer")
+      }
+      (lower > upper).ifTrue || {
+        throw ArgumentError.new("Range iteration unsupported: lower bound exceeds upper (descending traversal not supported)")
       }
     }
 
-    // empty ascending check: return None if lower > upper (or lower == upper for exclusive)
-    let inclusive = self._$upperInclusive
-    let isEmpty = hasUpper.ifTrue(|| {
-      inclusive.ifTrue(|| { lower > upper }, ifFalse: || { lower >= upper })
-    }, ifFalse: || { false })
-    if (isEmpty) {
-      return None
-    }
-
-    let nextCursor = (previous == None).ifTrue(|| { 0 }, ifFalse: || { previous + 1 })
+    let candidate = (previous == None).ifTrue(|| { lower }, ifFalse: || { previous + 1 })
 
     hasUpper.ifFalse || {
-      return nextCursor
+      return candidate
     }
 
-    let currentVal = lower + nextCursor
-    let live = inclusive.ifTrue(|| { currentVal <= upper }, ifFalse: || { currentVal < upper })
-    return live.ifTrue(|| { nextCursor }, ifFalse: || { None })
+    let inclusive = self._$upperInclusive
+    let live = inclusive.ifTrue(|| { candidate <= upper }, ifFalse: || { candidate < upper })
+    return live.ifTrue(|| { candidate }, ifFalse: || { None })
   }
 
-  iteratorValue(_ cursor) {
-    let lowerOpt = self._$lower
-    lowerOpt.isNone.ifTrue || {
-      throw Error.new("Range has no lower bound")
-    }
-    return lowerOpt.unwrapOr(None) + cursor
-  }
+  iteratorValue(_ cursor) => cursor
 
   // first, last, size, includes (Spec E.2 / Range specs)
   first {
@@ -1688,7 +1869,7 @@ class Range is Iterable {
     let upperOpt = self._$upper
     let lowerStr = lowerOpt.isNone.ifTrue(|| { "" }, ifFalse: || { lowerOpt.unwrapOr(None).toString })
     let upperStr = upperOpt.isNone.ifTrue(|| { "" }, ifFalse: || { upperOpt.unwrapOr(None).toString })
-    let op = self._$upperInclusive.ifTrue(|| { ".." }, ifFalse: || { "..." })
+    let op = self._$upperInclusive.ifTrue(|| { "..=" }, ifFalse: || { ".." })
     return lowerStr + op + upperStr
   }
 
@@ -1881,7 +2062,7 @@ class Bytes {
   toList {
     const out = []
     for (b in self) {
-      out.add(b)
+      out.append(b)
     }
     return out
   }
@@ -2070,7 +2251,7 @@ class Path {
         while ((i < len) and (_bytes.at(i) != 47)) {
           i = i + 1
         }
-        res.add(Path.ofBytes(_bytes.slice(start, i)))
+        res.append(Path.ofBytes(_bytes.slice(start, i)))
       }
     }
     return res
@@ -2080,19 +2261,20 @@ class Path {
 }
 
 
-// Lazy view classes (wren_core.wren MapSequence/WhereSequence/SkipSequence L121-152, 168-182), ported
-// to Phalcom's bare-cursor protocol (post-U-ITERABLE: `iterate` returns the raw next cursor, or the
-// `None` singleton at exhaustion — never Some-wrapped). `extends Iterable` so combinators, `for`,
-// and every other view work on a view for free.
+// Explicit lazy iterator stages. Each is an ordinary `.ph` wrapper over the
+// cursor protocol; no stage stores traversal state on its instance.
+class SourceIterator is Iterator {
+  @constructor
+  new(_ source) {
+    _source = source
+  }
+  iterate(_ cursor) => _source.iterate(cursor)
+  iteratorValue(_ cursor) => _source.iteratorValue(cursor)
+}
 
-class MapView is Iterable {
+class MapIterator is Iterator {
   @constructor
   new(_ source, _ f) {
-    // Note: validation of f as callable defers to iteratorValue() time to preserve
-    // lazy evaluation semantics (no side effects at map construction, only on iteration).
-    // Error timing: [1,2,3].map("not-a-function") succeeds at construction time but
-    // fails during iteration with "does not understand 'call(_)'". This is intentional;
-    // contrast with SkipView/TakeView which validate counts eagerly at construction.
     _source = source
     _f = f
   }
@@ -2100,72 +2282,109 @@ class MapView is Iterable {
   iteratorValue(_ cursor) => _f.call(_source.iteratorValue(cursor))
 }
 
-class WhereView is Iterable {
+class FilterIterator is Iterator {
   @constructor
   new(_ source, _ pred) {
     _source = source
     _pred = pred
   }
   iterate(_ cursor) {
-    // Cost: O(selectivity) per element returned. The while-loop scans through non-matching
-    // source elements to find each match. For highly selective predicates, scanning cost
-    // compounds: [1..1M].where(x > 999900).take(10) requires ~999k inner iterations.
-    // This is the correct tradeoff of lazy evaluation (no intermediate collection) for
-    // CPU (scan through non-matches). For eager filtering, use filter() instead.
-    let cur = cursor
-    while (true) {
+    let cur = _source.iterate(cursor)
+    while (cur != None) {
+      if (_pred.call(_source.iteratorValue(cur))) { return cur }
       cur = _source.iterate(cur)
-      (cur == None).ifTrue || { return None }
-      _pred.call(_source.iteratorValue(cur)).ifTrue || { return cur }
     }
+    return None
   }
   iteratorValue(_ cursor) => _source.iteratorValue(cursor)
 }
 
-class SkipView is Iterable {
+class SkipIterator is Iterator {
   @constructor
-  new(_ source, _ count) {
-    (count.isA(Number) and (count >= 0)).ifFalse || {
-      throw Error("skip: count must be a non-negative Number")
+  new(_ source, _ n) {
+    (n.isA(Number) and n >= 0 and n % 1 == 0).ifFalse || {
+      throw ArgumentError.new("skip: n must be a non-negative integer")
     }
     _source = source
-    _count = count
+    _n = n
   }
   iterate(_ cursor) {
-    (cursor != None).ifTrue || { return _source.iterate(cursor) }
+    if (cursor != None) { return _source.iterate(cursor) }
     let cur = _source.iterate(None)
-    let n = _count
-    while ((n > 0) and (cur != None)) {
+    let rem = _n
+    while (cur != None and rem > 0) {
       cur = _source.iterate(cur)
-      n = n - 1
+      rem = rem - 1
     }
     return cur
   }
   iteratorValue(_ cursor) => _source.iteratorValue(cursor)
 }
 
-class TakeView is Iterable {
+class TakeIterator is Iterator {
   @constructor
-  new(_ source, _ count) {
-    (count.isA(Number) and (count >= 0)).ifFalse || {
-      throw Error("take: count must be a non-negative Number")
+  new(_ source, _ n) {
+    (n.isA(Number) and n >= 0 and n % 1 == 0).ifFalse || {
+      throw ArgumentError.new("take: n must be a non-negative integer")
     }
     _source = source
-    _count = count
+    _n = n
   }
   iterate(_ cursor) {
-    let srcCursor = None
-    let taken = 0
-    (cursor != None).ifTrue || {
-      srcCursor = cursor.at(0)
-      taken = cursor.at(1)
+    if (_n == 0) { return None }
+    if (cursor == None) {
+      let up = _source.iterate(None)
+      if (up == None) { return None }
+      return (up, 1)
     }
-    ((taken + 1) > _count).ifTrue || { return None }
-    let next = _source.iterate(srcCursor)
-    (next == None).ifTrue || { return None }
-    return (next, taken + 1)
+    let up = cursor.at(0)
+    let yielded = cursor.at(1)
+    if (yielded >= _n) { return None }
+    let next = _source.iterate(up)
+    if (next == None) { return None }
+    return (next, yielded + 1)
   }
   iteratorValue(_ cursor) => _source.iteratorValue(cursor.at(0))
+}
+
+class TakeWhileIterator is Iterator {
+  @constructor
+  new(_ source, _ pred) { _source = source; _pred = pred }
+  iterate(_ cursor) {
+    let cand = _source.iterate(cursor)
+    if (cand == None) { return None }
+    if (_pred.call(_source.iteratorValue(cand))) { return cand }
+    return None
+  }
+  iteratorValue(_ cursor) => _source.iteratorValue(cursor)
+}
+
+class FlatMapIterator is Iterator {
+  @constructor
+  new(_ source, _ f) { _source = source; _f = f }
+
+  @private
+  seekFromOuter(_ outerCursor) {
+    let oc = outerCursor
+    while (oc != None) {
+      let inner = _f.call(_source.iteratorValue(oc))
+      let ic = inner.iterate(None)
+      if (ic != None) { return (oc, inner, ic) }
+      oc = _source.iterate(oc)
+    }
+    return None
+  }
+
+  iterate(_ cursor) {
+    if (cursor == None) { return self.seekFromOuter(_source.iterate(None)) }
+    let outer = cursor.at(0)
+    let inner = cursor.at(1)
+    let ic = cursor.at(2)
+    let nextIc = inner.iterate(ic)
+    if (nextIc != None) { return (outer, inner, nextIc) }
+    return self.seekFromOuter(_source.iterate(outer))
+  }
+  iteratorValue(_ cursor) => cursor.at(1).iteratorValue(cursor.at(2))
 }
 
 class System {
@@ -2360,7 +2579,7 @@ class Future {
           f.try()
         }
       } else {
-        _waiters.add(Fiber.current)
+        _waiters._$push(Fiber.current)
         Fiber.yield(None)
       }
     }
@@ -2411,7 +2630,7 @@ class Future {
       }
     } else {
       const f_next = Future.new()
-      _waiters.add(|| {
+      _waiters._$push(|| {
         if (_state == "fulfilled") {
           const fib = Fiber.new(|| { f.call(_value) })
           const res = fib.try()
@@ -2440,7 +2659,7 @@ class Future {
       }
     } else {
       const f_next = Future.new()
-      _waiters.add(|| {
+      _waiters._$push(|| {
         if (_state == "fulfilled") {
           const fib = Fiber.new(|| { f.call(_value) })
           const res = fib.try()
@@ -2470,7 +2689,7 @@ class Future {
       }
     } else {
       const f_next = Future.new()
-      _waiters.add(|| {
+      _waiters._$push(|| {
         if (_state == "rejected") {
           const fib = Fiber.new(|| { f.call(_value) })
           const res = fib.try()
@@ -2696,7 +2915,7 @@ class BytesWriter is Resource {
     self.isClosed.ifTrue || {
       throw UseAfterCloseError.new("cannot write to closed BytesWriter")
     }
-    _chunks.add(src.slice(0, src.size))
+    _chunks._$push(src.slice(0, src.size))
     return Future.value(src.size)
   }
 

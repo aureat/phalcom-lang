@@ -15,10 +15,10 @@ class Finder {
     return None
   }
 }
-const numbers = List.new()
-numbers.add(-4)
-numbers.add(3)
-numbers.add(7)
-numbers.add(8)
-numbers.add(10)
+const numbers = []
+numbers.append(-4)
+numbers.append(3)
+numbers.append(7)
+numbers.append(8)
+numbers.append(10)
 System.print(Finder.new().findFirstEven(numbers))

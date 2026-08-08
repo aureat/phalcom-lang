@@ -15,7 +15,7 @@ while (i < 2) {
 }
 
 let j = 0
-{ j < 2 }.whileTrue || {
+|| { j < 2 }.whileTrue || {
   System.print(j)
   j = j + 1
 }

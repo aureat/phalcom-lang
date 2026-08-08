@@ -9,11 +9,11 @@
 // elements remain, `None` once exhausted; an empty list yields `None`
 // immediately.
 
-const a = List.new()
-a.add("one")
-a.add("two")
-a.add("three")
-a.add("four")
+const a = []
+a.append("one")
+a.append("two")
+a.append("three")
+a.append("four")
 System.print(a.iterate(None))
 System.print(a.iterate(0))
 System.print(a.iterate(1))
@@ -21,4 +21,4 @@ System.print(a.iterate(2))
 System.print(a.iterate(3))
 
 // Nothing to iterate in an empty list.
-System.print(List.new().iterate(None))
+System.print([].iterate(None))

@@ -16,8 +16,8 @@ class Finder {
     return None
   }
 }
-const numbers = List.new()
-numbers.add(3)
-numbers.add(-5)
-numbers.add(8)
+const numbers = []
+numbers.append(3)
+numbers.append(-5)
+numbers.append(8)
 System.print(Finder.new().findNegative(numbers))

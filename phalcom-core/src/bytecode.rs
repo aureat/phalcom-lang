@@ -52,6 +52,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "FinishSetLiteral",
     "BuildRange",
     "InvokeCompilerInternal",
+    "BuildList",
 ];
 
 // The set of instructions for our VM. This is the language the compiler "speaks".
@@ -404,12 +405,14 @@ pub enum Bytecode {
     ///
     /// 0: number of arguments. 1: index of selector constant.
     InvokeCompilerInternal(u8, u16),
+    /// Builds a List from the top `n` stack items.
+    BuildList(u16),
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 48;
+    pub const VARIANTS: usize = 49;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -468,6 +471,7 @@ impl Bytecode {
             Bytecode::FinishSetLiteral => 45,
             Bytecode::BuildRange { .. } => 46,
             Bytecode::InvokeCompilerInternal(..) => 47,
+            Bytecode::BuildList(..) => 48,
         }
     }
 

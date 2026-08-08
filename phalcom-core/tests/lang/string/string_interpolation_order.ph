@@ -2,7 +2,7 @@
 // spec: string-interpolation.md §8
 // status: PASS
 
-let trace = List.new()
+let trace = []
 
 class Probe {
   @constructor
@@ -12,12 +12,12 @@ class Probe {
   }
 
   value {
-    _trace.add("expr:" + _label)
+    _trace.append("expr:" + _label)
     return self
   }
 
   toString {
-    _trace.add("string:" + _label)
+    _trace.append("string:" + _label)
     return _label
   }
 }

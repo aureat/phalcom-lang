@@ -3,8 +3,8 @@
 // status: PASS
 // `each(_:)` visits `at(0)..at(size-1)` exactly once, in insertion order.
 
-const l = List.new()
-l.add(10)
-l.add(20)
-l.add(30)
+const l = []
+l.append(10)
+l.append(20)
+l.append(30)
 l.each |x| { System.print(x) }
