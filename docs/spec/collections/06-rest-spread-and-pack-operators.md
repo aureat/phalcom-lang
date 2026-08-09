@@ -81,7 +81,10 @@ visibility, fibers, and user overrides retain their normal semantics. Record
 is not a `***` operand. Incoming `**rest`/`***rest` remain parsed but rejected
 until F.3; current U9 captures only final positional `*rest` into `List`.
 
-## 3. Value expansion scope
+## 3. Value expansion scope — superseded history
+
+> Superseded by §2.4. Kept only as historical design record; its call-only
+> restriction is not current behavior.
 
 **RATIFIED:** Value expansion is legal only in call argument lists.
 
@@ -101,7 +104,10 @@ Invalid:
 Set{*values}
 ```
 
-## 4. Split call expansion
+## 4. Split call expansion — superseded history
+
+> Superseded by §2.4. In particular, explicit labels may follow `**`, and
+> Tuple construction participates in the same source-phase grammar.
 
 **RATIFIED:** A call may contain multiple `*` and multiple `**` expansions.
 
@@ -134,7 +140,10 @@ PositionalItem ::= Expression | "*" Expression
 LabeledExpansion ::= "**" Expression
 ```
 
-## 5. Complete call expansion
+## 5. Complete call expansion — superseded history
+
+> Superseded by §2.4. `***` may mix with `*` and `**` when the shared source
+> phases permit it, and multiple `***` contributions are legal.
 
 **RATIFIED:** A call using `***` MUST NOT also use `*` or `**` expansion.
 
@@ -184,7 +193,10 @@ Rules:
 
 This placement was proposed but not explicitly ratified and is listed for review.
 
-## 6. Expansion operand requirements
+## 6. Expansion operand requirements — superseded history
+
+> Superseded by §2.4. Current `*` supports Tuple/Unit direct lanes plus the
+> generic Iterable cursor protocol; current `***` accepts Unit/Tuple only.
 
 ### 6.1 `*value`
 

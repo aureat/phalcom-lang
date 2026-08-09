@@ -1,6 +1,9 @@
 # Phalcom Collections — Spec F: Argument Packs, Expansion, and Rest Capture
 
-Status: implementation-spec bundle. This is the final implementation unit in the A–F collections roadmap. It implements the ratified two-lane argument-pack model, call/Tuple expansion, runtime selector derivation, and rest capture.
+Status: historical roadmap bundle. F.1/F.2 active work is governed by their
+amended specifications and the pre-F.3 completion gate; this document's F.3
+rest-capture section remains future work. Do not read its legacy List-rest
+baseline or F.3 outcomes as current runtime behavior.
 
 Repository baseline re-checked for this plan: `aureat/phalcom-lang` main at commit `5c73279157891ca8e2fc045db5e7dff683c0be5b`. Every implementation session MUST re-inspect actual HEAD before editing. Paths and old unit names below are anchors, not frozen line numbers.
 

@@ -1768,7 +1768,18 @@ impl VM {
                     let key = crate::vm::ClassKey { module, name: defining };
                     let parent = self.classes.get(&key).and_then(|class| self.heap.class(*class).superclass);
                     let range = callable.chunk.span_at(ip);
-                    if let Some(method) = parent.and_then(|class| crate::heap::lookup_method_in_hierarchy(&self.heap, class, selector)) {
+                    let exact = parent.and_then(|class| crate::heap::lookup_method_in_hierarchy(&self.heap, class, selector));
+                    let variadic = if exact.is_none() {
+                        let (name, labels, kind) = decode_selector(self.resolve_symbol(selector));
+                        let selector = (matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none))
+                            .then(|| self.interner.intern(&format!("{name}(*)")));
+                        selector
+                            .and_then(|selector| parent.and_then(|class| crate::heap::lookup_method_in_hierarchy(&self.heap, class, selector)))
+                            .filter(|method| arity >= self.heap.method(*method).signature.positional_arity as usize)
+                    } else {
+                        None
+                    };
+                    if let Some(method) = exact.or(variadic) {
                         self.call_method(&receiver, method, arity, range)?;
                     } else {
                         self.forward_does_not_understand(receiver_idx, selector, range)?;

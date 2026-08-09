@@ -265,7 +265,51 @@ impl<'vm> Compiler<'vm> {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
                 let name_sym = self.vm.interner.intern(&call.name);
-                match self.resolve_bare_name(name_sym) {
+                let resolution = self.resolve_bare_name(name_sym);
+                if Self::needs_dynamic_pack(&call.args) {
+                    if matches!(resolution, BareNameResolution::ImplicitSelf) {
+                        let receiver = Expr::SelfVar { range: call.range };
+                        return self.compile_dynamic_method_send(receiver, call.name, call.args, PackSendKind::Method, PackAccess::Ordinary, call.range);
+                    } else {
+                        // A callable receiver can appear above partial-expression
+                        // values on the operand stack. Root it before assembling
+                        // the pack; treating the already-pushed value as a local
+                        // would instead capture that earlier operand.
+                        let receiver_slot = self.reserve_pack_scratch("$pack_receiver", call.range)?;
+                        match resolution {
+                            BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
+                            BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
+                            BareNameResolution::Global | BareNameResolution::Unresolved => {
+                                let name_idx = self.add_constant(Value::Symbol(name_sym));
+                                self.emit(Bytecode::GetGlobal(name_idx), call.range);
+                            }
+                            BareNameResolution::ImplicitSelf => unreachable!("handled above"),
+                        }
+                        self.emit(Bytecode::SetLocal(receiver_slot), call.range);
+                        self.emit(Bytecode::Pop, call.range);
+
+                        let builder_slot = self.reserve_pack_scratch("$pack_builder", call.range)?;
+                        self.emit(Bytecode::NewArgumentPack, call.range);
+                        self.emit(Bytecode::SetLocal(builder_slot), call.range);
+                        self.emit(Bytecode::Pop, call.range);
+                        self.compile_dynamic_pack_items(builder_slot, call.args)?;
+                        let base = self.vm.interner.intern("call");
+                        let base_idx = self.add_constant(Value::Symbol(base));
+                        self.emit(Bytecode::GetLocal(receiver_slot), call.range);
+                        self.emit(Bytecode::GetLocal(builder_slot), call.range);
+                        self.emit(
+                            Bytecode::InvokePack {
+                                base_name: base_idx,
+                                kind: PackSendKind::Method,
+                                access: PackAccess::Ordinary,
+                            },
+                            call.range,
+                        );
+                        self.collapse_two_pack_scratch(receiver_slot, call.range);
+                        return Ok(());
+                    }
+                }
+                match resolution {
                     BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
                     BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
                     BareNameResolution::Global | BareNameResolution::Unresolved => {
@@ -273,10 +317,6 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::GetGlobal(name_idx), call.range);
                     }
                     BareNameResolution::ImplicitSelf => {
-                        if Self::needs_dynamic_pack(&call.args) {
-                            let receiver = Expr::SelfVar { range: call.range };
-                            return self.compile_dynamic_method_send(receiver, call.name, call.args, PackSendKind::Method, PackAccess::Ordinary, call.range);
-                        }
                         let arity = checked_send_arity("implicit message send", call.args.len(), call.range)?;
                         let labels = self.pack_labels(&call.args)?;
                         let selector = encode_selector(&call.name, &labels, SignatureKind::Method(arity));
@@ -289,33 +329,6 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
                         return Ok(());
                     }
-                }
-                if Self::needs_dynamic_pack(&call.args) {
-                    // The callee value is already on stack; preserve it in a synthetic
-                    // local by compiling a variable-shaped receiver through the same
-                    // lowering is not possible here, so keep this branch explicit.
-                    let receiver_name = self.fresh_scratch_symbol("$pack_receiver");
-                    self.add_local(receiver_name, true)?;
-                    let receiver_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
-                    let builder_slot = self.reserve_pack_scratch("$pack_builder", call.range)?;
-                    self.emit(Bytecode::NewArgumentPack, call.range);
-                    self.emit(Bytecode::SetLocal(builder_slot), call.range);
-                    self.emit(Bytecode::Pop, call.range);
-                    self.compile_dynamic_pack_items(builder_slot, call.args)?;
-                    let base = self.vm.interner.intern("call");
-                    let base_idx = self.add_constant(Value::Symbol(base));
-                    self.emit(Bytecode::GetLocal(receiver_slot), call.range);
-                    self.emit(Bytecode::GetLocal(builder_slot), call.range);
-                    self.emit(
-                        Bytecode::InvokePack {
-                            base_name: base_idx,
-                            kind: PackSendKind::Method,
-                            access: PackAccess::Ordinary,
-                        },
-                        call.range,
-                    );
-                    self.collapse_two_pack_scratch(receiver_slot, call.range);
-                    return Ok(());
                 }
                 let arity = checked_send_arity("callable call", call.args.len(), call.range)?;
                 let labels = self.pack_labels(&call.args)?;

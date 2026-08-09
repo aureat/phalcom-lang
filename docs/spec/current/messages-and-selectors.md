@@ -66,7 +66,9 @@ sum(*numbers) {
 }
 ```
 
-- A rest parameter collects trailing **positional** arguments into a `List`.
+- Before F.3, a rest parameter collects trailing **positional** arguments into
+  a `List`. This U9 behavior is transitional; F.3 will replace it with
+  lane-aware Unit/Tuple capture.
 - It must be the **last** parameter.
 - It is **positional-only** — a labelled parameter cannot be variadic.
 

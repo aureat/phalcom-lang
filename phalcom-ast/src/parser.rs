@@ -3404,7 +3404,6 @@ impl<'source> Parser<'source> {
         loop {
             self.skip_newlines();
             if matches!(self.peek(), Token::RParen) {
-                self.advance();
                 break;
             }
             entries.push(self.parse_tuple_entry(&mut labeled_phase)?);
@@ -3415,7 +3414,6 @@ impl<'source> Parser<'source> {
             }
             self.skip_newlines();
             if matches!(self.peek(), Token::RParen) {
-                self.advance();
                 break;
             }
         }
@@ -4125,24 +4123,40 @@ mod tests {
         let Statement::Expr { expr, .. } = only_statement("(1, *xs, ***pack, label: 2, **tail)") else {
             panic!("expected tuple expression")
         };
-        let Expr::TupleLiteral(tuple) = expr else {
-            panic!("expected tuple literal")
-        };
-        assert!(matches!(tuple.entries.as_slice(), [
-            TupleLiteralEntry::Positional { .. },
-            TupleLiteralEntry::Expand { mode: ExpansionMode::Positional, .. },
-            TupleLiteralEntry::Expand { mode: ExpansionMode::Complete, .. },
-            TupleLiteralEntry::Labeled { .. },
-            TupleLiteralEntry::Expand { mode: ExpansionMode::Labeled, .. },
-        ]));
+        let Expr::TupleLiteral(tuple) = expr else { panic!("expected tuple literal") };
+        assert!(matches!(
+            tuple.entries.as_slice(),
+            [
+                TupleLiteralEntry::Positional { .. },
+                TupleLiteralEntry::Expand {
+                    mode: ExpansionMode::Positional,
+                    ..
+                },
+                TupleLiteralEntry::Expand {
+                    mode: ExpansionMode::Complete,
+                    ..
+                },
+                TupleLiteralEntry::Labeled { .. },
+                TupleLiteralEntry::Expand {
+                    mode: ExpansionMode::Labeled,
+                    ..
+                },
+            ]
+        ));
 
         let Statement::Expr { expr, .. } = only_statement("(***first, x, ***second, label: y)") else {
             panic!("expected tuple expression")
         };
-        let Expr::TupleLiteral(tuple) = expr else {
-            panic!("expected tuple literal")
-        };
+        let Expr::TupleLiteral(tuple) = expr else { panic!("expected tuple literal") };
         assert_eq!(tuple.entries.len(), 4, "*** must not start the labeled phase");
+    }
+
+    #[test]
+    fn tuple_pack_entries_accept_trailing_commas_without_consuming_the_closer_twice() {
+        for source in ["(*xs,)", "(**labels,)", "(tag: 1,)"] {
+            let result = parse(source, 0);
+            assert!(result.errors.is_empty(), "{source} must parse: {:?}", result.errors);
+        }
     }
 
     #[test]

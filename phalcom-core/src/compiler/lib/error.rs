@@ -290,9 +290,9 @@ mod tests {
 
     #[test]
     fn checked_product_count_preserves_the_u16_boundary() {
-        assert_eq!(checked_product_count("Tuple", u16::MAX as usize, 0..0).unwrap(), u16::MAX);
+        assert_eq!(checked_product_count("Tuple", u16::MAX as usize, (0..0).into()).unwrap(), u16::MAX);
         assert!(matches!(
-            checked_product_count("Tuple", u16::MAX as usize + 1, 0..0),
+            checked_product_count("Tuple", u16::MAX as usize + 1, (0..0).into()),
             Err(CompilerError::ProductCountLimit {
                 found,
                 limit: u16::MAX,
