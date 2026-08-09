@@ -1,5 +1,10 @@
 # Spec F.2 — Outgoing Pack Assembly and Dynamic Send
 
+> Superseded for active implementation by
+> `F.2-outgoing-pack-assembly-and-dynamic-send-amended.md`, its completion
+> supplement, and `F.2-pre-F3-amended-completion-gate-final.md`. Retained as
+> historical plan; do not treat contradictory rules here as normative.
+
 Status: implementation specification. Requires F.1, A.3, B.1/B.2, C.1, E.1 and E.3.
 
 ## 1. Mission

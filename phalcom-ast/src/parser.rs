@@ -1561,6 +1561,12 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         self.expect(&Token::LBracket, &["\"[\""])?;
         let params = self.parse_selector_params(Token::RBracket)?;
+        if let Some(rest) = params.iter().find(|param| param.is_rest()) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("rest parameters are not supported in subscript declarations".to_string()),
+                range: rest.range.start..rest.range.end,
+            });
+        }
         self.expect(&Token::RBracket, &["\"]\""])?;
         let name_range = (name_start..self.prev_end).into();
         let accessor = if self.eat(&Token::Equal) {
@@ -1651,10 +1657,10 @@ impl<'source> Parser<'source> {
         Ok(name)
     }
 
-    /// Parses a parenthesized parameter list: comma-separated identifiers,
-    /// each optionally a labeled parameter (`name:`) or, at most once and only
-    /// as the final entry, a rest parameter (`*name`, U9,
-    /// `messages-and-selectors.md` §4).
+    /// Parses a parenthesized parameter list. Declaration labels use the
+    /// no-colon `external local` form (or just `external` when both names
+    /// match). F.1 preserves all three parsed rest modes; pre-F.3 compilation
+    /// executes only final positional rest under the transitional U9 rules.
     ///
     /// Shared by method and constructor parameter lists, and — since
     /// U-INDEX/ADR-0060 substitutes `[`/`]` for `(`/`)` — bracket subscript
@@ -1677,6 +1683,7 @@ impl<'source> Parser<'source> {
         }
         let mut params: Vec<ParameterDef> = Vec::new();
         let mut any_labeled = false;
+        let mut labels = std::collections::HashMap::<String, SourceRange>::new();
         loop {
             self.skip_newlines();
             let start = self.cur_start();
@@ -1758,6 +1765,12 @@ impl<'source> Parser<'source> {
                 };
                 any_labeled = true;
                 let range = (start..self.prev_end).into();
+                if labels.insert(label.clone().expect("labeled parameter has a label"), range).is_some() {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("duplicate parameter label in selector declaration".to_string()),
+                        range: range.start..range.end,
+                    });
+                }
                 params.push(ParameterDef {
                     name,
                     label,
@@ -3300,73 +3313,57 @@ impl<'source> Parser<'source> {
         Ok(Some(label))
     }
 
-    fn parse_paren_or_tuple(&mut self) -> ParserResult<Expr> {
-        let start = self.cur_start();
-        self.advance(); // '('
-        self.skip_newlines();
-        if let Some(mode) = match self.peek() {
+    fn expansion_mode_at_cursor(&self) -> Option<ExpansionMode> {
+        match self.peek() {
             Token::Asterisk => Some(ExpansionMode::Positional),
             Token::DoubleAsterisk => Some(ExpansionMode::Labeled),
             Token::TripleAsterisk => Some(ExpansionMode::Complete),
             _ => None,
-        } {
+        }
+    }
+
+    /// Parses one already-unambiguous Tuple contribution. `**` and labels
+    /// start the labeled source phase; `***` remains positional-phase legal.
+    fn parse_tuple_entry(&mut self, labeled_phase: &mut bool) -> ParserResult<TupleLiteralEntry> {
+        let start = self.cur_start();
+        if let Some(label) = self.parse_product_label()? {
+            let value = self.parse_expr()?;
+            *labeled_phase = true;
+            return Ok(TupleLiteralEntry::Labeled {
+                label,
+                value,
+                range: (start..self.prev_end).into(),
+            });
+        }
+
+        if let Some(mode) = self.expansion_mode_at_cursor() {
+            if *labeled_phase && !matches!(mode, ExpansionMode::Labeled) {
+                return Err(self.error_message_here("positional expansion cannot follow a labeled Tuple entry"));
+            }
             self.advance();
             let expr = self.parse_expr()?;
-            let range = (start..self.prev_end).into();
-            self.expect(&Token::Comma, &["\",\""])?;
-            let mut entries = vec![TupleLiteralEntry::Expand { mode, expr, range }];
-            let mut seen_label = mode == ExpansionMode::Labeled;
-            loop {
-                self.skip_newlines();
-                if matches!(self.peek(), Token::RParen) {
-                    self.advance();
-                    break;
-                }
-                let item_start = self.cur_start();
-                if let Some(label) = self.parse_product_label()? {
-                    let value = self.parse_expr()?;
-                    entries.push(TupleLiteralEntry::Labeled {
-                        label,
-                        value,
-                        range: (item_start..self.prev_end).into(),
-                    });
-                    seen_label = true;
-                } else if let Some(mode) = match self.peek() {
-                    Token::Asterisk => Some(ExpansionMode::Positional),
-                    Token::DoubleAsterisk => Some(ExpansionMode::Labeled),
-                    Token::TripleAsterisk => Some(ExpansionMode::Complete),
-                    _ => None,
-                } {
-                    if seen_label && mode != ExpansionMode::Labeled {
-                        return Err(self.error_message_here("positional expansion cannot follow a labeled Tuple entry"));
-                    }
-                    self.advance();
-                    let expr = self.parse_expr()?;
-                    entries.push(TupleLiteralEntry::Expand {
-                        mode,
-                        expr,
-                        range: (item_start..self.prev_end).into(),
-                    });
-                    seen_label |= mode == ExpansionMode::Labeled;
-                } else {
-                    if seen_label {
-                        return Err(self.error_message_here("positional Tuple entries cannot follow labeled entries"));
-                    }
-                    let expr = self.parse_expr()?;
-                    let range = expr.range();
-                    entries.push(TupleLiteralEntry::Positional { expr, range });
-                }
-                self.skip_newlines();
-                if !self.eat(&Token::Comma) {
-                    self.expect(&Token::RParen, &[")"])?;
-                    break;
-                }
+            if matches!(mode, ExpansionMode::Labeled) {
+                *labeled_phase = true;
             }
-            return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
-                entries,
+            return Ok(TupleLiteralEntry::Expand {
+                mode,
+                expr,
                 range: (start..self.prev_end).into(),
-            })));
+            });
         }
+
+        if *labeled_phase {
+            return Err(self.error_message_here("positional Tuple entries cannot follow labeled entries"));
+        }
+        let expr = self.parse_expr()?;
+        let range = expr.range();
+        Ok(TupleLiteralEntry::Positional { expr, range })
+    }
+
+    fn parse_paren_or_tuple(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // '('
+        self.skip_newlines();
         if matches!(self.peek(), Token::RParen) {
             self.advance();
             return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
@@ -3375,33 +3372,18 @@ impl<'source> Parser<'source> {
             })));
         }
 
+        let first_is_unambiguous_tuple = self.product_label_start().is_some() || self.expansion_mode_at_cursor().is_some();
         let mut entries = Vec::new();
-        let mut seen_label = false;
-
-        self.skip_newlines();
-        if let Some(label) = self.parse_product_label()? {
-            let value = self.parse_expr()?;
-            let label_start = match &label {
-                ProductLabel::Static { range, .. } | ProductLabel::Computed { range, .. } => range.start,
-            };
-            entries.push(TupleLiteralEntry::Labeled {
-                label,
-                value,
-                range: (label_start..self.prev_end).into(),
-            });
-            seen_label = true;
+        let mut labeled_phase = false;
+        if first_is_unambiguous_tuple {
+            let first_is_expansion = self.expansion_mode_at_cursor().is_some();
+            entries.push(self.parse_tuple_entry(&mut labeled_phase)?);
             self.skip_newlines();
-            if !self.eat(&Token::Comma) {
-                self.skip_newlines();
-                self.expect(&Token::RParen, &[")"])?;
-                return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
-                    entries,
-                    range: (start..self.prev_end).into(),
-                })));
+            if first_is_expansion && !matches!(self.peek(), Token::Comma) {
+                return Err(self.error_here(strs(&["\",\""])));
             }
-            self.skip_newlines();
-            if matches!(self.peek(), Token::RParen) {
-                self.advance();
+            if !self.eat(&Token::Comma) {
+                self.expect(&Token::RParen, &[")"])?;
                 return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
                     entries,
                     range: (start..self.prev_end).into(),
@@ -3417,40 +3399,15 @@ impl<'source> Parser<'source> {
             }
             let range = expr.range();
             entries.push(TupleLiteralEntry::Positional { expr, range });
-            self.skip_newlines();
-            if matches!(self.peek(), Token::RParen) {
-                self.advance();
-                return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
-                    entries,
-                    range: (start..self.prev_end).into(),
-                })));
-            }
         }
 
         loop {
             self.skip_newlines();
-            if let Some(label) = self.parse_product_label()? {
-                let value = self.parse_expr()?;
-                let label_start = match &label {
-                    ProductLabel::Static { range, .. } | ProductLabel::Computed { range, .. } => range.start,
-                };
-                entries.push(TupleLiteralEntry::Labeled {
-                    label,
-                    value,
-                    range: (label_start..self.prev_end).into(),
-                });
-                seen_label = true;
-            } else {
-                if seen_label {
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("positional Tuple entries cannot follow labeled entries".to_string()),
-                        range: self.cur_start()..self.cur_start(),
-                    });
-                }
-                let expr = self.parse_expr()?;
-                let range = expr.range();
-                entries.push(TupleLiteralEntry::Positional { expr, range });
+            if matches!(self.peek(), Token::RParen) {
+                self.advance();
+                break;
             }
+            entries.push(self.parse_tuple_entry(&mut labeled_phase)?);
 
             self.skip_newlines();
             if !self.eat(&Token::Comma) {
@@ -3832,6 +3789,30 @@ mod tests {
         result.program.statements.into_iter().next().unwrap()
     }
 
+    fn positional_pack_expr(item: &PackItem) -> &Expr {
+        match item {
+            PackItem::Positional { expr, .. } => expr,
+            other => panic!("expected positional pack item, got {other:?}"),
+        }
+    }
+
+    fn static_pack_label(item: &PackItem) -> Option<&str> {
+        match item {
+            PackItem::Positional { .. } => None,
+            PackItem::Labeled {
+                label: PackLabel::Static { text, .. },
+                ..
+            } => Some(text),
+            other => panic!("expected static pack item, got {other:?}"),
+        }
+    }
+
+    fn pack_item_range(item: &PackItem) -> SourceRange {
+        match item {
+            PackItem::Positional { range, .. } | PackItem::Labeled { range, .. } | PackItem::Expand { range, .. } => *range,
+        }
+    }
+
     #[test]
     fn let_binding_records_mutable_kind() {
         let Statement::Let(binding) = only_statement("let x = 1") else {
@@ -3936,7 +3917,7 @@ mod tests {
         assert_eq!(call.method, "orElse");
         assert!(matches!(call.object, Expr::Var { .. }));
         assert_eq!(call.args.len(), 1);
-        let Expr::Block(block) = &call.args[0].expr else {
+        let Expr::Block(block) = positional_pack_expr(&call.args[0]) else {
             panic!("expected a block thunk argument");
         };
         assert!(block.params.is_empty());
@@ -3954,7 +3935,7 @@ mod tests {
             panic!("expected an outer method call");
         };
         assert_eq!(outer.method, "orElse");
-        let Expr::Block(thunk) = &outer.args[0].expr else {
+        let Expr::Block(thunk) = positional_pack_expr(&outer.args[0]) else {
             panic!("expected a block thunk");
         };
         let Statement::Expr { expr: inner, .. } = &thunk.body[0] else {
@@ -3976,7 +3957,7 @@ mod tests {
             panic!("expected a map send, got {expr:?}");
         };
         assert_eq!(call.method, "map");
-        let Expr::Block(block) = &call.args[0].expr else {
+        let Expr::Block(block) = positional_pack_expr(&call.args[0]) else {
             panic!("expected a mapper block");
         };
         assert_eq!(block.params.len(), 1);
@@ -4005,7 +3986,7 @@ mod tests {
             panic!("expected a map send");
         };
         assert_eq!(call.method, "map");
-        let Expr::Block(block) = &call.args[0].expr else {
+        let Expr::Block(block) = positional_pack_expr(&call.args[0]) else {
             panic!("expected a mapper block");
         };
         let Statement::Expr { expr: body, .. } = &block.body[0] else {
@@ -4105,8 +4086,8 @@ mod tests {
         };
         assert_eq!(call.method, "any");
         assert_eq!(call.args.len(), 1);
-        assert_eq!(call.args[0].label.as_deref(), Some("where"));
-        assert!(matches!(call.args[0].expr, Expr::Block(_)));
+        assert_eq!(static_pack_label(&call.args[0]), Some("where"));
+        assert!(matches!(&call.args[0], PackItem::Labeled { value: Expr::Block(_), .. }));
 
         let Statement::Expr { expr, .. } = only_statement("result.match\n  ok: |v| { v },\n  err: |e| { e }") else {
             panic!("expected expression statement");
@@ -4115,7 +4096,7 @@ mod tests {
             panic!("expected method call");
         };
         assert_eq!(call.method, "match");
-        assert_eq!(call.args.iter().map(|arg| arg.label.as_deref()).collect::<Vec<_>>(), [Some("ok"), Some("err")]);
+        assert_eq!(call.args.iter().map(static_pack_label).collect::<Vec<_>>(), [Some("ok"), Some("err")]);
     }
 
     #[test]
@@ -4140,6 +4121,47 @@ mod tests {
     }
 
     #[test]
+    fn tuple_entries_share_one_pack_aware_parser_in_every_position() {
+        let Statement::Expr { expr, .. } = only_statement("(1, *xs, ***pack, label: 2, **tail)") else {
+            panic!("expected tuple expression")
+        };
+        let Expr::TupleLiteral(tuple) = expr else {
+            panic!("expected tuple literal")
+        };
+        assert!(matches!(tuple.entries.as_slice(), [
+            TupleLiteralEntry::Positional { .. },
+            TupleLiteralEntry::Expand { mode: ExpansionMode::Positional, .. },
+            TupleLiteralEntry::Expand { mode: ExpansionMode::Complete, .. },
+            TupleLiteralEntry::Labeled { .. },
+            TupleLiteralEntry::Expand { mode: ExpansionMode::Labeled, .. },
+        ]));
+
+        let Statement::Expr { expr, .. } = only_statement("(***first, x, ***second, label: y)") else {
+            panic!("expected tuple expression")
+        };
+        let Expr::TupleLiteral(tuple) = expr else {
+            panic!("expected tuple literal")
+        };
+        assert_eq!(tuple.entries.len(), 4, "*** must not start the labeled phase");
+    }
+
+    #[test]
+    fn tuple_pack_source_phase_rejects_positionals_after_labels() {
+        for source in ["(label: 1, 2)", "(**labels, *xs)", "(label: 1, ***pack)"] {
+            let result = parse(source, 0);
+            assert!(!result.errors.is_empty(), "{source} must be rejected after labeled phase begins");
+        }
+    }
+
+    #[test]
+    fn declaration_labels_and_subscript_rest_are_rejected() {
+        assert!(!parse("class C { f(x first, x second) {} }", 0).errors.is_empty());
+        for source in ["class C { [*indices] {} }", "class C { [**labels] {} }", "class C { [***pack] {} }"] {
+            assert!(!parse(source, 0).errors.is_empty(), "{source} must reject subscript rest");
+        }
+    }
+
+    #[test]
     fn trailing_closure_ranges_and_mixed_labels_match_parenthesized_calls() {
         let source = "predicate\n  .ifTrue || { 1 }\n  ifFalse: || { 2 }";
         let Statement::Expr { expr, .. } = only_statement(source) else {
@@ -4149,8 +4171,8 @@ mod tests {
             panic!("expected method call");
         };
         assert_eq!(call.method, "ifTrue");
-        assert_eq!(call.args.iter().map(|arg| arg.label.as_deref()).collect::<Vec<_>>(), [None, Some("ifFalse")]);
-        assert_eq!(call.args[1].range.start, source.find("ifFalse").unwrap());
+        assert_eq!(call.args.iter().map(static_pack_label).collect::<Vec<_>>(), [None, Some("ifFalse")]);
+        assert_eq!(pack_item_range(&call.args[1]).start, source.find("ifFalse").unwrap());
         assert_eq!(call.range.end, source.len());
 
         let Statement::Expr { expr, .. } = only_statement("items.map(|x| x + 1)") else {
@@ -4160,7 +4182,7 @@ mod tests {
             panic!("expected method call");
         };
         assert_eq!(call.method, "map");
-        assert!(matches!(call.args[0].expr, Expr::Block(ref block) if block.expr_body));
+        assert!(matches!(positional_pack_expr(&call.args[0]), Expr::Block(block) if block.expr_body));
 
         let Statement::Return(return_statement) = only_statement("return || { 1 }.on(Error) |e| { e }") else {
             panic!("expected return statement");
@@ -4173,6 +4195,6 @@ mod tests {
         };
         assert_eq!(call.method, "on");
         assert_eq!(call.args.len(), 2);
-        assert!(matches!(call.args[1].expr, Expr::Block(_)));
+        assert!(matches!(positional_pack_expr(&call.args[1]), Expr::Block(_)));
     }
 }

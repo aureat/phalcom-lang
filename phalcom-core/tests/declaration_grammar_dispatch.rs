@@ -24,6 +24,60 @@ fn eval_source(src: &str, var_name: &str) -> Result<Value, String> {
     module.get(sym).ok_or_else(|| format!("variable `{var_name}` not found"))
 }
 
+#[test]
+fn static_duplicate_labels_fail_before_static_send_lowering() {
+    let error = run_source(
+        r#"
+class Receiver {
+  target(x) { return x }
+}
+let receiver = Receiver.new()
+receiver.target(x: 1, x: 2)
+"#,
+    )
+    .expect_err("duplicate static labels must be a compiler error");
+    assert!(error.contains("duplicate argument label `x`"), "unexpected error: {error}");
+}
+
+#[test]
+fn constructor_rest_is_rejected_before_selector_installation() {
+    let error = run_source(
+        r#"
+class C {
+  @constructor
+  new(*args) { }
+}
+"#,
+    )
+    .expect_err("constructor rest has no pre-F.3 semantics");
+    assert!(error.contains("not supported until F.3"), "unexpected error: {error}");
+}
+
+#[test]
+fn positional_spread_of_non_iterable_has_structured_boundary() {
+    // Bootstrap and traceback paths currently exceed the test harness's
+    // default worker stack when this runtime error unwinds through core.ph.
+    // Keep the regression itself isolated without weakening production logic.
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(|| {
+            let error = run_source(
+                r#"
+class Receiver {
+  target(_ value) { return value }
+}
+let receiver = Receiver.new()
+receiver.target(*1)
+"#,
+            )
+            .expect_err("non-Iterable * operand must not fall through to dNU");
+            assert!(error.contains("* expansion requires Tuple, Unit, or an iterable value; got int"), "unexpected error: {error}");
+        })
+        .expect("spawn isolated stack")
+        .join()
+        .expect("non-Iterable regression thread");
+}
+
 // --- Duplicate Selector Checks ---
 
 #[test]

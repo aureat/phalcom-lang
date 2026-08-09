@@ -13,7 +13,7 @@
 //! crate never links `phalcom-core` (ADR-0056 §2) — this module is the sole
 //! source of selector spelling here, deliberately independent.
 
-use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
+use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef};
 
 /// Builds the comma-form selector string from a method/constructor name and
 /// its parameter list: `name(_,label,...)`, or `name()` for zero-arity.
@@ -22,6 +22,12 @@ use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMet
 /// parameter renders as its label. Mirrors
 /// `phalcom-core/bin/gen-core-table/main.rs`'s `comma_form`.
 pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
+    // Transitional U9 identity: valid final positional rest loses its fixed
+    // prefix count and installs as `name(*)`. F.3 replaces this atomically
+    // with structural rest selector formatting in core and LSP.
+    if params.last().is_some_and(|param| param.rest_mode == RestMode::Positional) {
+        return format!("{name}(*)");
+    }
     if params.is_empty() {
         return format!("{name}()");
     }
@@ -35,7 +41,7 @@ pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
 
 /// The comma-form selector a call-site's method name and argument labels
 /// would resolve to — the reference-side mirror of [`comma_form`], applied
-/// to `phalcom_ast::ast::Argument` labels at a `MethodCall` send site rather
+/// to call-site static labels in [`phalcom_ast::ast::PackItem`] entries rather
 /// than a declaration's `ParameterDef`s.
 pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
     if labels.is_empty() {
@@ -229,6 +235,19 @@ mod tests {
             panic!("expected method")
         };
         assert_eq!(method_selector(m), "new(_,y)");
+    }
+
+    #[test]
+    fn positional_rest_uses_current_u9_runtime_selector() {
+        let class_def = parse_class("class C {\n  sum(*numbers) { }\n  format(_ fmt, *args) { }\n}\n");
+        let ClassMember::Method(sum) = &class_def.members[0] else {
+            panic!("expected method")
+        };
+        let ClassMember::Method(format) = &class_def.members[1] else {
+            panic!("expected method")
+        };
+        assert_eq!(method_selector(sum), "sum(*)");
+        assert_eq!(method_selector(format), "format(*)");
     }
 
     #[test]

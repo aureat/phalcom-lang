@@ -404,21 +404,20 @@ pub struct FieldDef {
 
 /// A single parameter in a method/constructor parameter list.
 ///
-/// See `messages-and-selectors.md` §4 for the surface grammar: an ordinary
-/// positional parameter is a bare identifier, a labeled (keyword) parameter is
-/// `name:`, and a rest parameter is `*name` (U9, encoded on the runtime side
-/// as `SignatureKind::Variadic` in `phalcom-core`).
+/// An ordinary positional parameter is a bare identifier; a declaration label
+/// uses `external local` (or `external` when both names match). F.1 parses
+/// all [`RestMode`] values. Before F.3, only final positional rest has U9
+/// runtime semantics; labeled and complete modes remain compiler-rejected.
 #[derive(Debug, Clone)]
 pub struct ParameterDef {
     /// The parameter's local binding name.
     pub name: String,
-    /// The keyword label this parameter is called under, if any (`name:` in
-    /// source). `None` for an ordinary positional parameter.
+    /// The keyword label this parameter is called under, if any. `None` for
+    /// an ordinary positional parameter.
     pub label: Option<String>,
-    /// Whether this is the rest parameter (`*name`), collecting every
-    /// trailing positional argument into a single `List` (U9). At most one
-    /// parameter per list may set this, and only as the list's last entry
-    /// (enforced by the parser); it may not also carry a [`label`](Self::label).
+    /// Parsed rest lane. The transitional U9 compiler executes only final
+    /// positional rest and captures it into `List`; F.3 replaces that binding
+    /// behavior without adding a second parser-side rest representation.
     pub rest_mode: RestMode,
     /// The parameter's source span.
     pub range: SourceRange,

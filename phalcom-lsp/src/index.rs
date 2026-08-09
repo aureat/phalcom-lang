@@ -21,8 +21,8 @@ use tower_lsp::lsp_types::Url;
 use crate::core_table::MemberKind;
 use crate::selectors::{class_member_selector, comma_form_from_labels, setter_selector_from_name};
 
-/// Dynamic labels and expansions have no F.1 compile-time selector.  Avoid
-/// indexing a fabricated reference until F.2 supplies outgoing-pack lowering.
+/// Dynamic labels and expansions build their concrete selector at runtime;
+/// avoid indexing a fabricated static reference for those pack forms.
 fn static_pack_labels(items: &[PackItem]) -> Option<Vec<Option<String>>> {
     items
         .iter()
@@ -739,7 +739,11 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
     }
 }
 
-fn collect_var_occurrences_in_pack_item(item: &PackItem, names: &std::collections::HashSet<String>, out: &mut Vec<SourceRange>) {
+fn collect_var_occurrences_in_pack_item(
+    item: &PackItem,
+    names: &std::collections::HashSet<String>,
+    out: &mut Vec<(String, SourceRange)>,
+) {
     match item {
         PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
         PackItem::Labeled { label, value, .. } => {
@@ -1345,5 +1349,21 @@ mod tests {
 
         let offset = src.find("Counter").unwrap();
         assert_eq!(top_level_binding_at_offset(&parsed.program, offset), None);
+    }
+
+    #[test]
+    fn top_level_binding_occurrences_traverse_every_pack_item_position() {
+        let src = "let xs = value\nlet label = key\ntarget(*xs)\ntarget([label]: xs)\nreceiver[***xs]\n";
+        let parsed = parse(src, 0);
+        assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
+
+        let star_xs = src.find("*xs").unwrap() + 1;
+        let computed_label = src.find("[label]").unwrap() + 1;
+        let labeled_value = src.find("[label]: xs").unwrap() + "[label]: ".len();
+        let index_xs = src.rfind("***xs").unwrap() + 3;
+        assert_eq!(top_level_binding_at_offset(&parsed.program, star_xs), Some("xs".to_string()));
+        assert_eq!(top_level_binding_at_offset(&parsed.program, computed_label), Some("label".to_string()));
+        assert_eq!(top_level_binding_at_offset(&parsed.program, labeled_value), Some("xs".to_string()));
+        assert_eq!(top_level_binding_at_offset(&parsed.program, index_xs), Some("xs".to_string()));
     }
 }

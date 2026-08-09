@@ -30,6 +30,15 @@ impl VM {
         }
     }
 
+    /// Checks the generic `*` cursor protocol by lookup alone. This is
+    /// intentionally not a send: dNU, visibility, allocation, and user code
+    /// belong to the ordinary cursor invokes emitted by the compiler.
+    fn has_pack_iteration_protocol(&mut self, value: Value) -> bool {
+        let iterate = self.interner.intern("iterate(_)");
+        let iterator_value = self.interner.intern("iteratorValue(_)");
+        value.lookup_method(self, iterate).is_some() && value.lookup_method(self, iterator_value).is_some()
+    }
+
     fn dynamic_pack_selector(&mut self, base: Symbol, kind: PackSendKind, positionals: usize, labels: &[Symbol]) -> PhResult<Symbol> {
         let base = self.resolve_symbol(base).to_owned();
         let mut slots = Vec::with_capacity(positionals + labels.len());
@@ -1673,7 +1682,8 @@ impl VM {
                             }
                             self.stack.push(TRUE);
                         }
-                        _ => self.stack.push(FALSE),
+                        value if self.has_pack_iteration_protocol(value) => self.stack.push(FALSE),
+                        value => return Err(RuntimeError::NonIterableStarOperand { found: value.type_name() }.into()),
                     }
                 }
                 Bytecode::FinishTuplePack => {

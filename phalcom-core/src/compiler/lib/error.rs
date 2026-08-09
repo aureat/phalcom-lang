@@ -231,12 +231,32 @@ pub enum CompilerError {
     #[error("cannot exhaust a provably unbounded source with `{operation}`")]
     ProvablyUnboundedExhaustion { operation: String, span: SourceRange },
 
-    /// Pack expansion needs F.2's runtime outgoing-pack assembly.
-    #[error("pack expansion is not supported until F.2.")]
+    /// Two static call-site labels collide before any argument bytecode is
+    /// emitted. Dynamic packs enforce the same invariant in their builder.
+    #[error("duplicate argument label `{label}`")]
+    DuplicateArgumentLabel {
+        label: String,
+        span: SourceRange,
+        first_span: SourceRange,
+    },
+
+    /// A static product literal exceeds its independent u16 bytecode count.
+    #[error("{subject} has {found} entries; bytecode supports at most {limit}")]
+    ProductCountLimit {
+        subject: &'static str,
+        found: usize,
+        limit: u16,
+        span: SourceRange,
+    },
+
+    /// Static lowering was reached with an item that requires the F.2 dynamic
+    /// pack lane. Legal source is routed before this diagnostic.
+    #[error("internal compiler error: dynamic pack item reached static pack lowering")]
     PackExpansionNotYetSupported(SourceRange),
 
-    /// Computed labels need F.2's runtime Symbol guard and dynamic dispatch.
-    #[error("computed pack labels are not supported until F.2.")]
+    /// Static lowering was reached with a computed label. Legal source uses
+    /// the F.2 dynamic pack lane.
+    #[error("internal compiler error: computed pack label reached static pack lowering")]
     ComputedLabelNotYetSupported(SourceRange),
 
     /// Labeled and complete rest parameters are introduced by F.1 but bind in F.3.
@@ -253,4 +273,31 @@ pub(crate) fn checked_send_arity(subject: &'static str, found: usize, span: Sour
         limit: u8::MAX,
         span,
     })
+}
+
+pub(crate) fn checked_product_count(subject: &'static str, found: usize, span: SourceRange) -> Result<u16, CompilerError> {
+    u16::try_from(found).map_err(|_| CompilerError::ProductCountLimit {
+        subject,
+        found,
+        limit: u16::MAX,
+        span,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_product_count_preserves_the_u16_boundary() {
+        assert_eq!(checked_product_count("Tuple", u16::MAX as usize, 0..0).unwrap(), u16::MAX);
+        assert!(matches!(
+            checked_product_count("Tuple", u16::MAX as usize + 1, 0..0),
+            Err(CompilerError::ProductCountLimit {
+                found,
+                limit: u16::MAX,
+                ..
+            }) if found == u16::MAX as usize + 1
+        ));
+    }
 }

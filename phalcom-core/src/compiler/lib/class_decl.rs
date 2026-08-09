@@ -54,6 +54,67 @@ fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisi
     }
 }
 
+/// F.1 parses all rest lanes, but the pre-F.3 runtime executes only ordinary
+/// final positional rest. Validate post-expansion so synthesized members
+/// cannot silently erase a rest marker while forming selector identities.
+fn validate_pre_f3_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
+    match member {
+        ClassMember::Method(method) => {
+            let is_constructor = method.is_constructor
+                || method
+                    .attributes
+                    .iter()
+                    .any(|attribute| matches!(attribute.kind, AttrKind::Builtin(BuiltinAttr::Constructor)) || attribute.name == "constructor");
+            if is_constructor {
+                if let Some(rest) = method.params.iter().find(|param| param.is_rest()) {
+                    return Err(CompilerError::RestModeNotYetSupported(rest.range));
+                }
+                return Ok(());
+            }
+            if let Some(rest) = method
+                .params
+                .iter()
+                .find(|param| matches!(param.rest_mode, RestMode::Labeled | RestMode::Complete))
+            {
+                return Err(CompilerError::RestModeNotYetSupported(rest.range));
+            }
+            if let Some(rest) = method.params.iter().take(method.params.len().saturating_sub(1)).find(|param| param.is_rest()) {
+                return Err(CompilerError::Message(format!(
+                    "rest parameter \"*{}\" must be the last parameter of \"{}\"",
+                    rest.name, method.name
+                )));
+            }
+        }
+        ClassMember::Index(index) => {
+            if let Some(rest) = index.params.iter().find(|param| param.is_rest()) {
+                return Err(CompilerError::RestModeNotYetSupported(rest.range));
+            }
+        }
+        ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
+    }
+    Ok(())
+}
+
+/// Source parsing catches this first; compiler passes can synthesize members,
+/// so preserve the declaration-side selector invariant after expansion too.
+fn validate_declaration_labels(params: &[phalcom_ast::ast::ParameterDef]) -> Result<(), CompilerError> {
+    let mut seen = std::collections::HashMap::<String, SourceRange>::new();
+    for param in params {
+        let Some(label) = &param.label else {
+            continue;
+        };
+        if let Some(first_span) = seen.get(label) {
+            return Err(CompilerError::DuplicateArgumentLabel {
+                label: label.clone(),
+                span: param.range,
+                first_span: *first_span,
+            });
+        }
+        seen.insert(label.clone(), param.range);
+    }
+    Ok(())
+}
+
 impl<'vm> Compiler<'vm> {
     /// Lowers a `class Name [extends Super] { members }` declaration
     /// (ADR-0011, ADR-0017, U-INH) — a whole-class field collection pass over
@@ -104,6 +165,13 @@ impl<'vm> Compiler<'vm> {
                 }
             }
         }
+        // Reject source constructor rest before attribute expansion. The
+        // constructor expander lowers the marker into paired factory/init
+        // methods, where erasing it would otherwise occur before the
+        // post-expansion defensive pass below can observe it.
+        for member in &class_def.members {
+            validate_pre_f3_rest_usage(member)?;
+        }
         // M-ATTR-ROOT: whether this class itself is a would-be `Attribute`
         // subclass — a direct `extends Attribute` (transitively-inherited
         // `On`/tier declarations are v0.3, `attribute-classes.md`'s A-1 "at
@@ -133,6 +201,16 @@ impl<'vm> Compiler<'vm> {
         // resolves that name via `GetGlobal`, which requires this class's
         // `DefineGlobal` to have already run).
         let (mut class_def, sibling_classes) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
+        // Pre-F.3 validation must precede duplicate-selector canonicalization:
+        // otherwise constructor/index rest could be erased into an ordinary key.
+        for member in &class_def.members {
+            validate_pre_f3_rest_usage(member)?;
+            match member {
+                ClassMember::Method(method) => validate_declaration_labels(&method.params)?,
+                ClassMember::Index(index) => validate_declaration_labels(&index.params)?,
+                ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
+            }
+        }
         // Retained class-level attributes (M-ATTR-ROOT): needed after
         // `DefineGlobal` below, once `class_def.members` has been moved out
         // by the member loop — captured here rather than re-read later.
@@ -653,23 +731,6 @@ impl<'vm> Compiler<'vm> {
 
                     let arity = method_def.params.len();
                     let encoded_arity = checked_send_arity("method declaration", arity, method_def.range)?;
-                    // At most one parameter may be the rest parameter, and only
-                    // as the list's last entry — enforced by
-                    // `parse_param_list` for every OTHER position, but a rest
-                    // parameter that isn't last can still reach here if it is
-                    // the only param (`self.is_rest` false paths aside, this
-                    // guards the compiler's own invariant defensively, per U9's
-                    // write-set: "reject any other param in the list with
-                    // is_rest set").
-                    if let Some(bad) = method_def.params.iter().find(|p| matches!(p.rest_mode, RestMode::Labeled | RestMode::Complete)) {
-                        return Err(CompilerError::RestModeNotYetSupported(bad.range));
-                    }
-                    if let Some(bad) = method_def.params.iter().take(arity.saturating_sub(1)).find(|p| p.rest_mode != RestMode::None) {
-                        return Err(CompilerError::Message(format!(
-                            "rest parameter \"*{}\" must be the last parameter of \"{}\"",
-                            bad.name, method_def.name
-                        )));
-                    }
                     let is_variadic = method_def.params.last().is_some_and(|p| p.rest_mode == RestMode::Positional);
 
                     let sig_kind = if is_variadic {

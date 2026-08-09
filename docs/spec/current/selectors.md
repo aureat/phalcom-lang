@@ -34,6 +34,19 @@ name      := ident | operator
 label     := ident
 ```
 
+### Slot escaping and transitional rest
+
+Call-site Symbol labels use total reversible escaping before entering a
+selector slot. Literal labels `_`, `*`, `**`, `***`, labels beginning with
+`~`, delimiters, and Unicode labels cannot collide with structural slot
+markers. The implementation's escaped forms include `#_`, `#*`, `#**`, and
+`#***`; selector reconstruction must use the shared encoder, never splice
+raw labels into comma form.
+
+Before F.3, the valid U9 positional-rest declaration spelling is `name(*)`.
+It intentionally loses fixed-prefix arity and is transitional. F.3 changes
+core and LSP selector formatting together when structural rest identity lands.
+
 ### Rules
 
 | Rule | Statement |

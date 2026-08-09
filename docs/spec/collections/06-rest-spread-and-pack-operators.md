@@ -50,6 +50,37 @@ select lanes from a value and contribute them to an outgoing call.
 
 select lanes from a tuple/pack Type and insert them into a callable domain.
 
+## 2.4 Active outgoing-expansion rules (F.1/F.2)
+
+Sections 3–6 below are retained as superseded design history where they
+contradict this amendment. Current source and runtime rules are:
+
+```text
+Tuple construction and calls share pack source phases.
+
+positional phase: ordinary positional, *expr, ***expr
+labeled phase:    explicit/computed label, **expr
+
+explicit/computed label and ** start labeled phase.
+*** does not start labeled phase.
+multiple *** forms are legal before labeled phase.
+* / ** / *** may mix subject to those phases.
+```
+
+Operand behavior:
+
+```text
+*   Tuple/Unit direct positional lane; otherwise Iterable cursor protocol
+    iterate(_) + iteratorValue(_)
+**  Unit, Tuple labeled lane, Record, or Map with Symbol keys
+*** Unit or Tuple only
+```
+
+Generic `*` is compiled as ordinary cursor sends, so iterator exceptions,
+visibility, fibers, and user overrides retain their normal semantics. Record
+is not a `***` operand. Incoming `**rest`/`***rest` remain parsed but rejected
+until F.3; current U9 captures only final positional `*rest` into `List`.
+
 ## 3. Value expansion scope
 
 **RATIFIED:** Value expansion is legal only in call argument lists.

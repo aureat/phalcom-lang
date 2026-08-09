@@ -1,5 +1,12 @@
 # Argument-Pack Specification
 
+> Status correction — outgoing two-lane pack assembly is active under F.1/F.2.
+> Incoming rest capture is still the transitional U9 implementation: final
+> positional `*rest` only, captured into `List` and selected as `name(*)`.
+> The lane-symmetric `*`/`**`/`***` capture model below is F.3 design work,
+> not current runtime behavior. F.3-amended will replace U9 capture with
+> Unit/Tuple products atomically; it has not landed.
+
 ## 1. Definition
 
 An argument pack is a call-shaped structure with two lanes:

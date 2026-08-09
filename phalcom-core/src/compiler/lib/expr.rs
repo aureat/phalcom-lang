@@ -8,10 +8,9 @@ use phalcom_ast::ast::{
 };
 use phalcom_common::range::SourceRange;
 
-use super::checked_send_arity;
 use super::error::CompilerError;
 use super::scope::BareNameResolution;
-use super::{Compiler, UnitKind};
+use super::{Compiler, UnitKind, checked_product_count, checked_send_arity};
 
 impl<'vm> Compiler<'vm> {
     pub(super) fn needs_dynamic_pack(items: &[PackItem]) -> bool {
@@ -197,24 +196,36 @@ impl<'vm> Compiler<'vm> {
         self.collapse_two_pack_scratch(receiver_slot, range);
         Ok(())
     }
-    /// Builds static selector slots, rejecting F.2-only dynamic pack forms
-    /// before any bytecode is emitted for a send.
+    /// Builds static selector slots and rejects duplicate labels before any
+    /// value bytecode is emitted for a send.
     pub(super) fn pack_labels(&self, items: &[PackItem]) -> Result<Vec<Option<String>>, CompilerError> {
-        items
-            .iter()
-            .map(|item| match item {
-                PackItem::Positional { .. } => Ok(None),
+        let mut labels = Vec::with_capacity(items.len());
+        let mut seen = std::collections::HashMap::<String, SourceRange>::new();
+        for item in items {
+            match item {
+                PackItem::Positional { .. } => labels.push(None),
                 PackItem::Labeled {
-                    label: PackLabel::Static { text, .. },
+                    label: PackLabel::Static { text, range },
                     ..
-                } => Ok(Some(text.clone())),
+                } => {
+                    if let Some(first_span) = seen.get(text) {
+                        return Err(CompilerError::DuplicateArgumentLabel {
+                            label: text.clone(),
+                            span: *range,
+                            first_span: *first_span,
+                        });
+                    }
+                    seen.insert(text.clone(), *range);
+                    labels.push(Some(text.clone()));
+                }
                 PackItem::Labeled {
                     label: PackLabel::Computed { range, .. },
                     ..
-                } => Err(CompilerError::ComputedLabelNotYetSupported(*range)),
-                PackItem::Expand { range, .. } => Err(CompilerError::PackExpansionNotYetSupported(*range)),
-            })
-            .collect()
+                } => return Err(CompilerError::ComputedLabelNotYetSupported(*range)),
+                PackItem::Expand { range, .. } => return Err(CompilerError::PackExpansionNotYetSupported(*range)),
+            }
+        }
+        Ok(labels)
     }
 
     /// Lowers a statically shaped F.1 pack contribution.
@@ -560,17 +571,24 @@ impl<'vm> Compiler<'vm> {
                     self.collapse_three_pack_scratch(receiver_slot, six.range);
                     return Ok(());
                 }
-                // Reject duplicate "put" label before dispatch
-                if six
+                // Compiler-owned `put` occupies the final setter label.
+                if let Some(PackItem::Labeled {
+                    label: PackLabel::Static { text, range },
+                    ..
+                }) = six
                     .args
                     .iter()
-                    .any(|a| matches!(a, PackItem::Labeled { label: PackLabel::Static { text, .. }, .. } if text == "put"))
+                    .find(|item| matches!(item, PackItem::Labeled { label: PackLabel::Static { text, .. }, .. } if text == "put"))
                 {
-                    return Err(CompilerError::Message("Duplicate label 'put' in subscript assignment".to_string()));
+                    return Err(CompilerError::DuplicateArgumentLabel {
+                        label: text.clone(),
+                        span: *range,
+                        first_span: six.range,
+                    });
                 }
 
                 let labels = self.pack_labels(&six.args)?;
-                let index_argc = six.args.len() as u8;
+                let index_argc = checked_send_arity("subscript write index", six.args.len(), six.range)?;
                 let invoke_argc = checked_send_arity("subscript write", six.args.len() + 1, six.range)?;
 
                 // 1. Reserve hidden slot (push placeholder)
@@ -762,6 +780,8 @@ impl<'vm> Compiler<'vm> {
                     .filter(|entry| matches!(entry, TupleLiteralEntry::Positional { .. }))
                     .count();
                 let labeled = tuple_expr.entries.len() - positional;
+                let positional = checked_product_count("Tuple positional lane", positional, tuple_expr.range)?;
+                let labeled = checked_product_count("Tuple labeled lane", labeled, tuple_expr.range)?;
                 let mut seen = std::collections::HashSet::new();
                 for entry in tuple_expr.entries {
                     match entry {
@@ -773,13 +793,7 @@ impl<'vm> Compiler<'vm> {
                         TupleLiteralEntry::Expand { range, .. } => return Err(CompilerError::PackExpansionNotYetSupported(range)),
                     }
                 }
-                self.emit(
-                    Bytecode::BuildTuple {
-                        positional: positional as u16,
-                        labeled: labeled as u16,
-                    },
-                    tuple_expr.range,
-                );
+                self.emit(Bytecode::BuildTuple { positional, labeled }, tuple_expr.range);
             }
             Expr::RecordLiteral(record_expr) => {
                 let record_expr = *record_expr;
@@ -789,12 +803,12 @@ impl<'vm> Compiler<'vm> {
                     return Ok(());
                 }
                 let mut seen = std::collections::HashSet::new();
-                let fields = record_expr.fields.len();
+                let fields = checked_product_count("Record", record_expr.fields.len(), record_expr.range)?;
                 for RecordLiteralField { label, value, range } in record_expr.fields {
                     self.compile_product_label(label, &mut seen, range)?;
                     self.compile_expr(value)?;
                 }
-                self.emit(Bytecode::BuildRecord { fields: fields as u16 }, record_expr.range);
+                self.emit(Bytecode::BuildRecord { fields }, record_expr.range);
             }
             Expr::MapLiteral(map_expr) => {
                 let map_expr = *map_expr;

@@ -1,5 +1,10 @@
 # Spec F.3 — Rest Capture and Rest-Pattern Dispatch
 
+> Superseded by `F.3-rest-capture-and-rest-pattern-dispatch-amended.md`.
+> This historical plan also predates the live `ParameterDef.rest_mode` AST;
+> F.3 must reuse that representation rather than create `is_rest` migration
+> work or a second parser-side rest enum.
+
 Status: implementation specification. Requires F.1/F.2 and A's Tuple/Unit finalization.
 
 ## 1. Mission
