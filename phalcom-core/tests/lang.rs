@@ -11,20 +11,8 @@ fn lexical() {
 }
 
 #[test]
-#[ignore = "spec target: lexical"]
-fn lexical_pending() {
-    support::check_pending("lexical");
-}
-
-#[test]
 fn arithmetic() {
     support::check_pass("arithmetic");
-}
-
-#[test]
-#[ignore = "spec target: arithmetic"]
-fn arithmetic_pending() {
-    support::check_pending("arithmetic");
 }
 
 #[test]
@@ -40,20 +28,8 @@ fn bindings() {
 }
 
 #[test]
-#[ignore = "spec target: bindings"]
-fn bindings_pending() {
-    support::check_pending("bindings");
-}
-
-#[test]
 fn messages() {
     support::check_pass("messages");
-}
-
-#[test]
-#[ignore = "spec target: messages"]
-fn messages_pending() {
-    support::check_pending("messages");
 }
 
 #[test]
@@ -62,20 +38,8 @@ fn dispatch() {
 }
 
 #[test]
-#[ignore = "spec target: dispatch"]
-fn dispatch_pending() {
-    support::check_pending("dispatch");
-}
-
-#[test]
 fn classes() {
     support::check_pass("classes");
-}
-
-#[test]
-#[ignore = "spec target: classes"]
-fn classes_pending() {
-    support::check_pending("classes");
 }
 
 #[test]
@@ -94,12 +58,6 @@ fn control_flow() {
 }
 
 #[test]
-#[ignore = "spec target: control-flow"]
-fn control_flow_pending() {
-    support::check_pending("control-flow");
-}
-
-#[test]
 fn syntax_errors() {
     support::check_negative("syntax-errors");
 }
@@ -114,12 +72,6 @@ fn absence() {
     // U6: absence is `Option` (`Some`/`None`) — the shared `None` singleton,
     // `Some.new(_)` construction, and the `match(some:none:)` eliminator.
     support::check_pass("absence");
-}
-
-#[test]
-#[ignore = "spec target: absence — prettier printString + Some(x) sugar are U-STD"]
-fn absence_pending() {
-    support::check_pending("absence");
 }
 
 #[test]
@@ -145,12 +97,6 @@ fn metaclass() {
 }
 
 #[test]
-#[ignore = "PENDING: metaclass tower — U2"]
-fn metaclass_pending() {
-    support::check_pending("metaclass");
-}
-
-#[test]
 fn reflection() {
     // U-CORE-1: kernel reflection — `hash` (stable/distinct/content-based) and
     // `Behavior#name` (a class's own name), all over the ADR-0023 floor.
@@ -163,12 +109,6 @@ fn blocks() {
 }
 
 #[test]
-#[ignore = "spec target: blocks"]
-fn blocks_pending() {
-    support::check_pending("blocks");
-}
-
-#[test]
 fn functions() {
     // U-CORE-3: `Object#methodFor(_)` / `Method#invokeOn(_,_)` / `Method#bind(_)`
     // / `Method#selector` / `Method#holder` — the Method reflection surface,
@@ -176,12 +116,6 @@ fn functions() {
     // `List.new().add(_)`). The remaining pending fixtures below are gated on
     // U-LEX's `#...`/`[...]`/`::` literals.
     support::check_pass("functions");
-}
-
-#[test]
-#[ignore = "PENDING: functions — U-LEX selector/list/family literals"]
-fn functions_pending() {
-    support::check_pending("functions");
 }
 
 #[test]
@@ -227,12 +161,6 @@ fn concurrency() {
 }
 
 #[test]
-#[ignore = "spec target: concurrency — Future/async/await"]
-fn concurrency_pending() {
-    support::check_pending("concurrency");
-}
-
-#[test]
 fn concurrency_negative() {
     // U-FIBER reviewer follow-ons: `Fiber.abort(_)` on the root fiber
     // (no resumer, spec §2 rule 7/§6), `Fiber#call` gated by the
@@ -257,12 +185,6 @@ fn list() {
     // U-LIST: kernel `List` — native array storage, `.ph`-defined
     // at(_:)/size/add(_:)/each(_:) protocol over the floor primitives.
     support::check_pass("list");
-}
-
-#[test]
-#[ignore = "spec target: U-SEQ breadth (count/count(f)/join/join(sep)/find(f)) — collection-protocol.md §2, deps U-ITERABLE, not yet landed"]
-fn list_pending() {
-    support::check_pending("list");
 }
 
 #[test]
@@ -305,12 +227,8 @@ fn collections_literals_negative() {
 }
 
 #[test]
-#[ignore = "spec target: native Tuple/Map arms land in U-COLLTYPES (DEC-COLL-A/B)"]
-fn collections_literals_pending() {
-    // U-COLL: the tuple and map literals desugar in the parser here, but their
-    // native heap arms (`Tuple`, `Map`) are built by U-COLLTYPES. These
-    // fixtures pin the intended runtime (a `Tuple` distinct from `List`;
-    // symbol-keyed map lookup) and graduate to PASS when U-COLLTYPES lands.
+#[ignore = "deferred collection spread and boundedness"]
+fn collections_pending() {
     support::check_pending("collections");
 }
 
@@ -320,6 +238,12 @@ fn variadics() {
     // encoding, the VM call-prologue rest-arg collapse, and the
     // derived-selector miss-path probe.
     support::check_pass("variadics");
+}
+
+#[test]
+#[ignore = "F.2 static outgoing positional spread return-window regression"]
+fn variadics_pending() {
+    support::check_pending("variadics");
 }
 
 #[test]
@@ -484,15 +408,6 @@ fn strings_negative() {
     // range/type guards — the corpus gap the U-STRING review flagged as
     // unreachable by the gate.
     support::check_negative("strings/negative");
-}
-
-// REVIEW: remaining corpus gap — bytes/codePoints, ArgumentError guards, and
-// NEGATIVE goldens for trim-type/System.write divergence are still not built
-// (plan §6). Only the split/trim/multiply smoke case above is wired in.
-#[test]
-#[ignore = "spec target: string — U-STRING (docs/forge/units/U-STRING/plan.md)"]
-fn string_pending() {
-    support::check_pending("string");
 }
 
 // NB: no `string_negative` test — the two Wren-suite NEGATIVE ports

@@ -175,7 +175,12 @@ fn check_cases(label: &str, pending: bool, negative: bool) {
         root
     };
 
-    for case_path in collect_cases(&dir) {
+    let cases = collect_cases(&dir);
+    if pending {
+        assert!(!cases.is_empty(), "no pending cases in {}", dir.display());
+    }
+
+    for case_path in cases {
         let case_label = case_name(&case_path);
         let expected = expected_path(&case_path);
         assert!(expected.exists(), "missing expected sidecar for {}", case_label);
