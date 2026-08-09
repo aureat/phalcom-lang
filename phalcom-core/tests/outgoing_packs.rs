@@ -40,6 +40,7 @@ fn positional_spread_uses_tuple_unit_and_iterable_lanes() {
 class Receiver {
   collect(*values) { return values.size }
 }
+
 let receiver = Receiver.new()
 let labeledTuple = (1, 2, label: 3)
 let fromTuple = receiver.collect(*labeledTuple)
@@ -54,6 +55,35 @@ let result = fromTuple * 100 + fromUnit * 10 + fromList
 }
 
 #[test]
+fn generic_spread_accepts_range_user_iterable_and_bounded_pipeline() {
+    let value = on_large_stack(|| {
+        eval_source(
+            r#"
+class Receiver {
+  collect(*values) { return values.size }
+}
+class Countdown is Iterable {
+  @constructor
+  from(n) { _n = n }
+  iterate(_ cursor) {
+    let next = (cursor == None).ifTrue(|| { _n }, ifFalse: || { cursor - 1 })
+    return (next >= 0).ifTrue(|| { next }, ifFalse: || { None })
+  }
+  iteratorValue(_ cursor) { return cursor }
+}
+let receiver = Receiver.new()
+let fromRange = receiver.collect(*(1..=3))
+let fromUser = receiver.collect(*Countdown.from(n: 2))
+let fromPipeline = receiver.collect(*(0..).iter.take(2))
+let result = fromRange * 100 + fromUser * 10 + fromPipeline
+"#,
+            "result",
+        )
+    });
+    assert_eq!(value.expect("generic Iterable sources must execute"), Value::Int(332));
+}
+
+#[test]
 fn complete_and_labeled_expansion_derive_concrete_selectors() {
     let value = on_large_stack(|| {
         eval_source(
@@ -62,6 +92,7 @@ class Receiver {
   collect(*values) { return values.size }
   sum(left, right) { return left + right }
 }
+
 let receiver = Receiver.new()
 let fromComplete = receiver.collect(*** (1, 2))
 let fromLabels = receiver.sum(**(left: 3, right: 4))
@@ -71,6 +102,24 @@ let result = fromComplete * 10 + fromLabels
         )
     });
     assert_eq!(value.expect("expansion source must execute"), Value::Int(27));
+}
+
+#[test]
+fn complete_expansion_allows_multiple_contributions_before_labeled_phase() {
+    let value = on_large_stack(|| {
+        eval_source(
+            r#"
+class Receiver {
+  sum(_ a, _ b, _ c, _ d) { return a * 1000 + b * 100 + c * 10 + d }
+}
+let first = (1,)
+let second = (2,)
+let result = Receiver.new().sum(***first, *second, ***((3, 4)))
+"#,
+            "result",
+        )
+    });
+    assert_eq!(value.expect("multiple complete expansions must preserve order"), Value::Int(1234));
 }
 
 #[test]
@@ -175,6 +224,7 @@ fn computed_labels_and_iterator_failures_stay_structured() {
 class Receiver {
   sum(left, right) { return left + right }
 }
+
 let receiver = Receiver.new()
 let result = receiver.sum([#left]: 3, [#right]: 4)
 "#,
@@ -199,4 +249,68 @@ Receiver.new().collect(*Broken.new())
     })
     .expect_err("iterator implementation failure must escape the generic spread loop");
     assert!(iterator_error.contains("iterate boom"), "unexpected iterator error: {iterator_error}");
+}
+
+#[test]
+fn dynamic_pack_errors_remain_specific_and_stop_dispatch() {
+    let duplicate = on_large_stack(|| {
+        run_source(
+            r#"
+class Receiver {
+  sum(left, right) { return left + right }
+}
+Receiver.new().sum(left: 1, **(left: 2, right: 3))
+"#,
+        )
+    })
+    .expect_err("duplicate labels contributed by ** must fail");
+    assert!(duplicate.contains("duplicate argument label `left`"), "unexpected duplicate error: {duplicate}");
+
+    let computed = on_large_stack(|| {
+        run_source(
+            r#"
+class Receiver {
+  sum(left, right) { return left + right }
+}
+Receiver.new().sum([1]: 2, right: 3)
+"#,
+        )
+    })
+    .expect_err("computed labels must be Symbols");
+    assert!(
+        computed.contains("computed argument label must be Symbol, got int"),
+        "unexpected computed-label error: {computed}"
+    );
+
+    let labeled = on_large_stack(|| {
+        run_source(
+            r#"
+class Receiver {
+  sum(left, right) { return left + right }
+}
+Receiver.new().sum(**1)
+"#,
+        )
+    })
+    .expect_err("** must reject non-labeled products");
+    assert!(
+        labeled.contains("** expansion requires Tuple, Unit, Record, or Map; got int"),
+        "unexpected ** error: {labeled}"
+    );
+
+    let complete = on_large_stack(|| {
+        run_source(
+            r#"
+class Receiver {
+  sum(left, right) { return left + right }
+}
+Receiver.new().sum(***Map.new())
+"#,
+        )
+    })
+    .expect_err("*** must reject Map");
+    assert!(
+        complete.contains("*** expansion requires Tuple or Unit; got object"),
+        "unexpected *** error: {complete}"
+    );
 }

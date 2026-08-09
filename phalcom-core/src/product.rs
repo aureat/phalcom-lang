@@ -64,12 +64,19 @@ mod tests {
 
     #[test]
     fn empty_products_normalize_to_unit_without_heap_allocation() {
-        let mut vm = VM::new();
-        let before = vm.heap.live_count();
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let mut vm = VM::new();
+                let before = vm.heap.live_count();
 
-        assert_eq!(finish_tuple(&mut vm, Vec::new(), Vec::new()), Ok(Value::Unit));
-        assert_eq!(finish_record(&mut vm, Vec::new()), Ok(Value::Unit));
+                assert_eq!(finish_tuple(&mut vm, Vec::new(), Vec::new()), Ok(Value::Unit));
+                assert_eq!(finish_record(&mut vm, Vec::new()), Ok(Value::Unit));
 
-        assert_eq!(vm.heap.live_count(), before);
+                assert_eq!(vm.heap.live_count(), before);
+            })
+            .expect("spawn product test thread")
+            .join()
+            .expect("join product test thread");
     }
 }

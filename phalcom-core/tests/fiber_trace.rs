@@ -47,13 +47,13 @@ fn run_no_trace(source: &str) -> Output {
 }
 
 /// Fiber that yields once then returns — spawn + yield + switch + done.
-const YIELD_SRC: &str = "const f = Fiber.new {\n  Fiber.yield(42)\n}\nf.call()\n";
+const YIELD_SRC: &str = "const f = Fiber.new(|| {\n  Fiber.yield(42)\n})\nf.call()\n";
 
 /// Fiber that errors — spawn + switch + fail.
-const FAIL_SRC: &str = "const f = Fiber.new {\n  (1).noSuchMethod()\n}\nf.try()\n";
+const FAIL_SRC: &str = "const f = Fiber.new(|| {\n  (1).noSuchMethod()\n})\nf.try()\n";
 
 /// Fiber that returns immediately — spawn + switch + done.
-const DONE_SRC: &str = "const f = Fiber.new {\n  99\n}\nf.call()\n";
+const DONE_SRC: &str = "const f = Fiber.new(|| {\n  99\n})\nf.call()\n";
 
 // ── JSON format ───────────────────────────────────────────────────────────────
 

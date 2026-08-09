@@ -346,6 +346,15 @@ mod tests {
 
     #[test]
     fn ic_add_method_invalidates() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(ic_add_method_invalidates_impl)
+            .expect("spawn inline-cache test thread")
+            .join()
+            .expect("join inline-cache test thread");
+    }
+
+    fn ic_add_method_invalidates_impl() {
         let mut vm = crate::vm::VM::new();
         let module = vm.create_module("main", "ic_add_method_invalidates");
         let closure = vm
@@ -387,6 +396,15 @@ mod tests {
 
     #[test]
     fn ic_override_after_caching() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(ic_override_after_caching_impl)
+            .expect("spawn inline-cache test thread")
+            .join()
+            .expect("join inline-cache test thread");
+    }
+
+    fn ic_override_after_caching_impl() {
         let mut vm = crate::vm::VM::new();
         let module = vm.create_module("main", "ic_override_after_caching");
         let mut source = "class A {\n  get => 1\n}\nconst a = A.new()\n".to_string();

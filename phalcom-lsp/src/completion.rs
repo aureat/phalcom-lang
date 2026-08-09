@@ -24,8 +24,8 @@
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
 use phalcom_ast::ast::{
-    ClassMember, Expr, ListLiteralElement, ListLiteralExpr, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, Program,
-    SetLiteralEntry, Statement, TupleLiteralEntry,
+    ClassMember, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, Program, SetLiteralEntry, Statement,
+    TupleLiteralEntry,
 };
 
 use crate::core_table::{CoreTable, CoreVisibility, MemberKind};
@@ -450,16 +450,14 @@ pub fn completions(
 
     // Every class object implicitly has `new()` (Class#new) — guarantee it is
     // offered even when the builtin ancestor chain does not walk up to `Class`.
-    if kind_opt == Some(ReceiverKind::ClassObject) {
-        if !items.iter().any(|item| item.label == "new()") {
-            items.push(CompletionItem {
-                label: "new()".to_string(),
-                kind: Some(CompletionItemKind::METHOD),
-                insert_text: Some("new()".to_string()),
-                insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
-                ..CompletionItem::default()
-            });
-        }
+    if kind_opt == Some(ReceiverKind::ClassObject) && !items.iter().any(|item| item.label == "new()") {
+        items.push(CompletionItem {
+            label: "new()".to_string(),
+            kind: Some(CompletionItemKind::METHOD),
+            insert_text: Some("new()".to_string()),
+            insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+            ..CompletionItem::default()
+        });
     }
 
     items.sort_by(|a, b| a.label.cmp(&b.label));
@@ -468,34 +466,43 @@ pub fn completions(
 
 /// Completion for an editor position, including implicit-self members and
 /// visible bare bindings when no explicit `receiver.` prefix is present.
-pub fn contextual_completions(
-    resolved: Option<(&str, ReceiverKind)>,
-    program: &Program,
-    text: &str,
-    offset: usize,
-    privileged: bool,
-    uri: &Url,
-    index: &WorkspaceIndex,
-    table: &CoreTable,
-) -> Vec<CompletionItem> {
-    let lexical_class = lexical_class_at(program, offset);
-    let mut items = completions(resolved, lexical_class.as_deref(), privileged, uri, index, table);
-    if receiver_prefix(text, offset).is_none() {
+pub(crate) struct ContextualCompletionContext<'a> {
+    pub resolved: Option<(&'a str, ReceiverKind)>,
+    pub program: &'a Program,
+    pub text: &'a str,
+    pub offset: usize,
+    pub privileged: bool,
+    pub uri: &'a Url,
+    pub index: &'a WorkspaceIndex,
+    pub table: &'a CoreTable,
+}
+
+pub(crate) fn contextual_completions(context: ContextualCompletionContext<'_>) -> Vec<CompletionItem> {
+    let lexical_class = lexical_class_at(context.program, context.offset);
+    let mut items = completions(
+        context.resolved,
+        lexical_class.as_deref(),
+        context.privileged,
+        context.uri,
+        context.index,
+        context.table,
+    );
+    if receiver_prefix(context.text, context.offset).is_none() {
         if let Some(class) = lexical_class.as_deref() {
-            let self_members = filter_by_receiver_kind(collect_class_members(class, uri, index, table), ReceiverKind::Instance);
+            let self_members = filter_by_receiver_kind(collect_class_members(class, context.uri, context.index, context.table), ReceiverKind::Instance);
             items.extend(
                 self_members
                     .iter()
                     .filter(|member| match member.visibility {
                         MemberVisibility::Public => true,
                         MemberVisibility::Private => member.owner == class,
-                        MemberVisibility::Protected => index.is_same_or_subclass(uri, class, &member.owner),
-                        MemberVisibility::Internal => privileged,
+                        MemberVisibility::Protected => context.index.is_same_or_subclass(context.uri, class, &member.owner),
+                        MemberVisibility::Internal => context.privileged,
                     })
                     .map(to_completion_item),
             );
         }
-        items.extend(visible_names_at(program, offset).into_iter().map(|name| CompletionItem {
+        items.extend(visible_names_at(context.program, context.offset).into_iter().map(|name| CompletionItem {
             label: name.clone(),
             kind: Some(CompletionItemKind::VARIABLE),
             insert_text: Some(name),

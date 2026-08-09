@@ -587,16 +587,16 @@ impl LanguageServer for Backend {
             let resolved = resolved.as_ref().map(|(class, kind)| (class.as_str(), *kind));
             let offset = doc.line_index.offset(position);
             let privileged = uri.path().ends_with("/phalcom-core/core/core.ph");
-            completion::contextual_completions(
+            completion::contextual_completions(completion::ContextualCompletionContext {
                 resolved,
-                &doc.parse.program,
-                &doc.text,
+                program: &doc.parse.program,
+                text: &doc.text,
                 offset,
                 privileged,
-                &uri,
-                &self.index,
-                CoreTable::bundled(),
-            )
+                uri: &uri,
+                index: &self.index,
+                table: CoreTable::bundled(),
+            })
         });
 
         Ok(items.map(CompletionResponse::Array))

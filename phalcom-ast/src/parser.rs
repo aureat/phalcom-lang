@@ -3050,7 +3050,7 @@ impl<'source> Parser<'source> {
                 };
                 Err(SyntaxError {
                     kind: SyntaxErrorKind::Message(message.to_string()),
-                    range: (start..self.prev_end).into(),
+                    range: start..self.prev_end,
                 })
             }
             _ => Err(self.error_here(primary_expected())),

@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn test_best_match_thresholds() {
-        let candidates = vec!["negated", "negate", "negatd_other"];
+        let candidates = ["negated", "negate", "negatd_other"];
 
         // len <= 4: max distance 1
         assert_eq!(best_match("neg", candidates.iter().copied()), None);
@@ -225,11 +225,11 @@ mod tests {
     #[test]
     fn test_best_match_tie_breaking_and_determinism() {
         // Same category and distance: tie-suppression (returns None)
-        let candidates = vec!["abc", "abd"];
+        let candidates = ["abc", "abd"];
         assert_eq!(best_match("abe", candidates.iter().copied()), None);
 
         // Different category / distance -> choose best
-        let candidates2 = vec!["ab", "abe"];
+        let candidates2 = ["ab", "abe"];
         // "ab" is distance 1 (InsDel), "abe" is distance 1 (Substitution).
         // Substitution category (2) is preferred over InsDel (3).
         assert_eq!(best_match("abc", candidates2.iter().copied()), Some("abe"));

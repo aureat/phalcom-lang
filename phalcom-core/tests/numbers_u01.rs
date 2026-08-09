@@ -18,7 +18,7 @@ fn test_number_classes_and_abstract_instantiation() {
 
     // Value::class return values
     let int_val = Value::Int(42);
-    let float_val = Value::Float(3.14);
+    let float_val = Value::Float(std::f64::consts::PI);
     assert_eq!(int_val.class(&vm), c.int_class);
     assert_eq!(float_val.class(&vm), c.float_class);
 

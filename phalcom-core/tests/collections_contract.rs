@@ -20,9 +20,11 @@ use phalcom_core::vm::VM;
 struct ContractSpec {
     /// The collection's class name, used only for assertion diagnostics.
     class_name: &'static str,
-    /// Whether the collection supports in-place growth via `add(_)` (L5).
-    /// `List` is `true`; an eventual `Tuple` would be `false`.
-    mutable: bool,
+    /// Surface selector for in-place growth, if this collection is mutable.
+    mutation_selector: Option<&'static str>,
+    /// Whether the growth selector returns its receiver. `List#append(_)`
+    /// returns Unit; `Set#add(_)` remains chainable.
+    mutation_returns_receiver: bool,
     /// Whether the collection is a valid `Map`/`Set` key (H1/H2). `List` is
     /// `false` — its inherited identity `hash` is inconsistent with the
     /// structural `==` this unit adds (as-built.md §2.4), so the H2
@@ -68,13 +70,13 @@ fn as_bool(value: Value) -> bool {
 }
 
 /// Builds a `List` from element values through the *surface* protocol
-/// (`List.new()` + `.add(_)`), so the harness exercises the same path user
+/// (`List.new()` + `.append(_)`), so the harness exercises the same path user
 /// code does.
 fn build_list(vm: &mut VM, elems: &[Value]) -> Value {
     let list_class = Value::Obj(vm.universe.classes.list_class);
     let list = send0(vm, list_class, "new()");
     for elem in elems {
-        send1(vm, list, "add(_)", *elem);
+        send1(vm, list, "append(_)", *elem);
     }
     list
 }
@@ -128,25 +130,29 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
         assert_ne!(out_of_range, Value::Nil, "{}: at(size) must never leak the raw sentinel", spec.class_name);
     }
 
-    // L5: add(x) grows size by 1 and at(oldSize) == x (mutable collections
-    // only); add returns the (chainable) receiver.
-    if spec.mutable {
+    // L5: a collection's documented growth selector grows size by one and
+    // places its value at the old final index.
+    if let Some(selector) = spec.mutation_selector {
         let collection = build(vm, &[Value::Int(1), Value::Int(2)]);
         let old_size = as_number(send0(vm, collection, "size"));
-        let returned = send1(vm, collection, "add(_)", Value::Int(42));
+        let returned = send1(vm, collection, selector, Value::Int(42));
         let new_size = as_number(send0(vm, collection, "size"));
-        assert_eq!(new_size, old_size + 1.0, "{}: add(_) must grow size by 1", spec.class_name);
+        assert_eq!(new_size, old_size + 1.0, "{}: {selector} must grow size by 1", spec.class_name);
         let last = send1(vm, collection, "at(_)", Value::Int(old_size as i64));
         assert!(
             as_bool(send1(vm, last, "==(_)", Value::Int(42))),
-            "{}: add(x) must place x at the old size index",
+            "{}: {selector} must place x at the old size index",
             spec.class_name
         );
-        assert!(
-            as_bool(send1(vm, returned, "==(_)", collection)),
-            "{}: add(_) must return the (chainable) receiver",
-            spec.class_name
-        );
+        if spec.mutation_returns_receiver {
+            assert!(
+                as_bool(send1(vm, returned, "==(_)", collection)),
+                "{}: {selector} must return the chainable receiver",
+                spec.class_name
+            );
+        } else {
+            assert_eq!(returned, Value::Unit, "{}: {selector} must return Unit", spec.class_name);
+        }
     }
 
     // E1/E3/E4: A == B (equal elements, same order) is true; A == A is true
@@ -204,7 +210,8 @@ fn list_satisfies_sequence_contract() {
     let mut vm = VM::new();
     let spec = ContractSpec {
         class_name: "List",
-        mutable: true,
+        mutation_selector: Some("append(_)"),
+        mutation_returns_receiver: false,
         hashable: false,
         min_arity: 0,
     };
@@ -231,7 +238,8 @@ fn set_satisfies_sequence_contract() {
     let mut vm = VM::new();
     let spec = ContractSpec {
         class_name: "Set",
-        mutable: true,
+        mutation_selector: Some("add(_)"),
+        mutation_returns_receiver: true,
         hashable: false,
         min_arity: 0,
     };
@@ -326,7 +334,8 @@ fn tuple_satisfies_sequence_contract() {
     let mut vm = VM::new();
     let spec = ContractSpec {
         class_name: "Tuple",
-        mutable: false,
+        mutation_selector: None,
+        mutation_returns_receiver: false,
         hashable: true,
         min_arity: 1,
     };
@@ -398,9 +407,9 @@ fn tuple_is_a_valid_map_key() {
     assert_eq!(as_number(send0(&mut vm, map, "size")), 1.0, "only one entry — key1/key2 are the SAME key");
 }
 
-/// `Range` is a public slice-bounds descriptor, not an iterable collection.
-/// Both literal forms must therefore route through a collection's `[_]`
-/// implementation with the correct exclusive or inclusive upper boundary.
+/// `Range` is a public slice-bounds descriptor. Its supported forward integer
+/// subset also implements `Iterable`; slicing still routes literals through a
+/// collection's `[_]` implementation with the correct upper boundary.
 #[test]
 fn range_literals_drive_collection_slices() {
     let mut vm = VM::new();

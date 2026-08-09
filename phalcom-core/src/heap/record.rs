@@ -23,6 +23,11 @@ impl RecordObject {
     pub fn len(&self) -> usize {
         self.values.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
     pub fn labels(&self) -> &[Symbol] {
         &self.labels
     }

@@ -722,13 +722,15 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::Constant(idx), tuple_expr.range);
                     return Ok(());
                 }
-                let dynamic = tuple_expr.entries.iter().any(|entry| match entry {
-                    TupleLiteralEntry::Expand { .. } => true,
-                    TupleLiteralEntry::Labeled {
-                        label: ProductLabel::Computed { .. },
-                        ..
-                    } => true,
-                    _ => false,
+                let dynamic = tuple_expr.entries.iter().any(|entry| {
+                    matches!(
+                        entry,
+                        TupleLiteralEntry::Expand { .. }
+                            | TupleLiteralEntry::Labeled {
+                                label: ProductLabel::Computed { .. },
+                                ..
+                            }
+                    )
                 });
                 if dynamic {
                     let builder_slot = self.reserve_pack_scratch("$tuple_pack_builder", tuple_expr.range)?;

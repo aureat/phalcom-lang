@@ -1629,11 +1629,7 @@ impl VM {
                         Value::Unit => Ok(Vec::new()),
                         Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => {
                             let tuple = self.heap.tuple(id);
-                            if complete {
-                                Ok(tuple.labeled_entries().collect())
-                            } else {
-                                Ok(tuple.labeled_entries().collect())
-                            }
+                            Ok(tuple.labeled_entries().collect())
                         }
                         Value::Obj(id) if !complete && matches!(self.heap.get(id), Object::Record(_)) => Ok(self.heap.record(id).entries().collect()),
                         Value::Obj(id) if !complete && matches!(self.heap.get(id), Object::Map(_)) => self

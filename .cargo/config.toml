@@ -2,3 +2,8 @@
 # macOS frontend stability: `-Zthreads=8` repeatedly hangs fresh builds here.
 # Two workers complete reliably; retain until a newer pinned nightly proves safe.
 rustflags = ["-Zthreads=2"]
+
+[env]
+# core.ph bootstrap and compiler-deopt tests exceed macOS's default Rust test
+# worker stack. Keep the workspace gate representative without per-test wrappers.
+RUST_MIN_STACK = "33554432"

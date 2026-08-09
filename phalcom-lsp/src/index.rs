@@ -12,8 +12,8 @@
 
 use dashmap::DashMap;
 use phalcom_ast::ast::{
-    AttrKind, BuiltinAttr, ClassDef, ClassMember, Expr, ForStatement, ListLiteralElement, ListLiteralExpr, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel,
-    Pattern, ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry,
+    AttrKind, BuiltinAttr, ClassDef, ClassMember, Expr, ForStatement, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern,
+    ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;

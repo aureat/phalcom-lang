@@ -246,7 +246,7 @@ fn l1_never_keywords_inside_strings() {
     let mut styles_in_literal = Vec::new();
     for (style, text) in &styled.buffer {
         if offset >= open && !text.trim().is_empty() {
-            styles_in_literal.push(style.clone());
+            styles_in_literal.push(*style);
         }
         offset += text.len();
     }

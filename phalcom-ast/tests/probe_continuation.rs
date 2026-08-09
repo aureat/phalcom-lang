@@ -43,11 +43,7 @@ fn classify(src: &str) -> Verdict {
         return Verdict::Complete;
     }
     // Fatal lexical errors take precedence over secondary parser EOF errors.
-    if parsed
-        .errors
-        .iter()
-        .any(|error| matches!(error.kind, SyntaxErrorKind::RawNewlineInString { .. }))
-    {
+    if parsed.errors.iter().any(|error| matches!(error.kind, SyntaxErrorKind::RawNewlineInString)) {
         return Verdict::Error;
     }
     // Secondary parser EOF errors

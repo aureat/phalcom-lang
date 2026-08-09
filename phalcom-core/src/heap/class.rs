@@ -83,10 +83,7 @@ pub fn lookup_method_in_hierarchy(heap: &Heap, mut class: ClassId, selector: Sym
         if let Some(&method) = current.methods.get(&selector) {
             return Some(method);
         }
-        match current.superclass {
-            Some(superclass) => class = superclass,
-            None => return None,
-        }
+        class = current.superclass?;
     }
 }
 
