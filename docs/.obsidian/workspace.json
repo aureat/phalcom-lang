@@ -187,6 +187,7 @@
   },
   "active": "e351412831514433",
   "lastOpenFiles": [
+    "work/pending/collections/F.2-pre-F3-amended-completion-gate-final.md",
     "work/analyses/hashbrown-in-phalcom-next-hour.md",
     "work/pending/phalcom_a1_a3_fix_package/tests/product_regression_tests.ph",
     "work/pending/phalcom_a1_a3_fix_package/tests/symbol_label_canonicalization.ph",
@@ -221,7 +222,6 @@
     "work/pending/collections/A.1-product-syntax-and-ast.md",
     "work/pending/collections/A-README.md",
     "work/pending/send-arity-limit.md",
-    "work/pending/collections/F.3-rest-capture-and-dispatch.md",
     "work/pending/collections"
   ]
 }
