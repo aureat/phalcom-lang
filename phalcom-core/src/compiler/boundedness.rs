@@ -93,7 +93,6 @@ pub(crate) fn check_exhaustor(
 }
 
 /// Spec F entry point for positional expansion.
-#[expect(dead_code, reason = "Spec F consumes this compiler seam")]
 pub(crate) fn require_exhaustible(source_expr: &Expr, expansion_range: SourceRange, const_env: &HashMap<String, SourceFacts>) -> Result<(), CompilerError> {
     check_exhaustor("expansion", source_expr, expansion_range, const_env)
 }

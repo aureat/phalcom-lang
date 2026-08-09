@@ -45,6 +45,68 @@ impl<'vm> Compiler<'vm> {
         function.num_locals -= 2;
     }
 
+    fn collapse_three_pack_scratch(&mut self, first_slot: u16, range: SourceRange) {
+        self.emit(Bytecode::SetLocal(first_slot), range);
+        self.emit(Bytecode::Pop, range);
+        self.emit(Bytecode::Pop, range);
+        self.emit(Bytecode::Pop, range);
+        let function = self.functions.last_mut().unwrap();
+        function.locals.pop();
+        function.locals.pop();
+        function.locals.pop();
+        function.num_locals -= 3;
+    }
+
+    /// Adds one positional spread through the Tuple/Unit probe, then the
+    /// ordinary cursor protocol. Hidden locals root source and cursor across
+    /// arbitrary sends (including fiber suspension).
+    fn compile_positional_pack_expansion(&mut self, builder_slot: u16, expr: Expr, range: SourceRange) -> Result<(), CompilerError> {
+        self.check_bounded_pack_expansion(&expr, range)?;
+        let source_slot = self.reserve_pack_scratch("$pack_source", range)?;
+        self.compile_expr(expr)?;
+        self.emit(Bytecode::SetLocal(source_slot), range);
+        self.emit(Bytecode::Pop, range);
+        let cursor_slot = self.reserve_pack_scratch("$pack_cursor", range)?;
+
+        self.emit(Bytecode::GetLocal(source_slot), range);
+        self.emit(Bytecode::GetLocal(builder_slot), range);
+        self.emit(Bytecode::PackTryExpandTuplePositionals, range);
+        let generic = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
+        let done = self.emit_forward_jump(Bytecode::Jump, range);
+
+        self.patch_forward_jump(generic);
+        self.emit(Bytecode::GetLocal(source_slot), range);
+        self.emit(Bytecode::Nil, range);
+        self.emit_operator_send("iterate", 1, range);
+        self.emit(Bytecode::SetLocal(cursor_slot), range);
+        self.emit(Bytecode::Pop, range);
+
+        let loop_start = self.chunk_len();
+        self.emit(Bytecode::GetLocal(cursor_slot), range);
+        let exit = self.emit_forward_jump(Bytecode::JumpIfNone, range);
+        self.emit(Bytecode::GetLocal(source_slot), range);
+        self.emit(Bytecode::GetLocal(cursor_slot), range);
+        self.emit_operator_send("iteratorValue", 1, range);
+        self.emit(Bytecode::GetLocal(builder_slot), range);
+        self.emit(Bytecode::PackPushPositional, range);
+        self.emit(Bytecode::GetLocal(source_slot), range);
+        self.emit(Bytecode::GetLocal(cursor_slot), range);
+        self.emit_operator_send("iterate", 1, range);
+        self.emit(Bytecode::SetLocal(cursor_slot), range);
+        self.emit(Bytecode::Pop, range);
+        self.emit_backward_loop(loop_start, range);
+        self.patch_forward_jump(exit);
+        self.patch_forward_jump(done);
+
+        self.emit(Bytecode::Pop, range);
+        self.emit(Bytecode::Pop, range);
+        let function = self.functions.last_mut().unwrap();
+        function.locals.pop();
+        function.locals.pop();
+        function.num_locals -= 2;
+        Ok(())
+    }
+
     fn compile_dynamic_pack_items(&mut self, builder_slot: u16, items: Vec<PackItem>) -> Result<(), CompilerError> {
         for item in items {
             let range = match &item {
@@ -83,7 +145,8 @@ impl<'vm> Compiler<'vm> {
                 }
                 PackItem::Expand { mode, expr, .. } => {
                     if matches!(mode, phalcom_ast::ast::ExpansionMode::Positional) {
-                        return Err(CompilerError::PackExpansionNotYetSupported(range));
+                        self.compile_positional_pack_expansion(builder_slot, expr, range)?;
+                        continue;
                     }
                     self.compile_expr(expr)?;
                     self.emit(Bytecode::GetLocal(builder_slot), range);
@@ -461,6 +524,42 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::SetIndex(six) => {
                 let six = *six;
+                if Self::needs_dynamic_pack(&six.args) {
+                    let receiver_slot = self.reserve_pack_scratch("$pack_receiver", six.range)?;
+                    self.compile_expr(six.object)?;
+                    self.emit(Bytecode::SetLocal(receiver_slot), six.range);
+                    self.emit(Bytecode::Pop, six.range);
+                    let builder_slot = self.reserve_pack_scratch("$pack_builder", six.range)?;
+                    self.emit(Bytecode::NewArgumentPack, six.range);
+                    self.emit(Bytecode::SetLocal(builder_slot), six.range);
+                    self.emit(Bytecode::Pop, six.range);
+                    self.compile_dynamic_pack_items(builder_slot, six.args)?;
+                    let put = self.vm.interner.intern("put");
+                    let put_idx = self.add_constant(Value::Symbol(put));
+                    self.emit(Bytecode::GetLocal(builder_slot), six.range);
+                    self.emit(Bytecode::PackReserveStaticLabel(put_idx), six.range);
+                    let rhs_slot = self.reserve_pack_scratch("$setindex_rhs", six.range)?;
+                    self.compile_expr(six.value)?;
+                    self.emit(Bytecode::SetLocal(rhs_slot), six.range);
+                    self.emit(Bytecode::GetLocal(builder_slot), six.range);
+                    self.emit(Bytecode::PackFillReservedLabel, six.range);
+                    let base = self.vm.interner.intern("");
+                    let base_idx = self.add_constant(Value::Symbol(base));
+                    self.emit(Bytecode::GetLocal(receiver_slot), six.range);
+                    self.emit(Bytecode::GetLocal(builder_slot), six.range);
+                    self.emit(
+                        Bytecode::InvokePack {
+                            base_name: base_idx,
+                            kind: PackSendKind::SubscriptSet,
+                            access: PackAccess::Ordinary,
+                        },
+                        six.range,
+                    );
+                    self.emit(Bytecode::Pop, six.range);
+                    self.emit(Bytecode::GetLocal(rhs_slot), six.range);
+                    self.collapse_three_pack_scratch(receiver_slot, six.range);
+                    return Ok(());
+                }
                 // Reject duplicate "put" label before dispatch
                 if six
                     .args
@@ -590,6 +689,71 @@ impl<'vm> Compiler<'vm> {
                 if tuple_expr.entries.is_empty() {
                     let idx = self.add_constant(Value::Unit);
                     self.emit(Bytecode::Constant(idx), tuple_expr.range);
+                    return Ok(());
+                }
+                let dynamic = tuple_expr.entries.iter().any(|entry| match entry {
+                    TupleLiteralEntry::Expand { .. } => true,
+                    TupleLiteralEntry::Labeled {
+                        label: ProductLabel::Computed { .. },
+                        ..
+                    } => true,
+                    _ => false,
+                });
+                if dynamic {
+                    let builder_slot = self.reserve_pack_scratch("$tuple_pack_builder", tuple_expr.range)?;
+                    self.emit(Bytecode::NewArgumentPack, tuple_expr.range);
+                    self.emit(Bytecode::SetLocal(builder_slot), tuple_expr.range);
+                    self.emit(Bytecode::Pop, tuple_expr.range);
+                    for entry in tuple_expr.entries {
+                        match entry {
+                            TupleLiteralEntry::Positional { expr, range } => {
+                                self.compile_expr(expr)?;
+                                self.emit(Bytecode::GetLocal(builder_slot), range);
+                                self.emit(Bytecode::PackPushPositional, range);
+                            }
+                            TupleLiteralEntry::Labeled { label, value, range } => match label {
+                                ProductLabel::Static { symbol, .. } => {
+                                    let sym = self.canonical_symbol(symbol, range)?;
+                                    let idx = self.add_constant(Value::Symbol(sym));
+                                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                                    self.emit(Bytecode::PackReserveStaticLabel(idx), range);
+                                    self.compile_expr(value)?;
+                                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                                    self.emit(Bytecode::PackFillReservedLabel, range);
+                                }
+                                ProductLabel::Computed { expr, .. } => {
+                                    self.compile_expr(*expr)?;
+                                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                                    self.emit(Bytecode::PackReserveComputedLabel, range);
+                                    self.compile_expr(value)?;
+                                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                                    self.emit(Bytecode::PackFillReservedLabel, range);
+                                }
+                            },
+                            TupleLiteralEntry::Expand { mode, expr, range } => match mode {
+                                phalcom_ast::ast::ExpansionMode::Positional => {
+                                    self.compile_positional_pack_expansion(builder_slot, expr, range)?;
+                                }
+                                phalcom_ast::ast::ExpansionMode::Labeled => {
+                                    self.compile_expr(expr)?;
+                                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                                    self.emit(Bytecode::PackExpandLabels, range);
+                                }
+                                phalcom_ast::ast::ExpansionMode::Complete => {
+                                    self.compile_expr(expr)?;
+                                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                                    self.emit(Bytecode::PackExpandComplete, range);
+                                }
+                            },
+                        }
+                    }
+                    self.emit(Bytecode::GetLocal(builder_slot), tuple_expr.range);
+                    self.emit(Bytecode::FinishTuplePack, tuple_expr.range);
+                    self.emit(Bytecode::SetLocal(builder_slot), tuple_expr.range);
+                    self.emit(Bytecode::Pop, tuple_expr.range);
+                    let function = self.functions.last_mut().unwrap();
+                    function.locals.pop();
+                    function.num_locals -= 1;
                     return Ok(());
                 }
                 let positional = tuple_expr

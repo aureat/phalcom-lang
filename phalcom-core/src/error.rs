@@ -154,6 +154,24 @@ pub enum RuntimeError {
     #[error("Invalid argument: {0}")]
     ArgumentError(String),
 
+    #[error("computed argument label must be Symbol, got {found}")]
+    ComputedLabelNotSymbol { found: &'static str },
+
+    #[error("duplicate argument label `{label}`")]
+    DuplicateArgumentLabel { label: String },
+
+    #[error("** expansion requires Tuple, Unit, Record, or Map; got {found}")]
+    InvalidStarStarOperand { found: &'static str },
+
+    #[error("Map key in ** expansion must be Symbol; got {found}")]
+    NonSymbolMapKeyInExpansion { found: &'static str },
+
+    #[error("*** expansion requires Tuple or Unit; got {found}")]
+    InvalidStarStarStarOperand { found: &'static str },
+
+    #[error("dynamic send has {found} arguments; limit is {limit}")]
+    SendArityExceedsLimit { found: usize, limit: usize },
+
     #[error("Division by zero")]
     DivideByZero,
 

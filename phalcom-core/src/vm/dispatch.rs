@@ -20,27 +20,40 @@ use tracing::{Level, debug, span};
 use super::VM;
 
 impl VM {
+    fn pack_builder_error(&self, error: crate::heap::PackBuilderError) -> RuntimeError {
+        match error {
+            crate::heap::PackBuilderError::DuplicateLabel(label) => RuntimeError::DuplicateArgumentLabel {
+                label: self.resolve_symbol(label).to_owned(),
+            },
+            crate::heap::PackBuilderError::MissingPendingLabel => RuntimeError::Internal("pack fill without a reserved label".into()),
+            crate::heap::PackBuilderError::PendingLabelExists => RuntimeError::Internal("pack contribution attempted while a label is pending".into()),
+        }
+    }
+
     fn dynamic_pack_selector(&mut self, base: Symbol, kind: PackSendKind, positionals: usize, labels: &[Symbol]) -> PhResult<Symbol> {
         let base = self.resolve_symbol(base).to_owned();
         let mut slots = Vec::with_capacity(positionals + labels.len());
         slots.extend(std::iter::repeat_n(None, positionals));
         slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
         let signature = match kind {
-            PackSendKind::Method => {
-                SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()))?)
-            }
-            PackSendKind::SubscriptGet => SignatureKind::SubscriptGet(
-                u8::try_from(slots.len()).map_err(|_| RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()))?,
-            ),
+            PackSendKind::Method => SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                found: slots.len(),
+                limit: u8::MAX as usize,
+            })?),
+            PackSendKind::SubscriptGet => SignatureKind::SubscriptGet(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                found: slots.len(),
+                limit: u8::MAX as usize,
+            })?),
             PackSendKind::SubscriptSet => {
                 let put = self.interner.find("put");
                 if labels.last().copied() != put {
                     return Err(RuntimeError::Internal("dynamic subscript setter missing final put label".into()).into());
                 }
                 slots.pop();
-                SignatureKind::SubscriptSet(
-                    u8::try_from(slots.len()).map_err(|_| RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()))?,
-                )
+                SignatureKind::SubscriptSet(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                    found: slots.len(),
+                    limit: u8::MAX as usize,
+                })?)
             }
         };
         Ok(self.interner.intern(&encode_selector(&base, &slots, signature)))
@@ -1569,17 +1582,13 @@ impl VM {
                     self.heap
                         .pack_builder_mut(id)
                         .reserve_label(label)
-                        .map_err(|error| RuntimeError::ArgumentError(format!("invalid argument label: {error:?}")))?;
+                        .map_err(|error| self.pack_builder_error(error))?;
                 }
                 Bytecode::PackReserveComputedLabel => {
                     let builder = self.pop()?;
                     let label = self.pop()?;
                     let Value::Symbol(label) = label else {
-                        return Err(RuntimeError::Type {
-                            expected: "Symbol computed argument label",
-                            found: label.type_name(),
-                        }
-                        .into());
+                        return Err(RuntimeError::ComputedLabelNotSymbol { found: label.type_name() }.into());
                     };
                     let Value::Obj(id) = builder else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
@@ -1587,7 +1596,7 @@ impl VM {
                     self.heap
                         .pack_builder_mut(id)
                         .reserve_label(label)
-                        .map_err(|error| RuntimeError::ArgumentError(format!("invalid argument label: {error:?}")))?;
+                        .map_err(|error| self.pack_builder_error(error))?;
                 }
                 Bytecode::PackFillReservedLabel => {
                     let builder = self.pop()?;
@@ -1607,7 +1616,7 @@ impl VM {
                     let Value::Obj(builder) = builder else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
-                    let entries: Result<Vec<(crate::interner::Symbol, Value)>, &'static str> = match operand {
+                    let entries: Result<Vec<(crate::interner::Symbol, Value)>, RuntimeError> = match operand {
                         Value::Unit => Ok(Vec::new()),
                         Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => {
                             let tuple = self.heap.tuple(id);
@@ -1624,20 +1633,20 @@ impl VM {
                             .entries()
                             .map(|(key, value)| match key {
                                 Value::Symbol(label) => Ok((label, value)),
-                                _ => Err("Map keys in ** expansion must be Symbols"),
+                                _ => Err(RuntimeError::NonSymbolMapKeyInExpansion { found: key.type_name() }),
                             })
                             .collect(),
-                        _ => Err(if complete {
-                            "*** expansion requires Tuple or Unit"
+                        value => Err(if complete {
+                            RuntimeError::InvalidStarStarStarOperand { found: value.type_name() }
                         } else {
-                            "** expansion requires Tuple, Unit, Record, or Map"
+                            RuntimeError::InvalidStarStarOperand { found: value.type_name() }
                         }),
                     };
-                    for (label, value) in entries.map_err(|message| RuntimeError::ArgumentError(message.into()))? {
+                    for (label, value) in entries? {
                         self.heap
                             .pack_builder_mut(builder)
                             .append_labeled(label, value)
-                            .map_err(|error| RuntimeError::ArgumentError(format!("invalid argument label: {error:?}")))?;
+                            .map_err(|error| self.pack_builder_error(error))?;
                     }
                     if complete
                         && let Value::Obj(id) = operand
@@ -1697,7 +1706,11 @@ impl VM {
                     let (positionals, labels, values) = self.heap.pack_builder_mut(id).take_parts();
                     let arity = positionals.len() + values.len();
                     if arity > u8::MAX as usize {
-                        return Err(RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()).into());
+                        return Err(RuntimeError::SendArityExceedsLimit {
+                            found: arity,
+                            limit: u8::MAX as usize,
+                        }
+                        .into());
                     }
                     let base = callable.chunk.constants[base_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
                     let selector = self.dynamic_pack_selector(base, kind, positionals.len(), &labels)?;
@@ -1730,7 +1743,11 @@ impl VM {
                     let (positionals, labels, values) = self.heap.pack_builder_mut(id).take_parts();
                     let arity = positionals.len() + values.len();
                     if arity > u8::MAX as usize {
-                        return Err(RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()).into());
+                        return Err(RuntimeError::SendArityExceedsLimit {
+                            found: arity,
+                            limit: u8::MAX as usize,
+                        }
+                        .into());
                     }
                     let base = callable.chunk.constants[base_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
                     let selector = self.dynamic_pack_selector(base, PackSendKind::Method, positionals.len(), &labels)?;

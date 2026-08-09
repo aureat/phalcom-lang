@@ -621,6 +621,11 @@ impl<'vm> Compiler<'vm> {
         boundedness::check_property(property, receiver, range, &self.const_fact_env())
     }
 
+    /// Applies E.3's conservative full-exhaustion rule to outgoing `*`.
+    pub(crate) fn check_bounded_pack_expansion(&self, source: &Expr, range: SourceRange) -> Result<(), CompilerError> {
+        boundedness::require_exhaustible(source, range, &self.const_fact_env())
+    }
+
     /// Lowers `import "path" as Name` (U15, DEC-U15 A+A) to a
     /// [`Bytecode::Import`] carrying the raw path, immediately followed by
     /// the same [`Bytecode::DefineGlobal`] a module-level `const Name = …`
