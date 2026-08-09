@@ -11,6 +11,8 @@
 mod api;
 mod bootstrap;
 mod dispatch;
+#[cfg(test)]
+mod f2_pack_authority_tests;
 mod gc;
 mod send;
 pub mod walk;
