@@ -172,7 +172,7 @@ fn is_eager_getter_selector(selector: &str, mode: IterationMode) -> bool {
 fn is_eager_method_selector(selector: &str, mode: IterationMode) -> bool {
     let common = matches!(
         selector,
-        "fold(_,_)" | "fold(_,using)" | "reduce(_,_)" | "count(_)" | "each(_)" | "group(by)" | "partition(where)" | "toMap(merging)"
+        "fold(initial,using)" | "reduce(using)" | "count(_)" | "each(_)" | "group(by)" | "partition(where)" | "toMap(merging)"
     );
     let concrete_only = matches!(selector, "map(_)" | "filter(_)" | "flatMap(_)");
     common || (mode == IterationMode::Concrete && concrete_only)

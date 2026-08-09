@@ -97,7 +97,7 @@ iteration.
 
 ## 5. Combinators are `.ph` over the protocol
 
-`.each(_)`, `.map(_)`, `.filter(_)`, `.reduce(_)` are `core.ph` defaults written on
+`.each(_)`, `.map(_)`, `.filter(_)`, `.fold(initial:,using:)`, and `.reduce(using:)` are `core.ph` defaults written on
 top of `iterate`/`iteratorValue`, so one contract covers all iteration. `.each` is
 the **full-traversal** form (no `break`/`continue`); `for` is the loop-control form.
 `List` is the reference iterable ([collection-protocol.md](core/collection-protocol.md));

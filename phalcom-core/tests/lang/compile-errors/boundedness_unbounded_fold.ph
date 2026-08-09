@@ -1,1 +1,1 @@
-(0..).fold(0, |a, x| { a + x })
+(0..).fold(initial: 0, using: |a, x| { a + x })

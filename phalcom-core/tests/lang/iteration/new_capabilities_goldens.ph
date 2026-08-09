@@ -12,7 +12,7 @@ const m_filtered = m.filter |k| { k == "b" }
 System.print(m_filtered.size) // 1
 System.print(m_filtered.at(0)) // "b"
 
-const m_reduced = m.reduce("", |acc, k| { acc + k })
+const m_reduced = m.fold(initial: "", using: |acc, k| { acc + k })
 System.print(m_reduced) // "ab"
 
 // Set capabilities
@@ -43,5 +43,5 @@ System.print(r_map.at(0)) // 2
 System.print(r_map.at(1)) // 4
 System.print(r_map.at(2)) // 6
 
-const r_reduced = r.reduce(0, |acc, x| { acc + x })
+const r_reduced = r.fold(initial: 0, using: |acc, x| { acc + x })
 System.print(r_reduced) // 6

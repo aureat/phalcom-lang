@@ -764,16 +764,6 @@ class Iterable {
     return result
   }
 
-  reduce(_ init, _ f) {
-    let acc = init
-    let c = self.iterate(None)
-    while (c != None) {
-      acc = f.call(acc, self.iteratorValue(c))
-      c = self.iterate(c)
-    }
-    return acc
-  }
-
   includes(_ x) {
     let found = false
     let c = self.iterate(None)
@@ -840,7 +830,10 @@ class Iterable {
     return result
   }
 
-  fold(_ initial, _ f) {
+  // D.1 splits explicit-initial accumulation from no-initial reduction.
+  // Labels are selector identity, so neither historical positional form is
+  // retained as an alias.
+  fold(initial initial, using f) {
     let acc = initial
     for (x in self) {
       acc = f.call(acc, x)
@@ -848,7 +841,18 @@ class Iterable {
     return acc
   }
 
-  fold(_ initial, using block) => self.fold(initial, block)
+  reduce(using f) {
+    let c = self.iterate(None)
+    if (c == None) { return None }
+
+    let acc = self.iteratorValue(c)
+    c = self.iterate(c)
+    while (c != None) {
+      acc = f.call(acc, self.iteratorValue(c))
+      c = self.iterate(c)
+    }
+    return Some.new(acc)
+  }
 
   group(by block) {
     let result = Map.new()

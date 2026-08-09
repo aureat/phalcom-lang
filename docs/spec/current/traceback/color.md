@@ -103,13 +103,13 @@ Traceback (most recent call last):          ← severity.error (bold red), heade
   shop.ph:2   in Cart.total
       total { self.sum(_items) }
   shop.ph:3   in Cart.sum(_)
-      sum(items) { items.fold(0) { acc, it => acc + it.price } }
+      sum(items) { items.fold(initial: 0, using: { acc, it => acc + it.price }) }
   [2 core frames elided — pass --trace-core to expand]    ← elision (dim italic)
   shop.ph:3   in <block in Cart.sum(_)>
 
   × 1 does not understand 'price'           ← × is severity.error; 'price' is identifier
    ╭─[shop.ph:3:48]                         ← rail (dim) + location (blue)
- 3 │   sum(items) { items.fold(0) { acc, it => acc + it.price } }
+ 3 │   sum(items) { items.fold(initial: 0, using: { acc, it => acc + it.price }) }
    ·                                                ─────┬────   ← span.primary (bold red)
    ·                                                     ╰── Number has no method 'price'
    ╰────                                                          ← label (red, matches span)

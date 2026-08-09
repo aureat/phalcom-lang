@@ -103,7 +103,7 @@ be last, and it's positional-only — a labelled parameter can't be variadic:
 
 ```phalcom
 sum(*numbers) {
-  numbers.reduce(0) { acc, n => acc + n }
+  numbers.fold(initial: 0, using: { acc, n => acc + n })
 }
 
 sum(1, 2, 3)      // numbers = [1, 2, 3]

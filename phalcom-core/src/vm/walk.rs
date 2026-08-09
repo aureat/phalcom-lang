@@ -336,7 +336,7 @@ mod tests {
         let module = vm.create_module("main", "walk_orders_oldest_first_with_selector_shaped_names");
         let source = "\
 class Cart {
-  total(_ items) { items.fold(0, |acc, it| { acc + it.missingSelector }) }
+  total(_ items) { items.fold(initial: 0, using: |acc, it| { acc + it.missingSelector }) }
 }
 const cart = Cart.new()
 const result = cart.total([1, 2, 3])

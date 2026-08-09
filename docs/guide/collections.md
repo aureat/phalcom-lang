@@ -127,7 +127,7 @@ jumps without ever touching `iterate`/`iteratorValue` themselves.
 
 ## Combinators are just `.ph` over the protocol
 
-`each`, `map`, `filter`, and `reduce` aren't VM primitives — they're
+`each`, `map`, `filter`, `fold`, and `reduce` aren't VM primitives — they're
 core-library methods written against `iterate`/`iteratorValue`, the same two
 selectors your own types implement:
 
@@ -135,7 +135,7 @@ selectors your own types implement:
 [1, 2, 3].each { n => System.print(n) }        // full traversal, no break/continue
 [1, 2, 3].map { n => n * 2 }                   // [2, 4, 6]
 [1, 2, 3].filter { n => n > 1 }                // [2, 3]
-[1, 2, 3].reduce(0) { acc, n => acc + n }       // 6
+[1, 2, 3].fold(initial: 0, using: { acc, n => acc + n }) // 6
 ```
 
 The distinction to keep straight: `each` always runs to completion — it's the

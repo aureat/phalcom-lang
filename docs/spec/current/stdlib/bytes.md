@@ -120,7 +120,7 @@ All `.ph` over §3 plus what `Iterable` provides. Zero additional primitives.
 | `set(_,_)` | receiver | write octet; **raises** on out-of-bounds index or non-octet value (§2) |
 | `fill(_)` | receiver | `fill_` with the raise-lifting of `set` |
 | `zeroize` | receiver | `self.fill_(0)` — one native call; the name carries the §7 contract |
-| `isEmpty`, `each(_)`, `map(_)`, `filter(_)`, `reduce(_,_)`, `includes(_)`, … | | inherited from `Iterable` (ADR-0048), deliberately `.ph` — §3.1 |
+| `isEmpty`, `each(_)`, `map(_)`, `filter(_)`, `fold(initial,using)`, `reduce(using)`, `includes(_)`, … | | inherited from `Iterable` (ADR-0048), deliberately `.ph` — §3.1 |
 | `==(_)` / `!=(_)` | `Bool` | structural equality, `List#==`'s exact shape (collection-protocol §4): `isA` guard, size check, pairwise loop. **Short-circuits — never use for secrets**; that is what §8 exists for |
 | `hash` | `Number` | **identity** (inherited `Object#hash`) — mutable ⇒ not value-hashable, not a valid `Map`/`Set` key (law 4) |
 | `toString` | `String` | total debug form (e.g. `Bytes(16)`); **not** the decoder |

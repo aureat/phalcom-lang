@@ -49,7 +49,7 @@ built-in control flow instead of higher-order calls:
 
 ```phalcom
 numbers.each { n => System.print(n) }
-numbers.reduce(0) { acc, n => acc + n }
+numbers.fold(initial: 0, using: { acc, n => acc + n })
 5.times { System.print("hi") }
 ```
 

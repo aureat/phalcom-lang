@@ -51,7 +51,7 @@ argument**, filling the last declared parameter.
 
 ```phalcom
 numbers.map { n => n * 2 }
-numbers.reduce(0) { acc, n => acc + n }
+numbers.fold(initial: 0, using: { acc, n => acc + n })
 5.times { System.print("hi") }
 file.open("data.txt") { f => f.readAll() }
 ```

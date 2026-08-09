@@ -62,7 +62,7 @@ pass `to: value`, and the body refers to it as `target`. The single-word form
 
 ```phalcom
 sum(*numbers) {
-  numbers.reduce(0) { acc, n => acc + n }
+  numbers.fold(initial: 0, using: { acc, n => acc + n })
 }
 ```
 

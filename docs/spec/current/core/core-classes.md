@@ -351,7 +351,7 @@ unit — element stringification was blocked on U-CORE-4).
 
 **Interface — `.ph`** ([`core.ph`](../../../../phalcom-core/core/core.ph) L142–212, all
 over the raw floor): `size` · `at(_)` · `add(_)` · `each(_)` (**U-LIST**) ·
-`map(_)` · `filter(_)` · `reduce(_, _)` · `includes(_)` · `isEmpty` ·
+`map(_)` · `filter(_)` · `fold(initial,using)` · `reduce(using)` · `includes(_)` · `isEmpty` ·
 `at(_,put)` (wraps `_$set`) · `[_]` · `[_,default]` · `[_]=(put)` (**U-STD**).
 
 **Architecture.** The hybrid pattern in miniature: five raw native primitives that

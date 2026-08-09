@@ -4,8 +4,8 @@
 
 System.print("--- fold ---")
 const list1 = [1, 2, 3, 4]
-System.print(list1.fold(0, |acc, x| { acc + x }))
-System.print(list1.fold(10, using: |acc, x| { acc + x }))
+System.print(list1.fold(initial: 0, using: |acc, x| { acc + x }))
+System.print(list1.fold(initial: 10, using: |acc, x| { acc + x }))
 
 System.print("--- group(by:) ---")
 // empty

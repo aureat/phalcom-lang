@@ -1,7 +1,7 @@
 // area: list
-// spec: catalog-delta.md §2.4; ADR-0020; U-STD §2.6; DEFERRED.md #25
+// spec: D.1 §14; ADR-0020
 // status: PASS
-// Ported from Wren `test/core/list/reduce.wren`: `reduce(init, f)` folds an
+// Ported from Wren `test/core/list/reduce.wren`: `fold(initial:using:)` folds an
 // arbitrary 2-arity function across the elements, left-to-right — proved
 // here with two different folds (a max-tracking fold built over the atomic
 // `ifTrue(_, ifFalse:)`, and a `+`-based sum/concat fold reused for both
@@ -19,10 +19,10 @@ a.append(5)
 const max = |x, y| { (x > y).ifTrue(|| { x }, ifFalse: || { y }) }
 const sum = |x, y| { x + y }
 
-System.print(a.reduce(0) |acc, x| { max.call(acc, x) })
-System.print(a.reduce(10) |acc, x| { max.call(acc, x) })
-System.print(a.reduce(0) |acc, x| { sum.call(acc, x) })
-System.print(a.reduce(-1) |acc, x| { sum.call(acc, x) })
+System.print(a.fold(initial: 0, using: |acc, x| { max.call(acc, x) }))
+System.print(a.fold(initial: 10, using: |acc, x| { max.call(acc, x) }))
+System.print(a.fold(initial: 0, using: |acc, x| { sum.call(acc, x) }))
+System.print(a.fold(initial: -1, using: |acc, x| { sum.call(acc, x) }))
 
 const b = []
 b.append("W")
@@ -30,9 +30,9 @@ b.append("o")
 b.append("r")
 b.append("l")
 b.append("d")
-System.print(b.reduce("Hello ") |acc, x| { sum.call(acc, x) })
+System.print(b.fold(initial: "Hello ", using: |acc, x| { sum.call(acc, x) }))
 
 // An empty seed list still applies `f` zero times, returning `init` as-is —
-// the Phalcom `reduce(init, f)` shape always requires an explicit seed, so
+// `fold(initial:using:)` always requires an explicit seed, so
 // there is no "empty sequence" raise (unlike Wren's no-init `reduce(_:)`).
-System.print([].reduce(1) |acc, x| { 42 })
+System.print([].fold(initial: 1, using: |acc, x| { 42 }))

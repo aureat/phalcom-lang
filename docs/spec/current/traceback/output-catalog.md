@@ -17,7 +17,7 @@ Source `shop.ph`:
 ```phalcom
 1  class Cart {
 2    total { self.sum(_items) }
-3    sum(items) { items.fold(0) { acc, it => acc + it.negatd } }
+3    sum(items) { items.fold(initial: 0, using: { acc, it => acc + it.negatd }) }
 4  }
 5
 6  let cart = Cart.new()
@@ -33,13 +33,13 @@ Traceback (most recent call last):
   shop.ph:2   in Cart.total
       total { self.sum(_items) }
   shop.ph:3   in Cart.sum(_)
-      sum(items) { items.fold(0) { acc, it => acc + it.negatd } }
+      sum(items) { items.fold(initial: 0, using: { acc, it => acc + it.negatd }) }
   [2 core frames elided — pass --trace-core to expand]
   shop.ph:3   in <block in Cart.sum(_)>
 
   × 1 does not understand 'negatd'
    ╭─[shop.ph:3:48]
- 3 │   sum(items) { items.fold(0) { acc, it => acc + it.negatd } }
+ 3 │   sum(items) { items.fold(initial: 0, using: { acc, it => acc + it.negatd }) }
    ·                                                ─────┬────
    ·                                                     ╰── Number has no method 'negatd'
    ╰────
@@ -144,7 +144,7 @@ Target, same `shop.ph`:
 
   └─ Cart.sum(_)   slots=4 upvalues=0
        0003  line 3   Closure(1)        ← captures: acc
-       0004  line 3   Invoke(fold(_,_), 2)
+       0004  line 3   Invoke(fold(initial,using), 2)
 
        └─ <block in Cart.sum(_)>   slots=3 upvalues=1
             0000  line 3   GetUpvalue(0)
@@ -224,7 +224,7 @@ Both must produce the check path's register:
 ```
 error: expected ')' to close argument list
    ╭─[shop.ph:3:52]
- 3 │   sum(items) { items.fold(0) { acc, it => acc + it.negatd }
+ 3 │   sum(items) { items.fold(initial: 0, using: { acc, it => acc + it.negatd })
    ·              ─┬─                                          ▲
    ·               ╰── argument list opened here               ╰── expected ')' here
    ╰────
