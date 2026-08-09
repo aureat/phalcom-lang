@@ -39,6 +39,7 @@ mod list;
 mod map;
 mod module;
 mod object;
+mod pack_builder;
 mod range;
 mod record;
 mod string;
@@ -56,6 +57,7 @@ pub use list::ListObject;
 pub use map::MapObject;
 pub use module::{CORE_MODULE_NAME, MAIN_MODULE_NAME, MAX_GLOBALS, ModuleId, ModuleObject, next_module_id};
 pub use object::{BoundMethodObject, FamilyObject, Object};
+pub use pack_builder::{ArgumentPackBuilderObject, PackBuilderError};
 pub use range::RangeObject;
 pub use record::RecordObject;
 pub use string::StringObject;
@@ -263,6 +265,7 @@ impl Heap {
             Some(Object::Range(_)) => "Range",
             Some(Object::Family(_)) => "Family",
             Some(Object::LargeInt(_)) => "LargeInt",
+            Some(Object::PackBuilder(_)) => "PackBuilder",
             None => "<stale>",
         }
     }

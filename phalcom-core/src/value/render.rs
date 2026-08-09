@@ -123,6 +123,7 @@ impl Value {
                 Object::Range(_) => "<range>".to_string(),
                 Object::Family(_) => "<family>".to_string(),
                 Object::Upvalue(_) => "<upvalue>".to_string(),
+                Object::PackBuilder(_) => "<internal pack builder>".to_string(),
             },
         }
     }

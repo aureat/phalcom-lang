@@ -1,4 +1,4 @@
-use crate::bytecode::Bytecode;
+use crate::bytecode::{Bytecode, PackAccess, PackSendKind};
 use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
@@ -14,6 +14,126 @@ use super::scope::BareNameResolution;
 use super::{Compiler, UnitKind};
 
 impl<'vm> Compiler<'vm> {
+    pub(super) fn needs_dynamic_pack(items: &[PackItem]) -> bool {
+        items.iter().any(|item| {
+            matches!(
+                item,
+                PackItem::Expand { .. }
+                    | PackItem::Labeled {
+                        label: PackLabel::Computed { .. },
+                        ..
+                    }
+            )
+        })
+    }
+
+    fn reserve_pack_scratch(&mut self, base: &str, range: SourceRange) -> Result<u16, CompilerError> {
+        let name = self.fresh_scratch_symbol(base);
+        self.add_local(name, true)?;
+        let slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+        self.emit(Bytecode::Nil, range);
+        Ok(slot)
+    }
+
+    fn collapse_two_pack_scratch(&mut self, first_slot: u16, range: SourceRange) {
+        self.emit(Bytecode::SetLocal(first_slot), range);
+        self.emit(Bytecode::Pop, range);
+        self.emit(Bytecode::Pop, range);
+        let function = self.functions.last_mut().unwrap();
+        function.locals.pop();
+        function.locals.pop();
+        function.num_locals -= 2;
+    }
+
+    fn compile_dynamic_pack_items(&mut self, builder_slot: u16, items: Vec<PackItem>) -> Result<(), CompilerError> {
+        for item in items {
+            let range = match &item {
+                PackItem::Positional { range, .. } | PackItem::Labeled { range, .. } | PackItem::Expand { range, .. } => *range,
+            };
+            match item {
+                PackItem::Positional { expr, .. } => {
+                    self.compile_expr(expr)?;
+                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                    self.emit(Bytecode::PackPushPositional, range);
+                }
+                PackItem::Labeled {
+                    label: PackLabel::Static { text, .. },
+                    value,
+                    ..
+                } => {
+                    let label = self.vm.interner.intern(&text);
+                    let index = self.add_constant(Value::Symbol(label));
+                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                    self.emit(Bytecode::PackReserveStaticLabel(index), range);
+                    self.compile_expr(value)?;
+                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                    self.emit(Bytecode::PackFillReservedLabel, range);
+                }
+                PackItem::Labeled {
+                    label: PackLabel::Computed { expr, .. },
+                    value,
+                    ..
+                } => {
+                    self.compile_expr(*expr)?;
+                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                    self.emit(Bytecode::PackReserveComputedLabel, range);
+                    self.compile_expr(value)?;
+                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                    self.emit(Bytecode::PackFillReservedLabel, range);
+                }
+                PackItem::Expand { mode, expr, .. } => {
+                    if matches!(mode, phalcom_ast::ast::ExpansionMode::Positional) {
+                        return Err(CompilerError::PackExpansionNotYetSupported(range));
+                    }
+                    self.compile_expr(expr)?;
+                    self.emit(Bytecode::GetLocal(builder_slot), range);
+                    self.emit(
+                        if matches!(mode, phalcom_ast::ast::ExpansionMode::Labeled) {
+                            Bytecode::PackExpandLabels
+                        } else {
+                            Bytecode::PackExpandComplete
+                        },
+                        range,
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_dynamic_method_send(
+        &mut self,
+        receiver: Expr,
+        base: String,
+        items: Vec<PackItem>,
+        kind: PackSendKind,
+        access: PackAccess,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        let receiver_slot = self.reserve_pack_scratch("$pack_receiver", range)?;
+        self.compile_expr(receiver)?;
+        self.emit(Bytecode::SetLocal(receiver_slot), range);
+        self.emit(Bytecode::Pop, range);
+        let builder_slot = self.reserve_pack_scratch("$pack_builder", range)?;
+        self.emit(Bytecode::NewArgumentPack, range);
+        self.emit(Bytecode::SetLocal(builder_slot), range);
+        self.emit(Bytecode::Pop, range);
+        self.compile_dynamic_pack_items(builder_slot, items)?;
+        let base = self.vm.interner.intern(&base);
+        let base_idx = self.add_constant(Value::Symbol(base));
+        self.emit(Bytecode::GetLocal(receiver_slot), range);
+        self.emit(Bytecode::GetLocal(builder_slot), range);
+        self.emit(
+            Bytecode::InvokePack {
+                base_name: base_idx,
+                kind,
+                access,
+            },
+            range,
+        );
+        self.collapse_two_pack_scratch(receiver_slot, range);
+        Ok(())
+    }
     /// Builds static selector slots, rejecting F.2-only dynamic pack forms
     /// before any bytecode is emitted for a send.
     pub(super) fn pack_labels(&self, items: &[PackItem]) -> Result<Vec<Option<String>>, CompilerError> {
@@ -79,6 +199,10 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::GetGlobal(name_idx), call.range);
                     }
                     BareNameResolution::ImplicitSelf => {
+                        if Self::needs_dynamic_pack(&call.args) {
+                            let receiver = Expr::SelfVar { range: call.range };
+                            return self.compile_dynamic_method_send(receiver, call.name, call.args, PackSendKind::Method, PackAccess::Ordinary, call.range);
+                        }
                         let arity = checked_send_arity("implicit message send", call.args.len(), call.range)?;
                         let labels = self.pack_labels(&call.args)?;
                         let selector = encode_selector(&call.name, &labels, SignatureKind::Method(arity));
@@ -91,6 +215,33 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
                         return Ok(());
                     }
+                }
+                if Self::needs_dynamic_pack(&call.args) {
+                    // The callee value is already on stack; preserve it in a synthetic
+                    // local by compiling a variable-shaped receiver through the same
+                    // lowering is not possible here, so keep this branch explicit.
+                    let receiver_name = self.fresh_scratch_symbol("$pack_receiver");
+                    self.add_local(receiver_name, true)?;
+                    let receiver_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+                    let builder_slot = self.reserve_pack_scratch("$pack_builder", call.range)?;
+                    self.emit(Bytecode::NewArgumentPack, call.range);
+                    self.emit(Bytecode::SetLocal(builder_slot), call.range);
+                    self.emit(Bytecode::Pop, call.range);
+                    self.compile_dynamic_pack_items(builder_slot, call.args)?;
+                    let base = self.vm.interner.intern("call");
+                    let base_idx = self.add_constant(Value::Symbol(base));
+                    self.emit(Bytecode::GetLocal(receiver_slot), call.range);
+                    self.emit(Bytecode::GetLocal(builder_slot), call.range);
+                    self.emit(
+                        Bytecode::InvokePack {
+                            base_name: base_idx,
+                            kind: PackSendKind::Method,
+                            access: PackAccess::Ordinary,
+                        },
+                        call.range,
+                    );
+                    self.collapse_two_pack_scratch(receiver_slot, call.range);
+                    return Ok(());
                 }
                 let arity = checked_send_arity("callable call", call.args.len(), call.range)?;
                 let labels = self.pack_labels(&call.args)?;
@@ -109,6 +260,17 @@ impl<'vm> Compiler<'vm> {
                 if internal_call && !is_invariant_guard && !self.compiling_privileged_core() && !self.compiler_internal {
                     return Err(CompilerError::InternalNamespaceReserved(method_call.method.clone(), method_call.range));
                 }
+                if Self::needs_dynamic_pack(&method_call.args) && !matches!(&method_call.object, Expr::SuperVar { .. }) {
+                    let method_call = *method_call;
+                    return self.compile_dynamic_method_send(
+                        method_call.object,
+                        method_call.method,
+                        method_call.args,
+                        PackSendKind::Method,
+                        if internal_call { PackAccess::CompilerInternal } else { PackAccess::Ordinary },
+                        method_call.range,
+                    );
+                }
                 // A `super.sel(args)` send lowers to `SuperSend`, never an
                 // ordinary `Invoke` — and must be intercepted *before* the
                 // sacred inliner, so a `super.ifTrue { … }` is a real dispatch
@@ -116,6 +278,42 @@ impl<'vm> Compiler<'vm> {
                 // keyed on the receiver's static type (U-INH §3.4).
                 if matches!(&method_call.object, Expr::SuperVar { .. }) {
                     let mc = *method_call;
+                    if Self::needs_dynamic_pack(&mc.args) {
+                        let class_key = self.current_class.ok_or(CompilerError::SuperOutsideMethod)?;
+                        let defining = if self.is_static_context {
+                            let name = self.vm.resolve_symbol(class_key.name).to_string();
+                            self.vm.interner.intern(&format!("{name}.class"))
+                        } else {
+                            class_key.name
+                        };
+                        let base = match self.functions.last().unwrap().constructor_name.as_deref() {
+                            Some(constructor) if mc.method == constructor => format!("init {constructor}"),
+                            _ => mc.method.clone(),
+                        };
+                        self.emit_self(mc.range);
+                        let receiver_name = self.fresh_scratch_symbol("$pack_receiver");
+                        self.add_local(receiver_name, true)?;
+                        let receiver_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+                        let builder_slot = self.reserve_pack_scratch("$pack_builder", mc.range)?;
+                        self.emit(Bytecode::NewArgumentPack, mc.range);
+                        self.emit(Bytecode::SetLocal(builder_slot), mc.range);
+                        self.emit(Bytecode::Pop, mc.range);
+                        self.compile_dynamic_pack_items(builder_slot, mc.args)?;
+                        let base_sym = self.vm.interner.intern(&base);
+                        let base_idx = self.add_constant(Value::Symbol(base_sym));
+                        let defining_idx = self.add_constant(Value::Symbol(defining));
+                        self.emit(Bytecode::GetLocal(receiver_slot), mc.range);
+                        self.emit(Bytecode::GetLocal(builder_slot), mc.range);
+                        self.emit(
+                            Bytecode::SuperSendPack {
+                                base_name: base_idx,
+                                defining_class: defining_idx,
+                            },
+                            mc.range,
+                        );
+                        self.collapse_two_pack_scratch(receiver_slot, mc.range);
+                        return Ok(());
+                    }
                     let argc = mc.args.len();
                     let labels = self.pack_labels(&mc.args)?;
                     // ADR-0063 splits a source constructor into a class-side
@@ -247,6 +445,9 @@ impl<'vm> Compiler<'vm> {
                 // path for any arity/label combination without further
                 // compiler changes.
                 let ix = *ix;
+                if Self::needs_dynamic_pack(&ix.args) {
+                    return self.compile_dynamic_method_send(ix.object, String::new(), ix.args, PackSendKind::SubscriptGet, PackAccess::Ordinary, ix.range);
+                }
                 let argc = checked_send_arity("subscript read", ix.args.len(), ix.range)?;
                 let labels = self.pack_labels(&ix.args)?;
                 self.compile_expr(ix.object)?;

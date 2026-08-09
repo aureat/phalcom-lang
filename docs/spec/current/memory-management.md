@@ -119,6 +119,7 @@ Tracing visits, per `Object` variant, every handle and every `Value` it stores.
 | **Fiber** | each saved `stack` `Value`, each saved `frames` `CallFrame` (as under `VM::frames`, §2.1), each `open_upvalues` value, `resumer`, `result`, `entry`, each `checking` handle | `status`, `started`, `resume_slot`, `floor_depth`, `resume_mode` |
 | **Map** / **Set** | per `entries` tuple `(Value, Value, i64)`: `.0` (key) and `.1` (value) | `.2` (the cached hash), `index: HashMap<i64, Vec<usize>>` |
 | **Tuple** | each `elements` `Value` | — |
+| **PackBuilder** (private compiler/VM object) | each positional and labeled `Value` | labels are interned Symbols, not heap edges |
 | **Range** | `start`, `end` | `inclusive: bool` |
 | **Family** | `recv` | `selector: Symbol`, `open: bool` |
 

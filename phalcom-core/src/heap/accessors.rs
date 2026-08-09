@@ -1,3 +1,4 @@
+use crate::heap::ArgumentPackBuilderObject;
 use crate::heap::BlockObject;
 use crate::heap::BytesObject;
 use crate::heap::ClassObject;
@@ -17,6 +18,24 @@ use super::object::{BoundMethodObject, FamilyObject};
 use super::{ClassId, FiberObject, Heap, ObjRef, Object};
 
 impl Heap {
+    pub fn pack_builder(&self, id: ObjRef) -> &ArgumentPackBuilderObject {
+        match self.get(id) {
+            Object::PackBuilder(builder) => builder,
+            _ => panic!("ObjRef {id:?} is not an ArgumentPackBuilderObject"),
+        }
+    }
+    pub fn pack_builder_mut(&mut self, id: ObjRef) -> &mut ArgumentPackBuilderObject {
+        match self.get_mut(id) {
+            Object::PackBuilder(builder) => builder,
+            _ => panic!("ObjRef {id:?} is not an ArgumentPackBuilderObject"),
+        }
+    }
+    pub fn as_pack_builder(&self, id: ObjRef) -> Option<&ArgumentPackBuilderObject> {
+        match self.objects.get(id) {
+            Some(Object::PackBuilder(builder)) => Some(builder),
+            _ => None,
+        }
+    }
     /// Borrows the [`ClassObject`] behind `id`.
     ///
     /// # Panics

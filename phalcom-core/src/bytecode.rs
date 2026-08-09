@@ -53,7 +53,31 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "BuildRange",
     "InvokeCompilerInternal",
     "BuildList",
+    "NewArgumentPack",
+    "PackPushPositional",
+    "PackReserveStaticLabel",
+    "PackReserveComputedLabel",
+    "PackFillReservedLabel",
+    "PackExpandLabels",
+    "PackExpandComplete",
+    "PackTryExpandTuplePositionals",
+    "InvokePack",
+    "SuperSendPack",
+    "FinishTuplePack",
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackSendKind {
+    Method,
+    SubscriptGet,
+    SubscriptSet,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackAccess {
+    Ordinary,
+    CompilerInternal,
+}
 
 // The set of instructions for our VM. This is the language the compiler "speaks".
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -407,12 +431,30 @@ pub enum Bytecode {
     InvokeCompilerInternal(u8, u16),
     /// Builds a List from the top `n` stack items.
     BuildList(u16),
+    NewArgumentPack,
+    PackPushPositional,
+    PackReserveStaticLabel(u16),
+    PackReserveComputedLabel,
+    PackFillReservedLabel,
+    PackExpandLabels,
+    PackExpandComplete,
+    PackTryExpandTuplePositionals,
+    InvokePack {
+        base_name: u16,
+        kind: PackSendKind,
+        access: PackAccess,
+    },
+    SuperSendPack {
+        base_name: u16,
+        defining_class: u16,
+    },
+    FinishTuplePack,
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 49;
+    pub const VARIANTS: usize = 60;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -472,6 +514,17 @@ impl Bytecode {
             Bytecode::BuildRange { .. } => 46,
             Bytecode::InvokeCompilerInternal(..) => 47,
             Bytecode::BuildList(..) => 48,
+            Bytecode::NewArgumentPack => 49,
+            Bytecode::PackPushPositional => 50,
+            Bytecode::PackReserveStaticLabel(..) => 51,
+            Bytecode::PackReserveComputedLabel => 52,
+            Bytecode::PackFillReservedLabel => 53,
+            Bytecode::PackExpandLabels => 54,
+            Bytecode::PackExpandComplete => 55,
+            Bytecode::PackTryExpandTuplePositionals => 56,
+            Bytecode::InvokePack { .. } => 57,
+            Bytecode::SuperSendPack { .. } => 58,
+            Bytecode::FinishTuplePack => 59,
         }
     }
 

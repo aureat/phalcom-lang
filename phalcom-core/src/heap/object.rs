@@ -15,6 +15,7 @@ use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::value::Value;
 
+use super::ArgumentPackBuilderObject;
 use super::{FiberObject, ObjRef};
 
 /// The tagged payload stored at each live [`ObjRef`] in the [`super::Heap`].
@@ -129,6 +130,8 @@ pub enum Object {
     /// An arbitrary-precision integer ([`num_bigint::BigInt`]).
     /// Normalization guarantees this is never representable as `i64`.
     LargeInt(num_bigint::BigInt),
+    /// Private compiler/VM-only outgoing argument assembly state.
+    PackBuilder(Box<ArgumentPackBuilderObject>),
 }
 
 /// A bound `::` method reference (selectors.md §3, U16-Open, U16-Pinned).

@@ -1,4 +1,4 @@
-use crate::bytecode::Bytecode;
+use crate::bytecode::{Bytecode, PackAccess, PackSendKind};
 use crate::callable::Callable;
 use crate::diagnostics::print_compile;
 use crate::error::{PhError, PhResult, RuntimeError};
@@ -8,7 +8,8 @@ use crate::heap::CORE_MODULE_NAME;
 use crate::heap::ClosureObject;
 use crate::heap::Upvalue;
 use crate::heap::{ObjRef, Object};
-use crate::method::{SignatureKind, decode_selector};
+use crate::interner::Symbol;
+use crate::method::{SignatureKind, decode_selector, encode_selector};
 use crate::value::Value;
 use crate::value::{FALSE, TRUE};
 use phalcom_common::range::SourceRange;
@@ -19,6 +20,50 @@ use tracing::{Level, debug, span};
 use super::VM;
 
 impl VM {
+    fn dynamic_pack_selector(&mut self, base: Symbol, kind: PackSendKind, positionals: usize, labels: &[Symbol]) -> PhResult<Symbol> {
+        let base = self.resolve_symbol(base).to_owned();
+        let mut slots = Vec::with_capacity(positionals + labels.len());
+        slots.extend(std::iter::repeat_n(None, positionals));
+        slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+        let signature = match kind {
+            PackSendKind::Method => {
+                SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()))?)
+            }
+            PackSendKind::SubscriptGet => SignatureKind::SubscriptGet(
+                u8::try_from(slots.len()).map_err(|_| RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()))?,
+            ),
+            PackSendKind::SubscriptSet => {
+                let put = self.interner.find("put");
+                if labels.last().copied() != put {
+                    return Err(RuntimeError::Internal("dynamic subscript setter missing final put label".into()).into());
+                }
+                slots.pop();
+                SignatureKind::SubscriptSet(
+                    u8::try_from(slots.len()).map_err(|_| RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()))?,
+                )
+            }
+        };
+        Ok(self.interner.intern(&encode_selector(&base, &slots, signature)))
+    }
+
+    fn invoke_dynamic_selector(&mut self, receiver_idx: usize, selector: Symbol, arity: usize, source_range: SourceRange) -> PhResult<()> {
+        let receiver = self.stack[receiver_idx];
+        if let Some(method) = receiver.lookup_method(self, selector) {
+            self.call_method(&receiver, method, arity, source_range)
+        } else {
+            let (name, labels, kind) = decode_selector(self.resolve_symbol(selector));
+            let variadic =
+                (matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none)).then(|| self.interner.intern(&format!("{name}(*)")));
+            if let Some(method) = variadic
+                .and_then(|sym| receiver.lookup_method(self, sym))
+                .filter(|method| arity >= self.heap.method(*method).signature.positional_arity as usize)
+            {
+                self.call_method(&receiver, method, arity, source_range)
+            } else {
+                self.forward_does_not_understand(receiver_idx, selector, source_range)
+            }
+        }
+    }
     /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
     /// generation for the frame-token infrastructure
     /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
@@ -1501,6 +1546,205 @@ impl VM {
                             found: value.type_name(),
                         }
                         .into());
+                    }
+                }
+                Bytecode::NewArgumentPack => {
+                    let id = self.heap.alloc(Object::PackBuilder(Box::new(crate::heap::ArgumentPackBuilderObject::new())));
+                    self.stack.push(Value::Obj(id));
+                }
+                Bytecode::PackPushPositional => {
+                    let builder = self.pop()?;
+                    let value = self.pop()?;
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    self.heap.pack_builder_mut(id).push_positional(value);
+                }
+                Bytecode::PackReserveStaticLabel(index) => {
+                    let builder = self.pop()?;
+                    let label = callable.chunk.constants[index as usize].as_symbol().map_err(RuntimeError::Internal)?;
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    self.heap
+                        .pack_builder_mut(id)
+                        .reserve_label(label)
+                        .map_err(|error| RuntimeError::ArgumentError(format!("invalid argument label: {error:?}")))?;
+                }
+                Bytecode::PackReserveComputedLabel => {
+                    let builder = self.pop()?;
+                    let label = self.pop()?;
+                    let Value::Symbol(label) = label else {
+                        return Err(RuntimeError::Type {
+                            expected: "Symbol computed argument label",
+                            found: label.type_name(),
+                        }
+                        .into());
+                    };
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    self.heap
+                        .pack_builder_mut(id)
+                        .reserve_label(label)
+                        .map_err(|error| RuntimeError::ArgumentError(format!("invalid argument label: {error:?}")))?;
+                }
+                Bytecode::PackFillReservedLabel => {
+                    let builder = self.pop()?;
+                    let value = self.pop()?;
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    self.heap
+                        .pack_builder_mut(id)
+                        .fill_reserved(value)
+                        .map_err(|error| RuntimeError::Internal(format!("invalid pack reservation state: {error:?}")))?;
+                }
+                opcode @ (Bytecode::PackExpandLabels | Bytecode::PackExpandComplete) => {
+                    let complete = matches!(opcode, Bytecode::PackExpandComplete);
+                    let builder = self.pop()?;
+                    let operand = self.pop()?;
+                    let Value::Obj(builder) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    let entries: Result<Vec<(crate::interner::Symbol, Value)>, &'static str> = match operand {
+                        Value::Unit => Ok(Vec::new()),
+                        Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => {
+                            let tuple = self.heap.tuple(id);
+                            if complete {
+                                Ok(tuple.labeled_entries().collect())
+                            } else {
+                                Ok(tuple.labeled_entries().collect())
+                            }
+                        }
+                        Value::Obj(id) if !complete && matches!(self.heap.get(id), Object::Record(_)) => Ok(self.heap.record(id).entries().collect()),
+                        Value::Obj(id) if !complete && matches!(self.heap.get(id), Object::Map(_)) => self
+                            .heap
+                            .map(id)
+                            .entries()
+                            .map(|(key, value)| match key {
+                                Value::Symbol(label) => Ok((label, value)),
+                                _ => Err("Map keys in ** expansion must be Symbols"),
+                            })
+                            .collect(),
+                        _ => Err(if complete {
+                            "*** expansion requires Tuple or Unit"
+                        } else {
+                            "** expansion requires Tuple, Unit, Record, or Map"
+                        }),
+                    };
+                    for (label, value) in entries.map_err(|message| RuntimeError::ArgumentError(message.into()))? {
+                        self.heap
+                            .pack_builder_mut(builder)
+                            .append_labeled(label, value)
+                            .map_err(|error| RuntimeError::ArgumentError(format!("invalid argument label: {error:?}")))?;
+                    }
+                    if complete
+                        && let Value::Obj(id) = operand
+                        && matches!(self.heap.get(id), Object::Tuple(_))
+                    {
+                        let values = self.heap.tuple(id).positionals().to_vec();
+                        for value in values {
+                            self.heap.pack_builder_mut(builder).push_positional(value);
+                        }
+                    }
+                }
+                Bytecode::PackTryExpandTuplePositionals => {
+                    let builder = self.pop()?;
+                    let operand = self.pop()?;
+                    let Value::Obj(builder) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    match operand {
+                        Value::Unit => self.stack.push(TRUE),
+                        Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => {
+                            let values = self.heap.tuple(id).positionals().to_vec();
+                            for value in values {
+                                self.heap.pack_builder_mut(builder).push_positional(value);
+                            }
+                            self.stack.push(TRUE);
+                        }
+                        _ => self.stack.push(FALSE),
+                    }
+                }
+                Bytecode::FinishTuplePack => {
+                    let builder = self.pop()?;
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    if self.heap.pack_builder(id).has_pending() {
+                        return Err(RuntimeError::Internal("unfinished pack label at tuple finish".into()).into());
+                    }
+                    let (positionals, labels, values) = self.heap.pack_builder_mut(id).take_parts();
+                    let labeled = labels.into_iter().zip(values).collect();
+                    let tuple = crate::product::finish_tuple(self, positionals, labeled)
+                        .map_err(|error| RuntimeError::Internal(format!("tuple construction failed: {error:?}")))?;
+                    self.stack.push(tuple);
+                }
+                Bytecode::InvokePack { base_name, kind, access } => {
+                    let builder = self.pop()?;
+                    let receiver_idx = self
+                        .stack
+                        .len()
+                        .checked_sub(1)
+                        .ok_or(RuntimeError::Internal("missing dynamic send receiver".into()))?;
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    if self.heap.pack_builder(id).has_pending() {
+                        return Err(RuntimeError::Internal("unfinished pack label at dynamic send".into()).into());
+                    }
+                    let (positionals, labels, values) = self.heap.pack_builder_mut(id).take_parts();
+                    let arity = positionals.len() + values.len();
+                    if arity > u8::MAX as usize {
+                        return Err(RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()).into());
+                    }
+                    let base = callable.chunk.constants[base_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
+                    let selector = self.dynamic_pack_selector(base, kind, positionals.len(), &labels)?;
+                    self.stack.extend(positionals);
+                    self.stack.extend(values);
+                    let range = callable.chunk.span_at(ip);
+                    if access == PackAccess::CompilerInternal {
+                        self.compiler_internal_dispatch_depth += 1;
+                    }
+                    let result = self.invoke_dynamic_selector(receiver_idx, selector, arity, range);
+                    if access == PackAccess::CompilerInternal {
+                        self.compiler_internal_dispatch_depth -= 1;
+                    }
+                    result?;
+                }
+                Bytecode::SuperSendPack { base_name, defining_class } => {
+                    let builder = self.pop()?;
+                    let receiver_idx = self
+                        .stack
+                        .len()
+                        .checked_sub(1)
+                        .ok_or(RuntimeError::Internal("missing dynamic super receiver".into()))?;
+                    let receiver = self.stack[receiver_idx];
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    if self.heap.pack_builder(id).has_pending() {
+                        return Err(RuntimeError::Internal("unfinished pack label at dynamic super send".into()).into());
+                    }
+                    let (positionals, labels, values) = self.heap.pack_builder_mut(id).take_parts();
+                    let arity = positionals.len() + values.len();
+                    if arity > u8::MAX as usize {
+                        return Err(RuntimeError::ArgumentError("dynamic send has more than 255 arguments".into()).into());
+                    }
+                    let base = callable.chunk.constants[base_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
+                    let selector = self.dynamic_pack_selector(base, PackSendKind::Method, positionals.len(), &labels)?;
+                    let defining = callable.chunk.constants[defining_class as usize].as_symbol().map_err(RuntimeError::Internal)?;
+                    self.stack.extend(positionals);
+                    self.stack.extend(values);
+                    let module = self.heap.closure(closure_id).module;
+                    let key = crate::vm::ClassKey { module, name: defining };
+                    let parent = self.classes.get(&key).and_then(|class| self.heap.class(*class).superclass);
+                    let range = callable.chunk.span_at(ip);
+                    if let Some(method) = parent.and_then(|class| crate::heap::lookup_method_in_hierarchy(&self.heap, class, selector)) {
+                        self.call_method(&receiver, method, arity, range)?;
+                    } else {
+                        self.forward_does_not_understand(receiver_idx, selector, range)?;
                     }
                 }
                 Bytecode::BuildTuple { positional, labeled } => {

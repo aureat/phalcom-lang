@@ -217,5 +217,10 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
         }
         // `LargeInt` holds an arbitrary-precision integer, no `Value` handles.
         Object::LargeInt(_) => {}
+        Object::PackBuilder(builder) => {
+            for value in builder.positionals().iter().chain(builder.labeled_values()) {
+                trace_value(*value, push);
+            }
+        }
     }
 }
