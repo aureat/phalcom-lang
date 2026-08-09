@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 277
+assertion_line: 272
 expression: "parse(\"for (item in makeList(3)) { total = total + item }\")"
 ---
 Program {
@@ -12,8 +12,7 @@ Program {
                     UnqualifiedCallExpr {
                         name: "makeList",
                         args: [
-                            Argument {
-                                label: None,
+                            Positional {
                                 expr: Int {
                                     digits: "3",
                                     radix: 10,

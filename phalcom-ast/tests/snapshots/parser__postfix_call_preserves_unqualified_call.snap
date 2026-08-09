@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 265
+assertion_line: 260
 expression: "parse(\"f(1, 2)\")"
 ---
 Program {
@@ -10,8 +10,7 @@ Program {
                 UnqualifiedCallExpr {
                     name: "f",
                     args: [
-                        Argument {
-                            label: None,
+                        Positional {
                             expr: Int {
                                 digits: "1",
                                 radix: 10,
@@ -25,8 +24,7 @@ Program {
                                 end: 3,
                             },
                         },
-                        Argument {
-                            label: None,
+                        Positional {
                             expr: Int {
                                 digits: "2",
                                 radix: 10,

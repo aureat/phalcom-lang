@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 267
 expression: "parse(\"for (x in xs) { System.print(x) }\")"
 ---
 Program {
@@ -27,8 +28,7 @@ Program {
                                 },
                                 method: "print",
                                 args: [
-                                    Argument {
-                                        label: None,
+                                    Positional {
                                         expr: Var {
                                             value: "x",
                                             range: CopyRange {

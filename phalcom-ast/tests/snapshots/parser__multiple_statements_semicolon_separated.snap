@@ -17,8 +17,7 @@ Program {
                     },
                     method: "print",
                     args: [
-                        Argument {
-                            label: None,
+                        Positional {
                             expr: Int {
                                 digits: "1",
                                 radix: 10,
@@ -56,8 +55,7 @@ Program {
                     },
                     method: "print",
                     args: [
-                        Argument {
-                            label: None,
+                        Positional {
                             expr: Int {
                                 digits: "2",
                                 radix: 10,
