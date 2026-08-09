@@ -30,30 +30,21 @@ impl<'vm> Compiler<'vm> {
         let name = self.fresh_scratch_symbol(base);
         self.add_local(name, true)?;
         let slot = (self.functions.last().unwrap().num_locals - 1) as u16;
-        self.emit(Bytecode::Nil, range);
+        self.emit(Bytecode::ReserveScratchLocal(slot), range);
         Ok(slot)
     }
 
-    fn collapse_two_pack_scratch(&mut self, first_slot: u16, range: SourceRange) {
-        self.emit(Bytecode::SetLocal(first_slot), range);
-        self.emit(Bytecode::Pop, range);
-        self.emit(Bytecode::Pop, range);
+    fn release_pack_scratch_from(&mut self, first_slot: u16, count: usize, range: SourceRange) {
+        let function = self.functions.last().unwrap();
+        debug_assert_eq!(function.locals.len(), function.num_locals);
+        debug_assert_eq!(first_slot as usize + count, function.num_locals);
+        for slot in (first_slot as usize..first_slot as usize + count).rev() {
+            self.emit(Bytecode::ReleaseScratchLocal(slot as u16), range);
+        }
         let function = self.functions.last_mut().unwrap();
-        function.locals.pop();
-        function.locals.pop();
-        function.num_locals -= 2;
-    }
-
-    fn collapse_three_pack_scratch(&mut self, first_slot: u16, range: SourceRange) {
-        self.emit(Bytecode::SetLocal(first_slot), range);
-        self.emit(Bytecode::Pop, range);
-        self.emit(Bytecode::Pop, range);
-        self.emit(Bytecode::Pop, range);
-        let function = self.functions.last_mut().unwrap();
-        function.locals.pop();
-        function.locals.pop();
-        function.locals.pop();
-        function.num_locals -= 3;
+        function.locals.truncate(function.locals.len() - count);
+        function.num_locals -= count;
+        debug_assert_eq!(function.locals.len(), function.num_locals);
     }
 
     /// Adds one positional spread through the Tuple/Unit probe, then the
@@ -97,12 +88,7 @@ impl<'vm> Compiler<'vm> {
         self.patch_forward_jump(exit);
         self.patch_forward_jump(done);
 
-        self.emit(Bytecode::Pop, range);
-        self.emit(Bytecode::Pop, range);
-        let function = self.functions.last_mut().unwrap();
-        function.locals.pop();
-        function.locals.pop();
-        function.num_locals -= 2;
+        self.release_pack_scratch_from(source_slot, 2, range);
         Ok(())
     }
 
@@ -193,7 +179,7 @@ impl<'vm> Compiler<'vm> {
             },
             range,
         );
-        self.collapse_two_pack_scratch(receiver_slot, range);
+        self.release_pack_scratch_from(receiver_slot, 2, range);
         Ok(())
     }
     /// Builds static selector slots and rejects duplicate labels before any
@@ -305,7 +291,7 @@ impl<'vm> Compiler<'vm> {
                             },
                             call.range,
                         );
-                        self.collapse_two_pack_scratch(receiver_slot, call.range);
+                        self.release_pack_scratch_from(receiver_slot, 2, call.range);
                         return Ok(());
                     }
                 }
@@ -377,10 +363,10 @@ impl<'vm> Compiler<'vm> {
                             Some(constructor) if mc.method == constructor => format!("init {constructor}"),
                             _ => mc.method.clone(),
                         };
+                        let receiver_slot = self.reserve_pack_scratch("$pack_receiver", mc.range)?;
                         self.emit_self(mc.range);
-                        let receiver_name = self.fresh_scratch_symbol("$pack_receiver");
-                        self.add_local(receiver_name, true)?;
-                        let receiver_slot = (self.functions.last().unwrap().num_locals - 1) as u16;
+                        self.emit(Bytecode::SetLocal(receiver_slot), mc.range);
+                        self.emit(Bytecode::Pop, mc.range);
                         let builder_slot = self.reserve_pack_scratch("$pack_builder", mc.range)?;
                         self.emit(Bytecode::NewArgumentPack, mc.range);
                         self.emit(Bytecode::SetLocal(builder_slot), mc.range);
@@ -398,7 +384,7 @@ impl<'vm> Compiler<'vm> {
                             },
                             mc.range,
                         );
-                        self.collapse_two_pack_scratch(receiver_slot, mc.range);
+                        self.release_pack_scratch_from(receiver_slot, 2, mc.range);
                         return Ok(());
                     }
                     let argc = mc.args.len();
@@ -581,7 +567,7 @@ impl<'vm> Compiler<'vm> {
                     );
                     self.emit(Bytecode::Pop, six.range);
                     self.emit(Bytecode::GetLocal(rhs_slot), six.range);
-                    self.collapse_three_pack_scratch(receiver_slot, six.range);
+                    self.release_pack_scratch_from(receiver_slot, 3, six.range);
                     return Ok(());
                 }
                 // Compiler-owned `put` occupies the final setter label.
@@ -782,11 +768,7 @@ impl<'vm> Compiler<'vm> {
                     }
                     self.emit(Bytecode::GetLocal(builder_slot), tuple_expr.range);
                     self.emit(Bytecode::FinishTuplePack, tuple_expr.range);
-                    self.emit(Bytecode::SetLocal(builder_slot), tuple_expr.range);
-                    self.emit(Bytecode::Pop, tuple_expr.range);
-                    let function = self.functions.last_mut().unwrap();
-                    function.locals.pop();
-                    function.num_locals -= 1;
+                    self.release_pack_scratch_from(builder_slot, 1, tuple_expr.range);
                     return Ok(());
                 }
                 let positional = tuple_expr

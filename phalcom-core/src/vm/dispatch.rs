@@ -1136,6 +1136,28 @@ impl VM {
                         return Err(RuntimeError::Internal(format!("Local variable slot {slot} out of bounds")).into());
                     }
                 }
+                Bytecode::ReserveScratchLocal(slot) => {
+                    let local_idx = stack_offset + slot as usize;
+                    if local_idx > self.stack.len() {
+                        return Err(RuntimeError::Internal(format!(
+                            "scratch local slot {slot} insertion index {local_idx} exceeds stack length {}",
+                            self.stack.len()
+                        ))
+                        .into());
+                    }
+                    self.stack.insert(local_idx, Value::Nil);
+                }
+                Bytecode::ReleaseScratchLocal(slot) => {
+                    let local_idx = stack_offset + slot as usize;
+                    if local_idx >= self.stack.len() {
+                        return Err(RuntimeError::Internal(format!(
+                            "scratch local slot {slot} removal index {local_idx} exceeds stack length {}",
+                            self.stack.len()
+                        ))
+                        .into());
+                    }
+                    self.stack.remove(local_idx);
+                }
                 Bytecode::Class(idx) => {
                     let name_val = callable.chunk.constants[idx as usize];
                     if let Value::Symbol(name_sym) = name_val {

@@ -38,7 +38,12 @@ fn positional_spread_uses_tuple_unit_and_iterable_lanes() {
         eval_source(
             r#"
 class Receiver {
-  collect(*values) { return values.size }
+  // F.3 normalizes an empty rest capture to Unit. Unit deliberately has no
+  // speculative `size` protocol, so recognize the zero-product directly.
+  collect(*values) {
+    if (values == ()) { return 0 }
+    return values.size
+  }
 }
 
 let receiver = Receiver.new()

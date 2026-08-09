@@ -64,6 +64,8 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "InvokePack",
     "SuperSendPack",
     "FinishTuplePack",
+    "ReserveScratchLocal",
+    "ReleaseScratchLocal",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -449,12 +451,26 @@ pub enum Bytecode {
         defining_class: u16,
     },
     FinishTuplePack,
+    /// Inserts one compiler-only local slot into the current frame's local window.
+    ///
+    /// `slot` is frame-relative. The VM inserts `Value::Nil` at
+    /// `frame.stack_offset + slot`, shifting every transient operand at or above
+    /// that index upward while preserving order. The compiler emits this only for
+    /// scratch locals declared while an enclosing expression has live operands.
+    ReserveScratchLocal(u16),
+    /// Removes one compiler-only local slot from the current frame's local window.
+    ///
+    /// `slot` is frame-relative. The VM removes exactly the value at
+    /// `frame.stack_offset + slot`, shifting the operand suffix downward while
+    /// preserving order. The compiler releases multi-slot scratch regions from
+    /// highest slot to lowest slot.
+    ReleaseScratchLocal(u16),
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 60;
+    pub const VARIANTS: usize = 62;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -525,6 +541,8 @@ impl Bytecode {
             Bytecode::InvokePack { .. } => 57,
             Bytecode::SuperSendPack { .. } => 58,
             Bytecode::FinishTuplePack => 59,
+            Bytecode::ReserveScratchLocal(..) => 60,
+            Bytecode::ReleaseScratchLocal(..) => 61,
         }
     }
 

@@ -241,12 +241,6 @@ fn variadics() {
 }
 
 #[test]
-#[ignore = "F.2 static outgoing positional spread return-window regression"]
-fn variadics_pending() {
-    support::check_pending("variadics");
-}
-
-#[test]
 fn inheritance() {
     // U-INH: single inheritance — `class B is A`, inherited instance
     // methods with subclass overrides, the parallel-metaclass rule making
