@@ -1683,13 +1683,16 @@ impl<'source> Parser<'source> {
         }
         let mut params: Vec<ParameterDef> = Vec::new();
         let mut any_labeled = false;
+        let mut positional_rest = false;
+        let mut labeled_rest = false;
+        let mut complete_rest = false;
         let mut labels = std::collections::HashMap::<String, SourceRange>::new();
         loop {
             self.skip_newlines();
             let start = self.cur_start();
-            if params.last().is_some_and(ParameterDef::is_rest) {
+            if labeled_rest || complete_rest {
                 return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("a rest parameter (\"*name\") must be the last parameter".to_string()),
+                    kind: SyntaxErrorKind::Message("no parameter may follow **rest or ***rest".to_string()),
                     range: start..start,
                 });
             }
@@ -1704,13 +1707,43 @@ impl<'source> Parser<'source> {
             };
             if let Some(rest_mode) = rest_mode {
                 let name = self.expect_identifier(&["parameter name"])?;
-                if any_labeled {
+                if rest_mode == RestMode::Positional && any_labeled {
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("a rest parameter cannot follow a labeled parameter".to_string()),
+                        kind: SyntaxErrorKind::Message("*rest must precede labeled parameters".to_string()),
                         range: start..self.prev_end,
                     });
                 }
-                let range = (start..self.prev_end).into();
+                if complete_rest || labeled_rest {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("invalid rest parameter combination".to_string()),
+                        range: start..self.prev_end,
+                    });
+                }
+                let range: SourceRange = (start..self.prev_end).into();
+                match rest_mode {
+                    RestMode::Positional if positional_rest || complete_rest => {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("at most one *rest parameter is allowed".to_string()),
+                            range: range.start..range.end,
+                        });
+                    }
+                    RestMode::Labeled if labeled_rest || complete_rest => {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("at most one **rest parameter is allowed".to_string()),
+                            range: range.start..range.end,
+                        });
+                    }
+                    RestMode::Complete if complete_rest || positional_rest || labeled_rest => {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("***rest cannot coexist with *rest or **rest".to_string()),
+                            range: range.start..range.end,
+                        });
+                    }
+                    _ => {}
+                }
+                positional_rest |= rest_mode == RestMode::Positional;
+                labeled_rest |= rest_mode == RestMode::Labeled;
+                complete_rest |= rest_mode == RestMode::Complete;
                 params.push(ParameterDef {
                     name,
                     label: None,
@@ -1719,9 +1752,9 @@ impl<'source> Parser<'source> {
                 });
             } else if self.eat(&Token::Underscore) {
                 let name = self.expect_identifier(&["parameter name"])?;
-                if any_labeled {
+                if any_labeled || positional_rest {
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("positional parameters must precede labeled parameters".to_string()),
+                        kind: SyntaxErrorKind::Message("positional parameters must precede labeled parameters and *rest".to_string()),
                         range: start..self.prev_end,
                     });
                 }

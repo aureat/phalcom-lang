@@ -22,8 +22,8 @@ pub enum MemberKind {
     Method,
     /// Subscript getter or setter (`object[index]`).
     Subscript,
-    /// Variadic method call (`object.sum(*args)`).
-    Variadic,
+    /// Rest-pattern method call.
+    Rest,
 }
 
 /// Description of a single class member in an inheritance chain.
@@ -148,13 +148,17 @@ impl ReplSnapshot {
                 seen_selectors.insert(sel_str.to_string());
 
                 let (name, _labels, sig_kind) = decode_selector(sel_str);
-                let (kind, arity) = match sig_kind {
-                    SignatureKind::Getter => (MemberKind::Getter, 0),
-                    SignatureKind::Setter => (MemberKind::Setter, 1),
-                    SignatureKind::Method(n) => (MemberKind::Method, n),
-                    SignatureKind::SubscriptGet(n) => (MemberKind::Subscript, n),
-                    SignatureKind::SubscriptSet(n) => (MemberKind::Subscript, n + 1),
-                    SignatureKind::Variadic(n) => (MemberKind::Variadic, n),
+                let signature = &vm.heap.method(*class_obj.methods.get(&sel_sym).expect("selector came from methods")).signature;
+                let (kind, arity) = if signature.rest.is_some() {
+                    (MemberKind::Rest, signature.positional_arity)
+                } else {
+                    match sig_kind {
+                        SignatureKind::Getter => (MemberKind::Getter, 0),
+                        SignatureKind::Setter => (MemberKind::Setter, 1),
+                        SignatureKind::Method(n) => (MemberKind::Method, n),
+                        SignatureKind::SubscriptGet(n) => (MemberKind::Subscript, n),
+                        SignatureKind::SubscriptSet(n) => (MemberKind::Subscript, n + 1),
+                    }
                 };
 
                 result.push(Member {

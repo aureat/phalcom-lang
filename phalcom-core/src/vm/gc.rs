@@ -80,8 +80,6 @@ impl VM {
             // `ClassLayout` holds only Symbols and slot indices.
             field_layouts: _,
             class_parents: _,
-            // Memoization cache for derived selectors (U-HOTPATH).
-            variadic_selector_cache: _,
             switch_pending: _,
             native_reentry_depth: _,
             compiler_internal_dispatch_depth: _,

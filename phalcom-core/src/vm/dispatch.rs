@@ -73,18 +73,120 @@ impl VM {
         if let Some(method) = receiver.lookup_method(self, selector) {
             self.call_method(&receiver, method, arity, source_range)
         } else {
-            let (name, labels, kind) = decode_selector(self.resolve_symbol(selector));
-            let variadic =
-                (matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none)).then(|| self.interner.intern(&format!("{name}(*)")));
-            if let Some(method) = variadic
-                .and_then(|sym| receiver.lookup_method(self, sym))
-                .filter(|method| arity >= self.heap.method(*method).signature.positional_arity as usize)
-            {
-                self.call_method(&receiver, method, arity, source_range)
+            let (name, slots, kind) = decode_selector(self.resolve_symbol(selector));
+            let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+            let labels = slots
+                .iter()
+                .filter_map(|slot| slot.as_ref())
+                .map(|label| self.interner.intern(label))
+                .collect::<Vec<_>>();
+            let rest = matches!(kind, SignatureKind::Method(_))
+                .then(|| self.interner.intern(&name))
+                .and_then(|base| self.lookup_rest_method(receiver.class(self), base, positional_count, &labels));
+            if let Some(method) = rest {
+                self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, source_range)
             } else {
                 self.forward_does_not_understand(receiver_idx, selector, source_range)
             }
         }
+    }
+
+    /// Finds an accepting rest method after an already-complete exact walk has
+    /// failed. `start` is the first class eligible for lookup (the receiver
+    /// class for ordinary sends, the defining class's parent for `super`).
+    fn lookup_rest_method(&self, mut start: crate::heap::ClassId, base: Symbol, positional_count: usize, labels: &[Symbol]) -> Option<crate::heap::ObjRef> {
+        loop {
+            let class = self.heap.class(start);
+            if let Some(method) = class.get_rest_method(base)
+                && self
+                    .heap
+                    .method(method)
+                    .signature
+                    .rest
+                    .as_ref()
+                    .is_some_and(|layout| layout.accepts(positional_count, labels))
+            {
+                return Some(method);
+            }
+            start = class.superclass?;
+        }
+    }
+
+    /// Rewrites an accepted incoming pack into declaration-local slots before
+    /// entering the closure frame. The raw pack never becomes visible to user
+    /// bytecode.
+    fn call_rest_method(
+        &mut self,
+        receiver: &Value,
+        method: crate::heap::ObjRef,
+        receiver_idx: usize,
+        positional_count: usize,
+        labels: &[Symbol],
+        source_range: SourceRange,
+    ) -> PhResult<()> {
+        let layout = self.heap.method(method).signature.rest.clone().expect("rest lookup only returns rest methods");
+        let total = self.stack.len() - receiver_idx - 1;
+        let arguments = self.stack[receiver_idx + 1..receiver_idx + 1 + total].to_vec();
+        let fixed_pos = layout.fixed_positionals() as usize;
+        let fixed_labels = layout.fixed_labels().len();
+        debug_assert!(layout.accepts(positional_count, labels));
+        self.stack.truncate(receiver_idx + 1);
+        self.stack.extend_from_slice(&arguments[..fixed_pos]);
+        match layout.mode() {
+            crate::method::RestMode::Positional { .. } => {
+                let capture = crate::product::finish_tuple(self, arguments[fixed_pos..positional_count].to_vec(), Vec::new())
+                    .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                self.stack.push(capture);
+                self.stack.extend_from_slice(&arguments[positional_count..positional_count + fixed_labels]);
+            }
+            crate::method::RestMode::Labeled { .. } => {
+                self.stack.extend_from_slice(&arguments[positional_count..positional_count + fixed_labels]);
+                let capture = crate::product::finish_tuple(
+                    self,
+                    Vec::new(),
+                    labels[fixed_labels..]
+                        .iter()
+                        .copied()
+                        .zip(arguments[positional_count + fixed_labels..].iter().copied())
+                        .collect(),
+                )
+                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                self.stack.push(capture);
+            }
+            crate::method::RestMode::Split { .. } => {
+                let positional_capture = crate::product::finish_tuple(self, arguments[fixed_pos..positional_count].to_vec(), Vec::new())
+                    .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                self.stack.push(positional_capture);
+                self.stack.extend_from_slice(&arguments[positional_count..positional_count + fixed_labels]);
+                let labeled_capture = crate::product::finish_tuple(
+                    self,
+                    Vec::new(),
+                    labels[fixed_labels..]
+                        .iter()
+                        .copied()
+                        .zip(arguments[positional_count + fixed_labels..].iter().copied())
+                        .collect(),
+                )
+                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                self.stack.push(labeled_capture);
+            }
+            crate::method::RestMode::Complete { .. } => {
+                self.stack.extend_from_slice(&arguments[positional_count..positional_count + fixed_labels]);
+                let capture = crate::product::finish_tuple(
+                    self,
+                    arguments[fixed_pos..positional_count].to_vec(),
+                    labels[fixed_labels..]
+                        .iter()
+                        .copied()
+                        .zip(arguments[positional_count + fixed_labels..].iter().copied())
+                        .collect(),
+                )
+                .map_err(|error| RuntimeError::Internal(format!("rest capture failed: {error:?}")))?;
+                self.stack.push(capture);
+            }
+        }
+        let local_arity = self.stack.len() - receiver_idx - 1;
+        self.call_method(receiver, method, local_arity, source_range)
     }
     /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
     /// generation for the frame-token infrastructure
@@ -721,36 +823,18 @@ impl VM {
                 callable.chunk.caches[cache_ip].set(Some(entry));
                 self.call_method(&receiver, method, arity, source_range)?;
             } else {
-                // Exact-selector probe missed. The method-lookup.md §1
-                // miss order is:
-                //   IC -> exact-probe -> variadic probe -> doesNotUnderstand(_).
-                //
-                // Only an all-positional `Method` selector may probe for a
-                // variadic candidate (never a labelled, getter, setter, or
-                // subscript selector) — derive the bare name, build the
-                // canonical `name(*)` selector, and do one ordinary
-                // `lookup_method` walk. A hit dispatches only if the call
-                // supplied at least the fixed prefix (`arity >=
-                // positional_arity`); otherwise, same as a miss, this falls
-                // through to the dNU forward (U9-implementation-spec.md §2
-                // "Runtime dispatch rule", ADR-0012, method-lookup.md §1-2).
-                let variadic_selector_opt = if let Some(&cached_opt) = self.variadic_selector_cache.get(&selector_sym) {
-                    cached_opt
-                } else {
-                    let (name, labels, kind) = decode_selector(self.resolve_symbol(selector_sym));
-                    let eligible = matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none);
-                    let derived = eligible.then(|| self.interner.intern(&format!("{name}(*)")));
-                    self.variadic_selector_cache.insert(selector_sym, derived);
-                    derived
-                };
-                let variadic_hit = variadic_selector_opt
-                    .and_then(|variadic_selector| receiver.lookup_method(self, variadic_selector))
-                    .and_then(|m| {
-                        let sig = &self.heap.method(m).signature;
-                        (arity >= sig.positional_arity as usize).then_some(m)
-                    });
-                if let Some(method) = variadic_hit {
-                    self.call_method(&receiver, method, arity, source_range)?;
+                let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
+                let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+                let labels = slots
+                    .iter()
+                    .filter_map(|slot| slot.as_ref())
+                    .map(|label| self.interner.intern(label))
+                    .collect::<Vec<_>>();
+                let rest = matches!(kind, SignatureKind::Method(_))
+                    .then(|| self.interner.intern(&name))
+                    .and_then(|base| self.lookup_rest_method(receiver_class, base, positional_count, &labels));
+                if let Some(method) = rest {
+                    self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, source_range)?;
                 } else {
                     self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
                 }
@@ -1205,7 +1289,21 @@ impl VM {
                     if let Some(method) = method {
                         self.call_method(&receiver, method, argc, source_range)?;
                     } else {
-                        self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
+                        let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
+                        let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+                        let labels = slots
+                            .iter()
+                            .filter_map(|slot| slot.as_ref())
+                            .map(|label| self.interner.intern(label))
+                            .collect::<Vec<_>>();
+                        let rest = matches!(kind, SignatureKind::Method(_))
+                            .then(|| self.interner.intern(&name))
+                            .and_then(|base| parent.and_then(|class| self.lookup_rest_method(class, base, positional_count, &labels)));
+                        if let Some(method) = rest {
+                            self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, source_range)?;
+                        } else {
+                            self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
+                        }
                     }
                 }
                 Bytecode::Method(selector_idx, is_static) => {
@@ -1229,6 +1327,11 @@ impl VM {
                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
                             }
                             self.heap.class_mut(meta).add_method(selector, method_id);
+                            if self.heap.method(method_id).signature.rest.is_some() {
+                                let (base, _, _) = decode_selector(self.resolve_symbol(selector));
+                                let base = self.interner.intern(&base);
+                                self.heap.class_mut(meta).add_rest_method(base, method_id);
+                            }
                             self.world_version += 1;
                         } else {
                             let closure = {
@@ -1244,6 +1347,11 @@ impl VM {
                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
                             }
                             self.heap.class_mut(class_id).add_method(selector, method_id);
+                            if self.heap.method(method_id).signature.rest.is_some() {
+                                let (base, _, _) = decode_selector(self.resolve_symbol(selector));
+                                let base = self.interner.intern(&base);
+                                self.heap.class_mut(class_id).add_rest_method(base, method_id);
+                            }
                             self.world_version += 1;
                             // Sacred-selector override-epoch tracking (ADR-0018):
                             // any (re)definition of a sacred selector directly on
@@ -1765,20 +1873,24 @@ impl VM {
                     let parent = self.classes.get(&key).and_then(|class| self.heap.class(*class).superclass);
                     let range = callable.chunk.span_at(ip);
                     let exact = parent.and_then(|class| crate::heap::lookup_method_in_hierarchy(&self.heap, class, selector));
-                    let variadic = if exact.is_none() {
-                        let (name, labels, kind) = decode_selector(self.resolve_symbol(selector));
-                        let selector = (matches!(kind, SignatureKind::Method(_)) && labels.iter().all(Option::is_none))
-                            .then(|| self.interner.intern(&format!("{name}(*)")));
-                        selector
-                            .and_then(|selector| parent.and_then(|class| crate::heap::lookup_method_in_hierarchy(&self.heap, class, selector)))
-                            .filter(|method| arity >= self.heap.method(*method).signature.positional_arity as usize)
-                    } else {
-                        None
-                    };
-                    if let Some(method) = exact.or(variadic) {
+                    if let Some(method) = exact {
                         self.call_method(&receiver, method, arity, range)?;
                     } else {
-                        self.forward_does_not_understand(receiver_idx, selector, range)?;
+                        let (name, slots, kind) = decode_selector(self.resolve_symbol(selector));
+                        let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+                        let labels = slots
+                            .iter()
+                            .filter_map(|slot| slot.as_ref())
+                            .map(|label| self.interner.intern(label))
+                            .collect::<Vec<_>>();
+                        let rest = matches!(kind, SignatureKind::Method(_))
+                            .then(|| self.interner.intern(&name))
+                            .and_then(|base| parent.and_then(|class| self.lookup_rest_method(class, base, positional_count, &labels)));
+                        if let Some(method) = rest {
+                            self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, range)?;
+                        } else {
+                            self.forward_does_not_understand(receiver_idx, selector, range)?;
+                        }
                     }
                 }
                 Bytecode::BuildTuple { positional, labeled } => {

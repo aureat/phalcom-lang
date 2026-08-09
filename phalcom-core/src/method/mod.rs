@@ -33,18 +33,50 @@ pub enum SignatureKind {
     SubscriptGet(u8),
     /// A bracket subscript setter.
     SubscriptSet(u8),
-    /// A variadic method, `foo(*rest)`, whose payload is the *fixed/minimum*
-    /// positional arity `F` preceding the rest parameter (0 for `sum(*numbers)`,
-    /// 1 for `format(fmt, *args)`).
-    ///
-    /// The selector text this encodes to never includes `F` — it is always
-    /// the bare `name(*)`, independent of how many fixed parameters precede
-    /// the rest parameter (U9, `messages-and-selectors.md` §4; see
-    /// [`encode_selector`]'s `Variadic` arm). `F` is carried only by
-    /// [`Signature::positional_arity`] at runtime, read by the VM's
-    /// call-prologue and derived-selector dispatch probe (`vm.rs::call_method`,
-    /// `Bytecode::Invoke`'s miss arm).
-    Variadic(u8),
+}
+
+/// Normalized rest capture layout.  This is deliberately signature metadata,
+/// never selector text parsed back during dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestMode {
+    Positional { param_index: u16 },
+    Labeled { param_index: u16 },
+    Split { positional_param_index: u16, labeled_param_index: u16 },
+    Complete { param_index: u16 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestLayout {
+    fixed_positionals: u8,
+    fixed_labels: Box<[Symbol]>,
+    mode: RestMode,
+}
+
+impl RestLayout {
+    pub fn new(fixed_positionals: u8, fixed_labels: Box<[Symbol]>, mode: RestMode) -> Self {
+        Self {
+            fixed_positionals,
+            fixed_labels,
+            mode,
+        }
+    }
+    pub fn mode(&self) -> RestMode {
+        self.mode
+    }
+    pub fn fixed_positionals(&self) -> u8 {
+        self.fixed_positionals
+    }
+    pub fn fixed_labels(&self) -> &[Symbol] {
+        &self.fixed_labels
+    }
+    pub fn accepts(&self, positional_count: usize, labels: &[Symbol]) -> bool {
+        let fixed = self.fixed_positionals as usize;
+        match self.mode {
+            RestMode::Positional { .. } => positional_count >= fixed && labels == self.fixed_labels.as_ref(),
+            RestMode::Labeled { .. } => positional_count == fixed && labels.starts_with(self.fixed_labels.as_ref()),
+            RestMode::Split { .. } | RestMode::Complete { .. } => positional_count >= fixed && labels.starts_with(self.fixed_labels.as_ref()),
+        }
+    }
 }
 
 /// A method's fully-resolved calling signature.
@@ -56,8 +88,8 @@ pub struct Signature {
     pub kind: SignatureKind,
     /// The number of positional parameters.
     pub positional_arity: u8,
-    /// Whether the final parameter is variadic.
-    pub variadic: bool,
+    /// Rest-capable method layout, or `None` for exact-only methods.
+    pub rest: Option<RestLayout>,
 }
 
 impl Signature {
@@ -69,23 +101,22 @@ impl Signature {
             SignatureKind::Setter => 1,
             SignatureKind::SubscriptGet(n) => n,
             SignatureKind::SubscriptSet(n) => n.checked_add(1).expect("SubscriptSet index arity must leave room for the assigned value"),
-            SignatureKind::Variadic(f) => f,
         };
         Signature {
             selector,
             kind,
             positional_arity,
-            variadic: matches!(kind, SignatureKind::Variadic(_)),
+            rest: None,
         }
     }
 
-    /// Builds a signature with an explicit `positional_arity` and `variadic` flag.
-    pub fn new_with_arity(selector: Symbol, kind: SignatureKind, positional_arity: u8, variadic: bool) -> Self {
+    /// Builds a signature with explicit arity and normalized rest metadata.
+    pub fn new_with_arity(selector: Symbol, kind: SignatureKind, positional_arity: u8, rest: Option<RestLayout>) -> Self {
         Signature {
             selector,
             kind,
             positional_arity,
-            variadic,
+            rest,
         }
     }
 }
@@ -108,7 +139,6 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
         SignatureKind::Setter => format!("{name}=(put)"),
         SignatureKind::SubscriptGet(_) => format!("[{}]", comma_form_slots(labels)),
         SignatureKind::SubscriptSet(_) => format!("[{}]=(put)", comma_form_slots(labels)),
-        SignatureKind::Variadic(_) => format!("{name}(*)"),
     }
 }
 
@@ -202,10 +232,6 @@ pub fn decode_label_component(component: &str) -> String {
 /// reproduces the original string (the encoder ignores the name for
 /// subscripts).
 ///
-/// [`SignatureKind::Variadic`] round-trips its *name* but not its fixed
-/// arity: the selector text never carries `F` (U9 corrections §0 point 3), so
-/// this always decodes to `Variadic(0)` regardless of the original method's
-/// real fixed-prefix count.
 pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, SignatureKind) {
     // Subscript forms start with `[` and end with `]`
     if let Some(rest) = selector.strip_prefix('[') {
@@ -240,15 +266,6 @@ pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, Signatur
                 return (name.to_string(), vec![Some("put".to_string())], SignatureKind::Setter);
             }
         }
-    }
-
-    // Variadic (`name(*)`): the literal `*` marker, never a labeled arg list.
-    // The fixed/minimum arity `F` cannot be recovered from the selector text
-    // alone (U9 corrections §0 point 3, by design) — this returns `0` as a
-    // documented limitation; today's only caller is the dNU `Message`
-    // reification path (`vm.rs::new_message`), which never needs the real `F`.
-    if inner == "*" {
-        return (head.to_string(), Vec::new(), SignatureKind::Variadic(0));
     }
 
     // Historical `init ` prefixes are accepted on input for generated hidden
@@ -296,7 +313,6 @@ pub fn make_signature(base: &str, kind: SignatureKind) -> String {
         SignatureKind::Setter => 0, // Setter has 1 arg but the label list is empty in the AST.
         SignatureKind::SubscriptGet(n) => n,
         SignatureKind::SubscriptSet(n) => n,
-        SignatureKind::Variadic(f) => f,
     };
     let labels = vec![None; arity as usize];
     encode_selector(base, &labels, kind)
@@ -346,7 +362,7 @@ mod tests {
         }
         assert_eq!(encode_label_component("*"), "~2a");
         assert_eq!(encode_selector("foo", &[Some("*".to_string())], SignatureKind::Method(1)), "foo(~2a)");
-        assert_eq!(decode_selector("foo(*)").2, SignatureKind::Variadic(0));
+        assert_eq!(decode_selector("foo(*)").2, SignatureKind::Method(1));
     }
 
     #[test]

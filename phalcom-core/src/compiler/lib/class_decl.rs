@@ -2,7 +2,9 @@ use crate::bytecode::Bytecode;
 use crate::compiler::attributes::{AttributeRegistry, CompileMode, ExpandCtx, expand_class_attributes};
 use crate::heap::Object;
 use crate::interner::Symbol;
-use crate::method::{MemberVisibility, MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
+use crate::method::{
+    MemberVisibility, MethodKind, MethodObject, RestLayout, RestMode as RuntimeRestMode, SignatureKind, encode_label_component, encode_selector, make_signature,
+};
 use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
@@ -54,9 +56,7 @@ fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisi
     }
 }
 
-/// F.1 parses all rest lanes, but the pre-F.3 runtime executes only ordinary
-/// final positional rest. Validate post-expansion so synthesized members
-/// cannot silently erase a rest marker while forming selector identities.
+/// Validates F.3 method rest declarations after attribute expansion.
 fn validate_pre_f3_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
     match member {
         ClassMember::Method(method) => {
@@ -71,18 +71,16 @@ fn validate_pre_f3_rest_usage(member: &ClassMember) -> Result<(), CompilerError>
                 }
                 return Ok(());
             }
-            if let Some(rest) = method
-                .params
-                .iter()
-                .find(|param| matches!(param.rest_mode, RestMode::Labeled | RestMode::Complete))
-            {
-                return Err(CompilerError::RestModeNotYetSupported(rest.range));
+            let positional: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Positional).collect();
+            let labeled: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Labeled).collect();
+            let complete: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Complete).collect();
+            if positional.len() > 1 || labeled.len() > 1 || complete.len() > 1 || (!complete.is_empty() && (!positional.is_empty() || !labeled.is_empty())) {
+                return Err(CompilerError::Message("invalid rest parameter combination".into()));
             }
-            if let Some(rest) = method.params.iter().take(method.params.len().saturating_sub(1)).find(|param| param.is_rest()) {
-                return Err(CompilerError::Message(format!(
-                    "rest parameter \"*{}\" must be the last parameter of \"{}\"",
-                    rest.name, method.name
-                )));
+            if let Some(rest) = labeled.first().or_else(|| complete.first()) {
+                if method.params.last().is_none_or(|p| p.range != rest.range) {
+                    return Err(CompilerError::Message("**rest and ***rest must be terminal".into()));
+                }
             }
         }
         ClassMember::Index(index) => {
@@ -93,6 +91,40 @@ fn validate_pre_f3_rest_usage(member: &ClassMember) -> Result<(), CompilerError>
         ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
     }
     Ok(())
+}
+
+fn rest_layout(params: &[phalcom_ast::ast::ParameterDef], interner: &mut crate::interner::Interner) -> Option<RestLayout> {
+    let positional = params.iter().position(|p| p.rest_mode == RestMode::Positional);
+    let labeled = params.iter().position(|p| p.rest_mode == RestMode::Labeled);
+    let complete = params.iter().position(|p| p.rest_mode == RestMode::Complete);
+    let mode = match (positional, labeled, complete) {
+        (Some(p), Some(l), None) => RuntimeRestMode::Split {
+            positional_param_index: p as u16,
+            labeled_param_index: l as u16,
+        },
+        (Some(p), None, None) => RuntimeRestMode::Positional { param_index: p as u16 },
+        (None, Some(l), None) => RuntimeRestMode::Labeled { param_index: l as u16 },
+        (None, None, Some(c)) => RuntimeRestMode::Complete { param_index: c as u16 },
+        (None, None, None) => return None,
+        _ => unreachable!("validated rest declaration"),
+    };
+    let fixed_positionals = params.iter().filter(|p| p.label.is_none() && !p.is_rest()).count() as u8;
+    let fixed_labels = params.iter().filter_map(|p| p.label.as_ref()).map(|label| interner.intern(label)).collect();
+    Some(RestLayout::new(fixed_positionals, fixed_labels, mode))
+}
+
+fn rest_selector(name: &str, params: &[phalcom_ast::ast::ParameterDef]) -> String {
+    let slots = params
+        .iter()
+        .map(|param| match param.rest_mode {
+            RestMode::Positional => "*".to_string(),
+            RestMode::Labeled => "**".to_string(),
+            RestMode::Complete => "***".to_string(),
+            RestMode::None => param.label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()),
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("{name}({slots})")
 }
 
 /// Source parsing catches this first; compiler passes can synthesize members,
@@ -234,18 +266,19 @@ impl<'vm> Compiler<'vm> {
                 Selector(bool, String),
             }
             let mut seen: std::collections::HashMap<MemberKey, (String, SourceRange)> = std::collections::HashMap::new();
+            let mut rest_families: std::collections::HashMap<(bool, String), SourceRange> = std::collections::HashMap::new();
             for member in &class_def.members {
                 let (key, display, member_name_range) = match member {
                     ClassMember::Field(f) => (MemberKey::Field(f.name.clone()), f.name.clone(), f.range),
                     ClassMember::Method(m) => {
-                        let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
                         let subject = if m.is_constructor { "constructor declaration" } else { "method declaration" };
-                        let kind = if m.params.last().is_some_and(|p| p.rest_mode == RestMode::Positional) {
-                            SignatureKind::Variadic(checked_send_arity(subject, m.params.len() - 1, m.range)?)
+                        let kind = SignatureKind::Method(checked_send_arity(subject, m.params.len(), m.range)?);
+                        let sel = if m.params.iter().any(phalcom_ast::ast::ParameterDef::is_rest) {
+                            rest_selector(&m.name, &m.params)
                         } else {
-                            SignatureKind::Method(checked_send_arity(subject, m.params.len(), m.range)?)
+                            let labels: Vec<Option<String>> = m.params.iter().map(|p| p.label.clone()).collect();
+                            encode_selector(&m.name, &labels, kind)
                         };
-                        let sel = encode_selector(&m.name, &labels, kind);
                         (MemberKey::Selector(m.is_static, sel.clone()), sel, m.name_range)
                     }
                     ClassMember::Getter(g) => {
@@ -279,6 +312,15 @@ impl<'vm> Compiler<'vm> {
                         }
                     };
                     return Err(err);
+                }
+                if let ClassMember::Method(method) = member
+                    && method.params.iter().any(phalcom_ast::ast::ParameterDef::is_rest)
+                    && rest_families.insert((method.is_static, method.name.clone()), member_name_range).is_some()
+                {
+                    return Err(CompilerError::Message(format!(
+                        "class {} already defines a rest method for {}",
+                        class_def.name, method.name
+                    )));
                 }
                 seen.insert(key, (display, member_name_range));
             }
@@ -731,22 +773,14 @@ impl<'vm> Compiler<'vm> {
 
                     let arity = method_def.params.len();
                     let encoded_arity = checked_send_arity("method declaration", arity, method_def.range)?;
-                    let is_variadic = method_def.params.last().is_some_and(|p| p.rest_mode == RestMode::Positional);
-
-                    let sig_kind = if is_variadic {
-                        // The rest parameter itself occupies one local slot
-                        // beyond the `F` fixed parameters; `F` is the payload
-                        // U9 corrections §0 point 3 requires for
-                        // `SignatureKind::Variadic`, never spelled into the
-                        // selector text.
-                        let fixed_arity = checked_send_arity("method declaration", arity - 1, method_def.range)?;
-                        SignatureKind::Variadic(fixed_arity)
+                    let sig_kind = SignatureKind::Method(encoded_arity);
+                    let rest = rest_layout(&method_def.params, &mut self.vm.interner);
+                    let selector = if rest.is_some() {
+                        rest_selector(&method_def.name, &method_def.params)
                     } else {
-                        SignatureKind::Method(encoded_arity)
+                        let labels: Vec<Option<String>> = method_def.params.iter().map(|p| p.label.clone()).collect();
+                        encode_selector(&method_def.name, &labels, sig_kind)
                     };
-
-                    let labels: Vec<Option<String>> = method_def.params.iter().map(|p| p.label.clone()).collect();
-                    let selector = encode_selector(&method_def.name, &labels, sig_kind);
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     let param_names: Vec<String> = method_def.params.iter().map(|p| p.name.clone()).collect();
@@ -767,7 +801,13 @@ impl<'vm> Compiler<'vm> {
                         sig_kind,
                         MethodKind::Closure(closure),
                     ))));
-                    self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&method_def.name), &method_def.attributes);
+                    {
+                        let method = self.vm.heap.method_mut(method_obj);
+                        method.visibility = member_visibility(Some(&method_def.name), &method_def.attributes);
+                        if let Some(rest) = rest {
+                            method.signature = crate::method::Signature::new_with_arity(selector_sym, sig_kind, rest.fixed_positionals(), Some(rest));
+                        }
+                    }
 
                     if !strip_metadata {
                         let contracts = self.build_contracts_metadata(&method_def.attributes)?;

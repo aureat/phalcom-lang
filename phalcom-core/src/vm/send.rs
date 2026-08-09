@@ -221,20 +221,6 @@ impl VM {
             MethodKind::Closure(closure_id) => {
                 let context = callee.to_context(&self.heap);
                 let receiver_idx = self.stack.len() - arity - 1;
-                let (variadic, fixed_arity) = {
-                    let sig = &self.heap.method(method).signature;
-                    (sig.variadic, sig.positional_arity as usize)
-                };
-                if variadic {
-                    // Collect the trailing `arity - fixed_arity` positional args into
-                    // a `List` bound to the rest slot. `receiver_idx` does not move —
-                    // only the tail past the fixed prefix collapses into one `List`
-                    // value, so `stack_offset` below is unaffected (U9,
-                    // U9-implementation-spec.md §2 "Call prologue").
-                    let rest = self.stack.split_off(receiver_idx + 1 + fixed_arity);
-                    let list_id = self.heap.alloc_list(rest);
-                    self.stack.push(Value::Obj(list_id));
-                }
                 let stack_offset = receiver_idx;
                 let new_frame = self.new_call_frame(closure_id, context, 0, stack_offset, Some(source_range));
                 self.push_frame(new_frame)?;
@@ -387,11 +373,11 @@ impl VM {
     /// [`RuntimeError::DeadFrameError`] from a non-local `return` inside an
     /// escaping block whose home frame is no longer live (R-INV-3.2).
     pub fn invoke_method_object(&mut self, method_id: ObjRef, receiver: Value, args: &[Value]) -> PhResult<Value> {
-        let (positional, variadic) = {
+        let positional = {
             let sig = &self.heap.method(method_id).signature;
-            (sig.positional_arity as usize, sig.variadic)
+            sig.positional_arity as usize
         };
-        let ok = if variadic { args.len() >= positional } else { args.len() == positional };
+        let ok = args.len() == positional;
         if !ok {
             return Err(RuntimeError::Arity {
                 signature: "invokeOn",

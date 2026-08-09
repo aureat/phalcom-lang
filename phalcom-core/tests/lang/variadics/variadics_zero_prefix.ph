@@ -1,17 +1,15 @@
 // area: variadics
 // spec: U9-implementation-spec.md §2, §6; messages-and-selectors.md §4
 // status: PASS
-// A zero-prefix variadic (`sum(*numbers)`) collects every positional
-// argument into a real `List` bound to the rest parameter — `sum(1,2,3)`
-// sums to 6, `sum()` sums to 0 (empty list, no fixed args required).
+// F.3 positional rest captures a canonical Tuple, with Unit for an empty
+// residual lane.
 
 class Summer {
-  sum(*numbers) {
-    let total = 0
-    numbers.each(|n| { total = total + n })
-    return total
+  count(*numbers) {
+    return numbers.size
   }
+  empty(*numbers) { return numbers }
 }
 const s = Summer.new()
-System.print(s.sum(1, 2, 3))
-System.print(s.sum())
+System.print(s.count(1, 2, 3))
+System.print(s.empty())

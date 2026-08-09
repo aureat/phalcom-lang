@@ -52,7 +52,6 @@ impl VM {
             compile_mode: crate::compiler::attributes::CompileMode::Debug,
             strip_contract_metadata: false,
             unit_kind: crate::compiler::lib::UnitKind::File,
-            variadic_selector_cache: HashMap::new(),
             trace_core: false,
             trace_format_json: false,
             trace_fibers: false,

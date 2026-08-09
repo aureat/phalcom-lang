@@ -306,11 +306,6 @@ pub struct VM {
     pub strip_contract_metadata: bool,
     /// Whether the active compilation/execution unit is a whole file or a single REPL cell.
     pub unit_kind: crate::compiler::lib::UnitKind,
-    /// `sel` → the interned `<name>(*)` variadic selector, or `None` when `sel`
-    /// is not variadic-probe-eligible (labelled/getter/setter/subscript)
-    /// (U-HOTPATH). Memoizes the eligibility decision and derived selector
-    /// construction to save `decode_selector` allocations.
-    pub(crate) variadic_selector_cache: HashMap<Symbol, Option<Symbol>>,
     /// Show core library frames in tracebacks.
     pub trace_core: bool,
     /// Whether tracebacks should render as JSON.

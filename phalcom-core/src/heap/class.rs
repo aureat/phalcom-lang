@@ -33,6 +33,9 @@ pub struct ClassObject {
     pub superclass: Option<ClassId>,
     /// Methods defined directly on this class, keyed by selector [`Symbol`].
     pub methods: MethodsMap,
+    /// One rest-capable method per base family, defined directly on this class.
+    /// Exact methods remain in `methods`; fallback never parses wildcard text.
+    pub rest_methods: HashMap<Symbol, ObjRef>,
     /// Instance fields, keyed by name [`Symbol`] to their slot offset (ADR-0011).
     pub field_slots: IndexMap<Symbol, u16>,
     /// Number of instance slots (ADR-0011).
@@ -99,6 +102,7 @@ impl ClassObject {
             class: ClassId::default(),
             superclass: None,
             methods: MethodsMap::new(),
+            rest_methods: HashMap::new(),
             field_slots: IndexMap::new(),
             field_count: 0,
             static_slots: Box::default(),
@@ -154,6 +158,14 @@ impl ClassObject {
     /// Binds `method` under `selector`, replacing any prior binding.
     pub fn add_method(&mut self, selector: Symbol, method: ObjRef) {
         self.methods.insert(selector, method);
+    }
+
+    pub fn add_rest_method(&mut self, base: Symbol, method: ObjRef) -> Option<ObjRef> {
+        self.rest_methods.insert(base, method)
+    }
+
+    pub fn get_rest_method(&self, base: Symbol) -> Option<ObjRef> {
+        self.rest_methods.get(&base).copied()
     }
 
     /// Returns the method handle bound directly to `selector` on this class, if
