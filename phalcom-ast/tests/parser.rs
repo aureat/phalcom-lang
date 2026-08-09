@@ -380,9 +380,12 @@ fn parse_rejects_positional_after_labeled_parameter() {
 }
 
 #[test]
-fn parse_reserved_word_as_external_label() {
+fn parse_reserved_word_as_external_label_in_definition_and_call() {
     let res = parse_source("class Map {\n  insert(_ value, for key) {}\n}\n", 0);
     assert!(res.is_ok(), "failed to parse reserved external label `for key`: {:?}", res.err());
+
+    let res = parse_source("Map.new().insert(1, for: 2)", 0);
+    assert!(res.is_ok(), "failed to parse reserved call label `for:`: {:?}", res.err());
 }
 
 #[test]

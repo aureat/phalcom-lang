@@ -3182,6 +3182,9 @@ impl<'source> Parser<'source> {
             Token::Identifier(name) if matches!(self.peek_next(), Token::LParen) && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) => {
                 Some(ProductLabelStart::BareSelector(name.clone()))
             }
+            token if Self::label_name(token).is_some() && matches!(self.peek_next(), Token::Colon) => {
+                Some(ProductLabelStart::BareName(Self::label_name(token).unwrap().to_string()))
+            }
             token if Self::bare_product_label_name(token).is_some() && matches!(self.peek_next(), Token::Colon) => {
                 Some(ProductLabelStart::BareName(Self::bare_product_label_name(token).unwrap().to_string()))
             }
