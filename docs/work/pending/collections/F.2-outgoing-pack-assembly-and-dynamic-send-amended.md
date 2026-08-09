@@ -2440,35 +2440,35 @@ The implementation must satisfy all of these.
 
 # 37. Completion checklist
 
-F.2 is complete when:
+F.2 closure evidence is recorded in `F.2-supplement-completion-gaps-before-F.3.md`.
 
-- [ ] `ArgumentPackBuilderObject` exists as a private boxed heap variant.
-- [ ] GC tracer and memory-management edge docs include it.
-- [ ] Builder has positional, label, labeled-value, pending-index state.
-- [ ] All 11 pack bytecodes exist and are named/indexed/disassembled.
-- [ ] Pack bytecodes obey the exact consuming stack contracts in this document.
-- [ ] Static path remains unchanged when `needs_dynamic_pack == false`.
-- [ ] Dynamic ordinary method sends work.
-- [ ] Dynamic implicit-self sends work.
-- [ ] Dynamic callable `call(...)` sends work.
-- [ ] Dynamic compiler-internal sends preserve authority.
-- [ ] Dynamic super sends work.
-- [ ] Dynamic subscript reads work.
-- [ ] Dynamic subscript setters implement pre-RHS `put` reservation.
-- [ ] Dynamic subscript setter selector excludes builder's final `#put` from bracket slots.
-- [ ] Dynamic Tuple construction uses `finish_tuple`.
-- [ ] `*Tuple`/`*Unit` direct lane works.
-- [ ] Generic `*` uses ordinary cursor protocol.
-- [ ] E.3 known-unbounded rejection is reused.
-- [ ] `**` and `***` semantics match the F.2 language spec.
-- [ ] Runtime selector encoding shares F.1 escaping.
-- [ ] Runtime dynamic arity check rejects >255 before lookup.
-- [ ] dNU and variadic fallback match ordinary send behavior.
-- [ ] Scratch locals are cleaned without leaking stack slots.
-- [ ] Fiber regression passes.
-- [ ] GC stress regression passes.
-- [ ] Static send benchmark shows no unexplained regression.
-- [ ] Public primitive-floor delta is 0.
+- [x] `ArgumentPackBuilderObject` exists as a private boxed heap variant.
+- [x] GC tracer and memory-management edge docs include it; focused forced-GC coverage traces PackBuilder-held values.
+- [x] Builder has positional, label, labeled-value, pending-index state.
+- [x] All 11 pack bytecodes exist and are named/indexed/disassembled.
+- [x] Pack bytecodes obey the exact consuming stack contracts in this document.
+- [x] Static path remains unchanged when `needs_dynamic_pack == false`; focused disassembly contains no pack machinery for static calls or Tuples.
+- [x] Dynamic ordinary method sends work.
+- [x] Dynamic implicit-self sends work.
+- [x] Dynamic callable `call(...)` sends work.
+- [x] Dynamic compiler-internal sends preserve authority; source cannot forge that authority.
+- [x] Dynamic super sends work.
+- [x] Dynamic subscript reads work.
+- [x] Dynamic subscript setters implement pre-RHS `put` reservation.
+- [x] Dynamic subscript setter selector excludes builder's final `#put` from bracket slots.
+- [x] Dynamic Tuple construction uses `finish_tuple`, including construction above 255 elements.
+- [x] `*Tuple`/`*Unit` direct lane works.
+- [x] Generic `*` uses ordinary cursor protocol.
+- [x] E.3 known-unbounded rejection is reused.
+- [x] `**` and `***` semantics match the F.2 language spec.
+- [x] Runtime selector encoding shares F.1 escaping.
+- [x] Runtime dynamic arity check rejects >255 before lookup; setter arity includes implicit `put`.
+- [x] dNU and variadic fallback match ordinary send behavior.
+- [x] Scratch locals are cleaned without leaking stack slots.
+- [x] Fiber regression passes.
+- [deferred] Every-safepoint `PHALCOM_GC_STRESS` regression: focused `VM::force_gc()` PackBuilder proof passes, but general stress infrastructure is separately specified and unbuilt.
+- [ ] Static send benchmark shows no unexplained regression. Focused static/dynamic disassembly verifies fast-path shape, not benchmark data.
+- [x] Public primitive-floor delta is 0.
 
 ---
 
