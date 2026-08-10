@@ -744,11 +744,7 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
     }
 }
 
-fn collect_var_occurrences_in_pack_item(
-    item: &PackItem,
-    names: &std::collections::HashSet<String>,
-    out: &mut Vec<(String, SourceRange)>,
-) {
+fn collect_var_occurrences_in_pack_item(item: &PackItem, names: &std::collections::HashSet<String>, out: &mut Vec<(String, SourceRange)>) {
     match item {
         PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
         PackItem::Labeled { label, value, .. } => {

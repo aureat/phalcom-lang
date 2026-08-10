@@ -1278,8 +1278,11 @@ fn invoke_on_preserves_dead_frame_fencing_for_escaping_blocks() {
 fn cross_fiber_non_local_return_raises_dead_frame_error() {
     let mut vm = VM::new();
     let module = vm.create_module("main", "cross_fiber_non_local_return_raises_dead_frame_error");
-    vm.interpret_source(module, "class Maker {\n  make() { return || { return 1 } }\n}\nlet escaped = Maker.new().make()\n")
-        .expect("class + escaping block should compile and run");
+    vm.interpret_source(
+        module,
+        "class Maker {\n  make() { return || { return 1 } }\n}\nlet escaped = Maker.new().make()\n",
+    )
+    .expect("class + escaping block should compile and run");
 
     let result = vm.interpret_source(module, "let f = Fiber.new(escaped)\nf.call()\n");
     match result {
