@@ -357,7 +357,7 @@ let result = Receiver.new().pick(**(right: 2, left: 1))
 }
 
 #[test]
-fn labeled_dynamic_send_does_not_fall_back_to_positional_variadic() {
+fn labeled_dynamic_send_does_not_fall_back_to_positional_rest() {
     let result = on_large_stack(|| {
         eval_source(
             r#"

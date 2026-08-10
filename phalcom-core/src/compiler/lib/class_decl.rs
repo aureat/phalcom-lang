@@ -57,7 +57,7 @@ fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisi
 }
 
 /// Validates F.3 method rest declarations after attribute expansion.
-fn validate_pre_f3_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
+fn validate_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
     match member {
         ClassMember::Method(method) => {
             let is_constructor = method.is_constructor
@@ -67,7 +67,10 @@ fn validate_pre_f3_rest_usage(member: &ClassMember) -> Result<(), CompilerError>
                     .any(|attribute| matches!(attribute.kind, AttrKind::Builtin(BuiltinAttr::Constructor)) || attribute.name == "constructor");
             if is_constructor {
                 if let Some(rest) = method.params.iter().find(|param| param.is_rest()) {
-                    return Err(CompilerError::RestModeNotYetSupported(rest.range));
+                    // F.3 leaves constructor/factory rest capture outside its
+                    // method-body ABI. Reject before selector creation and
+                    // method installation until that scope is specified.
+                    return Err(CompilerError::RestModeUnsupportedForMember(rest.range));
                 }
                 return Ok(());
             }
@@ -85,7 +88,7 @@ fn validate_pre_f3_rest_usage(member: &ClassMember) -> Result<(), CompilerError>
         }
         ClassMember::Index(index) => {
             if let Some(rest) = index.params.iter().find(|param| param.is_rest()) {
-                return Err(CompilerError::RestModeNotYetSupported(rest.range));
+                return Err(CompilerError::RestModeUnsupportedForMember(rest.range));
             }
         }
         ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
@@ -202,7 +205,7 @@ impl<'vm> Compiler<'vm> {
         // methods, where erasing it would otherwise occur before the
         // post-expansion defensive pass below can observe it.
         for member in &class_def.members {
-            validate_pre_f3_rest_usage(member)?;
+            validate_rest_usage(member)?;
         }
         // M-ATTR-ROOT: whether this class itself is a would-be `Attribute`
         // subclass — a direct `extends Attribute` (transitively-inherited
@@ -233,10 +236,11 @@ impl<'vm> Compiler<'vm> {
         // resolves that name via `GetGlobal`, which requires this class's
         // `DefineGlobal` to have already run).
         let (mut class_def, sibling_classes) = expand_class_attributes(class_def, &mut ctx, &registry, is_attribute_class)?;
-        // Pre-F.3 validation must precede duplicate-selector canonicalization:
-        // otherwise constructor/index rest could be erased into an ordinary key.
+        // Rest-scope validation must precede duplicate-selector
+        // canonicalization: otherwise constructor/index rest could be erased
+        // into an ordinary key.
         for member in &class_def.members {
-            validate_pre_f3_rest_usage(member)?;
+            validate_rest_usage(member)?;
             match member {
                 ClassMember::Method(method) => validate_declaration_labels(&method.params)?,
                 ClassMember::Index(index) => validate_declaration_labels(&index.params)?,

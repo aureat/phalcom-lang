@@ -872,12 +872,10 @@ impl<'source> Parser<'source> {
     }
 
     /// Parses a list pattern `[p1, …, pn]`, or `[p1, …, pn, *rest]` with a
-    /// trailing rest sub-pattern (U9's `*name` spelling reused verbatim,
-    /// messages-and-selectors.md §5 spread parity).
+    /// trailing rest sub-pattern.
     ///
-    /// A rest sub-pattern must be the list pattern's **last** element — the
-    /// same rule [`Self::parse_param_list`] enforces for a variadic
-    /// parameter — so the two `*` spellings never diverge.
+    /// A rest sub-pattern must be the list pattern's **last** element. This
+    /// mirrors the declaration-parameter rule.
     ///
     /// # Errors
     ///
@@ -1659,8 +1657,8 @@ impl<'source> Parser<'source> {
 
     /// Parses a parenthesized parameter list. Declaration labels use the
     /// no-colon `external local` form (or just `external` when both names
-    /// match). F.1 preserves all three parsed rest modes; pre-F.3 compilation
-    /// executes only final positional rest under the transitional U9 rules.
+    /// match). The parser preserves all three rest modes; compiler scope
+    /// validation decides which member kinds may use them.
     ///
     /// Shared by method and constructor parameter lists, and — since
     /// U-INDEX/ADR-0060 substitutes `[`/`]` for `(`/`)` — bracket subscript
@@ -1674,8 +1672,8 @@ impl<'source> Parser<'source> {
     /// rest parameter is not the list's last entry, carries a label, or
     /// follows an already-labeled parameter (mixing keyword and rest
     /// parameters would produce a selector that call sites could never
-    /// exactly match, since [`crate`]-side selector encoding for a variadic
-    /// method ignores labels entirely — U9 corrections §0 point 3).
+    /// exactly match, since rest selector encoding preserves fixed labels and
+    /// emits a structural wildcard marker for each rest lane.
     fn parse_selector_params(&mut self, end: Token) -> ParserResult<Vec<ParameterDef>> {
         self.skip_newlines();
         if self.peek() == &end {
@@ -3963,7 +3961,7 @@ mod tests {
 
     #[test]
     fn interior_rest_pattern_is_a_parse_error() {
-        // `*rest` must be the list pattern's last element (U9 parity).
+        // `*rest` must be the list pattern's last element.
         let result = parse("let [*rest, last] = xs", 0);
         assert!(!result.errors.is_empty(), "expected a parse error for an interior rest pattern");
     }

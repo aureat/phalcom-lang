@@ -259,7 +259,7 @@ impl Universe {
 
         // `call` is registered per arity (functions.md §1: `call`, `call(_:)`,
         // `call(_:_:)`, …) since Phalcom dispatch keys on the arity-encoded
-        // selector, not a single variadic entry point. `callWith(_:)` takes one
+        // selector, not a single rest entry point. `callWith(_:)` takes one
         // packed argument (deferred to a plain forward until `List` lands, see
         // `docs/forge/DEFERRED.md`).
         const MAX_CALL_ARITY: u8 = 4;

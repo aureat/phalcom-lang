@@ -406,8 +406,9 @@ pub struct FieldDef {
 ///
 /// An ordinary positional parameter is a bare identifier; a declaration label
 /// uses `external local` (or `external` when both names match). F.1 parses
-/// all [`RestMode`] values. Before F.3, only final positional rest has U9
-/// runtime semantics; labeled and complete modes remain compiler-rejected.
+/// all [`RestMode`] values. F.3 normalizes rest modes into lane-aware method
+/// signatures; constructor/factory and subscript rest remain outside that
+/// method-body scope.
 #[derive(Debug, Clone)]
 pub struct ParameterDef {
     /// The parameter's local binding name.
@@ -415,9 +416,8 @@ pub struct ParameterDef {
     /// The keyword label this parameter is called under, if any. `None` for
     /// an ordinary positional parameter.
     pub label: Option<String>,
-    /// Parsed rest lane. The transitional U9 compiler executes only final
-    /// positional rest and captures it into `List`; F.3 replaces that binding
-    /// behavior without adding a second parser-side rest representation.
+    /// Parsed rest lane. The compiler normalizes this into runtime rest
+    /// metadata without adding a second parser-side representation.
     pub rest_mode: RestMode,
     /// The parameter's source span.
     pub range: SourceRange,
@@ -578,8 +578,7 @@ pub enum Pattern {
         range: SourceRange,
     },
     /// A list pattern `[p1, …, pn]`, or `[p1, …, pn, *rest]` with a trailing
-    /// rest sub-pattern (U9's `*name` spelling reused verbatim —
-    /// messages-and-selectors.md §5 spread parity). A rest sub-pattern, if
+    /// rest sub-pattern. A rest sub-pattern, if
     /// present, **must be the pattern's last element**; the parser rejects an
     /// interior `*` (mirrors [`ParameterDef::is_rest`]'s "last parameter"
     /// rule).

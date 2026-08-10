@@ -241,6 +241,14 @@ Reject a native method declaration carrying a rest layout unless a pre-existing 
 
 F.3 does not silently change the native ABI.
 
+## D10a — Constructor and subscript rest remain outside F.3
+
+F.3 rest capture applies to ordinary named methods only. Constructor/factory/
+initializer and subscript method parameters carrying `*rest`, `**rest`, or
+`***rest` remain compiler errors before selector creation or method
+installation. F.3 does not define their allocation, receiver, or body-slot
+capture semantics; lifting this guard requires a follow-up amendment.
+
 ## D11 — U9 metadata is removed during F.3, not kept indefinitely
 
 During migration, temporary compatibility accessors may derive from `Signature.rest`, but by F.3 completion:

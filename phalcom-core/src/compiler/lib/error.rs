@@ -259,9 +259,10 @@ pub enum CompilerError {
     #[error("internal compiler error: computed pack label reached static pack lowering")]
     ComputedLabelNotYetSupported(SourceRange),
 
-    /// Labeled and complete rest parameters are introduced by F.1 but bind in F.3.
-    #[error("this rest-parameter mode is not supported until F.3.")]
-    RestModeNotYetSupported(SourceRange),
+    /// Constructor/factory and subscript rest capture is outside F.3's method
+    /// body ABI. The compiler rejects it before selector creation/installation.
+    #[error("rest parameters are not supported on constructors or subscript methods in F.3.")]
+    RestModeUnsupportedForMember(SourceRange),
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

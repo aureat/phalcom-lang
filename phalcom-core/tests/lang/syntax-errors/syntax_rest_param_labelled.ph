@@ -1,10 +1,9 @@
 // area: errors
-// spec: U9-implementation-spec.md §3, §6; messages-and-selectors.md §4
+// spec: F.3-rest-capture-and-rest-pattern-dispatch-amended.md §9
 // status: NEGATIVE
 // Mixing a labeled (keyword) parameter with a following rest parameter is
-// rejected — the variadic selector encoding ignores labels entirely (U9
-// corrections §0 point 3), so this combination could never dispatch
-// correctly. A clean parser diagnostic, not a panic.
+// rejected because positional rest must precede labeled parameters. A clean
+// parser diagnostic, not a panic.
 
 class Bad {
   foo(to, *rest) {

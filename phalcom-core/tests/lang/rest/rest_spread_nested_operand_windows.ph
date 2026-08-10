@@ -1,4 +1,4 @@
-// area: variadics
+// area: rest
 // spec: F.2-outgoing-pack-assembly-and-dynamic-send-amended.md
 // status: PASS
 // Dynamic-pack scratch locals must preserve every already-evaluated enclosing

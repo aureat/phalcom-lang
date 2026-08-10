@@ -3,8 +3,17 @@
 //! - Duplicate selector checks (getter vs setter duplicate behavior)
 //! - Compiler & VM dispatch for method declarations and calls
 
+use phalcom_core::compiler::lib::UnitKind;
+use phalcom_core::error::PhResult;
+use phalcom_core::heap::Object;
 use phalcom_core::interpret::Interpreter;
+use phalcom_core::method::{MethodKind, RestLayout, RestMode};
 use phalcom_core::value::Value;
+use phalcom_core::vm::VM;
+
+fn native_stub(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::Unit)
+}
 
 fn run_source(src: &str) -> Result<(), String> {
     let mut interp = Interpreter::new();
@@ -40,7 +49,7 @@ receiver.target(x: 1, x: 2)
 }
 
 #[test]
-fn constructor_rest_is_rejected_before_selector_installation() {
+fn constructor_rest_is_rejected_in_f3_scope() {
     let error = run_source(
         r#"
 class C {
@@ -49,8 +58,60 @@ class C {
 }
 "#,
     )
-    .expect_err("constructor rest has no pre-F.3 semantics");
-    assert!(error.contains("not supported until F.3"), "unexpected error: {error}");
+    .expect_err("constructor rest is outside F.3 method scope");
+    assert!(
+        error.contains("not supported on constructors or subscript methods in F.3"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn native_rest_method_is_rejected_during_installation() {
+    let mut vm = VM::new();
+    let main = vm.create_module("main", "native_rest_installation");
+    let closure = vm
+        .compile_closure_as(main, "class C {\n  target() { }\n}\n", UnitKind::File)
+        .expect("class should compile");
+    let method_id = vm
+        .heap
+        .closure(closure)
+        .callable
+        .chunk
+        .constants
+        .iter()
+        .copied()
+        .find_map(|constant| {
+            let Value::Obj(id) = constant else {
+                return None;
+            };
+            (matches!(vm.heap.get(id), Object::Method(_)) && vm.resolve_symbol(vm.heap.method(id).selector()) == "target()").then_some(id)
+        })
+        .expect("compiled class should carry target method constant");
+    {
+        let method = vm.heap.method_mut(method_id);
+        method.kind = MethodKind::Primitive(native_stub);
+        method.signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Positional { param_index: 0 }));
+    }
+
+    let error = vm.run_cell(main, closure).expect_err("native rest ABI must be rejected before installation");
+    assert!(
+        error.to_string().contains("native method `target()` cannot carry a rest signature in F.3"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn reflective_send_uses_rest_family_fallback() {
+    let mut vm = VM::new();
+    let main = vm.create_module("main", "reflective_rest_send");
+    vm.interpret_source(main, "class C {\n  sum(*args) { return args.size }\n}\nlet c = C.new()\n")
+        .expect("rest method should install");
+    let receiver = vm.heap.module(main).get(vm.interner.intern("c")).expect("receiver should exist");
+    let selector = vm.get_or_intern("sum(_,_)");
+    let result = vm
+        .send_dynamic(receiver, selector, &[Value::Int(1), Value::Int(2)])
+        .expect("reflective rest send should resolve");
+    assert_eq!(result, Value::Int(2));
 }
 
 #[test]
@@ -71,7 +132,10 @@ receiver.target(*1)
 "#,
             )
             .expect_err("non-Iterable * operand must not fall through to dNU");
-            assert!(error.contains("* expansion requires Tuple, Unit, or an iterable value; got int"), "unexpected error: {error}");
+            assert!(
+                error.contains("* expansion requires Tuple, Unit, or an iterable value; got int"),
+                "unexpected error: {error}"
+            );
         })
         .expect("spawn isolated stack")
         .join()

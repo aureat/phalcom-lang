@@ -1,4 +1,4 @@
-// area: variadics
+// area: rest
 // spec: F.3-rest-capture-and-rest-pattern-dispatch-amended.md §11-13
 // status: PASS
 // F.3 lane-aware rest capture: positional, labeled, split, and complete.

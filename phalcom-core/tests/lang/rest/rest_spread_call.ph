@@ -1,4 +1,4 @@
-// area: variadics
+// area: rest
 // spec: F.2-outgoing-pack-assembly-and-dynamic-send-amended.md
 // status: PASS
 // Regression: a nested dynamic-pack send must not alias or overwrite the

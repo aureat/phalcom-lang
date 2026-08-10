@@ -109,7 +109,7 @@ impl Universe {
         // lowering — created here the same way `Option`/`Bool`/`String` are,
         // positioned after the absence type per ADR-0020's load order
         // (`Bool, Option, Number, Symbol, String → List → …`) and before
-        // anything that will depend on it (`Message.args`/rest-params, U8/U9).
+        // anything that will depend on it (`Message.args` and method rest capture).
         let iterable_class = make_core_class(heap, "Iterable", object_class, metaclass_class);
         let list_class = make_core_class(heap, "List", iterable_class, metaclass_class);
 

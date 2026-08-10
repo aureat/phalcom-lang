@@ -19,21 +19,21 @@ use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMet
 /// its parameter list: `name(_,label,...)`, or `name()` for zero-arity.
 ///
 /// A positional parameter (no label) renders as `_`; a labeled (keyword)
-/// parameter renders as its label. Mirrors
+/// parameter renders as its label. Rest parameters render as structural
+/// wildcard slots (`*`, `**`, or `***`), preserving fixed prefixes. Mirrors
 /// `phalcom-core/bin/gen-core-table/main.rs`'s `comma_form`.
 pub fn comma_form(name: &str, params: &[ParameterDef]) -> String {
-    // Transitional U9 identity: valid final positional rest loses its fixed
-    // prefix count and installs as `name(*)`. F.3 replaces this atomically
-    // with structural rest selector formatting in core and LSP.
-    if params.last().is_some_and(|param| param.rest_mode == RestMode::Positional) {
-        return format!("{name}(*)");
-    }
     if params.is_empty() {
         return format!("{name}()");
     }
     let inner = params
         .iter()
-        .map(|param| param.label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
+        .map(|param| match param.rest_mode {
+            RestMode::None => param.label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()),
+            RestMode::Positional => "*".to_string(),
+            RestMode::Labeled => "**".to_string(),
+            RestMode::Complete => "***".to_string(),
+        })
         .collect::<Vec<_>>()
         .join(",");
     format!("{name}({inner})")
@@ -238,16 +238,15 @@ mod tests {
     }
 
     #[test]
-    fn positional_rest_uses_current_u9_runtime_selector() {
-        let class_def = parse_class("class C {\n  sum(*numbers) { }\n  format(_ fmt, *args) { }\n}\n");
-        let ClassMember::Method(sum) = &class_def.members[0] else {
-            panic!("expected method")
-        };
-        let ClassMember::Method(format) = &class_def.members[1] else {
-            panic!("expected method")
-        };
-        assert_eq!(method_selector(sum), "sum(*)");
-        assert_eq!(method_selector(format), "format(*)");
+    fn rest_modes_preserve_structural_selector_shape() {
+        let class_def = parse_class(
+            "class C {\n  sum(*numbers) { }\n  format(_ fmt, *args) { }\n  options(timeout, **kwargs) { }\n  split(_ first, *tail, mode, **extra) { }\n  complete(_ first, ***all) { }\n}\n",
+        );
+        let selectors = class_def.members.iter().map(class_member_selector).collect::<Vec<_>>();
+        assert_eq!(
+            selectors,
+            ["sum(*)", "format(_,*)", "options(timeout,**)", "split(_,*,mode,**)", "complete(_,***)"]
+        );
     }
 
     #[test]

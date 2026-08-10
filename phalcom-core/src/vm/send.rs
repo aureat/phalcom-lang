@@ -1,7 +1,7 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ClassId, ObjRef, Object};
 use crate::interner::Symbol;
-use crate::method::{MemberVisibility, MethodKind, SignatureKind};
+use crate::method::{MemberVisibility, MethodKind, SignatureKind, decode_selector};
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 
@@ -316,8 +316,8 @@ impl VM {
     /// its three consumers are [`object_perform`](crate::primitive::object::object_perform)
     /// / [`object_perform_with`](crate::primitive::object::object_perform_with),
     /// the `doesNotUnderstand(_)` forward (indirectly, via the same
-    /// lookup+`call_method`+dNU path), and — deferred to U9 — a `SendDynamic`
-    /// spread call-site opcode. Unlike the [`crate::bytecode::Bytecode::Invoke`] handler it can
+    /// lookup+`call_method`+dNU path), and the F.2 dynamic-pack send path.
+    /// Unlike the [`crate::bytecode::Bytecode::Invoke`] handler it can
     /// be called from *inside* a native primitive: it saves the frame count,
     /// pushes `receiver`+`args` at a fresh stack window, dispatches, then
     /// re-enters `run_until` to drain that one activation and recover a
@@ -339,7 +339,21 @@ impl VM {
         if let Some(method) = receiver.lookup_method(self, selector) {
             self.call_method(&receiver, method, args.len(), SourceRange::default())?;
         } else {
-            self.forward_does_not_understand(receiver_idx, selector, SourceRange::default())?;
+            let (name, slots, kind) = decode_selector(self.resolve_symbol(selector));
+            let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+            let labels = slots
+                .iter()
+                .filter_map(|slot| slot.as_ref())
+                .map(|label| self.interner.intern(label))
+                .collect::<Vec<_>>();
+            let rest = (args.len() == slots.len() && matches!(kind, SignatureKind::Method(_)))
+                .then(|| self.interner.intern(&name))
+                .and_then(|base| self.lookup_rest_method(receiver.class(self), base, positional_count, &labels));
+            if let Some(method) = rest {
+                self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, SourceRange::default())?;
+            } else {
+                self.forward_does_not_understand(receiver_idx, selector, SourceRange::default())?;
+            }
         }
         // Re-entrant native frame (ADR-0030 §4): a fiber switch is forbidden
         // while this recursive `run_until` is on the Rust call stack, since
@@ -368,7 +382,7 @@ impl VM {
     /// # Errors
     ///
     /// Returns [`RuntimeError::Arity`] if `args.len()` does not match the
-    /// method's signature (respecting a variadic minimum), or propagates any
+    /// method's exact signature, or propagates any
     /// [`RuntimeError`] raised while running the method body — including a
     /// [`RuntimeError::DeadFrameError`] from a non-local `return` inside an
     /// escaping block whose home frame is no longer live (R-INV-3.2).

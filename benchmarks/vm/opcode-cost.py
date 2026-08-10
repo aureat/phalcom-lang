@@ -62,7 +62,7 @@ REPS = int(os.environ.get("REPS", "3"))
 DEFAULT_SET = [
     ("bare_send", "benchmarks/vm/bare_send.ph"),
     ("arith_send", "benchmarks/vm/arith_send.ph"),
-    ("variadic_send", "benchmarks/vm/variadic_send.ph"),
+    ("rest_fallback_send", "benchmarks/vm/rest_fallback_send.ph"),
     ("fiber_churn", "benchmarks/vm/fiber_churn.ph"),
     ("bootstrap", "benchmarks/vm/bootstrap.ph"),
     ("for", "benchmarks/wren-suite/for.ph"),

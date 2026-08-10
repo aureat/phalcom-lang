@@ -299,7 +299,7 @@ fn harvest_primitives_rs(path: &PathBuf, classes: &mut BTreeMap<String, Vec<Sele
     }
 }
 
-/// Given a selector's bare name and its `SignatureKind::Variant[(n)]` source
+/// Given a selector's bare name and its `SignatureKind::Method[(n)]` source
 /// expression, builds the comma-form spelling. Native primitives carry no
 /// parameter labels in `primitives.rs` — only arity — so a `Method(n)`
 /// entry renders as `name(_,_,...)` (n placeholders), matching the
@@ -315,9 +315,6 @@ fn comma_form_from_signature_kind(name: &str, kind_expr: &str) -> (String, &'sta
     }
     if let Some(n) = extract_arity(kind_expr, "SignatureKind::Method") {
         return (positional_comma_form(name, n), "method");
-    }
-    if extract_arity(kind_expr, "SignatureKind::Variadic").is_some() {
-        return (format!("{name}(*)"), "method");
     }
     if kind_expr.starts_with("SignatureKind::SubscriptGet") {
         return ("[]".to_string(), "method");

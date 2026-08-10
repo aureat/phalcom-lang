@@ -154,6 +154,17 @@ pub enum RuntimeError {
     #[error("Invalid argument: {0}")]
     ArgumentError(String),
 
+    #[error("native method `{selector}` cannot carry a rest signature in F.3")]
+    NativeRestMethodUnsupported { selector: String },
+
+    #[error("class `{class}` already has rest method `{first_selector}` for family `{base_family}`; cannot install `{second_selector}`")]
+    DuplicateRestMethodFamily {
+        class: String,
+        base_family: String,
+        first_selector: String,
+        second_selector: String,
+    },
+
     #[error("computed argument label must be Symbol, got {found}")]
     ComputedLabelNotSymbol { found: &'static str },
 

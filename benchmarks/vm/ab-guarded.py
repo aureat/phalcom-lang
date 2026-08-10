@@ -63,14 +63,14 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 ROWS_FULL = [
     ("arith_send", f"{REPO}/benchmarks/vm/arith_send.ph"),
     ("bare_send", f"{REPO}/benchmarks/vm/bare_send.ph"),
-    ("variadic_send", f"{REPO}/benchmarks/vm/variadic_send.ph"),
+    ("rest_fallback_send", f"{REPO}/benchmarks/vm/rest_fallback_send.ph"),
     ("for", f"{REPO}/benchmarks/wren-suite/for.ph"),
     ("fib", f"{REPO}/benchmarks/wren-suite/fib.ph"),
     ("string_equals", f"{REPO}/benchmarks/wren-suite/string_equals.ph"),
     ("method_call", f"{REPO}/benchmarks/wren-suite/method_call.ph"),
     ("map_numeric", f"{REPO}/benchmarks/wren-suite/map_numeric.ph"),
 ]
-QUICK = {"arith_send", "variadic_send", "for", "map_numeric"}
+QUICK = {"arith_send", "rest_fallback_send", "for", "map_numeric"}
 
 OWN_PIDS = {os.getpid(), os.getppid()}
 BUILD_PROCS = ("rustc", "cargo", "cc", "clang", "ld", "lld", "swift-frontend")

@@ -238,11 +238,10 @@ fn collections_d1() {
 }
 
 #[test]
-fn variadics() {
-    // U9: rest parameters (`*name`) — declaration, `<name>(*)` selector
-    // encoding, the VM call-prologue rest-arg collapse, and the
-    // derived-selector miss-path probe.
-    support::check_pass("variadics");
+fn rest_dispatch() {
+    // F.3: lane-aware rest declarations, structural selectors, tuple capture,
+    // and exact-selector miss fallback.
+    support::check_pass("rest");
 }
 
 #[test]

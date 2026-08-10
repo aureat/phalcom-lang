@@ -153,7 +153,13 @@ impl VM {
     /// Finds an accepting rest method after an already-complete exact walk has
     /// failed. `start` is the first class eligible for lookup (the receiver
     /// class for ordinary sends, the defining class's parent for `super`).
-    fn lookup_rest_method(&self, mut start: crate::heap::ClassId, base: Symbol, positional_count: usize, labels: &[Symbol]) -> Option<crate::heap::ObjRef> {
+    pub(crate) fn lookup_rest_method(
+        &self,
+        mut start: crate::heap::ClassId,
+        base: Symbol,
+        positional_count: usize,
+        labels: &[Symbol],
+    ) -> Option<crate::heap::ObjRef> {
         loop {
             let class = self.heap.class(start);
             if let Some(method) = class.get_rest_method(base)
@@ -174,7 +180,7 @@ impl VM {
     /// Rewrites an accepted incoming pack into declaration-local slots before
     /// entering the closure frame. The raw pack never becomes visible to user
     /// bytecode.
-    fn call_rest_method(
+    pub(crate) fn call_rest_method(
         &mut self,
         receiver: &Value,
         method: crate::heap::ObjRef,
@@ -247,6 +253,44 @@ impl VM {
         let local_arity = self.stack.len() - receiver_idx - 1;
         self.call_method(receiver, method, local_arity, source_range)
     }
+
+    /// Validates all rest-specific installation invariants before mutating
+    /// method tables. Compiler-produced methods are closures; this guard keeps
+    /// reflection/native construction from introducing an ABI the VM cannot
+    /// execute and prevents a second rest pattern in one class family.
+    fn validate_method_installation(
+        &mut self,
+        target_class: crate::heap::ClassId,
+        selector: Symbol,
+        method_id: ObjRef,
+    ) -> Result<Option<Symbol>, RuntimeError> {
+        let method = self.heap.method(method_id);
+        let has_rest = method.signature.rest.is_some();
+        if has_rest && method.is_primitive() {
+            return Err(RuntimeError::NativeRestMethodUnsupported {
+                selector: self.resolve_symbol(selector).to_owned(),
+            });
+        }
+        if !has_rest {
+            return Ok(None);
+        }
+
+        let (base, _, _) = decode_selector(self.resolve_symbol(selector));
+        let base = self.interner.intern(&base);
+        if let Some(existing) = self.heap.class(target_class).get_rest_method(base)
+            && existing != method_id
+            && self.heap.method(existing).signature.selector != selector
+        {
+            return Err(RuntimeError::DuplicateRestMethodFamily {
+                class: self.heap.class(target_class).name.clone(),
+                base_family: self.resolve_symbol(base).to_owned(),
+                first_selector: self.resolve_symbol(self.heap.method(existing).signature.selector).to_owned(),
+                second_selector: self.resolve_symbol(selector).to_owned(),
+            });
+        }
+        Ok(Some(base))
+    }
+
     /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
     /// generation for the frame-token infrastructure
     /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
@@ -830,7 +874,7 @@ impl VM {
     }
 
     /// Executes one `Invoke`-shaped send: IC probe, exact-selector lookup + refill,
-    /// variadic probe, then `doesNotUnderstand(_)` forward — method-lookup.md §1's
+    /// rest-family fallback, then `doesNotUnderstand(_)` forward — method-lookup.md §1's
     /// miss order, in order.
     ///
     /// `cache_ip` is the index whose `caches`/`spans` slots this send owns. For a
@@ -1393,6 +1437,8 @@ impl VM {
                     let method_val = self.stack.pop().unwrap();
                     let class_val = *self.stack.last().unwrap();
                     if let (Value::Obj(method_id), Value::Obj(class_id)) = (method_val, class_val) {
+                        let target_class = if is_static { self.heap.class(class_id).class } else { class_id };
+                        let rest_base = self.validate_method_installation(target_class, selector, method_id)?;
                         if is_static {
                             let meta = self.heap.class(class_id).class;
                             let closure = {
@@ -1408,9 +1454,7 @@ impl VM {
                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
                             }
                             self.heap.class_mut(meta).add_method(selector, method_id);
-                            if self.heap.method(method_id).signature.rest.is_some() {
-                                let (base, _, _) = decode_selector(self.resolve_symbol(selector));
-                                let base = self.interner.intern(&base);
+                            if let Some(base) = rest_base {
                                 self.heap.class_mut(meta).add_rest_method(base, method_id);
                             }
                             self.world_version += 1;
@@ -1428,9 +1472,7 @@ impl VM {
                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
                             }
                             self.heap.class_mut(class_id).add_method(selector, method_id);
-                            if self.heap.method(method_id).signature.rest.is_some() {
-                                let (base, _, _) = decode_selector(self.resolve_symbol(selector));
-                                let base = self.interner.intern(&base);
+                            if let Some(base) = rest_base {
                                 self.heap.class_mut(class_id).add_rest_method(base, method_id);
                             }
                             self.world_version += 1;
