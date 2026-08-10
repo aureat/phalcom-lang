@@ -3430,12 +3430,8 @@ impl<'source> Parser<'source> {
         let mut entries = Vec::new();
         let mut labeled_phase = false;
         if first_is_unambiguous_tuple {
-            let first_is_expansion = self.expansion_mode_at_cursor().is_some();
             entries.push(self.parse_tuple_entry(&mut labeled_phase)?);
             self.skip_newlines();
-            if first_is_expansion && !matches!(self.peek(), Token::Comma) {
-                return Err(self.error_here(strs(&["\",\""])));
-            }
             if !self.eat(&Token::Comma) {
                 self.expect(&Token::RParen, &[")"])?;
                 return Ok(Expr::TupleLiteral(Box::new(TupleLiteralExpr {
@@ -4233,6 +4229,49 @@ mod tests {
             let result = parse(source, 0);
             assert!(result.errors.is_empty(), "{source} must parse: {:?}", result.errors);
         }
+    }
+
+    #[test]
+    fn pure_tuple_expansions_are_tuples_with_or_without_trailing_commas() {
+        for (source, mode) in [
+            ("(*args)", ExpansionMode::Positional),
+            ("(*args,)", ExpansionMode::Positional),
+            ("(**args)", ExpansionMode::Labeled),
+            ("(**args,)", ExpansionMode::Labeled),
+            ("(***args)", ExpansionMode::Complete),
+            ("(***args,)", ExpansionMode::Complete),
+        ] {
+            let Statement::Expr {
+                expr: Expr::TupleLiteral(tuple),
+                ..
+            } = only_statement(source)
+            else {
+                panic!("{source} must produce a Tuple literal");
+            };
+            assert!(matches!(
+                tuple.entries.as_slice(),
+                [TupleLiteralEntry::Expand { mode: actual, .. }] if *actual == mode
+            ));
+        }
+
+        let Statement::Expr { expr, .. } = only_statement("(value)") else {
+            panic!("expected grouped expression");
+        };
+        assert!(matches!(expr, Expr::Var { value, .. } if value == "value"));
+
+        let Statement::Expr {
+            expr: Expr::TupleLiteral(tuple),
+            ..
+        } = only_statement("(value,)")
+        else {
+            panic!("expected singleton Tuple literal");
+        };
+        assert!(matches!(
+            tuple.entries.as_slice(),
+            [TupleLiteralEntry::Positional {
+                expr: Expr::Var { value, .. }, ..
+            }] if value == "value"
+        ));
     }
 
     #[test]

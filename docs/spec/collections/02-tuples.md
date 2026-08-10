@@ -37,6 +37,9 @@ Valid:
 (1, 2)
 (1, name: "Phalcom")
 (name: "Phalcom", version: 1)
+(*values)
+(**labels)
+(***pack)
 ```
 
 Invalid:
@@ -54,7 +57,28 @@ Invalid:
 ().size == 0
 ```
 
-A trailing comma distinguishes a one-element Tuple where necessary:
+A trailing comma distinguishes a one-element positional Tuple where necessary.
+Parentheses around an ordinary single expression are grouping:
+
+```phalcom
+(x)   // grouping
+(x,)  // one-element Tuple
+```
+
+A Tuple whose first contribution is intrinsically Tuple-only syntax, such as a
+label or expansion, is already unambiguous and does not require a comma:
+
+```phalcom
+(name: value)
+(*values)
+(**labels)
+(***pack)
+```
+
+A trailing comma remains permitted in all of these forms. The comma remains
+required between multiple contributions.
+
+In type-consuming contexts, ordinary singleton domains still use a comma:
 
 ```phalcom
 (Int,) -> Result
@@ -264,22 +288,28 @@ value.name
 
 Key lookup remains canonical because it works for all Symbol and Selector keys.
 
-## 12. Tuple spreading
+## 12. Tuple expansion
 
-**RATIFIED:** Value spreading is not legal inside Tuple construction.
+**RATIFIED:** Tuple construction uses the active pack-aware source phases from
+the [rest, spread, and pack operator specification](06-rest-spread-and-pack-operators.md).
+
+The positional phase accepts ordinary entries, `*expr`, and `***expr`; the
+labeled phase accepts labels and `**expr`. Expansion entries are separated by
+commas, but a pure expansion Tuple does not need a terminal comma because its
+first entry already makes the Tuple syntax unambiguous:
 
 ```phalcom
-(prefix, *values) // invalid
+(prefix, *values)
+(**labels)
+(***pack,)
 ```
 
-Composition must use explicit operations whose collision and normalization rules are independently specified:
+Comma separators remain required before a distinct subsequent contribution:
 
 ```phalcom
-left.concatPositionals(right)
-left.withLabels(right)
+(*a, *b)
+(*a **b) // invalid
 ```
-
-The exact standard-library API is **OPEN**.
 
 ## 13. Tuple and argument-pack distinction
 

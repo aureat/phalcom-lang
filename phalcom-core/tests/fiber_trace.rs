@@ -4,26 +4,37 @@
 //! by running the real `phalcom` binary as a subprocess (via temp `.ph` files)
 //! and asserting that the expected trace events appear on stderr.
 
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn phalcom_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_phalcom"))
 }
 
+fn write_temp_source(prefix: &str, source: &str) -> PathBuf {
+    loop {
+        let sequence = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("{prefix}_{}_{}.ph", std::process::id(), sequence));
+        let result = OpenOptions::new().write(true).create_new(true).open(&path);
+        match result {
+            Ok(mut file) => {
+                file.write_all(source.as_bytes()).expect("write temp file");
+                return path;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("create temp file: {error}"),
+        }
+    }
+}
+
 /// Write source to a temp file and run it with `--trace=fibers`.
 fn run_trace(source: &str, format: &str) -> Output {
-    let path = std::env::temp_dir().join(format!(
-        "fiber_trace_{}_{}.ph",
-        std::process::id(),
-        // unique per-call so parallel tests don't collide on same-length sources
-        {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos()
-        }
-    ));
-    fs::write(&path, source).expect("write temp file");
+    let path = write_temp_source("fiber_trace", source);
     let out = Command::new(phalcom_bin())
         .args(["--trace=fibers", &format!("--trace-format={}", format), path.to_str().unwrap()])
         .output()
@@ -33,11 +44,7 @@ fn run_trace(source: &str, format: &str) -> Output {
 }
 
 fn run_no_trace(source: &str) -> Output {
-    let path = std::env::temp_dir().join(format!("fiber_no_trace_{}_{}.ph", std::process::id(), {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos()
-    }));
-    fs::write(&path, source).expect("write temp file");
+    let path = write_temp_source("fiber_no_trace", source);
     let out = Command::new(phalcom_bin())
         .arg(path.to_str().unwrap())
         .output()
