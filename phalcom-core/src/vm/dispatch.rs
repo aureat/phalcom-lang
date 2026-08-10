@@ -2192,3 +2192,48 @@ impl VM {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::VM;
+    use crate::compiler::lib::UnitKind;
+    use crate::heap::Object;
+    use crate::method::{MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
+
+    #[test]
+    fn duplicate_rest_family_is_rejected_before_index_mutation() {
+        let mut vm = VM::new();
+        let module = vm.create_module("main", "duplicate_rest_family");
+        let closure = vm
+            .compile_closure_as(module, "let marker = 0\n", UnitKind::File)
+            .expect("test closure should compile");
+        let target = vm.universe.classes.object_class;
+        let base = vm.get_or_intern("sum");
+        let first_selector = vm.get_or_intern("sum(*)");
+        let first = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            first_selector,
+            SignatureKind::Method(1),
+            MethodKind::Closure(closure),
+        ))));
+        vm.heap.method_mut(first).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Positional { param_index: 0 }));
+        vm.heap.class_mut(target).add_rest_method(base, first);
+
+        let second_selector = vm.get_or_intern("sum(**)");
+        let second = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            second_selector,
+            SignatureKind::Method(1),
+            MethodKind::Closure(closure),
+        ))));
+        vm.heap.method_mut(second).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Labeled { param_index: 0 }));
+
+        let error = vm
+            .validate_method_installation(target, second_selector, second)
+            .expect_err("second rest family must be rejected");
+        assert!(error.to_string().contains("already has rest method"), "unexpected error: {error}");
+        assert_eq!(
+            vm.heap.class(target).get_rest_method(base),
+            Some(first),
+            "failed install must preserve existing index entry"
+        );
+    }
+}
