@@ -9,8 +9,8 @@ use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
 use phalcom_ast::ast::{
-    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, Expr, IndexAccessor, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem,
-    PackLabel, RestMode, SetLiteralEntry, Statement,
+    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, Expr, IndexAccessor, ListLiteralElement, MapLiteralEntry, MapLiteralKey,
+    MethodCallExpr, PackItem, PackLabel, RestMode, SetLiteralEntry, Statement,
 };
 use phalcom_common::range::SourceRange;
 
@@ -794,7 +794,7 @@ impl<'vm> Compiler<'vm> {
                         .attributes
                         .iter()
                         .any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Constructor)) || attr.name == "__synthetic");
-                    let closure_result = self.compile_block(method_def.body, selector_sym, param_names, true, false, None);
+                    let closure_result = self.compile_block(method_def.body, selector_sym, ClosureParameters::fixed(param_names), true, false, None);
                     self.compiler_internal = prior_compiler_internal;
                     let closure = closure_result?;
 
@@ -835,7 +835,7 @@ impl<'vm> Compiler<'vm> {
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     self.is_static_context = getter_def.is_static;
-                    let closure = self.compile_block(getter_def.body, selector_sym, Vec::new(), true, false, None)?;
+                    let closure = self.compile_block(getter_def.body, selector_sym, ClosureParameters::default(), true, false, None)?;
 
                     tracing::debug!("[Compiler] Compiling getter: {} (static: {})", selector, getter_def.is_static);
 
@@ -868,7 +868,14 @@ impl<'vm> Compiler<'vm> {
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     self.is_static_context = setter_def.is_static;
-                    let closure = self.compile_block(setter_def.body, selector_sym, vec![setter_def.param.name.clone()], true, false, None)?;
+                    let closure = self.compile_block(
+                        setter_def.body,
+                        selector_sym,
+                        ClosureParameters::fixed(vec![setter_def.param.name.clone()]),
+                        true,
+                        false,
+                        None,
+                    )?;
 
                     tracing::debug!("[Compiler] Compiling setter: {} (static: {})", selector, setter_def.is_static);
 
@@ -918,7 +925,7 @@ impl<'vm> Compiler<'vm> {
                     let closure = self.compile_block(
                         construct_def.body,
                         selector_sym,
-                        param_names,
+                        ClosureParameters::fixed(param_names),
                         true,
                         true,
                         Some(construct_def.name.strip_prefix("init ").unwrap_or(&construct_def.name).to_string()),
@@ -988,7 +995,7 @@ impl<'vm> Compiler<'vm> {
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     self.is_static_context = false;
-                    let closure = self.compile_block(index_def.body, selector_sym, param_names, true, false, None)?;
+                    let closure = self.compile_block(index_def.body, selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
 
                     tracing::debug!("[Compiler] Compiling subscript method: {}", selector);
 
@@ -1210,7 +1217,7 @@ impl<'vm> Compiler<'vm> {
                 let name_sym = self.vm.interner.intern(&name);
                 let range = arg.range();
                 let body = vec![Statement::Expr { expr: arg.clone(), range }];
-                let closure_ref = self.compile_block(body, name_sym, Vec::new(), true, false, None)?;
+                let closure_ref = self.compile_block(body, name_sym, ClosureParameters::default(), true, false, None)?;
                 contracts.push((name_sym, Value::Obj(closure_ref)));
             }
         }

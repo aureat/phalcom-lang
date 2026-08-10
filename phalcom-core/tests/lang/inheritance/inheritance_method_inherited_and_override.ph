@@ -7,13 +7,13 @@
 class Animal {
   @constructor
   new() { }
-  legs => 4
-  describe => "an animal"
+  legs { 4 }
+  describe { "an animal" }
 }
 class Dog is Animal {
   @constructor
   new() { }
-  describe => "a dog"
+  describe { "a dog" }
 }
 const d = Dog.new()
 System.print(d.legs)

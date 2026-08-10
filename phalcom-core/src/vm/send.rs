@@ -124,14 +124,21 @@ impl VM {
                     && matches!(&receiver, Value::Obj(id) if matches!(self.heap.get(*id), Object::Block(_) | Object::Closure(_)))
                 {
                     let (closure_id, home_frame_token) = crate::primitive::block::resolve_callable(self, &receiver)?;
-                    let closure_arity = self.heap.closure(closure_id).callable.arity;
-                    if arity != closure_arity {
+                    let shape = self.heap.closure(closure_id).callable.parameter_shape.clone();
+                    if !shape.accepts(&crate::parameters::ArgumentShape::positional(arity)) {
                         return Err(RuntimeError::Arity {
                             signature: "call",
-                            expected: closure_arity,
+                            expected: shape.fixed_positionals,
                             found: arity,
                         }
                         .into());
+                    }
+                    if matches!(shape.rest, Some(crate::parameters::RestKind::Positional)) {
+                        let rest_start = receiver_idx + 1 + shape.fixed_positionals;
+                        let rest_values = self.stack[rest_start..].to_vec();
+                        let rest = self.heap.alloc_list(rest_values);
+                        self.stack.truncate(rest_start);
+                        self.stack.push(Value::Obj(rest));
                     }
                     let context = crate::frame::CallContext::Instance {
                         instance: match receiver {

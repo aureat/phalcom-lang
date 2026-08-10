@@ -10,7 +10,7 @@ class Toggle {
     _state = startState
   }
 
-  value => _state
+  value { _state }
   activate {
     _state = not _state
     return self

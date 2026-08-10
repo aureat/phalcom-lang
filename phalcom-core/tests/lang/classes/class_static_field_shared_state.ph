@@ -11,7 +11,7 @@ class Counter {
   @constructor
   new() { _count = _count + 1 }
   @class
-  count => _count
+  count { _count }
 }
 Counter.new()
 Counter.new()

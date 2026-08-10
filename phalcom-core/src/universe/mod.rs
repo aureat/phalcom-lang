@@ -200,7 +200,7 @@ impl Universe {
         if class_id == self.classes.bool_class && Self::BOOL_SACRED_SELECTORS.contains(&name) {
             self.bool_sacred_pristine = false;
         }
-        if class_id == self.classes.block_class && Self::BLOCK_SACRED_SELECTORS.contains(&name) {
+        if class_id == self.classes.closure_class && Self::BLOCK_SACRED_SELECTORS.contains(&name) {
             self.block_sacred_pristine = false;
         }
         if (class_id == self.classes.number_class || class_id == self.classes.int_class) && Self::LEAF_TOSTRING_SELECTORS.contains(&name) {
@@ -421,7 +421,7 @@ let d = true.ifTrue || { }.isSome
         // returns a Number no correct loop could ever produce, so "the
         // override's return value came through" is unambiguous.
         let mut vm = VM::new();
-        let block_class = vm.universe.classes.block_class;
+        let closure_class = vm.universe.classes.closure_class;
         let while_true_selector = vm.get_or_intern("whileTrue(_)");
         fn returns_sentinel(_vm: &mut VM, _recv: &Value, _args: &[Value]) -> PhResult<Value> {
             Ok(Value::Int(-999))
@@ -431,7 +431,7 @@ let d = true.ifTrue || { }.isSome
             SignatureKind::Method(1),
             MethodKind::Primitive(returns_sentinel),
         ))));
-        install_kernel_method(&mut vm, block_class, while_true_selector, method);
+        install_kernel_method(&mut vm, closure_class, while_true_selector, method);
         assert!(
             !vm.universe.block_sacred_pristine,
             "installing whileTrue (sacred) must flip the Block guard flag"

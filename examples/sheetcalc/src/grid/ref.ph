@@ -24,10 +24,10 @@ class Ref {
     _rowAbs = rowAbs
   }
 
-  col     => _col
-  row     => _row
-  colAbs  => _colAbs
-  rowAbs  => _rowAbs
+  col { _col }
+  row { _row }
+  colAbs { _colAbs }
+  rowAbs { _rowAbs }
 
   /// Identity: address only. $A$1 == A1 (REQ-REF-1).
   ==(_ o) {
@@ -52,7 +52,7 @@ class Ref {
   /// Bijective base-26 column letters. All 26 entries hardcoded (findings §5).
   @class
   @private
-  letters => ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
+  letters { ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"] }
 
   /// Decode bijective base-26 letters to column number. 'A'=1, 'Z'=26, 'AA'=27.
   @class
@@ -132,13 +132,13 @@ class Ref {
   /// Character class predicates for A1 parsing.
   @class
   @private
-  isDollar(_ code) => code == 36      // '$'
+  isDollar(_ code) { code == 36      // '$' }
   @class
   @private
-  isDigit(_ code)  => code >= 48 and code <= 57
+  isDigit(_ code) { code >= 48 and code <= 57 }
   @class
   @private
-  isUpper(_ code)  => code >= 65 and code <= 90
+  isUpper(_ code) { code >= 65 and code <= 90 }
 
   /// Render Ref back to A1 notation. Preserves $ flags.
   toA1 {

@@ -45,8 +45,8 @@ use std::collections::HashSet;
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
-fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 32] {
-    let c = &vm.universe.classes;
+fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 33] {
+    let c = vm.universe.classes;
     [
         ("Object", c.object_class),
         ("Behavior", c.behavior_class),
@@ -60,7 +60,8 @@ fn core_class_rows(vm: &VM) -> [(&'static str, ClassId); 32] {
         ("False", c.false_class),
         ("Method", c.method_class),
         ("Function", c.function_class),
-        ("Block", c.block_class),
+        ("Closure", c.closure_class),
+        ("BoundMethod", c.bound_method_class),
         ("Symbol", c.symbol_class),
         ("Module", c.module_class),
         ("System", c.system_class),
@@ -798,6 +799,8 @@ fn floor_census_matches_installed_bindings() {
         (c.option_class, false, "match(some,none)"),
         // §2.9 Method
         (c.method_class, true, "new(_)"),
+        (c.method_class, false, "arity"),
+        (c.method_class, false, "name"),
         (c.method_class, false, "invokeOn(_,_)"), // NEW (ADR-0028)
         (c.method_class, false, "bind(_)"),       // NEW (ADR-0028)
         (c.method_class, false, "selector"),      // NEW (ADR-0028)
@@ -811,19 +814,19 @@ fn floor_census_matches_installed_bindings() {
         (c.function_class, false, "call(_,_)"),
         (c.function_class, false, "call(_,_,_)"),
         (c.function_class, false, "call(_,_,_,_)"),
-        // §2.10 Block
-        (c.block_class, false, "arity"),
-        (c.block_class, false, "name"),
-        (c.block_class, false, "callWith(_)"),
-        (c.block_class, false, "call()"),
-        (c.block_class, false, "call(_)"),
-        (c.block_class, false, "call(_,_)"),
-        (c.block_class, false, "call(_,_,_)"),
-        (c.block_class, false, "call(_,_,_,_)"),
-        (c.block_class, false, "whileTrue(_)"),
+        // §2.10 Closure
+        (c.closure_class, false, "arity"),
+        (c.closure_class, false, "name"),
+        (c.closure_class, false, "callWith(_)"),
+        (c.closure_class, false, "call()"),
+        (c.closure_class, false, "call(_)"),
+        (c.closure_class, false, "call(_,_)"),
+        (c.closure_class, false, "call(_,_,_)"),
+        (c.closure_class, false, "call(_,_,_,_)"),
+        (c.closure_class, false, "whileTrue(_)"),
         // U-ERR error-handling catch protocol (ADR-0038) — NEW_ON_ENSURE
-        (c.block_class, false, "on(_,_)"),
-        (c.block_class, false, "ensure(_)"),
+        (c.closure_class, false, "on(_,_)"),
+        (c.closure_class, false, "ensure(_)"),
         // §2.11 System
         (c.system_class, true, "print(_)"),
         (c.system_class, true, "new()"),
@@ -976,10 +979,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        159,
-        "census must enumerate exactly 159 bindings after the C.2/C.3 Range floor amendments"
+        161,
+        "census must enumerate exactly 161 bindings after the callable surface amendment"
     );
-    assert_eq!(live.len(), 159, "the live floor must be exactly 159 bindings");
+    assert_eq!(live.len(), 161, "the live floor must be exactly 161 bindings");
 }
 
 #[test]
@@ -990,7 +993,7 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
     // rows. The boot half of this rides `Universe::verify_invariants`.
     let vm = VM::new();
     let c = &vm.universe.classes;
-    let rows: [(&str, ClassId); 21] = [
+    let rows: [(&str, ClassId); 22] = [
         ("Number", c.number_class),
         ("Int", c.int_class),
         ("Float", c.float_class),
@@ -1001,7 +1004,8 @@ fn parallel_rule_holds_for_all_ordinary_rows() {
         ("False", c.false_class),
         ("Method", c.method_class),
         ("Function", c.function_class),
-        ("Block", c.block_class),
+        ("Closure", c.closure_class),
+        ("BoundMethod", c.bound_method_class),
         ("Symbol", c.symbol_class),
         ("Module", c.module_class),
         ("System", c.system_class),
@@ -1122,35 +1126,55 @@ fn hash_is_stable_across_repeated_calls() {
 }
 
 #[test]
-fn method_reparents_under_function_with_call_protocol() {
-    // R-INV-1.5 — `Method < Function` (ADR-0006 / decisions.md §4.1); the
-    // parallel rule holds for `Method`; and `Method` reaches the `Function`
-    // call-protocol selectors by inheritance.
+fn method_is_a_reified_object_outside_function_hierarchy() {
+    // `Method` is a reified dispatch object, not an executable Function
+    // descendant. It retains reflection metadata without inheriting call.
     let mut vm = VM::new();
     let method_class = vm.universe.classes.method_class;
-    let function_class = vm.universe.classes.function_class;
-    assert_eq!(
-        vm.heap.class(method_class).superclass,
-        Some(function_class),
-        "Method.superclass should be Function"
-    );
+    let object_class = vm.universe.classes.object_class;
+    assert_eq!(vm.heap.class(method_class).superclass, Some(object_class), "Method.superclass should be Object");
 
     // Parallel rule for Method.
     let method_meta = vm.heap.class(method_class).class;
-    let function_meta = vm.heap.class(function_class).class;
+    let object_meta = vm.heap.class(object_class).class;
     assert_eq!(
         vm.heap.class(method_meta).superclass,
-        Some(function_meta),
-        "Method.class.superclass should be Function.class"
+        Some(object_meta),
+        "Method.class.superclass should be Object.class"
     );
 
-    // The call protocol is reachable from Method via inheritance.
-    for selector in ["arity", "name", "callWith(_)", "call()", "call(_)"] {
+    for selector in ["arity", "name"] {
         let sym = vm.get_or_intern(selector);
         assert!(
             lookup_method_in_hierarchy(&vm.heap, method_class, sym).is_some(),
-            "Method should inherit `{selector}` from Function"
+            "Method should expose `{selector}` reflection"
         );
+    }
+    for selector in ["call()", "call(_)"] {
+        let sym = vm.get_or_intern(selector);
+        assert!(
+            lookup_method_in_hierarchy(&vm.heap, method_class, sym).is_none(),
+            "Method must not expose `{selector}`"
+        );
+    }
+}
+
+#[test]
+fn callable_surface_is_vm_owned_and_sealed() {
+    let vm = VM::new();
+    let c = vm.universe.classes;
+    assert!(vm.heap.class(c.function_class).is_abstract);
+    assert_eq!(vm.heap.class(c.closure_class).superclass, Some(c.function_class));
+    assert_eq!(vm.heap.class(c.bound_method_class).superclass, Some(c.function_class));
+    assert_eq!(vm.heap.class(c.family_class).superclass, Some(c.function_class));
+    assert_eq!(vm.heap.class(c.method_class).superclass, Some(c.object_class));
+
+    let mut vm = vm;
+    let module = vm.create_module("main", "callable_surface_is_vm_owned_and_sealed");
+    for (index, superclass) in ["Function", "Closure", "BoundMethod", "Family", "Method"].into_iter().enumerate() {
+        let source = format!("class UserCallable{index} is {superclass} {{}}\n");
+        let error = vm.interpret_source(module, &source).expect_err("user subclass of callable surface must fail");
+        assert!(error.to_string().contains("attr.sealed_violation"), "unexpected error: {error}");
     }
 }
 
@@ -1198,19 +1222,18 @@ fn reflection_is_side_effect_free() {
 
 #[test]
 fn callable_tower_and_reflection_protocol() {
-    // R-INV-3.1 — `Block < Function` (the boot half rides
-    // `Universe::verify_invariants`, alongside the pre-existing `Method <
-    // Function` assertion); a reified `Method` and the `BoundMethod`
+    // R-INV-3.1 — `Closure`/`BoundMethod`/`Family` are `Function` descendants
+    // (the boot half rides `Universe::verify_invariants`); a reified `Method`
     // `Method#bind(_)` produces both respond to `arity`/`name` via the
     // `Function` call-protocol primitives learning the two new receiver
     // shapes.
     let mut vm = VM::new();
-    let block_class = vm.universe.classes.block_class;
+    let closure_class = vm.universe.classes.closure_class;
     let function_class = vm.universe.classes.function_class;
     assert_eq!(
-        vm.heap.class(block_class).superclass,
+        vm.heap.class(closure_class).superclass,
         Some(function_class),
-        "Block.superclass should be Function"
+        "Closure.superclass should be Function"
     );
 
     let module = vm.create_module("main", "callable_tower_and_reflection_protocol");

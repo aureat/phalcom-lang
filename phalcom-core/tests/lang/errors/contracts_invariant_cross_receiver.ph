@@ -11,7 +11,7 @@ class B {
     _val = init
   }
 
-  val => _val
+  val { _val }
 
   drain(_ amount) {
     _val = _val - amount

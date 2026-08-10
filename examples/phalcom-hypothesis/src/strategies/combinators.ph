@@ -37,9 +37,9 @@ class StrategyBase<T> {
     return _NamedStrategy.new(inner: self, label: label)
   }
 
-  label -> Option<Symbol> => None
+  label -> Option<Symbol> { None }
 
-  fingerprint -> String => self.class.name.toString
+  fingerprint -> String { self.class.name.toString }
 }
 
 class _JustStrategy<T> is StrategyBase<T> {
@@ -48,7 +48,7 @@ class _JustStrategy<T> is StrategyBase<T> {
     _value = value
   }
 
-  draw(data: DrawData) -> T => _value
+  draw(data: DrawData) -> T { _value }
 
   fingerprint -> String {
     return "just(" + _value.class.name.toString + ")"
@@ -66,7 +66,7 @@ class _MappedStrategy<T, U> is StrategyBase<U> {
     return _transform.call(_inner.draw(data))
   }
 
-  fingerprint -> String => "map(" + _inner.fingerprint + ")"
+  fingerprint -> String { "map(" + _inner.fingerprint + ")" }
 }
 
 class _FilteredStrategy<T> is StrategyBase<T> {
@@ -104,7 +104,7 @@ class _FilteredStrategy<T> is StrategyBase<T> {
     )
   }
 
-  fingerprint -> String => "filter(" + _inner.fingerprint + ")"
+  fingerprint -> String { "filter(" + _inner.fingerprint + ")" }
 }
 
 class _FlatMappedStrategy<T, U> is StrategyBase<U> {
@@ -125,7 +125,7 @@ class _FlatMappedStrategy<T, U> is StrategyBase<U> {
     return derived.draw(data)
   }
 
-  fingerprint -> String => "flatMap(" + _inner.fingerprint + ")"
+  fingerprint -> String { "flatMap(" + _inner.fingerprint + ")" }
 }
 
 class _NamedStrategy<T> is StrategyBase<T> {
@@ -143,7 +143,7 @@ class _NamedStrategy<T> is StrategyBase<T> {
     }
   }
 
-  label -> Option<Symbol> => Some.new(_label)
+  label -> Option<Symbol> { Some.new(_label) }
 
   fingerprint -> String {
     return "named(" + _label.toString + "," + _inner.fingerprint + ")"

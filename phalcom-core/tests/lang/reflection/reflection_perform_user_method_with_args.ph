@@ -8,8 +8,8 @@
 // the program.
 
 class Adder {
-  add(_ a, _ b) => a + b
-  zero() => 0
+  add(_ a, _ b) { a + b }
+  zero() { 0 }
 }
 const obj = Adder.new()
 const args = []

@@ -6,7 +6,7 @@
 // proxy/forwarding mechanism. Both a getter (`greet`) and a two-arg method
 // (`add`) round-trip through the miss path.
 
-class Target { greet => "hello"
+class Target { greet { "hello" }
   add(_ x, _ y) {
     return x + y
   }

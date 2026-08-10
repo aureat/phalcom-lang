@@ -1,8 +1,8 @@
 class Point {
   @constructor
   new(_ x, _ y) { _x = x; _y = y }
-  x => _x
-  y => _y
+  x { _x }
+  y { _y }
 }
 let C = Point
 let ps = [Point]

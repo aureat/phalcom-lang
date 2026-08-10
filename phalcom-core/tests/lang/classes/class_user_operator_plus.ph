@@ -8,8 +8,8 @@ class Vec {
     _x = x
     _y = y
   }
-  x => _x
-  y => _y
+  x { _x }
+  y { _y }
   +(_ other) {
     return Vec.new(_x + other.x, _y + other.y)
   }

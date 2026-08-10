@@ -94,7 +94,7 @@ class ExampleStatus {
     )
   }
 
-  invalid -> Bool => self.rejected
+  invalid -> Bool { self.rejected }
 
   overrun -> Bool {
     return self.match(

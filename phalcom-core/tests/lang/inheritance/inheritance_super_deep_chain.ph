@@ -9,21 +9,21 @@
 class A {
   @constructor
   new() { }
-  tag => "A"
+  tag { "A" }
 }
 class B is A {
   @constructor
   new() { }
-  tag => super.tag + "B"
+  tag { super.tag + "B" }
 }
 class C is B {
   @constructor
   new() { }
-  tag => super.tag + "C"
+  tag { super.tag + "C" }
 }
 class D is C {
   @constructor
   new() { }
-  tag => super.tag + "D"
+  tag { super.tag + "D" }
 }
 System.print(D.new().tag)

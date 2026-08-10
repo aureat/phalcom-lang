@@ -1,6 +1,6 @@
 class Empty {
   _value
-  value => _value
+  value { _value }
 }
 let C = Empty
 let xs = [Empty]

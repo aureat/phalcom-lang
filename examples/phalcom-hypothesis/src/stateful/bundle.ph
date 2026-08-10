@@ -39,7 +39,7 @@ class Bundle<T> {
     return "bundle(" + _name.toString + ":" + typePart + ")"
   }
 
-  toString -> String => "Bundle<" + _name.toString + ">"
+  toString -> String { "Bundle<" + _name.toString + ">" }
 }
 
 @data
@@ -61,5 +61,5 @@ class _BundleSelection {
 class _BundleTarget {
   const _bundle: Bundle<Any>
 
-  fingerprint -> String => "publish(" + _bundle.fingerprint + ")"
+  fingerprint -> String { "publish(" + _bundle.fingerprint + ")" }
 }

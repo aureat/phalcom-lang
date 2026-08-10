@@ -7,7 +7,7 @@
 class Vec {
   @constructor
   new(_ x) { _x = x }
-  x => _x
+  x { _x }
   +(_ other) { return Vec.new(_x + other.x) }
 }
 class Vec3 is Vec {

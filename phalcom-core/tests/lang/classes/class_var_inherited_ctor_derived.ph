@@ -15,7 +15,7 @@ class Base {
   }
 
   @class
-  count => _count
+  count { _count }
 }
 
 class Derived is Base {}

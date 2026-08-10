@@ -72,7 +72,7 @@ class Failure {
     )
   }
 
-  sameOrigin(other: Failure) -> Bool => _origin.sameSite(other.origin)
+  sameOrigin(other: Failure) -> Bool { _origin.sameSite(other.origin) }
 }
 
 class _FailureCopies {

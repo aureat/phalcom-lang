@@ -10,10 +10,10 @@ class _StateActionKind {
   @variant Normal
 
   @class
-  initializer -> _StateActionKind => Initializer.new()
+  initializer -> _StateActionKind { Initializer.new() }
 
   @class
-  normal -> _StateActionKind => Normal.new()
+  normal -> _StateActionKind { Normal.new() }
 }
 
 @data
@@ -62,7 +62,7 @@ class StateAction {
     )
   }
 
-  normal -> Bool => not self.initializer
+  normal -> Bool { not self.initializer }
 
   withResultReference(
     value: Option<arguments.ResultReference>
@@ -88,7 +88,7 @@ class StateAction {
     return call
   }
 
-  toString -> String => self.executableLine
+  toString -> String { self.executableLine }
 }
 
 class _StateActionCopies {

@@ -11,7 +11,7 @@ class Vault {
     _balance = init
   }
 
-  balance => _balance
+  balance { _balance }
 
   withdraw(_ amount) {
     if (amount > _balance) {

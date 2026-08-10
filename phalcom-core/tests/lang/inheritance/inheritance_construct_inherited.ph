@@ -12,7 +12,7 @@ class Point2 {
   new(_ v) { _v = v }
   @constructor
   named(_ w) { _v = w }
-  v => _v
+  v { _v }
 }
 class Point3 is Point2 {
 }

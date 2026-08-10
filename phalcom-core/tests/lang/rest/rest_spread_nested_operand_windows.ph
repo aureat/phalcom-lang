@@ -5,11 +5,11 @@
 // operand: receiver, binary LHS, prior argument, and prior List element.
 
 class Adder {
-  add(_ a, _ b, _ c) => a + b + c
+  add(_ a, _ b, _ c) { a + b + c }
 }
 
 class Pairer {
-  pair(_ left, _ right) => "\(left):\(right)"
+  pair(_ left, _ right) { "\(left):\(right)" }
 }
 
 const args = [1, 2, 3]

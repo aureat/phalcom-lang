@@ -46,7 +46,7 @@ class _DatabaseDecodeError is Error {
     return _DatabaseDecodeError.new(reason: reason)
   }
 
-  message -> Option<String> => Some.new(_reason)
+  message -> Option<String> { Some.new(_reason) }
 }
 
 

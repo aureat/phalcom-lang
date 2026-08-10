@@ -9,7 +9,7 @@ class Source {
     System.print("built")
     return [1, 2]
   }
-  calls => _calls
+  calls { _calls }
 }
 const s = Source.new()
 for (x in s.makeList) { System.print(x) }

@@ -2,7 +2,7 @@
 // spec: bytes.md §3.1 law 8; concurrency.md; ADR-0030 §4
 // status: PASS
 // The flat-entry tripwire (U-BYTES follow-on): an ordinary `f.call(...)` sent
-// from bytecode on a Block/Closure receiver enters the closure frame in the
+// from bytecode on a Closure/Closure receiver enters the closure frame in the
 // SAME dispatch loop — no recursive `run_until`, no native frame — so
 // `Fiber.yield` inside it suspends legitimately. This is what keeps
 // `each`/`map`/`filter` (all `.ph` over `Function#call`) yield-transparent:

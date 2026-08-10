@@ -17,13 +17,13 @@ class _MethodTarget is _InvocationTarget {
     return _method.invokeOn(_receiver, arguments)
   }
 
-  method -> Method => _method
-  receiver -> Any => _receiver
+  method -> Method { _method }
+  receiver -> Any { _receiver }
 }
 
 class _BlockTarget is _InvocationTarget {
   @constructor
-  new(block: Block) {
+  new(block: Closure) {
     _block = block
   }
 

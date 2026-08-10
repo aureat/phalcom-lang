@@ -15,5 +15,5 @@ class strategy is Attribute {
     _targetType = targetType
   }
 
-  targetType -> Any => _targetType
+  targetType -> Any { _targetType }
 }

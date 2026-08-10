@@ -19,7 +19,7 @@ class StateScenario {
     )
   }
 
-  actions -> List<StateAction> => _ScenarioCopies.list(_actions)
+  actions -> List<StateAction> { _ScenarioCopies.list(_actions) }
 
   normalActionCount -> Int {
     let count = 0
@@ -48,7 +48,7 @@ class StateScenario {
     return lines.join("\n")
   }
 
-  toString -> String => self.executable
+  toString -> String { self.executable }
 }
 
 class _ScenarioCopies {

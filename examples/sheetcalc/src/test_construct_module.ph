@@ -5,5 +5,5 @@ class TestConstructModule {
     System.print("[TestConstructModule] construct ran, _x = " + _x.toString)
   }
 
-  x => _x
+  x { _x }
 }

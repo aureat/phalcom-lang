@@ -3,7 +3,7 @@
 import { Assert, Choice, Example, ShrinkPass, Shrinker } from "hypothesis"
 
 class DuplicateZeroPass {
-  name -> Symbol => #duplicateZero
+  name -> Symbol { #duplicateZero }
 
   candidates(current: Example) -> List<Example> {
     const zero = current.replace(0, current.at(0).withValue(0))

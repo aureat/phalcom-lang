@@ -15,7 +15,7 @@ class Calculator {
   }
 
   @class
-  pi => 3.1415
+  pi { 3.1415 }
 
   +(_ other) {
     return 10 + other;

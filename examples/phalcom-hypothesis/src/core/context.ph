@@ -71,7 +71,7 @@ class _PropertyContextStack {
     return Some.new(_items.at(_items.size - 1))
   }
 
-  with(context: _PropertyContext, body: Block) -> Any {
+  with(context: _PropertyContext, body: Closure) -> Any {
     self.push(context)
     return || {
       body.call()

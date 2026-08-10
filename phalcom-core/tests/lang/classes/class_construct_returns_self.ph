@@ -7,6 +7,6 @@
 class Box {
   @constructor
   new(v) { _v = v }
-  v => _v
+  v { _v }
 }
 System.print(Box.new(v: "packed").v)

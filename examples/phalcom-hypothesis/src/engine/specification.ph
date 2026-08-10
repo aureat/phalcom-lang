@@ -56,9 +56,9 @@ class PropertySpec<T...> {
     )
   }
 
-  findMode -> Bool => false
-  name -> Any => _id
-  config -> Settings => _settings
+  findMode -> Bool { false }
+  name -> Any { _id }
+  config -> Settings { _settings }
 }
 
 @data
@@ -85,12 +85,12 @@ class _FindSpec<T> {
     )
   }
 
-  id -> Symbol => #find
-  target -> Any => None
-  strategies -> List<Strategy<Any>> => const [_strategy]
-  explicitExamples -> List<List<Any>> => const []
-  parameterNames -> List<Symbol> => const [#value]
-  findMode -> Bool => true
+  id -> Symbol { #find }
+  target -> Any { None }
+  strategies -> List<Strategy<Any>> { const [_strategy] }
+  explicitExamples -> List<List<Any>> { const [] }
+  parameterNames -> List<Symbol> { const [#value] }
+  findMode -> Bool { true }
 }
 
 class _SpecCopies {

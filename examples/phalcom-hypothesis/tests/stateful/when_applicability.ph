@@ -10,7 +10,7 @@ class GuardedCounter is StateMachine {
   @constructor
   new() { _count = 0 }
 
-  canDecrement -> Bool => _count > 0
+  canDecrement -> Bool { _count > 0 }
 
   @Rule
   increment() { _count++ }

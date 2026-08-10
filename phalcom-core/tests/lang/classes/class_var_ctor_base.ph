@@ -12,7 +12,7 @@ class Base {
   }
 
   @class
-  count => _count
+  count { _count }
 }
 
 let b1 = Base.new()

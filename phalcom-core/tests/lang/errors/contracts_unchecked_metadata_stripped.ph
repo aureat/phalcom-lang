@@ -19,7 +19,7 @@ class Box {
     _val = init
   }
 
-  val => _val
+  val { _val }
 
   @requires(amount > 0)
   @ensures(false)

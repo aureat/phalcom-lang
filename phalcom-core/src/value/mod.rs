@@ -156,12 +156,11 @@ impl Value {
                 Object::Method(_) => vm.universe.classes.method_class,
                 Object::Module(_) => vm.universe.classes.module_class,
                 Object::Str(_) => vm.universe.classes.string_class,
-                Object::Closure(_) => vm.universe.classes.block_class,
-                Object::Block(_) => vm.universe.classes.block_class,
-                // `bind(_)`'s result surfaces as a `Block` (ADR-0006, U-CORE-3
-                // / ADR-0028) so `bound.call(...)` is ordinary `Function` call
-                // protocol from the surface's point of view.
-                Object::BoundMethod(_) => vm.universe.classes.block_class,
+                Object::Closure(_) => vm.universe.classes.closure_class,
+                // Transitional home-frame wrapper. Public closure values
+                // surface as `Closure` until Task Set 4 removes this wrapper.
+                Object::Block(_) => vm.universe.classes.closure_class,
+                Object::BoundMethod(_) => vm.universe.classes.bound_method_class,
                 Object::List(_) => vm.universe.classes.list_class,
                 Object::Bytes(_) => vm.universe.classes.bytes_class,
                 Object::Fiber(_) => vm.universe.classes.fiber_class,

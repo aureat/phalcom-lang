@@ -12,7 +12,7 @@ class Gadget {
     System.print("SHOULD NEVER RUN")
   }
 
-  ok => "fine"
+  ok { "fine" }
 }
 
 const g = Gadget.new()

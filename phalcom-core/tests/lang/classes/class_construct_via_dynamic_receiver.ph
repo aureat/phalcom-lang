@@ -17,7 +17,7 @@ class Counter {
   new(_ start) {
     _n = start
   }
-  n => _n
+  n { _n }
 }
 
 // Literal class-name receiver.

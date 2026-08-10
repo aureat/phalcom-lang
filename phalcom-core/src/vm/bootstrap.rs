@@ -265,7 +265,22 @@ impl VM {
         add_class!(symbol_class);
         add_class!(system_class);
         add_class!(function_class);
-        add_class!(block_class);
+        add_class!(closure_class);
+        add_class!(bound_method_class);
+        add_class!(family_class);
+        // The callable surface is VM-owned and closed. This protects the
+        // common `Function#call...` gateway from user-defined subclasses and
+        // keeps all five runtime representations on the sealed hierarchy.
+        for class_id in [
+            self.universe.classes.function_class,
+            self.universe.classes.closure_class,
+            self.universe.classes.bound_method_class,
+            self.universe.classes.family_class,
+            self.universe.classes.method_class,
+        ] {
+            let name_sym = self.interner.intern(&self.heap.class(class_id).name.clone());
+            self.sealed_classes.insert(crate::vm::ClassKey { module: m, name: name_sym }, m);
+        }
         // Absence type (ADR-0007). `Option` and `Some` are ordinary class
         // globals. `None`, however, is a *value* global bound to the shared
         // singleton — not the `None` class — so `None` in source resolves to the
@@ -318,9 +333,6 @@ impl VM {
         // guard error, both ordinary class globals.
         add_class!(fiber_class);
         add_class!(cannot_yield_across_native_frame_class);
-        // `Family` (selectors.md §3, U16-Open, ADR-0047): ordinary class
-        // global, native heap arm mirroring `Fiber`/`List`.
-        add_class!(family_class);
         add_class!(resource_class);
         add_class!(use_after_close_error_class);
 
@@ -374,7 +386,7 @@ impl VM {
     /// `Fiber`, …).
     fn finalize_all_core_base_names(&mut self) {
         let c = self.universe.classes;
-        let rows: [ClassId; 32] = [
+        let rows: [ClassId; 33] = [
             c.object_class,
             c.behavior_class,
             c.class_class,
@@ -387,7 +399,8 @@ impl VM {
             c.false_class,
             c.method_class,
             c.function_class,
-            c.block_class,
+            c.closure_class,
+            c.bound_method_class,
             c.symbol_class,
             c.module_class,
             c.system_class,

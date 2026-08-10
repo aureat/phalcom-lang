@@ -7,16 +7,16 @@
 class A {
   @constructor
   new() { }
-  tag => "A"
+  tag { "A" }
 }
 class B is A {
   @constructor
   new() { }
-  tag => super.tag + "B"
+  tag { super.tag + "B" }
 }
 class C is B {
   @constructor
   new() { }
-  tag => super.tag + "C"
+  tag { super.tag + "C" }
 }
 System.print(C.new().tag)

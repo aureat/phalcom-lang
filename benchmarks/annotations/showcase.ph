@@ -100,8 +100,8 @@ class Shape {
   /// @returns the area as a `Number`
   area {
     return self.match || {
-      Circle(_ r)  => 3.14159 * r * r ;
-      Rect(w, h) => w * h
+      Circle(_ r) { 3.14159 * r * r ; }
+      Rect(w, h) { w * h }
     }
   }
 }
@@ -115,5 +115,5 @@ class Cart {
   /// The running total. `@computed` memoizes and recomputes when `_items` goes
   /// dirty; the glitch policy (recompute once after inputs settle) is a
   /// documented semantic, not an accident.
-  @computed total => _items.fold(initial: 0, using: |s, it| { s + it.price })
+  @computed total { _items.fold(initial: 0, using: |s, it| { s + it.price }) }
 }

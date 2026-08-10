@@ -15,7 +15,7 @@ class Draw {
     return strategy.draw(_data)
   }
 
-  size -> Int => _data.size
+  size -> Int { _data.size }
 }
 
 class _BuildStrategy<T> is base.StrategyBase<T> {
@@ -30,7 +30,7 @@ class _BuildStrategy<T> is base.StrategyBase<T> {
     }
   }
 
-  fingerprint -> String => "build"
+  fingerprint -> String { "build" }
 }
 
 class _DeferredStrategy<T> is base.StrategyBase<T> {
@@ -49,7 +49,7 @@ class _DeferredStrategy<T> is base.StrategyBase<T> {
     return resolved.draw(data)
   }
 
-  fingerprint -> String => "deferred"
+  fingerprint -> String { "deferred" }
 }
 
 class _SizedStrategy<T> is base.StrategyBase<T> {
@@ -116,5 +116,5 @@ class _RecursiveStrategy<T> is base.StrategyBase<T> {
     }
   }
 
-  fingerprint -> String => "recursive(" + _base.fingerprint + ")"
+  fingerprint -> String { "recursive(" + _base.fingerprint + ")" }
 }

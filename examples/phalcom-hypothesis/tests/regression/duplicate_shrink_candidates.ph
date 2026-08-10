@@ -3,7 +3,7 @@
 import { Assert, Choice, Example, Shrinker } from "hypothesis"
 
 class DuplicatePass {
-  name -> Symbol => #duplicates
+  name -> Symbol { #duplicates }
   candidates(current: Example) -> List<Example> {
     const candidate = current.replace(0, current.at(0).withValue(0))
     return const [candidate, candidate, candidate]

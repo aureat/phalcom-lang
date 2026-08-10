@@ -10,7 +10,7 @@ protocol ShrinkPass {
 }
 
 class _DeleteDiscardableSpans {
-  name -> Symbol => #deleteDiscardableSpans
+  name -> Symbol { #deleteDiscardableSpans }
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()
@@ -30,7 +30,7 @@ class _DeleteDiscardableSpans {
 }
 
 class _ShortenTrailingChoices {
-  name -> Symbol => #shortenTrailingChoices
+  name -> Symbol { #shortenTrailingChoices }
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()
@@ -44,7 +44,7 @@ class _ShortenTrailingChoices {
 }
 
 class _MinimizeBranchIndices {
-  name -> Symbol => #minimizeBranchIndices
+  name -> Symbol { #minimizeBranchIndices }
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()
@@ -70,7 +70,7 @@ class _MinimizeBranchIndices {
 }
 
 class _MinimizeIntegerChoices {
-  name -> Symbol => #minimizeIntegerChoices
+  name -> Symbol { #minimizeIntegerChoices }
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()
@@ -98,7 +98,7 @@ class _MinimizeIntegerChoices {
 }
 
 class _MinimizeIntegerBlocks {
-  name -> Symbol => #minimizeIntegerBlocks
+  name -> Symbol { #minimizeIntegerBlocks }
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()
@@ -137,7 +137,7 @@ class _MinimizeIntegerBlocks {
 }
 
 class _SimplifyBytesAndText {
-  name -> Symbol => #simplifyBytesAndText
+  name -> Symbol { #simplifyBytesAndText }
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()
@@ -183,7 +183,7 @@ class _SimplifyBytesAndText {
 }
 
 class _MinimizeRecursiveStructures {
-  name -> Symbol => #minimizeRecursiveStructures
+  name -> Symbol { #minimizeRecursiveStructures }
 
   candidates(current: Example) -> List<Example> {
     const out = List.new()

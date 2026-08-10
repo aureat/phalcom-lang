@@ -27,8 +27,8 @@ class ChoiceBuffer {
     _nextSpanId = 0
   }
 
-  generationSize -> Int => _generationSize
-  size -> Int => _choices.size
+  generationSize -> Int { _generationSize }
+  size -> Int { _choices.size }
 
   add(choice: Choice) -> Choice {
     _choices.add(choice)
@@ -81,7 +81,7 @@ class ChoiceBuffer {
     return closed
   }
 
-  withSpan(label: Symbol, discardable: Bool, body: Block) -> Any {
+  withSpan(label: Symbol, discardable: Bool, body: Closure) -> Any {
     const id = self.beginSpan(label: label, discardable: discardable)
     return || {
       body.call()

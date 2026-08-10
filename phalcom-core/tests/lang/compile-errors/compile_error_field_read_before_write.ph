@@ -8,6 +8,6 @@
 class Typo {
   @constructor
   new(_ name) { _naem = name }
-  name => _name
+  name { _name }
 }
 System.print(Typo.new("x").name)

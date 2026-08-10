@@ -911,7 +911,6 @@ impl<'input> Lexer<'input> {
             b'%' => (1, Token::Percent),
             b'<' if next == Some(b'<') => (2, Token::ShiftLeft),
             b'=' if next == Some(b'=') => (2, Token::EqualEqual),
-            b'=' if next == Some(b'>') => (2, Token::FatArrow),
             b'=' => (1, Token::Equal),
             b'!' if next == Some(b'=') => (2, Token::BangEqual),
             b'!' => (1, Token::Bang),
@@ -1033,7 +1032,6 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::Colon
             // Arrows.
             | Token::Arrow
-            | Token::FatArrow
     )
 }
 

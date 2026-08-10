@@ -64,7 +64,7 @@ class Property {
     }
 
     const body = parts.at(parts.size - 1)
-    if not body.isA(Block) {
+    if not body.isA(Closure) {
       throw errors.PropertyDiscoveryError.new(
         "Property.forAll final argument must be a block"
       )
@@ -115,7 +115,7 @@ class PropertyBuilder<T...> {
     )
   }
 
-  check(body: Block) -> PropertyResult {
+  check(body: Closure) -> PropertyResult {
     const spec = engineSpec.PropertySpec.check(
       id: #dynamicProperty,
       target: target._BlockTarget.new(body),

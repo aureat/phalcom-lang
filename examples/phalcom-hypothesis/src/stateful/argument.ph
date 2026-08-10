@@ -101,7 +101,7 @@ class ResultReference {
   const _producerIndex: Int
   const _bundles: List<Symbol>
 
-  executable -> String => _name.toString
+  executable -> String { _name.toString }
 }
 
 @data

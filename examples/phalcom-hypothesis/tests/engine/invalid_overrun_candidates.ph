@@ -19,7 +19,7 @@ const origin = failure.FailureOrigin.new(
 )
 
 class CandidatePass {
-  name -> Symbol => #candidateClassification
+  name -> Symbol { #candidateClassification }
 
   candidates(current: example.Example) -> List<example.Example> {
     const out = List.new()

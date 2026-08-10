@@ -9,7 +9,7 @@ class Point {
   _x
   _y
 
-  sum => _x + _y
+  sum { _x + _y }
 }
 
 System.print(Point.new(x: 3, y: 4).sum)

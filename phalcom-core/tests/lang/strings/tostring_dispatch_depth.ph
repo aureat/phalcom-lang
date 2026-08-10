@@ -6,7 +6,7 @@
 // nesting depth, through any mix of `List`/`Map` containers, not just at
 // the top level.
 
-class Secret { toString => "<redacted>"
+class Secret { toString { "<redacted>" }
 }
 const s = Secret.new()
 

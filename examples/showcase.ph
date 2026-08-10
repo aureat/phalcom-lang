@@ -21,11 +21,11 @@ class Stack {
     return Stack.new(items: List.new())
   }
 
-  // Expression-bodied getters (`=>`) over private instance vars (`_items`).
-  size    => _items.size
-  isEmpty => _items.isEmpty
+  // Braced getters over private instance vars (`_items`).
+  size { _items.size }
+  isEmpty { _items.isEmpty }
 
-  // Block-bodied method returning `self` so calls chain.
+  // Closure-bodied method returning `self` so calls chain.
   push(_ v) {
     _items.add(v)
     return self
@@ -52,7 +52,7 @@ class Stack {
   }
 
   eachItem(_ f) { _items.each(f) }
-  itemAt(_ i)   => _items.at(i)
+  itemAt(_ i) { _items.at(i) }
 
   // Structural equality via operator overload.
   ==(_ other) {
@@ -67,7 +67,7 @@ class Stack {
   }
 
   // String interpolation (`\(expr)`), which stringifies numbers.
-  toString => "Stack(size: \(self.size))"
+  toString { "Stack(size: \(self.size))" }
 }
 
 // ---- Driver: numbers, blocks, control flow, Option, interpolation ----

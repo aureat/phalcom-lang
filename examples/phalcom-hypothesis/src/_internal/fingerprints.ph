@@ -5,5 +5,5 @@ import Example from "choices/example"
 
 class _Fingerprints {
   @class
-  example(value: Example) -> String => value.signature
+  example(value: Example) -> String { value.signature }
 }

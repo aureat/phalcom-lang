@@ -4,7 +4,7 @@
 // Ported from Wren `test/core/function/equality.wren`: blocks are not
 // structurally equal (each literal is a distinct closure allocation, even
 // with identical source), unequal to any other type, but equal to
-// themselves by identity — the default `Object#==` a `Block` inherits
+// themselves by identity — the default `Object#==` a `Closure` inherits
 // (nothing overrides it). Closures built from the same literal across
 // loop iterations are still each their own allocation, so unequal.
 

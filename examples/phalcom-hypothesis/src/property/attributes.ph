@@ -63,7 +63,7 @@ class GivenArgs {
     return names
   }
 
-  size -> Int => _overrides.size
+  size -> Int { _overrides.size }
 }
 
 @data
@@ -75,7 +75,7 @@ class GivenMode {
   @variant Overrides(arguments:)
 
   @class
-  inferred -> GivenMode => Inferred.new()
+  inferred -> GivenMode { Inferred.new() }
 
   @class
   explicit(strategies: List<Strategy<Any>>) -> GivenMode {
@@ -114,7 +114,7 @@ class Given is Attribute {
     _mode = GivenMode.explicit(strategies)
   }
 
-  mode -> GivenMode => _mode
+  mode -> GivenMode { _mode }
 
   // Compatibility getter for explicit-mode consumers. Inferred and override
   // modes intentionally expose an empty list rather than pretending to have
@@ -135,7 +135,7 @@ class Case is Attribute {
     _values = _AttributeCopies.list(values)
   }
 
-  values -> List<Any> => _AttributeCopies.list(_values)
+  values -> List<Any> { _AttributeCopies.list(_values) }
 }
 
 @On(Method)
@@ -145,8 +145,8 @@ class WithSettings is Attribute {
     _settings = settings
   }
 
-  settings -> Settings => _settings
-  config -> Settings => _settings
+  settings -> Settings { _settings }
+  config -> Settings { _settings }
 }
 
 class _AttributeCopies {

@@ -249,6 +249,8 @@ impl Universe {
 
         let method_cls = vm.universe.classes.method_class;
         primitive_static!(vm, method_cls, "new", SignatureKind::Method(1), method_class_new);
+        primitive!(vm, method_cls, "arity", SignatureKind::Getter, block_arity);
+        primitive!(vm, method_cls, "name", SignatureKind::Getter, block_name);
         // `Method` reflection surface (U-CORE-3, ADR-0028): applying a
         // reified method to an explicit receiver, closing it over one, and
         // reading its selector/holder. See `primitive::method` module doc.
@@ -272,7 +274,7 @@ impl Universe {
             primitive!(vm, function_cls, "call", SignatureKind::Method(n), block_call);
         }
 
-        let block_cls = vm.universe.classes.block_class;
+        let block_cls = vm.universe.classes.closure_class;
         primitive!(vm, block_cls, "arity", SignatureKind::Getter, block_arity);
         primitive!(vm, block_cls, "name", SignatureKind::Getter, block_name);
         primitive!(vm, block_cls, "callWith", SignatureKind::Method(1), block_call_with);

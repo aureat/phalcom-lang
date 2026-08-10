@@ -11,7 +11,7 @@ class Grand {
   @constructor
   new() { }
   @class
-  kingdom => "Animalia"
+  kingdom { "Animalia" }
 }
 class Animal is Grand {
   @constructor

@@ -117,19 +117,19 @@ class Settings {
   }
 
   // Compatibility selectors retained while the Phase 01 engine is replaced.
-  examples(value: Int) -> Settings => self.maxExamples(value)
-  discardLimit(value: Int) -> Settings => self.maxDiscards(value)
-  shrinkLimit(value: Int) -> Settings => self.maxShrinks(value)
-  choiceLimit(value: Int) -> Settings => self.maxChoices(value)
-  withDatabase(value: ExampleDatabase) -> Settings => self.database(value)
+  examples(value: Int) -> Settings { self.maxExamples(value) }
+  discardLimit(value: Int) -> Settings { self.maxDiscards(value) }
+  shrinkLimit(value: Int) -> Settings { self.maxShrinks(value) }
+  choiceLimit(value: Int) -> Settings { self.maxChoices(value) }
+  withDatabase(value: ExampleDatabase) -> Settings { self.database(value) }
 
-  seedValue -> Option<Int> => _seed
-  databaseValue -> Option<ExampleDatabase> => _database
-  statefulStepLimit -> Int => _statefulSteps
+  seedValue -> Option<Int> { _seed }
+  databaseValue -> Option<ExampleDatabase> { _database }
+  statefulStepLimit -> Int { _statefulSteps }
 
-  reuseEnabled -> Bool => _phases.includes(Phase.Reuse)
-  generationEnabled -> Bool => _phases.includes(Phase.Generate)
-  shrinkingEnabled -> Bool => _phases.includes(Phase.Shrink)
+  reuseEnabled -> Bool { _phases.includes(Phase.Reuse) }
+  generationEnabled -> Bool { _phases.includes(Phase.Generate) }
+  shrinkingEnabled -> Bool { _phases.includes(Phase.Shrink) }
 
   reuse(flag: Bool) -> Settings {
     return self.phase(Phase.Reuse, enabled: flag)
@@ -143,7 +143,7 @@ class Settings {
     return self.phase(Phase.Shrink, enabled: flag)
   }
 
-  resolvedSeed -> Int => _seed.unwrapOr(Random.system.nextInt)
+  resolvedSeed -> Int { _seed.unwrapOr(Random.system.nextInt) }
 
   @private
   phase(target: Phase, enabled: Bool) -> Settings {

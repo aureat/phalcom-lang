@@ -33,7 +33,7 @@ class System {
   /// cannot abort another) — including any fiber a running scheduled fiber
   /// itself schedules mid-drain, since `nextScheduled` is re-read every
   /// iteration. Deliberately does **not** unwrap via `.match(some:none:)`
-  /// (which runs its arm through `Block#call`'s native re-entrant
+  /// (which runs its arm through `Closure#call`'s native re-entrant
   /// `run_until`, forbidding a fiber switch underneath, ADR-0030 §4): `f.try()`
   /// must run at this method's own top level, not nested inside a block a
   /// native primitive is driving, so the receiver is unwrapped via

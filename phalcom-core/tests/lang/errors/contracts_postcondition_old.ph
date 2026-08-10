@@ -9,7 +9,7 @@ class Box {
     _val = init
   }
 
-  val => _val
+  val { _val }
 
   @ensures(self.val == old(self.val) * 2)
   double() {

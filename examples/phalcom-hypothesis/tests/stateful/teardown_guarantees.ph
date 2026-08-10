@@ -68,7 +68,7 @@ class ReplayInvalidationTeardownMachine is TeardownProbe {
 
 class InternalErrorTeardownMachine is TeardownProbe {
   // The reflected annotation passes discovery; the dynamic value is invalid.
-  invalidPredicate -> Bool => 1
+  invalidPredicate -> Bool { 1 }
 
   @When(#invalidPredicate)
   @Rule

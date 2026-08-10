@@ -10,13 +10,13 @@ import FailureOrigin from "core/failure"
 
 class ExampleCodec {
   @class
-  magic -> String => "PHALCOM-HYPOTHESIS-DB"
+  magic -> String { "PHALCOM-HYPOTHESIS-DB" }
 
   @class
-  schemaVersion -> Int => 1
+  schemaVersion -> Int { 1 }
 
   @class
-  engineFormatVersion -> Int => 1
+  engineFormatVersion -> Int { 1 }
 
   @class
   encode(
@@ -293,10 +293,10 @@ class ExampleCodec {
 }
 
 class _ChoiceTag {
-  @class integer -> Int => 1
-  @class boolean -> Int => 2
-  @class index -> Int => 3
-  @class bytes -> Int => 4
+  @class integer -> Int { 1 }
+  @class boolean -> Int { 2 }
+  @class index -> Int { 3 }
+  @class bytes -> Int { 4 }
 }
 
 class _CodecWriter {
@@ -323,9 +323,9 @@ class _CodecWriter {
     self.byte(value & 255)
   }
 
-  int(value: Int) -> None => self.string(value.toString)
+  int(value: Int) -> None { self.string(value.toString) }
 
-  symbol(value: Symbol) -> None => self.string(value.toString)
+  symbol(value: Symbol) -> None { self.string(value.toString) }
 
   optionInt(value: Option<Int>) -> None {
     self.bool(value.isSome)
@@ -374,7 +374,7 @@ class _CodecReader {
     _position = 0
   }
 
-  finished -> Bool => _position == _bytes.size
+  finished -> Bool { _position == _bytes.size }
 
   byte -> Int {
     self.require(1)
@@ -400,7 +400,7 @@ class _CodecReader {
     return value
   }
 
-  int -> Int => self.string.toInt
+  int -> Int { self.string.toInt }
 
   nonNegativeInt(label: String) -> Int {
     const value = self.int
@@ -418,7 +418,7 @@ class _CodecReader {
     return value
   }
 
-  symbol -> Symbol => Symbol.intern(self.string)
+  symbol -> Symbol { Symbol.intern(self.string) }
 
   optionInt -> Option<Int> {
     if self.bool || { return Some.new(self.int) }

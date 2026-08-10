@@ -1204,7 +1204,7 @@ impl<'vm> Compiler<'vm> {
                 return Err(CompilerError::BareSuper);
             }
             Expr::Block(block_expr) => {
-                let name_sym = self.vm.interner.intern("<block>");
+                let name_sym = self.vm.interner.intern("<closure>");
                 let constructor_name = self.functions.last().unwrap().constructor_name.clone();
                 let closure = self.compile_block(block_expr.body, name_sym, block_expr.params, false, false, constructor_name)?;
                 let idx = self.add_constant(Value::Obj(closure));
@@ -1304,7 +1304,7 @@ fn is_option_literal(expr: &Expr) -> bool {
 /// (control-flow.md §2: `a and b` ≡ `a.and { b }`).
 fn wrap_expr_as_lazy_block(expr: Expr, range: SourceRange) -> Expr {
     Expr::Block(Box::new(BlockExpr {
-        params: Vec::new(),
+        params: phalcom_ast::ast::ClosureParameters::default(),
         body: vec![Statement::Expr { expr, range }],
         expr_body: true,
         range,

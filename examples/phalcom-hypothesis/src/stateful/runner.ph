@@ -478,9 +478,9 @@ class _StatefulFailure is Error {
     _secondaryError = secondaryError
   }
 
-  primaryError -> Error => _primaryError
-  statefulScenario -> scenarioModel.StateScenario => _statefulScenario
-  secondaryError -> Option<Error> => _secondaryError
+  primaryError -> Error { _primaryError }
+  statefulScenario -> scenarioModel.StateScenario { _statefulScenario }
+  secondaryError -> Option<Error> { _secondaryError }
 
   failureOrigin -> FailureOrigin {
     if _primaryError.respondsTo(#failureOrigin) {
@@ -503,9 +503,9 @@ class _StatefulRejected is errors._RejectedExample || {
     _secondaryError = secondaryError
   }
 
-  primaryError -> Error => _primaryError
-  statefulScenario -> scenarioModel.StateScenario => _statefulScenario
-  secondaryError -> Option<Error> => _secondaryError
+  primaryError -> Error { _primaryError }
+  statefulScenario -> scenarioModel.StateScenario { _statefulScenario }
+  secondaryError -> Option<Error> { _secondaryError }
 }
 
 class _StatefulOverrun is errors._EngineOverrun || {
@@ -521,9 +521,9 @@ class _StatefulOverrun is errors._EngineOverrun || {
     _secondaryError = secondaryError
   }
 
-  primaryError -> Error => _primaryError
-  statefulScenario -> scenarioModel.StateScenario => _statefulScenario
-  secondaryError -> Option<Error> => _secondaryError
+  primaryError -> Error { _primaryError }
+  statefulScenario -> scenarioModel.StateScenario { _statefulScenario }
+  secondaryError -> Option<Error> { _secondaryError }
 }
 
 class _StatefulTarget {
@@ -559,7 +559,7 @@ class _StatefulId {
     )
   }
 
-  toString -> String => "Stateful." + _machine.toString
+  toString -> String { "Stateful." + _machine.toString }
 }
 
 @data
@@ -607,10 +607,10 @@ class _StatefulRun {
   const _settings: Settings
   const _result: PropertyResult
 
-  explicitFailure -> Bool => false
-  passed -> Bool => _result.passed
-  failed -> Bool => _result.failed
-  name -> Any => _id
+  explicitFailure -> Bool { false }
+  passed -> Bool { _result.passed }
+  failed -> Bool { _result.failed }
+  name -> Any { _id }
 }
 
 class _StatefulReuse {

@@ -7,7 +7,7 @@
 // `doesNotUnderstand`.
 
 class Widget {
-  @ignore label => "SHOULD NEVER RUN"
+  @ignore label { "SHOULD NEVER RUN" }
 }
 
 try {

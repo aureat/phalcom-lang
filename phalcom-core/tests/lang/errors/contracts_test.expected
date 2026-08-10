@@ -1,5 +1,5 @@
 10
 15
 12
-PreconditionError: Precondition failed for method `increment`: 272
+PreconditionError: Precondition failed for method `increment`: 273
 InvariantError: Invariant failed for class `Counter`: 171

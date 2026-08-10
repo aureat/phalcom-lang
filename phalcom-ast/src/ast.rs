@@ -1140,9 +1140,26 @@ pub enum UnaryOp {
     BitNot,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ClosureParameters {
+    /// Fixed positional parameter names, in source order.
+    pub fixed: Vec<String>,
+    /// Optional terminal positional-rest parameter.
+    pub positional_rest: Option<String>,
+}
+
+impl ClosureParameters {
+    pub fn fixed(names: Vec<String>) -> Self {
+        Self {
+            fixed: names,
+            positional_rest: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockExpr {
-    pub params: Vec<String>,
+    pub params: ClosureParameters,
     pub body: Vec<Statement>,
     pub expr_body: bool,
     pub range: SourceRange,

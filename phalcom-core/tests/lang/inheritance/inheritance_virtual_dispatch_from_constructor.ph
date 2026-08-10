@@ -10,13 +10,13 @@
 class A {
   @constructor
   new() { _tag = self.label }
-  label => "A"
-  report => _tag
+  label { "A" }
+  report { _tag }
 }
 class B is A {
   @constructor
   new() { super.new() }
-  label => "B"
+  label { "B" }
 }
 const b = B.new()
 System.print(b.report)

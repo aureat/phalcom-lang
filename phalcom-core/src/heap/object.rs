@@ -48,11 +48,13 @@ pub enum Object {
     Closure(Box<ClosureObject>),
     /// An immutable interned-by-content string ([`StringObject`]).
     Str(StringObject),
-    /// A first-class block closure ([`BlockObject`]).
+    /// Transitional home-frame wrapper for a first-class closure.
+    ///
+    /// This internal representation surfaces as `Closure`; Task Set 4 removes
+    /// the wrapper while preserving non-local-return bookkeeping.
     Block(BlockObject),
-    /// A method closed over a receiver — the result of `Method#bind(_)`
-    /// ([ADR-0006](../../../docs/adr/accepted/0006-function-as-abstract-callable-root.md)).
-    /// Its surface class is `Block`; it responds to the `Function` call
+    /// A method closed over a receiver — the result of `Method#bind(_)`.
+    /// Its surface class is `BoundMethod`; it responds to the `Function` call
     /// protocol by delegating to [`crate::vm::VM::invoke_method_object`]
     /// (U-CORE-3, [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
     BoundMethod(BoundMethodObject),

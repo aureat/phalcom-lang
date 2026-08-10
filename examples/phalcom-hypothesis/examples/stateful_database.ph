@@ -20,9 +20,9 @@ class MemoryStore {
   new() { _entries = Map.new() }
 
   save(key: Bytes, value: Bytes) { _entries.at(key, put: value) }
-  fetch(key: Bytes) -> Any => _entries.at(key)
+  fetch(key: Bytes) -> Any { _entries.at(key) }
   delete(key: Bytes) { _entries.remove(key) }
-  size -> Int => _entries.size
+  size -> Int { _entries.size }
   close() { None }
 }
 
@@ -54,7 +54,7 @@ class DatabaseMachine is StateMachine {
     _model.at(key, put: value)
   }
 
-  hasSavedValues -> Bool => _model.size > 0
+  hasSavedValues -> Bool { _model.size > 0 }
 
   @When(#hasSavedValues)
   @Rule(Keys)

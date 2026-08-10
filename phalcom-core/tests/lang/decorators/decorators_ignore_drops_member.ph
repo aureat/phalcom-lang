@@ -14,7 +14,7 @@ class Draft {
     x.someMethodThatDoesNotExistYet()
   }
 
-  finished => "ok"
+  finished { "ok" }
 }
 
 const d = Draft.new()

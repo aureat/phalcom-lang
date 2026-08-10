@@ -1,7 +1,7 @@
 class Base {
   @class _count = 0
   @class bump() { _count = _count + 1 }
-  @class count => _count
+  @class count { _count }
 }
 class Derived is Base {}
 Base.bump()

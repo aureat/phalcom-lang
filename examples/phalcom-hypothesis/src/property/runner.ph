@@ -48,9 +48,9 @@ class PropertyRun {
     )
   }
 
-  passed -> Bool => _result.passed
-  failed -> Bool => _result.failed
-  name -> Any => _id
+  passed -> Bool { _result.passed }
+  failed -> Bool { _result.failed }
+  name -> Any { _id }
 }
 
 @data
@@ -76,8 +76,8 @@ class PropertySuiteResult {
     return count
   }
 
-  failedCount -> Int => _runs.size - self.passedCount
-  passed -> Bool => self.failedCount == 0
+  failedCount -> Int { _runs.size - self.passedCount }
+  passed -> Bool { self.failedCount == 0 }
 
   summaryLines -> List<String> {
     const lines = List.new()

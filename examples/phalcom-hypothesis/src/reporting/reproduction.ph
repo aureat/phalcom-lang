@@ -36,7 +36,7 @@ class ReproductionToken {
     )
   }
 
-  toString -> String => _text
+  toString -> String { _text }
 }
 
 class Reproduction {

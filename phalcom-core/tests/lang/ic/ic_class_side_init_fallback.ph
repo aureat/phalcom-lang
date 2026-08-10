@@ -1,5 +1,5 @@
 // Test repeated cached method resolution
-class C { x => 42
+class C { x { 42 }
 }
 
 const c1 = C.new()

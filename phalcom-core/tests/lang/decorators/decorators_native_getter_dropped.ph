@@ -8,7 +8,7 @@
 // observable behaviour is that the selector does not resolve.
 
 class Gizmo {
-  @native shown => "SHOULD NEVER RUN"
+  @native shown { "SHOULD NEVER RUN" }
 }
 
 try {

@@ -10,6 +10,6 @@ class A {
 class B is A {
   @constructor
   new() { }
-  go => super.missingThing()
+  go { super.missingThing() }
 }
 System.print(B.new().go)

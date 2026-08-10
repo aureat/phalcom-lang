@@ -32,7 +32,7 @@ class Span {
     )
   }
 
-  length -> Int => _end - _start
+  length -> Int { _end - _start }
 
   contains(choiceIndex: Int) -> Bool {
     return choiceIndex >= _start and choiceIndex < _end

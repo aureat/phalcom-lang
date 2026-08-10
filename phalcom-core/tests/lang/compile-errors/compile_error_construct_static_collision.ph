@@ -15,6 +15,6 @@ class Foo {
   new() {
     return "shadowed"
   }
-  x => _x
+  x { _x }
 }
 System.print(Foo.new().x)

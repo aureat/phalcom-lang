@@ -311,7 +311,7 @@ impl VM {
                     .map(|home| self.heap.closure(home.closure).callable.name_sym)
                     .unwrap_or(closure.callable.name_sym);
                 let enclosing_str = self.resolve_symbol(enclosing);
-                let name_str = format!("<block in {}>", enclosing_str);
+                let name_str = format!("<closure in {}>", enclosing_str);
                 self.interner.intern(&name_str)
             } else {
                 closure.callable.name_sym
@@ -355,7 +355,7 @@ impl VM {
                     .map(|home| self.heap.closure(home.closure).callable.name_sym)
                     .unwrap_or(closure.callable.name_sym);
                 let enclosing_str = self.resolve_symbol(enclosing);
-                let name_str = format!("<block in {}>", enclosing_str);
+                let name_str = format!("<closure in {}>", enclosing_str);
                 self.interner.intern(&name_str)
             } else {
                 closure.callable.name_sym

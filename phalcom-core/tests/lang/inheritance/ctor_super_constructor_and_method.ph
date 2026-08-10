@@ -7,8 +7,8 @@ class Base {
   @constructor
   new(_ value) { _base = value }
   mark(_ value) { _marked = value + 10 }
-  base => _base
-  marked => _marked
+  base { _base }
+  marked { _marked }
 }
 class Derived is Base {
   @constructor

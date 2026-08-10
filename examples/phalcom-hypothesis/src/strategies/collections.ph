@@ -201,7 +201,7 @@ class _OptionStrategy<T> is base.StrategyBase<Option<T>> {
     return Some.new(_value.draw(data))
   }
 
-  fingerprint -> String => "option(" + _value.fingerprint + ")"
+  fingerprint -> String { "option(" + _value.fingerprint + ")" }
 }
 
 class _ResultStrategy<T, E> is base.StrategyBase<Result<T, E>> {

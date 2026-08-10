@@ -12,6 +12,7 @@
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::FamilyObject;
+use crate::interner::Symbol;
 use crate::method::{decode_selector, encode_selector};
 use crate::primitive::object::object_does_not_understand;
 use crate::value::Value;
@@ -87,13 +88,45 @@ pub fn family_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value])
 
     let call_args = message_args(vm, &message);
 
+    family_call_with_selector(vm, family, missed_selector, &call_args)
+}
+
+/// Routes a call that reached the inherited `Function#call(...)` shim on a
+/// `Family` value. `Family` is now a `Function` descendant, so its inherited
+/// gateway wins before `doesNotUnderstand`; the shim preserves the established
+/// family semantics without adding synthetic per-arity `call` methods.
+pub(crate) fn family_call(vm: &mut VM, receiver: &Value, missed_selector: Symbol, args: &[Value]) -> PhResult<Value> {
+    let family = match receiver {
+        Value::Obj(id) => match vm.heap.as_family(*id) {
+            Some(family) => *family,
+            None => {
+                return Err(RuntimeError::Type {
+                    expected: "Family",
+                    found: receiver.type_name(),
+                }
+                .into());
+            }
+        },
+        _ => {
+            return Err(RuntimeError::Type {
+                expected: "Family",
+                found: receiver.type_name(),
+            }
+            .into());
+        }
+    };
+
+    family_call_with_selector(vm, family, missed_selector, args)
+}
+
+fn family_call_with_selector(vm: &mut VM, family: FamilyObject, missed_selector: Symbol, call_args: &[Value]) -> PhResult<Value> {
     if family.open {
         let missed_str = vm.resolve_symbol(missed_selector).to_string();
         let (_missed_name, labels, kind) = decode_selector(&missed_str);
         let base_name = vm.resolve_symbol(family.selector).to_string();
         let target_selector = encode_selector(&base_name, &labels, kind);
         let target_sym = vm.get_or_intern(&target_selector);
-        vm.send_dynamic(family.recv, target_sym, &call_args)
+        vm.send_dynamic(family.recv, target_sym, call_args)
     } else {
         let pinned_str = vm.resolve_symbol(family.selector).to_string();
         let (pinned_name, pinned_labels, _kind) = decode_selector(&pinned_str);
@@ -105,6 +138,6 @@ pub fn family_does_not_understand(vm: &mut VM, receiver: &Value, args: &[Value])
             ))
             .into());
         }
-        vm.send_dynamic(family.recv, family.selector, &call_args)
+        vm.send_dynamic(family.recv, family.selector, call_args)
     }
 }

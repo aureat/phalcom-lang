@@ -17,7 +17,7 @@ class Counter {
     return self
   }
 
-  count => _count
+  count { _count }
 }
 
 const c = Counter.new(10)

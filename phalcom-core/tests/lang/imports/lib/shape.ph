@@ -5,5 +5,5 @@ class Shape {
   new(_ sides) {
     _sides = sides
   }
-  sides => _sides
+  sides { _sides }
 }

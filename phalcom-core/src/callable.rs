@@ -3,7 +3,7 @@
 //! A [`Callable`] contains the compiled bytecode [`Chunk`]
 //! along with metadata like slots, parameters, and upvalue descriptors.
 
-use crate::{chunk::Chunk, interner::Symbol};
+use crate::{chunk::Chunk, interner::Symbol, parameters::ParameterShape};
 
 /// Describes how an upvalue is captured relative to the enclosing scopes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +29,8 @@ pub struct Callable {
     pub upvalues: Vec<UpvalueDescriptor>,
     /// Positional parameter count.
     pub arity: usize,
+    /// Structured parameter acceptance metadata.
+    pub parameter_shape: ParameterShape,
     /// Interned selector/method symbol name.
     pub name_sym: Symbol,
     /// Names of local variables declared in this callable.

@@ -8,7 +8,7 @@
 class A {
   @constructor
   new() { _slot = "A-slot" }
-  aValue => _slot
+  aValue { _slot }
 }
 class B is A {
   @constructor
@@ -16,7 +16,7 @@ class B is A {
     super.new()
     _slot = "B-slot"
   }
-  bValue => _slot
+  bValue { _slot }
 }
 const b = B.new()
 System.print(b.aValue)

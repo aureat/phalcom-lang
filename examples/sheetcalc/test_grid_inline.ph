@@ -6,8 +6,8 @@ class TestGrid {
     _minCol = -1
   }
 
-  minCol => _minCol
-  cells => _cells
+  minCol { _minCol }
+  cells { _cells }
 
   set(_ ref, _ cell) {
     System.print("[TestGrid.set] called")

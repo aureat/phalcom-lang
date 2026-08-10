@@ -8,7 +8,7 @@
 class A {
   @constructor
   new() { }
-  origin => "from A"
+  origin { "from A" }
 }
 class B is A {
   @constructor
@@ -17,6 +17,6 @@ class B is A {
 class C is B {
   @constructor
   new() { }
-  origin => super.origin + " via C"
+  origin { super.origin + " via C" }
 }
 System.print(C.new().origin)

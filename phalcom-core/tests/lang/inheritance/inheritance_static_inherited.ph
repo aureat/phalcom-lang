@@ -9,7 +9,7 @@ class Animal {
   @constructor
   new() { }
   @class
-  kingdom => "Animalia"
+  kingdom { "Animalia" }
 }
 class Dog is Animal {
   @constructor

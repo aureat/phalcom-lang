@@ -11,10 +11,10 @@ class _RuleKind {
   @variant Normal
 
   @class
-  initializer -> _RuleKind => Initializer.new()
+  initializer -> _RuleKind { Initializer.new() }
 
   @class
-  normal -> _RuleKind => Normal.new()
+  normal -> _RuleKind { Normal.new() }
 }
 
 @data
@@ -69,7 +69,7 @@ class RuleDefinition {
     )
   }
 
-  normal -> Bool => not self.initializer
+  normal -> Bool { not self.initializer }
 
   fingerprint -> String {
     const argumentParts = List.new()

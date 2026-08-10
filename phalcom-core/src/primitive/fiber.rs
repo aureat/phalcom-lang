@@ -16,6 +16,7 @@ use crate::error::{PhResult, RuntimeError};
 use crate::frame::CallContext;
 use crate::heap::InstanceObject;
 use crate::heap::{FiberResumeMode, FiberStatus, ObjRef, Object};
+use crate::parameters::{ArgumentShape, RestKind};
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -195,7 +196,7 @@ pub(crate) fn new_fiber_ref(vm: &mut VM, entry: Value) -> PhResult<ObjRef> {
     let entry_name = match vm.heap.get(entry_id) {
         Object::Block(block) => {
             let closure = vm.heap.closure(block.closure);
-            format!("<block in {}>", vm.resolve_symbol(closure.callable.name_sym))
+            format!("<closure in {}>", vm.resolve_symbol(closure.callable.name_sym))
         }
         Object::Closure(closure) => vm.resolve_symbol(closure.callable.name_sym).to_string(),
         _ => "<unknown>".to_string(),
@@ -398,20 +399,25 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
             Object::Closure(_) => (entry, None),
             _ => unreachable!("fiber_new only accepts Block/Closure entries"),
         };
-        let arity = vm.heap.closure(closure_id).callable.arity;
-        if args.len() != arity {
+        let shape = vm.heap.closure(closure_id).callable.parameter_shape.clone();
+        if !shape.accepts(&ArgumentShape::positional(args.len())) {
             let signature = match mode {
                 FiberResumeMode::Call => "call",
                 FiberResumeMode::Try => "try",
             };
             return Err(RuntimeError::Arity {
                 signature,
-                expected: arity,
+                expected: shape.fixed_positionals,
                 found: args.len(),
             }
             .into());
         }
-        Some((entry, closure_id, home_frame_token))
+        let mut bound_args = Vec::with_capacity(shape.fixed_positionals + usize::from(shape.rest.is_some()));
+        bound_args.extend_from_slice(&args[..shape.fixed_positionals]);
+        if matches!(shape.rest, Some(RestKind::Positional)) {
+            bound_args.push(Value::Obj(vm.heap.alloc_list(args[shape.fixed_positionals..].to_vec())));
+        }
+        Some((entry, closure_id, home_frame_token, bound_args))
     } else {
         None
     };
@@ -424,12 +430,12 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
     vm.heap.fiber_mut(callee_ref).resumer = Some(resumer_ref);
     vm.heap.fiber_mut(callee_ref).resume_mode = mode;
 
-    if let Some((entry, closure_id, home_frame_token)) = entry_call {
+    if let Some((entry, closure_id, home_frame_token, bound_args)) = entry_call {
         // `vm.stack`/`vm.frames` are empty here (just taken by
         // `store_live_into` above), so the callee's fresh window starts at 0.
         let stack_offset = vm.stack.len();
         vm.stack.push(Value::Obj(entry));
-        vm.stack.extend_from_slice(args);
+        vm.stack.extend_from_slice(&bound_args);
         let mut frame = vm.new_call_frame(closure_id, CallContext::Instance { instance: entry }, 0, stack_offset, None);
         frame.home_frame_token = home_frame_token;
         vm.push_frame(frame)?;

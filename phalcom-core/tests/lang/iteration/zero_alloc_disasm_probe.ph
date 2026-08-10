@@ -1,7 +1,7 @@
 class Probe {
   @constructor
   new(size) { _size = size }
-  size => _size
+  size { _size }
   iterate(_ cursor) {
     const next = (cursor == None).ifTrue(|| { 0 }, ifFalse: || { cursor + 1 })
     return (next < self.size).ifTrue(|| { next }, ifFalse: || { None })

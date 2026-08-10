@@ -107,15 +107,15 @@ class ReportEvent {
     )
   }
 
-  isPropertyStarted -> Bool => self.is(#propertyStarted)
-  isPhaseStarted -> Bool => self.is(#phaseStarted)
-  isExampleAccepted -> Bool => self.is(#exampleAccepted)
-  isExampleRejected -> Bool => self.is(#exampleRejected)
-  isFailureFound -> Bool => self.is(#failureFound)
-  isShrinkAccepted -> Bool => self.is(#shrinkAccepted)
-  isHealthCheckFailed -> Bool => self.is(#healthCheckFailed)
-  isPropertyFinished -> Bool => self.is(#propertyFinished)
-  isSuiteFinished -> Bool => self.is(#suiteFinished)
+  isPropertyStarted -> Bool { self.is(#propertyStarted) }
+  isPhaseStarted -> Bool { self.is(#phaseStarted) }
+  isExampleAccepted -> Bool { self.is(#exampleAccepted) }
+  isExampleRejected -> Bool { self.is(#exampleRejected) }
+  isFailureFound -> Bool { self.is(#failureFound) }
+  isShrinkAccepted -> Bool { self.is(#shrinkAccepted) }
+  isHealthCheckFailed -> Bool { self.is(#healthCheckFailed) }
+  isPropertyFinished -> Bool { self.is(#propertyFinished) }
+  isSuiteFinished -> Bool { self.is(#suiteFinished) }
 
   @private
   is(expected: Symbol) -> Bool {

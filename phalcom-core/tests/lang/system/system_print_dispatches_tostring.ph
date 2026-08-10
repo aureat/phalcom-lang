@@ -8,7 +8,7 @@ class Foo {
   @constructor
   new() {}
 
-  toString => "Foo.toString"
+  toString { "Foo.toString" }
 }
 
 System.print(Foo.new())

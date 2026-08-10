@@ -85,11 +85,11 @@ class Grid {
     return cell.cachedValue
   }
 
-  minCol  => _minCol
-  maxCol  => _maxCol
-  minRow  => _minRow
-  maxRow  => _maxRow
-  isEmpty => _minCol == -1
+  minCol { _minCol }
+  maxCol { _maxCol }
+  minRow { _minRow }
+  maxRow { _maxRow }
+  isEmpty { _minCol == -1 }
 
   /// Iterate over all occupied cells (Ref, Cell) pairs. Used by renderer.
   each(_ f) {

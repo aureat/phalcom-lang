@@ -1,5 +1,5 @@
 // area: functions
-// spec: functions.md §3; ADR-0006 (Function/Method/Block tower);
+// spec: functions.md §3; ADR-0006 (Function/Method/Closure tower);
 //   ADR-0028 (Method reflection floor amendment)
 // status: PASS
 // U-CORE-3: `Object#methodFor(_)` reifies a `Method` by selector,

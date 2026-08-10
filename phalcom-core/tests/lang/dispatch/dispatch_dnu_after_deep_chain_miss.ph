@@ -23,7 +23,7 @@ class B is A {
 class C is B {
   @constructor
   new() { }
-  greet => "hi"
+  greet { "hi" }
 }
 const c = C.new()
 System.print(c.greet)

@@ -5,7 +5,7 @@ class MyGrid {
     _x = 99
   }
 
-  x => _x
+  x { _x }
 }
 
 class Main {

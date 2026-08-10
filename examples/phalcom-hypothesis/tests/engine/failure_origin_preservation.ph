@@ -18,7 +18,7 @@ class OriginError is Error {
     _origin = origin
   }
 
-  failureOrigin -> failure.FailureOrigin => _origin
+  failureOrigin -> failure.FailureOrigin { _origin }
 }
 
 const early = failure.FailureOrigin.new(

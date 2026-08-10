@@ -71,17 +71,16 @@ impl Universe {
         // `True`/`False` to their shared parent *is* dispatch by class).
         let true_class = make_core_class(heap, "True", bool_class, metaclass_class);
         let false_class = make_core_class(heap, "False", bool_class, metaclass_class);
-        // Callables (ADR-0006, decisions.md §4.1): `Function` is the abstract
-        // callable root; `Block` and `Method` are its siblings. `Method` must be
-        // allocated *after* `Function` because `make_core_class` reads
-        // `heap.class(Function).class` to wire the parallel rule — its
-        // superclass must already have its `class` link. `Method` therefore
-        // re-parents from `Object` to `Function` and inherits the call protocol
-        // (`arity`/`name`/`call…`/`callWith`) rather than redefining it.
+        // Callable surface (callables spec §1): `Function` is abstract;
+        // executable callable values are its sealed concrete descendants.
+        // `Method` is a reified dispatch object under `Object`, not a
+        // Function descendant.
         let function_class = make_core_class(heap, "Function", object_class, metaclass_class);
         heap.class_mut(function_class).is_abstract = true;
-        let block_class = make_core_class(heap, "Block", function_class, metaclass_class);
-        let method_class = make_core_class(heap, "Method", function_class, metaclass_class);
+        let closure_class = make_core_class(heap, "Closure", function_class, metaclass_class);
+        let bound_method_class = make_core_class(heap, "BoundMethod", function_class, metaclass_class);
+        let family_class = make_core_class(heap, "Family", function_class, metaclass_class);
+        let method_class = make_core_class(heap, "Method", object_class, metaclass_class);
         let symbol_class = make_core_class(heap, "Symbol", object_class, metaclass_class);
         let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
         let system_class = make_core_class(heap, "System", object_class, metaclass_class);
@@ -172,7 +171,6 @@ impl Universe {
         // a `::` method reference produces, a native `Object::Family` heap
         // variant (no `Value::Family` arm) sitting directly under `Object`,
         // mirroring `Fiber`/`List`.
-        let family_class = make_core_class(heap, "Family", object_class, metaclass_class);
         let resource_class = make_core_class(heap, "Resource", object_class, metaclass_class);
         let use_after_close_error_class = make_core_class(heap, "UseAfterCloseError", error_class, metaclass_class);
 
@@ -191,7 +189,8 @@ impl Universe {
             false_class,
             method_class,
             function_class,
-            block_class,
+            closure_class,
+            bound_method_class,
             symbol_class,
             module_class,
             system_class,
@@ -240,7 +239,8 @@ impl Universe {
             res.fiber_class,
             res.method_class,
             res.module_class,
-            res.block_class,
+            res.closure_class,
+            res.bound_method_class,
             res.function_class,
             res.family_class,
             res.class_class,
@@ -323,8 +323,10 @@ pub struct CoreClasses {
     pub method_class: ClassId,
     /// `Function`.
     pub function_class: ClassId,
-    /// `Block`.
-    pub block_class: ClassId,
+    /// `Closure`.
+    pub closure_class: ClassId,
+    /// `BoundMethod`.
+    pub bound_method_class: ClassId,
     /// `Symbol`.
     pub symbol_class: ClassId,
     /// `Module`.
@@ -465,7 +467,8 @@ impl CoreClasses {
             false_class,
             method_class,
             function_class,
-            block_class,
+            closure_class,
+            bound_method_class,
             symbol_class,
             module_class,
             system_class,
@@ -507,7 +510,8 @@ impl CoreClasses {
             false_class,
             method_class,
             function_class,
-            block_class,
+            closure_class,
+            bound_method_class,
             symbol_class,
             module_class,
             system_class,

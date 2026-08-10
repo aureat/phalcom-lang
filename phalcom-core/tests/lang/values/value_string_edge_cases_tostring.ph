@@ -5,7 +5,7 @@
 // (the lexer has no `\n` escape — a raw newline inside the quotes is scanned
 // as-is), and a string with an escaped backslash (`\\` -> one literal `\`,
 // the lexer's only recognized escape besides `\(`-interpolation) all render
-// through `String#toString`'s `=> self` unchanged.
+// through `String#toString`'s braced body unchanged.
 
 System.print("".toString)
 System.print("line1\nline2".toString)

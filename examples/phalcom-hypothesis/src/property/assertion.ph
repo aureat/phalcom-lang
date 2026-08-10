@@ -9,7 +9,7 @@ class PropertyAssertionError is Error {
     _failureOrigin = origin
   }
 
-  failureOrigin -> FailureOrigin => _failureOrigin
+  failureOrigin -> FailureOrigin { _failureOrigin }
 }
 
 class Assert {
@@ -70,10 +70,10 @@ class Assert {
   }
 
   @class
-  isTrue(condition: Bool) -> None => self.true(condition)
+  isTrue(condition: Bool) -> None { self.true(condition) }
 
   @class
-  isFalse(condition: Bool) -> None => self.false(condition)
+  isFalse(condition: Bool) -> None { self.false(condition) }
 
   @class
   fail(message: String) -> None {

@@ -259,7 +259,7 @@ impl Heap {
             Some(Object::Module(_)) => "Module",
             Some(Object::Closure(_)) => "Closure",
             Some(Object::Str(_)) => "Str",
-            Some(Object::Block(_)) => "Block",
+            Some(Object::Block(_)) => "Closure",
             Some(Object::BoundMethod(_)) => "BoundMethod",
             Some(Object::Upvalue(_)) => "Upvalue",
             Some(Object::List(_)) => "List",

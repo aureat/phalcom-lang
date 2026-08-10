@@ -17,9 +17,9 @@ class RefRange is Iterable {
     _width = (_maxCol - _minCol) + 1
   }
 
-  topLeft     => RefModule.Ref.at(_minCol, _minRow)
-  bottomRight => RefModule.Ref.at(_maxCol, _maxRow)
-  size        => _width * ((_maxRow - _minRow) + 1)
+  topLeft { RefModule.Ref.at(_minCol, _minRow) }
+  bottomRight { RefModule.Ref.at(_maxCol, _maxRow) }
+  size { _width * ((_maxRow - _minRow) + 1) }
 
   /// Row-major iteration. Inherited Iterable.iterate walks 0..size; we map
   /// each cursor to a Ref via iteratorValue.

@@ -67,6 +67,12 @@ enum ClosureBodyRequirement {
     Braced,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TrailingTarget {
+    None,
+    MemberSend,
+}
+
 /// Result of parsing a Phalcom source string with error recovery.
 ///
 /// Carries the [`Program`] built from every statement that parsed successfully,
@@ -775,7 +781,7 @@ impl<'source> Parser<'source> {
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         Ok(Expr::Block(Box::new(BlockExpr {
-            params: vec![param],
+            params: ClosureParameters::fixed(vec![param]),
             body,
             expr_body: false,
             range,
@@ -1826,15 +1832,35 @@ impl<'source> Parser<'source> {
         self.expect(&Token::Pipe, &["\"|\""])?;
         self.skip_newlines();
 
-        let mut params = Vec::new();
+        let mut fixed = Vec::new();
+        let mut positional_rest = None;
         if !self.eat(&Token::Pipe) {
             loop {
+                if self.eat(&Token::Asterisk) {
+                    if positional_rest.is_some() {
+                        return Err(self.error_here(strs(&["only one terminal positional rest parameter is allowed in a closure"])));
+                    }
+                    let rest = if self.eat(&Token::Underscore) {
+                        "_".to_string()
+                    } else {
+                        self.expect_identifier(&["positional rest parameter name after `*`"])?
+                    };
+                    positional_rest = Some(rest);
+                    self.skip_newlines();
+                    if !self.eat(&Token::Pipe) {
+                        return Err(self.error_here(strs(&["closure positional rest parameter must be terminal"])));
+                    }
+                    break;
+                }
+                if matches!(self.peek(), Token::DoubleAsterisk | Token::TripleAsterisk) {
+                    return Err(self.error_here(strs(&["closures support only positional rest parameters written `*name`"])));
+                }
                 let param = if self.eat(&Token::Underscore) {
                     "_".to_string()
                 } else {
-                    self.expect_identifier(&["closure parameter name"])?
+                    self.expect_identifier(&["closure positional parameter name"])?
                 };
-                params.push(param);
+                fixed.push(param);
                 self.skip_newlines();
                 if self.eat(&Token::Pipe) {
                     break;
@@ -1859,18 +1885,14 @@ impl<'source> Parser<'source> {
         };
 
         Ok(Expr::Block(Box::new(BlockExpr {
-            params,
+            params: ClosureParameters { fixed, positional_rest },
             body,
             expr_body,
             range: (start..self.prev_end).into(),
         })))
     }
 
-    /// Parses a method body: either `=> expr` (single expression) or a
-    /// `{ statements }` block.
-    ///
-    /// The `=>` form requires a trailing newline, matching the LALRPOP
-    /// `MethodBlock` rule.
+    /// Parses a braced method body.
     ///
     /// # Errors
     ///
@@ -1878,19 +1900,13 @@ impl<'source> Parser<'source> {
     /// malformed.
     fn parse_method_block(&mut self) -> ParserResult<Vec<Statement>> {
         match self.peek() {
-            Token::FatArrow => {
-                self.advance();
-                let stmt = self.parse_expr_statement()?;
-                self.expect(&Token::Newline, &["newline"])?;
-                Ok(vec![stmt])
-            }
             Token::LBrace => {
                 self.advance();
                 let stmts = self.parse_block_statements()?;
                 self.expect(&Token::RBrace, &["\"}\""])?;
                 Ok(stmts)
             }
-            _ => Err(self.error_here(strs(&["\"=>\"", "\"{\""]))),
+            _ => Err(self.error_here(strs(&["\"{\" (method bodies must be braced)"]))),
         }
     }
 
@@ -2234,7 +2250,7 @@ impl<'source> Parser<'source> {
     /// value; `range` spans the desugared construct.
     fn wrap_block_thunk(&self, expr: Expr, range: SourceRange) -> Expr {
         Expr::Block(Box::new(BlockExpr {
-            params: Vec::new(),
+            params: ClosureParameters::default(),
             body: vec![Statement::Expr { expr, range }],
             expr_body: true,
             range,
@@ -2250,7 +2266,7 @@ impl<'source> Parser<'source> {
     /// `range` spans the desugared construct.
     fn wrap_block_mapper(&self, param: String, body: Expr, range: SourceRange) -> Expr {
         Expr::Block(Box::new(BlockExpr {
-            params: vec![param],
+            params: ClosureParameters::fixed(vec![param]),
             body: vec![Statement::Expr { expr: body, range }],
             expr_body: true,
             range,
@@ -2421,7 +2437,7 @@ impl<'source> Parser<'source> {
     fn parse_call(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         let mut expr = self.parse_primary()?;
-        let mut trailing_target = false;
+        let mut trailing_target = TrailingTarget::None;
         loop {
             if matches!(self.peek(), Token::Newline) {
                 let mut next = self.pos;
@@ -2432,7 +2448,7 @@ impl<'source> Parser<'source> {
                     self.tokens.get(next).map(|lexeme| &lexeme.token),
                     Some(Token::Dot | Token::QuestionDot | Token::ColonColon)
                 );
-                let continues_labelled_closure = trailing_target && self.starts_labelled_braced_closure_literal(next);
+                let continues_labelled_closure = trailing_target == TrailingTarget::MemberSend && self.starts_labelled_braced_closure_literal(next);
                 if continues_postfix || continues_labelled_closure {
                     while self.pos < next {
                         self.advance();
@@ -2442,9 +2458,26 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            if trailing_target {
+            if trailing_target == TrailingTarget::MemberSend {
+                if matches!(self.peek(), Token::LBrace) {
+                    let end_before = self.cur_start();
+                    let closure = self.parse_brace_block()?;
+                    expr = self.attach_trailing_arguments(
+                        expr,
+                        vec![PackItem::Positional {
+                            expr: closure,
+                            range: (end_before..self.prev_end).into(),
+                        }],
+                        self.prev_end,
+                    )?;
+                    trailing_target = TrailingTarget::None;
+                    continue;
+                }
                 if let Some((args, end)) = self.parse_trailing_closure_arguments()? {
                     expr = self.attach_trailing_arguments(expr, args, end)?;
+                    // Keep member-send eligibility for a following labeled
+                    // trailing closure (`send || {} label: || {}`).
+                    trailing_target = TrailingTarget::MemberSend;
                     continue;
                 }
             }
@@ -2457,7 +2490,7 @@ impl<'source> Parser<'source> {
             }
             if self.eat(&Token::QuestionDot) {
                 expr = self.parse_optional_send(expr, start)?;
-                trailing_target = false;
+                trailing_target = TrailingTarget::None;
             } else if self.eat(&Token::ColonColon) {
                 // `::` method reference (selectors.md §3, U16-Open +
                 // U16-Pinned). Ambiguity rule (LOCKED): peek the token right
@@ -2488,7 +2521,7 @@ impl<'source> Parser<'source> {
                 };
                 let range = (start..self.prev_end).into();
                 expr = Expr::MethodRef(Box::new(MethodRefExpr { receiver: expr, kind, range }));
-                trailing_target = false;
+                trailing_target = TrailingTarget::None;
             } else if self.eat(&Token::Dot) {
                 let is_method_call = matches!(self.peek_next(), Token::LParen);
                 let field_kind = if is_method_call {
@@ -2507,7 +2540,7 @@ impl<'source> Parser<'source> {
                     let value = self.parse_property_name()?;
                     let range = (start..self.prev_end).into();
                     expr = Expr::Field { value, kind, range };
-                    trailing_target = false;
+                    trailing_target = TrailingTarget::None;
                     continue;
                 }
                 let property = self.parse_property_name()?;
@@ -2525,7 +2558,7 @@ impl<'source> Parser<'source> {
                     let range = (start..self.prev_end).into();
                     expr = Expr::GetProperty(Box::new(GetPropertyExpr { object: expr, property, range }));
                 }
-                trailing_target = true;
+                trailing_target = TrailingTarget::MemberSend;
             } else if self.eat(&Token::LParen) {
                 let args = self.parse_arg_list()?;
                 self.expect(&Token::RParen, &["\")\""])?;
@@ -2545,7 +2578,7 @@ impl<'source> Parser<'source> {
                         range,
                     })),
                 };
-                trailing_target = true;
+                trailing_target = TrailingTarget::None;
             } else if self.eat(&Token::LBracket) {
                 // U-INDEX (ADR-0060): the bracket's contents are a full
                 // call-shaped argument list — positional + `label:`,
@@ -2558,7 +2591,7 @@ impl<'source> Parser<'source> {
                 self.expect(&Token::RBracket, &["\"]\""])?;
                 let range = (start..self.prev_end).into();
                 expr = Expr::Index(Box::new(IndexExpr { object: expr, args, range }));
-                trailing_target = false;
+                trailing_target = TrailingTarget::None;
             }
         }
         Ok(expr)
@@ -2583,6 +2616,15 @@ impl<'source> Parser<'source> {
             return matches!(self.tokens.get(self.skip_newlines_at(pos + 1)).map(|lexeme| &lexeme.token), Some(Token::LBrace));
         }
         loop {
+            if matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Asterisk)) {
+                pos = self.skip_newlines_at(pos + 1);
+                if !matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Identifier(_) | Token::Underscore)) {
+                    return false;
+                }
+                pos = self.skip_newlines_at(pos + 1);
+                return matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Pipe))
+                    && matches!(self.tokens.get(self.skip_newlines_at(pos + 1)).map(|lexeme| &lexeme.token), Some(Token::LBrace));
+            }
             if !matches!(self.tokens.get(pos).map(|lexeme| &lexeme.token), Some(Token::Identifier(_) | Token::Underscore)) {
                 return false;
             }
@@ -2839,7 +2881,7 @@ impl<'source> Parser<'source> {
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
         Ok(Expr::Block(Box::new(BlockExpr {
-            params: Vec::new(),
+            params: ClosureParameters::default(),
             body,
             expr_body: false,
             range,
@@ -2854,7 +2896,7 @@ impl<'source> Parser<'source> {
     fn wrap_expr_as_block(expr: Expr) -> Expr {
         let range = expr.range();
         Expr::Block(Box::new(BlockExpr {
-            params: Vec::new(),
+            params: ClosureParameters::default(),
             body: vec![Statement::Expr { expr, range }],
             expr_body: true,
             range,
@@ -3027,12 +3069,6 @@ impl<'source> Parser<'source> {
                 Ok(Expr::Var { value: "_".to_string(), range })
             }
             Token::Identifier(value) => {
-                if matches!(self.peek_next(), Token::FatArrow) {
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("anonymous `=>` closures were removed; write `|x| expression`".to_string()),
-                        range: range.start..range.end,
-                    });
-                }
                 self.advance();
                 Ok(Expr::Var { value, range })
             }
@@ -3074,11 +3110,7 @@ impl<'source> Parser<'source> {
                     return self.parse_map_literal(start);
                 }
 
-                let message = if matches!(self.peek(), Token::Identifier(_) | Token::Underscore) && matches!(self.peek_next(), Token::FatArrow) {
-                    "brace block literals were removed; write `|x| { ... }`"
-                } else {
-                    "bare brace block literals were removed; write `|| { ... }` for a closure"
-                };
+                let message = "bare brace block literals were removed; write `|| { ... }` for a closure";
                 Err(SyntaxError {
                     kind: SyntaxErrorKind::Message(message.to_string()),
                     range: start..self.prev_end,
@@ -3990,7 +4022,8 @@ mod tests {
         let Expr::Block(block) = positional_pack_expr(&call.args[0]) else {
             panic!("expected a block thunk argument");
         };
-        assert!(block.params.is_empty());
+        assert!(block.params.fixed.is_empty());
+        assert!(block.params.positional_rest.is_none());
         assert!(block.expr_body);
     }
 
@@ -4030,7 +4063,7 @@ mod tests {
         let Expr::Block(block) = positional_pack_expr(&call.args[0]) else {
             panic!("expected a mapper block");
         };
-        assert_eq!(block.params.len(), 1);
+        assert_eq!(block.params.fixed.len(), 1);
         let Statement::Expr { expr: body, .. } = &block.body[0] else {
             panic!("expected an expression body");
         };
@@ -4043,7 +4076,7 @@ mod tests {
         let Expr::Var { value, .. } = &get.object else {
             panic!("expected the synthetic receiver variable");
         };
-        assert_eq!(value, &block.params[0]);
+        assert_eq!(value, &block.params.fixed[0]);
     }
 
     #[test]
@@ -4132,7 +4165,8 @@ mod tests {
         let Expr::Block(block) = binding.value.expect("expected value") else {
             panic!("expected closure block");
         };
-        assert_eq!(block.params, ["x", "y"]);
+        assert_eq!(block.params.fixed, ["x", "y"]);
+        assert!(block.params.positional_rest.is_none());
         assert!(block.expr_body);
         assert_eq!(block.body.len(), 1);
 
@@ -4142,8 +4176,40 @@ mod tests {
         let Expr::Block(block) = binding.value.expect("expected value") else {
             panic!("expected closure block");
         };
-        assert!(block.params.is_empty());
+        assert!(block.params.fixed.is_empty());
+        assert!(block.params.positional_rest.is_none());
         assert!(!block.expr_body);
+    }
+
+    #[test]
+    fn closure_positional_rest_is_structured_and_terminal() {
+        let Statement::Let(binding) = only_statement("const f = |head, *tail| tail") else {
+            panic!("expected binding");
+        };
+        let Expr::Block(block) = binding.value.expect("expected closure") else {
+            panic!("expected closure block");
+        };
+        assert_eq!(block.params.fixed, ["head"]);
+        assert_eq!(block.params.positional_rest.as_deref(), Some("tail"));
+
+        for source in ["|**labels| labels", "|*rest, next| rest", "|*rest, *other| rest"] {
+            assert!(!parse(source, 0).errors.is_empty(), "invalid closure rest accepted: {source}");
+        }
+    }
+
+    #[test]
+    fn bare_brace_trailing_closure_is_synthesized_only_for_member_sends() {
+        let Statement::Expr { expr, .. } = only_statement("items.map { value }") else {
+            panic!("expected expression statement");
+        };
+        let Expr::MethodCall(call) = expr else {
+            panic!("expected method call");
+        };
+        assert!(matches!(&call.args[0], PackItem::Positional { expr: Expr::Block(_), .. }));
+
+        assert!(!parse("items[0] { value }", 0).errors.is_empty());
+        assert!(!parse("items::map { value }", 0).errors.is_empty());
+        assert!(parse("items.map({ key: value })", 0).errors.is_empty());
     }
 
     #[test]

@@ -25,16 +25,16 @@ class Object {
 
   // Exact test: true iff `cls` is the receiver's *live, direct* class —
   // no superclass walk. Backs the `x is! T` surface (is-tests.md).
-  isExactly(_ cls) => self.class == cls
+  isExactly(_ cls) { self.class == cls }
 
   // Back-compat alias (U-CORE-1) — `is(_)` is now the primary kind-of test;
   // `isA` is retained so existing internal (`List#==` etc.) and user callers
   // keep working unchanged.
-  isA(_ cls) => self.is(cls)
+  isA(_ cls) { self.is(cls) }
 }
 
 class Class {
-  new() => self._$new()
+  new() { self._$new() }
 }
 
 class Metaclass {}
@@ -72,11 +72,11 @@ class Error {
     _cause = None
     _displaced = None
   }
-  kind => _kind
+  kind { _kind }
   kind=(put val) { _kind = val }
-  cause => _cause
+  cause { _cause }
   cause=(put val) { _cause = val }
-  displaced => _displaced
+  displaced { _displaced }
   displaced=(put val) { _displaced = val }
 }
 
@@ -117,7 +117,7 @@ class DuplicateKeyError is Error {
     super.new("Duplicate key: " + key.toString)
     _key = key
   }
-  key => _key
+  key { _key }
 }
 
 class Number {}
@@ -130,15 +130,15 @@ class String {
   // Display (U-CORE-4, R-INV-4.1): a string's display *is* itself — no
   // representation read, so this is `.ph`-derivable rather than a floor
   // primitive (ADR-0019's derivability test).
-  toString => self
+  toString { self }
 
   // Byte count. UTF-8 buffer length in bytes (not codepoints).
-  size => self._$byteCount
-  isEmpty => self._$byteCount == 0
+  size { self._$byteCount }
+  isEmpty { self._$byteCount == 0 }
 
   // Byte-range slice. Native storage operation stays internal; public wrapper
   // preserves existing bounds/UTF-8-boundary diagnostics.
-  slice(_ start, _ end) => self._$slice(start, end)
+  slice(_ start, _ end) { self._$slice(start, end) }
 
   // Number of leading bytes in the UTF-8 sequence starting at byte offset `i`.
   // Read purely from the lead byte's numeric range: 1/2/3/4-byte sequences are
@@ -316,7 +316,7 @@ class String {
     return self.trimEnd(" \t\n\r")
   }
 
-  trim(_ chars) => self.trimStart(chars).trimEnd(chars)
+  trim(_ chars) { self.trimStart(chars).trimEnd(chars) }
 
   // Trim from the start using the given charset.
   trimStart(_ chars) {
@@ -402,10 +402,10 @@ class String {
   }
 
   // Byte sequence accessor (U-STRING §2.4).
-  bytes => StringByteSequence.new(self)
+  bytes { StringByteSequence.new(self) }
 
   // Codepoint sequence accessor (U-STRING §2.4).
-  codePoints => StringCodePointSequence.new(self)
+  codePoints { StringCodePointSequence.new(self) }
 }
 
 // Byte-level sequence view (U-STRING §2.4, ADR-0048 shaped).
@@ -413,9 +413,9 @@ class StringByteSequence {
   @constructor
   new(_ s) { _string = s }
 
-  size => _string._$byteCount
+  size { _string._$byteCount }
 
-  at(_ i) => _string._$byteAt(i)
+  at(_ i) { _string._$byteAt(i) }
 
   each(_ f) {
     let i = 0
@@ -451,7 +451,7 @@ class StringCodePointSequence {
     return n
   }
 
-  at(_ byteOffset) => _string.codePointAt(byteOffset)
+  at(_ byteOffset) { _string.codePointAt(byteOffset) }
 
   each(_ f) {
     let i = self.nextCursor(None)
@@ -539,9 +539,9 @@ class Option {
     return self.match(some: |v| { self }, none: || { f.call() })
   }
 
-  isSome => self.match(some: |v| { true }, none: || { false })
+  isSome { self.match(some: |v| { true }, none: || { false }) }
 
-  isNone => self.match(some: |v| { false }, none: || { true })
+  isNone { self.match(some: |v| { false }, none: || { true }) }
 
   // U-STD (values-and-absence.md §3.3's "Transform" group; catalog-delta §2.2):
   // `Some(v)` becomes `Some(f(v))`; `None` passes through untouched. `f` is a
@@ -583,7 +583,7 @@ class Option {
   // `match`, so a user-overridden `match` is respected (R-INV-2.4) and the
   // inner value is rendered via its OWN `toString` message (so a
   // value-typed payload agrees with the print path, R-INV-4.1).
-  toString => self.match(some: |v| { "Some(" + v.toString + ")" }, none: || { "None" })
+  toString { self.match(some: |v| { "Some(" + v.toString + ")" }, none: || { "None" }) }
 
   // absence -> error bridge (error-handling.md §5, result.md §2, ADR-0007):
   // `Some(v)` already carries a real value, so no reason is needed; `None`
@@ -601,7 +601,7 @@ class Option {
     )
   }
 
-  hash => self.match(some: |v| { v.hash }, none: || { 0 })
+  hash { self.match(some: |v| { v.hash }, none: || { 0 }) }
 }
 
 class Some {}
@@ -618,9 +618,9 @@ class Some {}
 // future migration of `Option` to `.ph` stays symmetric and doesn't touch
 // `Result`).
 class Result {
-  isOk => self.match(ok: |v| { true }, err: |e| { false })
+  isOk { self.match(ok: |v| { true }, err: |e| { false }) }
 
-  isErr => self.match(ok: |v| { false }, err: |e| { true })
+  isErr { self.match(ok: |v| { false }, err: |e| { true }) }
 
   // Transforms the `Ok` value; an `Err` passes through unchanged (never
   // raises — a pure value transform, result.md §2).
@@ -646,14 +646,14 @@ class Result {
   // an `Error` (a user built `Err.new(42)`), `raise` misses and this
   // surfaces the ordinary `doesNotUnderstand` miss — consistent with the
   // only-`Error`-throwable rule, not special-cased here.
-  unwrap => self.match(ok: |v| { v }, err: |e| { e.raise() })
+  unwrap { self.match(ok: |v| { v }, err: |e| { e.raise() }) }
 
   unwrapOr(_ default) {
     return self.match(ok: |v| { v }, err: |e| { default })
   }
 
   // The `Err` reason, or re-`throw` if `Ok` — symmetric to `unwrap`.
-  unwrapErr => self.match(ok: |v| { v.raise() }, err: |e| { e })
+  unwrapErr { self.match(ok: |v| { v.raise() }, err: |e| { e }) }
 
   // `Result` -> `Option`: drops the failure reason (result.md §2/§5). Round-
   // trips with `Option#okOr(_)` above.
@@ -663,30 +663,30 @@ class Result {
 
   // Display: each arm renders its payload via its OWN `toString` (agrees
   // with `Option#toString`'s pattern, R-INV-4.1).
-  toString => self.match(ok: |v| { "Ok(" + v.toString + ")" }, err: |e| { "Err(" + e.toString + ")" })
+  toString { self.match(ok: |v| { "Ok(" + v.toString + ")" }, err: |e| { "Err(" + e.toString + ")" }) }
 }
 
 class Ok is Result {
   @constructor
   new(_ v) { _value = v }
 
-  match(ok, err) => ok.call(_value)
+  match(ok, err) { ok.call(_value) }
 }
 
 class Err is Result {
   @constructor
   new(_ e) { _error = e }
 
-  match(ok, err) => err.call(_error)
+  match(ok, err) { err.call(_error) }
 }
 
 // The throw -> value bridge (error-handling.md §5): runs `self` (0-arity),
 // capturing a `throw` into `Err(e)`; success is `Ok(v)`. Pure `.ph` over
 // `on(_)(_)` (U-ERR, ADR-0038) — no floor cost. Installed on the abstract
-// `Function` root so both `Block` and (reflectively) `Method` inherit it,
+// `Function` root so both `Closure` and (reflectively) `Method` inherit it,
 // mirroring how `call`/`on`/`ensure` are native on both.
 class Function {
-  // Explicit `()` (a method, not a getter — `attempt() { … }` vs `attempt =>
+  // Explicit `()` (a method, not a getter — `attempt() { … }` vs `attempt {
   // …`) so the call-site selector encodes as `attempt()`, matching the
   // spec's `{ risky() }.attempt()` call form (error-handling.md §5) exactly.
   attempt() {
@@ -797,7 +797,7 @@ class Iterable {
     return found
   }
 
-  isEmpty => self.size == 0
+  isEmpty { self.size == 0 }
 
   all(where f) {
     for (x in self) {
@@ -848,7 +848,7 @@ class Iterable {
     return None
   }
 
-  join => self.join("")
+  join { self.join("") }
 
   join(_ sep) {
     // Note: O(N²) allocation cost due to naive string concatenation. Each `result = result + ...`
@@ -959,23 +959,23 @@ class Iterable {
     return result
   }
 
-  iter => SourceIterator.new(self)
+  iter { SourceIterator.new(self) }
 }
 
 // Stateless lazy pipeline root. Traversal state is carried only in cursors,
 // allowing one pipeline instance to be traversed independently and repeatedly.
 class Iterator is Iterable {
-  iter => self
-  map(_ f) => MapIterator.new(self, f)
-  filter(_ pred) => FilterIterator.new(self, pred)
-  flatMap(_ f) => FlatMapIterator.new(self, f)
-  skip(_ n) => SkipIterator.new(self, n)
-  take(_ n) => TakeIterator.new(self, n)
-  takeWhile(_ pred) => TakeWhileIterator.new(self, pred)
+  iter { self }
+  map(_ f) { MapIterator.new(self, f) }
+  filter(_ pred) { FilterIterator.new(self, pred) }
+  flatMap(_ f) { FlatMapIterator.new(self, f) }
+  skip(_ n) { SkipIterator.new(self, n) }
+  take(_ n) { TakeIterator.new(self, n) }
+  takeWhile(_ pred) { TakeWhileIterator.new(self, pred) }
 }
 
 class List {
-  size => self._$length
+  size { self._$length }
 
   first {
     if (self.size == 0) { return None }
@@ -1163,7 +1163,7 @@ class List {
   // Given a live cursor, yields the element there (ADR-0035 §1,
   // iteration.md §1). Only ever called with an in-range index, so it defers to
   // `at(_)` directly.
-  iteratorValue(_ cursor) => self.at(cursor)
+  iteratorValue(_ cursor) { self.at(cursor) }
 
   // U-STD (DEFERRED.md #18): the public `.ph` wrapper over `_$set(_,_)`
   // floor primitive — writes `put` at index `i` and returns `self` so writes
@@ -1257,7 +1257,7 @@ class List {
 // key (List/Map/Set) with a raised Error.
 
 class Map {
-  size => self._$size
+  size { self._$size }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Map` rendering exactly — `{k: v, k2: v2}`, `{}` when empty — so the
@@ -1280,7 +1280,7 @@ class Map {
   }
 
   // Safe association lookup: Some(value) on hit, None on absence.
-  get(_ k) => self._$get(k)
+  get(_ k) { self._$get(k) }
 
   // Strict association lookup. Do one lookup so a stored None remains a
   // value rather than being confused with an absent key.
@@ -1317,7 +1317,7 @@ class Map {
   }
 
   // Explicit insert returns the previous value when replacing an association.
-  insert(_ value, for key) => self._$put(key, value)
+  insert(_ value, for key) { self._$put(key, value) }
 
   // Legacy mutation spelling retained only while B.3 still lowers association
   // literals into chained sends. `get` and `[]` are the lookup surface.
@@ -1327,9 +1327,9 @@ class Map {
   }
 
   // `m[k] = v` shares insert's key identity and encounter-order semantics.
-  [_ k]=(put val) => self._$put(k, val)
+  [_ k]=(put val) { self._$put(k, val) }
 
-  includes(_ k) => self._$has(k)
+  includes(_ k) { self._$has(k) }
 
   // Removes an association. The raw primitive returns its former value, but
   // the public mutable-collection protocol is chainable.
@@ -1347,11 +1347,11 @@ class Map {
 
   // Lightweight live encounter-order views. They retain the Map and read its
   // current slots; they never copy associations into a List.
-  keys => MapKeysView.new(self)
+  keys { MapKeysView.new(self) }
 
-  values => MapValuesView.new(self)
+  values { MapValuesView.new(self) }
 
-  entries => MapEntriesView.new(self)
+  entries { MapEntriesView.new(self) }
 
   // Copies a positive Record's Symbol labels and values into a fresh mutable
   // Map. `#{}` canonicalizes to Unit, which represents the empty Record form.
@@ -1373,7 +1373,7 @@ class Map {
 
   // DEC-CT-E: the cursor value `iteratorValue` yields is the KEY (both Map and Set yield keys).
   // Pair traversal uses `entries.each`, not a receiver-specific callback arity.
-  iteratorValue(_ cursor) => self._$keyAt(cursor)
+  iteratorValue(_ cursor) { self._$keyAt(cursor) }
 
   // Structural equality: same key set, pairwise-== values (order-independent
   // over keys — `includes`/`get` do the membership + value work, not raw
@@ -1404,7 +1404,7 @@ class Map {
 }
 
 class Set {
-  size => self._$size
+  size { self._$size }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Set` rendering exactly — `Set(a, b)`, `Set()` when empty. Derived
@@ -1425,7 +1425,7 @@ class Set {
     return self
   }
 
-  includes(_ v) => self._$has(v)
+  includes(_ v) { self._$has(v) }
 
   remove(_ v) {
     self._$remove(v)
@@ -1436,11 +1436,11 @@ class Set {
   // table, but a direct, zero-floor-cost derivation over at_ that the
   // U-CORE-5 conformance harness (collection-protocol.md §2) needs, and a
   // natural extension of the sequence protocol every collection instantiates.
-  at(_ i) => self._$at(i)
+  at(_ i) { self._$at(i) }
 
 
 
-  iteratorValue(_ cursor) => self._$at(cursor)
+  iteratorValue(_ cursor) { self._$at(cursor) }
 
   // Structural equality: same members, order-independent. Same-size plus
   // "every element of self is in other" is sufficient since neither set
@@ -1465,8 +1465,8 @@ class Set {
 }
 
 class Unit {
-  toString => "()"
-  hash => 0
+  toString { "()" }
+  hash { 0 }
 }
 
 // Kernel Tuple (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 2): a native fixed
@@ -1475,10 +1475,10 @@ class Unit {
 // Product literals compile directly to native build bytecodes.
 
 class Tuple {
-  size => self._$size
-  positionals => self._$positionals
-  labeled => self._$labeled
-  labelAt(_ index) => self._$labelAt(index)
+  size { self._$size }
+  positionals { self._$positionals }
+  labeled { self._$labeled }
+  labelAt(_ index) { self._$labelAt(index) }
 
   first {
     if (self.size == 0) { return None }
@@ -1504,7 +1504,7 @@ class Tuple {
     return s + ")"
   }
 
-  at(_ i) => self._$at(i)
+  at(_ i) { self._$at(i) }
 
   @private
   findLabel(_ sym) {
@@ -1537,7 +1537,7 @@ class Tuple {
     return None
   }
 
-  get(_ key) => self.access(key)
+  get(_ key) { self.access(key) }
 
   [_ key] {
     if (key.isA(Range)) {
@@ -1601,7 +1601,7 @@ class Tuple {
     return orElse.call(key)
   }
 
-  iteratorValue(_ cursor) => self._$at(cursor)
+  iteratorValue(_ cursor) { self._$at(cursor) }
 
   // Structural equality: same arity, pairwise-==. Guarded by isA(Tuple) so a
   // non-Tuple (including a same-elements List — cross-kind, E2) is unequal.
@@ -1652,8 +1652,8 @@ class Tuple {
 }
 
 class Record {
-  size => self._$size
-  labelAt(_ index) => self._$labelAt(index)
+  size { self._$size }
+  labelAt(_ index) { self._$labelAt(index) }
 
   ==(_ other) {
     if (other.isA(Record)) {
@@ -1696,18 +1696,18 @@ class MapKeysView is Iterable {
   @constructor
   new(_ map) { _map = map }
 
-  size => _map.size
+  size { _map.size }
 
-  iteratorValue(_ cursor) => _map._$keyAt(cursor)
+  iteratorValue(_ cursor) { _map._$keyAt(cursor) }
 }
 
 class MapValuesView is Iterable {
   @constructor
   new(_ map) { _map = map }
 
-  size => _map.size
+  size { _map.size }
 
-  iteratorValue(_ cursor) => _map._$valueAt(cursor)
+  iteratorValue(_ cursor) { _map._$valueAt(cursor) }
 }
 
 // Immutable-by-surface association value for MapEntriesView. No setters or
@@ -1719,18 +1719,18 @@ class Entry {
     _value = value
   }
 
-  key => _key
+  key { _key }
 
-  value => _value
+  value { _value }
 }
 
 class MapEntriesView is Iterable {
   @constructor
   new(_ map) { _map = map }
 
-  size => _map.size
+  size { _map.size }
 
-  iteratorValue(_ cursor) => Entry.new(_map._$keyAt(cursor), _map._$valueAt(cursor))
+  iteratorValue(_ cursor) { Entry.new(_map._$keyAt(cursor), _map._$valueAt(cursor)) }
 }
 
 // Range is a native bounds descriptor. Its lower_/upper_/upperInclusive_
@@ -1840,7 +1840,7 @@ class Range is Iterable {
     return live.ifTrue(|| { candidate }, ifFalse: || { None })
   }
 
-  iteratorValue(_ cursor) => cursor
+  iteratorValue(_ cursor) { cursor }
 
   // first, last, size, includes (Spec E.2 / Range specs)
   first {
@@ -1937,7 +1937,7 @@ class Range is Iterable {
 // ABSENT — inherited from `Iterable` so `Fiber.yield` works mid-iteration
 // (law 8); adding native or local overrides is a spec violation.
 class Bytes {
-  size => self._$size
+  size { self._$size }
 
   first {
     if (self.size == 0) { return None }
@@ -1949,7 +1949,7 @@ class Bytes {
     return Some.new(self.at(self.size - 1))
   }
 
-  at(_ i) => self._$at(i)
+  at(_ i) { self._$at(i) }
 
   get(_ index) {
     let raw = self._$at(index)
@@ -2006,7 +2006,7 @@ class Bytes {
     return orElse.call(index)
   }
 
-  iteratorValue(_ cursor) => self._$at(cursor)
+  iteratorValue(_ cursor) { self._$at(cursor) }
 
   // An octet is an integer Number in 0..255 (bytes.md §2). `and` is lazy,
   // so the arithmetic tests never run on a non-Number. (No trailing `_`:
@@ -2053,11 +2053,11 @@ class Bytes {
     return self
   }
 
-  utf8 => self._$utf8
+  utf8 { self._$utf8 }
 
   // Display decode: total, lossy (invalid sequences become U+FFFD). Never
   // round-trip the result into data (PDR-0013 ruling 4).
-  utf8Lossy => self._$utf8Lossy
+  utf8Lossy { self._$utf8Lossy }
 
   slice(_ start, _ end) {
     if ((start < 0) or (end < start) or (end > self.size)) {
@@ -2089,7 +2089,7 @@ class Bytes {
     return out
   }
 
-  equalsConstantTime(_ other) => self._$equalsConstantTime(other)
+  equalsConstantTime(_ other) { self._$equalsConstantTime(other) }
 
   // Structural equality, List#=='s exact shape (collection-protocol §4).
   // Short-circuits — correct here, and exactly why it must never be the
@@ -2116,7 +2116,7 @@ class Bytes {
     return not (self == other)
   }
 
-  toString => "Bytes(" + self.size.toString + ")"
+  toString { "Bytes(" + self.size.toString + ")" }
 
   toList {
     const out = []
@@ -2129,7 +2129,7 @@ class Bytes {
   // The immutable, value-hashable snapshot — the Map-key escape hatch
   // (PDR-0011 ruling 4; Bytes itself is mutable => identity hash, never a
   // valid Map/Set key).
-  toTuple => Tuple._$fromList(self.toList)
+  toTuple { Tuple._$fromList(self.toList) }
 
   @class
   fromString(_ s) {
@@ -2162,17 +2162,17 @@ class OpenMode {
   @private
   named(_ n) { _name = n }
   @class
-  read => OpenMode.named("read")
+  read { OpenMode.named("read") }
   @class
-  write => OpenMode.named("write")
+  write { OpenMode.named("write") }
   @class
-  append => OpenMode.named("append")
+  append { OpenMode.named("append") }
   @class
-  readWrite => OpenMode.named("readWrite")
-  name => _name
+  readWrite { OpenMode.named("readWrite") }
+  name { _name }
   ==(_ other) { return other.isA(OpenMode) and (_name == other.name) }
   !=(_ other) { return not (self == other) }
-  toString => "OpenMode." + _name
+  toString { "OpenMode." + _name }
 }
 
 class Path {
@@ -2205,8 +2205,8 @@ class Path {
     return acc
   }
 
-  bytes => _bytes.slice(0, _bytes.size)
-  hash => _hash
+  bytes { _bytes.slice(0, _bytes.size) }
+  hash { _hash }
 
   ==(_ other) {
     if (not other.isA(Path)) { return false }
@@ -2216,7 +2216,7 @@ class Path {
 
   !=(_ other) { return not (self == other) }
 
-  isAbsolute => (_bytes.size > 0) and (_bytes.at(0) == 47)
+  isAbsolute { (_bytes.size > 0) and (_bytes.at(0) == 47) }
 
   join(_ other) {
     if (not other.isA(Path)) {
@@ -2316,7 +2316,7 @@ class Path {
     return res
   }
 
-  toString => _bytes.utf8Lossy
+  toString { _bytes.utf8Lossy }
 }
 
 
@@ -2327,8 +2327,8 @@ class SourceIterator is Iterator {
   new(_ source) {
     _source = source
   }
-  iterate(_ cursor) => _source.iterate(cursor)
-  iteratorValue(_ cursor) => _source.iteratorValue(cursor)
+  iterate(_ cursor) { _source.iterate(cursor) }
+  iteratorValue(_ cursor) { _source.iteratorValue(cursor) }
 }
 
 class MapIterator is Iterator {
@@ -2337,8 +2337,8 @@ class MapIterator is Iterator {
     _source = source
     _f = f
   }
-  iterate(_ cursor) => _source.iterate(cursor)
-  iteratorValue(_ cursor) => _f.call(_source.iteratorValue(cursor))
+  iterate(_ cursor) { _source.iterate(cursor) }
+  iteratorValue(_ cursor) { _f.call(_source.iteratorValue(cursor)) }
 }
 
 class FilterIterator is Iterator {
@@ -2355,7 +2355,7 @@ class FilterIterator is Iterator {
     }
     return None
   }
-  iteratorValue(_ cursor) => _source.iteratorValue(cursor)
+  iteratorValue(_ cursor) { _source.iteratorValue(cursor) }
 }
 
 class SkipIterator is Iterator {
@@ -2377,7 +2377,7 @@ class SkipIterator is Iterator {
     }
     return cur
   }
-  iteratorValue(_ cursor) => _source.iteratorValue(cursor)
+  iteratorValue(_ cursor) { _source.iteratorValue(cursor) }
 }
 
 class TakeIterator is Iterator {
@@ -2403,7 +2403,7 @@ class TakeIterator is Iterator {
     if (next == None) { return None }
     return (next, yielded + 1)
   }
-  iteratorValue(_ cursor) => _source.iteratorValue(cursor.at(0))
+  iteratorValue(_ cursor) { _source.iteratorValue(cursor.at(0)) }
 }
 
 class TakeWhileIterator is Iterator {
@@ -2415,7 +2415,7 @@ class TakeWhileIterator is Iterator {
     if (_pred.call(_source.iteratorValue(cand))) { return cand }
     return None
   }
-  iteratorValue(_ cursor) => _source.iteratorValue(cursor)
+  iteratorValue(_ cursor) { _source.iteratorValue(cursor) }
 }
 
 class FlatMapIterator is Iterator {
@@ -2443,7 +2443,7 @@ class FlatMapIterator is Iterator {
     if (nextIc != None) { return (outer, inner, nextIc) }
     return self.seekFromOuter(_source.iterate(outer))
   }
-  iteratorValue(_ cursor) => cursor.at(1).iteratorValue(cursor.at(2))
+  iteratorValue(_ cursor) { cursor.at(1).iteratorValue(cursor.at(2)) }
 }
 
 class System {
@@ -2476,7 +2476,7 @@ class System {
   // cannot abort another) — including any fiber a running scheduled fiber
   // itself schedules mid-drain, since `nextScheduled` is re-read every
   // iteration. Deliberately does **not** unwrap via `.match(some:none:)`
-  // (which runs its arm through `Block#call`'s native re-entrant
+  // (which runs its arm through `Closure#call`'s native re-entrant
   // `run_until`, forbidding a fiber switch underneath, ADR-0030 §4): `f.try()`
   // must run at this method's own top level, not nested inside a block a
   // native primitive is driving, so the receiver is unwrapped via
@@ -2510,7 +2510,7 @@ class System {
 // State lives in three private fields (plan §6.1): `_state` (one of the
 // strings `"pending"`, `"fulfilled"`, `"rejected"`), `_value` (the settled
 // value or the captured `Error`), and `_waiters` — a `List` holding two kinds
-// of thing, `Fiber`s registered by `await` and `Block`s registered by
+// of thing, `Fiber`s registered by `await` and `Closure`s registered by
 // `then`/`map`/`catch`, unified by `System.schedule(_)` accepting both.
 class Future {
   // Builds a pending future (U-FUTURE Slice B).
@@ -2546,7 +2546,7 @@ class Future {
 
   // `true` once `self` has settled (`fulfilled` or `rejected`); `false`
   // while `pending`.
-  isReady => _state != "pending"
+  isReady { _state != "pending" }
 
   // Settles `self` as `fulfilled` with `v`, unless already settled (settle-
   // once, C-FUT-3): a `self.isReady` receiver is a no-op that returns `self`
@@ -2579,7 +2579,7 @@ class Future {
 
   // Reschedules all waiters once settled.
   //
-  // A waiter is either a `Fiber` (registered by `await`) or a `Block`
+  // A waiter is either a `Fiber` (registered by `await`) or a `Closure`
   // (registered by `then`/`map`/`catch`); `System.schedule(_)` accepts both,
   // enqueueing a fiber as-is and wrapping anything else. A fiber waiter can,
   // however, be *finished* by the time we settle — it may have failed after
@@ -2600,7 +2600,7 @@ class Future {
   // The settled value as an `Option` (concurrency.md §2): `Some(v)` once
   // `fulfilled`, `None` while `pending` or once `rejected` (the rejection
   // reason is reached via `catch(_)`/`then(_)`, not `value`).
-  value => (_state == "fulfilled").ifTrue(|| { Some.new(_value) }, ifFalse: || { None })
+  value { (_state == "fulfilled").ifTrue(|| { Some.new(_value) }, ifFalse: || { None }) }
 
   // Suspends the current fiber until settled (U-FUTURE Slice B). On the root
   // fiber — which has no resumer and so cannot yield — degrades to driving the
@@ -2615,7 +2615,7 @@ class Future {
   // — E004. Attempt-and-inspect cannot work when the attempt changes the answer.
   //
   // Consequently the `Fiber.yield` below is **bare**. Wrapping it in anything
-  // that reaches `Block#call` — `.attempt()`, `.on(_)`, `ensure` — puts a native
+  // that reaches `Closure#call` — `.attempt()`, `.on(_)`, `ensure` — puts a native
   // frame between the fiber floor and the switch and reinstates the bug. A
   // `CannotYieldAcrossNativeFrame` raised from here is now a real one: it means
   // the *caller* invoked `await` from inside a block a native primitive is
@@ -2778,7 +2778,7 @@ class Future {
 // class has no caller yet — the sink protocol is ready when it lands.
 class Tracer {
   @class
-  stdout => Tracer.new()
+  stdout { Tracer.new() }
 
   enter(_ name, _ args) { System.print("-> " + name.toString + " " + args.toString) }
   exit(_ name, _ result, _ elapsed) { System.print("<- " + name.toString + " = " + result.toString) }
@@ -2794,17 +2794,17 @@ class Tracer {
 // interception envelope is Install/Dispatch/Runtime mechanism work.
 class OffBehavior {
   @class
-  raise => OffBehavior.new("raise", None)
+  raise { OffBehavior.new("raise", None) }
   @class
-  fallback(_ sel) => OffBehavior.new("fallback", Some.new(sel))
+  fallback(_ sel) { OffBehavior.new("fallback", Some.new(sel)) }
   @class
-  skip(_ value) => OffBehavior.new("skip", Some.new(value))
+  skip(_ value) { OffBehavior.new("skip", Some.new(value)) }
 
   @constructor
   new(_ kind, _ payload) { _kind = kind; _payload = payload }
 
-  kind => _kind
-  payload => _payload
+  kind { _kind }
+  payload { _payload }
 }
 
 // `Backoff` (decorators-behavioral.md B-2, ratified 2026-07-13): `@retry`'s
@@ -2819,11 +2819,11 @@ class OffBehavior {
 // pretending to work.
 class Backoff {
   @class
-  none => Backoff.new("none", 0, 0)
+  none { Backoff.new("none", 0, 0) }
   @class
-  fixed(_ ms) => Backoff.new("fixed", ms, 0)
+  fixed(_ ms) { Backoff.new("fixed", ms, 0) }
   @class
-  exponential(base, max) => Backoff.new("exponential", base, max)
+  exponential(base, max) { Backoff.new("exponential", base, max) }
 
   @constructor
   new(_ kind, _ a, _ b) { _kind = kind; _a = a; _b = b }
@@ -2878,8 +2878,8 @@ class On is Attribute {
   @constructor
   new(_ target, _ tier) { _targets = target; _tier = tier }
 
-  targets => _targets
-  tier => _tier
+  targets { _targets }
+  tier { _tier }
 }
 
 // The tier marker classes (attribute-classes.md: "same pattern Phalcom
@@ -2901,16 +2901,16 @@ class Runtime is Tier {}
 // Method-only reopen (no new fields) — safe on a bootstrap class (a
 // reopen-with-fields would trip read-before-write).
 class Behavior {
-  attributes => self._$attributes
-  attributesOfType(_ cls) => self._$attributes.filter |a| { a.isA(cls) }
+  attributes { self._$attributes }
+  attributesOfType(_ cls) { self._$attributes.filter |a| { a.isA(cls) } }
 }
 
 // `Method#attributes`/`#attributesOfType(_)` — the same reflection surface
 // as `Behavior` above, for the reified `Method` object a class's method
 // dictionary holds.
 class Method {
-  attributes => self._$attributes
-  attributesOfType(_ cls) => self._$attributes.filter |a| { a.isA(cls) }
+  attributes { self._$attributes }
+  attributesOfType(_ cls) { self._$attributes.filter |a| { a.isA(cls) } }
 }
 
 // ============================================================================
@@ -2922,7 +2922,7 @@ class Resource {
     self._$close()
     return Ok.new(None)
   }
-  isClosed => self._$isClosed
+  isClosed { self._$isClosed }
 }
 
 class UseAfterCloseError is Error {}
@@ -3004,7 +3004,7 @@ class BufferedWriter is Resource {
     _len = 0
   }
 
-  pending => _len
+  pending { _len }
 
   write(_ src) {
     src.is(Bytes).ifFalse || {

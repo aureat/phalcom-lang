@@ -36,9 +36,9 @@ class _DerivedStrategy<T> is base.StrategyBase<T> {
     _fingerprint = fingerprint
   }
 
-  draw(data: DrawData) -> T => _inner.draw(data)
+  draw(data: DrawData) -> T { _inner.draw(data) }
 
-  fingerprint -> String => _fingerprint
+  fingerprint -> String { _fingerprint }
 }
 
 class _ConstructorStrategy<T> is base.StrategyBase<T> {
@@ -65,7 +65,7 @@ class _ConstructorStrategy<T> is base.StrategyBase<T> {
     }
   }
 
-  fingerprint -> String => _fingerprint
+  fingerprint -> String { _fingerprint }
 }
 
 class _Derivation {

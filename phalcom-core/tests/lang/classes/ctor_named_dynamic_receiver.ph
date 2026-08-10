@@ -1,8 +1,8 @@
 class Ref {
   @constructor
   at(_ row, _ col) { _row = row; _col = col }
-  row => _row
-  col => _col
+  row { _row }
+  col { _col }
 }
 let C = Ref
 let r = C.at(2, 8)

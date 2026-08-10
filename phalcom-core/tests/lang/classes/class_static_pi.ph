@@ -3,7 +3,7 @@
 // status: PASS
 class Calc {
   @class
-  pi => 3.1415
+  pi { 3.1415 }
 }
 
 System.print(Calc.pi)

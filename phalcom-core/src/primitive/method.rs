@@ -1,9 +1,8 @@
 //! Native primitives on `Method` — the reflective callable-tower surface.
 //!
-//! `Method` is reified as an [`Object::Method`]
-//! heap object and re-parented under `Function` ([ADR-0006](../../docs/adr/accepted/0006-function-as-abstract-callable-root.md)),
-//! so it inherits the shared call protocol (`arity`/`name`/`callWith`/`call`)
-//! but does not answer raw `call` while unbound (`primitive::block::resolve_callable`).
+//! `Method` is reified as an [`Object::Method`] heap object under `Object`.
+//! It exposes reflection and explicit receiver application; it is not a
+//! `Function` descendant and does not answer raw `call` while unbound.
 //! This module adds the reflection surface that closes the gap: reifying
 //! ([`crate::primitive::object::object_method_for`]), applying a reified
 //! method to an explicit receiver ([`method_invoke_on`]), closing one over a
@@ -49,7 +48,7 @@ pub fn method_invoke_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 /// Signature: `Method::bind(_)` — closes the reified method (`self`) over
 /// `args[0]` as its receiver, returning an
 /// [`Object::BoundMethod`] whose surface
-/// class is `Block` (ADR-0006) and which responds to `call` (functions.md
+/// class is `BoundMethod` and which responds to `call` (functions.md
 /// §3, U-CORE-3). `bound.call(a)` ≡ `method.invokeOn(recv, [a])` (R-INV-3.3):
 /// both funnel through [`VM::invoke_method_object`] via
 /// [`crate::primitive::block::block_call`]'s `BoundMethod` intercept.

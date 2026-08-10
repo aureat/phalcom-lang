@@ -4,8 +4,8 @@ class Point {
     _x = x
     _y = y
   }
-  x => _x
-  y => _y
+  x { _x }
+  y { _y }
 }
 let p = Point.new(2, 3)
 System.print(p.x)

@@ -58,7 +58,7 @@ class _BoolStrategy is base.StrategyBase<Bool> {
     return data.drawBool(shrinkTowards: false, label: None)
   }
 
-  fingerprint -> String => "bool"
+  fingerprint -> String { "bool" }
 }
 
 class _FloatStrategy is base.StrategyBase<Float> {
@@ -145,7 +145,7 @@ class _SampledFromStrategy<T> is base.StrategyBase<T> {
     return _values.at(index)
   }
 
-  fingerprint -> String => "sampledFrom(" + _values.size.toString + ")"
+  fingerprint -> String { "sampledFrom(" + _values.size.toString + ")" }
 }
 
 class _TextStrategy is base.StrategyBase<String> {
@@ -225,7 +225,7 @@ class _PrimitiveTargets {
 
 class _FloatEncoding {
   @class
-  scale -> Int => 1000000
+  scale -> Int { 1000000 }
 
   @class
   toUnits(value: Float) -> Int {

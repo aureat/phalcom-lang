@@ -13,20 +13,20 @@ class Phase {
   @variant Explain
 
   @class
-  Explicit -> Phase => Explicit.new()
+  Explicit -> Phase { Explicit.new() }
 
   @class
-  Reuse -> Phase => Reuse.new()
+  Reuse -> Phase { Reuse.new() }
 
   @class
-  Generate -> Phase => Generate.new()
+  Generate -> Phase { Generate.new() }
 
   @class
-  Target -> Phase => Target.new()
+  Target -> Phase { Target.new() }
 
   @class
-  Shrink -> Phase => Shrink.new()
+  Shrink -> Phase { Shrink.new() }
 
   @class
-  Explain -> Phase => Explain.new()
+  Explain -> Phase { Explain.new() }
 }

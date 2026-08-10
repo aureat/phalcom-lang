@@ -25,7 +25,7 @@ class PredicateArityMachine is StateMachine {
 }
 
 class PredicateTypeMachine is StateMachine {
-  available -> Int => 1
+  available -> Int { 1 }
 
   @When(#available)
   @Rule

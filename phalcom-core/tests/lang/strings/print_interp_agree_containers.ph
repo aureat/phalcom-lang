@@ -7,7 +7,7 @@
 // disagree with `"\(…)"` on the exact same value. Both paths below print the
 // same object back to back — they must be identical.
 
-class Secret { toString => "<redacted>"
+class Secret { toString { "<redacted>" }
 }
 const s = Secret.new()
 

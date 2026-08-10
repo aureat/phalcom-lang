@@ -26,7 +26,7 @@ class _DirectoryLockTable {
     _active = Set.new()
   }
 
-  withPathLock(path: Any, body: Block) -> Any {
+  withPathLock(path: Any, body: Closure) -> Any {
     const key = path.toString
     if _active.includes(key) {
       throw errors._DatabaseLockUnavailable.new(
@@ -287,7 +287,7 @@ class DirectoryDatabase {
 }
 
 class _SystemDatabaseFileSystem {
-  exists(path: Any) -> Bool => FS.exists(path)
+  exists(path: Any) -> Bool { FS.exists(path) }
 
   read(path: Any) -> Result<Bytes, Error> {
     return || { FS.readBytes(path) }.attempt()

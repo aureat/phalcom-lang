@@ -12,8 +12,8 @@ class Person {
     _name = name
     _age = age
   }
-  name => _name
-  age => _age
+  name { _name }
+  age { _age }
 }
 const p1 = Person.new("Ada")
 const p2 = Person.new("Grace", 36)

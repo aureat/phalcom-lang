@@ -7,6 +7,6 @@ class Circle {
   new(_ r) {
     _r = r
   }
-  radius => _r
+  radius { _r }
 }
 System.print(Circle.new(9).radius)

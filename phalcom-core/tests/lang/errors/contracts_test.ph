@@ -11,7 +11,7 @@ class Counter {
     _val = init
   }
   
-  val => _val
+  val { _val }
   
   @requires(amount > 0)
   @ensures(self.val == old(self.val) + amount)

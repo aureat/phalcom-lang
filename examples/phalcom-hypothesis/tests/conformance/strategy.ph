@@ -6,8 +6,8 @@ import ScriptedChoiceProvider from "choices/provider"
 import Choice from "choices/choice"
 
 class ConstantStrategy is StrategyBase<Int> {
-  draw(data: DrawData) -> Int => 7
-  fingerprint -> String => "constant(7)"
+  draw(data: DrawData) -> Int { 7 }
+  fingerprint -> String { "constant(7)" }
 }
 
 const strategy: Strategy<Int> = ConstantStrategy.new()

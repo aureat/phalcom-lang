@@ -1,5 +1,5 @@
 class Foo {
-  test() => class
+  test() { class }
 }
 
 class Bar is Foo {}

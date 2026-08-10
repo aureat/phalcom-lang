@@ -5,6 +5,6 @@
 class X {
   @constructor
   new() { }
-  m => super
+  m { super }
 }
 System.print(X.new().m)

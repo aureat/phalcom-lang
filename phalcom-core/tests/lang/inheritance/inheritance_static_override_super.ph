@@ -8,15 +8,15 @@
 
 class Animal {
   @class
-  greet => "hi"
+  greet { "hi" }
 }
 class Dog is Animal {
   @class
-  greet => super.greet + "-dog"
+  greet { super.greet + "-dog" }
 }
 class Puppy is Dog {
   @class
-  greet => super.greet + "-puppy"
+  greet { super.greet + "-puppy" }
 }
 System.print(Dog.greet)
 System.print(Puppy.greet)

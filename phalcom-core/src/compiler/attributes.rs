@@ -585,7 +585,7 @@ fn rewrite_returns(body: &mut Vec<Statement>, ensures_args: &[Expr], method_name
 
                 rewritten.push(Statement::Expr {
                     expr: Expr::Block(Box::new(BlockExpr {
-                        params: Vec::new(),
+                        params: phalcom_ast::ast::ClosureParameters::default(),
                         body: local_block,
                         expr_body: false,
                         range,
@@ -1407,7 +1407,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
                 range,
             }));
             let fallback_block = Expr::Block(Box::new(BlockExpr {
-                params: Vec::new(),
+                params: phalcom_ast::ast::ClosureParameters::default(),
                 body: vec![Statement::Expr {
                     expr: Expr::Field {
                         value: f.name.clone(),
@@ -1424,7 +1424,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
                 range,
             }));
             let keep_block = Expr::Block(Box::new(BlockExpr {
-                params: Vec::new(),
+                params: phalcom_ast::ast::ClosureParameters::default(),
                 body: vec![Statement::Expr {
                     expr: Expr::Var { value: pname.clone(), range },
                     range,
@@ -2484,7 +2484,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
         range,
     }));
     let block_expr = Expr::Block(Box::new(BlockExpr {
-        params: Vec::new(),
+        params: phalcom_ast::ast::ClosureParameters::default(),
         body: vec![Statement::Expr { expr: error_expr, range }],
         expr_body: true,
         range,
@@ -2589,7 +2589,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
                 method: "ifTrue".to_string(),
                 args: vec![PackItem::Positional {
                     expr: Expr::Block(Box::new(BlockExpr {
-                        params: Vec::new(),
+                        params: phalcom_ast::ast::ClosureParameters::default(),
                         body: check_stmts(true),
                         expr_body: false,
                         range,
@@ -2604,7 +2604,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
 
     let original_body = std::mem::take(body);
     let body_block = Expr::Block(Box::new(BlockExpr {
-        params: Vec::new(),
+        params: phalcom_ast::ast::ClosureParameters::default(),
         body: original_body,
         expr_body: true,
         range,
@@ -2621,7 +2621,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
             method: "ifTrue".to_string(),
             args: vec![PackItem::Positional {
                 expr: Expr::Block(Box::new(BlockExpr {
-                    params: Vec::new(),
+                    params: phalcom_ast::ast::ClosureParameters::default(),
                     body: cleanup_body,
                     expr_body: false,
                     range,
@@ -2633,7 +2633,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
         range,
     };
     let cleanup_block = Expr::Block(Box::new(BlockExpr {
-        params: Vec::new(),
+        params: phalcom_ast::ast::ClosureParameters::default(),
         body: vec![cleanup_guard],
         expr_body: false,
         range,

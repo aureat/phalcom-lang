@@ -3,6 +3,6 @@ class Person {
   make(_ name) {
     _name = name
   }
-  name => _name
+  name { _name }
 }
 System.print(Person.make("Ada").name)

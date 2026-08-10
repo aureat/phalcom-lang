@@ -2,8 +2,8 @@
 // spec: messages-and-selectors.md; selectors.md
 // status: PASS
 
-class Point { x => _x
-  y => _y
+class Point { x { _x }
+  y { _y }
   @constructor
   new(_ x, _ y) {
     _x = x

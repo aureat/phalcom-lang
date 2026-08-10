@@ -217,8 +217,6 @@ pub enum Token {
     DotDotDot,
     /// The `->` arrow punctuation mark.
     Arrow,
-    /// The `=>` fat-arrow used by single-expression method bodies.
-    FatArrow,
     /// The `?` punctuation mark.
     ///
     /// A lone `?` is reserved for a future ternary/try operator and is not part

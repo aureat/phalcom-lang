@@ -77,7 +77,7 @@ impl Universe {
         // `False` rows (both resolve to `Bool class`) and the absence /
         // collection / message rows. Any newly-added row that breaks the rule
         // fails boot rather than silently mis-dispatching statics.
-        let ordinary_rows: [(&str, ClassId); 34] = [
+        let ordinary_rows: [(&str, ClassId); 35] = [
             ("Number", c.number_class),
             ("Int", c.int_class),
             ("Float", c.float_class),
@@ -86,9 +86,11 @@ impl Universe {
             ("Bool", c.bool_class),
             ("True", c.true_class),
             ("False", c.false_class),
-            ("Method", c.method_class),
             ("Function", c.function_class),
-            ("Block", c.block_class),
+            ("Closure", c.closure_class),
+            ("BoundMethod", c.bound_method_class),
+            ("Family", c.family_class),
+            ("Method", c.method_class),
             ("Symbol", c.symbol_class),
             ("Module", c.module_class),
             ("System", c.system_class),
@@ -109,7 +111,6 @@ impl Universe {
             ("MessageNotUnderstood", c.message_not_understood_class),
             ("Fiber", c.fiber_class),
             ("CannotYieldAcrossNativeFrame", c.cannot_yield_across_native_frame_class),
-            ("Family", c.family_class),
             ("Resource", c.resource_class),
             ("UseAfterCloseError", c.use_after_close_error_class),
         ];
@@ -125,22 +126,19 @@ impl Universe {
             }
         }
 
-        // R-INV-1.5 (boot half) — `Method` re-parents under `Function`
-        // ([ADR-0006](../../../docs/adr/accepted/0006-function-as-abstract-callable-root.md),
-        // decisions.md §4.1), so it inherits the call protocol instead of
-        // redefining it. Guards the load-order fix in `create_core_classes`.
-        if heap.class(c.method_class).superclass != Some(c.function_class) {
-            return Err("Method.superclass should be Function (ADR-0006 re-parent)".to_string());
+        // Callable hierarchy: `Method` is a reified dispatch object under
+        // `Object`; executable callable values are sealed descendants of
+        // abstract `Function`.
+        if heap.class(c.method_class).superclass != Some(c.object_class) {
+            return Err("Method.superclass should be Object".to_string());
         }
-
-        // R-INV-3.1 (boot half) — the callable tower: `Block` is `Function`'s
-        // other sibling row, so both `Method` and `Block` share the call
-        // protocol root (U-CORE-3, [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
-        // The `ordinary_rows` parallel-rule loop above already covers the
-        // metaclass-level half for both rows; this asserts the plain
-        // superclass link explicitly, mirroring the `Method` check above.
-        if heap.class(c.block_class).superclass != Some(c.function_class) {
-            return Err("Block.superclass should be Function (ADR-0006)".to_string());
+        for (name, class_id) in [("Closure", c.closure_class), ("BoundMethod", c.bound_method_class), ("Family", c.family_class)] {
+            if heap.class(class_id).superclass != Some(c.function_class) {
+                return Err(format!("{name}.superclass should be Function"));
+            }
+        }
+        if !heap.class(c.function_class).is_abstract {
+            return Err("Function should be abstract".to_string());
         }
 
         // R-INV-0.3 (structural half) — absence never surfaces at boot: the

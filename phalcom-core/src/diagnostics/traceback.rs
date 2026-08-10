@@ -504,7 +504,7 @@ fn frame_name_to_string(vm: &VM, name: &FrameName) -> String {
         FrameName::Method(sym) => vm.resolve_symbol(*sym).to_string(),
         FrameName::Block { enclosing } => {
             let enc = vm.resolve_symbol(*enclosing);
-            format!("<block in {}>", enc)
+            format!("<closure in {}>", enc)
         }
         FrameName::Native(sym) => {
             let s = vm.resolve_symbol(*sym);

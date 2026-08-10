@@ -269,12 +269,12 @@ fn bare_brace_closure_is_rejected() {
 
 #[test]
 fn braced_parameter_closure_is_rejected() {
-    assert!(parse_display("{ x => x + 1 }").starts_with("brace block literals were removed; write `|x| { ... }`"));
+    assert!(parse_source("{ x => x + 1 }", 0).is_err());
 }
 
 #[test]
 fn arrow_closure_is_rejected() {
-    assert!(parse_display("x => x + 1").starts_with("anonymous `=>` closures were removed; write `|x| expression"));
+    assert!(parse_source("x => x + 1", 0).is_err());
 }
 
 #[test]

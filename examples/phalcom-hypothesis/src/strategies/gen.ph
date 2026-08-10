@@ -8,7 +8,7 @@ import composite from "strategies/composite"
 
 class Gen {
   @class
-  int -> Strategy<Int> => primitives._IntStrategy.unbounded()
+  int -> Strategy<Int> { primitives._IntStrategy.unbounded() }
 
   @class
   int(min: Int, max: Int) -> Strategy<Int> {
@@ -16,7 +16,7 @@ class Gen {
   }
 
   @class
-  bool -> Strategy<Bool> => primitives._BoolStrategy.new()
+  bool -> Strategy<Bool> { primitives._BoolStrategy.new() }
 
   @class
   float -> Strategy<Float> {

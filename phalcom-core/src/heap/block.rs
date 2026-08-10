@@ -12,8 +12,8 @@ use crate::heap::ObjRef;
 /// A first-class block (lexical closure) object.
 ///
 /// Realizes [ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md).
-/// Blocks are concrete instances of the abstract `Function` class, and siblings of `Method`.
-/// They wrap a compiled closure handle along with the frame token of their home activation.
+/// Internal wrapper for a `Closure` and its home-frame token. It has no public
+/// `Block` class; `Value::class` surfaces it as `Closure` until Task Set 4.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlockObject {
     /// Handle to the underlying [`ClosureObject`](crate::heap::ClosureObject).

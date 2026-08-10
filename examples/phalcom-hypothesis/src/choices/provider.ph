@@ -35,7 +35,7 @@ class SystemRandomChoiceProvider {
     _consumedChoices = 0
   }
 
-  consumedChoices -> Int => _consumedChoices
+  consumedChoices -> Int { _consumedChoices }
 
   choose(request: ChoiceRequest) -> Choice {
     _consumedChoices++
@@ -93,7 +93,7 @@ class ScriptedChoiceProvider {
     _cursor = 0
   }
 
-  consumedChoices -> Int => _cursor
+  consumedChoices -> Int { _cursor }
 
   choose(request: ChoiceRequest) -> Choice {
     if _cursor >= _choices.size || {
@@ -147,7 +147,7 @@ class _ReplayChoiceProvider {
     _cursor = 0
   }
 
-  consumedChoices -> Int => _cursor
+  consumedChoices -> Int { _cursor }
 
   choose(request: ChoiceRequest) -> Choice {
     if _cursor >= _example.size || {

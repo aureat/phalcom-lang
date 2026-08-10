@@ -9,7 +9,7 @@
 class A {
   @constructor
   new() { _a = "A" }
-  a => _a
+  a { _a }
 }
 class B is A {
   @constructor
@@ -17,7 +17,7 @@ class B is A {
     super.new()
     _b = "B"
   }
-  b => _b
+  b { _b }
 }
 class C is B {
   @constructor
@@ -25,7 +25,7 @@ class C is B {
     super.new()
     _c = "C"
   }
-  c => _c
+  c { _c }
 }
 const x = C.new()
 System.print(x.a)

@@ -17,7 +17,7 @@ class ConsumingMachine is StateMachine {
   @Rule(Gen.int(min: 1, max: 10), Tickets.publish)
   issue(value: Int) -> Int { return value }
 
-  hasTicket -> Bool => _consumed.size == 0
+  hasTicket -> Bool { _consumed.size == 0 }
 
   @When(#hasTicket)
   @Rule(Tickets.consume)

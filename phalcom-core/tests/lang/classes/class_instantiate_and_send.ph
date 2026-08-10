@@ -2,7 +2,7 @@
 // spec: classes.md; messages-and-selectors.md
 // status: PASS
 
-class Counter { value => _v
+class Counter { value { _v }
   @constructor
   new(_ v) {
     _v = v

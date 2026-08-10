@@ -18,10 +18,10 @@ class ConsoleReporter {
   }
 
   @class
-  standard -> ConsoleReporter => ConsoleReporter.new(printLines: true)
+  standard -> ConsoleReporter { ConsoleReporter.new(printLines: true) }
 
   @class
-  capture -> ConsoleReporter => ConsoleReporter.new(printLines: false)
+  capture -> ConsoleReporter { ConsoleReporter.new(printLines: false) }
 
   handle(event: ReportEvent) -> None {
     event.match(
@@ -241,12 +241,12 @@ class ConsoleReporter {
     return copied
   }
 
-  text -> String => _lines.join("\n")
+  text -> String { _lines.join("\n") }
 }
 
 class PropertyReporter {
   @class
-  console -> ConsoleReporter => ConsoleReporter.standard
+  console -> ConsoleReporter { ConsoleReporter.standard }
 }
 
 class _ConsoleOrdering {

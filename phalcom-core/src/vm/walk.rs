@@ -72,13 +72,13 @@ pub enum FrameName {
         /// from the still-live frame [`CallFrame::home_frame_token`] points at when
         /// that frame is still on the stack (the common case: a block invoked
         /// synchronously, e.g. inside `fold`/`for`). Degrades to the block's own
-        /// (generic `<block>`) name when the home frame has already returned — an
+        /// (generic `<closure>`) name when the home frame has already returned — an
         /// escaped block called after its lexical parent unwound — rather than
         /// panicking or fabricating a symbol.
         ///
         /// This is the block's **immediate** lexical parent, which may itself be
         /// another block (a block nested in a block); it is not walked further up
-        /// to the innermost enclosing *method*. Renders `<block in ‹enclosing›>`.
+        /// to the innermost enclosing *method*. Renders `<closure in ‹enclosing›>`.
         enclosing: Symbol,
     },
     /// A synthesized frame for an error raised inside a native primitive, which

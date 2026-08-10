@@ -7,11 +7,11 @@
 class Animal {
   @constructor
   new() { }
-  speak => "generic"
+  speak { "generic" }
 }
 class Dog is Animal {
   @constructor
   new() { }
-  speak => super.speak + " woof"
+  speak { super.speak + " woof" }
 }
 System.print(Dog.new().speak)

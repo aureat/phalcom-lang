@@ -1,7 +1,7 @@
 class Counter {
   @class _count = 1
   @class bump() { _count = _count + 1 }
-  @class count => _count
+  @class count { _count }
   @class count=(put value) { _count = value }
 }
 Counter.bump()

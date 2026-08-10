@@ -10,7 +10,7 @@ class Rule is Attribute {
     _parts = _StatefulAttributeCopies.list(parts)
   }
 
-  parts -> List<Any> => _StatefulAttributeCopies.list(_parts)
+  parts -> List<Any> { _StatefulAttributeCopies.list(_parts) }
 }
 
 @On(Method)
@@ -20,7 +20,7 @@ class Initialize is Attribute {
     _parts = _StatefulAttributeCopies.list(parts)
   }
 
-  parts -> List<Any> => _StatefulAttributeCopies.list(_parts)
+  parts -> List<Any> { _StatefulAttributeCopies.list(_parts) }
 }
 
 @On(Method)
@@ -36,7 +36,7 @@ class When is Attribute {
     _predicate = predicate
   }
 
-  predicate -> Any => _predicate
+  predicate -> Any { _predicate }
 }
 
 @On(Method)

@@ -5,8 +5,8 @@ class TestObj {
     _m = Map.new()
   }
 
-  x => _x
-  m => _m
+  x { _x }
+  m { _m }
 }
 
 class Main {

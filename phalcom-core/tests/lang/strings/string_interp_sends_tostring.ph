@@ -20,7 +20,7 @@
 // enriching it (an ordinary debug convenience someone will want) would have
 // turned every interpolation site into a field-disclosure bug.
 
-class Secret { toString => "<redacted>"
+class Secret { toString { "<redacted>" }
 }
 const p = Secret.new()
 
@@ -34,7 +34,7 @@ System.print(p.toString)
 System.print("\(Secret)")
 
 // Values the native path DID render correctly must not regress. Each of these
-// reaches a real `toString`: Number/Symbol/List native, String `=> self`, Bool /
+// reaches a real `toString`: Number/Symbol/List native, String `{ self }`, Bool /
 // Map / Set / Tuple / Range derived in core.ph.
 const m = Map.new()
 m.at("a", put: 1)

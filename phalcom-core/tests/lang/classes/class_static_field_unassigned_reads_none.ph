@@ -9,6 +9,6 @@ class Registry {
   @class
   register(_ v) { _last = v }
   @class
-  last => _last
+  last { _last }
 }
 System.print(Registry.last)

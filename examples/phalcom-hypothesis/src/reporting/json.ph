@@ -31,7 +31,7 @@ class JsonReporter {
     return copied
   }
 
-  text -> String => _jsonLines.join("\n")
+  text -> String { _jsonLines.join("\n") }
 }
 
 class _JsonEvent {

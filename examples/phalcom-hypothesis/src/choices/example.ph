@@ -34,13 +34,13 @@ class Example {
     )
   }
 
-  size -> Int => _choiceValues.size
+  size -> Int { _choiceValues.size }
 
-  at(index: Int) -> Choice => _choiceValues.at(index)
+  at(index: Int) -> Choice { _choiceValues.at(index) }
 
-  choices -> List<Choice> => _ExampleCopies.choices(_choiceValues)
+  choices -> List<Choice> { _ExampleCopies.choices(_choiceValues) }
 
-  spans -> List<Span> => _ExampleCopies.spans(_spanValues)
+  spans -> List<Span> { _ExampleCopies.spans(_spanValues) }
 
   spanWithId(id: Int) -> Option<Span> {
     for span in _spanValues {

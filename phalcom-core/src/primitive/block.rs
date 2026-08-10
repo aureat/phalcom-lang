@@ -12,6 +12,7 @@
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, FrameToken};
 use crate::heap::Object;
+use crate::parameters::{ArgumentShape, RestKind};
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -144,21 +145,37 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 /// [`RuntimeError`] raised while running the block body.
 pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if let Value::Obj(id) = receiver {
-        if let Object::BoundMethod(bound) = vm.heap.get(*id) {
-            let (method_id, target) = (bound.method, bound.receiver);
-            return vm.invoke_method_object(method_id, target, args);
+        match vm.heap.get(*id) {
+            Object::BoundMethod(bound) => {
+                let (method_id, target) = (bound.method, bound.receiver);
+                return vm.invoke_method_object(method_id, target, args);
+            }
+            Object::Family(_) => {
+                let Some(selector) = vm.native_selector else {
+                    return Err(RuntimeError::Internal("Family call is missing its call selector".to_string()).into());
+                };
+                return crate::primitive::family::family_call(vm, receiver, selector, args);
+            }
+            _ => {}
         }
     }
 
     let (closure_id, home_frame_token) = resolve_callable(vm, receiver)?;
-    let arity = vm.heap.closure(closure_id).callable.arity;
-    if args.len() != arity {
+    let shape = vm.heap.closure(closure_id).callable.parameter_shape.clone();
+    let argument_shape = ArgumentShape::positional(args.len());
+    if !shape.accepts(&argument_shape) {
         return Err(RuntimeError::Arity {
             signature: "call",
-            expected: arity,
+            expected: shape.fixed_positionals,
             found: args.len(),
         }
         .into());
+    }
+
+    let mut bound_args = Vec::with_capacity(shape.fixed_positionals + usize::from(shape.rest.is_some()));
+    bound_args.extend_from_slice(&args[..shape.fixed_positionals]);
+    if matches!(shape.rest, Some(RestKind::Positional)) {
+        bound_args.push(Value::Obj(vm.heap.alloc_list(args[shape.fixed_positionals..].to_vec())));
     }
 
     // Slot 0 of the callee's stack window is a dummy receiver slot (blocks
@@ -166,7 +183,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     // `compile_block`); push it followed by the arguments.
     let stack_offset = vm.stack.len();
     vm.stack.push(*receiver);
-    vm.stack.extend_from_slice(args);
+    vm.stack.extend_from_slice(&bound_args);
 
     let base_frames = vm.frames.len();
     let context = CallContext::Instance {

@@ -12,7 +12,7 @@ class Author is Attribute {
   _name
   @constructor
   new(_ name) { _name = name }
-  name => _name
+  name { _name }
 }
 
 @On(Method)
@@ -20,7 +20,7 @@ class Tag is Attribute {
   _label
   @constructor
   new(_ label) { _label = label }
-  label => _label
+  label { _label }
 }
 
 @Author("Ada")

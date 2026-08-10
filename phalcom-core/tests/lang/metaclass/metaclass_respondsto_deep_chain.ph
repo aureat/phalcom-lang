@@ -7,7 +7,7 @@
 // while an unrelated selector correctly reports false — without ever
 // triggering `doesNotUnderstand(_:)`.
 
-class A { greet => "hi"
+class A { greet { "hi" }
 }
 class B is A {
 }

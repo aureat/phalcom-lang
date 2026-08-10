@@ -62,10 +62,10 @@ class DrawData {
     )
   }
 
-  generationSize -> Int => _buffer.generationSize
-  size -> Int => _sizeStack.at(_sizeStack.size - 1)
-  consumedChoices -> Int => _provider.consumedChoices
-  rejectionCount -> Int => _rejectionCount
+  generationSize -> Int { _buffer.generationSize }
+  size -> Int { _sizeStack.at(_sizeStack.size - 1) }
+  consumedChoices -> Int { _provider.consumedChoices }
+  rejectionCount -> Int { _rejectionCount }
 
   rejectionReasons -> List<Any> {
     const copied = List.new()
@@ -74,8 +74,8 @@ class DrawData {
     }
     return copied
   }
-  example -> Example => _buffer.freeze
-  tape -> Example => self.example
+  example -> Example { _buffer.freeze }
+  tape -> Example { self.example }
 
   draw(request: ChoiceRequest) -> Any {
     if _buffer.size >= _maxChoices {
@@ -167,7 +167,7 @@ class DrawData {
     return None
   }
 
-  withLabel(label: Symbol, body: Block) -> Any {
+  withLabel(label: Symbol, body: Closure) -> Any {
     _labelStack.add(label)
     return || {
       body.call()
@@ -176,7 +176,7 @@ class DrawData {
     }
   }
 
-  withGenerationSize(value: Int, body: Block) -> Any {
+  withGenerationSize(value: Int, body: Closure) -> Any {
     if value < 0 {
       throw errors._InvalidStrategy.new(
         "strategy generation size cannot be negative"
@@ -198,7 +198,7 @@ class DrawData {
   }
 
 
-  withSpan(label: Symbol, discardable: Bool, body: Block) -> Any {
+  withSpan(label: Symbol, discardable: Bool, body: Closure) -> Any {
     return _buffer.withSpan(
       label: label,
       discardable: discardable,

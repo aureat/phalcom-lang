@@ -7,7 +7,7 @@
 // ordinary dispatch (IC-non-corruption guard; dispatch is a stateless chain
 // walk today, so this guards against a future regression).
 
-class Speaker { say => "hi"
+class Speaker { say { "hi" }
 }
 class Proxy2 {
   doesNotUnderstand(_ msg) {

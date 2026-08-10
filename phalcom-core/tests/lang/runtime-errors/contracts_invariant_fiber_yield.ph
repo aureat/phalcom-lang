@@ -17,7 +17,7 @@ class Guard {
     _n = n
   }
 
-  n => _n
+  n { _n }
 
   bump(_ shouldYield) {
     if (shouldYield) {

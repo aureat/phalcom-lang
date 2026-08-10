@@ -8,20 +8,20 @@ class ScriptedFiles {
     _quarantined = List.new()
   }
 
-  read(path) -> Result<Bytes, Error> => Ok.new(b"corrupt")
-  createDirectories(path) -> Result<None, Error> => Ok.new(None)
-  writeTemporary(path, payload) -> Result<Any, Error> => Ok.new(#temporary)
-  flush(file) -> Result<None, Error> => Ok.new(None)
-  close(file) -> Result<None, Error> => Ok.new(None)
-  replaceAtomic(source, destination) -> Result<None, Error> => Ok.new(None)
+  read(path) -> Result<Bytes, Error> { Ok.new(b"corrupt") }
+  createDirectories(path) -> Result<None, Error> { Ok.new(None) }
+  writeTemporary(path, payload) -> Result<Any, Error> { Ok.new(#temporary) }
+  flush(file) -> Result<None, Error> { Ok.new(None) }
+  close(file) -> Result<None, Error> { Ok.new(None) }
+  replaceAtomic(source, destination) -> Result<None, Error> { Ok.new(None) }
   quarantine(path) -> Result<None, Error> {
     _quarantined.add(path)
     return Ok.new(None)
   }
-  remove(path) -> Result<None, Error> => Ok.new(None)
-  exists(path) -> Bool => true
+  remove(path) -> Result<None, Error> { Ok.new(None) }
+  exists(path) -> Bool { true }
 
-  quarantined -> List<Any> => _quarantined
+  quarantined -> List<Any> { _quarantined }
 }
 
 const files = ScriptedFiles.new()

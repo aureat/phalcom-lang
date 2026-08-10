@@ -3,6 +3,6 @@
 // status: PASS
 // U6: invoking an empty block via `call()` returns the block's absent result,
 // which surfaces to the `None` singleton rather than the block object left in
-// slot 0. Without the fix this printed `<block>`.
+// slot 0. Without the fix this printed `<closure>`.
 
 System.print(|| { }.call())

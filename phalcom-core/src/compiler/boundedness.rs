@@ -223,7 +223,7 @@ mod tests {
             method: method.into(),
             args: vec![PackItem::Positional {
                 expr: Expr::Block(Box::new(phalcom_ast::ast::BlockExpr {
-                    params: vec![],
+                    params: phalcom_ast::ast::ClosureParameters::default(),
                     body: vec![],
                     expr_body: false,
                     range: EmptySourceRange,

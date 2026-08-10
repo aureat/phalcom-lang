@@ -9,7 +9,7 @@ class Person {
   new(name, city) { _name = name; _city = city }
   @constructor
   new(name) { _name = name; _city = "Unknown" }
-  city => _city
+  city { _city }
 }
 System.print(Person.new(name: "Ada", city: "London").city)
 System.print(Person.new(name: "Bob").city)

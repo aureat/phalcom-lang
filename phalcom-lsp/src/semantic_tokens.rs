@@ -240,7 +240,6 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::DotDotEqual
         | Token::DotDotDot
         | Token::Arrow
-        | Token::FatArrow
         | Token::Question
         | Token::At
         | Token::Underscore

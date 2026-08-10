@@ -44,7 +44,7 @@ use crate::heap::{ObjRef, Object};
 use crate::interner::Symbol;
 use crate::value::Value;
 use crate::vm::{ClassKey, VM};
-use phalcom_ast::ast::{BindingKind, Expr, MethodCallExpr, Pattern, Program, Statement};
+use phalcom_ast::ast::{BindingKind, ClosureParameters, Expr, MethodCallExpr, Pattern, Program, Statement};
 use phalcom_common::range::{EmptySourceRange, SourceRange};
 use state::FunctionState;
 use state::LoopContext;
@@ -290,14 +290,18 @@ impl<'vm> Compiler<'vm> {
         &mut self,
         statements: Vec<Statement>,
         name_sym: Symbol,
-        params: Vec<String>,
+        params: ClosureParameters,
         is_method: bool,
         is_constructor: bool,
         constructor_name: Option<String>,
     ) -> Result<ObjRef, CompilerError> {
         // Intern parameter and receiver names before pushing the function state.
-        let mut param_symbols = Vec::with_capacity(params.len());
-        for param_name in &params {
+        let mut param_names = params.fixed.clone();
+        if let Some(rest) = &params.positional_rest {
+            param_names.push(rest.clone());
+        }
+        let mut param_symbols = Vec::with_capacity(param_names.len());
+        for param_name in &param_names {
             param_symbols.push(self.vm.interner.intern(param_name));
         }
         let self_sym = self.vm.interner.intern("self");
@@ -369,7 +373,8 @@ impl<'vm> Compiler<'vm> {
             max_slots,
             num_upvalues: func.upvalues.len(),
             upvalues: func.upvalues,
-            arity: params.len(),
+            arity: params.fixed.len(),
+            parameter_shape: crate::parameters::ParameterShape::closure(params.fixed.len(), params.positional_rest.is_some()),
             name_sym,
             local_names: func.local_names,
         });
@@ -417,6 +422,7 @@ impl<'vm> Compiler<'vm> {
             num_upvalues: 0,
             upvalues: Vec::new(),
             arity: 0,
+            parameter_shape: crate::parameters::ParameterShape::closure(0, false),
             name_sym,
             local_names: func.local_names,
         });

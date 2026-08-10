@@ -22,10 +22,10 @@ class Statistics {
   }
 
   // Compatibility getters for the temporary adapter and reporter.
-  valid -> Int => _validExamples
-  discarded -> Int => _discardedExamples
-  shrinks -> Int => _successfulShrinks
-  replayed -> Int => _replayedExamples
+  valid -> Int { _validExamples }
+  discarded -> Int { _discardedExamples }
+  shrinks -> Int { _successfulShrinks }
+  replayed -> Int { _replayedExamples }
 
   eventCounts -> Map<Symbol, Int> {
     return _StatisticsCopies.map(_events)
@@ -42,16 +42,16 @@ class _StatisticsCollector {
     _events = Map.new()
   }
 
-  validExamples -> Int => _validExamples
-  discardedExamples -> Int => _discardedExamples
-  successfulShrinks -> Int => _successfulShrinks
-  replayedExamples -> Int => _replayedExamples
-  events -> Map<Symbol, Int> => _StatisticsCopies.map(_events)
+  validExamples -> Int { _validExamples }
+  discardedExamples -> Int { _discardedExamples }
+  successfulShrinks -> Int { _successfulShrinks }
+  replayedExamples -> Int { _replayedExamples }
+  events -> Map<Symbol, Int> { _StatisticsCopies.map(_events) }
 
-  valid -> Int => _validExamples
-  discarded -> Int => _discardedExamples
-  shrinks -> Int => _successfulShrinks
-  replayed -> Int => _replayedExamples
+  valid -> Int { _validExamples }
+  discarded -> Int { _discardedExamples }
+  shrinks -> Int { _successfulShrinks }
+  replayed -> Int { _replayedExamples }
 
   recordPass(context: Any) -> None {
     _validExamples++

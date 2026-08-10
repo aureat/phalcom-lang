@@ -7,7 +7,7 @@
 class Animal {
   @constructor
   new(_ name) { _name = name }
-  name => _name
+  name { _name }
 }
 class Dog is Animal {
   @constructor
@@ -15,7 +15,7 @@ class Dog is Animal {
     super.new(name)
     _breed = breed
   }
-  breed => _breed
+  breed { _breed }
 }
 const d = Dog.new("Rex", "Collie")
 System.print(d.name)
