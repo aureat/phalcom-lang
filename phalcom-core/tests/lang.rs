@@ -110,7 +110,7 @@ fn blocks() {
 
 #[test]
 fn functions() {
-    // U-CORE-3: `Object#methodFor(_)` / `Method#invokeOn(_,_)` / `Method#bind(_)`
+    // U-CORE-3: `Object#methodFor(_)` / `Method#invokeOn(_,***)` / `Method#bind(_)`
     // / `Method#selector` / `Method#holder` — the Method reflection surface,
     // exercised over already-supported syntax (`Symbol.new(_)`,
     // `List.new().add(_)`). The remaining pending fixtures below are gated on

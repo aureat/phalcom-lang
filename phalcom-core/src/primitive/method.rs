@@ -5,14 +5,15 @@
 //! `Function` descendant and does not answer raw `call` while unbound.
 //! This module adds the reflection surface that closes the gap: reifying
 //! ([`crate::primitive::object::object_method_for`]), applying a reified
-//! method to an explicit receiver ([`method_invoke_on`]), closing one over a
+//! method to an explicit receiver ([`method_invoke_on_shape`]), closing one over a
 //! receiver ([`method_bind`]), and reading its selector/holder
 //! ([`method_selector`]/[`method_holder`]) — U-CORE-3,
 //! [ADR-0028](../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md).
 
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{BoundMethodObject, Object};
-use crate::primitive::{expect_list, expect_method};
+use crate::method::{ArgumentView, CallOutcome, SignatureKind, decode_selector, encode_selector};
+use crate::primitive::expect_method;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -21,43 +22,139 @@ pub fn method_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
     Err(RuntimeError::NotAllowed("Method instances cannot be created directly".to_string()).into())
 }
 
-/// Signature: `Method::invokeOn(_,_)` — applies the reified method (`self`,
-/// the receiver of this send) to the explicit receiver `args[0]` and the
-/// argument [`List`](crate::heap::ListObject) `args[1]`, unpacked as
-/// positional arguments (functions.md §3, U-CORE-3).
-///
-/// Runs the **exact** reified method against `args[0]` via
-/// [`VM::invoke_method_object`] — no re-dispatch by selector, unlike
-/// `perform`. The caller is responsible for receiver compatibility (extracting
-/// `Number#+` and applying it to a `String` misbehaves inside `number_add`;
-/// this is deliberate and documented, not a defect).
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if `self` is not a `Method` or `args[1]` is
-/// not a `List`, [`RuntimeError::Arity`] on an argument-count mismatch
-/// (R-INV-3.4), or any error raised while running the method body.
-pub fn method_invoke_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let method_id = expect_method(vm, receiver)?;
-    let target = args[0];
-    let list_id = expect_list(vm, &args[1])?;
-    let elements: Vec<Value> = vm.heap.list(list_id).elements().to_vec();
-    vm.invoke_method_object(method_id, target, &elements)
+/// Shape-aware `Method#invokeOn(_,***)` gateway. The explicit receiver is
+/// validated before the stack window is rewritten; the remaining values then
+/// enter the exact reified method directly, without selector redispatch or a
+/// packed `List` intermediary.
+pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let method_id = expect_method(vm, &receiver)?;
+    let target = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "invokeOn",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+    let (caller, internal) = args.caller_authority();
+    vm.authorize_method_access_as(method_id, caller, internal)?;
+    if !vm.method_receiver_compatible(method_id, target) {
+        return Err(RuntimeError::NotAllowed(format!(
+            "receiver of `{}` is incompatible with reified method",
+            vm.resolve_symbol(vm.heap.method(method_id).signature.selector)
+        ))
+        .into());
+    }
+
+    let labels = args.labels(vm);
+    let residual_positionals = args.positional_count().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
+        signature: "invokeOn",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+    let method_selector = vm.heap.method(method_id).signature.selector;
+    let (base, expected_slots, _kind) = decode_selector(vm.resolve_symbol(method_selector));
+    let actual_selector = if vm.heap.method(method_id).signature.rest.is_some() {
+        let mut slots = Vec::with_capacity(residual_positionals + labels.len());
+        slots.extend(std::iter::repeat_n(None, residual_positionals));
+        slots.extend(labels.iter().map(|label| Some(vm.resolve_symbol(*label).to_owned())));
+        vm.get_or_intern(&encode_selector(
+            &base,
+            &slots,
+            SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                found: slots.len(),
+                limit: u8::MAX as usize,
+            })?),
+        ))
+    } else {
+        let expected_labels = expected_slots
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .map(|label| vm.interner.intern(label))
+            .collect::<Vec<_>>();
+        let expected_positionals = expected_slots.iter().filter(|slot| slot.is_none()).count();
+        if expected_positionals != residual_positionals || expected_labels != labels {
+            return Err(RuntimeError::Arity {
+                signature: "invokeOn",
+                expected: expected_positionals + expected_labels.len(),
+                found: residual_positionals + labels.len(),
+            }
+            .into());
+        }
+        method_selector
+    };
+
+    if let Some(rest) = vm.heap.method(method_id).signature.rest.as_ref()
+        && !rest.accepts(residual_positionals, &labels)
+    {
+        return Err(RuntimeError::Arity {
+            signature: "invokeOn",
+            expected: rest.fixed_positionals() as usize,
+            found: residual_positionals + labels.len(),
+        }
+        .into());
+    }
+
+    let receiver_index = args.receiver_index();
+    let residual = vm.stack[receiver_index + 2..].to_vec();
+    vm.stack[receiver_index] = target;
+    vm.stack.truncate(receiver_index + 1);
+    vm.stack.extend_from_slice(&residual);
+
+    if let Some(rest) = vm.heap.method(method_id).signature.rest.as_ref() {
+        if matches!(
+            vm.heap.method(method_id).kind,
+            crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Shape(_))
+        ) {
+            return vm.dispatch_selected_method_as(
+                &target,
+                method_id,
+                residual_positionals + labels.len(),
+                actual_selector,
+                Some((residual_positionals, labels.len())),
+                phalcom_common::range::SourceRange::default(),
+                args.caller_authority(),
+            );
+        }
+        vm.call_rest_method_as(
+            &target,
+            method_id,
+            receiver_index,
+            residual_positionals,
+            &labels,
+            phalcom_common::range::SourceRange::default(),
+            args.caller_authority(),
+        )?;
+        Ok(CallOutcome::EnteredFrame)
+    } else {
+        vm.dispatch_selected_method_as(
+            &target,
+            method_id,
+            residual_positionals + labels.len(),
+            actual_selector,
+            Some((residual_positionals, labels.len())),
+            phalcom_common::range::SourceRange::default(),
+            args.caller_authority(),
+        )
+    }
 }
 
 /// Signature: `Method::bind(_)` — closes the reified method (`self`) over
 /// `args[0]` as its receiver, returning an
 /// [`Object::BoundMethod`] whose surface
-/// class is `BoundMethod` and which responds to `call` (functions.md
-/// §3, U-CORE-3). `bound.call(a)` ≡ `method.invokeOn(recv, [a])` (R-INV-3.3):
-/// both funnel through [`VM::invoke_method_object`] via
-/// [`crate::primitive::block::block_call`]'s `BoundMethod` intercept.
+/// class is `BoundMethod` and which responds to the shared Function gateway
+/// (functions.md §3, U-CORE-3). Bound activation targets the stored method
+/// directly; it does not redispatch by selector.
 ///
 /// # Errors
 ///
 /// Returns [`RuntimeError::Type`] if `self` is not a `Method`.
 pub fn method_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let method_id = expect_method(vm, receiver)?;
+    if !vm.method_receiver_compatible(method_id, args[0]) {
+        return Err(RuntimeError::NotAllowed(format!(
+            "receiver of `{}` is incompatible with reified method",
+            vm.resolve_symbol(vm.heap.method(method_id).signature.selector)
+        ))
+        .into());
+    }
     let bound = BoundMethodObject {
         method: method_id,
         receiver: args[0],

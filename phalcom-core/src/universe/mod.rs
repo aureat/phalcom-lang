@@ -315,7 +315,7 @@ mod tests {
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             selector,
             SignatureKind::Getter,
-            MethodKind::Primitive(returns_n),
+            MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_n)),
         ))));
         install_kernel_method(&mut vm, number_class, selector, method);
 
@@ -350,7 +350,7 @@ mod tests {
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             and_selector,
             SignatureKind::Method(1),
-            MethodKind::Primitive(returns_false),
+            MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_false)),
         ))));
         install_kernel_method(&mut vm, bool_class, and_selector, method);
         assert!(!vm.universe.bool_sacred_pristine, "installing `and` (sacred) must flip the Bool guard flag");
@@ -391,7 +391,7 @@ let noneCheck = (n < 2).ifTrue(|| { (n < 4).ifTrue(|| { \"inner\" }) }).isNone
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             and_selector,
             SignatureKind::Method(1),
-            MethodKind::Primitive(returns_false),
+            MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_false)),
         ))));
         install_kernel_method(&mut vm, bool_class, and_selector, method);
         assert!(!vm.universe.bool_sacred_pristine);
@@ -429,7 +429,7 @@ let d = true.ifTrue || { }.isSome
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             while_true_selector,
             SignatureKind::Method(1),
-            MethodKind::Primitive(returns_sentinel),
+            MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(returns_sentinel)),
         ))));
         install_kernel_method(&mut vm, closure_class, while_true_selector, method);
         assert!(
@@ -480,7 +480,7 @@ let baselineNone = None.isNone
         let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
             match_selector,
             SignatureKind::Method(2),
-            MethodKind::Primitive(always_takes_none_arm),
+            MethodKind::Primitive(crate::method::PrimitiveFn::Legacy(always_takes_none_arm)),
         ))));
         // `match` is not a sacred selector — no `note_method_installed` call
         // needed, but `add_method` + the `world_version` bump alone (not

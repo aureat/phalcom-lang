@@ -3,15 +3,16 @@
 //! The `Function` root is abstract and `Block` is the concrete first-class
 //! callable object ([ADR-0006](../../docs/adr/accepted/0006-function-as-abstract-callable-root.md),
 //! [ADR-0013](../../docs/adr/accepted/0013-block-closure-upvalues.md)). These
-//! primitives expose the reflective surface (`arity`, `name`) and dispatch
-//! `call`/`call(_:…)` by pushing a fresh [`CallFrame`](crate::frame::CallFrame)
-//! for the block's closure and re-entering `VM::run_until` with the current
-//! frame count as the base, so the call returns its result without draining
-//! the caller's own frames (functions.md §1-2).
+//! primitives expose the reflective surface (`arity`, `name`) and route
+//! ordinary `call(***)`/`callWith(_)` through the VM's flat Function gateway.
+//! The legacy [`block_call`] helper still re-enters `VM::run_until` for
+//! explicitly synchronous native combinators such as `on` and `ensure`
+//! (functions.md §1-2).
 
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, FrameToken};
 use crate::heap::Object;
+use crate::method::{ArgumentView, CallOutcome};
 use crate::parameters::{ArgumentShape, RestKind};
 use crate::value::Value;
 use crate::vm::VM;
@@ -44,7 +45,7 @@ pub(crate) fn resolve_callable(vm: &VM, receiver: &Value) -> PhResult<(crate::he
             // A dedicated arm ahead of the wildcard sharpens the error over
             // the generic "expected Function, found Method" it would
             // otherwise fall through to.
-            Object::Method(_) => Err(RuntimeError::NotAllowed("unbound Method — use bind(_) or invokeOn(_,_)".to_string()).into()),
+            Object::Method(_) => Err(RuntimeError::NotAllowed("unbound Method — use bind(_) or invokeOn(_,***)".to_string()).into()),
             _ => Err(RuntimeError::Type {
                 expected: "Function",
                 found: receiver.type_name(),
@@ -126,6 +127,59 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
     Ok(vm.alloc_string_value(name))
 }
 
+/// Shape-aware `Function#call(***)` gateway. The VM has already selected the
+/// concrete `call` rest method, so this activation only unwraps the sealed
+/// callable representation and reuses the current stack window.
+pub fn block_call_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    vm.activate_function(receiver, args, phalcom_common::range::SourceRange::default())
+}
+
+/// Shape-aware `Function#callWith(_)` gateway. A complete pack is copied into
+/// the existing argument window and forwarded through the same `call` gateway
+/// as ordinary invocation. Unit represents an empty pack; Tuple is the only
+/// heap-backed complete-pack representation.
+pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let packed = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "callWith",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+    let (positionals, labeled): (Vec<Value>, Vec<(crate::interner::Symbol, Value)>) = match packed {
+        Value::Unit => (Vec::new(), Vec::new()),
+        Value::Obj(id) if matches!(vm.heap.get(id), Object::Tuple(_)) => {
+            let tuple = vm.heap.tuple(id);
+            (tuple.positionals().to_vec(), tuple.labeled_entries().collect())
+        }
+        other => {
+            return Err(RuntimeError::Type {
+                expected: "Tuple",
+                found: other.type_name(),
+            }
+            .into());
+        }
+    };
+
+    let receiver_index = args.receiver_index();
+    vm.stack.truncate(receiver_index + 1);
+    vm.stack.extend_from_slice(&positionals);
+    vm.stack.extend(labeled.iter().map(|(_, value)| *value));
+
+    let mut slots = Vec::with_capacity(positionals.len() + labeled.len());
+    slots.extend(std::iter::repeat_n(None, positionals.len()));
+    slots.extend(labeled.iter().map(|(label, _)| Some(vm.resolve_symbol(*label).to_owned())));
+    let selector_text = crate::method::encode_selector(
+        "call",
+        &slots,
+        crate::method::SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+            found: slots.len(),
+            limit: u8::MAX as usize,
+        })?),
+    );
+    let selector = vm.get_or_intern(&selector_text);
+    let shaped = args.with_selector(selector, positionals.len(), labeled.len());
+    vm.activate_function(receiver, shaped, phalcom_common::range::SourceRange::default())
+}
+
 /// Calls the callable receiver with `args`, running its closure to completion
 /// and returning its result (functions.md §1-2, `f(a, b)` desugars to
 /// `f.call(a, b)`).
@@ -135,7 +189,7 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 /// [`VM::invoke_method_object`] instead — it has no
 /// [`ClosureObject`](crate::heap::ClosureObject) to resolve (a bound
 /// *primitive* method has none at all), and this is what makes
-/// `bound.call(args) ≡ method.invokeOn(recv, args)` hold by construction
+/// `bound.call(***args) ≡ method.invokeOn(recv, ***args)` hold by construction
 /// (R-INV-3.3, U-CORE-3, [ADR-0028](../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
 ///
 /// # Errors
@@ -145,18 +199,9 @@ pub fn block_name(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
 /// [`RuntimeError`] raised while running the block body.
 pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if let Value::Obj(id) = receiver {
-        match vm.heap.get(*id) {
-            Object::BoundMethod(bound) => {
-                let (method_id, target) = (bound.method, bound.receiver);
-                return vm.invoke_method_object(method_id, target, args);
-            }
-            Object::Family(_) => {
-                let Some(selector) = vm.native_selector else {
-                    return Err(RuntimeError::Internal("Family call is missing its call selector".to_string()).into());
-                };
-                return crate::primitive::family::family_call(vm, receiver, selector, args);
-            }
-            _ => {}
+        if let Object::BoundMethod(bound) = vm.heap.get(*id) {
+            let (method_id, target) = (bound.method, bound.receiver);
+            return vm.invoke_method_object(method_id, target, args);
         }
     }
 
@@ -175,7 +220,9 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     let mut bound_args = Vec::with_capacity(shape.fixed_positionals + usize::from(shape.rest.is_some()));
     bound_args.extend_from_slice(&args[..shape.fixed_positionals]);
     if matches!(shape.rest, Some(RestKind::Positional)) {
-        bound_args.push(Value::Obj(vm.heap.alloc_list(args[shape.fixed_positionals..].to_vec())));
+        let rest = crate::product::finish_tuple(vm, args[shape.fixed_positionals..].to_vec(), Vec::new())
+            .map_err(|error| crate::product::runtime_error(vm, "Tuple label", error))?;
+        bound_args.push(rest);
     }
 
     // Slot 0 of the callee's stack window is a dummy receiver slot (blocks
@@ -212,20 +259,6 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     let result = vm.run_until(base_frames);
     vm.native_reentry_depth -= 1;
     result
-}
-
-/// Calls the callable receiver with a single packed-argument value.
-///
-/// `List` is not yet part of the kernel, so packed multi-argument calls are
-/// deferred (see `docs/forge/DEFERRED.md`); a single value is forwarded as a
-/// one-argument call, matching the common `callWith(_:)` case exercised
-/// against a non-list value.
-///
-/// # Errors
-///
-/// See [`block_call`].
-pub fn block_call_with(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    block_call(vm, receiver, args)
 }
 
 /// Signature: `Block::whileTrue(_)` — sacred loop fallback (control-flow.md

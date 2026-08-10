@@ -1,8 +1,8 @@
 //! Native primitives on `Object` — the tower root — plus the reflective-send
 //! surface and the `Message` accessors.
 //!
-//! The reflective-dispatch primitives ([`object_perform`],
-//! [`object_perform_with`], [`object_responds_to`],
+//! The reflective-dispatch primitives ([`object_perform_shape`],
+//! [`object_responds_to`],
 //! [`object_does_not_understand`]) realize messages-and-selectors.md §5 and
 //! method-lookup.md §2 over the shared [`VM::send_dynamic`] workhorse
 //! (ADR-0012). A missed send is reified as a `Message` instance whose slots
@@ -15,7 +15,7 @@ use crate::error::RuntimeError;
 use crate::expect_value;
 use crate::heap::InstanceObject;
 use crate::heap::Object;
-use crate::primitive::expect_list;
+use crate::method::{ArgumentView, CallOutcome};
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -115,44 +115,34 @@ pub fn object_neq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     Ok(Value::Bool(!receiver.value_eq(&args[0], &vm.heap)))
 }
 
-/// Signature: `Object::perform(_)` — reflectively send `args[0]` (a selector
-/// [`Symbol`](crate::interner::Symbol)) to the receiver with no arguments
-/// (messages-and-selectors.md §5).
-///
-/// The zero-argument case of [`object_perform_with`]; a thin wrapper over
-/// [`VM::send_dynamic`], so it dispatches through the exact same lookup + dNU
-/// path as a static send (reflective parity). A miss re-enters
-/// `doesNotUnderstand(_:)` exactly once.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Symbol`, or propagates
-/// any error raised by the dispatched method.
-pub fn object_perform(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let selector = expect_value!(&args[0], Symbol);
-    vm.send_dynamic(*receiver, *selector, &[])
-}
-
-/// Signature: `Object::perform(_,_)` — reflectively send selector `args[0]`
-/// (a [`Symbol`](crate::interner::Symbol)) to the receiver with the arguments
-/// packed in the [`List`](crate::heap::ListObject) `args[1]`
-/// (messages-and-selectors.md §5).
-///
-/// Because the selector is a *complete* selector symbol (built via
-/// `Symbol.new("+(_)")` until the `#`-literal lexer syntax lands in U-LEX),
-/// its encoded arity must match the number of elements in the list; a mismatch
-/// surfaces through ordinary lookup/arity checking. Delegates to
-/// [`VM::send_dynamic`].
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Symbol` or `args[1]`
-/// is not a `List`, or propagates any error raised by the dispatched method.
-pub fn object_perform_with(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let selector = *expect_value!(&args[0], Symbol);
-    let list_id = expect_list(vm, &args[1])?;
-    let elements: Vec<Value> = vm.heap.list(list_id).elements().to_vec();
-    vm.send_dynamic(*receiver, selector, &elements)
+/// Shape-aware `Object#perform(_,***)` gateway. The first positional value is
+/// the complete selector; all remaining values retain their canonical
+/// positional/labeled lanes and enter ordinary dispatch directly.
+pub fn object_perform_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let selector_value = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "perform",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+    let selector = *expect_value!(&selector_value, Symbol);
+    let positional_count = args.positional_count().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
+        signature: "perform",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+    let labels = args.labels(vm);
+    let receiver_index = args.receiver_index();
+    let residual = vm.stack[receiver_index + 2..].to_vec();
+    vm.stack.truncate(receiver_index + 1);
+    vm.stack.extend_from_slice(&residual);
+    vm.dispatch_shape_at_as(
+        receiver_index,
+        selector,
+        positional_count,
+        &labels,
+        phalcom_common::range::SourceRange::default(),
+        args.caller_authority(),
+    )
 }
 
 /// Signature: `Object::respondsTo(_)` — returns whether the receiver's class
@@ -206,7 +196,7 @@ pub fn object_method_for(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
 /// This is the terminal fallback the [`Bytecode::Invoke`](crate::bytecode::Bytecode::Invoke)
 /// miss path forwards to. Because it is an ordinary (overridable) method on
 /// `Object`, a subclass — e.g. a proxy — can override it to intercept and
-/// re-forward sends via [`object_perform`] *before* this default ever runs.
+/// re-forward sends via [`object_perform_shape`] *before* this default ever runs.
 /// `args[0]` is the reified `Message` ([`VM::new_message`]); its selector slot
 /// supplies the diagnostic text. The built `MessageNotUnderstood` instance has
 /// two slots: slot 0 the rendered message string (`Error#message`), slot 1 the

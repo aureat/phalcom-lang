@@ -6,11 +6,154 @@ use crate::vm::VM;
 
 use super::{Signature, SignatureKind};
 
-/// A native Rust method implementation for a core-library method.
+/// Result of entering a callable from a native method.
 ///
-/// Receives the VM (hence the [`Heap`](crate::heap::Heap)), the receiver, and the
-/// arguments, and returns a result [`Value`].
-pub type PrimitiveFn = fn(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value>;
+/// `Returned` completes the current native activation. `EnteredFrame` means the
+/// native method rewrote the current stack window and pushed a bytecode frame;
+/// the dispatch loop must continue with that frame instead of recursively
+/// calling `run_until`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CallOutcome {
+    /// Native work completed immediately.
+    Returned(Value),
+    /// A bytecode activation was pushed onto the current VM loop.
+    EnteredFrame,
+}
+
+/// The old native ABI, retained only as a mechanical migration adapter.
+pub type LegacyPrimitiveFn = fn(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value>;
+
+/// A compact, non-borrowing view of the current argument window.
+///
+/// The view owns no values and never borrows `VM::stack`. `selector` is present
+/// for shape-aware rest calls; exact legacy calls use the positional fast path.
+/// Accessors borrow the VM only for the duration of each read, so a primitive
+/// can safely keep the descriptor while mutating the VM.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArgumentView {
+    receiver_index: usize,
+    positional_count: usize,
+    labeled_count: usize,
+    selector: Option<Symbol>,
+    caller_access: Option<ClassId>,
+    caller_internal: bool,
+}
+
+impl ArgumentView {
+    /// Describes a positional-only window at `receiver_index`.
+    pub(crate) fn positional_window(receiver_index: usize, positional_count: usize, caller_access: Option<ClassId>, caller_internal: bool) -> Self {
+        Self {
+            receiver_index,
+            positional_count,
+            labeled_count: 0,
+            selector: None,
+            caller_access,
+            caller_internal,
+        }
+    }
+
+    /// Describes a selector-shaped window without borrowing selector metadata.
+    pub(crate) fn shaped(
+        receiver_index: usize,
+        positional_count: usize,
+        labeled_count: usize,
+        selector: Symbol,
+        caller_access: Option<ClassId>,
+        caller_internal: bool,
+    ) -> Self {
+        Self {
+            receiver_index,
+            positional_count,
+            labeled_count,
+            selector: Some(selector),
+            caller_access,
+            caller_internal,
+        }
+    }
+
+    /// Number of positional values in the argument lane.
+    pub fn positional_count(self) -> usize {
+        self.positional_count
+    }
+
+    /// Number of labeled values in the argument lane.
+    pub fn labeled_count(self) -> usize {
+        self.labeled_count
+    }
+
+    /// Returns positional value `index`.
+    pub fn positional(self, vm: &VM, index: usize) -> Option<Value> {
+        (index < self.positional_count).then(|| vm.stack[self.receiver_index + 1 + index])
+    }
+
+    /// Returns labeled value `index` in label order.
+    pub fn labeled_value(self, vm: &VM, index: usize) -> Option<Value> {
+        (index < self.labeled_count).then(|| vm.stack[self.receiver_index + 1 + self.positional_count + index])
+    }
+
+    /// Returns the label for labeled lane position `index`.
+    pub fn label(self, vm: &mut VM, index: usize) -> Option<Symbol> {
+        let selector = self.selector?;
+        if index >= self.labeled_count {
+            return None;
+        }
+        let (_, slots, _) = super::decode_selector(vm.resolve_symbol(selector));
+        slots.into_iter().filter_map(|slot| slot.map(|label| vm.interner.intern(&label))).nth(index)
+    }
+
+    /// Returns selector labels in call order.
+    pub fn labels(self, vm: &mut VM) -> Vec<Symbol> {
+        (0..self.labeled_count).filter_map(|index| self.label(vm, index)).collect()
+    }
+
+    /// Returns the source stack receiver index for VM activation helpers.
+    pub(crate) fn receiver_index(self) -> usize {
+        self.receiver_index
+    }
+
+    /// Returns the caller authority captured before entering the native gateway.
+    pub(crate) fn caller_authority(self) -> (Option<ClassId>, bool) {
+        (self.caller_access, self.caller_internal)
+    }
+
+    /// Returns the incoming concrete selector when this is a shaped view.
+    pub(crate) fn selector(self) -> Option<Symbol> {
+        self.selector
+    }
+
+    /// Returns a view with a newly encoded call-site selector and shape.
+    pub(crate) fn with_selector(self, selector: Symbol, positional_count: usize, labeled_count: usize) -> Self {
+        Self {
+            positional_count,
+            labeled_count,
+            selector: Some(selector),
+            ..self
+        }
+    }
+}
+
+/// Native Rust method implementation.
+///
+/// `Shape` is the ratified ABI. `Legacy` is an internal compatibility arm used
+/// to migrate the existing fixed-arity primitive corpus mechanically; the VM
+/// feeds it an on-stack small buffer and allocates only for unusually wide
+/// legacy calls.
+#[derive(Clone, Copy)]
+pub enum PrimitiveFn {
+    /// Shape-aware primitive ABI.
+    Shape(fn(&mut VM, Value, ArgumentView) -> PhResult<CallOutcome>),
+    /// Temporary adapter for existing fixed-arity primitives.
+    Legacy(LegacyPrimitiveFn),
+}
+
+impl std::fmt::Debug for PrimitiveFn {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Shape(_) => "PrimitiveFn::Shape",
+            Self::Legacy(_) => "PrimitiveFn::Legacy",
+        })
+    }
+}
 
 /// The implementation strategy behind a [`MethodObject`].
 #[derive(Debug, Clone, Copy)]
@@ -84,8 +227,20 @@ impl MethodObject {
     }
 
     /// Builds a native primitive method held by `holder`.
-    pub fn new_primitive(selector: Symbol, sig_kind: SignatureKind, primitive: PrimitiveFn, holder: ClassId) -> Self {
-        Self::new(selector, sig_kind, MethodKind::Primitive(primitive), Some(holder))
+    pub fn new_primitive(selector: Symbol, sig_kind: SignatureKind, primitive: LegacyPrimitiveFn, holder: ClassId) -> Self {
+        Self::new(selector, sig_kind, MethodKind::Primitive(PrimitiveFn::Legacy(primitive)), Some(holder))
+    }
+
+    /// Builds a method using the shape-aware native ABI and explicit signature.
+    pub fn new_shape_primitive(
+        selector: Symbol,
+        signature: Signature,
+        primitive: fn(&mut VM, Value, ArgumentView) -> PhResult<CallOutcome>,
+        holder: ClassId,
+    ) -> Self {
+        let mut method = Self::new(selector, signature.kind, MethodKind::Primitive(PrimitiveFn::Shape(primitive)), Some(holder));
+        method.signature = signature;
+        method
     }
 
     /// Returns this method's selector [`Symbol`].

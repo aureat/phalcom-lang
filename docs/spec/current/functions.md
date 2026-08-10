@@ -2,22 +2,22 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
-This part specifies the **callable tower**: the three classes that share one
-runtime representation — a compiled code unit plus a captured environment.
+This part specifies the **callable tower**: concrete callable values share
+one shape-aware activation gateway over compiled code and captured state.
 
 ```
 Object
- └─ Function   (A)   the call protocol; a code unit + an environment
-     ├─ Block  (U)   anonymous lexical closure; non-local return
-     └─ Method (U)   selector-bound, holder-bound, receiver-taking
+ ├─ Function   (A)   the common shape-aware call protocol
+ │   ├─ Closure      anonymous lexical closure; non-local return
+ │   ├─ BoundMethod  exact method plus stored receiver
+ │   └─ Family       open or pinned selector reference
+ └─ Method          reified selector/holder; applied through invokeOn
 ```
 
-> **Amendment to [Blocks](blocks.md).** Blocks §7 said "a method *is* a `Block`."
-> The precise relationship is: `Block` and `Method` are **siblings** under the
-> abstract `Function`, sharing the closure representation. A `Method` is not a
-> `Block` — it carries a selector, a holder, and a receiver a `Block` does not.
-> What they share is `Function`'s protocol and the VM's `ClosureObject`. See
-> [ADR 0006](../../adr/0006-function-as-abstract-callable-root.md).
+> **Amendment to [Blocks](blocks.md).** Blocks are first-class Function
+> values. Reified `Method` values remain selector-bound reflection objects;
+> `Method#invokeOn(_,***)` validates and applies them through the same flat
+> activation machinery, without making bare `Method` a raw-call receiver.
 
 ---
 
@@ -53,16 +53,15 @@ A `Function` is, conceptually, a pair:
 - an **environment** — the enclosing `Module` plus captured `upvalues`.
 
 `Function` stores no fields of its own; the pair is materialized by its concrete
-subclasses. It exists to give `Block` and `Method` a shared protocol and a single
-place to hang function-application sugar.
+subclasses. It gives concrete callable values one place to hang function-application
+sugar and keeps activation independent of each concrete representation.
 
 ### Interface
 
 | Signature | Meaning |
 |-----------|---------|
-| `call` | apply with no arguments |
-| `call(_)`, `call(_,_)`, … | apply with N positional arguments |
-| `callWith(_)` | apply with a `List` of arguments (reflective, variable arity) |
+| `call(***)` | apply one complete positional/labeled argument shape |
+| `callWith(_)` | apply a complete `Unit` or `Tuple` argument pack |
 | `arity` | declared parameter count (`Int`) |
 | `name` | a display `Symbol`/`String` for diagnostics |
 
@@ -70,7 +69,8 @@ place to hang function-application sugar.
 This is the *only* place a value other than through a selector is "called": the
 parser lowers postfix `(...)` on any expression to a `call(_,…)` send.
 
-**Arity mismatch** raises `ArgumentError` ([Object Model §4](object-model.md)).
+The concrete callable validates its accepted shape. **Arity mismatch** raises
+`ArgumentError` ([Object Model §4](object-model.md)).
 
 ### Implementation
 
@@ -85,9 +85,10 @@ struct ClosureObject { callable: Callable, module: PhRef<ModuleObject>,
                        upvalues: Vec<Value> }
 ```
 
-`Function` is **not** a Rust variant of its own; it is the abstract class the two
-concrete `Value` representations answer to. `x.class` for any callable returns
-`Block` or `Method`, never `Function`. `isA(Function)` is true for both.
+`Function` is **not** a Rust variant of its own; it is the abstract class that
+Closure, BoundMethod, and Family values answer to. `x.class` returns the
+concrete callable class, never `Function`; a bare `Method` is reified metadata
+and uses `invokeOn(_,***)` for application.
 
 ---
 
@@ -112,7 +113,7 @@ Everything on `Function`, plus:
 
 | Signature | Meaning |
 |-----------|---------|
-| `call` … | apply; binds parameters, runs the body, yields the last expression |
+| `call(***)` | apply accepted shape; binds parameters and runs the body |
 | `isClosed` | whether the home frame is still live (see below) |
 
 - **Non-local `return`** unwinds to the home frame ([Blocks §5](blocks.md)).
@@ -122,19 +123,10 @@ Everything on `Function`, plus:
 
 ### Implementation
 
-Currently unrealized: closures exist in the VM only *inside* a `MethodObject`
-(`MethodKind::Closure`), and the `Value` enum has no `Block` arm
-([`value.rs`](../../../phalcom-core/src/value.rs)). Making blocks first-class
-requires:
-
-1. a `Value::Block(PhRef<BlockObject>)` arm, where `BlockObject` wraps a
-   `ClosureObject` plus the home-frame token;
-2. `Closure`, `GetUpvalue`, and `SetUpvalue` opcodes
-   ([`bytecode.rs`](../../../phalcom-core/src/bytecode.rs) has none yet) so the
-   compiler can capture upvalues at the block-literal site;
-3. a `Return` variant that carries the home-frame token and unwinds the
-   `CallFrame` stack to it, comparing the generation counter and raising
-   `DeadFrameError` on mismatch.
+Implemented by the VM's `Object::Block`/`Object::Closure` representations,
+home-frame tokens, and the flat Function gateway. Positional rest binds to
+a `Tuple`, or `Unit` when empty; labeled arguments are rejected by Closure
+activation. Escaping-block dead-frame fencing remains enforced.
 
 Blocks and methods run through the **same** `CallFrame`
 ([`frame.rs`](../../../phalcom-core/src/frame.rs)) and the same VM value stack; a
@@ -162,7 +154,7 @@ A method **receives `self`** in slot 0 of its frame; it is bound to a class but
 
 ### Interface
 
-Everything on `Function`, plus reflection and receiver-binding:
+Reflection and receiver-binding:
 
 | Signature | Meaning |
 |-----------|---------|
@@ -171,37 +163,30 @@ Everything on `Function`, plus reflection and receiver-binding:
 | `holder` | the defining `Class` (or its metaclass, for class-side methods) |
 | `isPrimitive` | native vs. Phalcom-compiled |
 | `bind(_)` | close over a receiver → a zero-`self` `Function` (a `Block`) |
-| `invokeOn(_,_)` | apply to an explicit receiver + argument `List` |
+| `invokeOn(_,***)` | apply to an explicit receiver plus a complete argument shape |
 
 `recv.methodFor(_)` ([Object Model §8](object-model.md), via `perform`) reifies
 the method a selector resolves to, so methods can be extracted and passed as
-values: `let g = 3.methodFor(#+(_))`; `g.invokeOn(3, [4])` → `7`. (`#+(_)` is a
+values: `let g = 3.methodFor(#+(_))`; `g.invokeOn(3, ***(4,))` → `7`. (`#+(_)` is a
 bare selector-symbol literal, comma form — see
 [Selectors, Symbols & References §2](selectors.md#2-symbol-literals-).)
 
 **Relationship to `::` families.** `Method.bind`/`methodFor`/`invokeOn` above and
 [Selectors, Symbols & References §3](selectors.md#3-method-references-) (`::`
-`Family`) are two routes to a bound-callable value that currently coexist rather
-than unify: `bind`/`invokeOn` operate on an already-reified `Method`, while `::`
-builds an `Open`/`Pinned` `Family` directly from a receiver + name/selector. Open
-question: should `Family` and `Method.bind` collapse into one representation, or
-is the split (reified-method reflection vs. lightweight callable reference)
-intentional? Not yet decided.
+`Family`) produce different concrete Function values, but both enter through
+Function's shape-aware `call(***)` gateway. Family routing is explicit runtime
+activation; it does not rely on an intentional `doesNotUnderstand(_)` miss.
 
-`m.bind(receiver)` is how "a method becomes a callable value": it yields a
-`Function` that supplies `receiver` as `self`, reusing the `Block` machinery. This
-is the precise meaning of the old "a method bound to a class."
+`m.bind(receiver)` produces a `BoundMethod` Function value that supplies
+`receiver` as `self`. Its `call(***)` activation and `invokeOn(_,***)` use
+the same exact method target; neither path redispatches by selector.
 
 ### Implementation
 
-Already present as `MethodObject` / `MethodKind`
-([`method.rs`](../../../phalcom-core/src/method.rs)) and surfaced as
-`Value::Method(PhRef<MethodObject>)`. What the spec adds beyond today's tree:
-
-- `bind(_)` (needs first-class `Block`, §2);
-- `invokeOn(_,_)` and `methodFor(_)` reflective entry points;
-- class-side methods (`@class`, `@constructor`) already register on the metaclass
-  ([Classes §1](classes.md)); no change to storage, only reflection surface.
+Implemented by `MethodObject`, `BoundMethodObject`, and the shape-aware
+`invokeOn(_,***)`/`bind(_)` gateways. Class-side methods continue to register
+on the receiver metaclass; receiver compatibility and visibility are checked
+before stack mutation or BoundMethod allocation.
 
 ---
 

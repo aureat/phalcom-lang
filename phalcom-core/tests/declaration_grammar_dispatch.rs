@@ -66,7 +66,7 @@ class C {
 }
 
 #[test]
-fn native_rest_method_is_rejected_during_installation() {
+fn native_rest_method_installs_during_method_definition() {
     let mut vm = VM::new();
     let main = vm.create_module("main", "native_rest_installation");
     let closure = vm
@@ -89,15 +89,11 @@ fn native_rest_method_is_rejected_during_installation() {
         .expect("compiled class should carry target method constant");
     {
         let method = vm.heap.method_mut(method_id);
-        method.kind = MethodKind::Primitive(native_stub);
+        method.kind = MethodKind::Primitive(phalcom_core::method::PrimitiveFn::Legacy(native_stub));
         method.signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Positional { param_index: 0 }));
     }
 
-    let error = vm.run_cell(main, closure).expect_err("native rest ABI must be rejected before installation");
-    assert!(
-        error.to_string().contains("native method `target()` cannot carry a rest signature in F.3"),
-        "unexpected error: {error}"
-    );
+    vm.run_cell(main, closure).expect("shape-compatible native rest methods should install");
 }
 
 #[test]
@@ -260,7 +256,7 @@ fn test_dispatch_setter_name_put_value() {
     let src = r#"
 class Box {
   _val
-  val => _val
+  val { _val }
   val=(put v) {
     _val = v
   }
@@ -304,24 +300,24 @@ let r = s[100]
 #[test]
 fn private_member_allows_defining_class_and_rejects_external_call() {
     let ok = eval_source(
-        "class Vault {\n  @private\n  secret => 42\n  reveal => secret\n}\nlet result = Vault.new().reveal\n",
+        "class Vault {\n  @private\n  secret { 42 }\n  reveal { secret }\n}\nlet result = Vault.new().reveal\n",
         "result",
     );
     assert_eq!(ok.unwrap(), Value::Int(42));
 
-    let err = run_source("class Vault {\n  @private\n  secret => 42\n}\nVault.new().secret\n").unwrap_err();
+    let err = run_source("class Vault {\n  @private\n  secret { 42 }\n}\nVault.new().secret\n").unwrap_err();
     assert!(err.contains("member.private_access"), "unexpected error: {err}");
 }
 
 #[test]
 fn protected_member_allows_subclass_and_rejects_external_call() {
     let ok = eval_source(
-        "class Base {\n  @protected\n  secret => 42\n}\nclass Child is Base {\n  reveal => secret\n}\nlet result = Child.new().reveal\n",
+        "class Base {\n  @protected\n  secret { 42 }\n}\nclass Child is Base {\n  reveal { secret }\n}\nlet result = Child.new().reveal\n",
         "result",
     );
     assert_eq!(ok.unwrap(), Value::Int(42));
 
-    let err = run_source("class Base {\n  @protected\n  secret => 42\n}\nBase.new().secret\n").unwrap_err();
+    let err = run_source("class Base {\n  @protected\n  secret { 42 }\n}\nBase.new().secret\n").unwrap_err();
     assert!(err.contains("member.protected_access"), "unexpected error: {err}");
 }
 
@@ -333,7 +329,7 @@ fn private_subscript_enforces_visibility() {
 
 #[test]
 fn reflection_cannot_bypass_private_visibility() {
-    let err = run_source("class Vault {\n  @private\n  secret => 42\n}\nVault.new().perform(#secret)\n").unwrap_err();
+    let err = run_source("class Vault {\n  @private\n  secret { 42 }\n}\nVault.new().perform(#secret)\n").unwrap_err();
     assert!(err.contains("member.private_access"), "unexpected error: {err}");
 }
 

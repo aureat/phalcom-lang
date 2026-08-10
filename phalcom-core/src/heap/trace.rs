@@ -85,6 +85,9 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             for method in class.methods.values() {
                 push(*method);
             }
+            for method in class.rest_methods.values() {
+                push(*method);
+            }
             for slot in class.static_slots.iter() {
                 trace_value(*slot, push);
             }

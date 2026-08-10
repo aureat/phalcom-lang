@@ -52,7 +52,7 @@ pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 /// reading slot 0 directly) so a future computed override on a user `Error`
 /// subclass is honored; re-entering the VM here is safe (the stack is healthy
 /// — this runs inside a live primitive, before any unwind), the same pattern
-/// [`object_perform`](crate::primitive::object::object_perform) uses.
+/// [`object_perform_shape`](crate::primitive::object::object_perform_shape) uses.
 ///
 /// # Errors
 ///

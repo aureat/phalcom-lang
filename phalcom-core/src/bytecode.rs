@@ -358,9 +358,9 @@ pub enum Bytecode {
     /// `doesNotUnderstand(_:)` differs from `Object`'s default handler). On
     /// success, allocates an [`Object::Family`](crate::heap::Object::Family)
     /// bound to the receiver and pushes it. The call site never re-derives
-    /// this at call time — an Open family's *selector* is built later, at the
-    /// call (`primitive::family::family_does_not_understand`), but the
-    /// *check* happens exactly once, here.
+    /// this at call time — an Open family's *selector* is built later by the
+    /// shape-aware `Function#call(***)` gateway, but the *check* happens
+    /// exactly once, here.
     ///
     /// [ADR-0047]: ../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md
     MakeFamily(u16),

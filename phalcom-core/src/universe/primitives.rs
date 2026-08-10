@@ -1,7 +1,6 @@
-use crate::method::MethodObject;
-use crate::method::SignatureKind;
+use crate::method::{MethodObject, RestLayout, RestMode, SignatureKind};
 use crate::primitive::attribute::{attribute_attach, attribute_attributes, attribute_freeze};
-use crate::primitive::block::{block_arity, block_call, block_call_with, block_ensure, block_name, block_on, block_while_true};
+use crate::primitive::block::{block_arity, block_call_shape, block_call_with_shape, block_ensure, block_name, block_on, block_while_true};
 use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
 use crate::primitive::bytes::{
     bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill, bytes_raw_set, bytes_raw_size,
@@ -9,7 +8,6 @@ use crate::primitive::bytes::{
 };
 use crate::primitive::class::{behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
-use crate::primitive::family::family_does_not_understand;
 use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_try, fiber_yield};
 use crate::primitive::float::{
     float_abs, float_ceil, float_class_new, float_floor, float_is_finite, float_is_infinite, float_is_integer, float_is_nan, float_rounded, float_sign,
@@ -20,7 +18,7 @@ use crate::primitive::int::{
 };
 use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_raw_push, list_raw_set, list_replace_slice, list_to_string};
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
-use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on, method_selector};
+use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
 use crate::primitive::nil::{option_match, some_new};
 use crate::primitive::number::{
@@ -29,11 +27,12 @@ use crate::primitive::number::{
 };
 use crate::primitive::object::{
     message_args, message_labels, message_name, message_selector, object_class, object_does_not_understand, object_eq, object_hash, object_invariant_enter,
-    object_invariant_exit, object_method_for, object_name, object_neq, object_perform, object_perform_with, object_responds_to, object_set_class,
-    object_to_string,
+    object_invariant_exit, object_method_for, object_name, object_neq, object_perform_shape, object_responds_to, object_set_class, object_to_string,
 };
 use crate::primitive::primitive;
 use crate::primitive::primitive_internal;
+use crate::primitive::primitive_rest;
+use crate::primitive::primitive_shape;
 use crate::primitive::primitive_static;
 use crate::primitive::primitive_static_internal;
 use crate::primitive::range::{range_raw_lower, range_raw_upper, range_raw_upper_inclusive};
@@ -69,8 +68,16 @@ impl Universe {
         // terminal miss fallback the `Bytecode::Invoke` handler forwards to;
         // it is an ordinary overridable method so a proxy subclass can
         // intercept. `respondsTo(_:)` is a pure probe that never triggers dNU.
-        primitive!(vm, object_cls, "perform", SignatureKind::Method(1), object_perform);
-        primitive!(vm, object_cls, "perform", SignatureKind::Method(2), object_perform_with);
+        primitive_rest!(
+            vm,
+            object_cls,
+            "perform",
+            "perform(_,***)",
+            SignatureKind::Method(1),
+            1,
+            RestLayout::new(1, Box::new([]), RestMode::Complete { param_index: 0 }),
+            object_perform_shape
+        );
         primitive!(vm, object_cls, "respondsTo", SignatureKind::Method(1), object_responds_to);
         primitive!(vm, object_cls, "doesNotUnderstand", SignatureKind::Method(1), object_does_not_understand);
         // `Method` reflection surface (U-CORE-3, ADR-0028): reifies the
@@ -254,33 +261,38 @@ impl Universe {
         // `Method` reflection surface (U-CORE-3, ADR-0028): applying a
         // reified method to an explicit receiver, closing it over one, and
         // reading its selector/holder. See `primitive::method` module doc.
-        primitive!(vm, method_cls, "invokeOn", SignatureKind::Method(2), method_invoke_on);
+        primitive_rest!(
+            vm,
+            method_cls,
+            "invokeOn",
+            "invokeOn(_,***)",
+            SignatureKind::Method(1),
+            1,
+            RestLayout::new(1, Box::new([]), RestMode::Complete { param_index: 1 }),
+            method_invoke_on_shape
+        );
         primitive!(vm, method_cls, "bind", SignatureKind::Method(1), method_bind);
         primitive!(vm, method_cls, "selector", SignatureKind::Getter, method_selector);
         primitive!(vm, method_cls, "holder", SignatureKind::Getter, method_holder);
 
-        // `call` is registered per arity (functions.md §1: `call`, `call(_:)`,
-        // `call(_:_:)`, …) since Phalcom dispatch keys on the arity-encoded
-        // selector, not a single rest entry point. `callWith(_:)` takes one
-        // packed argument (deferred to a plain forward until `List` lands, see
-        // `docs/forge/DEFERRED.md`).
-        const MAX_CALL_ARITY: u8 = 4;
-
         let function_cls = vm.universe.classes.function_class;
         primitive!(vm, function_cls, "arity", SignatureKind::Getter, block_arity);
         primitive!(vm, function_cls, "name", SignatureKind::Getter, block_name);
-        primitive!(vm, function_cls, "callWith", SignatureKind::Method(1), block_call_with);
-        for n in 0..=MAX_CALL_ARITY {
-            primitive!(vm, function_cls, "call", SignatureKind::Method(n), block_call);
-        }
+        primitive_shape!(vm, function_cls, "callWith", SignatureKind::Method(1), block_call_with_shape);
+        primitive_rest!(
+            vm,
+            function_cls,
+            "call",
+            "call(***)",
+            SignatureKind::Method(0),
+            0,
+            RestLayout::new(0, Box::new([]), RestMode::Complete { param_index: 0 }),
+            block_call_shape
+        );
 
         let block_cls = vm.universe.classes.closure_class;
         primitive!(vm, block_cls, "arity", SignatureKind::Getter, block_arity);
         primitive!(vm, block_cls, "name", SignatureKind::Getter, block_name);
-        primitive!(vm, block_cls, "callWith", SignatureKind::Method(1), block_call_with);
-        for n in 0..=MAX_CALL_ARITY {
-            primitive!(vm, block_cls, "call", SignatureKind::Method(n), block_call);
-        }
         // Sacred loop fallback (control-flow.md §1/§3); `repeat(_)` is
         // deferred — its receiver/semantics aren't pinned by the spec
         // (U5-plan.md BD-U5-2) — see `docs/forge/DEFERRED.md`.
@@ -322,15 +334,6 @@ impl Universe {
         // falling through to `MessageNotUnderstood` — see
         // `primitive::module::module_does_not_understand`.
         primitive!(vm, module_cls, "doesNotUnderstand", SignatureKind::Method(1), module_does_not_understand);
-
-        // `Family` call router (selectors.md §3, U16-Open, ADR-0047): every
-        // bare-call selector shape (`call()`, `call(_:)`, `call(to:duration:)`,
-        // …) misses `Family`'s own (empty) method table and lands here, which
-        // rebuilds the real selector from the family's base name + the missed
-        // call's decoded labels and re-dispatches — see
-        // `primitive::family::family_does_not_understand`.
-        let family_cls = vm.universe.classes.family_class;
-        primitive!(vm, family_cls, "doesNotUnderstand", SignatureKind::Method(1), family_does_not_understand);
 
         // Kernel `List` (ADR-0019/0020): internal floor primitives use `_$`.
         // `_$length`/`_$at`/`_$set`/`_$push` are wrapped by `.ph`'s

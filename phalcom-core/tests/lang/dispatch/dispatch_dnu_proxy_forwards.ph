@@ -17,7 +17,7 @@ class Proxy {
     _target = t
   }
   doesNotUnderstand(_ msg) {
-    return _target.perform(msg.selector, msg.args)
+    return _target.perform(msg.selector, ***msg.args)
   }
 }
 const p = Proxy.new(Target.new())

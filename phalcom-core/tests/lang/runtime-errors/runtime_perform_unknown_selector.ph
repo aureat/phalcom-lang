@@ -5,4 +5,4 @@
 // ONCE and surfaces `MessageNotUnderstood` — it must not loop. (If it looped,
 // this case would hang rather than exit with the diagnostic.)
 
-System.print(3.perform(Symbol.new("bogus"), []))
+System.print(3.perform(Symbol.new("bogus"), ***()))

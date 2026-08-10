@@ -154,9 +154,6 @@ pub enum RuntimeError {
     #[error("Invalid argument: {0}")]
     ArgumentError(String),
 
-    #[error("native method `{selector}` cannot carry a rest signature in F.3")]
-    NativeRestMethodUnsupported { selector: String },
-
     #[error("class `{class}` already has rest method `{first_selector}` for family `{base_family}`; cannot install `{second_selector}`")]
     DuplicateRestMethodFamily {
         class: String,

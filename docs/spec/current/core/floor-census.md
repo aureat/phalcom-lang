@@ -26,15 +26,17 @@ language is *self-hosting above a small, fixed native boundary*
 ### 1.1 Two counts that differ
 
 - **Installed bindings** — one per `(class, selector)` pair added by
-  `install_primitives`. `call` is bound at five arities on two classes, so it
-  contributes ten bindings.
-- **Distinct native functions** — the Rust `fn` behind the bindings.
-  `call`/`arity`/`name`/`callWith` are shared between `Function` and `Block`.
+  `install_primitives`. The shared `call(***)` gateway is bound once on
+  `Function` and inherited by concrete callable classes.
+- **Distinct native functions** — the Rust `fn` behind the install-time
+  bindings. This is not a stable census metric: several selectors share one
+  function, and bootstrap may replace an installed native entry with a
+  Phalcom implementation before the live floor is measured.
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **159** |
-| Distinct native Rust functions | **131** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **149** |
+| Distinct native Rust functions | not separately maintained |
 | Classes carrying floor primitives | **23** (of 29 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
@@ -104,7 +106,7 @@ row, not the count, is what makes the freeze real.
 > **U-CORE-3 amendment ([ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md)).**
 > The `Method` reflection surface admits **+5** bindings (80 → 85) and **+5**
 > distinct fns (64 → 69): `Object#methodFor(_)` (`object_method_for`),
-> `Method#invokeOn(_,_)` (`method_invoke_on`), `Method#bind(_)`
+> `Method#invokeOn(_,***)` (`method_invoke_on_shape`), `Method#bind(_)`
 > (`method_bind`), `Method#selector` (`method_selector`), `Method#holder`
 > (`method_holder`). Floor-carrying classes stay at **16** — `Object` and
 > `Method` already carried primitives. Also adds one **heap representation**,
@@ -207,18 +209,10 @@ row, not the count, is what makes the freeze real.
 > not a bound selector; it adds nothing to either count. R-INV-0.1 audits this
 > set.
 >
-> **U16-Open amendment ([ADR-0047](../../../adr/0047-amend-floor-admit-family-call-router.md)).**
-> The `::` method-reference call router admits **+1** binding (112 → 113) and
-> **+1** distinct fn (97 → 98): `Family#doesNotUnderstand(_)`
-> (`family_does_not_understand`, `primitive/family.rs`) — overrides `Object`'s
-> default miss handler so a `Family` value's own bare-call sends (`call()`,
-> `call(_:)`, `call(to:duration:)`, …), which `Family` never defines directly,
-> reach a handler that rebuilds the real selector from the family's base name
-> plus the missed call's decoded labels and re-dispatches it as an ordinary
-> send (selectors.md §3 "a family call *is* a send"). This is the *only*
-> selector `Family` carries — there is no reflective surface in this unit (Q14
-> ruling, `open-questions.md`). Floor-carrying classes go **21 → 22** (`Family`
-> is new). R-INV-0.1 audits this set.
+> **U16-Open amendment — superseded by Task Set 3.** The former Family call
+> router was removed. Family calls now enter through the shared Function
+> gateway, which rebuilds and dispatches the selected shape directly; no
+> Family floor binding remains.
 >
 > ---
 >
@@ -380,8 +374,7 @@ Ordered as `install_primitives` installs them
 | `toString` | instance | `object_to_string` | default display, `"<ClassName>"` for an instance / own name for a class receiver (ADR-0015; U-CORE-4 re-home off `object_name`, fixes DEFERRED F4) |
 | `==(_)` | instance | `object_eq` | ordinary send, **not** an opcode (control-flow.md §1) |
 | `!=(_)` | instance | `object_neq` | ordinary send |
-| `perform(_)` | instance | `object_perform` | reflective send (U8, messages-and-selectors.md §5) |
-| `perform(_, _)` | instance | `object_perform_with` | reflective send with a packed args argument |
+| `perform(_,***)` | instance | `object_perform_shape` | reflective send preserving complete argument shape (U8, messages-and-selectors.md §5) |
 | `respondsTo(_)` | instance | `object_responds_to` | pure probe; never triggers dNU |
 | `doesNotUnderstand(_)` | instance | `object_does_not_understand` | terminal miss handler; overridable so a proxy subclass can intercept |
 | `hash` | instance | `object_hash` | identity digest of the heap handle (ADR-0023); immediates override below |
@@ -480,12 +473,10 @@ value, not a constructed instance. The combinator suite (`map`, `flatMap`,
 
 ### 2.9 `Method`
 
-`Method < Function` as of U-CORE-1 (decisions.md §4.1 / ADR-0006 re-parent,
-applied in `create_core_classes` with the load-order fix). It inherits the
-call protocol (`arity`/`name`/`call…`/`callWith`) from `Function` — but does
-not answer raw `call` while unbound (`resolve_callable` rejects a bare
-`Object::Method` receiver with a dedicated error) — and carries its own
-static `new(_)` plus the U-CORE-3 reflection surface
+`Method` remains a reified dispatch object directly under `Object`; it does not
+inherit the Function call protocol and does not answer raw `call` while
+unbound. It carries its own `arity`/`name` reflection accessors, static
+`new(_)`, and the U-CORE-3 reflection surface
 ([ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md)):
 applying a reified method to an explicit receiver (`invokeOn`), closing one
 over a receiver (`bind`), and reading its selector/holder.
@@ -493,7 +484,7 @@ over a receiver (`bind`), and reading its selector/holder.
 | Selector | Side | Native fn |
 |---|---|---|
 | `new(_)` | static | `method_class_new` |
-| `invokeOn(_,_)` | instance | `method_invoke_on` |
+| `invokeOn(_,***)` | instance | `method_invoke_on_shape` |
 | `bind(_)` | instance | `method_bind` |
 | `selector` | instance | `method_selector` |
 | `holder` | instance | `method_holder` |
@@ -502,33 +493,33 @@ over a receiver (`bind`), and reading its selector/holder.
 selector resolves to on a receiver, as a bare `Method` value; the `None`
 singleton on a miss. `bind(_)` returns a new heap representation,
 `Object::BoundMethod` (method handle + receiver, no closure or frame token —
-it must work for primitive methods too), whose surface class is `Block`; see
-§2.10 for how it answers the call protocol.
+it must work for primitive methods too), whose surface class is `BoundMethod`;
+as a `Function` descendant it answers the shared call protocol in §2.10.
 
 ### 2.10 `Function` / `Block` — callables ([ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md), [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md))
 
-`Block` is a subclass of `Function`; the shared callable protocol is installed
-on **both** rows (identical native fns) so a `Function` value responds even
-without a `Block`.
+`Closure` (the runtime value for a Block literal), `BoundMethod`, and `Family`
+are subclasses of `Function`; the shared callable protocol is installed on
+`Function`, so every concrete Function reaches one gateway. `Closure` retains
+only its block-specific control-flow primitives.
 
 | Selector | Side | Class(es) | Native fn | Sacred? |
 |---|---|---|---|---|
 | `arity` | instance | Function, Block | `block_arity` | |
 | `name` | instance | Function, Block | `block_name` | |
-| `callWith(_)` | instance | Function, Block | `block_call_with` | one packed argument |
-| `call()` … `call(_,_,_,_)` | instance | Function, Block | `block_call` | arities **0–4** (`MAX_CALL_ARITY = 4`); dispatch keys on arity, so one entry per arity (functions.md §1) |
+| `callWith(_)` | instance | Function | `block_call_with_shape` | complete `Unit`/`Tuple` argument pack |
+| `call(***)` | instance | Function | `block_call_shape` | one complete positional/labeled argument shape |
 | `whileTrue(_)` | instance | Block | `block_while_true` | ★ sacred loop fallback |
 | `on(_,_)` | instance | Block | `block_on` | U-ERR, ADR-0038 — typed catch (`try`/`on`/`catch` desugar target) |
 | `ensure(_)` | instance | Block | `block_ensure` | U-ERR, ADR-0038 — always-runs cleanup (`try`/`ensure` desugar target) |
 
-**U-CORE-3 behavior completions (zero new bindings, ADR-0028).**
-`block_arity`/`block_name` learn an `Object::Method` receiver (reading
+**U-CORE-3 behavior completions.** `block_arity`/`block_name` learn an
+`Object::Method` receiver (reading
 `signature.positional_arity`/`signature.selector` directly) and an
-`Object::BoundMethod` receiver (delegating to the wrapped method); `block_call`
-intercepts `Object::BoundMethod` **before** `resolve_callable` and funnels it
-through `VM::invoke_method_object` — the same engine `Method#invokeOn(_,_)`
-uses — so `bound.call(args) ≡ method.invokeOn(recv, args)` holds by
-construction (R-INV-3.3).
+`Object::BoundMethod` receiver (delegating to the wrapped method). The common
+Function gateway activates Closure, BoundMethod, and Family values directly,
+so `bound.call(***args) ≡ method.invokeOn(recv, ***args)` holds by construction
+(R-INV-3.3).
 
 ### 2.11 `System` — I/O floor
 
@@ -663,21 +654,13 @@ inherits `message`/`raise` from `Error`.
 | `message` | instance | `error_message` | reads `_message` (slot 0); mirrors `Message`'s native accessors |
 | `raise()` | instance | `error_raise` | initiates the unified unwind's `Raise` payload (`RuntimeError::Raise`); `throw expr === expr.raise()` (ADR-0031 §1); installed on `Error` only (R-INV-6.3) |
 
-### 2.16 `Family` — `::` method-reference call router ([selectors.md §3](../selectors.md#3-method-references-), U16-Open, [ADR-0047](../../../adr/0047-amend-floor-admit-family-call-router.md))
+### 2.16 `Family` — `::` method-reference Function value ([selectors.md §3](../selectors.md#3-method-references-))
 
-A native `Object::Family` heap variant (no `Value::Family` arm — reached
-through `Value::Obj` exactly as `Object::List` is), sitting directly under
-`Object`. `obj::name`/`Type::name` build one bound to the receiver; `Family`
-itself carries **no other selector** — every call shape misses its table by
-construction and lands on the router below, which rebuilds the real selector
-(`family`'s base name + the missed call's decoded labels) and re-dispatches
-as an ordinary send. Open form only — the Pinned `recv::#sel(...)` form is
-deferred to **U-LEX-HASH** (`#`-symbol-literal lexing); there is no
-reflective surface (Q14 ruling, `open-questions.md`).
-
-| Selector | Side | Native fn | Notes |
-|---|---|---|---|
-| `doesNotUnderstand(_)` | instance | `family_does_not_understand` | overrides `Object`'s default miss handler; the uniform call router |
+`Family` remains a native heap representation under `Object`. `obj::name`
+and `Type::name` create open or pinned references; their calls enter through
+the shared Function gateway, which reconstructs the selected shape and
+dispatches it directly. Family installs no `doesNotUnderstand(_)` router
+primitive.
 
 ### 2.17 `Fiber` — cooperative coroutine (U-FIBER / U-FIBER-REFLECT, [ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md))
 
@@ -815,7 +798,7 @@ the interned `_:` form: `and(_:)`, `ifTrue(_:ifFalse:)`, `whileTrue(_:)`).
 | `List` `map`/`reduce`/`filter`/literal syntax | derivable over floor | U-STD |
 | `Option` combinators (`map`/`flatMap`/`orElse`/`ifSome`/`unwrapOr`) | derivable over `match` | U-STD / U-CORE-2 |
 | `Block#repeat(_)` | receiver/semantics unpinned | deferred (U5-plan BD-U5-2) |
-| `callWith(_)` packed-arg semantics | bound, but forwards plainly | firms up once `List` is the pack type |
+| `callWith(_)` packed-arg semantics | bound; accepts complete `Unit`/`Tuple` packs | `block_call_with_shape` |
 | surface `Nil` / `nil` | **forbidden** — Invariant 4 ([ADR-0010](../../../adr/0010-tagged-value-enum.md), [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)) | never |
 
 The `Nil` class row exists in the tower (to back `Value::Nil.class`) but is
@@ -862,7 +845,7 @@ file — it is the `universe/` directory (`mod.rs`, `core_classes.rs`, `primitiv
 | §2.6 encoded `ifTrue(_:ifFalse:)` | hand-rolled `encode_selector` + `new_primitive` (not the `primitive!` macro) | L158–165 |
 | §2.8 encoded `match(some:none:)` | hand-rolled, installed on `Option` so `Some`/`None` inherit | L191–198 |
 | §2.8 `Some` field layout | `universe/core_classes.rs` (stamped alongside `Message`) | — |
-| §2.10 `MAX_CALL_ARITY` | `const MAX_CALL_ARITY: u8 = 4` → `call` at 5 arities × 2 classes = 10 bindings | L215 |
+| §2.10 Function gateway | `call(***)` and `callWith(_)` are shape-aware gateways; no finite arity ceiling | L215+ |
 | §2.14 `Message` | `universe/primitives.rs` (`message_cls` block) | L81–85 |
 | §3 `List` protocol | `core.ph::class List` | L779+ |
 | §5 sacred set | `universe/mod.rs::{BOOL,BLOCK}_SACRED_SELECTORS` (6 + 1 = 7) | L100–106 |

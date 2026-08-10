@@ -166,8 +166,7 @@ pub struct FamilyObject {
     /// from — `true` for an Open reference (`obj::name`, U16-Open), `false`
     /// for a Pinned reference (`obj::#name(...)`, U16-Pinned). Drives both
     /// [`crate::vm::VM`]'s reference-time empty-family check and
-    /// [`crate::primitive::family::family_does_not_understand`]'s call
-    /// router branch.
+    /// shape-aware `Function#call(***)` gateway branch.
     pub open: bool,
 }
 

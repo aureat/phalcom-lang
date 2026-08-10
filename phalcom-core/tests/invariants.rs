@@ -31,7 +31,7 @@ use phalcom_core::interner::Symbol;
 use phalcom_core::primitive::block::{block_arity, block_call, block_name};
 use phalcom_core::primitive::boolean::bool_hash;
 use phalcom_core::primitive::class::{behavior_methods, behavior_name};
-use phalcom_core::primitive::method::{method_bind, method_invoke_on};
+use phalcom_core::primitive::method::method_bind;
 use phalcom_core::primitive::nil::some_new;
 use phalcom_core::primitive::number::number_hash;
 use phalcom_core::primitive::object::{object_hash, object_method_for};
@@ -426,10 +426,9 @@ fn core_classes_have_correct_metaclass_and_superclass() {
     //   - X.class.class == Metaclass (every metaclass is instance-of Metaclass)
     //   - X.superclass == Object
     //   - X.class.superclass == Object.class (the parallel rule)
-    // `Method` is deliberately excluded: it re-parents under `Function`
-    // (ADR-0006 / decisions.md §4.1) — its shape is asserted by
-    // `method_reparents_under_function_with_call_protocol` and the general
-    // `parallel_rule_holds_for_all_ordinary_rows`.
+    // `Method` is deliberately excluded: it remains a reified dispatch object
+    // directly under `Object`; its shape is asserted by the dedicated Method
+    // reflection invariant and the general parallel-rule check.
     let vm = VM::new();
     let metaclass = vm.universe.classes.metaclass_class;
     let object_class = vm.universe.classes.object_class;
@@ -632,7 +631,7 @@ fn floor_census_matches_installed_bindings() {
     // ADR-0023 kernel-reflection amendment (`hash` ×5 + `Behavior#name` +
     // `Behavior#methods`); the second +5 (marked NEW_METHOD_REFLECTION) is
     // ADR-0028's `Method` reflection surface (U-CORE-3):
-    // `Object#methodFor(_)`, `Method#invokeOn(_,_)`, `Method#bind(_)`,
+    // `Object#methodFor(_)`, `Method#invokeOn(_,***)`, `Method#bind(_)`,
     // `Method#selector`, `Method#holder`; the third +1 (marked
     // NEW_VALUE_TOSTRING) is U-CORE-4's amendment (`Number#toString`); the
     // fourth +2 (marked NEW_ERROR) is U-CORE-6's amendment (ADR-0037):
@@ -656,12 +655,9 @@ fn floor_census_matches_installed_bindings() {
     // = +1 (111 -> 112) — member access (`math.pi`, `math.distance(1, 2)`) as
     // an ordinary send over the module's own globals table; the only way to
     // reach it from a message send (floor-census.md §2.12).
-    // U16-Open (ADR-0047, this unit's own amendment): `Family#doesNotUnderstand(_)`
-    // = +1 (112 -> 113) — the uniform `::` call router (selectors.md §3):
-    // every bare-call selector shape misses `Family`'s otherwise-empty
-    // method table and lands here, which rebuilds the real selector from the
-    // family's base name + the missed call's labels and re-dispatches as an
-    // ordinary send (floor-census.md §2.16).
+    // U16-Open's former Family dNU router (ADR-0047) is superseded by the
+    // shared shape-aware Function gateway. Family now contributes no native
+    // floor binding; its call activation rebuilds the target selector directly.
     // U-SCHED (floor-census.md amendment, ADR-0030 §Consequences): the
     // native ready-queue scheduler seam admits **+2** bindings (113 -> 115):
     // `System::schedule(_)` (`system_schedule`) and `System::nextScheduled`
@@ -736,8 +732,7 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "hash"), // NEW (ADR-0023)
         (c.object_class, false, "==(_)"),
         (c.object_class, false, "!=(_)"),
-        (c.object_class, false, "perform(_)"),
-        (c.object_class, false, "perform(_,_)"),
+        (c.object_class, false, "perform(_,***)"),
         (c.object_class, false, "respondsTo(_)"),
         (c.object_class, false, "doesNotUnderstand(_)"),
         (c.object_class, false, "methodFor(_)"),         // NEW (ADR-0028)
@@ -801,28 +796,18 @@ fn floor_census_matches_installed_bindings() {
         (c.method_class, true, "new(_)"),
         (c.method_class, false, "arity"),
         (c.method_class, false, "name"),
-        (c.method_class, false, "invokeOn(_,_)"), // NEW (ADR-0028)
-        (c.method_class, false, "bind(_)"),       // NEW (ADR-0028)
-        (c.method_class, false, "selector"),      // NEW (ADR-0028)
-        (c.method_class, false, "holder"),        // NEW (ADR-0028)
+        (c.method_class, false, "invokeOn(_,***)"), // callable rest gateway
+        (c.method_class, false, "bind(_)"),         // NEW (ADR-0028)
+        (c.method_class, false, "selector"),        // NEW (ADR-0028)
+        (c.method_class, false, "holder"),          // NEW (ADR-0028)
         // §2.10 Function
         (c.function_class, false, "arity"),
         (c.function_class, false, "name"),
         (c.function_class, false, "callWith(_)"),
-        (c.function_class, false, "call()"),
-        (c.function_class, false, "call(_)"),
-        (c.function_class, false, "call(_,_)"),
-        (c.function_class, false, "call(_,_,_)"),
-        (c.function_class, false, "call(_,_,_,_)"),
+        (c.function_class, false, "call(***)"),
         // §2.10 Closure
         (c.closure_class, false, "arity"),
         (c.closure_class, false, "name"),
-        (c.closure_class, false, "callWith(_)"),
-        (c.closure_class, false, "call()"),
-        (c.closure_class, false, "call(_)"),
-        (c.closure_class, false, "call(_,_)"),
-        (c.closure_class, false, "call(_,_,_)"),
-        (c.closure_class, false, "call(_,_,_,_)"),
         (c.closure_class, false, "whileTrue(_)"),
         // U-ERR error-handling catch protocol (ADR-0038) — NEW_ON_ENSURE
         (c.closure_class, false, "on(_,_)"),
@@ -900,8 +885,6 @@ fn floor_census_matches_installed_bindings() {
         (c.range_class, false, "_$lower"),
         (c.range_class, false, "_$upper"),
         (c.range_class, false, "_$upperInclusive"),
-        // Family (U16-Open, ADR-0047) — NEW_FAMILY
-        (c.family_class, false, "doesNotUnderstand(_)"),
         // Fiber (ADR-0030) — NEW_FIBER. Installed since the fiber work landed;
         // audited only from 2026-07-15 (DEFERRED CB-5). `universe/primitives.rs`
         // L362-374, `primitive/fiber.rs`.
@@ -956,6 +939,17 @@ fn floor_census_matches_installed_bindings() {
             for sym in primitives {
                 live.insert((owner, sym));
             }
+            let rest_primitives: Vec<Symbol> = vm
+                .heap
+                .class(owner)
+                .rest_methods
+                .values()
+                .filter(|method_id| vm.heap.method(**method_id).is_primitive())
+                .map(|method_id| vm.heap.method(*method_id).signature.selector)
+                .collect();
+            for sym in rest_primitives {
+                live.insert((owner, sym));
+            }
         }
     }
 
@@ -979,10 +973,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        161,
-        "census must enumerate exactly 161 bindings after the callable surface amendment"
+        149,
+        "census must enumerate exactly 149 bindings after the callable surface amendment"
     );
-    assert_eq!(live.len(), 161, "the live floor must be exactly 161 bindings");
+    assert_eq!(live.len(), 149, "the live floor must be exactly 149 bindings");
 }
 
 #[test]
@@ -1224,9 +1218,8 @@ fn reflection_is_side_effect_free() {
 fn callable_tower_and_reflection_protocol() {
     // R-INV-3.1 — `Closure`/`BoundMethod`/`Family` are `Function` descendants
     // (the boot half rides `Universe::verify_invariants`); a reified `Method`
-    // `Method#bind(_)` produces both respond to `arity`/`name` via the
-    // `Function` call-protocol primitives learning the two new receiver
-    // shapes.
+    // and its bound counterpart both expose `arity`/`name` through the
+    // reflection primitives' receiver-shape handling.
     let mut vm = VM::new();
     let closure_class = vm.universe.classes.closure_class;
     let function_class = vm.universe.classes.function_class;
@@ -1334,15 +1327,17 @@ fn invoke_on_and_bind_call_are_equivalent() {
     let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
 
     let arg = vm.alloc_string_value("World".to_string());
-    let args_list = Value::Obj(vm.heap.alloc_list(vec![arg]));
-
-    let via_invoke_on = method_invoke_on(&mut vm, &method_value, &[g, args_list]).expect("invokeOn should succeed");
+    let method_id = match method_value {
+        Value::Obj(id) => id,
+        other => panic!("methodFor should return Method, got {other:?}"),
+    };
+    let via_invoke_on = vm.invoke_method_object(method_id, g, &[arg]).expect("synchronous host invoke should succeed");
     let bound = method_bind(&mut vm, &method_value, &[g]).expect("bind should succeed");
     let via_bind_call = block_call(&mut vm, &bound, &[arg]).expect("bound.call should succeed");
 
     assert!(
         via_invoke_on.value_eq(&via_bind_call, &vm.heap),
-        "invokeOn(recv, args) and bind(recv).call(args) should produce equal results"
+        "invokeOn(recv, ***args) and bind(recv).call(***args) should produce equal results"
     );
 }
 
@@ -1361,8 +1356,11 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
     let selector_sym = vm.get_or_intern("greet(_)");
     let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
 
-    let empty_args = Value::Obj(vm.heap.alloc_list(vec![]));
-    let result = method_invoke_on(&mut vm, &method_value, &[g, empty_args]);
+    let method_id = match method_value {
+        Value::Obj(id) => id,
+        other => panic!("methodFor should return Method, got {other:?}"),
+    };
+    let result = vm.invoke_method_object(method_id, g, &[]);
     assert!(
         matches!(result, Err(PhError::Runtime(RuntimeError::Arity { .. }))),
         "invokeOn with the wrong argument count should raise RuntimeError::Arity, got {result:?}"
@@ -1374,6 +1372,24 @@ fn invoke_on_and_bind_call_reject_arity_mismatch() {
         matches!(bound_result, Err(PhError::Runtime(RuntimeError::Arity { .. }))),
         "bound.call with the wrong argument count should raise RuntimeError::Arity, got {bound_result:?}"
     );
+}
+
+#[test]
+fn bind_rejects_incompatible_receiver_before_allocation() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "bind_rejects_incompatible_receiver_before_allocation");
+    vm.interpret_source(module, "class Greeter { greet(_ name) { name } }\nlet g = Greeter.new()\n")
+        .expect("class + instance should run");
+    let g = vm.heap.module(module).get(vm.interner.intern("g")).expect("`g` global should exist");
+    let selector = vm.get_or_intern("greet(_)");
+    let method = object_method_for(&mut vm, &g, &[Value::Symbol(selector)]).expect("methodFor should return Greeter#greet(_)");
+    let before = vm.heap.live_count();
+    let result = method_bind(&mut vm, &method, &[Value::Int(3)]);
+    assert!(
+        matches!(result, Err(PhError::Runtime(RuntimeError::NotAllowed(ref message))) if message.contains("incompatible")),
+        "incompatible bind should be rejected, got {result:?}"
+    );
+    assert_eq!(vm.heap.live_count(), before, "rejected bind must not allocate BoundMethod");
 }
 
 fn value_type_sweep(vm: &mut VM) -> Vec<(&'static str, Value)> {

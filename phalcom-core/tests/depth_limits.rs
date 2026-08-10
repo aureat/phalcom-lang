@@ -42,11 +42,10 @@ fn ph_call_depth_is_bounded() {
 
 #[test]
 fn native_reentry_is_bounded() {
-    // A separate counter, and it must be the one that trips here. `perform` routes
-    // through `send_dynamic`, which drives the dispatch loop recursively on the
-    // *Rust* stack — overflowing that aborts the process rather than unwinding, so
-    // this ceiling is two orders of magnitude tighter and must fire first.
-    let err = run("class P {\n@constructor\nnew() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n").expect_err("unbounded native re-entrancy must fail");
+    // `whileTrue` is a native combinator whose block invocation uses the
+    // synchronous host helper. Nesting that combinator from its own block
+    // must trip the native re-entry ceiling, not the ordinary frame ceiling.
+    let err = run("let loop = || { loop.whileTrue(loop) }\nloop.whileTrue(loop)\n").expect_err("unbounded native re-entrancy must fail");
     assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
 }
 
@@ -86,15 +85,10 @@ fn depth_error_is_an_ordinary_catchable_raise() {
 
 #[test]
 fn traceback_survives_a_frame_that_executed_nothing() {
-    // Regression guard. `runtime_error` reads `chunk.span_at(frame.ip - 1)`
-    // (`chunk.spans[frame.ip - 1]` before U-TRACE T1 centralized the clamp),
-    // which underflows for a frame whose `ip` is still 0. That was unreachable
-    // while tracebacks were built after the frames had been discarded; reporting
-    // before the unwind (PDR-0008 §2) makes it reachable, and a depth-limit raise
-    // hits it immediately — it panicked with "attempt to subtract with overflow"
-    // before `saturating_sub`. A panic reachable from ordinary source is a
-    // robustness bug.
-    let err = run("class P {\n@constructor\nnew() {}\n  go { return self.perform(#go) }\n}\nP.new().go\n").expect_err("must raise");
+    // Regression guard for the traceback walk at native re-entry depth.
+    // The nested combinator path reaches the error while a fresh frame still
+    // has `ip == 0`; reporting must not underflow while naming its span.
+    let err = run("let loop = || { loop.whileTrue(loop) }\nloop.whileTrue(loop)\n").expect_err("must raise");
     // Reaching this line at all means the traceback walk did not panic.
     assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
 }

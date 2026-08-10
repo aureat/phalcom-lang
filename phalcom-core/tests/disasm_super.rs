@@ -33,12 +33,12 @@ fn super_send_emits_supersend_not_invoke() {
 class Animal {
   @constructor
   new() { }
-  speak => \"generic\"
+  speak { \"generic\" }
 }
 class Dog is Animal {
   @constructor
   new() { }
-  speak => super.speak
+  speak { super.speak }
 }
 ";
     let mut vm = VM::new();

@@ -7,7 +7,7 @@
 
 mod object;
 
-pub use object::{MethodKind, MethodObject, PrimitiveFn};
+pub use object::{ArgumentView, CallOutcome, LegacyPrimitiveFn, MethodKind, MethodObject, PrimitiveFn};
 
 use crate::interner::Symbol;
 

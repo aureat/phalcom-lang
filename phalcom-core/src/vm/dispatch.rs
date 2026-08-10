@@ -143,7 +143,7 @@ impl VM {
                 .then(|| self.interner.intern(&name))
                 .and_then(|base| self.lookup_rest_method(receiver.class(self), base, positional_count, &labels));
             if let Some(method) = rest {
-                self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, source_range)
+                self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector, source_range)
             } else {
                 self.forward_does_not_understand(receiver_idx, selector, source_range)
             }
@@ -180,7 +180,8 @@ impl VM {
     /// Rewrites an accepted incoming pack into declaration-local slots before
     /// entering the closure frame. The raw pack never becomes visible to user
     /// bytecode.
-    pub(crate) fn call_rest_method(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn call_rest_method_as(
         &mut self,
         receiver: &Value,
         method: crate::heap::ObjRef,
@@ -188,6 +189,7 @@ impl VM {
         positional_count: usize,
         labels: &[Symbol],
         source_range: SourceRange,
+        caller_authority: (Option<crate::heap::ClassId>, bool),
     ) -> PhResult<()> {
         let layout = self.heap.method(method).signature.rest.clone().expect("rest lookup only returns rest methods");
         let total = self.stack.len() - receiver_idx - 1;
@@ -251,13 +253,71 @@ impl VM {
             }
         }
         let local_arity = self.stack.len() - receiver_idx - 1;
-        self.call_method(receiver, method, local_arity, source_range)
+        let selector = self.heap.method(method).signature.selector;
+        self.call_method_with_selector_as(receiver, method, local_arity, selector, None, source_range, caller_authority)
+    }
+
+    /// Enters a rest-family method with the incoming shape intact for native
+    /// implementations, or materializes declaration-local Tuple/Unit captures
+    /// for bytecode methods.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn activate_rest_method(
+        &mut self,
+        receiver: &Value,
+        method: crate::heap::ObjRef,
+        receiver_idx: usize,
+        positional_count: usize,
+        labels: &[Symbol],
+        selector: Symbol,
+        source_range: SourceRange,
+    ) -> PhResult<()> {
+        let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
+        self.activate_rest_method_as(
+            receiver,
+            method,
+            receiver_idx,
+            positional_count,
+            labels,
+            selector,
+            source_range,
+            caller_authority,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn activate_rest_method_as(
+        &mut self,
+        receiver: &Value,
+        method: crate::heap::ObjRef,
+        receiver_idx: usize,
+        positional_count: usize,
+        labels: &[Symbol],
+        selector: Symbol,
+        source_range: SourceRange,
+        caller_authority: (Option<crate::heap::ClassId>, bool),
+    ) -> PhResult<()> {
+        let total = self.stack.len() - receiver_idx - 1;
+        if matches!(
+            self.heap.method(method).kind,
+            crate::method::MethodKind::Primitive(crate::method::PrimitiveFn::Shape(_))
+        ) {
+            return self.call_method_with_selector_as(
+                receiver,
+                method,
+                total,
+                selector,
+                Some((positional_count, labels.len())),
+                source_range,
+                caller_authority,
+            );
+        }
+        self.call_rest_method_as(receiver, method, receiver_idx, positional_count, labels, source_range, caller_authority)
     }
 
     /// Validates all rest-specific installation invariants before mutating
-    /// method tables. Compiler-produced methods are closures; this guard keeps
-    /// reflection/native construction from introducing an ABI the VM cannot
-    /// execute and prevents a second rest pattern in one class family.
+    /// method tables. Both bytecode and shape-aware native methods may occupy
+    /// a rest family; the ABI choice is carried by `MethodKind`, not rejected
+    /// at installation time.
     fn validate_method_installation(
         &mut self,
         target_class: crate::heap::ClassId,
@@ -265,13 +325,7 @@ impl VM {
         method_id: ObjRef,
     ) -> Result<Option<Symbol>, RuntimeError> {
         let method = self.heap.method(method_id);
-        let has_rest = method.signature.rest.is_some();
-        if has_rest && method.is_primitive() {
-            return Err(RuntimeError::NativeRestMethodUnsupported {
-                selector: self.resolve_symbol(selector).to_owned(),
-            });
-        }
-        if !has_rest {
+        if method.signature.rest.is_none() {
             return Ok(None);
         }
 
@@ -895,6 +949,8 @@ impl VM {
         let receiver_idx = self.stack.len() - 1 - arity;
         let receiver = self.stack[receiver_idx];
         let receiver_class = receiver.class(self);
+        let selector_val = callable.chunk.constants[selector_idx as usize];
+        let selector_sym = selector_val.as_symbol().unwrap();
 
         // Cache probe. `chunk` is a shared borrow; the `Cell` is what lets us
         // write back through it (U-IC §2.1). `span_at(cache_ip)` rides along in
@@ -910,11 +966,22 @@ impl VM {
         };
 
         if let Some(method) = cached {
-            self.call_method(&receiver, method, arity, source_range)?;
+            if self.heap.method(method).signature.rest.is_some() {
+                let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
+                let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
+                let labels = slots
+                    .iter()
+                    .filter_map(|slot| slot.as_ref())
+                    .map(|label| self.interner.intern(label))
+                    .collect::<Vec<_>>();
+                if !matches!(kind, SignatureKind::Method(_)) {
+                    return self.forward_does_not_understand(receiver_idx, selector_sym, source_range);
+                }
+                self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
+            } else {
+                self.call_method(&receiver, method, arity, source_range)?;
+            }
         } else {
-            let selector_val = callable.chunk.constants[selector_idx as usize];
-            let selector_sym = selector_val.as_symbol().unwrap();
-
             if let Some(method) = receiver.lookup_method(self, selector_sym) {
                 // Refill. Both `receiver_class` and `world_version` are read
                 // AFTER the lookup on purpose — see U-IC §2.3 hazard 2.
@@ -937,7 +1004,13 @@ impl VM {
                     .then(|| self.interner.intern(&name))
                     .and_then(|base| self.lookup_rest_method(receiver_class, base, positional_count, &labels));
                 if let Some(method) = rest {
-                    self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, source_range)?;
+                    let entry = crate::chunk::InlineCache {
+                        class: receiver_class,
+                        method,
+                        version: self.world_version,
+                    };
+                    callable.chunk.caches[cache_ip].set(Some(entry));
+                    self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
                 } else {
                     self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
                 }
@@ -1425,7 +1498,7 @@ impl VM {
                             .then(|| self.interner.intern(&name))
                             .and_then(|base| parent.and_then(|class| self.lookup_rest_method(class, base, positional_count, &labels)));
                         if let Some(method) = rest {
-                            self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, source_range)?;
+                            self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
                         } else {
                             self.forward_does_not_understand(receiver_idx, selector_sym, source_range)?;
                         }
@@ -1989,7 +2062,7 @@ impl VM {
                             .then(|| self.interner.intern(&name))
                             .and_then(|base| parent.and_then(|class| self.lookup_rest_method(class, base, positional_count, &labels)));
                         if let Some(method) = rest {
-                            self.call_rest_method(&receiver, method, receiver_idx, positional_count, &labels, range)?;
+                            self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector, range)?;
                         } else {
                             self.forward_does_not_understand(receiver_idx, selector, range)?;
                         }

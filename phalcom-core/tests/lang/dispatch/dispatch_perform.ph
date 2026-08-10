@@ -2,4 +2,4 @@
 // spec: method-lookup.md; messages-and-selectors.md; selectors.md
 // status: PASS
 
-System.print(3.perform(#+, [4]))
+System.print(3.perform(#+, ***(4,)))

@@ -1,7 +1,7 @@
 // area: reflection
 // spec: messages-and-selectors.md §5; ADR-0012
 // status: PASS
-// `perform(selector, args)` reflectively dispatches a USER-DEFINED
+// `perform(selector, ***args)` reflectively dispatches a USER-DEFINED
 // two-argument method (distinct from dispatch/'s built-in `+`/`negated`
 // parity fixture): the selector's arity-encoded name (`add(_,_)`) picks the
 // right overload, and the returned value composes normally with the rest of
@@ -12,9 +12,7 @@ class Adder {
   zero() { 0 }
 }
 const obj = Adder.new()
-const args = []
-args.append(3)
-args.append(4)
-System.print(obj.perform(Symbol.new("add(_,_)"), args))
-System.print(obj.perform(Symbol.new("zero()"), []))
-System.print(obj.perform(Symbol.new("add(_,_)"), args) == 7)
+const args = (3, 4)
+System.print(obj.perform(Symbol.new("add(_,_)"), ***args))
+System.print(obj.perform(Symbol.new("zero()"), ***()))
+System.print(obj.perform(Symbol.new("add(_,_)"), ***args) == 7)

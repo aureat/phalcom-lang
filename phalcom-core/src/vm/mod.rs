@@ -64,6 +64,18 @@ pub const MAX_CALL_DEPTH: usize = 10_000;
 /// [`MAX_CALL_DEPTH`] instead.
 pub const MAX_NATIVE_REENTRY: usize = 32;
 
+/// Lexical authority carried while a native method body is executing.
+///
+/// Native code has no bytecode frame of its own, so using only the caller's
+/// frame would make a primitive method's private/protected sends appear to
+/// originate from its caller. The context is pushed for the duration of the
+/// native body and popped before any forwarded frame resumes.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NativeMethodContext {
+    pub(crate) access_owner: Option<ClassId>,
+    pub(crate) internal: bool,
+}
+
 /// Identity of a class: the module that declares it, plus its name.
 ///
 /// Class *bindings* have always been module-scoped (`VM::define_global`
@@ -166,6 +178,8 @@ pub struct VM {
     /// being authorized. This is nonzero for the single dispatch operation
     /// only; called code never inherits it as ambient authority.
     pub(crate) compiler_internal_dispatch_depth: usize,
+    /// Stackable lexical contexts for active native primitive bodies.
+    pub(crate) native_method_contexts: Vec<NativeMethodContext>,
     // Ceilings for both counters live at module scope — see `MAX_CALL_DEPTH` and
     // `MAX_NATIVE_REENTRY` below.
     /// Loaded modules by name [`Symbol`], each a [`ModuleObject`](crate::heap::ModuleObject) handle.

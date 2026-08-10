@@ -29,6 +29,7 @@ impl VM {
             switch_pending: false,
             native_reentry_depth: 0,
             compiler_internal_dispatch_depth: 0,
+            native_method_contexts: Vec::new(),
             interner,
             start_time: Instant::now(),
             modules: HashMap::new(),
