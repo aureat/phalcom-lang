@@ -1,53 +1,55 @@
 # Method
 
-[`Method`](README.md) is reified exact behavior owned by a holder. It is not a
-`Function`: it still lacks a receiver. A Method becomes executable for a
-receiver through binding or exact invocation after compatibility validation.
+[Callables](README.md) · [Dispatch and lowering](dispatch.md) · [Arguments and rest](arguments.md) · [Execution contexts](execution.md) · [Runtime and activation](runtime.md) · [Reflection](reflection.md) · [Function](function.md) · [Closure](closure.md) · [BoundMethod](bound-method.md)
 
-## Semantic identity
+A `Method` is reified, holder-owned exact behavior. It is an object that can be
+inspected, authorized, bound, and invoked exactly. It is not a `Function`,
+because it still requires a compatible receiver before it can execute.
 
-A Method carries these fields as one semantic unit:
+## 1. Semantic record
+
+Every Method has one coherent semantic identity:
+
+| Field | Meaning |
+| --- | --- |
+| holder | class or metaclass owning the behavior |
+| selector | complete message identity, including argument labels |
+| parameter shape | fixed lanes and optional rest layout accepted by this Method |
+| implementation | compiled bytecode body or native primitive |
+| lexical `super` anchor | holder-relative origin for `super` lookup |
+| access authority | lexical owner governing private/protected/internal sends |
+
+The Method's **selector** identifies the exact behavior registered in a method
+dictionary. The **parameter shape** controls acceptance after that behavior has
+been selected. For rest-capable Methods, the selector's base family and rest
+metadata collaborate during fallback lookup; they do not turn the Method into a
+wildcard string.
+
+## 2. Method is incomplete by design
+
+A Method can describe `Person#greet`, but it cannot run until there is a
+receiver. The missing receiver distinguishes it from a Function:
 
 ```text
-holder
-selector
-parameter shape
-implementation
-lexical super anchor
-access authority
+Method       exact implementation + holder + authority + super anchor
+Function     executable context already complete except explicit arguments
 ```
 
-The holder identifies the class or metaclass that owns the behavior. The
-selector identifies the method family member. Parameter shape determines which
-argument lanes the exact implementation accepts. The implementation is the
-compiled or native behavior. The lexical super anchor is the defining holder,
-not the receiver supplied later. Access authority travels with the reified
-method and is checked before execution.
-
-## Receiver validation and execution
-
-The conceptual public operations are:
+Calling an unbound Method as a Function is rejected. The supported ways to
+supply a receiver are one-shot exact invocation and reusable binding:
 
 ```phalcom
-method.bind(receiver)
 method.invokeOn(receiver, ***arguments)
+method.bind(receiver)
 ```
 
-Both validate receiver compatibility before execution. A receiver must belong
-to the holder or to an allowed subclass. A class-side Method uses analogous
-metaclass ancestry. A holderless public Method cannot be bound or invoked;
-that category remains rejected unless a later specification creates a safe
-holderless category.
+Neither operation selects a different overload after the Method has been
+chosen. That is the defining difference between Method exactness and
+[Family](family.md) late dispatch.
 
-`bind` produces a [`BoundMethod`](bound-method.md), pairing this exact Method
-with the validated receiver. `invokeOn` executes this exact reified Method and
-does not redispatch its selector. Ordinary sends inside the Method still
-dynamically dispatch on the supplied receiver. `super` remains anchored to the
-Method's defining holder.
+## 3. Selector and rest notation
 
-## Arguments
-
-Phalcom uses one rest/spread notation everywhere:
+Phalcom uses only:
 
 ```text
 *      positional rest/spread
@@ -55,40 +57,145 @@ Phalcom uses one rest/spread notation everywhere:
 ***    complete rest/spread
 ```
 
-Examples:
-
 ```phalcom
-method(*rest) { body }
-method(**rest) { body }
-method(***rest) { body }
+sum(*rest) { body }
+configure(**rest) { body }
+forward(***rest) { body }
 method.invokeOn(receiver, ***arguments)
 ```
 
 The spelling `args...` is never rest/spread syntax in Phalcom. `...` is not a
 spread operator.
 
-Method parameter shapes may support fixed lanes and the ratified positional,
-labeled, or complete rest modes. Matching is shape-based. Exact selector
-resolution precedes rest-family resolution; wildcard selector-string parsing
-is not the semantic mechanism.
+Exact Method selectors record fixed positional and labeled slots. Rest Method
+metadata accepts an extension of those slots. Normal dispatch searches exact
+selectors through the complete hierarchy before it begins rest-family fallback;
+an inherited exact Method therefore wins over a rest-capable Method on a more
+derived class. See [Arguments and rest](arguments.md#5-method-rest-parameters).
 
-## Returns and constructors
+## 4. Exact invocation
 
-A normal Method returns its final expression. An empty body and bare `return`
-produce `()`. `return value` returns from this Method activation only. `None`
-continues to mean absence, not no-result.
+```phalcom
+method.invokeOn(receiver, ***arguments)
+```
 
-An `@constructor` declaration generates a class-side factory that allocates an
-instance, calls a generated or hidden initializer as an ordinary Method,
-ignores the initializer result, and returns the allocated instance. The
-initializer remains an ordinary Method at runtime. The compiler nevertheless
-rejects `return value` in that constructor initializer; bare `return` is
-allowed and returns Unit from the initializer. No special constructor return
-opcode exists.
+executes `method` itself. It does not send the Method's selector to `receiver`
+and does not re-run overload lookup. Exact invocation performs these checks in
+order:
 
-## Related callable types
+1. `method` must be a reified Method value.
+2. The initiating caller must be authorized to enter it.
+3. The supplied receiver must be compatible with the Method holder.
+4. The residual complete argument shape must satisfy the exact Method.
+5. The VM activates the exact bytecode or native implementation.
 
-- [`Callable model`](README.md) — hierarchy, `self`, returns, and constructors
-- [`Function`](function.md) — complete callable protocol
-- [`Closure`](closure.md) — lexical executable value
-- [`BoundMethod`](bound-method.md) — result of validated binding
+For instance-side Methods, compatibility requires the receiver's runtime class
+to be the holder or one of its subclasses. For class-side Methods, the same
+rule uses metaclass ancestry. A holderless Method is not publicly bindable or
+invokable until a later specification introduces a safe holderless category.
+
+```phalcom
+const describe = Base.methodFor(#describe())
+describe.invokeOn(Derived.new(), ***())
+```
+
+This runs `Base#describe` exactly when `Derived` is compatible with `Base`. It
+does not select a possible `Derived#describe` override as the entry body.
+
+## 5. Exact body, dynamic sends
+
+Exact invocation fixes the entry behavior, not the entire dispatch universe.
+For an exact Method defined on `Base` and activated on a compatible `Derived`
+instance:
+
+```text
+entry implementation     Base's exact Method body
+self                     supplied Derived instance
+ordinary sends           dynamically dispatched on Derived
+super sends              start above lexical Base
+access authority         lexical authority of Base Method
+```
+
+This rule makes reflection useful without turning methods into statically bound
+objects in their own body. It also makes `super` stable under binding: binding
+changes `self`, not the defining holder. See
+[Execution contexts](execution.md#2-self) and
+[Execution contexts](execution.md#3-super).
+
+## 6. Binding
+
+```phalcom
+const bound = method.bind(receiver)
+```
+
+validates receiver compatibility before constructing a
+[BoundMethod](bound-method.md). The resulting Function stores only the exact
+Method and validated receiver. It contains no cloned Method, synthetic Closure,
+or nested rebinding wrapper.
+
+```phalcom
+method.invokeOn(receiver, ***arguments)
+bound(***arguments)
+```
+
+are equivalent exact activations after the receiver has been supplied. Binding
+is the reusable form; `invokeOn` is the one-shot form. The current runtime also
+defensively rechecks a stored pair at activation, but that check is an internal
+invariant guard, not a second receiver lookup or a source-visible redispatch.
+
+## 7. Access and reflection
+
+Method lookup, access authorization, and execution are separate operations.
+An inaccessible Method remains a Method; invoking it is an access error rather
+than a `doesNotUnderstand` miss. Native and bytecode Methods carry the same
+lexical authority model, so reflective calls cannot become accidental visibility
+bypasses.
+
+Method reflection is reached through the Behavior/Object boundary:
+
+```phalcom
+const m = Person.methodFor(#greet())
+const selector = m.selector
+const holder = m.holder
+```
+
+The precise public reflection surface is in [Reflection](reflection.md). A
+Family is not a Method: it stores a future dispatch reference and can select a
+target later.
+
+## 8. Constructors
+
+The initializer generated from an `@constructor` source declaration is an
+ordinary Method at runtime. It has ordinary final-expression and bare-return
+semantics, but its generated class-side factory ignores that initializer result
+and returns the allocated instance. The compiler rejects `return value` in a
+source constructor initializer. See
+[Execution contexts](execution.md#7-constructors).
+
+## 9. Implementation note
+
+In the VM, `MethodObject` contains either a compiled closure handle or a native
+primitive plus `Signature`, holder, visibility, and access-owner fields. A
+shape-aware primitive receives `ArgumentView` and returns `CallOutcome`, which
+lets `invokeOn` activate bytecode without recursively running the interpreter.
+
+```rust
+pub enum MethodKind {
+    Closure(ObjRef),
+    Primitive(PrimitiveFn),
+}
+```
+
+See [`method/object.rs`](../../../phalcom-core/src/method/object.rs) and
+[`primitive/method.rs`](../../../phalcom-core/src/primitive/method.rs). This
+representation sharing is private VM machinery; Method remains a distinct
+public class and never becomes a Function subclass.
+
+## 10. Related chapters
+
+- [Reflection](reflection.md) — `methodFor`, `invokeOn`, `bind`, and `perform`
+- [BoundMethod](bound-method.md) — complete exact Method pairing
+- [Function](function.md) — complete callable root
+- [Closure](closure.md) — lexical executable value
+- [Arguments and rest](arguments.md) — rest matching and capture
+- [Runtime and activation](runtime.md) — Method frame and native entry
