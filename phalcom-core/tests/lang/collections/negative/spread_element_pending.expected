@@ -1,1 +1,1 @@
-spread element (`*x`) in a collection literal is not yet supported
+`**` is not valid in a List literal; List has only a positional lane, use `*`

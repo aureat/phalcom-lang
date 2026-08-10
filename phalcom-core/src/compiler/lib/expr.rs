@@ -12,6 +12,12 @@ use super::error::CompilerError;
 use super::scope::BareNameResolution;
 use super::{Compiler, UnitKind, checked_product_count, checked_send_arity};
 
+#[derive(Clone, Copy)]
+enum PositionalExpansionTarget {
+    ArgumentPack { builder_slot: u16 },
+    ListLiteral { list_slot: u16 },
+}
+
 impl<'vm> Compiler<'vm> {
     pub(super) fn needs_dynamic_pack(items: &[PackItem]) -> bool {
         items.iter().any(|item| {
@@ -47,11 +53,38 @@ impl<'vm> Compiler<'vm> {
         debug_assert_eq!(function.locals.len(), function.num_locals);
     }
 
-    /// Adds one positional spread through the Tuple/Unit probe, then the
-    /// ordinary cursor protocol. Hidden locals root source and cursor across
-    /// arbitrary sends (including fiber suspension).
-    fn compile_positional_pack_expansion(&mut self, builder_slot: u16, expr: Expr, range: SourceRange) -> Result<(), CompilerError> {
-        self.check_bounded_pack_expansion(&expr, range)?;
+    fn emit_positional_target_before_value(&mut self, target: PositionalExpansionTarget, range: SourceRange) {
+        if let PositionalExpansionTarget::ListLiteral { list_slot } = target {
+            self.emit(Bytecode::GetLocal(list_slot), range);
+        }
+    }
+
+    fn emit_positional_target_append(&mut self, target: PositionalExpansionTarget, range: SourceRange) {
+        match target {
+            PositionalExpansionTarget::ArgumentPack { builder_slot } => {
+                self.emit(Bytecode::GetLocal(builder_slot), range);
+                self.emit(Bytecode::PackPushPositional, range);
+            }
+            PositionalExpansionTarget::ListLiteral { .. } => {
+                self.emit(Bytecode::ListLiteralAppend, range);
+                self.emit(Bytecode::Pop, range);
+            }
+        }
+    }
+
+    fn emit_positional_target_for_probe(&mut self, target: PositionalExpansionTarget, range: SourceRange) {
+        match target {
+            PositionalExpansionTarget::ArgumentPack { builder_slot } => self.emit(Bytecode::GetLocal(builder_slot), range),
+            PositionalExpansionTarget::ListLiteral { list_slot } => self.emit(Bytecode::GetLocal(list_slot), range),
+        }
+    }
+
+    /// Adds one positional spread through the shared Tuple/Unit probe, then
+    /// the ordinary cursor protocol. Hidden locals root source and cursor
+    /// across arbitrary sends (including fiber suspension); only append
+    /// destination differs between packs and List literals.
+    fn compile_positional_expansion(&mut self, target: PositionalExpansionTarget, expr: Expr, range: SourceRange) -> Result<(), CompilerError> {
+        self.check_bounded_expansion(&expr, range)?;
         let source_slot = self.reserve_pack_scratch("$pack_source", range)?;
         self.compile_expr(expr)?;
         self.emit(Bytecode::SetLocal(source_slot), range);
@@ -59,8 +92,14 @@ impl<'vm> Compiler<'vm> {
         let cursor_slot = self.reserve_pack_scratch("$pack_cursor", range)?;
 
         self.emit(Bytecode::GetLocal(source_slot), range);
-        self.emit(Bytecode::GetLocal(builder_slot), range);
-        self.emit(Bytecode::PackTryExpandTuplePositionals, range);
+        self.emit_positional_target_for_probe(target, range);
+        self.emit(
+            match target {
+                PositionalExpansionTarget::ArgumentPack { .. } => Bytecode::PackTryExpandTuplePositionals,
+                PositionalExpansionTarget::ListLiteral { .. } => Bytecode::ListTryExpandTuplePositionals,
+            },
+            range,
+        );
         let generic = self.emit_forward_jump(Bytecode::JumpIfFalse, range);
         let done = self.emit_forward_jump(Bytecode::Jump, range);
 
@@ -74,11 +113,11 @@ impl<'vm> Compiler<'vm> {
         let loop_start = self.chunk_len();
         self.emit(Bytecode::GetLocal(cursor_slot), range);
         let exit = self.emit_forward_jump(Bytecode::JumpIfNone, range);
+        self.emit_positional_target_before_value(target, range);
         self.emit(Bytecode::GetLocal(source_slot), range);
         self.emit(Bytecode::GetLocal(cursor_slot), range);
         self.emit_operator_send("iteratorValue", 1, range);
-        self.emit(Bytecode::GetLocal(builder_slot), range);
-        self.emit(Bytecode::PackPushPositional, range);
+        self.emit_positional_target_append(target, range);
         self.emit(Bytecode::GetLocal(source_slot), range);
         self.emit(Bytecode::GetLocal(cursor_slot), range);
         self.emit_operator_send("iterate", 1, range);
@@ -130,7 +169,7 @@ impl<'vm> Compiler<'vm> {
                 }
                 PackItem::Expand { mode, expr, .. } => {
                     if matches!(mode, phalcom_ast::ast::ExpansionMode::Positional) {
-                        self.compile_positional_pack_expansion(builder_slot, expr, range)?;
+                        self.compile_positional_expansion(PositionalExpansionTarget::ArgumentPack { builder_slot }, expr, range)?;
                         continue;
                     }
                     self.compile_expr(expr)?;
@@ -751,7 +790,7 @@ impl<'vm> Compiler<'vm> {
                             },
                             TupleLiteralEntry::Expand { mode, expr, range } => match mode {
                                 phalcom_ast::ast::ExpansionMode::Positional => {
-                                    self.compile_positional_pack_expansion(builder_slot, expr, range)?;
+                                    self.compile_positional_expansion(PositionalExpansionTarget::ArgumentPack { builder_slot }, expr, range)?;
                                 }
                                 phalcom_ast::ast::ExpansionMode::Labeled => {
                                     self.compile_expr(expr)?;
@@ -859,21 +898,45 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::ListLiteral(list_expr) => {
                 let list_expr = *list_expr;
-                let count = list_expr.elements.len();
-                if count > u16::MAX as usize {
-                    return Err(CompilerError::Message("List literal elements exceed maximum count".to_string()));
+                let dynamic = list_expr.elements.iter().any(|element| matches!(element, ListLiteralElement::Expansion { .. }));
+                if !dynamic {
+                    let count = list_expr.elements.len();
+                    if count > u16::MAX as usize {
+                        return Err(CompilerError::Message("List literal elements exceed maximum count".to_string()));
+                    }
+                    for element in list_expr.elements {
+                        let ListLiteralElement::Element { expr, .. } = element else {
+                            unreachable!("static List literal cannot contain expansion");
+                        };
+                        self.compile_expr(expr)?;
+                    }
+                    self.emit(Bytecode::BuildList(count as u16), list_expr.range);
+                    return Ok(());
                 }
+
+                let list_slot = self.reserve_pack_scratch("$list_literal_builder", list_expr.range)?;
+                self.emit(Bytecode::BeginListLiteral, list_expr.range);
+                self.emit(Bytecode::SetLocal(list_slot), list_expr.range);
+                self.emit(Bytecode::Pop, list_expr.range);
+                let target = PositionalExpansionTarget::ListLiteral { list_slot };
                 for element in list_expr.elements {
+                    let range = match &element {
+                        ListLiteralElement::Element { range, .. } | ListLiteralElement::Expansion { range, .. } => *range,
+                    };
                     match element {
                         ListLiteralElement::Element { expr, .. } => {
+                            self.emit_positional_target_before_value(target, range);
                             self.compile_expr(expr)?;
+                            self.emit_positional_target_append(target, range);
                         }
-                        ListLiteralElement::Expansion { .. } => {
-                            return Err(CompilerError::Message("List literal `*` expansion is pending Spec F".to_string()));
+                        ListLiteralElement::Expansion { expr, range } => {
+                            self.compile_positional_expansion(target, expr, range)?;
                         }
                     }
                 }
-                self.emit(Bytecode::BuildList(count as u16), list_expr.range);
+                self.emit(Bytecode::GetLocal(list_slot), list_expr.range);
+                self.emit(Bytecode::FinishListLiteral, list_expr.range);
+                self.release_pack_scratch_from(list_slot, 1, list_expr.range);
             }
             Expr::Var { value, range } => {
                 if value == "nil" {

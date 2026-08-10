@@ -219,10 +219,8 @@ fn collections() {
 
 #[test]
 fn collections_literals_negative() {
-    // U-COLL: the map literal (`{k: v}`) and a spread element (`[*xs]`) are
-    // *recognised* by the parser but their runtime lowering is deferred to the
-    // collection-runtime unit (U-COLLTYPES; DEC-COLL-B), so each raises a
-    // precise "pending" diagnostic instead of silently mis-parsing.
+    // Collection-literal lane mismatches fail in the parser with a precise
+    // operator/destination diagnostic.
     support::check_negative("collections/negative");
 }
 

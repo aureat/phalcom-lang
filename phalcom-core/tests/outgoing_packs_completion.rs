@@ -569,3 +569,21 @@ let product = (0, *values)
         assert!(text.contains(required), "dynamic source did not emit `{required}`:\n{text}");
     }
 }
+
+#[test]
+fn static_list_keeps_direct_build_fast_path() {
+    let text = disasm_source("let list = [1, 2, 3]\n");
+    assert!(text.contains("BuildList(3)"), "static List did not emit BuildList:\n{text}");
+    for forbidden in ["BeginListLiteral", "ListLiteralAppend", "FinishListLiteral", "ListTryExpandTuplePositionals"] {
+        assert!(!text.contains(forbidden), "static List unexpectedly emitted `{forbidden}`:\n{text}");
+    }
+}
+
+#[test]
+fn dynamic_list_uses_rooted_incremental_builder_and_shared_spread_lane() {
+    let text = disasm_source("let list = [1, *(2, 3), 4]\n");
+    for required in ["BeginListLiteral", "ListLiteralAppend", "FinishListLiteral", "ListTryExpandTuplePositionals"] {
+        assert!(text.contains(required), "dynamic List did not emit `{required}`:\n{text}");
+    }
+    assert!(!text.contains("BuildList("), "dynamic List unexpectedly emitted BuildList:\n{text}");
+}

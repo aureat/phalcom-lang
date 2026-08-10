@@ -66,6 +66,10 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "FinishTuplePack",
     "ReserveScratchLocal",
     "ReleaseScratchLocal",
+    "BeginListLiteral",
+    "ListLiteralAppend",
+    "FinishListLiteral",
+    "ListTryExpandTuplePositionals",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -465,12 +469,21 @@ pub enum Bytecode {
     /// preserving order. The compiler releases multi-slot scratch regions from
     /// highest slot to lowest slot.
     ReleaseScratchLocal(u16),
+    /// Allocates the compiler-owned native List used by a spread-containing
+    /// List literal.
+    BeginListLiteral,
+    /// Appends one value to a compiler-owned List literal builder.
+    ListLiteralAppend,
+    /// Validates and completes a compiler-owned List literal builder.
+    FinishListLiteral,
+    /// Tries Unit/Tuple positional projection for a List spread.
+    ListTryExpandTuplePositionals,
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 62;
+    pub const VARIANTS: usize = 66;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -543,6 +556,10 @@ impl Bytecode {
             Bytecode::FinishTuplePack => 59,
             Bytecode::ReserveScratchLocal(..) => 60,
             Bytecode::ReleaseScratchLocal(..) => 61,
+            Bytecode::BeginListLiteral => 62,
+            Bytecode::ListLiteralAppend => 63,
+            Bytecode::FinishListLiteral => 64,
+            Bytecode::ListTryExpandTuplePositionals => 65,
         }
     }
 

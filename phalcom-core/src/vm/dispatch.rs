@@ -30,10 +30,48 @@ impl VM {
         }
     }
 
+    /// Returns Unit/Tuple positional-lane values without invoking ordinary
+    /// Tuple iteration. The copied lane can safely cross the target append
+    /// operation, including any future GC safepoint.
+    fn positional_lane(&self, value: Value) -> Option<Vec<Value>> {
+        match value {
+            Value::Unit => Some(Vec::new()),
+            Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => Some(self.heap.tuple(id).positionals().to_vec()),
+            _ => None,
+        }
+    }
+
+    fn append_positional_values(&mut self, target: Value, values: Vec<Value>) -> Result<(), RuntimeError> {
+        let Value::Obj(id) = target else {
+            return Err(RuntimeError::Internal("positional expansion target is not an object".into()));
+        };
+        if matches!(self.heap.get(id), Object::PackBuilder(_)) {
+            for value in values {
+                self.heap.pack_builder_mut(id).push_positional(value);
+            }
+            return Ok(());
+        }
+        if matches!(self.heap.get(id), Object::List(_)) {
+            for value in values {
+                self.heap.list_mut(id).push(value);
+            }
+            return Ok(());
+        }
+        Err(RuntimeError::Internal("positional expansion target is not a pack builder or List".into()))
+    }
+
+    fn try_append_tuple_positionals(&mut self, source: Value, target: Value) -> Result<bool, RuntimeError> {
+        let Some(values) = self.positional_lane(source) else {
+            return Ok(false);
+        };
+        self.append_positional_values(target, values)?;
+        Ok(true)
+    }
+
     /// Checks the generic `*` cursor protocol by lookup alone. This is
     /// intentionally not a send: dNU, visibility, allocation, and user code
     /// belong to the ordinary cursor invokes emitted by the compiler.
-    fn has_pack_iteration_protocol(&mut self, value: Value) -> bool {
+    fn has_iteration_protocol(&mut self, value: Value) -> bool {
         let iterate = self.interner.intern("iterate(_)");
         let iterator_value = self.interner.intern("iteratorValue(_)");
         value.lookup_method(self, iterate).is_some() && value.lookup_method(self, iterator_value).is_some()
@@ -1793,23 +1831,15 @@ impl VM {
                         }
                     }
                 }
-                Bytecode::PackTryExpandTuplePositionals => {
-                    let builder = self.pop()?;
-                    let operand = self.pop()?;
-                    let Value::Obj(builder) = builder else {
-                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
-                    };
-                    match operand {
-                        Value::Unit => self.stack.push(TRUE),
-                        Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => {
-                            let values = self.heap.tuple(id).positionals().to_vec();
-                            for value in values {
-                                self.heap.pack_builder_mut(builder).push_positional(value);
-                            }
-                            self.stack.push(TRUE);
-                        }
-                        value if self.has_pack_iteration_protocol(value) => self.stack.push(FALSE),
-                        value => return Err(RuntimeError::NonIterableStarOperand { found: value.type_name() }.into()),
+                Bytecode::PackTryExpandTuplePositionals | Bytecode::ListTryExpandTuplePositionals => {
+                    let target = self.pop()?;
+                    let source = self.pop()?;
+                    if self.try_append_tuple_positionals(source, target)? {
+                        self.stack.push(TRUE);
+                    } else if self.has_iteration_protocol(source) {
+                        self.stack.push(FALSE);
+                    } else {
+                        return Err(RuntimeError::NonIterableStarOperand { found: source.type_name() }.into());
                     }
                 }
                 Bytecode::FinishTuplePack => {
@@ -1975,6 +2005,31 @@ impl VM {
                     crate::primitive::map::map_literal_insert_unique(self, id, key, value)?;
                 }
                 Bytecode::FinishMapLiteral => {}
+                Bytecode::BeginListLiteral => self.stack.push(Value::Obj(self.heap.alloc_list(Vec::new()))),
+                Bytecode::ListLiteralAppend => {
+                    let value = self.pop()?;
+                    let list = self.pop()?;
+                    let Value::Obj(id) = list else {
+                        return Err(RuntimeError::Internal("List literal builder is not an object".to_string()).into());
+                    };
+                    if !matches!(self.heap.get(id), Object::List(_)) {
+                        return Err(RuntimeError::Internal("List literal builder is not a List".to_string()).into());
+                    }
+                    self.heap.list_mut(id).push(value);
+                    self.stack.push(list);
+                }
+                Bytecode::FinishListLiteral => {
+                    let list = *self
+                        .stack
+                        .last()
+                        .ok_or(RuntimeError::Internal("Stack underflow for FinishListLiteral".to_string()))?;
+                    let Value::Obj(id) = list else {
+                        return Err(RuntimeError::Internal("List literal builder is not an object".to_string()).into());
+                    };
+                    if !matches!(self.heap.get(id), Object::List(_)) {
+                        return Err(RuntimeError::Internal("List literal builder is not a List".to_string()).into());
+                    }
+                }
                 Bytecode::BeginSetLiteral => self.stack.push(Value::Obj(self.heap.alloc_set())),
                 Bytecode::SetLiteralAdd => {
                     let value = self.pop()?;

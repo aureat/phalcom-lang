@@ -3113,24 +3113,11 @@ impl<'source> Parser<'source> {
         false
     }
 
-    /// Parses a list literal `[e1, …, en]` and desugars it to a `List`
-    /// construction chain (lexical-structure.md §4; [ADR-0029]; [ADR-0032] §1).
-    ///
-    /// Following the parser-level sugar precedent (`if`→`ifTrue`,
-    /// `while`→`whileTrue`, `\(e)`→`toString`), the literal lowers to ordinary
-    /// message sends on the landed kernel `List` rather than a dedicated
-    /// [`Expr`] variant — no new AST node, bytecode, or floor primitive:
-    ///
-    /// - `[]`        → `List.new()`
-    /// - `[a]`       → `List.new().add(a)`
-    /// - `[a, b, c]` → `List.new().add(a).add(b).add(c)`
-    ///
-    /// Because `List#add(_)` returns `self`, the `.add` chain is one
-    /// well-typed expression. The synthetic range spans the `[ … ]` so
-    /// diagnostics point at the literal.
-    ///
-    /// [ADR-0029]: ../../../docs/adr/accepted/0029-list-literal-syntax.md
-    /// [ADR-0032]: ../../../docs/adr/accepted/0032-collections-representation-and-literals.md
+    /// Parses a List literal into its explicit AST representation and preserves
+    /// positional `*` expansion entries for compiler lowering. Ordinary Lists
+    /// compile directly through `BuildList`; spread-containing Lists use the
+    /// compiler-owned incremental construction path. No public mutation-chain
+    /// desugaring is involved.
     ///
     /// # Errors
     ///
@@ -3139,17 +3126,53 @@ impl<'source> Parser<'source> {
     fn parse_list_literal(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         self.advance(); // '['
-        let elems = self.parse_comma_exprs(&Token::RBracket)?;
+        self.skip_newlines();
+        let mut elements = Vec::new();
+        if matches!(self.peek(), Token::RBracket) {
+            self.advance();
+            let range: SourceRange = (start..self.prev_end).into();
+            return Ok(Expr::ListLiteral(Box::new(ListLiteralExpr { elements, range })));
+        }
+
+        loop {
+            elements.push(self.parse_list_literal_element()?);
+            self.skip_newlines();
+            if !self.eat(&Token::Comma) {
+                break;
+            }
+            self.skip_newlines();
+            if matches!(self.peek(), Token::RBracket) {
+                break;
+            }
+        }
         self.expect(&Token::RBracket, &["\"]\""])?;
         let range: SourceRange = (start..self.prev_end).into();
-        let elements = elems
-            .into_iter()
-            .map(|expr| {
-                let r = expr.range();
-                ListLiteralElement::Element { expr, range: r }
-            })
-            .collect();
         Ok(Expr::ListLiteral(Box::new(ListLiteralExpr { elements, range })))
+    }
+
+    fn parse_list_literal_element(&mut self) -> ParserResult<ListLiteralElement> {
+        let start = self.cur_start();
+        match self.peek() {
+            Token::Asterisk => {
+                self.advance();
+                let expr = self.parse_expr()?;
+                Ok(ListLiteralElement::Expansion {
+                    expr,
+                    range: (start..self.prev_end).into(),
+                })
+            }
+            Token::DoubleAsterisk | Token::Power => {
+                Err(self.error_message_here("`**` is not valid in a List literal; List has only a positional lane, use `*`"))
+            }
+            Token::TripleAsterisk => Err(self.error_message_here(
+                "`***` is not valid in a List literal; complete expansion requires positional and labeled lanes, but List has only a positional lane",
+            )),
+            _ => {
+                let expr = self.parse_expr()?;
+                let range = expr.range();
+                Ok(ListLiteralElement::Element { expr, range })
+            }
+        }
     }
 
     fn bare_product_label_name(token: &Token) -> Option<&'static str> {
@@ -3573,55 +3596,8 @@ impl<'source> Parser<'source> {
         })))
     }
 
-    /// Parses a comma-separated run of expressions up to (but not consuming)
-    /// `terminator`, returning the elements in source order
-    /// (lexical-structure.md §4). Shared by the list `[…]` and tuple `(…)`
-    /// literal arms; a trailing comma before the terminator is permitted, and
-    /// an immediate terminator yields an empty vector.
-    ///
-    /// The element grammar is kept intentionally pattern-compatible with the
-    /// destructuring-pattern scanner (lexical-structure.md §8) so the
-    /// concurrent U14 unit can share this helper rather than fork a parallel
-    /// scanner: a leading `*` ([`Token::Asterisk`], spread) slot is *reserved*
-    /// here. U-COLL ships no spread, so a spread element is rejected with a
-    /// precise "not yet supported" diagnostic rather than silently
-    /// mis-parsed (ADR-0032 §3.2; the U9 spread follow-on wires it later).
-    ///
-    /// # Errors
-    ///
-    /// Propagates any [`SyntaxError`] from an element expression, and rejects a
-    /// leading-`*` spread element with a [`SyntaxErrorKind::Message`]
-    /// "pending" diagnostic.
-    fn parse_comma_exprs(&mut self, terminator: &Token) -> ParserResult<Vec<Expr>> {
-        let mut elems = Vec::new();
-        self.skip_newlines();
-        if self.peek() == terminator {
-            return Ok(elems);
-        }
-        loop {
-            self.skip_newlines();
-            if matches!(self.peek(), Token::Asterisk) {
-                return Err(self.error_message_here("spread element (`*x`) in a collection literal is not yet supported"));
-            }
-            elems.push(self.parse_expr()?);
-            self.skip_newlines();
-            if !self.eat(&Token::Comma) {
-                break;
-            }
-            self.skip_newlines();
-            // Allow a trailing comma directly before the terminator.
-            if self.peek() == terminator {
-                break;
-            }
-        }
-        self.skip_newlines();
-        Ok(elems)
-    }
-
     /// Builds a free-form [`SyntaxErrorKind::Message`] diagnostic anchored at
-    /// the current token's span. Used for surface features whose *syntax* is
-    /// recognised but whose runtime lowering is deferred to a follow-on unit
-    /// (e.g. a spread element in a collection literal; ADR-0032 §3.2).
+    /// the current token's span.
     fn error_message_here(&self, msg: &str) -> SyntaxError {
         let lexeme = &self.tokens[self.pos];
         SyntaxError {
@@ -3900,6 +3876,40 @@ mod tests {
         assert!(matches!(&elements[0], Pattern::Name { name, .. } if name == "first"));
         let rest = rest.as_deref().expect("expected a rest sub-pattern");
         assert!(matches!(rest, Pattern::Name { name, .. } if name == "rest"));
+    }
+
+    #[test]
+    fn list_literal_parses_positional_expansion() {
+        let Statement::Expr { expr, .. } = only_statement("[first, *middle, last,]") else {
+            panic!("expected a List literal expression");
+        };
+        let Expr::ListLiteral(list) = expr else {
+            panic!("expected List literal, got {expr:?}");
+        };
+        assert_eq!(list.elements.len(), 3);
+        assert!(matches!(&list.elements[0], ListLiteralElement::Element { .. }));
+        assert!(matches!(&list.elements[1], ListLiteralElement::Expansion { .. }));
+        assert!(matches!(&list.elements[2], ListLiteralElement::Element { .. }));
+    }
+
+    #[test]
+    fn list_literal_rejects_labeled_expansion_operators() {
+        for (source, range, message) in [
+            (
+                "[**source]",
+                1..3,
+                "`**` is not valid in a List literal; List has only a positional lane, use `*`",
+            ),
+            (
+                "[***source]",
+                1..4,
+                "`***` is not valid in a List literal; complete expansion requires positional and labeled lanes, but List has only a positional lane",
+            ),
+        ] {
+            let error = parse_source(source, 0).expect_err("invalid List expansion should fail during parsing");
+            assert_eq!(error.range, range);
+            assert!(error.to_string().contains(message), "unexpected diagnostic: {error}");
+        }
     }
 
     #[test]
