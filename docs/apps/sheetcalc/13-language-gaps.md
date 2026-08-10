@@ -230,12 +230,12 @@ A yield cannot cross a **native call frame**, and `Block#call` is one. So
 
 **What it cost SheetCalc.** Less than first thought. A demand-driven evaluator
 must use `for` rather than the block combinators — `SUM`'s
-`range.reduce(0) { }` becomes a `for` loop. A real style tax, not a blocker. v1
+`range.fold(initial: 0, using: { ... })` becomes a `for` loop. A real style tax, not a blocker. v1
 uses an explicit topological sweep because it is simpler, not because fibers are
 unavailable.
 
 **What remains genuinely wrong.** The constraint is invisible at the point of
-use: `range.reduce(0) { }` and `for (r in range) { }` look equally innocent and
+use: `range.fold(initial: 0, using: { ... })` and `for (r in range) { }` look equally innocent and
 only one works. Neither `iteration.md` nor `concurrency.md` mentions the other's
 constraint.
 

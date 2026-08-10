@@ -33,8 +33,13 @@ within a run) satisfies the protocol's deterministic-iteration law.
 | `size` | entry count |
 | `includes(_)` | is a key present → `Bool` |
 | `remove(_)` | delete a key; returns `self` |
-| `keys` / `values` | a `List` of keys / values, in iteration order |
-| `each(_)` | apply a 2-arg block `{ k, v => … }` per entry |
+| `keys` / `values` | live `Iterable` projections of keys / values, in iteration order |
+| `entries` | live `Iterable` projection of `Entry` values, in iteration order |
+| `each(_)` | apply a 1-arg block to each ordinary Map iteration value (the key) |
+
+`Map` inherits ordinary one-value `Iterable#each(_)` traversal; it does not
+change callback arity for map receivers. Pair traversal is explicit:
+`map.entries.each { entry => ... }`, using `entry.key` and `entry.value`.
 
 `==` is structural (same key set, pairwise-`==` values). `Map` is **mutable** ⇒
 identity hash (collection-protocol law 4).

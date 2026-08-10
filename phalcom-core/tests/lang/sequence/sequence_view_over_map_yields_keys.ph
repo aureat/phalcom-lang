@@ -1,5 +1,5 @@
 // area: sequence
-// spec: iteration.md §5; ADR-0035; iteration.md §3.2
+// spec: D.1 Map one-value traversal + E.1 explicit iterator pipeline
 // status: PASS
 // Views over Map correctly yield keys (Map's for yields keys, not values)
 

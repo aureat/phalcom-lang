@@ -1,1 +1,1 @@
-System.print((0..).iter.find |x| { x == 5 })
+System.print((0..).iter.find(where: |x| { x == 5 }))

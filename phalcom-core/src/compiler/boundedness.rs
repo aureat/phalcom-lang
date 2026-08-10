@@ -172,7 +172,15 @@ fn is_eager_getter_selector(selector: &str, mode: IterationMode) -> bool {
 fn is_eager_method_selector(selector: &str, mode: IterationMode) -> bool {
     let common = matches!(
         selector,
-        "fold(initial,using)" | "reduce(using)" | "count(_)" | "each(_)" | "group(by)" | "partition(where)" | "toMap(merging)"
+        "map(indexed)"
+            | "fold(initial,using)"
+            | "reduce(using)"
+            | "count(where)"
+            | "each(_)"
+            | "each(indexed)"
+            | "group(by)"
+            | "partition(where)"
+            | "toMap(merging)"
     );
     let concrete_only = matches!(selector, "map(_)" | "filter(_)" | "flatMap(_)");
     common || (mode == IterationMode::Concrete && concrete_only)
@@ -259,5 +267,18 @@ mod tests {
             ),
             UNKNOWN
         );
+    }
+
+    #[test]
+    fn recognizes_migrated_eager_selectors() {
+        for selector in ["map(indexed)", "each(indexed)", "count(where)"] {
+            assert!(is_eager_method_selector(selector, IterationMode::Concrete), "{selector}");
+            assert!(is_eager_method_selector(selector, IterationMode::LazyPipeline), "{selector}");
+        }
+
+        for selector in ["find(where)", "index(where)", "any(where)", "all(where)", "none(where)"] {
+            assert!(!is_eager_method_selector(selector, IterationMode::Concrete), "{selector}");
+            assert!(!is_eager_method_selector(selector, IterationMode::LazyPipeline), "{selector}");
+        }
     }
 }

@@ -39,8 +39,8 @@ class Stack {
   }
 
   // Higher-order method: fold with a caller-supplied 2-arity block.
-  fold(_ seed, _ f) {
-    return _items.fold(initial: seed) |acc, x| { f.call(acc, x) }
+  fold(initial seed, using f) {
+    return _items.fold(initial: seed, using: |acc, x| { f.call(acc, x) })
   }
 
   // Operator overloading: `+` concatenates two stacks.
@@ -83,7 +83,7 @@ s.top.ifSome |v| { System.print("top is \(v)") }        // top is 30
 Stack.empty.top.ifNone || { System.print("nothing to peek") } // nothing to peek
 
 // Higher-order fold with a two-argument block.
-const sum = s.fold(0) |acc, x| { acc + x }
+const sum = s.fold(initial: 0, using: |acc, x| { acc + x })
 System.print("sum = \(sum)")             // sum = 60
 
 // Operator overloading: concatenation.

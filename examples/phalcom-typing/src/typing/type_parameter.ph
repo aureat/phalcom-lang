@@ -104,9 +104,9 @@ class TypeParameter is Descriptors.TypeDescriptor || {
     }
 
     if _constraints.isEmpty.not || {
-      const accepted = _constraints.any |constraint| {
+      const accepted = _constraints.any(where: |constraint| {
         argument.equivalentTo(constraint)
-      }
+      })
 
       if accepted.not || {
         throw Errors.TypeConstraintError.new(

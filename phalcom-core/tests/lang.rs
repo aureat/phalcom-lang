@@ -231,6 +231,13 @@ fn collections_pending() {
 }
 
 #[test]
+fn collections_d1() {
+    // D.1 is complete independently of the still-deferred spread fixtures in
+    // the collections pending directory; keep its comprehensive gate active.
+    support::check_pending_case("collections", "eager_operations");
+}
+
+#[test]
 fn variadics() {
     // U9: rest parameters (`*name`) — declaration, `<name>(*)` selector
     // encoding, the VM call-prologue rest-arg collapse, and the
@@ -293,11 +300,8 @@ fn iteration_negative() {
 
 #[test]
 fn sequence() {
-    // U-SEQ (iteration.md §5, ADR-0035, collection-protocol.md §2):
-    // combinator breadth over `Iterable` (`all`/`any`/`count`/`count(f)`/`find`/
-    // `join`/`join(sep)`/`toList`) and four lazy view classes (`MapView`/`WhereView`/
-    // `SkipView`/`TakeView`) that apply the cursor protocol over a source collection.
-    // All written in `.ph` over `iterate`/`iteratorValue`, zero new primitives.
+    // D.1/E.1: labeled predicate queries, explicit eager/lazy receiver semantics,
+    // and the remaining cursor-based sequence tests.
     support::check_pass("sequence");
 }
 

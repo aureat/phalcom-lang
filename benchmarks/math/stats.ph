@@ -10,7 +10,7 @@
 //   xs.size             element count
 //   xs[i]               indexing (returns element; see U-INDEX and ADR-0060)
 //   for (x in xs) {..}  === xs.each |x| { .. }
-//   xs.reduce(init) |acc, x| { .. }   left fold
+//   xs.fold(initial: init, using: |acc, x| { .. })   left fold
 // Verifies via identities (independent of hardcoded results):
 //   sum via reduce == sum via for-loop
 //   two-pass variance == E[x^2] - E[x]^2

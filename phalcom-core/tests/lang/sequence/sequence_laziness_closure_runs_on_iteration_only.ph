@@ -1,7 +1,7 @@
 // area: sequence
-// spec: iteration.md §5; ADR-0035; plan.md §3.2 laziness ⊗ effect-timing
+// spec: D.1 eager traversal + E.1 explicit iterator pipeline
 // status: PASS
-// Lazy map: closure does NOT run at .map call time, only when iterated
+// Explicit iterator map is lazy: closure runs during iteration, not stage creation.
 
 let counter = 0
 let f = |x| { counter = counter + 1; x * 2 }

@@ -76,7 +76,9 @@ class _StatisticsCollector {
   }
 
   recordContext(context: Any) -> None {
-    context.events.each |label, count| {
+    context.events.entries.each |entry| {
+      let label = entry.key
+      let count = entry.value
       let total = _events.at(label)
       if total == None {
         total = 0
@@ -100,8 +102,8 @@ class _StatisticsCopies {
   @class
   map(values: Map<Symbol, Int>) -> Map<Symbol, Int> {
     const copied = Map.new()
-    values.each |label, count| {
-      copied.at(label, put: count)
+    values.entries.each |entry| {
+      copied.at(entry.key, put: entry.value)
     }
     return copied
   }

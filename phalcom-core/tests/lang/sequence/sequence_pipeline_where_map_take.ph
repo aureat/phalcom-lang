@@ -1,7 +1,7 @@
 // area: sequence
-// spec: iteration.md §5; ADR-0035
+// spec: D.1 eager traversal + E.1 explicit iterator pipeline
 // status: PASS
-// Lazy pipeline: where(p).map(f).take(3) composes view wrappers, allocates only wrappers until iteration
+// Explicit iterator pipeline: filter(p).map(f).take(3) composes lazy stages.
 
 let coll = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 let view = coll.iter.filter |x| { x > 3 }

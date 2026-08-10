@@ -720,12 +720,12 @@ class Iterable {
     for (x in self) {
       f.call(x)
     }
+    return ()
   }
 
   // map/filter/reduce/includes walk `iterate`/`iteratorValue` DIRECTLY, not
-  // `self.each` — `Map` overrides `each` with an incompatible 2-arity (k, v)
-  // selector (DEC-CT-E); routing these through `self.each` would silently call a
-  // 1-arity block with 2 arguments the moment `Map` inherits them. See the rubric.
+  // `self.each`, so generic operations remain protocol-driven and independent
+  // of any receiver-specific traversal convenience.
   // Concrete Iterable transforms are eager. Lazy transforms live behind `.iter`,
   // so the receiver makes evaluation timing visible at every call site.
   map(_ f) {
@@ -736,6 +736,29 @@ class Iterable {
       c = self.iterate(c)
     }
     return result
+  }
+
+  map(indexed f) {
+    let result = List.new()
+    let index = 0
+    let c = self.iterate(None)
+    while (c != None) {
+      result.append(f.call(index, self.iteratorValue(c)))
+      index = index + 1
+      c = self.iterate(c)
+    }
+    return result
+  }
+
+  each(indexed f) {
+    let index = 0
+    let c = self.iterate(None)
+    while (c != None) {
+      f.call(index, self.iteratorValue(c))
+      index = index + 1
+      c = self.iterate(c)
+    }
+    return ()
   }
 
   flatMap(_ f) {
@@ -776,22 +799,25 @@ class Iterable {
 
   isEmpty => self.size == 0
 
-  // U-SEQ (iteration.md §5 extension, wren_core.wren Sequence L7-119 precedent): combinator breadth
-  // Phalcom lacked. All written over `for (x in self)`, never `self.each || { }` (Map's `each(f)` is 2-arg —
-  // see plan.md §3.1) and never index math. Zero new floor primitives.
-
-  all(_ f) {
+  all(where f) {
     for (x in self) {
       f.call(x).ifFalse || { return false }
     }
     return true
   }
 
-  any(_ f) {
+  any(where f) {
     for (x in self) {
       f.call(x).ifTrue || { return true }
     }
     return false
+  }
+
+  none(where f) {
+    for (x in self) {
+      f.call(x).ifTrue || { return false }
+    }
+    return true
   }
 
   count {
@@ -800,15 +826,24 @@ class Iterable {
     return n
   }
 
-  count(_ f) {
+  count(where f) {
     let n = 0
     for (x in self) { f.call(x).ifTrue || { n = n + 1 } }
     return n
   }
 
-  find(_ f) {
+  find(where f) {
     for (x in self) {
       f.call(x).ifTrue || { return Some.new(x) }
+    }
+    return None
+  }
+
+  index(where f) {
+    let index = 0
+    for (x in self) {
+      f.call(x).ifTrue || { return Some.new(index) }
+      index = index + 1
     }
     return None
   }
@@ -941,6 +976,16 @@ class Iterator is Iterable {
 
 class List {
   size => self._$length
+
+  first {
+    if (self.size == 0) { return None }
+    return Some.new(self.at(0))
+  }
+
+  last {
+    if (self.size == 0) { return None }
+    return Some.new(self.at(self.size - 1))
+  }
 
   at(_ i) {
     return self._$at(i)
@@ -1326,18 +1371,8 @@ class Map {
     return result
   }
 
-  // 2-arg block `|k, v| { ... }` per entry, in iteration order.
-  each(_ f) {
-    let i = 0
-    while (i < self.size) {
-      f.call(self._$keyAt(i), self._$valueAt(i))
-      i = i + 1
-    }
-  }
-
-  // DEC-CT-E: the cursor value `iteratorValue` yields is the KEY (both Map and Set yield keys);
-  // `each(_)` above remains the 2-arg entry form for Map.
-
+  // DEC-CT-E: the cursor value `iteratorValue` yields is the KEY (both Map and Set yield keys).
+  // Pair traversal uses `entries.each`, not a receiver-specific callback arity.
   iteratorValue(_ cursor) => self._$keyAt(cursor)
 
   // Structural equality: same key set, pairwise-== values (order-independent
@@ -1444,6 +1479,16 @@ class Tuple {
   positionals => self._$positionals
   labeled => self._$labeled
   labelAt(_ index) => self._$labelAt(index)
+
+  first {
+    if (self.size == 0) { return None }
+    return Some.new(self.at(0))
+  }
+
+  last {
+    if (self.size == 0) { return None }
+    return Some.new(self.at(self.size - 1))
+  }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
   // native `Tuple` rendering exactly — `(a, b)`, `()` when empty. Derived over
@@ -1893,6 +1938,16 @@ class Range is Iterable {
 // (law 8); adding native or local overrides is a spec violation.
 class Bytes {
   size => self._$size
+
+  first {
+    if (self.size == 0) { return None }
+    return Some.new(self.at(0))
+  }
+
+  last {
+    if (self.size == 0) { return None }
+    return Some.new(self.at(self.size - 1))
+  }
 
   at(_ i) => self._$at(i)
 

@@ -97,9 +97,30 @@ iteration.
 
 ## 5. Combinators are `.ph` over the protocol
 
-`.each(_)`, `.map(_)`, `.filter(_)`, `.fold(initial:,using:)`, and `.reduce(using:)` are `core.ph` defaults written on
-top of `iterate`/`iteratorValue`, so one contract covers all iteration. `.each` is
-the **full-traversal** form (no `break`/`continue`); `for` is the loop-control form.
+Direct collection operations are eager. They traverse the receiver before the
+send returns and materialize transform results as `List` values:
+
+| Selector | Result | Behavior |
+|---|---|---|
+| `map(_)`, `map(indexed:)` | `List` | transform each value; indexed callbacks receive encounter ordinals `0, 1, 2, ...` |
+| `filter(_)`, `flatMap(_)` | `List` | retain matching values or concatenate callback results |
+| `each(_)`, `each(indexed:)` | `Unit` | full traversal; callback return values are ignored |
+| `find(where:)`, `index(where:)` | `Option` | first matching value or encounter index |
+| `any(where:)`, `all(where:)`, `none(where:)` | `Bool` | short-circuit predicate queries |
+| `count(where:)` | `Number` | count every matching value |
+| `fold(initial:,using:)` | accumulator | explicit-initial left fold |
+| `reduce(using:)` | `Option` | `None` for empty, `Some(value)` for nonempty input |
+
+These `Iterable` defaults are written over `iterate(_)`/`iteratorValue(_)`, so
+one protocol covers all collection families. Predicate selectors use the
+`where:` label; positional predicate aliases are retired. `each` always returns
+canonical `Unit`.
+
+Laziness starts only at the explicit `.iter` boundary. For example,
+`xs.iter.filter(pred).map(f).take(10)` creates a lazy `Iterator` pipeline, while
+`xs.filter(pred)` returns its eager `List` immediately. `where`, `skip`, and
+`take` are not direct collection-stage selectors.
+
 `List` is the reference iterable ([collection-protocol.md](core/collection-protocol.md));
 `Map`/`Set`/`Tuple`/`Range` and user types conform by implementing the two
 selectors.

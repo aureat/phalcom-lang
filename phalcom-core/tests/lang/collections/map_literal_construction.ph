@@ -13,14 +13,15 @@
 // `Symbol#==` comparing equal for two separately-interned-but-identical
 // symbols, a pre-existing gap outside U-COLLTYPES's scope (see
 // DEFERRED.md). `keys`/`values`/`each(_)` read the map's own stored keys
-// back directly (no re-comparison needed) and are exercised instead.
+// back directly (no re-comparison needed) and are exercised instead. Pair
+// traversal uses `entries.each`; `Map#each` is the ordinary one-value protocol.
 
 const m = {a: 1, b: 2}
 System.print(m)
 System.print(m.size)
 System.print(m.keys.toList)
 System.print(m.values.toList)
-m.each |k, v| {
-  System.print(k)
-  System.print(v)
+m.entries.each |entry| {
+  System.print(entry.key)
+  System.print(entry.value)
 }

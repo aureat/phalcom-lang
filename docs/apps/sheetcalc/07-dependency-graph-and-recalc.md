@@ -513,7 +513,7 @@ native-driven in exactly the code this document already specifies:
 
 1. **`SUM(A1:A10)` and every other range-consuming function** in
    [08-functions.md](08-functions.md) iterates its range with
-   `range.each { ref => ... }` or `.reduce { ... }` — both native-driven
+   `range.each { ref => ... }` or `.fold(initial: 0, using: { ... })` — both native-driven
    blocks. A `RefLit#eval` that yields, called from inside that `each`, is
    exactly trap 1.
 2. **Every `for`/`.each`/`.map` this very document uses** in §1–§5
@@ -537,8 +537,8 @@ executes in the dynamic extent of a fiber that calls `Fiber.yield(_)`.
 > verified on native `List`s and user `Iterable`s alike.
 >
 > So the real requirement is narrower: within a yielding fiber's dynamic extent,
-> replace the **block-taking combinators** (`.each`/`.map`/`.where`/`.filter`/
-> `.reduce`) with **`for`** loops. An indexed `while` also works but is rarely
+> replace the **block-taking combinators** (`.each`/`.map`/`.filter`/`.fold`/
+> `.reduce`, including explicit `.iter` pipelines) with **`for`** loops. An indexed `while` also works but is rarely
 > necessary. `sumRange_` below is therefore more defensive than it needs to be;
 > a `for (r in refs)` loop over the same body is fiber-safe and reads far
 > better. The tradeoff table in §6.4 keeps its shape, but option (b)'s cost
@@ -549,7 +549,7 @@ The pattern below (an indexed `while`, per findings §8) is the maximally
 conservative form:
 
 ```phalcom
-// SUM, hand-rolled to be fiber-safe. Compare to the two-line `.reduce`
+// SUM, hand-rolled to be fiber-safe. Compare to the two-line `.fold`
 // this replaces.
 sumRange_(refs, ctx) {
   var total = Value.CellNum.of(0)
@@ -566,7 +566,7 @@ That is not a one-off cost. It applies to the evaluator's own dispatch loop,
 to `SUM`/`COUNTIF`/every range function in [08](08-functions.md), and to
 anything added later that touches a `List`/`Range` while a fiber above it
 might yield. Inside any fiber that yields, **the entire idiomatic collection
-API — `.each`, `.map`, `.reduce`, lazy `.where{}` views — is off-limits**,
+API — `.each`, `.map`, `.filter`, `.fold`, `.reduce`, explicit `.iter` pipelines — is off-limits**,
 which is the exact sentence findings §8 uses to describe the general trap,
 now shown concretely on this program's own function library.
 
@@ -590,7 +590,7 @@ program, or for a v2 of this one, if a use case ever needs partial/on-demand
 recomputation.
 
 > **Commentary.** Phalcom has two flagship features: a Smalltalk-style
-> block/collection API (`.each`, `.map`, `.reduce`, lazy `.where{}` views —
+> block/collection API (`.each`, `.map`, `.filter`, `.fold`, `.reduce`, explicit `.iter` pipelines —
 > the idiom every other document in this spec reaches for by default), and
 > fibers (`Fiber.new{}`, `#call()`, `Fiber.yield(_)` — verified working,
 > including 50,000 frames of recursion, findings §8). Individually, both are

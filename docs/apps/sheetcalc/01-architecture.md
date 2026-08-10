@@ -189,11 +189,11 @@ that yields:
 |---|---|
 | `for (x in anything)` | **Yes** — verified on native `List` and user `Iterable` |
 | `while (...)` | **Yes** |
-| `.each`/`.map`/`.where`/`.filter`/`.reduce { }` | **No** — `CannotYieldAcrossNativeFrame` |
+| `.each`/`.map`/`.filter`/`.fold`/`.reduce { }` and `.iter` pipelines | **No** — `CannotYieldAcrossNativeFrame` |
 
 So a demand-driven evaluator is buildable; it must simply use `for` rather than
 the block-taking combinators in the evaluator and function library. `SUM`'s
-`range.reduce(0) { ... }` becomes a `for` loop. That is a real constraint and a
+`range.fold(initial: 0, using: { ... })` becomes a `for` loop. That is a real constraint and a
 real style tax, but it is **not** the wholesale abandonment of the collection
 API the first draft claimed.
 
@@ -202,7 +202,7 @@ sufficient, not because fibers are unavailable. The decision is deferred in
 [07-dependency-graph-and-recalc.md §6](07-dependency-graph-and-recalc.md).
 
 > **Commentary.** What survives the correction is still worth saying: the
-> constraint is invisible at the point of use. `range.reduce(0) { ... }` and
+> constraint is invisible at the point of use. `range.fold(initial: 0, using: { ... })` and
 > `for (r in range) { }` look equally innocent, and only one of them works
 > inside a yielding fiber. Neither the iteration docs nor the concurrency docs
 > mention the other's constraint. The runtime's diagnostic is genuinely

@@ -1,5 +1,5 @@
 // area: sequence
-// spec: iteration.md §5; ADR-0035
+// spec: D.1 eager traversal + E.1 explicit iterator pipeline
 // status: PASS
 // toList materializes a view into List
 

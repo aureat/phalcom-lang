@@ -1,1 +1,1 @@
-System.print((0..).iter.any |x| { x > 5 })
+System.print((0..).iter.any(where: |x| { x > 5 }))

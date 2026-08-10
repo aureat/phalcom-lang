@@ -1,7 +1,7 @@
 // area: sequence
-// spec: iteration.md §5; ADR-0035
+// spec: D.1 eager traversal + E.1 explicit iterator pipeline
 // status: PASS
-// Iterator map applies its function during traversal
+// Iterator map applies its function during traversal; no direct collection lazy API is involved.
 
 let source = [1, 2, 3]
 let view = source.iter.map |x| { x * 2 }

@@ -22,8 +22,8 @@ class _PropertyContext {
 
   events -> Map<Symbol, Int> {
     const copied = Map.new()
-    _events.each |label, count| {
-      copied.at(label, put: count)
+    _events.entries.each |entry| {
+      copied.at(entry.key, put: entry.value)
     }
     return copied
   }

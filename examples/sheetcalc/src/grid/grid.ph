@@ -93,6 +93,6 @@ class Grid {
 
   /// Iterate over all occupied cells (Ref, Cell) pairs. Used by renderer.
   each(_ f) {
-    _cells.each |k, v| { f.call(k, v) }
+    _cells.entries.each |entry| { f.call(entry.key, entry.value) }
   }
 }

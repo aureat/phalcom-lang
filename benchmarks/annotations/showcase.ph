@@ -115,5 +115,5 @@ class Cart {
   /// The running total. `@computed` memoizes and recomputes when `_items` goes
   /// dirty; the glitch policy (recompute once after inputs settle) is a
   /// documented semantic, not an accident.
-  @computed total => _items.fold(0) |s, it| { s + it.price }
+  @computed total => _items.fold(initial: 0, using: |s, it| { s + it.price })
 }

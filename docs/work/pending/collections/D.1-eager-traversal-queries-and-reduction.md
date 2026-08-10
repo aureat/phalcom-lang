@@ -39,7 +39,7 @@ The complete cross-family return matrix is deferred. The generic eager transform
 
 ## 2. Repository behavior to replace
 
-Current `phalcom-core/core/core.ph` has all of these legacy behaviors:
+Before this migration, `phalcom-core/core/core.ph` had these legacy behaviors:
 
 - `Iterable#map(f)` returns `MapView.new(self,f)` lazily;
 - `filter(pred)` returns an eager List;
@@ -347,7 +347,7 @@ A singleton element equal to surface `None` returns `Some(None)`.
 
 ### 15.1 Retire old `reduce(init,f)`
 
-Current code and repository examples use the old two-positional-argument selector for explicit-initial reduction. Migrate them to `fold(initial:using:)`.
+Pre-migration code and repository examples used the old two-positional-argument selector for explicit-initial reduction. Migrate them to `fold(initial:using:)`.
 
 Do not leave `reduce(_,_)` as an alias. Its presence makes the conceptual distinction less clear and preserves a historical API the ratified design explicitly replaced.
 
@@ -377,7 +377,7 @@ If implementation HEAD already gained a narrower ordered-sequence abstraction af
 
 ## 17. Remove direct lazy collection sugar
 
-Current U-SEQ installed:
+The pre-D.1 U-SEQ surface installed:
 
 ```text
 Iterable#map      -> MapView
@@ -386,7 +386,8 @@ Iterable#skip     -> SkipView
 Iterable#take     -> TakeView
 ```
 
-D.1 must end with no direct concrete-collection selector that creates those lazy stages.
+D.1 removes that direct concrete-collection surface. The current lazy pipeline
+boundary is explicit `.iter`, owned by Spec E.
 
 Actions:
 
@@ -408,7 +409,7 @@ map.values
 map.entries
 ```
 
-Current `Map#each(f)` passes two arguments to `f` for every entry. Remove that override.
+The pre-migration `Map#each(f)` passed two arguments to `f` for every entry. Remove that override.
 
 Map should inherit the ordinary `Iterable#each(_)`, whose encountered value follows Map's ordinary iterator value on implementation HEAD (currently keys).
 

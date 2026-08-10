@@ -378,13 +378,14 @@ formula text.
 
 Every loop in this document (`BinOp#dependencies`, `RangeNode#evalRange`,
 `Call#dependencies`) is written as a hand-rolled `for (x in xs) { ... }`, not
-`xs.each { }` / `xs.reduce(...)`. That was a style choice made for a reason
+`xs.each { }` / `xs.fold(initial: ..., using: ...)`. That was a style choice made for a reason
 worth stating once, here, rather than repeating in every function
 implementation in 08.
 
 `for (x in xs) { }` compiles to a direct loop in the *current* frame
-(confirmed: `break` and, per core.ph's own `any`/`count(f)`, `return` both
-work correctly inside it). `xs.each { block }` and `xs.reduce(init) { block }`
+(confirmed: `break` and, per core.ph's own `any(where:)`/`count(where:)`, `return` both
+work correctly inside it). `xs.each { block }` and
+`xs.fold(initial: init, using: { block })`
 instead hand the block to a **native Rust primitive** that calls back into it.
 Findings §8 (`CannotYieldAcrossNativeFrame`, GAP-FIB-1) is specifically about
 that second shape: yielding a fiber from inside a block a native primitive is
@@ -399,7 +400,7 @@ for that dependency to be computed — and every `for`-loop site in this
 document (and in 08's `SUM`/`AVERAGE`/`MIN`/`MAX`/`COUNT`/`COUNTIF`/`VLOOKUP`)
 would remain yield-safe *only because* they are `for`, not `.each`/`.reduce`.
 Had this spec instead used the more idiomatic `Iterable` combinators
-(`xs.reduce(0) { acc, x => acc + x }` — genuinely the more natural style, and
+(`xs.fold(initial: 0, using: { acc, x => acc + x })` — genuinely the more natural style, and
 the one `core.ph` itself uses internally for `Iterable#each`/`#reduce`), it
 would need a rewrite before a fiber-based evaluator could touch it. This is
 recorded here so 07 does not have to rediscover it.

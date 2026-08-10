@@ -534,11 +534,10 @@ class Grid {
   maxRow  => _maxRow
   isEmpty => _minCol == None
 
-  // 2-arg block, matching Map's own each(k, v) shape (core.ph DEC-CT-E) —
-  // used by the renderer to walk every occupied address without knowing
-  // the bounds rectangle in advance.
+  // Entry traversal is explicit because Map#each is one-value traversal.
+  // This walks every occupied address without knowing the bounds rectangle.
   each(f) {
-    _cells.each { k, v => f.call(k, v) }
+    _cells.entries.each { entry => f.call(entry.key, entry.value) }
   }
 }
 ```
@@ -570,10 +569,9 @@ callers never need a `None`-check before reading `.cachedValue`.
 ## 7. `RefRange` — `A1:B7`
 
 A range reference enumerates the rectangle of `Ref`s between two corners. It
-is speced as an `Iterable` (the same kernel root `MapView`/`WhereView`/
-`SkipView` extend in `core.ph`) rather than a bespoke iterator class, so it
-gets `for`, `.toList`, `.where`, `.map` for free once `iterate`/
-`iteratorValue` are defined.
+is speced as an `Iterable` and can use the explicit `.iter` pipeline rather
+than a bespoke iterator class, so it gets `for`, `.toList`, and eager collection
+operations for free once `iterate`/`iteratorValue` are defined.
 
 ```phalcom
 class RefRange is Iterable {
@@ -671,7 +669,7 @@ a bare `for (x in self) { ... }` loop, which the compiler apparently lowers
 to direct `iterate`/`iteratorValue` sends with an inlined body (no `Block`
 object, no `.call()`), does not. This means a `RefRange` can be safely
 iterated with `for` inside a yielding fiber, but `.each { }`/`.map { }`/
-`.where { }` on the same `RefRange` cannot — the restriction is per-*method*,
+`.iter.filter { }` on the same `RefRange` cannot — the restriction is per-*method*,
 not per-*type*.
 
 **This does not change the v1 scope decision.** SheetCalc v1 is still
@@ -682,7 +680,7 @@ whoever picks that decision back up: it means a hand-rolled `while` is not
 actually the *only* escape hatch [01-architecture.md §6](01-architecture.md)
 suggests — a `for`-loop over a `RefRange`/`Range`/`List` is *also* safe inside
 a yielding fiber, and only the block-taking combinators
-(`each`/`map`/`where`/`filter`/`reduce`) need to be avoided. That is a
+(`each`/`map`/`filter`/`fold`/`reduce`) need to be avoided. That is a
 materially smaller restriction than "hand-roll every loop as an indexed
 `while`."
 

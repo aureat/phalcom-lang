@@ -214,6 +214,23 @@ pub fn check_pending(label: &str) {
     check_cases(label, true, false);
 }
 
+/// Runs one named PENDING case without opening the rest of a deferred lane.
+/// This keeps an independently complete migration gate visible while unrelated
+/// pending cases remain intentionally deferred.
+pub fn check_pending_case(label: &str, case: &str) {
+    let path = corpus_root().join(label).join("pending").join(format!("{case}.ph"));
+    assert!(path.exists(), "missing pending corpus case: {}", path.display());
+    let expected = expected_path(&path);
+    assert!(expected.exists(), "missing expected sidecar for {}", path.display());
+
+    let output = run(&path);
+    let case_label = case_name(&path);
+    assert_no_panic(&case_label, &output);
+    assert_success(&case_label, &output);
+    let expected_bytes = fs::read(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
+    assert_stdout_exact(&case_label, &output, &expected_bytes);
+}
+
 /// Disassembles the `for`-loop fixture at `rel_path` (relative to the corpus
 /// root) and asserts its taken path is a direct jump loop with no materialized
 /// block / `block_call` (C-ITER-4, the U-ITER §7.1 preclusion guard).

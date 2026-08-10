@@ -277,7 +277,7 @@ unfixed.
 | `for (x in aSet)` | VERIFIED-PRESENT | insertion order |
 | Block literal as a positional argument | VERIFIED-PRESENT | `Sort.by(l, { a, b => a < b })` works — blocks are ordinary values |
 | `List#sort` / `#sorted` | VERIFIED-ABSENT | `MessageNotUnderstood` |
-| Lazy views `.where{}.map{}` | VERIFIED-PRESENT | compose correctly |
+| Explicit iterator pipelines `.iter.filter{}.map{}` | VERIFIED-PRESENT | compose lazily and repeatably |
 | `break` inside `for` over a lazy view | VERIFIED-PRESENT | works |
 | List literal `[1, 2, 3]` | VERIFIED-PRESENT | |
 | Range literal `1..3` | **VERIFIED-ABSENT** | `..` *lexes* (`DotDot` token) but **does not parse** |

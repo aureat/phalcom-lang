@@ -366,7 +366,8 @@ cargo test -p phalcom-core --test lang -- --ignored  # PENDING spec targets (exp
   `sequence_mapview_basic`, `sequence_whereview_basic`, `sequence_skipview_basic`,
   `sequence_takeview_basic`, `sequence_takeview_repeatable` (law-2 compliance),
   `sequence_view_over_map_yields_keys` — and +2 NEGATIVE — `sequence_skip_negative_count_raises`,
-  `sequence_take_non_number_count_raises`. Tests the combinator breadth (`all`/`any`/`count`/`count(f)`/
-  `find`/`join`/`join(sep)`/`toList`) and the four lazy view classes (`MapView`/`WhereView`/`SkipView`/
-  `TakeView`), building over the cursor protocol (ADR-0035) and `Iterable` root (U-ITERABLE). No sugar
-  method wiring tests (DEC-SEQ-A decision pending).
+  `sequence_take_non_number_count_raises`. Tests the combinator breadth (`all(where:)`/`any(where:)`/`count`/`count(where:)`/
+  `find(where:)`/`join`/`join(sep)`/`toList`) plus the explicit `.iter` pipeline
+  (`MapIterator`/`FilterIterator`/`SkipIterator`/`TakeIterator`), building over the cursor protocol
+  (ADR-0048) and `Iterable` root. Predicate queries use labeled `where:` selectors; direct collection
+  transforms are eager.
