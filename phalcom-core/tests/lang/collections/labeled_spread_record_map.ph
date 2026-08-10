@@ -18,6 +18,14 @@ System.print(Map.from(recordFromMap).toString)
 System.print((#{ **() }).class == Unit)
 const gcRecord = #{ held: [1, 2], **(), after: System.gc }
 System.print(Map.from(gcRecord).toString)
+System.print(Map.from(#{ trailing: 1, }).toString)
+System.print(Map.from(#{ **recordSource, }).toString)
+System.print(Map.from(#{
+  multiline: 2,
+}).toString)
+System.print(Map.from(#{
+  **recordSource,
+}).toString)
 System.print({ before: 0, **tupleSource, after: 9 }.toString)
 System.print({ **recordSource }.toString)
 System.print({ **mapSource }.toString)
@@ -31,3 +39,12 @@ const duplicate = || {
 }.on(DuplicateKeyError) |e| { e.message }
 System.print(duplicate)
 System.print(trace)
+
+let recordTrace = []
+const recordLaterKey = || { recordTrace.append("record-later-key"); #recordLater }
+const recordLaterValue = || { recordTrace.append("record-later-value"); 10 }
+const recordDuplicate = || {
+  const ignored = #{ same: 0, **(same: 1,), [recordLaterKey.call()]: recordLaterValue.call() }
+}.on(Error) |e| { e.message }
+System.print(recordDuplicate)
+System.print(recordTrace)

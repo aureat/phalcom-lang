@@ -16,8 +16,9 @@ private `nil` sentinel), [object-model.md](object-model.md) §6 (kernel cycle),
 ## 1. The heap and object lifetime
 
 All heap objects — instances, classes/metaclasses, methods, modules, closures,
-strings, blocks, bound methods, upvalue cells, lists, fibers, maps, sets, tuples,
-ranges, families — live in one central `Heap`, a generational arena
+strings, blocks, bound methods, upvalue cells, lists, fibers, maps, sets, bytes,
+tuples, records, ranges, families, arbitrary-precision integers, and private
+compiler builders — live in one central `Heap`, a generational arena
 (`SlotMap<ObjRef, Object>`). Every heap object is named by a `Copy` **handle**
 (`ObjRef`, or `ClassId` for classes); a handle is an index-plus-generation, not a
 pointer. Immediates (`nil` sentinel, `Bool`, `Number`, `Symbol`) live inline in
@@ -97,7 +98,7 @@ its saved stack alone kept alive die with it.
 
 Tracing visits, per `Object` variant, every handle and every `Value` it stores.
 
-> **Regenerated from HEAD 2026-07-14** against all **16** `Object` variants and
+> **Regenerated from HEAD 2026-08-10** against all **21** `Object` variants and
 > every field of each payload struct. This table is normative and exhaustive: a
 > field absent here is asserted to hold **no handle**. The collector's `match` over
 > `Object` must likewise be exhaustive (§3), so a new variant cannot compile without
@@ -118,10 +119,14 @@ Tracing visits, per `Object` variant, every handle and every `Value` it stores.
 | **List** | each `elements` `Value` | — |
 | **Fiber** | each saved `stack` `Value`, each saved `frames` `CallFrame` (as under `VM::frames`, §2.1), each `open_upvalues` value, `resumer`, `result`, `entry`, each `checking` handle | `status`, `started`, `resume_slot`, `floor_depth`, `resume_mode` |
 | **Map** / **Set** | per `entries` tuple `(Value, Value, i64)`: `.0` (key) and `.1` (value) | `.2` (the cached hash), `index: HashMap<i64, Vec<usize>>` |
+| **Bytes** | **none** — raw octets only | the byte buffer contains no `Value` or handle |
 | **Tuple** | each `elements` `Value` | — |
+| **Record** | each `values` `Value` | labels are interned Symbols, not heap edges |
 | **PackBuilder** (private compiler/VM object) | each positional and labeled `Value` | labels are interned Symbols, not heap edges |
 | **Range** | `start`, `end` | `inclusive: bool` |
 | **Family** | `recv` | `selector: Symbol`, `open: bool` |
+| **LargeInt** | **none** — arbitrary-precision integer only | the integer contains no Phalcom handle |
+| **RecordLiteralBuilder** (private compiler/VM object) | each entry `value` | entry labels are interned Symbols, not heap edges |
 
 Two edges are easy to miss and each would free a live object:
 

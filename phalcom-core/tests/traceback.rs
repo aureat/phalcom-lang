@@ -46,6 +46,44 @@ fn test_json_traceback_format() {
 }
 
 #[test]
+fn test_list_spread_traceback_includes_spread_site() {
+    let file_path = std::env::temp_dir().join(format!("traceback_list_spread_{}.ph", std::process::id()));
+    fs::write(
+        &file_path,
+        "class Broken {\n  iterate(_ cursor) { return 0 }\n  iteratorValue(_ cursor) { throw Error.new(\"iterator value boom\") }\n}\n[*Broken.new()]\n",
+    )
+    .unwrap();
+
+    let output = run_bin(&["--trace-format", "json", file_path.to_str().unwrap()]);
+    let _ = fs::remove_file(&file_path);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("iterator value boom"), "Must contain iterator error: {stderr}");
+    assert!(stderr.contains(r#""name":"iteratorValue(_)""#), "Must contain iteratorValue frame: {stderr}");
+    assert!(stderr.contains(r#""line":5"#), "Must contain List spread caller line: {stderr}");
+}
+
+#[test]
+fn test_labeled_spread_traceback_includes_spread_site() {
+    let file_path = std::env::temp_dir().join(format!("traceback_labeled_spread_{}.ph", std::process::id()));
+    fs::write(
+        &file_path,
+        "class BadKey {\n  @constructor new() { _enabled = false }\n  enable() { _enabled = true }\n  hash { if (_enabled) { throw Error.new(\"hash boom\") }; 1 }\n}\nconst key = BadKey.new()\nconst source = { [key]: 1 }\nkey.enable()\n{ **source }\n",
+    )
+    .unwrap();
+
+    let output = run_bin(&["--trace-format", "json", file_path.to_str().unwrap()]);
+    let _ = fs::remove_file(&file_path);
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Map key in ** expansion must be Symbol; got object"),
+        "Must contain labeled-spread key diagnostic: {stderr}"
+    );
+    assert!(stderr.contains(r#""line":9"#), "Must contain Map spread caller line: {stderr}");
+}
+
+#[test]
 fn test_recursion_collapse() {
     let file_path = std::env::temp_dir().join(format!("traceback_collapse_{}.ph", std::process::id()));
     // Create a loop recursion where go calls itself repeatedly.

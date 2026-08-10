@@ -3537,8 +3537,10 @@ impl<'source> Parser<'source> {
                 break;
             }
             self.skip_newlines();
+            // Leave the closing brace for the final `expect` below. Consuming
+            // it here would make every trailing-comma Record fail by asking
+            // for a second `}`.
             if matches!(self.peek(), Token::RBrace) {
-                self.advance();
                 break;
             }
         }

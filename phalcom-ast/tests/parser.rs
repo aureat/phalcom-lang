@@ -18,7 +18,7 @@
 //! grows, so their snapshots act as executable TODOs.
 
 use phalcom_ast::{
-    ast::{ClassMember, Expr, Statement},
+    ast::{ClassMember, Expr, RecordLiteralEntry, Statement},
     parse_source,
 };
 
@@ -169,6 +169,33 @@ fn class_declaration_with_trailing_newline_parses() {
     // newline the compound `class` statement parses (the bare, newline-less
     // form remains a separate grammar gap).
     insta::assert_snapshot!(parse("class Point {}\n"));
+}
+
+#[test]
+fn record_literals_accept_trailing_commas() {
+    let cases = [
+        ("#{ a: 1, }", false),
+        ("#{ **source, }", true),
+        ("#{\n  a: 1,\n}", false),
+        ("#{\n  **source,\n}", true),
+    ];
+
+    for (source, is_expansion) in cases {
+        let program = parse_source(source, 0).unwrap_or_else(|err| panic!("{source:?} should parse: {err:?}"));
+        let Statement::Expr {
+            expr: Expr::RecordLiteral(record),
+            ..
+        } = &program.statements[0]
+        else {
+            panic!("{source:?} should produce a Record literal expression");
+        };
+        assert_eq!(record.entries.len(), 1, "{source:?} should keep one entry");
+        assert_eq!(
+            matches!(&record.entries[0], RecordLiteralEntry::Expansion { .. }),
+            is_expansion,
+            "{source:?} parsed wrong entry kind",
+        );
+    }
 }
 
 #[test]

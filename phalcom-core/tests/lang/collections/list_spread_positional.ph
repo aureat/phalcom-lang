@@ -9,9 +9,13 @@ const fromList = [*[5, 6], 7]
 const fromRange = [*(0..3)]
 const fromUnit = [*(), 8]
 const limited = [*(0..).iter.take(3)]
+const gcList = [[1, 2], *(), System.gc]
+const large = [*(0..=65535)]
 
 System.print(mixed.toString)
 System.print(fromList.toString)
 System.print(fromRange.toString)
 System.print(fromUnit.toString)
 System.print(limited.toString)
+System.print(gcList.toString)
+System.print(large.size)
