@@ -2035,31 +2035,36 @@ Manually inspect these behaviors:
 
 The implementation must satisfy all of these:
 
-- [ ] `Signature.rest == None` is the only ordinary no-rest runtime state.
-- [ ] Rest-capable signatures use Positional/Labeled/Split/Complete metadata.
-- [ ] `is_rest: bool` is no longer semantically authoritative.
-- [ ] `SignatureKind::Variadic` is removed by F.3 completion.
-- [ ] `Signature.variadic` storage is removed by F.3 completion.
-- [ ] Rest captures are Unit or Tuple only.
-- [ ] Fixed labeled parameters match an ordered prefix.
-- [ ] Matching never reorders/searches labels by name.
-- [ ] Matching uses no argument value types.
-- [ ] Matching allocates nothing.
-- [ ] Exact lookup completes across inheritance before rest lookup begins.
-- [ ] One rest pattern per base family per class is enforced.
+- [x] `Signature.rest == None` is the only ordinary no-rest runtime state.
+- [x] Rest-capable signatures use Positional/Labeled/Split/Complete metadata.
+- [x] `is_rest: bool` is no longer semantically authoritative.
+- [x] `SignatureKind::Variadic` is removed by F.3 completion.
+- [x] `Signature.variadic` storage is removed by F.3 completion.
+- [x] Rest captures are Unit or Tuple only.
+- [x] Fixed labeled parameters match an ordered prefix.
+- [x] Matching never reorders/searches labels by name.
+- [x] Matching uses no argument value types.
+- [x] Matching allocates nothing.
+- [x] Exact lookup completes across inheritance before rest lookup begins.
+- [x] One rest pattern per base family per class is enforced.
 - [ ] Reflective install cannot bypass that invariant.
 - [ ] Subclass non-accepting rest allows superclass fallback.
-- [ ] Static and dynamic Method sends share the same fallback algorithm.
-- [ ] Non-Method selector kinds do not accidentally enter rest-family fallback.
+- [x] Static and dynamic Method sends share the same fallback algorithm.
+- [x] Non-Method selector kinds do not accidentally enter rest-family fallback.
 - [ ] Super fallback starts at the exact same superclass boundary as exact super lookup.
-- [ ] Rest selector strings are not parsed/probed for dispatch.
-- [ ] U9 `name(*)` fallback/cache is gone.
-- [ ] Old List call-prologue packing is gone.
-- [ ] dNU receives the original concrete selector and original flat args.
-- [ ] Successful exact static calls perform no rest lookup.
-- [ ] Native rest methods are not silently accepted.
+- [x] Rest selector strings are not parsed/probed for dispatch.
+- [x] U9 `name(*)` fallback/cache is gone.
+- [x] Old List call-prologue packing is gone.
+- [x] dNU receives the original concrete selector and original flat args.
+- [x] Successful exact static calls perform no rest lookup.
+- [x] Native rest methods are not silently accepted.
 - [ ] Public primitive-floor delta remains 0.
-- [ ] Block rest remains unimplemented in F.3 and reserved for F.4.
+- [x] Block rest remains unimplemented in F.3 and reserved for F.4.
+
+Verification note (2026-08-10): checked rows above are supported by the current
+source audit and focused F.3/F.2 lanes. Reflective method installation,
+subclass/super fallback, primitive-floor accounting, GC/stress, and performance
+rows remain open until their dedicated matrix lanes are run.
 
 ---
 
@@ -2067,34 +2072,34 @@ The implementation must satisfy all of these:
 
 F.3 is complete when:
 
-- [ ] F.2 amended dynamic-pack path is the active prerequisite.
-- [ ] Parameter AST/compiler representation distinguishes `*`, `**`, and `***` rest binders.
-- [ ] `RestMode` and `RestLayout` are implemented.
-- [ ] `Signature.rest` is the single runtime source of truth.
+- [x] F.2 amended dynamic-pack path is the active prerequisite.
+- [x] Parameter AST/compiler representation distinguishes `*`, `**`, and `***` rest binders.
+- [x] `RestMode` and `RestLayout` are implemented.
+- [x] `Signature.rest` is the single runtime source of truth.
 - [ ] Invalid rest combinations/orderings produce structured diagnostics.
-- [ ] Structural rest selector formatting is canonical and unambiguous.
-- [ ] `ClassObject` has a rest-family index.
+- [x] Structural rest selector formatting is canonical and unambiguous.
+- [x] `ClassObject` has a rest-family index.
 - [ ] Normal and reflective method installation maintain the index.
-- [ ] One-rest-pattern-per-family is enforced per class.
-- [ ] `RestLayout::accepts` implements the four exact predicates.
-- [ ] Shared rest fallback lookup walks inheritance deterministically.
-- [ ] Exact lookup always precedes rest fallback across the full chain.
-- [ ] `finish_capture` finalizes Unit/Tuple directly through A.3 semantics.
-- [ ] VM rest-call repacker rewrites into declaration-local order before frame entry.
-- [ ] Eligible static Method `Invoke` exact miss uses shared rest fallback.
-- [ ] Eligible dynamic Method `InvokePack` exact miss uses shared rest fallback.
+- [x] One-rest-pattern-per-family is enforced per class.
+- [x] `RestLayout::accepts` implements the four exact predicates.
+- [x] Shared rest fallback lookup walks inheritance deterministically.
+- [x] Exact lookup always precedes rest fallback across the full chain.
+- [x] `finish_capture` finalizes Unit/Tuple directly through A.3 semantics.
+- [x] VM rest-call repacker rewrites into declaration-local order before frame entry.
+- [x] Eligible static Method `Invoke` exact miss uses shared rest fallback.
+- [x] Eligible dynamic Method `InvokePack` exact miss uses shared rest fallback.
 - [ ] Super exact miss uses correct above-defining-class rest fallback.
-- [ ] Reflective ordinary send is consistent if present.
-- [ ] dNU receives the original concrete call.
-- [ ] `Method#arity` remains fixed/minimum positional arity.
-- [ ] Native rest methods are rejected unless separately ratified.
-- [ ] U9 List packing is removed.
-- [ ] U9 wildcard probe/cache is removed.
-- [ ] `SignatureKind::Variadic` is removed.
-- [ ] `Signature.variadic` storage is removed.
+- [x] Reflective ordinary send is consistent if present.
+- [x] dNU receives the original concrete call.
+- [x] `Method#arity` remains fixed/minimum positional arity.
+- [x] Native rest methods are rejected unless separately ratified.
+- [x] U9 List packing is removed.
+- [x] U9 wildcard probe/cache is removed.
+- [x] `SignatureKind::Variadic` is removed.
+- [x] `Signature.variadic` storage is removed.
 - [ ] Static exact-send performance shows no unexplained regression.
-- [ ] No type-based dispatch is introduced.
-- [ ] No block-rest implementation is included.
+- [x] No type-based dispatch is introduced.
+- [x] No block-rest implementation is included.
 - [ ] Public primitive-floor delta is 0.
 
 ---
