@@ -3071,7 +3071,7 @@ impl<'source> Parser<'source> {
                 // behind B.3b's brace-grammar decision.
                 if (matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon))
                     || self.starts_computed_map_literal()
-                    || matches!(self.peek(), Token::DoubleAsterisk)
+                    || matches!(self.peek(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power)
                 {
                     return self.parse_map_literal(start);
                 }
@@ -3485,32 +3485,58 @@ impl<'source> Parser<'source> {
     fn parse_record_literal(&mut self) -> ParserResult<Expr> {
         let start = self.cur_start();
         self.advance(); // `#{`
+        self.skip_newlines();
         if matches!(self.peek(), Token::RBrace) {
             self.advance();
             return Ok(Expr::RecordLiteral(Box::new(RecordLiteralExpr {
-                fields: Vec::new(),
+                entries: Vec::new(),
                 range: (start..self.prev_end).into(),
             })));
         }
 
-        let mut fields = Vec::new();
+        let mut entries = Vec::new();
         loop {
-            let Some(label) = self.parse_product_label()? else {
-                return Err(self.error_here(strs(&["label"])));
+            self.skip_newlines();
+            let entry_start = self.cur_start();
+            let entry = match self.peek() {
+                Token::Asterisk if !matches!(self.peek_next(), Token::Colon) => {
+                    return Err(self.error_message_here("`*` is not valid in a Record literal; Record expansion uses the labeled lane with `**`"));
+                }
+                Token::TripleAsterisk if !matches!(self.peek_next(), Token::Colon) => {
+                    return Err(
+                        self.error_message_here("`***` is not valid in a Record literal; Record has no positional lane, use `**` for labeled expansion")
+                    );
+                }
+                Token::DoubleAsterisk | Token::Power if !matches!(self.peek_next(), Token::Colon) => {
+                    self.advance();
+                    let expr = self.parse_expr()?;
+                    RecordLiteralEntry::Expansion {
+                        expr,
+                        range: (entry_start..self.prev_end).into(),
+                    }
+                }
+                _ => {
+                    let Some(label) = self.parse_product_label()? else {
+                        return Err(self.error_here(strs(&["label"])));
+                    };
+                    let value = self.parse_expr()?;
+                    let label_start = match &label {
+                        ProductLabel::Static { range, .. } | ProductLabel::Computed { range, .. } => range.start,
+                    };
+                    RecordLiteralEntry::Field(RecordLiteralField {
+                        label,
+                        value,
+                        range: (label_start..self.prev_end).into(),
+                    })
+                }
             };
-            let value = self.parse_expr()?;
-            let label_start = match &label {
-                ProductLabel::Static { range, .. } | ProductLabel::Computed { range, .. } => range.start,
-            };
-            fields.push(RecordLiteralField {
-                label,
-                value,
-                range: (label_start..self.prev_end).into(),
-            });
+            entries.push(entry);
 
+            self.skip_newlines();
             if !self.eat(&Token::Comma) {
                 break;
             }
+            self.skip_newlines();
             if matches!(self.peek(), Token::RBrace) {
                 self.advance();
                 break;
@@ -3519,7 +3545,7 @@ impl<'source> Parser<'source> {
 
         self.expect(&Token::RBrace, &["\"}\""])?;
         Ok(Expr::RecordLiteral(Box::new(RecordLiteralExpr {
-            fields,
+            entries,
             range: (start..self.prev_end).into(),
         })))
     }
@@ -3540,7 +3566,14 @@ impl<'source> Parser<'source> {
         loop {
             self.skip_newlines();
             let key_start = self.cur_start();
-            if self.eat(&Token::DoubleAsterisk) {
+            if matches!(self.peek(), Token::Asterisk) {
+                return Err(self.error_message_here("`*` is not valid in a Map literal; Map expansion uses the labeled lane with `**`"));
+            }
+            if matches!(self.peek(), Token::TripleAsterisk) {
+                return Err(self.error_message_here("`***` is not valid in a Map literal; Map has no positional lane, use `**` for labeled expansion"));
+            }
+            if matches!(self.peek(), Token::DoubleAsterisk | Token::Power) {
+                self.advance();
                 let expr = self.parse_expr()?;
                 entries.push(MapLiteralEntry::Expansion {
                     expr,

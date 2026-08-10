@@ -160,6 +160,9 @@ pub enum RuntimeError {
     #[error("duplicate argument label `{label}`")]
     DuplicateArgumentLabel { label: String },
 
+    #[error("duplicate {product} `{label}`")]
+    DuplicateProductLabel { product: &'static str, label: String },
+
     #[error("* expansion requires Tuple, Unit, or an iterable value; got {found}")]
     NonIterableStarOperand { found: &'static str },
 

@@ -1,5 +1,6 @@
 //! Internal product construction boundary.
 
+use crate::error::RuntimeError;
 use crate::interner::Symbol;
 use crate::value::Value;
 use crate::vm::VM;
@@ -8,6 +9,15 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProductBuildError {
     DuplicateLabel(Symbol),
+}
+
+pub(crate) fn runtime_error(vm: &VM, product: &'static str, error: ProductBuildError) -> RuntimeError {
+    match error {
+        ProductBuildError::DuplicateLabel(label) => RuntimeError::DuplicateProductLabel {
+            product,
+            label: vm.resolve_symbol(label).to_owned(),
+        },
+    }
 }
 
 fn unique(entries: &[(Symbol, Value)]) -> Result<(), ProductBuildError> {

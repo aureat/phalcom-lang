@@ -222,5 +222,10 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
                 trace_value(*value, push);
             }
         }
+        Object::RecordLiteralBuilder(builder) => {
+            for (_, value) in builder.entries() {
+                trace_value(*value, push);
+            }
+        }
     }
 }

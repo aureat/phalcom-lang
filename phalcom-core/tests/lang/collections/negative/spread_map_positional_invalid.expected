@@ -1,0 +1,1 @@
+`*` is not valid in a Map literal; Map expansion uses the labeled lane with `**`

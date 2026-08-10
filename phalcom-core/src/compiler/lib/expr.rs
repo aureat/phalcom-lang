@@ -3,7 +3,7 @@ use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{
-    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, ProductLabel, RecordLiteralField,
+    BinaryOp, BlockExpr, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, ProductLabel, RecordLiteralEntry,
     SetLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry, UnaryOp,
 };
 use phalcom_common::range::SourceRange;
@@ -833,18 +833,55 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::RecordLiteral(record_expr) => {
                 let record_expr = *record_expr;
-                if record_expr.fields.is_empty() {
+                if record_expr.entries.is_empty() {
                     let idx = self.add_constant(Value::Unit);
                     self.emit(Bytecode::Constant(idx), record_expr.range);
                     return Ok(());
                 }
-                let mut seen = std::collections::HashSet::new();
-                let fields = checked_product_count("Record", record_expr.fields.len(), record_expr.range)?;
-                for RecordLiteralField { label, value, range } in record_expr.fields {
-                    self.compile_product_label(label, &mut seen, range)?;
-                    self.compile_expr(value)?;
+
+                let dynamic = record_expr.entries.iter().any(|entry| matches!(entry, RecordLiteralEntry::Expansion { .. }));
+                if !dynamic {
+                    let mut seen = std::collections::HashSet::new();
+                    let fields = checked_product_count("Record", record_expr.entries.len(), record_expr.range)?;
+                    for entry in record_expr.entries {
+                        let RecordLiteralEntry::Field(field) = entry else {
+                            unreachable!("static Record literal cannot contain expansion");
+                        };
+                        let phalcom_ast::ast::RecordLiteralField { label, value, range } = field;
+                        self.compile_product_label(label, &mut seen, range)?;
+                        self.compile_expr(value)?;
+                    }
+                    self.emit(Bytecode::BuildRecord { fields }, record_expr.range);
+                    return Ok(());
                 }
-                self.emit(Bytecode::BuildRecord { fields }, record_expr.range);
+
+                let builder_slot = self.reserve_pack_scratch("$record_literal_builder", record_expr.range)?;
+                self.emit(Bytecode::NewRecordLiteralBuilder, record_expr.range);
+                self.emit(Bytecode::SetLocal(builder_slot), record_expr.range);
+                self.emit(Bytecode::Pop, record_expr.range);
+                let mut seen = std::collections::HashSet::new();
+                for entry in record_expr.entries {
+                    match entry {
+                        RecordLiteralEntry::Field(field) => {
+                            let phalcom_ast::ast::RecordLiteralField { label, value, range } = field;
+                            // Keep builder below label/value so the append opcode
+                            // can consume `builder | label | value` after the
+                            // label's required-before-value evaluation.
+                            self.emit(Bytecode::GetLocal(builder_slot), range);
+                            self.compile_product_label(label, &mut seen, range)?;
+                            self.compile_expr(value)?;
+                            self.emit(Bytecode::RecordLiteralAppend, range);
+                        }
+                        RecordLiteralEntry::Expansion { expr, range } => {
+                            self.emit(Bytecode::GetLocal(builder_slot), range);
+                            self.compile_expr(expr)?;
+                            self.emit(Bytecode::RecordLiteralExpandLabels, range);
+                        }
+                    }
+                }
+                self.emit(Bytecode::GetLocal(builder_slot), record_expr.range);
+                self.emit(Bytecode::FinishRecordLiteral, record_expr.range);
+                self.release_pack_scratch_from(builder_slot, 1, record_expr.range);
             }
             Expr::MapLiteral(map_expr) => {
                 let map_expr = *map_expr;
@@ -875,7 +912,10 @@ impl<'vm> Compiler<'vm> {
                             self.compile_expr(value)?;
                             self.emit(Bytecode::MapLiteralInsertUnique, range);
                         }
-                        MapLiteralEntry::Expansion { .. } => return Err(CompilerError::Message("Map literal `**` expansion is pending Spec F".to_string())),
+                        MapLiteralEntry::Expansion { expr, range } => {
+                            self.compile_expr(expr)?;
+                            self.emit(Bytecode::MapLiteralExpandLabels, range);
+                        }
                     }
                 }
                 self.emit(Bytecode::FinishMapLiteral, map_expr.range);

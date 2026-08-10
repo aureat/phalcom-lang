@@ -16,7 +16,7 @@ use crate::method::MethodObject;
 use crate::value::Value;
 
 use super::ArgumentPackBuilderObject;
-use super::{FiberObject, ObjRef};
+use super::{FiberObject, ObjRef, RecordLiteralBuilderObject};
 
 /// The tagged payload stored at each live [`ObjRef`] in the [`super::Heap`].
 ///
@@ -132,6 +132,8 @@ pub enum Object {
     LargeInt(num_bigint::BigInt),
     /// Private compiler/VM-only outgoing argument assembly state.
     PackBuilder(Box<ArgumentPackBuilderObject>),
+    /// Private compiler/VM-only dynamic Record literal assembly state.
+    RecordLiteralBuilder(Box<RecordLiteralBuilderObject>),
 }
 
 /// A bound `::` method reference (selectors.md §3, U16-Open, U16-Pinned).

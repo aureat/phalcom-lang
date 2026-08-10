@@ -177,6 +177,7 @@ impl Value {
                 Object::LargeInt(_) => vm.universe.classes.int_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
                 Object::PackBuilder(_) => panic!("pack builders are not surface values"),
+                Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface values"),
             },
         }
     }
@@ -225,6 +226,7 @@ impl Value {
                 | Object::Family(_)
                 | Object::LargeInt(_) => CallContext::Instance { instance: *id },
                 Object::PackBuilder(_) => panic!("pack builders are not surface receivers"),
+                Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface receivers"),
                 Object::Class(_) => CallContext::Class { class: *id },
                 Object::Module(_) => CallContext::Module { module: *id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),

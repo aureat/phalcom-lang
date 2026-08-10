@@ -1032,10 +1032,19 @@ pub enum TupleLiteralEntry {
 /// A record literal written with `#{...}` product syntax.
 #[derive(Debug, Clone)]
 pub struct RecordLiteralExpr {
-    /// The record fields in source order.
-    pub fields: Vec<RecordLiteralField>,
+    /// The record entries in source order.
+    pub entries: Vec<RecordLiteralEntry>,
     /// The source span covering the full record literal.
     pub range: SourceRange,
+}
+
+/// A Record literal entry: an explicit field or a labeled-lane expansion.
+#[derive(Debug, Clone)]
+pub enum RecordLiteralEntry {
+    /// An explicit Record field.
+    Field(RecordLiteralField),
+    /// A `**source` labeled-lane expansion.
+    Expansion { expr: Expr, range: SourceRange },
 }
 
 /// A record field entry.

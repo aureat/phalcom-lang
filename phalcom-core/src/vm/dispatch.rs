@@ -77,6 +77,27 @@ impl VM {
         value.lookup_method(self, iterate).is_some() && value.lookup_method(self, iterator_value).is_some()
     }
 
+    /// Copies the ordered labeled lane exposed by a `**` source. The returned
+    /// associations own no heap borrows, so destinations may re-enter the VM
+    /// while consuming them.
+    fn snapshot_labeled_lane(&self, source: Value) -> Result<Vec<(Symbol, Value)>, RuntimeError> {
+        match source {
+            Value::Unit => Ok(Vec::new()),
+            Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => Ok(self.heap.tuple(id).labeled_entries().collect()),
+            Value::Obj(id) if matches!(self.heap.get(id), Object::Record(_)) => Ok(self.heap.record(id).entries().collect()),
+            Value::Obj(id) if matches!(self.heap.get(id), Object::Map(_)) => self
+                .heap
+                .map(id)
+                .entries()
+                .map(|(key, value)| match key {
+                    Value::Symbol(label) => Ok((label, value)),
+                    _ => Err(RuntimeError::NonSymbolMapKeyInExpansion { found: key.type_name() }),
+                })
+                .collect(),
+            value => Err(RuntimeError::InvalidStarStarOperand { found: value.type_name() }),
+        }
+    }
+
     fn dynamic_pack_selector(&mut self, base: Symbol, kind: PackSendKind, positionals: usize, labels: &[Symbol]) -> PhResult<Symbol> {
         let base = self.resolve_symbol(base).to_owned();
         let mut slots = Vec::with_capacity(positionals + labels.len());
@@ -1793,29 +1814,16 @@ impl VM {
                     let Value::Obj(builder) = builder else {
                         return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
                     };
-                    let entries: Result<Vec<(crate::interner::Symbol, Value)>, RuntimeError> = match operand {
-                        Value::Unit => Ok(Vec::new()),
-                        Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => {
-                            let tuple = self.heap.tuple(id);
-                            Ok(tuple.labeled_entries().collect())
+                    let entries = if complete {
+                        match operand {
+                            Value::Unit => Vec::new(),
+                            Value::Obj(id) if matches!(self.heap.get(id), Object::Tuple(_)) => self.snapshot_labeled_lane(operand)?,
+                            value => return Err(RuntimeError::InvalidStarStarStarOperand { found: value.type_name() }.into()),
                         }
-                        Value::Obj(id) if !complete && matches!(self.heap.get(id), Object::Record(_)) => Ok(self.heap.record(id).entries().collect()),
-                        Value::Obj(id) if !complete && matches!(self.heap.get(id), Object::Map(_)) => self
-                            .heap
-                            .map(id)
-                            .entries()
-                            .map(|(key, value)| match key {
-                                Value::Symbol(label) => Ok((label, value)),
-                                _ => Err(RuntimeError::NonSymbolMapKeyInExpansion { found: key.type_name() }),
-                            })
-                            .collect(),
-                        value => Err(if complete {
-                            RuntimeError::InvalidStarStarStarOperand { found: value.type_name() }
-                        } else {
-                            RuntimeError::InvalidStarStarOperand { found: value.type_name() }
-                        }),
+                    } else {
+                        self.snapshot_labeled_lane(operand)?
                     };
-                    for (label, value) in entries? {
+                    for (label, value) in entries {
                         self.heap
                             .pack_builder_mut(builder)
                             .append_labeled(label, value)
@@ -1852,8 +1860,8 @@ impl VM {
                     }
                     let (positionals, labels, values) = self.heap.pack_builder_mut(id).take_parts();
                     let labeled = labels.into_iter().zip(values).collect();
-                    let tuple = crate::product::finish_tuple(self, positionals, labeled)
-                        .map_err(|error| RuntimeError::Internal(format!("tuple construction failed: {error:?}")))?;
+                    let tuple =
+                        crate::product::finish_tuple(self, positionals, labeled).map_err(|error| crate::product::runtime_error(self, "Tuple label", error))?;
                     self.stack.push(tuple);
                 }
                 Bytecode::InvokePack { base_name, kind, access } => {
@@ -1965,8 +1973,8 @@ impl VM {
                         positionals.push(self.pop()?);
                     }
                     positionals.reverse();
-                    let product = crate::product::finish_tuple(self, positionals, entries)
-                        .map_err(|error| RuntimeError::Internal(format!("tuple construction failed: {error:?}")))?;
+                    let product =
+                        crate::product::finish_tuple(self, positionals, entries).map_err(|error| crate::product::runtime_error(self, "Tuple label", error))?;
                     self.stack.push(product);
                 }
                 Bytecode::BuildRecord { fields } => {
@@ -1984,8 +1992,55 @@ impl VM {
                         entries.push((label, value));
                     }
                     entries.reverse();
-                    let product = crate::product::finish_record(self, entries)
-                        .map_err(|error| RuntimeError::Internal(format!("record construction failed: {error:?}")))?;
+                    let product = crate::product::finish_record(self, entries).map_err(|error| crate::product::runtime_error(self, "Record field", error))?;
+                    self.stack.push(product);
+                }
+                Bytecode::NewRecordLiteralBuilder => {
+                    let id = self.heap.alloc_record_literal_builder();
+                    self.stack.push(Value::Obj(id));
+                }
+                Bytecode::RecordLiteralAppend => {
+                    let value = self.pop()?;
+                    let label = self.pop()?;
+                    let builder = self.pop()?;
+                    let Value::Symbol(label) = label else {
+                        return Err(RuntimeError::Type {
+                            expected: "Symbol Record label",
+                            found: label.type_name(),
+                        }
+                        .into());
+                    };
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());
+                    };
+                    if !matches!(self.heap.get(id), Object::RecordLiteralBuilder(_)) {
+                        return Err(RuntimeError::Internal("Record literal builder has wrong object kind".into()).into());
+                    }
+                    self.heap.record_literal_builder_mut(id).append(label, value);
+                }
+                Bytecode::RecordLiteralExpandLabels => {
+                    let source = self.pop()?;
+                    let builder = self.pop()?;
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());
+                    };
+                    if !matches!(self.heap.get(id), Object::RecordLiteralBuilder(_)) {
+                        return Err(RuntimeError::Internal("Record literal builder has wrong object kind".into()).into());
+                    }
+                    for (label, value) in self.snapshot_labeled_lane(source)? {
+                        self.heap.record_literal_builder_mut(id).append(label, value);
+                    }
+                }
+                Bytecode::FinishRecordLiteral => {
+                    let builder = self.pop()?;
+                    let Value::Obj(id) = builder else {
+                        return Err(RuntimeError::Internal("Record literal builder is not an object".into()).into());
+                    };
+                    if !matches!(self.heap.get(id), Object::RecordLiteralBuilder(_)) {
+                        return Err(RuntimeError::Internal("Record literal builder has wrong object kind".into()).into());
+                    }
+                    let entries = self.heap.record_literal_builder_mut(id).take_entries();
+                    let product = crate::product::finish_record(self, entries).map_err(|error| crate::product::runtime_error(self, "Record field", error))?;
                     self.stack.push(product);
                 }
                 Bytecode::BeginMapLiteral => self.stack.push(Value::Obj(self.heap.alloc_map())),
@@ -2003,6 +2058,30 @@ impl VM {
                         return Err(RuntimeError::Internal("Map literal builder is not a Map".to_string()).into());
                     }
                     crate::primitive::map::map_literal_insert_unique(self, id, key, value)?;
+                }
+                Bytecode::MapLiteralExpandLabels => {
+                    let source = self.pop()?;
+                    let map = *self
+                        .stack
+                        .last()
+                        .ok_or(RuntimeError::Internal("Stack underflow for MapLiteralExpandLabels".into()))?;
+                    let Value::Obj(id) = map else {
+                        return Err(RuntimeError::Internal("Map literal builder is not an object".into()).into());
+                    };
+                    if !matches!(self.heap.get(id), Object::Map(_)) {
+                        return Err(RuntimeError::Internal("Map literal builder is not a Map".into()).into());
+                    }
+                    let entries = self.snapshot_labeled_lane(source)?;
+                    let count = entries.len();
+                    for (label, value) in entries.into_iter().rev() {
+                        self.stack.push(Value::Symbol(label));
+                        self.stack.push(value);
+                    }
+                    for _ in 0..count {
+                        let value = self.pop()?;
+                        let key = self.pop()?;
+                        crate::primitive::map::map_literal_insert_unique(self, id, key, value)?;
+                    }
                 }
                 Bytecode::FinishMapLiteral => {}
                 Bytecode::BeginListLiteral => self.stack.push(Value::Obj(self.heap.alloc_list(Vec::new()))),

@@ -66,7 +66,7 @@ pub(crate) fn expect_index(value: &Value) -> PhResult<usize> {
 pub fn tuple_from_list_internal(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let list_id: ObjRef = expect_list(vm, &args[0])?;
     let elements = vm.heap.list(list_id).elements().to_vec();
-    finish_tuple(vm, elements, Vec::new()).map_err(|error| RuntimeError::Internal(format!("tuple conversion failed: {error:?}")).into())
+    finish_tuple(vm, elements, Vec::new()).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }
 
 /// Signature: `Tuple::size_` — the tuple's fixed arity.
@@ -115,13 +115,13 @@ pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 pub fn tuple_raw_positionals(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
     let values = vm.heap.tuple(id).positionals().to_vec();
-    finish_tuple(vm, values, Vec::new()).map_err(|error| RuntimeError::Internal(format!("tuple projection failed: {error:?}")).into())
+    finish_tuple(vm, values, Vec::new()).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }
 
 pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
     let entries = vm.heap.tuple(id).labeled_entries().collect();
-    finish_tuple(vm, Vec::new(), entries).map_err(|error| RuntimeError::Internal(format!("tuple projection failed: {error:?}")).into())
+    finish_tuple(vm, Vec::new(), entries).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }
 
 /// Signature: `Tuple::slice_(_,_)` — rebuild a canonical half-open total-order slice.
@@ -160,5 +160,5 @@ pub fn tuple_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
             labeled.push((labels[index - positional_len], values[index]));
         }
     }
-    finish_tuple(vm, positionals, labeled).map_err(|error| RuntimeError::Internal(format!("tuple slice failed: {error:?}")).into())
+    finish_tuple(vm, positionals, labeled).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }

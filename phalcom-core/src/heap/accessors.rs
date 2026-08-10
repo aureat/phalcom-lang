@@ -8,6 +8,7 @@ use crate::heap::ListObject;
 use crate::heap::MapObject;
 use crate::heap::ModuleObject;
 use crate::heap::RangeObject;
+use crate::heap::RecordLiteralBuilderObject;
 use crate::heap::RecordObject;
 use crate::heap::StringObject;
 use crate::heap::TupleObject;
@@ -18,6 +19,27 @@ use super::object::{BoundMethodObject, FamilyObject};
 use super::{ClassId, FiberObject, Heap, ObjRef, Object};
 
 impl Heap {
+    pub fn record_literal_builder(&self, id: ObjRef) -> &RecordLiteralBuilderObject {
+        match self.get(id) {
+            Object::RecordLiteralBuilder(builder) => builder,
+            _ => panic!("ObjRef {id:?} is not a RecordLiteralBuilderObject"),
+        }
+    }
+
+    pub fn record_literal_builder_mut(&mut self, id: ObjRef) -> &mut RecordLiteralBuilderObject {
+        match self.get_mut(id) {
+            Object::RecordLiteralBuilder(builder) => builder,
+            _ => panic!("ObjRef {id:?} is not a RecordLiteralBuilderObject"),
+        }
+    }
+
+    pub fn as_record_literal_builder(&self, id: ObjRef) -> Option<&RecordLiteralBuilderObject> {
+        match self.objects.get(id) {
+            Some(Object::RecordLiteralBuilder(builder)) => Some(builder),
+            _ => None,
+        }
+    }
+
     pub fn pack_builder(&self, id: ObjRef) -> &ArgumentPackBuilderObject {
         match self.get(id) {
             Object::PackBuilder(builder) => builder,

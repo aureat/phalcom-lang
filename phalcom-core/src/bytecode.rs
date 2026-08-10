@@ -70,6 +70,11 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "ListLiteralAppend",
     "FinishListLiteral",
     "ListTryExpandTuplePositionals",
+    "NewRecordLiteralBuilder",
+    "RecordLiteralAppend",
+    "RecordLiteralExpandLabels",
+    "FinishRecordLiteral",
+    "MapLiteralExpandLabels",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -478,12 +483,22 @@ pub enum Bytecode {
     FinishListLiteral,
     /// Tries Unit/Tuple positional projection for a List spread.
     ListTryExpandTuplePositionals,
+    /// Allocates the compiler-owned builder used by a spread-containing Record.
+    NewRecordLiteralBuilder,
+    /// Appends one `(Symbol, value)` pair to a compiler-owned Record builder.
+    RecordLiteralAppend,
+    /// Snapshots one `**source` and appends its labeled lane to a Record builder.
+    RecordLiteralExpandLabels,
+    /// Finalizes a compiler-owned Record builder through `finish_record`.
+    FinishRecordLiteral,
+    /// Snapshots one `**source` and inserts its labeled lane into a Map.
+    MapLiteralExpandLabels,
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in [`opcode_stats`](crate::opcode_stats).
-    pub const VARIANTS: usize = 66;
+    pub const VARIANTS: usize = 71;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -560,6 +575,11 @@ impl Bytecode {
             Bytecode::ListLiteralAppend => 63,
             Bytecode::FinishListLiteral => 64,
             Bytecode::ListTryExpandTuplePositionals => 65,
+            Bytecode::NewRecordLiteralBuilder => 66,
+            Bytecode::RecordLiteralAppend => 67,
+            Bytecode::RecordLiteralExpandLabels => 68,
+            Bytecode::FinishRecordLiteral => 69,
+            Bytecode::MapLiteralExpandLabels => 70,
         }
     }
 

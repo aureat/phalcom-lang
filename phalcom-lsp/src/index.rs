@@ -13,7 +13,7 @@
 use dashmap::DashMap;
 use phalcom_ast::ast::{
     AttrKind, BuiltinAttr, ClassDef, ClassMember, Expr, ForStatement, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern,
-    ProductLabel, Program, SetLiteralEntry, Statement, TupleLiteralEntry,
+    ProductLabel, Program, RecordLiteralEntry, SetLiteralEntry, Statement, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
@@ -700,9 +700,14 @@ fn collect_var_occurrences_in_expr(expr: &Expr, names: &std::collections::HashSe
             }
         }
         Expr::RecordLiteral(record) => {
-            for field in &record.fields {
-                collect_product_label_var_occurrences(&field.label, names, out);
-                collect_var_occurrences_in_expr(&field.value, names, out);
+            for entry in &record.entries {
+                match entry {
+                    RecordLiteralEntry::Field(field) => {
+                        collect_product_label_var_occurrences(&field.label, names, out);
+                        collect_var_occurrences_in_expr(&field.value, names, out);
+                    }
+                    RecordLiteralEntry::Expansion { expr, .. } => collect_var_occurrences_in_expr(expr, names, out),
+                }
             }
         }
         Expr::MapLiteral(map) => {
@@ -989,9 +994,14 @@ impl Collector {
                 }
             }
             Expr::RecordLiteral(record) => {
-                for field in &record.fields {
-                    self.walk_product_label(&field.label);
-                    self.walk_expr(&field.value);
+                for entry in &record.entries {
+                    match entry {
+                        RecordLiteralEntry::Field(field) => {
+                            self.walk_product_label(&field.label);
+                            self.walk_expr(&field.value);
+                        }
+                        RecordLiteralEntry::Expansion { expr, .. } => self.walk_expr(expr),
+                    }
                 }
             }
             Expr::MapLiteral(map) => {

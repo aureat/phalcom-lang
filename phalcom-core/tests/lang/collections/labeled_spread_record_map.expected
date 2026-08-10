@@ -1,0 +1,11 @@
+{#head: 0, #left: 2, #right: 3, #tail: 8}
+{#recordLeft: 4, #recordRight: 5}
+{#mapLeft: 6, #mapRight: 7}
+true
+{#held: [1, 2], #after: None}
+{#before: 0, #left: 2, #right: 3, #after: 9}
+{#recordLeft: 4, #recordRight: 5}
+{#mapLeft: 6, #mapRight: 7}
+{}
+duplicate Map literal key
+[]

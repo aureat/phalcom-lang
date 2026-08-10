@@ -24,8 +24,8 @@
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
 use phalcom_ast::ast::{
-    ClassMember, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, Program, SetLiteralEntry, Statement,
-    TupleLiteralEntry,
+    ClassMember, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, Program, RecordLiteralEntry,
+    SetLiteralEntry, Statement, TupleLiteralEntry,
 };
 
 use crate::core_table::{CoreTable, CoreVisibility, MemberKind};
@@ -284,10 +284,10 @@ fn nested_block_in_expr(expr: &Expr, offset: usize) -> Option<&[Statement]> {
             TupleLiteralEntry::Labeled { label, value, .. } => nested_block_in_product_label(label, offset).or_else(|| nested_block_in_expr(value, offset)),
             TupleLiteralEntry::Expand { expr, .. } => nested_block_in_expr(expr, offset),
         }),
-        Expr::RecordLiteral(record) => record
-            .fields
-            .iter()
-            .find_map(|field| nested_block_in_product_label(&field.label, offset).or_else(|| nested_block_in_expr(&field.value, offset))),
+        Expr::RecordLiteral(record) => record.entries.iter().find_map(|entry| match entry {
+            RecordLiteralEntry::Field(field) => nested_block_in_product_label(&field.label, offset).or_else(|| nested_block_in_expr(&field.value, offset)),
+            RecordLiteralEntry::Expansion { expr, .. } => nested_block_in_expr(expr, offset),
+        }),
         Expr::MapLiteral(map) => map.entries.iter().find_map(|entry| match entry {
             MapLiteralEntry::Association { key, value, .. } => {
                 let key_block = match key {

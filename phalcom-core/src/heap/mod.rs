@@ -42,6 +42,7 @@ mod object;
 mod pack_builder;
 mod range;
 mod record;
+mod record_literal_builder;
 mod string;
 mod trace;
 mod tuple;
@@ -60,6 +61,7 @@ pub use object::{BoundMethodObject, FamilyObject, Object};
 pub use pack_builder::{ArgumentPackBuilderObject, PackBuilderError};
 pub use range::RangeObject;
 pub use record::RecordObject;
+pub use record_literal_builder::RecordLiteralBuilderObject;
 pub use string::StringObject;
 pub use trace::{trace_frame, trace_object};
 pub use tuple::TupleObject;
@@ -168,6 +170,11 @@ impl Heap {
         self.insert(Object::Map(Box::new(MapObject::new())))
     }
 
+    /// Allocates a compiler-owned dynamic Record literal builder.
+    pub(crate) fn alloc_record_literal_builder(&mut self) -> ObjRef {
+        self.insert(Object::RecordLiteralBuilder(Box::new(RecordLiteralBuilderObject::new())))
+    }
+
     /// Allocates an empty [`Object::Set`] and returns its [`ObjRef`].
     pub fn alloc_set(&mut self) -> ObjRef {
         self.insert(Object::Set(Box::new(MapObject::new())))
@@ -266,6 +273,7 @@ impl Heap {
             Some(Object::Family(_)) => "Family",
             Some(Object::LargeInt(_)) => "LargeInt",
             Some(Object::PackBuilder(_)) => "PackBuilder",
+            Some(Object::RecordLiteralBuilder(_)) => "RecordLiteralBuilder",
             None => "<stale>",
         }
     }
