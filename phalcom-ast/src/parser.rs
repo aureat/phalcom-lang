@@ -39,7 +39,7 @@
 //! surface syntax realised here.
 
 use crate::ast::*;
-use crate::error::{SyntaxError, SyntaxErrorKind};
+use crate::error::{RestParameterErrorKind, SyntaxError, SyntaxErrorKind};
 use crate::lexer::Lexer;
 use crate::token::{LexicalError, StringSegment, Token};
 use phalcom_common::range::SourceRange;
@@ -1567,7 +1567,7 @@ impl<'source> Parser<'source> {
         let params = self.parse_selector_params(Token::RBracket)?;
         if let Some(rest) = params.iter().find(|param| param.is_rest()) {
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::Message("rest parameters are not supported in subscript declarations".to_string()),
+                kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::UnsupportedInSubscript),
                 range: rest.range.start..rest.range.end,
             });
         }
@@ -1674,12 +1674,10 @@ impl<'source> Parser<'source> {
     ///
     /// # Errors
     ///
-    /// Returns a [`SyntaxErrorKind::Message`] diagnostic (not a panic) if a
-    /// rest parameter is not the list's last entry, carries a label, or
-    /// follows an already-labeled parameter (mixing keyword and rest
-    /// parameters would produce a selector that call sites could never
-    /// exactly match, since rest selector encoding preserves fixed labels and
-    /// emits a structural wildcard marker for each rest lane.
+    /// Returns a structured rest-parameter diagnostic (not a panic) for an
+    /// invalid lane ordering or combination. `*rest` is allowed before fixed
+    /// labeled parameters and may be followed by one terminal `**rest`;
+    /// `**rest` is terminal; `***rest` is terminal and exclusive.
     fn parse_selector_params(&mut self, end: Token) -> ParserResult<Vec<ParameterDef>> {
         self.skip_newlines();
         if self.peek() == &end {
@@ -1695,8 +1693,13 @@ impl<'source> Parser<'source> {
             self.skip_newlines();
             let start = self.cur_start();
             if labeled_rest || complete_rest {
+                let kind = if labeled_rest && matches!(self.peek(), Token::DoubleAsterisk) {
+                    RestParameterErrorKind::DuplicateLabeled
+                } else {
+                    RestParameterErrorKind::AfterTerminal
+                };
                 return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("no parameter may follow **rest or ***rest".to_string()),
+                    kind: SyntaxErrorKind::RestParameter(kind),
                     range: start..start,
                 });
             }
@@ -1713,13 +1716,7 @@ impl<'source> Parser<'source> {
                 let name = self.expect_identifier(&["parameter name"])?;
                 if rest_mode == RestMode::Positional && any_labeled {
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("*rest must precede labeled parameters".to_string()),
-                        range: start..self.prev_end,
-                    });
-                }
-                if complete_rest || labeled_rest {
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("invalid rest parameter combination".to_string()),
+                        kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::PositionalAfterLabeled),
                         range: start..self.prev_end,
                     });
                 }
@@ -1727,19 +1724,19 @@ impl<'source> Parser<'source> {
                 match rest_mode {
                     RestMode::Positional if positional_rest || complete_rest => {
                         return Err(SyntaxError {
-                            kind: SyntaxErrorKind::Message("at most one *rest parameter is allowed".to_string()),
+                            kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::DuplicatePositional),
                             range: range.start..range.end,
                         });
                     }
                     RestMode::Labeled if labeled_rest || complete_rest => {
                         return Err(SyntaxError {
-                            kind: SyntaxErrorKind::Message("at most one **rest parameter is allowed".to_string()),
+                            kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::DuplicateLabeled),
                             range: range.start..range.end,
                         });
                     }
                     RestMode::Complete if complete_rest || positional_rest || labeled_rest => {
                         return Err(SyntaxError {
-                            kind: SyntaxErrorKind::Message("***rest cannot coexist with *rest or **rest".to_string()),
+                            kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::CompleteConflict),
                             range: range.start..range.end,
                         });
                     }
@@ -1758,7 +1755,7 @@ impl<'source> Parser<'source> {
                 let name = self.expect_identifier(&["parameter name"])?;
                 if any_labeled || positional_rest {
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("positional parameters must precede labeled parameters and *rest".to_string()),
+                        kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::PositionalAfterLabeledOrRest),
                         range: start..self.prev_end,
                     });
                 }

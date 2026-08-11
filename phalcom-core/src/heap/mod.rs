@@ -93,7 +93,6 @@ pub type ClassId = ObjRef;
 /// called `self.borrow()` / `self.borrow_mut()` now take `&Heap` / `&mut Heap`
 /// and dereference a handle through it. Realizes
 /// [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md).
-#[derive(Default)]
 pub struct Heap {
     /// Backing arena. Generational keys make stale handles resolve to `None`.
     objects: SlotMap<ObjRef, Object>,
@@ -102,6 +101,11 @@ pub struct Heap {
     /// Set by `alloc` when `objects.len()` crosses `next_gc`; serviced only at
     /// the dispatch back-edge safepoint. See Invariant L.
     gc_pending: bool,
+    /// Optional `PHALCOM_GC_STRESS=N` cadence, measured in legal dispatch
+    /// safepoints rather than allocations.
+    gc_stress_interval: Option<usize>,
+    /// Safepoints elapsed since the last stress-triggered collection.
+    gc_stress_safepoints: usize,
 }
 
 const INITIAL_GC_THRESHOLD: usize = 4096;
@@ -122,6 +126,31 @@ const GC_UNPRODUCTIVE_GROW_FACTOR: f64 = 4.0;
 /// next threshold grows by [`GC_UNPRODUCTIVE_GROW_FACTOR`] instead.
 const GC_LOW_YIELD: f64 = 0.10;
 
+fn parse_gc_stress_interval(raw: Option<&str>) -> Option<usize> {
+    let Some(raw) = raw else {
+        return None;
+    };
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "0" {
+        return None;
+    }
+    match raw.parse::<usize>() {
+        Ok(interval) if interval > 0 => Some(interval),
+        _ => panic!("PHALCOM_GC_STRESS must be 0, 1, or a positive integer safepoint interval; got `{raw}`"),
+    }
+}
+
+fn gc_stress_interval_from_env() -> Option<usize> {
+    let raw = std::env::var("PHALCOM_GC_STRESS").ok();
+    parse_gc_stress_interval(raw.as_deref())
+}
+
+impl Default for Heap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Heap {
     /// Creates an empty heap.
     pub fn new() -> Self {
@@ -129,6 +158,8 @@ impl Heap {
             objects: SlotMap::with_key(),
             next_gc: INITIAL_GC_THRESHOLD,
             gc_pending: false,
+            gc_stress_interval: gc_stress_interval_from_env(),
+            gc_stress_safepoints: 0,
         }
     }
 
@@ -143,6 +174,24 @@ impl Heap {
     /// Returns whether a garbage collection is pending.
     pub fn gc_pending(&self) -> bool {
         self.gc_pending
+    }
+
+    /// Returns whether collection is due at this legal VM safepoint.
+    ///
+    /// Normal threshold latching and stress cadence are independent: stress
+    /// never collects from `alloc`, so Invariant L and the single-safepoint
+    /// collector contract remain unchanged.
+    pub(crate) fn gc_due_at_safepoint(&mut self) -> bool {
+        let stress_due = self.gc_stress_interval.is_some_and(|interval| {
+            self.gc_stress_safepoints += 1;
+            if self.gc_stress_safepoints >= interval {
+                self.gc_stress_safepoints = 0;
+                true
+            } else {
+                false
+            }
+        });
+        self.gc_pending || stress_due
     }
 
     /// Allocates `object` and returns its fresh [`ObjRef`].
@@ -373,5 +422,51 @@ impl Heap {
         self.next_gc = std::cmp::max(INITIAL_GC_THRESHOLD, (live as f64 * factor) as usize);
         self.gc_pending = false;
         before - live
+    }
+}
+
+#[cfg(test)]
+mod gc_stress_tests {
+    use super::*;
+
+    fn heap_with_stress(interval: Option<usize>) -> Heap {
+        let mut heap = Heap::new();
+        heap.gc_stress_interval = interval;
+        heap.gc_stress_safepoints = 0;
+        heap.gc_pending = false;
+        heap
+    }
+
+    #[test]
+    fn stress_interval_one_is_due_at_every_safepoint() {
+        let mut heap = heap_with_stress(Some(1));
+        assert!(heap.gc_due_at_safepoint());
+        assert!(heap.gc_due_at_safepoint());
+    }
+
+    #[test]
+    fn stress_interval_three_repeats_exactly() {
+        let mut heap = heap_with_stress(Some(3));
+        assert!(!heap.gc_due_at_safepoint());
+        assert!(!heap.gc_due_at_safepoint());
+        assert!(heap.gc_due_at_safepoint());
+        assert!(!heap.gc_due_at_safepoint());
+        assert!(!heap.gc_due_at_safepoint());
+        assert!(heap.gc_due_at_safepoint());
+    }
+
+    #[test]
+    fn ordinary_gc_pending_wins_before_stress_interval() {
+        let mut heap = heap_with_stress(Some(100));
+        heap.gc_pending = true;
+        assert!(heap.gc_due_at_safepoint());
+    }
+
+    #[test]
+    fn stress_configuration_parser_is_strict() {
+        assert_eq!(parse_gc_stress_interval(None), None);
+        assert_eq!(parse_gc_stress_interval(Some("0")), None);
+        assert_eq!(parse_gc_stress_interval(Some("1")), Some(1));
+        assert_eq!(parse_gc_stress_interval(Some("100")), Some(100));
     }
 }

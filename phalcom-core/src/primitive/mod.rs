@@ -149,6 +149,7 @@ macro_rules! primitive_rest {
         let signature = crate::method::Signature::new_with_arity(symbol, $sig_kind, $arity, Some($layout));
         let method = MethodObject::new_shape_primitive(symbol, signature, $func, $class);
         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
+        $vm.heap.class_mut($class).add_method(symbol, method_id);
         let base_symbol = $vm.get_or_intern($base);
         $vm.heap.class_mut($class).add_rest_method(base_symbol, method_id);
         $vm.world_version += 1;

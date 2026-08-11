@@ -2407,34 +2407,34 @@ The expected outcome is no new pack opcodes executed and no pack allocation for 
 
 The implementation must satisfy all of these.
 
-- [ ] Static calls never allocate `ArgumentPackBuilderObject`.
-- [ ] Builder is rooted by a hidden local whenever arbitrary bytecode may run.
-- [ ] Temporary builder operand copies are consumed by pack opcodes.
-- [ ] No pack opcode depends on a fragile fixed stack depth.
-- [ ] Hidden scratch locals are physically collapsed after the dynamic expression.
-- [ ] Dynamic send result occupies exactly one stack value after scratch cleanup.
-- [ ] Computed label is checked before its value expression.
-- [ ] Duplicate explicit label is rejected before its value expression.
-- [ ] Duplicate setter `put` is rejected before RHS.
-- [ ] Duplicate checks use Symbol identity only.
-- [ ] `**` preserves encounter order.
-- [ ] `***` accepts Tuple/Unit only.
-- [ ] `*Tuple` projects positional lane only.
-- [ ] Generic `*` uses ordinary cursor bytecode.
-- [ ] Generic `*` reuses E.3 boundedness analysis.
-- [ ] Dynamic selector uses canonical F.1 label escaping.
-- [ ] Subscript-set final `put` is excluded from bracket label slots.
-- [ ] Dynamic arity is checked before lookup.
-- [ ] Tuple finish has no `u8` arity limit.
-- [ ] Dynamic method miss preserves variadic fallback semantics.
-- [ ] Dynamic dNU gets concrete selector + flat args.
-- [ ] Dynamic super starts above defining class.
-- [ ] Compiler-internal dynamic sends preserve access authority.
-- [ ] `InvokePack` never calls re-entrant `VM::send_dynamic`.
-- [ ] Fiber yield in generic `*` remains legal.
-- [ ] Pack builder GC tracing includes every stored `Value`.
-- [ ] Static inline cache shape and ordinary hot path are not degraded.
-- [ ] No public primitive binding is added.
+- [x] Static calls never allocate `ArgumentPackBuilderObject`.
+- [x] Builder is rooted by a hidden local whenever arbitrary bytecode may run.
+- [x] Temporary builder operand copies are consumed by pack opcodes.
+- [x] No pack opcode depends on a fragile fixed stack depth.
+- [x] Hidden scratch locals are physically collapsed after the dynamic expression.
+- [x] Dynamic send result occupies exactly one stack value after scratch cleanup.
+- [x] Computed label is checked before its value expression.
+- [x] Duplicate explicit label is rejected before its value expression.
+- [x] Duplicate setter `put` is rejected before RHS.
+- [x] Duplicate checks use Symbol identity only.
+- [x] `**` preserves encounter order.
+- [x] `***` accepts Tuple/Unit only.
+- [x] `*Tuple` projects positional lane only.
+- [x] Generic `*` uses ordinary cursor bytecode.
+- [x] Generic `*` reuses E.3 boundedness analysis.
+- [x] Dynamic selector uses canonical F.1 label escaping.
+- [x] Subscript-set final `put` is excluded from bracket label slots.
+- [x] Dynamic arity is checked before lookup.
+- [x] Tuple finish has no `u8` arity limit.
+- [x] Dynamic method miss preserves rest-family fallback semantics.
+- [x] Dynamic dNU gets concrete selector + flat args.
+- [x] Dynamic super starts above defining class.
+- [x] Compiler-internal dynamic sends preserve access authority.
+- [x] `InvokePack` never calls re-entrant `VM::send_dynamic`.
+- [x] Fiber yield in generic `*` remains legal.
+- [x] Pack builder GC tracing includes every stored `Value`.
+- [x] Static inline cache shape and ordinary hot path are not degraded.
+- [x] No public primitive binding is added.
 
 ---
 
@@ -2466,7 +2466,7 @@ F.2 closure evidence is recorded in `F.2-supplement-completion-gaps-before-F.3.m
 - [x] dNU and variadic fallback match ordinary send behavior.
 - [x] Scratch locals are cleaned without leaking stack slots.
 - [x] Fiber regression passes.
-- [deferred] Every-safepoint `PHALCOM_GC_STRESS` regression: focused `VM::force_gc()` PackBuilder proof passes, but general stress infrastructure is separately specified and unbuilt.
+- [ ] Every-safepoint `PHALCOM_GC_STRESS` verification: infrastructure is implemented by the completion patch; check this row only after the stress commands pass.
 - [ ] Static send benchmark shows no unexplained regression. Focused static/dynamic disassembly verifies fast-path shape, not benchmark data.
 - [x] Public primitive-floor delta is 0.
 

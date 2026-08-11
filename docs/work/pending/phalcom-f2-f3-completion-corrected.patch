@@ -1,0 +1,1011 @@
+diff --git a/phalcom-core/src/primitive/mod.rs b/phalcom-core/src/primitive/mod.rs
+--- a/phalcom-core/src/primitive/mod.rs
++++ b/phalcom-core/src/primitive/mod.rs
+@@ -139,6 +139,7 @@ macro_rules! primitive_rest {
+         let signature = crate::method::Signature::new_with_arity(symbol, $sig_kind, $arity, Some($layout));
+         let method = MethodObject::new_shape_primitive(symbol, signature, $func, $class);
+         let method_id = $vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
++        $vm.heap.class_mut($class).add_method(symbol, method_id);
+         let base_symbol = $vm.get_or_intern($base);
+         $vm.heap.class_mut($class).add_rest_method(base_symbol, method_id);
+         $vm.world_version += 1;
+diff --git a/phalcom-core/tests/invariants.rs b/phalcom-core/tests/invariants.rs
+--- a/phalcom-core/tests/invariants.rs
++++ b/phalcom-core/tests/invariants.rs
+@@ -214,6 +214,48 @@ fn verify_invariants_holds_after_bootstrap() {
+     assert!(vm.universe.verify_invariants(&vm.heap).is_ok());
+ }
+
++#[test]
++fn native_rest_primitives_share_the_method_dictionary_and_rest_index() {
++    // Callable-runtime follow-up to F.3: a rest Method is one direct class
++    // definition represented in two indexes. `methods` owns the structural
++    // selector used by reflection / `::`; `rest_methods` is only the
++    // base-family fallback accelerator. Native rest gateways must obey the
++    // same invariant as bytecode rest methods.
++    let mut vm = VM::new();
++    let c = vm.universe.classes;
++    let rows = [
++        (c.object_class, "perform(_,***)", "perform"),
++        (c.method_class, "invokeOn(_,***)", "invokeOn"),
++        (c.function_class, "call(***)", "call"),
++    ];
++
++    for (class, selector_text, base_text) in rows {
++        let selector = vm.get_or_intern(selector_text);
++        let base = vm.get_or_intern(base_text);
++        let exact = vm
++            .heap
++            .class(class)
++            .methods
++            .get(&selector)
++            .copied()
++            .unwrap_or_else(|| panic!("{selector_text} is missing from ClassObject.methods"));
++
++        assert_eq!(
++            vm.heap.class(class).get_rest_method(base),
++            Some(exact),
++            "{selector_text} must name the same Method in methods and rest_methods"
++        );
++        assert!(
++            vm.heap
++                .class(class)
++                .base_names
++                .get(&base)
++                .is_some_and(|selectors| selectors.contains(&selector)),
++            "{selector_text} must participate in the finalized base-name family index"
++        );
++    }
++}
++
+ #[test]
+ fn sealed_hierarchy_rejects_runtime_reparent_and_keeps_invariants() {
+     // U13 / DEC-U13a=A ([ADR-0026](../../docs/adr/accepted/0026-class-hierarchy-mutability.md),
+diff --git a/phalcom-core/src/vm/dispatch.rs b/phalcom-core/src/vm/dispatch.rs
+--- a/phalcom-core/src/vm/dispatch.rs
++++ b/phalcom-core/src/vm/dispatch.rs
+@@ -345,6 +345,20 @@ impl VM {
+         Ok(Some(base))
+     }
+
++    /// Commits one already-allocated Method into the class dictionary and,
++    /// for a rest Method, its secondary base-family index. Validation runs
++    /// before either mutation so a duplicate rest family cannot leave the
++    /// two indexes out of sync.
++    fn install_method_binding(&mut self, target_class: crate::heap::ClassId, selector: Symbol, method: ObjRef) -> PhResult<()> {
++        let rest_base = self.validate_method_installation(target_class, selector, method)?;
++        self.heap.class_mut(target_class).add_method(selector, method);
++        if let Some(base) = rest_base {
++            self.heap.class_mut(target_class).add_rest_method(base, method);
++        }
++        self.world_version += 1;
++        Ok(())
++    }
++
+     /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
+     /// generation for the frame-token infrastructure
+     /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+@@ -1517,7 +1531,6 @@ impl VM {
+                     let class_val = *self.stack.last().unwrap();
+                     if let (Value::Obj(method_id), Value::Obj(class_id)) = (method_val, class_val) {
+                         let target_class = if is_static { self.heap.class(class_id).class } else { class_id };
+-                        let rest_base = self.validate_method_installation(target_class, selector, method_id)?;
+                         if is_static {
+                             let meta = self.heap.class(class_id).class;
+                             let closure = {
+@@ -1532,11 +1545,7 @@ impl VM {
+                             if let Some(closure) = closure {
+                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
+                             }
+-                            self.heap.class_mut(meta).add_method(selector, method_id);
+-                            if let Some(base) = rest_base {
+-                                self.heap.class_mut(meta).add_rest_method(base, method_id);
+-                            }
+-                            self.world_version += 1;
++                            self.install_method_binding(target_class, selector, method_id)?;
+                         } else {
+                             let closure = {
+                                 let method = self.heap.method_mut(method_id);
+@@ -1551,11 +1560,7 @@ impl VM {
+                             if let Some(closure) = closure {
+                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
+                             }
+-                            self.heap.class_mut(class_id).add_method(selector, method_id);
+-                            if let Some(base) = rest_base {
+-                                self.heap.class_mut(class_id).add_rest_method(base, method_id);
+-                            }
+-                            self.world_version += 1;
++                            self.install_method_binding(target_class, selector, method_id)?;
+                             // Sacred-selector override-epoch tracking (ADR-0018):
+                             // any (re)definition of a sacred selector directly on
+                             // the kernel Bool/Block class dirties the pristine
+@@ -2294,7 +2299,7 @@ mod tests {
+             MethodKind::Closure(closure),
+         ))));
+         vm.heap.method_mut(first).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Positional { param_index: 0 }));
+-        vm.heap.class_mut(target).add_rest_method(base, first);
++        vm.install_method_binding(target, first_selector, first).expect("first rest family should install");
+
+         let second_selector = vm.get_or_intern("sum(**)");
+         let second = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+@@ -2307,13 +2311,22 @@ mod tests {
+         vm.heap.method_mut(second).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Labeled { param_index: 0 }));
+
+         let error = vm
+-            .validate_method_installation(target, second_selector, second)
++            .install_method_binding(target, second_selector, second)
+             .expect_err("second rest family must be rejected");
+         assert!(error.to_string().contains("already has rest method"), "unexpected error: {error}");
++        assert_eq!(
++            vm.heap.class(target).methods.get(&first_selector).copied(),
++            Some(first),
++            "failed install must preserve the first structural method binding"
++        );
+         assert_eq!(
+             vm.heap.class(target).get_rest_method(base),
+             Some(first),
+             "failed install must preserve existing index entry"
+         );
++        assert!(
++            !vm.heap.class(target).methods.contains_key(&second_selector),
++            "rejected rest family must not leak into the structural method dictionary"
++        );
+     }
+ }
+diff --git a/phalcom-ast/src/error.rs b/phalcom-ast/src/error.rs
+--- a/phalcom-ast/src/error.rs
++++ b/phalcom-ast/src/error.rs
+@@ -65,8 +65,45 @@
+             }
+             s.push_str(e);
+         }
+         s
++    }
++}
++
++/// Structured declaration-time failures for method rest parameters.
++///
++/// Keeping these distinct from [`SyntaxErrorKind::Message`] gives tools a
++/// stable category while preserving the existing human-facing wording.
++#[derive(Debug, Clone, Copy, Error, Eq, PartialEq)]
++pub enum RestParameterErrorKind {
++    #[error("no parameter may follow **rest or ***rest")]
++    AfterTerminal,
++    #[error("*rest must precede labeled parameters")]
++    PositionalAfterLabeled,
++    #[error("at most one *rest parameter is allowed")]
++    DuplicatePositional,
++    #[error("at most one **rest parameter is allowed")]
++    DuplicateLabeled,
++    #[error("***rest cannot coexist with *rest or **rest")]
++    CompleteConflict,
++    #[error("positional parameters must precede labeled parameters and *rest")]
++    PositionalAfterLabeledOrRest,
++    #[error("rest parameters are not supported in subscript declarations")]
++    UnsupportedInSubscript,
++}
++
++impl RestParameterErrorKind {
++    /// Stable diagnostic code for tooling and golden diagnostics.
++    pub const fn code(&self) -> &'static str {
++        match self {
++            Self::AfterTerminal => "syntax.rest.after_terminal",
++            Self::PositionalAfterLabeled => "syntax.rest.positional_after_labeled",
++            Self::DuplicatePositional => "syntax.rest.duplicate_positional",
++            Self::DuplicateLabeled => "syntax.rest.duplicate_labeled",
++            Self::CompleteConflict => "syntax.rest.complete_conflict",
++            Self::PositionalAfterLabeledOrRest => "syntax.rest.positional_after_rest_or_label",
++            Self::UnsupportedInSubscript => "syntax.rest.unsupported_subscript",
++        }
+     }
+ }
+ 
+ /// The category of a [`SyntaxError`], carrying its display message.
+@@ -171,8 +171,12 @@
+ 
+     /// A unescaped physical newline occurred inside a double-quoted string.
+     #[error("Raw newline is not allowed in a string literal")]
+     RawNewlineInString,
++
++    /// An invalid structural rest-parameter declaration.
++    #[error("{0}")]
++    RestParameter(RestParameterErrorKind),
+ 
+     /// A syntax error with no more specific classification.
+     #[error("Unknown error")]
+     Unknown,
+@@ -204,8 +208,9 @@
+             Self::InvalidStringEscape => "string.invalid_escape",
+             Self::UnterminatedInterpolation => "string.interpolation.unterminated",
+             Self::EmptyInterpolation => "string.interpolation.empty",
+             Self::RawNewlineInString => "string.raw_newline",
++            Self::RestParameter(kind) => kind.code(),
+             Self::Unknown => "syntax.unknown",
+             Self::Message(_) => "syntax.message",
+         }
+     }
+diff --git a/phalcom-ast/src/parser.rs b/phalcom-ast/src/parser.rs
+--- a/phalcom-ast/src/parser.rs
++++ b/phalcom-ast/src/parser.rs
+@@ -34,8 +34,8 @@
+ //! See `docs/spec/lexical-structure.md` and `docs/spec/classes.md` for the
+ //! surface syntax realised here.
+
+ use crate::ast::*;
+-use crate::error::{SyntaxError, SyntaxErrorKind};
++use crate::error::{RestParameterErrorKind, SyntaxError, SyntaxErrorKind};
+ use crate::lexer::Lexer;
+ use crate::token::{LexicalError, StringSegment, Token};
+ use phalcom_common::range::SourceRange;
+@@ -1562,7 +1562,7 @@ impl<'a> Parser<'a> {
+         let params = self.parse_selector_params(Token::RBracket)?;
+         if let Some(rest) = params.iter().find(|param| param.is_rest()) {
+             return Err(SyntaxError {
+-                kind: SyntaxErrorKind::Message("rest parameters are not supported in subscript declarations".to_string()),
++                kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::UnsupportedInSubscript),
+                 range: rest.range.start..rest.range.end,
+             });
+         }
+@@ -1640,9 +1640,7 @@ impl<'a> Parser<'a> {
+     /// # Errors
+     ///
+-    /// Returns a [`SyntaxErrorKind::Message`] diagnostic (not a panic) if a
+-    /// rest parameter is not the list's last entry, carries a label, or
+-    /// follows an already-labeled parameter (mixing keyword and rest
+-    /// parameters would produce a selector that call sites could never
+-    /// exactly match, since rest selector encoding preserves fixed labels and
+-    /// emits a structural wildcard marker for each rest lane.
++    /// Returns a structured rest-parameter diagnostic (not a panic) for an
++    /// invalid lane ordering or combination. `*rest` is allowed before fixed
++    /// labeled parameters and may be followed by one terminal `**rest`;
++    /// `**rest` is terminal; `***rest` is terminal and exclusive.
+     fn parse_selector_params(&mut self, end: Token) -> ParserResult<Vec<ParameterDef>> {
+@@ -1665,8 +1667,13 @@ impl<'a> Parser<'a> {
+             self.skip_newlines();
+             let start = self.cur_start();
+             if labeled_rest || complete_rest {
++                let kind = if labeled_rest && matches!(self.peek(), Token::DoubleAsterisk) {
++                    RestParameterErrorKind::DuplicateLabeled
++                } else {
++                    RestParameterErrorKind::AfterTerminal
++                };
+                 return Err(SyntaxError {
+-                    kind: SyntaxErrorKind::Message("no parameter may follow **rest or ***rest".to_string()),
++                    kind: SyntaxErrorKind::RestParameter(kind),
+                     range: start..start,
+                 });
+             }
+@@ -1683,7 +1691,7 @@ impl<'a> Parser<'a> {
+                 let name = self.expect_identifier(&["parameter name"])?;
+                 if rest_mode == RestMode::Positional && any_labeled {
+                     return Err(SyntaxError {
+-                        kind: SyntaxErrorKind::Message("*rest must precede labeled parameters".to_string()),
++                        kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::PositionalAfterLabeled),
+                         range: start..self.prev_end,
+                     });
+                 }
+@@ -1689,7 +1697 @@ impl<'a> Parser<'a> {
+-                if complete_rest || labeled_rest {
+-                    return Err(SyntaxError {
+-                        kind: SyntaxErrorKind::Message("invalid rest parameter combination".to_string()),
+-                        range: start..self.prev_end,
+-                    });
+-                }
+                 let range: SourceRange = (start..self.prev_end).into();
+@@ -1697,19 +1705,19 @@ impl<'a> Parser<'a> {
+                 match rest_mode {
+                     RestMode::Positional if positional_rest || complete_rest => {
+                         return Err(SyntaxError {
+-                            kind: SyntaxErrorKind::Message("at most one *rest parameter is allowed".to_string()),
++                            kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::DuplicatePositional),
+                             range: range.start..range.end,
+                         });
+                     }
+                     RestMode::Labeled if labeled_rest || complete_rest => {
+                         return Err(SyntaxError {
+-                            kind: SyntaxErrorKind::Message("at most one **rest parameter is allowed".to_string()),
++                            kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::DuplicateLabeled),
+                             range: range.start..range.end,
+                         });
+                     }
+                     RestMode::Complete if complete_rest || positional_rest || labeled_rest => {
+                         return Err(SyntaxError {
+-                            kind: SyntaxErrorKind::Message("***rest cannot coexist with *rest or **rest".to_string()),
++                            kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::CompleteConflict),
+                             range: range.start..range.end,
+                         });
+                     }
+@@ -1735,7 +1743,7 @@ impl<'a> Parser<'a> {
+                 let name = self.expect_identifier(&["parameter name"])?;
+                 if any_labeled || positional_rest {
+                     return Err(SyntaxError {
+-                        kind: SyntaxErrorKind::Message("positional parameters must precede labeled parameters and *rest".to_string()),
++                        kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::PositionalAfterLabeledOrRest),
+                         range: start..self.prev_end,
+                     });
+                 }
+diff --git a/phalcom-ast/tests/rest_diagnostics.rs b/phalcom-ast/tests/rest_diagnostics.rs
+new file mode 100644
+--- /dev/null
++++ b/phalcom-ast/tests/rest_diagnostics.rs
+@@ -0,0 +1,75 @@
++use phalcom_ast::error::{RestParameterErrorKind, SyntaxErrorKind};
++use phalcom_ast::parse_source;
++
++fn rest_error(source: &str) -> RestParameterErrorKind {
++    let error = parse_source(source, 0).expect_err("fixture must be rejected");
++    match error.kind {
++        SyntaxErrorKind::RestParameter(kind) => kind,
++        other => panic!("expected structured rest diagnostic, got {other:?}"),
++    }
++}
++
++#[test]
++fn duplicate_positional_rest_is_structured() {
++    assert_eq!(
++        rest_error("class C { f(*left, *right) { return 0 } }\n"),
++        RestParameterErrorKind::DuplicatePositional
++    );
++}
++
++#[test]
++fn positional_rest_after_label_is_structured() {
++    assert_eq!(
++        rest_error("class C { f(timeout, *tail) { return 0 } }\n"),
++        RestParameterErrorKind::PositionalAfterLabeled
++    );
++}
++
++#[test]
++fn duplicate_labeled_rest_is_structured() {
++    assert_eq!(
++        rest_error("class C { f(**left, **right) { return 0 } }\n"),
++        RestParameterErrorKind::DuplicateLabeled
++    );
++}
++
++#[test]
++fn complete_rest_conflict_is_structured() {
++    assert_eq!(
++        rest_error("class C { f(*tail, ***remaining) { return 0 } }\n"),
++        RestParameterErrorKind::CompleteConflict
++    );
++}
++
++#[test]
++fn parameter_after_labeled_rest_is_structured() {
++    assert_eq!(
++        rest_error("class C { f(**extra, debug) { return 0 } }\n"),
++        RestParameterErrorKind::AfterTerminal
++    );
++}
++
++#[test]
++fn positional_after_positional_rest_is_structured() {
++    assert_eq!(
++        rest_error("class C { f(*tail, _ later) { return 0 } }\n"),
++        RestParameterErrorKind::PositionalAfterLabeledOrRest
++    );
++}
++
++#[test]
++fn subscript_rest_is_structured() {
++    assert_eq!(
++        rest_error("class C { [*items] { return 0 } }\n"),
++        RestParameterErrorKind::UnsupportedInSubscript
++    );
++}
++
++#[test]
++fn split_rest_remains_valid() {
++    parse_source(
++        "class C { split(_ fixed, *tail, timeout, **extra) { return tail.size + extra.size } }\n",
++        0,
++    )
++    .expect("valid split-rest declaration must continue to parse");
++}
+diff --git a/phalcom-core/src/compiler/lib/error.rs b/phalcom-core/src/compiler/lib/error.rs
+--- a/phalcom-core/src/compiler/lib/error.rs
++++ b/phalcom-core/src/compiler/lib/error.rs
+@@ -2,6 +2,24 @@ use phalcom_ast::error::SyntaxError;
+ use phalcom_common::range::SourceRange;
+ use thiserror::Error;
+
++/// Defensive compiler-side classification for malformed rest declarations.
++///
++/// Source parsing catches these first, but attribute expansion and compiler
++/// synthesis also create AST members and therefore need a typed backstop.
++#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
++pub enum RestDeclarationErrorKind {
++    #[error("more than one positional rest parameter")]
++    DuplicatePositional,
++    #[error("more than one labeled rest parameter")]
++    DuplicateLabeled,
++    #[error("more than one complete rest parameter")]
++    DuplicateComplete,
++    #[error("complete rest cannot coexist with positional or labeled rest")]
++    CompleteConflict,
++    #[error("labeled and complete rest parameters must be terminal")]
++    TerminalRestNotLast,
++}
++
+ /// An error raised while lowering the AST to bytecode.
+ #[derive(Error, Debug, Clone)]
+ pub enum CompilerError {
+@@ -306,3 +325,24 @@ pub enum CompilerError {
+     #[error("rest parameters are not supported on constructors or subscript methods in F.3.")]
+     RestModeUnsupportedForMember(SourceRange),
++
++    /// A malformed rest declaration produced or preserved beyond parsing.
++    #[error("invalid rest declaration: {kind}")]
++    InvalidRestDeclaration {
++        kind: RestDeclarationErrorKind,
++        span: SourceRange,
++    },
++
++    /// Two structurally different rest selectors in one base family/class.
++    #[error(
++        "class.duplicate_rest_family: class '{class}' already defines rest family '{base}' \
++         (first declared at {first_line}:{first_col})."
++    )]
++    DuplicateRestMethodFamily {
++        class: String,
++        base: String,
++        span: SourceRange,
++        first_span: SourceRange,
++        first_line: usize,
++        first_col: usize,
++    },
+ }
+diff --git a/phalcom-core/src/compiler/lib/class_decl.rs b/phalcom-core/src/compiler/lib/class_decl.rs
+--- a/phalcom-core/src/compiler/lib/class_decl.rs
++++ b/phalcom-core/src/compiler/lib/class_decl.rs
+@@ -13,6 +13,6 @@ use phalcom_common::range::SourceRange;
+
+ use super::checked_send_arity;
+-use super::error::CompilerError;
++use super::error::{CompilerError, RestDeclarationErrorKind};
+ use super::{Compiler, UnitKind};
+
+ /// Attribute names handled entirely by the compiler itself — the guard weave
+@@ -75,12 +75,36 @@ fn validate_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
+             let positional: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Positional).collect();
+             let labeled: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Labeled).collect();
+             let complete: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Complete).collect();
+-            if positional.len() > 1 || labeled.len() > 1 || complete.len() > 1 || (!complete.is_empty() && (!positional.is_empty() || !labeled.is_empty())) {
+-                return Err(CompilerError::Message("invalid rest parameter combination".into()));
++            if positional.len() > 1 {
++                return Err(CompilerError::InvalidRestDeclaration {
++                    kind: RestDeclarationErrorKind::DuplicatePositional,
++                    span: positional[1].range,
++                });
++            }
++            if labeled.len() > 1 {
++                return Err(CompilerError::InvalidRestDeclaration {
++                    kind: RestDeclarationErrorKind::DuplicateLabeled,
++                    span: labeled[1].range,
++                });
++            }
++            if complete.len() > 1 {
++                return Err(CompilerError::InvalidRestDeclaration {
++                    kind: RestDeclarationErrorKind::DuplicateComplete,
++                    span: complete[1].range,
++                });
++            }
++            if !complete.is_empty() && (!positional.is_empty() || !labeled.is_empty()) {
++                return Err(CompilerError::InvalidRestDeclaration {
++                    kind: RestDeclarationErrorKind::CompleteConflict,
++                    span: complete[0].range,
++                });
+             }
+             if let Some(rest) = labeled.first().or_else(|| complete.first()) {
+                 if method.params.last().is_none_or(|p| p.range != rest.range) {
+-                    return Err(CompilerError::Message("**rest and ***rest must be terminal".into()));
++                    return Err(CompilerError::InvalidRestDeclaration {
++                        kind: RestDeclarationErrorKind::TerminalRestNotLast,
++                        span: rest.range,
++                    });
+                 }
+             }
+         }
+@@ -323,11 +352,18 @@ impl<'vm> Compiler<'vm> {
+                 if let ClassMember::Method(method) = member
+                     && method.params.iter().any(phalcom_ast::ast::ParameterDef::is_rest)
+-                    && rest_families.insert((method.is_static, method.name.clone()), member_name_range).is_some()
++                    && let Some(first_span) =
++                        rest_families.insert((method.is_static, method.name.clone()), member_name_range)
+                 {
+-                    return Err(CompilerError::Message(format!(
+-                        "class {} already defines a rest method for {}",
+-                        class_def.name, method.name
+-                    )));
++                    let source = self.source_text();
++                    let (first_line, first_col) = crate::diagnostics::line_col(&source, first_span.start);
++                    return Err(CompilerError::DuplicateRestMethodFamily {
++                        class: class_def.name.clone(),
++                        base: method.name.clone(),
++                        span: member_name_range,
++                        first_span,
++                        first_line,
++                        first_col,
++                    });
+                 }
+                 seen.insert(key, (display, member_name_range));
+             }
+diff --git a/phalcom-core/tests/lang/rest/rest_inherited_nonaccepting_fallback.ph b/phalcom-core/tests/lang/rest/rest_inherited_nonaccepting_fallback.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/rest/rest_inherited_nonaccepting_fallback.ph
+@@ -0,0 +1,19 @@
++// area: rest
++// spec: F.3-rest-capture-and-rest-pattern-dispatch-amended.md inheritance fallback
++// status: PASS
++
++class ParentRest {
++  route(*items) { return 100 + items.size }
++}
++
++class ChildRest is ParentRest {
++  route(_ fixed, **extra) { return 200 + extra.size }
++}
++
++const child = ChildRest.new()
++System.print(child.route(1, 2))
++
++const positional = (1, 2)
++System.print(child.route(*positional))
++
++System.print(child.route(1, debug: 2))
+diff --git a/phalcom-core/tests/lang/rest/rest_inherited_nonaccepting_fallback.expected b/phalcom-core/tests/lang/rest/rest_inherited_nonaccepting_fallback.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/rest/rest_inherited_nonaccepting_fallback.expected
+@@ -0,0 +1,3 @@
++102
++102
++201
+diff --git a/phalcom-core/tests/lang/rest/rest_super_boundary.ph b/phalcom-core/tests/lang/rest/rest_super_boundary.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/rest/rest_super_boundary.ph
+@@ -0,0 +1,36 @@
++// area: rest
++// spec: F.3-rest-capture-and-rest-pattern-dispatch-amended.md super fallback
++// status: PASS
++
++class GrandRest {
++  choose(*items) { return 300 + items.size }
++  fallback(*items) { return 400 + items.size }
++}
++
++class ParentRestBoundary is GrandRest {
++  choose(_ left, _ right) { return 500 }
++  fallback(_ fixed, **extra) { return 600 + extra.size }
++}
++
++class ChildRestBoundary is ParentRestBoundary {
++  choose(*items) { return 700 + items.size }
++  fallback(*items) { return 800 + items.size }
++
++  exactSuper() { return super.choose(1, 2) }
++  exactSuperDynamic() {
++    const args = (1, 2)
++    return super.choose(*args)
++  }
++
++  fallbackSuper() { return super.fallback(1, 2) }
++  fallbackSuperDynamic() {
++    const args = (1, 2)
++    return super.fallback(*args)
++  }
++}
++
++const child = ChildRestBoundary.new()
++System.print(child.exactSuper())
++System.print(child.exactSuperDynamic())
++System.print(child.fallbackSuper())
++System.print(child.fallbackSuperDynamic())
+diff --git a/phalcom-core/tests/lang/rest/rest_super_boundary.expected b/phalcom-core/tests/lang/rest/rest_super_boundary.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/rest/rest_super_boundary.expected
+@@ -0,0 +1,4 @@
++500
++500
++402
++402
+diff --git a/phalcom-core/tests/lang/collections/pending/boundedness_spread_unbounded_rejected.ph b/phalcom-core/tests/lang/collections/pending/boundedness_spread_unbounded_rejected.ph
+deleted file mode 100644
+--- a/phalcom-core/tests/lang/collections/pending/boundedness_spread_unbounded_rejected.ph
++++ /dev/null
+@@ -1 +0,0 @@
+-foo(*(0..))
+diff --git a/phalcom-core/tests/lang/collections/pending/boundedness_spread_unbounded_rejected.expected b/phalcom-core/tests/lang/collections/pending/boundedness_spread_unbounded_rejected.expected
+deleted file mode 100644
+--- a/phalcom-core/tests/lang/collections/pending/boundedness_spread_unbounded_rejected.expected
++++ /dev/null
+@@ -1 +0,0 @@
+-cannot exhaust a provably unbounded source
+diff --git a/phalcom-core/tests/lang/collections/negative/boundedness_send_spread_unbounded_rejected.ph b/phalcom-core/tests/lang/collections/negative/boundedness_send_spread_unbounded_rejected.ph
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/collections/negative/boundedness_send_spread_unbounded_rejected.ph
+@@ -0,0 +1,9 @@
++// area: collections
++// spec: E.3 boundedness + F.2 outgoing generic *
++// status: NEGATIVE
++
++class Sink {
++  take(*items) { return items.size }
++}
++
++Sink.new().take(*(0..))
+diff --git a/phalcom-core/tests/lang/collections/negative/boundedness_send_spread_unbounded_rejected.expected b/phalcom-core/tests/lang/collections/negative/boundedness_send_spread_unbounded_rejected.expected
+new file mode 100644
+--- /dev/null
++++ b/phalcom-core/tests/lang/collections/negative/boundedness_send_spread_unbounded_rejected.expected
+@@ -0,0 +1 @@
++cannot exhaust a provably unbounded source
+diff --git a/phalcom-core/tests/lang.rs b/phalcom-core/tests/lang.rs
+--- a/phalcom-core/tests/lang.rs
++++ b/phalcom-core/tests/lang.rs
+@@ -216,7 +216,8 @@ fn collections() {
+
+ #[test]
+ fn collections_literals_negative() {
+-    // Collection-literal lane mismatches fail in the parser with a precise
+-    // operator/destination diagnostic.
++    // Collection-literal lane mismatches plus E.3/F.2 provably-unbounded
++    // outgoing spread diagnostics. These are real negative cases, not pending
++    // success fixtures.
+     support::check_negative("collections/negative");
+ }
+diff --git a/phalcom-core/src/heap/mod.rs b/phalcom-core/src/heap/mod.rs
+--- a/phalcom-core/src/heap/mod.rs
++++ b/phalcom-core/src/heap/mod.rs
+@@ -92,17 +92,21 @@
+ /// The [`crate::vm::VM`] owns exactly one `Heap`. Methods that historically
+ /// called `self.borrow()` / `self.borrow_mut()` now take `&Heap` / `&mut Heap`
+ /// and dereference a handle through it. Realizes
+ /// [ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md).
+-#[derive(Default)]
+ pub struct Heap {
+     /// Backing arena. Generational keys make stale handles resolve to `None`.
+     objects: SlotMap<ObjRef, Object>,
+     /// Live-object count at which `alloc` next latches `gc_pending`.
+     next_gc: usize,
+     /// Set by `alloc` when `objects.len()` crosses `next_gc`; serviced only at
+     /// the dispatch back-edge safepoint. See Invariant L.
+     gc_pending: bool,
++    /// Optional `PHALCOM_GC_STRESS=N` cadence, measured in legal dispatch
++    /// safepoints rather than allocations.
++    gc_stress_interval: Option<usize>,
++    /// Safepoints elapsed since the last stress-triggered collection.
++    gc_stress_safepoints: usize,
+ }
+ 
+ const INITIAL_GC_THRESHOLD: usize = 4096;
+ /// Threshold growth after a **productive** collection — one that reclaimed at
+@@ -121,15 +125,42 @@
+ /// Reclaimed fraction below which a collection is judged unproductive and the
+ /// next threshold grows by [`GC_UNPRODUCTIVE_GROW_FACTOR`] instead.
+ const GC_LOW_YIELD: f64 = 0.10;
+ 
++fn parse_gc_stress_interval(raw: Option<&str>) -> Option<usize> {
++    let Some(raw) = raw else {
++        return None;
++    };
++    let raw = raw.trim();
++    if raw.is_empty() || raw == "0" {
++        return None;
++    }
++    match raw.parse::<usize>() {
++        Ok(interval) if interval > 0 => Some(interval),
++        _ => panic!("PHALCOM_GC_STRESS must be 0, 1, or a positive integer safepoint interval; got `{raw}`"),
++    }
++}
++
++fn gc_stress_interval_from_env() -> Option<usize> {
++    let raw = std::env::var("PHALCOM_GC_STRESS").ok();
++    parse_gc_stress_interval(raw.as_deref())
++}
++
++impl Default for Heap {
++    fn default() -> Self {
++        Self::new()
++    }
++}
++
+ impl Heap {
+     /// Creates an empty heap.
+     pub fn new() -> Self {
+         Self {
+             objects: SlotMap::with_key(),
+             next_gc: INITIAL_GC_THRESHOLD,
+             gc_pending: false,
++            gc_stress_interval: gc_stress_interval_from_env(),
++            gc_stress_safepoints: 0,
+         }
+     }
+ 
+     fn insert(&mut self, object: Object) -> ObjRef {
+@@ -144,8 +175,26 @@
+     pub fn gc_pending(&self) -> bool {
+         self.gc_pending
+     }
+ 
++    /// Returns whether collection is due at this legal VM safepoint.
++    ///
++    /// Normal threshold latching and stress cadence are independent: stress
++    /// never collects from `alloc`, so Invariant L and the single-safepoint
++    /// collector contract remain unchanged.
++    pub(crate) fn gc_due_at_safepoint(&mut self) -> bool {
++        let stress_due = self.gc_stress_interval.is_some_and(|interval| {
++            self.gc_stress_safepoints += 1;
++            if self.gc_stress_safepoints >= interval {
++                self.gc_stress_safepoints = 0;
++                true
++            } else {
++                false
++            }
++        });
++        self.gc_pending || stress_due
++    }
++
+     /// Allocates `object` and returns its fresh [`ObjRef`].
+     pub fn alloc(&mut self, object: Object) -> ObjRef {
+         self.insert(object)
+     }
+@@ -374,4 +374,50 @@
+         self.gc_pending = false;
+         before - live
+     }
+ }
++
++#[cfg(test)]
++mod gc_stress_tests {
++    use super::*;
++
++    fn heap_with_stress(interval: Option<usize>) -> Heap {
++        let mut heap = Heap::new();
++        heap.gc_stress_interval = interval;
++        heap.gc_stress_safepoints = 0;
++        heap.gc_pending = false;
++        heap
++    }
++
++    #[test]
++    fn stress_interval_one_is_due_at_every_safepoint() {
++        let mut heap = heap_with_stress(Some(1));
++        assert!(heap.gc_due_at_safepoint());
++        assert!(heap.gc_due_at_safepoint());
++    }
++
++    #[test]
++    fn stress_interval_three_repeats_exactly() {
++        let mut heap = heap_with_stress(Some(3));
++        assert!(!heap.gc_due_at_safepoint());
++        assert!(!heap.gc_due_at_safepoint());
++        assert!(heap.gc_due_at_safepoint());
++        assert!(!heap.gc_due_at_safepoint());
++        assert!(!heap.gc_due_at_safepoint());
++        assert!(heap.gc_due_at_safepoint());
++    }
++
++    #[test]
++    fn ordinary_gc_pending_wins_before_stress_interval() {
++        let mut heap = heap_with_stress(Some(100));
++        heap.gc_pending = true;
++        assert!(heap.gc_due_at_safepoint());
++    }
++
++    #[test]
++    fn stress_configuration_parser_is_strict() {
++        assert_eq!(parse_gc_stress_interval(None), None);
++        assert_eq!(parse_gc_stress_interval(Some("0")), None);
++        assert_eq!(parse_gc_stress_interval(Some("1")), Some(1));
++        assert_eq!(parse_gc_stress_interval(Some("100")), Some(100));
++    }
++}
+diff --git a/phalcom-core/src/vm/gc.rs b/phalcom-core/src/vm/gc.rs
+--- a/phalcom-core/src/vm/gc.rs
++++ b/phalcom-core/src/vm/gc.rs
+@@ -207,8 +207,8 @@ impl VM {
+     /// `frames` are the complete root truth. Never from `Heap::alloc` (Invariant L,
+     /// memory-management.md §4), and never mid-opcode: several opcodes have a window
+     /// where a value is popped or `split_off` the stack and held only in a Rust local.
+     pub(crate) fn service_gc_safepoint(&mut self) {
+-        if self.heap.gc_pending() {
++        if self.heap.gc_due_at_safepoint() {
+             self.force_gc();
+         }
+     }
+diff --git a/docs/work/testing/10-gc-stress.md b/docs/work/testing/10-gc-stress.md
+--- a/docs/work/testing/10-gc-stress.md
++++ b/docs/work/testing/10-gc-stress.md
+@@ -17,29 +17,22 @@ Any program where the two differ has found a bug, and the bug is in the runtime,
+ not the program. The lane needs **no expected output of its own**: the corpus
+ already carries 652 hand-verified ones.
+
+ ## 2. Mechanism
+
+ Collection is already latched-and-serviced, which is what makes this cheap.
+ [`Heap::alloc`](../../phalcom-core/src/heap/mod.rs) sets `gc_pending` when
+ `objects.len()` crosses `next_gc` — it **latches only, never collects**
+ (Invariant L). The dispatch loop's back-edge calls
+ [`service_gc_safepoint`](../../phalcom-core/src/vm/gc.rs), which collects if the
+ flag is set.
+
+-Stress mode is therefore one knob: **make every allocation latch.**
+-
+-```rust
+-// Heap::new / Heap::alloc
+-next_gc: if gc_stress_enabled() { 0 } else { INITIAL_GC_THRESHOLD },
+-```
+-
+-With `next_gc == 0`, `objects.len() >= next_gc` holds unconditionally, every
+-allocation latches, and every safepoint collects. The growth policy
+-(`GC_UNPRODUCTIVE_GROW_FACTOR`) must be suppressed in stress mode so the
+-threshold does not climb away from zero after the first unproductive cycle.
++Stress mode augments that same safepoint predicate with a cadence counter.
++`PHALCOM_GC_STRESS=1` makes every legal dispatch safepoint collect;
++`PHALCOM_GC_STRESS=N` makes every Nth safepoint collect. The ordinary
++live-object threshold and its growth policy remain untouched.
+
+ Critically, **the latch/service split is preserved**. Stress mode does not
+ collect from `alloc`; it only raises the frequency at which the *existing*
+ safepoint collects. Invariant L is untouched, so stress mode does not test a
+ different collector — it tests the same collector, more often. This is what
+ makes the metamorphic relation legitimate rather than aspirational.
+@@ -50,7 +47,7 @@ Environment variable, read once at `Heap::new`:
+ | Value | Behavior |
+ |---|---|
+ | unset / `0` | Default threshold policy. |
+-| `1` | Collect at every safepoint (`next_gc = 0`, growth suppressed). |
++| `1` | Collect at every legal dispatch safepoint. |
+ | `N` (>1) | Collect every Nth safepoint. A middle gear for bisecting a stress failure that is too slow at `1`. |
+
+ Environment rather than a CLI flag because the corpus harness spawns the real
+@@ -62,16 +59,8 @@ Environment rather than a CLI flag because the corpus harness spawns the real
+
+ No new fixtures. The existing corpus runner is parameterized:
+
+-```rust
+-// tests/support/mod.rs
+-fn run_case(path: &Path) -> Output {
+-    let mut cmd = Command::new(phalcom_bin());
+-    cmd.arg(path);
+-    if let Ok(v) = std::env::var("PHALCOM_GC_STRESS") {
+-        cmd.env("PHALCOM_GC_STRESS", v);   // propagate to the child
+-    }
+-    cmd.output().expect("failed to spawn the `phalcom` binary")
+-}
+-```
++`tests/support/mod.rs` launches the `phalcom` binary without clearing its
++environment, so Rust's `Command` inherits `PHALCOM_GC_STRESS` automatically.
++No parallel corpus runner or argv change is required.
+
+ The lane is then a CI invocation, not a code path:
+diff --git a/docs/work/pending/collections/F.2-outgoing-pack-assembly-and-dynamic-send-amended.md b/docs/work/pending/collections/F.2-outgoing-pack-assembly-and-dynamic-send-amended.md
+--- a/docs/work/pending/collections/F.2-outgoing-pack-assembly-and-dynamic-send-amended.md
++++ b/docs/work/pending/collections/F.2-outgoing-pack-assembly-and-dynamic-send-amended.md
+@@ -2406,36 +2406,36 @@
+ # 36. Correctness invariants
+ 
+ The implementation must satisfy all of these.
+ 
+-- [ ] Static calls never allocate `ArgumentPackBuilderObject`.
+-- [ ] Builder is rooted by a hidden local whenever arbitrary bytecode may run.
+-- [ ] Temporary builder operand copies are consumed by pack opcodes.
+-- [ ] No pack opcode depends on a fragile fixed stack depth.
+-- [ ] Hidden scratch locals are physically collapsed after the dynamic expression.
+-- [ ] Dynamic send result occupies exactly one stack value after scratch cleanup.
+-- [ ] Computed label is checked before its value expression.
+-- [ ] Duplicate explicit label is rejected before its value expression.
+-- [ ] Duplicate setter `put` is rejected before RHS.
+-- [ ] Duplicate checks use Symbol identity only.
+-- [ ] `**` preserves encounter order.
+-- [ ] `***` accepts Tuple/Unit only.
+-- [ ] `*Tuple` projects positional lane only.
+-- [ ] Generic `*` uses ordinary cursor bytecode.
+-- [ ] Generic `*` reuses E.3 boundedness analysis.
+-- [ ] Dynamic selector uses canonical F.1 label escaping.
+-- [ ] Subscript-set final `put` is excluded from bracket label slots.
+-- [ ] Dynamic arity is checked before lookup.
+-- [ ] Tuple finish has no `u8` arity limit.
+-- [ ] Dynamic method miss preserves variadic fallback semantics.
+-- [ ] Dynamic dNU gets concrete selector + flat args.
+-- [ ] Dynamic super starts above defining class.
+-- [ ] Compiler-internal dynamic sends preserve access authority.
+-- [ ] `InvokePack` never calls re-entrant `VM::send_dynamic`.
+-- [ ] Fiber yield in generic `*` remains legal.
+-- [ ] Pack builder GC tracing includes every stored `Value`.
+-- [ ] Static inline cache shape and ordinary hot path are not degraded.
+-- [ ] No public primitive binding is added.
++- [x] Static calls never allocate `ArgumentPackBuilderObject`.
++- [x] Builder is rooted by a hidden local whenever arbitrary bytecode may run.
++- [x] Temporary builder operand copies are consumed by pack opcodes.
++- [x] No pack opcode depends on a fragile fixed stack depth.
++- [x] Hidden scratch locals are physically collapsed after the dynamic expression.
++- [x] Dynamic send result occupies exactly one stack value after scratch cleanup.
++- [x] Computed label is checked before its value expression.
++- [x] Duplicate explicit label is rejected before its value expression.
++- [x] Duplicate setter `put` is rejected before RHS.
++- [x] Duplicate checks use Symbol identity only.
++- [x] `**` preserves encounter order.
++- [x] `***` accepts Tuple/Unit only.
++- [x] `*Tuple` projects positional lane only.
++- [x] Generic `*` uses ordinary cursor bytecode.
++- [x] Generic `*` reuses E.3 boundedness analysis.
++- [x] Dynamic selector uses canonical F.1 label escaping.
++- [x] Subscript-set final `put` is excluded from bracket label slots.
++- [x] Dynamic arity is checked before lookup.
++- [x] Tuple finish has no `u8` arity limit.
++- [x] Dynamic method miss preserves rest-family fallback semantics.
++- [x] Dynamic dNU gets concrete selector + flat args.
++- [x] Dynamic super starts above defining class.
++- [x] Compiler-internal dynamic sends preserve access authority.
++- [x] `InvokePack` never calls re-entrant `VM::send_dynamic`.
++- [x] Fiber yield in generic `*` remains legal.
++- [x] Pack builder GC tracing includes every stored `Value`.
++- [x] Static inline cache shape and ordinary hot path are not degraded.
++- [x] No public primitive binding is added.
+ 
+ ---
+ 
+ # 37. Completion checklist
+@@ -2465,9 +2465,9 @@
+ - [x] Runtime dynamic arity check rejects >255 before lookup; setter arity includes implicit `put`.
+ - [x] dNU and variadic fallback match ordinary send behavior.
+ - [x] Scratch locals are cleaned without leaking stack slots.
+ - [x] Fiber regression passes.
+-- [deferred] Every-safepoint `PHALCOM_GC_STRESS` regression: focused `VM::force_gc()` PackBuilder proof passes, but general stress infrastructure is separately specified and unbuilt.
++- [ ] Every-safepoint `PHALCOM_GC_STRESS` verification: infrastructure is implemented by the completion patch; check this row only after the stress commands pass.
+ - [ ] Static send benchmark shows no unexplained regression. Focused static/dynamic disassembly verifies fast-path shape, not benchmark data.
+ - [x] Public primitive-floor delta is 0.
+ 
+ ---
+diff --git a/docs/work/pending/collections/F.3-rest-capture-and-rest-pattern-dispatch-amended.md b/docs/work/pending/collections/F.3-rest-capture-and-rest-pattern-dispatch-amended.md
+--- a/docs/work/pending/collections/F.3-rest-capture-and-rest-pattern-dispatch-amended.md
++++ b/docs/work/pending/collections/F.3-rest-capture-and-rest-pattern-dispatch-amended.md
+@@ -2028,9 +2028,9 @@ The implementation must satisfy all of these:
+ - [x] Rest selector strings are not parsed/probed for dispatch.
+ - [x] U9 `name(*)` fallback/cache is gone.
+ - [x] Old List call-prologue packing is gone.
+ - [x] dNU receives the original concrete selector and original flat args.
+ - [x] Successful exact static calls perform no rest lookup.
+-- [x] Native rest methods are not silently accepted.
++- [x] Native rest methods require the explicit shape-aware `PrimitiveFn::Shape` ABI and the same `RestLayout` acceptance predicates.
+ - [ ] Public primitive-floor delta remains 0.
+ - [x] Block rest remains unimplemented in F.3 and reserved for F.4.
+
+@@ -2052,5 +2052,5 @@ F.3 is complete when:
+ - [x] `Method#arity` remains fixed/minimum positional arity.
+-- [x] Native rest methods are rejected unless separately ratified.
++- [x] Shape-aware native rest methods are ratified by the callable runtime; fixed-arity native primitives cannot become rest Methods implicitly.
+ - [x] U9 List packing is removed.
+ - [x] U9 wildcard probe/cache is removed.
+ - [x] `SignatureKind::Variadic` is removed.
+@@ -2088,7 +2088,7 @@ F.3 is complete when:
+ | dNU | Original concrete selector + original flat args |
+ | Capture construction | Shared VM helper via A.3 `finish_tuple` |
+ | Frame binding | VM repacks before bytecode frame entry |
+-| Native rest methods | Unsupported in F.3 |
++| Native rest methods | Shape-aware native rest is ratified by callable runtime; uses shared `RestLayout` acceptance |
+ | `Method#arity` | Fixed/minimum positional arity |
+ | `SignatureKind::Variadic` | Remove by F.3 completion |
+ | `Signature.variadic` | Remove by F.3 completion |
+@@ -2102,5 +2102,5 @@ F.3 does not include:
+ - block/closure rest parameters — reserved for F.4;
+ - labeled or complete block-rest syntax;
+-- native/primitive rest ABI design;
++- additional native/primitive rest ABI variants beyond the ratified shape-aware callable gateway;
+ - multiple rest patterns in one base family/class;
+ - wildcard specificity or ambiguity ranking;
+diff --git a/phalcom-core/src/heap/F.md b/phalcom-core/src/heap/F.md
+deleted file mode 100644
+--- a/phalcom-core/src/heap/F.md
++++ /dev/null
+@@ -1 +0,0 @@
+-Create a detailed handoff prompt for the next agent to continue fresh, I'll attach the same spec. Document what you accomplished, findings, analyses, your next tasks, exact file and code references, test references, anything necessary to complete and verify the task-set—so that the next agent doesn't reread or reanalyze everything
+\ No newline at end of file

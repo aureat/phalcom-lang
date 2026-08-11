@@ -1,1 +1,0 @@
-Create a detailed handoff prompt for the next agent to continue fresh, I'll attach the same spec. Document what you accomplished, findings, analyses, your next tasks, exact file and code references, test references, anything necessary to complete and verify the task-set—so that the next agent doesn't reread or reanalyze everything

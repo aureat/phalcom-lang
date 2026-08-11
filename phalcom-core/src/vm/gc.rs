@@ -204,7 +204,7 @@ impl VM {
     /// memory-management.md §4), and never mid-opcode: several opcodes have a window
     /// where a value is popped or `split_off` the stack and held only in a Rust local.
     pub(crate) fn service_gc_safepoint(&mut self) {
-        if self.heap.gc_pending() {
+        if self.heap.gc_due_at_safepoint() {
             self.force_gc();
         }
     }

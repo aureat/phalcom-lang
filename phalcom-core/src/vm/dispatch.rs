@@ -345,6 +345,20 @@ impl VM {
         Ok(Some(base))
     }
 
+    /// Commits one already-allocated Method into the class dictionary and,
+    /// for a rest Method, its secondary base-family index. Validation runs
+    /// before either mutation so a duplicate rest family cannot leave the
+    /// two indexes out of sync.
+    fn install_method_binding(&mut self, target_class: crate::heap::ClassId, selector: Symbol, method: ObjRef) -> PhResult<()> {
+        let rest_base = self.validate_method_installation(target_class, selector, method)?;
+        self.heap.class_mut(target_class).add_method(selector, method);
+        if let Some(base) = rest_base {
+            self.heap.class_mut(target_class).add_rest_method(base, method);
+        }
+        self.world_version += 1;
+        Ok(())
+    }
+
     /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
     /// generation for the frame-token infrastructure
     /// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
@@ -1508,7 +1522,6 @@ impl VM {
                     let class_val = *self.stack.last().unwrap();
                     if let (Value::Obj(method_id), Value::Obj(class_id)) = (method_val, class_val) {
                         let target_class = if is_static { self.heap.class(class_id).class } else { class_id };
-                        let rest_base = self.validate_method_installation(target_class, selector, method_id)?;
                         if is_static {
                             let meta = self.heap.class(class_id).class;
                             let closure = {
@@ -1523,11 +1536,7 @@ impl VM {
                             if let Some(closure) = closure {
                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
                             }
-                            self.heap.class_mut(meta).add_method(selector, method_id);
-                            if let Some(base) = rest_base {
-                                self.heap.class_mut(meta).add_rest_method(base, method_id);
-                            }
-                            self.world_version += 1;
+                            self.install_method_binding(target_class, selector, method_id)?;
                         } else {
                             let closure = {
                                 let method = self.heap.method_mut(method_id);
@@ -1541,11 +1550,7 @@ impl VM {
                             if let Some(closure) = closure {
                                 self.heap.closure_mut(closure).lexical_class = Some(class_id);
                             }
-                            self.heap.class_mut(class_id).add_method(selector, method_id);
-                            if let Some(base) = rest_base {
-                                self.heap.class_mut(class_id).add_rest_method(base, method_id);
-                            }
-                            self.world_version += 1;
+                            self.install_method_binding(target_class, selector, method_id)?;
                             // Sacred-selector override-epoch tracking (ADR-0018):
                             // any (re)definition of a sacred selector directly on
                             // the kernel Bool/Block class dirties the pristine
@@ -2286,7 +2291,7 @@ mod tests {
             MethodKind::Closure(closure),
         ))));
         vm.heap.method_mut(first).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Positional { param_index: 0 }));
-        vm.heap.class_mut(target).add_rest_method(base, first);
+        vm.install_method_binding(target, first_selector, first).expect("first rest family should install");
 
         let second_selector = vm.get_or_intern("sum(**)");
         let second = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
@@ -2297,13 +2302,22 @@ mod tests {
         vm.heap.method_mut(second).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Labeled { param_index: 0 }));
 
         let error = vm
-            .validate_method_installation(target, second_selector, second)
+            .install_method_binding(target, second_selector, second)
             .expect_err("second rest family must be rejected");
         assert!(error.to_string().contains("already has rest method"), "unexpected error: {error}");
+        assert_eq!(
+            vm.heap.class(target).methods.get(&first_selector).copied(),
+            Some(first),
+            "failed install must preserve the first structural method binding"
+        );
         assert_eq!(
             vm.heap.class(target).get_rest_method(base),
             Some(first),
             "failed install must preserve existing index entry"
+        );
+        assert!(
+            !vm.heap.class(target).methods.contains_key(&second_selector),
+            "rejected rest family must not leak into the structural method dictionary"
         );
     }
 }

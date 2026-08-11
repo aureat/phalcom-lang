@@ -31,17 +31,10 @@ Collection is already latched-and-serviced, which is what makes this cheap.
 [`service_gc_safepoint`](../../phalcom-core/src/vm/gc.rs), which collects if the
 flag is set.
 
-Stress mode is therefore one knob: **make every allocation latch.**
-
-```rust
-// Heap::new / Heap::alloc
-next_gc: if gc_stress_enabled() { 0 } else { INITIAL_GC_THRESHOLD },
-```
-
-With `next_gc == 0`, `objects.len() >= next_gc` holds unconditionally, every
-allocation latches, and every safepoint collects. The growth policy
-(`GC_UNPRODUCTIVE_GROW_FACTOR`) must be suppressed in stress mode so the
-threshold does not climb away from zero after the first unproductive cycle.
+Stress mode augments that same safepoint predicate with a cadence counter.
+`PHALCOM_GC_STRESS=1` makes every legal dispatch safepoint collect;
+`PHALCOM_GC_STRESS=N` makes every Nth safepoint collect. The ordinary
+live-object threshold and its growth policy remain untouched.
 
 Critically, **the latch/service split is preserved**. Stress mode does not
 collect from `alloc`; it only raises the frequency at which the *existing*
@@ -56,7 +49,7 @@ Environment variable, read once at `Heap::new`:
 | Value | Behavior |
 |---|---|
 | unset / `0` | Default threshold policy. |
-| `1` | Collect at every safepoint (`next_gc = 0`, growth suppressed). |
+| `1` | Collect at every legal dispatch safepoint. |
 | `N` (>1) | Collect every Nth safepoint. A middle gear for bisecting a stress failure that is too slow at `1`. |
 
 Environment rather than a CLI flag because the corpus harness spawns the real
@@ -67,17 +60,9 @@ through `Command::env` without perturbing argv, which the NEGATIVE cases pin.
 
 No new fixtures. The existing corpus runner is parameterized:
 
-```rust
-// tests/support/mod.rs
-fn run_case(path: &Path) -> Output {
-    let mut cmd = Command::new(phalcom_bin());
-    cmd.arg(path);
-    if let Ok(v) = std::env::var("PHALCOM_GC_STRESS") {
-        cmd.env("PHALCOM_GC_STRESS", v);   // propagate to the child
-    }
-    cmd.output().expect("failed to spawn the `phalcom` binary")
-}
-```
+`tests/support/mod.rs` launches the `phalcom` binary without clearing its
+environment, so Rust's `Command` inherits `PHALCOM_GC_STRESS` automatically.
+No parallel corpus runner or argv change is required.
 
 The lane is then a CI invocation, not a code path:
 

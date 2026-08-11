@@ -220,6 +220,48 @@ fn verify_invariants_holds_after_bootstrap() {
 }
 
 #[test]
+fn native_rest_primitives_share_the_method_dictionary_and_rest_index() {
+    // Callable-runtime follow-up to F.3: a rest Method is one direct class
+    // definition represented in two indexes. `methods` owns the structural
+    // selector used by reflection / `::`; `rest_methods` is only the
+    // base-family fallback accelerator. Native rest gateways must obey the
+    // same invariant as bytecode rest methods.
+    let mut vm = VM::new();
+    let c = vm.universe.classes;
+    let rows = [
+        (c.object_class, "perform(_,***)", "perform"),
+        (c.method_class, "invokeOn(_,***)", "invokeOn"),
+        (c.function_class, "call(***)", "call"),
+    ];
+
+    for (class, selector_text, base_text) in rows {
+        let selector = vm.get_or_intern(selector_text);
+        let base = vm.get_or_intern(base_text);
+        let exact = vm
+            .heap
+            .class(class)
+            .methods
+            .get(&selector)
+            .copied()
+            .unwrap_or_else(|| panic!("{selector_text} is missing from ClassObject.methods"));
+
+        assert_eq!(
+            vm.heap.class(class).get_rest_method(base),
+            Some(exact),
+            "{selector_text} must name the same Method in methods and rest_methods"
+        );
+        assert!(
+            vm.heap
+                .class(class)
+                .base_names
+                .get(&base)
+                .is_some_and(|selectors| selectors.contains(&selector)),
+            "{selector_text} must participate in the finalized base-name family index"
+        );
+    }
+}
+
+#[test]
 fn sealed_hierarchy_rejects_runtime_reparent_and_keeps_invariants() {
     // U13 / DEC-U13a=A ([ADR-0026](../../docs/adr/accepted/0026-class-hierarchy-mutability.md),
     // [ADR-0041](../../docs/adr/accepted/0041-hierarchy-stability-policy.md)): a class's

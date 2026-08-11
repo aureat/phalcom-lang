@@ -2057,7 +2057,7 @@ The implementation must satisfy all of these:
 - [x] Old List call-prologue packing is gone.
 - [x] dNU receives the original concrete selector and original flat args.
 - [x] Successful exact static calls perform no rest lookup.
-- [x] Native rest methods are not silently accepted.
+- [x] Native rest methods require the explicit shape-aware `PrimitiveFn::Shape` ABI and the same `RestLayout` acceptance predicates.
 - [ ] Public primitive-floor delta remains 0.
 - [x] Block rest remains unimplemented in F.3 and reserved for F.4.
 
@@ -2092,7 +2092,7 @@ F.3 is complete when:
 - [x] Reflective ordinary send is consistent if present.
 - [x] dNU receives the original concrete call.
 - [x] `Method#arity` remains fixed/minimum positional arity.
-- [x] Native rest methods are rejected unless separately ratified.
+- [x] Shape-aware native rest methods are ratified by the callable runtime; fixed-arity native primitives cannot become rest Methods implicitly.
 - [x] U9 List packing is removed.
 - [x] U9 wildcard probe/cache is removed.
 - [x] `SignatureKind::Variadic` is removed.
@@ -2130,7 +2130,7 @@ F.3 is complete when:
 | dNU | Original concrete selector + original flat args |
 | Capture construction | Shared VM helper via A.3 `finish_tuple` |
 | Frame binding | VM repacks before bytecode frame entry |
-| Native rest methods | Unsupported in F.3 |
+| Native rest methods | Shape-aware native rest is ratified by callable runtime; uses shared `RestLayout` acceptance |
 | `Method#arity` | Fixed/minimum positional arity |
 | `SignatureKind::Variadic` | Remove by F.3 completion |
 | `Signature.variadic` | Remove by F.3 completion |
@@ -2145,7 +2145,7 @@ F.3 does not include:
 
 - block/closure rest parameters — reserved for F.4;
 - labeled or complete block-rest syntax;
-- native/primitive rest ABI design;
+- additional native/primitive rest ABI variants beyond the ratified shape-aware callable gateway;
 - multiple rest patterns in one base family/class;
 - wildcard specificity or ambiguity ranking;
 - public rest-signature reflection APIs beyond existing `arity` and selector text;

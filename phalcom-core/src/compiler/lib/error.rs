@@ -2,6 +2,24 @@ use phalcom_ast::error::SyntaxError;
 use phalcom_common::range::SourceRange;
 use thiserror::Error;
 
+/// Defensive compiler-side classification for malformed rest declarations.
+///
+/// Source parsing catches these first, but attribute expansion and compiler
+/// synthesis also create AST members and therefore need a typed backstop.
+#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestDeclarationErrorKind {
+    #[error("more than one positional rest parameter")]
+    DuplicatePositional,
+    #[error("more than one labeled rest parameter")]
+    DuplicateLabeled,
+    #[error("more than one complete rest parameter")]
+    DuplicateComplete,
+    #[error("complete rest cannot coexist with positional or labeled rest")]
+    CompleteConflict,
+    #[error("labeled and complete rest parameters must be terminal")]
+    TerminalRestNotLast,
+}
+
 /// An error raised while lowering the AST to bytecode.
 #[derive(Error, Debug, Clone)]
 pub enum CompilerError {
@@ -263,6 +281,27 @@ pub enum CompilerError {
     /// body ABI. The compiler rejects it before selector creation/installation.
     #[error("rest parameters are not supported on constructors or subscript methods in F.3.")]
     RestModeUnsupportedForMember(SourceRange),
+
+    /// A malformed rest declaration produced or preserved beyond parsing.
+    #[error("invalid rest declaration: {kind}")]
+    InvalidRestDeclaration {
+        kind: RestDeclarationErrorKind,
+        span: SourceRange,
+    },
+
+    /// Two structurally different rest selectors in one base family/class.
+    #[error(
+        "class.duplicate_rest_family: class '{class}' already defines rest family '{base}' \
+         (first declared at {first_line}:{first_col})."
+    )]
+    DuplicateRestMethodFamily {
+        class: String,
+        base: String,
+        span: SourceRange,
+        first_span: SourceRange,
+        first_line: usize,
+        first_col: usize,
+    },
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

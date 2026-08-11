@@ -15,7 +15,7 @@ use phalcom_ast::ast::{
 use phalcom_common::range::SourceRange;
 
 use super::checked_send_arity;
-use super::error::CompilerError;
+use super::error::{CompilerError, RestDeclarationErrorKind};
 use super::{Compiler, UnitKind};
 
 /// Attribute names handled entirely by the compiler itself — the guard weave
@@ -77,12 +77,36 @@ fn validate_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
             let positional: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Positional).collect();
             let labeled: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Labeled).collect();
             let complete: Vec<_> = method.params.iter().filter(|p| p.rest_mode == RestMode::Complete).collect();
-            if positional.len() > 1 || labeled.len() > 1 || complete.len() > 1 || (!complete.is_empty() && (!positional.is_empty() || !labeled.is_empty())) {
-                return Err(CompilerError::Message("invalid rest parameter combination".into()));
+            if positional.len() > 1 {
+                return Err(CompilerError::InvalidRestDeclaration {
+                    kind: RestDeclarationErrorKind::DuplicatePositional,
+                    span: positional[1].range,
+                });
+            }
+            if labeled.len() > 1 {
+                return Err(CompilerError::InvalidRestDeclaration {
+                    kind: RestDeclarationErrorKind::DuplicateLabeled,
+                    span: labeled[1].range,
+                });
+            }
+            if complete.len() > 1 {
+                return Err(CompilerError::InvalidRestDeclaration {
+                    kind: RestDeclarationErrorKind::DuplicateComplete,
+                    span: complete[1].range,
+                });
+            }
+            if !complete.is_empty() && (!positional.is_empty() || !labeled.is_empty()) {
+                return Err(CompilerError::InvalidRestDeclaration {
+                    kind: RestDeclarationErrorKind::CompleteConflict,
+                    span: complete[0].range,
+                });
             }
             if let Some(rest) = labeled.first().or_else(|| complete.first()) {
                 if method.params.last().is_none_or(|p| p.range != rest.range) {
-                    return Err(CompilerError::Message("**rest and ***rest must be terminal".into()));
+                    return Err(CompilerError::InvalidRestDeclaration {
+                        kind: RestDeclarationErrorKind::TerminalRestNotLast,
+                        span: rest.range,
+                    });
                 }
             }
         }
@@ -319,12 +343,19 @@ impl<'vm> Compiler<'vm> {
                 }
                 if let ClassMember::Method(method) = member
                     && method.params.iter().any(phalcom_ast::ast::ParameterDef::is_rest)
-                    && rest_families.insert((method.is_static, method.name.clone()), member_name_range).is_some()
+                    && let Some(first_span) =
+                        rest_families.insert((method.is_static, method.name.clone()), member_name_range)
                 {
-                    return Err(CompilerError::Message(format!(
-                        "class {} already defines a rest method for {}",
-                        class_def.name, method.name
-                    )));
+                    let source = self.source_text();
+                    let (first_line, first_col) = crate::diagnostics::line_col(&source, first_span.start);
+                    return Err(CompilerError::DuplicateRestMethodFamily {
+                        class: class_def.name.clone(),
+                        base: method.name.clone(),
+                        span: member_name_range,
+                        first_span,
+                        first_line,
+                        first_col,
+                    });
                 }
                 seen.insert(key, (display, member_name_range));
             }

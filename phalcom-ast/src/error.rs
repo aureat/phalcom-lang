@@ -69,6 +69,43 @@ pub fn format_expected(expected: &[String]) -> String {
     }
 }
 
+/// Structured declaration-time failures for method rest parameters.
+///
+/// Keeping these distinct from [`SyntaxErrorKind::Message`] gives tools a
+/// stable category while preserving the existing human-facing wording.
+#[derive(Debug, Clone, Copy, Error, Eq, PartialEq)]
+pub enum RestParameterErrorKind {
+    #[error("no parameter may follow **rest or ***rest")]
+    AfterTerminal,
+    #[error("*rest must precede labeled parameters")]
+    PositionalAfterLabeled,
+    #[error("at most one *rest parameter is allowed")]
+    DuplicatePositional,
+    #[error("at most one **rest parameter is allowed")]
+    DuplicateLabeled,
+    #[error("***rest cannot coexist with *rest or **rest")]
+    CompleteConflict,
+    #[error("positional parameters must precede labeled parameters and *rest")]
+    PositionalAfterLabeledOrRest,
+    #[error("rest parameters are not supported in subscript declarations")]
+    UnsupportedInSubscript,
+}
+
+impl RestParameterErrorKind {
+    /// Stable diagnostic code for tooling and golden diagnostics.
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::AfterTerminal => "syntax.rest.after_terminal",
+            Self::PositionalAfterLabeled => "syntax.rest.positional_after_labeled",
+            Self::DuplicatePositional => "syntax.rest.duplicate_positional",
+            Self::DuplicateLabeled => "syntax.rest.duplicate_labeled",
+            Self::CompleteConflict => "syntax.rest.complete_conflict",
+            Self::PositionalAfterLabeledOrRest => "syntax.rest.positional_after_rest_or_label",
+            Self::UnsupportedInSubscript => "syntax.rest.unsupported_subscript",
+        }
+    }
+}
+
 /// The category of a [`SyntaxError`], carrying its display message.
 ///
 /// Each variant's `#[error(..)]` attribute supplies the message rendered by
@@ -173,6 +210,10 @@ pub enum SyntaxErrorKind {
     #[error("Raw newline is not allowed in a string literal")]
     RawNewlineInString,
 
+    /// An invalid structural rest-parameter declaration.
+    #[error("{0}")]
+    RestParameter(RestParameterErrorKind),
+
     /// A syntax error with no more specific classification.
     #[error("Unknown error")]
     Unknown,
@@ -205,6 +246,7 @@ impl SyntaxErrorKind {
             Self::UnterminatedInterpolation => "string.interpolation.unterminated",
             Self::EmptyInterpolation => "string.interpolation.empty",
             Self::RawNewlineInString => "string.raw_newline",
+            Self::RestParameter(kind) => kind.code(),
             Self::Unknown => "syntax.unknown",
             Self::Message(_) => "syntax.message",
         }

@@ -219,8 +219,9 @@ fn collections() {
 
 #[test]
 fn collections_literals_negative() {
-    // Collection-literal lane mismatches fail in the parser with a precise
-    // operator/destination diagnostic.
+    // Collection-literal lane mismatches plus E.3/F.2 provably-unbounded
+    // outgoing spread diagnostics. These are real negative cases, not pending
+    // success fixtures.
     support::check_negative("collections/negative");
 }
 
