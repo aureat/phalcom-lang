@@ -90,6 +90,9 @@ surface equality is value-based. Ordinary method lookup still maps `Some(v)` to
 `Some` and `None` to `None`, then executes inherited `.ph` methods through the
 immediate call context.
 
+`None.class` is the `None` class object, distinct from the immediate `None`
+value. Ordinary reflection and method lookup therefore agree.
+
 `Some(v)` is canonical source syntax and remains an ordinary call: it lowers
 through `Some.call(v)`. `Some.call(v)` is explicit; `Some.new(v)` is a temporary
 compatibility alias. Nested `Some` values remain distinct through depth seven;

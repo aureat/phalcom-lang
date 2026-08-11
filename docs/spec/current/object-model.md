@@ -95,7 +95,7 @@ Object references are `ObjRef` handles into the arena heap: [ADR-0009](../../adr
 | `Set(1, 2)` | `Set` | |
 | `1..5` | `Range` | |
 | `Some(v)` | `Some` | immediate present variant; `Some(v).class == Some` |
-| `None` | `None` | immediate absent variant; `None.class == None.class` |
+| `None` | `None` | immediate absent variant; `None.class != None` |
 | a reified failed send | `Message` | see [Method Lookup](method-lookup.md) |
 | a class | its **metaclass** | `Foo.class` → `Foo class` |
 | a user instance | its stored class | |

@@ -35,6 +35,9 @@ fn immediate_option_reflection_and_dispatch_are_ordinary() {
     assert_eq!(some.class(&vm), classes.some_class);
     assert_eq!(some_none.class(&vm), classes.some_class);
     assert_eq!(Value::None.class(&vm), classes.none_class);
+    assert_eq!(send0(&mut vm, Value::None, "class"), Value::Obj(classes.none_class));
+    assert_ne!(send0(&mut vm, Value::None, "class"), Value::None);
+    assert_eq!(send0(&mut vm, some, "class"), Value::Obj(classes.some_class));
     assert!(matches!(send0(&mut vm, some, "isSome"), Value::Bool(true)));
     assert!(matches!(send0(&mut vm, some, "isNone"), Value::Bool(false)));
     assert!(matches!(send0(&mut vm, Value::None, "isSome"), Value::Bool(false)));

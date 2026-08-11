@@ -144,7 +144,7 @@ These remain ordinary object-model operations:
 
 ```phalcom
 Some(42).class == Some
-None.class == None
+None.class != None
 
 Some(42).isA(Option) == true
 None.isA(Option) == true
@@ -2269,7 +2269,7 @@ The unit is complete only when all of the following are true.
 ## Object model
 
 - [ ] `Some(x).class == Some`.
-- [ ] `None.class == None`.
+- [ ] `None.class != None`.
 - [ ] both are `isA(Option)`.
 - [ ] ordinary `.ph` methods execute with `CallContext::Immediate`.
 - [ ] no object materialization path exists.
