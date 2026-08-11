@@ -1,0 +1,9 @@
+[package]
+name = "phalcom-native-surface"
+version = "0.1.0"
+edition = "2024"
+description = "VM-free canonical native member descriptors shared by Phalcom runtime and tooling."
+
+[lib]
+name = "phalcom_native_surface"
+path = "src/lib.rs"

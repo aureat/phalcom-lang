@@ -7,8 +7,27 @@ use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintPa
 use crate::documents::Document;
 use crate::semantic::{Confidence, SemanticDb, ValueShape};
 
+/// Server policy for runtime-value inlay hints.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HintPolicy {
+    /// Do not render hints.
+    Off,
+    /// Render stable facts and suppress heuristic facts.
+    Stable,
+    /// Render all known facts, including heuristic facts.
+    All,
+}
+
 /// Computes stable type-style hints for visible top-level binding declarations.
 pub fn hints_for(db: &SemanticDb, uri: &Url, doc: &Document, visible: Range) -> Vec<InlayHint> {
+    hints_for_with_policy(db, uri, doc, visible, HintPolicy::Stable, false)
+}
+
+/// Computes runtime-value hints under an explicit display policy.
+pub fn hints_for_with_policy(db: &SemanticDb, uri: &Url, doc: &Document, visible: Range, policy: HintPolicy, suppress_obvious: bool) -> Vec<InlayHint> {
+    if policy == HintPolicy::Off {
+        return Vec::new();
+    }
     let visible_start = doc.line_index.offset(visible.start);
     let visible_end = doc.line_index.offset(visible.end);
     let mut bindings = Vec::new();
@@ -21,7 +40,7 @@ pub fn hints_for(db: &SemanticDb, uri: &Url, doc: &Document, visible: Range) -> 
         let Some(value) = db.binding_at(uri, &name, range.end.saturating_add(1)) else {
             continue;
         };
-        if !should_render(&value.confidence, &value.shape) {
+        if !should_render(policy, &value.confidence, &value.shape) || (suppress_obvious && obvious_initializer(doc, range)) {
             continue;
         }
         let rendered = render_shape(&value.shape);
@@ -50,6 +69,18 @@ pub fn hints_for(db: &SemanticDb, uri: &Url, doc: &Document, visible: Range) -> 
 /// Answers an inlay-hint request using an open document snapshot.
 pub fn hints_for_params(db: &SemanticDb, uri: &Url, doc: &Document, params: &InlayHintParams) -> Vec<InlayHint> {
     hints_for(db, uri, doc, params.range)
+}
+
+/// Answers an inlay request under an explicit display policy.
+pub fn hints_for_params_with_policy(
+    db: &SemanticDb,
+    uri: &Url,
+    doc: &Document,
+    params: &InlayHintParams,
+    policy: HintPolicy,
+    suppress_obvious: bool,
+) -> Vec<InlayHint> {
+    hints_for_with_policy(db, uri, doc, params.range, policy, suppress_obvious)
 }
 
 fn collect_top_level_bindings(program: &Program, out: &mut Vec<(String, SourceRange)>) {
@@ -94,8 +125,20 @@ fn collect_pattern_bindings(pattern: &Pattern, out: &mut Vec<(String, SourceRang
     }
 }
 
-fn should_render(confidence: &Confidence, shape: &ValueShape) -> bool {
-    !matches!(confidence, Confidence::Heuristic) && !matches!(shape, ValueShape::Unknown)
+fn should_render(policy: HintPolicy, confidence: &Confidence, shape: &ValueShape) -> bool {
+    !matches!(shape, ValueShape::Unknown) && (policy == HintPolicy::All || !matches!(confidence, Confidence::Heuristic))
+}
+
+fn obvious_initializer(doc: &Document, range: SourceRange) -> bool {
+    let line_end = doc.text[range.end..].find('\n').map_or(doc.text.len(), |offset| range.end + offset);
+    let tail = &doc.text[range.end..line_end];
+    let Some(equal) = tail.find('=') else { return false };
+    let value = tail[equal + 1..].trim_start();
+    value.starts_with('"')
+        || value.starts_with('\'')
+        || value.chars().next().is_some_and(|character| character.is_ascii_digit() || character == '-')
+        || value.starts_with("true")
+        || value.starts_with("false")
 }
 
 fn render_shape(shape: &ValueShape) -> String {

@@ -1034,6 +1034,7 @@ dependencies = [
  "num-traits",
  "phalcom-ast",
  "phalcom-common",
+ "phalcom-native-surface",
  "rand",
  "ryu",
  "slotmap",
@@ -1050,11 +1051,16 @@ dependencies = [
  "dashmap 6.2.1",
  "phalcom-ast",
  "phalcom-common",
+ "phalcom-native-surface",
  "serde",
  "serde_json",
  "tokio",
  "tower-lsp",
 ]
+
+[[package]]
+name = "phalcom-native-surface"
+version = "0.1.0"
 
 [[package]]
 name = "phalcom-repl"

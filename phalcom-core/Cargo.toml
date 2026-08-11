@@ -72,6 +72,7 @@ benchmarks = ["dep:criterion"]
 [dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-common = { path = "../phalcom-common" }
+phalcom-native-surface = { path = "../phalcom-native-surface" }
 indexmap = { workspace = true }
 thiserror = "2.0.12"
 tracing = { workspace = true }

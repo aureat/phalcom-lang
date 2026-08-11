@@ -1,0 +1,377 @@
+//! Canonical native member declarations shared by the runtime and tooling.
+//!
+//! This crate deliberately contains no VM, AST, or LSP dependency. The runtime
+//! validates its primitive registration against this surface, while the LSP
+//! uses it to expose native members without linking the runtime.
+
+/// Native member category.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NativeMemberKind {
+    /// Ordinary method.
+    Method,
+    /// Bare-name getter.
+    Getter,
+    /// Setter member.
+    Setter,
+}
+
+/// Native dispatch side.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NativeDispatch {
+    /// Instance-side dispatch.
+    Instance,
+    /// Class-side dispatch.
+    Class,
+}
+
+/// Native visibility.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NativeVisibility {
+    /// Public protocol member.
+    Public,
+    /// Runtime implementation member.
+    Internal,
+}
+
+/// Semantic return contract for a native member.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum NativeReturnKnowledge {
+    /// No source-level contract; semantic consumers must remain conservative.
+    Unknown,
+    /// A future descriptor may supply a stable source-level return contract.
+    Declared,
+}
+
+/// One canonical native member declaration.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NativeMember {
+    /// Runtime class name owning the member.
+    pub class: &'static str,
+    /// Runtime dispatch selector, including encoded labels/rest shape.
+    pub selector: &'static str,
+    /// Native member category.
+    pub kind: NativeMemberKind,
+    /// Dispatch side.
+    pub side: NativeDispatch,
+    /// Visibility exposed by runtime dispatch.
+    pub visibility: NativeVisibility,
+    /// Whether a stable semantic return contract exists.
+    pub return_knowledge: NativeReturnKnowledge,
+}
+
+/// One runtime-only class relationship needed when source core has no class
+/// declaration for a bootstrapped representation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct NativeClass {
+    /// Runtime class name.
+    pub name: &'static str,
+    /// Runtime superclass name, if any.
+    pub superclass: Option<&'static str>,
+}
+
+/// Bootstrapped classes that own at least one native member.
+pub const NATIVE_CLASSES: &[NativeClass] = &[
+    NativeClass {
+        name: "Object",
+        superclass: None,
+    },
+    NativeClass {
+        name: "Behavior",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Class",
+        superclass: Some("Behavior"),
+    },
+    NativeClass {
+        name: "Message",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Number",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Int",
+        superclass: Some("Number"),
+    },
+    NativeClass {
+        name: "Float",
+        superclass: Some("Number"),
+    },
+    NativeClass {
+        name: "String",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Bool",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Symbol",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Option",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Some",
+        superclass: Some("Option"),
+    },
+    NativeClass {
+        name: "Method",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Function",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Closure",
+        superclass: Some("Function"),
+    },
+    NativeClass {
+        name: "System",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Module",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "List",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Bytes",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Map",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Set",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Tuple",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Record",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Range",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Error",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Fiber",
+        superclass: Some("Object"),
+    },
+    NativeClass {
+        name: "Resource",
+        superclass: Some("Object"),
+    },
+];
+
+macro_rules! native {
+    ($class:literal, $selector:literal, $kind:ident, $side:ident, $visibility:ident) => {
+        NativeMember {
+            class: $class,
+            selector: $selector,
+            kind: NativeMemberKind::$kind,
+            side: NativeDispatch::$side,
+            visibility: NativeVisibility::$visibility,
+            return_knowledge: NativeReturnKnowledge::Unknown,
+        }
+    };
+}
+
+/// Canonical native primitive surface.
+pub const NATIVE_MEMBERS: &[NativeMember] = &[
+    native!("Object", "name", Getter, Instance, Public),
+    native!("Object", "class", Getter, Instance, Public),
+    native!("Object", "class=(put)", Setter, Instance, Public),
+    native!("Object", "toString", Getter, Instance, Public),
+    native!("Object", "hash", Getter, Instance, Public),
+    native!("Object", "==(_)", Method, Instance, Public),
+    native!("Object", "!=(_)", Method, Instance, Public),
+    native!("Object", "perform(_,***)", Method, Instance, Public),
+    native!("Object", "respondsTo(_)", Method, Instance, Public),
+    native!("Object", "doesNotUnderstand(_)", Method, Instance, Public),
+    native!("Object", "methodFor(_)", Method, Instance, Public),
+    native!("Object", "_$invariantEnter()", Method, Instance, Internal),
+    native!("Object", "_$invariantExit()", Method, Instance, Internal),
+    native!("Object", "_$attributes", Getter, Instance, Public),
+    native!("Object", "_$attach(_)", Method, Instance, Public),
+    native!("Object", "_$freezeAttributes()", Method, Instance, Public),
+    native!("Message", "selector", Getter, Instance, Public),
+    native!("Message", "name", Getter, Instance, Public),
+    native!("Message", "labels", Getter, Instance, Public),
+    native!("Message", "args", Getter, Instance, Public),
+    native!("Behavior", "superclass", Getter, Instance, Public),
+    native!("Behavior", "superclass=(put)", Setter, Instance, Public),
+    native!("Behavior", "name", Getter, Instance, Public),
+    native!("Behavior", "methods", Getter, Instance, Public),
+    native!("Class", "+(_)", Method, Instance, Public),
+    native!("Class", "_$new()", Method, Instance, Internal),
+    native!("Number", "+(_)", Method, Instance, Public),
+    native!("Number", "-(_)", Method, Instance, Public),
+    native!("Number", "*(_)", Method, Instance, Public),
+    native!("Number", "/(_)", Method, Instance, Public),
+    native!("Number", "%(_)", Method, Instance, Public),
+    native!("Number", "~/(_)", Method, Instance, Public),
+    native!("Number", "**(_)", Method, Instance, Public),
+    native!("Number", "<(_)", Method, Instance, Public),
+    native!("Number", "<=(_)", Method, Instance, Public),
+    native!("Number", ">(_)", Method, Instance, Public),
+    native!("Number", ">=(_)", Method, Instance, Public),
+    native!("Number", "negated()", Method, Instance, Public),
+    native!("Number", "hash", Getter, Instance, Public),
+    native!("Number", "toString", Getter, Instance, Public),
+    native!("Number", "new()", Method, Class, Public),
+    native!("Number", "new(_)", Method, Class, Public),
+    native!("Int", "&(_)", Method, Instance, Public),
+    native!("Int", "|(_)", Method, Instance, Public),
+    native!("Int", "^(_)", Method, Instance, Public),
+    native!("Int", "~()", Method, Instance, Public),
+    native!("Int", "<<(_)", Method, Instance, Public),
+    native!("Int", ">>(_)", Method, Instance, Public),
+    native!("Int", "bitAt(_)", Method, Instance, Public),
+    native!("Int", "bitCount", Getter, Instance, Public),
+    native!("Int", "bitLength", Getter, Instance, Public),
+    native!("Int", "trailingZeros", Getter, Instance, Public),
+    native!("Int", "new()", Method, Class, Public),
+    native!("Int", "new(_)", Method, Class, Public),
+    native!("Float", "new()", Method, Class, Public),
+    native!("Float", "new(_)", Method, Class, Public),
+    native!("Float", "abs", Getter, Instance, Public),
+    native!("Float", "sign", Getter, Instance, Public),
+    native!("Float", "floor", Getter, Instance, Public),
+    native!("Float", "ceil", Getter, Instance, Public),
+    native!("Float", "truncated", Getter, Instance, Public),
+    native!("Float", "rounded", Getter, Instance, Public),
+    native!("Float", "toIntExact", Getter, Instance, Public),
+    native!("Float", "isInteger", Getter, Instance, Public),
+    native!("Float", "isNaN", Getter, Instance, Public),
+    native!("Float", "isFinite", Getter, Instance, Public),
+    native!("Float", "isInfinite", Getter, Instance, Public),
+    native!("String", "+(_)", Method, Instance, Public),
+    native!("String", "hash", Getter, Instance, Public),
+    native!("String", "new()", Method, Class, Public),
+    native!("String", "new(_)", Method, Class, Public),
+    native!("String", "_$byteCount", Getter, Instance, Internal),
+    native!("String", "_$byteAt(_)", Method, Instance, Internal),
+    native!("String", "_$slice(_,_)", Method, Instance, Internal),
+    native!("Bool", "new()", Method, Class, Public),
+    native!("Bool", "new(_)", Method, Class, Public),
+    native!("Bool", "and(_)", Method, Instance, Public),
+    native!("Bool", "or(_)", Method, Instance, Public),
+    native!("Bool", "not()", Method, Instance, Public),
+    native!("Bool", "ifTrue(_)", Method, Instance, Public),
+    native!("Bool", "ifFalse(_)", Method, Instance, Public),
+    native!("Bool", "ifTrue(_,ifFalse)", Method, Instance, Public),
+    native!("Bool", "hash", Getter, Instance, Public),
+    native!("Symbol", "toString", Getter, Instance, Public),
+    native!("Symbol", "hash", Getter, Instance, Public),
+    native!("Symbol", "new(_)", Method, Class, Public),
+    native!("Some", "call(_)", Method, Class, Public),
+    native!("Some", "new(_)", Method, Class, Public),
+    native!("Option", "match(some,none)", Method, Instance, Public),
+    native!("Method", "new(_)", Method, Class, Public),
+    native!("Method", "arity", Getter, Instance, Public),
+    native!("Method", "name", Getter, Instance, Public),
+    native!("Method", "invokeOn(_,***)", Method, Instance, Public),
+    native!("Method", "bind(_)", Method, Instance, Public),
+    native!("Method", "selector", Getter, Instance, Public),
+    native!("Method", "holder", Getter, Instance, Public),
+    native!("Function", "arity", Getter, Instance, Public),
+    native!("Function", "name", Getter, Instance, Public),
+    native!("Function", "callWith(_)", Method, Instance, Public),
+    native!("Function", "call(***)", Method, Instance, Public),
+    native!("Closure", "arity", Getter, Instance, Public),
+    native!("Closure", "name", Getter, Instance, Public),
+    native!("Closure", "whileTrue(_)", Method, Instance, Public),
+    native!("Closure", "on(_,_)", Method, Instance, Public),
+    native!("Closure", "ensure(_)", Method, Instance, Public),
+    native!("System", "print(_)", Method, Class, Public),
+    native!("System", "new()", Method, Class, Public),
+    native!("System", "schedule(_)", Method, Class, Public),
+    native!("System", "nextScheduled", Getter, Class, Public),
+    native!("System", "gc", Getter, Class, Public),
+    native!("System", "_$write(_)", Method, Class, Internal),
+    native!("Module", "new()", Method, Class, Public),
+    native!("Module", "doesNotUnderstand(_)", Method, Instance, Public),
+    native!("List", "new()", Method, Class, Public),
+    native!("List", "_$length", Getter, Instance, Internal),
+    native!("List", "_$at(_)", Method, Instance, Internal),
+    native!("List", "_$set(_,_)", Method, Instance, Internal),
+    native!("List", "_$push(_)", Method, Instance, Internal),
+    native!("List", "_$replaceSlice(_,_,_)", Method, Instance, Internal),
+    native!("List", "toString", Getter, Instance, Public),
+    native!("Bytes", "new(_)", Method, Class, Public),
+    native!("Bytes", "_$fromString(_)", Method, Class, Internal),
+    native!("Bytes", "_$size", Getter, Instance, Internal),
+    native!("Bytes", "_$at(_)", Method, Instance, Internal),
+    native!("Bytes", "_$set(_,_)", Method, Instance, Internal),
+    native!("Bytes", "_$fill(_)", Method, Instance, Internal),
+    native!("Bytes", "_$slice(_,_)", Method, Instance, Internal),
+    native!("Bytes", "_$copyInto(_,_)", Method, Instance, Internal),
+    native!("Bytes", "_$utf8", Getter, Instance, Internal),
+    native!("Bytes", "_$utf8Lossy", Getter, Instance, Internal),
+    native!("Bytes", "_$equalsConstantTime(_)", Method, Instance, Internal),
+    native!("Map", "new()", Method, Class, Public),
+    native!("Map", "_$size", Getter, Instance, Internal),
+    native!("Map", "_$get(_)", Method, Instance, Internal),
+    native!("Map", "_$put(_,_)", Method, Instance, Internal),
+    native!("Map", "_$has(_)", Method, Instance, Internal),
+    native!("Map", "_$remove(_)", Method, Instance, Internal),
+    native!("Map", "_$keyAt(_)", Method, Instance, Internal),
+    native!("Map", "_$valueAt(_)", Method, Instance, Internal),
+    native!("Set", "new()", Method, Class, Public),
+    native!("Set", "_$size", Getter, Instance, Internal),
+    native!("Set", "_$add(_)", Method, Instance, Internal),
+    native!("Set", "_$has(_)", Method, Instance, Internal),
+    native!("Set", "_$remove(_)", Method, Instance, Internal),
+    native!("Set", "_$at(_)", Method, Instance, Internal),
+    native!("Tuple", "_$fromList(_)", Method, Class, Internal),
+    native!("Tuple", "_$size", Getter, Instance, Internal),
+    native!("Tuple", "_$at(_)", Method, Instance, Internal),
+    native!("Tuple", "_$positionalSize", Getter, Instance, Internal),
+    native!("Tuple", "_$labelAt(_)", Method, Instance, Internal),
+    native!("Tuple", "_$positionals", Getter, Instance, Internal),
+    native!("Tuple", "_$labeled", Getter, Instance, Internal),
+    native!("Tuple", "_$slice(_,_)", Method, Instance, Internal),
+    native!("Record", "_$size", Getter, Instance, Internal),
+    native!("Record", "_$labelAt(_)", Method, Instance, Internal),
+    native!("Record", "_$valueAt(_)", Method, Instance, Internal),
+    native!("Range", "_$lower", Getter, Instance, Internal),
+    native!("Range", "_$upper", Getter, Instance, Internal),
+    native!("Range", "_$upperInclusive", Getter, Instance, Internal),
+    native!("Error", "message", Getter, Instance, Public),
+    native!("Error", "raise()", Method, Instance, Public),
+    native!("Fiber", "new(_)", Method, Class, Public),
+    native!("Fiber", "call()", Method, Instance, Public),
+    native!("Fiber", "call(_)", Method, Instance, Public),
+    native!("Fiber", "try()", Method, Instance, Public),
+    native!("Fiber", "try(_)", Method, Instance, Public),
+    native!("Fiber", "yield()", Method, Class, Public),
+    native!("Fiber", "yield(_)", Method, Class, Public),
+    native!("Fiber", "current", Getter, Class, Public),
+    native!("Fiber", "abort(_)", Method, Class, Public),
+    native!("Fiber", "isDone", Getter, Instance, Public),
+    native!("Fiber", "isRoot", Getter, Instance, Public),
+    native!("Fiber", "error", Getter, Instance, Public),
+    native!("Resource", "_$register(_)", Method, Class, Internal),
+    native!("Resource", "_$close()", Method, Instance, Internal),
+    native!("Resource", "_$isClosed", Getter, Instance, Internal),
+    native!("System", "_$leakReport", Getter, Class, Internal),
+    native!("System", "_$strictResources(_)", Method, Class, Internal),
+];

@@ -2,6 +2,7 @@
 members = [
     "phalcom-ast",
     "phalcom-common",
+    "phalcom-native-surface",
     "phalcom-core",
     "phalcom-repl",
     "phalcom-lsp",

@@ -1,4 +1,4 @@
-use crate::method::{MethodObject, RestLayout, RestMode, SignatureKind};
+use crate::method::{MemberVisibility, MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
 use crate::primitive::attribute::{attribute_attach, attribute_attributes, attribute_freeze};
 use crate::primitive::block::{block_arity, block_call_shape, block_call_with_shape, block_ensure, block_name, block_on, block_while_true};
 use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
@@ -46,6 +46,8 @@ use crate::primitive::tuple::{
     tuple_raw_slice,
 };
 use crate::vm::VM;
+use phalcom_native_surface::{NATIVE_MEMBERS, NativeDispatch, NativeMemberKind, NativeVisibility};
+use std::collections::BTreeSet;
 
 use super::Universe;
 
@@ -496,5 +498,116 @@ impl Universe {
             SignatureKind::Method(1),
             crate::primitive::resource::system_strict_resources
         );
+
+        validate_native_surface(vm);
+    }
+}
+
+/// Verifies that runtime primitive registration agrees with the canonical
+/// VM-free descriptor surface consumed by editor semantics.
+fn validate_native_surface(vm: &VM) {
+    type NativeKey = (String, String, NativeDispatch, NativeMemberKind, NativeVisibility);
+
+    let expected = NATIVE_MEMBERS
+        .iter()
+        .map(|member| {
+            (
+                member.class.to_string(),
+                member.selector.to_string(),
+                member.side,
+                member.kind,
+                member.visibility,
+            )
+        })
+        .collect::<BTreeSet<NativeKey>>();
+    let classes = vm.universe.classes;
+    let rows = [
+        classes.object_class,
+        classes.behavior_class,
+        classes.class_class,
+        classes.metaclass_class,
+        classes.number_class,
+        classes.int_class,
+        classes.float_class,
+        classes.string_class,
+        classes.nil_class,
+        classes.bool_class,
+        classes.true_class,
+        classes.false_class,
+        classes.method_class,
+        classes.function_class,
+        classes.closure_class,
+        classes.bound_method_class,
+        classes.symbol_class,
+        classes.module_class,
+        classes.system_class,
+        classes.option_class,
+        classes.some_class,
+        classes.none_class,
+        classes.unit_class,
+        classes.iterable_class,
+        classes.list_class,
+        classes.map_class,
+        classes.set_class,
+        classes.tuple_class,
+        classes.record_class,
+        classes.range_class,
+        classes.bytes_class,
+        classes.message_class,
+        classes.error_class,
+        classes.message_not_understood_class,
+        classes.fiber_class,
+        classes.cannot_yield_across_native_frame_class,
+        classes.family_class,
+        classes.resource_class,
+        classes.use_after_close_error_class,
+    ];
+    let mut actual = BTreeSet::new();
+    for class in rows {
+        let class_name = vm.heap.class(class).name.clone();
+        for (symbol, method_id) in &vm.heap.class(class).methods {
+            let method = vm.heap.method(*method_id);
+            let MethodKind::Primitive(_) = method.kind else { continue };
+            actual.insert((
+                class_name.clone(),
+                vm.resolve_symbol(*symbol).to_string(),
+                NativeDispatch::Instance,
+                native_kind(method.signature.kind),
+                native_visibility(method.visibility),
+            ));
+        }
+
+        let meta = vm.heap.class(class).class;
+        for (symbol, method_id) in &vm.heap.class(meta).methods {
+            let method = vm.heap.method(*method_id);
+            let MethodKind::Primitive(_) = method.kind else { continue };
+            actual.insert((
+                class_name.clone(),
+                vm.resolve_symbol(*symbol).to_string(),
+                NativeDispatch::Class,
+                native_kind(method.signature.kind),
+                native_visibility(method.visibility),
+            ));
+        }
+    }
+    if actual != expected {
+        let missing = expected.difference(&actual).collect::<Vec<_>>();
+        let unexpected = actual.difference(&expected).collect::<Vec<_>>();
+        panic!("runtime primitive registration drifted from phalcom-native-surface; missing={missing:?}; unexpected={unexpected:?}");
+    }
+}
+
+fn native_kind(kind: SignatureKind) -> NativeMemberKind {
+    match kind {
+        SignatureKind::Getter => NativeMemberKind::Getter,
+        SignatureKind::Setter => NativeMemberKind::Setter,
+        SignatureKind::Method(_) | SignatureKind::SubscriptGet(_) | SignatureKind::SubscriptSet(_) => NativeMemberKind::Method,
+    }
+}
+
+fn native_visibility(visibility: MemberVisibility) -> NativeVisibility {
+    match visibility {
+        MemberVisibility::Public => NativeVisibility::Public,
+        MemberVisibility::Private | MemberVisibility::Protected | MemberVisibility::Internal => NativeVisibility::Internal,
     }
 }

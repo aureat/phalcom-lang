@@ -30,17 +30,17 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
+use serde_json::Value as JsonValue;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, FileChangeType,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, InitializedParams, InlayHint, InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind,
-    MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams, Registration, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
-    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
+    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, FileChangeType, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint,
+    InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind,
+    ReferenceParams, Registration, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult,
+    SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
-use serde_json::Value as JsonValue;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::completion;
@@ -48,6 +48,7 @@ use crate::diagnostics::syntax_errors_to_diagnostics;
 use crate::documents::DocumentStore;
 use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
+use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
 use crate::semantic::SemanticDb;
 use crate::semantic::ValueShape;
@@ -58,13 +59,19 @@ use crate::semantic_tokens;
 pub struct ServerConfig {
     /// Explicit sysroot/core source directory, if configured.
     pub sysroot_path: Option<PathBuf>,
-    /// Whether standard inlay hints are enabled.
-    pub inlay_hints: bool,
+    /// Inlay-hint display policy.
+    pub inlay_hints: HintPolicy,
+    /// Whether obvious literal initializers should omit their hint.
+    pub suppress_obvious: bool,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        Self { sysroot_path: None, inlay_hints: true }
+        Self {
+            sysroot_path: None,
+            inlay_hints: HintPolicy::Stable,
+            suppress_obvious: false,
+        }
     }
 }
 
@@ -73,13 +80,39 @@ impl ServerConfig {
         let mut config = Self::default();
         let Some(value) = value else { return config };
         let root = value.get("phalcom").unwrap_or(value);
-        if let Some(path) = root.get("lsp").and_then(|value| value.get("sysrootPath")).and_then(JsonValue::as_str) {
-            config.sysroot_path = Some(PathBuf::from(path));
-        } else if let Some(path) = root.get("sysrootPath").and_then(JsonValue::as_str) {
+        let lsp = root.get("lsp").unwrap_or(root);
+        if let Some(path) = value.get("phalcom.lsp.sysrootPath").and_then(JsonValue::as_str) {
             config.sysroot_path = Some(PathBuf::from(path));
         }
-        if let Some(enabled) = root.get("inlayHints").and_then(JsonValue::as_bool) {
-            config.inlay_hints = enabled;
+        if let Some(path) = root.get("lsp").and_then(|value| value.get("sysrootPath")).and_then(JsonValue::as_str) {
+            config.sysroot_path = Some(PathBuf::from(path));
+        } else if let Some(path) = lsp.get("sysrootPath").and_then(JsonValue::as_str) {
+            config.sysroot_path = Some(PathBuf::from(path));
+        }
+        let hints = root.get("inlayHints").or_else(|| lsp.get("inlayHints"));
+        if let Some(enabled) = hints.and_then(JsonValue::as_bool) {
+            config.inlay_hints = if enabled { HintPolicy::Stable } else { HintPolicy::Off };
+        } else if let Some(hints) = hints {
+            if let Some(types) = hints.get("types").and_then(JsonValue::as_str) {
+                config.inlay_hints = match types {
+                    "off" => HintPolicy::Off,
+                    "all" => HintPolicy::All,
+                    _ => HintPolicy::Stable,
+                };
+            }
+            if let Some(suppress) = hints.get("suppressObvious").and_then(JsonValue::as_bool) {
+                config.suppress_obvious = suppress;
+            }
+        }
+        if let Some(types) = value.get("phalcom.inlayHints.types").and_then(JsonValue::as_str) {
+            config.inlay_hints = match types {
+                "off" => HintPolicy::Off,
+                "all" => HintPolicy::All,
+                _ => HintPolicy::Stable,
+            };
+        }
+        if let Some(suppress) = value.get("phalcom.inlayHints.suppressObvious").and_then(JsonValue::as_bool) {
+            config.suppress_obvious = suppress;
         }
         config
     }
@@ -113,6 +146,11 @@ pub struct Backend {
     indexed_files: RwLock<BTreeSet<Url>>,
     /// Mutable server configuration.
     config: RwLock<ServerConfig>,
+    /// URI for the active on-disk core source, if one replaced bundled core.
+    ///
+    /// This must be explicit: configured sysroots need the same open-buffer
+    /// precedence as the repository's conventional `phalcom-core/core/core.ph`.
+    core_source_uris: RwLock<BTreeSet<Url>>,
     /// Whether client requested dynamic watched-file registration.
     watch_registration: RwLock<bool>,
 }
@@ -129,6 +167,7 @@ impl Backend {
             workspace_roots: RwLock::new(Vec::new()),
             indexed_files: RwLock::new(BTreeSet::new()),
             config: RwLock::new(ServerConfig::default()),
+            core_source_uris: RwLock::new(BTreeSet::new()),
             watch_registration: RwLock::new(false),
         }
     }
@@ -156,11 +195,25 @@ impl Backend {
     }
 
     fn update_semantic_for_source(&self, uri: &Url, revision: crate::semantic::FileRevision, program: &phalcom_ast::ast::Program) {
-        if is_core_source_uri(uri) {
+        if self.is_core_source_uri(uri) {
             self.semantic.update_core(revision, program);
         } else {
             self.semantic.update_file(uri, revision, program);
         }
+    }
+
+    fn is_core_source_uri(&self, uri: &Url) -> bool {
+        self.core_source_uris.read().expect("core source URI lock poisoned").contains(uri)
+    }
+
+    fn set_core_source_uri(&self, uri: Url) {
+        let mut core_source_uris = self.core_source_uris.write().expect("core source URI lock poisoned");
+        core_source_uris.clear();
+        core_source_uris.insert(uri);
+    }
+
+    fn clear_core_source_uris(&self) {
+        self.core_source_uris.write().expect("core source URI lock poisoned").clear();
     }
 
     fn record_indexed_file(&self, uri: Url) {
@@ -188,10 +241,14 @@ impl Backend {
                 candidates.extend([path.join("phalcom-core/core/core.ph"), path.join("core/core.ph")]);
             }
         }
-        if let Some((path, text)) = candidates.into_iter().find_map(|path| std::fs::read_to_string(&path).ok().map(|text| (path, text))) {
+        if let Some((path, text)) = candidates
+            .into_iter()
+            .find_map(|path| std::fs::read_to_string(&path).ok().map(|text| (path, text)))
+        {
             let parse = phalcom_ast::parser::parse(&text, 0);
             self.semantic.update_core(crate::semantic::FileRevision(1), &parse.program);
             if let Ok(uri) = Url::from_file_path(path) {
+                self.set_core_source_uri(uri.clone());
                 self.record_indexed_file(uri);
             }
         }
@@ -232,9 +289,10 @@ impl Backend {
         let Ok(path) = uri.to_file_path() else { return };
         let Ok(text) = std::fs::read_to_string(path) else {
             self.remove_indexed_file(uri);
-            if is_core_source_uri(uri) {
+            if self.is_core_source_uri(uri) {
                 let bundled = crate::semantic::core_source::bundled_parse();
                 self.semantic.update_core(crate::semantic::FileRevision(1), &bundled.program);
+                self.clear_core_source_uris();
             }
             return;
         };
@@ -244,8 +302,8 @@ impl Backend {
         self.record_indexed_file(uri.clone());
     }
 
-    fn remove_workspace_root(&self, root: &Url) {
-        let Ok(root_path) = root.to_file_path() else { return };
+    fn remove_workspace_root(&self, root: &Url) -> bool {
+        let Ok(root_path) = root.to_file_path() else { return false };
         let files = self
             .indexed_files
             .read()
@@ -254,9 +312,11 @@ impl Backend {
             .filter(|uri| uri.to_file_path().ok().is_some_and(|path| path.starts_with(&root_path)))
             .cloned()
             .collect::<Vec<_>>();
+        let removed_core_source = files.iter().any(|uri| self.is_core_source_uri(uri));
         for uri in files {
             self.remove_indexed_file(&uri);
         }
+        removed_core_source
     }
 
     /// Resolves a recovered completion target through live semantic facts.
@@ -297,7 +357,9 @@ impl Backend {
             if class.module.as_str() == crate::semantic::CORE_MODULE_URI {
                 continue;
             }
-            let Some(member) = self.semantic.member_surface(&class, selector) else { continue };
+            let Some(member) = self.semantic.member_surface(&class, selector) else {
+                continue;
+            };
             let Ok(definition_uri) = Url::parse(class.module.as_str()) else { continue };
             let Some(range) = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
                 line_index.range(member.name_range.start..member.name_range.end)
@@ -458,9 +520,12 @@ impl Backend {
             .collect();
 
         if sites.is_empty() {
-            for member in self.semantic.all_completion_members().into_iter().filter(|member| {
-                member.owner.module.as_str() == crate::semantic::CORE_MODULE_URI && member.selector == selector
-            }) {
+            for member in self
+                .semantic
+                .all_completion_members()
+                .into_iter()
+                .filter(|member| member.owner.module.as_str() == crate::semantic::CORE_MODULE_URI && member.selector == selector)
+            {
                 let kind = match member.kind {
                     crate::semantic::MemberKind::Getter => crate::core_table::MemberKind::Getter,
                     crate::semantic::MemberKind::Setter => crate::core_table::MemberKind::Setter,
@@ -475,7 +540,10 @@ impl Backend {
                     }
                     crate::semantic::MemberKind::Field => crate::core_table::MemberKind::Getter,
                 };
-                sites.push(SelectorSite { class: member.owner.name, kind });
+                sites.push(SelectorSite {
+                    class: member.owner.name,
+                    kind,
+                });
             }
             sites.sort_by(|a, b| a.class.cmp(&b.class));
         }
@@ -603,12 +671,6 @@ fn receiver_from_shape(shape: ValueShape) -> Option<completion::SemanticResolved
         _ => return None,
     };
     (!alternatives.is_empty()).then_some(completion::SemanticResolvedReceiver { alternatives })
-}
-
-fn is_core_source_uri(uri: &Url) -> bool {
-    let Ok(path) = uri.to_file_path() else { return false };
-    let normalized = path.to_string_lossy().replace('\\', "/");
-    normalized.ends_with("/phalcom-core/core/core.ph")
 }
 
 /// Wraps `value` as an LSP [`HoverContents::Markup`] block of
@@ -758,6 +820,7 @@ impl LanguageServer for Backend {
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
         let config = ServerConfig::from_json(Some(&params.settings));
         *self.config.write().expect("server config lock poisoned") = config;
+        self.clear_core_source_uris();
         let bundled = crate::semantic::core_source::bundled_parse();
         self.semantic.update_core(crate::semantic::FileRevision(1), &bundled.program);
         let roots = self.workspace_roots.read().expect("workspace root lock poisoned").clone();
@@ -766,10 +829,11 @@ impl LanguageServer for Backend {
 
     /// Refreshes semantic/index state when workspace folders are added or removed.
     async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
+        let mut removed_core_source = false;
         for folder in &params.event.removed {
-            self.remove_workspace_root(&folder.uri);
+            removed_core_source |= self.remove_workspace_root(&folder.uri);
         }
-        {
+        let roots = {
             let mut roots = self.workspace_roots.write().expect("workspace root lock poisoned");
             roots.retain(|root| !params.event.removed.iter().any(|folder| folder.uri == *root));
             for folder in &params.event.added {
@@ -777,6 +841,13 @@ impl LanguageServer for Backend {
                     roots.push(folder.uri.clone());
                 }
             }
+            roots.clone()
+        };
+        if removed_core_source {
+            self.clear_core_source_uris();
+            let bundled = crate::semantic::core_source::bundled_parse();
+            self.semantic.update_core(crate::semantic::FileRevision(1), &bundled.program);
+            self.scan_core_source(&roots);
         }
         let added = params.event.added.iter().map(|folder| folder.uri.clone()).collect::<Vec<_>>();
         self.scan_workspace(&added);
@@ -787,9 +858,10 @@ impl LanguageServer for Backend {
         for change in params.changes {
             if change.typ == FileChangeType::DELETED {
                 self.remove_indexed_file(&change.uri);
-                if is_core_source_uri(&change.uri) {
+                if self.is_core_source_uri(&change.uri) {
                     let bundled = crate::semantic::core_source::bundled_parse();
                     self.semantic.update_core(crate::semantic::FileRevision(1), &bundled.program);
+                    self.clear_core_source_uris();
                 }
             } else {
                 self.refresh_closed_file(&change.uri);
@@ -850,9 +922,10 @@ impl LanguageServer for Backend {
                 self.record_indexed_file(uri.clone());
             } else {
                 self.remove_indexed_file(&uri);
-                if is_core_source_uri(&uri) {
+                if self.is_core_source_uri(&uri) {
                     let bundled = crate::semantic::core_source::bundled_parse();
                     self.semantic.update_core(revision, &bundled.program);
+                    self.clear_core_source_uris();
                 }
             }
         } else {
@@ -960,16 +1033,19 @@ impl LanguageServer for Backend {
         let items: Option<Vec<CompletionItem>> = self.documents.with_document(&uri, |doc| {
             let resolved = self.semantic_receiver(&uri, doc, position);
             let offset = doc.line_index.offset(position);
-            let privileged = uri.path().ends_with("/phalcom-core/core/core.ph");
+            let privileged = self.is_core_source_uri(&uri);
             let lexical_class = self.semantic.class_at(&uri, offset);
-            let mut items = completion::semantic_contextual_completions(&self.semantic, completion::SemanticCompletionContext {
-                resolved: resolved.as_ref(),
-                lexical_class: lexical_class.as_ref(),
-                privileged,
-                program: &doc.parse.program,
-                text: &doc.text,
-                offset,
-            });
+            let mut items = completion::semantic_contextual_completions(
+                &self.semantic,
+                completion::SemanticCompletionContext {
+                    resolved: resolved.as_ref(),
+                    lexical_class: lexical_class.as_ref(),
+                    privileged,
+                    program: &doc.parse.program,
+                    text: &doc.text,
+                    offset,
+                },
+            );
             if let Some(target) = completion::target_at(doc, position) {
                 if !target.partial_member.is_empty() {
                     items.retain(|item| item.label.starts_with(&target.partial_member));
@@ -994,13 +1070,11 @@ impl LanguageServer for Backend {
 
     /// Answers standard inlay-hint requests from the live semantic database.
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        if !self.config.read().expect("server config lock poisoned").inlay_hints {
-            return Ok(Some(Vec::new()));
-        }
+        let config = self.config.read().expect("server config lock poisoned").clone();
         let uri = params.text_document.uri.clone();
-        let hints = self
-            .documents
-            .with_document(&uri, |doc| crate::inlay_hints::hints_for_params(&self.semantic, &uri, doc, &params));
+        let hints = self.documents.with_document(&uri, |doc| {
+            crate::inlay_hints::hints_for_params_with_policy(&self.semantic, &uri, doc, &params, config.inlay_hints, config.suppress_obvious)
+        });
         Ok(hints)
     }
 
@@ -1019,5 +1093,55 @@ impl LanguageServer for Backend {
             .documents
             .with_document(&uri, |doc| semantic_tokens::tokens_for(&doc.text, &doc.line_index));
         Ok(data.map(|data| SemanticTokensResult::Tokens(tower_lsp::lsp_types::SemanticTokens { result_id: None, data })))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{HintPolicy, ServerConfig};
+
+    #[test]
+    fn server_config_parses_nested_stable_hint_policy_and_sysroot_directory() {
+        let settings = json!({
+            "phalcom": {
+                "lsp": { "sysrootPath": "/opt/phalcom" },
+                "inlayHints": { "types": "stable", "suppressObvious": false }
+            }
+        });
+
+        let config = ServerConfig::from_json(Some(&settings));
+
+        assert_eq!(config.sysroot_path.as_deref(), Some(std::path::Path::new("/opt/phalcom")));
+        assert_eq!(config.inlay_hints, HintPolicy::Stable);
+        assert!(!config.suppress_obvious);
+    }
+
+    #[test]
+    fn server_config_parses_dotted_off_hint_policy() {
+        let settings = json!({
+            "phalcom.lsp.sysrootPath": "/opt/phalcom/core/core.ph",
+            "phalcom.inlayHints.types": "off"
+        });
+
+        let config = ServerConfig::from_json(Some(&settings));
+
+        assert_eq!(config.sysroot_path.as_deref(), Some(std::path::Path::new("/opt/phalcom/core/core.ph")));
+        assert_eq!(config.inlay_hints, HintPolicy::Off);
+    }
+
+    #[test]
+    fn server_config_parses_all_hints_and_obvious_initializer_suppression() {
+        let settings = json!({
+            "phalcom": {
+                "inlayHints": { "types": "all", "suppressObvious": true }
+            }
+        });
+
+        let config = ServerConfig::from_json(Some(&settings));
+
+        assert_eq!(config.inlay_hints, HintPolicy::All);
+        assert!(config.suppress_obvious);
     }
 }
