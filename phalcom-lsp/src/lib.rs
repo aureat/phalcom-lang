@@ -23,10 +23,8 @@
 //!   [`line_index::LineIndex`]).
 //! - [`semantic`] — the VM-free live semantic database and bounded local
 //!   runtime-value inference.
-//! - [`core_table`] — the transitional embedded builtin core-class selector
-//!   table, retained until live core-source indexing lands.
-//! - [`completion`] — receiver-aware [`textDocument/completion`] (Stage 3):
-//!   the pluggable [`completion::ReceiverResolver`] plus snippet rendering.
+//! - [`completion`] — receiver-aware [`textDocument/completion`] from the
+//!   live semantic database plus snippet rendering.
 //! - [`hover`] — [`textDocument/hover`] (Stage 4): keyword blurbs, selector
 //!   signature/kind/defining-class rendering, and the Phaldoc harvest.
 //! - [`semantic_tokens`] — flat, lexer-driven [`textDocument/semanticTokens/
@@ -42,7 +40,6 @@
 
 pub mod backend;
 pub mod completion;
-pub mod core_table;
 pub mod diagnostics;
 pub mod documents;
 pub mod hover;

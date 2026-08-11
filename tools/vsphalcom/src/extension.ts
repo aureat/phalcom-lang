@@ -1,4 +1,6 @@
-import { ExtensionContext, workspace } from "vscode"
+import { commands, ExtensionContext, OutputChannel, window, workspace } from "vscode"
+import { existsSync } from "node:fs"
+import { join } from "node:path"
 import { registerRunFile } from "./run"
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from "vscode-languageclient/node"
 
@@ -16,14 +18,37 @@ import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } f
  * highlighting from the grammar.
  */
 let lspClient: LanguageClient | undefined
+let lspOutput: OutputChannel | undefined
 
 /**
  * Resolves the `phalcom-lsp` server binary the same way `run.ts` resolves
  * the `phalcom` CLI: reads the `phalcom.lsp.serverPath` setting, defaulting
  * to `"phalcom-lsp"` resolved on `$PATH`.
  */
-function getLspServerPath(): string {
-    return workspace.getConfiguration("phalcom").get<string>("lsp.serverPath", "phalcom-lsp")
+function getLspServerPath(context: ExtensionContext): string {
+    const configured = workspace.getConfiguration("phalcom").get<string>("lsp.serverPath", "").trim()
+    if (configured) {
+        return configured
+    }
+
+    const executable = process.platform === "win32" ? "phalcom-lsp.exe" : "phalcom-lsp"
+    const bundled = join(context.extensionPath, "server", `${process.platform}-${process.arch}`, executable)
+    return existsSync(bundled) ? bundled : "phalcom-lsp"
+}
+
+function readInitializationOptions() {
+    const config = workspace.getConfiguration("phalcom")
+    return {
+        phalcom: {
+            lsp: {
+                sysrootPath: config.get<string>("lsp.sysrootPath", "")
+            },
+            inlayHints: {
+                types: config.get<string>("inlayHints.types", "stable"),
+                suppressObvious: config.get<boolean>("inlayHints.suppressObvious", true)
+            }
+        }
+    }
 }
 
 /**
@@ -31,7 +56,7 @@ function getLspServerPath(): string {
  * spawns `phalcom-lsp` over stdio and registers it for `.ph` documents.
  */
 function startLspClient(context: ExtensionContext): LanguageClient {
-    const command = getLspServerPath()
+    const command = getLspServerPath(context)
 
     const serverOptions: ServerOptions = {
         run: { command, transport: TransportKind.stdio },
@@ -39,7 +64,13 @@ function startLspClient(context: ExtensionContext): LanguageClient {
     }
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: "file", language: "phalcom" }]
+        documentSelector: [{ scheme: "file", language: "phalcom" }],
+        initializationOptions: readInitializationOptions(),
+        outputChannel: lspOutput,
+        synchronize: {
+            configurationSection: "phalcom",
+            fileEvents: workspace.createFileSystemWatcher("**/*.ph")
+        }
     }
 
     const client = new LanguageClient("phalcomLsp", "Phalcom Language Server", serverOptions, clientOptions)
@@ -52,6 +83,21 @@ function startLspClient(context: ExtensionContext): LanguageClient {
 
 export function activate(context: ExtensionContext) {
     registerRunFile(context)
+
+    lspOutput = window.createOutputChannel("Phalcom Language Server")
+    context.subscriptions.push(lspOutput)
+
+    context.subscriptions.push(commands.registerCommand("phalcom.restartLanguageServer", async () => {
+        await lspClient?.stop()
+        lspClient = startLspClient(context)
+    }))
+    context.subscriptions.push(commands.registerCommand("phalcom.showLanguageServerOutput", () => lspOutput?.show()))
+    context.subscriptions.push(workspace.onDidChangeConfiguration(async event => {
+        if (event.affectsConfiguration("phalcom.lsp.enabled") || event.affectsConfiguration("phalcom.lsp.serverPath")) {
+            await lspClient?.stop()
+            lspClient = workspace.getConfiguration("phalcom").get<boolean>("lsp.enabled", true) ? startLspClient(context) : undefined
+        }
+    }))
 
     if (workspace.getConfiguration("phalcom").get<boolean>("lsp.enabled", true)) {
         lspClient = startLspClient(context)

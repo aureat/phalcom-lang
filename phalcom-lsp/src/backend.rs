@@ -11,10 +11,8 @@
 //! and `workspace/symbol`.
 //!
 //! Stage 3 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md` "Stage 3"):
-//! receiver-aware `textDocument/completion`, resolving the receiver's class
-//! (via [`crate::completion::ReceiverResolver`]) and offering its selectors —
-//! user members from the [`WorkspaceIndex`], builtin members from
-//! [`crate::core_table`].
+//! receiver-aware `textDocument/completion`, resolving the receiver through
+//! live semantic facts and offering its source/native semantic surface.
 //!
 //! Stage 4 (ADR-0056 §4, `docs/forge/units/U-LSP/plan.md` "Stage 4"):
 //! `textDocument/hover`, composing whichever of [`crate::hover`]'s three
@@ -475,7 +473,7 @@ impl Backend {
     /// ([`index::selector_at_offset`]) and renders whichever of the
     /// selector layer's sources are present: user-class sites from
     /// [`WorkspaceIndex::definition_info`], builtin sites from
-    /// [`CoreTable`], and the harvested Phaldoc doc (from the selector's
+    /// live semantic core surface, and the harvested Phaldoc doc (from the selector's
     /// *defining* file, which may not be the currently open one —
     /// [`Self::with_source_snapshot`]) attached to a user-class definition —
     /// with [`Hover::range`] set to the resolved selector's own span
@@ -527,18 +525,18 @@ impl Backend {
                 .filter(|member| member.owner.module.as_str() == crate::semantic::CORE_MODULE_URI && member.selector == selector)
             {
                 let kind = match member.kind {
-                    crate::semantic::MemberKind::Getter => crate::core_table::MemberKind::Getter,
-                    crate::semantic::MemberKind::Setter => crate::core_table::MemberKind::Setter,
+                    crate::semantic::MemberKind::Getter => crate::index::MemberKind::Getter,
+                    crate::semantic::MemberKind::Setter => crate::index::MemberKind::Setter,
                     crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
                         if member.side == crate::semantic::DispatchSide::Class && member.selector.starts_with("new(") {
-                            crate::core_table::MemberKind::Construct
+                            crate::index::MemberKind::Construct
                         } else if member.side == crate::semantic::DispatchSide::Class {
-                            crate::core_table::MemberKind::StaticMethod
+                            crate::index::MemberKind::StaticMethod
                         } else {
-                            crate::core_table::MemberKind::Method
+                            crate::index::MemberKind::Method
                         }
                     }
-                    crate::semantic::MemberKind::Field => crate::core_table::MemberKind::Getter,
+                    crate::semantic::MemberKind::Field => crate::index::MemberKind::Getter,
                 };
                 sites.push(SelectorSite {
                     class: member.owner.name,
@@ -1017,13 +1015,9 @@ impl LanguageServer for Backend {
     /// Answers `textDocument/completion` (Stage 3): receiver-aware member
     /// completion.
     ///
-    /// Resolves the class of the receiver under the cursor via the pluggable
-    /// [`ReceiverResolver`] ([`ConstructResolver`] here), then renders that
-    /// class's selectors — user members from the [`WorkspaceIndex`], builtin
-    /// members from [`CoreTable`] — as snippet [`CompletionItem`]s
-    /// ([`completion::completions`]). When the receiver type cannot be
-    /// resolved, it degrades to the full builtin surface rather than
-    /// suppressing completion (never worse than the pre-LSP client behavior).
+    /// Resolves the receiver under the cursor through the semantic database,
+    /// then renders live source/native selectors as snippet completion items.
+    /// Unknown receivers use the bounded live workspace surface.
     ///
     /// Returns `Ok(None)` if the document is not open.
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {

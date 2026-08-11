@@ -18,8 +18,29 @@ use phalcom_ast::ast::{
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
-use crate::core_table::MemberKind;
 use crate::selectors::{class_member_selector, comma_form_from_labels, setter_selector_from_name};
+
+/// Rendering shape for a source member in legacy navigation and hover data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemberKind {
+    /// A bare-name getter.
+    Getter,
+    /// A `name=(put)` setter.
+    Setter,
+    /// An instance-side method.
+    Method,
+    /// A class-side method.
+    StaticMethod,
+    /// A class-side constructor.
+    Construct,
+}
+
+impl MemberKind {
+    /// Whether this member renders with method-style argument slots.
+    pub fn is_method_like(self) -> bool {
+        matches!(self, Self::Method | Self::StaticMethod | Self::Construct)
+    }
+}
 
 /// Dynamic labels and expansions build their concrete selector at runtime;
 /// avoid indexing a fabricated static reference for those pack forms.
@@ -53,10 +74,8 @@ pub struct Occurrence {
 /// One member of a class, as the completion path needs it: its ADR-0012
 /// comma-form selector and its dispatch [`MemberKind`].
 ///
-/// The class-side counterpart of [`crate::core_table::CoreMember`] — user
-/// classes produce these from their AST (Stage 3), builtin classes from
-/// `core-table.json`, and both render through one shared path in
-/// [`crate::completion`].
+/// Legacy navigation metadata for source-declared class members. Completion
+/// uses `semantic::CompletionMember` directly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassMemberInfo {
     /// The member's ADR-0012 comma-form selector (via [`crate::selectors`]).
@@ -385,10 +404,8 @@ impl WorkspaceIndex {
     /// The own declared members of the user class named `class` **as declared
     /// in `uri`** (its selectors and kinds), in declaration order.
     ///
-    /// Does **not** include inherited members — the completion path
-    /// ([`crate::completion`]) walks [`Self::class_parent`] itself, so it can
-    /// stop the walk when a parent is a builtin (whose members live in
-    /// [`crate::core_table`], not here). Empty if `uri` declares no such class.
+    /// Does **not** include inherited members. Completion queries the live
+    /// semantic database for inheritance and native surface information.
     ///
     /// `uri` is not an optimization. A class named `Point` in one file and a
     /// class named `Point` in another are *different classes* (PDR-0001), so a
@@ -422,9 +439,7 @@ impl WorkspaceIndex {
 
     /// Whether `uri` declares a user class named `class`.
     ///
-    /// Used by the completion path to decide whether a resolved receiver type
-    /// is a user class (walk [`Self::class_members`]) or should fall through
-    /// to the builtin [`crate::core_table`].
+    /// Used by legacy navigation code to recognize source-declared classes.
     pub fn has_class(&self, uri: &Url, class: &str) -> bool {
         self.classes.contains(uri, class)
     }

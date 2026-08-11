@@ -14,7 +14,7 @@
 //! 2. **Selector signature + kind + defining class** — resolved by the
 //!    caller (`crate::backend::Backend::hover_at`) from
 //!    [`crate::index::WorkspaceIndex::definition_info`] (user classes) and
-//!    the bundled [`crate::core_table::CoreTable`] (builtins), then rendered
+//!    the live semantic core surface (builtins), then rendered
 //!    by [`render_selector_hover`].
 //! 3. **Phaldoc harvest** ([`harvest_doc_for_selector`]) — a raw re-scan of
 //!    the defining file's source text for `///` doc blocks, per
@@ -487,13 +487,13 @@ pub struct SelectorSite {
     /// The name of the class the member is declared on.
     pub class: String,
     /// The member's dispatch kind (method/getter/setter/construct/...).
-    pub kind: crate::core_table::MemberKind,
+    pub kind: crate::index::MemberKind,
 }
 
 /// Renders a member kind as the lowercase word `render_selector_hover` shows
 /// (`"method"`, `"getter"`, `"setter"`, `"class method"`, `"construct"`).
-fn kind_word(kind: crate::core_table::MemberKind) -> &'static str {
-    use crate::core_table::MemberKind;
+fn kind_word(kind: crate::index::MemberKind) -> &'static str {
+    use crate::index::MemberKind;
     match kind {
         MemberKind::Getter => "getter",
         MemberKind::Setter => "setter",
@@ -506,7 +506,7 @@ fn kind_word(kind: crate::core_table::MemberKind) -> &'static str {
 /// Composes the selector-hover markdown from whichever of its independent
 /// sources are present: `sites` (the classes/kinds `selector` is declared or
 /// listed on — user-class [`crate::index::DefinitionInfo`]s or builtin
-/// [`crate::core_table::CoreTable`] entries, whichever the caller resolved),
+/// live semantic core members, whichever the caller resolved),
 /// the harvested `phaldoc` summary/tags, and the (currently inert)
 /// [`render_contract_view`] seam.
 ///
@@ -740,7 +740,7 @@ mod tests {
     fn render_selector_hover_for_user_class_member() {
         let sites = vec![SelectorSite {
             class: "Point".to_string(),
-            kind: crate::core_table::MemberKind::Method,
+            kind: crate::index::MemberKind::Method,
         }];
         let doc = PhaldocDoc {
             summary: "Moves the point.".to_string(),
@@ -756,7 +756,7 @@ mod tests {
     fn render_selector_hover_for_builtin_has_no_phaldoc_section() {
         let sites = vec![SelectorSite {
             class: "Bool".to_string(),
-            kind: crate::core_table::MemberKind::Method,
+            kind: crate::index::MemberKind::Method,
         }];
         let rendered = render_selector_hover("ifTrue(_)", &sites, None).unwrap();
         assert!(rendered.contains("ifTrue(_)"));
@@ -777,7 +777,7 @@ mod tests {
         );
         let sites = vec![SelectorSite {
             class: "Factory".to_string(),
-            kind: crate::core_table::MemberKind::Method,
+            kind: crate::index::MemberKind::Method,
         }];
         let rendered = render_selector_hover_with_value("make()", &sites, None, Some(&value)).unwrap();
         assert!(rendered.contains("**Observed return:** `String`"));
