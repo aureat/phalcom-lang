@@ -1,21 +1,18 @@
 use tower_lsp::lsp_types::Url;
 
-use crate::support::{fixture_path, hint_labels, load_fixture, TestLsp};
+use crate::support::{TestLsp, fixture_path, hint_labels, load_fixture};
 
 #[tokio::test]
 async fn stable_runtime_shapes_are_exposed_as_inlay_hints() {
     let relative = "semantic/inlay_basic.ph";
     let fixture = load_fixture(relative);
-    let uri = Url::from_file_path(fixture_path(relative))
-        .unwrap()
-        .to_string();
+    let uri = Url::from_file_path(fixture_path(relative)).unwrap().to_string();
 
     let mut lsp = TestLsp::start().await;
     let init = lsp.initialize(None).await;
 
     assert!(
-        init["result"]["capabilities"]["inlayHintProvider"].is_boolean()
-            || init["result"]["capabilities"]["inlayHintProvider"].is_object(),
+        init["result"]["capabilities"]["inlayHintProvider"].is_boolean() || init["result"]["capabilities"]["inlayHintProvider"].is_object(),
         "server must advertise inlay hints: {init:#?}"
     );
 
@@ -25,10 +22,7 @@ async fn stable_runtime_shapes_are_exposed_as_inlay_hints() {
     let labels = hint_labels(&response);
 
     assert!(labels.iter().any(|x| x.contains("Int")), "{labels:#?}");
-    assert!(
-        labels.iter().any(|x| x.contains("Person")),
-        "{labels:#?}"
-    );
+    assert!(labels.iter().any(|x| x.contains("Person")), "{labels:#?}");
     assert!(
         labels.iter().all(|x| !x.contains("Unknown")),
         "Unknown must not be displayed as a useful type hint: {labels:#?}"
@@ -41,9 +35,7 @@ async fn stable_runtime_shapes_are_exposed_as_inlay_hints() {
 async fn unknown_parameter_does_not_get_a_fake_precise_hint() {
     let relative = "semantic/unknown_receiver.ph";
     let fixture = load_fixture(relative);
-    let uri = Url::from_file_path(fixture_path(relative))
-        .unwrap()
-        .to_string();
+    let uri = Url::from_file_path(fixture_path(relative)).unwrap().to_string();
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(None).await;

@@ -8,8 +8,8 @@ mod stage6_inlay_hints;
 mod support;
 
 mod fixture_syntax;
+mod inlay_hints;
 mod semantic_completion;
 mod semantic_consistency;
-mod inlay_hints;
-mod workspace_semantics;
 mod semantic_tokens_current_syntax;
+mod workspace_semantics;

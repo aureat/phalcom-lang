@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use crate::support::{fixture_path, MarkedSource};
+use crate::support::{MarkedSource, fixture_path};
 
 #[test]
 fn all_non_incomplete_phalcom_fixtures_parse() {

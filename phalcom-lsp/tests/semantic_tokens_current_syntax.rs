@@ -1,15 +1,13 @@
 use serde_json::Value;
 use tower_lsp::lsp_types::Url;
 
-use crate::support::{fixture_path, load_fixture, TestLsp};
+use crate::support::{TestLsp, fixture_path, load_fixture};
 
 #[tokio::test]
 async fn current_syntax_uses_readable_semantic_token_expectations() {
     let relative = "highlighting/current_syntax.ph";
     let fixture = load_fixture(relative);
-    let uri = Url::from_file_path(fixture_path(relative))
-        .unwrap()
-        .to_string();
+    let uri = Url::from_file_path(fixture_path(relative)).unwrap().to_string();
 
     let mut lsp = TestLsp::start().await;
     let init = lsp.initialize(None).await;
@@ -30,36 +28,22 @@ async fn current_syntax_uses_readable_semantic_token_expectations() {
 
 fn assert_pair(decoded: &[(String, String)], text: &str, kind: &str) {
     assert!(
-        decoded
-            .iter()
-            .any(|(token_text, token_kind)| token_text == text && token_kind == kind),
+        decoded.iter().any(|(token_text, token_kind)| token_text == text && token_kind == kind),
         "missing ({text:?}, {kind:?}); decoded={decoded:#?}"
     );
 }
 
-fn decode(
-    text: &str,
-    init: &Value,
-    response: &Value,
-) -> Vec<(String, String)> {
-    let legend =
-        init["result"]["capabilities"]["semanticTokensProvider"]["legend"]
-            ["tokenTypes"]
-            .as_array()
-            .expect("semantic token legend")
-            .iter()
-            .map(|x| x.as_str().expect("token type string"))
-            .collect::<Vec<_>>();
-
-    let data = response["result"]["data"]
+fn decode(text: &str, init: &Value, response: &Value) -> Vec<(String, String)> {
+    let legend = init["result"]["capabilities"]["semanticTokensProvider"]["legend"]["tokenTypes"]
         .as_array()
-        .expect("semantic token data array");
+        .expect("semantic token legend")
+        .iter()
+        .map(|x| x.as_str().expect("token type string"))
+        .collect::<Vec<_>>();
 
-    assert_eq!(
-        data.len() % 5,
-        0,
-        "semantic token data uses 5 integers/token"
-    );
+    let data = response["result"]["data"].as_array().expect("semantic token data array");
+
+    assert_eq!(data.len() % 5, 0, "semantic token data uses 5 integers/token");
 
     let lines = text.lines().collect::<Vec<_>>();
     let mut out = Vec::new();
@@ -83,9 +67,7 @@ fn decode(
         let token_text = utf16_slice(line_text, start, length);
         let kind = legend
             .get(token_type)
-            .unwrap_or_else(|| {
-                panic!("token type index {token_type} out of legend")
-            })
+            .unwrap_or_else(|| panic!("token type index {token_type} out of legend"))
             .to_string();
 
         out.push((token_text, kind));
@@ -99,6 +81,5 @@ fn utf16_slice(text: &str, start: u32, len: u32) -> String {
     let start = start as usize;
     let end = start + len as usize;
 
-    String::from_utf16(&units[start..end])
-        .expect("semantic token lands on valid UTF-16 boundary")
+    String::from_utf16(&units[start..end]).expect("semantic token lands on valid UTF-16 boundary")
 }

@@ -6,8 +6,8 @@ use tokio::{
     task::JoinHandle,
     time::timeout,
 };
-use tower_lsp::{LspService, Server};
 use tower_lsp::lsp_types::Position;
+use tower_lsp::{LspService, Server};
 
 use phalcom_lsp::Backend;
 
@@ -27,9 +27,7 @@ impl TestLsp {
 
         let (service, socket) = LspService::new(Backend::new);
         let server_task = tokio::spawn(async move {
-            Server::new(server_read, server_write, socket)
-                .serve(service)
-                .await;
+            Server::new(server_read, server_write, socket).serve(service).await;
         });
 
         Self {
@@ -41,8 +39,7 @@ impl TestLsp {
     }
 
     pub async fn initialize(&mut self, root_uri: Option<&str>) -> Value {
-        let workspace_folders = root_uri
-            .map(|uri| vec![json!({ "uri": uri, "name": "test-workspace" })]);
+        let workspace_folders = root_uri.map(|uri| vec![json!({ "uri": uri, "name": "test-workspace" })]);
 
         let response = self
             .request(
@@ -134,11 +131,8 @@ impl TestLsp {
     }
 
     pub async fn semantic_tokens_full(&mut self, uri: &str) -> Value {
-        self.request(
-            "textDocument/semanticTokens/full",
-            json!({ "textDocument": { "uri": uri } }),
-        )
-        .await
+        self.request("textDocument/semanticTokens/full", json!({ "textDocument": { "uri": uri } }))
+            .await
     }
 
     pub async fn request(&mut self, method: &str, params: Value) -> Value {
@@ -166,11 +160,7 @@ impl TestLsp {
     }
 
     pub async fn finish(self) {
-        let Self {
-            client,
-            server_task,
-            ..
-        } = self;
+        let Self { client, server_task, .. } = self;
         drop(client);
         let _ = timeout(IO_TIMEOUT, server_task).await;
     }
@@ -211,20 +201,14 @@ impl TestLsp {
 
             loop {
                 let mut byte = [0u8; 1];
-                self.client
-                    .read_exact(&mut byte)
-                    .await
-                    .expect("read LSP header");
+                self.client.read_exact(&mut byte).await.expect("read LSP header");
                 header.push(byte[0]);
 
                 if header.ends_with(b"\r\n\r\n") {
                     break;
                 }
 
-                assert!(
-                    header.len() < 64 * 1024,
-                    "LSP header exceeded sanity limit"
-                );
+                assert!(header.len() < 64 * 1024, "LSP header exceeded sanity limit");
             }
 
             let header = String::from_utf8(header).expect("UTF-8 LSP header");
@@ -237,10 +221,7 @@ impl TestLsp {
                 .expect("numeric Content-Length");
 
             let mut body = vec![0u8; content_length];
-            self.client
-                .read_exact(&mut body)
-                .await
-                .expect("read LSP body");
+            self.client.read_exact(&mut body).await.expect("read LSP body");
 
             serde_json::from_slice(&body).expect("valid JSON-RPC response")
         })
@@ -256,17 +237,10 @@ pub fn completion_labels(response: &Value) -> Vec<String> {
     } else {
         result["items"]
             .as_array()
-            .unwrap_or_else(|| {
-                panic!(
-                    "completion result is neither array nor CompletionList: {response:#?}"
-                )
-            })
+            .unwrap_or_else(|| panic!("completion result is neither array nor CompletionList: {response:#?}"))
     };
 
-    items
-        .iter()
-        .filter_map(|item| item["label"].as_str().map(str::to_owned))
-        .collect()
+    items.iter().filter_map(|item| item["label"].as_str().map(str::to_owned)).collect()
 }
 
 pub fn hint_labels(response: &Value) -> Vec<String> {
@@ -276,13 +250,7 @@ pub fn hint_labels(response: &Value) -> Vec<String> {
         .iter()
         .filter_map(|hint| match &hint["label"] {
             Value::String(s) => Some(s.clone()),
-            Value::Array(parts) => Some(
-                parts
-                    .iter()
-                    .filter_map(|part| part["value"].as_str())
-                    .collect::<Vec<_>>()
-                    .join(""),
-            ),
+            Value::Array(parts) => Some(parts.iter().filter_map(|part| part["value"].as_str()).collect::<Vec<_>>().join("")),
             _ => None,
         })
         .collect()

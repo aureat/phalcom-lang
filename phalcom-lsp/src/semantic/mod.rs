@@ -291,9 +291,10 @@ impl SemanticDb {
                     });
                 }
             }
-            current = surface.superclass.clone().or_else(|| {
-                (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object"))
-            });
+            current = surface
+                .superclass
+                .clone()
+                .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
         }
         members.sort_by(|left, right| left.selector.cmp(&right.selector));
         members
@@ -330,9 +331,10 @@ impl SemanticDb {
                 return true;
             }
             let Some(surface) = state.classes.get(&id) else { return false };
-            current = surface.superclass.clone().or_else(|| {
-                (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object"))
-            });
+            current = surface
+                .superclass
+                .clone()
+                .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
         }
         false
     }
@@ -499,7 +501,9 @@ fn infer_imported_expression(state: &SemanticState, module: &ModuleId, expr: &Ex
             imported_class(state, module, binding, &property.property).map(ValueShape::ClassObject)
         }
         Expr::MethodCall(call) => {
-            let ValueShape::ClassObject(class) = infer_imported_expression(state, module, &call.object)? else { return None };
+            let ValueShape::ClassObject(class) = infer_imported_expression(state, module, &call.object)? else {
+                return None;
+            };
             let labels = call
                 .args
                 .iter()
@@ -622,8 +626,16 @@ mod tests {
         let parse = parse("class String { liveEditorMember() { } }", 0);
         db.update_core(FileRevision(2), &parse.program);
         let string = ClassId::new(ModuleId::new(CORE_MODULE_URI), "String");
-        assert!(db.completion_members(&string, DispatchSide::Instance).iter().any(|member| member.selector == "liveEditorMember()"));
-        assert!(!db.completion_members(&string, DispatchSide::Instance).iter().any(|member| member.selector == "size"));
+        assert!(
+            db.completion_members(&string, DispatchSide::Instance)
+                .iter()
+                .any(|member| member.selector == "liveEditorMember()")
+        );
+        assert!(
+            !db.completion_members(&string, DispatchSide::Instance)
+                .iter()
+                .any(|member| member.selector == "size")
+        );
     }
 
     #[test]

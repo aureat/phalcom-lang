@@ -42,26 +42,20 @@ impl MarkedSource {
     }
 
     pub fn position(&self, name: &str) -> Position {
-        *self.positions.get(name).unwrap_or_else(|| {
-            panic!(
-                "fixture has no marker named {name:?}; markers={:?}",
-                self.positions.keys()
-            )
-        })
+        *self
+            .positions
+            .get(name)
+            .unwrap_or_else(|| panic!("fixture has no marker named {name:?}; markers={:?}", self.positions.keys()))
     }
 }
 
 pub fn fixture_path(relative: impl AsRef<Path>) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(relative)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures").join(relative)
 }
 
 pub fn load_fixture(relative: impl AsRef<Path>) -> MarkedSource {
     let path = fixture_path(relative);
-    let text = fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+    let text = fs::read_to_string(&path).unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
     MarkedSource::parse(&text)
 }
 
@@ -80,12 +74,6 @@ mod tests {
     fn strips_markers_and_records_utf16_positions() {
         let fixture = MarkedSource::parse("α./*@x*/beta()\n");
         assert_eq!(fixture.text, "α.beta()\n");
-        assert_eq!(
-            fixture.position("x"),
-            Position {
-                line: 0,
-                character: 2
-            }
-        );
+        assert_eq!(fixture.position("x"), Position { line: 0, character: 2 });
     }
 }

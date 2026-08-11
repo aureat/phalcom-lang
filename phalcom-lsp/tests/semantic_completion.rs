@@ -1,11 +1,9 @@
 use tower_lsp::lsp_types::Url;
 
-use crate::support::{completion_labels, fixture_path, load_fixture, TestLsp};
+use crate::support::{TestLsp, completion_labels, fixture_path, load_fixture};
 
 fn file_uri(relative: &str) -> String {
-    Url::from_file_path(fixture_path(relative))
-        .expect("fixture path URL")
-        .to_string()
+    Url::from_file_path(fixture_path(relative)).expect("fixture path URL").to_string()
 }
 
 async fn complete_fixture(relative: &str, marker: &str) -> Vec<String> {
@@ -46,11 +44,7 @@ async fn inherited_members_are_visible() {
 async fn overrides_do_not_duplicate_the_same_selector() {
     let labels = complete_fixture("semantic/override.ph", "completion").await;
 
-    assert_eq!(
-        labels.iter().filter(|x| x.as_str() == "run()").count(),
-        1,
-        "{labels:#?}"
-    );
+    assert_eq!(labels.iter().filter(|x| x.as_str() == "run()").count(), 1, "{labels:#?}");
     assert!(labels.iter().any(|x| x == "parentOnly()"), "{labels:#?}");
     assert!(labels.iter().any(|x| x == "childOnly()"), "{labels:#?}");
 }
@@ -73,19 +67,13 @@ async fn class_and_instance_surfaces_do_not_leak() {
     let class_labels = complete_fixture("semantic/class_instance_side.ph", "class").await;
     let instance_labels = complete_fixture("semantic/class_instance_side.ph", "instance").await;
 
-    assert!(
-        class_labels.iter().any(|x| x == "make()"),
-        "{class_labels:#?}"
-    );
+    assert!(class_labels.iter().any(|x| x == "make()"), "{class_labels:#?}");
     assert!(
         !class_labels.iter().any(|x| x == "render()"),
         "instance member leaked to class-side completion: {class_labels:#?}"
     );
 
-    assert!(
-        instance_labels.iter().any(|x| x == "render()"),
-        "{instance_labels:#?}"
-    );
+    assert!(instance_labels.iter().any(|x| x == "render()"), "{instance_labels:#?}");
     assert!(
         !instance_labels.iter().any(|x| x == "make()"),
         "class-side member leaked to instance completion: {instance_labels:#?}"
@@ -109,9 +97,7 @@ async fn unknown_receiver_does_not_fabricate_a_fixture_class_surface() {
     let labels = complete_fixture("semantic/unknown_receiver.ph", "unknown").await;
 
     assert!(
-        !labels.iter().any(|x| {
-            x == "request()" || x == "greet()" || x == "bark()"
-        }),
+        !labels.iter().any(|x| { x == "request()" || x == "greet()" || x == "bark()" }),
         "unknown receiver was treated as a known fixture class: {labels:#?}"
     );
 }
