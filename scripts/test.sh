@@ -62,7 +62,7 @@ case "$lane" in
     cargo test -p phalcom-core --test invariants "$@"
     ;;
   lsp)
-    cargo test -p phalcom-lsp --test integration "$@"
+    cargo test -p phalcom-lsp "$@"
     ;;
   repl)
     cargo test -p phalcom-repl --test repl_phase_b "$@"
