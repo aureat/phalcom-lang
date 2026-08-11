@@ -2291,7 +2291,8 @@ mod tests {
             MethodKind::Closure(closure),
         ))));
         vm.heap.method_mut(first).signature.rest = Some(RestLayout::new(0, Vec::new().into_boxed_slice(), RestMode::Positional { param_index: 0 }));
-        vm.install_method_binding(target, first_selector, first).expect("first rest family should install");
+        vm.install_method_binding(target, first_selector, first)
+            .expect("first rest family should install");
 
         let second_selector = vm.get_or_intern("sum(**)");
         let second = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(

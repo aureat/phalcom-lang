@@ -7,9 +7,12 @@
 //! `target/perf-logs/` (git-ignored via the existing `*.log` rule) so runs
 //! can be diffed for regressions later.
 //!
-//! This is a report tool, not a test gate: `cargo test` remains the
-//! correctness gate (`phalcom-core/tests/lang.rs`); this binary answers "is it
-//! still fast" and "how long did the green suite take" in one pass, which
+//! This runner reports timing and remains a correctness gate for every case it
+//! executes: corpus failures and benchmark processes that exit non-zero make
+//! it exit non-zero. A benchmark with no successful process run has no valid
+//! timing, even though benchmark stdout is not compared to an expected file.
+//! `cargo test` remains the primary correctness gate
+//! (`phalcom-core/tests/lang.rs`); this binary adds whole-process timing, which
 //! `cargo test`'s libtest harness does not surface on stable Rust.
 //!
 //! ```sh
@@ -70,7 +73,8 @@ enum Lane {
     Negative,
     /// Spec target not yet implemented; run for visibility, not gating.
     Pending,
-    /// A `benchmarks/` program: timed only, no correctness lane.
+    /// A `benchmarks/` program: timed without stdout verification; non-zero
+    /// exit remains a hard failure because it produces no valid timing.
     Bench,
 }
 
@@ -121,7 +125,10 @@ fn find_phalcom_binary(force_debug: bool) -> PathBuf {
     }
     if debug.exists() {
         if !force_debug {
-            eprintln!("warning: no release binary at {} — using debug (timings not representative); run `cargo build -r -p phalcom-core --bin phalcom` first", release.display());
+            eprintln!(
+                "warning: no release binary at {} — using debug (timings not representative); run `cargo build -r -p phalcom-core --bin phalcom` first",
+                release.display()
+            );
         }
         return debug;
     }
@@ -177,10 +184,10 @@ fn classify_lane(path: &Path, corpus_root: &Path) -> Lane {
     let rel = path.strip_prefix(corpus_root).unwrap_or(path);
     let components: Vec<&str> = rel.components().filter_map(|c| c.as_os_str().to_str()).collect();
 
-    if components.iter().any(|c| *c == "pending") {
+    if components.contains(&"pending") {
         return Lane::Pending;
     }
-    if components.iter().any(|c| *c == "negative") {
+    if components.contains(&"negative") {
         return Lane::Negative;
     }
     match components.first() {
@@ -246,11 +253,7 @@ fn verify_negative(output: &Output, expected_path: &Path) -> (Status, String) {
     }
     let note = fs::read_to_string(expected_path).unwrap_or_default();
     let note = note.trim();
-    let combined = format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let combined = format!("{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     if combined.contains(note) {
         (Status::Pass, String::new())
     } else {
@@ -368,13 +371,14 @@ fn main() {
         eprintln!("warning: failed to write perf log: {err}");
     }
 
-    let hard_failures = results
-        .iter()
-        .filter(|r| r.lane != Lane::Bench && r.lane != Lane::Pending && r.status != Status::Pass)
-        .count();
+    let hard_failures = results.iter().filter(|r| is_hard_failure(r)).count();
     if hard_failures > 0 {
         std::process::exit(1);
     }
+}
+
+fn is_hard_failure(result: &CaseResult) -> bool {
+    result.lane != Lane::Pending && result.status != Status::Pass && result.status != Status::Ran
 }
 
 fn print_summary(results: &[CaseResult], top: usize) {
@@ -402,7 +406,13 @@ fn print_summary(results: &[CaseResult], top: usize) {
         let group: Vec<&CaseResult> = results.iter().filter(|r| r.label == label).collect();
         let group_ms: f64 = group.iter().map(|r| r.ms).sum();
         let passed = group.iter().filter(|r| r.status == Status::Pass || r.status == Status::Ran).count();
-        println!("{label:<20} {:>4} cases  {:>4} ok  {:>9.2} ms total  {:>8.2} ms avg", group.len(), passed, group_ms, group_ms / group.len().max(1) as f64);
+        println!(
+            "{label:<20} {:>4} cases  {:>4} ok  {:>9.2} ms total  {:>8.2} ms avg",
+            group.len(),
+            passed,
+            group_ms,
+            group_ms / group.len().max(1) as f64
+        );
     }
 
     let total = results.len();
@@ -447,4 +457,35 @@ fn write_log(results: &[CaseResult]) -> std::io::Result<PathBuf> {
     fs::write(&path, body)?;
     println!("\nlog: {}", path.display());
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn result(lane: Lane, status: Status) -> CaseResult {
+        CaseResult {
+            lane,
+            label: String::new(),
+            name: String::new(),
+            status,
+            ms: 0.0,
+            note: String::new(),
+        }
+    }
+
+    #[test]
+    fn failed_benchmark_is_a_hard_failure() {
+        assert!(is_hard_failure(&result(Lane::Bench, Status::Fail)));
+    }
+
+    #[test]
+    fn pending_failure_is_not_a_hard_failure() {
+        assert!(!is_hard_failure(&result(Lane::Pending, Status::Fail)));
+    }
+
+    #[test]
+    fn completed_benchmark_is_not_a_hard_failure() {
+        assert!(!is_hard_failure(&result(Lane::Bench, Status::Ran)));
+    }
 }

@@ -119,16 +119,35 @@ be re-derived, not merely re-run.
 
 ## Command surface
 
-Target shape once the lanes land. Names are provisional; each lane's doc owns
-its own final spelling.
+Runtime lanes A–F remain separate work. The repository now has stable developer
+entry points for the existing Rust, corpus, and benchmark targets:
 
 ```sh
-cargo test -p phalcom-core                       # default green gate (fast lanes)
-PHALCOM_GC_STRESS=1 cargo test -p phalcom-core --test lang    # Lane A
-cargo test -p phalcom-core --test steady_state   # Lane B
-cargo test -p phalcom-core --test lang reentrancy # Lane C
-cargo test -p phalcom-core --test future_conformance # Lane D
+scripts/test.sh ast
+scripts/test.sh core
+scripts/test.sh core-integration
+scripts/test.sh lang [label]
+scripts/test.sh invariants
+scripts/test.sh lsp
+scripts/test.sh repl
+scripts/test.sh workspace                 # tests, doctests, Clippy
+scripts/test.sh full                      # workspace gate plus build
+
+scripts/bench.sh vm --skip-bench          # release VM smoke and Skynet gate
+scripts/bench.sh vm                       # also run Criterion micro-benches
+scripts/bench.sh criterion [filter]
+scripts/bench.sh perf [phalcom-perf args...]
+scripts/bench.sh wren [benchmark names...]
+scripts/bench.sh math [--strict] [files...]
+scripts/bench.sh one path/to/program.ph
 ```
+
+`scripts/bench.sh perf` builds both release binaries before running
+`phalcom-perf`. Corpus `PENDING` cases remain non-gating unless `--pending` is
+passed. A benchmark program that exits non-zero is a hard failure: without a
+successful process run, its timing is not a usable measurement. The Wren lane
+also requires an available `WREN_TEST` binary unless `ALLOW_NO_WREN=1` is
+explicitly chosen.
 
 Lanes A and F are **not** part of the default green gate — A for runtime cost,
 F for nondeterminism in what it generates. Both run in CI on their own schedule.

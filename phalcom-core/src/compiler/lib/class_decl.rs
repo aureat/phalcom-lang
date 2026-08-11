@@ -343,8 +343,7 @@ impl<'vm> Compiler<'vm> {
                 }
                 if let ClassMember::Method(method) = member
                     && method.params.iter().any(phalcom_ast::ast::ParameterDef::is_rest)
-                    && let Some(first_span) =
-                        rest_families.insert((method.is_static, method.name.clone()), member_name_range)
+                    && let Some(first_span) = rest_families.insert((method.is_static, method.name.clone()), member_name_range)
                 {
                     let source = self.source_text();
                     let (first_line, first_col) = crate::diagnostics::line_col(&source, first_span.start);

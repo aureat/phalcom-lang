@@ -67,9 +67,6 @@ fn subscript_rest_is_structured() {
 
 #[test]
 fn split_rest_remains_valid() {
-    parse_source(
-        "class C { split(_ fixed, *tail, timeout, **extra) { return tail.size + extra.size } }\n",
-        0,
-    )
-    .expect("valid split-rest declaration must continue to parse");
+    parse_source("class C { split(_ fixed, *tail, timeout, **extra) { return tail.size + extra.size } }\n", 0)
+        .expect("valid split-rest declaration must continue to parse");
 }

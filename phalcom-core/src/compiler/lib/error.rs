@@ -284,10 +284,7 @@ pub enum CompilerError {
 
     /// A malformed rest declaration produced or preserved beyond parsing.
     #[error("invalid rest declaration: {kind}")]
-    InvalidRestDeclaration {
-        kind: RestDeclarationErrorKind,
-        span: SourceRange,
-    },
+    InvalidRestDeclaration { kind: RestDeclarationErrorKind, span: SourceRange },
 
     /// Two structurally different rest selectors in one base family/class.
     #[error(

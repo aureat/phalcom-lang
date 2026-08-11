@@ -94,13 +94,23 @@ fi
 
 echo
 echo "==> Skynet (Phalcom, whole-process, wall-clock + peak RSS)"
-/usr/bin/time -l "$bin" "$repo/benchmarks/concurrency/skynet.ph"
+if /usr/bin/time -l "$bin" "$repo/benchmarks/concurrency/skynet.ph"; then
+  echo "PASS     skynet.ph"
+else
+  echo "FAIL     skynet.ph" >&2
+  rc=1
+fi
 
 wren_bin="${WREN_TEST:-$HOME/dev/repos/wren/bin/wren_test}"
 echo
 if [ -x "$wren_bin" ]; then
   echo "==> Skynet (Wren reference, whole-process, wall-clock + peak RSS)"
-  /usr/bin/time -l "$wren_bin" "$repo/benchmarks/concurrency/skynet.wren"
+  if /usr/bin/time -l "$wren_bin" "$repo/benchmarks/concurrency/skynet.wren"; then
+    echo "PASS     skynet.wren"
+  else
+    echo "FAIL     skynet.wren" >&2
+    rc=1
+  fi
 else
   echo "==> Skynet (Wren reference): SKIPPED — no wren_test binary at"
   echo "    \"$wren_bin\". Set WREN_TEST=/path/to/wren_test to compare."
@@ -110,7 +120,12 @@ fi
 if [ "$skip_bench" -eq 0 ]; then
   echo
   echo "==> criterion micro-benches (send / arith / fiber)"
-  cargo bench -p phalcom-core --features benchmarks --bench vm_bench
+  if cargo bench -p phalcom-core --features benchmarks --bench vm_bench; then
+    echo "PASS     Criterion micro-benches"
+  else
+    echo "FAIL     Criterion micro-benches" >&2
+    rc=1
+  fi
 fi
 
 exit "$rc"

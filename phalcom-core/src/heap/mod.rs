@@ -127,9 +127,7 @@ const GC_UNPRODUCTIVE_GROW_FACTOR: f64 = 4.0;
 const GC_LOW_YIELD: f64 = 0.10;
 
 fn parse_gc_stress_interval(raw: Option<&str>) -> Option<usize> {
-    let Some(raw) = raw else {
-        return None;
-    };
+    let raw = raw?;
     let raw = raw.trim();
     if raw.is_empty() || raw == "0" {
         return None;
