@@ -2,6 +2,7 @@
 name = "phalcom-ast"
 version = "0.1.0"
 edition = "2024"
+autotests = false
 
 [dependencies]
 thiserror = "2.0.12"
@@ -9,3 +10,7 @@ phalcom-common = { path = "../phalcom-common" }
 
 [dev-dependencies]
 insta = "1"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

@@ -3,10 +3,12 @@ name = "phalcom-lsp"
 version = "0.1.0"
 edition = "2024"
 description = "In-process Language Server Protocol server for Phalcom (ADR-0056)."
+autotests = false
 
 [[bin]]
 name = "phalcom-lsp"
 path = "src/main.rs"
+test = false
 
 [lib]
 name = "phalcom_lsp"
@@ -30,3 +32,7 @@ dashmap = "6.2.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "io-util", "macros", "sync", "time"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"

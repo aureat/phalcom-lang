@@ -3,6 +3,7 @@ name = "phalcom-core"
 version = "0.1.0"
 edition = "2024"
 default-run = "phalcom"
+autotests = false
 
 [[bin]]
 name = "phalcom"
@@ -13,6 +14,18 @@ test = false
 name = "gen-core-table"
 path = "bin/gen-core-table/main.rs"
 test = false
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "lang"
+path = "tests/lang.rs"
+
+[[test]]
+name = "invariants"
+path = "tests/invariants.rs"
 
 [features]
 default = []

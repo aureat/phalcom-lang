@@ -2,6 +2,12 @@
 name = "phalcom-repl"
 version = "0.1.0"
 edition = "2024"
+autotests = false
+
+[[bin]]
+name = "phalcom-repl"
+path = "src/main.rs"
+test = false
 
 [dependencies]
 unicode-segmentation = "1.12.0"
@@ -10,3 +16,7 @@ nu-ansi-term = "0.50.1"
 phalcom-core = { path = "../phalcom-core" }
 phalcom-ast = { path = "../phalcom-ast" }
 phalcom-lsp = { path = "../phalcom-lsp" }
+
+[[test]]
+name = "repl_phase_b"
+path = "tests/repl_phase_b.rs"
