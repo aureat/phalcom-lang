@@ -26,21 +26,24 @@
 //! `textDocument/semanticTokens/full`, a flat lexer-driven token-coloring
 //! pass ([`crate::semantic_tokens`]).
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
-    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
+    CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, FileChangeType,
+    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
     InitializeResult, InitializedParams, InlayHint, InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind,
-    MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams, Registration, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
     SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkspaceSymbolParams,
+    TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
+use serde_json::Value as JsonValue;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::completion;
-use crate::core_table::CoreTable;
 use crate::diagnostics::syntax_errors_to_diagnostics;
 use crate::documents::DocumentStore;
 use crate::hover::{self, SelectorSite};
@@ -49,6 +52,38 @@ use crate::line_index::LineIndex;
 use crate::semantic::SemanticDb;
 use crate::semantic::ValueShape;
 use crate::semantic_tokens;
+
+/// Runtime configuration that affects semantic source discovery and hint UI.
+#[derive(Clone, Debug)]
+pub struct ServerConfig {
+    /// Explicit sysroot/core source directory, if configured.
+    pub sysroot_path: Option<PathBuf>,
+    /// Whether standard inlay hints are enabled.
+    pub inlay_hints: bool,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self { sysroot_path: None, inlay_hints: true }
+    }
+}
+
+impl ServerConfig {
+    fn from_json(value: Option<&JsonValue>) -> Self {
+        let mut config = Self::default();
+        let Some(value) = value else { return config };
+        let root = value.get("phalcom").unwrap_or(value);
+        if let Some(path) = root.get("lsp").and_then(|value| value.get("sysrootPath")).and_then(JsonValue::as_str) {
+            config.sysroot_path = Some(PathBuf::from(path));
+        } else if let Some(path) = root.get("sysrootPath").and_then(JsonValue::as_str) {
+            config.sysroot_path = Some(PathBuf::from(path));
+        }
+        if let Some(enabled) = root.get("inlayHints").and_then(JsonValue::as_bool) {
+            config.inlay_hints = enabled;
+        }
+        config
+    }
+}
 
 /// The Phalcom language server.
 ///
@@ -72,6 +107,14 @@ pub struct Backend {
     /// Live VM-free semantic state. Completion migration consumes this after
     /// the Phase A foundation; the legacy index remains for navigation parity.
     semantic: SemanticDb,
+    /// Current workspace roots advertised by the client.
+    workspace_roots: RwLock<Vec<Url>>,
+    /// Files currently represented in the workspace index.
+    indexed_files: RwLock<BTreeSet<Url>>,
+    /// Mutable server configuration.
+    config: RwLock<ServerConfig>,
+    /// Whether client requested dynamic watched-file registration.
+    watch_registration: RwLock<bool>,
 }
 
 impl Backend {
@@ -83,6 +126,10 @@ impl Backend {
             documents: DocumentStore::new(),
             index: WorkspaceIndex::new(),
             semantic: SemanticDb::new(),
+            workspace_roots: RwLock::new(Vec::new()),
+            indexed_files: RwLock::new(BTreeSet::new()),
+            config: RwLock::new(ServerConfig::default()),
+            watch_registration: RwLock::new(false),
         }
     }
 
@@ -101,11 +148,53 @@ impl Backend {
                 self.index.update_file(uri.clone(), &doc.parse.program);
                 let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
                 let program = recovered.as_ref().map(|parse| &parse.program).unwrap_or(&doc.parse.program);
-                self.semantic.update_file(&uri, doc.revision, program);
+                self.update_semantic_for_source(&uri, doc.revision, program);
                 syntax_errors_to_diagnostics(doc.errors(), &doc.line_index)
             })
             .unwrap_or_default();
         self.client.publish_diagnostics(uri, diagnostics, version).await;
+    }
+
+    fn update_semantic_for_source(&self, uri: &Url, revision: crate::semantic::FileRevision, program: &phalcom_ast::ast::Program) {
+        if is_core_source_uri(uri) {
+            self.semantic.update_core(revision, program);
+        } else {
+            self.semantic.update_file(uri, revision, program);
+        }
+    }
+
+    fn record_indexed_file(&self, uri: Url) {
+        self.indexed_files.write().expect("indexed file lock poisoned").insert(uri);
+    }
+
+    fn remove_indexed_file(&self, uri: &Url) {
+        self.index.remove_file(uri);
+        self.semantic.remove_file(uri);
+        self.indexed_files.write().expect("indexed file lock poisoned").remove(uri);
+    }
+
+    fn scan_core_source(&self, roots: &[Url]) {
+        let configured = self.config.read().expect("server config lock poisoned").sysroot_path.clone();
+        let mut candidates = Vec::new();
+        if let Some(path) = configured {
+            if path.extension().and_then(|extension| extension.to_str()) == Some("ph") {
+                candidates.push(path);
+            } else {
+                candidates.extend([path.join("core/core.ph"), path.join("phalcom-core/core/core.ph"), path.join("core.ph")]);
+            }
+        }
+        for root in roots {
+            if let Ok(path) = root.to_file_path() {
+                candidates.extend([path.join("phalcom-core/core/core.ph"), path.join("core/core.ph")]);
+            }
+        }
+        if let Some((path, text)) = candidates.into_iter().find_map(|path| std::fs::read_to_string(&path).ok().map(|text| (path, text))) {
+            let parse = phalcom_ast::parser::parse(&text, 0);
+            self.semantic.update_core(crate::semantic::FileRevision(1), &parse.program);
+            if let Ok(uri) = Url::from_file_path(path) {
+                self.record_indexed_file(uri);
+            }
+        }
     }
 
     /// Scans every `.ph` file under `roots` and (re)builds the workspace
@@ -129,24 +218,60 @@ impl Backend {
                 };
                 let parse = phalcom_ast::parser::parse(&text, 0);
                 self.index.update_file(uri.clone(), &parse.program);
-                self.semantic.update_file(&uri, crate::semantic::FileRevision(1), &parse.program);
+                self.update_semantic_for_source(&uri, crate::semantic::FileRevision(1), &parse.program);
+                self.record_indexed_file(uri);
             }
+        }
+        self.scan_core_source(roots);
+    }
+
+    fn refresh_closed_file(&self, uri: &Url) {
+        if self.documents.with_document(uri, |_| ()).is_some() {
+            return;
+        }
+        let Ok(path) = uri.to_file_path() else { return };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            self.remove_indexed_file(uri);
+            if is_core_source_uri(uri) {
+                let bundled = crate::semantic::core_source::bundled_parse();
+                self.semantic.update_core(crate::semantic::FileRevision(1), &bundled.program);
+            }
+            return;
+        };
+        let parse = phalcom_ast::parser::parse(&text, 0);
+        self.index.update_file(uri.clone(), &parse.program);
+        self.update_semantic_for_source(uri, crate::semantic::FileRevision(1), &parse.program);
+        self.record_indexed_file(uri.clone());
+    }
+
+    fn remove_workspace_root(&self, root: &Url) {
+        let Ok(root_path) = root.to_file_path() else { return };
+        let files = self
+            .indexed_files
+            .read()
+            .expect("indexed file lock poisoned")
+            .iter()
+            .filter(|uri| uri.to_file_path().ok().is_some_and(|path| path.starts_with(&root_path)))
+            .cloned()
+            .collect::<Vec<_>>();
+        for uri in files {
+            self.remove_indexed_file(&uri);
         }
     }
 
     /// Resolves a recovered completion target through live semantic facts.
-    fn semantic_receiver(&self, uri: &Url, doc: &crate::documents::Document, position: Position) -> Option<completion::ResolvedReceiver> {
+    fn semantic_receiver(&self, uri: &Url, doc: &crate::documents::Document, position: Position) -> Option<completion::SemanticResolvedReceiver> {
         let target = completion::target_at(doc, position)?;
         let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?;
         let offset = target.receiver_range.end;
         if receiver == "self" {
-            return self.semantic.class_at(uri, offset).map(|class| completion::ResolvedReceiver {
-                alternatives: vec![(class.name, completion::ReceiverKind::Instance)],
+            return self.semantic.class_at(uri, offset).map(|class| completion::SemanticResolvedReceiver {
+                alternatives: vec![(class, completion::ReceiverKind::Instance)],
             });
         }
         if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-            return self.semantic.class_for_name(uri, receiver).map(|class| completion::ResolvedReceiver {
-                alternatives: vec![(class.name, completion::ReceiverKind::ClassObject)],
+            return self.semantic.class_for_name(uri, receiver).map(|class| completion::SemanticResolvedReceiver {
+                alternatives: vec![(class, completion::ReceiverKind::ClassObject)],
             });
         }
         if receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
@@ -162,6 +287,26 @@ impl Backend {
             _ => None,
         })?;
         receiver_from_shape(self.semantic.infer_expression(uri, expression, offset).shape)
+    }
+
+    fn semantic_definition_locations(&self, uri: &Url, position: Position, selector: &str) -> Vec<Location> {
+        let resolved = self.documents.with_document(uri, |doc| self.semantic_receiver(uri, doc, position)).flatten();
+        let Some(resolved) = resolved else { return Vec::new() };
+        let mut locations = Vec::new();
+        for (class, _) in resolved.alternatives {
+            if class.module.as_str() == crate::semantic::CORE_MODULE_URI {
+                continue;
+            }
+            let Some(member) = self.semantic.member_surface(&class, selector) else { continue };
+            let Ok(definition_uri) = Url::parse(class.module.as_str()) else { continue };
+            let Some(range) = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
+                line_index.range(member.name_range.start..member.name_range.end)
+            }) else {
+                continue;
+            };
+            locations.push(Location { uri: definition_uri, range });
+        }
+        locations
     }
 
     /// Resolves the selector under `position` in the open document `uri`,
@@ -313,14 +458,24 @@ impl Backend {
             .collect();
 
         if sites.is_empty() {
-            let table = CoreTable::bundled();
-            for (class, members) in &table.classes {
-                if let Some(member) = members.iter().find(|m| m.selector == selector) {
-                    sites.push(SelectorSite {
-                        class: class.clone(),
-                        kind: member.kind,
-                    });
-                }
+            for member in self.semantic.all_completion_members().into_iter().filter(|member| {
+                member.owner.module.as_str() == crate::semantic::CORE_MODULE_URI && member.selector == selector
+            }) {
+                let kind = match member.kind {
+                    crate::semantic::MemberKind::Getter => crate::core_table::MemberKind::Getter,
+                    crate::semantic::MemberKind::Setter => crate::core_table::MemberKind::Setter,
+                    crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
+                        if member.side == crate::semantic::DispatchSide::Class && member.selector.starts_with("new(") {
+                            crate::core_table::MemberKind::Construct
+                        } else if member.side == crate::semantic::DispatchSide::Class {
+                            crate::core_table::MemberKind::StaticMethod
+                        } else {
+                            crate::core_table::MemberKind::Method
+                        }
+                    }
+                    crate::semantic::MemberKind::Field => crate::core_table::MemberKind::Getter,
+                };
+                sites.push(SelectorSite { class: member.owner.name, kind });
             }
             sites.sort_by(|a, b| a.class.cmp(&b.class));
         }
@@ -336,7 +491,8 @@ impl Backend {
             .flatten()
         });
 
-        let value = hover::render_selector_hover(&selector, &sites, phaldoc.as_ref())?;
+        let inferred = self.semantic.return_for_selector(&selector);
+        let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
         Some(Hover {
             contents: markdown_contents(value),
             range: Some(span),
@@ -359,17 +515,17 @@ impl Backend {
     /// Returns `None` if `uri` is not open, the cursor resolves to no
     /// top-level binding, or that binding carries no Phaldoc doc.
     fn hover_for_top_level_binding(&self, uri: &Url, position: Position) -> Option<Hover> {
-        let (name, doc) = self
+        let (name, doc, inferred) = self
             .documents
             .with_document(uri, |doc| {
                 let offset = doc.line_index.offset(position);
                 let name = index::top_level_binding_at_offset(&doc.parse.program, offset)?;
                 let phaldoc = hover::harvest_doc_for_selector(&doc.text, &doc.parse.program, &doc.line_index, &name)?;
-                Some((name, phaldoc))
+                Some((name.clone(), phaldoc, self.semantic.binding_at(uri, &name, offset)))
             })
             .flatten()?;
 
-        let value = hover::render_selector_hover(&name, &[], Some(&doc))?;
+        let value = hover::render_selector_hover_with_value(&name, &[], Some(&doc), inferred.as_ref())?;
         Some(Hover {
             contents: markdown_contents(value),
             range: None,
@@ -432,21 +588,27 @@ fn is_member_receiver_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b')' | b']')
 }
 
-fn receiver_from_shape(shape: ValueShape) -> Option<completion::ResolvedReceiver> {
+fn receiver_from_shape(shape: ValueShape) -> Option<completion::SemanticResolvedReceiver> {
     let alternatives = match shape {
-        ValueShape::Instance(class) => vec![(class.name, completion::ReceiverKind::Instance)],
-        ValueShape::ClassObject(class) => vec![(class.name, completion::ReceiverKind::ClassObject)],
+        ValueShape::Instance(class) => vec![(class, completion::ReceiverKind::Instance)],
+        ValueShape::ClassObject(class) => vec![(class, completion::ReceiverKind::ClassObject)],
         ValueShape::Union(shapes) => shapes
             .into_iter()
             .filter_map(|shape| match shape {
-                ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
-                ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
+                ValueShape::Instance(class) => Some((class, completion::ReceiverKind::Instance)),
+                ValueShape::ClassObject(class) => Some((class, completion::ReceiverKind::ClassObject)),
                 _ => None,
             })
             .collect(),
         _ => return None,
     };
-    (!alternatives.is_empty()).then_some(completion::ResolvedReceiver { alternatives })
+    (!alternatives.is_empty()).then_some(completion::SemanticResolvedReceiver { alternatives })
+}
+
+fn is_core_source_uri(uri: &Url) -> bool {
+    let Ok(path) = uri.to_file_path() else { return false };
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    normalized.ends_with("/phalcom-core/core/core.ph")
 }
 
 /// Wraps `value` as an LSP [`HoverContents::Markup`] block of
@@ -513,6 +675,16 @@ impl LanguageServer for Backend {
     /// only, no `range`/`delta` support yet), with the legend built by
     /// [`semantic_tokens::legend`].
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        let config = ServerConfig::from_json(params.initialization_options.as_ref());
+        *self.config.write().expect("server config lock poisoned") = config;
+        let dynamic_watch = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.did_change_watched_files.as_ref())
+            .and_then(|watch| watch.dynamic_registration)
+            .unwrap_or(false);
+        *self.watch_registration.write().expect("watch registration lock poisoned") = dynamic_watch;
         let mut roots: Vec<Url> = params.workspace_folders.unwrap_or_default().into_iter().map(|folder| folder.uri).collect();
         #[allow(deprecated)]
         if let Some(root_uri) = params.root_uri {
@@ -520,6 +692,7 @@ impl LanguageServer for Backend {
                 roots.push(root_uri);
             }
         }
+        *self.workspace_roots.write().expect("workspace root lock poisoned") = roots.clone();
         self.scan_workspace(&roots);
 
         Ok(InitializeResult {
@@ -545,6 +718,13 @@ impl LanguageServer for Backend {
                     full: Some(SemanticTokensFullOptions::Bool(true)),
                     ..SemanticTokensOptions::default()
                 })),
+                workspace: Some(WorkspaceServerCapabilities {
+                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                        supported: Some(true),
+                        change_notifications: Some(OneOf::Left(true)),
+                    }),
+                    ..WorkspaceServerCapabilities::default()
+                }),
                 ..ServerCapabilities::default()
             },
             server_info: Some(tower_lsp::lsp_types::ServerInfo {
@@ -559,6 +739,62 @@ impl LanguageServer for Backend {
     /// of setup work before responding).
     async fn initialized(&self, _params: InitializedParams) {
         self.client.log_message(MessageType::INFO, "phalcom-lsp initialized").await;
+        if !*self.watch_registration.read().expect("watch registration lock poisoned") {
+            return;
+        }
+        let _ = self
+            .client
+            .register_capability(vec![Registration {
+                id: "phalcom-ph-source-watch".to_string(),
+                method: "workspace/didChangeWatchedFiles".to_string(),
+                register_options: Some(serde_json::json!({
+                    "watchers": [{ "globPattern": "**/*.ph" }]
+                })),
+            }])
+            .await;
+    }
+
+    /// Applies changed settings and refreshes the configured core source.
+    async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
+        let config = ServerConfig::from_json(Some(&params.settings));
+        *self.config.write().expect("server config lock poisoned") = config;
+        let bundled = crate::semantic::core_source::bundled_parse();
+        self.semantic.update_core(crate::semantic::FileRevision(1), &bundled.program);
+        let roots = self.workspace_roots.read().expect("workspace root lock poisoned").clone();
+        self.scan_core_source(&roots);
+    }
+
+    /// Refreshes semantic/index state when workspace folders are added or removed.
+    async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
+        for folder in &params.event.removed {
+            self.remove_workspace_root(&folder.uri);
+        }
+        {
+            let mut roots = self.workspace_roots.write().expect("workspace root lock poisoned");
+            roots.retain(|root| !params.event.removed.iter().any(|folder| folder.uri == *root));
+            for folder in &params.event.added {
+                if !roots.contains(&folder.uri) {
+                    roots.push(folder.uri.clone());
+                }
+            }
+        }
+        let added = params.event.added.iter().map(|folder| folder.uri.clone()).collect::<Vec<_>>();
+        self.scan_workspace(&added);
+    }
+
+    /// Refreshes closed-file contributions for watched `.ph` changes.
+    async fn did_change_watched_files(&self, params: DidChangeWatchedFilesParams) {
+        for change in params.changes {
+            if change.typ == FileChangeType::DELETED {
+                self.remove_indexed_file(&change.uri);
+                if is_core_source_uri(&change.uri) {
+                    let bundled = crate::semantic::core_source::bundled_parse();
+                    self.semantic.update_core(crate::semantic::FileRevision(1), &bundled.program);
+                }
+            } else {
+                self.refresh_closed_file(&change.uri);
+            }
+        }
     }
 
     /// Reports readiness to shut down. Holds no resources that need
@@ -610,12 +846,17 @@ impl LanguageServer for Backend {
             if let Ok(text) = std::fs::read_to_string(path) {
                 let parse = phalcom_ast::parser::parse(&text, 0);
                 self.index.update_file(uri.clone(), &parse.program);
-                self.semantic.update_file(&uri, revision, &parse.program);
+                self.update_semantic_for_source(&uri, revision, &parse.program);
+                self.record_indexed_file(uri.clone());
             } else {
-                self.semantic.remove_file(&uri);
+                self.remove_indexed_file(&uri);
+                if is_core_source_uri(&uri) {
+                    let bundled = crate::semantic::core_source::bundled_parse();
+                    self.semantic.update_core(revision, &bundled.program);
+                }
             }
         } else {
-            self.semantic.remove_file(&uri);
+            self.remove_indexed_file(&uri);
         }
         self.client.publish_diagnostics(uri, Vec::new(), None).await;
     }
@@ -635,6 +876,11 @@ impl LanguageServer for Backend {
         let Some((selector, _range)) = self.selector_at_position(&uri, position) else {
             return Ok(None);
         };
+
+        let semantic_locations = self.semantic_definition_locations(&uri, position, &selector);
+        if !semantic_locations.is_empty() {
+            return Ok(Some(GotoDefinitionResponse::Array(semantic_locations)));
+        }
 
         let occurrences = self.index.definitions(&selector);
         let locations = self.occurrences_to_locations(&occurrences);
@@ -715,15 +961,14 @@ impl LanguageServer for Backend {
             let resolved = self.semantic_receiver(&uri, doc, position);
             let offset = doc.line_index.offset(position);
             let privileged = uri.path().ends_with("/phalcom-core/core/core.ph");
-            let mut items = completion::contextual_completions(completion::ContextualCompletionContext {
+            let lexical_class = self.semantic.class_at(&uri, offset);
+            let mut items = completion::semantic_contextual_completions(&self.semantic, completion::SemanticCompletionContext {
                 resolved: resolved.as_ref(),
+                lexical_class: lexical_class.as_ref(),
+                privileged,
                 program: &doc.parse.program,
                 text: &doc.text,
                 offset,
-                privileged,
-                uri: &uri,
-                index: &self.index,
-                table: CoreTable::bundled(),
             });
             if let Some(target) = completion::target_at(doc, position) {
                 if !target.partial_member.is_empty() {
@@ -749,6 +994,9 @@ impl LanguageServer for Backend {
 
     /// Answers standard inlay-hint requests from the live semantic database.
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        if !self.config.read().expect("server config lock poisoned").inlay_hints {
+            return Ok(Some(Vec::new()));
+        }
         let uri = params.text_document.uri.clone();
         let hints = self
             .documents

@@ -36,6 +36,7 @@ use phalcom_ast::token::Token;
 
 use crate::line_index::LineIndex;
 use crate::selectors::class_member_selector;
+use crate::semantic::{Confidence, InferredValue, ValueShape};
 
 /// The contextual (non-keyword-token) words that carry their own hover blurb
 /// only by convention, not by reserved-word status: they lex as
@@ -513,6 +514,16 @@ fn kind_word(kind: crate::core_table::MemberKind) -> &'static str {
 /// to show" case (mirrors `hover.ts`'s `matches.length === 0 && !summary`
 /// guard), so the caller degrades to no hover rather than an empty one.
 pub fn render_selector_hover(selector: &str, sites: &[SelectorSite], phaldoc: Option<&PhaldocDoc>) -> Option<String> {
+    render_selector_hover_with_value(selector, sites, phaldoc, None)
+}
+
+/// Renders selector hover with a shared semantic return/value section.
+pub fn render_selector_hover_with_value(
+    selector: &str,
+    sites: &[SelectorSite],
+    phaldoc: Option<&PhaldocDoc>,
+    inferred: Option<&InferredValue>,
+) -> Option<String> {
     if sites.is_empty() && phaldoc.is_none() {
         return None;
     }
@@ -537,6 +548,14 @@ pub fn render_selector_hover(selector: &str, sites: &[SelectorSite], phaldoc: Op
             let tag_lines: Vec<String> = doc.tags.iter().map(|(tag, payload)| format!("- **@{tag}** {payload}")).collect();
             sections.push(tag_lines.join("\n"));
         }
+    }
+
+    if let Some(value) = inferred.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
+        sections.push(format!(
+            "**Observed return:** `{}`\n\nConfidence: {}",
+            crate::semantic::render_value_shape(&value.shape),
+            crate::semantic::confidence_name(value.confidence)
+        ));
     }
 
     if let Some(contract_view) = render_contract_view(selector) {
@@ -748,5 +767,20 @@ mod tests {
     #[test]
     fn render_selector_hover_none_when_nothing_resolves() {
         assert_eq!(render_selector_hover("mystery(_)", &[], None), None);
+    }
+
+    #[test]
+    fn render_selector_hover_includes_shared_return_summary() {
+        let value = InferredValue::flow(
+            ValueShape::Instance(crate::semantic::ClassId::new(crate::semantic::ModuleId::new("phalcom://core"), "String")),
+            (0..0).into(),
+        );
+        let sites = vec![SelectorSite {
+            class: "Factory".to_string(),
+            kind: crate::core_table::MemberKind::Method,
+        }];
+        let rendered = render_selector_hover_with_value("make()", &sites, None, Some(&value)).unwrap();
+        assert!(rendered.contains("**Observed return:** `String`"));
+        assert!(rendered.contains("Confidence: flow"));
     }
 }

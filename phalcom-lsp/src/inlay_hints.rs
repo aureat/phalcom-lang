@@ -99,36 +99,11 @@ fn should_render(confidence: &Confidence, shape: &ValueShape) -> bool {
 }
 
 fn render_shape(shape: &ValueShape) -> String {
-    match shape {
-        ValueShape::Unknown => "?".to_string(),
-        ValueShape::Instance(class) => class.name.clone(),
-        ValueShape::ClassObject(class) => format!("{} class", class.name),
-        ValueShape::Module(module) => module.to_string(),
-        ValueShape::Tuple(elements) => format!("({})", elements.iter().map(render_shape).collect::<Vec<_>>().join(", ")),
-        ValueShape::Record(fields) => format!(
-            "#{{{}}}",
-            fields
-                .iter()
-                .map(|(label, value)| format!("{label}: {}", render_shape(value)))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        ValueShape::List(element) => format!("List<{}>", render_shape(element)),
-        ValueShape::Set(element) => format!("Set<{}>", render_shape(element)),
-        ValueShape::Map { key, value } => format!("Map<{}, {}>", render_shape(key), render_shape(value)),
-        ValueShape::Range(element) => format!("Range<{}>", render_shape(element)),
-        ValueShape::Callable(_) => "Callable".to_string(),
-        ValueShape::Union(alternatives) => alternatives.iter().map(render_shape).collect::<Vec<_>>().join(" | "),
-    }
+    crate::semantic::render_value_shape(shape)
 }
 
 fn confidence_name(confidence: Confidence) -> &'static str {
-    match confidence {
-        Confidence::Exact => "exact",
-        Confidence::Flow => "flow",
-        Confidence::Interprocedural => "interprocedural",
-        Confidence::Heuristic => "heuristic",
-    }
+    crate::semantic::confidence_name(confidence)
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! VM-free live semantic database for LSP requests.
 
 mod callable;
-mod core_source;
+pub(crate) mod core_source;
 mod facts;
 mod flow;
 mod ids;
@@ -26,6 +26,56 @@ pub use invalidation::InvalidationQueue;
 pub use module_graph::{ImportEdge, ModuleGraph};
 pub use query::{SemanticGeneration, SnapshotStamp};
 pub use surface::{ClassSurface, FieldKind, FieldSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, ParamSurface, build_module_surface};
+
+/// Renders one advisory runtime shape for editor surfaces.
+pub fn render_value_shape(shape: &ValueShape) -> String {
+    match shape {
+        ValueShape::Unknown => "?".to_string(),
+        ValueShape::Instance(class) => class.name.clone(),
+        ValueShape::ClassObject(class) => format!("{} class", class.name),
+        ValueShape::Module(module) => module.to_string(),
+        ValueShape::Tuple(elements) => format!("({})", elements.iter().map(render_value_shape).collect::<Vec<_>>().join(", ")),
+        ValueShape::Record(fields) => format!(
+            "#{{{}}}",
+            fields
+                .iter()
+                .map(|(label, value)| format!("{label}: {}", render_value_shape(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        ValueShape::List(element) => format!("List<{}>", render_value_shape(element)),
+        ValueShape::Set(element) => format!("Set<{}>", render_value_shape(element)),
+        ValueShape::Map { key, value } => format!("Map<{}, {}>", render_value_shape(key), render_value_shape(value)),
+        ValueShape::Range(element) => format!("Range<{}>", render_value_shape(element)),
+        ValueShape::Callable(_) => "Callable".to_string(),
+        ValueShape::Union(alternatives) => alternatives.iter().map(render_value_shape).collect::<Vec<_>>().join(" | "),
+    }
+}
+
+/// Renders confidence as stable editor prose.
+pub fn confidence_name(confidence: Confidence) -> &'static str {
+    match confidence {
+        Confidence::Exact => "exact",
+        Confidence::Flow => "flow",
+        Confidence::Interprocedural => "interprocedural",
+        Confidence::Heuristic => "heuristic",
+    }
+}
+
+/// One member candidate returned by the live semantic surface.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompletionMember {
+    /// Canonical comma-form selector.
+    pub selector: String,
+    /// Source member category.
+    pub kind: MemberKind,
+    /// Defining class identity.
+    pub owner: ClassId,
+    /// Source/runtime visibility.
+    pub visibility: MemberVisibility,
+    /// Dispatch side.
+    pub side: DispatchSide,
+}
 
 /// A complete semantic contribution from one source file.
 #[derive(Clone, Debug)]
@@ -74,24 +124,28 @@ pub struct SemanticDb {
 impl SemanticDb {
     /// Creates an empty semantic database.
     pub fn new() -> Self {
-        Self::default()
+        let db = Self::default();
+        let bundled = core_source::bundled_parse();
+        db.update_core(FileRevision(1), &bundled.program);
+        // Bundled core is the initial baseline, not a workspace mutation.
+        db.state.write().expect("semantic database lock poisoned").generation = SemanticGeneration(0);
+        db
     }
 
     /// Replaces one file contribution and publishes one coherent generation.
     pub fn update_file(&self, uri: &Url, revision: FileRevision, program: &Program) -> SemanticGeneration {
         let module = ModuleId::from_uri(uri);
         let mut state = self.state.write().expect("semantic database lock poisoned");
-        let surface = build_module_surface(module.clone(), program);
+        let surface = if module.as_str() == CORE_MODULE_URI {
+            core_source::build_core_surface(program)
+        } else {
+            build_module_surface(module.clone(), program)
+        };
         let known_classes = |name: &str| {
             let local = ClassId::new(module.clone(), name);
             surface.classes.contains_key(&local).then_some(local).or_else(|| {
-                state.classes.keys().find(|id| id.name == name).cloned().or_else(|| {
-                    [
-                        "Bool", "Float", "Int", "List", "Map", "Object", "Range", "Record", "Set", "String", "Symbol", "Tuple",
-                    ]
-                    .contains(&name)
-                    .then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), name))
-                })
+                let core = ClassId::new(ModuleId::new(CORE_MODULE_URI), name);
+                state.classes.contains_key(&core).then_some(core)
             })
         };
         let is_constructor = |class: &ClassId, selector: &str| {
@@ -165,6 +219,14 @@ impl SemanticDb {
         state.generation
     }
 
+    /// Replaces the live source-authored core module while keeping its stable
+    /// semantic identity. Workspace/open-buffer callers use this instead of
+    /// publishing a file-qualified duplicate core namespace.
+    pub fn update_core(&self, revision: FileRevision, program: &Program) -> SemanticGeneration {
+        let uri = Url::parse(CORE_MODULE_URI).expect("core semantic URI must be valid");
+        self.update_file(&uri, revision, program)
+    }
+
     /// Removes one file contribution and publishes one coherent generation.
     pub fn remove_file(&self, uri: &Url) -> SemanticGeneration {
         let module = ModuleId::from_uri(uri);
@@ -195,9 +257,100 @@ impl SemanticDb {
         self.state.read().expect("semantic database lock poisoned").classes.get(id).cloned()
     }
 
+    /// Returns one module-qualified member surface by canonical selector.
+    pub fn member_surface(&self, class: &ClassId, selector: &str) -> Option<MemberSurface> {
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .classes
+            .get(class)
+            .and_then(|surface| surface.members.get(selector))
+            .cloned()
+    }
+
+    /// Returns inherited, de-duplicated members for one live class surface.
+    pub fn completion_members(&self, class: &ClassId, side: DispatchSide) -> Vec<CompletionMember> {
+        let state = self.state.read().expect("semantic database lock poisoned");
+        let mut current = Some(class.clone());
+        let mut seen = std::collections::BTreeSet::new();
+        let mut visited = std::collections::BTreeSet::new();
+        let mut members = Vec::new();
+        while let Some(id) = current.take() {
+            if !visited.insert(id.clone()) {
+                break;
+            }
+            let Some(surface) = state.classes.get(&id) else { break };
+            for (selector, member) in &surface.members {
+                if member.side == side && seen.insert(selector.clone()) {
+                    members.push(CompletionMember {
+                        selector: selector.clone(),
+                        kind: member.kind,
+                        owner: id.clone(),
+                        visibility: member.visibility,
+                        side,
+                    });
+                }
+            }
+            current = surface.superclass.clone().or_else(|| {
+                (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object"))
+            });
+        }
+        members.sort_by(|left, right| left.selector.cmp(&right.selector));
+        members
+    }
+
+    /// Returns every declared live member, de-duplicated by selector.
+    pub fn all_completion_members(&self) -> Vec<CompletionMember> {
+        let state = self.state.read().expect("semantic database lock poisoned");
+        let mut members = BTreeMap::new();
+        for (class_id, surface) in &state.classes {
+            for (selector, member) in &surface.members {
+                members.entry(selector.clone()).or_insert_with(|| CompletionMember {
+                    selector: selector.clone(),
+                    kind: member.kind,
+                    owner: class_id.clone(),
+                    visibility: member.visibility,
+                    side: member.side,
+                });
+            }
+        }
+        members.into_values().collect()
+    }
+
+    /// Tests module-qualified class ancestry for visibility filtering.
+    pub fn is_same_or_subclass(&self, child: &ClassId, ancestor: &ClassId) -> bool {
+        let state = self.state.read().expect("semantic database lock poisoned");
+        let mut current = Some(child.clone());
+        let mut visited = std::collections::BTreeSet::new();
+        while let Some(id) = current.take() {
+            if !visited.insert(id.clone()) {
+                return false;
+            }
+            if &id == ancestor {
+                return true;
+            }
+            let Some(surface) = state.classes.get(&id) else { return false };
+            current = surface.superclass.clone().or_else(|| {
+                (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object"))
+            });
+        }
+        false
+    }
+
     /// Returns a source callable summary from the current semantic generation.
     pub fn callable_summary(&self, id: &CallableId) -> Option<CallableSummary> {
         self.state.read().expect("semantic database lock poisoned").summaries.get(id).cloned()
+    }
+
+    /// Returns one observed return summary for a canonical selector.
+    pub fn return_for_selector(&self, selector: &str) -> Option<InferredValue> {
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .summaries
+            .values()
+            .find(|summary| summary.callable.selector == selector)
+            .map(|summary| summary.returns.clone())
     }
 
     /// Returns the joined call-site fact observed for one callable parameter.
@@ -219,11 +372,8 @@ impl SemanticDb {
         if state.classes.contains_key(&local) {
             return Some(local);
         }
-        [
-            "Bool", "Float", "Int", "List", "Map", "Object", "Range", "Record", "Set", "String", "Symbol", "Tuple",
-        ]
-        .contains(&name)
-        .then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), name))
+        let core = ClassId::new(ModuleId::new(CORE_MODULE_URI), name);
+        state.classes.contains_key(&core).then_some(core)
     }
 
     /// Returns the class whose declaration contains a byte offset in `uri`.
@@ -266,11 +416,8 @@ impl SemanticDb {
         let known_classes = |name: &str| {
             let local = ClassId::new(module.clone(), name);
             state.classes.contains_key(&local).then_some(local).or_else(|| {
-                [
-                    "Bool", "Float", "Int", "List", "Map", "Object", "Range", "Record", "Set", "String", "Symbol", "Tuple",
-                ]
-                .contains(&name)
-                .then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), name))
+                let core = ClassId::new(ModuleId::new(CORE_MODULE_URI), name);
+                state.classes.contains_key(&core).then_some(core)
             })
         };
         let is_constructor = |class: &ClassId, selector: &str| {
@@ -412,6 +559,25 @@ mod tests {
             })
             .unwrap();
         assert!(matches!(summary.returns.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Point"));
+    }
+
+    #[test]
+    fn bundled_core_source_is_queryable_without_core_table() {
+        let db = SemanticDb::new();
+        let string = ClassId::new(ModuleId::new(CORE_MODULE_URI), "String");
+        let members = db.completion_members(&string, DispatchSide::Instance);
+        assert!(members.iter().any(|member| member.selector == "size"));
+        assert!(members.iter().any(|member| member.selector == "hash"));
+    }
+
+    #[test]
+    fn live_core_replacement_updates_semantic_surface() {
+        let db = SemanticDb::new();
+        let parse = parse("class String { liveEditorMember() { } }", 0);
+        db.update_core(FileRevision(2), &parse.program);
+        let string = ClassId::new(ModuleId::new(CORE_MODULE_URI), "String");
+        assert!(db.completion_members(&string, DispatchSide::Instance).iter().any(|member| member.selector == "liveEditorMember()"));
+        assert!(!db.completion_members(&string, DispatchSide::Instance).iter().any(|member| member.selector == "size"));
     }
 
     #[test]

@@ -32,6 +32,7 @@ use phalcom_common::range::SourceRange;
 use crate::core_table::{CoreTable, CoreVisibility, MemberKind};
 use crate::documents::Document;
 use crate::index::{ClassMemberInfo, MemberVisibility, WorkspaceIndex};
+use crate::semantic::{ClassId, CompletionMember, DispatchSide, MemberKind as SemanticMemberKind, MemberVisibility as SemanticVisibility, SemanticDb};
 
 /// Whether a resolved receiver is an **instance** of its class or the
 /// **class object** itself (a bare class-name reference used as a receiver,
@@ -59,6 +60,13 @@ pub enum ReceiverKind {
 pub struct ResolvedReceiver {
     /// Candidate class names and dispatch sides, in semantic rank order.
     pub alternatives: Vec<(String, ReceiverKind)>,
+}
+
+/// Module-qualified receiver alternatives returned by live semantic queries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticResolvedReceiver {
+    /// Candidate class identities and dispatch sides.
+    pub alternatives: Vec<(ClassId, ReceiverKind)>,
 }
 
 /// Recovered member-completion target from an incomplete editor buffer.
@@ -640,6 +648,149 @@ pub(crate) struct ContextualCompletionContext<'a> {
     pub uri: &'a Url,
     pub index: &'a WorkspaceIndex,
     pub table: &'a CoreTable,
+}
+
+/// Completion context backed entirely by the live semantic database.
+pub(crate) struct SemanticCompletionContext<'a> {
+    /// Resolved module-qualified receiver, if any.
+    pub resolved: Option<&'a SemanticResolvedReceiver>,
+    /// Current lexical class, if the cursor is inside one.
+    pub lexical_class: Option<&'a ClassId>,
+    /// Whether internal members are visible at this URI.
+    pub privileged: bool,
+    /// Parsed program used for bare-name visibility.
+    pub program: &'a Program,
+    /// Full source text used for member-target recovery.
+    pub text: &'a str,
+    /// Cursor byte offset.
+    pub offset: usize,
+}
+
+/// Builds completion items from live source/native semantic surfaces.
+pub(crate) fn semantic_contextual_completions(db: &SemanticDb, context: SemanticCompletionContext<'_>) -> Vec<CompletionItem> {
+    let mut items = match context.resolved {
+        Some(resolved) if resolved.alternatives.len() > 1 => semantic_union_completions(db, resolved, context.lexical_class, context.privileged),
+        Some(resolved) => resolved
+            .alternatives
+            .first()
+            .map(|(class, kind)| semantic_class_completions(db, class, *kind, context.lexical_class, context.privileged))
+            .unwrap_or_default(),
+        None => semantic_all_completions(db, context.lexical_class, context.privileged),
+    };
+
+    if target_at_offset(context.text, context.offset).is_none() {
+        if let Some(class) = context.lexical_class {
+            items.extend(semantic_class_completions(db, class, ReceiverKind::Instance, Some(class), context.privileged));
+        }
+        items.extend(visible_names_at(context.program, context.offset).into_iter().map(|name| CompletionItem {
+            label: name.clone(),
+            kind: Some(CompletionItemKind::VARIABLE),
+            insert_text: Some(name),
+            ..CompletionItem::default()
+        }));
+    }
+    items.sort_by(|left, right| left.label.cmp(&right.label));
+    items.dedup_by(|left, right| left.label == right.label);
+    items
+}
+
+fn semantic_union_completions(
+    db: &SemanticDb,
+    resolved: &SemanticResolvedReceiver,
+    lexical_class: Option<&ClassId>,
+    privileged: bool,
+) -> Vec<CompletionItem> {
+    let mut by_label: std::collections::BTreeMap<String, (CompletionItem, usize)> = std::collections::BTreeMap::new();
+    for (class, kind) in &resolved.alternatives {
+        for item in semantic_class_completions(db, class, *kind, lexical_class, privileged) {
+            by_label
+                .entry(item.label.clone())
+                .and_modify(|(_, coverage)| *coverage += 1)
+                .or_insert((item, 1));
+        }
+    }
+    let total = resolved.alternatives.len();
+    let mut items = by_label
+        .into_values()
+        .map(|(mut item, coverage)| {
+            let owner = item.detail.unwrap_or_else(|| "semantic receiver".to_string());
+            item.detail = Some(format!("{owner} — available on {coverage}/{total} candidates"));
+            item.sort_text = Some(format!("{:02}:{}", total.saturating_sub(coverage), item.label));
+            item
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| left.sort_text.cmp(&right.sort_text).then_with(|| left.label.cmp(&right.label)));
+    items
+}
+
+fn semantic_class_completions(
+    db: &SemanticDb,
+    class: &ClassId,
+    receiver_kind: ReceiverKind,
+    lexical_class: Option<&ClassId>,
+    privileged: bool,
+) -> Vec<CompletionItem> {
+    let side = match receiver_kind {
+        ReceiverKind::Instance => DispatchSide::Instance,
+        ReceiverKind::ClassObject => DispatchSide::Class,
+    };
+    let members = db.completion_members(class, side);
+    let mut items = members
+        .iter()
+        .filter(|member| semantic_visibility_allowed(db, member, lexical_class, privileged))
+        .map(semantic_to_completion_item)
+        .collect::<Vec<_>>();
+    if receiver_kind == ReceiverKind::ClassObject && !items.iter().any(|item| item.label == "new()") {
+        items.push(CompletionItem {
+            label: "new()".to_string(),
+            kind: Some(CompletionItemKind::METHOD),
+            insert_text: Some("new()".to_string()),
+            insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+            ..CompletionItem::default()
+        });
+    }
+    items.sort_by(|left, right| left.label.cmp(&right.label));
+    items
+}
+
+fn semantic_all_completions(db: &SemanticDb, lexical_class: Option<&ClassId>, privileged: bool) -> Vec<CompletionItem> {
+    let mut items = db
+        .all_completion_members()
+        .iter()
+        .filter(|member| semantic_visibility_allowed(db, member, lexical_class, privileged))
+        .map(semantic_to_completion_item)
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| left.label.cmp(&right.label));
+    items
+}
+
+fn semantic_visibility_allowed(db: &SemanticDb, member: &CompletionMember, lexical_class: Option<&ClassId>, privileged: bool) -> bool {
+    match member.visibility {
+        SemanticVisibility::Public => true,
+        SemanticVisibility::Private => lexical_class == Some(&member.owner),
+        SemanticVisibility::Protected => lexical_class.is_some_and(|caller| db.is_same_or_subclass(caller, &member.owner)),
+        SemanticVisibility::Internal => privileged,
+    }
+}
+
+fn semantic_to_completion_item(member: &CompletionMember) -> CompletionItem {
+    let info = ClassMemberInfo {
+        selector: member.selector.clone(),
+        kind: match member.kind {
+            SemanticMemberKind::Method | SemanticMemberKind::Index | SemanticMemberKind::Variant => MemberKind::Method,
+            SemanticMemberKind::Getter | SemanticMemberKind::Field => MemberKind::Getter,
+            SemanticMemberKind::Setter => MemberKind::Setter,
+        },
+        owner: member.owner.name.clone(),
+        visibility: match member.visibility {
+            SemanticVisibility::Public => MemberVisibility::Public,
+            SemanticVisibility::Private => MemberVisibility::Private,
+            SemanticVisibility::Protected => MemberVisibility::Protected,
+            SemanticVisibility::Internal => MemberVisibility::Internal,
+        },
+        is_class_side: member.side == DispatchSide::Class,
+    };
+    to_completion_item(&info)
 }
 
 pub(crate) fn contextual_completions(context: ContextualCompletionContext<'_>) -> Vec<CompletionItem> {
