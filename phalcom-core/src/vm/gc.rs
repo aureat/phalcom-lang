@@ -108,7 +108,7 @@ impl VM {
             trace_frame(frame, &mut |id| out.push(id));
         }
         for value in stack {
-            if let Some(id) = value.as_obj() {
+            if let Some(id) = value.gc_obj_ref() {
                 out.push(id);
             }
         }
@@ -156,7 +156,7 @@ impl VM {
     /// L makes `Heap::alloc` latch rather than collect. The re-entrant case is
     /// the one this exists for.
     pub(crate) fn push_temp_root(&mut self, value: crate::value::Value) {
-        if let Some(id) = value.as_obj() {
+        if let Some(id) = value.gc_obj_ref() {
             self.temp_roots.push(id);
         }
     }

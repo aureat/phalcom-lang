@@ -567,10 +567,10 @@ impl VM {
         frame.ip = (frame.ip as i64 + offset as i64) as usize;
     }
 
-    /// Surfaces the private `nil` sentinel as `None` at a read boundary.
+    /// Surfaces the private `nil` sentinel as immediate `None` at a read boundary.
     ///
     /// A thin wrapper over [`sentinel_to_option`](crate::value::sentinel_to_option)
-    /// that supplies the shared `None` singleton. Called wherever the VM can
+    /// Called wherever the VM can
     /// read an unwritten slot (uninitialized `var`/local, unassigned field,
     /// bare-`return` default, a method falling off its end) so the private
     /// `Value::Nil` sentinel ([ADR-0010](../../../docs/adr/0010-tagged-value-enum.md))
@@ -578,20 +578,17 @@ impl VM {
     /// [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
     #[inline]
     pub(crate) fn surface_absence(&self, value: Value) -> Value {
-        crate::value::sentinel_to_option(value, self.universe.classes.none_singleton)
+        crate::value::sentinel_to_option(value)
     }
 
-    /// Returns the shared `None` singleton as a [`Value`] (the surface absence
-    /// value).
+    /// Returns immediate `None` as the surface absence value.
     ///
     /// This is the value every opcode and surface-reachable primitive yields to
     /// signal "no value" — the private [`Value::Nil`] sentinel is never handed
     /// to user code (Invariant 4, [ADR-0007](../../../docs/adr/0007-option-some-none.md)).
-    /// It is `None`-identity-stable and zero-allocation because it reuses the
-    /// process-wide [`CoreClasses::none_singleton`](crate::universe::CoreClasses::none_singleton).
     #[inline]
     pub(crate) fn none_value(&self) -> Value {
-        Value::Obj(self.universe.classes.none_singleton)
+        Value::None
     }
 
     /// Runs the dispatch loop until the call stack empties, returning the result.
@@ -1689,7 +1686,7 @@ impl VM {
                 }
                 Bytecode::WrapSome => {
                     let value = self.stack.pop().ok_or("Stack underflow for WrapSome")?;
-                    let wrapped = crate::primitive::nil::wrap_some(self, value);
+                    let wrapped = crate::primitive::nil::wrap_some(self, value)?;
                     self.stack.push(wrapped);
                 }
                 Bytecode::Invoke(arity, selector_idx) => {
@@ -1842,12 +1839,12 @@ impl VM {
                         }
                     }
                 }
-                // Pops the top of stack and, if it is the `None` singleton (tested by identity),
-                // branches to `offset`. Otherwise, falls through. Realizes the cursor-protocol
+                // Pops the top of stack and, if it is immediate `None`, branches to `offset`.
+                // Otherwise, falls through. Realizes the cursor-protocol
                 // end-of-iteration test (ADR-0048 §2, iteration.md §2).
                 Bytecode::JumpIfNone(offset) => {
                     let cursor = self.pop()?;
-                    if cursor == Value::Obj(self.universe.classes.none_singleton) {
+                    if cursor.is_none() {
                         self.apply_jump_offset(offset);
                     }
                 }

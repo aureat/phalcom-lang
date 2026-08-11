@@ -1284,9 +1284,8 @@ fn branch_condition_of(sacred: &inliner::SacredCall) -> Option<&Expr> {
 /// value ([ADR-0007](../../../docs/adr/accepted/0007-option-type.md)):
 ///
 /// - the `None` singleton, which lexes to `Var { value: "None" }`; and
-/// - a `Some.new(…)` construction — an [`Expr::MethodCall`] of `new` on the
-///   `Some` class (Phalcom has no bare `Some(x)` call syntax, so construction
-///   is always the explicit static `Some.new(x)` send).
+/// - a canonical `Some(…)` unqualified call; and
+/// - explicit `Some.call(…)` or compatibility `Some.new(…)` sends.
 ///
 /// This is the literal-only half of BD-U6-1's `if (opt)` compile check; every
 /// non-literal, non-`Bool` condition is caught at runtime by the branch
@@ -1294,7 +1293,8 @@ fn branch_condition_of(sacred: &inliner::SacredCall) -> Option<&Expr> {
 fn is_option_literal(expr: &Expr) -> bool {
     match expr {
         Expr::Var { value, .. } => value == "None",
-        Expr::MethodCall(call) => call.method == "new" && matches!(&call.object, Expr::Var { value, .. } if value == "Some"),
+        Expr::UnqualifiedCall(call) => call.name == "Some",
+        Expr::MethodCall(call) => (call.method == "call" || call.method == "new") && matches!(&call.object, Expr::Var { value, .. } if value == "Some"),
         _ => false,
     }
 }

@@ -3,7 +3,7 @@ use crate::heap::Object;
 use crate::vm::VM;
 use std::fmt::{self, Debug, Display};
 
-use super::Value;
+use super::{OptionPayload, Value};
 
 impl Value {
     /// Renders this value the way `System.print` and `toString` present it.
@@ -24,6 +24,10 @@ impl Value {
             Value::Int(n) => n.to_string(),
             Value::Float(n) => render_float(*n),
             Value::Symbol(s) => s.to_string(vm),
+            Value::None => "None".to_string(),
+            value @ (Value::Some1(_) | Value::Some2(_) | Value::Some3(_) | Value::Some4(_) | Value::Some5(_) | Value::Some6(_) | Value::Some7(_)) => {
+                render_option(*value, vm, false)
+            }
             Value::Obj(id) => match vm.heap.get(*id) {
                 Object::LargeInt(bigint) => bigint.to_string(),
                 Object::Str(string) => string.value(),
@@ -35,10 +39,6 @@ impl Value {
                 // spelling; this is the same debug form for the raw-render
                 // path (echo of a receiver with no user override yet).
                 Object::Bytes(bytes) => format!("Bytes({})", bytes.len()),
-                Object::Instance(inst) if inst.class == vm.universe.classes.none_class => "None".to_string(),
-                Object::Instance(inst) if inst.class == vm.universe.classes.some_class => {
-                    format!("Some({})", inst.slots[0].to_string(vm))
-                }
                 Object::Map(map) => {
                     let parts: Vec<String> = map.entries().map(|(k, v)| format!("{}: {}", k.to_string(vm), v.to_string(vm))).collect();
                     format!("{{{}}}", parts.join(", "))
@@ -103,6 +103,10 @@ impl Value {
             Value::Int(n) => n.to_string(),
             Value::Float(n) => render_float(*n),
             Value::Symbol(s) => s.to_debug(),
+            Value::None => "None".to_string(),
+            value @ (Value::Some1(_) | Value::Some2(_) | Value::Some3(_) | Value::Some4(_) | Value::Some5(_) | Value::Some6(_) | Value::Some7(_)) => {
+                render_option(*value, vm, true)
+            }
             Value::Obj(id) => match vm.heap.get(*id) {
                 Object::LargeInt(bigint) => bigint.to_string(),
                 Object::Str(string) => string.value(),
@@ -145,6 +149,14 @@ impl Debug for Value {
             Self::Float(n) => write!(f, "{}", render_float(*n)),
             Self::Symbol(s) => write!(f, "Symbol({})", s.0),
             Self::Obj(id) => write!(f, "<obj {id:?}>"),
+            Self::None => write!(f, "None"),
+            Self::Some1(payload) => fmt_option(f, 1, *payload, true),
+            Self::Some2(payload) => fmt_option(f, 2, *payload, true),
+            Self::Some3(payload) => fmt_option(f, 3, *payload, true),
+            Self::Some4(payload) => fmt_option(f, 4, *payload, true),
+            Self::Some5(payload) => fmt_option(f, 5, *payload, true),
+            Self::Some6(payload) => fmt_option(f, 6, *payload, true),
+            Self::Some7(payload) => fmt_option(f, 7, *payload, true),
         }
     }
 }
@@ -159,8 +171,56 @@ impl Display for Value {
             Self::Float(n) => write!(f, "{}", render_float(*n)),
             Self::Symbol(s) => write!(f, "Symbol({})", s.0),
             Self::Obj(id) => write!(f, "<obj {id:?}>"),
+            Self::None => write!(f, "None"),
+            Self::Some1(payload) => fmt_option(f, 1, *payload, false),
+            Self::Some2(payload) => fmt_option(f, 2, *payload, false),
+            Self::Some3(payload) => fmt_option(f, 3, *payload, false),
+            Self::Some4(payload) => fmt_option(f, 4, *payload, false),
+            Self::Some5(payload) => fmt_option(f, 5, *payload, false),
+            Self::Some6(payload) => fmt_option(f, 6, *payload, false),
+            Self::Some7(payload) => fmt_option(f, 7, *payload, false),
         }
     }
+}
+
+fn option_parts(value: Value) -> (u8, OptionPayload) {
+    match value {
+        Value::Some1(payload) => (1, payload),
+        Value::Some2(payload) => (2, payload),
+        Value::Some3(payload) => (3, payload),
+        Value::Some4(payload) => (4, payload),
+        Value::Some5(payload) => (5, payload),
+        Value::Some6(payload) => (6, payload),
+        Value::Some7(payload) => (7, payload),
+        _ => unreachable!("option_parts called for non-Some value"),
+    }
+}
+
+fn render_option(value: Value, vm: &VM, debug: bool) -> String {
+    let (depth, payload) = option_parts(value);
+    let mut rendered = if debug {
+        payload.into_value().to_debug(vm)
+    } else {
+        payload.into_value().to_string(vm)
+    };
+    for _ in 0..depth {
+        rendered = format!("Some({rendered})");
+    }
+    rendered
+}
+
+fn fmt_option(f: &mut fmt::Formatter<'_>, depth: u8, payload: OptionPayload, debug: bool) -> fmt::Result {
+    write!(f, "Some(")?;
+    if depth == 1 {
+        if debug {
+            write!(f, "{:?}", payload.into_value())?;
+        } else {
+            write!(f, "{}", payload.into_value())?;
+        }
+    } else {
+        fmt_option(f, depth - 1, payload, debug)?;
+    }
+    write!(f, ")")
 }
 
 /// Canonical shortest-roundtrip rendering for an `f64` value.

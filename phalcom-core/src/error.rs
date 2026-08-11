@@ -104,6 +104,12 @@ pub enum RuntimeError {
         limit: usize,
     },
 
+    /// The bounded immediate `Option` representation cannot encode another
+    /// wrapper without falling back to a heap object, which this runtime does
+    /// not permit.
+    #[error("Option nesting limit exceeded ({limit}); use flatMap(_) or model the states explicitly")]
+    OptionNestingLimit { limit: u8 },
+
     /// The surface-`Error` unwind payload — the `Raise(error)` half of
     /// [ADR-0008](../../docs/adr/accepted/0008-layered-exceptions-and-result.md)'s
     /// single unwind primitive (the sibling of U10's `Return`/

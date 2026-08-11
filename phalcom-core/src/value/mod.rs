@@ -16,10 +16,13 @@
 
 mod boolean;
 mod nil;
+mod option;
 mod render;
 
 pub use boolean::{FALSE, TRUE};
 pub use nil::NIL;
+pub(crate) use option::OptionCase;
+pub use option::{MAX_OPTION_NESTING, OptionPayload};
 
 use crate::frame::CallContext;
 use crate::heap::lookup_method_in_hierarchy;
@@ -53,6 +56,18 @@ pub enum Value {
     /// Any heap object — instance, string, class, method, module or large int — by
     /// [`ObjRef`] handle into the [`crate::heap::Heap`].
     Obj(ObjRef),
+    /// Immediate absence. This is distinct from the private [`Value::Nil`]
+    /// uninitialized-slot sentinel.
+    None,
+    /// One through seven flattened immediate `Some` layers. The payload is
+    /// non-recursive so nested Options remain allocation-free.
+    Some1(OptionPayload),
+    Some2(OptionPayload),
+    Some3(OptionPayload),
+    Some4(OptionPayload),
+    Some5(OptionPayload),
+    Some6(OptionPayload),
+    Some7(OptionPayload),
 }
 
 /// Normalizes a [`num_bigint::BigInt`] into a [`Value`].
@@ -83,7 +98,37 @@ impl Value {
     pub fn as_obj(&self) -> Option<ObjRef> {
         match self {
             Value::Obj(id) => Some(*id),
-            Value::Nil | Value::Unit | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) => None,
+            Value::Nil
+            | Value::Unit
+            | Value::Bool(_)
+            | Value::Int(_)
+            | Value::Float(_)
+            | Value::Symbol(_)
+            | Value::None
+            | Value::Some1(_)
+            | Value::Some2(_)
+            | Value::Some3(_)
+            | Value::Some4(_)
+            | Value::Some5(_)
+            | Value::Some6(_)
+            | Value::Some7(_) => None,
+        }
+    }
+
+    /// Returns the one heap child carried by this value for precise GC tracing.
+    /// Unlike [`Self::as_obj`], this intentionally sees through an immediate
+    /// `Some` wrapper without changing the meaning of ordinary object queries.
+    pub fn gc_obj_ref(&self) -> Option<ObjRef> {
+        match self {
+            Value::Obj(id) => Some(*id),
+            Value::Some1(payload)
+            | Value::Some2(payload)
+            | Value::Some3(payload)
+            | Value::Some4(payload)
+            | Value::Some5(payload)
+            | Value::Some6(payload)
+            | Value::Some7(payload) => payload.gc_obj_ref(),
+            Value::Nil | Value::Unit | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) | Value::None => None,
         }
     }
 
@@ -114,6 +159,9 @@ impl Value {
             Value::Float(_) => "float",
             Value::Symbol(_) => "symbol",
             Value::Obj(_) => "object",
+            Value::None | Value::Some1(_) | Value::Some2(_) | Value::Some3(_) | Value::Some4(_) | Value::Some5(_) | Value::Some6(_) | Value::Some7(_) => {
+                "option"
+            }
         }
     }
 
@@ -150,6 +198,10 @@ impl Value {
             Value::Int(_) => vm.universe.classes.int_class,
             Value::Float(_) => vm.universe.classes.float_class,
             Value::Symbol(_) => vm.universe.classes.symbol_class,
+            Value::None => vm.universe.classes.none_class,
+            Value::Some1(_) | Value::Some2(_) | Value::Some3(_) | Value::Some4(_) | Value::Some5(_) | Value::Some6(_) | Value::Some7(_) => {
+                vm.universe.classes.some_class
+            }
             Value::Obj(id) => match vm.heap.get(*id) {
                 Object::Instance(instance) => instance.class,
                 Object::Class(class) => class.class,
@@ -230,7 +282,20 @@ impl Value {
                 Object::Module(_) => CallContext::Module { module: *id },
                 Object::Upvalue(_) => panic!("upvalues are not surface receivers"),
             },
-            Value::Nil | Value::Unit | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::Symbol(_) => CallContext::Immediate { value: *self },
+            Value::Nil
+            | Value::Unit
+            | Value::Bool(_)
+            | Value::Int(_)
+            | Value::Float(_)
+            | Value::Symbol(_)
+            | Value::None
+            | Value::Some1(_)
+            | Value::Some2(_)
+            | Value::Some3(_)
+            | Value::Some4(_)
+            | Value::Some5(_)
+            | Value::Some6(_)
+            | Value::Some7(_) => CallContext::Immediate { value: *self },
         }
     }
 
@@ -320,6 +385,14 @@ impl Value {
                 // Instances, classes and methods compare by identity.
                 a == b
             }
+            (Value::None, Value::None) => true,
+            (Value::Some1(a), Value::Some1(b))
+            | (Value::Some2(a), Value::Some2(b))
+            | (Value::Some3(a), Value::Some3(b))
+            | (Value::Some4(a), Value::Some4(b))
+            | (Value::Some5(a), Value::Some5(b))
+            | (Value::Some6(a), Value::Some6(b))
+            | (Value::Some7(a), Value::Some7(b)) => a.into_value().value_eq(&b.into_value(), heap),
             // Every mismatched pair is unequal.
             _ => false,
         }
@@ -371,7 +444,7 @@ fn is_zero(val: Value, heap: &crate::heap::Heap) -> bool {
     }
 }
 
-/// Surfaces the private [`Value::Nil`] sentinel as the `None` singleton.
+/// Surfaces the private [`Value::Nil`] sentinel as immediate `None`.
 ///
 /// This is the **read-boundary surfacer** of U6's absence model: the private
 /// `Value::Nil` sentinel ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md))
@@ -379,22 +452,17 @@ fn is_zero(val: Value, heap: &crate::heap::Heap) -> bool {
 /// (Invariant 4, `values-and-absence.md`). Every read boundary that can observe
 /// an unwritten slot — an uninitialized `var` read, an unassigned field read, a
 /// bare-`return` default, a method falling off its end — routes the value
-/// through here so the sentinel is replaced by the shared `None` object
+/// through here so the sentinel is replaced by immediate `None`
 /// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)); any non-sentinel
 /// value passes through unchanged.
-///
-/// `none_singleton` is the handle to the process-wide `None` instance
-/// ([`crate::universe::CoreClasses::none_singleton`]); passing the same handle
-/// everywhere keeps `None` identity-comparable and zero-allocation
-/// ([ADR-0004](../../../docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md)
-/// mirror). There is intentionally **no** public constructor that yields
-/// [`Value::Nil`]: surfacing is one-directional (sentinel → `None`), never the
-/// reverse, so `None` can never end up inside a `Some`.
+/// There is intentionally **no** public constructor that yields [`Value::Nil`]:
+/// surfacing is one-directional (sentinel → `None`), never the reverse, so
+/// `None` can never be confused with the private storage sentinel.
 #[inline]
 #[must_use]
-pub fn sentinel_to_option(value: Value, none_singleton: ObjRef) -> Value {
+pub fn sentinel_to_option(value: Value) -> Value {
     match value {
-        Value::Nil => Value::Obj(none_singleton),
+        Value::Nil => Value::None,
         other => other,
     }
 }
@@ -414,6 +482,35 @@ impl Hash for Value {
             Value::Float(n) => hash_f64(*n, state),
             Value::Symbol(s) => s.0.hash(state),
             Value::Obj(id) => id.hash(state),
+            Value::None => 2u8.hash(state),
+            Value::Some1(payload) => {
+                3u8.hash(state);
+                payload.hash(state);
+            }
+            Value::Some2(payload) => {
+                4u8.hash(state);
+                payload.hash(state);
+            }
+            Value::Some3(payload) => {
+                5u8.hash(state);
+                payload.hash(state);
+            }
+            Value::Some4(payload) => {
+                6u8.hash(state);
+                payload.hash(state);
+            }
+            Value::Some5(payload) => {
+                7u8.hash(state);
+                payload.hash(state);
+            }
+            Value::Some6(payload) => {
+                8u8.hash(state);
+                payload.hash(state);
+            }
+            Value::Some7(payload) => {
+                9u8.hash(state);
+                payload.hash(state);
+            }
         }
     }
 }

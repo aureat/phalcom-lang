@@ -85,23 +85,15 @@ impl Universe {
         let module_class = make_core_class(heap, "Module", object_class, metaclass_class);
         let system_class = make_core_class(heap, "System", object_class, metaclass_class);
 
-        // The absence type (ADR-0007): `Option` is abstract, with concrete
-        // subclasses `Some` (one field, `_value`) and `None`. This mirrors the
-        // abstract-`Bool` / `True`-`False` shape (ADR-0004): dispatch, not a
-        // variant tag, distinguishes present from absent. There is no surface
-        // `nil` class — the private `Value::Nil` sentinel (ADR-0010) is surfaced
-        // to `None` at read boundaries and can never be produced by user code.
+        // The absence type (PDR-0033): `Option` is abstract and sealed, with
+        // concrete immediate variants `Some` and `None`. Class metadata remains
+        // ordinary so lookup/reflection can use the normal object model, but no
+        // Option surface value is an InstanceObject.
         let option_class = make_core_class(heap, "Option", object_class, metaclass_class);
         heap.class_mut(option_class).is_abstract = true;
         let some_class = make_core_class(heap, "Some", option_class, metaclass_class);
         let none_class = make_core_class(heap, "None", option_class, metaclass_class);
         let unit_class = make_core_class(heap, "Unit", object_class, metaclass_class);
-
-        // The single shared `None`: one heap instance, reused everywhere so
-        // `None` is identity-comparable and zero-allocation. The `None` global
-        // (bound in `VM::install_core`) points at *this* object, not the `None`
-        // class.
-        let none_singleton = heap.alloc(crate::heap::Object::Instance(crate::heap::InstanceObject::new(none_class, 0)));
 
         // Kernel `List` (ADR-0020): a native heap variant, not an
         // `InstanceObject`, so it has no field layout and needs no `construct`
@@ -198,7 +190,6 @@ impl Universe {
             some_class,
             none_class,
             unit_class,
-            none_singleton,
             iterable_class,
             list_class,
             map_class,
@@ -248,6 +239,9 @@ impl Universe {
             res.metaclass_class,
             res.system_class,
             res.message_class,
+            res.option_class,
+            res.some_class,
+            res.none_class,
         ];
         for cid in native_repr_classes {
             heap.class_mut(cid).native_repr = true;
@@ -337,21 +331,12 @@ pub struct CoreClasses {
     /// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)); superclass of
     /// `Some` and `None`, and holder of the `match(some:none:)` eliminator.
     pub option_class: ClassId,
-    /// `Some`, the present-value `Option` subclass (one field, `_value`).
+    /// `Some`, the final immediate present-value `Option` variant.
     pub some_class: ClassId,
-    /// `None`, the absent-value `Option` subclass. Its sole instance is
-    /// [`Self::none_singleton`].
+    /// `None`, the final immediate absent-value `Option` variant.
     pub none_class: ClassId,
     /// `Unit`, the immediate zero-arity product.
     pub unit_class: ClassId,
-    /// The single shared `None` object (an instance of [`Self::none_class`]).
-    ///
-    /// Reused for every surfaced absence so `None` is identity-comparable and
-    /// zero-allocation ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md));
-    /// [`sentinel_to_option`](crate::value::sentinel_to_option) hands back a
-    /// [`Value::Obj`](crate::value::Value::Obj) over this handle, and the `None`
-    /// global (`VM::install_core`) is bound to it.
-    pub none_singleton: ObjRef,
     /// `Iterable`, the kernel iterable root (ADR-0048).
     pub iterable_class: ClassId,
     /// `List`, the native array-backed kernel list
@@ -476,7 +461,6 @@ impl CoreClasses {
             some_class,
             none_class,
             unit_class,
-            none_singleton,
             iterable_class,
             list_class,
             map_class,
@@ -519,7 +503,6 @@ impl CoreClasses {
             some_class,
             none_class,
             unit_class,
-            none_singleton,
             iterable_class,
             list_class,
             map_class,

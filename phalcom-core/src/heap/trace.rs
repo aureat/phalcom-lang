@@ -9,7 +9,7 @@
 //!
 //! 1. **Exhaustive match, no wildcard.** A new [`Object`] variant must fail to
 //!    compile until it declares its edges. There is deliberately no `_ => {}` arm.
-//! 2. **`Value` children only through [`Value::as_obj`].** Never match `Value`'s
+//! 2. **`Value` children only through [`Value::gc_obj_ref`].** Never match `Value`'s
 //!    arms here — that accessor is the seam that keeps this file independent of a
 //!    future NaN-boxed `Value` ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
 //!
@@ -44,7 +44,7 @@ pub fn trace_frame(frame: &CallFrame, push: &mut impl FnMut(ObjRef)) {
         // but it is still a `Value`, so it goes through the `as_obj` seam rather
         // than being assumed handle-free.
         CallContext::Immediate { value } => {
-            if let Some(id) = value.as_obj() {
+            if let Some(id) = value.gc_obj_ref() {
                 push(id);
             }
         }
@@ -53,7 +53,7 @@ pub fn trace_frame(frame: &CallFrame, push: &mut impl FnMut(ObjRef)) {
 
 /// Calls `push` once for every handle `value` points at (zero or one).
 fn trace_value(value: Value, push: &mut impl FnMut(ObjRef)) {
-    if let Some(id) = value.as_obj() {
+    if let Some(id) = value.gc_obj_ref() {
         push(id);
     }
 }
@@ -185,7 +185,7 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             }
         }
         // `Set` shares `MapObject`; its `.1` slots are always `Value::Nil`, which
-        // `as_obj` filters out — so one arm body is correct for both.
+        // `gc_obj_ref` filters out — so one arm body is correct for both.
         Object::Map(map) | Object::Set(map) => {
             for (key, value) in map.entries() {
                 trace_value(key, push);

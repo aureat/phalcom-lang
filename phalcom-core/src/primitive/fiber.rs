@@ -309,7 +309,7 @@ pub fn fiber_error(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     let fiber = vm.heap.fiber(fiber_ref);
     if fiber.status == FiberStatus::Failed {
         let error = fiber.result;
-        Ok(crate::primitive::nil::wrap_some(vm, error))
+        Ok(crate::primitive::nil::wrap_some(vm, error)?)
     } else {
         Ok(vm.none_value())
     }

@@ -548,7 +548,7 @@ class Option {
   // 1-arity block over the wrapped value; the result is re-wrapped so the
   // chain stays an `Option`.
   map(_ f) {
-    return self.match(some: |v| { Some.new(f.call(v)) }, none: || { self })
+    return self.match(some: |v| { Some(f.call(v)) }, none: || { self })
   }
 
   // U-STD (values-and-absence.md §3.3's "Transform" group): like `map`, but `f`
@@ -658,7 +658,7 @@ class Result {
   // `Result` -> `Option`: drops the failure reason (result.md §2/§5). Round-
   // trips with `Option#okOr(_)` above.
   ok() {
-    return self.match(ok: |v| { Some.new(v) }, err: |e| { None })
+    return self.match(ok: |v| { Some(v) }, err: |e| { None })
   }
 
   // Display: each arm renders its payload via its OWN `toString` (agrees
@@ -834,7 +834,7 @@ class Iterable {
 
   find(where f) {
     for (x in self) {
-      f.call(x).ifTrue || { return Some.new(x) }
+      f.call(x).ifTrue || { return Some(x) }
     }
     return None
   }
@@ -842,7 +842,7 @@ class Iterable {
   index(where f) {
     let index = 0
     for (x in self) {
-      f.call(x).ifTrue || { return Some.new(index) }
+      f.call(x).ifTrue || { return Some(index) }
       index = index + 1
     }
     return None
@@ -886,7 +886,7 @@ class Iterable {
       acc = f.call(acc, self.iteratorValue(c))
       c = self.iterate(c)
     }
-    return Some.new(acc)
+    return Some(acc)
   }
 
   group(by block) {
@@ -979,12 +979,12 @@ class List {
 
   first {
     if (self.size == 0) { return None }
-    return Some.new(self.at(0))
+    return Some(self.at(0))
   }
 
   last {
     if (self.size == 0) { return None }
-    return Some.new(self.at(self.size - 1))
+    return Some(self.at(self.size - 1))
   }
 
   at(_ i) {
@@ -997,7 +997,7 @@ class List {
     let i = index
     if (i < 0) { i = len + i }
     if (i >= 0 and i < len) {
-      return Some.new(raw)
+      return Some(raw)
     }
     return None
   }
@@ -1105,7 +1105,7 @@ class List {
     let captured = self._$at(0)
     let emptyList = []
     self._$replaceSlice(0, 1, emptyList)
-    return Some.new(captured)
+    return Some(captured)
   }
 
   popLast {
@@ -1114,7 +1114,7 @@ class List {
     let captured = self._$at(n - 1)
     let emptyList = []
     self._$replaceSlice(n - 1, n, emptyList)
-    return Some.new(captured)
+    return Some(captured)
   }
 
   removeAll(where predicate) {
@@ -1482,12 +1482,12 @@ class Tuple {
 
   first {
     if (self.size == 0) { return None }
-    return Some.new(self.at(0))
+    return Some(self.at(0))
   }
 
   last {
     if (self.size == 0) { return None }
-    return Some.new(self.at(self.size - 1))
+    return Some(self.at(self.size - 1))
   }
 
   // Display (U-CORE-4, R-INV-4.1; DEFERRED CB-1). Mirrors `Value::to_string`'s
@@ -1512,7 +1512,7 @@ class Tuple {
     let i = 0
     while (i < num_labeled) {
       if (self._$labelAt(i) == sym) {
-        return Some.new(self._$positionalSize + i)
+        return Some(self._$positionalSize + i)
       }
       i = i + 1
     }
@@ -1523,7 +1523,7 @@ class Tuple {
   access(_ key) {
     if (key.isA(Symbol)) {
       return self.findLabel(key).match(
-        some: |idx| { Some.new(self._$at(idx)) },
+        some: |idx| { Some(self._$at(idx)) },
         none: || { None }
       )
     }
@@ -1532,7 +1532,7 @@ class Tuple {
     let i = key
     if (i < 0) { i = len + i }
     if (i >= 0 and i < len) {
-      return Some.new(raw)
+      return Some(raw)
     }
     return None
   }
@@ -1941,12 +1941,12 @@ class Bytes {
 
   first {
     if (self.size == 0) { return None }
-    return Some.new(self.at(0))
+    return Some(self.at(0))
   }
 
   last {
     if (self.size == 0) { return None }
-    return Some.new(self.at(self.size - 1))
+    return Some(self.at(self.size - 1))
   }
 
   at(_ i) { self._$at(i) }
@@ -1957,7 +1957,7 @@ class Bytes {
     let i = index
     if (i < 0) { i = len + i }
     if (i >= 0 and i < len) {
-      return Some.new(raw)
+      return Some(raw)
     }
     return None
   }
@@ -2600,7 +2600,7 @@ class Future {
   // The settled value as an `Option` (concurrency.md §2): `Some(v)` once
   // `fulfilled`, `None` while `pending` or once `rejected` (the rejection
   // reason is reached via `catch(_)`/`then(_)`, not `value`).
-  value { (_state == "fulfilled").ifTrue(|| { Some.new(_value) }, ifFalse: || { None }) }
+  value { (_state == "fulfilled").ifTrue(|| { Some(_value) }, ifFalse: || { None }) }
 
   // Suspends the current fiber until settled (U-FUTURE Slice B). On the root
   // fiber — which has no resumer and so cannot yield — degrades to driving the
@@ -2796,9 +2796,9 @@ class OffBehavior {
   @class
   raise { OffBehavior.new("raise", None) }
   @class
-  fallback(_ sel) { OffBehavior.new("fallback", Some.new(sel)) }
+  fallback(_ sel) { OffBehavior.new("fallback", Some(sel)) }
   @class
-  skip(_ value) { OffBehavior.new("skip", Some.new(value)) }
+  skip(_ value) { OffBehavior.new("skip", Some(value)) }
 
   @constructor
   new(_ kind, _ payload) { _kind = kind; _payload = payload }

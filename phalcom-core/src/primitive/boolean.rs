@@ -132,7 +132,7 @@ pub fn bool_not(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Val
 pub fn bool_if_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if expect_bool(receiver)? {
         let result = block_call(vm, &args[0], &[])?;
-        Ok(wrap_some(vm, result))
+        Ok(wrap_some(vm, result)?)
     } else {
         Ok(vm.none_value())
     }
@@ -152,7 +152,7 @@ pub fn bool_if_false(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
         Ok(vm.none_value())
     } else {
         let result = block_call(vm, &args[0], &[])?;
-        Ok(wrap_some(vm, result))
+        Ok(wrap_some(vm, result)?)
     }
 }
 

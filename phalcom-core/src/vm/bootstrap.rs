@@ -69,14 +69,6 @@ impl VM {
         // Bootstrap core module and primitive methods
         vm.install_core();
 
-        // Initialize Some class field layout (ADR-0011)
-        {
-            let some_class = vm.universe.classes.some_class;
-            let value_sym = vm.interner.intern("_value");
-            vm.heap.class_mut(some_class).field_slots.insert(value_sym, 0);
-            vm.heap.class_mut(some_class).field_count = 1;
-        }
-
         // Stamp the kernel `Message` class's fixed-slot count (U8,
         // method-lookup.md §2). Like `Some`, `Message` instances are built
         // directly in Rust ([`VM::new_message`]) — its four slots
@@ -197,10 +189,7 @@ impl VM {
             let core = vm.get_module_from_str(CORE_MODULE_NAME).expect("core module registered by install_core");
             let none_sym = vm.interner.intern("None");
             let none_value = vm.heap.module(core).get(none_sym).expect("None global must be bound by install_core");
-            assert!(
-                matches!(none_value, Value::Obj(id) if id == vm.universe.classes.none_singleton),
-                "None global must resolve to the shared singleton value, not the None class"
-            );
+            assert_eq!(none_value, Value::None, "None global must resolve to immediate absence");
             assert_ne!(
                 none_value,
                 Value::Obj(vm.universe.classes.none_class),
@@ -363,10 +352,9 @@ impl VM {
         };
         self.sealed_classes.insert(none_class_key_sealed, m);
 
-        // Bind the `None` global to the shared singleton object.
+        // Bind the `None` global to immediate absence.
         let none_global_sym = self.interner.intern("None");
-        let none_value = Value::Obj(self.universe.classes.none_singleton);
-        self.define_global(core_sym, none_global_sym, none_value).ok();
+        self.define_global(core_sym, none_global_sym, Value::None).ok();
 
         // The private `nil` sentinel has no surface class global: there is no
         // `Nil` name reachable from user code (Invariant 4). The `Nil` class row

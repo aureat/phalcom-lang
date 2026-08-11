@@ -55,8 +55,8 @@ fn raise_use_after_close(vm: &mut VM, message: &str) -> PhResult<Value> {
 pub fn resource_raw_close(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let handle = extract_handle(vm, receiver)?;
     match vm.resources.close(handle) {
-        Ok(()) => Ok(Value::Obj(vm.universe.classes.none_singleton)),
-        Err(crate::resource::ResourceError::AlreadyClosed) => Ok(Value::Obj(vm.universe.classes.none_singleton)),
+        Ok(()) => Ok(Value::None),
+        Err(crate::resource::ResourceError::AlreadyClosed) => Ok(Value::None),
         Err(crate::resource::ResourceError::StaleHandle) => raise_use_after_close(vm, "Resource already closed or stale"),
     }
 }
@@ -95,5 +95,5 @@ pub fn system_strict_resources(vm: &mut VM, _receiver: &Value, args: &[Value]) -
         }
     };
     vm.strict_resources = flag;
-    Ok(Value::Obj(vm.universe.classes.none_singleton))
+    Ok(Value::None)
 }

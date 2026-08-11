@@ -141,27 +141,32 @@ impl Universe {
             return Err("Function should be abstract".to_string());
         }
 
-        // R-INV-0.3 (structural half) — absence never surfaces at boot: the
-        // shared `None` singleton is an `Instance` of `None` (not a class
-        // object), and `None` is a distinct class from the unreachable `Nil`
-        // (ADR-0007/0010). The global-resolves-to-the-singleton-*value* half is
+        // R-INV-0.3 (structural half) — immediate absence is distinct from the
+        // private `Nil` class row, and both Option variants remain ordinary
+        // class metadata for lookup/reflection. The global value half is
         // asserted inline in `VM::new` (it needs the core module).
         if c.none_class == c.nil_class {
             return Err("None and Nil must be distinct classes".to_string());
         }
-        match heap.get(c.none_singleton) {
-            crate::heap::Object::Instance(instance) if instance.class == c.none_class => {}
-            crate::heap::Object::Instance(_) => return Err("None singleton must be an instance of None".to_string()),
-            _ => return Err("None singleton must be an instance object, not a class object".to_string()),
+        if !heap.class(c.option_class).is_abstract {
+            return Err("Option should be abstract".to_string());
+        }
+        if heap.class(c.some_class).superclass != Some(c.option_class) {
+            return Err("Some.superclass should be Option".to_string());
+        }
+        if heap.class(c.none_class).superclass != Some(c.option_class) {
+            return Err("None.superclass should be Option".to_string());
+        }
+        if heap.class(c.some_class).field_count != 0 || heap.class(c.none_class).field_count != 0 {
+            return Err("immediate Option variants must have zero instance fields".to_string());
+        }
+        if !heap.class(c.option_class).native_repr || !heap.class(c.some_class).native_repr || !heap.class(c.none_class).native_repr {
+            return Err("Option, Some, and None must use native representations".to_string());
         }
 
-        // R-INV-0.4 — fixed-slot layout for the two directly-stamped classes
+        // R-INV-0.4 — fixed-slot layout for the directly-stamped classes
         // ([ADR-0011](../../../docs/adr/accepted/0011-static-instance-slot-layout.md)):
-        // `Some` has one field (`_value`) and `Message` has four. Fences the
-        // E→F bootstrap edge (bootstrap-phases §4).
-        if heap.class(c.some_class).field_count != 1 {
-            return Err("Some.field_count should be 1 (ADR-0011)".to_string());
-        }
+        // `Message` has four. Fences the E→F bootstrap edge.
         if heap.class(c.message_class).field_count != 4 {
             return Err("Message.field_count should be 4 (ADR-0011)".to_string());
         }

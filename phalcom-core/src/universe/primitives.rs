@@ -20,7 +20,7 @@ use crate::primitive::list::{list_class_new, list_raw_at, list_raw_length, list_
 use crate::primitive::map::{map_class_new, map_raw_get, map_raw_has, map_raw_key_at, map_raw_put, map_raw_remove, map_raw_size, map_raw_value_at};
 use crate::primitive::method::{method_bind, method_class_new, method_holder, method_invoke_on_shape, method_selector};
 use crate::primitive::module::{module_class_new, module_does_not_understand};
-use crate::primitive::nil::{option_match, some_new};
+use crate::primitive::nil::{option_match, some_call, some_new};
 use crate::primitive::number::{
     number_add, number_class_new, number_div, number_floor_div, number_ge, number_gt, number_hash, number_le, number_lt, number_mod, number_mul,
     number_negated, number_pow, number_sub, number_to_string,
@@ -238,6 +238,7 @@ impl Universe {
         // `nil` constructor — the private `Value::Nil` sentinel (ADR-0010) is
         // surfaced to `None` at read boundaries only.
         let some_cls = vm.universe.classes.some_class;
+        primitive_static!(vm, some_cls, "call", SignatureKind::Method(1), some_call);
         primitive_static!(vm, some_cls, "new", SignatureKind::Method(1), some_new);
 
         // `match(some:none:)` is installed on the abstract `Option` class so

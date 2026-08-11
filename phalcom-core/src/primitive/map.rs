@@ -118,7 +118,7 @@ pub fn map_raw_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     let id: ObjRef = expect_map(vm, receiver)?;
     let (_, slot) = locate_key(vm, id, args[0])?;
     match slot {
-        Some(s) => Ok(wrap_some(vm, vm.heap.map(id).entry_at(s).expect("slot from locate() is live").1)),
+        Some(s) => Ok(wrap_some(vm, vm.heap.map(id).entry_at(s).expect("slot from locate() is live").1)?),
         None => Ok(vm.none_value()),
     }
 }
@@ -152,7 +152,7 @@ pub fn map_raw_put(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
                 .map_mut(id)
                 .set_value_at(s, value)
                 .ok_or_else(|| RuntimeError::Internal("Map slot from locate() was out of range (internal invariant violation)".to_string()))?;
-            Ok(wrap_some(vm, previous))
+            Ok(wrap_some(vm, previous)?)
         }
         None => {
             vm.heap
@@ -227,7 +227,7 @@ pub fn map_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
     let (_, slot) = locate_key(vm, id, args[0])?;
     if let Some(s) = slot {
         let (_, removed) = vm.heap.map_mut(id).remove_at(s).map_err(|err| map_mutation_error(err, "Map"))?;
-        Ok(wrap_some(vm, removed))
+        Ok(wrap_some(vm, removed)?)
     } else {
         Ok(vm.none_value())
     }

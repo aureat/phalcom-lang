@@ -69,7 +69,7 @@ pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 /// bottoms out in.
 pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     match vm.ready_queue.pop_front() {
-        Some(fiber_ref) => Ok(crate::primitive::nil::wrap_some(vm, Value::Obj(fiber_ref))),
+        Some(fiber_ref) => Ok(crate::primitive::nil::wrap_some(vm, Value::Obj(fiber_ref))?),
         None => Ok(vm.none_value()),
     }
 }
