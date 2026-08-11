@@ -173,6 +173,14 @@ before the work it blocks begins.
     existing
     `surface_none` boundary once there is a GC + benchmarks to justify it.
 
+   > **Open spec inconsistency — `None` reflection.** One implementation-spec
+   > assertion says `None.class == None`. The live model instead maps immediate
+   > `Value::None.class` to the `None` class object, while the `None` global is
+   > the immediate value; ordinary value equality therefore makes that expression
+   > false. PDR-0033 preserves the live reflection and equality behavior. A
+   > future change needs an explicit decision; it must not silently alter either
+   > protocol to satisfy the assertion.
+
 14. ~~**`Family` introspection.**~~ **RESOLVED** (ruling, no ADR): ship `Family`
     ([Selectors §3](selectors.md#3-method-references-)) as a **callable value only**
     for now — its candidate list stays a VM-internal detail feeding
