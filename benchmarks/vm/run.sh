@@ -13,8 +13,9 @@
 #   3. The same for Skynet's Wren reference (benchmarks/concurrency/skynet.wren),
 #      if a `wren_test` binary is available (DEC-BENCH-B: never invent a
 #      number — skip with a note if not).
-#   4. `cargo bench -p phalcom-core --bench vm_bench`, the criterion
-#      micro-benches (send / arith / fiber), for regression tripwires.
+#   4. `cargo bench -p phalcom-core --features benchmarks --bench vm_bench`,
+#      the Criterion micro-benches (send / arith / fiber), for regression
+#      tripwires.
 #
 # This does NOT regenerate BASELINE.md's attribution profile (that used
 # macOS `sample`/`dtrace`, a one-off interactive capture, not scripted here
@@ -109,7 +110,7 @@ fi
 if [ "$skip_bench" -eq 0 ]; then
   echo
   echo "==> criterion micro-benches (send / arith / fiber)"
-  cargo bench -p phalcom-core --bench vm_bench
+  cargo bench -p phalcom-core --features benchmarks --bench vm_bench
 fi
 
 exit "$rc"

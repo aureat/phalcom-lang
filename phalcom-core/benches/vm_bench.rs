@@ -77,7 +77,14 @@ const REST_FALLBACK_SEND: &str = include_str!("../../benchmarks/vm/rest_fallback
 fn run_program(src: &str, checks: &[(&str, f64)]) {
     let mut interp = Interpreter::new();
     let main = interp.vm.create_module("main", "<bench>");
-    interp.vm.interpret_source(main, src).expect("benchmark program must execute cleanly");
+    // Keep the final `System.print(acc)` in the `.ph` files so standalone
+    // runs remain human-readable, but remove it from timed Criterion
+    // iterations. Printing once per sample would dominate these measurements.
+    let timed_source = src
+        .strip_suffix("System.print(acc)\n")
+        .or_else(|| src.strip_suffix("System.print(acc)"))
+        .unwrap_or(src);
+    interp.vm.interpret_source(main, timed_source).expect("benchmark program must execute cleanly");
 
     for &(name, expected) in checks {
         let sym = interp.vm.interner.intern(name);

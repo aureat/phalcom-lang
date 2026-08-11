@@ -69,6 +69,30 @@ cargo test                               # run tests
 cargo clippy --workspace                 # lints
 ```
 
+Focused developer commands:
+
+```sh
+scripts/test.sh ast                       # AST integration target
+scripts/test.sh core                      # all core tests
+scripts/test.sh lang concurrency           # one language-corpus label
+scripts/test.sh invariants                 # object-model invariants
+scripts/test.sh lsp                        # all LSP stages
+scripts/test.sh repl                       # REPL integration target
+scripts/test.sh workspace                  # tests + doctests + Clippy
+scripts/test.sh full                       # workspace gate + ordinary build
+```
+
+Benchmark commands:
+
+```sh
+scripts/bench.sh vm                        # release VM baseline
+scripts/bench.sh criterion bare_send        # Criterion micro-benchmark filter
+scripts/bench.sh perf --bench-only          # combined timing report
+scripts/bench.sh wren fib map_string        # output-verified Wren comparison
+scripts/bench.sh math                       # math benchmark self-checks
+scripts/bench.sh one benchmarks/wren-suite/fib.ph
+```
+
 Example programs live in `examples/*.ph` (e.g. `simple.ph`, `calculator.ph`, `person*.ph`).
 The object-model design spec is `docs/spec/current/object-model.md`.
 

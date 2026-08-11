@@ -15,6 +15,11 @@ name = "gen-core-table"
 path = "bin/gen-core-table/main.rs"
 test = false
 
+[[bin]]
+name = "phalcom-perf"
+path = "bin/perf/main.rs"
+test = false
+
 [[test]]
 name = "integration"
 path = "tests/integration.rs"

@@ -13,10 +13,13 @@
 //! `cargo test`'s libtest harness does not surface on stable Rust.
 //!
 //! ```sh
-//! cargo build -r -p phalcom-core --bin phalcom      # release binary perf measures
-//! cargo run -r -p phalcom-core --bin phalcom-perf    # corpus + benchmarks
-//! cargo run -r -p phalcom-core --bin phalcom-perf -- --bench-only
-//! cargo run -r -p phalcom-core --bin phalcom-perf -- --label concurrency --pending
+//! cargo build -r -p phalcom-core --bin phalcom --bin phalcom-perf
+//! target/release/phalcom-perf                         # corpus + benchmarks
+//! target/release/phalcom-perf --bench-only
+//! target/release/phalcom-perf --label concurrency --pending
+//!
+//! The ergonomic wrapper is `scripts/bench.sh perf ...`, which builds both
+//! binaries before running this report tool.
 //! ```
 
 use std::fs;
