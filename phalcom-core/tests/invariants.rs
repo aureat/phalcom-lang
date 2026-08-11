@@ -195,11 +195,11 @@ fn expression_result_absence_surfaces_to_none() {
 }
 
 #[test]
-#[should_panic(expected = "Invariant 4")]
 fn some_construction_never_wraps_the_sentinel() {
     let mut vm = VM::new();
     let some_class = Value::Obj(vm.universe.classes.some_class);
-    let _ = some_call(&mut vm, &some_class, &[Value::Nil]);
+    let error = some_call(&mut vm, &some_class, &[Value::Nil]).expect_err("Some must reject the private Nil sentinel");
+    assert!(error.to_string().contains("private Nil"), "unexpected error: {error}");
 }
 
 #[test]
@@ -785,6 +785,7 @@ fn floor_census_matches_installed_bindings() {
         (c.symbol_class, false, "hash"), // NEW (ADR-0023)
         (c.symbol_class, true, "new(_)"),
         // §2.8 Absence
+        (c.some_class, true, "call(_)"),
         (c.some_class, true, "new(_)"),
         (c.option_class, false, "match(some,none)"),
         // §2.9 Method
@@ -968,10 +969,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        149,
-        "census must enumerate exactly 149 bindings after the callable surface amendment"
+        150,
+        "census must enumerate exactly 150 bindings after the immediate Option amendment"
     );
-    assert_eq!(live.len(), 149, "the live floor must be exactly 149 bindings");
+    assert_eq!(live.len(), 150, "the live floor must be exactly 150 bindings");
 }
 
 #[test]

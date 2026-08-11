@@ -35,12 +35,12 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **149** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **150** |
 | Distinct native Rust functions | not separately maintained |
 | Classes carrying floor primitives | **23** (of 29 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
-**Installed = audited, as of 2026-07-15.** Every native binding `VM::new()` installs is
+**Installed = audited, as of 2026-08-11.** Every native binding `VM::new()` installs is
 enumerated in §2 and guarded by R-INV-0.1. That is a new property, not a standing one —
 until CB-5 closed, `Fiber`'s 11 were installed but audited by nothing (§1.4).
 

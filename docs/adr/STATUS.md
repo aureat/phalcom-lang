@@ -39,10 +39,10 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0004 | Bool as abstract `Bool` + `True`/`False` | Accepted | | ✅ |
 | 0005 | Flat `Number` backed by `f64` | Retired | ADR-0024 (in part — `f64` survives as `Float`'s backing) | ✅ (partial — see 0024) |
 | 0006 | `Function` as abstract callable root | Accepted | | ✅ |
-| 0007 | Absence as abstract `Option` + `Some`/`None` | Accepted (amended by PDR-0033) | PDR-0033 | ✅ focused Option representation and language checks; full crate gate pending |
+| 0007 | Absence as abstract `Option` + `Some`/`None` | Accepted (amended by PDR-0033) | PDR-0033 | ✅ PDR-0033 shipped 2026-08-11; full `cargo test -p phalcom-core` passed |
 | 0008 | Layered exceptions + `Result`, terminating | Accepted | | ✅ |
 | 0009 | Handle/arena heap | Accepted | | ✅ |
-| 0010 | `Value` tagged enum, private `Nil` sentinel | Accepted (numeric arm amended by 0024; immediate Option arm amended by PDR-0033) | PDR-0033 | ✅ focused Option representation and language checks; full crate gate pending |
+| 0010 | `Value` tagged enum, private `Nil` sentinel | Accepted (numeric arm amended by 0024; immediate Option arm amended by PDR-0033) | PDR-0033 | ✅ PDR-0033 shipped 2026-08-11; full `cargo test -p phalcom-core` passed |
 | 0011 | Static per-class instance slot layout | Accepted | | ✅ |
 | 0012 | Label-encoded selectors, IC-ready dispatch | Accepted | | ✅ |
 | 0013 | Open/closed upvalues, frame-token non-local return | Accepted | | ✅ |
