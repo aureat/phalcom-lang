@@ -15,5 +15,5 @@ System.print(caught)
 
 System.print(Ok.new(9).ok().toString)
 System.print(Err.new("e").ok().toString)
-System.print(Some.new(9).okOr("missing").toString)
+System.print(Some(9).okOr("missing").toString)
 System.print(None.okOr("missing").toString)

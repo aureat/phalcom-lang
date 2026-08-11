@@ -108,7 +108,7 @@ pub(crate) fn locate_key(vm: &mut VM, id: ObjRef, key: Value) -> PhResult<(i64, 
 }
 
 /// Signature: `Map::get_(_)` — `Some(value)` for a present key, including a
-/// stored surface `None`, or the `None` singleton if absent.
+/// stored surface `None`, or immediate `None` if absent.
 ///
 /// # Errors
 ///
@@ -274,7 +274,7 @@ fn expect_index(value: &Value) -> PhResult<usize> {
 }
 
 /// Signature: `Map::keyAt_(_)` — the key at insertion-order slot `i`, or the
-/// `None` singleton if `i` is out of range. Backs `Map#keys`/`Map#each(_)`.
+/// immediate `None` if `i` is out of range. Backs `Map#keys`/`Map#each(_)`.
 ///
 /// # Errors
 ///
@@ -290,7 +290,7 @@ pub fn map_raw_key_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 }
 
 /// Signature: `Map::valueAt_(_)` — the value at insertion-order slot `i`, or
-/// the `None` singleton if `i` is out of range. Backs `Map#values`/`Map#each(_)`.
+/// immediate `None` if `i` is out of range. Backs `Map#values`/`Map#each(_)`.
 ///
 /// # Errors
 ///

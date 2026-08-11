@@ -89,7 +89,7 @@ pub fn bytes_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResul
 
 /// Signature: `Bytes::at_(_)` — raw octet read.
 ///
-/// Total: an out-of-range index surfaces the kernel `None` singleton, never
+/// Total: an out-of-range index surfaces immediate `None`, never
 /// a panic and never the raw `nil` sentinel — `list_raw_at`'s exact
 /// convention (`bytes.md` §3). Unlike `List`, the bare-or-`None` union is
 /// unambiguous: an octet is never `None`.

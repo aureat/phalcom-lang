@@ -175,7 +175,7 @@ pub fn method_selector(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 }
 
 /// Signature: `Method::holder` — the defining `Class` (or metaclass, for a
-/// class-side method); the shared `None` singleton
+/// class-side method); immediate `None`
 /// ([ADR-0007](../../docs/adr/accepted/0007-option-some-none.md)) if the method is
 /// unbound (`MethodObject.holder`; functions.md §3, U-CORE-3).
 ///

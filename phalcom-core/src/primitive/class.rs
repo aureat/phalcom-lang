@@ -11,7 +11,7 @@ use crate::vm::VM;
 /// Signature: `Class::superclass` — returns the receiver's superclass, or
 /// `None` for the root class (which has no superclass).
 ///
-/// The absent-superclass case yields the `None` singleton, not the raw `nil`
+/// The absent-superclass case yields immediate `None`, not the raw `nil`
 /// sentinel: the result flows directly to user code (Invariant 4,
 /// [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)).
 ///

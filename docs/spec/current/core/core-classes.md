@@ -280,12 +280,12 @@ owns the `==`/interning-identity protocol.
 | | |
 |---|---|
 | `Option` | `Object` · **A** · the eliminator lives here so `Some`/`None` inherit it |
-| `Some` | `Option` · U · one field `_value` at slot 0 ([ADR-0011](../../../adr/0011-static-instance-slot-layout.md), seeded in `VM::new`) |
-| `None` | `Option` · a **shared singleton value** — bound as a *value* global, not a class global; carries no floor primitives |
+| `Some` | `Option` · I · immediate bounded present variant; zero instance fields |
+| `None` | `Option` · I · immediate absence variant; bound as a *value* global, not a class global; carries no floor primitives |
 | Status | ✅ combinator surface complete |
 
-**Interface — floor** ([census §2.8](./floor-census.md)): `Some.new(_)` (class-side,
-present-value construction) · `Option#match(some, none)` (the eliminator, on
+**Interface — floor** ([census §2.8](./floor-census.md)): `Some.call(_)` (class-side,
+canonical present-value construction; `Some.new(_)` is compatibility) · `Option#match(some, none)` (the eliminator, on
 abstract `Option`).
 
 **Interface — `.ph`** ([`core.ph`](../../../../phalcom-core/core/core.ph) L70–124,

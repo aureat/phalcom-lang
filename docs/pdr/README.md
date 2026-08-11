@@ -85,6 +85,10 @@ materially amended. At that point it receives a fresh PDR number, the ADR's stat
 | [ADR-0026](../adr/accepted/0026-class-hierarchy-mutability.md) | [PDR-0001](0001-classes-are-closed.md) | Axis 1 (reopening) only; Axis 2 (reparenting sealed) kept |
 | [ADR-0063](../adr/accepted/0063-constructors-are-ordinary-class-side-methods.md) | [PDR-0028](0028-class-and-constructor-decorator-canon.md) | replaces target-polymorphic `@constructor`; keeps ordinary class-side dispatch and `new_` allocator rules where not contradicted |
 | [ADR-0061](../adr/proposed/0061-underscore-prefix-reservation-fields-internals-reserved.md) | [PDR-0032](0032-transition-1-language-surface-convergence.md) | replaces prefix conventions with structural field/internal namespaces and runtime-enforced visibility |
+| [ADR-0007](../adr/accepted/0007-option-as-abstract-with-some-none.md) | [PDR-0033](0033-immediate-bounded-option.md) | amends runtime representation and canonical construction; preserves Option semantics |
+| [ADR-0010](../adr/accepted/0010-tagged-value-enum.md) | [PDR-0033](0033-immediate-bounded-option.md) | admits bounded immediate Option state; final physical encoding remains deferred |
+| [ADR-0044](../adr/accepted/0044-option-bootstrap-formalization-and-defer-niche-encoding.md) | [PDR-0033](0033-immediate-bounded-option.md) | amends bootstrap representation; preserves the no-cycle ruling and defers physical encoding |
+| [ADR-0050](../adr/accepted/0050-non-moving-mark-sweep-collector.md) | [PDR-0033](0033-immediate-bounded-option.md) | makes `Value::gc_obj_ref()` the collector seam for wrapped immediate ObjRefs |
 
 A PDR that supersedes an ADR must update the ADR in **both** places — the ADR file's own
 status line, and its row in `../adr/STATUS.md` — and add a row here.

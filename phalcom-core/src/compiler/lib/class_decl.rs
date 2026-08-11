@@ -1035,7 +1035,7 @@ impl<'vm> Compiler<'vm> {
         // After defining all methods, the class is still on the stack.
         // Define it as a global variable — except `None` (`DEFERRED` #17,
         // U-CLASSCLOSE §7): `None`'s global is bound to the shared
-        // *singleton value*, not the class object (`vm/bootstrap.rs`), so
+        // *immediate value*, not the class object (`vm/bootstrap.rs`), so
         // rebinding it here would silently break every `x == None`. `None`
         // is reserved (ruling 3) so no non-core module ever reaches this —
         // the guard exists for when `core.ph` itself gains a `class None {}`
@@ -1059,7 +1059,7 @@ impl<'vm> Compiler<'vm> {
         // (`COMPILER_ONLY_ATTRS`) are woven directly into method bodies
         // above and carry no runtime `Attribute` instance, so they are
         // skipped here.
-        // `None`'s global holds the singleton value, not the class (see the
+        // `None` global holds the immediate value, not the class (see the
         // `DefineGlobal` guard above) — a `GetGlobal` re-fetch here would
         // attach/freeze attributes on the wrong object, so skip this whole
         // block for the same reason.

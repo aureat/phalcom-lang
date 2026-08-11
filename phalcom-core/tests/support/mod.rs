@@ -267,8 +267,8 @@ pub fn check_for_no_block_call(rel_path: &str) {
 }
 
 /// Asserts the U-ITERABLE Route B zero-allocation loop properties:
-/// - JumpIfNone is present (the end-sentinel identity check)
-/// - isSome / unwrapOr / WrapSome are absent (no option reification / extraction sends)
+/// - JumpIfNone is present (the direct immediate-None end check)
+/// - isSome / unwrapOr / WrapSome are absent (no option extraction or re-wrapping sends)
 pub fn check_for_zero_alloc_loop(rel_path: &str) {
     let path = corpus_root().join(rel_path);
     assert!(path.exists(), "missing disasm fixture: {}", path.display());

@@ -69,15 +69,15 @@ fn runtime_errors() {
 
 #[test]
 fn absence() {
-    // U6: absence is `Option` (`Some`/`None`) — the shared `None` singleton,
-    // `Some.new(_)` construction, and the `match(some:none:)` eliminator.
+    // Immediate `Option` (`Some`/`None`) — canonical `Some(_)`, compatibility
+    // `Some(_)`, and the `match(some:none:)` eliminator.
     support::check_pass("absence");
 }
 
 #[test]
 fn absence_negative() {
     // Ported from Wren `test/core/null/{no_constructor,not}.wren`: `None`
-    // has no `new()` (it is the shared blessed singleton, ADR-0007) and no
+    // has no `new()` (it is an immediate variant, ADR-0007/PDR-0033) and no
     // `not()` (Phalcom's `!` is `Bool`-only, ADR-0021 — no truthiness
     // coercion makes `None` an exception) — both plain does-not-understand.
     support::check_negative("absence/negative");

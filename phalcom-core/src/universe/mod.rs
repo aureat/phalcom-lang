@@ -464,7 +464,7 @@ let r = || { i < 3 }.whileTrue || { i = i + 1 }
         let mut vm = VM::new();
         let baseline_module = vm.create_module("main", "kernel_option_match_baseline");
         let baseline_source = "
-let baselineSome = Some.new(1).isSome
+let baselineSome = Some(1).isSome
 let baselineNone = None.isNone
 ";
         let baseline_closure = vm.compile_closure(baseline_module, baseline_source).expect("compiles");
@@ -493,9 +493,9 @@ let baselineNone = None.isNone
 
         let module = vm.create_module("main", "kernel_option_match_override_reroutes_every_combinator");
         let source = "
-let someIsSome = Some.new(1).isSome
-let someIsNone = Some.new(1).isNone
-let routed = Some.new(1).orElse || { Some.new(9) }.match(some: |v| { v }, none: || { -1 })
+let someIsSome = Some(1).isSome
+let someIsNone = Some(1).isNone
+let routed = Some(1).orElse || { Some(9) }.match(some: |v| { v }, none: || { -1 })
 ";
         let closure = vm.compile_closure(module, source).expect("compiles");
         vm.run_in_module(module, closure).expect("runs");

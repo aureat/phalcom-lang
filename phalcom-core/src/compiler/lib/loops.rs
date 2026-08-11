@@ -133,7 +133,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::SetLocal(coll_slot as u16), range);
 
         // 2. `$cursor = $coll.iterate(None)` — `Bytecode::Nil` pushes the
-        //    surface `None` singleton that starts the cursor.
+        //    immediate `None` value that starts the cursor.
         self.emit(Bytecode::GetLocal(coll_slot as u16), range);
         self.emit(Bytecode::Nil, range);
         self.emit_operator_send("iterate", 1, range);

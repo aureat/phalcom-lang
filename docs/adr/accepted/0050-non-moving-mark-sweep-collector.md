@@ -16,6 +16,10 @@
 > tree with live concurrent sessions. If a concurrent ADR claims `0050`,
 > renumber this one — no cross-file index is edited by this ADR.
 
+> **Amended 2026-08-11 by PDR-0033.** A `Value` may contain one GC edge even when
+> it is not `Value::Obj`, because immediate `SomeN` may carry an `ObjRef` payload.
+> The collector's normative Value seam is `Value::gc_obj_ref()`.
+
 ## Context
 
 [ADR-0009](0009-handle-arena-heap.md) moved the object graph into a central
@@ -71,11 +75,11 @@ built directly on the existing `SlotMap`, in safe Rust, behind the current
    cycle.
 3. **Precise tracing.** One exhaustive `match` over `Object` enumerates each
    variant's outgoing handles (an exhaustive match forces every future variant to
-   declare its edges). `Value` children are visited through a `Value::as_obj()`
-   accessor, **not** by matching `Value`'s arms — so NaN-boxing
-   ([ADR-0010](0010-tagged-value-enum.md)) later touches that one accessor and
-   leaves the collector untouched. Marking uses an explicit worklist, never Rust
-   recursion (a deep list must not overflow the native stack).
+   declare its edges). `Value` children are visited through the
+   `Value::gc_obj_ref()` seam, **not** by matching `Value`'s arms — so immediate
+   `Some` payload edges and a future NaN-boxed representation stay behind one
+   accessor. Marking uses an explicit worklist, never Rust recursion (a deep list
+   must not overflow the native stack).
 4. **Sweep** is a single `SlotMap::retain(|k, _| marked.contains(k))` pass;
    the kernel is pinned and never swept.
 5. **Stop-the-world, no write barrier.** The collector runs to completion at a

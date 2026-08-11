@@ -160,16 +160,17 @@ before the work it blocks begins.
     selectors, not combinatorial). With that mechanism fixed, adding defaults later
     is non-breaking sugar.
 
-13. ~~**`Option` bootstrap.**~~ **RESOLVED** (ruling, no ADR — confirms the
-    as-built): the feared cycle is already broken by the U6 implementation and that
-    design stands. `Value::Nil` is a **private** uninitialized-slot sentinel
-    ([ADR-0010](../../adr/0010-tagged-value-enum.md), no surface syntax); **`None` is a
-    single pre-built heap singleton**; the `Nil` sentinel is **surfaced to `None`**
-    one-directionally at read boundaries (`Nil → None`, never the reverse), so an
-    uninitialized `var` reads as `None` without any construction regress. `Some(x)`
-    remains an **ordinary heap instance** (`_value` field) — the object model stays
-    uniform. **Deferred optimization (non-foreclosed):** niche-encoding `Some` into
-    `Value` for allocation-free optionals, slotted behind the existing
+13. ~~**`Option` bootstrap.**~~ **RESOLVED** by [PDR-0033](../../pdr/0033-immediate-bounded-option.md):
+    the feared cycle is broken by the bootstrap's class metadata plus immediate
+    variants. `Value::Nil` remains a **private** uninitialized-slot sentinel
+    ([ADR-0010](../../adr/0010-tagged-value-enum.md), no surface syntax); **`None` is
+    an immediate value with no heap singleton**; the `Nil` sentinel is **surfaced to
+    `None`** one-directionally at read boundaries (`Nil → None`, never the reverse),
+    so an uninitialized `var` reads as `None` without construction. `Some(x)` is
+    represented by bounded immediate `Some1`…`Some7` variants, with no heap wrapper.
+    **Deferred physical optimization:** NaN-boxing, pointer tagging, or niche
+    encoding remains open after the correctness substrate, slotted behind the
+    existing
     `surface_none` boundary once there is a GC + benchmarks to justify it.
 
 14. ~~**`Family` introspection.**~~ **RESOLVED** (ruling, no ADR): ship `Family`
@@ -204,7 +205,7 @@ before the work it blocks begins.
 | Q3 | Separate external label from internal binding (`move(to target:)`); selector identity unchanged | [ADR-0025](../../adr/0025-external-internal-parameter-names.md) |
 | Q4 | Methods open (epoch guard); superclass reparenting sealed; future `reshape` non-foreclosed | [ADR-0026](../../adr/0026-class-hierarchy-mutability.md) |
 | Q5 (interp.) | String interpolation uses `\(expr)` | [ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md) |
-| Q5 / absence | `Option` is abstract; `Some`/`None` subclasses; `None` is a singleton | [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) |
+| Q5 / absence | `Option` is abstract; `Some`/`None` final immediate variants; `None` has no singleton handle | [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) + [PDR-0033](../../pdr/0033-immediate-bounded-option.md) |
 | Q6 | `Set(...)` constructor; `#{…}` set literal reserved-inactive (`Map`/`Tuple` literals ship) | ruling (Q6 above) + [ADR-0032](../../adr/0032-collections-representation-and-literals.md) |
 | Q7 | Irrefutable tuple AND list/`*rest` destructuring now, via `at(_)`; fuller pattern matching (map patterns, match arms) deferred | [ADR-0046](../../adr/0046-destructuring-bindings.md) |
 | Q8 | File = module; Draft 0.1: relative file-path resolution + whole-module binding only (`import "./x" as Name`), members via ordinary sends | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) + [ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md) |

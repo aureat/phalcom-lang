@@ -119,14 +119,10 @@ fn assert_sequence_contract(vm: &mut VM, spec: &ContractSpec, build: impl Fn(&mu
             );
         }
 
-        // L4: at(n) (and beyond) is the `None` singleton — total, never a
+        // L4: at(n) (and beyond) is immediate `None` — total, never a
         // panic, never the raw `nil` sentinel (Invariant 4).
         let out_of_range = send1(vm, collection, "at(_)", Value::Int(n as i64));
-        assert!(
-            matches!(out_of_range, Value::Obj(id) if id == vm.universe.classes.none_singleton),
-            "{}: at(size) must surface the None singleton",
-            spec.class_name
-        );
+        assert!(matches!(out_of_range, Value::None), "{}: at(size) must surface immediate None", spec.class_name);
         assert_ne!(out_of_range, Value::Nil, "{}: at(size) must never leak the raw sentinel", spec.class_name);
     }
 
@@ -273,7 +269,7 @@ fn map_key_overwrite_and_remove_idempotence() {
     let result = vm.send_dynamic(map, sym_at, &[Value::Int(999)]);
     assert!(result.is_err(), "strict lookup of absent key must raise KeyError");
     let missing = send1(&mut vm, map, "get(_)", Value::Int(999));
-    assert!(matches!(missing, Value::Obj(id) if id == vm.universe.classes.none_singleton));
+    assert!(matches!(missing, Value::None));
 
     // remove(absent) is a no-op returning self.
     let returned = send1(&mut vm, map, "remove(_)", Value::Int(999));

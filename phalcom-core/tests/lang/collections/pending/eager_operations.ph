@@ -139,7 +139,7 @@ System.print(red_calls)
 let red_mult = list_123.reduce(using: |a, b| { a + b })
 System.print(red_mult.unwrapOr(None))
 
-// reduce singleton surface None -> Some(None)
+// reduce one-element absence surface None -> Some(None)
 let red_none = [None].reduce(using: |a, b| { a })
 System.print(red_none.unwrapOr(None))
 

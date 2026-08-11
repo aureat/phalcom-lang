@@ -127,8 +127,8 @@ they aren't lost:
 - **Interpolation desugar target.** `\(expr)` currently desugars to `String.new(_)`, not a
   content `toString` — blocked on U-CORE-4's value `toString`. (forge/DEFERRED.md #30)
 - **`None`-reopen clobber.** `Statement::Class` unconditionally emits `DefineGlobal`, which
-  would clobber the `None` singleton if `None` is reopened — fix before real `None` members
-  land. (forge/DEFERRED.md #17)
+  would clobber the immediate `None` value if `None` is reopened — fix before real `None`
+  members land. (forge/DEFERRED.md #17)
 - **`SendDynamic` opcode + spread `f(*args)`.** The opcode and call-site spread syntax are
   not built; no spread syntax exists yet. (forge/DEFERRED.md #21)
 - **Captured-`let` reassignment** via an upvalue compiles to `SetUpvalue` with no diagnostic

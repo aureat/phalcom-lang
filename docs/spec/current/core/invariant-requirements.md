@@ -44,7 +44,7 @@ a cheap structural check at boot plus a behavioral guard in the corpus.
 | `sentinel_surfaces_to_none_and_never_survives_as_nil` | `Value::Nil` → `None` at the boundary |
 | `expression_result_absence_surfaces_to_none` | empty block/method result is `None`, not the sentinel |
 | `some_construction_never_wraps_the_sentinel` | `Some(_)` rejects the private `Nil` |
-| `some_can_wrap_the_none_singleton` | `Some(None)` is legal and distinct from `None` |
+| `some_can_wrap_none` | `Some(None)` is legal and distinct from `None` |
 | `verify_invariants_holds_after_bootstrap` | Phase H passes on a clean boot |
 | `metaclass_superclass_parallels_instance_superclass`, `…parallels_instance_superclass` (user class), `core_classes_have_correct_metaclass_and_superclass` | parallel rule across **more** classes than `verify_invariants` |
 | `behavior_class_exists_in_tower`, `metaclass_responds_to_superclass_via_behavior`, `…closing_the_loop`, `class_is_instance_of_class_class_not_metaclass_directly`, `object_class_class_is_metaclass`, `object_has_no_superclass`, `walking_metaclass_superclass_chain_terminates` | tower apex |
@@ -96,13 +96,13 @@ invariant substrate the rest of the roadmap extends.
 
 ### R-INV-0.4 — Fixed-slot layout of `Some` and `Message`
 - **Where:** `verify_invariants` (structural, cheap).
-- **Assertion:** `Some` has exactly **one** field (`_value` at slot 0) and
-  `Message` exactly **four** (`selector`, `name`/target, `labels`, `args`), as
-  stamped in `VM::new` (Phase E) — ADR-0011. Assert the field **count** on each
-  class object post-boot.
-- **Why:** bootstrap-phases §6 — an E/F reordering (layout seeded after the
-  primitive that writes it) would corrupt the first `Some(_)` / first dNU miss
-  and fail *silently* until that path runs. A boot assertion fences the E→F edge.
+- **Assertion:** `Some` and `None` have zero instance fields and native variant
+  representation; `Message` has exactly **four** (`selector`, `name`/target,
+  `labels`, `args`), as stamped in `VM::new` — ADR-0011. Assert the field count
+  and native representation on each class object post-boot.
+- **Why:** bootstrap-phases §6 — an E/F reordering or accidental return to
+  instance allocation would fail *silently* until the first Option construction
+  or dispatch. A boot assertion fences the representation boundary.
 
 ## 4. Per-unit invariant requirements (R-INV-N)
 
@@ -123,7 +123,7 @@ this unit adds."** "H" = `verify_invariants` (boot); "C" = corpus.
 | # | Invariant | Where |
 |---|---|---|
 | 2.1 | **Fast-path ≡ deopt-path for the Some-lift** (ADR-0018): an inlined `ifTrue { A }` and the same site after a sacred-selector override both yield `Some(A)` on the taken arm and `None` on the untaken arm. This is the load-bearing check for the `WrapSome` op. | C |
-| 2.2 | **Pop-context elision is observationally invisible:** discarding an `ifTrue`/`ifFalse` result (statement position) produces identical program output to using it — the elided `Some` allocation never changes semantics. | C |
+| 2.2 | **Pop-context elision is observationally invisible:** discarding an `ifTrue`/`ifFalse` result (statement position) produces identical program output to using it — the elided immediate `Some` wrapper never changes semantics. | C |
 | 2.3 | `ifTrue(_, ifFalse)` and `and`/`or` still return **raw** values (not `Some`-lifted) — the divergence fix is one-armed only (catalog §4.2). | C |
 | 2.4 | Every `Option` combinator routes through `match` (no combinator peeks at a variant tag): `isSome`/`isNone`/`ifNone`/`orElse` on a user-subclassed `Option` respect an overridden `match`. | C |
 

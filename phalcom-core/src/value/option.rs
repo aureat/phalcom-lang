@@ -147,20 +147,6 @@ impl Value {
             Self::Nil | Self::Unit | Self::Bool(_) | Self::Int(_) | Self::Float(_) | Self::Symbol(_) | Self::Obj(_) => OptionCase::NotOption,
         }
     }
-
-    /// Returns the one possible heap child carried by an immediate Option.
-    pub fn option_gc_obj_ref(self) -> Option<ObjRef> {
-        match self {
-            Self::Some1(payload)
-            | Self::Some2(payload)
-            | Self::Some3(payload)
-            | Self::Some4(payload)
-            | Self::Some5(payload)
-            | Self::Some6(payload)
-            | Self::Some7(payload) => payload.gc_obj_ref(),
-            Self::Nil | Self::Unit | Self::Bool(_) | Self::Int(_) | Self::Float(_) | Self::Symbol(_) | Self::Obj(_) | Self::None => None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -226,6 +212,6 @@ mod tests {
         let object = crate::heap::ObjRef::default();
         let value = Value::Obj(object).wrap_some().unwrap();
         assert!(value.as_obj().is_none());
-        assert_eq!(value.option_gc_obj_ref(), Some(object));
+        assert_eq!(value.gc_obj_ref(), Some(object));
     }
 }

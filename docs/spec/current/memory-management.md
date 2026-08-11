@@ -67,7 +67,7 @@ The root set is exactly:
 | named classes | `VM::classes: HashMap<Symbol, ClassId>` | class handles |
 | sealed-class registry | `VM::sealed_classes: HashMap<Symbol, ObjRef>` | the sealing class-object handles (U-ANNOT-LAYOUT, `@sealed`/`@variant`) |
 | contract re-entrancy guard | `VM::checking: HashSet<ObjRef>` | receivers currently under `@invariant` checking — the live mirror of `FiberObject::checking` (U-ANNOT-CONTRACTS) |
-| the kernel | `VM::universe` (`Universe`) | **pinned** — every handle it holds: `CoreClasses`' 31 `ClassId`s + the `none_singleton` `ObjRef`, **and** `Universe::module_registry: HashMap<String, ObjRef>`. Never swept (§6) |
+| the kernel | `VM::universe` (`Universe`) | **pinned** — every handle it holds: `CoreClasses`' class IDs and `Universe::module_registry: HashMap<String, ObjRef`. `None` is immediate and has no singleton handle; wrapped immediate `Some` payloads are traced through `Value::gc_obj_ref()`. Never swept (§6) |
 | native temp roots | `VM::temp_roots: Vec<ObjRef>` | the §4 escape hatch |
 
 Everything else is reached **transitively**, not rooted directly. In particular a
@@ -217,9 +217,9 @@ returning memory to the OS.
 
 ## 6. Kernel pinning and invariants
 
-The kernel — every class, metaclass, and singleton reachable from `CoreClasses`,
-including the `Metaclass`-is-an-instance-of-itself apex and the shared `None` /
-`True` / `False` singletons — is **pinned**: traced from the root set every cycle
+The kernel — every class, metaclass, and immediate variant reachable from
+`CoreClasses`, including the `Metaclass`-is-an-instance-of-itself apex and the
+`None` / `True` / `False` values — is **pinned**: traced from the root set every cycle
 and never swept, even were it momentarily unreachable from user code. Mark-sweep
 collects the kernel cycle correctly (rooting it once, the mark bit stops the
 loop), so pinning is a liveness guarantee, not a cycle workaround.

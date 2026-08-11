@@ -281,7 +281,7 @@ impl<'vm> Compiler<'vm> {
     /// discard that value with a `Pop` right after
     /// (`compile_statement_with_pop_control`'s bare-statement case) — it lets
     /// a recognized one-armed sacred conditional (`ifTrue`/`ifFalse`) skip
-    /// its `Some`-wrap allocation, since the wrap is unobservable when the
+    /// its immediate `Some` wrap, since the wrap is unobservable when the
     /// value is popped unread (U-CORE-2; see
     /// [`Self::compile_sacred_call_want`]). Every other expression shape
     /// ignores `want_value` — it still pushes its one value as normal.
@@ -465,7 +465,7 @@ impl<'vm> Compiler<'vm> {
                         // BD-U6-1 (ADR-0007, values-and-absence §3.5): a
                         // conditional's condition that is a syntactically
                         // detectable `Option` literal (`if (None) { … }`,
-                        // `if (Some.new(x)) { … }`, `None and …`) is a compile
+                        // `if (Some(x)) { … }`, `None and …`) is a compile
                         // error — `Option` has no truth value. General
                         // non-`Bool` conditions are a hard runtime type error
                         // via the branch opcode's `Bool` requirement.
@@ -1283,7 +1283,7 @@ fn branch_condition_of(sacred: &inliner::SacredCall) -> Option<&Expr> {
 /// Matches the surface forms of the two `Option` cases that carry no truth
 /// value ([ADR-0007](../../../docs/adr/accepted/0007-option-type.md)):
 ///
-/// - the `None` singleton, which lexes to `Var { value: "None" }`; and
+/// - immediate `None`, which lexes to `Var { value: "None" }`; and
 /// - a canonical `Some(…)` unqualified call; and
 /// - explicit `Some.call(…)` or compatibility `Some.new(…)` sends.
 ///

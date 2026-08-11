@@ -94,7 +94,7 @@ pub enum CompilerError {
 
     /// A branch condition that is a syntactically detectable `Option` literal.
     ///
-    /// `Option` has no truth value: `if (None)`, `if (Some.new(x))` and the
+    /// `Option` has no truth value: `if (None)`, `if (Some(x))` and the
     /// like are compile errors, and any non-`Bool` condition is a hard runtime
     /// type error (no coercion). Reach through `.isSome`/`.isNone` or use
     /// `ifSome`/`ifNone` instead

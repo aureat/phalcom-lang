@@ -14,4 +14,4 @@ const outer = []
 outer.append(inner)
 outer.append(3)
 System.print(outer.toString)
-System.print(Some.new(inner).toString)
+System.print(Some(inner).toString)

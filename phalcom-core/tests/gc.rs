@@ -9,6 +9,7 @@
 //! with them.
 
 use phalcom_core::heap::{InstanceObject, Object};
+use phalcom_core::primitive::nil::some_call;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 
@@ -169,8 +170,46 @@ fn system_gc_returns_none() {
     use phalcom_core::primitive::system::system_gc;
     let result = system_gc(&mut vm, &system_cls, &[]).expect("System.gc primitive call");
 
-    let none_singleton = vm.universe.classes.none_singleton;
-    assert!(matches!(result, Value::Obj(id) if id == none_singleton));
+    assert_eq!(result, Value::None);
+}
+
+/// An immediate `Some(ObjRef)` held only in the VM operand stack keeps its
+/// payload alive. The raw payload is deliberately not rooted separately.
+#[test]
+fn immediate_some_root_traces_wrapped_object() {
+    let (mut vm, before) = settled_vm();
+    let inner = alloc_instance(&mut vm, vec![]);
+    let some_class = Value::Obj(vm.universe.classes.some_class);
+    let wrapped = some_call(&mut vm, &some_class, &[Value::Obj(inner)]).expect("Some(ObjRef)");
+
+    vm.push_root_for_test(wrapped);
+    vm.force_gc();
+    assert!(vm.heap.try_get(inner).is_some(), "wrapped payload must survive as a VM root");
+
+    assert_eq!(wrapped.gc_obj_ref(), Some(inner), "wrapped payload must remain usable after GC");
+    vm.pop_root_for_test();
+    vm.force_gc();
+    assert_eq!(vm.heap.live_count(), before);
+    assert!(vm.heap.try_get(inner).is_none(), "payload must die after the wrapped root is removed");
+}
+
+/// A heap object's slot can carry an immediate `Some(ObjRef)` edge. The holder
+/// is the only explicit root; the raw payload is not rooted separately.
+#[test]
+fn immediate_some_heap_edge_traces_wrapped_object() {
+    let (mut vm, before) = settled_vm();
+    let inner = alloc_instance(&mut vm, vec![]);
+    let some_class = Value::Obj(vm.universe.classes.some_class);
+    let wrapped = some_call(&mut vm, &some_class, &[Value::Obj(inner)]).expect("Some(ObjRef)");
+    let holder = alloc_instance(&mut vm, vec![wrapped]);
+
+    vm.push_root_for_test(Value::Obj(holder));
+    vm.force_gc();
+    assert!(vm.heap.try_get(inner).is_some(), "wrapped heap edge must keep payload alive");
+    vm.pop_root_for_test();
+    vm.force_gc();
+    assert_eq!(vm.heap.live_count(), before);
+    assert!(vm.heap.try_get(inner).is_none());
 }
 
 /// **System.gc collects garbage from source (U-GC step 3).**

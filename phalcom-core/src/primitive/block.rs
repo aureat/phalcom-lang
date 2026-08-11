@@ -267,7 +267,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 /// `Bool`, raises a type error (this is Phalcom's "no truthiness" floor —
 /// there is no generic coercion, only `Bool` may drive a branch). Loops
 /// while the condition is `true`, calling `args[0]` (the body) each pass and
-/// discarding its result; returns the `None` singleton (surface absence value)
+/// discarding its result; returns immediate `None` (surface absence value)
 /// on normal exit, matching the sacred inliner's `Bytecode::Nil` result site
 /// (Invariant 4, [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)). This
 /// is what the inliner's

@@ -115,7 +115,7 @@ pub fn bool_not(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Val
 /// Signature: `Bool::ifTrue(_)` — sacred one-armed conditional.
 ///
 /// Calls `args[0]`'s block when the receiver is `true` and returns its result
-/// `Some`-wrapped; otherwise returns the `None` singleton (the "no branch
+/// `Some`-wrapped; otherwise returns immediate `None` (the "no branch
 /// taken" surface absence value). Together the two arms form a well-formed
 /// `Option` (`Some(A) ∪ None`), not the raw-value/`None` half-`Option` this
 /// primitive returned before U-CORE-2 — required for
@@ -139,7 +139,7 @@ pub fn bool_if_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 }
 
 /// Signature: `Bool::ifFalse(_)` — sacred one-armed conditional, mirror of
-/// [`bool_if_true`] for the `false` branch. Returns the `None` singleton when
+/// [`bool_if_true`] for the `false` branch. Returns immediate `None` when
 /// the receiver is `true` (no branch taken), and `Some`-wraps the block
 /// result when it is `false`. See [`bool_if_true`] for why the `Some`-lift is
 /// required.

@@ -481,7 +481,7 @@ impl<'vm> Compiler<'vm> {
                 // A bare-statement expression whose value is about to be
                 // popped is an "unused" position (U-CORE-2): pass that
                 // through so a one-armed sacred conditional can skip its
-                // `Some`-wrap allocation — see `compile_expr_want`.
+                // immediate `Some` wrap — see `compile_expr_want`.
                 self.compile_expr_want(expr, !emit_pop)?;
                 if emit_pop {
                     // println!("[Compiler] Emitting Pop");

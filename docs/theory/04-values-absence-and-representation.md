@@ -81,9 +81,9 @@ at the right granularity. "Constructing X requires the field-default rule" was t
 false of `None`, and the whole cycle lived in the imprecision. Before designing around a cycle,
 state it as a concrete dependency between concrete steps and check each one.
 
-**`[V]`** `None` is additionally a **zero-allocation** singleton with identity equality, while
-`Some` allocates per use. This asymmetry is load-bearing for the iteration protocol and shows up
-again in §5.
+**`[V]`** `None` and `Some` are immediate values in the current implementation. `Some` wrapping
+is bounded to seven layers and performs no wrapper allocation; a payload may still keep one heap
+object edge visible to GC.
 
 ---
 
@@ -95,7 +95,7 @@ banning it is not a syntax decision but an *enforcement* decision, and this proj
 
 1. A runtime `GuardBool` floor primitive rejects any non-`Bool` condition, with no coercion.
 2. A compile-time rejection of *syntactically literal* Option conditions — `if (None)`,
-   `if (Some.new(x))` — via a dedicated recognizer.
+   `if (Some(x))` — via a dedicated recognizer.
 
 **`[V]`** The accepted gap is documented rather than hidden: indirection defeats the compile-time
 check. `let x = None; if (x)` is caught only at runtime. This is the general shape of static
@@ -114,11 +114,11 @@ hatch precisely is what lets a future reader decide whether closing it is worth 
 **`[V]`** The sharpest distinction in the representation record, and the kind of thing that is
 obvious once stated and invisible until then:
 
-- **Bare-cursor iteration** (`iterate(_)` returns the next cursor or the `None` singleton;
-  `iteratorValue(_)` maps cursor to element) removes `Some` allocation **only inside iteration
-  loops**. Zero per-step allocation in `for` and every combinator.
-- **Niche-encoding `Option` into the value word** would remove `Some` allocation **everywhere
-  `Some.new(x)` is called.**
+- **Bare-cursor iteration** (`iterate(_)` returns the next cursor or immediate `None`;
+  `iteratorValue(_)` maps cursor to element) avoids wrapper creation inside iteration loops.
+  The cursor path remains zero-allocation per step in `for` and every combinator.
+- **Niche-encoding `Option` into the value word** would further compress the already immediate
+  `Some(x)` representation.
 
 Both are described as "removing Option allocation." They apply to disjoint call sites, have
 different costs, and neither subsumes the other. **`[V]`** The bare-cursor protocol also

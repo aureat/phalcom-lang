@@ -55,7 +55,7 @@ leaves the dynamic substrate (ADR-0009/0010/0012) untouched.
 | Alternative | Why rejected here |
 |---|---|
 | Mandatory static types | Kills the dynamic core: `doesNotUnderstand`, `perform`, proxies, runtime hierarchy edits ([Q4](../open-questions.md)) become untypable or illegal. |
-| Gradual-with-contracts (Typed Racket) | Inserts blame-tracking contracts at every typed/untyped boundary → real runtime cost, violating the "only `Some`/heap objects allocate" posture (ADR-0010). |
+| Gradual-with-contracts (Typed Racket) | Inserts blame-tracking contracts at every typed/untyped boundary → real runtime cost, violating the immediate `Some`/heap-object allocation posture (ADR-0010). |
 | Types drive dispatch (CLOS/Julia multimethods) | Would make argument types part of selector identity → breaks the one-hashmap-probe `name+labels` invariant (ADR-0012, Invariant 2/3). |
 
 Erasable-optional keeps *all* runtime semantics decided by the existing dispatch
@@ -238,7 +238,7 @@ is usable.
 
 #### 5.4.1 The `Nothing` bottom type
 
-`ADR-0007`'s shared-singleton `None` is only typable with a bottom type:
+`ADR-0007`'s immediate `None` variant is only typable with a bottom type:
 
 ```
 None : Option<Nothing>          Nothing <: T   for all T

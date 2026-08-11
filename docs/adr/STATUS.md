@@ -39,10 +39,10 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0004 | Bool as abstract `Bool` + `True`/`False` | Accepted | | ✅ |
 | 0005 | Flat `Number` backed by `f64` | Retired | ADR-0024 (in part — `f64` survives as `Float`'s backing) | ✅ (partial — see 0024) |
 | 0006 | `Function` as abstract callable root | Accepted | | ✅ |
-| 0007 | Absence as abstract `Option` + `Some`/`None` | Accepted | | ✅ |
+| 0007 | Absence as abstract `Option` + `Some`/`None` | Accepted (amended by PDR-0033) | PDR-0033 | ✅ focused Option representation and language checks; full crate gate pending |
 | 0008 | Layered exceptions + `Result`, terminating | Accepted | | ✅ |
 | 0009 | Handle/arena heap | Accepted | | ✅ |
-| 0010 | `Value` tagged enum, private `Nil` sentinel | Accepted (numeric arm amended by 0024) | | ✅ |
+| 0010 | `Value` tagged enum, private `Nil` sentinel | Accepted (numeric arm amended by 0024; immediate Option arm amended by PDR-0033) | PDR-0033 | ✅ focused Option representation and language checks; full crate gate pending |
 | 0011 | Static per-class instance slot layout | Accepted | | ✅ |
 | 0012 | Label-encoded selectors, IC-ready dispatch | Accepted | | ✅ |
 | 0013 | Open/closed upvalues, frame-token non-local return | Accepted | | ✅ |
@@ -76,13 +76,13 @@ cd docs/adr && for f in accepted/*.md proposed/*.md retired/*.md; do grep -m1 -i
 | 0041 | Hierarchy-stability policy — sealed reparent, single inheritance | Accepted | | ✅ |
 | 0042 | Flat `Number`, defer split | Retired | ADR-0024 (ruled 2026-07-14) | — moot, superseded before build |
 | 0043 | No default arguments | Accepted (prose amended 2026-07-15 — decision unchanged; records that open-Q12 *fixed* the if-ever mechanism: call-site fold permanently forbidden, definition-time trailing-only expansion) | | ✅ |
-| 0044 | `Option` bootstrap formalization; defer niche-encoding | Accepted | | ✅ (correctness half only — niche-encoding itself deferred; `8d401f4` Track 2 sealed `Option`/`Some`/`None` against user subclassing, answering this ADR's open subclass-compatibility question by ruling it moot) |
+| 0044 | `Option` bootstrap formalization; defer niche-encoding | Accepted (amended by PDR-0033) | PDR-0033 | ✅ bootstrap correctness and immediate representation; physical encoding remains deferred |
 | 0045 | `import` relative-path, whole-module binding | Accepted | | ✅ |
 | 0046 | Destructuring `let`/`var` — tuple + list/`*rest` | Accepted | | ✅ |
 | 0047 | `::` method references (Open form); amend floor | Accepted | | ✅ |
 | 0048 | Amend iteration — bare-cursor sentinel + `Iterable` root | Accepted | | ✅ |
 | 0049 | Amend floor — String byte/slice + raw stdout write | **Accepted — authoritative on naming again** (2026-07-15) | | ✅ built **and now spelled as this ADR specified**: `byteCount_`/`byteAt_(_)`/`slice_(_,_)`/`write_(_)`. U-STRING had shipped `raw*` against this ADR and 0062 blessed it; the user re-ruled trailing-`_` on 2026-07-15 and the rename landed (70 sites, 26/26 green). **0062 is Retired** |
-| 0050 | Non-moving precise mark-sweep collector | Accepted (ratified 2026-07-14) | | ◐ **partially verified.** ✅ §Decision 6 (safepoint latching) and §Decision 7 (temp roots) checked against the tree 2026-07-19: `Heap::gc_pending` latches in `insert` and is serviced only at the dispatch back-edge (`vm/dispatch.rs`), and `VM::temp_roots` + `push_temp_root`/`temp_root_depth`/`truncate_temp_roots` exist and are enumerated by `collect_roots` (`cdd2117` — shipped to fix a real `block_ensure` UAF, [log](../logs/2026-07-19-ensure-temp-root-uaf.md)). ❓ The rest of the ADR — non-moving/handle-stability claims, §Decision 9's growth policy, the Consequences list — **still not diffed**; do not read the two ticks as whole-ADR verification |
+| 0050 | Non-moving precise mark-sweep collector | Accepted (ratified 2026-07-14; immediate Option edge amended by PDR-0033) | PDR-0033 | ◐ **partially verified.** ✅ §Decision 6 (safepoint latching) and §Decision 7 (temp roots) checked against the tree 2026-07-19: `Heap::gc_pending` latches in `insert` and is serviced only at the dispatch back-edge (`vm/dispatch.rs`), and `VM::temp_roots` + `push_temp_root`/`temp_root_depth`/`truncate_temp_roots` exist and are enumerated by `collect_roots` (`cdd2117` — shipped to fix a real `block_ensure` UAF, [log](../logs/2026-07-19-ensure-temp-root-uaf.md)). Immediate `Some` payload tracing is covered by `Value::gc_obj_ref()` and focused GC tests in `tests/gc.rs`; the rest of the ADR — non-moving/handle-stability claims, §Decision 9's growth policy, the Consequences list — **still not diffed** |
 | 0051 | Performance strategy — measure-first, tiered | **Accepted (ratified 2026-07-14)** | | — (policy doc, no code to ship) — but **realized by cuts 001–007** (`docs/forge/perf-log/`): its laws P1/P2/P3 were the operative gate for every one. Ratified *after* seven cuts had already shipped under it |
 | 0052 | Invariant re-entrancy receiver-scoped; decorator state Layout-confined | Accepted | | ? |
 | 0053 | Runtime decorator interception reuses override-epoch guard | Accepted | | ? (pristine-flag mechanism confirmed present; per-class `has_runtime_interceptor` bit not re-checked this pass) |

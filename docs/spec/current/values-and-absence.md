@@ -80,17 +80,22 @@ mirroring `Bool` / `True` / `False` ([ADR-0004](../../adr/), [Object Model](obje
 
 | Class | Kind | State |
 |-------|------|-------|
-| `Option` | abstract | — |
-| `Some` | subclass | one field, `_value` |
-| `None` | subclass | singleton instance |
+| `Option` | abstract, sealed primitive root | no direct values |
+| `Some` | final immediate variant | one immediate payload, no fields |
+| `None` | final immediate variant | immediate absence value |
 
-`None` is a single shared instance (like `true` / `false`): identity-comparable
-and zero-allocation. Only `Some` allocates. Every combinator is two method
-definitions — `Some>>map` and `None>>map` — so dispatch replaces branching; there
-is no variant tag to test.
+`Option` has no heap wrapper. `Some` and `None` are immediate values, and
+construction of an Option wrapper never allocates. There is no wrapper identity;
+surface equality is value-based. Ordinary method lookup still maps `Some(v)` to
+`Some` and `None` to `None`, then executes inherited `.ph` methods through the
+immediate call context.
 
-`Some(v)` is an ordinary construction send; `None` is a global bound to the
-singleton.
+`Some(v)` is canonical source syntax and remains an ordinary call: it lowers
+through `Some.call(v)`. `Some.call(v)` is explicit; `Some.new(v)` is a temporary
+compatibility alias. Nested `Some` values remain distinct through depth seven;
+an eighth layer raises `Option nesting limit exceeded (7)` with `flatMap(_)`
+guidance. `Value::Nil` remains a private storage sentinel and is never a legal
+`Some` payload.
 
 ### 3.2 The eliminator
 
@@ -173,8 +178,10 @@ of `nil` already makes truthiness meaningless here.
 
 ### 3.6 Equality and iteration
 
-- `None == None` by identity; `Some(a) == Some(b)` iff `a == b` (delegates to the
-  inner value's `==`).
+- `None == None` by value; `Some(a) == Some(b)` iff equal wrapper depths and `a == b`
+  (delegates to the inner value's `==`). Different depths, including `None` versus
+  `Some(None)`, are unequal. Hashing keeps existing surface behavior; wrapper
+  depth is retained in the internal Rust `Value` hash.
 - `Option` conforms to `Iterable`, yielding zero or one element, so `opt.each { … }`
   and `for x in opt` work ([Collections](open-questions.md) — protocol finalized
   with the iteration work).

@@ -1,0 +1,8 @@
+None
+Some(None)
+Some(Some(Some(None)))
+false
+false
+true
+true
+Some(Some(None))

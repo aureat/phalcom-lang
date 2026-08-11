@@ -48,7 +48,7 @@ impl ListObject {
     /// Returns the element at `index`, or `None` if `index` is out of range.
     ///
     /// The caller (the `at_` primitive) surfaces an out-of-range read as
-    /// the kernel `None` singleton, never a panic — this method just reports
+    /// immediate `None`, never a panic — this method just reports
     /// range membership.
     pub fn get(&self, index: usize) -> Option<Value> {
         self.elements.get(index).copied()

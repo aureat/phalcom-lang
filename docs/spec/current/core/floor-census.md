@@ -462,7 +462,8 @@ these dispatch on real `True`/`False` receivers; there is no implicit coercion.
 
 | Selector | Side | Class | Native fn | Notes |
 |---|---|---|---|---|
-| `new(_)` | static | `Some` | `some_new` | present-value construction; `Some` has one field `_value` at slot 0 (ADR-0011, seeded in `VM::new`) |
+| `call(_)` | static | `Some` | `some_call` | canonical present-value construction; immediate bounded `Some1`…`Some7`, no instance fields |
+| `new(_)` | static | `Some` | `some_new` | compatibility alias for `Some.call(_)`; same immediate bounded representation |
 | `match(some, none)`† | instance | `Option` | `option_match` | the eliminator, on abstract `Option` so `Some`/`None` inherit it (values-and-absence.md §3.2); encoded explicitly; interns as `match(some:none:)` |
 
 † rendered from `encode_selector("match", [Some("some"), Some("none")], Method(2))`.
@@ -844,7 +845,7 @@ file — it is the `universe/` directory (`mod.rs`, `core_classes.rs`, `primitiv
 | §2.1 Object reflective surface (U8) | `perform`/`respondsTo`/`doesNotUnderstand`/`methodFor` | L56–63 |
 | §2.6 encoded `ifTrue(_:ifFalse:)` | hand-rolled `encode_selector` + `new_primitive` (not the `primitive!` macro) | L158–165 |
 | §2.8 encoded `match(some:none:)` | hand-rolled, installed on `Option` so `Some`/`None` inherit | L191–198 |
-| §2.8 `Some` field layout | `universe/core_classes.rs` (stamped alongside `Message`) | — |
+| §2.8 `Some`/`None` representation | `universe/core_classes.rs` / `value/option.rs` | zero fields; native immediate variants |
 | §2.10 Function gateway | `call(***)` and `callWith(_)` are shape-aware gateways; no finite arity ceiling | L215+ |
 | §2.14 `Message` | `universe/primitives.rs` (`message_cls` block) | L81–85 |
 | §3 `List` protocol | `core.ph::class List` | L779+ |

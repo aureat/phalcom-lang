@@ -80,7 +80,7 @@ pub fn list_raw_length(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 /// Signature: `List::at_(_)` — raw indexed read.
 ///
 /// The indexed-get floor primitive (ADR-0020 §3); `.ph`'s `at(_:)` wraps
-/// this. An out-of-range index surfaces the kernel `None` singleton
+/// this. An out-of-range index surfaces immediate `None`
 /// directly — never a panic, never the raw `nil` sentinel (Invariant 4,
 /// mirroring U6's absence boundary).
 ///

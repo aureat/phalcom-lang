@@ -8,5 +8,5 @@
 // result, which only type-checks post-U-CORE-2 now that `ifTrue` returns a
 // well-formed `Option` rather than a raw value on its taken arm.
 
-System.print(true.ifTrue || { "yes" }.orElse || { Some.new("fallback") }.match(some: |v| { v }, none: || { "unreachable" }))
-System.print(false.ifTrue || { "yes" }.orElse || { Some.new("fallback") }.match(some: |v| { v }, none: || { "unreachable" }))
+System.print(true.ifTrue || { "yes" }.orElse || { Some("fallback") }.match(some: |v| { v }, none: || { "unreachable" }))
+System.print(false.ifTrue || { "yes" }.orElse || { Some("fallback") }.match(some: |v| { v }, none: || { "unreachable" }))

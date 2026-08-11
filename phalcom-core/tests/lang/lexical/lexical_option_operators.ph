@@ -8,8 +8,8 @@
 //
 // `??` replaces a `None` with the right-hand `Option` and passes a `Some`
 // through unchanged.
-System.print((None ?? Some.new(5)).match(some: |v| { v }, none: || { 0 }))
-System.print((Some.new(3) ?? Some.new(5)).match(some: |v| { v }, none: || { 0 }))
+System.print((None ?? Some(5)).match(some: |v| { v }, none: || { 0 }))
+System.print((Some(3) ?? Some(5)).match(some: |v| { v }, none: || { 0 }))
 // `?.` maps over a `Some` (yielding a `Some`) and short-circuits a `None`.
-System.print(Some.new(3)?.toString.isSome)
+System.print(Some(3)?.toString.isSome)
 System.print(None?.toString.isNone)

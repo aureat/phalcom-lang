@@ -21,7 +21,7 @@ Taken literally, that is not implementable. Phalcom has **no static type system
 and no flow analysis**: the type of an arbitrary condition expression is only
 known at runtime, so general compile-time detection of a non-`Bool` condition is
 impossible. Only *syntactically obvious* Option conditions — a bare `None`, or a
-`Some.new(…)` construction written directly in the condition — can be recognized
+`Some(…)` construction written directly in the condition — can be recognized
 by the compiler. This was open decision **DEC-C** (U6): "How is `if(opt)` a
 compile error, when no static analysis exists?"
 
@@ -50,7 +50,7 @@ No-truthiness is enforced in **two composing layers**, not one:
    of a recognized sacred conditional send
    (`ifTrue`/`ifFalse`/`ifTrue:ifFalse:`/`and`/`or`); `is_option_literal` matches
    the two truthless `Option` surface literals — the `None` singleton (lexes to
-   `Var { value: "None" }`) and a `Some.new(…)` construction (a `MethodCall` of
+   `Var { value: "None" }`) and a `Some(…)` construction (a `MethodCall` of
    `new` on `Some`; Phalcom has no bare `Some(x)` call syntax, so construction is
    always the explicit static send). A branch whose condition is such a literal
    fails to compile.
@@ -64,7 +64,7 @@ is introduced.
 ## Consequences
 
 - Every `if (non-Bool)` is rejected: a literal `Option` (`if (None)`, `if
-  (Some.new(x))`) at compile time; every other non-`Bool` condition at runtime.
+   (Some(x))`) at compile time; every other non-`Bool` condition at runtime.
   No path silently coerces a value to a truth value — the whole point of removing
   `nil` (Invariant 6) is preserved.
 - The early check is **syntactic only**. Indirection defeats it: `var x = None;
@@ -74,7 +74,7 @@ is introduced.
   carries no source span).
 - Enforcement is **cheap**: it reuses the inliner's condition extraction and the
   existing `GuardBool`; there is no type checker and no dataflow pass to maintain.
-- The compile check is **coupled to surface spellings** (`None`, `Some.new`): if
+- The compile check is **coupled to surface spellings** (`None`, `Some`): if
   those forms are ever renamed, `is_option_literal` must be updated in lock-step.
 - Spec §3.5's wording ("compile error") is now precise rather than aspirational;
   the corpus `compile-errors/compile_error_if_option_truthiness` and the runtime

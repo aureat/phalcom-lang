@@ -185,9 +185,8 @@ evaporates.
 
 **`[V]`** A related trap worth its own note: sealing is not closure. A live probe showed
 `@sealed` prevents `extends` but not reopening. Reopening `class None` adds the method to the
-`None` *class object*, while the `None` global refers to a *singleton instance* — so `None == None`
-still holds while `None.isNothing` raises "does not understand." Any language with blessed
-singletons plus open classes has this shape of trap somewhere.
+`None` *class object*, while the `None` global is an immediate value. Bootstrap must therefore
+protect the value binding if real `None` members are ever introduced.
 
 ---
 

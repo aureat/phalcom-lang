@@ -184,7 +184,7 @@ class Memoize is Attribute {
   wrap(m) {
     return Method.fromBlock { args =>
       return _cache.at(args).orElse {
-        Some.new(m.invokeOn(self, args))
+        Some(m.invokeOn(self, args))
       }.unwrap
     }
   }

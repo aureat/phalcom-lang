@@ -26,4 +26,4 @@ const r = 1..=3
 System.print(r)
 
 System.print(None)
-System.print(Some.new(5))
+System.print(Some(5))

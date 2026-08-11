@@ -5,9 +5,14 @@
 - Related: [ADR-0007](0007-option-as-abstract-with-some-none.md) (abstract
   `Option` + `Some`/`None`), [ADR-0010](0010-tagged-value-enum.md) (tagged
   `Value` enum — the representation a niche would change), [ADR-0009](0009-handle-arena-heap.md)
-  (handle heap — where the `None` singleton lives), `docs/spec/current/values-and-absence.md` §3
+  (handle heap — where wrapped `Some` payloads may point), `docs/spec/current/values-and-absence.md` §3
   (surface `None` vs private `nil`, Invariant 4), `docs/spec/current/open-questions.md` Q13,
   `docs/forge/units/U17/plan.md`, `docs/forge/STATE.md` (DEC-U17 resolution record)
+
+> **Amended 2026-08-11 by PDR-0033.** The bootstrap formalization remains, but
+> `None` is now an immediate value with no `none_singleton` handle and `Some` is
+> represented by bounded immediate variants. The deferred physical-encoding
+> question remains open.
 
 ## Context
 
@@ -22,13 +27,11 @@ two coupled worries about `Option`:
    *niche encoding* of `Some`/`None` directly into `Value` could remove it.
 
 **The correctness half is already resolved by the landed implementation.**
-`Option`/`Some`/`None` shipped in U6/U-STD. `None` is a **VM-blessed heap
-singleton** (`none_singleton`, `phalcom-core/src/value.rs`) — a zero-allocation,
-identity-comparable instance — and the `None` class **has no instance fields**.
-Because `None` carries no fields, the "fields default to `None`" rule never
-forces `None`'s own construction to read a field, so **the bootstrap cycle Q13
-warns about does not arise.** What remained for this unit was (a) to write that
-down, and (b) to rule on the niche optimization.
+`Option`/`Some`/`None` shipped in U6/U-STD. `None` is an **immediate value** with
+no heap handle, and the `None` class **has no instance fields**. `Some` is also
+immediate, with bounded `Some1`…`Some7` variants. Because neither variant uses
+instance-field defaulting, the bootstrap cycle Q13 warns about does not arise.
+The remaining physical encoding question is deferred by PDR-0033.
 
 ## Decision
 
@@ -36,47 +39,45 @@ down, and (b) to rule on the niche optimization.
 
 Record as ratified invariants (already true in the tree, now ADR-anchored):
 
-- **`None` is a blessed, fieldless, zero-allocation singleton.** `None == None`
-  holds by **identity**; constructing/referencing `None` allocates nothing
-  (values-and-absence §3.1). It is special-cased relative to ordinary classes.
+- **`None` is a fieldless immediate variant.** `None == None` holds by value;
+  constructing/referencing it allocates nothing (values-and-absence §3.1). It is
+  represented separately from the `None` class object.
 - **No bootstrap cycle.** Because `None` has no fields, the field-default rule
   never re-enters `None` construction. The correctness concern in Q13 is closed.
 - **`nil` stays private and distinct from `None`** (Invariant 4). The internal
-  `Value::Nil` sentinel and the surface `None` object are **not** the same value
-  and must never become confusable — a point any future representation change is
+  `Value::Nil` sentinel and the surface immediate `None` value are **not** the
+  same value and must never become confusable — a point any future representation change is
   bound by.
 
-### 2. Defer niche-encoding — **DEC-U17 = A (defer)**
+### 2. Defer final physical encoding — **DEC-U17 = A (defer)**
 
-**Do not niche-encode `Option` into `Value` now.** Resolved by orchestrator
-autonomous authority, 2026-07-12 (the plan's deferred-leaning recommendation;
-reversible, per the standing delegated-decision protocol).
+**Do not finalize NaN-boxing, pointer tagging, or a niche layout now.** The
+correctness-first immediate `Option` substrate is admitted by PDR-0033; final
+physical encoding remains a later representation pass.
 
-- Niche-encoding is a **pure performance optimization behind the unchanged
-  `Option` surface** — it removes a heap fetch on `.class`/`match`, changing no
-  user-visible semantics. It is therefore safe to defer and add later.
+- The final encoding is a **pure performance optimization behind the unchanged
+  `Option` surface** and can be deferred without changing user-visible semantics.
 - It belongs with the other representation-level speed work (NaN-boxing / tagged
   `Value` compaction, ADR-0010), which is not yet scheduled. Doing it in
   isolation now would commit a `Value`-layout choice ahead of that broader pass.
-- **Guardrails on any future niche** (binding on the deferred work): `None`
-  stays identity-comparable and zero-allocation; the niche for `None` must not
+- **Guardrails on any future encoding** (binding on the deferred work): `None`
+  stays value-comparable and allocation-free; the encoding must not
   make `Value::Nil` and surface `None` confusable (Invariant 4); `Some`/`None`/
   `match`/combinators (U6/U-STD) stay observationally identical.
 
-U17 is therefore a **small documentation unit with a deferred optimization** —
-it adds this ADR (and the spec cross-reference in values-and-absence §3), and no
-runtime change.
+U17's bootstrap ruling remains documentation; PDR-0033 supplies the immediate
+runtime substrate while leaving final physical encoding deferred.
 
 ## Consequences
 
 - **Positive.** The `Option` bootstrap story is written down and no longer an
-  open question; the fieldless-singleton design that avoids the cycle is
-  protected by an ADR rather than left implicit in `value.rs`.
+  open question; the fieldless-immediate design that avoids the cycle is
+  protected by an ADR and PDR rather than left implicit in `value.rs`.
 - **Positive.** The `Value` layout stays free for a single coherent
   representation pass (niche + NaN-boxing together) instead of a piecemeal
   commitment now.
-- **Negative / accepted.** `.class`/`match` on an `Option` keeps its heap fetch
-  for v0.2 — a small, measured-later cost, explicitly the thing the deferred
+- **Negative / accepted.** The final bit-level `Option` encoding remains deferred
+  — a measured-later representation cost, explicitly the thing the deferred
   niche would remove.
 - **Revisit trigger.** The representation/speed pass (NaN-boxing or a `Value`
   compaction) — at which point niche-encoding `Option` is designed and landed

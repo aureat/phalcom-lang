@@ -218,7 +218,7 @@ impl<'vm> Compiler<'vm> {
     /// `compile_statement_with_pop_control`'s `emit_pop` case) — the only
     /// place a `false` value is meaningful today is [`Self::compile_if_true`]/
     /// [`Self::compile_if_false`], whose taken arm can then skip the
-    /// `Some`-wrap allocation entirely, since nothing observes `Some(A)` vs.
+    /// immediate `Some` wrapping entirely, since nothing observes `Some(A)` vs.
     /// `A` when both are popped unread on the next instruction (U-CORE-2, the
     /// ADR-0018 amendment). Every other sacred selector ignores it.
     pub(crate) fn compile_sacred_call_want(&mut self, call: SacredCall, range: SourceRange, want_value: bool) -> Result<(), CompilerError> {
@@ -325,7 +325,7 @@ impl<'vm> Compiler<'vm> {
     /// the `bool_if_true` primitive fallback exactly (both arms are then
     /// `Some(A) ∪ None`, a well-formed `Option`). When `want_value` is
     /// `false` — the caller is about to `Pop` the result unread — the
-    /// `WrapSome` is elided; see [`Self::compile_sacred_call_want`].
+    /// immediate `WrapSome` is elided; see [`Self::compile_sacred_call_want`].
     fn compile_if_true(&mut self, receiver: Expr, then_block: Expr, range: SourceRange, want_value: bool) -> Result<(), CompilerError> {
         let then_block_fallback = then_block.clone();
         self.compile_expr(receiver)?;

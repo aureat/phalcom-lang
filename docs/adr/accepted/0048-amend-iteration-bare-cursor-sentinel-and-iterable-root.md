@@ -18,7 +18,7 @@ ADR-0035 §1 defined `iterate(cursor)` to return `Some(nextCursor)` while iterat
 `None` at end. `Some` is an ordinary heap instance (`Object::Instance`, class
 `some_class`, `value.rs`) — so **every continuing step of every loop allocates a heap
 object**. `None`-at-end is free (the shared singleton), so the cost is entirely the
-`Some(index)` wrapper on the hot path. A `for` over `n` elements allocates `n` short-lived
+`Some(index)` wrapper on the hot path. A `for` over `n` elements creates `n` immediate
 `Some`s, each born in `iterate` and immediately unwrapped by the loop desugar
 (`_c.unwrap`). This is a per-element allocation on the single most common control-flow
 construct in the language.
@@ -46,7 +46,7 @@ Amends ADR-0035 §1. The protocol becomes:
 | `iteratorValue(_)` | a cursor | the element at that cursor |
 
 No `Some` wrapper. The continuing value is the cursor itself (for `List`, a bare
-`Number` index) — **zero allocation**; the end value is the shared `None` singleton —
+`Number` index) — **zero allocation**; the end value is immediate `None` —
 **zero allocation**. This satisfies the rule *no `Option` is reified unless the context
 actually needs a reified `Option`* — the loop does not, so none is built.
 
@@ -58,7 +58,7 @@ pick a non-`None` cursor domain.
 
 The `.ph` realization uses the **two-armed** `ifTrue(_, ifFalse:)` (which returns the
 selected arm's value directly) rather than the **one-armed** `ifTrue { }` (which
-Option-lifts its arm — the U-CORE-2 `WrapSome`, i.e. the allocation being removed):
+Option-lifts its arm — the U-CORE-2 `WrapSome`, i.e. the wrapper creation being removed):
 
 ```phalcom
 iterate(cursor) {
@@ -83,7 +83,7 @@ unchanged); only the sentinel test and the `while` skeleton are compiler-control
 `iteratorValue` receives the bare cursor (no `unwrap`). No existing opcode expressed the
 `None`-identity branch (the bytecode set branches only via `Jump`/`JumpIfFalse`/`Loop`/
 `GuardBool`/`GuardBlock`), so U-ITERABLE adds **one** opcode, `JumpIfNone(i32)` — same shape
-as `Jump`/`Loop`, popping TOS and comparing by identity against the `none_singleton`. Net
+as `Jump`/`Loop`, popping TOS and checking the immediate `None` variant. Net
 floor-primitive delta (ADR-0019 sense) stays **0**; this is a bytecode addition, tracked
 separately.
 

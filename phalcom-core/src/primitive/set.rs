@@ -172,7 +172,7 @@ pub fn set_raw_remove(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult
 }
 
 /// Signature: `Set::at_(_)` — the element at insertion-order slot `i`, or
-/// the `None` singleton if `i` is out of range (total, mirrors
+/// immediate `None` if `i` is out of range (total, mirrors
 /// `list_raw_at`). Backs `Set#each(_)`.
 ///
 /// # Errors
@@ -213,7 +213,7 @@ fn expect_index(value: &Value) -> PhResult<usize> {
 }
 
 /// Signature: `Set::keyAt_(_)` — the element at insertion-order slot `i`, or the
-/// `None` singleton if `i` is out of range. Backs `Set#each(_)`.
+/// immediate `None` if `i` is out of range. Backs `Set#each(_)`.
 ///
 /// # Errors
 ///

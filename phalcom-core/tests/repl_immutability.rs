@@ -33,7 +33,7 @@ fn const_redeclares_across_repl_cells() {
         .compile_closure_as(module, "const x = 2\n", UnitKind::Repl)
         .expect("cell 2 const re-declaration compiles in Repl mode");
     let res2 = vm.run_cell(module, c2).expect("cell 2 succeeds");
-    assert_eq!(res2, Value::Obj(vm.universe.classes.none_singleton));
+    assert_eq!(res2, Value::None);
 
     let c3 = vm.compile_closure_as(module, "x\n", UnitKind::Repl).expect("cell 3 compiles");
     let res3 = vm.run_cell(module, c3).expect("cell 3 succeeds");

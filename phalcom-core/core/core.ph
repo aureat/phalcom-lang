@@ -3,7 +3,7 @@ class Object {
   // it (object-model.md §8, is-tests.md — U-IS). Derived purely over the floor
   // — class/==/superclass — so it needs no native primitive (ADR-0019/0023).
   // The superclass chain is a run of class objects terminating in the `None`
-  // singleton (class_superclass returns `None` at the root), so the walk
+  // immediate `None` value (class_superclass returns `None` at the root), so the walk
   // stops on `c == None`. The `ifTrue` result is in pop (statement) position,
   // so U-CORE-2's Some-lift is elided; the body neither reads nor depends on
   // `ifTrue`'s return shape.
@@ -498,7 +498,7 @@ class False {}
 class Symbol {}
 
 // Absence is an Option (ADR-0007), not a surface `nil`. `Option` is abstract;
-// `Some` wraps one value and `None` is a single shared singleton. These are
+// `Some` wraps one value and `None` is an immediate variant. These are
 // bootstrapped in Rust (universe.rs): the classes, the `Some(_)` construction
 // primitive, and the `match(some:, none:)` eliminator. The skeletons below only
 // *reopen* those bootstrapped rows so the class names are surface-visible.
@@ -511,14 +511,14 @@ class Symbol {}
 // `filter`, `ifSome`, `unwrapOr`, …) is still deliberately NOT defined here —
 // that remains U-STD's job. Do not add those bodies to this skeleton.
 //
-// `None` (the name) resolves to the shared singleton *value*, not the `None`
+// `None` (the name) resolves to the immediate *value*, not the `None`
 // class; that global is bound in Rust (VM::install_core).
 //
 // There is deliberately NO `class None {}` reopen here (unlike `Option`/
 // `Some`): `Statement::Class` unconditionally emits `DefineGlobal` at the end
 // of every class body, reopen or not (compiler/lib.rs). For every other core
 // class that's a harmless no-op — the global already points at that same
-// class object — but `None`'s global is bound to the *singleton instance*,
+// class object — but `None`'s global is bound to the *immediate value*,
 // not the class, so reopening it here would silently clobber that binding
 // back to the class object the moment core.ph runs. See DEFERRED.md: a
 // future unit that needs to add real members to `None` must fix that
@@ -559,7 +559,7 @@ class Option {
   }
 
   // U-STD (values-and-absence.md §3.3's "Filter" group): `Some(v)` stays `Some(v)`
-  // when `pred(v)` is `true`, otherwise collapses to the shared `None` singleton;
+  // when `pred(v)` is `true`, otherwise collapses to immediate `None`;
   // `None` passes through. `pred` must return a real `Bool` (ADR-0021).
   filter(_ pred) {
     return self.match(some: |v| { if (pred.call(v)) { self } else { None } }, none: || { self })

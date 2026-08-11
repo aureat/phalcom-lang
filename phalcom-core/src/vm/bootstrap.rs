@@ -70,7 +70,7 @@ impl VM {
         vm.install_core();
 
         // Stamp the kernel `Message` class's fixed-slot count (U8,
-        // method-lookup.md §2). Like `Some`, `Message` instances are built
+        // method-lookup.md §2). `Message` instances are built
         // directly in Rust ([`VM::new_message`]) — its four slots
         // (selector/name/labels/args) carry no `.ph` field layout, so the
         // count is set here rather than by the compiler's class lowering.
@@ -80,7 +80,7 @@ impl VM {
         }
 
         // Stamp the `Error` root's and `MessageNotUnderstood`'s fixed-slot
-        // layout (U-CORE-6, ADR-0008/ADR-0011). Like `Some`/`Message`, both
+        // layout (U-CORE-6, ADR-0008/ADR-0011). Like `Message`, both
         // are built directly in Rust — `Error` has one field (`_message`,
         // slot 0); `MessageNotUnderstood < Error` inherits that slot and adds
         // one more (`_reifiedMessage`, slot 1), appended after the
@@ -162,7 +162,7 @@ impl VM {
 
         // Compile and run the registered core module now that every native
         // primitive is installed: this is what actually attaches each
-        // `core.ph` class-reopen (`List`, `Option`, `Some`, `None`, `System`,
+        // `core.ph` class-reopen (`List`, `Option`, `Some`, `System`,
         // …) to its bootstrapped kernel row. Must run after
         // `install_primitives` so a reopen can call the primitives it wraps
         // (e.g. `List.at(_:)` calling `at_(_:)`). Previously `install_core`
@@ -180,8 +180,8 @@ impl VM {
         // not in `Universe::new`.
         vm.universe.mark_leaf_tostring_pristine();
 
-        // R-INV-0.3 (global half) — the `None` **global** resolves to the shared
-        // singleton *value*, not the `None` class object (ADR-0007/0010). This
+        // R-INV-0.3 (global half) — the `None` **global** resolves to the immediate
+        // value, not the `None` class object (ADR-0007/0010). This
         // half needs the core module (its globals table), so it lives here rather
         // than in `verify_invariants`, which is heap-structural (`&Heap` only) and
         // cannot read module globals (U-CORE-1 spec SD-1).
@@ -271,10 +271,10 @@ impl VM {
             let name_sym = self.interner.intern(&self.heap.class(class_id).name.clone());
             self.sealed_classes.insert(crate::vm::ClassKey { module: m, name: name_sym }, m);
         }
-        // Absence type (ADR-0007). `Option` and `Some` are ordinary class
-        // globals. `None`, however, is a *value* global bound to the shared
-        // singleton — not the `None` class — so `None` in source resolves to the
-        // singleton object (values-and-absence.md §3.1).
+        // Absence type (ADR-0007/PDR-0033). `Option` and `Some` are ordinary
+        // class globals. `None`, however, is a *value* global bound to the
+        // immediate variant — not the `None` class — so `None` in source resolves
+        // to the immediate value (values-and-absence.md §3.1).
         //
         // All three (`Option`/`Some`/`None`) are sealed to the core module at
         // bootstrap (U-ANNOT-LAYOUT §3.4, `attr.sealed_violation`): user `.ph`
@@ -339,7 +339,7 @@ impl VM {
             name: none_class_sym,
         };
         self.classes.insert(none_class_key, none_class);
-        // `None` bypasses `add_class!` (its global binds the singleton
+        // `None` bypasses `add_class!` (its global binds the immediate
         // value, not the class), so it must be reserved (ruling 3) here
         // explicitly rather than falling out of that macro.
         self.kernel_class_names.insert(none_class_sym);

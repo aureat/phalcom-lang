@@ -27,7 +27,7 @@ Source of truth: [`vm.rs::VM::new`](../../../../phalcom-core/src/vm.rs) L116–1
 | # | Phase | Code site | Produces |
 |---|---|---|---|
 | **A** | Substrate | `Interner::with_capacity(100)`, `Heap::new()` | empty interner + heap |
-| **B** | Tower allocate-then-patch | `Universe::new` → `create_core_classes` | 19 named kernel classes (incl. `Message`, U8) (+ their metaclasses) + `None` singleton, fully wired |
+| **B** | Tower allocate-then-patch | `Universe::new` → `create_core_classes` | 19 named kernel classes (incl. `Message`, U8) (+ their metaclasses) + immediate `None` variant, fully wired |
 | **C** | VM struct assembly | `VM { … }` literal | frames/stack/module maps, `universe` moved in |
 | **D** | Core module + globals | `install_core` | core module registered; class globals + `None`-value global bound |
 | **E** | Fixed-slot layouts | inline block, `VM::new` | `Some._value` at slot 0, plus the `Message` four-slot layout ([ADR-0011](../../../adr/0011-static-instance-slot-layout.md)) |
@@ -51,7 +51,7 @@ Source of truth: [`vm.rs::VM::new`](../../../../phalcom-core/src/vm.rs) L116–1
 5. `make_core_class` for the ordinary rows, **in this load order**:
    `Number, String, Nil, Bool, Method, Function, Block(<Function), Symbol,
    Module, System`, then absence `Option, Some(<Option), None(<Option)`, then
-   allocate the **`None` singleton**, then `List` (positioned per ADR-0020 after
+   establish the **immediate `None` variant**, then `List` (positioned per ADR-0020 after
    absence, before any dependant), then `Message` (U8, `< Object`, after `List`
    per its `args`-dependency note).
 6. (returns `CoreClasses`; `verify_invariants` is step 7, deferred to Phase H.)
@@ -71,8 +71,8 @@ mid-phase.
 | B.5 | apex fully wired (make_core_class reads `superclass.class`) | method dictionaries empty; `Some` has no field layout |
 | C | tower wired (Phase B done) | no globals; no primitives; `core.ph` not run |
 | D | `universe.classes` populated | primitives absent (globals point at method-less rows) |
-| E | `Some` class exists | `some_new` not yet callable (installed in F) |
-| F | `Some` layout set (E) — `some_new` allocates a 1-field instance | `core.ph` reopens not yet attached |
+| E | `Some` class exists | `some_call` not yet callable (installed in F) |
+| F | `Some.call(_)` and compatibility `Some.new(_)` installed; both produce immediate bounded variants | `core.ph` reopens not yet attached |
 | G | **all** primitives installed (reopens call `at_`, `<`, `call`, …) | — (this is the last mutation) |
 | H | G complete | *nothing* — full §5–6 invariant set asserted here |
 
@@ -87,10 +87,10 @@ must be preserved by any change to `VM::new`:
 
 1. **B → D.** `install_core` reads `self.universe.classes.*` to bind globals;
    the tower must exist first.
-2. **E → F.** `some_new` (F) constructs a `Some` with one field; the `_value`
-   slot layout (E) must be seeded first, or construction writes out of bounds.
-   *(This is why the `Some` layout block sits between `install_core` and
-   `install_primitives`, not in `create_core_classes`.)*
+2. **E → F.** `some_call` (F) wraps through `Value::wrap_some`; the bounded
+   `Some1`…`Some7` representation has no instance-field write or heap wrapper.
+   `Some` and `None` class rows still exist before primitive installation so
+   ordinary immediate receiver lookup has valid metadata.
 3. **F → G.** `core.ph` reopens invoke the primitives they wrap
    (`List.at(_)` → `at_(_)`, `List.each` → `Block#call`/`Number#<`). Running
    `core.ph` before the floor is installed leaves every skeleton inert — the
@@ -150,7 +150,7 @@ L373–451) asserts, by handle identity on the live graph:
 | No assertion that the floor census (80 bindings) is intact | floor drift is silent (see `floor-census.md` §7) |
 | Parallel rule checked only for `Number` | other ordinary rows unverified in-VM (the `tests/invariants.rs` corpus covers more, but `verify_invariants` itself does not) |
 | No absence-invariant check in `verify_invariants` | `Value::Nil` non-surfacing is asserted only in `tests/invariants.rs`, not at boot |
-| `Some` field layout not asserted post-boot | an E/F reordering would fail silently until first `Some(_)` |
+| `Some`/`None` zero-field native representation not asserted post-boot | an E/F reordering or accidental instance allocation would fail silently until first Option construction |
 
 These are **not** blockers for U-CORE-0; they are the requirement list that
 U-CORE units 1–6 each extend as they add classes (R-INV).

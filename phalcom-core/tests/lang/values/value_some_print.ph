@@ -4,4 +4,4 @@
 // The native print path (`Value::to_string`) renders `Some` the same way the
 // message does — the pairing `Some#toString` message == print requires.
 
-System.print(Some.new(42))
+System.print(Some(42))

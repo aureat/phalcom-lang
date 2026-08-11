@@ -4,6 +4,11 @@
 - Date: 2026-07-11
 - Related: `docs/spec/current/values-and-absence.md` §3; [ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md); `phalcom-core/src/nil.rs`, `value.rs`
 
+> **Amended 2026-08-11 by PDR-0033.** The `Option` / `Some` / `None` semantic
+> hierarchy remains, but `Some` and `None` are now immediate primitive values
+> rather than heap instances. `Some(v)` is canonical and lowers through
+> `Some.call(v)`. Generic nesting is bounded to seven.
+
 ## Context
 
 Phalcom has no surface `nil` (Invariant 4): the VM keeps a private `nil` for
@@ -24,11 +29,11 @@ of combinators, leaving three things unsettled:
 **Recommendation (pending approval):** model `Option` exactly like `Bool`
 ([ADR-0004](0004-boolean-as-abstract-bool-with-true-false.md)).
 
-- `Option` is abstract; `Some` and `None` are its concrete subclasses. `Some`
-  carries one field `_value`; `None` is a single shared singleton instance
-  (identity-comparable, zero-allocation). Combinators are two method definitions
-  each — `Some>>map`, `None>>map` — so **dispatch replaces branching**; there is no
-  variant tag to test.
+- `Option` is abstract; `Some` and `None` are its concrete final variants. The
+  amended runtime representation is immediate and bounded (`Some1`…`Some7`, plus
+  immediate `None`); no Option wrapper instance or singleton handle exists.
+  Combinators are ordinary inherited protocol methods, so **dispatch replaces
+  branching** at the surface.
 - `match(some:, none:)` is the sole eliminator that leaves Option-world with a
   value; `unwrapOr` / `unwrapOrElse` / `unwrap` are defined over it.
 - `ifSome` / `ifNone` are **effecting** — they run a block and return `self`, never
@@ -48,8 +53,8 @@ correctness fix, and can follow the kernel work.
 
 - Absence handling is ordinary polymorphic dispatch, uniform with the rest of the
   object model; `Some`/`None` are meaningful classes to user code.
-- `None` as a shared singleton keeps the common case (every unassigned field reads
-  `None`) allocation-free; only `Some` allocates.
+- `None` and `Some` are immediate, so unassigned reads and present-value wrapping
+  avoid Option-wrapper allocation; `Some` remains bounded to seven generic layers.
 - `?.` adds one token and desugaring to the grammar
   ([lexical-structure.md §9](../../spec/current/lexical-structure.md)); it must be threaded
   into the precedence table in the grammar pass.

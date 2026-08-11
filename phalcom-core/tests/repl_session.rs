@@ -14,7 +14,7 @@ fn globals_persist_across_cells() {
 
     let c1 = vm.compile_closure_as(module, "let x = 42\n", UnitKind::Repl).unwrap();
     let res1 = vm.run_cell(module, c1).unwrap();
-    assert_eq!(res1, Value::Obj(vm.universe.classes.none_singleton), "statement cell returns surfaced absence");
+    assert_eq!(res1, Value::None, "statement cell returns surfaced absence");
 
     let c2 = vm.compile_closure_as(module, "x\n", UnitKind::Repl).unwrap();
     let res2 = vm.run_cell(module, c2).unwrap();
@@ -40,11 +40,7 @@ fn statement_cell_echoes_nothing() {
 
     let c_stmt = vm.compile_closure_as(module, "let a = 100\n", UnitKind::Repl).unwrap();
     let res_stmt = vm.run_cell(module, c_stmt).unwrap();
-    assert_eq!(
-        res_stmt,
-        Value::Obj(vm.universe.classes.none_singleton),
-        "Statement cell yields surfaced absence"
-    );
+    assert_eq!(res_stmt, Value::None, "Statement cell yields surfaced absence");
 }
 
 /// `underscore_binds_last_value`: `_` global holds the prior cell's expression result.

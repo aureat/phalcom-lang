@@ -43,7 +43,7 @@ System.print("\(1) \("s") \(true) \([1, 2]) \(m) \((1, 2)) \(1..=5)")
 // Nested: the payload renders via its own toString, not to_debug — because
 // `Option#toString` and the new `Map#toString` are BOTH derived in core.ph, so
 // they recurse by sending `toString`.
-System.print("\(Some.new(p))")
+System.print("\(Some(p))")
 const m2 = Map.new()
 m2.at("k", put: p)
 System.print("\(m2)")

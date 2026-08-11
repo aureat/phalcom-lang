@@ -32,7 +32,7 @@ use phalcom_core::primitive::block::{block_arity, block_call, block_name};
 use phalcom_core::primitive::boolean::bool_hash;
 use phalcom_core::primitive::class::{behavior_methods, behavior_name};
 use phalcom_core::primitive::method::method_bind;
-use phalcom_core::primitive::nil::some_new;
+use phalcom_core::primitive::nil::some_call;
 use phalcom_core::primitive::number::number_hash;
 use phalcom_core::primitive::object::{object_hash, object_method_for};
 use phalcom_core::primitive::string::string_hash;
@@ -142,16 +142,10 @@ fn surface_nil_is_unreachable_from_user_code() {
 
 #[test]
 fn sentinel_surfaces_to_none_at_read_boundaries() {
-    let vm = VM::new();
-    let none = vm.universe.classes.none_singleton;
+    let surfaced = sentinel_to_option(Value::Nil);
+    assert!(matches!(surfaced, Value::None), "the sentinel must surface to immediate None");
 
-    let surfaced = sentinel_to_option(Value::Nil, none);
-    assert!(
-        matches!(surfaced, Value::Obj(id) if id == none),
-        "the sentinel must surface to the None singleton"
-    );
-
-    let passthrough = sentinel_to_option(Value::Int(1), none);
+    let passthrough = sentinel_to_option(Value::Int(1));
     assert!(
         matches!(passthrough, Value::Int(n) if n == 1),
         "non-sentinel values must pass through unchanged"
@@ -175,10 +169,9 @@ fn expression_result_absence_surfaces_to_none() {
     use phalcom_core::primitive::system::system_class_print;
 
     let mut vm = VM::new();
-    let none = vm.universe.classes.none_singleton;
     let is_none = |value: Value, label: &str| {
         assert!(!matches!(value, Value::Nil), "{label} leaked the raw sentinel");
-        assert!(matches!(value, Value::Obj(id) if id == none), "{label} should yield the None singleton");
+        assert!(matches!(value, Value::None), "{label} should yield immediate None");
     };
 
     let unused_block = Value::Int(0);
@@ -205,15 +198,17 @@ fn expression_result_absence_surfaces_to_none() {
 #[should_panic(expected = "Invariant 4")]
 fn some_construction_never_wraps_the_sentinel() {
     let mut vm = VM::new();
-    let _ = some_new(&mut vm, &Value::Int(0), &[Value::Nil]);
+    let some_class = Value::Obj(vm.universe.classes.some_class);
+    let _ = some_call(&mut vm, &some_class, &[Value::Nil]);
 }
 
 #[test]
-fn some_can_wrap_the_none_singleton() {
+fn some_can_wrap_none() {
     let mut vm = VM::new();
-    let none = Value::Obj(vm.universe.classes.none_singleton);
-    let result = some_new(&mut vm, &Value::Int(0), &[none]);
-    assert!(result.is_ok(), "Some.new(None) must succeed — None is a legal Some payload");
+    let none = Value::None;
+    let some_class = Value::Obj(vm.universe.classes.some_class);
+    let result = some_call(&mut vm, &some_class, &[none]);
+    assert!(result.is_ok(), "Some(None) must succeed — None is a legal immediate payload");
 }
 
 #[test]
@@ -1090,7 +1085,7 @@ fn hash_is_consistent_with_equality() {
     assert_ne!(ht, hf, "true.hash != false.hash");
 
     // Identity object: same handle ⇒ equal hash.
-    let obj = Value::Obj(vm.universe.classes.none_singleton);
+    let obj = Value::Obj(vm.universe.classes.none_class);
     let o1 = as_number(object_hash(&mut vm, &obj, &[]).unwrap());
     let o2 = as_number(object_hash(&mut vm, &obj, &[]).unwrap());
     assert_eq!(o1, o2, "same-handle identity hash is equal");
@@ -1105,7 +1100,7 @@ fn hash_is_consistent_with_equality() {
 #[test]
 fn hash_is_stable_across_repeated_calls() {
     let mut vm = VM::new();
-    let obj = Value::Obj(vm.universe.classes.none_singleton);
+    let obj = Value::Obj(vm.universe.classes.none_class);
     let cases: [Value; 4] = [Value::Int(42), Value::Bool(true), Value::Symbol(vm.get_or_intern("stable")), obj];
     for value in cases {
         let first = send0(&mut vm, value, "hash");
@@ -1240,10 +1235,7 @@ fn callable_tower_and_reflection_protocol() {
 
     let selector_sym = vm.get_or_intern("greet(_)");
     let method_value = object_method_for(&mut vm, &g, &[Value::Symbol(selector_sym)]).expect("methodFor should succeed");
-    assert!(
-        !matches!(method_value, Value::Obj(id) if id == vm.universe.classes.none_singleton),
-        "methodFor should hit for a defined selector"
-    );
+    assert!(!matches!(method_value, Value::None), "methodFor should hit for a defined selector");
 
     // `arity`/`name` on the bare `Method`.
     assert!(
@@ -1396,8 +1388,9 @@ fn value_type_sweep(vm: &mut VM) -> Vec<(&'static str, Value)> {
     let string = vm.alloc_string_value("hi".to_string());
     let symbol = Value::Symbol(vm.get_or_intern("foo"));
     let list = Value::Obj(vm.heap.alloc_list(vec![Value::Int(1), Value::Int(2)]));
-    let none = Value::Obj(vm.universe.classes.none_singleton);
-    let some = some_new(vm, &Value::Nil, &[Value::Int(42)]).expect("Some.new(42) should succeed");
+    let none = Value::None;
+    let some_class = Value::Obj(vm.universe.classes.some_class);
+    let some = some_call(vm, &some_class, &[Value::Int(42)]).expect("Some(42) should succeed");
     vec![
         ("Number", Value::Int(42)),
         ("String", string),
@@ -1443,20 +1436,21 @@ fn value_object_default_tostring_is_angle_bracket_class_name() {
 #[test]
 fn option_tostring_matches_none_and_wraps_some() {
     let mut vm = VM::new();
-    let none = Value::Obj(vm.universe.classes.none_singleton);
+    let none = Value::None;
     let none_rendered = send0(&mut vm, none, "toString");
     assert_eq!(none_rendered.to_string(&vm), "None");
 
-    let some = some_new(&mut vm, &Value::Nil, &[Value::Int(42)]).expect("Some.new(42) should succeed");
+    let some_class = Value::Obj(vm.universe.classes.some_class);
+    let some = some_call(&mut vm, &some_class, &[Value::Int(42)]).expect("Some(42) should succeed");
     let some_rendered = send0(&mut vm, some, "toString");
     assert_eq!(some_rendered.to_string(&vm), "Some(42)");
 
-    let some_none = some_new(&mut vm, &Value::Nil, &[none]).expect("Some.new(None) should succeed");
+    let some_none = some_call(&mut vm, &some_class, &[none]).expect("Some(None) should succeed");
     let some_none_rendered = send0(&mut vm, some_none, "toString");
     assert_eq!(some_none_rendered.to_string(&vm), "Some(None)");
 
-    let inner_some = some_new(&mut vm, &Value::Nil, &[Value::Int(1)]).expect("Some.new(1) should succeed");
-    let nested_some = some_new(&mut vm, &Value::Nil, &[inner_some]).expect("Some.new(Some.new(1)) should succeed");
+    let inner_some = some_call(&mut vm, &some_class, &[Value::Int(1)]).expect("Some(1) should succeed");
+    let nested_some = some_call(&mut vm, &some_class, &[inner_some]).expect("Some(Some(1)) should succeed");
     let nested_rendered = send0(&mut vm, nested_some, "toString");
     assert_eq!(nested_rendered.to_string(&vm), "Some(Some(1))");
 }

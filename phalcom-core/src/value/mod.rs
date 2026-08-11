@@ -1,8 +1,8 @@
 //! The tagged [`Value`] — Phalcom's uniform in-register value representation.
 //!
 //! Realizes [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md). `Value` is a
-//! small `Copy` tagged `enum`: immediate arms ([`Value::Number`], [`Value::Bool`],
-//! [`Value::Symbol`]) carry their payload inline, and every heap object is carried
+//! small `Copy` tagged `enum`: immediate arms ([`Value::Int`], [`Value::Float`],
+//! [`Value::Bool`], [`Value::Symbol`], and bounded `Option` variants) carry their payload inline, and every heap object is carried
 //! by an [`ObjRef`] handle in [`Value::Obj`] ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)).
 //! [`Value::Nil`] is a **private** uninitialized-slot sentinel with no surface
 //! class; user code can never produce or observe it (`values-and-absence.md`
@@ -92,8 +92,9 @@ impl Value {
     /// ([ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) §3,
     /// [memory-management.md §2.3](../../../docs/spec/v0.2/memory-management.md)).
     ///
-    /// Immediates (`nil`, `Bool`, `Int`, `Float`, `Symbol`) hold no handle: symbols live
-    /// in the interner rather than the heap and are never collected
+    /// This ordinary object query exposes only a direct `Value::Obj`; it does
+    /// not see through an immediate `Some` payload. Symbols live in the
+    /// interner rather than the heap and are never collected
     /// ([memory-management.md §2.2](../../../docs/spec/v0.2/memory-management.md)).
     pub fn as_obj(&self) -> Option<ObjRef> {
         match self {
@@ -251,7 +252,7 @@ impl Value {
     /// Builds the [`CallContext`] a closure-backed method call against `self`
     /// runs with.
     ///
-    /// An immediate receiver (`Bool`/`Int`/`Float`/`Symbol`/the private `Nil`
+    /// An immediate receiver (`Bool`/`Int`/`Float`/`Symbol`/`Option`/the private `Nil`
     /// sentinel) yields [`CallContext::Immediate`] rather than panicking —
     /// U5 (ADR-0018) needs this so a user-reopened sacred selector on the
     /// kernel `Bool` class (a closure method, unlike the primitive it
@@ -312,6 +313,8 @@ impl Value {
     /// - [`Value::Symbol`] pairs and [`Object::Module`] pairs are **never**
     ///   equal — they routed to the `_ => false` arm before the migration and
     ///   must keep doing so.
+    /// - `None` compares equal only to `None`; equal-depth `Some` values compare
+    ///   by their payload, while different wrapper depths are unequal.
     /// - Every mismatched or otherwise unhandled pair is unequal.
     ///
     /// Equality is matched explicitly here rather than delegating to the

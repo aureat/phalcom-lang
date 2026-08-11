@@ -48,6 +48,7 @@ PDR supersedes lives in [`README.md`](README.md#adr--pdr-mapping).
 | [0030](0030-replace-extends-keyword-with-is.md) | Replace `extends` keyword with `is` for class inheritance (`class Sub is Super`) | Accepted (ratified 2026-07-22) | | | ❌ ratified 2026-07-22, implementation in progress |
 | [0031](0031-range-slicing-floor-amendment.md) | Range slicing uses normalized bounds with two native collection seams | Accepted | amends ADR-0019 and ADR-0039 | | ? implementation added 2026-08-08; verification intentionally deferred |
 | [0032](0032-transition-1-language-surface-convergence.md) | Converge namespaces, selector declarations, setter identity, visibility, and `@class` placement | Accepted | supersedes ADR-0061; amends ADR-0060 and PDR-0028 | | ◐ implementation and generator verified 2026-08-08; broad test matrix intentionally deferred |
+| [0033](0033-immediate-bounded-option.md) | Make Option an immediate bounded sum value | Accepted | amends ADR-0007, ADR-0010, ADR-0044, ADR-0050 | | ? implementation in progress; focused representation/language checks pass, full crate gate pending |
 
 ## Cross-tracker obligations
 

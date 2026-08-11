@@ -73,7 +73,7 @@ impl TupleObject {
     /// Returns the element at `index`, or `None` if `index` is out of range.
     ///
     /// The caller (the `at_` primitive) surfaces an out-of-range read as
-    /// the kernel `None` singleton, never a panic — mirrors
+    /// immediate `None`, never a panic — mirrors
     /// [`crate::heap::ListObject::get`].
     pub fn get(&self, index: usize) -> Option<Value> {
         self.values.get(index).copied()

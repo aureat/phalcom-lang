@@ -94,7 +94,8 @@ Object references are `ObjRef` handles into the arena heap: [ADR-0009](../../adr
 | `{ a: 1 }` | `Map` | |
 | `Set(1, 2)` | `Set` | |
 | `1..5` | `Range` | |
-| `Some(v)` / `None` | `Option` | the only expression of absence |
+| `Some(v)` | `Some` | immediate present variant; `Some(v).class == Some` |
+| `None` | `None` | immediate absent variant; `None.class == None.class` |
 | a reified failed send | `Message` | see [Method Lookup](method-lookup.md) |
 | a class | its **metaclass** | `Foo.class` → `Foo class` |
 | a user instance | its stored class | |
@@ -125,7 +126,7 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 > to give `Class` and `Metaclass` a shared home for `_$new`/`new`/reflection
 > and to keep the tower uniform.
 
-### Primitives & singletons
+### Primitives & immediate variants
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
@@ -136,7 +137,9 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 | `Float` | `Number` | I | IEEE-754 `f64`. |
 | `String` | `Object` | U/I | UTF-8 text. Immutable, interpolating. |
 | `Symbol` | `Object` | I | Interned identifier / selector. |
-| `Option` | `Object` | U | `Some(_)` / `None`. `ifSome(_)`, `ifNone(_)`, `map(_)`, `orElse(_)`, `unwrapOr(_)`, `isSome`, `isNone`. |
+| `Option` | `Object` | A | Sealed primitive root; no direct values. `Some(_)` / `None` inherit its protocol. |
+| `Some` | `Option` | I | Final immediate present variant; bounded payload, zero instance fields. |
+| `None` | `Option` | I | Final immediate absence variant; no heap singleton. |
 
 > **`Bool` tower note ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md)).**
 > `Bool` is abstract; `true`/`false` are instances of the concrete singleton

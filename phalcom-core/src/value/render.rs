@@ -11,8 +11,8 @@ impl Value {
     /// Strings render as their raw content (no quotes); numbers, booleans and the
     /// `nil` sentinel render as their literals; a symbol renders as `Symbol("…")`;
     /// a `List` renders as `[e1, e2, …]` (each element recursively via this same
-    /// renderer); the shared `None` singleton renders as `"None"` and a `Some`
-    /// instance as `"Some(v)"` (`v` rendered recursively) — kept in agreement
+    /// renderer); immediate `None` renders as `"None"` and an immediate `Some`
+    /// value as `"Some(v)"` (`v` rendered recursively) — kept in agreement
     /// with the `.ph`-message `Option#toString` (U-CORE-4, R-INV-4.1). Any other
     /// heap object renders via its debug form. Returns an owned [`String`]
     /// rather than allocating a heap object.

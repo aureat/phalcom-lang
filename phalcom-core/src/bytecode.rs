@@ -97,7 +97,7 @@ pub enum Bytecode {
     /// 0: index in the constant pool.
     Constant(u16),
 
-    /// Pushes the `None` singleton — the surface absence value
+    /// Pushes immediate `None` — the surface absence value
     /// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)) — onto the
     /// stack. It **never** pushes the private [`crate::value::Value::Nil`]
     /// sentinel ([ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
@@ -262,9 +262,8 @@ pub enum Bytecode {
     /// separate guard opcode ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).
     JumpIfFalse(i32),
 
-    /// Pops the top of stack; if it **is** the shared `None` singleton (tested by
-    /// identity — `Value`'s derived `PartialEq` on `Value::Obj(ObjRef)`, i.e. arena-slot
-    /// identity, never structural/`==` dispatch), adds `offset` to `ip` (see
+    /// Pops the top of stack; if it is exactly `Value::None`, adds `offset` to
+    /// `ip` (see
     /// `Bytecode::Jump` for the offset convention). Otherwise falls through, the popped
     /// value already consumed. Realizes the cursor-protocol end-of-iteration test
     /// (ADR-0048 §2, iteration.md §2) as one direct, non-overridable branch — `for`'s
@@ -313,8 +312,8 @@ pub enum Bytecode {
     /// Duplicates the top value on the stack.
     Dup,
 
-    /// Pops the top value and pushes it back wrapped in a fresh `Some`
-    /// instance ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)).
+    /// Pops the top value and pushes it back with one immediate `Some` layer
+    /// ([PDR-0033](../../../pdr/0033-immediate-bounded-option.md)).
     ///
     /// Emitted by the sacred-selector inliner's one-armed `ifTrue`/`ifFalse`
     /// fast path ([`crate::compiler::inliner`]) to `Some`-lift the taken

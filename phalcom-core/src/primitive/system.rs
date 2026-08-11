@@ -6,7 +6,7 @@ use crate::vm::VM;
 
 /// Signature: `System.class::print(_)` — prints its arguments, then a newline.
 ///
-/// Returns the `None` singleton (surface absence value): `print` is a
+/// Returns immediate `None` (surface absence value): `print` is a
 /// statement-like send whose result is user-reachable (e.g. `print(print(1))`),
 /// so it must never yield the raw `nil` sentinel (Invariant 4,
 /// [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)).
@@ -99,7 +99,7 @@ pub fn system_gc(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Va
 /// Writes the string with no newline, no formatting, no message dispatch — the
 /// literal I/O act. Derives from ADR-0019 (System I/O primitives are native; the
 /// raw write is the irreducible seam for System.write/writeObject_ `.ph` funnel).
-/// Returns the `None` singleton (system.md §2, `write(_)` does not print a newline).
+/// Returns immediate `None` (system.md §2, `write(_)` does not print a newline).
 ///
 /// # Errors
 ///

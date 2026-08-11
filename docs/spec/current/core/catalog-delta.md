@@ -68,10 +68,10 @@ derived in `core.ph`; see §4.5).
 | `Number` | ✅ | ✅ | `+ - * / %` `< <= > >=` `negated` `new` | empty reopen | ⚠️ numeric `toString` (today inherits `Object#toString` → class name, not value); `toNumber`, richer math | U-CORE-4 |
 | `String` | ✅ | ✅ | `+(_)` `new` | empty reopen | length, indexing→`Option`, comparison, interpolation, `toSymbol`/`toNumber`, value `toString` | U-CORE-4 |
 | `Symbol` | ✅ | ✅ | `toString` `new(_)` | empty reopen | `asString`/interning-identity protocol, `==` semantics | U-CORE-4 |
-| `Option` | ✅ | ✅ | `match(some, none)` (on `Option`); `Some.new(_)` | `ifNone(_)` `orElse(_)` `isSome` `isNone` `map(_)` `flatMap(_)` `filter(_)` `ifSome(_)` `unwrapOr(_)` on `Option`; empty reopen of `Some` | — (§2.2 transform/extract combinators landed) | U-CORE-2 + **U-STD — landed** |
+| `Option` | ✅ | ✅ | `match(some, none)` (on `Option`); `Some.call(_)` (`Some.new(_)` compatibility) | `ifNone(_)` `orElse(_)` `isSome` `isNone` `map(_)` `flatMap(_)` `filter(_)` `ifSome(_)` `unwrapOr(_)` on `Option`; empty reopen of `Some` | — (§2.2 transform/extract combinators landed) | U-CORE-2 + **U-STD — landed** |
 
-`Some` and `None` are **✅ complete** for the combinator surface: construction,
-the `match` eliminator, the shared `None` singleton, the effect/query
+`Some` and `None` are **✅ complete** for the combinator surface: immediate
+construction, the `match` eliminator, the immediate `None` variant, the effect/query
 combinators (`ifNone`, `orElse`, `isSome`, `isNone`), and the transform/extract
 combinators (`ifSome`, `map`, `flatMap`, `filter`, `unwrapOr`) all exist —
 U-STD landed the latter group in [`core.ph`](../../../../phalcom-core/core/core.ph)
@@ -206,7 +206,7 @@ unverified. Each needs a ruling before the owning unit proceeds.
   | `false` | `None` ✅ | `None` ✅ |
 
   So the result was `A ∪ None`, **not** a well-formed `Option`. This was a deliberate U5 deferral (`U5-plan.md` §4.1, "independent of U6's `Option`"), latent only because the `Option` combinators (`ifNone`/`orElse`/…) didn't exist yet (§2.2). It would have broken the moment they landed: `c.ifTrue { 42 }.ifNone { 0 }` would have sent `ifNone` to a raw `Number`.
-- **Resolution (U-CORE-2, landed):** `Some`-lifted the *one-armed* `ifTrue`/`ifFalse` taken arm (`primitive/boolean.rs`, `primitive/nil.rs`'s new `wrap_some` helper); the untaken arm's `None` was already correct. The paired `ifTrue(_, ifFalse)` (what `if/else` desugars to) and `and`/`or` still return raw values — those are correct as-is and untouched. The sacred inliner ([ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md)) `Some`-lifts in lockstep via a new `Bytecode::WrapSome` opcode so the fast path ≡ the deopt path; the wrap is elided in statement (pop) context to avoid the allocation when the result is discarded unread. `core.ph`'s `Option` reopen gained the four combinators the catalog assigned to this unit — `ifNone(_)`, `orElse(_)`, `isSome`, `isNone`, all derived over `match` — so `control-flow.md` §1's `if/else === c.ifTrue { A }.ifNone { B }` desugaring is now executable end to end (see the ADR-0018 amendment and the `control-flow`/`absence` golden corpus).
+- **Resolution (U-CORE-2, landed):** `Some`-lifted the *one-armed* `ifTrue`/`ifFalse` taken arm (`primitive/boolean.rs`, `primitive/nil.rs`'s new `wrap_some` helper); the untaken arm's `None` was already correct. The paired `ifTrue(_, ifFalse)` (what `if/else` desugars to) and `and`/`or` still return raw values — those are correct as-is and untouched. The sacred inliner ([ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md)) `Some`-lifts in lockstep via a new `Bytecode::WrapSome` opcode so the fast path ≡ the deopt path; the immediate wrap is elided in statement (pop) context because the result is discarded. `core.ph`'s `Option` reopen gained the four combinators the catalog assigned to this unit — `ifNone(_)`, `orElse(_)`, `isSome`, `isNone`, all derived over `match` — so `control-flow.md` §1's `if/else === c.ifTrue { A }.ifNone { B }` desugaring is now executable end to end (see the ADR-0018 amendment and the `control-flow`/`absence` golden corpus).
 
 ### 4.3 `Nil` row present in impl, absent in catalog — **intentional, keep**
 - Not a defect: the catalog deliberately omits `Nil` (Invariant 4). The internal row is required to answer `Value::Nil.class`. Documented here so a future reader does not "fix" the catalog by adding it.

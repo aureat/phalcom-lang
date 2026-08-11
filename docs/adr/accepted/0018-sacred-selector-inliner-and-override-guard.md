@@ -118,12 +118,12 @@ because the `Option` combinators (`ifNone`/`orElse`/`isSome`/`isNone`, now added
 
 U-CORE-2 `Some`-lifts the *taken* arm of `bool_if_true`/`bool_if_false`
 (`primitive/boolean.rs`) via a new shared `wrap_some` helper (`primitive/nil.rs`,
-factored out of the `Some.new(_)` primitive); the untaken arm's `None` was already
+factored out of the `Some.call(_)` primitive); the untaken arm's `None` was already
 correct and is unchanged. The paired `ifTrue(_)ifFalse(_)` and `and`/`or` are
 unaffected — they were never specified to return `Option` and still don't.
 
 Per this ADR's own parity requirement, the inliner's fast path must match in
-lockstep: a new `Bytecode::WrapSome` opcode (pop, allocate a `Some` wrapping the
+lockstep: a new `Bytecode::WrapSome` opcode (pop, create an immediate `Some` wrapping the
 popped value, push) is emitted after the inlined taken-arm body in
 `compile_if_true`/`compile_if_false` (`compiler/inliner.rs`), so the guarded fast
 path and the primitive deopt path are observationally identical, as ADR-0018

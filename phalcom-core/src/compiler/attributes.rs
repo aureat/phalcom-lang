@@ -1394,7 +1394,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
             // has no `orElse` to send. This is the Rubric's own
             // "build the equivalent manually" fallback (same rationale as
             // `hash`/`toString` above): a plain identity comparison against
-            // the `None` singleton, dispatched through the sacred two-armed
+            // immediate `None` value, dispatched through the sacred two-armed
             // `ifTrue(_, ifFalse:_)` conditional every other derived/hand-
             // written control-flow send in this codebase already uses.
             let is_none = Expr::Binary(Box::new(BinaryExpr {

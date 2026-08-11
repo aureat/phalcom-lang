@@ -166,7 +166,7 @@ pub fn object_responds_to(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 /// Signature: `Object::methodFor(_)` — reifies the
 /// [`MethodObject`](crate::method::MethodObject) that method lookup resolves
 /// for selector `args[0]` (a [`Symbol`](crate::interner::Symbol)) on the
-/// receiver, as a bare `Method` value; the shared `None` singleton
+/// receiver, as a bare `Method` value; immediate `None`
 /// ([ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)) on a miss
 /// (functions.md §3, U-CORE-3,
 /// [ADR-0028](../../../docs/adr/accepted/0028-amend-floor-admit-method-reflection.md)).
@@ -358,7 +358,7 @@ pub fn object_invariant_enter(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
 ///
 /// Returns `VM::none_value` — **never** a raw `Value::Nil` — matching every
 /// other unit-returning native primitive: the one-armed `ifTrue` inliner's
-/// Some-wrap expects the surface `None` singleton, not the bare tag.
+/// Some-wrap expects surface immediate `None`, not the bare tag.
 pub fn object_invariant_exit(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if let Value::Obj(id) = receiver {
         vm.checking.remove(id);

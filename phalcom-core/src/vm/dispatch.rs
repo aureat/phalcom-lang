@@ -1177,7 +1177,7 @@ impl VM {
                     let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
                     self.stack.push(Value::Obj(block));
                 }
-                // `Bytecode::Nil` pushes the `None` singleton (the surface
+                // `Bytecode::Nil` pushes immediate `None` (the surface
                 // absence value), never the raw private sentinel. It is emitted
                 // both to seed uninitialized slots (e.g. a `var x` with no
                 // initializer) and as the result of sacred-inlined one-armed
@@ -1186,7 +1186,7 @@ impl VM {
                 // read boundary — so it must already be `None` here (Invariant 4,
                 // [ADR-0007]). The raw `Value::Nil` sentinel is never pushed by
                 // any opcode; it only backs unread allocator storage and is
-                // surfaced to `None` at reads (see the `Get*` handlers and
+                // surfaced to immediate `None` at reads (see the `Get*` handlers and
                 // `surface_absence`). See [`Bytecode::Nil`]'s rustdoc.
                 Bytecode::Nil => self.stack.push(self.none_value()),
                 Bytecode::True => self.stack.push(TRUE),

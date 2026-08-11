@@ -114,7 +114,7 @@ Rules this encodes:
 
 The label on the caret (`receiver is None — \`first\` on an empty List`) is a **second-order
 hint**: it explains why the receiver is `None`, not merely that it is. **Aspirational — not v1.**
-`None` is a shared singleton, so origin-tracking means boxing absence; v1 renders the first-order
+`None` is immediate, so origin-tracking would require a separate provenance wrapper; v1 renders the first-order
 `receiver is None` only. See [`implementation-spec.md`](implementation-spec.md) §10 (hint
 provenance classes A/B/C).
 

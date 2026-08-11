@@ -349,15 +349,16 @@ cargo test -p phalcom-core --test lang -- --ignored  # PENDING spec targets (exp
   harness — the driver `.ph` case references its dependency with a path relative to
   *its own* directory (e.g. a case in `imports/` writes `import "./lib/x"`; a case in
   `imports/negative/` writes `import "../lib/x"`).
-- U6 (absence → `Option` + `let`/`var`): surface `nil` was removed, so the old
+- U6/PDR-0033 (absence → immediate `Option` + `let`/`var`): surface `nil` was removed, so the old
   `lexical_nil_prints` / `system_print_nil` PASS cases became the single
   `compile-errors/compile_error_surface_nil` NEGATIVE (they were byte-identical), and the
   former `binding_let_reassignment` PASS became `compile_error_let_reassignment` (reassigning
   a `let` is now a compile error). The `compile-errors` lane holds compile-time semantic
   diagnostics (surface `nil`, `let` no-initializer, `let` reassignment, `Option` truthiness).
   The `absence`/`bindings` `pending/` cases stay pending: they pin the final surface (a pretty
-  `None` printString and `Some(x)` sugar) that U-STD/later units deliver, not U6's substrate
-  output (`<None instance>`, `Some.new(_)`).
+  `None` printString and `Some(x)` sugar) are now PASS. Canonical construction is
+  `Some(x)`/`Some.call(x)`; `Some.new(x)` remains only in compatibility coverage.
+  `None` and all `Some` layers are immediate; no Option wrapper allocates.
 - **U-SEQ (sequence combinators + lazy views):** +16 PASS cases in `sequence/` lane —
   `sequence_all_true`, `sequence_all_false_short_circuits`, `sequence_any_true_short_circuits`,
   `sequence_any_false`, `sequence_count_arity0`, `sequence_count_predicate`, `sequence_find_hit`,
