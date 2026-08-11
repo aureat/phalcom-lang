@@ -133,17 +133,6 @@ impl TestLsp {
         .await
     }
 
-    pub async fn hover(&mut self, uri: &str, position: Position) -> Value {
-        self.request(
-            "textDocument/hover",
-            json!({
-                "textDocument": { "uri": uri },
-                "position": position
-            }),
-        )
-        .await
-    }
-
     pub async fn semantic_tokens_full(&mut self, uri: &str) -> Value {
         self.request(
             "textDocument/semanticTokens/full",
