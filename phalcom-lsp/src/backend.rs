@@ -327,6 +327,15 @@ impl Backend {
                 alternatives: vec![(class, completion::ReceiverKind::Instance)],
             });
         }
+        if receiver == "super" {
+            return self
+                .semantic
+                .class_at(uri, offset)
+                .and_then(|class| self.semantic.class_surface(&class)?.superclass)
+                .map(|class| completion::SemanticResolvedReceiver {
+                    alternatives: vec![(class, completion::ReceiverKind::Instance)],
+                });
+        }
         if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
             return self.semantic.class_for_name(uri, receiver).map(|class| completion::SemanticResolvedReceiver {
                 alternatives: vec![(class, completion::ReceiverKind::ClassObject)],
