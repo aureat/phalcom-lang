@@ -1,0 +1,243 @@
+//! VM-free live semantic database for LSP requests.
+
+mod callable;
+mod core_source;
+mod facts;
+mod flow;
+mod ids;
+mod infer;
+mod invalidation;
+mod module_graph;
+mod query;
+mod surface;
+
+use std::collections::BTreeMap;
+use std::sync::RwLock;
+
+use phalcom_ast::ast::Program;
+use tower_lsp::lsp_types::Url;
+
+pub use callable::CallableSummary;
+pub use core_source::NativeReturnKnowledge;
+pub use facts::{Confidence, FactOrigin, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ValueShape};
+pub use flow::join_values;
+pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
+pub use invalidation::InvalidationQueue;
+pub use module_graph::{ImportEdge, ModuleGraph};
+pub use query::{SemanticGeneration, SnapshotStamp};
+pub use surface::{ClassSurface, FieldKind, FieldSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, ParamSurface, build_module_surface};
+
+/// A complete semantic contribution from one source file.
+#[derive(Clone, Debug)]
+pub struct FileSemanticSnapshot {
+    /// Monotonic file revision.
+    pub revision: FileRevision,
+    /// Module identity.
+    pub module: ModuleId,
+    /// Source-authored class/member surface.
+    pub surface: ModuleSurface,
+    /// Exact and local-flow facts.
+    pub local_facts: LocalFacts,
+    /// Resolved module dependencies.
+    pub dependencies: DependencySet,
+}
+
+/// Dependencies extracted from one module's imports.
+#[derive(Clone, Debug, Default)]
+pub struct DependencySet {
+    /// Resolved imported modules. Unresolved imports are retained in the graph
+    /// but absent from this resolved dependency list.
+    pub imports: Vec<ModuleId>,
+}
+
+#[derive(Default)]
+struct SemanticState {
+    generation: SemanticGeneration,
+    files: BTreeMap<ModuleId, FileSemanticSnapshot>,
+    classes: BTreeMap<ClassId, ClassSurface>,
+    graph: ModuleGraph,
+}
+
+/// Thread-safe semantic state owned by [`crate::backend::Backend`].
+#[derive(Default)]
+pub struct SemanticDb {
+    state: RwLock<SemanticState>,
+}
+
+impl SemanticDb {
+    /// Creates an empty semantic database.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Replaces one file contribution and publishes one coherent generation.
+    pub fn update_file(&self, uri: &Url, revision: FileRevision, program: &Program) -> SemanticGeneration {
+        let module = ModuleId::from_uri(uri);
+        let mut state = self.state.write().expect("semantic database lock poisoned");
+        let surface = build_module_surface(module.clone(), program);
+        let known_classes = |name: &str| {
+            let local = ClassId::new(module.clone(), name);
+            surface.classes.contains_key(&local).then_some(local).or_else(|| {
+                state.classes.keys().find(|id| id.name == name).cloned().or_else(|| {
+                    [
+                        "Bool", "Float", "Int", "List", "Map", "Object", "Range", "Record", "Set", "String", "Symbol", "Tuple",
+                    ]
+                    .contains(&name)
+                    .then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), name))
+                })
+            })
+        };
+        let is_constructor = |class: &ClassId, selector: &str| {
+            surface
+                .classes
+                .get(class)
+                .and_then(|surface| surface.members.get(selector))
+                .is_some_and(|member| member.is_constructor)
+                || state
+                    .classes
+                    .get(class)
+                    .and_then(|surface| surface.members.get(selector))
+                    .is_some_and(|member| member.is_constructor)
+        };
+        let local_facts = infer::collect_local_facts(program, &module, known_classes, is_constructor);
+        state.classes.retain(|class, _| class.module != module);
+        state.classes.extend(surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
+        state.graph.update(module.clone(), program);
+        let dependencies = DependencySet {
+            imports: state.graph.imports(&module).iter().filter_map(|edge| edge.target.clone()).collect(),
+        };
+        state.files.insert(
+            module.clone(),
+            FileSemanticSnapshot {
+                revision,
+                module,
+                surface,
+                local_facts,
+                dependencies,
+            },
+        );
+        state.generation.0 += 1;
+        state.generation
+    }
+
+    /// Removes one file contribution and publishes one coherent generation.
+    pub fn remove_file(&self, uri: &Url) -> SemanticGeneration {
+        let module = ModuleId::from_uri(uri);
+        let mut state = self.state.write().expect("semantic database lock poisoned");
+        state.files.remove(&module);
+        state.classes.retain(|class, _| class.module != module);
+        state.graph.remove(&module);
+        state.generation.0 += 1;
+        state.generation
+    }
+
+    /// Returns the current semantic generation.
+    pub fn generation(&self) -> SemanticGeneration {
+        self.state.read().expect("semantic database lock poisoned").generation
+    }
+
+    /// Returns an immutable clone of one file's semantic snapshot.
+    pub fn file_snapshot(&self, uri: &Url) -> Option<FileSemanticSnapshot> {
+        let module = ModuleId::from_uri(uri);
+        self.state.read().expect("semantic database lock poisoned").files.get(&module).cloned()
+    }
+
+    /// Returns one class surface by module-qualified identity.
+    pub fn class_surface(&self, id: &ClassId) -> Option<ClassSurface> {
+        self.state.read().expect("semantic database lock poisoned").classes.get(id).cloned()
+    }
+
+    /// Resolves a class name in its module, with the stable core namespace as
+    /// a fallback for primitive/runtime classes.
+    pub fn class_for_name(&self, uri: &Url, name: &str) -> Option<ClassId> {
+        let module = ModuleId::from_uri(uri);
+        let state = self.state.read().expect("semantic database lock poisoned");
+        let local = ClassId::new(module, name);
+        if state.classes.contains_key(&local) {
+            return Some(local);
+        }
+        [
+            "Bool", "Float", "Int", "List", "Map", "Object", "Range", "Record", "Set", "String", "Symbol", "Tuple",
+        ]
+        .contains(&name)
+        .then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), name))
+    }
+
+    /// Returns the class whose declaration contains a byte offset in `uri`.
+    pub fn class_at(&self, uri: &Url, offset: usize) -> Option<ClassId> {
+        let module = ModuleId::from_uri(uri);
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .files
+            .get(&module)?
+            .surface
+            .classes
+            .values()
+            .find(|class| class.source_range.contains(offset))
+            .map(|class| class.id.clone())
+    }
+
+    /// Returns the fact visible for a local binding at a byte offset.
+    pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
+        let module = ModuleId::from_uri(uri);
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .files
+            .get(&module)?
+            .local_facts
+            .binding_at(name, offset)
+            .cloned()
+    }
+
+    /// Returns current import edges for one module.
+    pub fn imports(&self, uri: &Url) -> Vec<ImportEdge> {
+        let module = ModuleId::from_uri(uri);
+        self.state.read().expect("semantic database lock poisoned").graph.imports(&module).to_vec()
+    }
+
+    /// Returns a coherent revision/generation stamp for one file.
+    pub fn stamp(&self, uri: &Url) -> Option<SnapshotStamp> {
+        let module = ModuleId::from_uri(uri);
+        let state = self.state.read().expect("semantic database lock poisoned");
+        Some(SnapshotStamp {
+            revision: state.files.get(&module)?.revision,
+            generation: state.generation,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phalcom_ast::parser::parse;
+
+    fn uri(value: &str) -> Url {
+        Url::parse(value).unwrap()
+    }
+
+    #[test]
+    fn update_publishes_revisioned_local_facts() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///main.ph");
+        let parse = parse("let text = \"hello\"\n", 0);
+        let generation = db.update_file(&uri, FileRevision(7), &parse.program);
+        assert_eq!(generation.0, 1);
+        assert_eq!(db.file_snapshot(&uri).unwrap().revision, FileRevision(7));
+        assert!(matches!(db.binding_at(&uri, "text", 20).unwrap().shape, ValueShape::Instance(ClassId { name, .. }) if name == "String"));
+    }
+
+    #[test]
+    fn same_named_classes_are_isolated() {
+        let db = SemanticDb::new();
+        let one = uri("file:///one.ph");
+        let two = uri("file:///two.ph");
+        let parse = parse("class Point { move() { } }", 0);
+        db.update_file(&one, FileRevision(1), &parse.program);
+        db.update_file(&two, FileRevision(1), &parse.program);
+        assert!(db.class_surface(&ClassId::new(ModuleId::from_uri(&one), "Point")).is_some());
+        assert!(db.class_surface(&ClassId::new(ModuleId::from_uri(&two), "Point")).is_some());
+        assert_ne!(ModuleId::from_uri(&one), ModuleId::from_uri(&two));
+    }
+}

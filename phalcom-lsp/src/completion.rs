@@ -27,6 +27,7 @@ use phalcom_ast::ast::{
     ClassMember, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, Program, RecordLiteralEntry,
     SetLiteralEntry, Statement, TupleLiteralEntry,
 };
+use phalcom_common::range::SourceRange;
 
 use crate::core_table::{CoreTable, CoreVisibility, MemberKind};
 use crate::documents::Document;
@@ -51,6 +52,130 @@ pub enum ReceiverKind {
     /// The receiver is the class object itself (`Cls.<cursor>`, a class-side
     /// message send) — offer class-side (`static`/`construct`) members only.
     ClassObject,
+}
+
+/// Recovered member-completion target from an incomplete editor buffer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionTarget {
+    /// Source range of the receiver expression, excluding the member dot.
+    pub receiver_range: SourceRange,
+    /// Member text already typed after the dot.
+    pub partial_member: String,
+}
+
+/// Recovers a member target at an LSP position using delimiter-balanced source
+/// scanning. The parser remains authoritative when it can recover the target;
+/// this fallback keeps completion useful while the user has a dangling dot or
+/// an incomplete call expression.
+pub fn target_at(doc: &Document, position: Position) -> Option<CompletionTarget> {
+    let offset = doc.line_index.offset(position);
+    target_at_offset(&doc.text, offset)
+}
+
+fn target_at_offset(text: &str, offset: usize) -> Option<CompletionTarget> {
+    let end = offset.min(text.len());
+    let bytes = text.as_bytes();
+    let mut partial_start = end;
+    while partial_start > 0 && is_identifier_byte(bytes[partial_start - 1]) {
+        partial_start -= 1;
+    }
+    let partial_member = text[partial_start..end].to_string();
+    let dot = trim_left(text, partial_start);
+    if dot == 0 || bytes[dot - 1] != b'.' {
+        return None;
+    }
+    let receiver_end = dot - 1;
+    let receiver_start = scan_expression_start(text, receiver_end)?;
+    (receiver_start < receiver_end).then_some(CompletionTarget {
+        receiver_range: SourceRange {
+            start: receiver_start,
+            end: receiver_end,
+        },
+        partial_member,
+    })
+}
+
+fn scan_expression_start(text: &str, end: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let end = trim_left(text, end);
+    if end == 0 {
+        return None;
+    }
+    let mut start = match bytes[end - 1] {
+        b')' | b']' | b'}' => matching_open(bytes, end - 1).map(|open| open + 1).and_then(|after_open| {
+            let open = after_open - 1;
+            let before = trim_left(text, open);
+            if before > 0 && is_identifier_byte(bytes[before - 1]) {
+                Some(scan_identifier_start(bytes, before))
+            } else {
+                Some(open)
+            }
+        })?,
+        byte if is_identifier_byte(byte) => scan_identifier_start(bytes, end),
+        b'"' | b'\'' => scan_quoted_start(bytes, end)?,
+        _ => return None,
+    };
+
+    loop {
+        let before = trim_left(text, start);
+        if before == 0 || bytes[before - 1] != b'.' {
+            break;
+        }
+        start = scan_expression_start(text, before - 1)?;
+    }
+    Some(start)
+}
+
+fn matching_open(bytes: &[u8], close: usize) -> Option<usize> {
+    let (open, close_byte) = match bytes.get(close)? {
+        b')' => (b'(', b')'),
+        b']' => (b'[', b']'),
+        b'}' => (b'{', b'}'),
+        _ => return None,
+    };
+    let mut depth = 0;
+    for index in (0..=close).rev() {
+        match bytes[index] {
+            byte if byte == close_byte => depth += 1,
+            byte if byte == open => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn scan_identifier_start(bytes: &[u8], end: usize) -> usize {
+    let mut start = end;
+    while start > 0 && is_identifier_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    start
+}
+
+fn scan_quoted_start(bytes: &[u8], end: usize) -> Option<usize> {
+    let quote = *bytes.get(end - 1)?;
+    for index in (0..end - 1).rev() {
+        if bytes[index] == quote && (index == 0 || bytes[index - 1] != b'\\') {
+            return Some(index);
+        }
+    }
+    None
+}
+
+fn trim_left(text: &str, mut offset: usize) -> usize {
+    while offset > 0 && text.as_bytes()[offset - 1].is_ascii_whitespace() {
+        offset -= 1;
+    }
+    offset
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 /// Names the class of the receiver expression under a completion position,
@@ -817,6 +942,30 @@ mod tests {
     fn receiver_prefix_none_without_dot() {
         assert_eq!(receiver_prefix("bare", 4), None);
         assert_eq!(receiver_prefix(".x", 2), None);
+    }
+
+    #[test]
+    fn target_at_recovers_chained_and_balanced_receivers() {
+        let cases = [
+            ("p.", "p"),
+            ("factory.make().", "factory.make()"),
+            ("self.client.", "self.client"),
+            ("users[0].", "users[0]"),
+            ("(pointFactory()).", "(pointFactory())"),
+        ];
+        for (source, receiver) in cases {
+            let doc = Document::new(source.to_string());
+            let target = target_at(
+                &doc,
+                Position {
+                    line: 0,
+                    character: source.chars().count() as u32,
+                },
+            )
+            .unwrap();
+            assert_eq!(&doc.text[target.receiver_range.start..target.receiver_range.end], receiver);
+            assert!(target.partial_member.is_empty());
+        }
     }
 
     #[test]

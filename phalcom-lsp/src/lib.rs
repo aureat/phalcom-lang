@@ -21,8 +21,10 @@
 //!   `Diagnostic`.
 //! - [`documents`] — the open-document store (text + cached parse + cached
 //!   [`line_index::LineIndex`]).
-//! - [`core_table`] — the embedded builtin core-class selector table
-//!   (`core-table.json`), consulted by completion for builtin receivers.
+//! - [`semantic`] — the VM-free live semantic database and bounded local
+//!   runtime-value inference.
+//! - [`core_table`] — the transitional embedded builtin core-class selector
+//!   table, retained until live core-source indexing lands.
 //! - [`completion`] — receiver-aware [`textDocument/completion`] (Stage 3):
 //!   the pluggable [`completion::ReceiverResolver`] plus snippet rendering.
 //! - [`hover`] — [`textDocument/hover`] (Stage 4): keyword blurbs, selector
@@ -47,6 +49,7 @@ pub mod hover;
 pub mod index;
 pub mod line_index;
 pub mod selectors;
+pub mod semantic;
 pub mod semantic_tokens;
 
 pub use backend::Backend;

@@ -38,13 +38,15 @@ use tower_lsp::lsp_types::{
 };
 use tower_lsp::{Client, LanguageServer};
 
-use crate::completion::{self, ConstructResolver, ReceiverResolver};
+use crate::completion;
 use crate::core_table::CoreTable;
 use crate::diagnostics::syntax_errors_to_diagnostics;
 use crate::documents::DocumentStore;
 use crate::hover::{self, SelectorSite};
 use crate::index::{self, Occurrence, WorkspaceIndex};
 use crate::line_index::LineIndex;
+use crate::semantic::SemanticDb;
+use crate::semantic::ValueShape;
 use crate::semantic_tokens;
 
 /// The Phalcom language server.
@@ -66,6 +68,9 @@ pub struct Backend {
     /// and written from concurrent `&self` handlers without a server-wide
     /// lock — no `Arc`/`Mutex` wrapper needed around it here.
     index: WorkspaceIndex,
+    /// Live VM-free semantic state. Completion migration consumes this after
+    /// the Phase A foundation; the legacy index remains for navigation parity.
+    semantic: SemanticDb,
 }
 
 impl Backend {
@@ -76,6 +81,7 @@ impl Backend {
             client,
             documents: DocumentStore::new(),
             index: WorkspaceIndex::new(),
+            semantic: SemanticDb::new(),
         }
     }
 
@@ -92,6 +98,7 @@ impl Backend {
             .documents
             .with_document(&uri, |doc| {
                 self.index.update_file(uri.clone(), &doc.parse.program);
+                self.semantic.update_file(&uri, doc.revision, &doc.parse.program);
                 syntax_errors_to_diagnostics(doc.errors(), &doc.line_index)
             })
             .unwrap_or_default();
@@ -118,9 +125,42 @@ impl Backend {
                     continue;
                 };
                 let parse = phalcom_ast::parser::parse(&text, 0);
-                self.index.update_file(uri, &parse.program);
+                self.index.update_file(uri.clone(), &parse.program);
+                self.semantic.update_file(&uri, crate::semantic::FileRevision(1), &parse.program);
             }
         }
+    }
+
+    /// Resolves a recovered completion target through live semantic facts.
+    fn semantic_receiver(&self, uri: &Url, doc: &crate::documents::Document, position: Position) -> Option<(String, completion::ReceiverKind)> {
+        let target = completion::target_at(doc, position)?;
+        let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?;
+        let offset = target.receiver_range.end;
+        if receiver == "self" {
+            return self
+                .semantic
+                .class_at(uri, offset)
+                .map(|class| (class.name, completion::ReceiverKind::Instance));
+        }
+        if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
+            return self
+                .semantic
+                .class_for_name(uri, receiver)
+                .map(|class| (class.name, completion::ReceiverKind::ClassObject));
+        }
+        if receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
+            return match self.semantic.binding_at(uri, receiver, offset)?.shape {
+                ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
+                ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
+                ValueShape::Union(classes) => classes.into_iter().find_map(|shape| match shape {
+                    ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
+                    ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
+                    _ => None,
+                }),
+                _ => None,
+            };
+        }
+        None
     }
 
     /// Resolves the selector under `position` in the open document `uri`,
@@ -488,6 +528,18 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.documents.close(&uri);
+        let revision = self.documents.bump_revision(&uri);
+        if let Ok(path) = uri.to_file_path() {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                let parse = phalcom_ast::parser::parse(&text, 0);
+                self.index.update_file(uri.clone(), &parse.program);
+                self.semantic.update_file(&uri, revision, &parse.program);
+            } else {
+                self.semantic.remove_file(&uri);
+            }
+        } else {
+            self.semantic.remove_file(&uri);
+        }
         self.client.publish_diagnostics(uri, Vec::new(), None).await;
     }
 
@@ -583,7 +635,7 @@ impl LanguageServer for Backend {
         let position = params.text_document_position.position;
 
         let items: Option<Vec<CompletionItem>> = self.documents.with_document(&uri, |doc| {
-            let resolved = ConstructResolver.resolve(doc, position);
+            let resolved = self.semantic_receiver(&uri, doc, position);
             let resolved = resolved.as_ref().map(|(class, kind)| (class.as_str(), *kind));
             let offset = doc.line_index.offset(position);
             let privileged = uri.path().ends_with("/phalcom-core/core/core.ph");

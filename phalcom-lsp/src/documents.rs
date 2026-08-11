@@ -10,12 +10,15 @@
 //! future read-only capability (go-to-def, hover, …) can run concurrently
 //! without a single global lock.
 
+use std::sync::Arc;
+
 use dashmap::DashMap;
 use phalcom_ast::error::SyntaxError;
 use phalcom_ast::parser::{self, Parse};
 use tower_lsp::lsp_types::Url;
 
 use crate::line_index::LineIndex;
+use crate::semantic::FileRevision;
 
 /// One open document's cached state: source text plus everything derived
 /// from it.
@@ -24,25 +27,37 @@ use crate::line_index::LineIndex;
 /// docs for why a partial/incremental update is not attempted at Stage 1.
 pub struct Document {
     /// The document's full current text, verbatim from the client.
-    pub text: String,
+    pub text: Arc<str>,
     /// The result of parsing [`text`](Self::text) with
     /// [`phalcom_ast::parser::parse`]: the recovered [`Program`] plus every
     /// [`SyntaxError`] found.
     ///
     /// [`Program`]: phalcom_ast::ast::Program
-    pub parse: Parse,
+    pub parse: Arc<Parse>,
     /// The [`LineIndex`] built over [`text`](Self::text), used to map every
     /// byte-offset span in [`parse`](Self::parse) to LSP positions.
-    pub line_index: LineIndex,
+    pub line_index: Arc<LineIndex>,
+    /// Monotonic semantic revision for this document.
+    pub revision: FileRevision,
 }
 
 impl Document {
     /// Parses `text` and builds a fresh [`Document`] (parse tree + line
     /// index) from it.
     pub fn new(text: String) -> Self {
-        let parse = parser::parse(&text, 0);
-        let line_index = LineIndex::new(&text);
-        Self { text, parse, line_index }
+        Self::new_with_revision(text, FileRevision(1))
+    }
+
+    /// Parses `text` at an explicitly assigned semantic revision.
+    pub fn new_with_revision(text: String, revision: FileRevision) -> Self {
+        let parse = Arc::new(parser::parse(&text, 0));
+        let line_index = Arc::new(LineIndex::new(&text));
+        Self {
+            text: Arc::from(text),
+            parse,
+            line_index,
+            revision,
+        }
     }
 
     /// The [`SyntaxError`]s recovered from the current parse, in discovery
@@ -60,6 +75,7 @@ impl Document {
 #[derive(Default)]
 pub struct DocumentStore {
     documents: DashMap<Url, Document>,
+    revisions: DashMap<Url, u64>,
 }
 
 impl DocumentStore {
@@ -73,8 +89,14 @@ impl DocumentStore {
     /// Used by both `did_open` (first insert) and `did_change` (full-text
     /// replace, since sync mode is `Full`) — the operation is identical:
     /// reparse and overwrite.
-    pub fn open_or_update(&self, uri: Url, text: String) {
-        self.documents.insert(uri, Document::new(text));
+    pub fn open_or_update(&self, uri: Url, text: String) -> FileRevision {
+        let revision = {
+            let mut entry = self.revisions.entry(uri.clone()).or_insert(0);
+            *entry += 1;
+            FileRevision(*entry)
+        };
+        self.documents.insert(uri, Document::new_with_revision(text, revision));
+        revision
     }
 
     /// Removes the document for `uri`, e.g. on `did_close`.
@@ -82,6 +104,13 @@ impl DocumentStore {
     /// Returns `true` if a document was present and removed.
     pub fn close(&self, uri: &Url) -> bool {
         self.documents.remove(uri).is_some()
+    }
+
+    /// Advances a file revision after a close or disk-backed refresh.
+    pub fn bump_revision(&self, uri: &Url) -> FileRevision {
+        let mut entry = self.revisions.entry(uri.clone()).or_insert(0);
+        *entry += 1;
+        FileRevision(*entry)
     }
 
     /// Runs `f` against the [`Document`] for `uri`, if open.
@@ -92,6 +121,30 @@ impl DocumentStore {
     pub fn with_document<R>(&self, uri: &Url, f: impl FnOnce(&Document) -> R) -> Option<R> {
         self.documents.get(uri).map(|entry| f(&entry))
     }
+
+    /// Returns a cheap immutable snapshot without retaining a map guard.
+    pub fn snapshot(&self, uri: &Url) -> Option<DocumentSnapshot> {
+        self.documents.get(uri).map(|entry| DocumentSnapshot {
+            text: Arc::clone(&entry.text),
+            parse: Arc::clone(&entry.parse),
+            line_index: Arc::clone(&entry.line_index),
+            revision: entry.revision,
+        })
+    }
+}
+
+/// Immutable open-document data suitable for semantic work outside the map
+/// shard lock.
+#[derive(Clone)]
+pub struct DocumentSnapshot {
+    /// Full live source text.
+    pub text: Arc<str>,
+    /// Recovered parse tree and diagnostics.
+    pub parse: Arc<Parse>,
+    /// UTF-16 line/offset index.
+    pub line_index: Arc<LineIndex>,
+    /// Semantic revision of this snapshot.
+    pub revision: FileRevision,
 }
 
 #[cfg(test)]
