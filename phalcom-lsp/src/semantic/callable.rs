@@ -2,6 +2,7 @@
 
 use super::facts::InferredValue;
 use super::ids::CallableId;
+use super::query::SemanticGeneration;
 
 /// Summary of a source callable's inferred inputs and output.
 #[derive(Clone, Debug)]
@@ -14,4 +15,15 @@ pub struct CallableSummary {
     pub returns: InferredValue,
     /// Direct callable dependencies.
     pub dependencies: Vec<CallableId>,
+    /// Effects observed while extracting the summary.
+    pub effects: SummaryEffects,
+    /// Semantic generation that produced this summary.
+    pub revision: SemanticGeneration,
+}
+
+/// Conservative effect flags retained for future invalidation precision.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SummaryEffects {
+    /// Callable contains a reflective or dynamic send.
+    pub dynamic_send: bool,
 }

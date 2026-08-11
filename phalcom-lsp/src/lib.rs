@@ -47,6 +47,7 @@ pub mod diagnostics;
 pub mod documents;
 pub mod hover;
 pub mod index;
+pub mod inlay_hints;
 pub mod line_index;
 pub mod selectors;
 pub mod semantic;

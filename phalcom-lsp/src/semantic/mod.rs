@@ -17,9 +17,9 @@ use std::sync::RwLock;
 use phalcom_ast::ast::Program;
 use tower_lsp::lsp_types::Url;
 
-pub use callable::CallableSummary;
+pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnKnowledge;
-pub use facts::{Confidence, FactOrigin, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ValueShape};
+pub use facts::{Confidence, FactOrigin, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ValueShape};
 pub use flow::join_values;
 pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
 pub use invalidation::InvalidationQueue;
@@ -38,6 +38,8 @@ pub struct FileSemanticSnapshot {
     pub surface: ModuleSurface,
     /// Exact and local-flow facts.
     pub local_facts: LocalFacts,
+    /// Constructor-assigned field facts.
+    pub field_facts: FieldFacts,
     /// Resolved module dependencies.
     pub dependencies: DependencySet,
 }
@@ -55,6 +57,8 @@ struct SemanticState {
     generation: SemanticGeneration,
     files: BTreeMap<ModuleId, FileSemanticSnapshot>,
     classes: BTreeMap<ClassId, ClassSurface>,
+    summaries: BTreeMap<CallableId, CallableSummary>,
+    field_facts: BTreeMap<(ClassId, String), InferredValue>,
     graph: ModuleGraph,
 }
 
@@ -93,15 +97,32 @@ impl SemanticDb {
                 .get(class)
                 .and_then(|surface| surface.members.get(selector))
                 .is_some_and(|member| member.is_constructor)
+                || (selector == "new()" && surface.classes.contains_key(class))
                 || state
                     .classes
                     .get(class)
                     .and_then(|surface| surface.members.get(selector))
                     .is_some_and(|member| member.is_constructor)
+                || (selector == "new()" && state.classes.contains_key(class))
         };
-        let local_facts = infer::collect_local_facts(program, &module, known_classes, is_constructor);
+        let callable_return = |class: &ClassId, selector: &str| {
+            let callable = CallableId {
+                owner: class.clone(),
+                selector: selector.to_string(),
+                side: DispatchSide::Instance,
+            };
+            state.summaries.get(&callable).map(|summary| summary.returns.clone())
+        };
+        let next_generation = SemanticGeneration(state.generation.0 + 1);
+        let summaries = infer::summaries_for_surface(&surface, &module, known_classes, is_constructor, callable_return, next_generation);
+        let local_facts = infer::collect_local_facts_with_returns(program, &module, known_classes, is_constructor, callable_return);
+        let field_facts = infer::field_facts_for_surface(&surface, &module, known_classes, is_constructor, callable_return);
         state.classes.retain(|class, _| class.module != module);
         state.classes.extend(surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
+        state.summaries.retain(|callable, _| callable.owner.module != module);
+        state.summaries.extend(summaries.into_iter().map(|summary| (summary.callable.clone(), summary)));
+        state.field_facts.retain(|(class, _), _| class.module != module);
+        state.field_facts.extend(field_facts.iter().map(|(key, value)| (key.clone(), value.clone())));
         state.graph.update(module.clone(), program);
         let dependencies = DependencySet {
             imports: state.graph.imports(&module).iter().filter_map(|edge| edge.target.clone()).collect(),
@@ -113,10 +134,11 @@ impl SemanticDb {
                 module,
                 surface,
                 local_facts,
+                field_facts,
                 dependencies,
             },
         );
-        state.generation.0 += 1;
+        state.generation = next_generation;
         state.generation
     }
 
@@ -126,6 +148,8 @@ impl SemanticDb {
         let mut state = self.state.write().expect("semantic database lock poisoned");
         state.files.remove(&module);
         state.classes.retain(|class, _| class.module != module);
+        state.summaries.retain(|callable, _| callable.owner.module != module);
+        state.field_facts.retain(|(class, _), _| class.module != module);
         state.graph.remove(&module);
         state.generation.0 += 1;
         state.generation
@@ -145,6 +169,11 @@ impl SemanticDb {
     /// Returns one class surface by module-qualified identity.
     pub fn class_surface(&self, id: &ClassId) -> Option<ClassSurface> {
         self.state.read().expect("semantic database lock poisoned").classes.get(id).cloned()
+    }
+
+    /// Returns a source callable summary from the current semantic generation.
+    pub fn callable_summary(&self, id: &CallableId) -> Option<CallableSummary> {
+        self.state.read().expect("semantic database lock poisoned").summaries.get(id).cloned()
     }
 
     /// Resolves a class name in its module, with the stable core namespace as
@@ -191,6 +220,61 @@ impl SemanticDb {
             .cloned()
     }
 
+    /// Infers a parsed receiver expression against the coherent current
+    /// semantic generation.
+    pub fn infer_expression(&self, uri: &Url, expr: &phalcom_ast::ast::Expr, offset: usize) -> InferredValue {
+        let module = ModuleId::from_uri(uri);
+        let state = self.state.read().expect("semantic database lock poisoned");
+        let mut environment = BTreeMap::new();
+        if let Some(file) = state.files.get(&module) {
+            collect_expression_environment(expr, &file.local_facts, offset, &mut environment);
+        }
+        let known_classes = |name: &str| {
+            let local = ClassId::new(module.clone(), name);
+            state.classes.contains_key(&local).then_some(local).or_else(|| {
+                [
+                    "Bool", "Float", "Int", "List", "Map", "Object", "Range", "Record", "Set", "String", "Symbol", "Tuple",
+                ]
+                .contains(&name)
+                .then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), name))
+            })
+        };
+        let is_constructor = |class: &ClassId, selector: &str| {
+            state
+                .classes
+                .get(class)
+                .and_then(|surface| surface.members.get(selector))
+                .is_some_and(|member| member.is_constructor)
+                || (selector == "new()" && state.classes.contains_key(class))
+        };
+        let callable_return = |class: &ClassId, selector: &str| {
+            state
+                .summaries
+                .get(&CallableId {
+                    owner: class.clone(),
+                    selector: selector.to_string(),
+                    side: DispatchSide::Instance,
+                })
+                .map(|summary| summary.returns.clone())
+        };
+        let field_value = |class: &ClassId, name: &str| state.field_facts.get(&(class.clone(), name.to_string())).cloned();
+        let current_class = state
+            .files
+            .get(&module)
+            .and_then(|file| file.surface.classes.values().find(|class| class.source_range.contains(offset)))
+            .map(|class| class.id.clone());
+        infer::infer_expr_with_fields(
+            expr,
+            &module,
+            current_class.as_ref(),
+            &environment,
+            known_classes,
+            is_constructor,
+            callable_return,
+            field_value,
+        )
+    }
+
     /// Returns current import edges for one module.
     pub fn imports(&self, uri: &Url) -> Vec<ImportEdge> {
         let module = ModuleId::from_uri(uri);
@@ -205,6 +289,29 @@ impl SemanticDb {
             revision: state.files.get(&module)?.revision,
             generation: state.generation,
         })
+    }
+}
+
+fn collect_expression_environment(expr: &phalcom_ast::ast::Expr, facts: &LocalFacts, offset: usize, environment: &mut BTreeMap<String, InferredValue>) {
+    match expr {
+        phalcom_ast::ast::Expr::Var { value, .. } => {
+            if let Some(fact) = facts.binding_at(value, offset) {
+                environment.insert(value.clone(), fact.clone());
+            }
+        }
+        phalcom_ast::ast::Expr::MethodCall(call) => {
+            collect_expression_environment(&call.object, facts, offset, environment);
+            for arg in &call.args {
+                let expression = match arg {
+                    phalcom_ast::ast::PackItem::Positional { expr, .. }
+                    | phalcom_ast::ast::PackItem::Expand { expr, .. }
+                    | phalcom_ast::ast::PackItem::Labeled { value: expr, .. } => expr,
+                };
+                collect_expression_environment(expression, facts, offset, environment);
+            }
+        }
+        phalcom_ast::ast::Expr::GetProperty(property) => collect_expression_environment(&property.object, facts, offset, environment),
+        _ => {}
     }
 }
 
@@ -239,5 +346,65 @@ mod tests {
         assert!(db.class_surface(&ClassId::new(ModuleId::from_uri(&one), "Point")).is_some());
         assert!(db.class_surface(&ClassId::new(ModuleId::from_uri(&two), "Point")).is_some());
         assert_ne!(ModuleId::from_uri(&one), ModuleId::from_uri(&two));
+    }
+
+    #[test]
+    fn callable_summary_tracks_constructor_return() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///factory.ph");
+        let parse = parse("class Point { @constructor new() { } }\nclass Factory { make() { Point.new() } }\n", 0);
+        db.update_file(&uri, FileRevision(1), &parse.program);
+        let summary = db
+            .callable_summary(&CallableId {
+                owner: ClassId::new(ModuleId::from_uri(&uri), "Factory"),
+                selector: "make()".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .unwrap();
+        assert!(matches!(summary.returns.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Point"));
+    }
+
+    #[test]
+    fn explicit_receiver_expression_uses_callable_return_summary() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///factory.ph");
+        let parsed = parse(
+            "class Point { @constructor new() { } }\nclass Factory { @constructor new() { } make() { Point.new() } }\nlet factory = Factory.new()\n",
+            0,
+        );
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let receiver = parse("factory.make()", 0)
+            .program
+            .statements
+            .into_iter()
+            .find_map(|statement| match statement {
+                phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
+                _ => None,
+            })
+            .unwrap();
+        let value = db.infer_expression(&uri, &receiver, 200);
+        assert!(matches!(value.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Point"));
+    }
+
+    #[test]
+    fn field_expression_uses_constructor_assignment_fact() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///service.ph");
+        let parsed = parse(
+            "class Client { send() { } }\nclass Service { @constructor new() { _client = Client.new() } run() { _client } }\n",
+            0,
+        );
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let field = parse("_client", 0)
+            .program
+            .statements
+            .into_iter()
+            .find_map(|statement| match statement {
+                phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
+                _ => None,
+            })
+            .unwrap();
+        let value = db.infer_expression(&uri, &field, 100);
+        assert!(matches!(value.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Client"));
     }
 }

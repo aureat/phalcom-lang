@@ -202,6 +202,12 @@ pub struct LocalFacts {
     bindings: BTreeMap<String, Vec<BindingFact>>,
 }
 
+/// Inferred class-local field writes and reads.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FieldFacts {
+    fields: BTreeMap<(ClassId, String), InferredValue>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct BindingFact {
     range: SourceRange,
@@ -227,5 +233,23 @@ impl LocalFacts {
     /// Returns every binding name recorded in this file.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.bindings.keys().map(String::as_str)
+    }
+}
+
+impl FieldFacts {
+    /// Records or joins one field write.
+    pub fn record(&mut self, class: ClassId, name: impl Into<String>, value: InferredValue) {
+        let key = (class, name.into());
+        self.fields.entry(key).and_modify(|old| *old = old.join(&value)).or_insert(value);
+    }
+
+    /// Returns the joined fact for one class-local field.
+    pub fn get(&self, class: &ClassId, name: &str) -> Option<&InferredValue> {
+        self.fields.get(&(class.clone(), name.to_string()))
+    }
+
+    /// Iterates over class-qualified field facts for publication in the database.
+    pub fn iter(&self) -> impl Iterator<Item = (&(ClassId, String), &InferredValue)> {
+        self.fields.iter()
     }
 }

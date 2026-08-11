@@ -2,25 +2,15 @@
 
 use std::collections::BTreeMap;
 
-use super::facts::{InferredValue, LocalFacts, ValueShape};
+use super::CallableSummary;
+use super::facts::{FieldFacts, InferredValue, LocalFacts, ValueShape};
 use super::ids::{CORE_MODULE_URI, ClassId, ModuleId};
+use super::query::SemanticGeneration;
+use super::surface::ModuleSurface;
 use phalcom_ast::ast::{
     Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, RecordLiteralEntry, SetLiteralEntry, Statement,
     SymbolLiteralKind, TupleLiteralEntry,
 };
-
-/// Collects exact and local-flow facts from a recovered program.
-pub fn collect_local_facts(
-    program: &phalcom_ast::ast::Program,
-    module: &ModuleId,
-    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
-    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-) -> LocalFacts {
-    let mut facts = LocalFacts::default();
-    let mut environment = BTreeMap::new();
-    collect_statements(&program.statements, module, None, known_class, is_constructor, &mut environment, &mut facts);
-    facts
-}
 
 /// Infers one expression using an existing local environment.
 pub fn infer_expr(
@@ -118,12 +108,155 @@ pub fn infer_expr(
     InferredValue::exact(shape, range)
 }
 
-fn collect_statements(
+/// Infers a source expression while consulting known callable return summaries.
+pub fn infer_expr_with_returns(
+    expr: &Expr,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+) -> InferredValue {
+    if let Expr::MethodCall(call) = expr {
+        let receiver = infer_expr_with_returns(&call.object, module, current_class, environment, known_class, is_constructor, callable_return);
+        let selector = call_selector(&call.method, &call.args);
+        let shape = match receiver.shape {
+            ValueShape::ClassObject(class) if is_constructor(&class, &selector) => ValueShape::Instance(class),
+            ValueShape::Instance(class) => callable_return(&class, &selector).map(|value| value.shape).unwrap_or(ValueShape::Unknown),
+            _ => ValueShape::Unknown,
+        };
+        return InferredValue::flow(shape, expr.range());
+    }
+    if let Expr::UnqualifiedCall(call) = expr {
+        let shape = current_class
+            .and_then(|class| callable_return(class, &call_selector(&call.name, &call.args)))
+            .map(|value| value.shape)
+            .unwrap_or(ValueShape::Unknown);
+        return InferredValue::flow(shape, expr.range());
+    }
+    infer_expr(expr, module, current_class, environment, known_class, is_constructor)
+}
+
+/// Infers expressions while consulting callable summaries and constructor-assigned fields.
+pub fn infer_expr_with_fields(
+    expr: &Expr,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    field_value: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+) -> InferredValue {
+    match expr {
+        Expr::Field { value, .. } => current_class
+            .and_then(|class| field_value(class, value))
+            .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, expr.range())),
+        Expr::MethodCall(call) => {
+            let receiver = infer_expr_with_fields(
+                &call.object,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                field_value,
+            );
+            let selector = call_selector(&call.method, &call.args);
+            let shape = match receiver.shape {
+                ValueShape::ClassObject(class) if is_constructor(&class, &selector) => ValueShape::Instance(class),
+                ValueShape::Instance(class) => callable_return(&class, &selector).map(|value| value.shape).unwrap_or(ValueShape::Unknown),
+                _ => ValueShape::Unknown,
+            };
+            InferredValue::flow(shape, expr.range())
+        }
+        _ => infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return),
+    }
+}
+
+/// Collects constructor-assigned field facts from one module's source surface.
+pub fn field_facts_for_surface(
+    surface: &ModuleSurface,
+    module: &ModuleId,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+) -> FieldFacts {
+    let mut facts = FieldFacts::default();
+    for class in surface.classes.values() {
+        for field in class.fields.values() {
+            if let Some(initializer) = &field.initializer {
+                let value = infer_expr_with_returns(
+                    initializer,
+                    module,
+                    Some(&class.id),
+                    &BTreeMap::new(),
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                );
+                facts.record(class.id.clone(), field.name.clone(), value);
+            }
+        }
+        for member in class.members.values() {
+            for statement in &member.body {
+                if let Statement::Expr {
+                    expr: Expr::Assignment(assignment),
+                    ..
+                } = statement
+                {
+                    let Expr::Field { value: name, range, .. } = assignment.name.as_ref() else {
+                        continue;
+                    };
+                    let inferred = infer_expr_with_returns(
+                        &assignment.value,
+                        module,
+                        Some(&class.id),
+                        &BTreeMap::new(),
+                        known_class,
+                        is_constructor,
+                        callable_return,
+                    );
+                    facts.record(class.id.clone(), name.clone(), InferredValue::flow(inferred.shape, *range));
+                }
+            }
+        }
+    }
+    facts
+}
+
+/// Collects local facts with source-callable summaries enabled.
+pub fn collect_local_facts_with_returns(
+    program: &phalcom_ast::ast::Program,
+    module: &ModuleId,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+) -> LocalFacts {
+    let mut facts = LocalFacts::default();
+    let mut environment = BTreeMap::new();
+    collect_statements_with_returns(
+        &program.statements,
+        module,
+        None,
+        known_class,
+        is_constructor,
+        callable_return,
+        &mut environment,
+        &mut facts,
+    );
+    facts
+}
+
+fn collect_statements_with_returns(
     statements: &[Statement],
     module: &ModuleId,
     current_class: Option<&ClassId>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
     environment: &mut BTreeMap<String, InferredValue>,
     facts: &mut LocalFacts,
 ) {
@@ -133,22 +266,23 @@ fn collect_statements(
                 let value = binding
                     .value
                     .as_ref()
-                    .map(|expr| infer_expr(expr, module, current_class, environment, known_class, is_constructor))
+                    .map(|expr| infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return))
                     .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, binding.range));
                 bind_pattern(&binding.pattern, &value, module, current_class, known_class, environment, facts);
-            }
-            Statement::For(for_statement) => {
-                let iterable = infer_expr(&for_statement.iter, module, current_class, environment, known_class, is_constructor);
-                let value = InferredValue::flow(iterable.shape.element_shape(), for_statement.range);
-                facts.record(for_statement.binding.clone(), for_statement.range, value.clone());
-                environment.insert(for_statement.binding.clone(), value);
-                collect_statements(&for_statement.body, module, current_class, known_class, is_constructor, environment, facts);
             }
             Statement::Expr {
                 expr: Expr::Assignment(assignment),
                 ..
             } => {
-                let value = infer_expr(&assignment.value, module, current_class, environment, known_class, is_constructor);
+                let value = infer_expr_with_returns(
+                    &assignment.value,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                );
                 if let Expr::Var { value: name, range } = assignment.name.as_ref() {
                     let value = InferredValue::flow(value.shape.clone(), *range);
                     facts.record(name.clone(), *range, value.clone());
@@ -166,11 +300,106 @@ fn collect_statements(
                         phalcom_ast::ast::ClassMember::Field(_) | phalcom_ast::ast::ClassMember::Variant(_) => continue,
                     };
                     let mut member_environment = BTreeMap::new();
-                    collect_statements(body, module, Some(&id), known_class, is_constructor, &mut member_environment, facts);
+                    collect_statements_with_returns(
+                        body,
+                        module,
+                        Some(&id),
+                        known_class,
+                        is_constructor,
+                        callable_return,
+                        &mut member_environment,
+                        facts,
+                    );
                 }
             }
             _ => {}
         }
+    }
+}
+
+/// Computes one-pass callable return summaries for a source module surface.
+pub fn summaries_for_surface(
+    surface: &ModuleSurface,
+    module: &ModuleId,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    revision: SemanticGeneration,
+) -> Vec<CallableSummary> {
+    surface
+        .classes
+        .values()
+        .flat_map(|class| class.members.values().map(move |member| (class, member)))
+        .filter(|(_, member)| !member.body.is_empty())
+        .map(|(class, member)| {
+            let mut environment = BTreeMap::new();
+            let params = member
+                .params
+                .iter()
+                .map(|param| {
+                    let value = InferredValue::flow(ValueShape::Unknown, param.source_range);
+                    environment.insert(param.name.clone(), value.clone());
+                    value
+                })
+                .collect();
+            let returns = body_value(
+                &member.body,
+                module,
+                Some(&class.id),
+                &environment,
+                known_class,
+                is_constructor,
+                callable_return,
+            );
+            CallableSummary {
+                callable: member.callable.clone(),
+                params,
+                returns,
+                dependencies: Vec::new(),
+                effects: Default::default(),
+                revision,
+            }
+        })
+        .collect()
+}
+
+fn body_value(
+    body: &[Statement],
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+) -> InferredValue {
+    let Some(last) = body.last() else {
+        return InferredValue::flow(ValueShape::Unknown, Default::default());
+    };
+    match last {
+        Statement::Expr { expr, .. } => infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return),
+        Statement::Let(binding) => binding
+            .value
+            .as_ref()
+            .map(|expr| infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return))
+            .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, binding.range)),
+        Statement::Return(return_statement) => return_statement
+            .value
+            .as_ref()
+            .map(|expr| infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return))
+            .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, return_statement.range)),
+        _ => InferredValue::flow(ValueShape::Unknown, last_range(last)),
+    }
+}
+
+fn last_range(statement: &Statement) -> phalcom_common::range::SourceRange {
+    match statement {
+        Statement::Class(class) => class.range,
+        Statement::Let(binding) => binding.range,
+        Statement::Return(return_statement) => return_statement.range,
+        Statement::Expr { range, .. } => *range,
+        Statement::For(statement) => statement.range,
+        Statement::Break { range } | Statement::Continue { range } => *range,
+        Statement::Throw { range, .. } | Statement::Import(phalcom_ast::ast::ImportStatement { range, .. }) => *range,
     }
 }
 
@@ -267,7 +496,7 @@ mod tests {
     fn literals_and_reassignment_are_queryable() {
         let program = parse("let value = 1\nvalue = \"ok\"\n", 0).program;
         let module = ModuleId::new("file:///main.ph");
-        let facts = collect_local_facts(&program, &module, no_classes, |_, _| false);
+        let facts = collect_local_facts_with_returns(&program, &module, no_classes, |_, _| false, |_, _| None);
         assert_eq!(facts.binding_at("value", 10).unwrap().shape, ValueShape::Instance(core_class("Int")));
         assert_eq!(facts.binding_at("value", 30).unwrap().shape, ValueShape::Instance(core_class("String")));
     }

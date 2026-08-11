@@ -32,9 +32,10 @@ use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionOptions, CompletionParams, CompletionResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
-    InitializeResult, InitializedParams, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams,
-    SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities,
-    SymbolInformation, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceSymbolParams,
+    InitializeResult, InitializedParams, InlayHint, InlayHintOptions, InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind,
+    MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams,
+    SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Url, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -98,7 +99,9 @@ impl Backend {
             .documents
             .with_document(&uri, |doc| {
                 self.index.update_file(uri.clone(), &doc.parse.program);
-                self.semantic.update_file(&uri, doc.revision, &doc.parse.program);
+                let recovered = semantic_recovery_parse(doc.text.as_ref(), &doc.parse);
+                let program = recovered.as_ref().map(|parse| &parse.program).unwrap_or(&doc.parse.program);
+                self.semantic.update_file(&uri, doc.revision, program);
                 syntax_errors_to_diagnostics(doc.errors(), &doc.line_index)
             })
             .unwrap_or_default();
@@ -149,18 +152,31 @@ impl Backend {
                 .map(|class| (class.name, completion::ReceiverKind::ClassObject));
         }
         if receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-            return match self.semantic.binding_at(uri, receiver, offset)?.shape {
-                ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
-                ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
-                ValueShape::Union(classes) => classes.into_iter().find_map(|shape| match shape {
+            if let Some(value) = self.semantic.binding_at(uri, receiver, offset) {
+                if let Some(resolved) = match value.shape {
                     ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
                     ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
+                    ValueShape::Union(classes) => classes.into_iter().find_map(|shape| match shape {
+                        ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
+                        ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
+                        _ => None,
+                    }),
                     _ => None,
-                }),
-                _ => None,
-            };
+                } {
+                    return Some(resolved);
+                }
+            }
         }
-        None
+        let parse = phalcom_ast::parser::parse(receiver, target.receiver_range.start);
+        let expression = parse.program.statements.iter().find_map(|statement| match statement {
+            phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
+            _ => None,
+        })?;
+        match self.semantic.infer_expression(uri, expression, offset).shape {
+            ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
+            ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
+            _ => None,
+        }
     }
 
     /// Resolves the selector under `position` in the open document `uri`,
@@ -376,6 +392,61 @@ impl Backend {
     }
 }
 
+/// Recovers semantic structure lost when a live member-access expression ends
+/// at the cursor, e.g. `_client.` inside a method body. The user-facing parse
+/// and diagnostics stay untouched; only the semantic snapshot sees the dot
+/// replaced by a space, keeping every source range stable.
+fn semantic_recovery_parse(text: &str, parsed: &phalcom_ast::parser::Parse) -> Option<phalcom_ast::parser::Parse> {
+    if parsed.errors.is_empty() {
+        return None;
+    }
+    let recovered_text = blank_incomplete_member_dots(text);
+    if recovered_text == text {
+        return None;
+    }
+    let candidate = phalcom_ast::parser::parse(&recovered_text, 0);
+    (candidate.errors.len() <= parsed.errors.len() && candidate.program.statements.len() >= parsed.program.statements.len()).then_some(candidate)
+}
+
+fn blank_incomplete_member_dots(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut output = bytes.to_vec();
+    let mut quote = None;
+    let mut escaped = false;
+    for index in 0..bytes.len() {
+        let byte = bytes[index];
+        if let Some(delimiter) = quote {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == delimiter {
+                quote = None;
+            }
+            continue;
+        }
+        if byte == b'"' || byte == b'\'' {
+            quote = Some(byte);
+            continue;
+        }
+        if byte != b'.' || index == 0 || !is_member_receiver_byte(bytes[index - 1]) {
+            continue;
+        }
+        let mut next = index + 1;
+        while next < bytes.len() && bytes[next].is_ascii_whitespace() {
+            next += 1;
+        }
+        if next == bytes.len() || matches!(bytes[next], b'}' | b')' | b']' | b',') {
+            output[index] = b' ';
+        }
+    }
+    String::from_utf8(output).expect("replacing ASCII bytes preserves UTF-8")
+}
+
+fn is_member_receiver_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b')' | b']')
+}
+
 /// Wraps `value` as an LSP [`HoverContents::Markup`] block of
 /// [`MarkupKind::Markdown`] — the one place `hover_at` builds a [`Hover`]'s
 /// contents, so every hover renders through the same markdown wrapper.
@@ -463,6 +534,10 @@ impl LanguageServer for Backend {
                     ..CompletionOptions::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(InlayHintOptions {
+                    resolve_provider: Some(true),
+                    ..InlayHintOptions::default()
+                }))),
                 semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
                     legend: semantic_tokens::legend(),
                     full: Some(SemanticTokensFullOptions::Bool(true)),
@@ -663,6 +738,15 @@ impl LanguageServer for Backend {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         Ok(self.hover_at(&uri, position))
+    }
+
+    /// Answers standard inlay-hint requests from the live semantic database.
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = params.text_document.uri.clone();
+        let hints = self
+            .documents
+            .with_document(&uri, |doc| crate::inlay_hints::hints_for_params(&self.semantic, &uri, doc, &params));
+        Ok(hints)
     }
 
     /// Answers `textDocument/semanticTokens/full` (Stage 5): a flat,

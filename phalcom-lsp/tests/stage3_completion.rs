@@ -142,3 +142,58 @@ async fn completion_is_receiver_aware_for_a_constructed_user_class() {
     drop(client_end);
     let _ = server_task.await;
 }
+
+#[tokio::test]
+async fn completion_follows_constructor_assigned_field() {
+    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
+    let (server_read, server_write) = tokio::io::split(server_end);
+    let (service, socket) = LspService::new(Backend::new);
+    let server_task = tokio::spawn(async move {
+        Server::new(server_read, server_write, socket).serve(service).await;
+    });
+
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "processId": null, "capabilities": {} }
+        }),
+    )
+    .await;
+    let _ = read_response(&mut client_end, 1).await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
+
+    let uri = "file:///workspace/service.ph";
+    let text = "class Client {\n  send() { }\n}\nclass Service {\n  @constructor new() { _client = Client.new() }\n  run() {\n    _client.\n  }\n}\n";
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": uri, "languageId": "phalcom", "version": 1, "text": text } }
+        }),
+    )
+    .await;
+    let _ = read_message(&mut client_end).await;
+
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/completion",
+            "params": { "textDocument": { "uri": uri }, "position": { "line": 6, "character": 12 } }
+        }),
+    )
+    .await;
+    let response = read_response(&mut client_end, 2).await;
+    let items = response["result"].as_array().expect("completion items array");
+    let labels: Vec<&str> = items.iter().filter_map(|item| item["label"].as_str()).collect();
+    assert!(labels.contains(&"send()"), "{labels:#?}");
+    assert!(!labels.contains(&"ifTrue(_)"), "{labels:#?}");
+
+    drop(client_end);
+    let _ = server_task.await;
+}
