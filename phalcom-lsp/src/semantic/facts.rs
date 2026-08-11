@@ -176,6 +176,15 @@ impl InferredValue {
         }
     }
 
+    /// Creates an interprocedural fact derived from a resolved call site.
+    pub fn interprocedural(shape: ValueShape, range: SourceRange) -> Self {
+        Self {
+            shape,
+            confidence: Confidence::Interprocedural,
+            provenance: vec![FactOrigin::CallSite(range)],
+        }
+    }
+
     /// Joins two values and retains a bounded provenance sample.
     pub fn join(&self, other: &Self) -> Self {
         let mut provenance = self.provenance.clone();
@@ -206,6 +215,12 @@ pub struct LocalFacts {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FieldFacts {
     fields: BTreeMap<(ClassId, String), InferredValue>,
+}
+
+/// Call-site facts joined into callable parameters.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ParameterFacts {
+    params: BTreeMap<(CallableId, String), InferredValue>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -251,5 +266,23 @@ impl FieldFacts {
     /// Iterates over class-qualified field facts for publication in the database.
     pub fn iter(&self) -> impl Iterator<Item = (&(ClassId, String), &InferredValue)> {
         self.fields.iter()
+    }
+}
+
+impl ParameterFacts {
+    /// Records or joins one resolved call-site argument fact.
+    pub fn record(&mut self, callable: CallableId, name: impl Into<String>, value: InferredValue) {
+        let key = (callable, name.into());
+        self.params.entry(key).and_modify(|old| *old = old.join(&value)).or_insert(value);
+    }
+
+    /// Returns the joined fact observed for one callable parameter.
+    pub fn get(&self, callable: &CallableId, name: &str) -> Option<&InferredValue> {
+        self.params.get(&(callable.clone(), name.to_string()))
+    }
+
+    /// Iterates over parameter facts for publication in the database.
+    pub fn iter(&self) -> impl Iterator<Item = (&(CallableId, String), &InferredValue)> {
+        self.params.iter()
     }
 }

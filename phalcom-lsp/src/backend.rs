@@ -135,34 +135,23 @@ impl Backend {
     }
 
     /// Resolves a recovered completion target through live semantic facts.
-    fn semantic_receiver(&self, uri: &Url, doc: &crate::documents::Document, position: Position) -> Option<(String, completion::ReceiverKind)> {
+    fn semantic_receiver(&self, uri: &Url, doc: &crate::documents::Document, position: Position) -> Option<completion::ResolvedReceiver> {
         let target = completion::target_at(doc, position)?;
         let receiver = doc.text.get(target.receiver_range.start..target.receiver_range.end)?;
         let offset = target.receiver_range.end;
         if receiver == "self" {
-            return self
-                .semantic
-                .class_at(uri, offset)
-                .map(|class| (class.name, completion::ReceiverKind::Instance));
+            return self.semantic.class_at(uri, offset).map(|class| completion::ResolvedReceiver {
+                alternatives: vec![(class.name, completion::ReceiverKind::Instance)],
+            });
         }
         if receiver.chars().next().is_some_and(char::is_uppercase) && receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-            return self
-                .semantic
-                .class_for_name(uri, receiver)
-                .map(|class| (class.name, completion::ReceiverKind::ClassObject));
+            return self.semantic.class_for_name(uri, receiver).map(|class| completion::ResolvedReceiver {
+                alternatives: vec![(class.name, completion::ReceiverKind::ClassObject)],
+            });
         }
         if receiver.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
             if let Some(value) = self.semantic.binding_at(uri, receiver, offset) {
-                if let Some(resolved) = match value.shape {
-                    ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
-                    ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
-                    ValueShape::Union(classes) => classes.into_iter().find_map(|shape| match shape {
-                        ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
-                        ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
-                        _ => None,
-                    }),
-                    _ => None,
-                } {
+                if let Some(resolved) = receiver_from_shape(value.shape) {
                     return Some(resolved);
                 }
             }
@@ -172,11 +161,7 @@ impl Backend {
             phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
             _ => None,
         })?;
-        match self.semantic.infer_expression(uri, expression, offset).shape {
-            ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
-            ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
-            _ => None,
-        }
+        receiver_from_shape(self.semantic.infer_expression(uri, expression, offset).shape)
     }
 
     /// Resolves the selector under `position` in the open document `uri`,
@@ -447,6 +432,23 @@ fn is_member_receiver_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b')' | b']')
 }
 
+fn receiver_from_shape(shape: ValueShape) -> Option<completion::ResolvedReceiver> {
+    let alternatives = match shape {
+        ValueShape::Instance(class) => vec![(class.name, completion::ReceiverKind::Instance)],
+        ValueShape::ClassObject(class) => vec![(class.name, completion::ReceiverKind::ClassObject)],
+        ValueShape::Union(shapes) => shapes
+            .into_iter()
+            .filter_map(|shape| match shape {
+                ValueShape::Instance(class) => Some((class.name, completion::ReceiverKind::Instance)),
+                ValueShape::ClassObject(class) => Some((class.name, completion::ReceiverKind::ClassObject)),
+                _ => None,
+            })
+            .collect(),
+        _ => return None,
+    };
+    (!alternatives.is_empty()).then_some(completion::ResolvedReceiver { alternatives })
+}
+
 /// Wraps `value` as an LSP [`HoverContents::Markup`] block of
 /// [`MarkupKind::Markdown`] — the one place `hover_at` builds a [`Hover`]'s
 /// contents, so every hover renders through the same markdown wrapper.
@@ -711,11 +713,10 @@ impl LanguageServer for Backend {
 
         let items: Option<Vec<CompletionItem>> = self.documents.with_document(&uri, |doc| {
             let resolved = self.semantic_receiver(&uri, doc, position);
-            let resolved = resolved.as_ref().map(|(class, kind)| (class.as_str(), *kind));
             let offset = doc.line_index.offset(position);
             let privileged = uri.path().ends_with("/phalcom-core/core/core.ph");
-            completion::contextual_completions(completion::ContextualCompletionContext {
-                resolved,
+            let mut items = completion::contextual_completions(completion::ContextualCompletionContext {
+                resolved: resolved.as_ref(),
                 program: &doc.parse.program,
                 text: &doc.text,
                 offset,
@@ -723,7 +724,13 @@ impl LanguageServer for Backend {
                 uri: &uri,
                 index: &self.index,
                 table: CoreTable::bundled(),
-            })
+            });
+            if let Some(target) = completion::target_at(doc, position) {
+                if !target.partial_member.is_empty() {
+                    items.retain(|item| item.label.starts_with(&target.partial_member));
+                }
+            }
+            items
         });
 
         Ok(items.map(CompletionResponse::Array))

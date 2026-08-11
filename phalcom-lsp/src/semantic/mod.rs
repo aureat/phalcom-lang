@@ -19,7 +19,7 @@ use tower_lsp::lsp_types::Url;
 
 pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnKnowledge;
-pub use facts::{Confidence, FactOrigin, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ValueShape};
+pub use facts::{Confidence, FactOrigin, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
 pub use flow::join_values;
 pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
 pub use invalidation::InvalidationQueue;
@@ -40,6 +40,8 @@ pub struct FileSemanticSnapshot {
     pub local_facts: LocalFacts,
     /// Constructor-assigned field facts.
     pub field_facts: FieldFacts,
+    /// Call-site facts observed for source callable parameters.
+    pub parameter_facts: ParameterFacts,
     /// Resolved module dependencies.
     pub dependencies: DependencySet,
 }
@@ -59,6 +61,7 @@ struct SemanticState {
     classes: BTreeMap<ClassId, ClassSurface>,
     summaries: BTreeMap<CallableId, CallableSummary>,
     field_facts: BTreeMap<(ClassId, String), InferredValue>,
+    parameter_facts: BTreeMap<(CallableId, String), InferredValue>,
     graph: ModuleGraph,
 }
 
@@ -114,7 +117,22 @@ impl SemanticDb {
             state.summaries.get(&callable).map(|summary| summary.returns.clone())
         };
         let next_generation = SemanticGeneration(state.generation.0 + 1);
-        let summaries = infer::summaries_for_surface(&surface, &module, known_classes, is_constructor, callable_return, next_generation);
+        let parameter_facts = infer::parameter_facts_for_program(program, &surface, &module, known_classes, is_constructor, callable_return);
+        let parameter_value = |callable: &CallableId, name: &str| {
+            parameter_facts
+                .get(callable, name)
+                .cloned()
+                .or_else(|| state.parameter_facts.get(&(callable.clone(), name.to_string())).cloned())
+        };
+        let summaries = infer::summaries_for_surface(
+            &surface,
+            &module,
+            known_classes,
+            is_constructor,
+            callable_return,
+            parameter_value,
+            next_generation,
+        );
         let local_facts = infer::collect_local_facts_with_returns(program, &module, known_classes, is_constructor, callable_return);
         let field_facts = infer::field_facts_for_surface(&surface, &module, known_classes, is_constructor, callable_return);
         state.classes.retain(|class, _| class.module != module);
@@ -123,6 +141,10 @@ impl SemanticDb {
         state.summaries.extend(summaries.into_iter().map(|summary| (summary.callable.clone(), summary)));
         state.field_facts.retain(|(class, _), _| class.module != module);
         state.field_facts.extend(field_facts.iter().map(|(key, value)| (key.clone(), value.clone())));
+        state.parameter_facts.retain(|(callable, _), _| callable.owner.module != module);
+        state
+            .parameter_facts
+            .extend(parameter_facts.iter().map(|(key, value)| (key.clone(), value.clone())));
         state.graph.update(module.clone(), program);
         let dependencies = DependencySet {
             imports: state.graph.imports(&module).iter().filter_map(|edge| edge.target.clone()).collect(),
@@ -135,6 +157,7 @@ impl SemanticDb {
                 surface,
                 local_facts,
                 field_facts,
+                parameter_facts,
                 dependencies,
             },
         );
@@ -150,6 +173,7 @@ impl SemanticDb {
         state.classes.retain(|class, _| class.module != module);
         state.summaries.retain(|callable, _| callable.owner.module != module);
         state.field_facts.retain(|(class, _), _| class.module != module);
+        state.parameter_facts.retain(|(callable, _), _| callable.owner.module != module);
         state.graph.remove(&module);
         state.generation.0 += 1;
         state.generation
@@ -174,6 +198,16 @@ impl SemanticDb {
     /// Returns a source callable summary from the current semantic generation.
     pub fn callable_summary(&self, id: &CallableId) -> Option<CallableSummary> {
         self.state.read().expect("semantic database lock poisoned").summaries.get(id).cloned()
+    }
+
+    /// Returns the joined call-site fact observed for one callable parameter.
+    pub fn parameter_at(&self, id: &CallableId, name: &str) -> Option<InferredValue> {
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .parameter_facts
+            .get(&(id.clone(), name.to_string()))
+            .cloned()
     }
 
     /// Resolves a class name in its module, with the stable core namespace as
@@ -263,6 +297,22 @@ impl SemanticDb {
             .get(&module)
             .and_then(|file| file.surface.classes.values().find(|class| class.source_range.contains(offset)))
             .map(|class| class.id.clone());
+        if let Some(class) = current_class.as_ref() {
+            if let Some(file) = state.files.get(&module) {
+                if let Some(member) = file
+                    .surface
+                    .classes
+                    .get(class)
+                    .and_then(|class| class.members.values().find(|member| member.source_range.contains(offset)))
+                {
+                    for param in &member.params {
+                        if let Some(value) = state.parameter_facts.get(&(member.callable.clone(), param.name.clone())) {
+                            environment.insert(param.name.clone(), value.clone());
+                        }
+                    }
+                }
+            }
+        }
         infer::infer_expr_with_fields(
             expr,
             &module,
@@ -406,5 +456,33 @@ mod tests {
             .unwrap();
         let value = db.infer_expression(&uri, &field, 100);
         assert!(matches!(value.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Client"));
+    }
+
+    #[test]
+    fn parameter_expression_uses_resolved_call_site_fact() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///canvas.ph");
+        let parsed = parse(
+            "class Circle { stroke() { } }\nclass Canvas { draw(_ shape) { shape } }\ndraw(Circle.new())\n",
+            0,
+        );
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let callable = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&uri), "Canvas"),
+            selector: "draw(_)".to_string(),
+            side: DispatchSide::Instance,
+        };
+        assert!(matches!(db.parameter_at(&callable, "shape").unwrap().shape, ValueShape::Instance(ClassId { name, .. }) if name == "Circle"));
+        let expression = parse("shape", 0)
+            .program
+            .statements
+            .into_iter()
+            .find_map(|statement| match statement {
+                phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
+                _ => None,
+            })
+            .unwrap();
+        let value = db.infer_expression(&uri, &expression, 55);
+        assert!(matches!(value.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Circle"));
     }
 }

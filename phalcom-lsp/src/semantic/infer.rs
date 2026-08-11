@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use super::CallableSummary;
-use super::facts::{FieldFacts, InferredValue, LocalFacts, ValueShape};
-use super::ids::{CORE_MODULE_URI, ClassId, ModuleId};
+use super::facts::{FieldFacts, InferredValue, LocalFacts, ParameterFacts, ValueShape};
+use super::ids::{CORE_MODULE_URI, CallableId, ClassId, ModuleId};
 use super::query::SemanticGeneration;
 use super::surface::ModuleSurface;
 use phalcom_ast::ast::{
@@ -227,6 +227,366 @@ pub fn field_facts_for_surface(
     facts
 }
 
+/// Collects parameter facts from unambiguous call sites in one source module.
+pub fn parameter_facts_for_program(
+    program: &phalcom_ast::ast::Program,
+    surface: &ModuleSurface,
+    module: &ModuleId,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+) -> ParameterFacts {
+    let mut facts = ParameterFacts::default();
+    let mut environment = BTreeMap::new();
+    collect_call_sites(
+        &program.statements,
+        surface,
+        module,
+        None,
+        known_class,
+        is_constructor,
+        callable_return,
+        &mut environment,
+        &mut facts,
+    );
+    facts
+}
+
+fn collect_call_sites(
+    statements: &[Statement],
+    surface: &ModuleSurface,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    environment: &mut BTreeMap<String, InferredValue>,
+    facts: &mut ParameterFacts,
+) {
+    for statement in statements {
+        match statement {
+            Statement::Let(binding) => {
+                if let Some(value) = &binding.value {
+                    collect_call_sites_expr(
+                        value,
+                        surface,
+                        module,
+                        current_class,
+                        known_class,
+                        is_constructor,
+                        callable_return,
+                        environment,
+                        facts,
+                    );
+                    if let Pattern::Name { name, .. } = &binding.pattern {
+                        environment.insert(
+                            name.clone(),
+                            infer_expr_with_returns(value, module, current_class, environment, known_class, is_constructor, callable_return),
+                        );
+                    }
+                }
+            }
+            Statement::Expr { expr, .. } => {
+                collect_call_sites_expr(
+                    expr,
+                    surface,
+                    module,
+                    current_class,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    environment,
+                    facts,
+                );
+                if let Expr::Assignment(assignment) = expr {
+                    if let Expr::Var { value: name, .. } = assignment.name.as_ref() {
+                        let inferred = infer_expr_with_returns(
+                            &assignment.value,
+                            module,
+                            current_class,
+                            environment,
+                            known_class,
+                            is_constructor,
+                            callable_return,
+                        );
+                        environment.insert(name.clone(), inferred);
+                    }
+                }
+            }
+            Statement::Return(return_statement) => {
+                if let Some(value) = &return_statement.value {
+                    collect_call_sites_expr(
+                        value,
+                        surface,
+                        module,
+                        current_class,
+                        known_class,
+                        is_constructor,
+                        callable_return,
+                        environment,
+                        facts,
+                    );
+                }
+            }
+            Statement::Class(class) => {
+                let id = ClassId::new(module.clone(), class.name.clone());
+                for member in &class.members {
+                    let body = match member {
+                        phalcom_ast::ast::ClassMember::Method(item) => &item.body,
+                        phalcom_ast::ast::ClassMember::Getter(item) => &item.body,
+                        phalcom_ast::ast::ClassMember::Setter(item) => &item.body,
+                        phalcom_ast::ast::ClassMember::Index(item) => &item.body,
+                        phalcom_ast::ast::ClassMember::Field(_) | phalcom_ast::ast::ClassMember::Variant(_) => continue,
+                    };
+                    let mut member_environment = BTreeMap::new();
+                    collect_call_sites(
+                        body,
+                        surface,
+                        module,
+                        Some(&id),
+                        known_class,
+                        is_constructor,
+                        callable_return,
+                        &mut member_environment,
+                        facts,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_call_sites_expr(
+    expr: &Expr,
+    surface: &ModuleSurface,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    environment: &BTreeMap<String, InferredValue>,
+    facts: &mut ParameterFacts,
+) {
+    match expr {
+        Expr::UnqualifiedCall(call) => {
+            let selector = call_selector(&call.name, &call.args);
+            let target = current_class
+                .and_then(|class| surface.classes.get(class))
+                .and_then(|class| class.members.get(&selector))
+                .map(|member| (member.callable.clone(), member.params.as_slice()))
+                .or_else(|| {
+                    let mut matches = surface
+                        .classes
+                        .values()
+                        .filter_map(|class| class.members.get(&selector).map(|member| (member.callable.clone(), member.params.as_slice())));
+                    let first = matches.next()?;
+                    matches.next().is_none().then_some(first)
+                });
+            if let Some((callable, params)) = target {
+                record_call_arguments(
+                    &callable,
+                    &call.args,
+                    params,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    call.range,
+                    facts,
+                );
+            }
+            for arg in &call.args {
+                collect_call_sites_pack(
+                    arg,
+                    surface,
+                    module,
+                    current_class,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    environment,
+                    facts,
+                );
+            }
+        }
+        Expr::MethodCall(call) => {
+            let receiver = infer_expr_with_returns(&call.object, module, current_class, environment, known_class, is_constructor, callable_return);
+            let selector = call_selector(&call.method, &call.args);
+            let target_class = match receiver.shape {
+                ValueShape::Instance(class) | ValueShape::ClassObject(class) => Some(class),
+                _ => None,
+            };
+            if let Some(class) = target_class.and_then(|id| surface.classes.get(&id)) {
+                if let Some(member) = class.members.get(&selector) {
+                    record_call_arguments(
+                        &member.callable,
+                        &call.args,
+                        &member.params,
+                        module,
+                        current_class,
+                        environment,
+                        known_class,
+                        is_constructor,
+                        callable_return,
+                        call.range,
+                        facts,
+                    );
+                }
+            }
+            collect_call_sites_expr(
+                &call.object,
+                surface,
+                module,
+                current_class,
+                known_class,
+                is_constructor,
+                callable_return,
+                environment,
+                facts,
+            );
+            for arg in &call.args {
+                collect_call_sites_pack(
+                    arg,
+                    surface,
+                    module,
+                    current_class,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    environment,
+                    facts,
+                );
+            }
+        }
+        Expr::Assignment(assignment) => {
+            collect_call_sites_expr(
+                &assignment.name,
+                surface,
+                module,
+                current_class,
+                known_class,
+                is_constructor,
+                callable_return,
+                environment,
+                facts,
+            );
+            collect_call_sites_expr(
+                &assignment.value,
+                surface,
+                module,
+                current_class,
+                known_class,
+                is_constructor,
+                callable_return,
+                environment,
+                facts,
+            );
+        }
+        Expr::GetProperty(property) => collect_call_sites_expr(
+            &property.object,
+            surface,
+            module,
+            current_class,
+            known_class,
+            is_constructor,
+            callable_return,
+            environment,
+            facts,
+        ),
+        Expr::TupleLiteral(tuple) => {
+            for entry in &tuple.entries {
+                let value = match entry {
+                    TupleLiteralEntry::Positional { expr, .. } | TupleLiteralEntry::Labeled { value: expr, .. } | TupleLiteralEntry::Expand { expr, .. } => {
+                        expr
+                    }
+                };
+                collect_call_sites_expr(
+                    value,
+                    surface,
+                    module,
+                    current_class,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    environment,
+                    facts,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_call_sites_pack(
+    item: &PackItem,
+    surface: &ModuleSurface,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    environment: &BTreeMap<String, InferredValue>,
+    facts: &mut ParameterFacts,
+) {
+    let expr = match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } | PackItem::Labeled { value: expr, .. } => expr,
+    };
+    collect_call_sites_expr(
+        expr,
+        surface,
+        module,
+        current_class,
+        known_class,
+        is_constructor,
+        callable_return,
+        environment,
+        facts,
+    );
+}
+
+fn record_call_arguments(
+    callable: &CallableId,
+    args: &[PackItem],
+    params: &[super::surface::ParamSurface],
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    call_range: phalcom_common::range::SourceRange,
+    facts: &mut ParameterFacts,
+) {
+    let mut positional = 0;
+    for arg in args {
+        let (label, expr) = match arg {
+            PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } => (None, expr),
+            PackItem::Labeled { label, value, .. } => (
+                match label {
+                    PackLabel::Static { text, .. } => Some(text.as_str()),
+                    PackLabel::Computed { .. } => None,
+                },
+                value,
+            ),
+        };
+        let param = label
+            .and_then(|label| params.iter().find(|param| param.label.as_deref() == Some(label) || param.name == label))
+            .or_else(|| {
+                let value = params.get(positional);
+                positional += 1;
+                value
+            });
+        let Some(param) = param else { continue };
+        let inferred = infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return);
+        if !matches!(inferred.shape, ValueShape::Unknown) {
+            facts.record(callable.clone(), param.name.clone(), InferredValue::interprocedural(inferred.shape, call_range));
+        }
+    }
+}
+
 /// Collects local facts with source-callable summaries enabled.
 pub fn collect_local_facts_with_returns(
     program: &phalcom_ast::ast::Program,
@@ -324,6 +684,7 @@ pub fn summaries_for_surface(
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     revision: SemanticGeneration,
 ) -> Vec<CallableSummary> {
     surface
@@ -337,7 +698,7 @@ pub fn summaries_for_surface(
                 .params
                 .iter()
                 .map(|param| {
-                    let value = InferredValue::flow(ValueShape::Unknown, param.source_range);
+                    let value = parameter_fact(&member.callable, &param.name).unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, param.source_range));
                     environment.insert(param.name.clone(), value.clone());
                     value
                 })

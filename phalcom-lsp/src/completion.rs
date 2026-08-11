@@ -54,6 +54,13 @@ pub enum ReceiverKind {
     ClassObject,
 }
 
+/// One or more bounded semantic receiver alternatives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedReceiver {
+    /// Candidate class names and dispatch sides, in semantic rank order.
+    pub alternatives: Vec<(String, ReceiverKind)>,
+}
+
 /// Recovered member-completion target from an incomplete editor buffer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompletionTarget {
@@ -589,10 +596,43 @@ pub fn completions(
     items
 }
 
+/// Builds completion items for a bounded union receiver, annotating coverage
+/// so partially available members are not presented as universally valid.
+pub fn union_completions(
+    resolved: &ResolvedReceiver,
+    lexical_class: Option<&str>,
+    privileged: bool,
+    uri: &Url,
+    index: &WorkspaceIndex,
+    table: &CoreTable,
+) -> Vec<CompletionItem> {
+    let mut by_label: std::collections::BTreeMap<String, (CompletionItem, usize)> = std::collections::BTreeMap::new();
+    for (class, kind) in &resolved.alternatives {
+        for item in completions(Some((class.as_str(), *kind)), lexical_class, privileged, uri, index, table) {
+            by_label
+                .entry(item.label.clone())
+                .and_modify(|(_, coverage)| *coverage += 1)
+                .or_insert((item, 1));
+        }
+    }
+    let total = resolved.alternatives.len();
+    let mut items = by_label
+        .into_values()
+        .map(|(mut item, coverage)| {
+            let owner = item.detail.unwrap_or_else(|| "semantic receiver".to_string());
+            item.detail = Some(format!("{owner} — available on {coverage}/{total} candidates"));
+            item.sort_text = Some(format!("{:02}:{}", total.saturating_sub(coverage), item.label));
+            item
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| left.sort_text.cmp(&right.sort_text).then_with(|| left.label.cmp(&right.label)));
+    items
+}
+
 /// Completion for an editor position, including implicit-self members and
 /// visible bare bindings when no explicit `receiver.` prefix is present.
 pub(crate) struct ContextualCompletionContext<'a> {
-    pub resolved: Option<(&'a str, ReceiverKind)>,
+    pub resolved: Option<&'a ResolvedReceiver>,
     pub program: &'a Program,
     pub text: &'a str,
     pub offset: usize,
@@ -604,14 +644,31 @@ pub(crate) struct ContextualCompletionContext<'a> {
 
 pub(crate) fn contextual_completions(context: ContextualCompletionContext<'_>) -> Vec<CompletionItem> {
     let lexical_class = lexical_class_at(context.program, context.offset);
-    let mut items = completions(
-        context.resolved,
-        lexical_class.as_deref(),
-        context.privileged,
-        context.uri,
-        context.index,
-        context.table,
-    );
+    let mut items = match context.resolved {
+        Some(resolved) if resolved.alternatives.len() > 1 => union_completions(
+            resolved,
+            lexical_class.as_deref(),
+            context.privileged,
+            context.uri,
+            context.index,
+            context.table,
+        ),
+        Some(resolved) => resolved
+            .alternatives
+            .first()
+            .map(|(class, kind)| {
+                completions(
+                    Some((class.as_str(), *kind)),
+                    lexical_class.as_deref(),
+                    context.privileged,
+                    context.uri,
+                    context.index,
+                    context.table,
+                )
+            })
+            .unwrap_or_default(),
+        None => completions(None, lexical_class.as_deref(), context.privileged, context.uri, context.index, context.table),
+    };
     if receiver_prefix(context.text, context.offset).is_none() {
         if let Some(class) = lexical_class.as_deref() {
             let self_members = filter_by_receiver_kind(collect_class_members(class, context.uri, context.index, context.table), ReceiverKind::Instance);

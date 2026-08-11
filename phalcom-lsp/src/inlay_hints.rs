@@ -53,9 +53,30 @@ pub fn hints_for_params(db: &SemanticDb, uri: &Url, doc: &Document, params: &Inl
 }
 
 fn collect_top_level_bindings(program: &Program, out: &mut Vec<(String, SourceRange)>) {
-    for statement in &program.statements {
-        if let Statement::Let(binding) = statement {
-            collect_pattern_bindings(&binding.pattern, out);
+    collect_bindings_in_statements(&program.statements, out);
+}
+
+fn collect_bindings_in_statements(statements: &[Statement], out: &mut Vec<(String, SourceRange)>) {
+    for statement in statements {
+        match statement {
+            Statement::Let(binding) => collect_pattern_bindings(&binding.pattern, out),
+            Statement::For(for_statement) => {
+                out.push((for_statement.binding.clone(), for_statement.range));
+                collect_bindings_in_statements(&for_statement.body, out);
+            }
+            Statement::Class(class) => {
+                for member in &class.members {
+                    let body = match member {
+                        phalcom_ast::ast::ClassMember::Method(item) => &item.body,
+                        phalcom_ast::ast::ClassMember::Getter(item) => &item.body,
+                        phalcom_ast::ast::ClassMember::Setter(item) => &item.body,
+                        phalcom_ast::ast::ClassMember::Index(item) => &item.body,
+                        phalcom_ast::ast::ClassMember::Field(_) | phalcom_ast::ast::ClassMember::Variant(_) => continue,
+                    };
+                    collect_bindings_in_statements(body, out);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -152,5 +173,24 @@ mod tests {
             },
         );
         assert!(hints.is_empty());
+    }
+
+    #[test]
+    fn method_local_binding_gets_standard_type_hint() {
+        let uri = Url::parse("file:///main.ph").unwrap();
+        let doc = Document::new("class Canvas { draw() { let width = 1 } }\n".to_string());
+        let db = SemanticDb::new();
+        db.update_file(&uri, FileRevision(1), &doc.parse.program);
+        let hints = hints_for(
+            &db,
+            &uri,
+            &doc,
+            Range {
+                start: Position::new(0, 0),
+                end: Position::new(10, 0),
+            },
+        );
+        assert_eq!(hints.len(), 1);
+        assert!(matches!(&hints[0].label, InlayHintLabel::String(label) if label == ": Int"));
     }
 }
