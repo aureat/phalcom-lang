@@ -14,6 +14,12 @@ pub struct ModuleId(String);
 impl ModuleId {
     /// Creates an identity from an LSP document URI.
     pub fn from_uri(uri: &Url) -> Self {
+        if let Ok(path) = uri.to_file_path() {
+            let path = std::fs::canonicalize(&path).unwrap_or(path);
+            if let Ok(canonical) = Url::from_file_path(path) {
+                return Self(canonical.to_string());
+            }
+        }
         Self(uri.to_string())
     }
 

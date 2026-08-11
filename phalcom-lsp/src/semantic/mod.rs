@@ -14,7 +14,7 @@ mod surface;
 use std::collections::BTreeMap;
 use std::sync::RwLock;
 
-use phalcom_ast::ast::Program;
+use phalcom_ast::ast::{Expr, PackItem, PackLabel, Program};
 use tower_lsp::lsp_types::Url;
 
 pub use callable::{CallableSummary, SummaryEffects};
@@ -409,6 +409,9 @@ impl SemanticDb {
     pub fn infer_expression(&self, uri: &Url, expr: &phalcom_ast::ast::Expr, offset: usize) -> InferredValue {
         let module = ModuleId::from_uri(uri);
         let state = self.state.read().expect("semantic database lock poisoned");
+        if let Some(shape) = infer_imported_expression(&state, &module, expr) {
+            return InferredValue::flow(shape, expr.range());
+        }
         let mut environment = BTreeMap::new();
         if let Some(file) = state.files.get(&module) {
             collect_expression_environment(expr, &file.local_facts, offset, &mut environment);
@@ -487,6 +490,49 @@ impl SemanticDb {
             generation: state.generation,
         })
     }
+}
+
+fn infer_imported_expression(state: &SemanticState, module: &ModuleId, expr: &Expr) -> Option<ValueShape> {
+    match expr {
+        Expr::GetProperty(property) => {
+            let Expr::Var { value: binding, .. } = &property.object else { return None };
+            imported_class(state, module, binding, &property.property).map(ValueShape::ClassObject)
+        }
+        Expr::MethodCall(call) => {
+            let ValueShape::ClassObject(class) = infer_imported_expression(state, module, &call.object)? else { return None };
+            let labels = call
+                .args
+                .iter()
+                .map(|arg| match arg {
+                    PackItem::Labeled {
+                        label: PackLabel::Static { text, .. },
+                        ..
+                    } => Some(text.clone()),
+                    PackItem::Positional { .. } | PackItem::Expand { .. } | PackItem::Labeled { .. } => None,
+                })
+                .collect::<Vec<_>>();
+            let selector = crate::selectors::comma_form_from_labels(&call.method, &labels);
+            let is_constructor = selector == "new()"
+                || state
+                    .classes
+                    .get(&class)
+                    .and_then(|surface| surface.members.get(&selector))
+                    .is_some_and(|member| member.is_constructor);
+            is_constructor.then_some(ValueShape::Instance(class))
+        }
+        _ => None,
+    }
+}
+
+fn imported_class(state: &SemanticState, module: &ModuleId, binding: &str, name: &str) -> Option<ClassId> {
+    let imported = state
+        .graph
+        .imports(module)
+        .iter()
+        .find(|edge| edge.binding == binding)
+        .and_then(|edge| edge.target.as_ref())?;
+    let class = ClassId::new(imported.clone(), name);
+    state.classes.contains_key(&class).then_some(class)
 }
 
 fn collect_expression_environment(expr: &phalcom_ast::ast::Expr, facts: &LocalFacts, offset: usize, environment: &mut BTreeMap<String, InferredValue>) {
