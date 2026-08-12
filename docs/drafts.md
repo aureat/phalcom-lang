@@ -80,10 +80,14 @@ predicate.match
 result.match
 	ok: |v| {
 		...
-	},
+	}
 	err: |e| {
 		...
 	}
 	
 result.match(ok: |v| ..., err: |e| ...)
+```
+
+```python
+import fingerprints.
 ```
