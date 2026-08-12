@@ -153,6 +153,14 @@ pub struct Backend {
     watch_registration: RwLock<bool>,
 }
 
+#[derive(Clone, Debug)]
+struct ResolvedMemberTarget {
+    /// Runtime receiver candidate used for dispatch.
+    receiver: crate::semantic::ClassId,
+    /// Actual declaration selected after inheritance lookup.
+    member: crate::semantic::MemberSurface,
+}
+
 impl Backend {
     /// Creates a new [`Backend`] bound to `client`, with an empty document
     /// store and an empty workspace index.
@@ -358,20 +366,52 @@ impl Backend {
         receiver_from_shape(self.semantic.infer_expression(uri, expression, offset).shape)
     }
 
-    fn semantic_definition_locations(&self, uri: &Url, position: Position, selector: &str) -> Vec<Location> {
+    fn semantic_member_targets(&self, uri: &Url, position: Position, selector: &str) -> Option<Vec<ResolvedMemberTarget>> {
+        let receiver_targeted = self
+            .documents
+            .with_document(uri, |doc| completion::target_at(doc, position).is_some())
+            .unwrap_or(false);
+        if !receiver_targeted {
+            return None;
+        }
+
         let resolved = self.documents.with_document(uri, |doc| self.semantic_receiver(uri, doc, position)).flatten();
-        let Some(resolved) = resolved else { return Vec::new() };
-        let mut locations = Vec::new();
-        for (class, _) in resolved.alternatives {
-            if class.module.as_str() == crate::semantic::CORE_MODULE_URI {
-                continue;
-            }
-            let Some(member) = self.semantic.member_surface(&class, selector) else {
+        let Some(resolved) = resolved else {
+            return Some(Vec::new());
+        };
+
+        let mut seen = BTreeSet::new();
+        let mut targets = Vec::new();
+        for (receiver, receiver_kind) in resolved.alternatives {
+            let side = match receiver_kind {
+                completion::ReceiverKind::Instance => crate::semantic::DispatchSide::Instance,
+                completion::ReceiverKind::ClassObject => crate::semantic::DispatchSide::Class,
+            };
+            let Some(member) = self.semantic.receiver_member(&receiver, selector, side) else {
                 continue;
             };
-            let Ok(definition_uri) = Url::parse(class.module.as_str()) else { continue };
-            let indexed_uri = self.index.definition_info(selector).into_iter().find(|info| {
-                if info.class != class.name {
+            if seen.insert(member.callable.clone()) {
+                targets.push(ResolvedMemberTarget { receiver, member });
+            }
+        }
+        Some(targets)
+    }
+
+    fn member_definition_location(&self, member: &crate::semantic::MemberSurface) -> Option<Location> {
+        let owner = &member.callable.owner;
+        if owner.module.as_str() == crate::semantic::CORE_MODULE_URI {
+            return None;
+        }
+        let definition_uri = Url::parse(owner.module.as_str()).ok()?;
+        let range = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
+            line_index.range(member.name_range.start..member.name_range.end)
+        })?;
+        let location_uri = self
+            .index
+            .definition_info(&member.callable.selector)
+            .into_iter()
+            .find(|info| {
+                if info.class != owner.name {
                     return false;
                 }
                 let Some(indexed_path) = info.uri.to_file_path().ok() else { return false };
@@ -379,16 +419,15 @@ impl Backend {
                     return false;
                 };
                 std::fs::canonicalize(indexed_path).ok() == std::fs::canonicalize(semantic_path).ok()
-            });
-            let location_uri = indexed_uri.as_ref().map(|info| info.uri.clone()).unwrap_or_else(|| definition_uri.clone());
-            let Some(range) = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
-                line_index.range(member.name_range.start..member.name_range.end)
-            }) else {
-                continue;
-            };
-            locations.push(Location { uri: location_uri, range });
-        }
-        locations
+            })
+            .map(|info| info.uri)
+            .unwrap_or(definition_uri);
+        Some(Location { uri: location_uri, range })
+    }
+
+    fn semantic_definition_locations(&self, uri: &Url, position: Position, selector: &str) -> Vec<Location> {
+        let targets = self.semantic_member_targets(uri, position, selector).unwrap_or_default();
+        targets.iter().filter_map(|target| self.member_definition_location(&target.member)).collect()
     }
 
     /// Resolves the selector under `position` in the open document `uri`,
@@ -459,9 +498,8 @@ impl Backend {
     /// Runs `f` against a snapshot of `uri`'s source text, parsed
     /// [`phalcom_ast::ast::Program`], and [`LineIndex`] — the same "open or
     /// on-disk" dual path [`Self::occurrence_to_location`] uses, generalized
-    /// so Stage 4's cross-file Phaldoc harvest
-    /// ([`crate::hover::harvest_doc_for_selector`]) can inspect a selector's
-    /// *defining* file even when that file is not the one currently open
+    /// so Stage 4's cross-file Phaldoc harvest ([`Self::member_phaldoc`]) can
+    /// inspect a declaration's *defining* file even when that file is not the one currently open
     /// under the cursor:
     ///
     /// - **Open**: borrows the live/unsaved buffer straight out of the
@@ -483,6 +521,51 @@ impl Backend {
         let parse = phalcom_ast::parser::parse(&text, 0);
         let line_index = LineIndex::new(&text);
         Some(f(&text, &parse.program, &line_index))
+    }
+
+    fn semantic_class_target(&self, uri: &Url, position: Position) -> Option<(crate::semantic::ClassSurface, tower_lsp::lsp_types::Range)> {
+        self.documents
+            .with_document(uri, |doc| {
+                let offset = doc.line_index.offset(position);
+                if let Some(class) = self.semantic.class_name_at(uri, offset) {
+                    let range = doc.line_index.range(class.name_range.start..class.name_range.end);
+                    return Some((class, range));
+                }
+                let (name, name_range) = hover::qualified_identifier_at_offset(&doc.text, offset)?;
+                let class_id = self.semantic.class_for_name(uri, &name)?;
+                let class = self.semantic.class_surface(&class_id)?;
+                Some((class, doc.line_index.range(name_range)))
+            })
+            .flatten()
+    }
+
+    fn class_definition_location(&self, class: &crate::semantic::ClassSurface) -> Option<Location> {
+        let owner = &class.id;
+        if owner.module.as_str() == crate::semantic::CORE_MODULE_URI {
+            return None;
+        }
+        let definition_uri = Url::parse(owner.module.as_str()).ok()?;
+        let range = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
+            line_index.range(class.name_range.start..class.name_range.end)
+        })?;
+        Some(Location { uri: definition_uri, range })
+    }
+
+    fn member_phaldoc(&self, member: &crate::semantic::MemberSurface) -> Option<hover::PhaldocDoc> {
+        let owner = &member.callable.owner;
+        if owner.module.as_str() == crate::semantic::CORE_MODULE_URI {
+            return None;
+        }
+        let definition_uri = Url::parse(owner.module.as_str()).ok()?;
+        self.with_source_snapshot(&definition_uri, |text, program, line_index| {
+            let target = hover::DeclarationDocTarget::Member {
+                declaration: member.source_range,
+                name: member.name_range,
+            };
+            hover::harvest_doc_for_declaration(text, line_index, target)
+                .or_else(|| hover::harvest_pinned_doc_for_member(text, program, &owner.name, &member.callable.selector, member.source_range))
+        })
+        .flatten()
     }
 
     /// Answers `textDocument/hover` (Stage 4): the pluggable composition of
@@ -525,112 +608,85 @@ impl Backend {
             });
         }
 
+        if let Some((class, span)) = self.semantic_class_target(uri, position) {
+            let phaldoc = if class.id.module.as_str() == crate::semantic::CORE_MODULE_URI {
+                None
+            } else {
+                Url::parse(class.id.module.as_str()).ok().and_then(|definition_uri| {
+                    self.with_source_snapshot(&definition_uri, |text, _, line_index| {
+                        hover::harvest_doc_for_declaration(
+                            text,
+                            line_index,
+                            hover::DeclarationDocTarget::Class {
+                                declaration: class.source_range,
+                                name: class.name_range,
+                            },
+                        )
+                    })
+                    .flatten()
+                })
+            };
+            return Some(Hover {
+                contents: markdown_contents(hover::render_class_hover(&class.id, class.superclass.as_ref(), phaldoc.as_ref())),
+                range: Some(span),
+            });
+        }
+
         let Some((selector, span)) = self.selector_at_position(uri, position) else {
             return self.hover_for_top_level_binding(uri, position);
         };
 
-        let (mut sites, inferred, semantic_phaldoc, receiver_targeted) = self
-            .documents
-            .with_document(uri, |doc| {
-                let offset = doc.line_index.offset(position);
-                let declaration = self.semantic.member_at(uri, offset).filter(|member| member.callable.selector == selector);
-                if let Some(member) = declaration {
-                    let site = SelectorSite {
-                        class: member.callable.owner.name.clone(),
-                        kind: hover_member_kind(&member),
-                    };
-                    let phaldoc = Url::parse(member.callable.owner.module.as_str()).ok().and_then(|definition_uri| {
-                        self.with_source_snapshot(&definition_uri, |text, program, line_index| {
-                            hover::harvest_doc_for_selector(text, program, line_index, &selector)
-                        })
-                        .flatten()
-                    });
-                    return (vec![site], self.semantic.return_for_callable(&member.callable), phaldoc, false);
-                }
-
-                let receiver_targeted = completion::target_at(doc, position).is_some();
-                let resolved = self.semantic_receiver(uri, doc, position);
-                let Some(resolved) = resolved else {
-                    return (Vec::new(), None, None, receiver_targeted);
-                };
-                let mut ids = Vec::new();
-                let mut sites = Vec::new();
-                let mut phaldoc = None;
-                for (class, receiver_kind) in resolved.alternatives {
-                    let side = match receiver_kind {
-                        completion::ReceiverKind::Instance => crate::semantic::DispatchSide::Instance,
-                        completion::ReceiverKind::ClassObject => crate::semantic::DispatchSide::Class,
-                    };
-                    let Some(member) = self.semantic.receiver_member(&class, &selector, side) else {
-                        continue;
-                    };
-                    ids.push(member.callable.clone());
-                    sites.push(SelectorSite {
-                        class: class.name.clone(),
-                        kind: hover_member_kind(&member),
-                    });
-                    if phaldoc.is_none() && class.module.as_str() != crate::semantic::CORE_MODULE_URI {
-                        if let Ok(definition_uri) = Url::parse(class.module.as_str()) {
-                            phaldoc = self
-                                .with_source_snapshot(&definition_uri, |text, program, line_index| {
-                                    hover::harvest_doc_for_selector(text, program, line_index, &selector)
-                                })
-                                .flatten();
-                        }
-                    }
-                }
-                (sites, self.semantic.returns_for_callables(ids), phaldoc, receiver_targeted)
-            })
-            .unwrap_or_default();
-
-        if sites.is_empty() && !receiver_targeted {
-            sites = self
-                .index
-                .definition_info(&selector)
-                .into_iter()
-                .map(|info| SelectorSite {
-                    class: info.class,
-                    kind: info.kind,
-                })
-                .collect();
-            if sites.is_empty() {
-                for member in self
-                    .semantic
-                    .all_completion_members()
-                    .into_iter()
-                    .filter(|member| member.owner.module.as_str() == crate::semantic::CORE_MODULE_URI && member.selector == selector)
-                {
-                    sites.push(SelectorSite {
-                        class: member.owner.name.clone(),
-                        kind: hover_member_kind_from_completion(&member),
-                    });
-                }
-                sites.sort_by(|a, b| a.class.cmp(&b.class));
-            }
+        let offset = self.documents.with_document(uri, |doc| doc.line_index.offset(position))?;
+        if let Some(member) = self.semantic.member_at(uri, offset).filter(|member| member.callable.selector == selector) {
+            let site = SelectorSite {
+                owner: member.callable.owner.clone(),
+                receiver: None,
+                kind: hover_member_kind(&member),
+            };
+            let phaldoc = self.member_phaldoc(&member);
+            let value = hover::render_selector_hover_with_value(
+                &selector,
+                &[site],
+                phaldoc.as_ref(),
+                self.semantic.return_for_callable(&member.callable).as_ref(),
+            )?;
+            return Some(Hover {
+                contents: markdown_contents(value),
+                range: Some(span),
+            });
         }
 
-        // The Phaldoc harvest only applies to a user-class definition. Keep
-        // selector-index fallback for legacy unqualified calls, while a
-        // receiver-qualified unknown stays conservative and site-free.
-        let defs = self.index.definition_info(&selector);
-        let phaldoc = semantic_phaldoc.or_else(|| {
-            if receiver_targeted {
-                return None;
+        if let Some(targets) = self.semantic_member_targets(uri, position, &selector) {
+            let mut sites = Vec::new();
+            let mut ids = Vec::new();
+            let mut docs = Vec::new();
+            for target in &targets {
+                sites.push(SelectorSite {
+                    owner: target.member.callable.owner.clone(),
+                    receiver: Some(target.receiver.clone()),
+                    kind: hover_member_kind(&target.member),
+                });
+                ids.push(target.member.callable.clone());
+                let owner = &target.member.callable.owner;
+                if owner.module.as_str() == crate::semantic::CORE_MODULE_URI {
+                    continue;
+                }
+                if let Some(doc) = self.member_phaldoc(&target.member) {
+                    if !docs.contains(&doc) {
+                        docs.push(doc);
+                    }
+                }
             }
-            defs.first().and_then(|def| {
-                self.with_source_snapshot(&def.uri, |text, program, line_index| {
-                    hover::harvest_doc_for_selector(text, program, line_index, &selector)
-                })
-                .flatten()
-            })
-        });
+            let phaldoc = (docs.len() == 1).then(|| docs.remove(0));
+            let inferred = self.semantic.returns_for_callables(ids);
+            let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
+            return Some(Hover {
+                contents: markdown_contents(value),
+                range: Some(span),
+            });
+        }
 
-        let inferred = inferred.or_else(|| (!receiver_targeted).then(|| self.semantic.return_for_selector(&selector)).flatten());
-        let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
-        Some(Hover {
-            contents: markdown_contents(value),
-            range: Some(span),
-        })
+        self.hover_for_top_level_binding(uri, position)
     }
 
     /// The `hover_at` fallback for a bare identifier that resolves to none of
@@ -746,22 +802,6 @@ fn hover_member_kind(member: &crate::semantic::MemberSurface) -> crate::index::M
         crate::semantic::MemberKind::Field => crate::index::MemberKind::Getter,
         crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
             if member.side == crate::semantic::DispatchSide::Class && member.is_constructor {
-                crate::index::MemberKind::Construct
-            } else if member.side == crate::semantic::DispatchSide::Class {
-                crate::index::MemberKind::StaticMethod
-            } else {
-                crate::index::MemberKind::Method
-            }
-        }
-    }
-}
-
-fn hover_member_kind_from_completion(member: &crate::semantic::CompletionMember) -> crate::index::MemberKind {
-    match member.kind {
-        crate::semantic::MemberKind::Getter | crate::semantic::MemberKind::Field => crate::index::MemberKind::Getter,
-        crate::semantic::MemberKind::Setter => crate::index::MemberKind::Setter,
-        crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
-            if member.side == crate::semantic::DispatchSide::Class && member.selector.starts_with("new(") {
                 crate::index::MemberKind::Construct
             } else if member.side == crate::semantic::DispatchSide::Class {
                 crate::index::MemberKind::StaticMethod
@@ -1045,13 +1085,38 @@ impl LanguageServer for Backend {
     async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
+
+        if let Some((class, _)) = self.semantic_class_target(&uri, position) {
+            return Ok(self
+                .class_definition_location(&class)
+                .map(|location| GotoDefinitionResponse::Array(vec![location])));
+        }
+
         let Some((selector, _range)) = self.selector_at_position(&uri, position) else {
             return Ok(None);
         };
 
-        let semantic_locations = self.semantic_definition_locations(&uri, position, &selector);
-        if !semantic_locations.is_empty() {
-            return Ok(Some(GotoDefinitionResponse::Array(semantic_locations)));
+        let offset = self.documents.with_document(&uri, |doc| doc.line_index.offset(position));
+        if let Some(member) = offset
+            .and_then(|offset| self.semantic.member_at(&uri, offset))
+            .filter(|member| member.callable.selector == selector)
+        {
+            return Ok(self
+                .member_definition_location(&member)
+                .map(|location| GotoDefinitionResponse::Array(vec![location])));
+        }
+
+        let receiver_targeted = self
+            .documents
+            .with_document(&uri, |doc| completion::target_at(doc, position).is_some())
+            .unwrap_or(false);
+        if receiver_targeted {
+            let semantic_locations = self.semantic_definition_locations(&uri, position, &selector);
+            return if semantic_locations.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(GotoDefinitionResponse::Array(semantic_locations)))
+            };
         }
 
         let occurrences = self.index.definitions(&selector);

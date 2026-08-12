@@ -25,10 +25,15 @@ pub struct ClassSurface {
     pub superclass: Option<ClassId>,
     /// Members keyed by canonical selector.
     pub members: BTreeMap<String, MemberSurface>,
+    /// Members keyed by selector and dispatch side. This preserves distinct
+    /// class-side and instance-side declarations that share one selector.
+    pub members_by_side: BTreeMap<(String, DispatchSide), MemberSurface>,
     /// Fields keyed by source field name.
     pub fields: BTreeMap<String, FieldSurface>,
     /// Source span of the class declaration.
     pub source_range: SourceRange,
+    /// Source span of the class name.
+    pub name_range: SourceRange,
 }
 
 /// One callable or field-like class member.
@@ -129,16 +134,29 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
         let Statement::Class(class) = statement else { continue };
         let id = ClassId::new(module.clone(), class.name.clone());
         let superclass = class.superclass.as_ref().map(|parent| ClassId::new(module.clone(), parent.name.clone()));
+        let class_start = class
+            .attributes
+            .iter()
+            .map(|attribute| attribute.range.start)
+            .min()
+            .unwrap_or(class.range.start);
         let mut class_surface = ClassSurface {
             id: id.clone(),
             superclass,
             members: BTreeMap::new(),
+            members_by_side: BTreeMap::new(),
             fields: BTreeMap::new(),
-            source_range: class.range,
+            source_range: (class_start..class.range.end).into(),
+            name_range: class.name_range,
         };
         for member in &class.members {
             let selector = crate::selectors::class_member_selector(member);
             let (kind, side, constructor, params, body, source_range, name_range) = member_parts(member);
+            let declaration_start = member_attributes(member)
+                .iter()
+                .map(|attribute| attribute.range.start)
+                .min()
+                .unwrap_or(source_range.start);
             if let ClassMember::Field(field) = member {
                 class_surface.fields.insert(
                     field.name.clone(),
@@ -155,24 +173,23 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                     },
                 );
             }
-            class_surface.members.insert(
-                selector.clone(),
-                MemberSurface {
-                    callable: CallableId {
-                        owner: id.clone(),
-                        selector,
-                        side,
-                    },
-                    kind,
-                    visibility: member_visibility(member),
+            let member_surface = MemberSurface {
+                callable: CallableId {
+                    owner: id.clone(),
+                    selector: selector.clone(),
                     side,
-                    is_constructor: constructor,
-                    source_range,
-                    name_range,
-                    params,
-                    body,
                 },
-            );
+                kind,
+                visibility: member_visibility(member),
+                side,
+                is_constructor: constructor,
+                source_range: (declaration_start..source_range.end).into(),
+                name_range,
+                params,
+                body,
+            };
+            class_surface.members_by_side.insert((selector.clone(), side), member_surface.clone());
+            class_surface.members.entry(selector).or_insert(member_surface);
         }
         surface.classes.insert(id, class_surface);
     }
@@ -262,6 +279,17 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
 
 fn params(parameters: &[ParameterDef]) -> Vec<ParamSurface> {
     parameters.iter().map(param).collect()
+}
+
+fn member_attributes(member: &ClassMember) -> &[Attribute] {
+    match member {
+        ClassMember::Method(item) => &item.attributes,
+        ClassMember::Getter(item) => &item.attributes,
+        ClassMember::Setter(item) => &item.attributes,
+        ClassMember::Field(item) => &item.attributes,
+        ClassMember::Variant(item) => &item.attributes,
+        ClassMember::Index(item) => &item.attributes,
+    }
 }
 
 fn param(parameter: &ParameterDef) -> ParamSurface {

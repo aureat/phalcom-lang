@@ -32,8 +32,10 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             id: class_id.clone(),
             superclass: native_class.superclass.map(|name| ClassId::new(module.clone(), name)),
             members: Default::default(),
+            members_by_side: Default::default(),
             fields: Default::default(),
             source_range: Default::default(),
+            name_range: Default::default(),
         });
     }
     for native in NATIVE_MEMBERS {
@@ -41,41 +43,38 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
         let Some(class) = source.classes.get_mut(&class_id) else {
             continue;
         };
-        if class.members.contains_key(native.selector) {
+        let side = match native.side {
+            NativeDispatch::Instance => DispatchSide::Instance,
+            NativeDispatch::Class => DispatchSide::Class,
+        };
+        if class.members_by_side.contains_key(&(native.selector.to_string(), side)) {
             continue;
         }
         let callable = super::ids::CallableId {
             owner: class_id.clone(),
             selector: native.selector.to_string(),
-            side: match native.side {
-                NativeDispatch::Instance => DispatchSide::Instance,
-                NativeDispatch::Class => DispatchSide::Class,
-            },
+            side,
         };
-        class.members.insert(
-            native.selector.to_string(),
-            MemberSurface {
-                callable,
-                kind: match native.kind {
-                    NativeMemberKind::Method => MemberKind::Method,
-                    NativeMemberKind::Getter => MemberKind::Getter,
-                    NativeMemberKind::Setter => MemberKind::Setter,
-                },
-                visibility: match native.visibility {
-                    NativeVisibility::Public => MemberVisibility::Public,
-                    NativeVisibility::Internal => MemberVisibility::Internal,
-                },
-                side: match native.side {
-                    NativeDispatch::Instance => DispatchSide::Instance,
-                    NativeDispatch::Class => DispatchSide::Class,
-                },
-                is_constructor: native.selector.starts_with("new(") && native.side == NativeDispatch::Class,
-                source_range: Default::default(),
-                name_range: Default::default(),
-                params: Vec::new(),
-                body: Vec::new(),
+        let member = MemberSurface {
+            callable,
+            kind: match native.kind {
+                NativeMemberKind::Method => MemberKind::Method,
+                NativeMemberKind::Getter => MemberKind::Getter,
+                NativeMemberKind::Setter => MemberKind::Setter,
             },
-        );
+            visibility: match native.visibility {
+                NativeVisibility::Public => MemberVisibility::Public,
+                NativeVisibility::Internal => MemberVisibility::Internal,
+            },
+            side,
+            is_constructor: native.selector.starts_with("new(") && native.side == NativeDispatch::Class,
+            source_range: Default::default(),
+            name_range: Default::default(),
+            params: Vec::new(),
+            body: Vec::new(),
+        };
+        class.members_by_side.insert((native.selector.to_string(), member.side), member.clone());
+        class.members.entry(native.selector.to_string()).or_insert(member);
     }
     source
 }

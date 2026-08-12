@@ -318,8 +318,7 @@ impl SemanticDb {
     /// Resolves one receiver-qualified member, including inherited members.
     pub fn receiver_member(&self, class: &ClassId, selector: &str, side: DispatchSide) -> Option<MemberSurface> {
         let state = self.state.read().expect("semantic database lock poisoned");
-        let member = resolve_member_surface(&state.classes, class, selector)?;
-        (member.side == side).then_some(member)
+        resolve_member_surface_for_side(&state.classes, class, selector, side)
     }
 
     /// Returns inherited, de-duplicated members for one live class surface.
@@ -334,8 +333,8 @@ impl SemanticDb {
                 break;
             }
             let Some(surface) = state.classes.get(&id) else { break };
-            for (selector, member) in &surface.members {
-                if member.side == side && seen.insert(selector.clone()) {
+            for ((selector, member_side), member) in &surface.members_by_side {
+                if *member_side == side && seen.insert(selector.clone()) {
                     members.push(CompletionMember {
                         selector: selector.clone(),
                         kind: member.kind,
@@ -359,7 +358,8 @@ impl SemanticDb {
         let state = self.state.read().expect("semantic database lock poisoned");
         let mut members = BTreeMap::new();
         for (class_id, surface) in &state.classes {
-            for (selector, member) in &surface.members {
+            for (selector, member) in &surface.members_by_side {
+                let selector = &selector.0;
                 members.entry(selector.clone()).or_insert_with(|| CompletionMember {
                     selector: selector.clone(),
                     kind: member.kind,
@@ -408,17 +408,6 @@ impl SemanticDb {
             .map(|summary| summary.returns.clone())
     }
 
-    /// Returns one observed return summary for a canonical selector.
-    pub fn return_for_selector(&self, selector: &str) -> Option<InferredValue> {
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .summaries
-            .values()
-            .find(|summary| summary.callable.selector == selector)
-            .map(|summary| summary.returns.clone())
-    }
-
     /// Returns the joined call-site fact observed for one callable parameter.
     pub fn parameter_at(&self, id: &CallableId, name: &str) -> Option<InferredValue> {
         self.state
@@ -434,12 +423,7 @@ impl SemanticDb {
     pub fn class_for_name(&self, uri: &Url, name: &str) -> Option<ClassId> {
         let module = ModuleId::from_uri(uri);
         let state = self.state.read().expect("semantic database lock poisoned");
-        let local = ClassId::new(module, name);
-        if state.classes.contains_key(&local) {
-            return Some(local);
-        }
-        let core = ClassId::new(ModuleId::new(CORE_MODULE_URI), name);
-        state.classes.contains_key(&core).then_some(core)
+        resolve_named_class(&state.classes, &state.graph, &module, name)
     }
 
     /// Returns the class whose declaration contains a byte offset in `uri`.
@@ -457,6 +441,21 @@ impl SemanticDb {
             .map(|class| class.id.clone())
     }
 
+    /// Returns the source-authored class whose name range contains `offset`.
+    pub fn class_name_at(&self, uri: &Url, offset: usize) -> Option<ClassSurface> {
+        let module = ModuleId::from_uri(uri);
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .files
+            .get(&module)?
+            .surface
+            .classes
+            .values()
+            .find(|class| class.name_range.contains(offset))
+            .cloned()
+    }
+
     /// Returns the declared callable enclosing a source offset.
     pub fn member_at(&self, uri: &Url, offset: usize) -> Option<MemberSurface> {
         let module = ModuleId::from_uri(uri);
@@ -468,7 +467,7 @@ impl SemanticDb {
             .surface
             .classes
             .values()
-            .flat_map(|class| class.members.values())
+            .flat_map(|class| class.members_by_side.values())
             .find(|member| member.source_range.contains(offset))
             .cloned()
     }
@@ -743,6 +742,25 @@ fn resolve_member_surface(classes: &BTreeMap<ClassId, ClassSurface>, class: &Cla
         }
         let surface = classes.get(&id)?;
         if let Some(member) = surface.members.get(selector) {
+            return Some(member.clone());
+        }
+        current = surface
+            .superclass
+            .clone()
+            .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
+    }
+    None
+}
+
+fn resolve_member_surface_for_side(classes: &BTreeMap<ClassId, ClassSurface>, class: &ClassId, selector: &str, side: DispatchSide) -> Option<MemberSurface> {
+    let mut current = Some(class.clone());
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(id) = current {
+        if !visited.insert(id.clone()) {
+            return None;
+        }
+        let surface = classes.get(&id)?;
+        if let Some(member) = surface.members_by_side.get(&(selector.to_string(), side)) {
             return Some(member.clone());
         }
         current = surface

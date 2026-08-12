@@ -112,7 +112,10 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     // `Mover` defines `move(_,to,duration)`; `main.ph` calls it. Both are
     // on disk before `initialize` runs, so the startup scan indexes both.
     let def_path = workspace.write("mover.ph", "class Mover {\n  move(_ x, to, duration) { }\n}\n");
-    workspace.write("main.ph", "let m = Mover.new();\nm.move(1, to: 2, duration: 3);\n");
+    workspace.write(
+        "main.ph",
+        "import \"./mover\" as MoverModule\nlet m = MoverModule.Mover.new();\nm.move(1, to: 2, duration: 3);\n",
+    );
 
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
     let (server_read, server_write) = tokio::io::split(server_end);
@@ -174,7 +177,7 @@ async fn goto_definition_and_workspace_symbol_resolve_across_files() {
 
     // textDocument/definition from the call site (`m.move(...)` in
     // main.ph) must resolve to `move`'s declaration in mover.ph.
-    let call_site_offset = main_text.find("move").unwrap();
+    let call_site_offset = main_text.rfind("move").unwrap();
     let call_site_line = main_text[..call_site_offset].matches('\n').count();
     let call_site_col = call_site_offset - main_text[..call_site_offset].rfind('\n').map(|i| i + 1).unwrap_or(0);
 

@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_lsp::{LspService, Server};
 
@@ -226,6 +226,23 @@ async fn phaldoc_adjacency_attaches_and_blank_line_breaks_it() {
 }
 
 #[tokio::test]
+async fn phaldoc_adjacency_survives_member_attributes() {
+    let (mut client_end, server_task) = spawn_server();
+    initialize(&mut client_end, None).await;
+
+    let uri = "file:///workspace/main.ph";
+    let text = "class Point {\n  /// Private class-side movement.\n  @class\n  @private\n  move() { }\n}\n";
+    did_open(&mut client_end, uri, text).await;
+
+    let response = hover_at(&mut client_end, 2, uri, text, "move()").await;
+    let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
+    assert!(value.contains("Private class-side movement."), "{value:?}");
+
+    drop(client_end);
+    let _ = server_task.await;
+}
+
+#[tokio::test]
 async fn selector_keying_gives_each_arity_its_own_doc() {
     let (mut client_end, server_task) = spawn_server();
     initialize(&mut client_end, None).await;
@@ -268,7 +285,7 @@ async fn selector_keying_gives_each_arity_its_own_doc() {
 async fn cross_file_hover_resolves_the_doc_from_the_declaring_file() {
     let workspace = ScratchWorkspace::new("cross-file");
     workspace.write("mover.ph", "class Mover {\n  /// Moves the mover by `x`.\n  move(_ x) { }\n}\n");
-    let main_text = "let m = Mover.new();\nm.move(1);\n";
+    let main_text = "import \"./mover\" as MoverModule\nlet m = MoverModule.Mover.new();\nm.move(1);\n";
     workspace.write("main.ph", main_text);
 
     let (mut client_end, server_task) = spawn_server();

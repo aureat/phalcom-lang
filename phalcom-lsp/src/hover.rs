@@ -16,19 +16,20 @@
 //!    [`crate::index::WorkspaceIndex::definition_info`] (user classes) and
 //!    the live semantic core surface (builtins), then rendered
 //!    by [`render_selector_hover`].
-//! 3. **Phaldoc harvest** ([`harvest_doc_for_selector`]) — a raw re-scan of
+//! 3. **Phaldoc harvest** ([`harvest_doc_for_declaration`]) — a raw re-scan of
 //!    the defining file's source text for `///` doc blocks, per
 //!    `docs/spec/v0.2/experimental/doc-comments-phaldoc.md` §1-5. Phaldoc is
 //!    lexically inert (ordinary `//` trivia, §Context), so the parser never
 //!    sees it; this is a second, cheap pass over raw text, not a second
-//!    parser, keying each block by the **selector** of the declaration
-//!    immediately below it (§4) via a single range-containment lookup into
-//!    the already-cached [`phalcom_ast::ast::Program`].
+//!    parser, attaching each block to the already-resolved declaration range.
 //!
 //! A [`render_contract_view`] seam is kept — currently inert — so
 //! U-ANNOT-CONTRACTS' `@requires`/`@ensures` rendering
 //! (doc-comments-phaldoc.md §8) drops in later without reshaping this
 //! module's composition path.
+
+use std::collections::BTreeMap;
+use std::ops::Range;
 
 use phalcom_ast::ast::{ClassMember, Pattern, Program, Statement};
 use phalcom_ast::lexer::Lexer;
@@ -36,7 +37,7 @@ use phalcom_ast::token::Token;
 
 use crate::line_index::LineIndex;
 use crate::selectors::class_member_selector;
-use crate::semantic::{Confidence, InferredValue, ValueShape};
+use crate::semantic::{ClassId, Confidence, InferredValue, ValueShape};
 
 /// The contextual (non-keyword-token) words that carry their own hover blurb
 /// only by convention, not by reserved-word status: they lex as
@@ -226,6 +227,50 @@ pub fn keyword_at_offset(text: &str, offset: usize) -> Option<(&'static str, std
     None
 }
 
+/// Returns the ordinary identifier token containing `offset`.
+pub fn identifier_at_offset(text: &str, offset: usize) -> Option<(String, Range<usize>)> {
+    for item in Lexer::new(text) {
+        let Ok((start, token, end)) = item else {
+            continue;
+        };
+        if start <= offset && offset < end && matches!(token, Token::Identifier(_)) {
+            return Some((text.get(start..end)?.to_string(), start..end));
+        }
+    }
+    None
+}
+
+/// Returns the dotted identifier path containing `offset`, such as
+/// `Provider.User`, together with the range of the identifier under the
+/// cursor. The semantic database decides whether the path is a class.
+pub fn qualified_identifier_at_offset(text: &str, offset: usize) -> Option<(String, Range<usize>)> {
+    let (identifier, range) = identifier_at_offset(text, offset)?;
+    let mut path_start = range.start;
+    let mut cursor = range.start;
+    loop {
+        let before_dot = text[..cursor].trim_end().len();
+        if before_dot == 0 || text.as_bytes().get(before_dot - 1) != Some(&b'.') {
+            break;
+        }
+        let before_identifier = text[..before_dot - 1].trim_end().len();
+        let mut start = before_identifier;
+        while start > 0 && is_identifier_byte(text.as_bytes()[start - 1]) {
+            start -= 1;
+        }
+        if start == before_identifier {
+            break;
+        }
+        path_start = start;
+        cursor = start;
+    }
+    let path = text.get(path_start..range.end)?.to_string();
+    if path.is_empty() { Some((identifier, range)) } else { Some((path, range)) }
+}
+
+fn is_identifier_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
 /// A harvested Phaldoc block: its summary paragraph and closed-vocabulary
 /// `@tag` lines (doc-comments-phaldoc.md §2-3).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -344,6 +389,27 @@ fn member_range(member: &ClassMember) -> phalcom_common::range::SourceRange {
     }
 }
 
+fn member_attributes(member: &ClassMember) -> &[phalcom_ast::ast::Attribute] {
+    match member {
+        ClassMember::Method(item) => &item.attributes,
+        ClassMember::Getter(item) => &item.attributes,
+        ClassMember::Setter(item) => &item.attributes,
+        ClassMember::Field(item) => &item.attributes,
+        ClassMember::Variant(item) => &item.attributes,
+        ClassMember::Index(item) => &item.attributes,
+    }
+}
+
+fn member_declaration_range(member: &ClassMember) -> phalcom_common::range::SourceRange {
+    let range = member_range(member);
+    let start = member_attributes(member)
+        .iter()
+        .map(|attribute| attribute.range.start)
+        .min()
+        .unwrap_or(range.start);
+    (start..range.end).into()
+}
+
 /// Finds the selector of the `ClassMember` declaration that starts on 0-based
 /// line `line` of `program`'s source, or `None` if no member starts there.
 ///
@@ -354,7 +420,7 @@ fn member_selector_at_line(program: &Program, line: usize, line_index: &LineInde
     for statement in &program.statements {
         if let Statement::Class(class_def) = statement {
             for member in &class_def.members {
-                let range = member_range(member);
+                let range = member_declaration_range(member);
                 if line_index.position(range.start).line as usize == line {
                     return Some(class_member_selector(member));
                 }
@@ -362,6 +428,111 @@ fn member_selector_at_line(program: &Program, line: usize, line_index: &LineInde
         }
     }
     None
+}
+
+/// Identifies one already-resolved source declaration for Phaldoc harvesting.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeclarationDocTarget {
+    /// A class member declaration.
+    Member {
+        /// Declaration span, including attached attributes.
+        declaration: phalcom_common::range::SourceRange,
+        /// Name or selector span.
+        name: phalcom_common::range::SourceRange,
+    },
+    /// A class declaration.
+    Class {
+        /// Declaration span, including attached attributes.
+        declaration: phalcom_common::range::SourceRange,
+        /// Class name span.
+        name: phalcom_common::range::SourceRange,
+    },
+}
+
+fn target_declaration_range(target: DeclarationDocTarget) -> phalcom_common::range::SourceRange {
+    match target {
+        DeclarationDocTarget::Member { declaration, .. } | DeclarationDocTarget::Class { declaration, .. } => declaration,
+    }
+}
+
+/// Harvests the `///` block immediately above one resolved declaration.
+///
+/// Association uses the declaration's source range, never a selector lookup.
+/// The semantic surface puts attached attributes in that range, so docs remain
+/// adjacent to declarations written as `/// ...`, `@class`, `@private`,
+/// `method() { ... }`.
+pub fn harvest_doc_for_declaration(text: &str, line_index: &LineIndex, target: DeclarationDocTarget) -> Option<PhaldocDoc> {
+    let lines: Vec<&str> = text.lines().collect();
+    let declaration_line = line_index.position(target_declaration_range(target).start).line as usize;
+    if declaration_line == 0 || !lines.get(declaration_line - 1)?.trim().starts_with("///") {
+        return None;
+    }
+
+    let mut start = declaration_line - 1;
+    while start > 0 && lines[start - 1].trim().starts_with("///") {
+        start -= 1;
+    }
+    let body_lines = lines[start..declaration_line]
+        .iter()
+        .map(|line| strip_doc_marker(line.trim()))
+        .collect::<Vec<_>>();
+    let content_lines = if body_lines.first().is_some_and(|line| line.trim().starts_with("selector:")) {
+        &body_lines[1..]
+    } else {
+        &body_lines[..]
+    };
+    Some(parse_doc_block(content_lines))
+}
+
+/// Harvests a detached `selector: ...` Phaldoc block for one unique member
+/// declaration in a module. Adjacent declaration docs remain the primary
+/// path; this compatibility helper never guesses across duplicate declarations.
+pub fn harvest_pinned_doc_for_member(
+    text: &str,
+    program: &Program,
+    class_name: &str,
+    selector: &str,
+    declaration: phalcom_common::range::SourceRange,
+) -> Option<PhaldocDoc> {
+    let matching = program
+        .statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Class(class) if class.name == class_name => Some(class),
+            _ => None,
+        })
+        .flat_map(|class| class.members.iter())
+        .filter(|member| class_member_selector(member) == selector)
+        .filter(|member| member_declaration_range(member).start == declaration.start)
+        .count();
+    if matching != 1 {
+        return None;
+    }
+
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = None;
+    let mut i = 0;
+    while i < lines.len() {
+        if !lines[i].trim().starts_with("///") {
+            i += 1;
+            continue;
+        }
+        let mut body_lines = Vec::new();
+        let mut j = i;
+        while j < lines.len() && lines[j].trim().starts_with("///") {
+            body_lines.push(strip_doc_marker(lines[j].trim()));
+            j += 1;
+        }
+        let pinned = body_lines.first().and_then(|line| line.trim().strip_prefix("selector:")).map(str::trim);
+        if pinned == Some(selector) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(parse_doc_block(&body_lines[1..]));
+        }
+        i = j;
+    }
+    found
 }
 
 /// Finds the bound name of the top-level `let`/`var` [`Statement::Let`]
@@ -480,12 +651,38 @@ pub fn render_keyword_hover(word: &str, blurb: &str) -> String {
     format!("**{word}** _(keyword)_\n\n{blurb}")
 }
 
+/// Renders a class declaration/reference and its declaration-identity docs.
+pub fn render_class_hover(class: &ClassId, superclass: Option<&ClassId>, phaldoc: Option<&PhaldocDoc>) -> String {
+    let header = match superclass {
+        Some(superclass) => format!("`{}` — class, is {}", class.name, superclass.name),
+        None => format!("`{}` — class", class.name),
+    };
+    let mut sections = vec![header];
+    if let Some(doc) = phaldoc {
+        if !doc.summary.is_empty() {
+            sections.push(doc.summary.clone());
+        }
+        if !doc.tags.is_empty() {
+            sections.push(
+                doc.tags
+                    .iter()
+                    .map(|(tag, payload)| format!("- **@{tag}** {payload}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
+        }
+    }
+    sections.join("\n\n---\n\n")
+}
+
 /// One place a selector is declared/known, as [`render_selector_hover`]
 /// needs it: the class it is declared on and its dispatch kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SelectorSite {
-    /// The name of the class the member is declared on.
-    pub class: String,
+    /// Module-qualified class that declares the member.
+    pub owner: ClassId,
+    /// Runtime receiver candidate used for a receiver-qualified hover.
+    pub receiver: Option<ClassId>,
     /// The member's dispatch kind (method/getter/setter/construct/...).
     pub kind: crate::index::MemberKind,
 }
@@ -535,8 +732,26 @@ pub fn render_selector_hover_with_value(
         // renders as an unlabelled floating paragraph (mirrors `hover.ts`).
         sections.push(format!("**{selector}**"));
     } else {
-        let classes: Vec<&str> = sites.iter().map(|s| s.class.as_str()).collect();
-        let kind = kind_word(sites[0].kind);
+        let mut owners = BTreeMap::new();
+        for site in sites {
+            owners.entry(site.owner.clone()).or_insert(site.kind);
+        }
+        let mut name_counts = BTreeMap::<String, usize>::new();
+        for owner in owners.keys() {
+            *name_counts.entry(owner.name.clone()).or_default() += 1;
+        }
+        let classes = owners
+            .keys()
+            .map(|owner| {
+                if name_counts[&owner.name] == 1 {
+                    owner.name.clone()
+                } else {
+                    let module = owner.module.as_str().rsplit('/').next().unwrap_or(owner.module.as_str());
+                    format!("{} ({module})", owner.name)
+                }
+            })
+            .collect::<Vec<_>>();
+        let kind = kind_word(*owners.values().next().unwrap_or(&sites[0].kind));
         sections.push(format!("`{selector}` — {kind} on {}", classes.join(", ")));
     }
 
@@ -739,7 +954,8 @@ mod tests {
     #[test]
     fn render_selector_hover_for_user_class_member() {
         let sites = vec![SelectorSite {
-            class: "Point".to_string(),
+            owner: ClassId::new(crate::semantic::ModuleId::new("file:///point.ph"), "Point"),
+            receiver: None,
             kind: crate::index::MemberKind::Method,
         }];
         let doc = PhaldocDoc {
@@ -755,7 +971,8 @@ mod tests {
     #[test]
     fn render_selector_hover_for_builtin_has_no_phaldoc_section() {
         let sites = vec![SelectorSite {
-            class: "Bool".to_string(),
+            owner: ClassId::new(crate::semantic::ModuleId::new(crate::semantic::CORE_MODULE_URI), "Bool"),
+            receiver: None,
             kind: crate::index::MemberKind::Method,
         }];
         let rendered = render_selector_hover("ifTrue(_)", &sites, None).unwrap();
@@ -776,11 +993,30 @@ mod tests {
             (0..0).into(),
         );
         let sites = vec![SelectorSite {
-            class: "Factory".to_string(),
+            owner: ClassId::new(crate::semantic::ModuleId::new("file:///factory.ph"), "Factory"),
+            receiver: None,
             kind: crate::index::MemberKind::Method,
         }];
         let rendered = render_selector_hover_with_value("make()", &sites, None, Some(&value)).unwrap();
         assert!(rendered.contains("**Observed return:** `String`"));
         assert!(rendered.contains("Confidence: flow"));
+    }
+
+    #[test]
+    fn render_selector_hover_disambiguates_same_named_module_owners() {
+        let sites = vec![
+            SelectorSite {
+                owner: ClassId::new(crate::semantic::ModuleId::new("file:///a.ph"), "User"),
+                receiver: None,
+                kind: crate::index::MemberKind::Method,
+            },
+            SelectorSite {
+                owner: ClassId::new(crate::semantic::ModuleId::new("file:///b.ph"), "User"),
+                receiver: None,
+                kind: crate::index::MemberKind::Method,
+            },
+        ];
+        let rendered = render_selector_hover("ping()", &sites, None).unwrap();
+        assert!(rendered.contains("User (a.ph), User (b.ph)"), "{rendered:?}");
     }
 }
