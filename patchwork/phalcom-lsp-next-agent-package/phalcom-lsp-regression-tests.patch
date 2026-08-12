@@ -1,0 +1,333 @@
+diff --git a/phalcom-lsp/tests/fixtures/hover_identity/class_docs.ph b/phalcom-lsp/tests/fixtures/hover_identity/class_docs.ph
+new file mode 100644
+index 0000000..953a6df
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/hover_identity/class_docs.ph
+@@ -0,0 +1,4 @@
++/// Widget class documentation.
++class /*@widget*/Widget {
++  run() { }
++}
+diff --git a/phalcom-lsp/tests/fixtures/hover_identity/duplicate_docs.ph b/phalcom-lsp/tests/fixtures/hover_identity/duplicate_docs.ph
+new file mode 100644
+index 0000000..69f15d7
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/hover_identity/duplicate_docs.ph
+@@ -0,0 +1,9 @@
++class A {
++  /// A ping documentation.
++  ping() { }
++}
++
++class B {
++  /// B ping documentation.
++  /*@b_ping*/ping() { }
++}
+diff --git a/phalcom-lsp/tests/fixtures/hover_identity/inherited.ph b/phalcom-lsp/tests/fixtures/hover_identity/inherited.ph
+new file mode 100644
+index 0000000..e3a6ddc
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/hover_identity/inherited.ph
+@@ -0,0 +1,11 @@
++class Animal {
++  /// Animal speech documentation.
++  speak() { }
++}
++
++class Dog is Animal {
++  @constructor new() { }
++}
++
++const dog = Dog.new()
++dog./*@speak*/speak()
+diff --git a/phalcom-lsp/tests/fixtures/hover_identity/unknown_definition.ph b/phalcom-lsp/tests/fixtures/hover_identity/unknown_definition.ph
+new file mode 100644
+index 0000000..d5b855f
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/hover_identity/unknown_definition.ph
+@@ -0,0 +1,10 @@
++class A {
++  ping() { }
++}
++
++class B {
++  ping() { }
++}
++
++const mystery = missing
++mystery./*@ping*/ping()
+diff --git a/phalcom-lsp/tests/fixtures/interprocedural_forward/consumer.ph b/phalcom-lsp/tests/fixtures/interprocedural_forward/consumer.ph
+new file mode 100644
+index 0000000..202f47a
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/interprocedural_forward/consumer.ph
+@@ -0,0 +1,9 @@
++import "./provider" as Provider
++
++class Product {
++  @constructor new() { }
++  productOnly() { }
++}
++
++const result = Provider.Relay.new().forward(Product.new())
++result./*@result*/
+diff --git a/phalcom-lsp/tests/fixtures/interprocedural_forward/provider.ph b/phalcom-lsp/tests/fixtures/interprocedural_forward/provider.ph
+new file mode 100644
+index 0000000..89b35ad
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/interprocedural_forward/provider.ph
+@@ -0,0 +1,5 @@
++class Relay {
++  @constructor new() { }
++  sink(_ value) { value }
++  forward(_ value) { sink(value) }
++}
+diff --git a/phalcom-lsp/tests/fixtures/interprocedural_join/consumer_a.ph b/phalcom-lsp/tests/fixtures/interprocedural_join/consumer_a.ph
+new file mode 100644
+index 0000000..66cab02
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/interprocedural_join/consumer_a.ph
+@@ -0,0 +1,9 @@
++import "./provider" as Provider
++
++class Cat {
++  @constructor new() { }
++  catOnly() { }
++}
++
++const result = Provider.Service.new().consume(Cat.new())
++result./*@result*/
+diff --git a/phalcom-lsp/tests/fixtures/interprocedural_join/consumer_b.ph b/phalcom-lsp/tests/fixtures/interprocedural_join/consumer_b.ph
+new file mode 100644
+index 0000000..c949a24
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/interprocedural_join/consumer_b.ph
+@@ -0,0 +1,9 @@
++import "./provider" as Provider
++
++class Dog {
++  @constructor new() { }
++  dogOnly() { }
++}
++
++const result = Provider.Service.new().consume(Dog.new())
++result./*@result*/
+diff --git a/phalcom-lsp/tests/fixtures/interprocedural_join/provider.ph b/phalcom-lsp/tests/fixtures/interprocedural_join/provider.ph
+new file mode 100644
+index 0000000..fd78e0f
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/interprocedural_join/provider.ph
+@@ -0,0 +1,4 @@
++class Service {
++  @constructor new() { }
++  consume(_ value) { value }
++}
+diff --git a/phalcom-lsp/tests/fixtures/module_visibility/consumer.ph b/phalcom-lsp/tests/fixtures/module_visibility/consumer.ph
+new file mode 100644
+index 0000000..6a4dc01
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/module_visibility/consumer.ph
+@@ -0,0 +1,2 @@
++const product = Product.new()
++product./*@product_only*/productOnly()
+diff --git a/phalcom-lsp/tests/fixtures/module_visibility/provider.ph b/phalcom-lsp/tests/fixtures/module_visibility/provider.ph
+new file mode 100644
+index 0000000..62a6c19
+--- /dev/null
++++ b/phalcom-lsp/tests/fixtures/module_visibility/provider.ph
+@@ -0,0 +1,4 @@
++class Product {
++  @constructor new() { }
++  productOnly() { }
++}
+diff --git a/phalcom-lsp/tests/workspace_semantics.rs b/phalcom-lsp/tests/workspace_semantics.rs
+index 579d20f..34e208b 100644
+--- a/phalcom-lsp/tests/workspace_semantics.rs
++++ b/phalcom-lsp/tests/workspace_semantics.rs
+@@ -1,4 +1,5 @@
+ use crate::support::{MarkedSource, TestLsp, TestWorkspace, completion_labels};
++use serde_json::json;
+ 
+ #[tokio::test]
+ async fn same_named_classes_in_different_modules_keep_distinct_identity() {
+@@ -53,3 +54,180 @@ async fn editing_an_imported_provider_invalidates_consumer_completion() {
+ 
+     lsp.finish().await;
+ }
++
++
++#[tokio::test]
++async fn parameter_facts_from_multiple_consumer_modules_join_instead_of_overwriting() {
++    let workspace = TestWorkspace::from_fixture_dir("interprocedural_join");
++    let a_uri = workspace.file_uri("consumer_a.ph");
++    let b_uri = workspace.file_uri("consumer_b.ph");
++    let a = MarkedSource::parse(&workspace.read("consumer_a.ph"));
++    let b = MarkedSource::parse(&workspace.read("consumer_b.ph"));
++
++    let mut lsp = TestLsp::start().await;
++    lsp.initialize(Some(&workspace.uri())).await;
++    lsp.open(&a_uri, &a.text).await;
++    lsp.open(&b_uri, &b.text).await;
++
++    let a_labels = completion_labels(&lsp.completion(&a_uri, a.position("result")).await);
++    assert!(a_labels.iter().any(|label| label == "catOnly()"), "joined Service.consume return lost Cat: {a_labels:#?}");
++    assert!(a_labels.iter().any(|label| label == "dogOnly()"), "joined Service.consume return lost Dog: {a_labels:#?}");
++
++    let b_labels = completion_labels(&lsp.completion(&b_uri, b.position("result")).await);
++    assert!(b_labels.iter().any(|label| label == "catOnly()"), "joined Service.consume return lost Cat: {b_labels:#?}");
++    assert!(b_labels.iter().any(|label| label == "dogOnly()"), "joined Service.consume return lost Dog: {b_labels:#?}");
++
++    lsp.finish().await;
++}
++
++#[tokio::test]
++async fn inferred_parameter_facts_propagate_through_forwarding_calls() {
++    let workspace = TestWorkspace::from_fixture_dir("interprocedural_forward");
++    let consumer_uri = workspace.file_uri("consumer.ph");
++    let consumer = MarkedSource::parse(&workspace.read("consumer.ph"));
++
++    let mut lsp = TestLsp::start().await;
++    lsp.initialize(Some(&workspace.uri())).await;
++    lsp.open(&consumer_uri, &consumer.text).await;
++
++    let labels = completion_labels(&lsp.completion(&consumer_uri, consumer.position("result")).await);
++    assert!(
++        labels.iter().any(|label| label == "productOnly()"),
++        "Relay.forward(value) -> sink(value) did not propagate Product through the parameter fixed point: {labels:#?}"
++    );
++
++    lsp.finish().await;
++}
++
++#[tokio::test]
++async fn inherited_hover_reports_the_defining_owner_not_the_receiver_class() {
++    let workspace = TestWorkspace::from_fixture_dir("hover_identity");
++    let uri = workspace.file_uri("inherited.ph");
++    let source = MarkedSource::parse(&workspace.read("inherited.ph"));
++
++    let mut lsp = TestLsp::start().await;
++    lsp.initialize(Some(&workspace.uri())).await;
++    lsp.open(&uri, &source.text).await;
++
++    let response = lsp
++        .request(
++            "textDocument/hover",
++            json!({
++                "textDocument": { "uri": uri },
++                "position": source.position("speak")
++            }),
++        )
++        .await;
++    let value = response["result"]["contents"]["value"].as_str().expect("hover markdown");
++    assert!(value.contains("on Animal"), "inherited member must report defining owner Animal: {value:?}");
++    assert!(!value.contains("on Dog"), "receiver class Dog was incorrectly presented as defining owner: {value:?}");
++    assert!(value.contains("Animal speech documentation."), "hover must harvest docs from the defining member: {value:?}");
++
++    lsp.finish().await;
++}
++
++#[tokio::test]
++async fn phaldoc_is_attached_to_the_resolved_declaration_not_the_first_matching_selector() {
++    let workspace = TestWorkspace::from_fixture_dir("hover_identity");
++    let uri = workspace.file_uri("duplicate_docs.ph");
++    let source = MarkedSource::parse(&workspace.read("duplicate_docs.ph"));
++
++    let mut lsp = TestLsp::start().await;
++    lsp.initialize(Some(&workspace.uri())).await;
++    lsp.open(&uri, &source.text).await;
++
++    let response = lsp
++        .request(
++            "textDocument/hover",
++            json!({
++                "textDocument": { "uri": uri },
++                "position": source.position("b_ping")
++            }),
++        )
++        .await;
++    let value = response["result"]["contents"]["value"].as_str().expect("hover markdown");
++    assert!(value.contains("B ping documentation."), "B.ping() must carry B's Phaldoc: {value:?}");
++    assert!(!value.contains("A ping documentation."), "selector-only harvesting leaked A.ping() docs into B.ping(): {value:?}");
++
++    lsp.finish().await;
++}
++
++#[tokio::test]
++async fn class_hover_surfaces_adjacent_class_phaldoc() {
++    let workspace = TestWorkspace::from_fixture_dir("hover_identity");
++    let uri = workspace.file_uri("class_docs.ph");
++    let source = MarkedSource::parse(&workspace.read("class_docs.ph"));
++
++    let mut lsp = TestLsp::start().await;
++    lsp.initialize(Some(&workspace.uri())).await;
++    lsp.open(&uri, &source.text).await;
++
++    let response = lsp
++        .request(
++            "textDocument/hover",
++            json!({
++                "textDocument": { "uri": uri },
++                "position": source.position("widget")
++            }),
++        )
++        .await;
++    let value = response["result"]["contents"]["value"].as_str().expect("class hover markdown");
++    assert!(value.contains("Widget"), "class hover must identify Widget: {value:?}");
++    assert!(value.contains("Widget class documentation."), "class Phaldoc missing from hover: {value:?}");
++
++    lsp.finish().await;
++}
++
++#[tokio::test]
++async fn receiver_qualified_definition_does_not_fall_back_to_every_global_selector_match() {
++    let workspace = TestWorkspace::from_fixture_dir("hover_identity");
++    let uri = workspace.file_uri("unknown_definition.ph");
++    let source = MarkedSource::parse(&workspace.read("unknown_definition.ph"));
++
++    let mut lsp = TestLsp::start().await;
++    lsp.initialize(Some(&workspace.uri())).await;
++    lsp.open(&uri, &source.text).await;
++
++    let response = lsp
++        .request(
++            "textDocument/definition",
++            json!({
++                "textDocument": { "uri": uri },
++                "position": source.position("ping")
++            }),
++        )
++        .await;
++    assert!(
++        response["result"].is_null(),
++        "unknown receiver must not jump to all A.ping()/B.ping() definitions: {response:#?}"
++    );
++
++    lsp.finish().await;
++}
++
++#[tokio::test]
++async fn unimported_workspace_class_is_not_semantic_authority_for_hover() {
++    let workspace = TestWorkspace::from_fixture_dir("module_visibility");
++    let uri = workspace.file_uri("consumer.ph");
++    let source = MarkedSource::parse(&workspace.read("consumer.ph"));
++
++    let mut lsp = TestLsp::start().await;
++    lsp.initialize(Some(&workspace.uri())).await;
++    lsp.open(&uri, &source.text).await;
++
++    let response = lsp
++        .request(
++            "textDocument/hover",
++            json!({
++                "textDocument": { "uri": uri },
++                "position": source.position("product_only")
++            }),
++        )
++        .await;
++    assert!(
++        response["result"].is_null(),
++        "consumer did not import provider.ph, so unique workspace class Product must not resolve semantically: {response:#?}"
++    );
++
++    lsp.finish().await;
++}

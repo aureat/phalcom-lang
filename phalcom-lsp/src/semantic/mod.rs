@@ -488,8 +488,6 @@ impl SemanticDb {
     }
 }
 
-const MAX_SOLVER_ROUNDS: usize = 64;
-
 fn rebuild_state(state: &mut SemanticState, generation: SemanticGeneration, queue: &mut InvalidationQueue) {
     // Consume the dependency queue as part of publication. The current
     // implementation recomputes the compact workspace model in one bounded
@@ -506,56 +504,9 @@ fn rebuild_state(state: &mut SemanticState, generation: SemanticGeneration, queu
         classes.extend(surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
     }
     let graph = state.graph.clone();
-    let mut summaries: BTreeMap<CallableId, CallableSummary> = BTreeMap::new();
-    let mut parameter_facts: BTreeMap<(CallableId, String), InferredValue> = BTreeMap::new();
-
-    for _ in 0..MAX_SOLVER_ROUNDS {
-        let previous_summaries = summaries.clone();
-        let previous_parameters = parameter_facts.clone();
-        let mut next_parameters = BTreeMap::new();
-        for (module, program, surface) in &inputs {
-            let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
-            let is_constructor = |class: &ClassId, selector: &str| {
-                resolve_member_surface(&classes, class, selector).is_some_and(|member| member.is_constructor)
-                    || (selector == "new()" && classes.contains_key(class))
-            };
-            let callable_return = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.returns.clone());
-            let resolve_member = |class: &ClassId, selector: &str| resolve_member_surface(&classes, class, selector);
-            let facts = infer::parameter_facts_for_program(program, surface, module, known_class, is_constructor, callable_return, resolve_member);
-            next_parameters.extend(facts.iter().map(|(key, value)| (key.clone(), value.clone())));
-        }
-
-        let mut next_summaries = BTreeMap::new();
-        for (module, _, surface) in &inputs {
-            let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
-            let is_constructor = |class: &ClassId, selector: &str| {
-                resolve_member_surface(&classes, class, selector).is_some_and(|member| member.is_constructor)
-                    || (selector == "new()" && classes.contains_key(class))
-            };
-            let callable_return = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.returns.clone());
-            let parameter_fact = |id: &CallableId, name: &str| next_parameters.get(&(id.clone(), name.to_string())).cloned();
-            let resolve_member = |class: &ClassId, selector: &str| resolve_member_surface(&classes, class, selector);
-            let summaries_for_module = infer::summaries_for_surface(
-                surface,
-                module,
-                known_class,
-                is_constructor,
-                callable_return,
-                parameter_fact,
-                resolve_member,
-                generation,
-            );
-            next_summaries.extend(summaries_for_module.into_iter().map(|summary| (summary.callable.clone(), summary)));
-        }
-
-        let summaries_changed = next_summaries != previous_summaries;
-        let parameters_changed = next_parameters != previous_parameters;
-        summaries = next_summaries;
-        parameter_facts = next_parameters;
-        if !summaries_changed && !parameters_changed {
-            break;
-        }
-    }
+    let solved = infer::solve_workspace_callables(&inputs, &classes, &graph, generation);
+    let summaries = solved.summaries;
+    let parameter_facts = solved.parameter_facts;
 
     let mut local_by_module = BTreeMap::new();
     let mut fields_by_module = BTreeMap::new();
@@ -582,7 +533,7 @@ fn rebuild_state(state: &mut SemanticState, generation: SemanticGeneration, queu
     }
     state.classes = classes;
     state.summaries = summaries;
-    state.parameter_facts = parameter_facts;
+    state.parameter_facts = parameter_facts.iter().map(|(key, value)| (key.clone(), value.clone())).collect();
     state.field_facts = fields;
     let mut callable_dependents: BTreeMap<CallableId, std::collections::BTreeSet<CallableId>> = BTreeMap::new();
     for summary in state.summaries.values() {
@@ -902,6 +853,95 @@ mod tests {
             side: DispatchSide::Instance,
         };
         assert!(matches!(db.return_for_callable(&callable).unwrap().shape, ValueShape::Union(_)));
+    }
+
+    #[test]
+    fn three_step_return_forwarding_converges() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///chain.ph");
+        let parsed = parse(
+            "class Product { @constructor new() { } }\nclass Chain { a() { b() } b() { c() } c() { Product.new() } }",
+            0,
+        );
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let callable = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&uri), "Chain"),
+            selector: "a()".to_string(),
+            side: DispatchSide::Instance,
+        };
+        let shape = db.return_for_callable(&callable).unwrap().shape;
+        assert!(
+            matches!(&shape, ValueShape::Instance(ClassId { name, .. }) if name == "Product"),
+            "shape: {shape:?}"
+        );
+    }
+
+    #[test]
+    fn recursive_scc_with_concrete_evidence_converges() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///recursive-concrete.ph");
+        let parsed = parse(
+            "class Product { @constructor new() { } }\nclass Loop { run() { return run()\nreturn Product.new() } }",
+            0,
+        );
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let callable = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&uri), "Loop"),
+            selector: "run()".to_string(),
+            side: DispatchSide::Instance,
+        };
+        let shape = db.return_for_callable(&callable).unwrap().shape;
+        assert!(
+            matches!(&shape, ValueShape::Instance(ClassId { name, .. }) if name == "Product"),
+            "shape: {shape:?}"
+        );
+    }
+
+    #[test]
+    fn nine_incompatible_return_shapes_widen_to_unknown() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///wide.ph");
+        let mut source = String::new();
+        for name in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'] {
+            source.push_str(&format!("class {name} {{ @constructor new() {{ }} }}\n"));
+        }
+        source.push_str("class Factory { choose() { return A.new()\nreturn B.new()\nreturn C.new()\nreturn D.new()\nreturn E.new()\nreturn F.new()\nreturn G.new()\nreturn H.new()\nreturn I.new() } }");
+        let parsed = parse(&source, 0);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let callable = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&uri), "Factory"),
+            selector: "choose()".to_string(),
+            side: DispatchSide::Instance,
+        };
+        assert_eq!(db.return_for_callable(&callable).unwrap().shape, ValueShape::Unknown);
+    }
+
+    #[test]
+    fn same_selector_different_classes_have_independent_summaries() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///same-selector.ph");
+        let parsed = parse(
+            "class AValue { @constructor new() { } }\nclass BValue { @constructor new() { } }\nclass A { value() { AValue.new() } }\nclass B { value() { BValue.new() } }",
+            0,
+        );
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let module = ModuleId::from_uri(&uri);
+        let a = db
+            .return_for_callable(&CallableId {
+                owner: ClassId::new(module.clone(), "A"),
+                selector: "value()".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .unwrap();
+        let b = db
+            .return_for_callable(&CallableId {
+                owner: ClassId::new(module, "B"),
+                selector: "value()".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .unwrap();
+        assert!(matches!(a.shape, ValueShape::Instance(ClassId { name, .. }) if name == "AValue"));
+        assert!(matches!(b.shape, ValueShape::Instance(ClassId { name, .. }) if name == "BValue"));
     }
 
     #[test]

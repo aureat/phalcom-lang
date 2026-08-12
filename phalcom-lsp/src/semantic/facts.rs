@@ -285,4 +285,52 @@ impl ParameterFacts {
     pub fn iter(&self) -> impl Iterator<Item = (&(CallableId, String), &InferredValue)> {
         self.params.iter()
     }
+
+    /// Joins every contribution from `other` into this aggregate.
+    pub fn merge_from(&mut self, other: &Self) {
+        for ((callable, name), value) in other.iter() {
+            self.record(callable.clone(), name.clone(), value.clone());
+        }
+    }
+
+    /// Widen every retained fact for defensive solver recovery.
+    pub(crate) fn widen_all(&mut self) {
+        for value in self.params.values_mut() {
+            *value = InferredValue::flow(ValueShape::Unknown, Default::default());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parameter_facts_merge_joins_contributions() {
+        let callable = CallableId {
+            owner: ClassId::new(ModuleId::new("file:///service.ph"), "Service"),
+            selector: "consume(_)".to_string(),
+            side: super::super::DispatchSide::Instance,
+        };
+        let cat = ClassId::new(ModuleId::new("file:///cat.ph"), "Cat");
+        let dog = ClassId::new(ModuleId::new("file:///dog.ph"), "Dog");
+        let mut left = ParameterFacts::default();
+        let mut right = ParameterFacts::default();
+        left.record(
+            callable.clone(),
+            "value",
+            InferredValue::flow(ValueShape::Instance(cat.clone()), Default::default()),
+        );
+        right.record(
+            callable.clone(),
+            "value",
+            InferredValue::flow(ValueShape::Instance(dog.clone()), Default::default()),
+        );
+
+        left.merge_from(&right);
+
+        assert!(
+            matches!(left.get(&callable, "value").unwrap().shape, ValueShape::Union(ref values) if values.contains(&ValueShape::Instance(cat)) && values.contains(&ValueShape::Instance(dog)))
+        );
+    }
 }

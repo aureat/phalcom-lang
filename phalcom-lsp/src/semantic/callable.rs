@@ -1,6 +1,8 @@
 //! Callable-summary data model; solving is added in the interprocedural slice.
 
-use super::facts::InferredValue;
+use std::collections::BTreeMap;
+
+use super::facts::{InferredValue, ParameterFacts};
 use super::ids::CallableId;
 use super::query::SemanticGeneration;
 
@@ -26,4 +28,13 @@ pub struct CallableSummary {
 pub struct SummaryEffects {
     /// Callable contains a reflective or dynamic send.
     pub dynamic_send: bool,
+}
+
+/// Coherent result of one complete callable/parameter solve.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct SolverResult {
+    /// Fixed-point callable summaries.
+    pub summaries: BTreeMap<CallableId, CallableSummary>,
+    /// Joined call-site parameter facts.
+    pub parameter_facts: ParameterFacts,
 }

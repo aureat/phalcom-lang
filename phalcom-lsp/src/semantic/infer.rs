@@ -1,9 +1,14 @@
 //! Deterministic syntax and local-flow inference.
 
-use std::collections::BTreeMap;
+#![allow(clippy::only_used_in_recursion, clippy::too_many_arguments)]
 
-use super::facts::{FieldFacts, InferredValue, LocalFacts, ParameterFacts, ValueShape};
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use super::callable::SolverResult;
+use super::facts::{FieldFacts, InferredValue, LocalFacts, ParameterFacts, ValueShape, MAX_SHAPE_UNION};
 use super::ids::{CallableId, ClassId, ModuleId, CORE_MODULE_URI};
+use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
 use super::surface::{MemberSurface, ModuleSurface};
 use super::CallableSummary;
@@ -292,6 +297,7 @@ pub fn parameter_facts_for_program(
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
 ) -> ParameterFacts {
     let mut facts = ParameterFacts::default();
@@ -304,11 +310,151 @@ pub fn parameter_facts_for_program(
         known_class,
         is_constructor,
         callable_return,
+        parameter_fact,
         resolve_member,
         &mut environment,
         &mut facts,
     );
     facts
+}
+
+/// Solves source callable summaries and parameter facts without mutating the
+/// published semantic database.
+pub(crate) fn solve_workspace_callables(
+    inputs: &[(ModuleId, Arc<phalcom_ast::ast::Program>, ModuleSurface)],
+    classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
+    graph: &ModuleGraph,
+    generation: SemanticGeneration,
+) -> SolverResult {
+    let callable_count = inputs
+        .iter()
+        .map(|(_, _, surface)| surface.classes.values().map(|class| class.members.len()).sum::<usize>())
+        .sum::<usize>();
+    let slot_count = inputs
+        .iter()
+        .map(|(_, _, surface)| {
+            surface
+                .classes
+                .values()
+                .flat_map(|class| class.members.values())
+                .map(|member| member.params.len())
+                .sum::<usize>()
+        })
+        .sum::<usize>();
+    let max_rounds = (callable_count + slot_count).max(1) * (MAX_SHAPE_UNION + 2);
+    let mut summaries = BTreeMap::new();
+    let mut parameter_facts = ParameterFacts::default();
+
+    for _ in 0..max_rounds {
+        let previous_summaries = summaries.clone();
+        let previous_parameters = parameter_facts.clone();
+        let mut next_parameters = ParameterFacts::default();
+
+        for (module, program, surface) in inputs {
+            let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
+            let is_constructor = |class: &ClassId, selector: &str| {
+                super::resolve_member_surface(classes, class, selector).is_some_and(|member| member.is_constructor)
+                    || (selector == "new()" && classes.contains_key(class))
+            };
+            let callable_return = |id: &CallableId| previous_summaries.get(id).map(|summary: &CallableSummary| summary.returns.clone());
+            let parameter_fact = |id: &CallableId, name: &str| previous_parameters.get(id, name).cloned();
+            let resolve_member = |class: &ClassId, selector: &str| super::resolve_member_surface(classes, class, selector);
+            let facts = parameter_facts_for_program(
+                program,
+                surface,
+                module,
+                known_class,
+                is_constructor,
+                callable_return,
+                parameter_fact,
+                resolve_member,
+            );
+            next_parameters.merge_from(&facts);
+        }
+
+        let mut next_summaries = BTreeMap::new();
+        for (module, _, surface) in inputs {
+            let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
+            let is_constructor = |class: &ClassId, selector: &str| {
+                super::resolve_member_surface(classes, class, selector).is_some_and(|member| member.is_constructor)
+                    || (selector == "new()" && classes.contains_key(class))
+            };
+            let callable_return = |id: &CallableId| previous_summaries.get(id).map(|summary: &CallableSummary| summary.returns.clone());
+            let parameter_fact = |id: &CallableId, name: &str| next_parameters.get(id, name).cloned();
+            let resolve_member = |class: &ClassId, selector: &str| super::resolve_member_surface(classes, class, selector);
+            for (summary, evidence) in summaries_for_surface_with_bottom(
+                surface,
+                module,
+                known_class,
+                is_constructor,
+                callable_return,
+                parameter_fact,
+                resolve_member,
+                generation,
+            ) {
+                if evidence.is_some() {
+                    next_summaries.insert(summary.callable.clone(), summary);
+                }
+            }
+        }
+
+        let summaries_changed = next_summaries != previous_summaries;
+        let parameters_changed = next_parameters != previous_parameters;
+        summaries = next_summaries;
+        parameter_facts = next_parameters;
+        if !summaries_changed && !parameters_changed {
+            complete_missing_summaries(inputs, classes, graph, generation, &parameter_facts, &mut summaries);
+            return SolverResult { summaries, parameter_facts };
+        }
+    }
+
+    if cfg!(debug_assertions) {
+        panic!("callable solver failed to converge within derived budget");
+    }
+
+    // Release builds must still publish a coherent state. Widen all facts and
+    // summaries together so no caller observes a partial round.
+    parameter_facts.widen_all();
+    for summary in summaries.values_mut() {
+        summary.returns = InferredValue::flow(ValueShape::Unknown, Default::default());
+        for value in &mut summary.params {
+            *value = InferredValue::flow(ValueShape::Unknown, Default::default());
+        }
+    }
+    SolverResult { summaries, parameter_facts }
+}
+
+fn complete_missing_summaries(
+    inputs: &[(ModuleId, Arc<phalcom_ast::ast::Program>, ModuleSurface)],
+    classes: &BTreeMap<ClassId, super::surface::ClassSurface>,
+    graph: &ModuleGraph,
+    generation: SemanticGeneration,
+    parameter_facts: &ParameterFacts,
+    summaries: &mut BTreeMap<CallableId, CallableSummary>,
+) {
+    for (module, _, surface) in inputs {
+        let known_class = |name: &str| super::resolve_named_class(classes, graph, module, name);
+        let is_constructor = |class: &ClassId, selector: &str| {
+            super::resolve_member_surface(classes, class, selector).is_some_and(|member| member.is_constructor)
+                || (selector == "new()" && classes.contains_key(class))
+        };
+        let callable_return = |id: &CallableId| summaries.get(id).map(|summary| summary.returns.clone());
+        let parameter_fact = |id: &CallableId, name: &str| parameter_facts.get(id, name).cloned();
+        let resolve_member = |class: &ClassId, selector: &str| super::resolve_member_surface(classes, class, selector);
+        let generated = summaries_for_surface(
+            surface,
+            module,
+            known_class,
+            is_constructor,
+            callable_return,
+            parameter_fact,
+            resolve_member,
+            generation,
+        );
+        for summary in generated {
+            summaries.entry(summary.callable.clone()).or_insert(summary);
+        }
+    }
 }
 
 fn collect_call_sites(
@@ -319,6 +465,7 @@ fn collect_call_sites(
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
     environment: &mut BTreeMap<String, InferredValue>,
     facts: &mut ParameterFacts,
@@ -335,6 +482,7 @@ fn collect_call_sites(
                         known_class,
                         is_constructor,
                         callable_return,
+                        parameter_fact,
                         resolve_member,
                         environment,
                         facts,
@@ -356,6 +504,7 @@ fn collect_call_sites(
                     known_class,
                     is_constructor,
                     callable_return,
+                    parameter_fact,
                     resolve_member,
                     environment,
                     facts,
@@ -385,6 +534,7 @@ fn collect_call_sites(
                         known_class,
                         is_constructor,
                         callable_return,
+                        parameter_fact,
                         resolve_member,
                         environment,
                         facts,
@@ -402,6 +552,15 @@ fn collect_call_sites(
                         phalcom_ast::ast::ClassMember::Field(_) | phalcom_ast::ast::ClassMember::Variant(_) => continue,
                     };
                     let mut member_environment = BTreeMap::new();
+                    let selector = crate::selectors::class_member_selector(member);
+                    let Some(member_surface) = surface.classes.get(&id).and_then(|class| class.members.get(&selector)) else {
+                        continue;
+                    };
+                    for param in &member_surface.params {
+                        if let Some(value) = parameter_fact(&member_surface.callable, &param.name) {
+                            member_environment.insert(param.name.clone(), value);
+                        }
+                    }
                     collect_call_sites(
                         body,
                         surface,
@@ -410,6 +569,7 @@ fn collect_call_sites(
                         known_class,
                         is_constructor,
                         callable_return,
+                        parameter_fact,
                         resolve_member,
                         &mut member_environment,
                         facts,
@@ -429,6 +589,7 @@ fn collect_call_sites_expr(
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
     environment: &BTreeMap<String, InferredValue>,
     facts: &mut ParameterFacts,
@@ -472,6 +633,7 @@ fn collect_call_sites_expr(
                     known_class,
                     is_constructor,
                     callable_return,
+                    parameter_fact,
                     resolve_member,
                     environment,
                     facts,
@@ -510,6 +672,7 @@ fn collect_call_sites_expr(
                 known_class,
                 is_constructor,
                 callable_return,
+                parameter_fact,
                 resolve_member,
                 environment,
                 facts,
@@ -523,6 +686,7 @@ fn collect_call_sites_expr(
                     known_class,
                     is_constructor,
                     callable_return,
+                    parameter_fact,
                     resolve_member,
                     environment,
                     facts,
@@ -538,6 +702,7 @@ fn collect_call_sites_expr(
                 known_class,
                 is_constructor,
                 callable_return,
+                parameter_fact,
                 resolve_member,
                 environment,
                 facts,
@@ -550,6 +715,7 @@ fn collect_call_sites_expr(
                 known_class,
                 is_constructor,
                 callable_return,
+                parameter_fact,
                 resolve_member,
                 environment,
                 facts,
@@ -563,6 +729,7 @@ fn collect_call_sites_expr(
             known_class,
             is_constructor,
             callable_return,
+            parameter_fact,
             resolve_member,
             environment,
             facts,
@@ -582,6 +749,7 @@ fn collect_call_sites_expr(
                     known_class,
                     is_constructor,
                     callable_return,
+                    parameter_fact,
                     resolve_member,
                     environment,
                     facts,
@@ -600,6 +768,7 @@ fn collect_call_sites_pack(
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
     callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
     resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
     environment: &BTreeMap<String, InferredValue>,
     facts: &mut ParameterFacts,
@@ -615,6 +784,7 @@ fn collect_call_sites_pack(
         known_class,
         is_constructor,
         callable_return,
+        parameter_fact,
         resolve_member,
         environment,
         facts,
@@ -807,6 +977,209 @@ pub fn summaries_for_surface(
             }
         })
         .collect()
+}
+
+type SummaryEvidence = Option<InferredValue>;
+
+/// Computes a callable body while preserving solver-bottom for a source call
+/// whose summary has not been established in the current iteration.
+fn infer_summary_expr(
+    expr: &Expr,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
+) -> SummaryEvidence {
+    let unknown = || InferredValue::flow(ValueShape::Unknown, expr.range());
+    match expr {
+        Expr::MethodCall(call) => {
+            let receiver = infer_summary_expr(
+                &call.object,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+            )
+            .unwrap_or_else(unknown);
+            let selector = call_selector(&call.method, &call.args);
+            let call_return = |class: ClassId| {
+                let Some(member) = resolve_member(&class, &selector) else {
+                    return Some(unknown());
+                };
+                if member.callable.owner.module.as_str() == CORE_MODULE_URI {
+                    Some(unknown())
+                } else {
+                    callable_return(&member.callable)
+                }
+            };
+            match receiver.shape {
+                ValueShape::ClassObject(class) if is_constructor(&class, &selector) => Some(InferredValue::flow(ValueShape::Instance(class), expr.range())),
+                ValueShape::Instance(class) => call_return(class),
+                ValueShape::ClassObject(class) => call_return(class),
+                ValueShape::Union(shapes) => {
+                    let mut result = None;
+                    for shape in shapes {
+                        let evidence = match shape {
+                            ValueShape::Instance(class) => call_return(class),
+                            ValueShape::ClassObject(class) => call_return(class),
+                            _ => Some(unknown()),
+                        };
+                        if let Some(value) = evidence {
+                            result = Some(result.map_or(value.clone(), |old: InferredValue| old.join(&value)));
+                        }
+                    }
+                    result
+                }
+                _ => Some(unknown()),
+            }
+        }
+        Expr::UnqualifiedCall(call) => {
+            let selector = call_selector(&call.name, &call.args);
+            let Some(class) = current_class else { return Some(unknown()) };
+            let Some(member) = resolve_member(class, &selector) else {
+                return Some(unknown());
+            };
+            if member.callable.owner.module.as_str() == CORE_MODULE_URI {
+                Some(unknown())
+            } else {
+                callable_return(&member.callable)
+            }
+        }
+        _ => Some(infer_expr(expr, module, current_class, environment, known_class, is_constructor)),
+    }
+}
+
+/// Computes summaries with absent return evidence left at solver-bottom.
+fn summaries_for_surface_with_bottom(
+    surface: &ModuleSurface,
+    module: &ModuleId,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
+    revision: SemanticGeneration,
+) -> Vec<(CallableSummary, SummaryEvidence)> {
+    surface
+        .classes
+        .values()
+        .flat_map(|class| class.members.values().map(move |member| (class, member)))
+        .filter(|(_, member)| !member.body.is_empty())
+        .map(|(class, member)| {
+            let mut environment = BTreeMap::new();
+            let params = member
+                .params
+                .iter()
+                .map(|param| {
+                    let value = parameter_fact(&member.callable, &param.name).unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, param.source_range));
+                    environment.insert(param.name.clone(), value.clone());
+                    value
+                })
+                .collect();
+            let evidence = body_summary_value(
+                &member.body,
+                module,
+                Some(&class.id),
+                &environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+            );
+            let returns = evidence
+                .clone()
+                .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, member.source_range));
+            let dependencies = callable_dependencies(
+                &member.body,
+                module,
+                Some(&class.id),
+                &environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+            );
+            (
+                CallableSummary {
+                    callable: member.callable.clone(),
+                    params,
+                    returns,
+                    dependencies,
+                    effects: Default::default(),
+                    revision,
+                },
+                evidence,
+            )
+        })
+        .collect()
+}
+
+fn body_summary_value(
+    body: &[Statement],
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
+) -> SummaryEvidence {
+    let last = body.last()?;
+    let mut result = None;
+    for statement in body {
+        if let Statement::Return(return_statement) = statement {
+            let evidence = return_statement.value.as_ref().and_then(|expr| {
+                infer_summary_expr(
+                    expr,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                )
+            });
+            if let Some(value) = evidence {
+                result = Some(result.map_or(value.clone(), |old: InferredValue| old.join(&value)));
+            }
+        }
+    }
+    if result.is_some() {
+        return result;
+    }
+    match last {
+        Statement::Expr { expr, .. } => infer_summary_expr(
+            expr,
+            module,
+            current_class,
+            environment,
+            known_class,
+            is_constructor,
+            callable_return,
+            resolve_member,
+        ),
+        Statement::Let(binding) => binding.value.as_ref().map(|expr| {
+            infer_summary_expr(
+                expr,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+            )
+            .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, expr.range()))
+        }),
+        _ => Some(InferredValue::flow(ValueShape::Unknown, last_range(last))),
+    }
 }
 
 fn callable_dependencies(
