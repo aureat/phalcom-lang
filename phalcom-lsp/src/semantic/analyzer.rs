@@ -691,6 +691,12 @@ mod tests {
             analyze_source_expression(source, "Child.new()", None, BTreeMap::new(), BTreeMap::new()).shape,
             ValueShape::Instance(child)
         );
+        let inherited_source = "class Parent { @constructor new() { } }\nclass Child is Parent { }\n";
+        let inherited_child = ClassId::new(ModuleId::new("file:///analyzer_cases.ph"), "Child");
+        assert_eq!(
+            analyze_source_expression(inherited_source, "Child.new()", None, BTreeMap::new(), BTreeMap::new()).shape,
+            ValueShape::Instance(inherited_child)
+        );
 
         let parsed = super::super::core_source::bundled_parse();
         assert!(parsed.errors.is_empty(), "unexpected core parse errors: {:?}", parsed.errors);
@@ -787,5 +793,12 @@ mod tests {
         let environment = BTreeMap::from([(String::from("family"), family)]);
         let invoked = analyze_source_expression(source, "family()", None, environment, returns);
         assert_eq!(invoked.shape, ValueShape::Instance(core_class("Int")));
+    }
+
+    #[test]
+    fn dynamic_argument_expansion_keeps_dispatch_conservative() {
+        let source = "class Box { [_ index] { 1 } }\n";
+        let value = analyze_source_expression(source, "Box.new()[***indices]", None, BTreeMap::new(), BTreeMap::new());
+        assert_eq!(value.shape, ValueShape::Unknown);
     }
 }
