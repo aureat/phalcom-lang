@@ -9,6 +9,8 @@ mod infer;
 mod invalidation;
 mod module_graph;
 mod query;
+mod occurrence;
+mod scope;
 mod surface;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,7 +27,9 @@ pub use flow::join_values;
 pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
 pub use invalidation::InvalidationQueue;
 pub use module_graph::{ImportEdge, ModuleGraph};
+pub use occurrence::{OccurrenceIndex, OccurrenceRole, SemanticOccurrence, SemanticOccurrenceKind, SemanticTarget};
 pub use query::{SemanticGeneration, SnapshotStamp};
+pub use scope::{BindingId, BindingInfo, NameResolution, ScopeGraph, ScopeId, ScopeInfo, SemanticBindingKind};
 pub use surface::{ClassSurface, FieldKind, FieldSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, ParamSurface, build_module_surface};
 
 /// Renders one advisory runtime shape for editor surfaces.
@@ -89,6 +93,10 @@ pub struct FileSemanticSnapshot {
     pub program: Arc<Program>,
     /// Source-authored class/member surface.
     pub surface: ModuleSurface,
+    /// Lexical binding and scope identities.
+    pub scopes: ScopeGraph,
+    /// Exact source semantic occurrences.
+    pub occurrences: OccurrenceIndex,
     /// Exact and local-flow facts.
     pub local_facts: LocalFacts,
     /// Constructor-assigned field facts.
@@ -199,6 +207,8 @@ impl SemanticDb {
             } else {
                 build_module_surface(module.clone(), &program)
             };
+            let scopes = scope::build_scope_graph(module.clone(), &program);
+            let occurrences = occurrence::build_occurrence_index(module.clone(), &program, &surface, &scopes);
             state.parameter_contributions.remove(&module);
             state.files.insert(
                 module.clone(),
@@ -207,6 +217,8 @@ impl SemanticDb {
                     module: module.clone(),
                     program: Arc::new(program),
                     surface,
+                    scopes,
+                    occurrences,
                     local_facts: LocalFacts::default(),
                     field_facts: FieldFacts::default(),
                     parameter_facts: ParameterFacts::default(),
@@ -297,6 +309,40 @@ impl SemanticDb {
     pub fn file_snapshot(&self, uri: &Url) -> Option<FileSemanticSnapshot> {
         let module = ModuleId::from_uri(uri);
         self.state.read().expect("semantic database lock poisoned").files.get(&module).cloned()
+    }
+
+    /// Returns the exact semantic occurrence covering one source offset.
+    pub fn occurrence_at(&self, uri: &Url, offset: usize) -> Option<SemanticOccurrence> {
+        let module = ModuleId::from_uri(uri);
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .files
+            .get(&module)
+            .and_then(|file| file.occurrences.occurrence_at(offset).cloned())
+    }
+
+    /// Returns lexical bindings visible at one source offset, nearest scope first.
+    pub fn visible_bindings_at(&self, uri: &Url, offset: usize) -> Vec<BindingInfo> {
+        let module = ModuleId::from_uri(uri);
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .files
+            .get(&module)
+            .map(|file| file.scopes.visible_bindings_at(offset))
+            .unwrap_or_default()
+    }
+
+    /// Returns one binding's declaration metadata from a file-local identity.
+    pub fn binding_info(&self, uri: &Url, binding: BindingId) -> Option<BindingInfo> {
+        let module = ModuleId::from_uri(uri);
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .files
+            .get(&module)
+            .and_then(|file| file.scopes.bindings.get(&binding).cloned())
     }
 
     /// Returns one class surface by module-qualified identity.

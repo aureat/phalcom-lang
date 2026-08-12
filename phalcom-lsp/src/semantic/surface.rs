@@ -70,6 +70,8 @@ pub struct FieldSurface {
     pub is_class_side: bool,
     /// Source span.
     pub source_range: SourceRange,
+    /// Exact field-name token span.
+    pub name_range: SourceRange,
     /// Optional source initializer.
     pub initializer: Option<Expr>,
 }
@@ -83,6 +85,10 @@ pub struct ParamSurface {
     pub label: Option<String>,
     /// Parameter source span.
     pub source_range: SourceRange,
+    /// Exact local binding token span.
+    pub name_range: SourceRange,
+    /// Exact external label token span, if written.
+    pub label_range: Option<SourceRange>,
 }
 
 /// Source-level member category.
@@ -169,6 +175,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                         },
                         is_class_side: field.is_static,
                         source_range: field.range,
+                        name_range: field.name_range,
                         initializer: field.default.clone(),
                     },
                 );
@@ -236,6 +243,8 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
                 name: setter.param.name.clone(),
                 label: setter.param.label.clone(),
                 source_range: setter.param.range,
+                name_range: setter.param.name_range,
+                label_range: setter.param.label_range,
             }],
             setter.body.clone(),
             setter.range,
@@ -248,7 +257,7 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
             Vec::new(),
             Vec::new(),
             field.range,
-            field.range,
+            field.name_range,
         ),
         ClassMember::Variant(variant) => (
             MemberKind::Variant,
@@ -257,7 +266,7 @@ fn member_parts(member: &ClassMember) -> (MemberKind, DispatchSide, bool, Vec<Pa
             Vec::new(),
             Vec::new(),
             variant.range,
-            variant.range,
+            variant.name_range,
         ),
         ClassMember::Index(index) => {
             let params = match &index.accessor {
@@ -297,6 +306,8 @@ fn param(parameter: &ParameterDef) -> ParamSurface {
         name: parameter.name.clone(),
         label: parameter.label.clone(),
         source_range: parameter.range,
+        name_range: parameter.name_range,
+        label_range: parameter.label_range,
     }
 }
 

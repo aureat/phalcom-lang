@@ -5,7 +5,7 @@
 
 use phalcom_ast::ast::{Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
-use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position};
+use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position, Url};
 
 use crate::documents::Document;
 use crate::semantic::{ClassId, CompletionMember, DispatchSide, MemberKind, MemberVisibility, SemanticDb};
@@ -145,6 +145,7 @@ pub(crate) struct SemanticCompletionContext<'a> {
     pub resolved: Option<&'a SemanticResolvedReceiver>,
     pub lexical_class: Option<&'a ClassId>,
     pub privileged: bool,
+    pub uri: &'a Url,
     pub program: &'a Program,
     pub text: &'a str,
     pub offset: usize,
@@ -165,7 +166,7 @@ pub(crate) fn semantic_contextual_completions(db: &SemanticDb, context: Semantic
         if let Some(class) = context.lexical_class {
             items.extend(semantic_class_completions(db, class, ReceiverKind::Instance, Some(class), context.privileged));
         }
-        items.extend(visible_names_at(context.program, context.offset).into_iter().map(|name| CompletionItem {
+        items.extend(visible_names_at(db, context.uri, context.program, context.offset).into_iter().map(|name| CompletionItem {
             label: name.clone(),
             kind: Some(CompletionItemKind::VARIABLE),
             insert_text: Some(name),
@@ -269,8 +270,8 @@ fn semantic_to_completion_item(member: &CompletionMember) -> CompletionItem {
     }
 }
 
-fn visible_names_at(program: &Program, offset: usize) -> Vec<String> {
-    let mut names = Vec::new();
+fn visible_names_at(db: &SemanticDb, uri: &Url, program: &Program, offset: usize) -> Vec<String> {
+    let mut names = db.visible_bindings_at(uri, offset).into_iter().map(|binding| binding.name).collect::<Vec<_>>();
     for statement in &program.statements {
         match statement {
             Statement::Class(class) => names.push(class.name.clone()),

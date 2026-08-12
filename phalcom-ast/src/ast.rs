@@ -97,6 +97,8 @@ pub struct ImportStatement {
     pub path: String,
     /// The local name the imported `Module` is bound to (`as Name`).
     pub binding: String,
+    /// Exact source span of the local import binding.
+    pub binding_range: SourceRange,
     /// The source span of the whole `import` statement.
     pub range: SourceRange,
 }

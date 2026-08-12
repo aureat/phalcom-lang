@@ -593,134 +593,114 @@ impl Backend {
     /// Returns `None` if nothing at the cursor resolves to a keyword, a
     /// known selector, or a documented top-level binding.
     fn hover_at(&self, uri: &Url, position: Position) -> Option<Hover> {
-        if let Some((word, span)) = self
-            .documents
-            .with_document(uri, |doc| {
-                let offset = doc.line_index.offset(position);
-                hover::keyword_at_offset(&doc.text, offset).map(|(word, range)| (word, doc.line_index.range(range)))
-            })
-            .flatten()
-        {
-            let blurb = hover::keyword_blurb(word)?;
-            return Some(Hover {
-                contents: markdown_contents(hover::render_keyword_hover(word, blurb)),
-                range: Some(span),
-            });
-        }
-
-        if let Some((class, span)) = self.semantic_class_target(uri, position) {
-            let phaldoc = if class.id.module.as_str() == crate::semantic::CORE_MODULE_URI {
-                None
-            } else {
-                Url::parse(class.id.module.as_str()).ok().and_then(|definition_uri| {
-                    self.with_source_snapshot(&definition_uri, |text, _, line_index| {
-                        hover::harvest_doc_for_declaration(
-                            text,
-                            line_index,
-                            hover::DeclarationDocTarget::Class {
-                                declaration: class.source_range,
-                                name: class.name_range,
-                            },
-                        )
-                    })
-                    .flatten()
-                })
-            };
-            return Some(Hover {
-                contents: markdown_contents(hover::render_class_hover(&class.id, class.superclass.as_ref(), phaldoc.as_ref())),
-                range: Some(span),
-            });
-        }
-
-        let Some((selector, span)) = self.selector_at_position(uri, position) else {
-            return self.hover_for_top_level_binding(uri, position);
-        };
-
         let offset = self.documents.with_document(uri, |doc| doc.line_index.offset(position))?;
-        if let Some(member) = self.semantic.member_at(uri, offset).filter(|member| member.callable.selector == selector) {
-            let site = SelectorSite {
-                owner: member.callable.owner.clone(),
-                receiver: None,
-                kind: hover_member_kind(&member),
-            };
-            let phaldoc = self.member_phaldoc(&member);
-            let value = hover::render_selector_hover_with_value(
-                &selector,
-                &[site],
-                phaldoc.as_ref(),
-                self.semantic.return_for_callable(&member.callable).as_ref(),
-            )?;
-            return Some(Hover {
-                contents: markdown_contents(value),
-                range: Some(span),
-            });
-        }
+        let occurrence = self.semantic.occurrence_at(uri, offset)?;
+        let span = self.documents.with_document(uri, |doc| doc.line_index.range(occurrence.range.start..occurrence.range.end))?;
 
-        if let Some(targets) = self.semantic_member_targets(uri, position, &selector) {
-            let mut sites = Vec::new();
-            let mut ids = Vec::new();
-            let mut docs = Vec::new();
-            for target in &targets {
-                sites.push(SelectorSite {
-                    owner: target.member.callable.owner.clone(),
-                    receiver: Some(target.receiver.clone()),
-                    kind: hover_member_kind(&target.member),
-                });
-                ids.push(target.member.callable.clone());
-                let owner = &target.member.callable.owner;
-                if owner.module.as_str() == crate::semantic::CORE_MODULE_URI {
-                    continue;
+        match occurrence.target {
+            crate::semantic::SemanticTarget::Binding(binding) => {
+                let info = self.semantic.binding_info(uri, binding)?;
+                let value = self.semantic.binding_at(uri, &info.name, offset);
+                let phaldoc = self.documents.with_document(uri, |doc| {
+                    hover::harvest_doc_for_selector(&doc.text, &doc.parse.program, &doc.line_index, &info.name)
+                })?;
+                Some(Hover {
+                    contents: markdown_contents(hover::render_binding_hover(&info, value.as_ref(), phaldoc.as_ref())),
+                    range: Some(span),
+                })
+            }
+            crate::semantic::SemanticTarget::Class(class_id) => {
+                let class = self.semantic.class_surface(&class_id)?;
+                let phaldoc = if class.id.module.as_str() == crate::semantic::CORE_MODULE_URI {
+                    None
+                } else {
+                    Url::parse(class.id.module.as_str()).ok().and_then(|definition_uri| {
+                        self.with_source_snapshot(&definition_uri, |text, _, line_index| {
+                            hover::harvest_doc_for_declaration(
+                                text,
+                                line_index,
+                                hover::DeclarationDocTarget::Class {
+                                    declaration: class.source_range,
+                                    name: class.name_range,
+                                },
+                            )
+                        })
+                        .flatten()
+                    })
+                };
+                Some(Hover {
+                    contents: markdown_contents(hover::render_class_hover(&class.id, class.superclass.as_ref(), phaldoc.as_ref())),
+                    range: Some(span),
+                })
+            }
+            crate::semantic::SemanticTarget::Callable(callable) => {
+                let member = self.semantic.member_surface(&callable.owner, &callable.selector)?;
+                let site = SelectorSite {
+                    owner: member.callable.owner.clone(),
+                    receiver: None,
+                    kind: hover_member_kind(&member),
+                };
+                let phaldoc = self.member_phaldoc(&member);
+                let value = hover::render_selector_hover_with_value(
+                    &callable.selector,
+                    &[site],
+                    phaldoc.as_ref(),
+                    self.semantic.return_for_callable(&member.callable).as_ref(),
+                )?;
+                Some(Hover {
+                    contents: markdown_contents(value),
+                    range: Some(span),
+                })
+            }
+            crate::semantic::SemanticTarget::Field { owner, name } => {
+                let member = self.semantic.member_surface(&owner, &name)?;
+                let site = SelectorSite {
+                    owner: member.callable.owner.clone(),
+                    receiver: None,
+                    kind: hover_member_kind(&member),
+                };
+                let phaldoc = self.member_phaldoc(&member);
+                let value = hover::render_selector_hover_with_value(&name, &[site], phaldoc.as_ref(), None)?;
+                Some(Hover {
+                    contents: markdown_contents(value),
+                    range: Some(span),
+                })
+            }
+            crate::semantic::SemanticTarget::Member { .. } => {
+                let (selector, selector_span) = self.selector_at_position(uri, position)?;
+                if selector_span != span {
+                    return None;
                 }
-                if let Some(doc) = self.member_phaldoc(&target.member) {
-                    if !docs.contains(&doc) {
+                let targets = self.semantic_member_targets(uri, position, &selector)?;
+                let mut sites = Vec::new();
+                let mut ids = Vec::new();
+                let mut docs = Vec::new();
+                for target in &targets {
+                    sites.push(SelectorSite {
+                        owner: target.member.callable.owner.clone(),
+                        receiver: Some(target.receiver.clone()),
+                        kind: hover_member_kind(&target.member),
+                    });
+                    ids.push(target.member.callable.clone());
+                    if target.member.callable.owner.module.as_str() != crate::semantic::CORE_MODULE_URI
+                        && let Some(doc) = self.member_phaldoc(&target.member)
+                        && !docs.contains(&doc)
+                    {
                         docs.push(doc);
                     }
                 }
+                let phaldoc = (docs.len() == 1).then(|| docs.remove(0));
+                let inferred = self.semantic.returns_for_callables(ids);
+                let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
+                Some(Hover {
+                    contents: markdown_contents(value),
+                    range: Some(span),
+                })
             }
-            let phaldoc = (docs.len() == 1).then(|| docs.remove(0));
-            let inferred = self.semantic.returns_for_callables(ids);
-            let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
-            return Some(Hover {
-                contents: markdown_contents(value),
-                range: Some(span),
-            });
+            crate::semantic::SemanticTarget::Operator(_) => None,
         }
-
-        self.hover_for_top_level_binding(uri, position)
     }
 
-    /// The `hover_at` fallback for a bare identifier that resolves to none of
-    /// keyword, contextual word, or a selector: a top-level `let`/`var`
-    /// binding usage ([`index::top_level_binding_at_offset`]), rendered from
-    /// its own file's harvested Phaldoc doc, if any.
-    ///
-    /// Unlike the selector layer, a top-level binding is same-file only (no
-    /// cross-file `DefinitionInfo` is tracked for it), so this reads straight
-    /// off `uri`'s own cached parse — no [`Self::with_source_snapshot`] hop.
-    /// Renders with an empty [`SelectorSite`] list ([`hover::
-    /// render_selector_hover`]'s "purely local, Phaldoc-only hover" case), so
-    /// a binding with no doc above it renders no hover at all rather than a
-    /// bare, uninformative label.
-    ///
-    /// Returns `None` if `uri` is not open, the cursor resolves to no
-    /// top-level binding, or that binding carries no Phaldoc doc.
-    fn hover_for_top_level_binding(&self, uri: &Url, position: Position) -> Option<Hover> {
-        let (name, doc, inferred) = self
-            .documents
-            .with_document(uri, |doc| {
-                let offset = doc.line_index.offset(position);
-                let name = index::top_level_binding_at_offset(&doc.parse.program, offset)?;
-                let phaldoc = hover::harvest_doc_for_selector(&doc.text, &doc.parse.program, &doc.line_index, &name)?;
-                Some((name.clone(), phaldoc, self.semantic.binding_at(uri, &name, offset)))
-            })
-            .flatten()?;
-
-        let value = hover::render_selector_hover_with_value(&name, &[], Some(&doc), inferred.as_ref())?;
-        Some(Hover {
-            contents: markdown_contents(value),
-            range: None,
-        })
-    }
 }
 
 /// Recovers semantic structure lost when a live member-access expression ends
@@ -1201,6 +1181,7 @@ impl LanguageServer for Backend {
                     resolved: resolved.as_ref(),
                     lexical_class: lexical_class.as_ref(),
                     privileged,
+                    uri: &uri,
                     program: &doc.parse.program,
                     text: &doc.text,
                     offset,

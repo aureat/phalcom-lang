@@ -148,6 +148,20 @@ pub fn index_selector(ix: &IndexMethodDef) -> String {
     }
 }
 
+/// Builds a bracket selector from call-site argument labels.
+pub fn index_selector_from_labels(labels: &[Option<String>], setter: bool) -> String {
+    let inner = labels
+        .iter()
+        .map(|label| label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
+        .collect::<Vec<_>>()
+        .join(",");
+    if setter {
+        format!("[{inner}]=(put)")
+    } else {
+        format!("[{inner}]")
+    }
+}
+
 /// The comma-form selector any [`ClassMember`] declaration defines.
 ///
 /// The single dispatch point every definition-side index entry goes

@@ -18,7 +18,7 @@ use phalcom_ast::ast::{
 use phalcom_common::range::SourceRange;
 use tower_lsp::lsp_types::Url;
 
-use crate::selectors::{class_member_selector, comma_form_from_labels, setter_selector_from_name};
+use crate::selectors::{class_member_selector, comma_form_from_labels, index_selector_from_labels, setter_selector_from_name};
 
 /// Rendering shape for a source member in legacy navigation and hover data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -855,25 +855,25 @@ impl Collector {
             let kind = member_kind(member);
             match member {
                 ClassMember::Method(m) => {
-                    self.definitions.push((selector, m.range, class, kind));
+                    self.definitions.push((selector, m.name_range, class, kind));
                     for statement in &m.body {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Getter(g) => {
-                    self.definitions.push((selector, g.range, class, kind));
+                    self.definitions.push((selector, g.name_range, class, kind));
                     for statement in &g.body {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Setter(s) => {
-                    self.definitions.push((selector, s.range, class, kind));
+                    self.definitions.push((selector, s.name_range, class, kind));
                     for statement in &s.body {
                         self.walk_statement(statement);
                     }
                 }
                 ClassMember::Field(f) => {
-                    self.definitions.push((selector, f.range, class, kind));
+                    self.definitions.push((selector, f.name_range, class, kind));
                     if let Some(default) = &f.default {
                         self.walk_expr(default);
                     }
@@ -881,10 +881,10 @@ impl Collector {
                 // No body and no default-valued sub-expression to walk (see
                 // `member_kind`'s doc for why this isn't a real selector).
                 ClassMember::Variant(v) => {
-                    self.definitions.push((selector, v.range, class, kind));
+                    self.definitions.push((selector, v.name_range, class, kind));
                 }
                 ClassMember::Index(ix) => {
-                    self.definitions.push((selector, ix.range, class, kind));
+                    self.definitions.push((selector, ix.name_range, class, kind));
                     for statement in &ix.body {
                         self.walk_statement(statement);
                     }
@@ -941,14 +941,14 @@ impl Collector {
             }
             Expr::MethodCall(m) => {
                 self.walk_expr(&m.object);
-                if let Some(labels) = static_pack_labels(&m.args) {
-                    self.references.push((comma_form_from_labels(&m.method, &labels), m.range));
+                if let (Some(labels), Some(range)) = (static_pack_labels(&m.args), m.method_range) {
+                    self.references.push((comma_form_from_labels(&m.method, &labels), range));
                 }
                 self.walk_args(&m.args);
             }
             Expr::UnqualifiedCall(m) => {
-                if let Some(labels) = static_pack_labels(&m.args) {
-                    self.references.push((comma_form_from_labels(&m.name, &labels), m.range));
+                if let (Some(labels), Some(range)) = (static_pack_labels(&m.args), m.name_range) {
+                    self.references.push((comma_form_from_labels(&m.name, &labels), range));
                 }
                 self.walk_args(&m.args);
             }
@@ -957,21 +957,31 @@ impl Collector {
                 // Bare-name access resolves to the getter selector — the
                 // same "no parens" spelling `selectors::getter_selector`
                 // gives a `GetterDef` declaration.
-                self.references.push((g.property.clone(), g.range));
+                if let Some(range) = g.property_range {
+                    self.references.push((g.property.clone(), range));
+                }
             }
             Expr::SetProperty(s) => {
                 self.walk_expr(&s.object);
                 self.walk_expr(&s.value);
-                self.references.push((setter_selector_from_name(&s.property), s.range));
+                if let Some(range) = s.property_range {
+                    self.references.push((setter_selector_from_name(&s.property), range));
+                }
             }
             Expr::Index(i) => {
                 self.walk_expr(&i.object);
                 self.walk_args(&i.args);
+                if let (Some(labels), Some(range)) = (static_pack_labels(&i.args), i.selector_range) {
+                    self.references.push((index_selector_from_labels(&labels, false), range));
+                }
             }
             Expr::SetIndex(si) => {
                 self.walk_expr(&si.object);
                 self.walk_args(&si.args);
                 self.walk_expr(&si.value);
+                if let (Some(labels), Some(range)) = (static_pack_labels(&si.args), si.selector_range) {
+                    self.references.push((index_selector_from_labels(&labels, true), range));
+                }
             }
             Expr::Block(b) => {
                 for statement in &b.body {
@@ -989,7 +999,9 @@ impl Collector {
                 // single selector to index it under here.
                 if let phalcom_ast::ast::MethodRefKind::Pinned { name, labels } = &mr.kind {
                     let selector = comma_form_from_labels(name, labels);
-                    self.references.push((selector, mr.range));
+                    if let Some(range) = mr.selector_range {
+                        self.references.push((selector, range));
+                    }
                 }
             }
             Expr::TupleLiteral(tuple) => {

@@ -621,9 +621,11 @@ impl<'source> Parser<'source> {
             _ => return Err(self.error_here(strs(&["string literal"]))),
         };
         self.expect(&Token::As, &["\"as\""])?;
+        let binding_start = self.cur_start();
         let binding = self.expect_identifier(&["identifier"])?;
+        let binding_range = (binding_start..self.prev_end).into();
         let range = (start..self.prev_end).into();
-        Ok(Statement::Import(ImportStatement { path, binding, range }))
+        Ok(Statement::Import(ImportStatement { path, binding, binding_range, range }))
     }
 
     /// Parses `try { P } (on T e { … })* (catch e { … })? (ensure { … })?`

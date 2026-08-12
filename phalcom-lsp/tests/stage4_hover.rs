@@ -5,7 +5,7 @@
 //!
 //! Exercises `textDocument/hover` (`docs/forge/units/U-LSP/plan.md` § Tests,
 //! Stage 4):
-//! - a keyword hover (`self`),
+//! - no hover for keywords/literals,
 //! - Phaldoc adjacency (a `///` block immediately above a method attaches;
 //!   one separated by a blank line does not),
 //! - selector-keying (`foo()`/`foo(_)` each carry their own doc),
@@ -181,18 +181,18 @@ async fn hover_at(client_end: &mut tokio::io::DuplexStream, id: i64, uri: &str, 
 }
 
 #[tokio::test]
-async fn keyword_hover_renders_the_blurb() {
+async fn keywords_and_literals_are_not_semantic_hovers() {
     let (mut client_end, server_task) = spawn_server();
     initialize(&mut client_end, None).await;
 
     let uri = "file:///workspace/main.ph";
-    let text = "class Point {\n  x() { self }\n}\n";
+    let text = "class Point {\n  x() { self }\n}\nlet flag = true\n";
     did_open(&mut client_end, uri, text).await;
 
-    let response = hover_at(&mut client_end, 2, uri, text, "self").await;
-    let value = response["result"]["contents"]["value"].as_str().expect("markup contents");
-    assert!(value.contains("**self**"), "{value:?}");
-    assert!(value.contains("current receiver"), "{value:?}");
+    for (id, needle) in [(2, "class"), (3, "self"), (4, "let"), (5, "true")] {
+        let response = hover_at(&mut client_end, id, uri, text, needle).await;
+        assert!(response["result"].is_null(), "{needle} hover should be absent: {response:?}");
+    }
 
     drop(client_end);
     let _ = server_task.await;
@@ -383,6 +383,56 @@ async fn selector_hover_sets_range_to_the_resolved_selector_span() {
     let (line, character) = position_of(text, "move(_ x)");
     assert_eq!(range["start"]["line"].as_u64(), Some(line as u64));
     assert_eq!(range["start"]["character"].as_u64(), Some(character as u64));
+    assert_eq!(range["end"]["line"].as_u64(), Some(line as u64));
+    assert_eq!(range["end"]["character"].as_u64(), Some((character + "move".len()) as u64));
+
+    drop(client_end);
+    let _ = server_task.await;
+}
+
+#[tokio::test]
+async fn binding_hover_ranges_are_exact_and_scope_aware() {
+    let (mut client_end, server_task) = spawn_server();
+    initialize(&mut client_end, None).await;
+
+    let uri = "file:///workspace/main.ph";
+    let text = "class Sample {\n  method(parameter) {\n    let local = parameter\n    local\n  }\n}\n";
+    did_open(&mut client_end, uri, text).await;
+
+    let parameter_decl = text.find("parameter").unwrap();
+    let local_decl = text.find("local").unwrap();
+    let parameter_use = text.rfind("parameter").unwrap();
+    let local_use = text.rfind("local").unwrap();
+    for (id, offset, token, expected) in [
+        (2, parameter_decl, "parameter", "parameter"),
+        (3, local_decl, "local", "mutable binding"),
+        (4, parameter_use, "parameter", "parameter"),
+        (5, local_use, "local", "mutable binding"),
+    ] {
+        let line = text[..offset].matches('\n').count();
+        let character = offset - text[..offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
+        write_message(
+            &mut client_end,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "textDocument/hover",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "position": { "line": line, "character": character }
+                }
+            }),
+        )
+        .await;
+        let response = read_response(&mut client_end, id).await;
+        let value = response["result"]["contents"]["value"].as_str().expect("binding hover");
+        assert!(value.contains(expected), "{value:?}");
+        let range = &response["result"]["range"];
+        assert_eq!(range["start"]["line"].as_u64(), Some(line as u64));
+        assert_eq!(range["start"]["character"].as_u64(), Some(character as u64));
+        assert_eq!(range["end"]["line"].as_u64(), Some(line as u64));
+        assert_eq!(range["end"]["character"].as_u64(), Some((character + token.len()) as u64));
+    }
 
     drop(client_end);
     let _ = server_task.await;

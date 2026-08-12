@@ -37,7 +37,7 @@ use phalcom_ast::token::Token;
 
 use crate::line_index::LineIndex;
 use crate::selectors::class_member_selector;
-use crate::semantic::{ClassId, Confidence, InferredValue, ValueShape};
+use crate::semantic::{BindingInfo, ClassId, Confidence, InferredValue, SemanticBindingKind, ValueShape};
 
 /// The contextual (non-keyword-token) words that carry their own hover blurb
 /// only by convention, not by reserved-word status: they lex as
@@ -670,6 +670,36 @@ pub fn render_class_hover(class: &ClassId, superclass: Option<&ClassId>, phaldoc
                     .collect::<Vec<_>>()
                     .join("\n"),
             );
+        }
+    }
+    sections.join("\n\n---\n\n")
+}
+
+/// Renders one lexical binding or parameter without relying on spelling alone.
+pub fn render_binding_hover(binding: &BindingInfo, value: Option<&InferredValue>, phaldoc: Option<&PhaldocDoc>) -> String {
+    let kind = match binding.kind {
+        SemanticBindingKind::TopLevelLet | SemanticBindingKind::LocalLet => "mutable binding",
+        SemanticBindingKind::TopLevelConst | SemanticBindingKind::LocalConst => "constant binding",
+        SemanticBindingKind::MethodParameter | SemanticBindingKind::SetterParameter | SemanticBindingKind::IndexParameter => "parameter",
+        SemanticBindingKind::ClosureParameter => "closure parameter",
+        SemanticBindingKind::ForBinding => "loop binding",
+        SemanticBindingKind::Destructure => "destructured binding",
+        SemanticBindingKind::Import => "import binding",
+    };
+    let mut sections = vec![format!("`{}` — {kind}", binding.name)];
+    if let Some(value) = value.filter(|value| !matches!(value.shape, ValueShape::Unknown) && value.confidence != Confidence::Heuristic) {
+        sections.push(format!(
+            "**Observed type:** `{}`\n\nConfidence: {}",
+            crate::semantic::render_value_shape(&value.shape),
+            crate::semantic::confidence_name(value.confidence)
+        ));
+    }
+    if let Some(doc) = phaldoc {
+        if !doc.summary.is_empty() {
+            sections.push(doc.summary.clone());
+        }
+        if !doc.tags.is_empty() {
+            sections.push(doc.tags.iter().map(|(tag, payload)| format!("- **@{tag}** {payload}")).collect::<Vec<_>>().join("\n"));
         }
     }
     sections.join("\n\n---\n\n")
