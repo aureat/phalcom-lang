@@ -213,6 +213,7 @@ mod tests {
         Expr::GetProperty(Box::new(GetPropertyExpr {
             object: expr,
             property: "iter".into(),
+            property_range: None,
             range: EmptySourceRange,
         }))
     }
@@ -221,6 +222,7 @@ mod tests {
         Expr::MethodCall(Box::new(MethodCallExpr {
             object,
             method: method.into(),
+            method_range: None,
             args: vec![PackItem::Positional {
                 expr: Expr::Block(Box::new(phalcom_ast::ast::BlockExpr {
                     params: phalcom_ast::ast::ClosureParameters::default(),
