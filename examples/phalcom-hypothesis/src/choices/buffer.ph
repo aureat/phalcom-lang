@@ -112,6 +112,7 @@ class ChoiceBuffer {
     if _openSpans.size > 0 {
       throw errors._UnclosedSpan.new("cannot freeze an example with open spans")
     }
+
     return Example.from(
       choices: self.choices,
       spans: self.spans,

@@ -16,6 +16,9 @@ pub struct ImportEdge {
     pub from: ModuleId,
     /// Local module binding.
     pub binding: String,
+    /// Source-relative import path, retained so unresolved edges can be
+    /// repaired when a provider file is created later.
+    pub path: String,
     /// Resolved target, if its source file exists.
     pub target: Option<ModuleId>,
     /// Source span of the import statement.
@@ -39,6 +42,7 @@ impl ModuleGraph {
                 Some(ImportEdge {
                     from: module.clone(),
                     binding: import.binding.clone(),
+                    path: import.path.clone(),
                     target: resolve_import(&module, &import.path),
                     source_range: import.range,
                 })
@@ -64,6 +68,36 @@ impl ModuleGraph {
             .filter(|(_, edges)| edges.iter().any(|edge| edge.target.as_ref() == Some(target)))
             .map(|(module, _)| module.clone())
             .collect()
+    }
+
+    /// Re-resolves imports after a file is created, removed, or moved.
+    /// Returns importers whose resolved target changed.
+    pub fn refresh_resolutions(&mut self) -> Vec<ModuleId> {
+        let mut changed = Vec::new();
+        for (module, edges) in &mut self.edges {
+            for edge in edges {
+                let target = resolve_import(module, &edge.path);
+                if edge.target != target {
+                    edge.target = target;
+                    changed.push(module.clone());
+                }
+            }
+        }
+        changed
+    }
+
+    /// Returns all transitive import dependents of `target`.
+    pub fn dependent_closure(&self, target: &ModuleId) -> Vec<ModuleId> {
+        let mut pending = vec![target.clone()];
+        let mut seen = std::collections::BTreeSet::new();
+        while let Some(module) = pending.pop() {
+            for dependent in self.dependents_of(&module) {
+                if seen.insert(dependent.clone()) {
+                    pending.push(dependent);
+                }
+            }
+        }
+        seen.into_iter().collect()
     }
 }
 

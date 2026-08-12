@@ -7,19 +7,16 @@
 //  Option/List protocols, string interpolation, introspection.
 // ============================================================
 class Stack {
+  const _items = []
 
   // Keyword constructor (`construct`): binds instance state directly
   // from labeled arguments.
   @constructor
-  new(items) {
-    _items = items
-  }
+  new(items) { _items = items }
 
   // Static named constructor — the idiomatic factory pattern.
   @class
-  empty {
-    return Stack.new(items: List.new())
-  }
+  empty { Stack.new(items: List.new()) }
 
   // Braced getters over private instance vars (`_items`).
   size { _items.size }
@@ -27,27 +24,29 @@ class Stack {
 
   // Closure-bodied method returning `self` so calls chain.
   push(_ v) {
-    _items.add(v)
-    return self
+    _items.append(v)
+    self
   }
 
   // Partial operation modelled with Option, never nil:
   //   Some(top) on a non-empty stack, None otherwise.
   top {
-    if (_items.isEmpty) { return None }
-    return Some.new(_items.at(_items.size - 1))
+    if (_items.isEmpty) {
+      return None
+    }
+    Some.new(_items.at(_items.size - 1))
   }
 
   // Higher-order method: fold with a caller-supplied 2-arity block.
   fold(initial seed, using f) {
-    return _items.fold(initial: seed, using: |acc, x| { f.call(acc, x) })
+    _items.fold(initial: seed, using: f)
   }
 
   // Operator overloading: `+` concatenates two stacks.
   +(_ other) {
     let out = List.new()
-    _items.each |x| { out.add(x) }
-    other.eachItem |x| { out.add(x) }
+    _items.each |x| { out.append(x) }
+    other.eachItem |x| { out.append(x) }
     return Stack.new(items: out)
   }
 

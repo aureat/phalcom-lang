@@ -15,7 +15,7 @@ pub struct Module {
     pub range: SourceRange,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Program {
     pub statements: Vec<Statement>,
 }

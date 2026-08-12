@@ -1438,8 +1438,6 @@ class Set {
   // natural extension of the sequence protocol every collection instantiates.
   at(_ i) { self._$at(i) }
 
-
-
   iteratorValue(_ cursor) { self._$at(cursor) }
 
   // Structural equality: same members, order-independent. Same-size plus

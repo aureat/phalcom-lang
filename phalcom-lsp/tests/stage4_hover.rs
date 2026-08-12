@@ -16,7 +16,7 @@
 
 use std::path::PathBuf;
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_lsp::{LspService, Server};
 
@@ -307,6 +307,45 @@ async fn builtin_hover_has_kind_and_selector_but_no_phaldoc_section() {
     // No Phaldoc section: no `---` divider, since there is no local `.ph`
     // source to harvest a doc comment from for a native/core builtin.
     assert!(!value.contains("---"), "{value:?}");
+
+    drop(client_end);
+    let _ = server_task.await;
+}
+
+#[tokio::test]
+async fn receiver_qualified_hover_selects_one_of_repeated_new_members() {
+    let (mut client_end, server_task) = spawn_server();
+    initialize(&mut client_end, None).await;
+
+    let uri = "file:///workspace/main.ph";
+    let text = "class Counter { @constructor new() { } }\nclass Other { @constructor new() { } }\nlet c = Counter.new()\n";
+    did_open(&mut client_end, uri, text).await;
+
+    let declaration = hover_at(&mut client_end, 2, uri, text, "new()").await;
+    let declaration_value = declaration["result"]["contents"]["value"].as_str().unwrap();
+    assert!(declaration_value.contains("on Counter"), "{declaration_value:?}");
+    assert!(!declaration_value.contains("Other"), "{declaration_value:?}");
+
+    let call_offset = text.rfind("Counter.new()").unwrap() + "Counter.".len();
+    let line = text[..call_offset].matches('\n').count();
+    let character = call_offset - text[..call_offset].rfind('\n').map(|index| index + 1).unwrap_or(0);
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": uri },
+                "position": { "line": line, "character": character }
+            }
+        }),
+    )
+    .await;
+    let call = read_response(&mut client_end, 3).await;
+    let call_value = call["result"]["contents"]["value"].as_str().unwrap();
+    assert!(call_value.contains("on Counter"), "{call_value:?}");
+    assert!(!call_value.contains("Other"), "{call_value:?}");
 
     drop(client_end);
     let _ = server_task.await;

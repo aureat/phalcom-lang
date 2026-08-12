@@ -12,6 +12,7 @@ mod query;
 mod surface;
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::sync::RwLock;
 
 use phalcom_ast::ast::{Expr, PackItem, PackLabel, Program};
@@ -19,13 +20,13 @@ use tower_lsp::lsp_types::Url;
 
 pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnKnowledge;
-pub use facts::{Confidence, FactOrigin, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
+pub use facts::{Confidence, FactOrigin, FieldFacts, FileRevision, InferredValue, LocalFacts, ParameterFacts, ValueShape, MAX_SHAPE_UNION};
 pub use flow::join_values;
-pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
+pub use ids::{CallableId, ClassId, DispatchSide, ModuleId, CORE_MODULE_URI};
 pub use invalidation::InvalidationQueue;
 pub use module_graph::{ImportEdge, ModuleGraph};
 pub use query::{SemanticGeneration, SnapshotStamp};
-pub use surface::{ClassSurface, FieldKind, FieldSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, ParamSurface, build_module_surface};
+pub use surface::{build_module_surface, ClassSurface, FieldKind, FieldSurface, MemberKind, MemberSurface, MemberVisibility, ModuleSurface, ParamSurface};
 
 /// Renders one advisory runtime shape for editor surfaces.
 pub fn render_value_shape(shape: &ValueShape) -> String {
@@ -84,6 +85,8 @@ pub struct FileSemanticSnapshot {
     pub revision: FileRevision,
     /// Module identity.
     pub module: ModuleId,
+    /// Recovered source program retained for dependent recomputation.
+    pub program: Arc<Program>,
     /// Source-authored class/member surface.
     pub surface: ModuleSurface,
     /// Exact and local-flow facts.
@@ -112,6 +115,7 @@ struct SemanticState {
     summaries: BTreeMap<CallableId, CallableSummary>,
     field_facts: BTreeMap<(ClassId, String), InferredValue>,
     parameter_facts: BTreeMap<(CallableId, String), InferredValue>,
+    callable_dependents: BTreeMap<CallableId, std::collections::BTreeSet<CallableId>>,
     graph: ModuleGraph,
 }
 
@@ -141,80 +145,41 @@ impl SemanticDb {
         } else {
             build_module_surface(module.clone(), program)
         };
-        let known_classes = |name: &str| {
-            let local = ClassId::new(module.clone(), name);
-            surface.classes.contains_key(&local).then_some(local).or_else(|| {
-                let core = ClassId::new(ModuleId::new(CORE_MODULE_URI), name);
-                state.classes.contains_key(&core).then_some(core)
-            })
-        };
-        let is_constructor = |class: &ClassId, selector: &str| {
-            surface
-                .classes
-                .get(class)
-                .and_then(|surface| surface.members.get(selector))
-                .is_some_and(|member| member.is_constructor)
-                || (selector == "new()" && surface.classes.contains_key(class))
-                || state
-                    .classes
-                    .get(class)
-                    .and_then(|surface| surface.members.get(selector))
-                    .is_some_and(|member| member.is_constructor)
-                || (selector == "new()" && state.classes.contains_key(class))
-        };
-        let callable_return = |class: &ClassId, selector: &str| {
-            let callable = CallableId {
-                owner: class.clone(),
-                selector: selector.to_string(),
-                side: DispatchSide::Instance,
-            };
-            state.summaries.get(&callable).map(|summary| summary.returns.clone())
-        };
         let next_generation = SemanticGeneration(state.generation.0 + 1);
-        let parameter_facts = infer::parameter_facts_for_program(program, &surface, &module, known_classes, is_constructor, callable_return);
-        let parameter_value = |callable: &CallableId, name: &str| {
-            parameter_facts
-                .get(callable, name)
-                .cloned()
-                .or_else(|| state.parameter_facts.get(&(callable.clone(), name.to_string())).cloned())
-        };
-        let summaries = infer::summaries_for_surface(
-            &surface,
-            &module,
-            known_classes,
-            is_constructor,
-            callable_return,
-            parameter_value,
-            next_generation,
-        );
-        let local_facts = infer::collect_local_facts_with_returns(program, &module, known_classes, is_constructor, callable_return);
-        let field_facts = infer::field_facts_for_surface(&surface, &module, known_classes, is_constructor, callable_return);
-        state.classes.retain(|class, _| class.module != module);
-        state.classes.extend(surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
-        state.summaries.retain(|callable, _| callable.owner.module != module);
-        state.summaries.extend(summaries.into_iter().map(|summary| (summary.callable.clone(), summary)));
-        state.field_facts.retain(|(class, _), _| class.module != module);
-        state.field_facts.extend(field_facts.iter().map(|(key, value)| (key.clone(), value.clone())));
-        state.parameter_facts.retain(|(callable, _), _| callable.owner.module != module);
-        state
-            .parameter_facts
-            .extend(parameter_facts.iter().map(|(key, value)| (key.clone(), value.clone())));
         state.graph.update(module.clone(), program);
-        let dependencies = DependencySet {
-            imports: state.graph.imports(&module).iter().filter_map(|edge| edge.target.clone()).collect(),
-        };
         state.files.insert(
             module.clone(),
             FileSemanticSnapshot {
                 revision,
-                module,
+                module: module.clone(),
+                program: Arc::new(program.clone()),
                 surface,
-                local_facts,
-                field_facts,
-                parameter_facts,
-                dependencies,
+                local_facts: LocalFacts::default(),
+                field_facts: FieldFacts::default(),
+                parameter_facts: ParameterFacts::default(),
+                dependencies: DependencySet::default(),
             },
         );
+        state.graph.refresh_resolutions();
+        let mut queue = InvalidationQueue::default();
+        queue.push(module.clone());
+        let changed_callables = state
+            .summaries
+            .values()
+            .filter(|summary| summary.callable.owner.module == module)
+            .map(|summary| summary.callable.clone())
+            .collect::<Vec<_>>();
+        for callable in changed_callables {
+            if let Some(dependents) = state.callable_dependents.get(&callable) {
+                for dependent in dependents {
+                    queue.push(dependent.owner.module.clone());
+                }
+            }
+        }
+        for dependent in state.graph.dependent_closure(&module) {
+            queue.push(dependent);
+        }
+        rebuild_state(&mut state, next_generation, &mut queue);
         state.generation = next_generation;
         state.generation
     }
@@ -237,6 +202,13 @@ impl SemanticDb {
         state.field_facts.retain(|(class, _), _| class.module != module);
         state.parameter_facts.retain(|(callable, _), _| callable.owner.module != module);
         state.graph.remove(&module);
+        state.graph.refresh_resolutions();
+        let mut queue = InvalidationQueue::default();
+        for dependent in state.graph.dependent_closure(&module) {
+            queue.push(dependent);
+        }
+        let next_generation = SemanticGeneration(state.generation.0 + 1);
+        rebuild_state(&mut state, next_generation, &mut queue);
         state.generation.0 += 1;
         state.generation
     }
@@ -266,6 +238,13 @@ impl SemanticDb {
             .get(class)
             .and_then(|surface| surface.members.get(selector))
             .cloned()
+    }
+
+    /// Resolves one receiver-qualified member, including inherited members.
+    pub fn receiver_member(&self, class: &ClassId, selector: &str, side: DispatchSide) -> Option<MemberSurface> {
+        let state = self.state.read().expect("semantic database lock poisoned");
+        let member = resolve_member_surface(&state.classes, class, selector)?;
+        (member.side == side).then_some(member)
     }
 
     /// Returns inherited, de-duplicated members for one live class surface.
@@ -344,6 +323,16 @@ impl SemanticDb {
         self.state.read().expect("semantic database lock poisoned").summaries.get(id).cloned()
     }
 
+    /// Returns a callable's target-specific return summary.
+    pub fn return_for_callable(&self, id: &CallableId) -> Option<InferredValue> {
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .summaries
+            .get(id)
+            .map(|summary| summary.returns.clone())
+    }
+
     /// Returns one observed return summary for a canonical selector.
     pub fn return_for_selector(&self, selector: &str) -> Option<InferredValue> {
         self.state
@@ -393,6 +382,30 @@ impl SemanticDb {
             .map(|class| class.id.clone())
     }
 
+    /// Returns the declared callable enclosing a source offset.
+    pub fn member_at(&self, uri: &Url, offset: usize) -> Option<MemberSurface> {
+        let module = ModuleId::from_uri(uri);
+        self.state
+            .read()
+            .expect("semantic database lock poisoned")
+            .files
+            .get(&module)?
+            .surface
+            .classes
+            .values()
+            .flat_map(|class| class.members.values())
+            .find(|member| member.source_range.contains(offset))
+            .cloned()
+    }
+
+    /// Joins return summaries for a bounded set of receiver candidates.
+    pub fn returns_for_callables(&self, ids: impl IntoIterator<Item = CallableId>) -> Option<InferredValue> {
+        let state = self.state.read().expect("semantic database lock poisoned");
+        ids.into_iter()
+            .filter_map(|id| state.summaries.get(&id).map(|summary| summary.returns.clone()))
+            .reduce(|left, right| left.join(&right))
+    }
+
     /// Returns the fact visible for a local binding at a byte offset.
     pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
         let module = ModuleId::from_uri(uri);
@@ -418,31 +431,12 @@ impl SemanticDb {
         if let Some(file) = state.files.get(&module) {
             collect_expression_environment(expr, &file.local_facts, offset, &mut environment);
         }
-        let known_classes = |name: &str| {
-            let local = ClassId::new(module.clone(), name);
-            state.classes.contains_key(&local).then_some(local).or_else(|| {
-                let core = ClassId::new(ModuleId::new(CORE_MODULE_URI), name);
-                state.classes.contains_key(&core).then_some(core)
-            })
-        };
+        let known_classes = |name: &str| resolve_named_class(&state.classes, &state.graph, &module, name);
         let is_constructor = |class: &ClassId, selector: &str| {
-            state
-                .classes
-                .get(class)
-                .and_then(|surface| surface.members.get(selector))
-                .is_some_and(|member| member.is_constructor)
+            resolve_member_surface(&state.classes, class, selector).is_some_and(|member| member.is_constructor)
                 || (selector == "new()" && state.classes.contains_key(class))
         };
-        let callable_return = |class: &ClassId, selector: &str| {
-            state
-                .summaries
-                .get(&CallableId {
-                    owner: class.clone(),
-                    selector: selector.to_string(),
-                    side: DispatchSide::Instance,
-                })
-                .map(|summary| summary.returns.clone())
-        };
+        let callable_return = |id: &CallableId| state.summaries.get(id).map(|summary| summary.returns.clone());
         let field_value = |class: &ClassId, name: &str| state.field_facts.get(&(class.clone(), name.to_string())).cloned();
         let current_class = state
             .files
@@ -492,6 +486,163 @@ impl SemanticDb {
             generation: state.generation,
         })
     }
+}
+
+const MAX_SOLVER_ROUNDS: usize = 64;
+
+fn rebuild_state(state: &mut SemanticState, generation: SemanticGeneration, queue: &mut InvalidationQueue) {
+    // Consume the dependency queue as part of publication. The current
+    // implementation recomputes the compact workspace model in one bounded
+    // transaction; the queue still defines the affected frontier and keeps
+    // dependency invalidation explicit for a later incremental extractor.
+    let _affected = queue.drain().collect::<std::collections::BTreeSet<_>>();
+    let inputs = state
+        .files
+        .values()
+        .map(|file| (file.module.clone(), file.program.clone(), file.surface.clone()))
+        .collect::<Vec<_>>();
+    let mut classes = BTreeMap::new();
+    for (_, _, surface) in &inputs {
+        classes.extend(surface.classes.iter().map(|(id, class)| (id.clone(), class.clone())));
+    }
+    let graph = state.graph.clone();
+    let mut summaries: BTreeMap<CallableId, CallableSummary> = BTreeMap::new();
+    let mut parameter_facts: BTreeMap<(CallableId, String), InferredValue> = BTreeMap::new();
+
+    for _ in 0..MAX_SOLVER_ROUNDS {
+        let previous_summaries = summaries.clone();
+        let previous_parameters = parameter_facts.clone();
+        let mut next_parameters = BTreeMap::new();
+        for (module, program, surface) in &inputs {
+            let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
+            let is_constructor = |class: &ClassId, selector: &str| {
+                resolve_member_surface(&classes, class, selector).is_some_and(|member| member.is_constructor)
+                    || (selector == "new()" && classes.contains_key(class))
+            };
+            let callable_return = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.returns.clone());
+            let resolve_member = |class: &ClassId, selector: &str| resolve_member_surface(&classes, class, selector);
+            let facts = infer::parameter_facts_for_program(program, surface, module, known_class, is_constructor, callable_return, resolve_member);
+            next_parameters.extend(facts.iter().map(|(key, value)| (key.clone(), value.clone())));
+        }
+
+        let mut next_summaries = BTreeMap::new();
+        for (module, _, surface) in &inputs {
+            let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
+            let is_constructor = |class: &ClassId, selector: &str| {
+                resolve_member_surface(&classes, class, selector).is_some_and(|member| member.is_constructor)
+                    || (selector == "new()" && classes.contains_key(class))
+            };
+            let callable_return = |id: &CallableId| previous_summaries.get(id).map(|summary| summary.returns.clone());
+            let parameter_fact = |id: &CallableId, name: &str| next_parameters.get(&(id.clone(), name.to_string())).cloned();
+            let resolve_member = |class: &ClassId, selector: &str| resolve_member_surface(&classes, class, selector);
+            let summaries_for_module = infer::summaries_for_surface(
+                surface,
+                module,
+                known_class,
+                is_constructor,
+                callable_return,
+                parameter_fact,
+                resolve_member,
+                generation,
+            );
+            next_summaries.extend(summaries_for_module.into_iter().map(|summary| (summary.callable.clone(), summary)));
+        }
+
+        let summaries_changed = next_summaries != previous_summaries;
+        let parameters_changed = next_parameters != previous_parameters;
+        summaries = next_summaries;
+        parameter_facts = next_parameters;
+        if !summaries_changed && !parameters_changed {
+            break;
+        }
+    }
+
+    let mut local_by_module = BTreeMap::new();
+    let mut fields_by_module = BTreeMap::new();
+    for (module, program, surface) in &inputs {
+        let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
+        let is_constructor = |class: &ClassId, selector: &str| {
+            resolve_member_surface(&classes, class, selector).is_some_and(|member| member.is_constructor)
+                || (selector == "new()" && classes.contains_key(class))
+        };
+        let callable_return = |id: &CallableId| summaries.get(id).map(|summary| summary.returns.clone());
+        local_by_module.insert(
+            module.clone(),
+            infer::collect_local_facts_with_returns(program, module, known_class, is_constructor, callable_return),
+        );
+        fields_by_module.insert(
+            module.clone(),
+            infer::field_facts_for_surface(surface, module, known_class, is_constructor, callable_return),
+        );
+    }
+
+    let mut fields = BTreeMap::new();
+    for facts in fields_by_module.values() {
+        fields.extend(facts.iter().map(|(key, value)| (key.clone(), value.clone())));
+    }
+    state.classes = classes;
+    state.summaries = summaries;
+    state.parameter_facts = parameter_facts;
+    state.field_facts = fields;
+    let mut callable_dependents: BTreeMap<CallableId, std::collections::BTreeSet<CallableId>> = BTreeMap::new();
+    for summary in state.summaries.values() {
+        for dependency in &summary.dependencies {
+            callable_dependents.entry(dependency.clone()).or_default().insert(summary.callable.clone());
+        }
+    }
+    state.callable_dependents = callable_dependents;
+    for file in state.files.values_mut() {
+        file.local_facts = local_by_module.remove(&file.module).unwrap_or_default();
+        file.field_facts = fields_by_module.remove(&file.module).unwrap_or_default();
+        file.parameter_facts = ParameterFacts::default();
+        file.dependencies = DependencySet {
+            imports: state.graph.imports(&file.module).iter().filter_map(|edge| edge.target.clone()).collect(),
+        };
+    }
+}
+
+fn resolve_named_class(classes: &BTreeMap<ClassId, ClassSurface>, graph: &ModuleGraph, module: &ModuleId, name: &str) -> Option<ClassId> {
+    if let Some((binding, class_name)) = name.split_once('.') {
+        let imported = graph
+            .imports(module)
+            .iter()
+            .find(|edge| edge.binding == binding)
+            .and_then(|edge| edge.target.as_ref())?;
+        let class = ClassId::new(imported.clone(), class_name);
+        return classes.contains_key(&class).then_some(class);
+    }
+    let local = ClassId::new(module.clone(), name);
+    if classes.contains_key(&local) {
+        return Some(local);
+    }
+    let core = ClassId::new(ModuleId::new(CORE_MODULE_URI), name);
+    if classes.contains_key(&core) {
+        return Some(core);
+    }
+    // Preserve legacy workspace-global class references only when identity is
+    // unambiguous. Same-named classes still require module qualification.
+    let mut matches = classes.keys().filter(|class| class.name == name);
+    let first = matches.next()?.clone();
+    matches.next().is_none().then_some(first)
+}
+
+fn resolve_member_surface(classes: &BTreeMap<ClassId, ClassSurface>, class: &ClassId, selector: &str) -> Option<MemberSurface> {
+    let mut current = Some(class.clone());
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(id) = current {
+        if !visited.insert(id.clone()) {
+            return None;
+        }
+        let surface = classes.get(&id)?;
+        if let Some(member) = surface.members.get(selector) {
+            return Some(member.clone());
+        }
+        current = surface
+            .superclass
+            .clone()
+            .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
+    }
+    None
 }
 
 fn infer_imported_expression(state: &SemanticState, module: &ModuleId, expr: &Expr) -> Option<ValueShape> {
@@ -626,16 +777,14 @@ mod tests {
         let parse = parse("class String { liveEditorMember() { } }", 0);
         db.update_core(FileRevision(2), &parse.program);
         let string = ClassId::new(ModuleId::new(CORE_MODULE_URI), "String");
-        assert!(
-            db.completion_members(&string, DispatchSide::Instance)
-                .iter()
-                .any(|member| member.selector == "liveEditorMember()")
-        );
-        assert!(
-            !db.completion_members(&string, DispatchSide::Instance)
-                .iter()
-                .any(|member| member.selector == "size")
-        );
+        assert!(db
+            .completion_members(&string, DispatchSide::Instance)
+            .iter()
+            .any(|member| member.selector == "liveEditorMember()"));
+        assert!(!db
+            .completion_members(&string, DispatchSide::Instance)
+            .iter()
+            .any(|member| member.selector == "size"));
     }
 
     #[test]
@@ -708,5 +857,77 @@ mod tests {
             .unwrap();
         let value = db.infer_expression(&uri, &expression, 55);
         assert!(matches!(value.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Circle"));
+    }
+
+    #[test]
+    fn recursive_callable_summaries_terminate_at_unknown() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///recursive.ph");
+        let parsed = parse("class Loop { loop() { loop() } }", 0);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let callable = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&uri), "Loop"),
+            selector: "loop()".to_string(),
+            side: DispatchSide::Instance,
+        };
+        assert_eq!(db.return_for_callable(&callable).unwrap().shape, ValueShape::Unknown);
+    }
+
+    #[test]
+    fn mutually_recursive_callable_summaries_terminate_at_unknown() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///mutual-recursive.ph");
+        let parsed = parse("class Loop { first() { second() } second() { first() } }", 0);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let callable = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&uri), "Loop"),
+            selector: "first()".to_string(),
+            side: DispatchSide::Instance,
+        };
+        assert_eq!(db.return_for_callable(&callable).unwrap().shape, ValueShape::Unknown);
+    }
+
+    #[test]
+    fn explicit_multiple_returns_join_into_a_bounded_union() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///returns.ph");
+        let parsed = parse(
+            "class A { @constructor new() { } }\nclass B { @constructor new() { } }\nclass Factory { choose() { return A.new()\nreturn B.new() } }",
+            0,
+        );
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let callable = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&uri), "Factory"),
+            selector: "choose()".to_string(),
+            side: DispatchSide::Instance,
+        };
+        assert!(matches!(db.return_for_callable(&callable).unwrap().shape, ValueShape::Union(_)));
+    }
+
+    #[test]
+    fn imported_callable_returns_and_parameters_propagate_across_modules() {
+        let root = std::env::temp_dir().join(format!("phalcom-lsp-semantic-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let provider_path = root.join("provider.ph");
+        let consumer_path = root.join("consumer.ph");
+        let provider_text = "class Product { run() { } }\nclass Factory { make() { Product.new() } }\nclass Service { consume(_ value) { value } }\n";
+        let consumer_text = "import \"./provider\" as Provider\nlet product = Provider.Factory.new().make()\nlet consumed = Provider.Service.new().consume(Provider.Product.new())\n";
+        std::fs::write(&provider_path, provider_text).unwrap();
+        std::fs::write(&consumer_path, consumer_text).unwrap();
+        let provider_uri = Url::from_file_path(&provider_path).unwrap();
+        let consumer_uri = Url::from_file_path(&consumer_path).unwrap();
+        let db = SemanticDb::new();
+        db.update_file(&provider_uri, FileRevision(1), &parse(provider_text, 0).program);
+        db.update_file(&consumer_uri, FileRevision(1), &parse(consumer_text, 0).program);
+
+        let product = db.binding_at(&consumer_uri, "product", consumer_text.len()).unwrap();
+        assert!(matches!(product.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Product"));
+        let service = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&provider_uri), "Service"),
+            selector: "consume(_)".to_string(),
+            side: DispatchSide::Instance,
+        };
+        assert!(matches!(db.parameter_at(&service, "value").unwrap().shape, ValueShape::Instance(ClassId { name, .. }) if name == "Product"));
+        let _ = std::fs::remove_dir_all(root);
     }
 }

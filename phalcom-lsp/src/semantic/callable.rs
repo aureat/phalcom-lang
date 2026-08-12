@@ -5,7 +5,7 @@ use super::ids::CallableId;
 use super::query::SemanticGeneration;
 
 /// Summary of a source callable's inferred inputs and output.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableSummary {
     /// Callable identity.
     pub callable: CallableId,
@@ -22,7 +22,7 @@ pub struct CallableSummary {
 }
 
 /// Conservative effect flags retained for future invalidation precision.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SummaryEffects {
     /// Callable contains a reflective or dynamic send.
     pub dynamic_send: bool,

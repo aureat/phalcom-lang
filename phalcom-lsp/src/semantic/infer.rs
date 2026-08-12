@@ -2,11 +2,11 @@
 
 use std::collections::BTreeMap;
 
-use super::CallableSummary;
 use super::facts::{FieldFacts, InferredValue, LocalFacts, ParameterFacts, ValueShape};
-use super::ids::{CORE_MODULE_URI, CallableId, ClassId, ModuleId};
+use super::ids::{CallableId, ClassId, ModuleId, CORE_MODULE_URI};
 use super::query::SemanticGeneration;
-use super::surface::ModuleSurface;
+use super::surface::{MemberSurface, ModuleSurface};
+use super::CallableSummary;
 use phalcom_ast::ast::{
     Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, ProductLabel, RecordLiteralEntry, SetLiteralEntry, Statement,
     SymbolLiteralKind, TupleLiteralEntry,
@@ -94,6 +94,14 @@ pub fn infer_expr(
                 .map(|bound| infer_expr(bound, module, current_class, environment, known_class, is_constructor).shape);
             ValueShape::Range(Box::new(ValueShape::bounded_union(bounds)))
         }
+        Expr::GetProperty(property) => {
+            let Expr::Var { value: binding, .. } = &property.object else {
+                return InferredValue::exact(ValueShape::Unknown, range);
+            };
+            known_class(&format!("{binding}.{}", property.property))
+                .map(ValueShape::ClassObject)
+                .unwrap_or(ValueShape::Unknown)
+        }
         Expr::Assignment(assignment) => infer_expr(&assignment.value, module, current_class, environment, known_class, is_constructor).shape,
         Expr::MethodCall(call) => {
             let receiver = infer_expr(&call.object, module, current_class, environment, known_class, is_constructor);
@@ -116,21 +124,57 @@ pub fn infer_expr_with_returns(
     environment: &BTreeMap<String, InferredValue>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
 ) -> InferredValue {
     if let Expr::MethodCall(call) = expr {
         let receiver = infer_expr_with_returns(&call.object, module, current_class, environment, known_class, is_constructor, callable_return);
         let selector = call_selector(&call.method, &call.args);
         let shape = match receiver.shape {
             ValueShape::ClassObject(class) if is_constructor(&class, &selector) => ValueShape::Instance(class),
-            ValueShape::Instance(class) => callable_return(&class, &selector).map(|value| value.shape).unwrap_or(ValueShape::Unknown),
+            ValueShape::Instance(class) => callable_return(&CallableId {
+                owner: class,
+                selector: selector.clone(),
+                side: super::DispatchSide::Instance,
+            })
+            .map(|value| value.shape)
+            .unwrap_or(ValueShape::Unknown),
+            ValueShape::ClassObject(class) => callable_return(&CallableId {
+                owner: class,
+                selector: selector.clone(),
+                side: super::DispatchSide::Class,
+            })
+            .map(|value| value.shape)
+            .unwrap_or(ValueShape::Unknown),
+            ValueShape::Union(shapes) => ValueShape::bounded_union(shapes.into_iter().filter_map(|shape| {
+                match shape {
+                    ValueShape::Instance(class) => callable_return(&CallableId {
+                        owner: class,
+                        selector: selector.clone(),
+                        side: super::DispatchSide::Instance,
+                    })
+                    .map(|value| value.shape),
+                    ValueShape::ClassObject(class) => callable_return(&CallableId {
+                        owner: class,
+                        selector: selector.clone(),
+                        side: super::DispatchSide::Class,
+                    })
+                    .map(|value| value.shape),
+                    _ => None,
+                }
+            })),
             _ => ValueShape::Unknown,
         };
         return InferredValue::flow(shape, expr.range());
     }
     if let Expr::UnqualifiedCall(call) = expr {
         let shape = current_class
-            .and_then(|class| callable_return(class, &call_selector(&call.name, &call.args)))
+            .and_then(|class| {
+                callable_return(&CallableId {
+                    owner: class.clone(),
+                    selector: call_selector(&call.name, &call.args),
+                    side: super::DispatchSide::Instance,
+                })
+            })
             .map(|value| value.shape)
             .unwrap_or(ValueShape::Unknown);
         return InferredValue::flow(shape, expr.range());
@@ -146,7 +190,7 @@ pub fn infer_expr_with_fields(
     environment: &BTreeMap<String, InferredValue>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
     field_value: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
 ) -> InferredValue {
     match expr {
@@ -167,7 +211,20 @@ pub fn infer_expr_with_fields(
             let selector = call_selector(&call.method, &call.args);
             let shape = match receiver.shape {
                 ValueShape::ClassObject(class) if is_constructor(&class, &selector) => ValueShape::Instance(class),
-                ValueShape::Instance(class) => callable_return(&class, &selector).map(|value| value.shape).unwrap_or(ValueShape::Unknown),
+                ValueShape::Instance(class) => callable_return(&CallableId {
+                    owner: class,
+                    selector,
+                    side: super::DispatchSide::Instance,
+                })
+                .map(|value| value.shape)
+                .unwrap_or(ValueShape::Unknown),
+                ValueShape::ClassObject(class) => callable_return(&CallableId {
+                    owner: class,
+                    selector,
+                    side: super::DispatchSide::Class,
+                })
+                .map(|value| value.shape)
+                .unwrap_or(ValueShape::Unknown),
                 _ => ValueShape::Unknown,
             };
             InferredValue::flow(shape, expr.range())
@@ -182,7 +239,7 @@ pub fn field_facts_for_surface(
     module: &ModuleId,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
 ) -> FieldFacts {
     let mut facts = FieldFacts::default();
     for class in surface.classes.values() {
@@ -234,7 +291,8 @@ pub fn parameter_facts_for_program(
     module: &ModuleId,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
 ) -> ParameterFacts {
     let mut facts = ParameterFacts::default();
     let mut environment = BTreeMap::new();
@@ -246,6 +304,7 @@ pub fn parameter_facts_for_program(
         known_class,
         is_constructor,
         callable_return,
+        resolve_member,
         &mut environment,
         &mut facts,
     );
@@ -259,7 +318,8 @@ fn collect_call_sites(
     current_class: Option<&ClassId>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
     environment: &mut BTreeMap<String, InferredValue>,
     facts: &mut ParameterFacts,
 ) {
@@ -275,6 +335,7 @@ fn collect_call_sites(
                         known_class,
                         is_constructor,
                         callable_return,
+                        resolve_member,
                         environment,
                         facts,
                     );
@@ -295,6 +356,7 @@ fn collect_call_sites(
                     known_class,
                     is_constructor,
                     callable_return,
+                    resolve_member,
                     environment,
                     facts,
                 );
@@ -323,6 +385,7 @@ fn collect_call_sites(
                         known_class,
                         is_constructor,
                         callable_return,
+                        resolve_member,
                         environment,
                         facts,
                     );
@@ -347,6 +410,7 @@ fn collect_call_sites(
                         known_class,
                         is_constructor,
                         callable_return,
+                        resolve_member,
                         &mut member_environment,
                         facts,
                     );
@@ -364,7 +428,8 @@ fn collect_call_sites_expr(
     current_class: Option<&ClassId>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
     environment: &BTreeMap<String, InferredValue>,
     facts: &mut ParameterFacts,
 ) {
@@ -407,6 +472,7 @@ fn collect_call_sites_expr(
                     known_class,
                     is_constructor,
                     callable_return,
+                    resolve_member,
                     environment,
                     facts,
                 );
@@ -419,8 +485,8 @@ fn collect_call_sites_expr(
                 ValueShape::Instance(class) | ValueShape::ClassObject(class) => Some(class),
                 _ => None,
             };
-            if let Some(class) = target_class.and_then(|id| surface.classes.get(&id)) {
-                if let Some(member) = class.members.get(&selector) {
+            if let Some(class) = target_class {
+                if let Some(member) = resolve_member(&class, &selector) {
                     record_call_arguments(
                         &member.callable,
                         &call.args,
@@ -444,6 +510,7 @@ fn collect_call_sites_expr(
                 known_class,
                 is_constructor,
                 callable_return,
+                resolve_member,
                 environment,
                 facts,
             );
@@ -456,6 +523,7 @@ fn collect_call_sites_expr(
                     known_class,
                     is_constructor,
                     callable_return,
+                    resolve_member,
                     environment,
                     facts,
                 );
@@ -470,6 +538,7 @@ fn collect_call_sites_expr(
                 known_class,
                 is_constructor,
                 callable_return,
+                resolve_member,
                 environment,
                 facts,
             );
@@ -481,6 +550,7 @@ fn collect_call_sites_expr(
                 known_class,
                 is_constructor,
                 callable_return,
+                resolve_member,
                 environment,
                 facts,
             );
@@ -493,6 +563,7 @@ fn collect_call_sites_expr(
             known_class,
             is_constructor,
             callable_return,
+            resolve_member,
             environment,
             facts,
         ),
@@ -511,6 +582,7 @@ fn collect_call_sites_expr(
                     known_class,
                     is_constructor,
                     callable_return,
+                    resolve_member,
                     environment,
                     facts,
                 );
@@ -527,7 +599,8 @@ fn collect_call_sites_pack(
     current_class: Option<&ClassId>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
     environment: &BTreeMap<String, InferredValue>,
     facts: &mut ParameterFacts,
 ) {
@@ -542,6 +615,7 @@ fn collect_call_sites_pack(
         known_class,
         is_constructor,
         callable_return,
+        resolve_member,
         environment,
         facts,
     );
@@ -556,7 +630,7 @@ fn record_call_arguments(
     environment: &BTreeMap<String, InferredValue>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
     call_range: phalcom_common::range::SourceRange,
     facts: &mut ParameterFacts,
 ) {
@@ -593,7 +667,7 @@ pub fn collect_local_facts_with_returns(
     module: &ModuleId,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
 ) -> LocalFacts {
     let mut facts = LocalFacts::default();
     let mut environment = BTreeMap::new();
@@ -616,7 +690,7 @@ fn collect_statements_with_returns(
     current_class: Option<&ClassId>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
     environment: &mut BTreeMap<String, InferredValue>,
     facts: &mut LocalFacts,
 ) {
@@ -683,8 +757,9 @@ pub fn summaries_for_surface(
     module: &ModuleId,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
     parameter_fact: impl Fn(&CallableId, &str) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
     revision: SemanticGeneration,
 ) -> Vec<CallableSummary> {
     surface
@@ -712,16 +787,434 @@ pub fn summaries_for_surface(
                 is_constructor,
                 callable_return,
             );
+            let dependencies = callable_dependencies(
+                &member.body,
+                module,
+                Some(&class.id),
+                &environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+            );
             CallableSummary {
                 callable: member.callable.clone(),
                 params,
                 returns,
-                dependencies: Vec::new(),
+                dependencies,
                 effects: Default::default(),
                 revision,
             }
         })
         .collect()
+}
+
+fn callable_dependencies(
+    body: &[Statement],
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
+) -> Vec<CallableId> {
+    let mut dependencies = std::collections::BTreeSet::new();
+    for statement in body {
+        collect_dependency_statement(
+            statement,
+            module,
+            current_class,
+            environment,
+            known_class,
+            is_constructor,
+            callable_return,
+            resolve_member,
+            &mut dependencies,
+        );
+    }
+    dependencies.into_iter().collect()
+}
+
+fn collect_dependency_statement(
+    statement: &Statement,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
+    dependencies: &mut std::collections::BTreeSet<CallableId>,
+) {
+    let expression = match statement {
+        Statement::Let(binding) => binding.value.as_ref(),
+        Statement::Return(return_statement) => return_statement.value.as_ref(),
+        Statement::Expr { expr, .. } => Some(expr),
+        Statement::Throw { expr, .. } => Some(expr),
+        Statement::For(for_statement) => {
+            collect_dependency_expr(
+                &for_statement.iter,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+                dependencies,
+            );
+            for nested in &for_statement.body {
+                collect_dependency_statement(
+                    nested,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                    dependencies,
+                );
+            }
+            None
+        }
+        Statement::Class(class) => {
+            let class_id = ClassId::new(module.clone(), class.name.clone());
+            for member in &class.members {
+                let body = match member {
+                    phalcom_ast::ast::ClassMember::Method(item) => &item.body,
+                    phalcom_ast::ast::ClassMember::Getter(item) => &item.body,
+                    phalcom_ast::ast::ClassMember::Setter(item) => &item.body,
+                    phalcom_ast::ast::ClassMember::Index(item) => &item.body,
+                    phalcom_ast::ast::ClassMember::Field(_) | phalcom_ast::ast::ClassMember::Variant(_) => continue,
+                };
+                for nested in body {
+                    collect_dependency_statement(
+                        nested,
+                        module,
+                        Some(&class_id),
+                        environment,
+                        known_class,
+                        is_constructor,
+                        callable_return,
+                        resolve_member,
+                        dependencies,
+                    );
+                }
+            }
+            None
+        }
+        Statement::Break { .. } | Statement::Continue { .. } | Statement::Import(_) => None,
+    };
+    if let Some(expression) = expression {
+        collect_dependency_expr(
+            expression,
+            module,
+            current_class,
+            environment,
+            known_class,
+            is_constructor,
+            callable_return,
+            resolve_member,
+            dependencies,
+        );
+    }
+}
+
+fn collect_dependency_expr(
+    expr: &Expr,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
+    dependencies: &mut std::collections::BTreeSet<CallableId>,
+) {
+    match expr {
+        Expr::MethodCall(call) => {
+            let receiver = infer_expr_with_returns(&call.object, module, current_class, environment, known_class, is_constructor, callable_return);
+            let selector = call_selector(&call.method, &call.args);
+            let side = match receiver.shape {
+                ValueShape::Instance(class) => resolve_member(&class, &selector).map(|member| member.callable),
+                ValueShape::ClassObject(class) => resolve_member(&class, &selector).map(|member| member.callable),
+                ValueShape::Union(shapes) => {
+                    let ids = shapes.into_iter().filter_map(|shape| match shape {
+                        ValueShape::Instance(class) | ValueShape::ClassObject(class) => resolve_member(&class, &selector).map(|member| member.callable),
+                        _ => None,
+                    });
+                    for id in ids {
+                        dependencies.insert(id);
+                    }
+                    None
+                }
+                _ => None,
+            };
+            if let Some(id) = side {
+                dependencies.insert(id);
+            }
+            collect_dependency_expr(
+                &call.object,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+                dependencies,
+            );
+            for arg in &call.args {
+                collect_dependency_pack(
+                    arg,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                    dependencies,
+                );
+            }
+        }
+        Expr::UnqualifiedCall(call) => {
+            if let Some(class) = current_class {
+                if let Some(member) = resolve_member(class, &call_selector(&call.name, &call.args)) {
+                    dependencies.insert(member.callable);
+                }
+            }
+            for arg in &call.args {
+                collect_dependency_pack(
+                    arg,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                    dependencies,
+                );
+            }
+        }
+        Expr::Assignment(assignment) => {
+            collect_dependency_expr(
+                &assignment.name,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+                dependencies,
+            );
+            collect_dependency_expr(
+                &assignment.value,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+                dependencies,
+            );
+        }
+        Expr::GetProperty(property) => collect_dependency_expr(
+            &property.object,
+            module,
+            current_class,
+            environment,
+            known_class,
+            is_constructor,
+            callable_return,
+            resolve_member,
+            dependencies,
+        ),
+        Expr::SetProperty(property) => {
+            collect_dependency_expr(
+                &property.object,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+                dependencies,
+            );
+            collect_dependency_expr(
+                &property.value,
+                module,
+                current_class,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+                dependencies,
+            );
+        }
+        Expr::TupleLiteral(tuple) => {
+            for entry in &tuple.entries {
+                let value = match entry {
+                    TupleLiteralEntry::Positional { expr, .. } | TupleLiteralEntry::Labeled { value: expr, .. } | TupleLiteralEntry::Expand { expr, .. } => {
+                        expr
+                    }
+                };
+                collect_dependency_expr(
+                    value,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                    dependencies,
+                );
+            }
+        }
+        Expr::ListLiteral(list) => {
+            for entry in &list.elements {
+                let value = match entry {
+                    ListLiteralElement::Element { expr, .. } | ListLiteralElement::Expansion { expr, .. } => expr,
+                };
+                collect_dependency_expr(
+                    value,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                    dependencies,
+                );
+            }
+        }
+        Expr::SetLiteral(set) => {
+            for entry in &set.entries {
+                let value = match entry {
+                    SetLiteralEntry::Element { expr, .. } | SetLiteralEntry::Expansion { expr, .. } => expr,
+                };
+                collect_dependency_expr(
+                    value,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                    dependencies,
+                );
+            }
+        }
+        Expr::MapLiteral(map) => {
+            for entry in &map.entries {
+                match entry {
+                    MapLiteralEntry::Association { key, value, .. } => {
+                        if let MapLiteralKey::Computed { expr, .. } = key {
+                            collect_dependency_expr(
+                                expr,
+                                module,
+                                current_class,
+                                environment,
+                                known_class,
+                                is_constructor,
+                                callable_return,
+                                resolve_member,
+                                dependencies,
+                            );
+                        }
+                        collect_dependency_expr(
+                            value,
+                            module,
+                            current_class,
+                            environment,
+                            known_class,
+                            is_constructor,
+                            callable_return,
+                            resolve_member,
+                            dependencies,
+                        );
+                    }
+                    MapLiteralEntry::Expansion { expr, .. } => collect_dependency_expr(
+                        expr,
+                        module,
+                        current_class,
+                        environment,
+                        known_class,
+                        is_constructor,
+                        callable_return,
+                        resolve_member,
+                        dependencies,
+                    ),
+                }
+            }
+        }
+        Expr::Range(range) => {
+            if let Some(lower) = &range.lower {
+                collect_dependency_expr(
+                    lower,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                    dependencies,
+                );
+            }
+            if let Some(upper) = &range.upper {
+                collect_dependency_expr(
+                    upper,
+                    module,
+                    current_class,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                    dependencies,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_dependency_pack(
+    item: &PackItem,
+    module: &ModuleId,
+    current_class: Option<&ClassId>,
+    environment: &BTreeMap<String, InferredValue>,
+    known_class: impl Fn(&str) -> Option<ClassId> + Copy,
+    is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
+    resolve_member: impl Fn(&ClassId, &str) -> Option<MemberSurface> + Copy,
+    dependencies: &mut std::collections::BTreeSet<CallableId>,
+) {
+    let expr = match item {
+        PackItem::Positional { expr, .. } | PackItem::Expand { expr, .. } | PackItem::Labeled { value: expr, .. } => expr,
+    };
+    collect_dependency_expr(
+        expr,
+        module,
+        current_class,
+        environment,
+        known_class,
+        is_constructor,
+        callable_return,
+        resolve_member,
+        dependencies,
+    );
 }
 
 fn body_value(
@@ -731,11 +1224,28 @@ fn body_value(
     environment: &BTreeMap<String, InferredValue>,
     known_class: impl Fn(&str) -> Option<ClassId> + Copy,
     is_constructor: impl Fn(&ClassId, &str) -> bool + Copy,
-    callable_return: impl Fn(&ClassId, &str) -> Option<InferredValue> + Copy,
+    callable_return: impl Fn(&CallableId) -> Option<InferredValue> + Copy,
 ) -> InferredValue {
     let Some(last) = body.last() else {
         return InferredValue::flow(ValueShape::Unknown, Default::default());
     };
+    let explicit_returns = body.iter().filter_map(|statement| match statement {
+        Statement::Return(return_statement) => Some(
+            return_statement
+                .value
+                .as_ref()
+                .map(|expr| infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return))
+                .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, return_statement.range)),
+        ),
+        _ => None,
+    });
+    let mut value = None;
+    for returned in explicit_returns {
+        value = Some(value.map_or(returned.clone(), |old: InferredValue| old.join(&returned)));
+    }
+    if let Some(value) = value {
+        return value;
+    }
     match last {
         Statement::Expr { expr, .. } => infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return),
         Statement::Let(binding) => binding
@@ -743,11 +1253,6 @@ fn body_value(
             .as_ref()
             .map(|expr| infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return))
             .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, binding.range)),
-        Statement::Return(return_statement) => return_statement
-            .value
-            .as_ref()
-            .map(|expr| infer_expr_with_returns(expr, module, current_class, environment, known_class, is_constructor, callable_return))
-            .unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, return_statement.range)),
         _ => InferredValue::flow(ValueShape::Unknown, last_range(last)),
     }
 }
@@ -857,7 +1362,7 @@ mod tests {
     fn literals_and_reassignment_are_queryable() {
         let program = parse("let value = 1\nvalue = \"ok\"\n", 0).program;
         let module = ModuleId::new("file:///main.ph");
-        let facts = collect_local_facts_with_returns(&program, &module, no_classes, |_, _| false, |_, _| None);
+        let facts = collect_local_facts_with_returns(&program, &module, no_classes, |_, _| false, |_| None);
         assert_eq!(facts.binding_at("value", 10).unwrap().shape, ValueShape::Instance(core_class("Int")));
         assert_eq!(facts.binding_at("value", 30).unwrap().shape, ValueShape::Instance(core_class("String")));
     }

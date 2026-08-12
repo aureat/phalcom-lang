@@ -368,12 +368,23 @@ impl Backend {
                 continue;
             };
             let Ok(definition_uri) = Url::parse(class.module.as_str()) else { continue };
+            let indexed_uri = self.index.definition_info(selector).into_iter().find(|info| {
+                if info.class != class.name {
+                    return false;
+                }
+                let Some(indexed_path) = info.uri.to_file_path().ok() else { return false };
+                let Some(semantic_path) = definition_uri.to_file_path().ok() else {
+                    return false;
+                };
+                std::fs::canonicalize(indexed_path).ok() == std::fs::canonicalize(semantic_path).ok()
+            });
+            let location_uri = indexed_uri.as_ref().map(|info| info.uri.clone()).unwrap_or_else(|| definition_uri.clone());
             let Some(range) = self.with_source_snapshot(&definition_uri, |_, _, line_index| {
                 line_index.range(member.name_range.start..member.name_range.end)
             }) else {
                 continue;
             };
-            locations.push(Location { uri: definition_uri, range });
+            locations.push(Location { uri: location_uri, range });
         }
         locations
     }
@@ -516,57 +527,103 @@ impl Backend {
             return self.hover_for_top_level_binding(uri, position);
         };
 
-        let mut sites: Vec<SelectorSite> = self
-            .index
-            .definition_info(&selector)
-            .into_iter()
-            .map(|info| SelectorSite {
-                class: info.class,
-                kind: info.kind,
-            })
-            .collect();
+        let (mut sites, inferred, semantic_phaldoc, receiver_targeted) = self
+            .documents
+            .with_document(uri, |doc| {
+                let offset = doc.line_index.offset(position);
+                let declaration = self.semantic.member_at(uri, offset).filter(|member| member.callable.selector == selector);
+                if let Some(member) = declaration {
+                    let site = SelectorSite {
+                        class: member.callable.owner.name.clone(),
+                        kind: hover_member_kind(&member),
+                    };
+                    let phaldoc = Url::parse(member.callable.owner.module.as_str()).ok().and_then(|definition_uri| {
+                        self.with_source_snapshot(&definition_uri, |text, program, line_index| {
+                            hover::harvest_doc_for_selector(text, program, line_index, &selector)
+                        })
+                        .flatten()
+                    });
+                    return (vec![site], self.semantic.return_for_callable(&member.callable), phaldoc, false);
+                }
 
-        if sites.is_empty() {
-            for member in self
-                .semantic
-                .all_completion_members()
-                .into_iter()
-                .filter(|member| member.owner.module.as_str() == crate::semantic::CORE_MODULE_URI && member.selector == selector)
-            {
-                let kind = match member.kind {
-                    crate::semantic::MemberKind::Getter => crate::index::MemberKind::Getter,
-                    crate::semantic::MemberKind::Setter => crate::index::MemberKind::Setter,
-                    crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
-                        if member.side == crate::semantic::DispatchSide::Class && member.selector.starts_with("new(") {
-                            crate::index::MemberKind::Construct
-                        } else if member.side == crate::semantic::DispatchSide::Class {
-                            crate::index::MemberKind::StaticMethod
-                        } else {
-                            crate::index::MemberKind::Method
+                let receiver_targeted = completion::target_at(doc, position).is_some();
+                let resolved = self.semantic_receiver(uri, doc, position);
+                let Some(resolved) = resolved else {
+                    return (Vec::new(), None, None, receiver_targeted);
+                };
+                let mut ids = Vec::new();
+                let mut sites = Vec::new();
+                let mut phaldoc = None;
+                for (class, receiver_kind) in resolved.alternatives {
+                    let side = match receiver_kind {
+                        completion::ReceiverKind::Instance => crate::semantic::DispatchSide::Instance,
+                        completion::ReceiverKind::ClassObject => crate::semantic::DispatchSide::Class,
+                    };
+                    let Some(member) = self.semantic.receiver_member(&class, &selector, side) else {
+                        continue;
+                    };
+                    ids.push(member.callable.clone());
+                    sites.push(SelectorSite {
+                        class: class.name.clone(),
+                        kind: hover_member_kind(&member),
+                    });
+                    if phaldoc.is_none() && class.module.as_str() != crate::semantic::CORE_MODULE_URI {
+                        if let Ok(definition_uri) = Url::parse(class.module.as_str()) {
+                            phaldoc = self
+                                .with_source_snapshot(&definition_uri, |text, program, line_index| {
+                                    hover::harvest_doc_for_selector(text, program, line_index, &selector)
+                                })
+                                .flatten();
                         }
                     }
-                    crate::semantic::MemberKind::Field => crate::index::MemberKind::Getter,
-                };
-                sites.push(SelectorSite {
-                    class: member.owner.name,
-                    kind,
-                });
+                }
+                (sites, self.semantic.returns_for_callables(ids), phaldoc, receiver_targeted)
+            })
+            .unwrap_or_default();
+
+        if sites.is_empty() && !receiver_targeted {
+            sites = self
+                .index
+                .definition_info(&selector)
+                .into_iter()
+                .map(|info| SelectorSite {
+                    class: info.class,
+                    kind: info.kind,
+                })
+                .collect();
+            if sites.is_empty() {
+                for member in self
+                    .semantic
+                    .all_completion_members()
+                    .into_iter()
+                    .filter(|member| member.owner.module.as_str() == crate::semantic::CORE_MODULE_URI && member.selector == selector)
+                {
+                    sites.push(SelectorSite {
+                        class: member.owner.name.clone(),
+                        kind: hover_member_kind_from_completion(&member),
+                    });
+                }
+                sites.sort_by(|a, b| a.class.cmp(&b.class));
             }
-            sites.sort_by(|a, b| a.class.cmp(&b.class));
         }
 
-        // The Phaldoc harvest only applies to a user-class definition — a
-        // builtin selector has no `.ph` source to scan (Stage 4 test
-        // "Builtin hover ... no Phaldoc section").
+        // The Phaldoc harvest only applies to a user-class definition. Keep
+        // selector-index fallback for legacy unqualified calls, while a
+        // receiver-qualified unknown stays conservative and site-free.
         let defs = self.index.definition_info(&selector);
-        let phaldoc = defs.first().and_then(|def| {
-            self.with_source_snapshot(&def.uri, |text, program, line_index| {
-                hover::harvest_doc_for_selector(text, program, line_index, &selector)
+        let phaldoc = semantic_phaldoc.or_else(|| {
+            if receiver_targeted {
+                return None;
+            }
+            defs.first().and_then(|def| {
+                self.with_source_snapshot(&def.uri, |text, program, line_index| {
+                    hover::harvest_doc_for_selector(text, program, line_index, &selector)
+                })
+                .flatten()
             })
-            .flatten()
         });
 
-        let inferred = self.semantic.return_for_selector(&selector);
+        let inferred = inferred.or_else(|| (!receiver_targeted).then(|| self.semantic.return_for_selector(&selector)).flatten());
         let value = hover::render_selector_hover_with_value(&selector, &sites, phaldoc.as_ref(), inferred.as_ref())?;
         Some(Hover {
             contents: markdown_contents(value),
@@ -678,6 +735,39 @@ fn receiver_from_shape(shape: ValueShape) -> Option<completion::SemanticResolved
         _ => return None,
     };
     (!alternatives.is_empty()).then_some(completion::SemanticResolvedReceiver { alternatives })
+}
+
+fn hover_member_kind(member: &crate::semantic::MemberSurface) -> crate::index::MemberKind {
+    match member.kind {
+        crate::semantic::MemberKind::Getter => crate::index::MemberKind::Getter,
+        crate::semantic::MemberKind::Setter => crate::index::MemberKind::Setter,
+        crate::semantic::MemberKind::Field => crate::index::MemberKind::Getter,
+        crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
+            if member.side == crate::semantic::DispatchSide::Class && member.is_constructor {
+                crate::index::MemberKind::Construct
+            } else if member.side == crate::semantic::DispatchSide::Class {
+                crate::index::MemberKind::StaticMethod
+            } else {
+                crate::index::MemberKind::Method
+            }
+        }
+    }
+}
+
+fn hover_member_kind_from_completion(member: &crate::semantic::CompletionMember) -> crate::index::MemberKind {
+    match member.kind {
+        crate::semantic::MemberKind::Getter | crate::semantic::MemberKind::Field => crate::index::MemberKind::Getter,
+        crate::semantic::MemberKind::Setter => crate::index::MemberKind::Setter,
+        crate::semantic::MemberKind::Method | crate::semantic::MemberKind::Index | crate::semantic::MemberKind::Variant => {
+            if member.side == crate::semantic::DispatchSide::Class && member.selector.starts_with("new(") {
+                crate::index::MemberKind::Construct
+            } else if member.side == crate::semantic::DispatchSide::Class {
+                crate::index::MemberKind::StaticMethod
+            } else {
+                crate::index::MemberKind::Method
+            }
+        }
+    }
 }
 
 /// Wraps `value` as an LSP [`HoverContents::Markup`] block of
@@ -988,7 +1078,11 @@ impl LanguageServer for Backend {
         }
 
         let locations = self.occurrences_to_locations(&occurrences);
-        if locations.is_empty() { Ok(None) } else { Ok(Some(locations)) }
+        if locations.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(locations))
+        }
     }
 
     /// Answers `workspace/symbol`: every indexed selector containing

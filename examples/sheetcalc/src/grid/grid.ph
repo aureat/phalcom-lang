@@ -8,6 +8,7 @@ import "./cell" as CellModule
 /// >= 1 (REQ-GRID-2, REQ-GRID-3). Unset cells in bounds return
 /// LiteralCell(CellEmpty), never None (REQ-GRID-6).
 class Grid {
+  /// Internal storage of cells, keyed by Ref.
   @constructor
   new() {
     _cells  = Map.new()
