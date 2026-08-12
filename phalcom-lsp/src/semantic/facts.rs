@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 
 use phalcom_common::range::SourceRange;
 
-use super::ids::{CallableId, ClassId, ModuleId};
+use super::ids::{CallableId, ClassId, DispatchSide, FieldId, ModuleId};
+use super::scope::BindingId;
 
 /// Maximum number of incompatible alternatives retained by a union.
 pub const MAX_SHAPE_UNION: usize = 8;
@@ -228,13 +229,36 @@ pub struct FileRevision(pub u64);
 /// Local binding facts collected from one parsed source file.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LocalFacts {
-    bindings: BTreeMap<String, Vec<BindingFact>>,
+    bindings: BTreeMap<BindingId, Vec<BindingFact>>,
 }
 
 /// Inferred class-local field writes and reads.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FieldFacts {
-    fields: BTreeMap<(ClassId, String), InferredValue>,
+    fields: BTreeMap<FieldId, InferredValue>,
+    evidence: BTreeMap<FieldId, Vec<FieldEvidence>>,
+}
+
+/// Evidence category for one field value.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum FieldEvidenceKind {
+    /// Value supplied by a field declaration initializer.
+    DeclarationInitializer,
+    /// Value written by a source constructor.
+    ConstructorInitialization,
+    /// Value written by any other executable assignment.
+    GeneralWrite,
+}
+
+/// One source-backed field value observation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FieldEvidence {
+    /// Observed value.
+    pub value: InferredValue,
+    /// How the value entered field storage.
+    pub kind: FieldEvidenceKind,
+    /// Exact source site of the observation.
+    pub site: SourceRange,
 }
 
 /// Call-site facts joined into callable parameters.
@@ -251,40 +275,85 @@ struct BindingFact {
 
 impl LocalFacts {
     /// Records one binding write in source order.
-    pub fn record(&mut self, name: impl Into<String>, range: SourceRange, value: InferredValue) {
-        self.bindings.entry(name.into()).or_default().push(BindingFact { range, value });
+    pub fn record(&mut self, binding: BindingId, range: SourceRange, value: InferredValue) {
+        self.bindings.entry(binding).or_default().push(BindingFact { range, value });
     }
 
-    /// Returns the most recent fact visible before `offset`.
-    pub fn binding_at(&self, name: &str, offset: usize) -> Option<&InferredValue> {
+    /// Returns the most recent fact for one lexical binding before `offset`.
+    pub fn value_before(&self, binding: BindingId, offset: usize) -> Option<&InferredValue> {
         self.bindings
-            .get(name)?
+            .get(&binding)?
             .iter()
             .filter(|fact| fact.range.start < offset)
             .max_by_key(|fact| fact.range.start)
             .map(|fact| &fact.value)
     }
 
-    /// Returns every binding name recorded in this file.
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.bindings.keys().map(String::as_str)
+    /// Returns all facts for one binding in source order.
+    pub fn facts_for(&self, binding: BindingId) -> impl Iterator<Item = &InferredValue> {
+        self.bindings.get(&binding).into_iter().flat_map(|facts| facts.iter().map(|fact| &fact.value))
     }
 }
 
 impl FieldFacts {
     /// Records or joins one field write.
-    pub fn record(&mut self, class: ClassId, name: impl Into<String>, value: InferredValue) {
-        let key = (class, name.into());
+    pub fn record(&mut self, class: ClassId, name: impl Into<String>, side: DispatchSide, value: InferredValue) {
+        let site = value.provenance.first().map_or(Default::default(), |origin| match origin {
+            super::facts::FactOrigin::Syntax(range)
+            | super::facts::FactOrigin::Binding(range)
+            | super::facts::FactOrigin::CallSite(range)
+            | super::facts::FactOrigin::Constraint(range) => *range,
+            super::facts::FactOrigin::Callable(_) => Default::default(),
+        });
+        self.record_evidence(class, name, side, FieldEvidenceKind::GeneralWrite, site, value);
+    }
+
+    /// Records one field observation with its semantic evidence category.
+    pub fn record_evidence(
+        &mut self,
+        class: ClassId,
+        name: impl Into<String>,
+        side: DispatchSide,
+        kind: FieldEvidenceKind,
+        site: SourceRange,
+        value: InferredValue,
+    ) {
+        let key = FieldId {
+            owner: class,
+            name: name.into(),
+            side,
+        };
+        self.evidence.entry(key.clone()).or_default().push(FieldEvidence {
+            value: value.clone(),
+            kind,
+            site,
+        });
         self.fields.entry(key).and_modify(|old| *old = old.join(&value)).or_insert(value);
     }
 
     /// Returns the joined fact for one class-local field.
-    pub fn get(&self, class: &ClassId, name: &str) -> Option<&InferredValue> {
-        self.fields.get(&(class.clone(), name.to_string()))
+    pub fn get(&self, class: &ClassId, name: &str, side: DispatchSide) -> Option<&InferredValue> {
+        self.fields.get(&FieldId {
+            owner: class.clone(),
+            name: name.to_string(),
+            side,
+        })
+    }
+
+    /// Returns source-backed observations for one class-qualified field.
+    pub fn evidence(&self, class: &ClassId, name: &str, side: DispatchSide) -> &[FieldEvidence] {
+        self.evidence
+            .get(&FieldId {
+                owner: class.clone(),
+                name: name.to_string(),
+                side,
+            })
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     /// Iterates over class-qualified field facts for publication in the database.
-    pub fn iter(&self) -> impl Iterator<Item = (&(ClassId, String), &InferredValue)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&FieldId, &InferredValue)> {
         self.fields.iter()
     }
 }

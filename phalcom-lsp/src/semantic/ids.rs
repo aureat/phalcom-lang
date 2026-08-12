@@ -67,6 +67,17 @@ pub struct CallableId {
     pub side: DispatchSide,
 }
 
+/// Identity of one field in a class and dispatch side.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct FieldId {
+    /// Class that owns the field.
+    pub owner: ClassId,
+    /// Source or implementation field name.
+    pub name: String,
+    /// Storage side on which the field lives.
+    pub side: DispatchSide,
+}
+
 /// Dispatch side of a class member.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DispatchSide {

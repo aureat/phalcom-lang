@@ -26,9 +26,11 @@ pub(crate) use analyzer::{AnalysisContext, analyze_expr};
 pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnShape;
 pub(crate) use dispatch::{DispatchReceiver, DispatchResolver};
-pub use facts::{Confidence, FactOrigin, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
+pub use facts::{
+    Confidence, FactOrigin, FieldEvidence, FieldEvidenceKind, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape,
+};
 pub use flow::join_values;
-pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
+pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, FieldId, ModuleId};
 pub use invalidation::InvalidationQueue;
 pub use module_graph::{ImportEdge, ModuleGraph};
 pub use occurrence::{OccurrenceIndex, OccurrenceRole, SemanticOccurrence, SemanticOccurrenceKind, SemanticTarget};
@@ -126,7 +128,7 @@ struct SemanticState {
     files: BTreeMap<ModuleId, FileSemanticSnapshot>,
     classes: BTreeMap<ClassId, ClassSurface>,
     summaries: BTreeMap<CallableId, CallableSummary>,
-    field_facts: BTreeMap<(ClassId, String), InferredValue>,
+    field_facts: BTreeMap<FieldId, InferredValue>,
     parameter_facts: BTreeMap<(CallableId, String), InferredValue>,
     parameter_contributions: BTreeMap<ModuleId, ParameterFacts>,
     callable_dependents: BTreeMap<CallableId, std::collections::BTreeSet<CallableId>>,
@@ -278,7 +280,7 @@ impl SemanticDb {
         }
         state.files.remove(&module);
         state.parameter_contributions.remove(&module);
-        state.field_facts.retain(|(class, _), _| class.module != module);
+        state.field_facts.retain(|field, _| field.owner.module != module);
         state.graph.remove(&module);
         let available = state.files.keys().cloned().collect::<BTreeSet<_>>();
         let changed_importers = state.graph.refresh_resolutions(&available);
@@ -536,14 +538,13 @@ impl SemanticDb {
     /// Returns the fact visible for a local binding at a byte offset.
     pub fn binding_at(&self, uri: &Url, name: &str, offset: usize) -> Option<InferredValue> {
         let module = ModuleId::from_uri(uri);
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .files
-            .get(&module)?
-            .local_facts
-            .binding_at(name, offset)
-            .cloned()
+        let state = self.state.read().expect("semantic database lock poisoned");
+        let file = state.files.get(&module)?;
+        let binding = match file.scopes.resolve(file.scopes.scope_at(offset), name, offset) {
+            NameResolution::Binding(binding) => binding,
+            _ => return None,
+        };
+        file.local_facts.value_before(binding, offset).cloned()
     }
 
     /// Infers a parsed receiver expression against the coherent current
@@ -554,7 +555,24 @@ impl SemanticDb {
         let mut environment = BTreeMap::new();
         let known_classes = |name: &str| resolve_named_class(&state.classes, &state.graph, &module, name);
         let callable_return = |id: &CallableId| return_for_callable(&state.classes, &state.summaries, id);
-        let field_value = |class: &ClassId, name: &str| state.field_facts.get(&(class.clone(), name.to_string())).cloned();
+        let field_value = |class: &ClassId, name: &str, side: DispatchSide| {
+            let mut current = Some(class.clone());
+            let mut seen = BTreeSet::new();
+            while let Some(owner) = current {
+                if !seen.insert(owner.clone()) {
+                    break;
+                }
+                if let Some(value) = state.field_facts.get(&FieldId {
+                    owner: owner.clone(),
+                    name: name.to_string(),
+                    side,
+                }) {
+                    return Some(value.clone());
+                }
+                current = state.classes.get(&owner).and_then(|surface| surface.superclass.clone());
+            }
+            None
+        };
         let current_class = state
             .files
             .get(&module)
@@ -585,6 +603,7 @@ impl SemanticDb {
                 .map(|member| member.side)
         });
         let local_facts = state.files.get(&module).map(|file| &file.local_facts);
+        let scopes = state.files.get(&module).map(|file| &file.scopes);
         let resolver = DispatchResolver::new(&state.classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
@@ -594,13 +613,16 @@ impl SemanticDb {
             query_offset: offset,
             environment: &environment,
             local_facts,
+            binding_values: None,
+            scopes,
             known_class: &known_classes,
             callable_return: &callable_return,
             field_value: &field_value,
             resolver: &resolve_member,
             contains_class: &contains_class,
         };
-        analyze_expr(expr, &context)
+        let inferred = analyze_expr(expr, &context);
+        inferred
     }
 
     /// Returns current import edges for one module.
@@ -662,6 +684,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
         let solved_parameters = solved.parameter_facts;
         for (module, program, surface) in &inputs {
             let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
+            let contains_class = |class: &ClassId| classes.contains_key(class);
             let resolver = DispatchResolver::new(&classes);
             let is_constructor = |class: &ClassId, selector: &str| {
                 resolver
@@ -678,6 +701,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
                 module,
                 known_class,
                 is_constructor,
+                contains_class,
                 callable_return,
                 parameter_fact,
                 resolve_member,
@@ -737,6 +761,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
     for module in &existing_modules {
         let Some(file) = state.files.get(module) else { continue };
         let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
+        let contains_class = |class: &ClassId| classes.contains_key(class);
         let resolver = DispatchResolver::new(&classes);
         let is_constructor = |class: &ClassId, selector: &str| {
             resolver
@@ -745,6 +770,7 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
                 || (selector == "new()" && classes.contains_key(class))
         };
         let callable_return = |id: &CallableId| return_for_callable(&classes, &summaries, id);
+        let parameter_fact = |id: &CallableId, name: &str| state.parameter_facts.get(&(id.clone(), name.to_string())).cloned();
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         local_by_module.insert(
             module.clone(),
@@ -754,17 +780,29 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
                 module,
                 known_class,
                 is_constructor,
+                contains_class,
                 callable_return,
+                parameter_fact,
                 resolve_member,
             ),
         );
         fields_by_module.insert(
             module.clone(),
-            infer::field_facts_for_surface(&file.surface, module, known_class, is_constructor, callable_return, resolver),
+            infer::field_facts_for_surface(
+                &file.program,
+                &file.surface,
+                module,
+                known_class,
+                is_constructor,
+                contains_class,
+                callable_return,
+                parameter_fact,
+                resolver,
+            ),
         );
     }
 
-    state.field_facts.retain(|(class, _), _| !affected.contains(&class.module));
+    state.field_facts.retain(|field, _| !affected.contains(&field.owner.module));
     for facts in fields_by_module.values() {
         state.field_facts.extend(facts.iter().map(|(key, value)| (key.clone(), value.clone())));
     }
@@ -1006,6 +1044,30 @@ mod tests {
     }
 
     #[test]
+    fn inherited_field_read_uses_defining_field_fact() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///inherited-field.ph");
+        let source = "class Client { send() { } }
+class Base { const _client = Client.new() }
+class Child is Base { run() { _client } }
+";
+        let parsed = parse(source, 0);
+        assert!(parsed.errors.is_empty(), "field parse errors: {:?}", parsed.errors);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let field = parse("_client", 0)
+            .program
+            .statements
+            .into_iter()
+            .find_map(|statement| match statement {
+                phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
+                _ => None,
+            })
+            .unwrap();
+        let value = db.infer_expression(&uri, &field, source.rfind("_client").unwrap());
+        assert!(matches!(value.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Client"));
+    }
+
+    #[test]
     fn parameter_expression_uses_resolved_call_site_fact() {
         let db = SemanticDb::new();
         let uri = uri("file:///canvas.ph");
@@ -1076,6 +1138,39 @@ mod tests {
             side: DispatchSide::Instance,
         };
         assert!(matches!(db.return_for_callable(&callable).unwrap().shape, ValueShape::Union(_)));
+    }
+
+    #[test]
+    fn invoked_literal_block_contributes_nonlocal_return() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///block-flow.ph");
+        let parsed = parse(
+            "class Product { @constructor new() { } }
+class Factory { choose() { true.ifTrue() || { return Product.new() } } escaped() { self.consume() || { return Product.new() } } }
+",
+            0,
+        );
+        assert!(parsed.errors.is_empty(), "block parse errors: {:?}", parsed.errors);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+
+        let factory = ClassId::new(ModuleId::from_uri(&uri), "Factory");
+        let choose = db
+            .return_for_callable(&CallableId {
+                owner: factory.clone(),
+                selector: "choose()".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .unwrap();
+        assert!(matches!(choose.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Product"));
+
+        let escaped = db
+            .return_for_callable(&CallableId {
+                owner: factory,
+                selector: "escaped()".to_string(),
+                side: DispatchSide::Instance,
+            })
+            .unwrap();
+        assert_eq!(escaped.shape, ValueShape::Unknown);
     }
 
     #[test]

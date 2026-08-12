@@ -11,6 +11,7 @@ use super::NativeReturnShape;
 use super::dispatch::{DispatchReceiver, ResolvedDispatch};
 use super::facts::{InferredValue, LocalFacts, ValueShape};
 use super::ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
+use super::scope::{BindingId, ScopeGraph};
 use crate::selectors::{binary_selector_name, call_selector, index_selector_from_labels, unary_selector_name};
 
 /// Inputs shared by every recursive expression-analysis arm.
@@ -20,9 +21,13 @@ pub(crate) struct AnalysisContext<'ctx> {
     pub query_offset: usize,
     pub environment: &'ctx BTreeMap<String, InferredValue>,
     pub local_facts: Option<&'ctx LocalFacts>,
+    /// Binding-identity state used by structured flow analysis.
+    pub binding_values: Option<&'ctx BTreeMap<BindingId, InferredValue>>,
+    /// Lexical graph used to resolve each variable occurrence independently.
+    pub scopes: Option<&'ctx ScopeGraph>,
     pub known_class: &'ctx dyn Fn(&str) -> Option<ClassId>,
     pub callable_return: &'ctx dyn Fn(&CallableId) -> Option<InferredValue>,
-    pub field_value: &'ctx dyn Fn(&ClassId, &str) -> Option<InferredValue>,
+    pub field_value: &'ctx dyn Fn(&ClassId, &str, DispatchSide) -> Option<InferredValue>,
     pub resolver: &'ctx dyn Fn(&DispatchReceiver, &str) -> Option<ResolvedDispatch>,
     pub contains_class: &'ctx dyn Fn(&ClassId) -> bool,
 }
@@ -39,7 +44,7 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
         Expr::Var { value, .. } => analyze_var(value, range, context),
         Expr::Field { value, .. } => context
             .current_class
-            .and_then(|class| (context.field_value)(class, value))
+            .and_then(|class| (context.field_value)(class, value, context.dispatch_side.unwrap_or(DispatchSide::Instance)))
             .unwrap_or_else(|| flow(ValueShape::Unknown, range)),
         Expr::SelfVar { .. } => match (context.current_class, context.dispatch_side) {
             (Some(class), Some(DispatchSide::Class)) => exact(ValueShape::ClassObject(class.clone()), range),
@@ -185,13 +190,19 @@ pub(crate) fn analyze_expr(expr: &Expr, context: &AnalysisContext<'_>) -> Inferr
 }
 
 fn analyze_var(name: &str, range: phalcom_common::range::SourceRange, context: &AnalysisContext<'_>) -> InferredValue {
+    if let Some(value) = binding_value(name, range.start, context) {
+        return value;
+    }
     if let Some(value) = context.environment.get(name) {
         return value.clone();
     }
-    if let Some(value) = context
-        .local_facts
-        .and_then(|facts| facts.binding_at(name, range.start).or_else(|| facts.binding_at(name, context.query_offset)))
-    {
+    if let Some(value) = context.local_facts.and_then(|facts| {
+        binding_id(name, range.start, context).and_then(|binding| {
+            facts
+                .value_before(binding, range.start)
+                .or_else(|| facts.value_before(binding, context.query_offset))
+        })
+    }) {
         return value.clone();
     }
     (context.known_class)(name)
@@ -204,9 +215,13 @@ fn analyze_unqualified_call(name: &str, args: &[PackItem], range: phalcom_common
         analyze_pack(argument, context);
     }
     if let Some(binding) = context.environment.get(name).or_else(|| {
-        context
-            .local_facts
-            .and_then(|facts| facts.binding_at(name, range.start).or_else(|| facts.binding_at(name, context.query_offset)))
+        context.local_facts.and_then(|facts| {
+            binding_id(name, range.start, context).and_then(|binding| {
+                facts
+                    .value_before(binding, range.start)
+                    .or_else(|| facts.value_before(binding, context.query_offset))
+            })
+        })
     }) {
         return match &binding.shape {
             ValueShape::Callable(callable) => (context.callable_return)(callable).unwrap_or_else(|| flow(ValueShape::Unknown, range)),
@@ -388,13 +403,31 @@ fn analyze_statement(statement: &phalcom_ast::ast::Statement, context: &Analysis
 }
 
 fn is_bound(context: &AnalysisContext<'_>, name: &str, offset: usize) -> bool {
-    context.environment.contains_key(name)
+    binding_value(name, offset, context).is_some()
+        || context.environment.contains_key(name)
         || context.local_facts.is_some_and(|facts| {
-            facts
-                .binding_at(name, offset)
-                .or_else(|| facts.binding_at(name, context.query_offset))
+            binding_id(name, offset, context)
+                .and_then(|binding| {
+                    facts
+                        .value_before(binding, offset)
+                        .or_else(|| facts.value_before(binding, context.query_offset))
+                })
                 .is_some()
         })
+}
+
+fn binding_id(name: &str, offset: usize, context: &AnalysisContext<'_>) -> Option<BindingId> {
+    let scopes = context.scopes?;
+    let resolve_at = |position| match scopes.resolve(scopes.scope_at(position), name, position) {
+        super::scope::NameResolution::Binding(binding) => Some(binding),
+        _ => None,
+    };
+    resolve_at(offset).or_else(|| resolve_at(context.query_offset))
+}
+
+fn binding_value(name: &str, offset: usize, context: &AnalysisContext<'_>) -> Option<InferredValue> {
+    let binding = binding_id(name, offset, context)?;
+    context.binding_values?.get(&binding).cloned()
 }
 
 fn has_dynamic_pack(args: &[PackItem]) -> bool {
@@ -477,7 +510,7 @@ mod tests {
         let environment = BTreeMap::from([("child".to_string(), InferredValue::flow(ValueShape::Instance(child), Default::default()))]);
         let known_class = |_: &str| None;
         let returns = |id: &CallableId| (id == &target).then(|| InferredValue::flow(ValueShape::Instance(core_class("String")), Default::default()));
-        let fields = |_: &ClassId, _: &str| None;
+        let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
@@ -494,6 +527,8 @@ mod tests {
             query_offset: 0,
             environment: &environment,
             local_facts: None,
+            binding_values: None,
+            scopes: None,
             known_class: &known_class,
             callable_return: &returns,
             field_value: &fields,
@@ -531,7 +566,7 @@ mod tests {
         )]);
         let known_class = |_: &str| None;
         let returns = |id: &CallableId| (id == &target).then(|| InferredValue::flow(ValueShape::Instance(core_class("String")), Default::default()));
-        let fields = |_: &ClassId, _: &str| None;
+        let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
@@ -545,6 +580,8 @@ mod tests {
             query_offset: 0,
             environment: &environment,
             local_facts: None,
+            binding_values: None,
+            scopes: None,
             known_class: &known_class,
             callable_return: &returns,
             field_value: &fields,
@@ -564,7 +601,7 @@ mod tests {
         let environment = BTreeMap::from([("left".to_string(), InferredValue::flow(ValueShape::Instance(string), Default::default()))]);
         let known_class = |_: &str| None;
         let returns = |_: &CallableId| None;
-        let fields = |_: &ClassId, _: &str| None;
+        let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
         let resolver = DispatchResolver::new(&surface.classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
@@ -578,6 +615,8 @@ mod tests {
             query_offset: 0,
             environment: &environment,
             local_facts: None,
+            binding_values: None,
+            scopes: None,
             known_class: &known_class,
             callable_return: &returns,
             field_value: &fields,
@@ -618,7 +657,7 @@ mod tests {
         let dispatch_side = current_class.map(|(_, side)| side);
         let known_class = |name: &str| classes.values().find(|class| class.id.name == name).map(|class| class.id.clone());
         let callable_return = |id: &CallableId| returns.get(id).cloned().map(|shape| InferredValue::flow(shape, Default::default()));
-        let fields = |_: &ClassId, _: &str| None;
+        let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
         let resolver = DispatchResolver::new(&classes);
         let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         let contains_class = |class: &ClassId| resolver.contains_class(class);
@@ -628,6 +667,8 @@ mod tests {
             query_offset: 0,
             environment: &environment,
             local_facts: None,
+            binding_values: None,
+            scopes: None,
             known_class: &known_class,
             callable_return: &callable_return,
             field_value: &fields,
@@ -715,7 +756,7 @@ mod tests {
                 .expect("expression statement");
             let known_class = |name: &str| surface.classes.values().find(|class| class.id.name == name).map(|class| class.id.clone());
             let returns = |_: &CallableId| None;
-            let fields = |_: &ClassId, _: &str| None;
+            let fields = |_: &ClassId, _: &str, _: DispatchSide| None;
             let environment = BTreeMap::new();
             let resolver = DispatchResolver::new(&surface.classes);
             let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
@@ -726,6 +767,8 @@ mod tests {
                 query_offset: 0,
                 environment: &environment,
                 local_facts: None,
+                binding_values: None,
+                scopes: None,
                 known_class: &known_class,
                 callable_return: &returns,
                 field_value: &fields,
