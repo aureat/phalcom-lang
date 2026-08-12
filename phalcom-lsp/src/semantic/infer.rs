@@ -17,7 +17,9 @@ use super::module_graph::ModuleGraph;
 use super::query::SemanticGeneration;
 use super::surface::ModuleSurface;
 use crate::selectors::call_selector;
-use phalcom_ast::ast::{Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, PackLabel, Pattern, SetLiteralEntry, Statement, TupleLiteralEntry};
+use phalcom_ast::ast::{
+    Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodRefKind, PackItem, PackLabel, Pattern, SetLiteralEntry, Statement, TupleLiteralEntry,
+};
 
 fn infer_expr_with_dispatch(
     expr: &Expr,
@@ -91,6 +93,19 @@ fn infer_expr_with_dispatch(
             InferredValue::flow(returns(&targets, &property.property), range)
         }
         Expr::UnqualifiedCall(call) => {
+            if let Some(binding) = environment.get(&call.name) {
+                match &binding.shape {
+                    ValueShape::Callable(callable) => {
+                        return callable_return(callable).unwrap_or_else(|| InferredValue::flow(ValueShape::Unknown, range));
+                    }
+                    ValueShape::Family { receiver, base } => {
+                        let selector = call_selector(base, &call.args);
+                        let targets = dispatch_targets_for_shape(receiver);
+                        return InferredValue::flow(returns(&targets, &selector), range);
+                    }
+                    _ => return InferredValue::flow(ValueShape::Unknown, range),
+                }
+            }
             let Some(class) = current_class else {
                 return InferredValue::flow(ValueShape::Unknown, range);
             };
@@ -136,13 +151,14 @@ fn dispatch_targets(object: &Expr, shape: &ValueShape, current_class: Option<&Cl
             })
             .unwrap_or_default();
     }
+    dispatch_targets_for_shape(shape)
+}
+
+fn dispatch_targets_for_shape(shape: &ValueShape) -> Vec<DispatchReceiver> {
     match shape {
         ValueShape::Instance(class) => vec![DispatchReceiver::Instance(class.clone())],
         ValueShape::ClassObject(class) => vec![DispatchReceiver::ClassObject(class.clone())],
-        ValueShape::Union(shapes) => shapes
-            .iter()
-            .flat_map(|shape| dispatch_targets(object, shape, current_class, dispatch_side))
-            .collect(),
+        ValueShape::Union(shapes) => shapes.iter().flat_map(dispatch_targets_for_shape).collect(),
         _ => Vec::new(),
     }
 }
@@ -1209,6 +1225,28 @@ fn infer_summary_expr(
             }
         }
         Expr::UnqualifiedCall(call) => {
+            if let Some(binding) = environment.get(&call.name) {
+                return match &binding.shape {
+                    ValueShape::Callable(callable) => callable_return(callable).map(|value| InferredValue::flow(value.shape, expr.range())),
+                    ValueShape::Family { receiver, base } => {
+                        let selector = call_selector(base, &call.args);
+                        let targets = dispatch_targets_for_shape(receiver);
+                        let mut result = None;
+                        for target in targets {
+                            let Some(resolved) = resolve_member(&target, &selector) else {
+                                continue;
+                            };
+                            let Some(value) = callable_return(&resolved.member.callable) else {
+                                continue;
+                            };
+                            let value = InferredValue::flow(value.shape, expr.range());
+                            result = Some(result.map_or(value.clone(), |old: InferredValue| old.join(&value)));
+                        }
+                        result.or_else(|| Some(unknown()))
+                    }
+                    _ => Some(unknown()),
+                };
+            }
             let selector = call_selector(&call.name, &call.args);
             let Some(class) = current_class else { return Some(unknown()) };
             let Some(resolved) = resolve_member(&DispatchReceiver::Instance(class.clone()), &selector) else {
@@ -1558,7 +1596,22 @@ fn collect_dependency_expr(
             }
         }
         Expr::UnqualifiedCall(call) => {
-            if let Some(class) = current_class {
+            if let Some(binding) = environment.get(&call.name) {
+                match &binding.shape {
+                    ValueShape::Callable(callable) => {
+                        dependencies.insert(callable.clone());
+                    }
+                    ValueShape::Family { receiver, base } => {
+                        let selector = call_selector(base, &call.args);
+                        for target in dispatch_targets_for_shape(receiver) {
+                            if let Some(resolved) = resolve_member(&target, &selector) {
+                                dependencies.insert(resolved.member.callable);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            } else if let Some(class) = current_class {
                 let target = match dispatch_side.unwrap_or(DispatchSide::Instance) {
                     DispatchSide::Instance => DispatchReceiver::Instance(class.clone()),
                     DispatchSide::Class => DispatchReceiver::ClassObject(class.clone()),
@@ -1580,6 +1633,39 @@ fn collect_dependency_expr(
                     resolve_member,
                     dependencies,
                 );
+            }
+        }
+        Expr::MethodRef(reference) => {
+            collect_dependency_expr(
+                &reference.receiver,
+                module,
+                current_class,
+                dispatch_side,
+                environment,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+                dependencies,
+            );
+            if let MethodRefKind::Pinned { name, labels } = &reference.kind {
+                let receiver = infer_expr_with_dispatch(
+                    &reference.receiver,
+                    module,
+                    current_class,
+                    dispatch_side,
+                    environment,
+                    known_class,
+                    is_constructor,
+                    callable_return,
+                    resolve_member,
+                );
+                let selector = crate::selectors::comma_form_from_labels(name, labels);
+                for target in dispatch_targets(&reference.receiver, &receiver.shape, current_class, dispatch_side) {
+                    if let Some(resolved) = resolve_member(&target, &selector) {
+                        dependencies.insert(resolved.member.callable);
+                    }
+                }
             }
         }
         Expr::Assignment(assignment) => {

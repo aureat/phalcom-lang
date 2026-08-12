@@ -39,6 +39,13 @@ pub enum ValueShape {
     Range(Box<ValueShape>),
     /// A callable value.
     Callable(CallableId),
+    /// An open method family whose exact selector is chosen at call time.
+    Family {
+        /// Receiver knowledge retained for later call-site dispatch.
+        receiver: Box<ValueShape>,
+        /// Base method name before call-site labels are applied.
+        base: String,
+    },
     /// A bounded set of incompatible alternatives.
     Union(Vec<ValueShape>),
 }
@@ -71,6 +78,19 @@ impl ValueShape {
             (Self::Record(left), Self::Record(right)) if left.len() == right.len() && left.iter().zip(right).all(|(a, b)| a.0 == b.0) => {
                 Self::Record(left.iter().zip(right).map(|(a, b)| (a.0.clone(), a.1.join(&b.1))).collect())
             }
+            (
+                Self::Family {
+                    receiver: left_receiver,
+                    base: left_base,
+                },
+                Self::Family {
+                    receiver: right_receiver,
+                    base: right_base,
+                },
+            ) if left_base == right_base => Self::Family {
+                receiver: Box::new(left_receiver.join(right_receiver)),
+                base: left_base.clone(),
+            },
             _ => Self::bounded_union([self.clone(), other.clone()]),
         }
     }

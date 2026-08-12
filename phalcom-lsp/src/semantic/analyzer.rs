@@ -203,13 +203,18 @@ fn analyze_unqualified_call(name: &str, args: &[PackItem], range: phalcom_common
     for argument in args {
         analyze_pack(argument, context);
     }
-    if let Some(binding) = context
-        .environment
-        .get(name)
-        .or_else(|| context.local_facts.and_then(|facts| facts.binding_at(name, range.start)))
-    {
+    if let Some(binding) = context.environment.get(name).or_else(|| {
+        context
+            .local_facts
+            .and_then(|facts| facts.binding_at(name, range.start).or_else(|| facts.binding_at(name, context.query_offset)))
+    }) {
         return match &binding.shape {
             ValueShape::Callable(callable) => (context.callable_return)(callable).unwrap_or_else(|| flow(ValueShape::Unknown, range)),
+            ValueShape::Family { receiver, base } => {
+                let selector = call_selector(base, args);
+                let targets = receiver_targets_for_shape(receiver);
+                analyze_resolved_targets(&targets, &selector, false, range, context)
+            }
             _ => flow(ValueShape::Unknown, range),
         };
     }
@@ -244,16 +249,24 @@ fn analyze_get_property(
 
 fn analyze_method_ref(reference: &phalcom_ast::ast::MethodRefExpr, range: phalcom_common::range::SourceRange, context: &AnalysisContext<'_>) -> InferredValue {
     let receiver = analyze_expr(&reference.receiver, context);
-    let MethodRefKind::Pinned { name, labels } = &reference.kind else {
-        return flow(ValueShape::Unknown, range);
-    };
-    let selector = crate::selectors::comma_form_from_labels(name, labels);
-    let receivers = receiver_targets(&reference.receiver, &receiver.shape, context);
-    let callables = receivers
-        .into_iter()
-        .filter_map(|target| (context.resolver)(&target, &selector).map(|resolved| resolved.member.callable));
-    let shapes = callables.map(ValueShape::Callable).collect::<Vec<_>>();
-    exact(ValueShape::bounded_union(shapes), range)
+    match &reference.kind {
+        MethodRefKind::Open { name } => exact(
+            ValueShape::Family {
+                receiver: Box::new(receiver.shape),
+                base: name.clone(),
+            },
+            range,
+        ),
+        MethodRefKind::Pinned { name, labels } => {
+            let selector = crate::selectors::comma_form_from_labels(name, labels);
+            let receivers = receiver_targets(&reference.receiver, &receiver.shape, context);
+            let callables = receivers
+                .into_iter()
+                .filter_map(|target| (context.resolver)(&target, &selector).map(|resolved| resolved.member.callable));
+            let shapes = callables.map(ValueShape::Callable).collect::<Vec<_>>();
+            exact(ValueShape::bounded_union(shapes), range)
+        }
+    }
 }
 
 fn analyze_send(
@@ -326,10 +339,14 @@ fn receiver_targets(expr: &Expr, shape: &ValueShape, context: &AnalysisContext<'
             })
             .unwrap_or_default();
     }
+    receiver_targets_for_shape(shape)
+}
+
+fn receiver_targets_for_shape(shape: &ValueShape) -> Vec<DispatchReceiver> {
     match shape {
         ValueShape::Instance(class) => vec![DispatchReceiver::Instance(class.clone())],
         ValueShape::ClassObject(class) => vec![DispatchReceiver::ClassObject(class.clone())],
-        ValueShape::Union(shapes) => shapes.iter().flat_map(|shape| receiver_targets(expr, shape, context)).collect(),
+        ValueShape::Union(shapes) => shapes.iter().flat_map(receiver_targets_for_shape).collect(),
         _ => Vec::new(),
     }
 }
@@ -751,5 +768,24 @@ mod tests {
         );
         let pinned = analyze_source_expression(source, "Box.new()::#value()", None, BTreeMap::new(), returns);
         assert!(matches!(pinned.shape, ValueShape::Callable(callable) if callable == value_callable));
+    }
+
+    #[test]
+    fn open_references_preserve_family_and_dispatch_at_call_site() {
+        let module = ModuleId::new("file:///analyzer_cases.ph");
+        let box_id = ClassId::new(module.clone(), "Box");
+        let value_callable = CallableId {
+            owner: box_id.clone(),
+            selector: "value()".to_string(),
+            side: DispatchSide::Instance,
+        };
+        let source = "class Box { value() { 1 } }\n";
+        let returns = BTreeMap::from([(value_callable.clone(), ValueShape::Instance(core_class("Int")))]);
+        let family = analyze_source_expression(source, "Box.new()::value", None, BTreeMap::new(), returns.clone());
+        assert!(matches!(&family.shape, ValueShape::Family { receiver, base } if **receiver == ValueShape::Instance(box_id) && base == "value"));
+
+        let environment = BTreeMap::from([(String::from("family"), family)]);
+        let invoked = analyze_source_expression(source, "family()", None, environment, returns);
+        assert_eq!(invoked.shape, ValueShape::Instance(core_class("Int")));
     }
 }

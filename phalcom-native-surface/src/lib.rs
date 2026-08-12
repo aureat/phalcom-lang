@@ -394,3 +394,29 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("System", "_$leakReport", Getter, Class, Internal),
     native!("System", "_$strictResources(_)", Method, Class, Internal),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn native_rows_have_unique_runtime_keys_and_canonical_contracts() {
+        let classes = NATIVE_CLASSES.iter().map(|class| class.name).collect::<BTreeSet<_>>();
+        let mut keys = BTreeSet::new();
+
+        for member in NATIVE_MEMBERS {
+            assert!(classes.contains(member.class), "native member references unknown class {}", member.class);
+            assert!(
+                keys.insert((member.class, member.selector, member.side, member.kind, member.visibility)),
+                "duplicate native member row: {member:?}"
+            );
+            match member.return_shape {
+                NativeReturnShape::Instance(name) | NativeReturnShape::ClassObject(name) => {
+                    assert!(classes.contains(name), "native return contract references unknown class {name}");
+                }
+                NativeReturnShape::Unknown | NativeReturnShape::Receiver | NativeReturnShape::Argument(_) => {}
+            }
+        }
+    }
+}

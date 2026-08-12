@@ -57,6 +57,7 @@ pub fn render_value_shape(shape: &ValueShape) -> String {
         ValueShape::Map { key, value } => format!("Map<{}, {}>", render_value_shape(key), render_value_shape(value)),
         ValueShape::Range(element) => format!("Range<{}>", render_value_shape(element)),
         ValueShape::Callable(_) => "Callable".to_string(),
+        ValueShape::Family { base, .. } => format!("Family<{base}>"),
         ValueShape::Union(alternatives) => alternatives.iter().map(render_value_shape).collect::<Vec<_>>().join(" | "),
     }
 }
@@ -599,8 +600,7 @@ impl SemanticDb {
             resolver: &resolve_member,
             contains_class: &contains_class,
         };
-        let analyzed = analyze_expr(expr, &context);
-        analyzed
+        analyze_expr(expr, &context)
     }
 
     /// Returns current import edges for one module.
@@ -924,6 +924,63 @@ mod tests {
             .unwrap();
         let value = db.infer_expression(&uri, &receiver, 200);
         assert!(matches!(value.shape, ValueShape::Instance(ClassId { name, .. }) if name == "Point"));
+    }
+
+    #[test]
+    fn open_method_reference_invokes_against_call_site_selector() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///family.ph");
+        let source = "class Box { @constructor new() { } value() { 1 } }\nlet family = Box.new()::value\n";
+        let parsed = parse(source, 0);
+        db.update_file(&uri, FileRevision(1), &parsed.program);
+        let family_binding = db
+            .binding_at(&uri, "family", source.find("family").expect("family binding offset") + 1)
+            .expect("family binding");
+        assert_eq!(
+            family_binding.shape,
+            ValueShape::Family {
+                receiver: Box::new(ValueShape::Instance(ClassId::new(ModuleId::from_uri(&uri), "Box"))),
+                base: "value".to_string(),
+            }
+        );
+        let value_callable = CallableId {
+            owner: ClassId::new(ModuleId::from_uri(&uri), "Box"),
+            selector: "value()".to_string(),
+            side: DispatchSide::Instance,
+        };
+        assert_eq!(
+            db.return_for_callable(&value_callable).map(|value| value.shape),
+            Some(ValueShape::Instance(ClassId::new(ModuleId::new(CORE_MODULE_URI), "Int")))
+        );
+        let expression = parse("family()", 0)
+            .program
+            .statements
+            .into_iter()
+            .find_map(|statement| match statement {
+                phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
+                _ => None,
+            })
+            .expect("expression statement");
+        let value = db.infer_expression(&uri, &expression, source.len());
+        assert_eq!(value.shape, ValueShape::Instance(ClassId::new(ModuleId::new(CORE_MODULE_URI), "Int")));
+    }
+
+    #[test]
+    fn direct_expression_inference_uses_native_return_contracts() {
+        let db = SemanticDb::new();
+        let uri = uri("file:///native-contract.ph");
+        let expression = parse("1 < 2", 0)
+            .program
+            .statements
+            .into_iter()
+            .find_map(|statement| match statement {
+                phalcom_ast::ast::Statement::Expr { expr, .. } => Some(expr),
+                _ => None,
+            })
+            .expect("expression statement");
+
+        let value = db.infer_expression(&uri, &expression, 100);
+        assert_eq!(value.shape, ValueShape::Instance(ClassId::new(ModuleId::new(CORE_MODULE_URI), "Bool")));
     }
 
     #[test]
