@@ -2,6 +2,7 @@
 
 mod callable;
 pub(crate) mod core_source;
+mod dispatch;
 mod facts;
 mod flow;
 mod ids;
@@ -22,6 +23,7 @@ use tower_lsp::lsp_types::Url;
 
 pub use callable::{CallableSummary, SummaryEffects};
 pub use core_source::NativeReturnKnowledge;
+pub(crate) use dispatch::{DispatchReceiver, DispatchResolver};
 pub use facts::{Confidence, FactOrigin, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
 pub use flow::join_values;
 pub use ids::{CORE_MODULE_URI, CallableId, ClassId, DispatchSide, ModuleId};
@@ -364,7 +366,11 @@ impl SemanticDb {
     /// Resolves one receiver-qualified member, including inherited members.
     pub fn receiver_member(&self, class: &ClassId, selector: &str, side: DispatchSide) -> Option<MemberSurface> {
         let state = self.state.read().expect("semantic database lock poisoned");
-        resolve_member_surface_for_side(&state.classes, class, selector, side)
+        let receiver = match side {
+            DispatchSide::Instance => DispatchReceiver::Instance(class.clone()),
+            DispatchSide::Class => DispatchReceiver::ClassObject(class.clone()),
+        };
+        DispatchResolver::new(&state.classes).resolve(&receiver, selector).map(|resolved| resolved.member)
     }
 
     /// Returns inherited, de-duplicated members for one live class surface.
@@ -788,25 +794,6 @@ fn resolve_member_surface(classes: &BTreeMap<ClassId, ClassSurface>, class: &Cla
         }
         let surface = classes.get(&id)?;
         if let Some(member) = surface.members.get(selector) {
-            return Some(member.clone());
-        }
-        current = surface
-            .superclass
-            .clone()
-            .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
-    }
-    None
-}
-
-fn resolve_member_surface_for_side(classes: &BTreeMap<ClassId, ClassSurface>, class: &ClassId, selector: &str, side: DispatchSide) -> Option<MemberSurface> {
-    let mut current = Some(class.clone());
-    let mut visited = std::collections::BTreeSet::new();
-    while let Some(id) = current {
-        if !visited.insert(id.clone()) {
-            return None;
-        }
-        let surface = classes.get(&id)?;
-        if let Some(member) = surface.members_by_side.get(&(selector.to_string(), side)) {
             return Some(member.clone());
         }
         current = surface
