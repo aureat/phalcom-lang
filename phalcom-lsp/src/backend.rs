@@ -911,7 +911,7 @@ impl LanguageServer for Backend {
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(InlayHintOptions {
-                    resolve_provider: Some(true),
+                    resolve_provider: Some(false),
                     ..InlayHintOptions::default()
                 }))),
                 semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {

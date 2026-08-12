@@ -64,6 +64,7 @@ async fn inlay_hint_returns_runtime_value_for_literal_binding() {
     .await;
     let init = read_response(&mut client_end, 1).await;
     assert!(init["result"]["capabilities"]["inlayHintProvider"].is_object(), "{init:#?}");
+    assert_eq!(init["result"]["capabilities"]["inlayHintProvider"]["resolveProvider"], json!(false));
 
     write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
     let uri = "file:///workspace/main.ph";
