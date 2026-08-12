@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 297
+assertion_line: 324
 expression: "parse(\"class Point {\\n  @requires(x > 0)\\n  set(x) {\\n    self.x = x\\n  }\\n}\\n\")"
 ---
 Program {
@@ -16,8 +16,18 @@ Program {
                             params: [
                                 ParameterDef {
                                     name: "x",
+                                    name_range: CopyRange {
+                                        start: 39,
+                                        end: 40,
+                                    },
                                     label: Some(
                                         "x",
+                                    ),
+                                    label_range: Some(
+                                        CopyRange {
+                                            start: 39,
+                                            end: 40,
+                                        },
                                     ),
                                     rest_mode: None,
                                     range: CopyRange {
@@ -37,6 +47,12 @@ Program {
                                                 },
                                             },
                                             property: "x",
+                                            property_range: Some(
+                                                CopyRange {
+                                                    start: 53,
+                                                    end: 54,
+                                                },
+                                            ),
                                             value: Var {
                                                 value: "x",
                                                 range: CopyRange {
@@ -68,6 +84,12 @@ Program {
                                         Binary(
                                             BinaryExpr {
                                                 op: GreaterThan,
+                                                op_range: Some(
+                                                    CopyRange {
+                                                        start: 28,
+                                                        end: 29,
+                                                    },
+                                                ),
                                                 left: Var {
                                                     value: "x",
                                                     range: CopyRange {

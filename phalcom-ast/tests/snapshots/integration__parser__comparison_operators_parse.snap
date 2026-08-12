@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 137
 expression: "parse(\"a < b\\na > b\\na <= b\\na >= b\")"
 ---
 Program {
@@ -8,6 +9,12 @@ Program {
             expr: Binary(
                 BinaryExpr {
                     op: LessThan,
+                    op_range: Some(
+                        CopyRange {
+                            start: 2,
+                            end: 3,
+                        },
+                    ),
                     left: Var {
                         value: "a",
                         range: CopyRange {
@@ -37,6 +44,12 @@ Program {
             expr: Binary(
                 BinaryExpr {
                     op: GreaterThan,
+                    op_range: Some(
+                        CopyRange {
+                            start: 8,
+                            end: 9,
+                        },
+                    ),
                     left: Var {
                         value: "a",
                         range: CopyRange {
@@ -66,6 +79,12 @@ Program {
             expr: Binary(
                 BinaryExpr {
                     op: LessThanOrEqual,
+                    op_range: Some(
+                        CopyRange {
+                            start: 14,
+                            end: 16,
+                        },
+                    ),
                     left: Var {
                         value: "a",
                         range: CopyRange {
@@ -95,6 +114,12 @@ Program {
             expr: Binary(
                 BinaryExpr {
                     op: GreaterThanOrEqual,
+                    op_range: Some(
+                        CopyRange {
+                            start: 21,
+                            end: 23,
+                        },
+                    ),
                     left: Var {
                         value: "a",
                         range: CopyRange {

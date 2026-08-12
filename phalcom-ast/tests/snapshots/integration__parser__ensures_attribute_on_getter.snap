@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 307
+assertion_line: 329
 expression: "parse(\"class Point {\\n  @ensures(__result >= 0)\\n  magnitude() {\\n    return 1\\n  }\\n}\\n\")"
 ---
 Program {
@@ -46,6 +46,12 @@ Program {
                                         Binary(
                                             BinaryExpr {
                                                 op: GreaterThanOrEqual,
+                                                op_range: Some(
+                                                    CopyRange {
+                                                        start: 34,
+                                                        end: 36,
+                                                    },
+                                                ),
                                                 left: Field {
                                                     value: "__result",
                                                     kind: Implementation,

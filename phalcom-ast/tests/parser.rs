@@ -22,6 +22,10 @@ use phalcom_ast::{
     parse_source,
 };
 
+fn source_slice<'a>(source: &'a str, range: phalcom_common::range::SourceRange) -> &'a str {
+    &source[range.start..range.end]
+}
+
 /// Parse `src` and render the result deterministically for snapshotting.
 fn parse(src: &str) -> String {
     match parse_source(src, 0) {
@@ -85,6 +89,122 @@ fn assignment() {
 #[test]
 fn member_access() {
     insta::assert_snapshot!(parse("x.y"));
+}
+
+#[test]
+fn parser_retains_exact_written_member_target_ranges() {
+    let source = "receiver.toString()\n";
+    let program = parse_source(source, 0).expect("member call parses");
+    let Statement::Expr { expr: Expr::MethodCall(call), .. } = &program.statements[0] else {
+        panic!("expected method call");
+    };
+    assert_eq!(source_slice(source, call.method_range.expect("written method target")), "toString");
+
+    let source = "receiver.rate\n";
+    let program = parse_source(source, 0).expect("getter parses");
+    let Statement::Expr { expr: Expr::GetProperty(get), .. } = &program.statements[0] else {
+        panic!("expected getter access");
+    };
+    assert_eq!(source_slice(source, get.property_range.expect("written getter target")), "rate");
+
+    let source = "receiver.rate = next\n";
+    let program = parse_source(source, 0).expect("setter parses");
+    let Statement::Expr { expr: Expr::SetProperty(set), .. } = &program.statements[0] else {
+        panic!("expected setter access");
+    };
+    assert_eq!(source_slice(source, set.property_range.expect("written setter target")), "rate");
+}
+
+#[test]
+fn parser_retains_exact_written_operator_and_subscript_ranges() {
+    let source = "left + right\n";
+    let program = parse_source(source, 0).expect("binary expression parses");
+    let Statement::Expr { expr: Expr::Binary(binary), .. } = &program.statements[0] else {
+        panic!("expected binary expression");
+    };
+    assert_eq!(source_slice(source, binary.op_range.expect("written operator")), "+");
+
+    let source = "not value\n";
+    let program = parse_source(source, 0).expect("unary expression parses");
+    let Statement::Expr { expr: Expr::Unary(unary), .. } = &program.statements[0] else {
+        panic!("expected unary expression");
+    };
+    assert_eq!(source_slice(source, unary.op_range.expect("written unary operator")), "not");
+
+    let source = "items[index]\n";
+    let program = parse_source(source, 0).expect("subscript read parses");
+    let Statement::Expr { expr: Expr::Index(index), .. } = &program.statements[0] else {
+        panic!("expected subscript read");
+    };
+    assert_eq!(source_slice(source, index.selector_range.expect("written subscript")), "[index]");
+
+    let source = "items[index] = next\n";
+    let program = parse_source(source, 0).expect("subscript write parses");
+    let Statement::Expr { expr: Expr::SetIndex(index), .. } = &program.statements[0] else {
+        panic!("expected subscript write");
+    };
+    assert_eq!(source_slice(source, index.selector_range.expect("written subscript")), "[index]");
+}
+
+#[test]
+fn parser_retains_exact_written_binding_and_parameter_ranges() {
+    let source = "for (item in items) { item }\n";
+    let program = parse_source(source, 0).expect("for statement parses");
+    let Statement::For(for_statement) = &program.statements[0] else {
+        panic!("expected for statement");
+    };
+    assert_eq!(source_slice(source, for_statement.binding_range), "item");
+
+    let source = "let mapper = |value| value\n";
+    let program = parse_source(source, 0).expect("closure parses");
+    let Statement::Let(binding) = &program.statements[0] else {
+        panic!("expected let binding");
+    };
+    let Expr::Block(block) = binding.value.as_ref().expect("closure value") else {
+        panic!("expected closure block");
+    };
+    assert_eq!(source_slice(source, block.params.fixed[0].range), "value");
+
+    let source = "class Sample {\n  method(to value) { value }\n}\n";
+    let program = parse_source(source, 0).expect("class parses");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let ClassMember::Method(method) = &class.members[0] else {
+        panic!("expected method");
+    };
+    assert_eq!(source_slice(source, method.params[0].name_range), "value");
+    assert_eq!(source_slice(source, method.params[0].label_range.expect("external label")), "to");
+}
+
+#[test]
+fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
+    let source = "class Sample {\n  const _field\n}\n";
+    let program = parse_source(source, 0).expect("field class parses");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let ClassMember::Field(field) = &class.members[0] else {
+        panic!("expected field");
+    };
+    assert_eq!(source_slice(source, field.name_range), "_field");
+
+    let source = "receiver::method\n";
+    let program = parse_source(source, 0).expect("method reference parses");
+    let Statement::Expr { expr: Expr::MethodRef(reference), .. } = &program.statements[0] else {
+        panic!("expected method reference");
+    };
+    assert_eq!(source_slice(source, reference.selector_range.expect("written method reference")), "method");
+
+    let source = "@sealed\nclass Shape {\n  @variant Circle(radius:)\n}\n";
+    let program = parse_source(source, 0).expect("variant class parses");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let ClassMember::Variant(variant) = &class.members[0] else {
+        panic!("expected variant");
+    };
+    assert_eq!(source_slice(source, variant.name_range), "Circle");
 }
 
 #[test]

@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 87
 expression: "parse(\"x.y\")"
 ---
 Program {
@@ -15,6 +16,12 @@ Program {
                         },
                     },
                     property: "y",
+                    property_range: Some(
+                        CopyRange {
+                            start: 2,
+                            end: 3,
+                        },
+                    ),
                     range: CopyRange {
                         start: 0,
                         end: 3,

@@ -296,9 +296,9 @@ impl<'vm> Compiler<'vm> {
         constructor_name: Option<String>,
     ) -> Result<ObjRef, CompilerError> {
         // Intern parameter and receiver names before pushing the function state.
-        let mut param_names = params.fixed.clone();
+        let mut param_names = params.fixed.iter().map(|param| param.name.clone()).collect::<Vec<_>>();
         if let Some(rest) = &params.positional_rest {
-            param_names.push(rest.clone());
+            param_names.push(rest.name.clone());
         }
         let mut param_symbols = Vec::with_capacity(param_names.len());
         for param_name in &param_names {
@@ -595,6 +595,7 @@ impl<'vm> Compiler<'vm> {
                 let call = Expr::MethodCall(Box::new(MethodCallExpr {
                     object: expr,
                     method: "raise".to_string(),
+                    method_range: None,
                     args: Vec::new(),
                     range,
                 }));

@@ -999,7 +999,9 @@ fn derive_construct(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: Sourc
             let pname = strip_leading_underscore(&f.name);
             ParameterDef {
                 name: pname.clone(),
+                name_range: f.range,
                 label: Some(pname),
+                label_range: None,
                 rest_mode: RestMode::None,
                 range: f.range,
             }
@@ -1171,7 +1173,9 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                     name: base_name.clone(),
                     param: ParameterDef {
                         name: "value".to_string(),
+                        name_range: attr.range,
                         label: None,
+                        label_range: None,
                         rest_mode: RestMode::None,
                         range: attr.range,
                     },
@@ -1226,10 +1230,12 @@ fn build_data_eq(fields: &[FieldDef], range: SourceRange) -> Expr {
                 range,
             },
             property: base_name,
+            property_range: None,
             range,
         }));
         let eq = Expr::Binary(Box::new(BinaryExpr {
             op: BinaryOp::Equal,
+            op_range: None,
             left: field_read,
             right: other_read,
             range,
@@ -1238,6 +1244,7 @@ fn build_data_eq(fields: &[FieldDef], range: SourceRange) -> Expr {
             None => eq,
             Some(left) => Expr::Binary(Box::new(BinaryExpr {
                 op: BinaryOp::And,
+                op_range: None,
                 left,
                 right: eq,
                 range,
@@ -1273,6 +1280,7 @@ fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
                 range,
             },
             property: "hash".to_string(),
+            property_range: None,
             range,
         }));
         acc = Some(match acc {
@@ -1280,6 +1288,7 @@ fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
             Some(left) => {
                 let scaled = Expr::Binary(Box::new(BinaryExpr {
                     op: BinaryOp::Multiply,
+                    op_range: None,
                     left,
                     right: Expr::Int {
                         digits: "31".to_string(),
@@ -1290,6 +1299,7 @@ fn build_data_hash(fields: &[FieldDef], range: SourceRange) -> Expr {
                 }));
                 Expr::Binary(Box::new(BinaryExpr {
                     op: BinaryOp::Add,
+                    op_range: None,
                     left: scaled,
                     right: hash_read,
                     range,
@@ -1321,6 +1331,7 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
         if i > 0 {
             acc = Expr::Binary(Box::new(BinaryExpr {
                 op: BinaryOp::Add,
+                op_range: None,
                 left: acc,
                 right: Expr::String {
                     value: ", ".to_string(),
@@ -1335,6 +1346,7 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
                 range,
             },
             method: "new".to_string(),
+            method_range: None,
             args: vec![PackItem::Positional {
                 expr: Expr::Field {
                     value: f.name.clone(),
@@ -1351,6 +1363,7 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
         }));
         acc = Expr::Binary(Box::new(BinaryExpr {
             op: BinaryOp::Add,
+            op_range: None,
             left: acc,
             right: stringified,
             range,
@@ -1358,6 +1371,7 @@ fn build_data_to_string(class_name: &str, fields: &[FieldDef], range: SourceRang
     }
     Expr::Binary(Box::new(BinaryExpr {
         op: BinaryOp::Add,
+        op_range: None,
         left: acc,
         right: Expr::String { value: ")".to_string(), range },
         range,
@@ -1399,6 +1413,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
             // written control-flow send in this codebase already uses.
             let is_none = Expr::Binary(Box::new(BinaryExpr {
                 op: BinaryOp::Equal,
+                op_range: None,
                 left: Expr::Var { value: pname.clone(), range },
                 right: Expr::Var {
                     value: "None".to_string(),
@@ -1435,6 +1450,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
             let resolved = Expr::MethodCall(Box::new(MethodCallExpr {
                 object: is_none,
                 method: "ifTrue".to_string(),
+                method_range: None,
                 args: vec![
                     PackItem::Positional { expr: fallback_block, range },
                     PackItem::Labeled {
@@ -1461,6 +1477,7 @@ fn build_data_with(class_name: &str, param_fields: &[&FieldDef], range: SourceRa
             range,
         },
         method: "new".to_string(),
+        method_range: None,
         args,
         range,
     }))
@@ -1579,7 +1596,9 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             name: "==".to_string(),
             params: vec![ParameterDef {
                 name: "other".to_string(),
+                name_range: attr_range,
                 label: None,
+                label_range: None,
                 rest_mode: RestMode::None,
                 range: attr_range,
             }],
@@ -1637,7 +1656,9 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
                     let pname = strip_leading_underscore(&f.name);
                     ParameterDef {
                         name: pname.clone(),
+                        name_range: f.range,
                         label: Some(pname),
+                        label_range: None,
                         rest_mode: RestMode::None,
                         range: f.range,
                     }
@@ -1740,6 +1761,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         for label in &v.labels {
             members.push(ClassMember::Field(FieldDef {
                 name: format!("_{}", label),
+                name_range: v.range,
                 mutable: true,
                 is_static: false,
                 default: None,
@@ -1759,7 +1781,9 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
             .iter()
             .map(|n| ParameterDef {
                 name: n.clone(),
+                name_range: v.range,
                 label: None,
+                label_range: None,
                 rest_mode: RestMode::None,
                 range: v.range,
             })
@@ -1767,6 +1791,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         let call_expr = Expr::MethodCall(Box::new(MethodCallExpr {
             object: Expr::Var { value: own_kw, range: v.range },
             method: "call".to_string(),
+            method_range: None,
             args: vec![PackItem::Positional {
                 expr: Expr::SelfVar { range: v.range },
                 range: v.range,
@@ -1817,7 +1842,9 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
         .iter()
         .map(|n| ParameterDef {
             name: n.clone(),
+            name_range: match_range,
             label: Some(n.clone()),
+            label_range: Some(match_range),
             rest_mode: RestMode::None,
             range: match_range,
         })
@@ -1835,6 +1862,7 @@ fn expand_variants(class: &mut ClassDef, has_sealed: bool) -> Result<Vec<Stateme
     let arm_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: Expr::SelfVar { range: match_range },
         method: "_$matchArm".to_string(),
+        method_range: None,
         args: arm_args,
         range: match_range,
     }));
@@ -2411,6 +2439,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
                 value: Some(Expr::MethodCall(Box::new(MethodCallExpr {
                     object: Expr::SelfVar { range },
                     method: "_$new".to_string(),
+                    method_range: None,
                     args: Vec::new(),
                     range,
                 }))),
@@ -2420,6 +2449,7 @@ fn lower_constructors(members: &mut Vec<ClassMember>) {
                 expr: Expr::MethodCall(Box::new(MethodCallExpr {
                     object: instance.clone(),
                     method: init_name,
+                    method_range: None,
                     args,
                     range,
                 })),
@@ -2471,6 +2501,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
             range,
         },
         method: "new".to_string(),
+        method_range: None,
         args: vec![PackItem::Positional {
             expr: Expr::String { value: err_msg, range },
             range,
@@ -2480,6 +2511,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
     let error_expr = Expr::MethodCall(Box::new(MethodCallExpr {
         object: new_instance,
         method: "raise".to_string(),
+        method_range: None,
         args: Vec::new(),
         range,
     }));
@@ -2492,6 +2524,7 @@ fn build_check_stmt(predicate: Expr, error_class: &str, err_msg: String, range: 
     let check_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: predicate,
         method: "ifFalse".to_string(),
+        method_range: None,
         args: vec![PackItem::Positional { expr: block_expr, range }],
         range,
     }));
@@ -2504,6 +2537,7 @@ fn self_send0(method: &str, range: SourceRange) -> Expr {
     Expr::MethodCall(Box::new(MethodCallExpr {
         object: Expr::SelfVar { range },
         method: method.to_string(),
+        method_range: None,
         args: Vec::new(),
         range,
     }))
@@ -2587,6 +2621,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
             expr: Expr::MethodCall(Box::new(MethodCallExpr {
                 object: owner_var.clone(),
                 method: "ifTrue".to_string(),
+                method_range: None,
                 args: vec![PackItem::Positional {
                     expr: Expr::Block(Box::new(BlockExpr {
                         params: phalcom_ast::ast::ClosureParameters::default(),
@@ -2619,6 +2654,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
         expr: Expr::MethodCall(Box::new(MethodCallExpr {
             object: owner_var,
             method: "ifTrue".to_string(),
+            method_range: None,
             args: vec![PackItem::Positional {
                 expr: Expr::Block(Box::new(BlockExpr {
                     params: phalcom_ast::ast::ClosureParameters::default(),
@@ -2642,6 +2678,7 @@ fn weave_invariant_checks(body: &mut Vec<Statement>, invariants: &[(Expr, Source
     let ensure_call = Expr::MethodCall(Box::new(MethodCallExpr {
         object: body_block,
         method: "ensure".to_string(),
+        method_range: None,
         args: vec![PackItem::Positional { expr: cleanup_block, range }],
         range,
     }));

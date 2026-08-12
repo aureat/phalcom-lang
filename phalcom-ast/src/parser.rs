@@ -558,7 +558,9 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         self.advance(); // 'for'
         self.expect(&Token::LParen, &["\"(\""])?;
+        let binding_start = self.cur_start();
         let binding = self.expect_identifier(&["loop variable"])?;
+        let binding_range = (binding_start..self.prev_end).into();
         self.expect(&Token::In, &["\"in\""])?;
         let iter = self.parse_expr()?;
         self.expect(&Token::RParen, &["\")\""])?;
@@ -568,7 +570,13 @@ impl<'source> Parser<'source> {
             _ => unreachable!("parse_brace_block must produce a block"),
         };
         let range = (start..self.prev_end).into();
-        Ok(Statement::For(ForStatement { binding, iter, body, range }))
+        Ok(Statement::For(ForStatement {
+            binding,
+            binding_range,
+            iter,
+            body,
+            range,
+        }))
     }
 
     /// Parses `throw expr` — surface sugar for `expr.raise()`
@@ -725,6 +733,7 @@ impl<'source> Parser<'source> {
             acc = Expr::MethodCall(Box::new(MethodCallExpr {
                 object: acc,
                 method: "ensure".to_string(),
+                method_range: None,
                 args: vec![PackItem::Positional {
                     expr: cleanup,
                     range: cleanup_range,
@@ -751,6 +760,7 @@ impl<'source> Parser<'source> {
         Expr::MethodCall(Box::new(MethodCallExpr {
             object: protected,
             method: "on".to_string(),
+            method_range: None,
             args: vec![
                 PackItem::Positional {
                     expr: class,
@@ -1299,6 +1309,7 @@ impl<'source> Parser<'source> {
     /// expression is malformed, or the
     /// declaration is not followed by a newline, `}`, or end-of-file.
     fn parse_field_decl(&mut self, start: usize, is_const: bool) -> ParserResult<ClassMember> {
+        let name_start = self.cur_start();
         let name = match self.peek().clone() {
             Token::FieldIdentifier(n) | Token::ImplementationFieldIdentifier(n) => {
                 self.advance();
@@ -1306,6 +1317,7 @@ impl<'source> Parser<'source> {
             }
             _ => return Err(self.error_here(strs(&["field name"]))),
         };
+        let name_range = (name_start..self.prev_end).into();
         let default = if self.eat(&Token::Equal) { Some(self.parse_expr()?) } else { None };
         let range = (start..self.prev_end).into();
         match self.peek() {
@@ -1317,6 +1329,7 @@ impl<'source> Parser<'source> {
         }
         Ok(ClassMember::Field(FieldDef {
             name,
+            name_range,
             mutable: !is_const,
             is_static: false,
             default,
@@ -1344,7 +1357,9 @@ impl<'source> Parser<'source> {
     /// declaration is not followed by a newline, `}`, or end-of-file.
     fn parse_variant_decl(&mut self, pending: Vec<Attribute>) -> ParserResult<ClassMember> {
         let start = self.cur_start();
+        let name_start = self.cur_start();
         let name = self.expect_identifier(&["variant name"])?;
+        let name_range = (name_start..self.prev_end).into();
         self.expect(&Token::LParen, &["\"(\""])?;
         let mut labels = Vec::new();
         if !matches!(self.peek(), Token::RParen) {
@@ -1368,6 +1383,7 @@ impl<'source> Parser<'source> {
         }
         Ok(ClassMember::Variant(VariantDef {
             name,
+            name_range,
             labels,
             attributes: pending,
             range,
@@ -1492,11 +1508,15 @@ impl<'source> Parser<'source> {
                     range: start_put..err_start,
                 });
             }
+            let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
+            let local_range = (local_start..self.prev_end).into();
             self.expect(&Token::RParen, &["\")\""])?;
             let param = ParameterDef {
                 name: local_name,
+                name_range: local_range,
                 label: None,
+                label_range: None,
                 rest_mode: RestMode::None,
                 range: (start_put..self.prev_end).into(),
             };
@@ -1593,11 +1613,14 @@ impl<'source> Parser<'source> {
                     range: start_put..err_start,
                 });
             }
+            let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             self.expect(&Token::RParen, &["\")\""])?;
             let put = ParameterDef {
                 name: local_name,
+                name_range: (local_start..self.prev_end).into(),
                 label: None,
+                label_range: None,
                 rest_mode: RestMode::None,
                 range: (start_put..self.prev_end).into(),
             };
@@ -1713,7 +1736,9 @@ impl<'source> Parser<'source> {
                 None
             };
             if let Some(rest_mode) = rest_mode {
+                let name_start = self.cur_start();
                 let name = self.expect_identifier(&["parameter name"])?;
+                let name_range = (name_start..self.prev_end).into();
                 if rest_mode == RestMode::Positional && any_labeled {
                     return Err(SyntaxError {
                         kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::PositionalAfterLabeled),
@@ -1747,12 +1772,16 @@ impl<'source> Parser<'source> {
                 complete_rest |= rest_mode == RestMode::Complete;
                 params.push(ParameterDef {
                     name,
+                    name_range,
                     label: None,
+                    label_range: None,
                     rest_mode,
                     range,
                 });
             } else if self.eat(&Token::Underscore) {
+                let name_start = self.cur_start();
                 let name = self.expect_identifier(&["parameter name"])?;
+                let name_range = (name_start..self.prev_end).into();
                 if any_labeled || positional_rest {
                     return Err(SyntaxError {
                         kind: SyntaxErrorKind::RestParameter(RestParameterErrorKind::PositionalAfterLabeledOrRest),
@@ -1762,7 +1791,9 @@ impl<'source> Parser<'source> {
                 let range = (start..self.prev_end).into();
                 params.push(ParameterDef {
                     name,
+                    name_range,
                     label: None,
+                    label_range: None,
                     rest_mode: RestMode::None,
                     range,
                 });
@@ -1772,6 +1803,7 @@ impl<'source> Parser<'source> {
                 // (`for key`). Calls already accept the same contextual label
                 // vocabulary through `label_name`.
                 let first_is_identifier = matches!(self.peek(), Token::Identifier(_));
+                let label_start = self.cur_start();
                 let first_ident = if let Some(name) = Self::label_name(self.peek()) {
                     let name = name.to_string();
                     self.advance();
@@ -1779,6 +1811,7 @@ impl<'source> Parser<'source> {
                 } else {
                     return Err(self.error_here(strs(&["parameter name", "_", "*"])));
                 };
+                let label_range = (label_start..self.prev_end).into();
                 if matches!(self.peek(), Token::Colon) {
                     let err_start = self.cur_start();
                     return Err(SyntaxError {
@@ -1789,27 +1822,51 @@ impl<'source> Parser<'source> {
                         range: start..err_start,
                     });
                 }
-                let (name, label) = if matches!(self.peek(), Token::Identifier(_)) {
+                if matches!(self.peek(), Token::Identifier(_)) {
+                    let name_start = self.cur_start();
                     let local_ident = self.expect_identifier(&["parameter name"])?;
-                    (local_ident, Some(first_ident))
-                } else if !first_is_identifier {
+                    let name_range = (name_start..self.prev_end).into();
+                    let label = Some(first_ident);
+                    let label_range = Some(label_range);
+                    any_labeled = true;
+                    if labels.insert(label.clone().expect("labeled parameter has a label"), label_range.unwrap()).is_some() {
+                        return Err(SyntaxError {
+                            kind: SyntaxErrorKind::Message("duplicate parameter label in selector declaration".to_string()),
+                            range: label_range.unwrap().start..label_range.unwrap().end,
+                        });
+                    }
+                    params.push(ParameterDef {
+                        name: local_ident,
+                        name_range,
+                        label,
+                        label_range,
+                        rest_mode: RestMode::None,
+                        range: (start..self.prev_end).into(),
+                    });
+                    self.skip_newlines();
+                    if !self.eat(&Token::Comma) {
+                        break;
+                    }
+                    continue;
+                }
+                if !first_is_identifier {
                     return Err(self.error_here(strs(&["local parameter name after reserved label"])));
-                } else {
-                    (first_ident.clone(), Some(first_ident))
-                };
+                }
                 any_labeled = true;
-                let range = (start..self.prev_end).into();
-                if labels.insert(label.clone().expect("labeled parameter has a label"), range).is_some() {
+                let label = Some(first_ident.clone());
+                if labels.insert(first_ident.clone(), label_range).is_some() {
                     return Err(SyntaxError {
                         kind: SyntaxErrorKind::Message("duplicate parameter label in selector declaration".to_string()),
-                        range: range.start..range.end,
+                        range: label_range.start..label_range.end,
                     });
                 }
                 params.push(ParameterDef {
-                    name,
+                    name: first_ident,
+                    name_range: label_range,
                     label,
+                    label_range: Some(label_range),
                     rest_mode: RestMode::None,
-                    range,
+                    range: (start..self.prev_end).into(),
                 });
             }
             self.skip_newlines();
@@ -1837,12 +1894,16 @@ impl<'source> Parser<'source> {
                     if positional_rest.is_some() {
                         return Err(self.error_here(strs(&["only one terminal positional rest parameter is allowed in a closure"])));
                     }
+                    let rest_start = self.cur_start();
                     let rest = if self.eat(&Token::Underscore) {
                         "_".to_string()
                     } else {
                         self.expect_identifier(&["positional rest parameter name after `*`"])?
                     };
-                    positional_rest = Some(rest);
+                    positional_rest = Some(ClosureParameter {
+                        name: rest,
+                        range: (rest_start..self.prev_end).into(),
+                    });
                     self.skip_newlines();
                     if !self.eat(&Token::Pipe) {
                         return Err(self.error_here(strs(&["closure positional rest parameter must be terminal"])));
@@ -1852,12 +1913,16 @@ impl<'source> Parser<'source> {
                 if matches!(self.peek(), Token::DoubleAsterisk | Token::TripleAsterisk) {
                     return Err(self.error_here(strs(&["closures support only positional rest parameters written `*name`"])));
                 }
+                let param_start = self.cur_start();
                 let param = if self.eat(&Token::Underscore) {
                     "_".to_string()
                 } else {
                     self.expect_identifier(&["closure positional parameter name"])?
                 };
-                fixed.push(param);
+                fixed.push(ClosureParameter {
+                    name: param,
+                    range: (param_start..self.prev_end).into(),
+                });
                 self.skip_newlines();
                 if self.eat(&Token::Pipe) {
                     break;
@@ -2012,11 +2077,14 @@ impl<'source> Parser<'source> {
         let left = self.parse_range()?;
 
         if let Some(op) = compound_op(self.peek()) {
+            let op_start = self.cur_start();
             self.advance();
+            let op_range = Some((op_start..self.prev_end).into());
             let value = self.parse_assignment()?;
             let range = (start..self.prev_end).into();
             let binary = Expr::Binary(Box::new(BinaryExpr {
                 op,
+                op_range,
                 left: left.clone(),
                 right: value,
                 range,
@@ -2036,12 +2104,14 @@ impl<'source> Parser<'source> {
                 Expr::GetProperty(get) => Expr::SetProperty(Box::new(SetPropertyExpr {
                     object: get.object,
                     property: get.property,
+                    property_range: get.property_range,
                     value,
                     range,
                 })),
                 Expr::Index(ix) => Expr::SetIndex(Box::new(SetIndexExpr {
                     object: ix.object,
                     args: ix.args,
+                    selector_range: ix.selector_range,
                     value,
                     range,
                 })),
@@ -2144,6 +2214,7 @@ impl<'source> Parser<'source> {
             return Ok(Expr::MethodCall(Box::new(MethodCallExpr {
                 object: left,
                 method: "orElse".to_string(),
+                method_range: None,
                 args: vec![PackItem::Positional { expr: block, range }],
                 range,
             })));
@@ -2185,6 +2256,7 @@ impl<'source> Parser<'source> {
                     Expr::GetProperty(Box::new(GetPropertyExpr {
                         object: inner,
                         property: "toString".to_string(),
+                        property_range: None,
                         range: outer_range,
                     }))
                 }
@@ -2194,6 +2266,7 @@ impl<'source> Parser<'source> {
                 None => part,
                 Some(left) => Expr::Binary(Box::new(BinaryExpr {
                     op: BinaryOp::Add,
+                    op_range: None,
                     left,
                     right: part,
                     range: outer_range,
@@ -2301,10 +2374,18 @@ impl<'source> Parser<'source> {
             if prec < min_prec {
                 break;
             }
+            let op_start = self.cur_start();
             self.advance();
+            let op_range: SourceRange = (op_start..self.prev_end).into();
             let right = self.parse_binary(prec + 1)?;
             let range = (start..self.prev_end).into();
-            left = Expr::Binary(Box::new(BinaryExpr { op, left, right, range }));
+            left = Expr::Binary(Box::new(BinaryExpr {
+                op,
+                op_range: Some(op_range),
+                left,
+                right,
+                range,
+            }));
         }
         Ok(left)
     }
@@ -2356,12 +2437,14 @@ impl<'source> Parser<'source> {
         let base = Expr::MethodCall(Box::new(MethodCallExpr {
             object: left,
             method,
+            method_range: None,
             args: vec![PackItem::Positional { expr: rhs, range }],
             range,
         }));
         let result = if negate {
             Expr::Unary(Box::new(UnaryExpr {
                 op: UnaryOp::Not,
+                op_range: None,
                 expr: base,
                 range,
             }))
@@ -2398,9 +2481,15 @@ impl<'source> Parser<'source> {
         };
         let start = self.cur_start();
         self.advance();
+        let op_range: SourceRange = (start..self.prev_end).into();
         let expr = self.parse_unary()?;
         let range = (start..self.prev_end).into();
-        Ok(Expr::Unary(Box::new(UnaryExpr { op, expr, range })))
+        Ok(Expr::Unary(Box::new(UnaryExpr {
+            op,
+            op_range: Some(op_range),
+            expr,
+            range,
+        })))
     }
 
     /// Parses power expression: `power := postfix [ "**" unary ]`
@@ -2408,11 +2497,14 @@ impl<'source> Parser<'source> {
         let start = self.cur_start();
         let left = self.parse_call()?;
         if matches!(self.peek(), Token::DoubleAsterisk | Token::Power) {
+            let op_start = self.cur_start();
             self.advance(); // consume `**`
+            let op_range: SourceRange = (op_start..self.prev_end).into();
             let right = self.parse_unary()?;
             let range = (start..self.prev_end).into();
             return Ok(Expr::Binary(Box::new(BinaryExpr {
                 op: BinaryOp::Power,
+                op_range: Some(op_range),
                 left,
                 right,
                 range,
@@ -2512,12 +2604,31 @@ impl<'source> Parser<'source> {
                         ])));
                     }
                     _ => {
+                        let selector_start = self.cur_start();
                         let name = self.parse_property_name()?;
-                        MethodRefKind::Open { name }
+                        let selector_range = Some((selector_start..self.prev_end).into());
+                        let range = (start..self.prev_end).into();
+                        expr = Expr::MethodRef(Box::new(MethodRefExpr {
+                            receiver: expr,
+                            kind: MethodRefKind::Open { name },
+                            selector_range,
+                            range,
+                        }));
+                        trailing_target = TrailingTarget::None;
+                        continue;
                     }
                 };
                 let range = (start..self.prev_end).into();
-                expr = Expr::MethodRef(Box::new(MethodRefExpr { receiver: expr, kind, range }));
+                let selector_range = match &kind {
+                    MethodRefKind::Pinned { .. } => Some((self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into()),
+                    MethodRefKind::Open { .. } => None,
+                };
+                expr = Expr::MethodRef(Box::new(MethodRefExpr {
+                    receiver: expr,
+                    kind,
+                    selector_range,
+                    range,
+                }));
                 trailing_target = TrailingTarget::None;
             } else if self.eat(&Token::Dot) {
                 let is_method_call = matches!(self.peek_next(), Token::LParen);
@@ -2540,7 +2651,9 @@ impl<'source> Parser<'source> {
                     trailing_target = TrailingTarget::None;
                     continue;
                 }
+                let property_start = self.cur_start();
                 let property = self.parse_property_name()?;
+                let property_range = Some((property_start..self.prev_end).into());
                 if self.eat(&Token::LParen) {
                     let args = self.parse_arg_list()?;
                     self.expect(&Token::RParen, &["\")\""])?;
@@ -2548,12 +2661,18 @@ impl<'source> Parser<'source> {
                     expr = Expr::MethodCall(Box::new(MethodCallExpr {
                         object: expr,
                         method: property,
+                        method_range: property_range,
                         args,
                         range,
                     }));
                 } else {
                     let range = (start..self.prev_end).into();
-                    expr = Expr::GetProperty(Box::new(GetPropertyExpr { object: expr, property, range }));
+                    expr = Expr::GetProperty(Box::new(GetPropertyExpr {
+                        object: expr,
+                        property,
+                        property_range,
+                        range,
+                    }));
                 }
                 trailing_target = TrailingTarget::MemberSend;
             } else if self.eat(&Token::LParen) {
@@ -2561,16 +2680,23 @@ impl<'source> Parser<'source> {
                 self.expect(&Token::RParen, &["\")\""])?;
                 let range = (start..self.prev_end).into();
                 expr = match expr {
-                    Expr::Var { value, .. } => Expr::UnqualifiedCall(Box::new(UnqualifiedCallExpr { name: value, args, range })),
-                    Expr::ImplementationSelector { value, .. } => Expr::MethodCall(Box::new(MethodCallExpr {
+                    Expr::Var { value, range: name_range } => Expr::UnqualifiedCall(Box::new(UnqualifiedCallExpr {
+                        name: value,
+                        name_range: Some(name_range),
+                        args,
+                        range,
+                    })),
+                    Expr::ImplementationSelector { value, range: method_range } => Expr::MethodCall(Box::new(MethodCallExpr {
                         object: Expr::SelfVar { range },
                         method: value,
+                        method_range: Some(method_range),
                         args,
                         range,
                     })),
                     expr => Expr::MethodCall(Box::new(MethodCallExpr {
                         object: expr,
                         method: "call".to_string(),
+                        method_range: None,
                         args,
                         range,
                     })),
@@ -2584,10 +2710,17 @@ impl<'source> Parser<'source> {
                 // Reuses `parse_arg_list` verbatim, which already
                 // short-circuits on an immediately-closing delimiter
                 // (`xs[]`, zero-arity).
+                let selector_start = self.tokens[self.pos.saturating_sub(1)].start;
                 let args = self.parse_arg_list()?;
                 self.expect(&Token::RBracket, &["\"]\""])?;
+                let selector_range = (selector_start..self.prev_end).into();
                 let range = (start..self.prev_end).into();
-                expr = Expr::Index(Box::new(IndexExpr { object: expr, args, range }));
+                expr = Expr::Index(Box::new(IndexExpr {
+                    object: expr,
+                    args,
+                    selector_range: Some(selector_range),
+                    range,
+                }));
                 trailing_target = TrailingTarget::None;
             }
         }
@@ -2690,6 +2823,7 @@ impl<'source> Parser<'source> {
             Expr::GetProperty(get) => Ok(Expr::MethodCall(Box::new(MethodCallExpr {
                 object: get.object,
                 method: get.property,
+                method_range: get.property_range,
                 args,
                 range: (get.range.start..end).into(),
             }))),
@@ -2733,6 +2867,7 @@ impl<'source> Parser<'source> {
                     range,
                 },
                 method: property,
+                method_range: None,
                 args,
                 range,
             }))
@@ -2744,6 +2879,7 @@ impl<'source> Parser<'source> {
                     range,
                 },
                 property,
+                property_range: None,
                 range,
             }))
         };
@@ -2752,6 +2888,7 @@ impl<'source> Parser<'source> {
         Ok(Expr::MethodCall(Box::new(MethodCallExpr {
             object,
             method: "map".to_string(),
+            method_range: None,
             args: vec![PackItem::Positional { expr: mapper, range }],
             range,
         })))
@@ -2952,6 +3089,7 @@ impl<'source> Parser<'source> {
         Ok(Expr::MethodCall(Box::new(MethodCallExpr {
             object: cond,
             method: "ifTrue".to_string(),
+            method_range: None,
             args,
             range,
         })))
@@ -2978,6 +3116,7 @@ impl<'source> Parser<'source> {
         Ok(Expr::MethodCall(Box::new(MethodCallExpr {
             object: cond_block,
             method: "whileTrue".to_string(),
+            method_range: None,
             args: vec![PackItem::Positional { expr: body, range: body_range }],
             range,
         })))
@@ -3082,6 +3221,7 @@ impl<'source> Parser<'source> {
                 Ok(Expr::GetProperty(Box::new(GetPropertyExpr {
                     object: Expr::SelfVar { range },
                     property: "class".to_string(),
+                    property_range: None,
                     range,
                 })))
             }
@@ -4073,7 +4213,7 @@ mod tests {
         let Expr::Var { value, .. } = &get.object else {
             panic!("expected the synthetic receiver variable");
         };
-        assert_eq!(value, &block.params.fixed[0]);
+        assert_eq!(value, &block.params.fixed[0].name);
     }
 
     #[test]
@@ -4162,7 +4302,7 @@ mod tests {
         let Expr::Block(block) = binding.value.expect("expected value") else {
             panic!("expected closure block");
         };
-        assert_eq!(block.params.fixed, ["x", "y"]);
+        assert_eq!(block.params.fixed.iter().map(|param| param.name.as_str()).collect::<Vec<_>>(), ["x", "y"]);
         assert!(block.params.positional_rest.is_none());
         assert!(block.expr_body);
         assert_eq!(block.body.len(), 1);
@@ -4186,8 +4326,8 @@ mod tests {
         let Expr::Block(block) = binding.value.expect("expected closure") else {
             panic!("expected closure block");
         };
-        assert_eq!(block.params.fixed, ["head"]);
-        assert_eq!(block.params.positional_rest.as_deref(), Some("tail"));
+        assert_eq!(block.params.fixed.iter().map(|param| param.name.as_str()).collect::<Vec<_>>(), ["head"]);
+        assert_eq!(block.params.positional_rest.as_ref().map(|param| param.name.as_str()), Some("tail"));
 
         for source in ["|**labels| labels", "|*rest, next| rest", "|*rest, *other| rest"] {
             assert!(!parse(source, 0).errors.is_empty(), "invalid closure rest accepted: {source}");

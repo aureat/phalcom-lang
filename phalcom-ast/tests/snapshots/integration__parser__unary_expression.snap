@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 92
 expression: "parse(\"not true\")"
 ---
 Program {
@@ -8,6 +9,12 @@ Program {
             expr: Unary(
                 UnaryExpr {
                     op: Not,
+                    op_range: Some(
+                        CopyRange {
+                            start: 0,
+                            end: 3,
+                        },
+                    ),
                     expr: Boolean {
                         value: true,
                         range: CopyRange {

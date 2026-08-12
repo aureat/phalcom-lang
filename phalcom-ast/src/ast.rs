@@ -344,6 +344,8 @@ pub struct VariantDef {
     /// nested/namespaced variant naming, `annotations-data.md`'s own
     /// simplification).
     pub name: String,
+    /// The source span of just the variant name token.
+    pub name_range: SourceRange,
     /// The declared field labels, in declaration order (e.g. `["radius"]`
     /// for `@variant Circle(radius:)`) — R3, field order is API. Each label
     /// becomes one `FieldDef` (named `"_" + label`) on the generated sibling
@@ -379,6 +381,8 @@ pub struct FieldDef {
     /// The field's name, as written (conventionally leading-underscore,
     /// e.g. `"_x"`, though the grammar does not enforce this).
     pub name: String,
+    /// The source span of just the field name token.
+    pub name_range: SourceRange,
     /// Whether the field was declared *without* `const` (`true`, mutable) or
     /// with `const` (`false`, immutable) — ADR-0064's field mutability
     /// distinction (L-2). Mutable fields take no keyword at all (`_x`, not
@@ -413,9 +417,13 @@ pub struct FieldDef {
 pub struct ParameterDef {
     /// The parameter's local binding name.
     pub name: String,
+    /// The source span of the local binding name, excluding labels and rest markers.
+    pub name_range: SourceRange,
     /// The keyword label this parameter is called under, if any. `None` for
     /// an ordinary positional parameter.
     pub label: Option<String>,
+    /// The source span of the external label when it is written separately.
+    pub label_range: Option<SourceRange>,
     /// Parsed rest lane. The compiler normalizes this into runtime rest
     /// metadata without adding a second parser-side representation.
     pub rest_mode: RestMode,
@@ -623,6 +631,8 @@ pub struct ForStatement {
     /// The loop variable, freshly bound to each element in turn (behaves as a
     /// `let` per iteration; iteration.md §2).
     pub binding: String,
+    /// The source span of just the loop binding identifier.
+    pub binding_range: SourceRange,
     /// The iterable expression, evaluated **once** into a synthetic temporary
     /// before the loop (U-ITER specification §3.3).
     pub iter: Expr,
@@ -770,6 +780,8 @@ pub struct RangeExpr {
 #[derive(Debug, Clone)]
 pub struct BinaryExpr {
     pub op: BinaryOp,
+    /// The written operator token. `None` for parser/compiler-generated sends.
+    pub op_range: Option<SourceRange>,
     pub left: Expr,
     pub right: Expr,
     pub range: SourceRange,
@@ -779,6 +791,8 @@ pub struct BinaryExpr {
 pub struct SetPropertyExpr {
     pub object: Expr,
     pub property: String,
+    /// The written property token, if this setter came from source syntax.
+    pub property_range: Option<SourceRange>,
     pub value: Expr,
     pub range: SourceRange,
 }
@@ -807,6 +821,8 @@ pub struct IndexExpr {
     /// The bracketed argument list — positional and/or `label:` arguments,
     /// in source order.
     pub args: Vec<PackItem>,
+    /// The written bracket selector span, excluding the receiver.
+    pub selector_range: Option<SourceRange>,
     /// Source span from `object` start through `]`.
     pub range: SourceRange,
 }
@@ -827,6 +843,8 @@ pub struct SetIndexExpr {
     /// in source order (the index/key side only; `value` is appended as the
     /// selector's trailing `put:` argument by the compiler, not stored here).
     pub args: Vec<PackItem>,
+    /// The written bracket selector span, excluding the receiver and RHS.
+    pub selector_range: Option<SourceRange>,
     /// The new value.
     pub value: Expr,
     /// Source span from `object` start through the RHS.
@@ -851,6 +869,8 @@ pub struct CallExpr {
 #[derive(Debug, Clone)]
 pub struct UnqualifiedCallExpr {
     pub name: String,
+    /// The written callee name, if this call came from source syntax.
+    pub name_range: Option<SourceRange>,
     pub args: Vec<PackItem>,
     pub range: SourceRange,
 }
@@ -873,6 +893,8 @@ pub enum PackLabel {
 pub struct MethodCallExpr {
     pub object: Expr,
     pub method: String,
+    /// The written selector/property token, if this call came from source syntax.
+    pub method_range: Option<SourceRange>,
     pub args: Vec<PackItem>,
     pub range: SourceRange,
 }
@@ -881,6 +903,8 @@ pub struct MethodCallExpr {
 pub struct GetPropertyExpr {
     pub object: Expr,
     pub property: String,
+    /// The written property token, if this access came from source syntax.
+    pub property_range: Option<SourceRange>,
     pub range: SourceRange,
 }
 
@@ -902,6 +926,8 @@ pub struct MethodRefExpr {
     /// Which of the two reference shapes this is — Open (`::name`) or
     /// Pinned (`::#sel(...)`). See [`MethodRefKind`].
     pub kind: MethodRefKind,
+    /// The written selector portion after `::`, if present.
+    pub selector_range: Option<SourceRange>,
     /// The source span from the start of `receiver` through the name/selector.
     pub range: SourceRange,
 }
@@ -1105,6 +1131,8 @@ pub enum ListLiteralElement {
 #[derive(Debug, Clone)]
 pub struct UnaryExpr {
     pub op: UnaryOp,
+    /// The written unary operator token. `None` for generated negation.
+    pub op_range: Option<SourceRange>,
     pub expr: Expr,
     pub range: SourceRange,
 }
@@ -1140,18 +1168,32 @@ pub enum UnaryOp {
     BitNot,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosureParameter {
+    /// The parameter's local binding name.
+    pub name: String,
+    /// The source span of the parameter name, excluding `*`/`_` markers.
+    pub range: SourceRange,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClosureParameters {
-    /// Fixed positional parameter names, in source order.
-    pub fixed: Vec<String>,
+    /// Fixed positional parameters, in source order.
+    pub fixed: Vec<ClosureParameter>,
     /// Optional terminal positional-rest parameter.
-    pub positional_rest: Option<String>,
+    pub positional_rest: Option<ClosureParameter>,
 }
 
 impl ClosureParameters {
     pub fn fixed(names: Vec<String>) -> Self {
         Self {
-            fixed: names,
+            fixed: names
+                .into_iter()
+                .map(|name| ClosureParameter {
+                    name,
+                    range: SourceRange::default(),
+                })
+                .collect(),
             positional_rest: None,
         }
     }

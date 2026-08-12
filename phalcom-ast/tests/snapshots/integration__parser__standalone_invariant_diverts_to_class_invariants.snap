@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 326
+assertion_line: 348
 expression: "parse(\"class Point {\\n  @invariant(x >= 0)\\n\\n  get() {\\n    return x\\n  }\\n}\\n\")"
 ---
 Program {
@@ -53,6 +53,12 @@ Program {
                         Binary(
                             BinaryExpr {
                                 op: GreaterThanOrEqual,
+                                op_range: Some(
+                                    CopyRange {
+                                        start: 29,
+                                        end: 31,
+                                    },
+                                ),
                                 left: Var {
                                     value: "x",
                                     range: CopyRange {

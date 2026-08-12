@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 272
+assertion_line: 299
 expression: "parse(\"for (item in makeList(3)) { total = total + item }\")"
 ---
 Program {
@@ -8,9 +8,19 @@ Program {
         For(
             ForStatement {
                 binding: "item",
+                binding_range: CopyRange {
+                    start: 5,
+                    end: 9,
+                },
                 iter: UnqualifiedCall(
                     UnqualifiedCallExpr {
                         name: "makeList",
+                        name_range: Some(
+                            CopyRange {
+                                start: 13,
+                                end: 21,
+                            },
+                        ),
                         args: [
                             Positional {
                                 expr: Int {
@@ -47,6 +57,12 @@ Program {
                                 value: Binary(
                                     BinaryExpr {
                                         op: Add,
+                                        op_range: Some(
+                                            CopyRange {
+                                                start: 42,
+                                                end: 43,
+                                            },
+                                        ),
                                         left: Var {
                                             value: "total",
                                             range: CopyRange {

@@ -1,6 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
-assertion_line: 267
+assertion_line: 294
 expression: "parse(\"for (x in xs) { System.print(x) }\")"
 ---
 Program {
@@ -8,6 +8,10 @@ Program {
         For(
             ForStatement {
                 binding: "x",
+                binding_range: CopyRange {
+                    start: 5,
+                    end: 6,
+                },
                 iter: Var {
                     value: "xs",
                     range: CopyRange {
@@ -27,6 +31,12 @@ Program {
                                     },
                                 },
                                 method: "print",
+                                method_range: Some(
+                                    CopyRange {
+                                        start: 23,
+                                        end: 28,
+                                    },
+                                ),
                                 args: [
                                     Positional {
                                         expr: Var {

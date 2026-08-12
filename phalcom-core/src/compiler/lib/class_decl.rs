@@ -1191,6 +1191,7 @@ impl<'vm> Compiler<'vm> {
                 range,
             },
             method: "new".to_string(),
+            method_range: None,
             args: attr.args.iter().map(|expr| PackItem::Positional { expr: expr.clone(), range }).collect(),
             range,
         }));

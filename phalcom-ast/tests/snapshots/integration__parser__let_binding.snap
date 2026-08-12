@@ -19,6 +19,12 @@ Program {
                     Binary(
                         BinaryExpr {
                             op: Add,
+                            op_range: Some(
+                                CopyRange {
+                                    start: 10,
+                                    end: 11,
+                                },
+                            ),
                             left: Int {
                                 digits: "1",
                                 radix: 10,

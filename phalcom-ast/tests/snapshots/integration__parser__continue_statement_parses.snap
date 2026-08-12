@@ -1,5 +1,6 @@
 ---
 source: phalcom-ast/tests/parser.rs
+assertion_line: 309
 expression: "parse(\"for (x in xs) { continue }\")"
 ---
 Program {
@@ -7,6 +8,10 @@ Program {
         For(
             ForStatement {
                 binding: "x",
+                binding_range: CopyRange {
+                    start: 5,
+                    end: 6,
+                },
                 iter: Var {
                     value: "xs",
                     range: CopyRange {

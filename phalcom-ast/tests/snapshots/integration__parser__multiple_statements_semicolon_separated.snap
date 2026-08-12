@@ -16,6 +16,12 @@ Program {
                         },
                     },
                     method: "print",
+                    method_range: Some(
+                        CopyRange {
+                            start: 7,
+                            end: 12,
+                        },
+                    ),
                     args: [
                         Positional {
                             expr: Int {
@@ -54,6 +60,12 @@ Program {
                         },
                     },
                     method: "print",
+                    method_range: Some(
+                        CopyRange {
+                            start: 24,
+                            end: 29,
+                        },
+                    ),
                     args: [
                         Positional {
                             expr: Int {
