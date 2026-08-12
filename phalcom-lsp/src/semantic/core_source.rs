@@ -15,7 +15,7 @@ use super::surface::{ClassSurface, MemberKind, MemberSurface, MemberVisibility, 
 /// Bundled source fallback for the semantic core module.
 pub const BUNDLED_CORE_SOURCE: &str = include_str!("../../../phalcom-core/core/core.ph");
 
-pub use phalcom_native_surface::NativeReturnKnowledge;
+pub use phalcom_native_surface::NativeReturnShape;
 
 /// Parses bundled core source.
 pub fn bundled_parse() -> Parse {
@@ -68,6 +68,7 @@ pub fn build_core_surface(program: &Program) -> ModuleSurface {
             },
             side,
             is_constructor: native.selector.starts_with("new(") && native.side == NativeDispatch::Class,
+            native_return: Some(native.return_shape),
             source_range: Default::default(),
             name_range: Default::default(),
             params: Vec::new(),

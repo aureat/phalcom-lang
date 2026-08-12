@@ -22,14 +22,15 @@ pub(crate) struct ResolvedDispatch {
     /// Actual declaration surface, including its declaring callable owner.
     pub member: MemberSurface,
     /// Class represented by the receiver expression.
-    #[expect(dead_code, reason = "consumed by unified expression analysis migration")]
     pub receiver_class: ClassId,
     /// Dispatch side used for lookup.
+    #[allow(dead_code)]
     pub side: DispatchSide,
 }
 
 /// Resolves members using the same side-aware inheritance walk for every
 /// semantic consumer.
+#[derive(Clone, Copy)]
 pub(crate) struct DispatchResolver<'a> {
     classes: &'a BTreeMap<ClassId, ClassSurface>,
 }
@@ -38,6 +39,11 @@ impl<'a> DispatchResolver<'a> {
     /// Creates a resolver over one coherent class-surface snapshot.
     pub(crate) fn new(classes: &'a BTreeMap<ClassId, ClassSurface>) -> Self {
         Self { classes }
+    }
+
+    /// Reports whether a receiver class exists in this semantic surface.
+    pub(crate) fn contains_class(&self, class: &ClassId) -> bool {
+        self.classes.contains_key(class)
     }
 
     /// Resolves `selector` and returns the actual declaration owner.
@@ -72,9 +78,10 @@ impl<'a> DispatchResolver<'a> {
 
     fn superclass_of(&self, class: &ClassId) -> Option<ClassId> {
         let surface = self.classes.get(class)?;
-        surface.superclass.clone().or_else(|| {
-            (class.name != "Object").then(|| ClassId::new(super::ids::ModuleId::new(super::ids::CORE_MODULE_URI), "Object"))
-        })
+        surface
+            .superclass
+            .clone()
+            .or_else(|| (class.name != "Object").then(|| ClassId::new(super::ids::ModuleId::new(super::ids::CORE_MODULE_URI), "Object")))
     }
 }
 
@@ -109,7 +116,9 @@ mod tests {
         let widget = ClassId::new(super::super::ids::ModuleId::new("file:///dispatch.ph"), "Widget");
         let resolver = DispatchResolver::new(&classes);
 
-        let instance = resolver.resolve(&DispatchReceiver::Instance(widget.clone()), "make()").expect("instance member");
+        let instance = resolver
+            .resolve(&DispatchReceiver::Instance(widget.clone()), "make()")
+            .expect("instance member");
         let class = resolver.resolve(&DispatchReceiver::ClassObject(widget), "make()").expect("class member");
 
         assert_eq!(instance.member.side, DispatchSide::Instance);
@@ -119,9 +128,7 @@ mod tests {
 
     #[test]
     fn super_starts_at_parent_and_preserves_side() {
-        let classes = surfaces(
-            "class Parent { value() { } @class make() { } }\nclass Child is Parent { value() { } @class make() { } }\n",
-        );
+        let classes = surfaces("class Parent { value() { } @class make() { } }\nclass Child is Parent { value() { } @class make() { } }\n");
         let child = ClassId::new(super::super::ids::ModuleId::new("file:///dispatch.ph"), "Child");
         let resolver = DispatchResolver::new(&classes);
 

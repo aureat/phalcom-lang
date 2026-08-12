@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 
 use phalcom_ast::ast::{AttrKind, Attribute, ClassMember, Expr, IndexAccessor, ParameterDef, Program, Statement};
 use phalcom_common::range::SourceRange;
+use phalcom_native_surface::NativeReturnShape;
 
 use super::ids::{CallableId, ClassId, DispatchSide, ModuleId};
 
@@ -49,6 +50,8 @@ pub struct MemberSurface {
     pub side: DispatchSide,
     /// Whether this member is a constructor/factory.
     pub is_constructor: bool,
+    /// Optional native return contract. Source members leave this absent.
+    pub native_return: Option<NativeReturnShape>,
     /// Whole declaration span.
     pub source_range: SourceRange,
     /// Name or selector span.
@@ -190,6 +193,7 @@ pub fn build_module_surface(module: ModuleId, program: &Program) -> ModuleSurfac
                 visibility: member_visibility(member),
                 side,
                 is_constructor: constructor,
+                native_return: None,
                 source_range: (declaration_start..source_range.end).into(),
                 name_range,
                 params,

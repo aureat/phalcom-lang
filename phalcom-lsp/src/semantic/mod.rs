@@ -1,5 +1,6 @@
 //! VM-free live semantic database for LSP requests.
 
+mod analyzer;
 mod callable;
 pub(crate) mod core_source;
 mod dispatch;
@@ -9,8 +10,8 @@ mod ids;
 mod infer;
 mod invalidation;
 mod module_graph;
-mod query;
 mod occurrence;
+mod query;
 mod scope;
 mod surface;
 
@@ -18,11 +19,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use phalcom_ast::ast::{Expr, PackItem, PackLabel, Program};
+use phalcom_ast::ast::Program;
 use tower_lsp::lsp_types::Url;
 
+pub(crate) use analyzer::{AnalysisContext, analyze_expr};
 pub use callable::{CallableSummary, SummaryEffects};
-pub use core_source::NativeReturnKnowledge;
+pub use core_source::NativeReturnShape;
 pub(crate) use dispatch::{DispatchReceiver, DispatchResolver};
 pub use facts::{Confidence, FactOrigin, FieldFacts, FileRevision, InferredValue, LocalFacts, MAX_SHAPE_UNION, ParameterFacts, ValueShape};
 pub use flow::join_values;
@@ -370,7 +372,9 @@ impl SemanticDb {
             DispatchSide::Instance => DispatchReceiver::Instance(class.clone()),
             DispatchSide::Class => DispatchReceiver::ClassObject(class.clone()),
         };
-        DispatchResolver::new(&state.classes).resolve(&receiver, selector).map(|resolved| resolved.member)
+        DispatchResolver::new(&state.classes)
+            .resolve(&receiver, selector)
+            .map(|resolved| resolved.member)
     }
 
     /// Returns inherited, de-duplicated members for one live class surface.
@@ -452,12 +456,8 @@ impl SemanticDb {
 
     /// Returns a callable's target-specific return summary.
     pub fn return_for_callable(&self, id: &CallableId) -> Option<InferredValue> {
-        self.state
-            .read()
-            .expect("semantic database lock poisoned")
-            .summaries
-            .get(id)
-            .map(|summary| summary.returns.clone())
+        let state = self.state.read().expect("semantic database lock poisoned");
+        return_for_callable(&state.classes, &state.summaries, id)
     }
 
     /// Returns the joined call-site fact observed for one callable parameter.
@@ -528,7 +528,7 @@ impl SemanticDb {
     pub fn returns_for_callables(&self, ids: impl IntoIterator<Item = CallableId>) -> Option<InferredValue> {
         let state = self.state.read().expect("semantic database lock poisoned");
         ids.into_iter()
-            .filter_map(|id| state.summaries.get(&id).map(|summary| summary.returns.clone()))
+            .filter_map(|id| return_for_callable(&state.classes, &state.summaries, &id))
             .reduce(|left, right| left.join(&right))
     }
 
@@ -550,19 +550,9 @@ impl SemanticDb {
     pub fn infer_expression(&self, uri: &Url, expr: &phalcom_ast::ast::Expr, offset: usize) -> InferredValue {
         let module = ModuleId::from_uri(uri);
         let state = self.state.read().expect("semantic database lock poisoned");
-        if let Some(shape) = infer_imported_expression(&state, &module, expr) {
-            return InferredValue::flow(shape, expr.range());
-        }
         let mut environment = BTreeMap::new();
-        if let Some(file) = state.files.get(&module) {
-            collect_expression_environment(expr, &file.local_facts, offset, &mut environment);
-        }
         let known_classes = |name: &str| resolve_named_class(&state.classes, &state.graph, &module, name);
-        let is_constructor = |class: &ClassId, selector: &str| {
-            resolve_member_surface(&state.classes, class, selector).is_some_and(|member| member.is_constructor)
-                || (selector == "new()" && state.classes.contains_key(class))
-        };
-        let callable_return = |id: &CallableId| state.summaries.get(id).map(|summary| summary.returns.clone());
+        let callable_return = |id: &CallableId| return_for_callable(&state.classes, &state.summaries, id);
         let field_value = |class: &ClassId, name: &str| state.field_facts.get(&(class.clone(), name.to_string())).cloned();
         let current_class = state
             .files
@@ -575,7 +565,7 @@ impl SemanticDb {
                     .surface
                     .classes
                     .get(class)
-                    .and_then(|class| class.members.values().find(|member| member.source_range.contains(offset)))
+                    .and_then(|class| class.members_by_side.values().find(|member| member.source_range.contains(offset)))
                 {
                     for param in &member.params {
                         if let Some(value) = state.parameter_facts.get(&(member.callable.clone(), param.name.clone())) {
@@ -585,16 +575,32 @@ impl SemanticDb {
                 }
             }
         }
-        infer::infer_expr_with_fields(
-            expr,
-            &module,
-            current_class.as_ref(),
-            &environment,
-            known_classes,
-            is_constructor,
-            callable_return,
-            field_value,
-        )
+        let dispatch_side = current_class.as_ref().and_then(|class| {
+            state
+                .files
+                .get(&module)
+                .and_then(|file| file.surface.classes.get(class))
+                .and_then(|surface| surface.members_by_side.values().find(|member| member.source_range.contains(offset)))
+                .map(|member| member.side)
+        });
+        let local_facts = state.files.get(&module).map(|file| &file.local_facts);
+        let resolver = DispatchResolver::new(&state.classes);
+        let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
+        let contains_class = |class: &ClassId| resolver.contains_class(class);
+        let context = AnalysisContext {
+            current_class: current_class.as_ref(),
+            dispatch_side,
+            query_offset: offset,
+            environment: &environment,
+            local_facts,
+            known_class: &known_classes,
+            callable_return: &callable_return,
+            field_value: &field_value,
+            resolver: &resolve_member,
+            contains_class: &contains_class,
+        };
+        let analyzed = analyze_expr(expr, &context);
+        analyzed
     }
 
     /// Returns current import edges for one module.
@@ -656,13 +662,16 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
         let solved_parameters = solved.parameter_facts;
         for (module, program, surface) in &inputs {
             let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
+            let resolver = DispatchResolver::new(&classes);
             let is_constructor = |class: &ClassId, selector: &str| {
-                resolve_member_surface(&classes, class, selector).is_some_and(|member| member.is_constructor)
+                resolver
+                    .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
+                    .is_some_and(|resolved| resolved.member.is_constructor)
                     || (selector == "new()" && classes.contains_key(class))
             };
-            let callable_return = |id: &CallableId| state.summaries.get(id).map(|summary| summary.returns.clone());
+            let callable_return = |id: &CallableId| return_for_callable(&classes, &state.summaries, id);
             let parameter_fact = |id: &CallableId, name: &str| solved_parameters.get(id, name).cloned();
-            let resolve_member = |class: &ClassId, selector: &str| resolve_member_surface(&classes, class, selector);
+            let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
             let contribution = infer::parameter_facts_for_program(
                 program,
                 surface,
@@ -728,18 +737,30 @@ fn rebuild_affected_state(state: &mut SemanticState, generation: SemanticGenerat
     for module in &existing_modules {
         let Some(file) = state.files.get(module) else { continue };
         let known_class = |name: &str| resolve_named_class(&classes, &graph, module, name);
+        let resolver = DispatchResolver::new(&classes);
         let is_constructor = |class: &ClassId, selector: &str| {
-            resolve_member_surface(&classes, class, selector).is_some_and(|member| member.is_constructor)
+            resolver
+                .resolve(&DispatchReceiver::ClassObject(class.clone()), selector)
+                .is_some_and(|resolved| resolved.member.is_constructor)
                 || (selector == "new()" && classes.contains_key(class))
         };
-        let callable_return = |id: &CallableId| summaries.get(id).map(|summary| summary.returns.clone());
+        let callable_return = |id: &CallableId| return_for_callable(&classes, &summaries, id);
+        let resolve_member = |receiver: &DispatchReceiver, selector: &str| resolver.resolve(receiver, selector);
         local_by_module.insert(
             module.clone(),
-            infer::collect_local_facts_with_returns(&file.program, module, known_class, is_constructor, callable_return),
+            infer::collect_local_facts_with_returns(
+                &file.program,
+                &file.surface,
+                module,
+                known_class,
+                is_constructor,
+                callable_return,
+                resolve_member,
+            ),
         );
         fields_by_module.insert(
             module.clone(),
-            infer::field_facts_for_surface(&file.surface, module, known_class, is_constructor, callable_return),
+            infer::field_facts_for_surface(&file.surface, module, known_class, is_constructor, callable_return, resolver),
         );
     }
 
@@ -785,91 +806,26 @@ fn resolve_named_class(classes: &BTreeMap<ClassId, ClassSurface>, graph: &Module
     classes.contains_key(&core).then_some(core)
 }
 
-fn resolve_member_surface(classes: &BTreeMap<ClassId, ClassSurface>, class: &ClassId, selector: &str) -> Option<MemberSurface> {
-    let mut current = Some(class.clone());
-    let mut visited = std::collections::BTreeSet::new();
-    while let Some(id) = current {
-        if !visited.insert(id.clone()) {
-            return None;
-        }
-        let surface = classes.get(&id)?;
-        if let Some(member) = surface.members.get(selector) {
-            return Some(member.clone());
-        }
-        current = surface
-            .superclass
-            .clone()
-            .or_else(|| (id.name != "Object").then(|| ClassId::new(ModuleId::new(CORE_MODULE_URI), "Object")));
+fn return_for_callable(classes: &BTreeMap<ClassId, ClassSurface>, summaries: &BTreeMap<CallableId, CallableSummary>, id: &CallableId) -> Option<InferredValue> {
+    let class = classes.get(&id.owner)?;
+    let member = class.members_by_side.get(&(id.selector.clone(), id.side));
+    if id.side == DispatchSide::Class && (id.selector == "new()" || member.is_some_and(|member| member.is_constructor)) {
+        return Some(InferredValue::flow(ValueShape::Instance(id.owner.clone()), Default::default()));
     }
-    None
-}
-
-fn infer_imported_expression(state: &SemanticState, module: &ModuleId, expr: &Expr) -> Option<ValueShape> {
-    match expr {
-        Expr::GetProperty(property) => {
-            let Expr::Var { value: binding, .. } = &property.object else { return None };
-            imported_class(state, module, binding, &property.property).map(ValueShape::ClassObject)
-        }
-        Expr::MethodCall(call) => {
-            let ValueShape::ClassObject(class) = infer_imported_expression(state, module, &call.object)? else {
-                return None;
-            };
-            let labels = call
-                .args
-                .iter()
-                .map(|arg| match arg {
-                    PackItem::Labeled {
-                        label: PackLabel::Static { text, .. },
-                        ..
-                    } => Some(text.clone()),
-                    PackItem::Positional { .. } | PackItem::Expand { .. } | PackItem::Labeled { .. } => None,
-                })
-                .collect::<Vec<_>>();
-            let selector = crate::selectors::comma_form_from_labels(&call.method, &labels);
-            let is_constructor = selector == "new()"
-                || state
-                    .classes
-                    .get(&class)
-                    .and_then(|surface| surface.members.get(&selector))
-                    .is_some_and(|member| member.is_constructor);
-            is_constructor.then_some(ValueShape::Instance(class))
-        }
-        _ => None,
+    if let Some(summary) = summaries.get(id) {
+        return Some(summary.returns.clone());
     }
-}
-
-fn imported_class(state: &SemanticState, module: &ModuleId, binding: &str, name: &str) -> Option<ClassId> {
-    let imported = state
-        .graph
-        .imports(module)
-        .iter()
-        .find(|edge| edge.binding == binding)
-        .and_then(|edge| edge.target.as_ref())?;
-    let class = ClassId::new(imported.clone(), name);
-    state.classes.contains_key(&class).then_some(class)
-}
-
-fn collect_expression_environment(expr: &phalcom_ast::ast::Expr, facts: &LocalFacts, offset: usize, environment: &mut BTreeMap<String, InferredValue>) {
-    match expr {
-        phalcom_ast::ast::Expr::Var { value, .. } => {
-            if let Some(fact) = facts.binding_at(value, offset) {
-                environment.insert(value.clone(), fact.clone());
-            }
-        }
-        phalcom_ast::ast::Expr::MethodCall(call) => {
-            collect_expression_environment(&call.object, facts, offset, environment);
-            for arg in &call.args {
-                let expression = match arg {
-                    phalcom_ast::ast::PackItem::Positional { expr, .. }
-                    | phalcom_ast::ast::PackItem::Expand { expr, .. }
-                    | phalcom_ast::ast::PackItem::Labeled { value: expr, .. } => expr,
-                };
-                collect_expression_environment(expression, facts, offset, environment);
-            }
-        }
-        phalcom_ast::ast::Expr::GetProperty(property) => collect_expression_environment(&property.object, facts, offset, environment),
-        _ => {}
-    }
+    let member = member?;
+    let shape = match member.native_return? {
+        NativeReturnShape::Unknown | NativeReturnShape::Argument(_) => ValueShape::Unknown,
+        NativeReturnShape::Instance(name) => ValueShape::Instance(ClassId::new(ModuleId::new(CORE_MODULE_URI), name)),
+        NativeReturnShape::ClassObject(name) => ValueShape::ClassObject(ClassId::new(ModuleId::new(CORE_MODULE_URI), name)),
+        NativeReturnShape::Receiver => match id.side {
+            DispatchSide::Instance => ValueShape::Instance(id.owner.clone()),
+            DispatchSide::Class => ValueShape::ClassObject(id.owner.clone()),
+        },
+    };
+    Some(InferredValue::flow(shape, Default::default()))
 }
 
 #[cfg(test)]

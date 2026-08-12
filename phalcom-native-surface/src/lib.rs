@@ -33,13 +33,19 @@ pub enum NativeVisibility {
     Internal,
 }
 
-/// Semantic return contract for a native member.
+/// VM-free semantic return contract for a native member.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum NativeReturnKnowledge {
-    /// No source-level contract; semantic consumers must remain conservative.
+pub enum NativeReturnShape {
+    /// No stable source-level contract; semantic consumers remain conservative.
     Unknown,
-    /// A future descriptor may supply a stable source-level return contract.
-    Declared,
+    /// An instance of a canonical core class.
+    Instance(&'static str),
+    /// The receiver's runtime shape, preserving instance/class side.
+    Receiver,
+    /// A canonical core class object.
+    ClassObject(&'static str),
+    /// One argument, when a native primitive returns it unchanged.
+    Argument(usize),
 }
 
 /// One canonical native member declaration.
@@ -55,8 +61,8 @@ pub struct NativeMember {
     pub side: NativeDispatch,
     /// Visibility exposed by runtime dispatch.
     pub visibility: NativeVisibility,
-    /// Whether a stable semantic return contract exists.
-    pub return_knowledge: NativeReturnKnowledge,
+    /// Stable VM-free semantic return contract.
+    pub return_shape: NativeReturnShape,
 }
 
 /// One runtime-only class relationship needed when source core has no class
@@ -189,7 +195,20 @@ macro_rules! native {
             kind: NativeMemberKind::$kind,
             side: NativeDispatch::$side,
             visibility: NativeVisibility::$visibility,
-            return_knowledge: NativeReturnKnowledge::Unknown,
+            return_shape: NativeReturnShape::Unknown,
+        }
+    };
+}
+
+macro_rules! native_with_return {
+    ($class:literal, $selector:literal, $kind:ident, $side:ident, $visibility:ident, $return_shape:expr) => {
+        NativeMember {
+            class: $class,
+            selector: $selector,
+            kind: NativeMemberKind::$kind,
+            side: NativeDispatch::$side,
+            visibility: NativeVisibility::$visibility,
+            return_shape: $return_shape,
         }
     };
 }
@@ -200,9 +219,9 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Object", "class", Getter, Instance, Public),
     native!("Object", "class=(put)", Setter, Instance, Public),
     native!("Object", "toString", Getter, Instance, Public),
-    native!("Object", "hash", Getter, Instance, Public),
-    native!("Object", "==(_)", Method, Instance, Public),
-    native!("Object", "!=(_)", Method, Instance, Public),
+    native_with_return!("Object", "hash", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
+    native_with_return!("Object", "==(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Object", "!=(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
     native!("Object", "perform(_,***)", Method, Instance, Public),
     native!("Object", "respondsTo(_)", Method, Instance, Public),
     native!("Object", "doesNotUnderstand(_)", Method, Instance, Public),
@@ -229,13 +248,13 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Number", "%(_)", Method, Instance, Public),
     native!("Number", "~/(_)", Method, Instance, Public),
     native!("Number", "**(_)", Method, Instance, Public),
-    native!("Number", "<(_)", Method, Instance, Public),
-    native!("Number", "<=(_)", Method, Instance, Public),
-    native!("Number", ">(_)", Method, Instance, Public),
-    native!("Number", ">=(_)", Method, Instance, Public),
+    native_with_return!("Number", "<(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Number", "<=(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Number", ">(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Number", ">=(_)", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
     native!("Number", "negated()", Method, Instance, Public),
-    native!("Number", "hash", Getter, Instance, Public),
-    native!("Number", "toString", Getter, Instance, Public),
+    native_with_return!("Number", "hash", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
+    native_with_return!("Number", "toString", Getter, Instance, Public, NativeReturnShape::Instance("String")),
     native!("Number", "new()", Method, Class, Public),
     native!("Number", "new(_)", Method, Class, Public),
     native!("Int", "&(_)", Method, Instance, Public),
@@ -245,9 +264,9 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Int", "<<(_)", Method, Instance, Public),
     native!("Int", ">>(_)", Method, Instance, Public),
     native!("Int", "bitAt(_)", Method, Instance, Public),
-    native!("Int", "bitCount", Getter, Instance, Public),
-    native!("Int", "bitLength", Getter, Instance, Public),
-    native!("Int", "trailingZeros", Getter, Instance, Public),
+    native_with_return!("Int", "bitCount", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
+    native_with_return!("Int", "bitLength", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
+    native_with_return!("Int", "trailingZeros", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
     native!("Int", "new()", Method, Class, Public),
     native!("Int", "new(_)", Method, Class, Public),
     native!("Float", "new()", Method, Class, Public),
@@ -259,12 +278,12 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Float", "truncated", Getter, Instance, Public),
     native!("Float", "rounded", Getter, Instance, Public),
     native!("Float", "toIntExact", Getter, Instance, Public),
-    native!("Float", "isInteger", Getter, Instance, Public),
-    native!("Float", "isNaN", Getter, Instance, Public),
-    native!("Float", "isFinite", Getter, Instance, Public),
-    native!("Float", "isInfinite", Getter, Instance, Public),
-    native!("String", "+(_)", Method, Instance, Public),
-    native!("String", "hash", Getter, Instance, Public),
+    native_with_return!("Float", "isInteger", Getter, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Float", "isNaN", Getter, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Float", "isFinite", Getter, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("Float", "isInfinite", Getter, Instance, Public, NativeReturnShape::Instance("Bool")),
+    native_with_return!("String", "+(_)", Method, Instance, Public, NativeReturnShape::Instance("String")),
+    native_with_return!("String", "hash", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
     native!("String", "new()", Method, Class, Public),
     native!("String", "new(_)", Method, Class, Public),
     native!("String", "_$byteCount", Getter, Instance, Internal),
@@ -274,13 +293,13 @@ pub const NATIVE_MEMBERS: &[NativeMember] = &[
     native!("Bool", "new(_)", Method, Class, Public),
     native!("Bool", "and(_)", Method, Instance, Public),
     native!("Bool", "or(_)", Method, Instance, Public),
-    native!("Bool", "not()", Method, Instance, Public),
+    native_with_return!("Bool", "not()", Method, Instance, Public, NativeReturnShape::Instance("Bool")),
     native!("Bool", "ifTrue(_)", Method, Instance, Public),
     native!("Bool", "ifFalse(_)", Method, Instance, Public),
     native!("Bool", "ifTrue(_,ifFalse)", Method, Instance, Public),
-    native!("Bool", "hash", Getter, Instance, Public),
-    native!("Symbol", "toString", Getter, Instance, Public),
-    native!("Symbol", "hash", Getter, Instance, Public),
+    native_with_return!("Bool", "hash", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
+    native_with_return!("Symbol", "toString", Getter, Instance, Public, NativeReturnShape::Instance("String")),
+    native_with_return!("Symbol", "hash", Getter, Instance, Public, NativeReturnShape::Instance("Int")),
     native!("Symbol", "new(_)", Method, Class, Public),
     native!("Some", "call(_)", Method, Class, Public),
     native!("Some", "new(_)", Method, Class, Public),

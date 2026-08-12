@@ -13,7 +13,9 @@
 //! crate never links `phalcom-core` (ADR-0056 §2) — this module is the sole
 //! source of selector spelling here, deliberately independent.
 
-use phalcom_ast::ast::{ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef};
+use phalcom_ast::ast::{
+    BinaryOp, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, PackItem, PackLabel, ParameterDef, RestMode, SetterDef, UnaryOp,
+};
 
 /// Builds the comma-form selector string from a method/constructor name and
 /// its parameter list: `name(_,label,...)`, or `name()` for zero-arity.
@@ -53,6 +55,56 @@ pub fn comma_form_from_labels(name: &str, labels: &[Option<String>]) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!("{name}({inner})")
+}
+
+/// Builds a call-site selector from static argument labels.
+pub(crate) fn call_selector(name: &str, args: &[PackItem]) -> String {
+    let labels = args
+        .iter()
+        .map(|arg| match arg {
+            PackItem::Positional { .. } | PackItem::Expand { .. } => None,
+            PackItem::Labeled {
+                label: PackLabel::Static { text, .. },
+                ..
+            } => Some(text.clone()),
+            PackItem::Labeled { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    comma_form_from_labels(name, &labels)
+}
+
+/// Maps a binary operator to the selector emitted by the compiler.
+pub(crate) fn binary_selector_name(op: &BinaryOp) -> Option<&'static str> {
+    Some(match op {
+        BinaryOp::Add => "+",
+        BinaryOp::Subtract => "-",
+        BinaryOp::Multiply => "*",
+        BinaryOp::Divide => "/",
+        BinaryOp::IntegerDivide => "~/",
+        BinaryOp::Power => "**",
+        BinaryOp::Modulo => "%",
+        BinaryOp::ShiftLeft => "<<",
+        BinaryOp::ShiftRight => ">>",
+        BinaryOp::BitAnd => "&",
+        BinaryOp::BitXor => "^",
+        BinaryOp::BitOr => "|",
+        BinaryOp::Equal => "==",
+        BinaryOp::NotEqual => "!=",
+        BinaryOp::LessThan => "<",
+        BinaryOp::LessThanOrEqual => "<=",
+        BinaryOp::GreaterThan => ">",
+        BinaryOp::GreaterThanOrEqual => ">=",
+        BinaryOp::And | BinaryOp::Or => return None,
+    })
+}
+
+/// Maps a unary operator to the selector emitted by the compiler.
+pub(crate) fn unary_selector_name(op: &UnaryOp) -> &'static str {
+    match op {
+        UnaryOp::Negate => "negated",
+        UnaryOp::Not => "not",
+        UnaryOp::BitNot => "~",
+    }
 }
 
 /// Mirrors `phalcom-core::method::encode_label_component`. The LSP does not
@@ -155,11 +207,7 @@ pub fn index_selector_from_labels(labels: &[Option<String>], setter: bool) -> St
         .map(|label| label.as_deref().map(encode_label_component).unwrap_or_else(|| "_".to_string()))
         .collect::<Vec<_>>()
         .join(",");
-    if setter {
-        format!("[{inner}]=(put)")
-    } else {
-        format!("[{inner}]")
-    }
+    if setter { format!("[{inner}]=(put)") } else { format!("[{inner}]") }
 }
 
 /// The comma-form selector any [`ClassMember`] declaration defines.
